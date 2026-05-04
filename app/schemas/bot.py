@@ -41,3 +41,25 @@ class TelegramBotConfigOut(BaseModel):
 
 class TelegramBotTestOut(TelegramBotConfigOut):
     telegram_response: dict[str, Any] = Field(default_factory=dict)
+
+
+class TelegramBotPollItem(BaseModel):
+    update_id: int | None = None
+    ok: bool = True
+    action: str = "ignored"
+    message: str = ""
+    employee_id: UUID | None = None
+    employee_name: str | None = None
+    event_created: bool = False
+    telegram_user_id: str | None = None
+    telegram_username: str | None = None
+
+
+class TelegramBotPollOut(BaseModel):
+    ok: bool = True
+    company_id: UUID
+    bot_username: str | None = None
+    received: int = 0
+    processed: int = 0
+    next_offset: int | None = None
+    items: list[TelegramBotPollItem] = Field(default_factory=list)
