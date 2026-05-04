@@ -1,0 +1,42 @@
+﻿services:
+  db:
+    image: postgres:16-alpine
+    container_name: clonexa_postgres
+    environment:
+      POSTGRES_USER: clonexa
+      POSTGRES_PASSWORD: clonexa
+      POSTGRES_DB: clonexa
+    ports:
+      - "5432:5432"
+    volumes:
+      - clonexa_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clonexa -d clonexa"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: clonexa_redis
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    container_name: clonexa_api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - .:/app
+
+volumes:
+  clonexa_pg_data:
+

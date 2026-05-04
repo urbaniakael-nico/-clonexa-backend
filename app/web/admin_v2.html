@@ -1,0 +1,258 @@
+﻿<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CLONEXA Admin Console V2</title>
+  <link rel="stylesheet" href="/admin-v2.css?v=010A_R3_BRANDING_CLEAN_FONT" />
+</head>
+<body>
+  <div class="cx-bg-orbit cx-bg-orbit-one"></div>
+  <div class="cx-bg-orbit cx-bg-orbit-two"></div>
+
+  <main class="cx-shell">
+    <aside class="cx-sidebar">
+      <div class="cx-brand">
+        <div class="cx-logo-wrap">
+          <img class="cx-logo-img" src="/admin-v2-assets/clonexa-logo.png" alt="CLONEXA" onerror="this.style.display='none';document.querySelector('.cx-logo-fallback').style.display='grid';" />
+          <div class="cx-logo-fallback" aria-hidden="true">CX</div>
+        </div>
+        <div>
+          <div class="cx-brand-title">CLONEXA</div>
+          <div class="cx-brand-subtitle">Admin Console V2</div>
+        </div>
+      </div>
+
+      <nav class="cx-nav" aria-label="NavegaciÃ³n principal">
+        <button class="cx-nav-item active" data-view="dashboard">Dashboard</button>
+        <button class="cx-nav-item" data-view="companies">Empresas</button>
+        <button class="cx-nav-item" data-view="users">Usuarios</button>
+        <button class="cx-nav-item" data-view="packages">Paquetes</button>
+        <button class="cx-nav-item" data-view="modules">MÃ³dulos</button>
+        <button class="cx-nav-item" data-view="access">Accesos</button>
+        <button class="cx-nav-item" data-view="crm">CRM / Panel Empresa</button>
+        <button class="cx-nav-item" data-view="health">Health / Estado</button>
+      </nav>
+
+      <section class="cx-sidebar-card">
+        <div class="cx-label">Estado API</div>
+        <div class="cx-live-row">
+          <span class="cx-dot" id="apiStatusDot"></span>
+          <strong id="apiStatusLabel">Verificando</strong>
+        </div>
+        <small id="lastRefreshLabel">Sin actualizar</small>
+      </section>
+    </aside>
+
+    <section class="cx-main">
+      <header class="cx-topbar">
+        <div>
+          <div class="cx-kicker">Sistema operativo empresarial</div>
+          <h1 id="viewTitle">Dashboard</h1>
+          <p id="viewSubtitle">Control central de empresas, mÃ³dulos, paquetes, accesos y paneles cliente.</p>
+        </div>
+        <div class="cx-topbar-actions">
+          <button class="cx-btn cx-btn-ghost" id="openAdminLegacyBtn" type="button">Abrir /admin</button>
+          <button class="cx-btn cx-btn-ghost" id="openClientBtn" type="button">Abrir /client</button>
+          <button class="cx-btn cx-btn-primary" id="refreshBtn" type="button">Refrescar</button>
+        </div>
+      </header>
+
+      <div class="cx-alert" id="globalAlert" hidden></div>
+
+      <section class="cx-grid-metrics" id="metricsGrid">
+        <article class="cx-metric-card"><span>Empresas</span><strong id="metricCompanies">â€”</strong><small>Total registradas</small></article>
+        <article class="cx-metric-card"><span>Paquetes</span><strong id="metricPackages">â€”</strong><small>SaaS disponibles</small></article>
+        <article class="cx-metric-card"><span>MÃ³dulos</span><strong id="metricModules">â€”</strong><small>CatÃ¡logo global</small></article>
+        <article class="cx-metric-card"><span>Activas</span><strong id="metricActiveCompanies">â€”</strong><small>Tenants operativos</small></article>
+        <article class="cx-metric-card"><span>API</span><strong id="metricApi">â€”</strong><small>Health service</small></article>
+        <article class="cx-metric-card"><span>Refresh</span><strong id="metricRefresh">â€”</strong><small>Hora local</small></article>
+      </section>
+
+      <section class="cx-view active" data-view-panel="dashboard">
+        <div class="cx-layout-two">
+          <article class="cx-card">
+            <div class="cx-card-head">
+              <div>
+                <h2>Resumen operativo</h2>
+                <p>Vista ejecutiva de estado SaaS CLONEXA.</p>
+              </div>
+              <span class="cx-badge cx-badge-live">LIVE</span>
+            </div>
+            <div id="dashboardSummary" class="cx-stack"></div>
+          </article>
+
+          <article class="cx-card">
+            <div class="cx-card-head">
+              <div>
+                <h2>Empresas recientes</h2>
+                <p>Tenants listos para administrar.</p>
+              </div>
+              <button class="cx-btn cx-btn-small" data-nav-view="companies" type="button">Ver empresas</button>
+            </div>
+            <div id="dashboardCompanies" class="cx-mini-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="cx-view" data-view-panel="companies">
+        <div class="cx-layout-two cx-layout-wide-left">
+          <article class="cx-card">
+            <div class="cx-card-head">
+              <div>
+                <h2>Empresas</h2>
+                <p>Selecciona una empresa para gestionar usuarios, mÃ³dulos y CRM.</p>
+              </div>
+              <button class="cx-btn cx-btn-primary" id="newCompanyFocusBtn" type="button">Nueva empresa</button>
+            </div>
+            <div class="cx-table-wrap">
+              <table class="cx-table">
+                <thead>
+                  <tr>
+                    <th>Empresa</th>
+                    <th>Slug</th>
+                    <th>Estado</th>
+                    <th>Plan</th>
+                    <th>Timezone</th>
+                    <th>Paquete</th>
+                    <th>MÃ³dulos</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="companiesTableBody">
+                  <tr><td colspan="8">Cargando empresas...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <aside class="cx-card">
+            <div class="cx-card-head">
+              <div>
+                <h2>Crear empresa</h2>
+                <p>Tenant nuevo con paquete opcional.</p>
+              </div>
+            </div>
+            <form class="cx-form" id="createCompanyForm">
+              <label>Nombre
+                <input name="name" type="text" placeholder="Empresa Demo" required />
+              </label>
+              <label>Slug
+                <input name="slug" type="text" placeholder="empresa-demo" required />
+              </label>
+              <label>Timezone
+                <input name="timezone" type="text" value="America/Bogota" />
+              </label>
+              <label>Plan
+                <input name="plan" type="text" value="standard" />
+              </label>
+              <label>Paquete a activar
+                <select name="package_code" id="createCompanyPackageSelect">
+                  <option value="">Sin paquete inicial</option>
+                </select>
+              </label>
+              <button class="cx-btn cx-btn-primary" type="submit">Crear empresa</button>
+            </form>
+          </aside>
+        </div>
+
+        <article class="cx-card cx-detail-card" id="companyDetailCard">
+          <div class="cx-empty-state">Selecciona una empresa para ver el detalle.</div>
+        </article>
+      </section>
+
+      <section class="cx-view" data-view-panel="users">
+        <article class="cx-card">
+          <div class="cx-card-head">
+            <div>
+              <h2>Usuarios de acceso</h2>
+              <p>GestiÃ³n centralizada por empresa. Selecciona un tenant en Empresas.</p>
+            </div>
+          </div>
+          <div id="usersGlobalView" class="cx-stack"></div>
+        </article>
+      </section>
+
+      <section class="cx-view" data-view-panel="packages">
+        <article class="cx-card">
+          <div class="cx-card-head">
+            <div>
+              <h2>Paquetes SaaS</h2>
+              <p>Planes funcionales disponibles para activar por empresa.</p>
+            </div>
+          </div>
+          <div id="packagesGrid" class="cx-cards-grid"></div>
+        </article>
+      </section>
+
+      <section class="cx-view" data-view-panel="modules">
+        <article class="cx-card">
+          <div class="cx-card-head">
+            <div>
+              <h2>MÃ³dulos globales</h2>
+              <p>CatÃ¡logo modular disponible para CLONEXA.</p>
+            </div>
+          </div>
+          <div id="modulesGrid" class="cx-module-grid"></div>
+        </article>
+      </section>
+
+      <section class="cx-view" data-view-panel="access">
+        <article class="cx-card">
+          <div class="cx-card-head">
+            <div>
+              <h2>Accesos rÃ¡pidos</h2>
+              <p>Entradas operativas a herramientas CLONEXA.</p>
+            </div>
+          </div>
+          <div class="cx-cards-grid" id="accessGrid"></div>
+        </article>
+      </section>
+
+      <section class="cx-view" data-view-panel="crm">
+        <article class="cx-card">
+          <div class="cx-card-head">
+            <div>
+              <h2>CRM / Panel Empresa</h2>
+              <p>Resumen de configuraciÃ³n del panel cliente por empresa.</p>
+            </div>
+          </div>
+          <div id="crmViewContent" class="cx-stack"></div>
+        </article>
+      </section>
+
+      <section class="cx-view" data-view-panel="health">
+        <article class="cx-card">
+          <div class="cx-card-head">
+            <div>
+              <h2>Health / Estado del sistema</h2>
+              <p>VerificaciÃ³n de servicios principales.</p>
+            </div>
+            <button class="cx-btn cx-btn-primary" id="healthRefreshBtn" type="button">Actualizar estado</button>
+          </div>
+          <div id="healthContent" class="cx-stack"></div>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <div class="cx-toast" id="toast" hidden></div>
+
+  <dialog class="cx-modal" id="temporaryPasswordModal">
+    <div class="cx-modal-panel">
+      <div class="cx-card-head">
+        <div>
+          <h2>ContraseÃ±a temporal generada</h2>
+          <p>CÃ³piala ahora. No se volverÃ¡ a mostrar.</p>
+        </div>
+        <button class="cx-icon-btn" id="closeTempPasswordModal" type="button">Ã—</button>
+      </div>
+      <pre class="cx-secret" id="temporaryPasswordValue"></pre>
+      <button class="cx-btn cx-btn-primary" id="copyTempPasswordBtn" type="button">Copiar contraseÃ±a</button>
+    </div>
+  </dialog>
+
+  <script src="/admin-v2.js?v=010A_R3_BRANDING_CLEAN_FONT"></script>
+</body>
+</html>
+

@@ -1,0 +1,200 @@
+:root{
+  --bg:#050505;--panel:#09090b;--card:#18181b;--line:#3f3f46;--text:#f8fafc;
+  --muted:#a1a1aa;--red:#ef233c;--pink:#ff2bd6;--green:#00ff88;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 20% 10%,rgba(239,35,60,.22),transparent 28%),radial-gradient(circle at 80% 0,rgba(255,43,214,.16),transparent 28%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;overflow-x:hidden}
+.grid{position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,rgba(0,0,0,.9),rgba(0,0,0,.18));pointer-events:none}
+.login-shell{min-height:100vh;display:grid;place-items:center;padding:24px}
+.login-card{width:min(460px,100%);background:linear-gradient(145deg,rgba(24,24,27,.94),rgba(9,9,11,.96));border:1px solid var(--line);border-radius:28px;padding:30px;box-shadow:0 0 70px rgba(239,35,60,.16),0 24px 80px rgba(0,0,0,.65);position:relative;overflow:hidden}
+.login-card:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,43,214,.08),transparent);transform:translateX(-100%);animation:sweep 5s infinite}
+@keyframes sweep{50%,100%{transform:translateX(100%)}}
+.brand{display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative}
+.wordmark{letter-spacing:.22em;font-weight:900;font-size:20px;color:#fff;text-shadow:0 0 22px rgba(239,35,60,.55)}
+.status{font-size:11px;letter-spacing:.12em;color:var(--green);border:1px solid rgba(0,255,136,.34);border-radius:999px;padding:8px 10px;background:rgba(0,255,136,.05)}
+.status i{display:inline-block;width:7px;height:7px;border-radius:99px;background:var(--green);box-shadow:0 0 16px var(--green);margin-right:6px}
+h1{font-size:44px;line-height:1;margin:38px 0 10px}
+p{color:var(--muted);margin:0 0 24px;line-height:1.5}
+form{display:grid;gap:12px;position:relative}
+label{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#d4d4d8}
+input{width:100%;background:#050505;border:1px solid #3f3f46;border-radius:16px;color:#fff;padding:15px 14px;font-size:15px;outline:none}
+input:focus{border-color:var(--red);box-shadow:0 0 0 4px rgba(239,35,60,.13)}
+button{margin-top:8px;border:0;border-radius:16px;padding:15px 16px;background:linear-gradient(135deg,var(--red),#ff1744);color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 0 34px rgba(239,35,60,.3)}
+.message{min-height:22px;color:#fca5a5;font-weight:700;font-size:13px}
+footer{margin-top:22px;color:#71717a;font-size:12px;text-align:center;letter-spacing:.14em;text-transform:uppercase}
+
+/* =========================================================
+   CLONEXA LOGIN WATERMARK
+   Marca de agua oficial en pantalla /login
+   ========================================================= */
+
+body {
+  position: relative;
+  overflow: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+
+  background-image: url("/assets/clonexa-login-watermark.png");
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: min(72vw, 980px) auto;
+
+  opacity: 0.10;
+  filter:
+    grayscale(1)
+    sepia(1)
+    saturate(3.2)
+    hue-rotate(305deg)
+    brightness(0.9)
+    contrast(1.15)
+    drop-shadow(0 0 34px rgba(239, 35, 60, 0.42));
+
+  mix-blend-mode: screen;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+
+  background:
+    radial-gradient(circle at 28% 45%, rgba(239, 35, 60, 0.16), transparent 34%),
+    radial-gradient(circle at 72% 35%, rgba(255, 43, 214, 0.12), transparent 34%),
+    linear-gradient(90deg, rgba(0,0,0,0.15), rgba(0,0,0,0.68) 58%, rgba(0,0,0,0.86));
+}
+
+.login-card,
+.auth-card,
+.portal-card,
+form {
+  position: relative;
+  z-index: 5;
+}
+
+@media (max-width: 900px) {
+  body::before {
+    background-position: center 18%;
+    background-size: 115vw auto;
+    opacity: 0.055;
+  }
+}
+
+
+/* =========================================================
+   CLONEXA LOGIN WATERMARK IMAGE
+   ========================================================= */
+
+.clonexa-login-watermark {
+  position: fixed;
+  left: -4vw;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(74vw, 1050px);
+  height: auto;
+  z-index: 1;
+  opacity: 0.115;
+  pointer-events: none;
+  user-select: none;
+
+  filter:
+    grayscale(1)
+    sepia(1)
+    saturate(4)
+    hue-rotate(305deg)
+    brightness(0.85)
+    contrast(1.2)
+    drop-shadow(0 0 42px rgba(239, 35, 60, 0.48));
+
+  mix-blend-mode: screen;
+}
+
+body::after {
+  z-index: 2 !important;
+}
+
+.login-card,
+.auth-card,
+.portal-card,
+.login-panel,
+.card,
+form {
+  position: relative;
+  z-index: 10 !important;
+}
+
+@media (max-width: 900px) {
+  .clonexa-login-watermark {
+    left: 50%;
+    top: 22%;
+    transform: translateX(-50%);
+    width: 118vw;
+    opacity: 0.06;
+  }
+}
+
+
+/* =========================================================
+   CLONEXA LOGIN WATERMARK — INLINE LOGO
+   ========================================================= */
+
+body {
+  position: relative;
+  overflow: hidden;
+}
+
+.clonexa-login-watermark {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(88vw, 1180px);
+  max-height: 92vh;
+  object-fit: contain;
+  z-index: 0;
+  opacity: 0.085;
+  pointer-events: none;
+  user-select: none;
+
+  filter:
+    grayscale(1)
+    sepia(1)
+    saturate(4.2)
+    hue-rotate(305deg)
+    brightness(0.82)
+    contrast(1.25)
+    drop-shadow(0 0 48px rgba(239, 35, 60, 0.55));
+
+  mix-blend-mode: screen;
+}
+
+.grid {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.login-shell {
+  position: relative;
+  z-index: 5;
+}
+
+.login-card {
+  position: relative;
+  z-index: 10;
+}
+
+@media (max-width: 900px) {
+  .clonexa-login-watermark {
+    width: 125vw;
+    opacity: 0.055;
+  }
+}
+

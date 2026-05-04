@@ -1,0 +1,1486 @@
+﻿CLONEXA STATUS GPT EXPORT
+GeneratedAt: 2026-05-02T20:04:19.8247731-05:00
+Project: C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend
+Root: C:\Users\valef\OneDrive\Desktop\CLONEXA
+Computer: SHEITAN
+User: valef
+
+===============================================================================
+DIRECTORY
+===============================================================================
+
+===============================================================================
+CURRENT DIRECTORY LIST
+===============================================================================
+> dir
+ El volumen de la unidad C no tiene etiqueta.
+ El número de serie del volumen es: 488D-FC27
+
+ Directorio de C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend
+
+02/05/2026  08:04p. m.    <DIR>          .
+02/05/2026  07:18p. m.    <DIR>          ..
+25/04/2026  10:59p. m.                71 .dockerignore
+28/04/2026  01:11p. m.               490 .env
+28/04/2026  01:11p. m.               442 .env.example
+25/04/2026  10:59p. m.               109 .gitignore
+28/04/2026  03:56p. m.    <DIR>          alembic
+25/04/2026  10:59p. m.               608 alembic.ini
+28/04/2026  05:44p. m.    <DIR>          app
+02/05/2026  08:04p. m.               593 CLONEXA_STATUS_GPT_2026_05_02_200419.txt
+02/05/2026  08:04p. m.             8.360 CLONEXA_STATUS_GPT_EXPORT.ps1
+28/04/2026  01:11p. m.               799 docker-compose.yml
+25/04/2026  10:59p. m.               384 Dockerfile
+28/04/2026  08:33p. m.    <DIR>          migrations
+02/05/2026  02:24p. m.            94.582 openapi.json
+02/05/2026  07:58p. m.               469 PATCH_MANIFEST.md
+28/04/2026  06:43p. m.             1.087 PATCH_NOTES.md
+25/04/2026  10:59p. m.                70 pyproject.toml
+28/04/2026  01:11p. m.             1.386 README.md
+28/04/2026  10:41p. m.             1.894 README_ADMIN_CONSOLE.md
+29/04/2026  05:39p. m.             1.875 README_ADMIN_DATA_RECOVERY_005C.md
+29/04/2026  06:01p. m.             2.152 README_ADMIN_V2.md
+29/04/2026  10:05p. m.             1.515 README_ADMIN_V2_COMPANY_ARCHIVE_008D.md
+29/04/2026  09:26p. m.             1.498 README_ADMIN_V2_CREATE_COMPANY_OWNER_008C.md
+30/04/2026  03:19a. m.             2.025 README_ADMIN_V2_DASHBOARD_BINDING_FIX_008J_R3.md
+30/04/2026  03:07a. m.             1.820 README_ADMIN_V2_FRONTEND_STATE_REPAIR_008J_R1.md
+29/04/2026  08:02p. m.             1.714 README_ADMIN_V2_OWNER_ACCESS_008.md
+29/04/2026  09:06p. m.             1.318 README_ADMIN_V2_OWNER_ACCESS_008B.md
+29/04/2026  11:56p. m.             2.991 README_ADMIN_V2_PERSISTENCE_FIX_008G.md
+29/04/2026  03:06p. m.             1.944 README_AUTH_CLIENT_PORTAL.md
+29/04/2026  06:38p. m.             1.499 README_AUTH_PASSWORD_FIX_007.md
+29/04/2026  06:48p. m.             1.154 README_AUTH_PASSWORD_FIX_007B.md
+30/04/2026  09:36p. m.             2.791 README_BRANDING_PERSISTENCE_009D.md
+30/04/2026  06:32p. m.             2.118 README_BRANDING_STUDIO_FUNCTIONAL_009C.md
+30/04/2026  08:48p. m.             2.736 README_BRANDING_STUDIO_SURGICAL_009C_R1.md
+29/04/2026  05:10p. m.             1.418 README_CLIENT_BRANDING_VISUAL_FIX.md
+30/04/2026  10:07p. m.             1.949 README_CLIENT_TENANT_COMPANY_ID_009E_R1.md
+28/04/2026  11:55p. m.             3.201 README_COMPANY_EXPERIENCE.md
+30/04/2026  02:31a. m.             2.489 README_COMPANY_LIFECYCLE_008J.md
+29/04/2026  12:28a. m.             2.543 README_CRM_BUILDER_FUNCTIONALITY_FIX.md
+29/04/2026  04:49p. m.             2.184 README_FIELD_ENGINE_PHASE1.md
+28/04/2026  09:19p. m.             2.965 README_FINISH_SAAS_PACKAGES.md
+29/04/2026  02:24a. m.             1.769 README_MICROFIX_002D.md
+02/05/2026  07:58p. m.             2.390 README_MODULES_UX_IMPROVEMENT.md
+30/04/2026  04:13p. m.             2.654 README_OWNER_ACCESS_FORMDATA_FIX_008K_R1.md
+30/04/2026  03:49p. m.             1.952 README_OWNER_ACCESS_FORM_FIX_008K.md
+30/04/2026  12:19a. m.             1.993 README_OWNER_ACCESS_TIMESTAMP_008H.md
+29/04/2026  10:31p. m.             1.022 README_OWNER_ACCESS_TIMESTAMP_FIX_008E.md
+28/04/2026  06:43p. m.             2.601 README_SAAS_PACKAGES.md
+29/04/2026  07:34p. m.               349 requirements.txt
+29/04/2026  07:22p. m.    <DIR>          scripts
+28/04/2026  01:11p. m.    <DIR>          tests
+              45 archivos        171.973 bytes
+               7 dirs  504.366.403.584 bytes libres
+
+===============================================================================
+DOCKER
+===============================================================================
+
+===============================================================================
+DOCKER VERSION
+===============================================================================
+> docker --version
+Docker version 29.4.0, build 9d7ad9f
+
+===============================================================================
+DOCKER COMPOSE VERSION
+===============================================================================
+> docker compose version
+Docker Compose version v5.1.2
+
+===============================================================================
+DOCKER COMPOSE SERVICES
+===============================================================================
+> docker compose -p clonexa config --services
+db
+redis
+api
+
+===============================================================================
+DOCKER COMPOSE PS
+===============================================================================
+> docker compose -p clonexa ps
+NAME               IMAGE                COMMAND                  SERVICE   CREATED       STATUS                PORTS
+clonexa_api        clonexa-api          "/app/scripts/start.ÔÇª"   api       3 hours ago   Up 54 minutes         0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+clonexa_postgres   postgres:16-alpine   "docker-entrypoint.sÔÇª"   db        3 days ago    Up 3 days (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+clonexa_redis      redis:7-alpine       "docker-entrypoint.sÔÇª"   redis     3 days ago    Up 3 days             0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp
+
+===============================================================================
+DOCKER CONTAINERS CLONEXA
+===============================================================================
+> docker ps -a --filter name=clonexa
+CONTAINER ID   IMAGE                COMMAND                  CREATED       STATUS                PORTS                                         NAMES
+597a03638bac   clonexa-api          "/app/scripts/start.ÔÇª"   3 hours ago   Up 54 minutes         0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp   clonexa_api
+7907c64f8dfc   postgres:16-alpine   "docker-entrypoint.sÔÇª"   3 days ago    Up 3 days (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp   clonexa_postgres
+099ecc9a18b7   redis:7-alpine       "docker-entrypoint.sÔÇª"   3 days ago    Up 3 days             0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp   clonexa_redis
+
+===============================================================================
+API HEALTH CHECKS
+===============================================================================
+
+===============================================================================
+HTTP CHECK: http://127.0.0.1:8000/health
+===============================================================================
+STATUS: 200
+{"status":"ok","service":"clonexa-backend"}
+
+===============================================================================
+HTTP CHECK: http://127.0.0.1:8000/api/v1/companies
+===============================================================================
+STATUS: 200
+[{"id":"6d4a56f0-0bf2-4049-9c59-6a173d7b76b9","company_id":"6d4a56f0-0bf2-4049-9c59-6a173d7b76b9","name":"FERRETERIA JERONIMO","slug":"la herrmanienta economica","status":"archived","timezone":"AMERICA/peru","plan":"casual","created_at":"2026-05-02T20:53:24.847091+00:00","updated_at":"2026-05-02T20:55:55.766383+00:00","settings_json":{}},{"id":"76974191-1dc6-4eb4-9b19-7d1e9ad82946","company_id":"76974191-1dc6-4eb4-9b19-7d1e9ad82946","name":"URBANIA","slug":"urban__demo","status":"active","timezone":"America/Bogota","plan":"standard","created_at":"2026-04-30T15:37:43.295284+00:00","updated_at":"2026-05-03T00:25:14.582639+00:00","settings_json":{"branding":{"mode":"dark","logo_url":"data:image/webp;base64,UklGRvBUAABXRUJQVlA4WAoAAAAgAAAA0gEApQEASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggAlMAAHB7AZ0BKtMBpgE+SSCNRKKiISYtE7oIwAkJZG4OwAN1yXwYuI3UADng++Wy8+FlNzopR83h+0DZX8v/g/8x/tf8F+5HzU+kD1l7Q+oD4P+kv+P/lvyi+V//Q/73td/V//m9wz9XP+P/dP9X+z3xveyL91fVh+y3/k/0Xu0f8/9uPfP/cv9t+0H+j+Qz+sf4L/2+2d/4PZt/xP/n9h3+lf8b//+u9+4vw3/1f/e/tV/zvd//+/sAf//27uf3j26qczH7k6C/3Rfn8fPAa/LP7L/s8wpg++sfZfKA39L85D/u9A/177C35s9j88XH4tpipDg/UdtFeFY+jKPofqSC6YZQ0zSEjluOau9mY8JnbtxFH2OLZBuVLtBYVkEkpwLE9CPhZDGhl6ytGhUNO/xdt25bTwy87s4uHqMUeO7/2w9EYBWodD+fkamyqk8RhoGq76O+6dgfujpZUCUGKIasMpSblKud2XNDv+/YV/oOKBRHLI1vCj4Oboo07GIqFL6mEazwxFB1ev7dkahDF9X0nHrO/XVA5I+l1Q8LGEcBrmvtGGJsJMgyMtr+oDf//rxR1PyGdG4YbSfaeQQc0Ey73A7ETaaAk7+Mac5IGAwXsHTNeOB0QsfjKz2wCptqubqCNBxuG+/RMLjc+coClYV/ey6Yo6eTjuX/nm/noQZn+ktn4pTNTIrDCYjsG/Y4eALXGMqJ1+JFKv1gJscefwYaHBbJlXS330TjUkCPy/YYkMMU4Gd+AjiBcE2eBK+z/wSTS5QQxNW9zRCJiPsjObJao+AzhqBUpc3jzrCRUh7nrPFsvBU+auNQ6AKpn0v+Kx4TRwvOaHv9tOvIYSsggj6PxD5xg1bNJ1AflO8Yh4pGa6ban2kf6xuytvWOBPtekyHv7W5vqh3bLMT2J4jC7TdrLG9CZFjJywGR6LsmcC94dEQl/q3K9rmdhWYbmBMCvyvhXzV/T3jVxOPliAJpCqb/fORuUxWF7JrWmmYfqCf+XPxznN4zilYBWet1SBCh+ePf0g1dbE6IrK1+qI6PTeE+AdudHTkIPUHIG7T7pwsC/XldKDJdA+NVLx5L0fAUezCd7TARVGQwPwAwOhVkGVOPs2fB13wg0vT2rRreALR4H/iznvOIHyVVbnhJ8dK3VX6uyZATnLGPOPXrOJRhEhIPICgJKpelt2xBRSLiKBr6yA8Rl9Q2xYtKqdONGguJzIhO9ak9OjP1Sng40Em+inD7/ZJg77D/6WVxoFeaoT0Bm7HeIIYOoBVo604upbHLk2/ji8fvhgW8QJ2cPJigyR3aYOqaf1WFQnECXMpviSC5Yyb/anItFEPqDTHxy2vBJ1uOIgir2RW7vQou3F4STmikl7TJGr3GLqmfObjdhNM2Tu/z228vszcIStev5Fc+i5V3eHvr57kSzGytV1WT5vh7GYs5bUdT90GTZPeeLDsPqj1B1zv+B8v+K+eQPAFbExVkiO02+52kOUvXfpOb+WpAzuBX6EOv7/BfuIjvGhKrz+ooUb74nRm/rBQ0GdhCEX7H1bE5TPJ9QisvlagFN0mhW6XBOclDgsziq3B4oT00IrqU72olMD2JlyZCE4UVOlRweKJ+cxU7y9OoYpERZuAEI07/hlZ0c+l/I03dSUh3OxBTWHX1tk7QxIgc5vJHzCzLD8vyFj3uXR7CLgrpwdEZiCS/91eEIEw9txe6Me4hRINk12U1ia7FUPH4kX72OMRnBoe8x6eidkNHXXzw8dbxT7SX1kJ0x1LjJGy0LA/iM4iRvdr+OPsVC3dJPrQeZWp4aY/Zb6vFc9GrMhke0Ke1a1NbBxqvnu3kzUVtF8wARxaR6UtuLQ3eWt/oBOAzXiX5svg9NBZV4kb8NAwb+apcr/X8Bz0meSD6ALfWv9VM6X3GpRxm3dgisUS9xG5l7jPL1z9vbyHyTRujKi/dGP/bZVKRk5YMLDDc8+A3AXCCXqSHa9vFrFSRlFXS2Q87N/eI9hpinagGx6Oakc6m1TYqFX4rtovBq4iMLnQy/Fa04lNx5lsIlT1cdSf2US2ULGkcrO7H6aZdWskPVWCwJTWHWXGYuJyib4vWg2vqlza6WY8l5Bxty+mFhxoRuPzS4u8A6JBe6I4Ya2w7s5TRkkUkzTQ5gG1jhXd6jADRp3mPrb9SGao+3+w0c3RZdAtAkkiNZqUvyOIztZ3r3BDX+crwuTilrpx5JWCFYTHzENU3oeJhjfmLNNvFyigRnPsN9SpfttePZ9oSEKij+SRM6Jz/9zExX8ONvDQunCdzywWGEDkaLFuBn28FPDnH+cPvDNGSFFPLecuOXr6+0pvQ5YqLi7s0aZ8IZPo+3FdYez16bTwPBh+lpKgoApQwcXUfJWyLiuBaAEIVtM+kCLP470YwoawYt0wC/7sunqJoZPccly5MEUW1/id9mG8npGU7xU1aT2F6c5c5SQoJWovHfzqaSiIRw6tum6HNppNhY6o2Rq2kOfvLqZuL9hmEmr62dym1AQtcjJEGRt86JAqNPndieQc+ZRYR+sdUoOClhAHYO7RAJ3n40D7J/q9EiK1D5XWnGwapT6rkPtf4D/IOEH///wYI4/oJTUIQfvNdz6zEXDWeUGvshWkS/+0xheZTpqsFUq09XZ1YVR2vnEOL6GFKGRQpxWr7RXR3B76ecSrHI9wG/xjlgtQLNOQbTcKTYu1HRhjemGyZ7a1QsV7NPRm4jOxpmnpgeXl0+VTXf7/4S/8tCQc9FBWH/fI3R6iyFqFTFQOCXg/Oq8gretCbg4l3mNlclrB4BE+bOjs1qCsqq5cO4dEWrjsuHb+m5jqW768fbxuCqZyDdCe+ZT3DxPHtiXspCiNcwlQRckxInaC5Ij6OZ1QkSyw8mX69h316TxIfu4HmiYwnZ6vamsrq821ZCU7IfR6f/YohLOa7NhqqBf36vh7zVywpNGPUeYYHMMbCVdREanPu6JYOlSgPXmgvATBz5QLKG5W3INP+U4JBPepkoO3TPy4CVP/cYCaRy82roOM8Vdwm1MNcIh8n1AsnkSG7hHKow2WO1CSKawxREgybi6ztEEpKSlSVBgZ1occBYRBQc6oXLxUi2gtJidnsAsQMnU106bE3C/P8SKse3uIJP+rozkTuGEZnGuKT2a+XkTIqps3OZa5JQAutYy2pgyYLM54SGJ2gH2u143pV0EpsVVnBJWiTnMUIrXgR5x3aCNG0oV+11t6H1TbMxIOYVhe110zk7Ptmm3AwcHkcRUyOfFBacAZvcnaVv5556cXLr0ri5ziFP3dlMGF4wiBZzdypH0U4ib9he/Oaumv/TuCwgxInDHCNMX94D8LzEjXTVdiNq8Ac+3V0/1IopMItr4JJOy/GawtmARsPg5gD+gR6OFNFSPWHqZwzDcxNVUZkaNrDlyQn2lFtcWxdi03yntaQmlUgSaR/4aQBubaDb/6mxNPnyZTZ1iEnNzXWxYWN8F3xzq1e1BtkSlxBAir4iUcv/C0qnEuSfWd6CaSHXMQgg4jA79QaOV0Bpdhl4CpNERWcERhPJ7gHqBTkUlBkfWW3lp0HflYqXcYwVxx3Of4KHGwdAiW6+ICmaMn7eH1YBFgfrFDO23PJVTuDCt6TTnIL8kDCaOGK4Bm
+...[TRUNCADO]
+
+===============================================================================
+HTTP CHECK: http://127.0.0.1:8000/api/v1/packages
+===============================================================================
+STATUS: 200
+[{"id":"a13a3e1d-5507-4961-a3be-f619ca1bb7fa","code":"field_pro_usa","name":"Clonexa Field Pro USA","description":"Paquete para Voltage: campo, tÃ©cnicos, GPS, materiales, inventario, payroll, bots, CRM, KPIs y reportes.","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"41119f5a-d7a9-409e-a476-6335e4c2b940","code":"hospitality_pro","name":"Clonexa Hospitality Pro","description":"Paquete para Radio Despecho: pedidos, mesas, inventario, stock, fidelizaciÃ³n, bots, QR, CRM, KPIs y cierre diario.","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"77142cd9-6ed3-48c2-b6d5-48a25484c40f","code":"production_pro","name":"Clonexa Production Pro","description":"Paquete para Velvet: workforce, producciÃ³n, referencias, payroll, CRM, KPIs, inventario y costos.","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"1d1fa4a3-f243-40b5-8aaf-603342fe06e6","code":"retail_ops","name":"Clonexa Retail Ops","description":"Paquete para Mundo Case: workforce, tiendas, ventas, solicitudes, inventario, payroll, bots, CRM, KPIs y cierre comercial.","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"}]
+
+===============================================================================
+HTTP CHECK: http://127.0.0.1:8000/api/v1/modules
+===============================================================================
+STATUS: 200
+[{"id":"25182def-c5b1-45ec-a0d2-0c1c7df69b95","code":"core","name":"Core","description":null,"category":"core","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"88c6b215-5579-4a46-990a-5dca9426c4ca","code":"workforce","name":"Workforce","description":null,"category":"core","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"1925d86c-9ae7-4c7f-a864-cbd43767201d","code":"field","name":"Field","description":null,"category":"field","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"14bb7439-e59f-4118-9981-3e992ac19303","code":"gps","name":"GPS","description":null,"category":"field","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"9120803a-cbc9-4eca-b914-28db8e549883","code":"payroll","name":"Payroll","description":null,"category":"finance","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"6e7cc885-4c0f-4ddc-959d-d2c9dc8c2010","code":"day_closing","name":"Day Closing","description":null,"category":"hospitality","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"91815522-066d-47d9-acb0-f15ea0287af0","code":"hospitality","name":"Hospitality","description":null,"category":"hospitality","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"8bf5530d-1885-4851-952e-04861845b57c","code":"loyalty","name":"Loyalty","description":null,"category":"hospitality","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"d6cf4d56-9b67-4521-ad4d-66421c78a617","code":"orders","name":"Orders","description":null,"category":"hospitality","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"15636725-7f98-4f98-bd00-c0079ee766bf","code":"tables","name":"Tables","description":null,"category":"hospitality","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"384ffdf7-222d-47e2-9d28-94c7167f3ff9","code":"bots","name":"Bots","description":null,"category":"input","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"d3e29a96-dd57-4207-a53e-97c844d91562","code":"qr","name":"QR","description":null,"category":"input","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"f2a4846b-827e-4157-934c-096d1891aa03","code":"inventory","name":"Inventory","description":null,"category":"inventory","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"82fef2c1-da94-47da-acb2-f8a0c2299f39","code":"materials","name":"Materials","description":null,"category":"inventory","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"2fec79b5-f066-484e-bb77-19bc6a97d3d3","code":"stock","name":"Stock","description":null,"category":"inventory","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"e617eea7-225a-4c91-99f3-745a9fae6aa2","code":"costs","name":"Costs","description":null,"category":"production","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"3568a0f6-a88f-4698-9325-a8e607533462","code":"production","name":"Production","description":null,"category":"production","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"c5459499-a4c1-497b-9cc0-74ce0b366e58","code":"references","name":"References","description":null,"category":"production","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"4b097847-0cdd-4190-b58e-19d5ed9be680","code":"crm","name":"CRM","description":null,"category":"read_model","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"00dcf5b3-730f-41a3-9290-399c1f05ebe7","code":"kpis","name":"KPIs","description":null,"category":"read_model","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"873d8a88-8ab7-43e1-8ec0-3bd9ed0557a9","code":"reports","name":"Reports","description":null,"category":"read_model","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"3464a9fe-6eed-4e08-9379-0929514aa82c","code":"commercial_closing","name":"Commercial Closing","description":null,"category":"retail","is_active":true,"created_at":"2026-04-28T21:22:14.229020Z","updated_at":"2026-04-28T21:22:14.229020Z"},{"id":"3d6da855-1fc9-449d-8b61-eebae6a0adc8","code":"requests"
+...[TRUNCADO]
+
+===============================================================================
+DOCKER LOGS
+===============================================================================
+
+===============================================================================
+API LOGS TAIL 260
+===============================================================================
+> docker compose -p clonexa logs --tail=260 api
+clonexa_api  | INFO:     172.19.0.1:49020 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:49020 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51310 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:37406 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:48454 - "GET /admin-v2 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:48454 - "GET /admin-v2-assets/clonexa-logo.png HTTP/1.1" 404 Not Found
+clonexa_api  | INFO:     172.19.0.1:50686 - "GET /health HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50714 - "GET /api/v1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50696 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50706 - "GET /api/v1/packages HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50716 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:48454 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50686 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50706 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50716 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50714 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50696 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50696 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50686 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:48454 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50716 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50706 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50714 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50686 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     Shutting down
+clonexa_api  | INFO:     Waiting for application shutdown.
+clonexa_api  | INFO:     Application shutdown complete.
+clonexa_api  | INFO:     Finished server process [14]
+clonexa_api  | INFO:     Stopping reloader process [1]
+clonexa_api  | Waiting database...
+clonexa_api  | Running migrations...
+clonexa_api  | INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+clonexa_api  | INFO  [alembic.runtime.migration] Will assume transactional DDL.
+clonexa_api  | Starting Clonexa API...
+clonexa_api  | INFO:     Will watch for changes in these directories: ['/app']
+clonexa_api  | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+clonexa_api  | INFO:     Started reloader process [1] using WatchFiles
+clonexa_api  | INFO:     Started server process [14]
+clonexa_api  | INFO:     Waiting for application startup.
+clonexa_api  | INFO:     Application startup complete.
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /client?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /client-static/client.js HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /admin-v2 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /admin-v2-assets/clonexa-logo.png HTTP/1.1" 404 Not Found
+clonexa_api  | INFO:     172.19.0.1:46686 - "GET /admin-v2.js?v=010A_R3_BRANDING_CLEAN_FONT HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46686 - "GET /health HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46698 - "GET /api/v1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46692 - "GET /api/v1/packages HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46692 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46698 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46692 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46686 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46706 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46714 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46692 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46680 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46706 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46686 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46714 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46698 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46692 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46692 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51468 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51454 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51456 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51468 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51454 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51456 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:43908 - "PUT /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience/branding HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:43908 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:43908 - "GET /client?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:43908 - "GET /client-static/client.js HTTP/1.1" 304 Not Modified
+clonexa_api  | INFO:     172.19.0.1:43908 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:43908 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:43908 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:43908 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50642 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50644 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50640 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:58642 - "PUT /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/experience/branding HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:58642 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:57158 - "GET /client?company_id=d63cf68c-be5b-4a30-aee4-341973018db1 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:57158 - "GET /client-static/client.js HTTP/1.1" 304 Not Modified
+clonexa_api  | INFO:     172.19.0.1:57158 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:57158 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:57158 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:57158 - "GET /api/v1/employees?company_id=d63cf68c-be5b-4a30-aee4-341973018db1&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:48996 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:48996 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:48998 - "GET /login HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59802 - "GET /client-static/login.css HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59802 - "GET /assets/clonexa-login-watermark.png HTTP/1.1" 404 Not Found
+clonexa_api  | INFO:     172.19.0.1:59802 - "GET /client-static/login.js HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33908 - "GET /health HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33920 - "GET /api/v1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33934 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33942 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59180 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59180 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59188 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59198 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59212 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59206 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59180 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59194 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59188 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59212 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59188 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59206 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59180 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59198 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59194 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59212 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59212 - "GET /admin-v2 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59194 - "GET /admin-v2-assets/clonexa-logo.png HTTP/1.1" 404 Not Found
+clonexa_api  | INFO:     172.19.0.1:59212 - "GET /admin-v2.js?v=010A_R3_BRANDING_CLEAN_FONT HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59212 - "GET /health HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59180 - "GET /api/v1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59194 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59198 - "GET /api/v1/packages HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59194 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59180 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59198 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59188 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59212 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59206 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59194 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59194 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59212 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59206 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59198 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59180 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59194 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59188 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59912 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59914 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:59916 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:56028 - "POST /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules/retail/deactivate HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:56028 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:35560 - "PUT /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/experience/branding HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:35560 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:56824 - "GET /client?company_id=a811fc23-f12e-4fc3-afeb-ecba789d1708 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:56824 - "GET /client-static/client.js HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:56824 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:56824 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:56824 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51646 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51630 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:51642 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "POST /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules/materials/deactivate HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "POST /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules/crm/deactivate HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "GET /client?company_id=cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "GET /client-static/client.js HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:52634 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33556 - "GET /api/v1/employees?company_id=cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:58848 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:58854 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:58852 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:53598 - "PUT /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience/branding HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:53598 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:38904 - "GET /client?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:38904 - "GET /client-static/client.js HTTP/1.1" 304 Not Modified
+clonexa_api  | INFO:     172.19.0.1:38904 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:38904 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:38904 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:38904 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33290 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:34748 - "GET /login HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:34752 - "GET /assets/clonexa-login-watermark.png HTTP/1.1" 404 Not Found
+clonexa_api  | INFO:     172.19.0.1:42226 - "GET /client?company_id=d63cf68c-be5b-4a30-aee4-341973018db1 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:42226 - "GET /client-static/client.js HTTP/1.1" 304 Not Modified
+clonexa_api  | INFO:     172.19.0.1:42226 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:42226 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:42226 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:54356 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:54356 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:42616 - "GET /health HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:42618 - "GET /api/v1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:42634 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:42648 - "GET /api/v1/employees?company_id=76974191-1dc6-4eb4-9b19-7d1e9ad82946&include_archived=true HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:45092 - "GET /docs HTTP/1.1" 200 OK
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID list_users_api_v1_companies__company_id__users_get for function list_users at /app/app/api/v1/endpoints/company_users.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID create_user_api_v1_companies__company_id__users_post for function create_user at /app/app/api/v1/endpoints/company_users.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID update_user_api_v1_companies__company_id__users__user_id__put for function update_user at /app/app/api/v1/endpoints/company_users.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID reset_password_api_v1_companies__company_id__users__user_id__reset_password_post for function reset_password at /app/app/api/v1/endpoints/company_users.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID unlock_user_api_v1_companies__company_id__users__user_id__unlock_post for function unlock_user at /app/app/api/v1/endpoints/company_users.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID login_api_v1_auth_login_post for function login at /app/app/api/v1/endpoints/auth.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID me_api_v1_auth_me_get for function me at /app/app/api/v1/endpoints/auth.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID change_password_api_v1_auth_change_password_post for function change_password at /app/app/api/v1/endpoints/auth.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | /usr/local/lib/python3.12/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID logout_api_v1_auth_logout_post for function logout at /app/app/api/v1/endpoints/auth.py
+clonexa_api  |   warnings.warn(message, stacklevel=1)
+clonexa_api  | INFO:     172.19.0.1:45092 - "GET /openapi.json HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:45094 - "GET /admin-v2 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33742 - "GET /admin-v2-assets/clonexa-logo.png HTTP/1.1" 404 Not Found
+clonexa_api  | INFO:     172.19.0.1:45094 - "GET /admin-v2.css?v=010A_R3_BRANDING_CLEAN_FONT HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33748 - "GET /admin-v2.js?v=010A_R3_BRANDING_CLEAN_FONT HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33748 - "GET /health HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33748 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+clonexa_api  | INFO:     172.19.0.1:33752 - "GET /api/v1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:45094 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33742 - "GET /api/v1/packages HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33748 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33762 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33760 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33742 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33748 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33752 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:45094 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:45094 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33748 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33760 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33742 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33752 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33762 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33760 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33760 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33752 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:33762 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/experience HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46032 - "GET /admin-v2 HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46032 - "GET /admin-v2-assets/clonexa-logo.png HTTP/1.1" 404 Not Found
+clonexa_api  | INFO:     172.19.0.1:46034 - "GET /admin-v2.js?v=010A_R3_BRANDING_CLEAN_FONT HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46034 - "GET /health HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46058 - "GET /api/v1/modules HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46032 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46042 - "GET /api/v1/packages HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46034 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46068 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46064 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46042 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46032 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46058 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46034 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/modules?enabled_only=false HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46068 - "GET /api/v1/companies/a811fc23-f12e-4fc3-afeb-ecba789d1708/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46042 - "GET /api/v1/companies/d63cf68c-be5b-4a30-aee4-341973018db1/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46032 - "GET /api/v1/companies/76974191-1dc6-4eb4-9b19-7d1e9ad82946/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46058 - "GET /api/v1/companies/a32db1e3-b22a-4801-ae7c-c6a29ba0567c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46034 - "GET /api/v1/companies/6d4a56f0-0bf2-4049-9c59-6a173d7b76b9/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46064 - "GET /api/v1/companies/cbb61ef8-2f1a-4b3b-8bb1-2a6297de987c/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:46042 - "GET /api/v1/companies/f8503267-0111-46b4-84c5-ee339cc6273e/users HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50822 - "GET /health HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50822 - "GET /api/v1/companies HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50822 - "GET /api/v1/packages HTTP/1.1" 200 OK
+clonexa_api  | INFO:     172.19.0.1:50822 - "GET /api/v1/modules HTTP/1.1" 200 OK
+
+===============================================================================
+DB LOGS TAIL 120
+===============================================================================
+> docker compose -p clonexa logs --tail=120 db
+clonexa_postgres  | 2026-05-01 02:44:24.598 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-01 02:44:28.515 UTC [27] LOG:  checkpoint complete: wrote 40 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=3.913 s, sync=0.002 s, total=3.918 s; sync files=6, longest=0.001 s, average=0.001 s; distance=301 kB, estimate=572 kB; lsn=0/2201578, redo lsn=0/2201540
+clonexa_postgres  | 2026-05-02 14:45:39.638 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 14:45:39.774 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.114 s, sync=0.003 s, total=0.137 s; sync files=2, longest=0.002 s, average=0.002 s; distance=4 kB, estimate=515 kB; lsn=0/22028D0, redo lsn=0/2202898
+clonexa_postgres  | 2026-05-02 15:00:39.740 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 15:00:43.672 UTC [27] LOG:  checkpoint complete: wrote 40 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=3.921 s, sync=0.003 s, total=3.933 s; sync files=6, longest=0.002 s, average=0.001 s; distance=210 kB, estimate=485 kB; lsn=0/22373D8, redo lsn=0/22373A0
+clonexa_postgres  | 2026-05-02 15:10:39.726 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 15:10:42.888 UTC [27] LOG:  checkpoint complete: wrote 32 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=3.154 s, sync=0.003 s, total=3.163 s; sync files=9, longest=0.002 s, average=0.001 s; distance=205 kB, estimate=457 kB; lsn=0/226A9D0, redo lsn=0/226A998
+clonexa_postgres  | 2026-05-02 15:20:39.951 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 15:20:40.168 UTC [27] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.208 s, sync=0.002 s, total=0.218 s; sync files=3, longest=0.002 s, average=0.001 s; distance=6 kB, estimate=412 kB; lsn=0/226C478, redo lsn=0/226C440
+clonexa_postgres  | 2026-05-02 15:25:39.131 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 15:25:39.249 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.108 s, sync=0.002 s, total=0.118 s; sync files=2, longest=0.001 s, average=0.001 s; distance=9 kB, estimate=371 kB; lsn=0/226EAE8, redo lsn=0/226EAB0
+clonexa_postgres  | 2026-05-02 15:35:39.166 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 15:35:41.088 UTC [27] LOG:  checkpoint complete: wrote 20 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.912 s, sync=0.003 s, total=1.922 s; sync files=7, longest=0.002 s, average=0.001 s; distance=115 kB, estimate=346 kB; lsn=0/228B750, redo lsn=0/228B718
+clonexa_postgres  | 2026-05-02 16:20:39.476 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 16:20:39.599 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.108 s, sync=0.003 s, total=0.123 s; sync files=2, longest=0.003 s, average=0.002 s; distance=7 kB, estimate=312 kB; lsn=0/228D3F0, redo lsn=0/228D3B8
+clonexa_postgres  | 2026-05-02 16:25:39.424 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 16:25:39.537 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.103 s, sync=0.002 s, total=0.114 s; sync files=2, longest=0.002 s, average=0.001 s; distance=10 kB, estimate=282 kB; lsn=0/228FED8, redo lsn=0/228FEA0
+clonexa_postgres  | 2026-05-02 16:30:39.368 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 16:30:39.539 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.112 s, sync=0.009 s, total=0.172 s; sync files=2, longest=0.006 s, average=0.004 s; distance=8 kB, estimate=254 kB; lsn=0/2292290, redo lsn=0/2292258
+clonexa_postgres  | 2026-05-02 16:35:39.403 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 16:35:39.571 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.131 s, sync=0.006 s, total=0.168 s; sync files=2, longest=0.004 s, average=0.003 s; distance=5 kB, estimate=229 kB; lsn=0/2293A80, redo lsn=0/2293A48
+clonexa_postgres  | 2026-05-02 16:40:39.386 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 16:40:39.544 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.105 s, sync=0.007 s, total=0.158 s; sync files=2, longest=0.004 s, average=0.004 s; distance=7 kB, estimate=207 kB; lsn=0/22956B8, redo lsn=0/2295680
+clonexa_postgres  | 2026-05-02 16:45:39.294 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 16:45:42.372 UTC [27] LOG:  checkpoint complete: wrote 31 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=3.044 s, sync=0.015 s, total=3.078 s; sync files=6, longest=0.010 s, average=0.003 s; distance=197 kB, estimate=206 kB; lsn=0/22C6D88, redo lsn=0/22C6D50
+clonexa_postgres  | 2026-05-02 16:50:39.128 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 16:50:39.254 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.104 s, sync=0.010 s, total=0.126 s; sync files=2, longest=0.007 s, average=0.005 s; distance=2 kB, estimate=186 kB; lsn=0/22C7930, redo lsn=0/22C78F8
+clonexa_postgres  | 2026-05-02 16:55:39.854 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 16:55:45.189 UTC [27] LOG:  checkpoint complete: wrote 53 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=5.248 s, sync=0.040 s, total=5.336 s; sync files=7, longest=0.025 s, average=0.006 s; distance=305 kB, estimate=305 kB; lsn=0/2313EE0, redo lsn=0/2313EA8
+clonexa_postgres  | 2026-05-02 17:05:39.672 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 17:05:39.836 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.105 s, sync=0.012 s, total=0.164 s; sync files=2, longest=0.010 s, average=0.006 s; distance=7 kB, estimate=275 kB; lsn=0/2315AE0, redo lsn=0/2315AA8
+clonexa_postgres  | 2026-05-02 17:10:39.584 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 17:10:41.044 UTC [27] LOG:  checkpoint complete: wrote 15 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.421 s, sync=0.011 s, total=1.451 s; sync files=4, longest=0.007 s, average=0.003 s; distance=97 kB, estimate=257 kB; lsn=0/232DEF8, redo lsn=0/232DEC0
+clonexa_postgres  | 2026-05-02 17:15:39.667 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 17:15:39.945 UTC [27] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.208 s, sync=0.031 s, total=0.278 s; sync files=3, longest=0.028 s, average=0.011 s; distance=12 kB, estimate=233 kB; lsn=0/2331190, redo lsn=0/2331158
+clonexa_postgres  | 2026-05-02 17:35:39.105 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 17:35:39.237 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.112 s, sync=0.002 s, total=0.134 s; sync files=2, longest=0.002 s, average=0.001 s; distance=6 kB, estimate=210 kB; lsn=0/2332B70, redo lsn=0/2332B38
+clonexa_postgres  | 2026-05-02 17:40:39.784 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 17:40:39.974 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.134 s, sync=0.007 s, total=0.212 s; sync files=2, longest=0.005 s, average=0.004 s; distance=7 kB, estimate=190 kB; lsn=0/2334A50, redo lsn=0/2334A18
+clonexa_postgres  | 2026-05-02 17:45:39.559 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 17:45:40.336 UTC [27] LOG:  checkpoint complete: wrote 8 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.730 s, sync=0.008 s, total=0.777 s; sync files=6, longest=0.004 s, average=0.002 s; distance=17 kB, estimate=173 kB; lsn=0/2339190, redo lsn=0/2339158
+clonexa_postgres  | 2026-05-02 17:50:39.975 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 17:50:40.107 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.114 s, sync=0.004 s, total=0.133 s; sync files=2, longest=0.003 s, average=0.002 s; distance=11 kB, estimate=156 kB; lsn=0/233BEC0, redo lsn=0/233BE88
+clonexa_postgres  | 2026-05-02 17:55:39.788 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 17:55:41.457 UTC [27] LOG:  checkpoint complete: wrote 17 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.644 s, sync=0.009 s, total=1.670 s; sync files=6, longest=0.004 s, average=0.002 s; distance=98 kB, estimate=151 kB; lsn=0/23548C8, redo lsn=0/2354890
+clonexa_postgres  | 2026-05-02 18:00:39.002 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 18:00:43.020 UTC [27] LOG:  checkpoint complete: wrote 40 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=3.982 s, sync=0.012 s, total=4.021 s; sync files=7, longest=0.007 s, average=0.002 s; distance=212 kB, estimate=212 kB; lsn=0/23898E0, redo lsn=0/23898A8
+clonexa_postgres  | 2026-05-02 18:10:39.146 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 18:10:43.399 UTC [27] LOG:  checkpoint complete: wrote 41 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=4.215 s, sync=0.012 s, total=4.255 s; sync files=7, longest=0.009 s, average=0.002 s; distance=296 kB, estimate=296 kB; lsn=0/23D3CA0, redo lsn=0/23D3C68
+clonexa_postgres  | 2026-05-02 18:20:39.022 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 18:20:43.362 UTC [27] LOG:  checkpoint complete: wrote 43 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=4.306 s, sync=0.008 s, total=4.341 s; sync files=7, longest=0.004 s, average=0.002 s; distance=310 kB, estimate=310 kB; lsn=0/2421658, redo lsn=0/2421620
+clonexa_postgres  | 2026-05-02 18:45:39.623 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 18:45:42.676 UTC [27] LOG:  checkpoint complete: wrote 30 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.983 s, sync=0.007 s, total=3.055 s; sync files=6, longest=0.004 s, average=0.002 s; distance=196 kB, estimate=299 kB; lsn=0/24527A8, redo lsn=0/2452770
+clonexa_postgres  | 2026-05-02 19:05:39.765 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 19:05:46.206 UTC [27] LOG:  checkpoint complete: wrote 63 buffers (0.4%); 0 WAL file(s) added, 0 removed, 0 recycled; write=6.376 s, sync=0.010 s, total=6.443 s; sync files=7, longest=0.006 s, average=0.002 s; distance=307 kB, estimate=307 kB; lsn=0/249F6B0, redo lsn=0/249F678
+clonexa_postgres  | 2026-05-02 19:15:26.767 UTC [96302] ERROR:  column "metric_source" of relation "company_crm_widgets" does not exist at character 117
+clonexa_postgres  | 2026-05-02 19:15:26.767 UTC [96302] STATEMENT:  
+clonexa_postgres  | 	            INSERT INTO company_crm_widgets (
+clonexa_postgres  | 	                id, company_id, module_code, widget_code, title_key, metric_source,
+clonexa_postgres  | 	                enabled, position, size, settings_json, created_at, updated_at
+clonexa_postgres  | 	            )
+clonexa_postgres  | 	            VALUES (
+clonexa_postgres  | 	                gen_random_uuid(), CAST($1 AS uuid), $2, $3,
+clonexa_postgres  | 	                $4, $3, true, $5, 'medium', '{}'::jsonb, now(), now()
+clonexa_postgres  | 	            )
+clonexa_postgres  | 	            ON CONFLICT (company_id, module_code, widget_code) DO NOTHING
+clonexa_postgres  | 	            
+clonexa_postgres  | 2026-05-02 19:15:39.315 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 19:15:40.175 UTC [27] LOG:  checkpoint complete: wrote 8 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.768 s, sync=0.015 s, total=0.860 s; sync files=8, longest=0.005 s, average=0.002 s; distance=30 kB, estimate=280 kB; lsn=0/24A71E8, redo lsn=0/24A71B0
+clonexa_postgres  | 2026-05-02 19:35:39.781 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 19:35:41.310 UTC [27] LOG:  checkpoint complete: wrote 16 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.521 s, sync=0.003 s, total=1.535 s; sync files=14, longest=0.002 s, average=0.001 s; distance=38 kB, estimate=255 kB; lsn=0/24B2A00, redo lsn=0/24B0DA8
+clonexa_postgres  | 2026-05-02 19:40:39.655 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 19:40:41.682 UTC [27] LOG:  checkpoint complete: wrote 21 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.016 s, sync=0.009 s, total=2.027 s; sync files=18, longest=0.006 s, average=0.001 s; distance=67 kB, estimate=237 kB; lsn=0/24C1B98, redo lsn=0/24C1B60
+clonexa_postgres  | 2026-05-02 19:45:39.163 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 19:45:39.373 UTC [27] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.202 s, sync=0.002 s, total=0.210 s; sync files=2, longest=0.002 s, average=0.001 s; distance=10 kB, estimate=214 kB; lsn=0/24C4510, redo lsn=0/24C44D8
+clonexa_postgres  | 2026-05-02 19:50:39.696 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 19:50:42.436 UTC [27] LOG:  checkpoint complete: wrote 28 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.726 s, sync=0.002 s, total=2.740 s; sync files=6, longest=0.002 s, average=0.001 s; distance=186 kB, estimate=211 kB; lsn=0/24F2EC8, redo lsn=0/24F2E90
+clonexa_postgres  | 2026-05-02 19:55:39.904 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 19:55:41.234 UTC [27] LOG:  checkpoint complete: wrote 14 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.317 s, sync=0.004 s, total=1.331 s; sync files=11, longest=0.003 s, average=0.001 s; distance=44 kB, estimate=194 kB; lsn=0/24FED98, redo lsn=0/24FDF10
+clonexa_postgres  | 2026-05-02 20:00:39.699 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 20:00:39.819 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.108 s, sync=0.002 s, total=0.120 s; sync files=2, longest=0.002 s, average=0.001 s; distance=4 kB, estimate=175 kB; lsn=0/24FF2B0, redo lsn=0/24FF278
+clonexa_postgres  | 2026-05-02 20:10:39.530 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 20:10:39.650 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.110 s, sync=0.003 s, total=0.120 s; sync files=2, longest=0.003 s, average=0.002 s; distance=7 kB, estimate=159 kB; lsn=0/2501070, redo lsn=0/2501038
+clonexa_postgres  | 2026-05-02 20:15:39.912 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 20:15:40.740 UTC [27] LOG:  checkpoint complete: wrote 9 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.817 s, sync=0.007 s, total=0.828 s; sync files=8, longest=0.006 s, average=0.001 s; distance=31 kB, estimate=146 kB; lsn=0/2508CA8, redo lsn=0/2508C70
+clonexa_postgres  | 2026-05-02 20:25:39.687 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 20:25:40.910 UTC [27] LOG:  checkpoint complete: wrote 13 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.216 s, sync=0.003 s, total=1.223 s; sync files=11, longest=0.002 s, average=0.001 s; distance=41 kB, estimate=135 kB; lsn=0/2513350, redo lsn=0/2513318
+clonexa_postgres  | 2026-05-02 20:35:39.905 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 20:35:42.891 UTC [27] LOG:  checkpoint complete: wrote 31 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.951 s, sync=0.026 s, total=2.987 s; sync files=8, longest=0.025 s, average=0.004 s; distance=219 kB, estimate=219 kB; lsn=0/254A088, redo lsn=0/254A050
+clonexa_postgres  | 2026-05-02 20:40:39.364 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 20:40:42.040 UTC [27] LOG:  checkpoint complete: wrote 28 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.659 s, sync=0.004 s, total=2.677 s; sync files=6, longest=0.003 s, average=0.001 s; distance=186 kB, estimate=216 kB; lsn=0/2578BC0, redo lsn=0/2578B88
+clonexa_postgres  | 2026-05-02 20:50:39.808 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 20:50:40.128 UTC [27] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.306 s, sync=0.002 s, total=0.320 s; sync files=3, longest=0.002 s, average=0.001 s; distance=16 kB, estimate=196 kB; lsn=0/257CE50, redo lsn=0/257CE18
+clonexa_postgres  | 2026-05-02 20:55:39.703 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 20:55:41.418 UTC [27] LOG:  checkpoint complete: wrote 18 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.708 s, sync=0.003 s, total=1.715 s; sync files=17, longest=0.002 s, average=0.001 s; distance=39 kB, estimate=180 kB; lsn=0/25882D0, redo lsn=0/2586D18
+clonexa_postgres  | 2026-05-02 21:00:39.867 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 21:00:40.459 UTC [27] LOG:  checkpoint complete: wrote 6 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.530 s, sync=0.003 s, total=0.593 s; sync files=6, longest=0.002 s, average=0.001 s; distance=10 kB, estimate=163 kB; lsn=0/2589780, redo lsn=0/2589748
+clonexa_postgres  | 2026-05-02 22:05:39.247 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 22:05:41.875 UTC [27] LOG:  checkpoint complete: wrote 26 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.582 s, sync=0.010 s, total=2.631 s; sync files=20, longest=0.004 s, average=0.001 s; distance=75 kB, estimate=154 kB; lsn=0/259C3F8, redo lsn=0/259C3C0
+clonexa_postgres  | 2026-05-02 22:10:39.005 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 22:10:39.604 UTC [27] LOG:  checkpoint complete: wrote 6 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.534 s, sync=0.006 s, total=0.600 s; sync files=6, longest=0.003 s, average=0.001 s; distance=2 kB, estimate=139 kB; lsn=0/259CC20, redo lsn=0/259CBE8
+clonexa_postgres  | 2026-05-02 22:30:39.940 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 22:30:40.681 UTC [27] LOG:  checkpoint complete: wrote 7 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.660 s, sync=0.006 s, total=0.744 s; sync files=7, longest=0.003 s, average=0.001 s; distance=4 kB, estimate=125 kB; lsn=0/259DFC8, redo lsn=0/259DF90
+clonexa_postgres  | 2026-05-02 22:35:39.339 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 22:35:39.729 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.250 s, sync=0.007 s, total=0.406 s; sync files=2, longest=0.004 s, average=0.004 s; distance=5 kB, estimate=113 kB; lsn=0/259F628, redo lsn=0/259F5F0
+clonexa_postgres  | 2026-05-02 22:40:39.797 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 22:40:40.519 UTC [27] LOG:  checkpoint complete: wrote 7 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.644 s, sync=0.010 s, total=1.369 s; sync files=7, longest=0.008 s, average=0.002 s; distance=10 kB, estimate=103 kB; lsn=0/25A1E78, redo lsn=0/25A1E40
+clonexa_postgres  | 2026-05-02 22:50:39.879 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 22:50:40.597 UTC [27] LOG:  checkpoint complete: wrote 7 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.654 s, sync=0.011 s, total=0.732 s; sync files=7, longest=0.004 s, average=0.002 s; distance=10 kB, estimate=94 kB; lsn=0/25A4720, redo lsn=0/25A46E8
+clonexa_postgres  | 2026-05-02 22:55:39.533 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 22:55:44.845 UTC [27] LOG:  checkpoint complete: wrote 52 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=5.255 s, sync=0.011 s, total=5.335 s; sync files=7, longest=0.003 s, average=0.002 s; distance=215 kB, estimate=215 kB; lsn=0/25DA580, redo lsn=0/25DA548
+clonexa_postgres  | 2026-05-02 23:50:39.910 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-02 23:50:40.146 UTC [27] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.139 s, sync=0.007 s, total=0.238 s; sync files=2, longest=0.005 s, average=0.004 s; distance=8 kB, estimate=194 kB; lsn=0/25DC650, redo lsn=0/25DC618
+clonexa_postgres  | 2026-05-03 00:15:39.970 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-03 00:15:42.847 UTC [27] LOG:  checkpoint complete: wrote 28 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.805 s, sync=0.006 s, total=2.879 s; sync files=6, longest=0.002 s, average=0.001 s; distance=192 kB, estimate=194 kB; lsn=0/260C818, redo lsn=0/260C7E0
+clonexa_postgres  | 2026-05-03 00:25:39.222 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-03 00:25:42.529 UTC [27] LOG:  checkpoint complete: wrote 33 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=3.270 s, sync=0.005 s, total=3.309 s; sync files=7, longest=0.003 s, average=0.001 s; distance=209 kB, estimate=209 kB; lsn=0/2640DA0, redo lsn=0/2640D68
+clonexa_postgres  | 2026-05-03 00:30:39.498 UTC [27] LOG:  checkpoint starting: time
+clonexa_postgres  | 2026-05-03 00:30:43.984 UTC [27] LOG:  checkpoint complete: wrote 41 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=4.179 s, sync=0.003 s, total=4.505 s; sync files=5, longest=0.002 s, average=0.001 s; distance=26 kB, estimate=191 kB; lsn=0/2647698, redo lsn=0/2647660
+
+===============================================================================
+GIT
+===============================================================================
+
+===============================================================================
+GIT STATUS
+===============================================================================
+> git status --short
+fatal: not a git repository (or any of the parent directories): .git
+
+===============================================================================
+GIT BRANCH
+===============================================================================
+> git branch --show-current
+fatal: not a git repository (or any of the parent directories): .git
+
+===============================================================================
+GIT LOG LAST 8
+===============================================================================
+> git log --oneline -8
+fatal: not a git repository (or any of the parent directories): .git
+
+===============================================================================
+GIT DIFF NAME ONLY
+===============================================================================
+> git diff --name-only
+warning: Not a git repository. Use --no-index to compare two paths outside a working tree
+usage: git diff --no-index [<options>] <path> <path> [<pathspec>...]
+System.Management.Automation.RemoteException
+Diff output format options
+    -p, --patch           generate patch
+    -s, --no-patch        suppress diff output
+    -u                    generate patch
+    -U, --unified[=<n>]   generate diffs with <n> lines context
+    -W, --[no-]function-context
+                          generate diffs with <n> lines context
+    --raw                 generate the diff in raw format
+    --patch-with-raw      synonym for '-p --raw'
+    --patch-with-stat     synonym for '-p --stat'
+    --numstat             machine friendly --stat
+    --shortstat           output only the last line of --stat
+    -X, --dirstat[=<param1>,<param2>...]
+                          output the distribution of relative amount of changes for each sub-directory
+    --cumulative          synonym for --dirstat=cumulative
+    --dirstat-by-file[=<param1>,<param2>...]
+                          synonym for --dirstat=files,<param1>,<param2>...
+    --check               warn if changes introduce conflict markers or whitespace errors
+    --summary             condensed summary such as creations, renames and mode changes
+    --name-only           show only names of changed files
+    --name-status         show only names and status of changed files
+    --stat[=<width>[,<name-width>[,<count>]]]
+                          generate diffstat
+    --stat-width <width>  generate diffstat with a given width
+    --stat-name-width <width>
+                          generate diffstat with a given name width
+    --stat-graph-width <width>
+                          generate diffstat with a given graph width
+    --stat-count <count>  generate diffstat with limited lines
+    --[no-]compact-summary
+                          generate compact summary in diffstat
+    --binary              output a binary diff that can be applied
+    --[no-]full-index     show full pre- and post-image object names on the "index" lines
+    --[no-]color[=<when>] show colored diff
+    --ws-error-highlight <kind>
+                          highlight whitespace errors in the 'context', 'old' or 'new' lines in the diff
+    -z                    do not munge pathnames and use NULs as output field terminators in --raw or --numstat
+    --[no-]abbrev[=<n>]   use <n> digits to display object names
+    --src-prefix <prefix> show the given source prefix instead of "a/"
+    --dst-prefix <prefix> show the given destination prefix instead of "b/"
+    --line-prefix <prefix>
+                          prepend an additional prefix to every line of output
+    --no-prefix           do not show any source or destination prefix
+    --default-prefix      use default prefixes a/ and b/
+    --inter-hunk-context <n>
+                          show context between diff hunks up to the specified number of lines
+    --output-indicator-new <char>
+                          specify the character to indicate a new line instead of '+'
+    --output-indicator-old <char>
+                          specify the character to indicate an old line instead of '-'
+    --output-indicator-context <char>
+                          specify the character to indicate a context instead of ' '
+System.Management.Automation.RemoteException
+Diff rename options
+    -B, --break-rewrites[=<n>[/<m>]]
+                          break complete rewrite changes into pairs of delete and create
+    -M, --find-renames[=<n>]
+                          detect renames
+    -D, --irreversible-delete
+                          omit the preimage for deletes
+    -C, --find-copies[=<n>]
+                          detect copies
+    --[no-]find-copies-harder
+                          use unmodified files as source to find copies
+    --no-renames          disable rename detection
+    --[no-]rename-empty   use empty blobs as rename source
+    --[no-]follow         continue listing the history of a file beyond renames
+    -l <n>                prevent rename/copy detection if the number of rename/copy targets exceeds given limit
+System.Management.Automation.RemoteException
+Diff algorithm options
+    --minimal             produce the smallest possible diff
+    -w, --ignore-all-space
+                          ignore whitespace when comparing lines
+    -b, --ignore-space-change
+                          ignore changes in amount of whitespace
+    --ignore-space-at-eol ignore changes in whitespace at EOL
+    --ignore-cr-at-eol    ignore carrier-return at the end of line
+    --ignore-blank-lines  ignore changes whose lines are all blank
+    -I, --[no-]ignore-matching-lines <regex>
+                          ignore changes whose all lines match <regex>
+    --[no-]indent-heuristic
+                          heuristic to shift diff hunk boundaries for easy reading
+    --patience            generate diff using the "patience diff" algorithm
+    --histogram           generate diff using the "histogram diff" algorithm
+    --diff-algorithm <algorithm>
+                          choose a diff algorithm
+    --anchored <text>     generate diff using the "anchored diff" algorithm
+    --word-diff[=<mode>]  show word diff, using <mode> to delimit changed words
+    --word-diff-regex <regex>
+                          use <regex> to decide what a word is
+    --color-words[=<regex>]
+                          equivalent to --word-diff=color --word-diff-regex=<regex>
+    --[no-]color-moved[=<mode>]
+                          moved lines of code are colored differently
+    --[no-]color-moved-ws <mode>
+                          how white spaces are ignored in --color-moved
+System.Management.Automation.RemoteException
+Other diff options
+    --[no-]relative[=<prefix>]
+                          when run from subdir, exclude changes outside and show relative paths
+    -a, --[no-]text       treat all files as text
+    -R                    swap two inputs, reverse the diff
+    --[no-]exit-code      exit with 1 if there were differences, 0 otherwise
+    --[no-]quiet          disable all output of the program
+    --[no-]ext-diff       allow an external diff helper to be executed
+    --[no-]textconv       run external text conversion filters when comparing binary files
+    --ignore-submodules[=<when>]
+                          ignore changes to submodules in the diff generation
+    --submodule[=<format>]
+                          specify how differences in submodules are shown
+    --ita-invisible-in-index
+                          hide 'git add -N' entries from the index
+    --ita-visible-in-index
+                          treat 'git add -N' entries as real in the index
+    -S <string>           look for differences that change the number of occurrences of the specified string
+    -G <regex>            look for differences that change the number of occurrences of the specified regex
+    --pickaxe-all         show all changes in the changeset with -S or -G
+    --pickaxe-regex       treat <string> in -S as extended POSIX regular expression
+    -O <file>             control the order in which files appear in the output
+    --rotate-to <path>    show the change in the specified path first
+    --skip-to <path>      skip the output to the specified path
+    --find-object <object-id>
+                          look for differences that change the number of occurrences of the specified object
+    --diff-filter [(A|C|D|M|R|T|U|X|B)...[*]]
+                          select files by diff type
+    --max-depth <depth>   maximum tree depth to recurse
+    --output <file>       output to a specific file
+System.Management.Automation.RemoteException
+
+===============================================================================
+GIT DIFF STAT
+===============================================================================
+> git diff --stat
+warning: Not a git repository. Use --no-index to compare two paths outside a working tree
+usage: git diff --no-index [<options>] <path> <path> [<pathspec>...]
+System.Management.Automation.RemoteException
+Diff output format options
+    -p, --patch           generate patch
+    -s, --no-patch        suppress diff output
+    -u                    generate patch
+    -U, --unified[=<n>]   generate diffs with <n> lines context
+    -W, --[no-]function-context
+                          generate diffs with <n> lines context
+    --raw                 generate the diff in raw format
+    --patch-with-raw      synonym for '-p --raw'
+    --patch-with-stat     synonym for '-p --stat'
+    --numstat             machine friendly --stat
+    --shortstat           output only the last line of --stat
+    -X, --dirstat[=<param1>,<param2>...]
+                          output the distribution of relative amount of changes for each sub-directory
+    --cumulative          synonym for --dirstat=cumulative
+    --dirstat-by-file[=<param1>,<param2>...]
+                          synonym for --dirstat=files,<param1>,<param2>...
+    --check               warn if changes introduce conflict markers or whitespace errors
+    --summary             condensed summary such as creations, renames and mode changes
+    --name-only           show only names of changed files
+    --name-status         show only names and status of changed files
+    --stat[=<width>[,<name-width>[,<count>]]]
+                          generate diffstat
+    --stat-width <width>  generate diffstat with a given width
+    --stat-name-width <width>
+                          generate diffstat with a given name width
+    --stat-graph-width <width>
+                          generate diffstat with a given graph width
+    --stat-count <count>  generate diffstat with limited lines
+    --[no-]compact-summary
+                          generate compact summary in diffstat
+    --binary              output a binary diff that can be applied
+    --[no-]full-index     show full pre- and post-image object names on the "index" lines
+    --[no-]color[=<when>] show colored diff
+    --ws-error-highlight <kind>
+                          highlight whitespace errors in the 'context', 'old' or 'new' lines in the diff
+    -z                    do not munge pathnames and use NULs as output field terminators in --raw or --numstat
+    --[no-]abbrev[=<n>]   use <n> digits to display object names
+    --src-prefix <prefix> show the given source prefix instead of "a/"
+    --dst-prefix <prefix> show the given destination prefix instead of "b/"
+    --line-prefix <prefix>
+                          prepend an additional prefix to every line of output
+    --no-prefix           do not show any source or destination prefix
+    --default-prefix      use default prefixes a/ and b/
+    --inter-hunk-context <n>
+                          show context between diff hunks up to the specified number of lines
+    --output-indicator-new <char>
+                          specify the character to indicate a new line instead of '+'
+    --output-indicator-old <char>
+                          specify the character to indicate an old line instead of '-'
+    --output-indicator-context <char>
+                          specify the character to indicate a context instead of ' '
+System.Management.Automation.RemoteException
+Diff rename options
+    -B, --break-rewrites[=<n>[/<m>]]
+                          break complete rewrite changes into pairs of delete and create
+    -M, --find-renames[=<n>]
+                          detect renames
+    -D, --irreversible-delete
+                          omit the preimage for deletes
+    -C, --find-copies[=<n>]
+                          detect copies
+    --[no-]find-copies-harder
+                          use unmodified files as source to find copies
+    --no-renames          disable rename detection
+    --[no-]rename-empty   use empty blobs as rename source
+    --[no-]follow         continue listing the history of a file beyond renames
+    -l <n>                prevent rename/copy detection if the number of rename/copy targets exceeds given limit
+System.Management.Automation.RemoteException
+Diff algorithm options
+    --minimal             produce the smallest possible diff
+    -w, --ignore-all-space
+                          ignore whitespace when comparing lines
+    -b, --ignore-space-change
+                          ignore changes in amount of whitespace
+    --ignore-space-at-eol ignore changes in whitespace at EOL
+    --ignore-cr-at-eol    ignore carrier-return at the end of line
+    --ignore-blank-lines  ignore changes whose lines are all blank
+    -I, --[no-]ignore-matching-lines <regex>
+                          ignore changes whose all lines match <regex>
+    --[no-]indent-heuristic
+                          heuristic to shift diff hunk boundaries for easy reading
+    --patience            generate diff using the "patience diff" algorithm
+    --histogram           generate diff using the "histogram diff" algorithm
+    --diff-algorithm <algorithm>
+                          choose a diff algorithm
+    --anchored <text>     generate diff using the "anchored diff" algorithm
+    --word-diff[=<mode>]  show word diff, using <mode> to delimit changed words
+    --word-diff-regex <regex>
+                          use <regex> to decide what a word is
+    --color-words[=<regex>]
+                          equivalent to --word-diff=color --word-diff-regex=<regex>
+    --[no-]color-moved[=<mode>]
+                          moved lines of code are colored differently
+    --[no-]color-moved-ws <mode>
+                          how white spaces are ignored in --color-moved
+System.Management.Automation.RemoteException
+Other diff options
+    --[no-]relative[=<prefix>]
+                          when run from subdir, exclude changes outside and show relative paths
+    -a, --[no-]text       treat all files as text
+    -R                    swap two inputs, reverse the diff
+    --[no-]exit-code      exit with 1 if there were differences, 0 otherwise
+    --[no-]quiet          disable all output of the program
+    --[no-]ext-diff       allow an external diff helper to be executed
+    --[no-]textconv       run external text conversion filters when comparing binary files
+    --ignore-submodules[=<when>]
+                          ignore changes to submodules in the diff generation
+    --submodule[=<format>]
+                          specify how differences in submodules are shown
+    --ita-invisible-in-index
+                          hide 'git add -N' entries from the index
+    --ita-visible-in-index
+                          treat 'git add -N' entries as real in the index
+    -S <string>           look for differences that change the number of occurrences of the specified string
+    -G <regex>            look for differences that change the number of occurrences of the specified regex
+    --pickaxe-all         show all changes in the changeset with -S or -G
+    --pickaxe-regex       treat <string> in -S as extended POSIX regular expression
+    -O <file>             control the order in which files appear in the output
+    --rotate-to <path>    show the change in the specified path first
+    --skip-to <path>      skip the output to the specified path
+    --find-object <object-id>
+                          look for differences that change the number of occurrences of the specified object
+    --diff-filter [(A|C|D|M|R|T|U|X|B)...[*]]
+                          select files by diff type
+    --max-depth <depth>   maximum tree depth to recurse
+    --output <file>       output to a specific file
+System.Management.Automation.RemoteException
+
+===============================================================================
+CRITICAL FILES
+===============================================================================
+
+===============================================================================
+FILE STATUS: app\services\auth_service.py
+===============================================================================
+EXISTE: SI
+FullName: C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend\app\services\auth_service.py
+Size: 18086
+LastWriteTime: 04/30/2026 12:27:25
+SHA256: 8651A3635B7D1AEFF59ED69AAF166AC52603539B0B3B96165C7C6744C008A5A8
+
+===============================================================================
+FILE STATUS: app\api\v1\endpoints\company_users.py
+===============================================================================
+EXISTE: SI
+FullName: C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend\app\api\v1\endpoints\company_users.py
+Size: 2204
+LastWriteTime: 04/29/2026 18:48:48
+SHA256: 0EE70E5DABD897466E45E88EFBF3C8A26960BAD6C3998E65E3032A6382888D76
+
+===============================================================================
+FILE STATUS: app\api\v1\endpoints\auth.py
+===============================================================================
+EXISTE: SI
+FullName: C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend\app\api\v1\endpoints\auth.py
+Size: 2721
+LastWriteTime: 04/29/2026 18:48:48
+SHA256: 6E4EAD447E64BAC5287EA7AF90160367941092F6C3F275C9D9E683102A8805A8
+
+===============================================================================
+FILE STATUS: app\web\admin_v2.js
+===============================================================================
+EXISTE: SI
+FullName: C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend\app\web\admin_v2.js
+Size: 127938
+LastWriteTime: 05/02/2026 15:18:56
+SHA256: 27C8A0357B8EE3E2601F51CD44D7A0E545E4E1DFE9B27BF51BADA8FB33C8D8ED
+
+===============================================================================
+FILE STATUS: docker-compose.yml
+===============================================================================
+EXISTE: SI
+FullName: C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend\docker-compose.yml
+Size: 799
+LastWriteTime: 04/28/2026 13:11:26
+SHA256: 2C87C174F747383FA55696FC015555910543CEC268CB1FD052F7334EA374CE90
+
+===============================================================================
+FILE STATUS: alembic.ini
+===============================================================================
+EXISTE: SI
+FullName: C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend\alembic.ini
+Size: 608
+LastWriteTime: 04/25/2026 22:59:01
+SHA256: 607F613AA97D2641C599F19D8B3B4E245DF71C3E4833EEA2CD82BF65915C9822
+
+===============================================================================
+PATTERN SEARCH: app\services\auth_service.py
+===============================================================================
+
+>>> company_mini_payload
+L442: async def company_mini_payload(db: AsyncSession, company_id: UUID) -> Dict[str, Any]:
+
+>>> company_modules_payload
+L454: async def company_modules_payload(db: AsyncSession, company_id: UUID) -> List[Dict[str, Any]]:
+
+>>> company_user_out_payload
+L422: async def company_user_out_payload(db: AsyncSession, user: CompanyUser) -> Dict[str, Any]:
+
+>>> user_mini_payload
+NO ENCONTRADO
+
+>>> hash_password
+L78: def hash_password(password: str) -> str:
+L282: user.password_hash = hash_password(new_password)
+L324: password_hash=hash_password(password),
+L391: new_hash = hash_password(temporary_password)
+L518: def hash_password(password: str) -> str:
+
+>>> verify_password
+L102: def verify_password(password: str, password_hash: str) -> bool:
+L218: if not verify_password(password, user.password_hash):
+L276: if not verify_password(current_password, user.password_hash):
+L538: def verify_password(password: str, password_hash: str) -> bool:
+
+>>> create_access_token
+L132: def create_access_token(data: Dict[str, Any], expires_minutes: Optional[int] = None) -> str:
+
+>>> authenticate_user
+L195: async def authenticate_user(db: AsyncSession, email: str, password: str) -> CompanyUser:
+
+>>> create_company_user
+L302: async def create_company_user(db: AsyncSession, company_id: UUID, payload: Any) -> CompanyUser:
+
+>>> created_at
+L297: .order_by(CompanyUser.created_at.desc())
+L337: if getattr(user, "created_at", None) is None:
+L338: user.created_at = now
+
+>>> updated_at
+L340: if getattr(user, "updated_at", None) is None:
+L341: user.updated_at = now
+L369: user.updated_at = utc_now()
+L399: user.updated_at = utc_now()
+L416: user.updated_at = utc_now()
+
+>>> last_password_reset_at
+L343: if hasattr(user, "last_password_reset_at") and getattr(user, "last_password_reset_at", None) is None:
+L344: user.last_password_reset_at = now
+L398: user.last_password_reset_at = utc_now()
+L436: "last_password_reset_at": user.last_password_reset_at,
+
+===============================================================================
+PATTERN SEARCH: app\api\v1\endpoints\auth.py
+===============================================================================
+
+>>> company_mini_payload
+L11: company_mini_payload,
+L62: company=await company_mini_payload(db, user.company_id),
+
+>>> company_modules_payload
+L12: company_modules_payload,
+L63: modules=await company_modules_payload(db, user.company_id),
+
+>>> company_user_out_payload
+L13: company_user_out_payload,
+L49: user=await company_user_out_payload(db, user),
+L61: user=await company_user_out_payload(db, user),
+
+>>> user_mini_payload
+NO ENCONTRADO
+
+>>> hash_password
+NO ENCONTRADO
+
+>>> verify_password
+NO ENCONTRADO
+
+>>> create_access_token
+L14: create_access_token,
+L35: access_token = create_access_token(
+
+>>> authenticate_user
+L9: authenticate_user,
+L33: user = await authenticate_user(db, payload.email, payload.password)
+
+>>> create_company_user
+NO ENCONTRADO
+
+>>> created_at
+NO ENCONTRADO
+
+>>> updated_at
+NO ENCONTRADO
+
+>>> last_password_reset_at
+NO ENCONTRADO
+
+===============================================================================
+PATTERN SEARCH: app\api\v1\endpoints\company_users.py
+===============================================================================
+
+>>> company_mini_payload
+NO ENCONTRADO
+
+>>> company_modules_payload
+NO ENCONTRADO
+
+>>> company_user_out_payload
+L18: company_user_out_payload,
+L32: return [await company_user_out_payload(db, user) for user in users]
+L42: return await company_user_out_payload(db, user)
+L53: return await company_user_out_payload(db, user)
+
+>>> user_mini_payload
+NO ENCONTRADO
+
+>>> hash_password
+NO ENCONTRADO
+
+>>> verify_password
+NO ENCONTRADO
+
+>>> create_access_token
+NO ENCONTRADO
+
+>>> authenticate_user
+NO ENCONTRADO
+
+>>> create_company_user
+L19: create_company_user,
+L41: user = await create_company_user(db, company_id, payload)
+
+>>> created_at
+NO ENCONTRADO
+
+>>> updated_at
+NO ENCONTRADO
+
+>>> last_password_reset_at
+NO ENCONTRADO
+
+===============================================================================
+FILE CONTEXT: app\services\auth_service.py :: def\s+create_company_user
+===============================================================================
+  292: async def list_company_users(db: AsyncSession, company_id: UUID) -> List[CompanyUser]:
+  293:     await get_company_or_404(db, company_id)
+  294:     result = await db.execute(
+  295:         select(CompanyUser)
+  296:         .where(CompanyUser.company_id == company_id)
+  297:         .order_by(CompanyUser.created_at.desc())
+  298:     )
+  299:     return list(result.scalars().all())
+  300: 
+  301: 
+  302: async def create_company_user(db: AsyncSession, company_id: UUID, payload: Any) -> CompanyUser:
+  303:     await get_company_or_404(db, company_id)
+  304:     data = _payload_to_dict(payload)
+  305:     email = normalize_email(data.get("email", ""))
+  306:     password = str(data.get("password") or "")
+  307:     role = str(data.get("role") or "company_admin").strip()
+  308:     status_value = str(data.get("status") or "active").strip().lower()
+  309: 
+  310:     if role not in VALID_ROLES:
+  311:         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rol invÃ¡lido.")
+  312:     if status_value not in VALID_STATUS:
+  313:         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Estado invÃ¡lido.")
+  314:     if not password:
+  315:         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La contraseÃ±a es obligatoria.")
+  316: 
+  317:     existing = await get_user_by_email(db, email)
+  318:     if existing:
+  319:         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El email ya existe.")
+  320: 
+  321:     user = CompanyUser(
+  322:         company_id=company_id,
+  323:         email=email,
+  324:         password_hash=hash_password(password),
+  325:         full_name=str(data.get("full_name") or "").strip() or email,
+  326:         role=role,
+  327:         status=status_value,
+  328:         must_change_password=True,
+  329:         failed_login_attempts=0,
+  330:         locked_until=None,
+  331:         settings_json=data.get("settings_json") or {},
+  332:     )
+  333:     db.add(user)
+  334:     # CLONEXA_OWNER_TIMESTAMP_GUARD
+  335:     now = datetime.now(timezone.utc)
+  336: 
+  337:     if getattr(user, "created_at", None) is None:
+  338:         user.created_at = now
+  339: 
+  340:     if getattr(user, "updated_at", None) is None:
+  341:         user.updated_at = now
+  342: 
+  343:     if hasattr(user, "last_password_reset_at") and getattr(user, "last_password_reset_at", None) is None:
+  344:         user.last_password_reset_at = now
+  345:     await db.commit()
+  346:     await db.refresh(user)
+  347:     return user
+  348: 
+  349: 
+  350: async def update_company_user(db: AsyncSession, company_id: UUID, user_id: UUID, payload: Any) -> CompanyUser:
+  351:     user = await get_company_user_or_404(db, company_id, user_id)
+  352:     data = _payload_to_dict(payload)
+  353: 
+  354:     if "full_name" in data and data["full_name"] is not None:
+  355:         user.full_name = str(data["full_name"]).strip() or user.full_name
+  356: 
+  357:     if "role" in data and data["role"] is not None:
+  358:         role = str(data["role"]).strip()
+  359:         if role not in VALID_ROLES:
+  360:             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rol invÃ¡lido.")
+  361:         user.role = role
+  362: 
+  363:     if "status" in data and data["status"] is not None:
+  364:         status_value = str(data["status"]).strip().lower()
+  365:         if status_value not in VALID_STATUS:
+  366:             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Estado invÃ¡lido.")
+  367:         user.status = status_value
+  368: 
+  369:     user.updated_at = utc_now()
+  370:     await db.commit()
+  371:     await db.refresh(user)
+  372:     return user
+  373: 
+  374: 
+  375: async def reset_company_user_password(
+  376:     db: AsyncSession,
+  377:     company_id: UUID,
+  378:     user_id: UUID,
+  379:     password: Optional[str] = None,
+  380: ) -> Dict[str, Any]:
+  381:     user = await get_company_user_or_404(db, company_id, user_id)
+  382: 
+  383:     temporary_password = str(password or "").strip() or generate_temporary_password()
+  384: 
+  385:     if _looks_like_bcrypt_hash(temporary_password):
+  386:         raise HTTPException(
+  387:             status_code=status.HTTP_400_BAD_REQUEST,
+  388:             detail="La contraseÃ±a temporal no puede ser un hash.",
+  389:         )
+  390: 
+  391:     new_hash = hash_password(temporary_password)
+  392: 
+  393:     user.password_hash = new_hash
+  394:     user.must_change_password = True
+  395:     user.failed_login_attempts = 0
+  396:     user.locked_until = None
+  397:     user.status = "active"
+  398:     user.last_password_reset_at = utc_now()
+  399:     user.updated_at = utc_now()
+  400: 
+  401:     await db.commit()
+  402:     await db.refresh(user)
+  403: 
+  404:     return {
+  405:         "ok": True,
+  406:         "temporary_password": temporary_password,
+  407:         "must_change_password": True,
+  408:     }
+  409: 
+  410: 
+  411: async def unlock_company_user(db: AsyncSession, company_id: UUID, user_id: UUID) -> Dict[str, bool]:
+  412:     user = await get_company_user_or_404(db, company_id, user_id)
+  413:     user.status = "active"
+  414:     user.failed_login_attempts = 0
+  415:     user.locked_until = None
+  416:     user.updated_at = utc_now()
+  417:     await db.commit()
+  418:     await db.refresh(user)
+  419:     return {"ok": True}
+  420: 
+  421: 
+  422: async def company_user_out_payload(db: AsyncSession, user: CompanyUser) -> Dict[str, Any]:
+
+===============================================================================
+FILE CONTEXT: app\services\auth_service.py :: def\s+company_mini_payload
+===============================================================================
+  437:         "company_name": company.name,
+  438:         "company_slug": company.slug,
+  439:     }
+  440: 
+  441: 
+  442: async def company_mini_payload(db: AsyncSession, company_id: UUID) -> Dict[str, Any]:
+  443:     company = await get_company_or_404(db, company_id)
+  444:     return {
+  445:         "id": company.id,
+  446:         "name": company.name,
+  447:         "slug": company.slug,
+  448:         "timezone": getattr(company, "timezone", None),
+  449:         "status": getattr(company, "status", None),
+  450:         "plan": getattr(company, "plan", None),
+  451:     }
+  452: 
+  453: 
+  454: async def company_modules_payload(db: AsyncSession, company_id: UUID) -> List[Dict[str, Any]]:
+  455:     try:
+  456:         result = await db.execute(
+  457:             text(
+  458:                 """
+  459:                 SELECT
+  460:                     m.id,
+  461:                     m.code,
+  462:                     m.name,
+  463:                     m.category,
+  464:                     m.is_active,
+  465:                     cm.enabled
+  466:                 FROM company_modules cm
+  467:                 JOIN modules m ON m.id = cm.module_id
+  468:                 WHERE cm.company_id = :company_id
+  469:                 ORDER BY m.category NULLS LAST, m.code
+  470:                 """
+  471:             ),
+  472:             {"company_id": str(company_id)},
+  473:         )
+  474:         return [dict(row._mapping) for row in result.fetchall()]
+  475:     except Exception:
+  476:         return []
+  477: 
+  478: # =============================================================================
+  479: # CLONEXA HOTFIX 007C - DIRECT BCRYPT OVERRIDE
+  480: # Evita bug passlib/bcrypt: password cannot be longer than 72 bytes
+  481: # =============================================================================
+  482: import bcrypt as _clonexa_bcrypt
+
+===============================================================================
+FILE CONTEXT: app\services\auth_service.py :: def\s+company_modules_payload
+===============================================================================
+  449:         "status": getattr(company, "status", None),
+  450:         "plan": getattr(company, "plan", None),
+  451:     }
+  452: 
+  453: 
+  454: async def company_modules_payload(db: AsyncSession, company_id: UUID) -> List[Dict[str, Any]]:
+  455:     try:
+  456:         result = await db.execute(
+  457:             text(
+  458:                 """
+  459:                 SELECT
+  460:                     m.id,
+  461:                     m.code,
+  462:                     m.name,
+  463:                     m.category,
+  464:                     m.is_active,
+  465:                     cm.enabled
+  466:                 FROM company_modules cm
+  467:                 JOIN modules m ON m.id = cm.module_id
+  468:                 WHERE cm.company_id = :company_id
+  469:                 ORDER BY m.category NULLS LAST, m.code
+  470:                 """
+  471:             ),
+  472:             {"company_id": str(company_id)},
+  473:         )
+  474:         return [dict(row._mapping) for row in result.fetchall()]
+  475:     except Exception:
+  476:         return []
+  477: 
+  478: # =============================================================================
+  479: # CLONEXA HOTFIX 007C - DIRECT BCRYPT OVERRIDE
+  480: # Evita bug passlib/bcrypt: password cannot be longer than 72 bytes
+  481: # =============================================================================
+  482: import bcrypt as _clonexa_bcrypt
+  483: 
+  484: 
+  485: def _clonexa_extract_plain_password(password):
+  486:     if password is None:
+  487:         return None
+  488: 
+  489:     if isinstance(password, dict):
+  490:         password = (
+  491:             password.get("password")
+  492:             or password.get("new_password")
+  493:             or password.get("temporary_password")
+  494:             or password.get("current_password")
+
+===============================================================================
+FILE CONTEXT: app\services\auth_service.py :: def\s+company_user_out_payload
+===============================================================================
+  417:     await db.commit()
+  418:     await db.refresh(user)
+  419:     return {"ok": True}
+  420: 
+  421: 
+  422: async def company_user_out_payload(db: AsyncSession, user: CompanyUser) -> Dict[str, Any]:
+  423:     company = await get_company_or_404(db, user.company_id)
+  424:     return {
+  425:         "id": user.id,
+  426:         "company_id": user.company_id,
+  427:         "email": user.email,
+  428:         "full_name": user.full_name,
+  429:         "role": user.role,
+  430:         "status": user.status,
+  431:         "must_change_password": bool(user.must_change_password),
+  432:         "failed_login_attempts": int(user.failed_login_attempts or 0),
+  433:         "locked_until": user.locked_until,
+  434:         "last_login_at": user.last_login_at,
+  435:         "password_changed_at": user.password_changed_at,
+  436:         "last_password_reset_at": user.last_password_reset_at,
+  437:         "company_name": company.name,
+  438:         "company_slug": company.slug,
+  439:     }
+  440: 
+  441: 
+  442: async def company_mini_payload(db: AsyncSession, company_id: UUID) -> Dict[str, Any]:
+  443:     company = await get_company_or_404(db, company_id)
+  444:     return {
+  445:         "id": company.id,
+  446:         "name": company.name,
+  447:         "slug": company.slug,
+  448:         "timezone": getattr(company, "timezone", None),
+  449:         "status": getattr(company, "status", None),
+  450:         "plan": getattr(company, "plan", None),
+  451:     }
+  452: 
+  453: 
+  454: async def company_modules_payload(db: AsyncSession, company_id: UUID) -> List[Dict[str, Any]]:
+  455:     try:
+  456:         result = await db.execute(
+  457:             text(
+  458:                 """
+  459:                 SELECT
+  460:                     m.id,
+  461:                     m.code,
+  462:                     m.name,
+  463:                     m.category,
+  464:                     m.is_active,
+  465:                     cm.enabled
+  466:                 FROM company_modules cm
+  467:                 JOIN modules m ON m.id = cm.module_id
+  468:                 WHERE cm.company_id = :company_id
+  469:                 ORDER BY m.category NULLS LAST, m.code
+  470:                 """
+  471:             ),
+  472:             {"company_id": str(company_id)},
+
+===============================================================================
+BACKUPS AND PATCH FILES
+===============================================================================
+Root backups:
+
+FullName                                                                                                    LastWriteTi
+                                                                                                            me         
+--------                                                                                                    -----------
+C:\Users\valef\OneDrive\Desktop\CLONEXA\BACKUP_PERSONAL_FILTERS_CSV_VISIBLE_20260502_190906                 2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\BACKUP_PERSONAL_PHASE2_SEARCH_FIX_20260502_181452                   2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\BACKUP_PERSONAL_TABLE_AND_SEARCH_FIX_20260502_174520                2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\BACKUP_PERSONAL_LAYOUT_FIX_20260502_173630                          2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_CLIENT_BROKEN_BEFORE_PERSONAL_HORIZONTAL_FIX_20260502_172401 2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_PERSONAL_GRID_HORIZONTAL_R2_20260502_171800                  2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_WORKFORCE_PERSONAL_GRID_011C_R1_20260502_170236              2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_CLIENT_HERO_DYNAMIC_MODULES_011A_R2_20260502_154443          2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_CLIENT_PANEL_CLEAN_HEADER_011A_R1_20260502_153044            2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_COMPANY_MODULES_SEARCH_SORT_R4_20260502_151854               2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_COMPANY_MODULES_UX_R3_20260502_150931                        2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BEFORE_MODULES_UX_ACTIVE_SEARCH_20260502_150052              2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_MODULES_ADMIN_TOGGLE_010B_R2_20260502_143059                 2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_CLIENT_DYNAMIC_MODULES_010B_R1_20260502_141038               2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_HARD_CLIENT_PORTAL_FONT_CARD_010A_R6_20260502_124100         2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_CLIENT_FONT_CARD_LOAD_FIX_010A_R5_20260502_123253            2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BRANDING_FONT_CARD_FINAL_010A_R4_20260502_120852             2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BRANDING_FONT_CARD_STYLE_010A_R3_20260502_115656             2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BRANDING_UI_REAL_CONTRACT_010A_R2_20260502_113543            2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BRANDING_CONTRACT_SAVE_FIX_PART1_R1_20260502_112944          2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BRANDING_CONTRACT_RECOVERY_PART1_20260502_111746             2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BEFORE_RESTORE_GOLDEN_010A_20260502_110548                   2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_RESCUE_BRANDING_VISUAL_OK_010A_R5_20260502_104918            2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BRANDING_PERSISTENCE_CLIENT_FONT_010A_R4_20260502_103711     2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_ADMIN_V2_CACHE_BUST_010A_R3_20260502_101331                  2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_REMOVE_DEAD_PALETTE_LISTENER_010A_R3_20260502_100412         2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_HARD_BRANDING_STUDIO_CLEAN_FONT_010A_R2_20260502_100300      2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BRANDING_STUDIO_CLEAN_FONT_010A_R1_20260502_095618           2/05/202...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_DIRECT_CLIENT_PORTAL_DESIGN_SYSTEM_010A_20260430_182657      30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_DIRECT_GRADIENT_LOGO_FUTURISTIC_009F_R2_20260430_180201      30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_GOLDEN_BEFORE_CLIENT_TENANT_009E_R1_20260430_175142          30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_DIRECT_CLIENT_TENANT_ROUTING_009E_R2_20260430_171852         30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_GOLDEN_BEFORE_CLIENT_TENANT_009E_R1_20260430_170941          30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_BEFORE_BRANDING_PERSISTENCE_009D_20260430_164153             30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_DIRECT_BRANDING_STUDIO_RENDER_FIX_20260430_162044            30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_REMOVE_BAD_BRANDING_INJECT_20260430_161606                   30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_SAFE_BRANDING_STUDIO_INJECT_20260430_160447                  30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_GOLDEN_BEFORE_BRANDING_STUDIO_009C_R1_20260430_155138        30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_GOLDEN_BEFORE_BRANDING_STUDIO_009C_20260430_153740           30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_GOLDEN_BEFORE_BRANDING_009B_20260430_125738                  30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_FIX_FUTURE_IMPORT_AUTH_20260430_122724                       30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_DIRECT_OWNER_TIMESTAMP_FIX_20260430_122422                   30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_HARD_FIX_OWNER_FORMDATA_20260430_121336                      30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_DIRECT_FINAL_OWNER_ACCESS_FIX_20260430_120837                30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_DIRECT_OWNER_FORM_FIX_20260430_120413                        30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_STABLE_BEFORE_APPLY_008L_20260430_114928                     30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_STABLE_BEFORE_APPLY_008K_R1_20260430_112100                  30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_STABLE_BEFORE_APPLY_008K_R1_20260430_111646                  30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_STABLE_BEFORE_APPLY_008K_20260430_105130                     30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_STABLE_ADMIN_V2_OWNER_BEFORE_008K_20260430_104541            30/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_before_apply_008j_r3_20260429_222403                         29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_before_apply_008j_r1_20260429_221035                         29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_before_apply_008j_20260429_213417                            29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_before_apply_008h_20260429_192243                            29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_stable_before_008h_20260429_191550                           29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_before_008g_20260429_185902                                  29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_owner_access_008e_20260429_174123                            29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_admin_v2_008d_20260429_170913                                29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_admin_v2_008c_20260429_163303                                29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_admin_v2_008b_20260429_161136                                29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_admin_v2_owner_access_008_20260429_155252                    29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_fix_auth_router_20260429_141155                              29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_auth_007b_20260429_135232                                    29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_admin_v2_phase1_20260429_130640                              29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_admin_data_recovery_005c_20260429_124243                     29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_client_branding_visual_005b_20260429_121306                  29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_field_engine_phase1_20260429_115304                          29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_auth_client_portal_003_20260429_101141                       29/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_microfix_002d_20260428_212729                                28/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_microfix_002c_20260428_210357                                28/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_restore_chapter3_20260428_203644                             28/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_rollback_crm_builder_20260428_203100                         28/04/20...
+C:\Users\valef\OneDrive\Desktop\CLONEXA\backup_before_crm_builder_rollback_20260428_202659                  28/04/20...
+
+
+
+Downloads ZIPs relacionados:
+
+Name                                                          FullName                                                 
+----                                                          --------                                                 
+CLONEXA_STATUS_GPT_EXPORT.ps1                                 C:\Users\valef\Downloads\CLONEXA_STATUS_GPT_EXPORT.ps1   
+CLONEXA_SUPER_CONTINUIDAD_POST_PERSONAL_PHASE2_2026_05_02.md  C:\Users\valef\Downloads\CLONEXA_SUPER_CONTINUIDAD_POS...
+CLONEXA_SUPER_CONTINUIDAD_POST_PERSONAL_PHASE2_2026_05_02.txt C:\Users\valef\Downloads\CLONEXA_SUPER_CONTINUIDAD_POS...
+clonexa_personal_2026-05-02.csv                               C:\Users\valef\Downloads\clonexa_personal_2026-05-02.csv 
+clonexa_modules_ux_improvement_active_search.zip              C:\Users\valef\Downloads\clonexa_modules_ux_improvemen...
+clonexa_branding_gradient_logo_009f.zip                       C:\Users\valef\Downloads\clonexa_branding_gradient_log...
+clonexa_client_tenant_company_id_009e_r1.zip                  C:\Users\valef\Downloads\clonexa_client_tenant_company...
+clonexa_branding_persistence_009d.zip                         C:\Users\valef\Downloads\clonexa_branding_persistence_...
+clonexa_branding_studio_surgical_009c_r1.zip                  C:\Users\valef\Downloads\clonexa_branding_studio_surgi...
+clonexa_branding_studio_functional_009c.zip                   C:\Users\valef\Downloads\clonexa_branding_studio_funct...
+clonexa_owner_access_formdata_fix_008k_r1.zip                 C:\Users\valef\Downloads\clonexa_owner_access_formdata...
+clonexa_owner_access_form_fix_008k.zip                        C:\Users\valef\Downloads\clonexa_owner_access_form_fix...
+clonexa_admin_v2_dashboard_binding_fix_008j_r3.zip            C:\Users\valef\Downloads\clonexa_admin_v2_dashboard_bi...
+clonexa_admin_v2_frontend_state_repair_008j_r1 (1).zip        C:\Users\valef\Downloads\clonexa_admin_v2_frontend_sta...
+clonexa_admin_v2_frontend_state_repair_008j_r1.zip            C:\Users\valef\Downloads\clonexa_admin_v2_frontend_sta...
+clonexa_company_lifecycle_008j.zip                            C:\Users\valef\Downloads\clonexa_company_lifecycle_008...
+clonexa_owner_access_timestamp_fix_008h.zip                   C:\Users\valef\Downloads\clonexa_owner_access_timestam...
+clonexa_admin_v2_persistence_fix_008g.zip                     C:\Users\valef\Downloads\clonexa_admin_v2_persistence_...
+clonexa_crm_builder_microfix_002d_defaults_render.zip         C:\Users\valef\Downloads\clonexa_crm_builder_microfix_...
+clonexa_crm_builder_microfix_002c.zip                         C:\Users\valef\Downloads\clonexa_crm_builder_microfix_...
+clonexa_crm_builder_functionality_fix_patch.zip               C:\Users\valef\Downloads\clonexa_crm_builder_functiona...
+clonexa_chapter3_client_panel_builder_patch.zip               C:\Users\valef\Downloads\clonexa_chapter3_client_panel...
+clonexa_company_experience_chapter3_patch.zip                 C:\Users\valef\Downloads\clonexa_company_experience_ch...
+clonexa_admin_console_patch.zip                               C:\Users\valef\Downloads\clonexa_admin_console_patch.zip 
+clonexa_build_index_v2.txt                                    C:\Users\valef\Downloads\clonexa_build_index_v2.txt      
+clonexa_core_saas_master.txt                                  C:\Users\valef\Downloads\clonexa_core_saas_master.txt    
+clonexa_saas_finish_fix.zip                                   C:\Users\valef\Downloads\clonexa_saas_finish_fix.zip     
+clonexa_saas_packages_patch.zip                               C:\Users\valef\Downloads\clonexa_saas_packages_patch.zip 
+
+
+
+
+===============================================================================
+ALEMBIC
+===============================================================================
+
+===============================================================================
+ALEMBIC CURRENT
+===============================================================================
+> alembic current
+"alembic" no se reconoce como un comando interno o externo,
+programa o archivo por lotes ejecutable.
+
+===============================================================================
+ALEMBIC HISTORY LAST
+===============================================================================
+> alembic history -r -8:current
+"alembic" no se reconoce como un comando interno o externo,
+programa o archivo por lotes ejecutable.
+
+===============================================================================
+SUMMARY FLAGS
+===============================================================================
+OK: auth_service.py contiene company_mini_payload
+OK: auth_service.py contiene company_modules_payload
+OK: auth_service.py contiene company_user_out_payload
+OK: auth_service.py contiene hash_password
+OK: auth_service.py contiene verify_password
+OK: auth_service.py contiene create_access_token
+OK: auth_service.py contiene authenticate_user
+OK: auth_service.py contiene create_company_user
+POSSIBLE_OK: auth_service.py contiene asignaciones created_at/updated_at
+
+EXPORT_FILE: C:\Users\valef\OneDrive\Desktop\CLONEXA\clonexa_backend\CLONEXA_STATUS_GPT_2026_05_02_200419.txt

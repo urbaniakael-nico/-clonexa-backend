@@ -1,0 +1,46 @@
+:root{
+  --bg:#050505;--panel:#09090b;--card:#18181b;--line:#3f3f46;--text:#f8fafc;--muted:#a1a1aa;
+  --red:#ef233c;--pink:#ff2bd6;--green:#00ff88;--blue:#38bdf8;--gold:#ffd166;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+body.field{--accent:#38bdf8;--accent2:#00ff88}
+body.hospitality{--accent:#ff2bd6;--accent2:#ffd166}
+body.retail{--accent:#ff1744;--accent2:#38bdf8}
+body.production{--accent:#ef233c;--accent2:#a1a1aa}
+body.default{--accent:#ef233c;--accent2:#ff2bd6}
+.grid{position:fixed;inset:0;background:
+ radial-gradient(circle at 10% 5%,color-mix(in srgb,var(--accent) 23%,transparent),transparent 28%),
+ radial-gradient(circle at 90% 8%,color-mix(in srgb,var(--accent2) 16%,transparent),transparent 28%),
+ linear-gradient(rgba(255,255,255,.028) 1px,transparent 1px),
+ linear-gradient(90deg,rgba(255,255,255,.028) 1px,transparent 1px);background-size:auto,auto,44px 44px,44px 44px;pointer-events:none}
+.client-shell{position:relative;min-height:100vh;padding:24px}
+.loading-panel,.password-panel{width:min(680px,100%);margin:10vh auto;background:linear-gradient(145deg,rgba(24,24,27,.94),rgba(9,9,11,.96));border:1px solid var(--line);border-radius:28px;padding:30px;box-shadow:0 0 70px rgba(239,35,60,.15)}
+.wordmark{letter-spacing:.22em;font-weight:900;color:#fff;text-shadow:0 0 22px rgba(239,35,60,.55)}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(145deg,rgba(24,24,27,.94),rgba(9,9,11,.94));border:1px solid var(--line);border-radius:26px;padding:18px 20px;box-shadow:0 0 48px rgba(0,0,0,.35)}
+.brand h1{margin:4px 0 0;font-size:32px}
+.brand p{margin:4px 0 0;color:var(--muted)}
+.badge{border:1px solid rgba(0,255,136,.36);background:rgba(0,255,136,.06);color:var(--green);border-radius:999px;padding:8px 12px;font-weight:900;font-size:12px;letter-spacing:.12em}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button,.btn{border:1px solid var(--line);border-radius:14px;padding:11px 13px;background:#111113;color:#fff;font-weight:800;cursor:pointer;text-decoration:none}
+button.primary,.btn.primary{border:0;background:linear-gradient(135deg,var(--accent),var(--red));box-shadow:0 0 26px color-mix(in srgb,var(--accent) 35%,transparent)}
+.hero{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-top:18px}
+.panel{background:linear-gradient(145deg,rgba(24,24,27,.91),rgba(9,9,11,.94));border:1px solid var(--line);border-radius:26px;padding:20px;box-shadow:0 24px 90px rgba(0,0,0,.35)}
+.panel h2{margin:0 0 10px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:18px}
+.kpi,.launch-card,.section-pill,.module-card{background:linear-gradient(145deg,rgba(24,24,27,.92),rgba(5,5,5,.94));border:1px solid #303036;border-radius:22px;padding:16px;box-shadow:0 0 36px rgba(0,0,0,.25)}
+.kpi span{display:block;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.1em}
+.kpi strong{display:block;font-size:30px;margin-top:8px}
+.launchpad{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-top:18px}
+.launch-card{min-height:120px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer;transition:.18s transform,.18s border-color}
+.launch-card:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 0 35px color-mix(in srgb,var(--accent) 28%,transparent)}
+.launch-card b{font-size:16px}
+.launch-card small{color:var(--muted)}
+.sections{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.section-pill{padding:10px 12px;border-radius:999px}
+.placeholder{margin-top:18px;color:#f8fafc;border-color:var(--accent)}
+.password-panel form{display:grid;gap:12px}
+input{background:#050505;border:1px solid #3f3f46;border-radius:14px;color:#fff;padding:13px;outline:none}
+.message{color:#fca5a5;font-weight:700}
+@media(max-width:1000px){.hero{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}.launchpad{grid-template-columns:repeat(2,1fr)}.topbar{align-items:flex-start;flex-direction:column}}
+@media(max-width:560px){.kpis,.launchpad{grid-template-columns:1fr}.client-shell{padding:14px}.brand h1{font-size:24px}}
