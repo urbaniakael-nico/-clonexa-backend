@@ -9,6 +9,7 @@
     companyModules: new Map(),
     companyUsers: new Map(),
     companyExperience: new Map(),
+    companyBotConfigs: new Map(),
     selectedCompanyId: null,
     activeView: "dashboard",
     activeDetailTab: "resumen",
@@ -388,6 +389,142 @@
     } catch (error) {
       state.companyExperience.set(companyId, { unavailable: true, error: error.message });
       return null;
+    }
+  }
+
+  const botConfigKey = (companyId, channel = "telegram") => `${companyId}:${channel}`;
+
+  function telegramConfig(companyId) {
+    return state.companyBotConfigs.get(botConfigKey(companyId, "telegram")) || null;
+  }
+
+  async function loadTelegramBotConfig(companyId, force = false) {
+    if (!companyId) return null;
+    const key = botConfigKey(companyId, "telegram");
+    if (!force && state.companyBotConfigs.has(key)) {
+      return state.companyBotConfigs.get(key);
+    }
+
+    try {
+      const data = await apiGet(`${API}/bots/companies/${companyId}/telegram`);
+      state.companyBotConfigs.set(key, data || {});
+      return data || {};
+    } catch (error) {
+      const fallback = {
+        configured: false,
+        status: "error",
+        last_error: error.message,
+      };
+      state.companyBotConfigs.set(key, fallback);
+      return fallback;
+    }
+  }
+
+  function telegramBotStatusBadge(config) {
+    const status = String(config?.status || (config?.configured ? "configured" : "not_configured"));
+    const label = config?.configured
+      ? (status === "active" ? "Conectado" : status === "error" ? "Error" : status === "inactive" ? "Inactivo" : "Configurado")
+      : "Sin configurar";
+    const cls = status === "active" ? "cx-badge-live" : status === "error" ? "cx-badge-danger" : config?.configured ? "cx-badge-primary" : "";
+    return `<span class="cx-badge ${cls}">${escapeHtml(label)}</span>`;
+  }
+
+  function renderCompanyAccessPanel(company) {
+    const config = telegramConfig(company.id);
+    const botsEnabled = moduleCodesForCompany(company.id).includes("bots");
+    const botStatus = config?.loading
+      ? `<span class="cx-badge">Cargando...</span>`
+      : telegramBotStatusBadge(config);
+
+    return `
+      <div class="cx-cards-grid" style="margin-bottom:18px">
+        <a class="cx-package-card" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer"><h3>Portal cliente</h3><p>Vista del tenant.</p></a>
+        <a class="cx-package-card" href="/admin" target="_blank" rel="noreferrer"><h3>Admin actual</h3><p>Configurador especializado.</p></a>
+        <a class="cx-package-card" href="/docs" target="_blank" rel="noreferrer"><h3>Swagger</h3><p>Documentacion API.</p></a>
+        <button class="cx-package-card" data-copy="${escapeHtml(company.id)}" type="button"><h3>Copiar Company ID</h3><p>${escapeHtml(company.id)}</p></button>
+      </div>
+
+      <section class="cx-panel">
+        <div class="cx-card-head">
+          <div>
+            <h3>Bot Telegram</h3>
+            <p>Asocia un bot de Telegram a esta empresa. El token queda vinculado al company_id y no se muestra completo.</p>
+          </div>
+          ${botStatus}
+        </div>
+
+        ${!botsEnabled ? `
+          <div class="cx-alert" style="display:block;margin:12px 0">
+            El modulo Bots no esta activo para esta empresa. Puedes guardar el token, pero activa Bots para usar captura operativa.
+          </div>
+        ` : ""}
+
+        <div class="cx-detail-grid" style="margin:14px 0">
+          <div class="cx-kv"><span>Empresa</span><strong>${escapeHtml(company.name)}</strong></div>
+          <div class="cx-kv"><span>Company ID</span><strong>${escapeHtml(company.id)}</strong></div>
+          <div class="cx-kv"><span>Token</span><strong>${escapeHtml(config?.masked_token || "No configurado")}</strong></div>
+          <div class="cx-kv"><span>Usuario bot</span><strong>${escapeHtml(config?.bot_username ? `@${config.bot_username}` : "Sin validar")}</strong></div>
+          <div class="cx-kv"><span>Ultima validacion</span><strong>${escapeHtml(config?.last_validated_at || "Sin validar")}</strong></div>
+          <div class="cx-kv"><span>Error</span><strong>${escapeHtml(config?.last_error || "Sin error")}</strong></div>
+        </div>
+
+        <form class="cx-form" id="telegramBotConfigForm" data-company-id="${escapeHtml(company.id)}">
+          <label>Nombre interno
+            <input name="name" type="text" value="${escapeHtml(config?.name || `${company.name} Telegram Bot`)}" placeholder="Bot ${escapeHtml(company.name)}" />
+          </label>
+          <label>Token Telegram BotFather
+            <input name="token" type="password" autocomplete="off" placeholder="${config?.configured ? "Pega un token nuevo solo si quieres reemplazarlo" : "Pega aqui el token de BotFather"}" />
+          </label>
+          <div class="cx-actions" style="margin-top:10px;gap:10px;flex-wrap:wrap">
+            <button class="cx-btn cx-btn-primary" type="submit">Guardar token</button>
+            <button class="cx-btn" type="button" data-test-telegram-bot="${escapeHtml(company.id)}">Probar conexion</button>
+            ${config?.configured ? `<button class="cx-btn" type="button" data-deactivate-telegram-bot="${escapeHtml(company.id)}">Desactivar bot</button>` : ""}
+          </div>
+          <small>No pegues este token en chats ni documentos. CLONEXA lo guarda por empresa y lo devuelve siempre enmascarado.</small>
+        </form>
+      </section>
+    `;
+  }
+
+  async function saveTelegramBotConfig(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const body = Object.fromEntries(new FormData(form).entries());
+    body.token = String(body.token || "").trim();
+    body.name = String(body.name || "").trim();
+
+    try {
+      const data = await apiPut(`${API}/bots/companies/${companyId}/telegram`, body);
+      state.companyBotConfigs.set(botConfigKey(companyId, "telegram"), data);
+      showToast("Token de Telegram guardado para esta empresa.");
+      const company = state.companies.find((c) => c.id === companyId);
+      if (company) renderCompanyDetailTab(company);
+    } catch (error) {
+      showToast(`No se pudo guardar el token: ${error.message}`, "error");
+    }
+  }
+
+  async function testTelegramBotConfig(companyId) {
+    try {
+      const data = await apiPost(`${API}/bots/companies/${companyId}/telegram/test`, {});
+      state.companyBotConfigs.set(botConfigKey(companyId, "telegram"), data);
+      showToast(data.ok ? "Bot Telegram validado correctamente." : "Telegram respondio con error.", data.ok ? "ok" : "error");
+      const company = state.companies.find((c) => c.id === companyId);
+      if (company) renderCompanyDetailTab(company);
+    } catch (error) {
+      showToast(`No se pudo probar Telegram: ${error.message}`, "error");
+    }
+  }
+
+  async function deactivateTelegramBotConfig(companyId) {
+    try {
+      const data = await apiPost(`${API}/bots/companies/${companyId}/telegram/deactivate`, {});
+      state.companyBotConfigs.set(botConfigKey(companyId, "telegram"), data);
+      showToast("Bot Telegram desactivado.");
+      const company = state.companies.find((c) => c.id === companyId);
+      if (company) renderCompanyDetailTab(company);
+    } catch (error) {
+      showToast(`No se pudo desactivar el bot: ${error.message}`, "error");
     }
   }
 
@@ -1969,14 +2106,17 @@
       return;
     }
     if (tab === "accesos") {
-      node.innerHTML = `
-        <div class="cx-cards-grid">
-          <a class="cx-package-card" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer"><h3>Portal cliente</h3><p>Vista del tenant.</p></a>
-          <a class="cx-package-card" href="/admin" target="_blank" rel="noreferrer"><h3>Admin actual</h3><p>Configurador especializado.</p></a>
-          <a class="cx-package-card" href="/docs" target="_blank" rel="noreferrer"><h3>Swagger</h3><p>DocumentaciÃƒÂ³n API.</p></a>
-          <button class="cx-package-card" data-copy="${escapeHtml(company.id)}" type="button"><h3>Copiar Company ID</h3><p>${escapeHtml(company.id)}</p></button>
-        </div>
-      `;
+      const key = botConfigKey(company.id, "telegram");
+      if (!state.companyBotConfigs.has(key)) {
+        state.companyBotConfigs.set(key, { loading: true });
+        loadTelegramBotConfig(company.id, true).then(() => {
+          if (state.selectedCompanyId === company.id && state.activeDetailTab === "accesos") {
+            renderCompanyDetailTab(company);
+          }
+        });
+      }
+      node.innerHTML = renderCompanyAccessPanel(company);
+      return;
     }
   }
 
@@ -2720,6 +2860,18 @@
         return;
       }
 
+      const telegramTest = event.target.closest("[data-test-telegram-bot]");
+      if (telegramTest) {
+        await testTelegramBotConfig(telegramTest.dataset.testTelegramBot);
+        return;
+      }
+
+      const telegramDeactivate = event.target.closest("[data-deactivate-telegram-bot]");
+      if (telegramDeactivate) {
+        await deactivateTelegramBotConfig(telegramDeactivate.dataset.deactivateTelegramBot);
+        return;
+      }
+
       const ensure = event.target.closest("[data-ensure-defaults]");
       if (ensure) {
         await ensureDefaults(ensure.dataset.ensureDefaults);
@@ -2769,6 +2921,11 @@
 
       if (event.target.matches("#brandingForm") && state.selectedCompanyId) {
         await saveBranding(state.selectedCompanyId, event);
+      }
+
+      if (event.target.matches("#telegramBotConfigForm")) {
+        const companyId = event.target.dataset.companyId || state.selectedCompanyId;
+        await saveTelegramBotConfig(companyId, event);
       }
     });
 

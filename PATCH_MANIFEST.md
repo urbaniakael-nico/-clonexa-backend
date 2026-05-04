@@ -1,17 +1,19 @@
-PATCH: 010B-R2 ASISTENCIA COMO BITÁCORA OPERATIVA
+PATCH: 011A-0 Admin V2 Telegram Bot Token Config
 
-Incluye:
-- client.js: cambia Asistencia de CRM/estado actual a bitácora filtrable.
-- employees.py: extiende attendance/history como bitácora operativa con filtros.
-- employees.py: agrega POST /api/v1/employees/attendance/events para captura desde bot/panel/QR.
-- workforce_attendance.py: extiende modelo de eventos.
-- workforce_attendance.py schema: extiende salida de evento.
-- Alembic: agrega columnas de bitácora sin borrar datos.
+FILES:
+- app/web/admin_v2.js
+- app/api/v1/endpoints/bots.py
+- app/models/company_bot_instance.py
+- app/models/__init__.py
+- app/schemas/bot.py
+- alembic/versions/011a0_company_bot_instances.py
+- README_ADMIN_V2_TELEGRAM_BOT_TOKEN_011A0.md
+- PATCH_MANIFEST.md
 
-No toca:
-- Admin V2
-- Login
-- Paquetes
-- Módulos SaaS
-- Personal base
-- Historial administrativo
+NO TOCA:
+- app/web/client.js
+- app/web/client.css
+- app/api/v1/endpoints/employees.py
+- login
+- docker-compose.yml
+- módulos Workforce funcionales

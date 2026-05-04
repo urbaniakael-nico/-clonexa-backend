@@ -1,6 +1,11 @@
 from app.models.base import Base
 
 try:
+    from app.models.company_bot_instance import CompanyBotInstance
+except Exception:
+    CompanyBotInstance = None
+
+try:
     from app.models.core import Company
 except Exception:
     Company = None
@@ -62,6 +67,7 @@ __all__ = [
     "Base",
     "Company",
     "CompanyUser",
+    "CompanyBotInstance",
     "WorkforcePersonnelHistory",
     "Module",
     "Package",
