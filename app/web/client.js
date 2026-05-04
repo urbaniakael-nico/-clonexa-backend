@@ -675,6 +675,10 @@
       actions.push({ label: "Ver CRM", action: "crm:open" });
     }
 
+    if (hasAnyClientModule(codes, ["payroll"])) {
+      actions.push({ label: "Ver nómina", action: "payroll:open" });
+    }
+
     if (hasAnyClientModule(codes, ["reports", "kpis"])) {
       actions.push({ label: "Ver reportes", action: "reports:open" });
     }
@@ -2152,6 +2156,783 @@
   }
 
 
+
+  /* CX_PAYROLL_CORE_013_R1_START */
+  function ensurePayrollStyles() {
+    if (document.getElementById("cxPayrollCoreStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "cxPayrollCoreStyles";
+    style.textContent = `
+      .cx-payroll-filters {
+        display: grid;
+        grid-template-columns: 170px 170px auto auto auto;
+        gap: 12px;
+        align-items: end;
+        margin: 20px 0 18px;
+      }
+
+      .cx-payroll-field label {
+        display: block;
+        margin: 0 0 7px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .12em;
+        opacity: .78;
+        font-weight: 1000;
+      }
+
+      .cx-payroll-field input {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(255,255,255,.08);
+        color: var(--cx-text, #fff);
+        border-radius: 15px;
+        padding: 13px 14px;
+        font-weight: 900;
+        outline: none;
+      }
+
+      .cx-payroll-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.08);
+        border-radius: 999px;
+        padding: 9px 13px;
+        font-size: 12px;
+        font-weight: 1000;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+
+      .cx-payroll-status.closed {
+        border-color: rgba(0,255,136,.38);
+        box-shadow: 0 0 22px rgba(0,255,136,.10);
+      }
+
+      .cx-payroll-history {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 14px;
+        margin: 18px 0 24px;
+      }
+
+      .cx-payroll-period-card {
+        border: 1px solid rgba(255,255,255,.13);
+        background: linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
+        border-radius: 22px;
+        padding: 16px;
+        box-shadow: 0 18px 48px rgba(0,0,0,.18);
+        cursor: pointer;
+        text-align: left;
+        color: inherit;
+      }
+
+      .cx-payroll-period-card:hover {
+        transform: translateY(-1px);
+        border-color: rgba(255,255,255,.25);
+      }
+
+      .cx-payroll-period-card strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 14px;
+      }
+
+      .cx-payroll-period-card span {
+        display: block;
+        opacity: .74;
+        font-size: 12px;
+        font-weight: 800;
+        margin-top: 3px;
+      }
+
+      .cx-payroll-table-wrap {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 22px;
+        background: rgba(0,0,0,.10);
+        box-shadow: 0 18px 48px rgba(0,0,0,.20);
+      }
+
+      .cx-payroll-table {
+        min-width: 1040px;
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .cx-payroll-table th,
+      .cx-payroll-table td {
+        padding: 15px 14px;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      .cx-payroll-table th {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .10em;
+        opacity: .76;
+        background: rgba(255,255,255,.06);
+      }
+
+      .cx-payroll-table td {
+        font-weight: 900;
+      }
+
+      .cx-payroll-employee {
+        display: grid;
+        gap: 4px;
+      }
+
+      .cx-payroll-employee strong {
+        font-size: 15px;
+        letter-spacing: .04em;
+      }
+
+      .cx-payroll-employee span {
+        font-size: 12px;
+        opacity: .70;
+      }
+
+      .cx-payroll-money {
+        white-space: nowrap;
+      }
+
+      .cx-payroll-empty {
+        padding: 24px;
+        border: 1px dashed rgba(255,255,255,.18);
+        border-radius: 20px;
+        background: rgba(255,255,255,.06);
+        font-weight: 900;
+      }
+
+      @media (max-width: 1000px) {
+        .cx-payroll-filters {
+          grid-template-columns: 1fr;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function payrollNumber(value) {
+    if (value === null || value === undefined || value === "") return 0;
+    const normalized = String(value)
+      .replace(/[^\d,.-]/g, "")
+      .replace(",", ".");
+    const num = Number(normalized);
+    return Number.isFinite(num) ? num : 0;
+  }
+
+  function payrollMoney(value) {
+    const num = payrollNumber(value);
+    return num.toLocaleString("es-CO", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  function payrollDateOnly(date = new Date()) {
+    const d = new Date(date);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function payrollDefaultPeriod() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return {
+      from: payrollDateOnly(start),
+      to: payrollDateOnly(now),
+    };
+  }
+
+  function payrollReadPeriod() {
+    const fallback = window.__cxPayrollPeriod || payrollDefaultPeriod();
+    return {
+      from: document.querySelector("[data-payroll-from]")?.value || fallback.from,
+      to: document.querySelector("[data-payroll-to]")?.value || fallback.to,
+    };
+  }
+
+  function payrollEventDate(event = {}) {
+    const raw = event.occurred_at || event.event_time || event.created_at || event.updated_at;
+    if (!raw) return null;
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function payrollEmployeeIdFromEvent(event = {}) {
+    return event.employee_id || event.employeeId || event.employee?.id || null;
+  }
+
+  function payrollEventType(event = {}) {
+    return String(event.event_type || event.type || event.action || "").toLowerCase();
+  }
+
+  function payrollIsCheckIn(type) {
+    return ["check_in", "entrada", "start_shift", "shift_start"].includes(type);
+  }
+
+  function payrollIsBreakStart(type) {
+    return ["break_start", "pausa", "pause", "on_break"].includes(type);
+  }
+
+  function payrollIsBreakEnd(type) {
+    return ["break_end", "reanudar", "resume", "retomar"].includes(type);
+  }
+
+  function payrollIsCheckOut(type) {
+    return ["check_out", "salida", "end_shift", "shift_end"].includes(type);
+  }
+
+  function payrollDuration(minutes) {
+    const total = Math.max(0, Math.round(Number(minutes) || 0));
+    const hNum = Math.floor(total / 60);
+    const mNum = total % 60;
+    return `${hNum}h ${String(mNum).padStart(2, "0")}m`;
+  }
+
+  function payrollParsePayload(event = {}) {
+    const raw = event.payload_json || event.metadata_json || event.payload || event.metadata || null;
+    if (!raw) return {};
+    if (typeof raw === "object") return raw;
+    try {
+      return JSON.parse(raw);
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  function payrollProjectionFromPayload(event = {}) {
+    const payload = payrollParsePayload(event);
+    const projection = payload.payroll_projection || payload.payroll || payload;
+    if (!projection || typeof projection !== "object") return null;
+
+    const regularMinutes = payrollNumber(projection.regular_minutes ?? projection.regularMinutes);
+    const extraMinutes = payrollNumber(projection.extra_minutes ?? projection.extraMinutes);
+    const projectedPay = payrollNumber(projection.projected_pay ?? projection.projectedPay);
+    const discountTotal = payrollNumber(projection.discount_total ?? projection.discountTotal);
+    const estimatedTotal = payrollNumber(projection.estimated_total ?? projection.estimatedTotal);
+
+    if (!regularMinutes && !extraMinutes && !projectedPay && !estimatedTotal) return null;
+
+    return {
+      regularMinutes,
+      extraMinutes,
+      projectedPay,
+      discountTotal,
+      estimatedTotal,
+    };
+  }
+
+  function payrollBuildClosedShifts(events = []) {
+    const sorted = (Array.isArray(events) ? events : [])
+      .map((event) => ({ event, date: payrollEventDate(event) }))
+      .filter((row) => row.date)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const open = new Map();
+    const shifts = [];
+
+    sorted.forEach(({ event, date }) => {
+      const employeeId = payrollEmployeeIdFromEvent(event);
+      if (!employeeId) return;
+
+      const type = payrollEventType(event);
+
+      if (payrollIsCheckIn(type)) {
+        open.set(employeeId, {
+          employeeId,
+          start: date,
+          end: null,
+          pausesMs: 0,
+          pauseStart: null,
+          checkOutEvent: null,
+        });
+        return;
+      }
+
+      const shift = open.get(employeeId);
+      if (!shift) return;
+
+      if (payrollIsBreakStart(type)) {
+        if (!shift.pauseStart) shift.pauseStart = date;
+        return;
+      }
+
+      if (payrollIsBreakEnd(type)) {
+        if (shift.pauseStart) {
+          shift.pausesMs += Math.max(0, date.getTime() - shift.pauseStart.getTime());
+          shift.pauseStart = null;
+        }
+        return;
+      }
+
+      if (payrollIsCheckOut(type)) {
+        const pauseUntilEnd = shift.pauseStart
+          ? Math.max(0, date.getTime() - shift.pauseStart.getTime())
+          : 0;
+
+        shift.end = date;
+        shift.pausesMs += pauseUntilEnd;
+        shift.pauseStart = null;
+        shift.checkOutEvent = event;
+        shifts.push(shift);
+        open.delete(employeeId);
+      }
+    });
+
+    return shifts;
+  }
+
+  function payrollBuildRows(employees = [], events = [], period = payrollDefaultPeriod()) {
+    const employeeMap = new Map(
+      (Array.isArray(employees) ? employees : [])
+        .map((employee) => [String(employee.id || employee.employee_id || ""), employee])
+        .filter(([id]) => id)
+    );
+
+    const fromDate = new Date(`${period.from}T00:00:00`);
+    const toDate = new Date(`${period.to}T23:59:59.999`);
+
+    const rowsByEmployee = new Map();
+
+    payrollBuildClosedShifts(events)
+      .filter((shift) => shift.end && shift.end >= fromDate && shift.end <= toDate)
+      .forEach((shift) => {
+        const employee = employeeMap.get(String(shift.employeeId)) || {};
+        const projection = payrollProjectionFromPayload(shift.checkOutEvent);
+        const payableMinutes = projection
+          ? Math.max(0, projection.regularMinutes + projection.extraMinutes)
+          : Math.max(0, Math.round((shift.end.getTime() - shift.start.getTime() - shift.pausesMs) / 60000));
+
+        const regularMinutes = projection
+          ? Math.max(0, Math.round(projection.regularMinutes))
+          : Math.min(payableMinutes, 480);
+
+        const extraMinutes = projection
+          ? Math.max(0, Math.round(projection.extraMinutes))
+          : Math.max(0, payableMinutes - 480);
+
+        const rowId = String(shift.employeeId);
+        const existing = rowsByEmployee.get(rowId) || {
+          employeeId: rowId,
+          name: employee.full_name || shift.checkOutEvent?.employee_name || "Colaborador",
+          role: employee.role || shift.checkOutEvent?.employee_role || "",
+          shifts: 0,
+          regularMinutes: 0,
+          extraMinutes: 0,
+          regularRate: payrollNumber(employee.hourly_rate_regular),
+          extraRate: payrollNumber(employee.hourly_rate_extra),
+          deduction1: payrollNumber(employee.deduction_1),
+          deduction2: payrollNumber(employee.deduction_2),
+          gross: 0,
+          discount: 0,
+          net: 0,
+        };
+
+        const regularValue = projection && projection.projectedPay
+          ? 0
+          : (regularMinutes / 60) * existing.regularRate;
+
+        const extraValue = projection && projection.projectedPay
+          ? 0
+          : (extraMinutes / 60) * existing.extraRate;
+
+        existing.shifts += 1;
+        existing.regularMinutes += regularMinutes;
+        existing.extraMinutes += extraMinutes;
+        existing.gross += projection && projection.projectedPay
+          ? projection.projectedPay
+          : regularValue + extraValue;
+
+        rowsByEmployee.set(rowId, existing);
+      });
+
+    const rows = Array.from(rowsByEmployee.values()).map((row) => {
+      row.discount = row.shifts > 0 ? row.deduction1 + row.deduction2 : 0;
+      row.net = Math.max(0, row.gross - row.discount);
+      return row;
+    });
+
+    rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return rows;
+  }
+
+  function payrollTotals(rows = []) {
+    return (Array.isArray(rows) ? rows : []).reduce(
+      (acc, row) => {
+        acc.people += 1;
+        acc.shifts += Number(row.shifts || row.closed_shifts || 0);
+        acc.regularMinutes += Number(row.regularMinutes ?? row.regular_minutes ?? 0);
+        acc.extraMinutes += Number(row.extraMinutes ?? row.extra_minutes ?? 0);
+        acc.gross += payrollNumber(row.gross ?? row.gross_amount ?? 0);
+        acc.discount += payrollNumber(row.discount ?? row.discount_amount ?? 0);
+        acc.net += payrollNumber(row.net ?? row.net_amount ?? 0);
+        return acc;
+      },
+      { people: 0, shifts: 0, regularMinutes: 0, extraMinutes: 0, gross: 0, discount: 0, net: 0 }
+    );
+  }
+
+  async function payrollLoadSourceData() {
+    const [employees, events] = await Promise.all([
+      api(`/employees?company_id=${encodeURIComponent(state.companyId)}&include_archived=true`),
+      api(`/employees/attendance/history?company_id=${encodeURIComponent(state.companyId)}&limit=1000`),
+    ]);
+
+    return {
+      employees: Array.isArray(employees) ? employees : [],
+      events: Array.isArray(events) ? events : [],
+    };
+  }
+
+  function payrollNormalizeRows(rows = []) {
+    return (Array.isArray(rows) ? rows : []).map((row) => ({
+      employeeId: String(row.employee_id || row.employeeId || row.employeeId || ""),
+      name: row.employee_name || row.name || "Colaborador",
+      role: row.employee_role || row.role || "",
+      shifts: Number(row.closed_shifts ?? row.shifts ?? 0),
+      regularMinutes: Number(row.regular_minutes ?? row.regularMinutes ?? 0),
+      extraMinutes: Number(row.extra_minutes ?? row.extraMinutes ?? 0),
+      regularRate: payrollNumber(row.hourly_rate_regular ?? row.regularRate),
+      extraRate: payrollNumber(row.hourly_rate_extra ?? row.extraRate),
+      deduction1: payrollNumber(row.deduction_1 ?? row.deduction1),
+      deduction2: payrollNumber(row.deduction_2 ?? row.deduction2),
+      gross: payrollNumber(row.gross_amount ?? row.gross),
+      discount: payrollNumber(row.discount_amount ?? row.discount),
+      net: payrollNumber(row.net_amount ?? row.net),
+    }));
+  }
+
+  function payrollNormalizeTotals(totals = {}, rows = []) {
+    if (!totals || typeof totals !== "object") return payrollTotals(rows);
+    return {
+      people: Number(totals.people ?? totals.collaborators ?? 0),
+      shifts: Number(totals.shifts ?? totals.closed_shifts ?? 0),
+      regularMinutes: Number(totals.regular_minutes ?? totals.regularMinutes ?? 0),
+      extraMinutes: Number(totals.extra_minutes ?? totals.extraMinutes ?? 0),
+      gross: payrollNumber(totals.gross_amount ?? totals.gross ?? 0),
+      discount: payrollNumber(totals.discount_amount ?? totals.discount ?? 0),
+      net: payrollNumber(totals.net_amount ?? totals.net ?? 0),
+    };
+  }
+
+  async function payrollCalculatePeriod(period = payrollDefaultPeriod()) {
+    try {
+      const payload = await api(`/payroll/companies/${encodeURIComponent(state.companyId)}/periods/calculate`, {
+        method: "POST",
+        body: JSON.stringify({
+          period_start: period.from,
+          period_end: period.to,
+        }),
+      });
+      const rows = payrollNormalizeRows(payload.rows || payload.items || []);
+      return {
+        rows,
+        totals: payrollNormalizeTotals(payload.totals || {}, rows),
+        period: {
+          from: payload.period?.period_start || payload.period_start || period.from,
+          to: payload.period?.period_end || payload.period_end || period.to,
+        },
+        source: "api",
+      };
+    } catch (error) {
+      const source = await payrollLoadSourceData();
+      const rows = payrollBuildRows(source.employees, source.events, period);
+      return {
+        rows,
+        totals: payrollTotals(rows),
+        period,
+        source: "fallback",
+        warning: error.message || "No se pudo usar el endpoint de nómina.",
+      };
+    }
+  }
+
+  async function payrollListPeriods() {
+    try {
+      const rows = await api(`/payroll/companies/${encodeURIComponent(state.companyId)}/periods`);
+      return Array.isArray(rows) ? rows : [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  async function payrollGetPeriod(periodId) {
+    return api(`/payroll/companies/${encodeURIComponent(state.companyId)}/periods/${encodeURIComponent(periodId)}`);
+  }
+
+  async function payrollClosePeriod(period = payrollDefaultPeriod()) {
+    return api(`/payroll/companies/${encodeURIComponent(state.companyId)}/periods/close`, {
+      method: "POST",
+      body: JSON.stringify({
+        period_start: period.from,
+        period_end: period.to,
+        name: `Nómina ${period.from} / ${period.to}`,
+      }),
+    });
+  }
+
+  function payrollCards(totals = {}) {
+    return `
+      <div class="client-kpi-grid">
+        <div class="client-kpi">
+          <span>Colaboradores con cierre</span>
+          <strong>${h(totals.people || 0)}</strong>
+        </div>
+        <div class="client-kpi">
+          <span>Horas ordinarias</span>
+          <strong>${h(payrollDuration(totals.regularMinutes || 0))}</strong>
+        </div>
+        <div class="client-kpi">
+          <span>Horas extra</span>
+          <strong>${h(payrollDuration(totals.extraMinutes || 0))}</strong>
+        </div>
+        <div class="client-kpi">
+          <span>Total neto estimado</span>
+          <strong>${h(payrollMoney(totals.net || 0))}</strong>
+        </div>
+      </div>
+    `;
+  }
+
+  function payrollPeriodsList(periods = []) {
+    if (!Array.isArray(periods) || !periods.length) {
+      return `<div class="cx-payroll-empty">Aún no hay periodos cerrados. Calcula un periodo y presiona “Cerrar periodo”.</div>`;
+    }
+
+    return `
+      <div class="cx-payroll-history">
+        ${periods.slice(0, 12).map((period) => `
+          <button class="cx-payroll-period-card" type="button" data-payroll-open-period="${h(period.id)}">
+            <strong>${h(period.name || "Periodo de nómina")}</strong>
+            <span>${h(period.period_start)} → ${h(period.period_end)}</span>
+            <span>Total: ${h(payrollMoney(period.net_amount ?? period.totals_json?.net_amount ?? period.totals_json?.net ?? 0))}</span>
+            <span>Estado: ${h(period.status || "cerrado")}</span>
+          </button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function payrollRowsTable(rows = []) {
+    if (!rows.length) {
+      return `<div class="cx-payroll-empty">No hay turnos cerrados para el periodo seleccionado.</div>`;
+    }
+
+    return `
+      <div class="cx-payroll-table-wrap">
+        <table class="cx-payroll-table">
+          <thead>
+            <tr>
+              <th>Colaborador</th>
+              <th>Turnos cerrados</th>
+              <th>Ordinarias</th>
+              <th>Extras</th>
+              <th>Bruto</th>
+              <th>Descuento corte</th>
+              <th>Total estimado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>
+                  <div class="cx-payroll-employee">
+                    <strong>${h(row.name)}</strong>
+                    <span>${h(row.role || "Sin rol")}</span>
+                  </div>
+                </td>
+                <td>${h(row.shifts)}</td>
+                <td>${h(payrollDuration(row.regularMinutes))}</td>
+                <td>${h(payrollDuration(row.extraMinutes))}</td>
+                <td class="cx-payroll-money">${h(payrollMoney(row.gross))}</td>
+                <td class="cx-payroll-money">${h(payrollMoney(row.discount))}</td>
+                <td class="cx-payroll-money">${h(payrollMoney(row.net))}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function exportPayrollCsv() {
+    const rows = Array.isArray(window.__cxPayrollRows) ? window.__cxPayrollRows : [];
+    const totals = window.__cxPayrollTotals || payrollTotals(rows);
+    const period = window.__cxPayrollPeriod || payrollDefaultPeriod();
+    const mode = window.__cxPayrollMode || "abierto";
+    const data = [
+      ["Empresa", state.company?.name || ""],
+      ["Periodo", `${period.from} / ${period.to}`],
+      ["Modo", mode],
+      [],
+      ["Colaborador", "Rol", "Turnos cerrados", "Ordinarias", "Extras", "Bruto", "Descuento corte", "Total estimado"],
+      ...rows.map((row) => [
+        row.name,
+        row.role || "",
+        row.shifts,
+        payrollDuration(row.regularMinutes),
+        payrollDuration(row.extraMinutes),
+        payrollMoney(row.gross),
+        payrollMoney(row.discount),
+        payrollMoney(row.net),
+      ]),
+      [],
+      ["TOTAL", "", totals.shifts, payrollDuration(totals.regularMinutes), payrollDuration(totals.extraMinutes), payrollMoney(totals.gross), payrollMoney(totals.discount), payrollMoney(totals.net)],
+    ];
+
+    const csv = data.map((line) => line.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clonexa_nomina_${period.from}_${period.to}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    URL.revokeObjectURL(url);
+  }
+
+  async function renderPayrollModule(period = payrollDefaultPeriod(), options = {}) {
+    if (!isClientModuleActive("payroll")) {
+      render();
+      return;
+    }
+
+    ensurePayrollStyles();
+
+    const company = state.company || {};
+    let rows = [];
+    let totals = payrollTotals([]);
+    let periods = [];
+    let loadError = "";
+    let loadWarning = "";
+    let mode = "Periodo abierto";
+    let selectedClosed = null;
+
+    try {
+      periods = await payrollListPeriods();
+
+      if (options.closedPeriod) {
+        selectedClosed = options.closedPeriod;
+      } else if (options.closedPeriodId) {
+        selectedClosed = await payrollGetPeriod(options.closedPeriodId);
+      }
+
+      if (selectedClosed) {
+        rows = payrollNormalizeRows(selectedClosed.rows || selectedClosed.items || []);
+        totals = payrollNormalizeTotals(selectedClosed.totals || selectedClosed.totals_json || {}, rows);
+        period = {
+          from: selectedClosed.period?.period_start || selectedClosed.period_start || period.from,
+          to: selectedClosed.period?.period_end || selectedClosed.period_end || period.to,
+        };
+        mode = "Histórico cerrado";
+      } else {
+        const calculated = await payrollCalculatePeriod(period);
+        rows = calculated.rows;
+        totals = calculated.totals;
+        period = calculated.period || period;
+        loadWarning = calculated.warning || "";
+      }
+    } catch (error) {
+      rows = [];
+      totals = payrollTotals([]);
+      periods = [];
+      loadError = error.message || "No se pudo cargar nómina.";
+    }
+
+    window.__cxPayrollRows = rows;
+    window.__cxPayrollTotals = totals;
+    window.__cxPayrollPeriod = period;
+    window.__cxPayrollMode = mode;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+
+            <nav class="client-nav">
+              ${renderClientNav("payroll")}
+            </nav>
+
+            <div class="client-footer-id">
+              <strong>Tenant activo</strong><br>
+              ${h(state.companyId || "")}
+            </div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Nómina</div>
+              <h1 class="client-title">Nómina</h1>
+              <p class="client-muted">Consulta cortes abiertos o históricos congelados por periodo.</p>
+
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-payroll-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-payroll-export>CSV</button>
+              </div>
+
+              ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+              ${loadWarning ? `<div class="personal-toast">${h(loadWarning)}</div>` : ""}
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Periodo</div>
+              <h2>Resumen de nómina</h2>
+              <p class="client-muted">Nómina consume Workforce, Bot y Asistencia. Al cerrar un periodo guarda una foto histórica para consultas futuras.</p>
+
+              <div class="cx-payroll-status ${selectedClosed ? "closed" : ""}">
+                ${h(mode)}
+              </div>
+
+              <div class="cx-payroll-filters">
+                <div class="cx-payroll-field">
+                  <label>Desde</label>
+                  <input type="date" data-payroll-from value="${h(period.from)}">
+                </div>
+                <div class="cx-payroll-field">
+                  <label>Hasta</label>
+                  <input type="date" data-payroll-to value="${h(period.to)}">
+                </div>
+                <button class="client-btn" type="button" data-payroll-apply>Calcular periodo</button>
+                <button class="client-btn" type="button" data-payroll-close ${selectedClosed ? "disabled" : ""}>Cerrar periodo</button>
+                <button class="client-btn" type="button" data-payroll-export>Exportar CSV</button>
+              </div>
+
+              ${payrollCards(totals)}
+
+              <div class="client-eyebrow" style="margin-top:28px">Detalle por colaborador</div>
+              <h2>${selectedClosed ? "Histórico cerrado" : "Periodo abierto calculado"}</h2>
+              ${payrollRowsTable(rows)}
+
+              <div class="client-eyebrow" style="margin-top:32px">Historial</div>
+              <h2>Nóminas cerradas</h2>
+              ${payrollPeriodsList(periods)}
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CX_PAYROLL_CORE_013_R1_END */
+
   async function renderClientModulePlaceholder(code) {
     const company = state.company || {};
     $("app").innerHTML = `
@@ -2373,6 +3154,11 @@
           return;
         }
 
+        if (action === "payroll:open" && isClientModuleActive("payroll")) {
+          await renderPayrollModule();
+          return;
+        }
+
         if (action === "reports:open" && isClientModuleActive("reports")) {
           await renderClientModulePlaceholder("reports");
           return;
@@ -2400,7 +3186,49 @@
           return;
         }
 
+        if (code === "payroll") {
+          await renderPayrollModule();
+          return;
+        }
+
         await renderClientModulePlaceholder(code);
+        return;
+      }
+
+      if (target.closest("[data-payroll-apply]") || target.closest("[data-payroll-refresh]")) {
+        await renderPayrollModule(payrollReadPeriod());
+        return;
+      }
+
+      if (target.closest("[data-payroll-close]")) {
+        const period = payrollReadPeriod();
+        if (!period.from || !period.to) return;
+        const button = target.closest("[data-payroll-close]");
+        if (button?.disabled) return;
+        if (!confirm(`Cerrar nómina del ${period.from} al ${period.to}? Quedará guardada como histórico.`)) return;
+        try {
+          if (button) {
+            button.disabled = true;
+            button.textContent = "Cerrando...";
+          }
+          const closed = await payrollClosePeriod(period);
+          await renderPayrollModule(period, { closedPeriod: closed });
+        } catch (error) {
+          alert(error.message || "No se pudo cerrar el periodo.");
+          await renderPayrollModule(period);
+        }
+        return;
+      }
+
+      const payrollPeriodButton = target.closest("[data-payroll-open-period]");
+      if (payrollPeriodButton) {
+        const periodId = payrollPeriodButton.dataset.payrollOpenPeriod;
+        if (periodId) await renderPayrollModule(window.__cxPayrollPeriod || payrollDefaultPeriod(), { closedPeriodId: periodId });
+        return;
+      }
+
+      if (target.closest("[data-payroll-export]")) {
+        exportPayrollCsv();
         return;
       }
 

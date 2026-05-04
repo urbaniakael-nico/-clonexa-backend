@@ -1,10 +1,14 @@
-# PATCH MANIFEST — 011A3-R4
+PATCH: 013-R3 PAYROLL CLOSE FINAL FIX
+FILES:
+- app/api/v1/endpoints/payroll.py
 
-Incluye:
+BACKUP REQUIRED:
+- app/api/v1/endpoints/payroll.py
+
+DO NOT TOUCH:
+- app/web/client.js
 - app/api/v1/endpoints/bots.py
-- README_BOT_CIERRE_TURNO_LIMPIO_PAYROLL_011A3_R4.md
-
-Objetivo:
-- Mensaje de cierre limpio para trabajador.
-- Proyección de pago usando datos de Workforce/Personal.
-- Datos estructurados para futuro módulo Nómina.
+- app/api/v1/endpoints/employees.py
+- CRM
+- Workforce
+- Bot listener

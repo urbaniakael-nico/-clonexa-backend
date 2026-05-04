@@ -486,7 +486,7 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "break_started": "☕ Pausa registrada.\nEste tiempo NO suma para nómina ni KPIs de producción.",
         "work_resumed": "✅ Retomaste labores.\nEl tiempo pagable vuelve a contar.",
         "shift_ended": "🏁 Turno finalizado.",
-        "shift_summary": "Feliz descanso, {employee_name}.\n\nTotal horas acumuladas:\nOrdinarias: {regular}\nExtras: {extra}\n\nProyección pago: {projected_pay}\nDescuento del corte: {discount}\nTotal estimado: {estimated_total}",
+        "shift_summary": "Feliz descanso, {employee_name}.\n\nTotal acumulado del corte:\nOrdinarias: {regular}\nExtras: {extra}\n\nProyección pago: {projected_pay}\nDescuento del corte: {discount}\nTotal estimado: {estimated_total}",
         "observation_saved": "📝 Observación registrada.",
         "material_requested": "📦 Solicitud de material registrada.",
         "location_requested": "📍 Solicitud de ubicación registrada. Para ubicación real, usa compartir ubicación en Telegram.",
@@ -532,7 +532,7 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "break_started": "☕ Break registered.\nThis time does NOT count for payroll or production KPIs.",
         "work_resumed": "✅ Work resumed.\nPayable time is counting again.",
         "shift_ended": "🏁 Shift ended.",
-        "shift_summary": "Rest well, {employee_name}.\n\nAccumulated hours:\nRegular: {regular}\nOvertime: {extra}\n\nProjected pay: {projected_pay}\nPeriod discount: {discount}\nEstimated total: {estimated_total}",
+        "shift_summary": "Rest well, {employee_name}.\n\nCurrent payroll period total:\nRegular: {regular}\nOvertime: {extra}\n\nProjected pay: {projected_pay}\nPeriod discount: {discount}\nEstimated total: {estimated_total}",
         "observation_saved": "📝 Observation saved.",
         "material_requested": "📦 Material request saved.",
         "location_requested": "📍 Location request saved. For real location, use Telegram location sharing.",
@@ -578,7 +578,7 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "break_started": "☕ Pause enregistrée.\nCe temps ne compte PAS pour la paie ni les KPIs de production.",
         "work_resumed": "✅ Reprise du travail.\nLe temps payable compte à nouveau.",
         "shift_ended": "🏁 Service terminé.",
-        "shift_summary": "Bon repos, {employee_name}.\n\nHeures cumulées :\nOrdinaires : {regular}\nSupplémentaires : {extra}\n\nProjection paiement : {projected_pay}\nRemise de la période : {discount}\nTotal estimé : {estimated_total}",
+        "shift_summary": "Bon repos, {employee_name}.\n\nTotal cumulé de la période :\nOrdinaires : {regular}\nSupplémentaires : {extra}\n\nProjection paiement : {projected_pay}\nRemise de la période : {discount}\nTotal estimé : {estimated_total}",
         "observation_saved": "📝 Observation enregistrée.",
         "material_requested": "📦 Demande de matériel enregistrée.",
         "location_requested": "📍 Demande de localisation enregistrée. Pour la localisation réelle, utilisez le partage de position Telegram.",
@@ -992,7 +992,7 @@ async def _shift_end_projection(
 ) -> dict[str, Any] | None:
     """
     CLONEXA 011A3-R4:
-    Calcula la proyección limpia de cierre y deja datos estructurados para Nómina.
+    Calcula la proyección de la jornada cerrada y deja datos estructurados para Nómina.
     Los descuentos son del corte/periodo, no descuento por cada jornada.
     """
     if started_at is None:
@@ -1017,7 +1017,7 @@ async def _shift_end_projection(
     extra_amount = _money_decimal(Decimal(extra_minutes) / Decimal(60) * extra_rate)
     projected_pay = _money_decimal(regular_amount + extra_amount)
     discount_total = _money_decimal(deduction_1 + deduction_2)
-    estimated_total = _money_decimal(projected_pay - discount_total)
+    estimated_total = _money_decimal(max(Decimal("0.00"), projected_pay - discount_total))
 
     return {
         "gross_minutes": gross_minutes,
@@ -1039,6 +1039,103 @@ async def _shift_end_projection(
     }
 
 
+def _current_payroll_cutoff_start(moment: datetime) -> datetime:
+    """
+    Corte estándar CLONEXA:
+    - día 1 al 15
+    - día 16 al último día del mes
+
+    Se usa para que el bot muestre acumulado del corte, no liquidación aislada por jornada.
+    """
+    if moment.day <= 15:
+        return moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return moment.replace(day=16, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _projection_from_payload(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    projection = payload.get("payroll_projection") or payload.get("payroll")
+    if not isinstance(projection, dict):
+        return None
+    try:
+        return {
+            "regular_minutes": int(Decimal(str(projection.get("regular_minutes") or 0))),
+            "extra_minutes": int(Decimal(str(projection.get("extra_minutes") or 0))),
+            "projected_pay": _money_decimal(projection.get("projected_pay") or 0),
+        }
+    except Exception:
+        return None
+
+
+async def _payroll_cutoff_projection(
+    db: AsyncSession,
+    *,
+    employee: Employee,
+    ended_at: datetime,
+    fallback_projection: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """
+    Suma todos los check_out del empleado dentro del corte actual.
+    El descuento se aplica una sola vez al corte.
+    """
+    period_start = _current_payroll_cutoff_start(ended_at)
+
+    result = await db.execute(
+        select(WorkforceAttendanceEvent)
+        .where(
+            WorkforceAttendanceEvent.company_id == employee.company_id,
+            WorkforceAttendanceEvent.employee_id == employee.id,
+            WorkforceAttendanceEvent.event_type == "check_out",
+            WorkforceAttendanceEvent.occurred_at >= period_start,
+            WorkforceAttendanceEvent.occurred_at <= ended_at,
+        )
+        .order_by(WorkforceAttendanceEvent.occurred_at.asc())
+    )
+    events = list(result.scalars().all())
+
+    regular_minutes = 0
+    extra_minutes = 0
+    projected_pay = Decimal("0.00")
+
+    for event in events:
+        projection = _projection_from_payload(event.payload_json)
+        if not projection:
+            continue
+        regular_minutes += max(0, int(projection["regular_minutes"]))
+        extra_minutes += max(0, int(projection["extra_minutes"]))
+        projected_pay += _money_decimal(projection["projected_pay"])
+
+    # Fallback: si por cualquier razón el evento actual todavía no quedó visible en la sesión,
+    # respondemos al menos con la jornada recién cerrada.
+    if not events and fallback_projection:
+        regular_minutes = max(0, int(fallback_projection.get("regular_minutes") or 0))
+        extra_minutes = max(0, int(fallback_projection.get("extra_minutes") or 0))
+        projected_pay = _money_decimal(fallback_projection.get("projected_pay") or 0)
+
+    if regular_minutes == 0 and extra_minutes == 0 and projected_pay == Decimal("0.00"):
+        return None
+
+    deduction_1 = _money_decimal(getattr(employee, "deduction_1", 0))
+    deduction_2 = _money_decimal(getattr(employee, "deduction_2", 0))
+    discount_total = _money_decimal(deduction_1 + deduction_2)
+    estimated_total = _money_decimal(max(Decimal("0.00"), projected_pay - discount_total))
+
+    return {
+        "period_start": period_start.isoformat(),
+        "period_end": ended_at.isoformat(),
+        "regular_minutes": regular_minutes,
+        "extra_minutes": extra_minutes,
+        "projected_pay": str(_money_decimal(projected_pay)),
+        "deduction_1": str(deduction_1),
+        "deduction_2": str(deduction_2),
+        "discount_total": str(discount_total),
+        "estimated_total": str(estimated_total),
+        "discount_scope": "payroll_period",
+        "source": "workforce_personal_cutoff",
+    }
+
+
 async def _shift_end_summary_message(
     db: AsyncSession,
     *,
@@ -1048,24 +1145,31 @@ async def _shift_end_summary_message(
     language: str,
 ) -> str:
     base = _txt(language, "shift_ended")
-    projection = await _shift_end_projection(
+    shift_projection = await _shift_end_projection(
         db,
         employee=employee,
         started_at=started_at,
         ended_at=ended_at,
     )
-    if projection is None:
+    if shift_projection is None:
         return base
+
+    cutoff_projection = await _payroll_cutoff_projection(
+        db,
+        employee=employee,
+        ended_at=ended_at,
+        fallback_projection=shift_projection,
+    ) or shift_projection
 
     summary = _txt(
         language,
         "shift_summary",
         employee_name=(employee.full_name or "").strip() or "colaborador",
-        regular=_format_minutes(int(projection["regular_minutes"])),
-        extra=_format_minutes(int(projection["extra_minutes"])),
-        projected_pay=_format_money(Decimal(str(projection["projected_pay"]))),
-        discount=_format_money(Decimal(str(projection["discount_total"]))),
-        estimated_total=_format_money(Decimal(str(projection["estimated_total"]))),
+        regular=_format_minutes(int(cutoff_projection["regular_minutes"])),
+        extra=_format_minutes(int(cutoff_projection["extra_minutes"])),
+        projected_pay=_format_money(Decimal(str(cutoff_projection["projected_pay"]))),
+        discount=_format_money(Decimal(str(cutoff_projection["discount_total"]))),
+        estimated_total=_format_money(Decimal(str(cutoff_projection["estimated_total"]))),
     )
     return f"{base}\n\n{summary}"
 
@@ -1219,12 +1323,22 @@ async def _create_bot_attendance_event(
         if projection is not None:
             payload = dict(event.payload_json or {})
             payload["payroll_projection"] = projection
+            cutoff_projection = await _payroll_cutoff_projection(
+                db,
+                employee=employee,
+                ended_at=occurred_at,
+                fallback_projection=projection,
+            )
+            if cutoff_projection is not None:
+                payload["payroll_cutoff_projection"] = cutoff_projection
             payload["payroll_ready"] = True
             payload["payroll_note"] = "Descuentos informativos por corte; no se aplican como descuento por jornada."
             event.payload_json = payload
             metadata = dict(event.metadata_json or {})
             metadata["payroll_ready"] = True
             metadata["discount_scope"] = "payroll_period"
+            if cutoff_projection is not None:
+                metadata["payroll_cutoff_ready"] = True
             event.metadata_json = metadata
             await db.flush()
 
@@ -1607,6 +1721,7 @@ async def _poll_telegram_updates_for_company(
 
         updates = telegram_payload.get("result") or []
         processed: list[TelegramBotPollItem] = []
+        next_offset = int(config.get("telegram_update_offset") or 0)
 
         for update in updates:
             update_id_value = update.get("update_id")
@@ -1625,35 +1740,26 @@ async def _poll_telegram_updates_for_company(
                     )
                 )
 
-            # 011A3-R3: avanzar offset por update procesado/descartado.
-            # Evita que Telegram reenvíe el mismo callback y el bot parezca "gestionarse solo".
+            # Avanzamos offset aunque el update falle para evitar reprocesar callbacks viejos.
             if isinstance(update_id_value, int):
-                config = dict(row.config_json or config)
-                config["telegram_update_offset"] = max(
-                    int(config.get("telegram_update_offset") or 0),
-                    update_id_value + 1,
-                )
-                config["last_poll_at"] = utcnow().isoformat()
-                config["last_poll_count"] = len(processed)
-                config["listener_running"] = True
-                config["listener_error"] = None
-                config["listener_updated_at"] = utcnow().isoformat()
-                row.config_json = config
-                row.status = "active"
-                row.last_error = None
-                row.updated_at = utcnow()
-                await db.commit()
+                next_offset = max(next_offset, update_id_value + 1)
 
-        config["last_poll_at"] = utcnow().isoformat()
-        config["last_poll_count"] = len(processed)
-        config["listener_running"] = True
-        config["listener_error"] = None
-        config["listener_updated_at"] = utcnow().isoformat()
-        row.config_json = config
-        row.status = "active"
-        row.last_error = None
-        row.updated_at = utcnow()
-        await db.commit()
+        # 013-R2:
+        # Persistimos offset solo si hubo updates. No actualizamos last_poll_at cada 3 segundos,
+        # porque eso genera lock churn/deadlocks en company_bot_instances cuando hay varios bots.
+        if updates:
+            config = dict(row.config_json or config)
+            config["telegram_update_offset"] = next_offset
+            config["last_poll_at"] = utcnow().isoformat()
+            config["last_poll_count"] = len(processed)
+            config["listener_running"] = True
+            config["listener_error"] = None
+            config["listener_updated_at"] = utcnow().isoformat()
+            row.config_json = config
+            row.status = "active"
+            row.last_error = None
+            row.updated_at = utcnow()
+            await db.commit()
 
         return TelegramBotPollOut(
             ok=True,
@@ -1661,7 +1767,7 @@ async def _poll_telegram_updates_for_company(
             bot_username=row.bot_username,
             received=len(updates),
             processed=len(processed),
-            next_offset=config.get("telegram_update_offset"),
+            next_offset=next_offset or config.get("telegram_update_offset"),
             items=processed,
         )
 
