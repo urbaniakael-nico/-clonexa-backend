@@ -11,6 +11,7 @@
     companyId: null,
     companyModules: [],
     personalHistoryRows: [],
+    dashboardMetrics: {},
   };
 
   const h = (value) =>
@@ -456,6 +457,12 @@
         min-height: 132px;
         border-radius: 22px;
         padding: 20px;
+        width: 100%;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        border: 0;
+        font: inherit;
       }
 
       .client-module-card strong {
@@ -580,6 +587,25 @@
     return active;
   }
 
+  function visibleClientModules(modules = activeClientModules()) {
+    return (Array.isArray(modules) ? modules : []).filter((item) => item.code !== "core");
+  }
+
+  function isClientModuleActive(code) {
+    const normalized = String(code || "").trim();
+    if (!normalized || normalized === "core") return false;
+    return activeClientModules().some((module) => module.code === normalized && module.enabled);
+  }
+
+  function clientVisibleModuleCodes(modules = activeClientModules()) {
+    return clientModuleCodes(visibleClientModules(modules));
+  }
+
+  function moduleLabel(code) {
+    const meta = MODULE_UI[String(code || "").trim()];
+    return meta ? meta[0] : String(code || "Modulo");
+  }
+
 
 
   function clientModuleCodes(modules = []) {
@@ -595,87 +621,62 @@
   }
 
   function buildClientHeroKpis(modules = [], company = {}) {
-    const codes = clientModuleCodes(modules);
-    const total = Array.isArray(modules) ? modules.length : 0;
+    const visible = visibleClientModules(modules);
+    const codes = clientModuleCodes(visible);
+    const total = Array.isArray(visible) ? visible.length : 0;
+    const metrics = state.dashboardMetrics || {};
 
     const kpis = [];
 
-    if (hasAnyClientModule(codes, ["workforce", "core"])) {
-      kpis.push(["Personal activo", "18"]);
+    if (hasAnyClientModule(codes, ["workforce"])) {
+      kpis.push(["Personal activo", String(metrics.activeEmployees ?? "0")]);
     }
 
-    if (hasAnyClientModule(codes, ["gps", "field"])) {
-      kpis.push(["GPS / Ubicacion", "ON"]);
-    }
-
-    if (hasAnyClientModule(codes, ["orders", "hospitality", "tables"])) {
-      kpis.push(["Pedidos activos", "7"]);
-    }
-
-    if (hasAnyClientModule(codes, ["inventory", "stock", "materials"])) {
-      kpis.push(["Inventario", "OK"]);
-    }
-
-    if (hasAnyClientModule(codes, ["requests", "tasks", "crm"])) {
-      kpis.push(["Solicitudes", "7"]);
-    }
-
-    if (hasAnyClientModule(codes, ["payroll", "payroll_biweekly"])) {
-      kpis.push(["Nomina", "Activa"]);
+    if (hasAnyClientModule(codes, ["bots"])) {
+      const botStatus = String(metrics.botStatus || "").toLowerCase();
+      const connected = metrics.botConfigured && !["error", "inactive", "not_configured"].includes(botStatus);
+      kpis.push(["Canales", connected ? "ON" : "OFF"]);
     }
 
     if (hasAnyClientModule(codes, ["reports", "kpis"])) {
       kpis.push(["Reportes", "OK"]);
     }
 
-    if (hasAnyClientModule(codes, ["bots", "qr"])) {
-      kpis.push(["Canales", "ON"]);
+    if (hasAnyClientModule(codes, ["sales"])) {
+      kpis.push(["Ventas", metrics.salesToday ?? "0"]);
+    }
+
+    if (hasAnyClientModule(codes, ["stores"])) {
+      kpis.push(["Tiendas", metrics.storesActive ?? "OK"]);
     }
 
     if (!kpis.length) {
       kpis.push(["Empresa", company.name || "Activa"]);
       kpis.push(["Modulos activos", String(total)]);
       kpis.push(["Estado", "LIVE"]);
-      kpis.push(["Actividad hoy", "OK"]);
     }
 
     return kpis.slice(0, 4);
   }
 
   function buildClientHeroActions(modules = []) {
-    const codes = clientModuleCodes(modules);
+    const codes = clientModuleCodes(visibleClientModules(modules));
     const actions = [];
 
-    if (hasAnyClientModule(codes, ["workforce", "core"])) {
-      actions.push("Agregar personal");
+    if (hasAnyClientModule(codes, ["workforce"])) {
+      actions.push({ label: "Agregar personal", action: "workforce:add" });
     }
 
-    if (hasAnyClientModule(codes, ["tasks", "requests", "crm", "field"])) {
-      actions.push("Crear tarea operativa");
-    }
-
-    if (hasAnyClientModule(codes, ["materials", "inventory", "stock"])) {
-      actions.push("Solicitar material");
-    }
-
-    if (hasAnyClientModule(codes, ["orders", "hospitality", "tables"])) {
-      actions.push("Crear pedido");
-    }
-
-    if (hasAnyClientModule(codes, ["gps"])) {
-      actions.push("Ver ubicacion");
-    }
-
-    if (hasAnyClientModule(codes, ["payroll", "payroll_biweekly"])) {
-      actions.push("Ver nomina");
+    if (hasAnyClientModule(codes, ["bots"])) {
+      actions.push({ label: "Ver bot", action: "bots:open" });
     }
 
     if (hasAnyClientModule(codes, ["reports", "kpis"])) {
-      actions.push("Ver reportes");
+      actions.push({ label: "Ver reportes", action: "reports:open" });
     }
 
     if (!actions.length) {
-      actions.push("Ver operacion");
+      actions.push({ label: "Ver operacion", action: "dashboard" });
     }
 
     return actions.slice(0, 3);
@@ -694,8 +695,24 @@
 
   function renderClientHeroActions(modules = []) {
     return buildClientHeroActions(modules)
-      .map((label) => `<button class="client-btn">${h(label)}</button>`)
+      .map((item) => `<button class="client-btn" type="button" data-client-action="${h(item.action)}">${h(item.label)}</button>`)
       .join("");
+  }
+
+  function renderClientNav(activeCode = "dashboard") {
+    const modules = visibleClientModules(activeClientModules());
+    const buttons = [`<button class="${activeCode === "dashboard" ? "active" : ""}" type="button" data-client-back-dashboard>Dashboard</button>`];
+
+    modules.forEach((module) => {
+      const code = module.code;
+      buttons.push(`
+        <button class="${activeCode === code ? "active" : ""}" type="button" data-client-module="${h(code)}">
+          ${h(module.title)}
+        </button>
+      `);
+    });
+
+    return buttons.join("");
   }
 
 
@@ -1498,6 +1515,149 @@
     }, 2600);
   }
 
+  async function loadClientBotConfig() {
+    if (!state.companyId) return null;
+    try {
+      return await api(`/bots/companies/${state.companyId}/telegram`);
+    } catch (error) {
+      return { configured: false, status: "error", last_error: error.message || "No se pudo cargar bot" };
+    }
+  }
+
+  function botStatusLabel(status) {
+    const value = String(status || "not_configured").toLowerCase();
+    if (value === "listening") return "Escuchando";
+    if (["active", "configured", "connected"].includes(value)) return "Conectado";
+    if (value === "inactive") return "Inactivo";
+    if (value === "error") return "Error";
+    if (value === "not_configured") return "No configurado";
+    return value;
+  }
+
+  async function renderBotsModule() {
+    const company = state.company || {};
+    const bot = await loadClientBotConfig();
+    const configured = !!bot?.configured;
+    const status = botStatusLabel(bot?.status);
+    const botName = bot?.name || `${company.name || "Empresa"} Bot`;
+    const botUsername = bot?.bot_username || "Sin configurar";
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+
+            <nav class="client-nav">
+              ${renderClientNav("bots")}
+            </nav>
+
+            <div class="client-footer-id">
+              <strong>Tenant activo</strong><br>
+              ${h(state.companyId || "")}
+            </div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Bots</div>
+              <h1 class="client-title">Bots</h1>
+              <p class="client-muted">Estado operativo del canal configurado para esta empresa.</p>
+
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+              </div>
+
+              <div id="botsNotice"></div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Canal operativo</div>
+              <h2>Bot Telegram</h2>
+              <p class="client-muted">Configuracion tecnica administrada desde CLONEXA Admin V2.</p>
+
+              <div class="client-kpi-grid">
+                <div class="client-kpi">
+                  <span>Estado</span>
+                  <strong>${h(status)}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>Canal</span>
+                  <strong>Telegram</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>Bot</span>
+                  <strong>${h(botUsername)}</strong>
+                </div>
+              </div>
+
+              <div class="personal-toolbar" style="margin-top:22px">
+                <input class="personal-search" data-bot-name value="${h(botName)}" placeholder="Nombre interno del bot" ${configured ? "" : "disabled"}>
+                <button class="client-btn" type="button" data-bot-save-name ${configured ? "" : "disabled"}>Guardar nombre</button>
+              </div>
+
+              ${bot?.last_error ? `<div class="personal-toast error">${h(bot.last_error)}</div>` : ""}
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  function showBotsNotice(message, type = "ok") {
+    const box = document.getElementById("botsNotice");
+    if (!box) return;
+    box.innerHTML = `<div class="personal-toast ${type === "error" ? "error" : "ok"}">${h(message)}</div>`;
+  }
+
+  async function saveClientBotName() {
+    const input = document.querySelector("[data-bot-name]");
+    const name = String(input?.value || "").trim();
+
+    if (name.length < 2) {
+      showBotsNotice("Nombre interno obligatorio.", "error");
+      return;
+    }
+
+    try {
+      await api(`/bots/companies/${state.companyId}/telegram`, {
+        method: "PUT",
+        body: JSON.stringify({ name }),
+      });
+      await renderBotsModule();
+      setTimeout(() => showBotsNotice("Nombre del bot actualizado."), 50);
+    } catch (error) {
+      showBotsNotice(error.message || "No se pudo guardar el nombre.", "error");
+    }
+  }
+
+  async function renderClientModulePlaceholder(code) {
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav(code)}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo activo</div>
+              <h1 class="client-title">${h(moduleLabel(code))}</h1>
+              <p class="client-muted">Este modulo esta asignado a la empresa y se construira como pantalla independiente.</p>
+              <div class="client-actions"><button class="client-btn" type="button" data-client-back-dashboard>Volver</button></div>
+            </header>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
   async function renderPersonalModule() {
     ensurePersonalGridStyles();
 
@@ -1525,8 +1685,7 @@
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
-              <button type="button" data-client-back-dashboard>Dashboard</button>
-              <button class="active" type="button">Personal</button>
+              ${renderClientNav("workforce")}
             </nav>
 
             <div class="client-footer-id">
@@ -1675,16 +1834,50 @@
         return;
       }
 
-      const text = String(target.textContent || "").toLowerCase();
-      const moduleCard = target.closest(".client-module-card");
+      const clientAction = target.closest("[data-client-action]");
+      if (clientAction) {
+        const action = String(clientAction.dataset.clientAction || "");
 
-      if (
-        text.includes("agregar personal") ||
-        text === "personal" ||
-        (moduleCard && String(moduleCard.textContent || "").toLowerCase().includes("personal")) ||
-        (moduleCard && String(moduleCard.textContent || "").toLowerCase().includes("workforce"))
-      ) {
-        await renderPersonalModule();
+        if (action === "workforce:add" && isClientModuleActive("workforce")) {
+          await renderPersonalModule();
+          setTimeout(() => document.querySelector("[data-personal-add-row]")?.click(), 60);
+          return;
+        }
+
+        if (action === "bots:open" && isClientModuleActive("bots")) {
+          await renderBotsModule();
+          return;
+        }
+
+        if (action === "reports:open" && isClientModuleActive("reports")) {
+          await renderClientModulePlaceholder("reports");
+          return;
+        }
+      }
+
+      const moduleTrigger = target.closest("[data-client-module]");
+      if (moduleTrigger) {
+        const code = String(moduleTrigger.dataset.clientModule || "").trim();
+
+        if (!isClientModuleActive(code)) return;
+
+        if (code === "workforce") {
+          await renderPersonalModule();
+          return;
+        }
+
+        if (code === "bots") {
+          await renderBotsModule();
+          return;
+        }
+
+        await renderClientModulePlaceholder(code);
+        return;
+      }
+
+      if (target.closest("[data-bot-save-name]")) {
+        await saveClientBotName();
+        return;
       }
     });
 
@@ -1709,7 +1902,7 @@
     const b = normalizeBranding(state.branding || {});
     applyBranding();
 
-    const modules = activeClientModules();
+    const modules = visibleClientModules(activeClientModules());
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -1720,11 +1913,7 @@
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
-              <button class="active">Dashboard</button>
-              <button>Personal</button>
-              <button>Inventario</button>
-              <button>Tareas</button>
-              <button>Reportes</button>
+              ${renderClientNav("dashboard")}
             </nav>
 
             <div class="client-footer-id">
@@ -1764,11 +1953,11 @@
 
               <div class="client-module-grid">
                 ${modules.length ? modules.map((module) => `
-                  <div class="client-module-card">
+                  <button class="client-module-card" type="button" data-client-module="${h(module.code)}">
                     <div class="client-badge">${h(module.badge)}</div>
                     <strong>${h(module.title)}</strong>
                     <small>${h(module.subtitle)}</small>
-                  </div>
+                  </button>
                 `).join("") : `
                   <div class="client-module-card">
                     <div class="client-badge">OFF</div>
@@ -1798,6 +1987,35 @@
   }
 
 
+  async function loadClientDashboardMetrics(companyId, modules = []) {
+    const codes = clientModuleCodes(visibleClientModules(modules));
+    const metrics = {};
+
+    if (codes.has("workforce")) {
+      try {
+        const employees = await api(`/employees?company_id=${encodeURIComponent(companyId)}&include_archived=true`);
+        metrics.activeEmployees = Array.isArray(employees)
+          ? employees.filter((employee) => String(employee.status || "").toLowerCase() === "active").length
+          : 0;
+      } catch (error) {
+        metrics.activeEmployees = 0;
+      }
+    }
+
+    if (codes.has("bots")) {
+      try {
+        const bot = await api(`/bots/companies/${companyId}/telegram`);
+        metrics.botConfigured = !!bot?.configured;
+        metrics.botStatus = bot?.status || "not_configured";
+      } catch (error) {
+        metrics.botConfigured = false;
+        metrics.botStatus = "error";
+      }
+    }
+
+    return metrics;
+  }
+
   async function loadByCompanyId(companyId) {
     const companies = await api("/companies");
     const company = Array.isArray(companies)
@@ -1826,6 +2044,7 @@
     state.companyId = company.id || company.company_id || companyId;
     state.experience = experience || {};
     state.companyModules = Array.isArray(companyModules) ? companyModules : [];
+    state.dashboardMetrics = await loadClientDashboardMetrics(state.companyId, activeClientModules());
     state.branding =
       experience?.branding ||
       experience?.company_branding ||
