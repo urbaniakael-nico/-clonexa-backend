@@ -2448,86 +2448,71 @@
   }
 
   function asistenciaStyles() {
-    if (document.getElementById("cxWorkforceAsistencia010BR2Styles")) return;
+    if (document.getElementById("cxWorkforceAsistencia010BStyles")) return;
 
     const style = document.createElement("style");
-    style.id = "cxWorkforceAsistencia010BR2Styles";
+    style.id = "cxWorkforceAsistencia010BStyles";
     style.textContent = `
-      .cx-bitacora-kpis {
+      .cx-asistencia-kpis {
         display: grid;
-        grid-template-columns: repeat(6, minmax(130px, 1fr));
-        gap: 12px;
-        margin: 18px 0;
+        grid-template-columns: repeat(4, minmax(160px, 1fr));
+        gap: 14px;
+        margin: 20px 0;
       }
 
-      .cx-bitacora-kpi {
+      .cx-asistencia-kpi {
         border: 1px solid rgba(255,255,255,.13);
         background: rgba(255,255,255,.06);
         border-radius: 18px;
-        padding: 14px;
+        padding: 16px;
         box-shadow: 0 18px 44px rgba(0,0,0,.18);
       }
 
-      .cx-bitacora-kpi span {
+      .cx-asistencia-kpi span {
         display: block;
-        font-size: 11px;
-        letter-spacing: .04em;
-        text-transform: uppercase;
+        font-size: 12px;
         opacity: .76;
         margin-bottom: 8px;
       }
 
-      .cx-bitacora-kpi strong {
-        font-size: 24px;
+      .cx-asistencia-kpi strong {
+        font-size: 28px;
         line-height: 1;
       }
 
-      .cx-bitacora-filters {
-        display: grid;
-        grid-template-columns: 150px 150px minmax(220px, 1fr) 190px 160px 150px;
-        gap: 10px;
-        align-items: end;
+      .cx-asistencia-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
         margin: 18px 0;
       }
 
-      .cx-bitacora-field label {
-        display: block;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-        opacity: .75;
-        margin: 0 0 7px;
-      }
-
-      .cx-bitacora-field input,
-      .cx-bitacora-field select {
-        width: 100%;
+      .cx-asistencia-search {
+        width: min(100%, 460px);
         border: 1px solid rgba(255,255,255,.15);
         background: rgba(0,0,0,.18);
         color: inherit;
         border-radius: 14px;
-        padding: 12px 12px;
+        padding: 12px 14px;
         outline: none;
       }
 
-      .cx-bitacora-field select option {
-        color: #111;
-      }
-
-      .cx-bitacora-wrap {
+      .cx-asistencia-wrap {
         width: 100%;
         overflow-x: auto;
         border-radius: 20px;
         border: 1px solid rgba(255,255,255,.11);
       }
 
-      .cx-bitacora-grid {
-        min-width: 1420px;
+      .cx-asistencia-grid {
+        min-width: 1180px;
         display: grid;
-        grid-template-columns: 170px 190px 120px 170px 130px 130px minmax(260px, 1.2fr) 130px;
+        grid-template-columns: 1.45fr .9fr .9fr .9fr .9fr .85fr 1.8fr;
       }
 
-      .cx-bitacora-cell {
+      .cx-asistencia-cell {
         min-height: 54px;
         display: flex;
         align-items: center;
@@ -2535,10 +2520,9 @@
         padding: 10px 12px;
         border-bottom: 1px solid rgba(255,255,255,.08);
         background: rgba(255,255,255,.03);
-        overflow-wrap: anywhere;
       }
 
-      .cx-bitacora-head {
+      .cx-asistencia-head {
         min-height: 44px;
         font-size: 11px;
         letter-spacing: .08em;
@@ -2550,64 +2534,77 @@
         z-index: 1;
       }
 
-      .cx-bitacora-badge {
+      .cx-asistencia-status {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        min-width: 96px;
         border-radius: 999px;
         padding: 7px 10px;
         font-size: 12px;
-        font-weight: 800;
+        font-weight: 700;
         border: 1px solid rgba(255,255,255,.16);
-        background: rgba(255,255,255,.07);
       }
 
-      .cx-bitacora-badge.check_in { background: rgba(0, 210, 145, .18); }
-      .cx-bitacora-badge.check_out { background: rgba(113, 128, 150, .20); }
-      .cx-bitacora-badge.break_start,
-      .cx-bitacora-badge.break_end { background: rgba(255, 183, 77, .18); }
-      .cx-bitacora-badge.material_request { background: rgba(255, 43, 166, .18); }
-      .cx-bitacora-badge.observation { background: rgba(125, 92, 255, .18); }
+      .cx-asistencia-status.working { background: rgba(0, 210, 145, .18); }
+      .cx-asistencia-status.on_break { background: rgba(255, 183, 77, .18); }
+      .cx-asistencia-status.checked_out { background: rgba(113, 128, 150, .18); }
+      .cx-asistencia-status.not_started { background: rgba(255,255,255,.07); }
 
-      .cx-bitacora-notice {
+      .cx-asistencia-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .cx-asistencia-actions button {
+        border: 1px solid rgba(255,255,255,.15);
+        background: rgba(255,255,255,.08);
+        color: inherit;
+        border-radius: 12px;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+
+      .cx-asistencia-actions button:disabled {
+        opacity: .42;
+        cursor: not-allowed;
+      }
+
+      .cx-asistencia-notice {
         margin-top: 12px;
       }
 
-      .cx-bitacora-toast {
+      .cx-asistencia-toast {
         border-radius: 14px;
         padding: 12px 14px;
         border: 1px solid rgba(255,255,255,.14);
         background: rgba(0, 210, 145, .14);
       }
 
-      .cx-bitacora-toast.error {
+      .cx-asistencia-toast.error {
         background: rgba(255, 80, 80, .16);
       }
 
-      .cx-bitacora-empty {
-        border: 1px dashed rgba(255,255,255,.16);
-        border-radius: 18px;
-        padding: 18px;
-        background: rgba(0,0,0,.14);
-      }
-
-      @media (max-width: 1100px) {
-        .cx-bitacora-kpis {
+      @media (max-width: 900px) {
+        .cx-asistencia-kpis {
           grid-template-columns: repeat(2, minmax(140px, 1fr));
-        }
-
-        .cx-bitacora-filters {
-          grid-template-columns: 1fr;
         }
       }
     `;
     document.head.appendChild(style);
   }
 
-  function todayIsoDate(offsetDays = 0) {
-    const date = new Date();
-    date.setDate(date.getDate() + offsetDays);
-    return date.toISOString().slice(0, 10);
+  function statusLabel(status) {
+    const labels = {
+      not_started: "Sin iniciar",
+      working: "Trabajando",
+      on_break: "En pausa",
+      checked_out: "Finalizado",
+      inactive: "Inactivo",
+      archived: "Archivado",
+    };
+    return labels[status] || status || "Sin iniciar";
   }
 
   function fmtDate(value) {
@@ -2622,216 +2619,129 @@
     }
   }
 
-  function eventLabel(row) {
-    const labels = {
-      check_in: "Entrada",
-      check_out: "Salida",
-      break_start: "Pausa",
-      break_end: "Reanudación",
-      material_request: "Solicitud material",
-      material_return: "Devolución material",
-      observation: "Observación",
-      gps_ping: "GPS",
-      task_started: "Tarea iniciada",
-      task_completed: "Tarea cerrada",
-    };
-    return row.event_label || labels[row.event_type] || row.event_type || "Evento";
-  }
-
-  function channelLabel(value) {
-    const labels = {
-      client: "Panel",
-      panel: "Panel",
-      api: "API",
-      bot: "Bot",
-      telegram: "Telegram",
-      whatsapp: "WhatsApp",
-      qr: "QR",
-      system: "Sistema",
-    };
-    return labels[value] || value || "-";
+  function minutesLabel(value) {
+    const total = Number(value || 0);
+    const hours = Math.floor(total / 60);
+    const minutes = total % 60;
+    if (hours <= 0) return `${minutes} min`;
+    return `${hours}h ${minutes}m`;
   }
 
   function asistenciaNotice(message, type = "ok") {
     const box = document.querySelector("[data-asistencia-notice]");
     if (!box) return;
-    box.innerHTML = `<div class="cx-bitacora-toast ${type === "error" ? "error" : ""}">${h(message)}</div>`;
+    box.innerHTML = `<div class="cx-asistencia-toast ${type === "error" ? "error" : ""}">${h(message)}</div>`;
     window.clearTimeout(window.__cxAsistenciaNoticeTimer);
     window.__cxAsistenciaNoticeTimer = window.setTimeout(() => {
       if (box) box.innerHTML = "";
     }, 2800);
   }
 
-  function filtersFromDom() {
-    const from = document.querySelector("[data-bitacora-from]")?.value || todayIsoDate(-30);
-    const to = document.querySelector("[data-bitacora-to]")?.value || todayIsoDate(0);
-    const search = document.querySelector("[data-bitacora-search]")?.value || "";
-    const eventType = document.querySelector("[data-bitacora-event]")?.value || "";
-    const moduleCode = document.querySelector("[data-bitacora-module]")?.value || "";
-    const channel = document.querySelector("[data-bitacora-channel]")?.value || "";
-
-    return { from, to, search, eventType, moduleCode, channel };
-  }
-
-  function buildHistoryUrl(companyId, filters = {}) {
-    const params = new URLSearchParams();
-    params.set("company_id", companyId);
-    params.set("limit", "500");
-
-    if (filters.from) params.set("date_from", `${filters.from}T00:00:00`);
-    if (filters.to) params.set("date_to", `${filters.to}T23:59:59`);
-    if (filters.search) params.set("search", filters.search.trim());
-    if (filters.eventType) params.set("event_type", filters.eventType);
-    if (filters.moduleCode) params.set("module_code", filters.moduleCode);
-    if (filters.channel) params.set("source_channel", filters.channel);
-
-    return `/employees/attendance/history?${params.toString()}`;
-  }
-
-  function normalizeRows(payload) {
+  function normalizeTodayRows(payload) {
     if (Array.isArray(payload)) return payload;
     if (Array.isArray(payload?.items)) return payload.items;
     if (Array.isArray(payload?.rows)) return payload.rows;
     return [];
   }
 
-  async function loadBitacora(companyId, filters) {
-    return normalizeRows(await api(buildHistoryUrl(companyId, filters)));
+  async function loadToday(companyId) {
+    return normalizeTodayRows(await api(`/employees/attendance/today?company_id=${encodeURIComponent(companyId)}`));
   }
 
-  function bitacoraKpis(rows) {
-    const total = rows.length;
-    const entradas = rows.filter((r) => r.event_type === "check_in").length;
-    const salidas = rows.filter((r) => r.event_type === "check_out").length;
-    const pausas = rows.filter((r) => ["break_start", "break_end"].includes(r.event_type)).length;
-    const solicitudes = rows.filter((r) => String(r.event_type || "").includes("request")).length;
-    const bot = rows.filter((r) => ["bot", "telegram", "whatsapp"].includes(r.source_channel || r.source)).length;
+  async function attendanceAction(employeeId, action) {
+    const companyId = companyIdFromUrl();
+    const actionPath = {
+      check_in: "check-in",
+      break_start: "break-start",
+      break_end: "break-end",
+      check_out: "check-out",
+    }[action];
+
+    if (!companyId || !employeeId || !actionPath) throw new Error("Acción inválida.");
+
+    return api(`/employees/attendance/${encodeURIComponent(employeeId)}/${actionPath}?company_id=${encodeURIComponent(companyId)}`, {
+      method: "POST",
+      body: JSON.stringify({ source: "client", notes: "" }),
+    });
+  }
+
+  function asistenciaKpis(rows) {
+    const working = rows.filter((r) => r.status === "working").length;
+    const onBreak = rows.filter((r) => r.status === "on_break").length;
+    const notStarted = rows.filter((r) => !r.status || r.status === "not_started").length;
+    const checkedOut = rows.filter((r) => r.status === "checked_out").length;
 
     return `
-      <div class="cx-bitacora-kpis">
-        <div class="cx-bitacora-kpi"><span>Total eventos</span><strong>${h(total)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Entradas</span><strong>${h(entradas)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Salidas</span><strong>${h(salidas)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Pausas</span><strong>${h(pausas)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Solicitudes</span><strong>${h(solicitudes)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Bot</span><strong>${h(bot)}</strong></div>
+      <div class="cx-asistencia-kpis">
+        <div class="cx-asistencia-kpi"><span>Trabajando</span><strong>${h(working)}</strong></div>
+        <div class="cx-asistencia-kpi"><span>En pausa</span><strong>${h(onBreak)}</strong></div>
+        <div class="cx-asistencia-kpi"><span>Sin iniciar</span><strong>${h(notStarted)}</strong></div>
+        <div class="cx-asistencia-kpi"><span>Finalizados</span><strong>${h(checkedOut)}</strong></div>
       </div>
     `;
   }
 
-  function bitacoraFilters(filters) {
+  function rowActions(row) {
+    const status = row.status || "not_started";
+    const canCheckIn = status === "not_started" || status === "checked_out";
+    const canBreakStart = status === "working";
+    const canBreakEnd = status === "on_break";
+    const canCheckOut = status === "working" || status === "on_break";
+
     return `
-      <div class="cx-bitacora-filters">
-        <div class="cx-bitacora-field">
-          <label>Desde</label>
-          <input type="date" data-bitacora-from value="${h(filters.from)}">
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Hasta</label>
-          <input type="date" data-bitacora-to value="${h(filters.to)}">
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Buscar</label>
-          <input type="search" data-bitacora-search value="${h(filters.search)}" placeholder="Empleado, evento, detalle, canal...">
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Evento</label>
-          <select data-bitacora-event>
-            <option value="">Todos</option>
-            <option value="check_in" ${filters.eventType === "check_in" ? "selected" : ""}>Entrada</option>
-            <option value="check_out" ${filters.eventType === "check_out" ? "selected" : ""}>Salida</option>
-            <option value="break_start" ${filters.eventType === "break_start" ? "selected" : ""}>Pausa</option>
-            <option value="break_end" ${filters.eventType === "break_end" ? "selected" : ""}>Reanudación</option>
-            <option value="material_request" ${filters.eventType === "material_request" ? "selected" : ""}>Solicitud material</option>
-            <option value="observation" ${filters.eventType === "observation" ? "selected" : ""}>Observación</option>
-          </select>
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Canal</label>
-          <select data-bitacora-channel>
-            <option value="">Todos</option>
-            <option value="client" ${filters.channel === "client" ? "selected" : ""}>Panel</option>
-            <option value="bot" ${filters.channel === "bot" ? "selected" : ""}>Bot</option>
-            <option value="telegram" ${filters.channel === "telegram" ? "selected" : ""}>Telegram</option>
-            <option value="whatsapp" ${filters.channel === "whatsapp" ? "selected" : ""}>WhatsApp</option>
-            <option value="qr" ${filters.channel === "qr" ? "selected" : ""}>QR</option>
-          </select>
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Módulo</label>
-          <select data-bitacora-module>
-            <option value="">Todos</option>
-            <option value="workforce" ${filters.moduleCode === "workforce" ? "selected" : ""}>Workforce</option>
-            <option value="materials" ${filters.moduleCode === "materials" ? "selected" : ""}>Materiales</option>
-            <option value="field" ${filters.moduleCode === "field" ? "selected" : ""}>Campo</option>
-            <option value="gps" ${filters.moduleCode === "gps" ? "selected" : ""}>GPS</option>
-            <option value="production" ${filters.moduleCode === "production" ? "selected" : ""}>Producción</option>
-          </select>
-        </div>
-      </div>
-      <div class="client-actions" style="margin-bottom: 16px;">
-        <button class="client-btn" type="button" data-bitacora-search-btn>Buscar</button>
-        <button class="client-btn" type="button" data-asistencia-export>CSV</button>
+      <div class="cx-asistencia-actions">
+        <button type="button" data-asistencia-action="check_in" data-employee-id="${h(row.employee_id)}" ${canCheckIn ? "" : "disabled"}>Entrada</button>
+        <button type="button" data-asistencia-action="break_start" data-employee-id="${h(row.employee_id)}" ${canBreakStart ? "" : "disabled"}>Pausa</button>
+        <button type="button" data-asistencia-action="break_end" data-employee-id="${h(row.employee_id)}" ${canBreakEnd ? "" : "disabled"}>Reanudar</button>
+        <button type="button" data-asistencia-action="check_out" data-employee-id="${h(row.employee_id)}" ${canCheckOut ? "" : "disabled"}>Salida</button>
       </div>
     `;
   }
 
-  function bitacoraGrid(rows) {
+  function asistenciaGrid(rows) {
     return `
-      <div class="cx-bitacora-wrap">
-        <div class="cx-bitacora-grid">
-          <div class="cx-bitacora-cell cx-bitacora-head">Fecha / hora</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Empleado</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Rol</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Evento</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Canal</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Módulo</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Detalle</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Estado</div>
+      <div class="cx-asistencia-wrap">
+        <div class="cx-asistencia-grid">
+          <div class="cx-asistencia-cell cx-asistencia-head">Empleado</div>
+          <div class="cx-asistencia-cell cx-asistencia-head">Rol</div>
+          <div class="cx-asistencia-cell cx-asistencia-head">Estado</div>
+          <div class="cx-asistencia-cell cx-asistencia-head">Entrada</div>
+          <div class="cx-asistencia-cell cx-asistencia-head">Último evento</div>
+          <div class="cx-asistencia-cell cx-asistencia-head">Trabajo</div>
+          <div class="cx-asistencia-cell cx-asistencia-head">Acciones</div>
           ${rows.map((row) => `
-            <div class="cx-bitacora-cell">${h(fmtDate(row.occurred_at || row.created_at))}</div>
-            <div class="cx-bitacora-cell">${h(row.employee_name || "-")}</div>
-            <div class="cx-bitacora-cell">${h(row.employee_role || "-")}</div>
-            <div class="cx-bitacora-cell">
-              <span class="cx-bitacora-badge ${h(row.event_type || "")}">${h(eventLabel(row))}</span>
+            <div class="cx-asistencia-cell" data-asistencia-text>${h(row.employee_name)}</div>
+            <div class="cx-asistencia-cell" data-asistencia-text>${h(row.employee_role || "operator")}</div>
+            <div class="cx-asistencia-cell" data-asistencia-text>
+              <span class="cx-asistencia-status ${h(row.status || "not_started")}">${h(statusLabel(row.status || "not_started"))}</span>
             </div>
-            <div class="cx-bitacora-cell">${h(channelLabel(row.source_channel || row.source))}</div>
-            <div class="cx-bitacora-cell">${h(row.module_code || "workforce")}</div>
-            <div class="cx-bitacora-cell">${h(row.detail || row.notes || "-")}</div>
-            <div class="cx-bitacora-cell">${h(row.status_after || row.status || "registered")}</div>
+            <div class="cx-asistencia-cell">${h(fmtDate(row.check_in_at))}</div>
+            <div class="cx-asistencia-cell">${h(fmtDate(row.last_event_at))}</div>
+            <div class="cx-asistencia-cell">${h(minutesLabel(row.worked_minutes))}</div>
+            <div class="cx-asistencia-cell">${rowActions(row)}</div>
           `).join("")}
         </div>
       </div>
     `;
   }
 
-  async function renderAsistencia(customFilters = null) {
+  async function renderAsistencia() {
     asistenciaStyles();
     const companyId = companyIdFromUrl();
     const app = document.getElementById("app");
     if (!app) return;
 
-    const filters = customFilters || {
-      from: todayIsoDate(-30),
-      to: todayIsoDate(0),
-      search: "",
-      eventType: "",
-      moduleCode: "",
-      channel: "",
-    };
-
     let rows = [];
     let loadError = "";
 
     try {
-      rows = await loadBitacora(companyId, filters);
+      rows = await loadToday(companyId);
     } catch (error) {
       rows = [];
-      loadError = error.message || "No se pudo cargar la bitácora operativa.";
+      loadError = error.message || "No se pudo cargar asistencia.";
     }
 
     window.__cxAsistenciaRows = rows;
-    window.__cxAsistenciaFilters = filters;
 
     app.innerHTML = `
       <main class="client-shell">
@@ -2858,7 +2768,7 @@
             <header class="client-hero">
               <div class="client-eyebrow">Modulo Workforce</div>
               <h1 class="client-title">Asistencia</h1>
-              <p class="client-muted">Bitácora operativa de marcaciones e interacciones del personal: bot, panel, QR, solicitudes, observaciones y eventos por empresa.</p>
+              <p class="client-muted">Controla entrada, pausa, reanudación y salida del personal de esta empresa.</p>
 
               <div class="personal-toolbar">
                 <div class="client-actions">
@@ -2868,22 +2778,26 @@
                 </div>
               </div>
 
-              <div class="cx-bitacora-notice" data-asistencia-notice>
-                ${loadError ? `<div class="cx-bitacora-toast error">${h(loadError)}</div>` : ""}
+              <div class="cx-asistencia-notice" data-asistencia-notice>
+                ${loadError ? `<div class="cx-asistencia-toast error">${h(loadError)}</div>` : ""}
               </div>
             </header>
 
             <section class="client-panel">
-              <div class="client-eyebrow">Auditoría operativa</div>
-              <h2>Bitácora de asistencia e interacciones</h2>
-              <p class="client-muted">Consulta registros de 15, 20, 30 días o cualquier rango. CRM, Nómina, KPIs, Materiales y GPS consumirán estos eventos sin mezclarse visualmente.</p>
+              <div class="client-eyebrow">Jornada de hoy</div>
+              <h2>Estado actual del personal</h2>
+              <p class="client-muted">Este registro se guarda en PostgreSQL por empresa y empleado.</p>
 
-              ${bitacoraFilters(filters)}
-              ${bitacoraKpis(rows)}
+              ${asistenciaKpis(rows)}
 
-              ${rows.length ? bitacoraGrid(rows) : `
-                <div class="cx-bitacora-empty">
-                  No hay eventos para los filtros seleccionados.
+              <div class="cx-asistencia-toolbar">
+                <input class="cx-asistencia-search" data-asistencia-search placeholder="Buscar empleado, rol o estado...">
+                <span class="client-badge">${h(rows.length)} registros</span>
+              </div>
+
+              ${rows.length ? asistenciaGrid(rows) : `
+                <div class="personal-history-empty">
+                  No hay personal activo para asistencia o no se pudo cargar información.
                 </div>
               `}
             </section>
@@ -2913,20 +2827,32 @@
     }
   }
 
+  function filterAsistenciaRows(query) {
+    const q = String(query || "").toLowerCase().trim();
+    const cells = Array.from(document.querySelectorAll(".cx-asistencia-grid > .cx-asistencia-cell")).slice(7);
+    for (let i = 0; i < cells.length; i += 7) {
+      const chunk = cells.slice(i, i + 7);
+      const text = chunk.map((cell) => cell.textContent || "").join(" ").toLowerCase();
+      const show = !q || text.includes(q);
+      chunk.forEach((cell) => {
+        cell.style.display = show ? "flex" : "none";
+      });
+    }
+  }
+
   function exportAsistenciaCsv() {
     const rows = Array.isArray(window.__cxAsistenciaRows) ? window.__cxAsistenciaRows : [];
-    const data = [["Fecha/Hora", "Empleado", "Rol", "Evento", "Canal", "Modulo", "Detalle", "Estado"]];
+    const data = [["Empleado", "Rol", "Estado", "Entrada", "Ultimo evento", "Minutos trabajo", "Minutos pausa"]];
 
     rows.forEach((row) => {
       data.push([
-        fmtDate(row.occurred_at || row.created_at),
-        row.employee_name || "",
-        row.employee_role || "",
-        eventLabel(row),
-        channelLabel(row.source_channel || row.source),
-        row.module_code || "workforce",
-        row.detail || row.notes || "",
-        row.status_after || row.status || "registered",
+        row.employee_name,
+        row.employee_role,
+        statusLabel(row.status),
+        fmtDate(row.check_in_at),
+        fmtDate(row.last_event_at),
+        row.worked_minutes || 0,
+        row.break_minutes || 0,
       ]);
     });
 
@@ -2936,7 +2862,7 @@
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `clonexa_asistencia_bitacora_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `clonexa_asistencia_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -2967,12 +2893,7 @@
     }
 
     if (event.target.closest("[data-asistencia-refresh]")) {
-      await renderAsistencia(window.__cxAsistenciaFilters || filtersFromDom());
-      return;
-    }
-
-    if (event.target.closest("[data-bitacora-search-btn]")) {
-      await renderAsistencia(filtersFromDom());
+      await renderAsistencia();
       return;
     }
 
@@ -2980,14 +2901,27 @@
       exportAsistenciaCsv();
       return;
     }
+
+    const actionBtn = event.target.closest("[data-asistencia-action]");
+    if (actionBtn) {
+      const employeeId = actionBtn.dataset.employeeId;
+      const action = actionBtn.dataset.asistenciaAction;
+      try {
+        actionBtn.disabled = true;
+        await attendanceAction(employeeId, action);
+        await renderAsistencia();
+        setTimeout(() => asistenciaNotice("Asistencia actualizada."), 80);
+      } catch (error) {
+        asistenciaNotice(error.message || "No se pudo registrar asistencia.", "error");
+        actionBtn.disabled = false;
+      }
+    }
   });
 
-  document.addEventListener("keydown", async (event) => {
-    if (event.key !== "Enter") return;
-    const input = event.target.closest("[data-bitacora-search]");
+  document.addEventListener("input", (event) => {
+    const input = event.target.closest("[data-asistencia-search]");
     if (!input) return;
-    event.preventDefault();
-    await renderAsistencia(filtersFromDom());
+    filterAsistenciaRows(input.value);
   });
 
   const observer = new MutationObserver(() => {

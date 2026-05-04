@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -16,10 +15,6 @@ from app.schemas.employee import EmployeeCreate, EmployeeOut, EmployeeUpdate
 from app.schemas.workforce_personnel_history import WorkforcePersonnelHistoryOut
 
 router = APIRouter()
-
-
-def json_dumps(value: dict) -> str:
-    return json.dumps(value or {}, ensure_ascii=False, default=str)
 
 
 def clean_empty(value):
@@ -483,10 +478,9 @@ ATTENDANCE_STATUS_LABELS = {
 
 async def ensure_attendance_storage(db: AsyncSession) -> None:
     """
-    Safety net 010B-R2:
-    Garantiza que Asistencia funcione como bitácora operativa del personal.
-    Mantiene compatibilidad con las tablas creadas en 010B y agrega columnas
-    para soportar eventos de bot/panel/QR/materiales/GPS sin mezclar módulos.
+    Safety net 010B:
+    Crea tablas de asistencia si Alembic no corrió aún.
+    Evita que el botón Asistencia falle por migración pendiente.
     """
     await db.execute(text('CREATE EXTENSION IF NOT EXISTS "pgcrypto";'))
     await db.execute(text("""
@@ -504,32 +498,6 @@ async def ensure_attendance_storage(db: AsyncSession) -> None:
             created_at timestamptz NOT NULL DEFAULT now()
         );
     """))
-
-    # 010B-R2: columnas de bitácora operativa. No rompen registros 010B previos.
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS module_code varchar(80) NOT NULL DEFAULT 'workforce';"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS source_channel varchar(80) NOT NULL DEFAULT 'client';"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS source_ref varchar(180) NULL;"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS bot_instance_id uuid NULL;"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS detail text NULL;"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS payload_json jsonb NOT NULL DEFAULT '{}'::jsonb;"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb;"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS latitude numeric(12,8) NULL;"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS longitude numeric(12,8) NULL;"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS evidence_url text NULL;"))
-    await db.execute(text("ALTER TABLE workforce_attendance_events ADD COLUMN IF NOT EXISTS occurred_at timestamptz NOT NULL DEFAULT now();"))
-
-    await db.execute(text("""
-        UPDATE workforce_attendance_events
-           SET occurred_at = COALESCE(occurred_at, created_at),
-               source_channel = COALESCE(NULLIF(source_channel, ''), NULLIF(source, ''), 'client'),
-               detail = COALESCE(NULLIF(detail, ''), notes),
-               module_code = COALESCE(NULLIF(module_code, ''), 'workforce')
-         WHERE occurred_at IS NULL
-            OR source_channel IS NULL
-            OR module_code IS NULL
-            OR detail IS NULL;
-    """))
-
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS workforce_attendance_status (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -551,11 +519,9 @@ async def ensure_attendance_storage(db: AsyncSession) -> None:
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_workforce_attendance_events_employee_id ON workforce_attendance_events(employee_id);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_workforce_attendance_events_created_at ON workforce_attendance_events(created_at);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_workforce_attendance_events_company_created ON workforce_attendance_events(company_id, created_at);"))
-    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_workforce_attendance_events_company_occurred ON workforce_attendance_events(company_id, occurred_at);"))
-    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_workforce_attendance_events_company_module ON workforce_attendance_events(company_id, module_code);"))
-    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_workforce_attendance_events_company_source ON workforce_attendance_events(company_id, source_channel);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_workforce_attendance_status_company_id ON workforce_attendance_status(company_id);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_workforce_attendance_status_employee_id ON workforce_attendance_status(employee_id);"))
+
 
 def minutes_between(start: datetime | None, end: datetime | None) -> int:
     if not start or not end:
@@ -678,18 +644,8 @@ async def add_attendance_event(
     source: str = "client",
     notes: str | None = None,
     now: datetime | None = None,
-    module_code: str = "workforce",
-    event_label: str | None = None,
-    source_ref: str | None = None,
-    bot_instance_id: str | None = None,
-    payload_json: dict | None = None,
-    metadata_json: dict | None = None,
-    latitude: float | None = None,
-    longitude: float | None = None,
-    evidence_url: str | None = None,
 ) -> None:
     now = now or utcnow()
-    label = event_label or ATTENDANCE_EVENT_LABELS.get(event_type, event_type)
     await db.execute(
         text("""
             INSERT INTO workforce_attendance_events (
@@ -702,18 +658,7 @@ async def add_attendance_event(
                 status_after,
                 source,
                 notes,
-                created_at,
-                module_code,
-                source_channel,
-                source_ref,
-                bot_instance_id,
-                detail,
-                payload_json,
-                metadata_json,
-                latitude,
-                longitude,
-                evidence_url,
-                occurred_at
+                created_at
             )
             VALUES (
                 :company_id,
@@ -725,42 +670,20 @@ async def add_attendance_event(
                 :status_after,
                 :source,
                 :notes,
-                :created_at,
-                :module_code,
-                :source_channel,
-                :source_ref,
-                :bot_instance_id,
-                :detail,
-                CAST(:payload_json AS jsonb),
-                CAST(:metadata_json AS jsonb),
-                :latitude,
-                :longitude,
-                :evidence_url,
-                :occurred_at
+                :created_at
             )
         """),
         {
             "company_id": str(employee.company_id),
             "employee_id": str(employee.id),
             "event_type": event_type,
-            "event_label": label,
+            "event_label": ATTENDANCE_EVENT_LABELS.get(event_type, event_type),
             "employee_name": getattr(employee, "full_name", None),
             "employee_role": getattr(employee, "role", None),
             "status_after": status_after,
             "source": source or "client",
             "notes": notes,
             "created_at": now,
-            "module_code": module_code or "workforce",
-            "source_channel": source or "client",
-            "source_ref": source_ref,
-            "bot_instance_id": bot_instance_id,
-            "detail": notes,
-            "payload_json": json_dumps(payload_json or {}),
-            "metadata_json": json_dumps(metadata_json or {}),
-            "latitude": latitude,
-            "longitude": longitude,
-            "evidence_url": evidence_url,
-            "occurred_at": now,
         },
     )
 
@@ -907,8 +830,6 @@ async def attendance_history(
     company_id: UUID = Query(...),
     employee_id: UUID | None = Query(default=None),
     event_type: str | None = Query(default=None),
-    module_code: str | None = Query(default=None),
-    source_channel: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     search: str | None = Query(default=None),
@@ -916,11 +837,6 @@ async def attendance_history(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    """
-    010B-R2:
-    Asistencia es bitácora operativa del personal, no CRM en vivo.
-    Devuelve marcaciones e interacciones capturadas por panel/bot/QR/etc.
-    """
     await ensure_attendance_storage(db)
 
     stmt = """
@@ -930,26 +846,13 @@ async def attendance_history(
             ev.employee_id,
             ev.event_type,
             ev.event_label,
-            COALESCE(ev.employee_name, e.full_name) AS employee_name,
-            COALESCE(ev.employee_role, e.role) AS employee_role,
-            COALESCE(ev.status_after, 'registered') AS status_after,
-            COALESCE(ev.module_code, 'workforce') AS module_code,
-            COALESCE(ev.source_channel, ev.source, 'client') AS source_channel,
-            ev.source_ref,
-            ev.bot_instance_id,
-            COALESCE(ev.detail, ev.notes, '') AS detail,
+            ev.employee_name,
+            ev.employee_role,
+            ev.status_after,
+            ev.source,
             ev.notes,
-            ev.payload_json,
-            ev.metadata_json,
-            ev.latitude,
-            ev.longitude,
-            ev.evidence_url,
-            COALESCE(ev.occurred_at, ev.created_at) AS occurred_at,
             ev.created_at
         FROM workforce_attendance_events ev
-        LEFT JOIN employees e
-          ON e.id = ev.employee_id
-         AND e.company_id = ev.company_id
         WHERE ev.company_id = :company_id
     """
     params = {"company_id": str(company_id), "limit": limit, "offset": offset}
@@ -962,93 +865,32 @@ async def attendance_history(
         stmt += " AND ev.event_type = :event_type"
         params["event_type"] = event_type
 
-    if module_code:
-        stmt += " AND COALESCE(ev.module_code, 'workforce') = :module_code"
-        params["module_code"] = module_code
-
-    if source_channel:
-        stmt += " AND COALESCE(ev.source_channel, ev.source, 'client') = :source_channel"
-        params["source_channel"] = source_channel
-
     if date_from:
-        stmt += " AND COALESCE(ev.occurred_at, ev.created_at) >= :date_from"
+        stmt += " AND ev.created_at >= :date_from"
         params["date_from"] = date_from
 
     if date_to:
-        stmt += " AND COALESCE(ev.occurred_at, ev.created_at) <= :date_to"
+        stmt += " AND ev.created_at <= :date_to"
         params["date_to"] = date_to
 
     if search:
         stmt += """
             AND (
-                COALESCE(ev.employee_name, e.full_name, '') ILIKE :search
-                OR COALESCE(ev.employee_role, e.role, '') ILIKE :search
+                ev.employee_name ILIKE :search
+                OR ev.employee_role ILIKE :search
                 OR ev.event_label ILIKE :search
-                OR ev.event_type ILIKE :search
-                OR COALESCE(ev.module_code, 'workforce') ILIKE :search
-                OR COALESCE(ev.source_channel, ev.source, 'client') ILIKE :search
-                OR COALESCE(ev.status_after, '') ILIKE :search
-                OR COALESCE(ev.detail, ev.notes, '') ILIKE :search
+                OR ev.status_after ILIKE :search
+                OR ev.notes ILIKE :search
             )
         """
         params["search"] = f"%{search.strip()}%"
 
-    stmt += " ORDER BY COALESCE(ev.occurred_at, ev.created_at) DESC OFFSET :offset LIMIT :limit"
+    stmt += " ORDER BY ev.created_at DESC OFFSET :offset LIMIT :limit"
 
     result = await db.execute(text(stmt), params)
     rows = [dict(row) for row in result.mappings().all()]
     await db.commit()
     return rows
-
-
-@router.post("/attendance/events")
-async def create_attendance_event(
-    company_id: UUID = Query(...),
-    payload: dict | None = None,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """
-    Endpoint normalizado para bot/panel/QR.
-    Captura interacciones operativas del personal sin mezclar CRM, Materiales,
-    Nómina ni KPIs. Los otros módulos leen esta bitácora cuando corresponde.
-    """
-    await ensure_attendance_storage(db)
-    data = payload or {}
-
-    employee_id_raw = data.get("employee_id")
-    if not employee_id_raw:
-        raise HTTPException(status_code=400, detail="employee_id_required")
-
-    employee = await get_employee_for_company_or_404(db, UUID(str(employee_id_raw)), company_id)
-
-    event_type = clean_empty(data.get("event_type")) or "observation"
-    event_label = clean_empty(data.get("event_label")) or ATTENDANCE_EVENT_LABELS.get(event_type, event_type)
-    module_code = clean_empty(data.get("module_code")) or "workforce"
-    source_channel = clean_empty(data.get("source_channel")) or clean_empty(data.get("source")) or "api"
-    status_after = clean_empty(data.get("status_after")) or "registered"
-    notes = clean_empty(data.get("detail")) or clean_empty(data.get("notes"))
-
-    await add_attendance_event(
-        db,
-        employee,
-        event_type=event_type,
-        status_after=status_after,
-        source=source_channel,
-        notes=notes,
-        now=utcnow(),
-        module_code=module_code,
-        event_label=event_label,
-        source_ref=clean_empty(data.get("source_ref")),
-        bot_instance_id=clean_empty(data.get("bot_instance_id")),
-        payload_json=data.get("payload_json") or data.get("payload") or {},
-        metadata_json=data.get("metadata_json") or data.get("metadata") or {},
-        latitude=data.get("latitude"),
-        longitude=data.get("longitude"),
-        evidence_url=clean_empty(data.get("evidence_url")),
-    )
-    await db.commit()
-
-    return {"ok": True, "company_id": str(company_id), "employee_id": str(employee.id), "event_type": event_type}
 
 
 @router.post("/attendance/{employee_id}/check-in")
