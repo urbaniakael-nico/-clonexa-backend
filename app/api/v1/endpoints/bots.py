@@ -42,7 +42,18 @@ router = APIRouter()
 
 logger = logging.getLogger("clonexa.telegram_listener")
 TELEGRAM_LISTENER_TASKS: dict[str, asyncio.Task] = {}
+TELEGRAM_LISTENER_LOCKS: dict[str, asyncio.Lock] = {}
+TELEGRAM_LISTENER_STOP_REQUESTED: set[str] = set()
 TELEGRAM_LISTENER_DEFAULT_INTERVAL = 3
+
+
+def _listener_lock(company_id: UUID | str) -> asyncio.Lock:
+    key = _listener_key(company_id)
+    lock = TELEGRAM_LISTENER_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        TELEGRAM_LISTENER_LOCKS[key] = lock
+    return lock
 
 
 def utcnow() -> datetime:
@@ -469,12 +480,13 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "not_linked": "No encontré un empleado activo vinculado a este Telegram.\nTelegram ID: {telegram_user_id}\nRegístralo en Personal > Telegram ID y vuelve a intentar.",
         "whoami_unlinked": "CLONEXA recibió tu mensaje.\nTelegram ID: {telegram_user_id}\n{username_line}Pega este Telegram ID en Personal > Telegram ID para vincular el empleado.",
         "menu_title": "Hola {employee_name} 👋\nEmpresa: {company_name}\n\nSelecciona una acción:",
+        "menu_next": "Selecciona la siguiente acción:",
         "commands_hint": "También puedes escribir comandos: /entrada, /pausa, /reanudar, /salida, /estado.",
         "shift_started": "✅ Inicio de turno registrado.\nTiempo de trabajo pagable iniciado.",
         "break_started": "☕ Pausa registrada.\nEste tiempo NO suma para nómina ni KPIs de producción.",
         "work_resumed": "✅ Retomaste labores.\nEl tiempo pagable vuelve a contar.",
-        "shift_ended": "🏁 Turno finalizado.\nLas pausas registradas no suman como tiempo pagable.",
-        "shift_summary": "⏱️ Resumen de turno\nTiempo bruto: {gross}\nPausas no pagables: {breaks}\nTiempo pagable: {payable}\nHoras ordinarias: {regular}\nHoras extra: {extra}\nValor acumulado: {amount}",
+        "shift_ended": "🏁 Turno finalizado.",
+        "shift_summary": "Feliz descanso, {employee_name}.\n\nTotal horas acumuladas:\nOrdinarias: {regular}\nExtras: {extra}\n\nProyección pago: {projected_pay}\nDescuento del corte: {discount}\nTotal estimado: {estimated_total}",
         "observation_saved": "📝 Observación registrada.",
         "material_requested": "📦 Solicitud de material registrada.",
         "location_requested": "📍 Solicitud de ubicación registrada. Para ubicación real, usa compartir ubicación en Telegram.",
@@ -514,12 +526,13 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "not_linked": "I could not find an active employee linked to this Telegram.\nTelegram ID: {telegram_user_id}\nRegister it in Personal > Telegram ID and try again.",
         "whoami_unlinked": "CLONEXA received your message.\nTelegram ID: {telegram_user_id}\n{username_line}Paste this Telegram ID in Personal > Telegram ID to link the employee.",
         "menu_title": "Hi {employee_name} 👋\nCompany: {company_name}\n\nSelect an action:",
+        "menu_next": "Select the next action:",
         "commands_hint": "You can also type commands: /entrada, /pausa, /reanudar, /salida, /estado.",
         "shift_started": "✅ Shift started.\nPayable work time has started.",
         "break_started": "☕ Break registered.\nThis time does NOT count for payroll or production KPIs.",
         "work_resumed": "✅ Work resumed.\nPayable time is counting again.",
-        "shift_ended": "🏁 Shift ended.\nRegistered breaks do not count as payable time.",
-        "shift_summary": "⏱️ Shift summary\nGross time: {gross}\nNon-payable breaks: {breaks}\nPayable time: {payable}\nRegular hours: {regular}\nOvertime: {extra}\nAccumulated value: {amount}",
+        "shift_ended": "🏁 Shift ended.",
+        "shift_summary": "Rest well, {employee_name}.\n\nAccumulated hours:\nRegular: {regular}\nOvertime: {extra}\n\nProjected pay: {projected_pay}\nPeriod discount: {discount}\nEstimated total: {estimated_total}",
         "observation_saved": "📝 Observation saved.",
         "material_requested": "📦 Material request saved.",
         "location_requested": "📍 Location request saved. For real location, use Telegram location sharing.",
@@ -559,12 +572,13 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "not_linked": "Je n’ai pas trouvé d’employé actif lié à ce Telegram.\nTelegram ID : {telegram_user_id}\nEnregistrez-le dans Personal > Telegram ID et réessayez.",
         "whoami_unlinked": "CLONEXA a reçu votre message.\nTelegram ID : {telegram_user_id}\n{username_line}Collez cet ID dans Personal > Telegram ID pour lier l’employé.",
         "menu_title": "Bonjour {employee_name} 👋\nEntreprise : {company_name}\n\nSélectionnez une action :",
+        "menu_next": "Sélectionnez la prochaine action :",
         "commands_hint": "Vous pouvez aussi écrire : /entrada, /pausa, /reanudar, /salida, /estado.",
         "shift_started": "✅ Début de service enregistré.\nLe temps de travail payable commence.",
         "break_started": "☕ Pause enregistrée.\nCe temps ne compte PAS pour la paie ni les KPIs de production.",
         "work_resumed": "✅ Reprise du travail.\nLe temps payable compte à nouveau.",
-        "shift_ended": "🏁 Service terminé.\nLes pauses enregistrées ne comptent pas comme temps payable.",
-        "shift_summary": "⏱️ Résumé du service\nTemps brut : {gross}\nPauses non payables : {breaks}\nTemps payable : {payable}\nHeures ordinaires : {regular}\nHeures extra : {extra}\nValeur accumulée : {amount}",
+        "shift_ended": "🏁 Service terminé.",
+        "shift_summary": "Bon repos, {employee_name}.\n\nHeures cumulées :\nOrdinaires : {regular}\nSupplémentaires : {extra}\n\nProjection paiement : {projected_pay}\nRemise de la période : {discount}\nTotal estimé : {estimated_total}",
         "observation_saved": "📝 Observation enregistrée.",
         "material_requested": "📦 Demande de matériel enregistrée.",
         "location_requested": "📍 Demande de localisation enregistrée. Pour la localisation réelle, utilisez le partage de position Telegram.",
@@ -786,11 +800,15 @@ async def _send_dynamic_menu(
     company: Company,
     employee: Employee,
     language: str,
+    greet: bool = False,
 ) -> None:
     enabled_modules = await _enabled_module_codes(db, company.id)
     current = await _get_current_attendance_status(db, company.id, employee.id)
     status_text = _current_status_key(current)
-    text_value = _txt(language, "menu_title", employee_name=employee.full_name, company_name=company.name)
+    if greet:
+        text_value = _txt(language, "menu_title", employee_name=employee.full_name, company_name=company.name)
+    else:
+        text_value = _txt(language, "menu_next")
     await _send_telegram_message(
         token,
         chat_id,
@@ -958,17 +976,27 @@ async def _calculate_shift_minutes(
     return gross_minutes, break_minutes, payable_minutes
 
 
-async def _shift_end_summary_message(
+def _money_decimal(value: Decimal | float | int | str | None) -> Decimal:
+    try:
+        return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        return Decimal("0.00")
+
+
+async def _shift_end_projection(
     db: AsyncSession,
     *,
     employee: Employee,
     started_at: datetime | None,
     ended_at: datetime,
-    language: str,
-) -> str:
-    base = _txt(language, "shift_ended")
+) -> dict[str, Any] | None:
+    """
+    CLONEXA 011A3-R4:
+    Calcula la proyección limpia de cierre y deja datos estructurados para Nómina.
+    Los descuentos son del corte/periodo, no descuento por cada jornada.
+    """
     if started_at is None:
-        return base
+        return None
 
     gross_minutes, break_minutes, payable_minutes = await _calculate_shift_minutes(
         db,
@@ -980,21 +1008,64 @@ async def _shift_end_summary_message(
     regular_minutes = min(payable_minutes, 8 * 60)
     extra_minutes = max(0, payable_minutes - regular_minutes)
 
-    regular_rate = Decimal(str(employee.hourly_rate_regular or 0))
-    extra_rate = Decimal(str(employee.hourly_rate_extra or 0))
-    value = (Decimal(regular_minutes) / Decimal(60) * regular_rate) + (
-        Decimal(extra_minutes) / Decimal(60) * extra_rate
+    regular_rate = _money_decimal(employee.hourly_rate_regular)
+    extra_rate = _money_decimal(employee.hourly_rate_extra)
+    deduction_1 = _money_decimal(getattr(employee, "deduction_1", 0))
+    deduction_2 = _money_decimal(getattr(employee, "deduction_2", 0))
+
+    regular_amount = _money_decimal(Decimal(regular_minutes) / Decimal(60) * regular_rate)
+    extra_amount = _money_decimal(Decimal(extra_minutes) / Decimal(60) * extra_rate)
+    projected_pay = _money_decimal(regular_amount + extra_amount)
+    discount_total = _money_decimal(deduction_1 + deduction_2)
+    estimated_total = _money_decimal(projected_pay - discount_total)
+
+    return {
+        "gross_minutes": gross_minutes,
+        "break_minutes": break_minutes,
+        "payable_minutes": payable_minutes,
+        "regular_minutes": regular_minutes,
+        "extra_minutes": extra_minutes,
+        "hourly_rate_regular": str(regular_rate),
+        "hourly_rate_extra": str(extra_rate),
+        "regular_amount": str(regular_amount),
+        "extra_amount": str(extra_amount),
+        "projected_pay": str(projected_pay),
+        "deduction_1": str(deduction_1),
+        "deduction_2": str(deduction_2),
+        "discount_total": str(discount_total),
+        "estimated_total": str(estimated_total),
+        "discount_scope": "payroll_period",
+        "source": "workforce_personal",
+    }
+
+
+async def _shift_end_summary_message(
+    db: AsyncSession,
+    *,
+    employee: Employee,
+    started_at: datetime | None,
+    ended_at: datetime,
+    language: str,
+) -> str:
+    base = _txt(language, "shift_ended")
+    projection = await _shift_end_projection(
+        db,
+        employee=employee,
+        started_at=started_at,
+        ended_at=ended_at,
     )
+    if projection is None:
+        return base
 
     summary = _txt(
         language,
         "shift_summary",
-        gross=_format_minutes(gross_minutes),
-        breaks=_format_minutes(break_minutes),
-        payable=_format_minutes(payable_minutes),
-        regular=_format_minutes(regular_minutes),
-        extra=_format_minutes(extra_minutes),
-        amount=_format_money(value),
+        employee_name=(employee.full_name or "").strip() or "colaborador",
+        regular=_format_minutes(int(projection["regular_minutes"])),
+        extra=_format_minutes(int(projection["extra_minutes"])),
+        projected_pay=_format_money(Decimal(str(projection["projected_pay"]))),
+        discount=_format_money(Decimal(str(projection["discount_total"]))),
+        estimated_total=_format_money(Decimal(str(projection["estimated_total"]))),
     )
     return f"{base}\n\n{summary}"
 
@@ -1139,6 +1210,24 @@ async def _create_bot_attendance_event(
     await _upsert_attendance_status(db, employee, event_type, status_after, occurred_at)
 
     if event_type == "check_out":
+        projection = await _shift_end_projection(
+            db,
+            employee=employee,
+            started_at=started_at,
+            ended_at=occurred_at,
+        )
+        if projection is not None:
+            payload = dict(event.payload_json or {})
+            payload["payroll_projection"] = projection
+            payload["payroll_ready"] = True
+            payload["payroll_note"] = "Descuentos informativos por corte; no se aplican como descuento por jornada."
+            event.payload_json = payload
+            metadata = dict(event.metadata_json or {})
+            metadata["payroll_ready"] = True
+            metadata["discount_scope"] = "payroll_period"
+            event.metadata_json = metadata
+            await db.flush()
+
         return True, await _shift_end_summary_message(
             db,
             employee=employee,
@@ -1219,7 +1308,7 @@ async def _process_telegram_update(
             await _send_telegram_message(token, chat_id, _txt(language, "language_saved"))
             if employee is not None:
                 company = await ensure_company_exists(db, bot.company_id)
-                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language, greet=True)
         return TelegramBotPollItem(
             update_id=update_id,
             ok=True,
@@ -1243,7 +1332,7 @@ async def _process_telegram_update(
                 await _send_telegram_message(token, chat_id, _txt(language, "choose_language"), reply_markup=_language_keyboard())
             elif employee is not None:
                 company = await ensure_company_exists(db, bot.company_id)
-                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language, greet=True)
             else:
                 await _send_telegram_message(token, chat_id, _txt(language, "choose_language"), reply_markup=_language_keyboard())
         return TelegramBotPollItem(
@@ -1280,7 +1369,7 @@ async def _process_telegram_update(
 
         company = await ensure_company_exists(db, bot.company_id)
         if send_replies:
-            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language, greet=True)
         return TelegramBotPollItem(
             update_id=update_id,
             ok=True,
@@ -1381,7 +1470,6 @@ async def _process_telegram_update(
 
     if send_replies:
         await _send_telegram_chat_action(token, chat_id)
-        await _send_telegram_message(token, chat_id, _txt(language, "processing"))
 
     if command == "/estado":
         status_text = _current_status_key(current)
@@ -1396,6 +1484,7 @@ async def _process_telegram_update(
             command_config=command_config,
             language=language,
         )
+        await db.commit()
         reply = _txt(language, "status_line", employee_name=employee.full_name, status_text=status_text)
         if send_replies:
             await _send_telegram_message(token, chat_id, reply)
@@ -1423,6 +1512,7 @@ async def _process_telegram_update(
         command_config=command_config,
         language=language,
     )
+    await db.commit()
 
     if send_replies:
         await _send_telegram_message(token, chat_id, message_text)
@@ -1450,75 +1540,130 @@ async def _poll_telegram_updates_for_company(
     limit: int = 20,
     send_replies: bool = True,
 ) -> TelegramBotPollOut:
-    await ensure_company_exists(db, company_id)
-    row = await get_telegram_instance(db, company_id)
-    if row is None or not row.bot_token_encrypted:
-        raise HTTPException(status_code=404, detail="Telegram bot token not configured for this company")
-    if row.status not in {"active", "configured"}:
-        raise HTTPException(status_code=409, detail=f"Telegram bot is not active. Current status: {row.status}")
+    """
+    Lee updates de Telegram para una empresa sin pisar otros bots.
 
-    token = decrypt_token(row.bot_token_encrypted)
-    if not token:
-        raise HTTPException(status_code=404, detail="Telegram bot token not configured for this company")
+    Regla 011A3-R2:
+    - Un lock por company_id evita doble getUpdates del mismo bot.
+    - Diferentes empresas/bots corren independientes.
+    - Errores transitorios no desactivan el bot.
+    - El offset vive en config_json por empresa.
+    """
+    async with _listener_lock(company_id):
+        await ensure_company_exists(db, company_id)
+        row = await get_telegram_instance(db, company_id)
+        if row is None or not row.bot_token_encrypted:
+            raise HTTPException(status_code=404, detail="Telegram bot token not configured for this company")
+        if row.status == "inactive":
+            raise HTTPException(status_code=409, detail="Telegram bot is inactive")
 
-    config = dict(row.config_json or {})
-    offset = config.get("telegram_update_offset")
-    params: dict[str, Any] = {
-        "timeout": 0,
-        "limit": limit,
-        "allowed_updates": '["message","edited_message","callback_query"]',
-    }
-    if offset:
-        params["offset"] = int(offset)
+        token = decrypt_token(row.bot_token_encrypted)
+        if not token:
+            raise HTTPException(status_code=404, detail="Telegram bot token not configured for this company")
 
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"https://api.telegram.org/bot{token}/getUpdates", params=params)
-            telegram_payload = response.json()
-    except httpx.HTTPError as exc:
-        row.status = "error"
-        row.last_error = f"Telegram polling error: {exc}"
+        config = dict(row.config_json or {})
+        offset = config.get("telegram_update_offset")
+        params: dict[str, Any] = {
+            "timeout": 0,
+            "limit": limit,
+            "allowed_updates": '["message","edited_message","callback_query"]',
+        }
+        if offset:
+            params["offset"] = int(offset)
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(f"https://api.telegram.org/bot{token}/getUpdates", params=params)
+                telegram_payload = response.json()
+        except httpx.HTTPError as exc:
+            error_text = f"Telegram polling error: {exc}"
+            config["listener_error"] = error_text
+            config["listener_running"] = False
+            config["listener_updated_at"] = utcnow().isoformat()
+            row.config_json = config
+            row.last_error = error_text
+            row.updated_at = utcnow()
+            await db.commit()
+            raise HTTPException(status_code=502, detail=error_text) from exc
+
+        if not telegram_payload.get("ok"):
+            description = str(telegram_payload.get("description") or "Telegram getUpdates failed")
+            config["listener_error"] = description
+            config["listener_running"] = False
+            config["listener_updated_at"] = utcnow().isoformat()
+            row.config_json = config
+            row.last_error = description
+            row.updated_at = utcnow()
+
+            # Unauthorized / token inválido sí debe marcar error. Conflictos o timeouts no apagan el bot.
+            lowered = description.lower()
+            if "unauthorized" in lowered or "not found" in lowered or "token" in lowered:
+                row.status = "error"
+            else:
+                row.status = "active"
+
+            await db.commit()
+            raise HTTPException(status_code=502, detail=description)
+
+        updates = telegram_payload.get("result") or []
+        processed: list[TelegramBotPollItem] = []
+
+        for update in updates:
+            update_id_value = update.get("update_id")
+            try:
+                item = await _process_telegram_update(db, bot=row, token=token, update=update, send_replies=send_replies)
+                processed.append(item)
+            except Exception as exc:  # pragma: no cover - listener safety
+                logger.exception("Telegram update processing error for company %s update %s: %s", company_id, update_id_value, exc)
+                await db.rollback()
+                processed.append(
+                    TelegramBotPollItem(
+                        update_id=update_id_value,
+                        ok=False,
+                        action="processing_error",
+                        message=str(exc),
+                    )
+                )
+
+            # 011A3-R3: avanzar offset por update procesado/descartado.
+            # Evita que Telegram reenvíe el mismo callback y el bot parezca "gestionarse solo".
+            if isinstance(update_id_value, int):
+                config = dict(row.config_json or config)
+                config["telegram_update_offset"] = max(
+                    int(config.get("telegram_update_offset") or 0),
+                    update_id_value + 1,
+                )
+                config["last_poll_at"] = utcnow().isoformat()
+                config["last_poll_count"] = len(processed)
+                config["listener_running"] = True
+                config["listener_error"] = None
+                config["listener_updated_at"] = utcnow().isoformat()
+                row.config_json = config
+                row.status = "active"
+                row.last_error = None
+                row.updated_at = utcnow()
+                await db.commit()
+
+        config["last_poll_at"] = utcnow().isoformat()
+        config["last_poll_count"] = len(processed)
+        config["listener_running"] = True
+        config["listener_error"] = None
+        config["listener_updated_at"] = utcnow().isoformat()
+        row.config_json = config
+        row.status = "active"
+        row.last_error = None
         row.updated_at = utcnow()
         await db.commit()
-        raise HTTPException(status_code=502, detail=row.last_error) from exc
 
-    if not telegram_payload.get("ok"):
-        row.status = "error"
-        row.last_error = str(telegram_payload.get("description") or "Telegram getUpdates failed")
-        row.updated_at = utcnow()
-        await db.commit()
-        raise HTTPException(status_code=502, detail=row.last_error)
-
-    updates = telegram_payload.get("result") or []
-    processed: list[TelegramBotPollItem] = []
-    highest_update_id: int | None = None
-
-    for update in updates:
-        if isinstance(update.get("update_id"), int):
-            highest_update_id = max(highest_update_id or update["update_id"], update["update_id"])
-        item = await _process_telegram_update(db, bot=row, token=token, update=update, send_replies=send_replies)
-        processed.append(item)
-
-    if highest_update_id is not None:
-        config["telegram_update_offset"] = highest_update_id + 1
-
-    config["last_poll_at"] = utcnow().isoformat()
-    config["last_poll_count"] = len(processed)
-    row.config_json = config
-    row.status = "active"
-    row.last_error = None
-    row.updated_at = utcnow()
-    await db.commit()
-
-    return TelegramBotPollOut(
-        ok=True,
-        company_id=company_id,
-        bot_username=row.bot_username,
-        received=len(updates),
-        processed=len(processed),
-        next_offset=config.get("telegram_update_offset"),
-        items=processed,
-    )
+        return TelegramBotPollOut(
+            ok=True,
+            company_id=company_id,
+            bot_username=row.bot_username,
+            received=len(updates),
+            processed=len(processed),
+            next_offset=config.get("telegram_update_offset"),
+            items=processed,
+        )
 
 
 def _listener_key(company_id: UUID | str) -> str:
@@ -1531,75 +1676,89 @@ def _is_listener_running(company_id: UUID | str) -> bool:
 
 
 async def _mark_listener_state(company_id: UUID, *, enabled: bool, running: bool, error: str | None = None) -> None:
-    async with AsyncSessionLocal() as db:
-        row = await get_telegram_instance(db, company_id)
-        if row is None:
-            return
-        config = dict(row.config_json or {})
-        config["listener_enabled"] = enabled
-        config["listener_running"] = running
-        config["listener_updated_at"] = utcnow().isoformat()
-        if error:
-            config["listener_error"] = error
-        elif "listener_error" in config:
-            config.pop("listener_error", None)
-        row.config_json = config
-        row.updated_at = utcnow()
-        if error:
-            row.last_error = error
-            row.status = "error"
-        await db.commit()
+    async with _listener_lock(company_id):
+        async with AsyncSessionLocal() as db:
+            row = await get_telegram_instance(db, company_id)
+            if row is None:
+                return
+            config = dict(row.config_json or {})
+            config["listener_enabled"] = enabled
+            config["listener_running"] = running
+            config["listener_updated_at"] = utcnow().isoformat()
+            if error:
+                config["listener_error"] = error
+                row.last_error = error
+            else:
+                config.pop("listener_error", None)
+                row.last_error = None
+            row.config_json = config
+            row.updated_at = utcnow()
+            if row.status != "inactive":
+                # No marcar error por fallos transitorios; mantener el bot recuperable.
+                row.status = "active" if row.bot_token_encrypted else "configured"
+            await db.commit()
 
 
 async def _telegram_listener_loop(company_id: UUID) -> None:
     key = _listener_key(company_id)
+    keep_enabled_on_exit = True
     try:
+        await _mark_listener_state(company_id, enabled=True, running=True, error=None)
+
         while True:
             interval = TELEGRAM_LISTENER_DEFAULT_INTERVAL
-            try:
-                async with AsyncSessionLocal() as db:
-                    row = await get_telegram_instance(db, company_id)
-                    if row is None or row.status == "inactive":
-                        break
+            should_stop = False
 
+            async with AsyncSessionLocal() as db:
+                row = await get_telegram_instance(db, company_id)
+                if row is None:
+                    should_stop = True
+                    keep_enabled_on_exit = False
+                elif row.status == "inactive":
+                    should_stop = True
+                    keep_enabled_on_exit = False
+                else:
                     config = dict(row.config_json or {})
                     if not config.get("listener_enabled"):
-                        break
+                        should_stop = True
+                        keep_enabled_on_exit = False
+                    else:
+                        interval = int(config.get("listener_interval_seconds") or TELEGRAM_LISTENER_DEFAULT_INTERVAL)
+                        interval = max(2, min(interval, 30))
+                        if not row.bot_token_encrypted:
+                            should_stop = True
+                            keep_enabled_on_exit = False
+                            row.last_error = "Telegram bot token not configured"
+                            row.status = "error"
+                            config["listener_enabled"] = False
+                            config["listener_running"] = False
+                            config["listener_error"] = row.last_error
+                            config["listener_updated_at"] = utcnow().isoformat()
+                            row.config_json = config
+                            row.updated_at = utcnow()
+                            await db.commit()
 
-                    interval = int(config.get("listener_interval_seconds") or TELEGRAM_LISTENER_DEFAULT_INTERVAL)
-                    interval = max(2, min(interval, 30))
+            if should_stop:
+                break
 
-                    if not row.bot_token_encrypted:
-                        config["listener_enabled"] = False
-                        config["listener_running"] = False
-                        row.config_json = config
-                        row.last_error = "Telegram bot token not configured"
-                        row.status = "error"
-                        row.updated_at = utcnow()
-                        await db.commit()
-                        break
-
-                    config["listener_running"] = True
-                    config["listener_updated_at"] = utcnow().isoformat()
-                    row.config_json = config
-                    row.updated_at = utcnow()
-                    await db.commit()
-
+            try:
+                async with AsyncSessionLocal() as poll_db:
                     await _poll_telegram_updates_for_company(
-                        db,
+                        poll_db,
                         company_id=company_id,
-                        limit=int(config.get("listener_poll_limit") or 20),
+                        limit=20,
                         send_replies=True,
                     )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # pragma: no cover - safety loop
-                logger.exception("Telegram listener error for company %s", company_id)
+                logger.warning("Telegram listener recoverable error for company %s: %s", company_id, exc)
                 await _mark_listener_state(company_id, enabled=True, running=False, error=str(exc))
                 await asyncio.sleep(max(5, interval))
                 continue
 
             await asyncio.sleep(interval)
+
     except asyncio.CancelledError:
         logger.info("Telegram listener cancelled for company %s", company_id)
         raise
@@ -1607,12 +1766,22 @@ async def _telegram_listener_loop(company_id: UUID) -> None:
         current = TELEGRAM_LISTENER_TASKS.get(key)
         if current is asyncio.current_task():
             TELEGRAM_LISTENER_TASKS.pop(key, None)
+
+        stop_requested = key in TELEGRAM_LISTENER_STOP_REQUESTED
+        TELEGRAM_LISTENER_STOP_REQUESTED.discard(key)
+
         with contextlib.suppress(Exception):
-            await _mark_listener_state(company_id, enabled=False, running=False)
+            await _mark_listener_state(
+                company_id,
+                enabled=False if stop_requested or not keep_enabled_on_exit else True,
+                running=False,
+            )
 
 
 def _cancel_telegram_listener(company_id: UUID | str) -> None:
-    task = TELEGRAM_LISTENER_TASKS.pop(_listener_key(company_id), None)
+    key = _listener_key(company_id)
+    TELEGRAM_LISTENER_STOP_REQUESTED.add(key)
+    task = TELEGRAM_LISTENER_TASKS.pop(key, None)
     if task and not task.done():
         task.cancel()
 
@@ -1622,8 +1791,34 @@ def _ensure_telegram_listener_task(company_id: UUID) -> bool:
     existing = TELEGRAM_LISTENER_TASKS.get(key)
     if existing and not existing.done():
         return False
+    TELEGRAM_LISTENER_STOP_REQUESTED.discard(key)
     TELEGRAM_LISTENER_TASKS[key] = asyncio.create_task(_telegram_listener_loop(company_id))
     return True
+
+
+async def bootstrap_telegram_listeners() -> dict[str, Any]:
+    """
+    Levanta automáticamente todos los bots que quedaron con listener_enabled=true.
+    Esto permite reiniciar API/Docker sin volver a presionar Iniciar escucha por empresa.
+    """
+    started: list[str] = []
+    async with AsyncSessionLocal() as db:
+        await ensure_bot_storage(db)
+        result = await db.execute(
+            select(CompanyBotInstance).where(
+                CompanyBotInstance.channel == "telegram",
+                CompanyBotInstance.bot_token_encrypted.is_not(None),
+            )
+        )
+        rows = result.scalars().all()
+
+    for row in rows:
+        config = dict(row.config_json or {})
+        if row.status != "inactive" and config.get("listener_enabled"):
+            if _ensure_telegram_listener_task(row.company_id):
+                started.append(str(row.company_id))
+
+    return {"ok": True, "started": started, "count": len(started)}
 
 
 @router.get("/companies/{company_id}/telegram", response_model=TelegramBotConfigOut)
@@ -1805,11 +2000,9 @@ async def start_company_telegram_listener(
 
     _ensure_telegram_listener_task(company_id)
 
-    # Procesa inmediatamente mensajes pendientes para que el usuario vea efecto sin PowerShell.
-    with contextlib.suppress(Exception):
-        await _poll_telegram_updates_for_company(db, company_id=company_id, limit=20, send_replies=True)
-        await db.refresh(row)
-
+    # 011A3-R2:
+    # No hacemos poll inmediato dentro del request porque compite con el task de escucha
+    # y puede producir deadlocks o doble getUpdates. El listener procesa en su ciclo propio.
     return bot_out(row, company_id)
 
 

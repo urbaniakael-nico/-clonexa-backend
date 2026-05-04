@@ -538,7 +538,7 @@
     billing: ["Billing", "cobros y facturacion", "BIL"],
     reports: ["Reportes", "metricas y auditoria", "REP"],
     kpis: ["KPIs", "indicadores operativos", "KPI"],
-    crm: ["CRM Field", "panel operativo", "CRM"],
+    crm: ["CRM Campo", "operacion en vivo", "CRM"],
     settings: ["Configuracion", "ajustes del tenant", "CFG"],
     production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
@@ -669,6 +669,10 @@
 
     if (hasAnyClientModule(codes, ["bots"])) {
       actions.push({ label: "Ver bot", action: "bots:open" });
+    }
+
+    if (hasAnyClientModule(codes, ["crm"])) {
+      actions.push({ label: "Ver CRM", action: "crm:open" });
     }
 
     if (hasAnyClientModule(codes, ["reports", "kpis"])) {
@@ -1633,6 +1637,521 @@
     }
   }
 
+  function crmEventTime(row = {}) {
+    return row.occurred_at || row.event_time || row.created_at || row.last_event_at || null;
+  }
+
+  function crmDate(row = {}) {
+    const raw = crmEventTime(row);
+    if (!raw) return null;
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function crmDateLabel(row = {}) {
+    const date = crmDate(row);
+    return date ? date.toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "-";
+  }
+
+  function crmEventLabel(row = {}) {
+    const type = String(row.event_type || row.last_event_type || "").toLowerCase();
+    const labels = {
+      check_in: "Inicio turno",
+      break_start: "Pausa",
+      break_end: "Retomar",
+      check_out: "Fin turno",
+      material_request: "Solicitud material",
+      observation: "Observacion",
+      gps_ping: "Ubicacion",
+      task_started: "Tarea iniciada",
+      task_completed: "Tarea cerrada",
+      sale_created: "Venta",
+    };
+
+    return row.event_label || labels[type] || type || "Evento";
+  }
+
+  function crmChannelLabel(value) {
+    const channel = String(value || "").toLowerCase();
+    const labels = {
+      telegram: "Telegram",
+      panel: "Panel",
+      whatsapp: "WhatsApp",
+      qr: "QR",
+      system: "Sistema",
+    };
+
+    return labels[channel] || (channel ? channel : "-");
+  }
+
+  function crmStatusFromEvent(row = {}) {
+    const type = String(row.event_type || row.last_event_type || "").toLowerCase();
+    if (["check_in", "break_end"].includes(type)) return "working";
+    if (type === "break_start") return "on_break";
+    if (type === "check_out") return "checked_out";
+
+    const status = String(row.status_after || row.status || "").toLowerCase();
+    if (["working", "trabajando"].includes(status)) return "working";
+    if (["on_break", "break", "pause", "pausa"].includes(status)) return "on_break";
+    if (["checked_out", "finished", "turno_finalizado"].includes(status)) return "checked_out";
+
+    return "not_started";
+  }
+
+  function crmStatusLabel(status) {
+    const normalized = String(status || "").toLowerCase();
+    const labels = {
+      working: "Activo",
+      on_break: "En pausa",
+      checked_out: "Fuera de turno",
+      not_started: "Sin turno",
+      inactive: "Inactivo",
+      archived: "Archivado",
+    };
+
+    return labels[normalized] || normalized || "-";
+  }
+
+  function crmStartOfToday() {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }
+
+  function crmIsToday(row = {}) {
+    const date = crmDate(row);
+    return !!date && date >= crmStartOfToday();
+  }
+
+  function crmEmployeeName(employee = {}, latest = {}) {
+    return employee.full_name || employee.name || latest.employee_name || latest.full_name || "Sin nombre";
+  }
+
+  function crmLatestEventByEmployee(events = []) {
+    const map = new Map();
+
+    (Array.isArray(events) ? events : []).forEach((event) => {
+      const employeeId = event.employee_id || event.employeeId;
+      if (!employeeId) return;
+
+      const current = map.get(employeeId);
+      const eventDate = crmDate(event)?.getTime() || 0;
+      const currentDate = crmDate(current || {})?.getTime() || 0;
+
+      if (!current || eventDate >= currentDate) {
+        map.set(employeeId, event);
+      }
+    });
+
+    return map;
+  }
+
+  function crmDurationLabel(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return "--:--";
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function crmEventEmployeeId(row = {}) {
+    return row.employee_id || row.employeeId || row.employee?.id || null;
+  }
+
+  function crmEventsForEmployee(events = [], employeeId = "") {
+    if (!employeeId) return [];
+    return (Array.isArray(events) ? events : [])
+      .filter((event) => String(crmEventEmployeeId(event) || "") === String(employeeId))
+      .filter(crmIsToday)
+      .sort((a, b) => (crmDate(a)?.getTime() || 0) - (crmDate(b)?.getTime() || 0));
+  }
+
+  function crmShiftMetrics(employeeEvents = []) {
+    let startedAt = null;
+    let endedAt = null;
+    let pauseStartedAt = null;
+    let pauseMs = 0;
+    let status = "not_started";
+    let latest = null;
+
+    employeeEvents.forEach((event) => {
+      const date = crmDate(event);
+      if (!date) return;
+
+      const type = String(event.event_type || event.last_event_type || "").toLowerCase();
+      latest = event;
+
+      if (type === "check_in") {
+        startedAt = date;
+        endedAt = null;
+        pauseStartedAt = null;
+        pauseMs = 0;
+        status = "working";
+        return;
+      }
+
+      if (!startedAt) return;
+
+      if (type === "break_start") {
+        if (!pauseStartedAt && status !== "checked_out") {
+          pauseStartedAt = date;
+        }
+        status = "on_break";
+        return;
+      }
+
+      if (type === "break_end") {
+        if (pauseStartedAt) {
+          pauseMs += Math.max(0, date.getTime() - pauseStartedAt.getTime());
+          pauseStartedAt = null;
+        }
+        status = "working";
+        return;
+      }
+
+      if (type === "check_out") {
+        if (pauseStartedAt) {
+          pauseMs += Math.max(0, date.getTime() - pauseStartedAt.getTime());
+          pauseStartedAt = null;
+        }
+        endedAt = date;
+        status = "checked_out";
+      }
+    });
+
+    const now = Date.now();
+
+    if (!startedAt) {
+      return {
+        status: "not_started",
+        startedAt: null,
+        endedAt: null,
+        latest,
+        grossMs: 0,
+        pauseMs: 0,
+        payableMs: 0,
+        timer: "--:--",
+      };
+    }
+
+    const effectiveEndMs = endedAt ? endedAt.getTime() : now;
+    const livePauseMs = pauseStartedAt ? Math.max(0, now - pauseStartedAt.getTime()) : 0;
+    const totalPauseMs = pauseMs + livePauseMs;
+    const grossMs = Math.max(0, effectiveEndMs - startedAt.getTime());
+    const payableMs = Math.max(0, grossMs - totalPauseMs);
+
+    return {
+      status,
+      startedAt,
+      endedAt,
+      latest,
+      grossMs,
+      pauseMs: totalPauseMs,
+      payableMs,
+      timer: crmDurationLabel(status === "on_break" ? totalPauseMs : payableMs),
+    };
+  }
+
+  function crmDynamicModuleCodes() {
+    const priority = [
+      "gps",
+      "field",
+      "materials",
+      "production",
+      "sales",
+      "stores",
+      "retail",
+      "inventory",
+      "stock",
+      "orders",
+      "requests",
+      "payroll",
+      "kpis",
+      "reports",
+    ];
+
+    const active = clientModuleCodes(visibleClientModules(activeClientModules()));
+    const selected = priority.filter((code) => active.has(code)).slice(0, 2);
+
+    while (selected.length < 2) {
+      selected.push(selected.length === 0 ? "modules" : "channels");
+    }
+
+    return selected;
+  }
+
+  function crmModuleDisplay(code) {
+    const labels = {
+      gps: "GPS",
+      field: "Campo",
+      materials: "Materiales",
+      production: "Produccion",
+      sales: "Ventas",
+      stores: "Tiendas",
+      retail: "Retail",
+      inventory: "Inventario",
+      stock: "Stock",
+      orders: "Pedidos",
+      requests: "Solicitudes",
+      payroll: "Nomina",
+      kpis: "KPIs",
+      reports: "Reportes",
+      modules: "Modulos",
+      channels: "Canales",
+    };
+
+    return labels[code] || moduleLabel(code);
+  }
+
+  function crmModuleFallback(code) {
+    const labels = {
+      gps: "Sin ubicacion",
+      field: "Sin tarea",
+      materials: "Sin solicitud",
+      production: "Sin produccion",
+      sales: "Sin venta",
+      stores: "Sin punto",
+      retail: "Sin actividad",
+      inventory: "Sin movimiento",
+      stock: "Sin alerta",
+      orders: "Sin pedido",
+      requests: "Sin solicitud",
+      payroll: "Sin corte",
+      kpis: "Sin metrica",
+      reports: "OK",
+      modules: "Asignados",
+      channels: "Bot",
+    };
+
+    return labels[code] || "Sin actividad";
+  }
+
+  function crmModuleValueForPerson(code, person = {}) {
+    if (code === "modules") return `${visibleClientModules(activeClientModules()).length} activos`;
+    if (code === "channels") return isClientModuleActive("bots") ? "Telegram" : "-";
+
+    const event = (person.events || [])
+      .slice()
+      .reverse()
+      .find((item) => String(item.module_code || "workforce").toLowerCase() === code);
+
+    return event ? crmEventLabel(event) : crmModuleFallback(code);
+  }
+
+  function crmTopCardValue(code, crm = {}) {
+    if (code === "modules") return `${visibleClientModules(activeClientModules()).length}`;
+    if (code === "channels") return isClientModuleActive("bots") && crm.bot?.configured ? "ON" : "OFF";
+
+    const count = (crm.todayEvents || [])
+      .filter((event) => String(event.module_code || "workforce").toLowerCase() === code)
+      .length;
+
+    if (count > 0) return count;
+
+    return isClientModuleActive(code) ? "ON" : "-";
+  }
+
+  async function loadClientCrmData() {
+    const companyId = state.companyId;
+    const [employeesResult, eventsResult, botResult] = await Promise.allSettled([
+      isClientModuleActive("workforce")
+        ? api(`/employees?company_id=${encodeURIComponent(companyId)}&include_archived=true`)
+        : Promise.resolve([]),
+      api(`/employees/attendance/history?company_id=${encodeURIComponent(companyId)}&limit=200`),
+      isClientModuleActive("bots")
+        ? api(`/bots/companies/${encodeURIComponent(companyId)}/telegram`)
+        : Promise.resolve(null),
+    ]);
+
+    const employees = employeesResult.status === "fulfilled" && Array.isArray(employeesResult.value)
+      ? employeesResult.value
+      : [];
+
+    const events = eventsResult.status === "fulfilled" && Array.isArray(eventsResult.value)
+      ? eventsResult.value
+      : [];
+
+    const bot = botResult.status === "fulfilled" ? botResult.value : null;
+    const latestByEmployee = crmLatestEventByEmployee(events);
+    const todayEvents = events.filter(crmIsToday);
+    const peopleMap = new Map();
+
+    employees
+      .filter((employee) => !["archived", "inactive"].includes(String(employee.status || "").toLowerCase()))
+      .forEach((employee) => {
+        const id = employee.id || employee.employee_id;
+        if (!id) return;
+        peopleMap.set(String(id), {
+          employee,
+          employeeId: id,
+          latest: latestByEmployee.get(id) || null,
+        });
+      });
+
+    latestByEmployee.forEach((latest, employeeId) => {
+      const key = String(employeeId);
+      if (!peopleMap.has(key)) {
+        peopleMap.set(key, {
+          employee: {},
+          employeeId,
+          latest,
+        });
+      }
+    });
+
+    const people = Array.from(peopleMap.values()).map((item) => {
+      const employeeEvents = crmEventsForEmployee(events, item.employeeId);
+      const metrics = crmShiftMetrics(employeeEvents);
+      const latest = metrics.latest || item.latest || null;
+
+      return {
+        employee: item.employee,
+        employeeId: item.employeeId,
+        latest,
+        events: employeeEvents,
+        status: metrics.status,
+        name: crmEmployeeName(item.employee, latest || {}),
+        role: item.employee.role || item.employee.employee_type || latest?.employee_role || "-",
+        lastAt: latest ? crmDateLabel(latest) : "-",
+        lastEvent: latest ? crmEventLabel(latest) : "-",
+        channel: latest ? crmChannelLabel(latest.source_channel) : "-",
+        metrics,
+      };
+    });
+
+    const working = people.filter((person) => person.status === "working");
+    const onBreak = people.filter((person) => person.status === "on_break");
+    const offShift = people.filter((person) => !["working", "on_break"].includes(person.status));
+
+    return {
+      employees,
+      events,
+      todayEvents,
+      people,
+      working,
+      onBreak,
+      offShift,
+      bot,
+      dynamicModules: crmDynamicModuleCodes(),
+    };
+  }
+
+  function renderCrmCollaboratorCards(people = [], moduleCodes = []) {
+    if (!people.length) {
+      return `<div class="personal-empty">No hay colaboradores operativos para mostrar.</div>`;
+    }
+
+    return `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:18px">
+        ${people.map((person) => `
+          <article class="client-kpi" style="padding:20px;min-height:180px">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+              <div>
+                <span>Colaborador</span>
+                <strong style="font-size:22px">${h(person.name)}</strong>
+              </div>
+              <span class="personal-status-pill">${h(crmStatusLabel(person.status))}</span>
+            </div>
+
+            <div style="margin-top:18px">
+              <span>Cronometro</span>
+              <strong style="font-size:30px">${h(person.metrics.timer)}</strong>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px">
+              ${moduleCodes.slice(0, 2).map((code) => `
+                <div style="border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px;background:rgba(255,255,255,.045)">
+                  <span>${h(crmModuleDisplay(code))}</span>
+                  <strong style="font-size:16px">${h(crmModuleValueForPerson(code, person))}</strong>
+                </div>
+              `).join("")}
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  async function renderCrmModule() {
+    if (!isClientModuleActive("crm")) {
+      render();
+      return;
+    }
+
+    const company = state.company || {};
+    const crm = await loadClientCrmData();
+    const moduleCards = crm.dynamicModules || crmDynamicModuleCodes();
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+
+            <nav class="client-nav">
+              ${renderClientNav("crm")}
+            </nav>
+
+            <div class="client-footer-id">
+              <strong>Tenant activo</strong><br>
+              ${h(state.companyId || "")}
+            </div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo CRM Campo</div>
+              <h1 class="client-title">CRM Campo</h1>
+              <p class="client-muted">Vista viva de colaboradores en turno, pausas y nucleos activos de la empresa.</p>
+
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-client-module="crm">Actualizar</button>
+              </div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Estado operativo actual</div>
+              <h2>Operacion en vivo</h2>
+
+              <div class="client-kpi-grid">
+                <div class="client-kpi">
+                  <span>Activos</span>
+                  <strong>${h(crm.working.length)}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>En pausa</span>
+                  <strong>${h(crm.onBreak.length)}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>${h(crmModuleDisplay(moduleCards[0]))}</span>
+                  <strong>${h(crmTopCardValue(moduleCards[0], crm))}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>${h(crmModuleDisplay(moduleCards[1]))}</span>
+                  <strong>${h(crmTopCardValue(moduleCards[1], crm))}</strong>
+                </div>
+              </div>
+
+              <div class="client-eyebrow" style="margin-top:28px">Colaboradores</div>
+              <h2>Estado por colaborador</h2>
+              ${renderCrmCollaboratorCards(crm.people, moduleCards)}
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+
   async function renderClientModulePlaceholder(code) {
     const company = state.company || {};
     $("app").innerHTML = `
@@ -1849,6 +2368,11 @@
           return;
         }
 
+        if (action === "crm:open" && isClientModuleActive("crm")) {
+          await renderCrmModule();
+          return;
+        }
+
         if (action === "reports:open" && isClientModuleActive("reports")) {
           await renderClientModulePlaceholder("reports");
           return;
@@ -1868,6 +2392,11 @@
 
         if (code === "bots") {
           await renderBotsModule();
+          return;
+        }
+
+        if (code === "crm") {
+          await renderCrmModule();
           return;
         }
 
