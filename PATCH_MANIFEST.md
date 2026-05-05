@@ -1,14 +1,10 @@
-PATCH CLONEXA 014A GPS BOT GATE
+# PATCH MANIFEST — CLONEXA 015B-R4 INVENTORY MOVEMENTS QUANTITY FIX
 
-Archivos incluidos:
-- app/api/v1/endpoints/bots.py
+Files:
+- app/api/v1/endpoints/inventory.py
+- README_INVENTORY_015B_R4_MOVEMENTS_QUANTITY_FIX.md
 
-No incluidos:
-- client.js
-- admin_v2.js
-- payroll.py
-- employees.py
-- migraciones
-
-Validaciones:
-- python -m py_compile app/api/v1/endpoints/bots.py
+Purpose:
+- Fix inventory create 500 caused by legacy inventory_movements.quantity NOT NULL.
+- Insert both quantity_delta and quantity.
+- Normalize/drop legacy movement NOT NULL constraints defensively.

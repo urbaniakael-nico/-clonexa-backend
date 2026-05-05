@@ -511,6 +511,8 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "shift_summary": "Feliz descanso, {employee_name}.\n\nTotal acumulado del corte:\nOrdinarias: {regular}\nExtras: {extra}\n\nProyección pago: {projected_pay}\nDescuento del corte: {discount}\nTotal estimado: {estimated_total}",
         "observation_saved": "📝 Observación registrada.",
         "material_requested": "📦 Solicitud de material registrada.",
+        "material_request_prompt": "📦 Indica el material y cantidad. Ejemplo: Cable UTP 20 metros",
+        "material_request_pending": "📦 Ya estoy esperando el detalle del material. Escribe material + cantidad.",
         "location_requested": "📍 Solicitud de ubicación registrada. Para ubicación real, usa compartir ubicación en Telegram.",
         "gps_required_for_start": "📍 Para iniciar turno, comparte tu ubicación actual.\nUsa el botón de abajo: Compartir ubicación.",
         "gps_location_pending": "📍 Ya estoy esperando tu ubicación para iniciar turno.\nComparte tu ubicación con el botón inferior.",
@@ -563,6 +565,8 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "shift_summary": "Rest well, {employee_name}.\n\nCurrent payroll period total:\nRegular: {regular}\nOvertime: {extra}\n\nProjected pay: {projected_pay}\nPeriod discount: {discount}\nEstimated total: {estimated_total}",
         "observation_saved": "📝 Observation saved.",
         "material_requested": "📦 Material request saved.",
+        "material_request_prompt": "📦 Enter material and quantity. Example: UTP cable 20 meters",
+        "material_request_pending": "📦 I am already waiting for material details. Type material + quantity.",
         "location_requested": "📍 Location request saved. For real location, use Telegram location sharing.",
         "gps_required_for_start": "📍 To start your shift, share your current location.\nUse the button below: Share location.",
         "gps_location_pending": "📍 I am already waiting for your location to start the shift.\nShare your location using the button below.",
@@ -615,6 +619,8 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "shift_summary": "Bon repos, {employee_name}.\n\nTotal cumulé de la période :\nOrdinaires : {regular}\nSupplémentaires : {extra}\n\nProjection paiement : {projected_pay}\nRemise de la période : {discount}\nTotal estimé : {estimated_total}",
         "observation_saved": "📝 Observation enregistrée.",
         "material_requested": "📦 Demande de matériel enregistrée.",
+        "material_request_prompt": "📦 Indiquez le matériel et la quantité. Exemple : câble UTP 20 mètres",
+        "material_request_pending": "📦 J’attends déjà le détail du matériel. Écrivez matériel + quantité.",
         "location_requested": "📍 Demande de localisation enregistrée. Pour la localisation réelle, utilisez le partage de position Telegram.",
         "gps_required_for_start": "📍 Pour commencer le service, partagez votre position actuelle.\nUtilisez le bouton ci-dessous : Partager la position.",
         "gps_location_pending": "📍 J’attends déjà votre position pour commencer le service.\nPartagez votre position avec le bouton inférieur.",
@@ -1117,6 +1123,233 @@ async def _clear_pending_gps_checkin(
               AND action = 'gps_check_in'
         """),
         {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
+    )
+
+
+async def _ensure_material_requests_storage(db: AsyncSession) -> None:
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS material_requests (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            employee_id uuid NULL REFERENCES employees(id) ON DELETE SET NULL,
+            employee_name varchar(180) NULL,
+            employee_role varchar(100) NULL,
+            material_name text NOT NULL DEFAULT '',
+            quantity numeric(14, 2) NOT NULL DEFAULT 1,
+            unit varchar(40) NULL,
+            notes text NULL,
+            status varchar(40) NOT NULL DEFAULT 'pending',
+            source_channel varchar(80) NOT NULL DEFAULT 'telegram',
+            source_ref varchar(220) NULL,
+            attendance_event_id uuid NULL,
+            requested_at timestamptz NOT NULL DEFAULT now(),
+            status_updated_at timestamptz NOT NULL DEFAULT now(),
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        );
+    """))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_company ON material_requests(company_id);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_status ON material_requests(company_id, status);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_employee ON material_requests(company_id, employee_id);"))
+    await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_material_requests_source_ref ON material_requests(company_id, source_ref) WHERE source_ref IS NOT NULL;"))
+
+
+def _parse_material_request_text(raw: str) -> dict[str, Any]:
+    text_value = (raw or "").strip()
+    if not text_value:
+        return {"material_name": "", "quantity": Decimal("1.00"), "unit": "", "notes": ""}
+
+    parts = text_value.split()
+    quantity = Decimal("1.00")
+    quantity_index: int | None = None
+
+    for index, part in enumerate(parts):
+        normalized = part.replace(",", ".")
+        try:
+            quantity = Decimal(normalized)
+            quantity_index = index
+            break
+        except Exception:
+            continue
+
+    if quantity_index is None:
+        return {
+            "material_name": text_value[:240],
+            "quantity": quantity,
+            "unit": "",
+            "notes": "",
+        }
+
+    material_name = " ".join(parts[:quantity_index]).strip() or text_value
+    unit = parts[quantity_index + 1].strip() if quantity_index + 1 < len(parts) else ""
+    notes = " ".join(parts[quantity_index + 2:]).strip() if quantity_index + 2 < len(parts) else ""
+
+    return {
+        "material_name": material_name[:240],
+        "quantity": quantity,
+        "unit": unit[:40],
+        "notes": notes[:600],
+    }
+
+
+async def _set_pending_material_request(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+    telegram_username: str | None,
+    employee_id: UUID,
+    chat_id: str | None,
+    language: str,
+) -> None:
+    await ensure_bot_storage(db)
+    await db.execute(
+        text("""
+            INSERT INTO company_telegram_pending_actions (
+                company_id,
+                telegram_user_id,
+                telegram_username,
+                employee_id,
+                action,
+                payload_json,
+                expires_at,
+                updated_at
+            )
+            VALUES (
+                :company_id,
+                :telegram_user_id,
+                :telegram_username,
+                :employee_id,
+                'material_request',
+                CAST(:payload_json AS jsonb),
+                now() + interval '30 minutes',
+                now()
+            )
+            ON CONFLICT (company_id, telegram_user_id, action)
+            DO UPDATE SET
+                telegram_username = EXCLUDED.telegram_username,
+                employee_id = EXCLUDED.employee_id,
+                payload_json = EXCLUDED.payload_json,
+                expires_at = EXCLUDED.expires_at,
+                updated_at = now()
+        """),
+        {
+            "company_id": str(company_id),
+            "telegram_user_id": str(telegram_user_id),
+            "telegram_username": telegram_username,
+            "employee_id": str(employee_id),
+            "payload_json": json.dumps({
+                "chat_id": chat_id,
+                "language": _lang(language),
+                "reason": "material_request_detail",
+            }),
+        },
+    )
+
+
+async def _get_pending_material_request(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+) -> dict[str, Any] | None:
+    await ensure_bot_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT id, employee_id, payload_json, expires_at
+            FROM company_telegram_pending_actions
+            WHERE company_id = :company_id
+              AND telegram_user_id = :telegram_user_id
+              AND action = 'material_request'
+              AND (expires_at IS NULL OR expires_at > now())
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """),
+        {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def _clear_pending_material_request(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+) -> None:
+    await db.execute(
+        text("""
+            DELETE FROM company_telegram_pending_actions
+            WHERE company_id = :company_id
+              AND telegram_user_id = :telegram_user_id
+              AND action = 'material_request'
+        """),
+        {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
+    )
+
+
+async def _create_material_request_record(
+    db: AsyncSession,
+    *,
+    event: WorkforceAttendanceEvent,
+    employee: Employee,
+    detail: str,
+) -> None:
+    await _ensure_material_requests_storage(db)
+    parsed = _parse_material_request_text(detail)
+    await db.execute(
+        text("""
+            INSERT INTO material_requests (
+                company_id,
+                employee_id,
+                employee_name,
+                employee_role,
+                material_name,
+                quantity,
+                unit,
+                notes,
+                status,
+                source_channel,
+                source_ref,
+                attendance_event_id,
+                requested_at,
+                status_updated_at,
+                updated_at
+            )
+            VALUES (
+                :company_id,
+                :employee_id,
+                :employee_name,
+                :employee_role,
+                :material_name,
+                :quantity,
+                :unit,
+                :notes,
+                'pending',
+                'telegram',
+                :source_ref,
+                :attendance_event_id,
+                :requested_at,
+                now(),
+                now()
+            )
+            ON CONFLICT (company_id, source_ref)
+            WHERE source_ref IS NOT NULL
+            DO NOTHING
+        """),
+        {
+            "company_id": str(employee.company_id),
+            "employee_id": str(employee.id),
+            "employee_name": employee.full_name,
+            "employee_role": employee.role,
+            "material_name": parsed["material_name"],
+            "quantity": parsed["quantity"],
+            "unit": parsed["unit"],
+            "notes": parsed["notes"],
+            "source_ref": event.source_ref,
+            "attendance_event_id": str(event.id),
+            "requested_at": event.occurred_at,
+        },
     )
 
 
@@ -1635,6 +1868,14 @@ async def _create_bot_attendance_event(
     db.add(event)
     await db.flush()
 
+    if event_type == "material_request":
+        await _create_material_request_record(
+            db,
+            event=event,
+            employee=employee,
+            detail=detail,
+        )
+
     started_at: datetime | None = None
     if event_type == "check_out":
         current_before_close = await _get_current_attendance_status(db, employee.company_id, employee.id)
@@ -2015,6 +2256,72 @@ async def _process_telegram_update(
             telegram_username=username,
         )
 
+    if command and not command.startswith("/") and telegram_user_id:
+        pending_material = await _get_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+        if pending_material is not None:
+            employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
+            if employee is None:
+                reply = _txt(language, "not_linked", telegram_user_id=telegram_user_id)
+                if send_replies:
+                    await _send_telegram_message(token, chat_id, reply, reply_markup=_language_keyboard())
+                return TelegramBotPollItem(
+                    update_id=update_id,
+                    ok=False,
+                    action="not_linked",
+                    message="Empleado no vinculado.",
+                    telegram_user_id=telegram_user_id,
+                    telegram_username=username,
+                )
+
+            company = await ensure_company_exists(db, bot.company_id)
+            enabled_modules = await _enabled_module_codes(db, bot.company_id)
+            if "materials" not in enabled_modules:
+                await _clear_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+                await db.commit()
+                if send_replies:
+                    await _send_telegram_message(token, chat_id, _txt(language, "module_inactive"))
+                    await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+                return TelegramBotPollItem(update_id=update_id, ok=False, action="module_inactive", message="Materiales inactivo.", employee_id=employee.id, employee_name=employee.full_name)
+
+            material_config = TELEGRAM_COMMANDS["/material"]
+            current = await _get_current_attendance_status(db, employee.company_id, employee.id)
+            transition_ok, transition_error = _validate_turn_transition(current=current, command_config=material_config, language=language)
+            if not transition_ok:
+                await _clear_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+                await db.commit()
+                if send_replies:
+                    await _send_telegram_message(token, chat_id, transition_error or _txt(language, "must_start_shift"))
+                    await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+                return TelegramBotPollItem(update_id=update_id, ok=False, action="turn_validation_failed", message=transition_error or "Transición inválida.", employee_id=employee.id, employee_name=employee.full_name)
+
+            created, message_text = await _create_bot_attendance_event(
+                db,
+                bot=bot,
+                employee=employee,
+                update=update,
+                message=message,
+                command="/material",
+                args=text_value,
+                command_config=material_config,
+                language=language,
+            )
+            await _clear_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+            await db.commit()
+            if send_replies:
+                await _send_telegram_message(token, chat_id, message_text)
+                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+            return TelegramBotPollItem(
+                update_id=update_id,
+                ok=created,
+                action="material_request",
+                message=message_text,
+                employee_id=employee.id,
+                employee_name=employee.full_name,
+                event_created=created,
+                telegram_user_id=telegram_user_id,
+                telegram_username=username,
+            )
+
     command_config = TELEGRAM_COMMANDS.get(command)
     if command_config is None:
         employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
@@ -2110,6 +2417,35 @@ async def _process_telegram_update(
             ok=True,
             action="gps_required_for_check_in",
             message="GPS requerido antes de iniciar turno.",
+            employee_id=employee.id,
+            employee_name=employee.full_name,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    if command in {"/material", "/materiales"} and not args:
+        pending = await _get_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+        await _set_pending_material_request(
+            db,
+            company_id=bot.company_id,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+            employee_id=employee.id,
+            chat_id=chat_id,
+            language=language,
+        )
+        await db.commit()
+        if send_replies:
+            await _send_telegram_message(
+                token,
+                chat_id,
+                _txt(language, "material_request_pending" if pending else "material_request_prompt"),
+            )
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="material_detail_required",
+            message="Esperando detalle de material.",
             employee_id=employee.id,
             employee_name=employee.full_name,
             telegram_user_id=telegram_user_id,

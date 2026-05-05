@@ -24,6 +24,8 @@ for _module_name, _prefix, _tags in [
     ("crm", "/crm", ["crm"]),
     ("payroll", "/payroll", ["payroll"]),
     ("gps", "/gps", ["gps"]),
+    ("inventory", "/inventory", ["inventory"]),
+    ("materials", "/materials", ["materials"]),
     ("bots", "/bots", ["bots"]),
     ("modules", "/modules", ["modules"]),
     ("packages", "/packages", ["packages"]),

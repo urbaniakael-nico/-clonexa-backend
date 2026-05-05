@@ -679,6 +679,10 @@
       actions.push({ label: "Ver nómina", action: "payroll:open" });
     }
 
+    if (hasAnyClientModule(codes, ["inventory"])) {
+      actions.push({ label: "Inventario", action: "inventory:open" });
+    }
+
     if (hasAnyClientModule(codes, ["reports", "kpis"])) {
       actions.push({ label: "Ver reportes", action: "reports:open" });
     }
@@ -2574,6 +2578,717 @@
 
 
 
+
+
+
+  /* CX_INVENTORY_BASE_015B_START */
+  function ensureInventoryStyles() {
+    if (document.getElementById("cxInventoryBaseStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxInventoryBaseStyles";
+    style.textContent = `
+      .cx-inv-modebar {
+        display:flex;
+        flex-wrap:wrap;
+        gap:12px;
+        margin:18px 0;
+      }
+      .cx-inv-modebar button {
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(255,255,255,.08);
+        color: inherit;
+        border-radius: 16px;
+        padding: 12px 16px;
+        font-weight: 1000;
+        cursor: pointer;
+      }
+      .cx-inv-modebar button.active {
+        background: linear-gradient(135deg, var(--cx-secondary, #00ff88), var(--cx-primary, #ff2bd6));
+        color: #050509;
+        box-shadow: 0 14px 34px rgba(255,43,214,.18);
+      }
+      .cx-inv-form {
+        display:grid;
+        grid-template-columns: repeat(5, minmax(140px, 1fr)) auto;
+        gap:12px;
+        align-items:end;
+        margin: 18px 0 22px;
+      }
+      .cx-inv-field label {
+        display:block;
+        font-size:11px;
+        text-transform:uppercase;
+        letter-spacing:.12em;
+        font-weight:1000;
+        opacity:.72;
+        margin-bottom:7px;
+      }
+      .cx-inv-field input,
+      .cx-inv-field select {
+        width:100%;
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(0,0,0,.20);
+        color: var(--cx-text, #fff);
+        border-radius: 15px;
+        padding: 12px 13px;
+        font-weight: 900;
+        outline: none;
+      }
+      .cx-inv-search {
+        width:min(520px, 100%);
+        border:1px solid rgba(255,255,255,.16);
+        background: rgba(0,0,0,.20);
+        color: var(--cx-text, #fff);
+        border-radius: 16px;
+        padding: 14px 16px;
+        font-weight: 900;
+        margin: 8px 0 18px;
+        outline:none;
+      }
+      .cx-inv-table-wrap {
+        width:100%;
+        max-width:100%;
+        overflow-x:auto;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 22px;
+        background: rgba(0,0,0,.12);
+        box-shadow: 0 18px 48px rgba(0,0,0,.20);
+      }
+      .cx-inv-table {
+        min-width: 1160px;
+        width:100%;
+        border-collapse: collapse;
+      }
+      .cx-inv-table th,
+      .cx-inv-table td {
+        padding: 13px 12px;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+        text-align:left;
+        vertical-align:middle;
+      }
+      .cx-inv-table th {
+        background: rgba(255,255,255,.07);
+        text-transform: uppercase;
+        letter-spacing:.10em;
+        font-size: 11px;
+        opacity:.76;
+      }
+      .cx-inv-table td {
+        font-weight: 850;
+      }
+      .cx-inv-table input,
+      .cx-inv-table select {
+        width:100%;
+        border:1px solid rgba(255,255,255,.13);
+        background: rgba(0,0,0,.20);
+        color: inherit;
+        border-radius: 12px;
+        padding: 10px 10px;
+        font-weight: 900;
+        outline:none;
+      }
+      .cx-inv-actions {
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px;
+      }
+      .cx-inv-action {
+        border:1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.08);
+        color: inherit;
+        border-radius: 12px;
+        padding: 9px 10px;
+        font-weight: 1000;
+        cursor:pointer;
+      }
+      .cx-inv-action.primary {
+        background: linear-gradient(135deg, var(--cx-secondary, #00ff88), var(--cx-primary, #ff2bd6));
+        color:#050509;
+      }
+      .cx-inv-stock {
+        display:inline-flex;
+        align-items:center;
+        border-radius:999px;
+        padding: 8px 11px;
+        font-weight: 1000;
+        border:1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.08);
+      }
+      .cx-inv-stock.low {
+        color:#ffb45f;
+        background: rgba(255,153,0,.14);
+        border-color: rgba(255,153,0,.26);
+      }
+      .cx-inv-status {
+        display:inline-flex;
+        align-items:center;
+        border-radius:999px;
+        padding: 8px 11px;
+        font-size: 12px;
+        font-weight:1000;
+        border:1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.08);
+      }
+      .cx-inv-status.active {
+        color:#39f28a;
+        background: rgba(0,255,136,.12);
+      }
+      .cx-inv-status.inactive {
+        color:#b9b9c6;
+      }
+      @media (max-width: 1100px) {
+        .cx-inv-form { grid-template-columns: 1fr; }
+        .cx-inv-table { min-width: 980px; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function inventoryNumber(value) {
+    if (value === null || value === undefined || value === "") return 0;
+    const n = Number(String(value).replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function inventoryQtyLabel(value) {
+    const n = inventoryNumber(value);
+    return n.toLocaleString("es-CO", { maximumFractionDigits: 2 });
+  }
+
+  function inventoryStatusLabel(status = "") {
+    return String(status || "active").toLowerCase() === "inactive" ? "Inactivo" : "Activo";
+  }
+
+  function inventoryMode() {
+    return window.__cxInventoryMode || "create";
+  }
+
+  function setInventoryMode(mode) {
+    window.__cxInventoryMode = ["create", "modify"].includes(mode) ? mode : "create";
+  }
+
+  async function loadInventoryItems(query = "") {
+    if (!state.companyId) return { summary: {}, items: [] };
+    const qs = query ? `&q=${encodeURIComponent(query)}` : "";
+    return api(`/inventory/companies/${encodeURIComponent(state.companyId)}/items?include_inactive=true&limit=800${qs}`);
+  }
+
+  function showInventoryNotice(message, type = "ok") {
+    const box = document.getElementById("inventoryNotice");
+    if (!box) return;
+    box.innerHTML = `<div class="personal-toast ${type === "error" ? "error" : "ok"}">${h(message)}</div>`;
+    window.clearTimeout(window.__inventoryNoticeTimer);
+    window.__inventoryNoticeTimer = window.setTimeout(() => {
+      if (box) box.innerHTML = "";
+    }, 3000);
+  }
+
+  function inventoryCreatePayload() {
+    return {
+      name_reference: String(document.getElementById("inventoryCreateName")?.value || "").trim(),
+      size: String(document.getElementById("inventoryCreateSize")?.value || "").trim(),
+      color: String(document.getElementById("inventoryCreateColor")?.value || "").trim(),
+      initial_quantity: inventoryNumber(document.getElementById("inventoryCreateQty")?.value || 0),
+      min_stock: inventoryNumber(document.getElementById("inventoryCreateMin")?.value || 0),
+    };
+  }
+
+  async function createInventoryItem() {
+    const payload = inventoryCreatePayload();
+    if (!payload.name_reference) {
+      showInventoryNotice("Nombre / referencia es obligatorio.", "error");
+      return;
+    }
+    await api(`/inventory/companies/${encodeURIComponent(state.companyId)}/items`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    setInventoryMode("modify");
+    await renderInventoryModule();
+    setTimeout(() => showInventoryNotice("Material creado en inventario."), 80);
+  }
+
+  function inventoryRowPayload(row) {
+    return {
+      name_reference: String(row.querySelector('[data-inventory-field="name_reference"]')?.value || "").trim(),
+      size: String(row.querySelector('[data-inventory-field="size"]')?.value || "").trim(),
+      color: String(row.querySelector('[data-inventory-field="color"]')?.value || "").trim(),
+      min_stock: inventoryNumber(row.querySelector('[data-inventory-field="min_stock"]')?.value || 0),
+      status: String(row.querySelector('[data-inventory-field="status"]')?.value || "active"),
+    };
+  }
+
+  async function updateInventoryItem(itemId) {
+    const row = document.querySelector(`[data-inventory-row="${CSS.escape(String(itemId))}"]`);
+    if (!row) return;
+    await api(`/inventory/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(inventoryRowPayload(row)),
+    });
+    await renderInventoryModule();
+    setTimeout(() => showInventoryNotice("Material actualizado."), 80);
+  }
+
+  async function addInventoryEntry(itemId) {
+    const input = document.querySelector(`[data-inventory-entry-qty="${CSS.escape(String(itemId))}"]`);
+    const quantity = inventoryNumber(input?.value || 0);
+    if (quantity <= 0) {
+      showInventoryNotice("Ingresa una cantidad mayor a cero.", "error");
+      return;
+    }
+    await api(`/inventory/items/${encodeURIComponent(itemId)}/entry`, {
+      method: "POST",
+      body: JSON.stringify({ quantity, notes: "Entrada desde Inventario" }),
+    });
+    await renderInventoryModule();
+    setTimeout(() => showInventoryNotice("Entrada registrada. Stock actualizado."), 80);
+  }
+
+  async function disableInventoryItem(itemId) {
+    await api(`/inventory/items/${encodeURIComponent(itemId)}/disable`, { method: "POST" });
+    await renderInventoryModule();
+    setTimeout(() => showInventoryNotice("Material deshabilitado."), 80);
+  }
+
+  function exportInventoryCsv() {
+    const rows = Array.isArray(window.__cxInventoryRows) ? window.__cxInventoryRows : [];
+    const headers = ["Nombre / referencia", "Tamaño", "Color", "Stock actual", "Stock minimo", "Alerta", "Estado"];
+    const csvRows = [headers].concat(rows.map((row) => [
+      row.name_reference || "",
+      row.size || "",
+      row.color || "",
+      row.current_stock ?? 0,
+      row.min_stock ?? 0,
+      row.alert_low ? "Stock bajo" : "",
+      inventoryStatusLabel(row.status),
+    ]));
+
+    const csv = csvRows
+      .map((items) => items.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clonexa_inventario_${state.companyId || "empresa"}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function renderInventoryCreatePanel() {
+    return `
+      <section class="client-panel">
+        <div class="client-eyebrow">Crear material / producto</div>
+        <h2>Nuevo registro de inventario</h2>
+        <p class="client-muted">El stock actual se crea desde la cantidad inicial como movimiento. Luego solo cambia por entradas, entregas y devoluciones.</p>
+
+        <div class="cx-inv-form">
+          <div class="cx-inv-field">
+            <label>Nombre / referencia</label>
+            <input id="inventoryCreateName" placeholder="Ej: Cable UTP">
+          </div>
+          <div class="cx-inv-field">
+            <label>Tamaño</label>
+            <input id="inventoryCreateSize" placeholder="Ej: 20m / M / 1kg">
+          </div>
+          <div class="cx-inv-field">
+            <label>Color</label>
+            <input id="inventoryCreateColor" placeholder="Ej: Azul">
+          </div>
+          <div class="cx-inv-field">
+            <label>Cantidad inicial</label>
+            <input id="inventoryCreateQty" type="number" min="0" step="0.01" value="0">
+          </div>
+          <div class="cx-inv-field">
+            <label>Mínimo alerta</label>
+            <input id="inventoryCreateMin" type="number" min="0" step="0.01" value="0">
+          </div>
+          <button class="client-btn" type="button" data-inventory-create>Crear</button>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderInventoryRow(row = {}) {
+    const status = String(row.status || "active").toLowerCase();
+    const low = !!row.alert_low;
+    return `
+      <tr data-inventory-row="${h(row.id)}">
+        <td><input data-inventory-field="name_reference" value="${h(row.name_reference || "")}"></td>
+        <td><input data-inventory-field="size" value="${h(row.size || "")}"></td>
+        <td><input data-inventory-field="color" value="${h(row.color || "")}"></td>
+        <td><span class="cx-inv-stock ${low ? "low" : ""}">${h(inventoryQtyLabel(row.current_stock))}</span></td>
+        <td><input data-inventory-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
+        <td><span class="cx-inv-status ${h(status)}">${h(inventoryStatusLabel(status))}</span>${low ? `<br><small class="client-muted">Stock bajo</small>` : ""}</td>
+        <td>
+          <select data-inventory-field="status">
+            <option value="active" ${status !== "inactive" ? "selected" : ""}>Activo</option>
+            <option value="inactive" ${status === "inactive" ? "selected" : ""}>Inactivo</option>
+          </select>
+        </td>
+        <td>
+          <input data-inventory-entry-qty="${h(row.id)}" type="number" min="0" step="0.01" placeholder="Cantidad">
+        </td>
+        <td>
+          <div class="cx-inv-actions">
+            <button class="cx-inv-action primary" type="button" data-inventory-update="${h(row.id)}">Guardar</button>
+            <button class="cx-inv-action" type="button" data-inventory-entry="${h(row.id)}">Ingresar</button>
+            <button class="cx-inv-action" type="button" data-inventory-disable="${h(row.id)}">Deshabilitar</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function renderInventoryModifyPanel(rows = []) {
+    return `
+      <section class="client-panel">
+        <div class="client-eyebrow">Modificar material</div>
+        <h2>Buscar y actualizar</h2>
+        <p class="client-muted">El stock actual es solo lectura. Para sumar stock usa “Ingresar” y CLONEXA crea movimiento de inventario.</p>
+        <input class="cx-inv-search" data-inventory-search placeholder="🔎 Buscar por nombre, referencia, tamaño o color...">
+
+        <div class="cx-inv-table-wrap">
+          <table class="cx-inv-table">
+            <thead>
+              <tr>
+                <th>Nombre / referencia</th>
+                <th>Tamaño</th>
+                <th>Color</th>
+                <th>Stock actual</th>
+                <th>Mínimo alerta</th>
+                <th>Alerta</th>
+                <th>Estado</th>
+                <th>Ingresar cantidad</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="9">No hay materiales en inventario.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  async function renderInventoryModule() {
+    if (!isClientModuleActive("inventory")) {
+      render();
+      return;
+    }
+
+    ensureInventoryStyles();
+
+    const company = state.company || {};
+    let data = { summary: {}, items: [] };
+    let loadError = "";
+
+    try {
+      data = await loadInventoryItems();
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Inventario.";
+    }
+
+    const rows = Array.isArray(data.items) ? data.items : [];
+    const summary = data.summary || {};
+    window.__cxInventoryRows = rows;
+    const mode = inventoryMode();
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("inventory")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Inventario</div>
+              <h1 class="client-title">Inventario</h1>
+              <p class="client-muted">Catálogo operativo, mínimos y stock actual de solo lectura. Materiales descontará o devolverá stock en la siguiente integración.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-inventory-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-inventory-export>CSV</button>
+              </div>
+              <div id="inventoryNotice">${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}</div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Resumen</div>
+              <h2>Estado del inventario</h2>
+              <div class="client-kpi-grid">
+                <div class="client-kpi"><span>Activos</span><strong>${h(summary.active || 0)}</strong></div>
+                <div class="client-kpi"><span>Stock bajo</span><strong>${h(summary.low_stock || 0)}</strong></div>
+                <div class="client-kpi"><span>Inactivos</span><strong>${h(summary.inactive || 0)}</strong></div>
+                <div class="client-kpi"><span>Total registros</span><strong>${h(summary.total || 0)}</strong></div>
+              </div>
+
+              <div class="cx-inv-modebar">
+                <button class="${mode === "create" ? "active" : ""}" type="button" data-inventory-mode="create">Crear material / producto</button>
+                <button class="${mode === "modify" ? "active" : ""}" type="button" data-inventory-mode="modify">Modificar material</button>
+                <button type="button" data-inventory-export>CSV</button>
+              </div>
+            </section>
+
+            ${mode === "create" ? renderInventoryCreatePanel() : renderInventoryModifyPanel(rows)}
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CX_INVENTORY_BASE_015B_END */
+
+
+  /* CX_MATERIALS_BASE_015A_START */
+  function ensureMaterialsStyles() {
+    if (document.getElementById("cxMaterialsBaseStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxMaterialsBaseStyles";
+    style.textContent = `
+      .cx-materials-table {
+        display: grid;
+        grid-template-columns: minmax(160px, 1.1fr) minmax(220px, 1.4fr) 90px 120px 130px minmax(230px, 1.5fr);
+        gap: 0;
+        border: 1px solid rgba(255,255,255,.10);
+        border-radius: 22px;
+        overflow: hidden;
+        background: rgba(0,0,0,.12);
+      }
+      .cx-materials-cell {
+        padding: 14px 14px;
+        border-bottom: 1px solid rgba(255,255,255,.07);
+        min-height: 54px;
+      }
+      .cx-materials-head {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .12em;
+        font-weight: 1000;
+        opacity: .72;
+        background: rgba(255,255,255,.08);
+      }
+      .cx-materials-row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .cx-materials-action {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.08);
+        color: inherit;
+        border-radius: 13px;
+        padding: 9px 10px;
+        font-weight: 900;
+        cursor: pointer;
+      }
+      .cx-materials-action:hover {
+        transform: translateY(-1px);
+        border-color: rgba(255,255,255,.26);
+      }
+      .cx-materials-status {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 8px 11px;
+        font-weight: 1000;
+        font-size: 12px;
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.08);
+      }
+      .cx-materials-status.pending { color: #ffe18a; background: rgba(255,210,70,.12); }
+      .cx-materials-status.approved { color: #9ee7ff; background: rgba(70,190,255,.12); }
+      .cx-materials-status.delivered { color: #39f28a; background: rgba(0,255,136,.12); }
+      .cx-materials-status.returned { color: #d7c2ff; background: rgba(180,140,255,.12); }
+      .cx-materials-status.rejected { color: #ff8f8f; background: rgba(255,70,70,.12); }
+      @media (max-width: 1100px) {
+        .cx-materials-table { grid-template-columns: 1fr; }
+        .cx-materials-head { display:none; }
+        .cx-materials-cell { border-bottom: 1px solid rgba(255,255,255,.08); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function materialsStatusLabel(status = "") {
+    const map = {
+      pending: "Pendiente",
+      approved: "Aprobada",
+      rejected: "Rechazada",
+      delivered: "Entregada",
+      returned: "Devuelta",
+    };
+    return map[String(status || "pending").toLowerCase()] || "Pendiente";
+  }
+
+  function materialDateLabel(raw) {
+    if (!raw) return "-";
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+  }
+
+  function materialsRequestRow(row = {}) {
+    const status = String(row.status || "pending").toLowerCase();
+    return `
+      <div class="cx-materials-cell">
+        <strong>${h(row.employee_name || "Colaborador")}</strong><br>
+        <span class="client-muted">${h(row.employee_role || "-")}</span>
+      </div>
+      <div class="cx-materials-cell">
+        <strong>${h(row.material_name || "Material")}</strong><br>
+        <span class="client-muted">${h(row.notes || "")}</span>
+      </div>
+      <div class="cx-materials-cell"><strong>${h(row.quantity || 1)} ${h(row.unit || "")}</strong></div>
+      <div class="cx-materials-cell"><span class="cx-materials-status ${h(status)}">${h(materialsStatusLabel(status))}</span></div>
+      <div class="cx-materials-cell">${h(materialDateLabel(row.requested_at || row.created_at))}</div>
+      <div class="cx-materials-cell">
+        <div class="cx-materials-row-actions">
+          <button class="cx-materials-action" type="button" data-material-status="approved" data-material-id="${h(row.id)}">Aprobar</button>
+          <button class="cx-materials-action" type="button" data-material-status="rejected" data-material-id="${h(row.id)}">Rechazar</button>
+          <button class="cx-materials-action" type="button" data-material-status="delivered" data-material-id="${h(row.id)}">Entregar</button>
+          <button class="cx-materials-action" type="button" data-material-status="returned" data-material-id="${h(row.id)}">Devuelto</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function loadMaterialsRequests() {
+    if (!state.companyId) return { summary: {}, requests: [] };
+    return api(`/materials/companies/${encodeURIComponent(state.companyId)}/requests?limit=400`);
+  }
+
+  function showMaterialsNotice(message, type = "ok") {
+    const box = document.getElementById("materialsNotice");
+    if (!box) return;
+    box.innerHTML = `<div class="personal-toast ${type === "error" ? "error" : "ok"}">${h(message)}</div>`;
+    window.clearTimeout(window.__materialsNoticeTimer);
+    window.__materialsNoticeTimer = window.setTimeout(() => {
+      if (box) box.innerHTML = "";
+    }, 2800);
+  }
+
+  async function updateMaterialStatus(requestId, status) {
+    await api(`/materials/requests/${encodeURIComponent(requestId)}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    await renderMaterialsModule();
+    setTimeout(() => showMaterialsNotice("Estado de material actualizado."), 60);
+  }
+
+  function exportMaterialsCsv() {
+    const rows = Array.isArray(window.__cxMaterialsRows) ? window.__cxMaterialsRows : [];
+    const headers = ["Empleado", "Rol", "Material", "Cantidad", "Unidad", "Estado", "Fecha", "Notas"];
+    const csvRows = [headers].concat(rows.map((row) => [
+      row.employee_name || "",
+      row.employee_role || "",
+      row.material_name || "",
+      row.quantity || "",
+      row.unit || "",
+      materialsStatusLabel(row.status),
+      row.requested_at || row.created_at || "",
+      row.notes || "",
+    ]));
+
+    const csv = csvRows
+      .map((items) => items.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clonexa_materiales_${state.companyId || "empresa"}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function renderMaterialsModule() {
+    if (!isClientModuleActive("materials")) {
+      render();
+      return;
+    }
+
+    ensureMaterialsStyles();
+
+    const company = state.company || {};
+    let data = { summary: {}, requests: [] };
+    let loadError = "";
+
+    try {
+      data = await loadMaterialsRequests();
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Materiales.";
+    }
+
+    const rows = Array.isArray(data.requests) ? data.requests : [];
+    const summary = data.summary || {};
+    window.__cxMaterialsRows = rows;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("materials")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Materiales</div>
+              <h1 class="client-title">Materiales</h1>
+              <p class="client-muted">Gestiona solicitudes operativas capturadas por bot durante el turno.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-materials-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-materials-export>CSV</button>
+              </div>
+              <div id="materialsNotice">${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}</div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Ciclo operativo</div>
+              <h2>Solicitudes de materiales</h2>
+
+              <div class="client-kpi-grid">
+                <div class="client-kpi"><span>Pendientes</span><strong>${h(summary.pending || 0)}</strong></div>
+                <div class="client-kpi"><span>Aprobadas / Entregadas</span><strong>${h(summary.approved_or_delivered || 0)}</strong></div>
+                <div class="client-kpi"><span>Devueltas</span><strong>${h(summary.returned || 0)}</strong></div>
+                <div class="client-kpi"><span>Rechazadas</span><strong>${h(summary.rejected || 0)}</strong></div>
+              </div>
+
+              <div class="cx-materials-table" style="margin-top:22px">
+                <div class="cx-materials-cell cx-materials-head">Empleado</div>
+                <div class="cx-materials-cell cx-materials-head">Material</div>
+                <div class="cx-materials-cell cx-materials-head">Cantidad</div>
+                <div class="cx-materials-cell cx-materials-head">Estado</div>
+                <div class="cx-materials-cell cx-materials-head">Hora</div>
+                <div class="cx-materials-cell cx-materials-head">Acciones</div>
+                ${rows.length ? rows.map(materialsRequestRow).join("") : `<div class="cx-materials-cell" style="grid-column:1/-1">No hay solicitudes de materiales.</div>`}
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CX_MATERIALS_BASE_015A_END */
+
+
+
   /* CX_PAYROLL_CORE_013_R1_START */
   function ensurePayrollStyles() {
     if (document.getElementById("cxPayrollCoreStyles")) return;
@@ -3533,6 +4248,16 @@
           return;
         }
 
+        if (action === "inventory:open" && isClientModuleActive("inventory")) {
+          await renderInventoryModule();
+          return;
+        }
+
+        if (action === "materials:open" && isClientModuleActive("materials")) {
+          await renderMaterialsModule();
+          return;
+        }
+
         if (action === "gps:open" && isClientModuleActive("gps")) {
           await renderGpsModule();
           return;
@@ -3570,6 +4295,16 @@
           return;
         }
 
+        if (code === "inventory") {
+          await renderInventoryModule();
+          return;
+        }
+
+        if (code === "materials") {
+          await renderMaterialsModule();
+          return;
+        }
+
         if (code === "gps") {
           await renderGpsModule();
           return;
@@ -3603,6 +4338,82 @@
         return;
       }
 
+      if (target.closest("[data-inventory-refresh]")) {
+        await renderInventoryModule();
+        return;
+      }
+
+      const inventoryModeBtn = target.closest("[data-inventory-mode]");
+      if (inventoryModeBtn) {
+        setInventoryMode(String(inventoryModeBtn.dataset.inventoryMode || "create"));
+        await renderInventoryModule();
+        return;
+      }
+
+      if (target.closest("[data-inventory-create]")) {
+        try {
+          await createInventoryItem();
+        } catch (error) {
+          showInventoryNotice(error.message || "No se pudo crear el material.", "error");
+        }
+        return;
+      }
+
+      const inventoryUpdateBtn = target.closest("[data-inventory-update]");
+      if (inventoryUpdateBtn) {
+        try {
+          await updateInventoryItem(inventoryUpdateBtn.dataset.inventoryUpdate);
+        } catch (error) {
+          showInventoryNotice(error.message || "No se pudo actualizar el material.", "error");
+        }
+        return;
+      }
+
+      const inventoryEntryBtn = target.closest("[data-inventory-entry]");
+      if (inventoryEntryBtn) {
+        try {
+          await addInventoryEntry(inventoryEntryBtn.dataset.inventoryEntry);
+        } catch (error) {
+          showInventoryNotice(error.message || "No se pudo ingresar cantidad.", "error");
+        }
+        return;
+      }
+
+      const inventoryDisableBtn = target.closest("[data-inventory-disable]");
+      if (inventoryDisableBtn) {
+        try {
+          await disableInventoryItem(inventoryDisableBtn.dataset.inventoryDisable);
+        } catch (error) {
+          showInventoryNotice(error.message || "No se pudo deshabilitar el material.", "error");
+        }
+        return;
+      }
+
+      if (target.closest("[data-inventory-export]")) {
+        exportInventoryCsv();
+        return;
+      }
+
+      if (target.closest("[data-materials-refresh]")) {
+        await renderMaterialsModule();
+        return;
+      }
+
+      if (target.closest("[data-materials-export]")) {
+        exportMaterialsCsv();
+        return;
+      }
+
+      const materialStatusBtn = target.closest("[data-material-status]");
+      if (materialStatusBtn) {
+        try {
+          await updateMaterialStatus(materialStatusBtn.dataset.materialId, materialStatusBtn.dataset.materialStatus);
+        } catch (error) {
+          showMaterialsNotice(error.message || "No se pudo actualizar Materiales.", "error");
+        }
+        return;
+      }
+
       if (target.closest("[data-bot-save-name]")) {
         await saveClientBotName();
         return;
@@ -3610,15 +4421,25 @@
     });
 
     document.addEventListener("input", (event) => {
-      const input = event.target.closest("[data-personal-search]");
-      if (!input) return;
+      const personalInput = event.target.closest("[data-personal-search]");
+      if (personalInput) {
+        const query = String(personalInput.value || "").toLowerCase().trim();
 
-      const query = String(input.value || "").toLowerCase().trim();
+        document.querySelectorAll("[data-personal-row]").forEach((row) => {
+          const text = String(row.textContent || "").toLowerCase();
+          row.style.display = !query || text.includes(query) ? "contents" : "none";
+        });
+        return;
+      }
 
-      document.querySelectorAll("[data-personal-row]").forEach((row) => {
-        const text = String(row.textContent || "").toLowerCase();
-        row.style.display = !query || text.includes(query) ? "contents" : "none";
-      });
+      const inventoryInput = event.target.closest("[data-inventory-search]");
+      if (inventoryInput) {
+        const query = String(inventoryInput.value || "").toLowerCase().trim();
+        document.querySelectorAll("[data-inventory-row]").forEach((row) => {
+          const text = String(row.textContent || "").toLowerCase();
+          row.style.display = !query || text.includes(query) ? "" : "none";
+        });
+      }
     });
   }
 
