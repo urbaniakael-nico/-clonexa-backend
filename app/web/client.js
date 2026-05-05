@@ -1948,6 +1948,89 @@
     return event ? crmEventLabel(event) : crmModuleFallback(code);
   }
 
+  function crmGpsLatestEvent(person = {}) {
+    return (person.events || [])
+      .slice()
+      .reverse()
+      .find((item) => {
+        const moduleCode = String(item.module_code || "").toLowerCase();
+        const eventType = String(item.event_type || "").toLowerCase();
+        return moduleCode === "gps" && ["gps_location", "gps_ping"].includes(eventType);
+      });
+  }
+
+  function crmGpsStatusFromEvent(event = {}) {
+    const payload = event.payload_json || event.payload || {};
+    const metadata = event.metadata_json || event.metadata || {};
+    return String(
+      payload.gps_status ||
+      metadata.gps_status ||
+      event.gps_status ||
+      ""
+    ).toLowerCase();
+  }
+
+  function crmGpsCoordinatesFromEvent(event = {}) {
+    const payload = event.payload_json || event.payload || {};
+    const lat = event.latitude ?? payload.latitude;
+    const lng = event.longitude ?? payload.longitude;
+    if (lat === null || lat === undefined || lng === null || lng === undefined) return "";
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
+    if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return `${lat}, ${lng}`;
+    return `${latNum.toFixed(6)}, ${lngNum.toFixed(6)}`;
+  }
+
+  function crmGpsStatusClass(status = "") {
+    const v = String(status || "").toLowerCase();
+    if (v === "inside") return "inside";
+    if (v === "outside") return "outside";
+    return "unconfigured";
+  }
+
+  function crmGpsStatusLabel(status = "") {
+    const v = String(status || "").toLowerCase();
+    if (v === "inside") return "Dentro de perímetro";
+    if (v === "outside") return "Fuera de perímetro";
+    return "Sin validación";
+  }
+
+  function crmGpsChipMarkup(coords = "", status = "") {
+    const cleanCoords = String(coords || "").trim();
+    if (!cleanCoords) return `<strong style="font-size:16px">${h(crmModuleFallback("gps"))}</strong>`;
+
+    const css = crmGpsStatusClass(status);
+    const label = crmGpsStatusLabel(status);
+    return `
+      <span class="cx-gps-status ${h(css)}" title="${h(label)}">
+        <span class="cx-gps-led" aria-hidden="true"></span>
+        <span class="cx-gps-coordinates">${h(cleanCoords)}</span>
+      </span>
+    `;
+  }
+
+  function crmModuleValueMarkupForPerson(code, person = {}) {
+    if (code !== "gps") return `<strong style="font-size:16px">${h(crmModuleValueForPerson(code, person))}</strong>`;
+
+    const gpsInfo = person.gpsInfo || null;
+    if (gpsInfo) {
+      const status = String(gpsInfo.gps_status || "").toLowerCase();
+      const coords = gpsInfo.coordinates || (
+        gpsInfo.latitude !== undefined && gpsInfo.longitude !== undefined
+          ? `${Number(gpsInfo.latitude).toFixed(6)}, ${Number(gpsInfo.longitude).toFixed(6)}`
+          : ""
+      );
+      return crmGpsChipMarkup(coords || crmModuleFallback("gps"), status);
+    }
+
+    const event = crmGpsLatestEvent(person);
+    if (!event) return `<strong style="font-size:16px">${h(crmModuleFallback("gps"))}</strong>`;
+
+    const status = crmGpsStatusFromEvent(event);
+    const coords = crmGpsCoordinatesFromEvent(event) || crmEventLabel(event);
+    return crmGpsChipMarkup(coords, status);
+  }
+
   function crmTopCardValue(code, crm = {}) {
     if (code === "modules") return `${visibleClientModules(activeClientModules()).length}`;
     if (code === "channels") return isClientModuleActive("bots") && crm.bot?.configured ? "ON" : "OFF";
@@ -1963,13 +2046,16 @@
 
   async function loadClientCrmData() {
     const companyId = state.companyId;
-    const [employeesResult, eventsResult, botResult] = await Promise.allSettled([
+    const [employeesResult, eventsResult, botResult, gpsResult] = await Promise.allSettled([
       isClientModuleActive("workforce")
         ? api(`/employees?company_id=${encodeURIComponent(companyId)}&include_archived=true`)
         : Promise.resolve([]),
       api(`/employees/attendance/history?company_id=${encodeURIComponent(companyId)}&limit=200`),
       isClientModuleActive("bots")
         ? api(`/bots/companies/${encodeURIComponent(companyId)}/telegram`)
+        : Promise.resolve(null),
+      isClientModuleActive("gps")
+        ? api(`/gps/companies/${encodeURIComponent(companyId)}/summary`)
         : Promise.resolve(null),
     ]);
 
@@ -1982,6 +2068,8 @@
       : [];
 
     const bot = botResult.status === "fulfilled" ? botResult.value : null;
+    const gpsSummary = gpsResult.status === "fulfilled" && gpsResult.value ? gpsResult.value : null;
+    const gpsPeopleMap = new Map((gpsSummary?.people || []).map((item) => [String(item.employee_id || item.employeeId || ""), item]));
     const latestByEmployee = crmLatestEventByEmployee(events);
     const todayEvents = events.filter(crmIsToday);
     const peopleMap = new Map();
@@ -2026,6 +2114,7 @@
         lastEvent: latest ? crmEventLabel(latest) : "-",
         channel: latest ? crmChannelLabel(latest.source_channel) : "-",
         metrics,
+        gpsInfo: gpsPeopleMap.get(String(item.employeeId)) || null,
       };
     });
 
@@ -2042,6 +2131,7 @@
       onBreak,
       offShift,
       bot,
+      gpsSummary,
       dynamicModules: crmDynamicModuleCodes(),
     };
   }
@@ -2072,7 +2162,7 @@
               ${moduleCodes.slice(0, 2).map((code) => `
                 <div style="border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px;background:rgba(255,255,255,.045)">
                   <span>${h(crmModuleDisplay(code))}</span>
-                  <strong style="font-size:16px">${h(crmModuleValueForPerson(code, person))}</strong>
+                  ${crmModuleValueMarkupForPerson(code, person)}
                 </div>
               `).join("")}
             </div>
@@ -2087,6 +2177,8 @@
       render();
       return;
     }
+
+    if (isClientModuleActive("gps")) ensureGpsStyles();
 
     const company = state.company || {};
     const crm = await loadClientCrmData();
@@ -2154,6 +2246,331 @@
       </main>
     `;
   }
+
+
+
+
+
+  /* CX_GPS_PERIMETERS_014B_START */
+  function ensureGpsStyles() {
+    if (document.getElementById("cxGpsPerimetersStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxGpsPerimetersStyles";
+    style.textContent = `
+      .cx-gps-grid {
+        display: grid;
+        grid-template-columns: 70px minmax(160px, 1fr) repeat(4, minmax(130px, 1fr)) 110px;
+        gap: 10px;
+        align-items: center;
+        margin-top: 16px;
+      }
+      .cx-gps-head {
+        font-size: 11px;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        opacity: .72;
+        font-weight: 1000;
+      }
+      .cx-gps-input {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(0,0,0,.22);
+        color: var(--cx-text, #fff);
+        border-radius: 14px;
+        padding: 12px 13px;
+        font-weight: 900;
+        outline: none;
+      }
+      .cx-gps-check {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        border-radius: 14px;
+        background: rgba(255,255,255,.06);
+        border: 1px solid rgba(255,255,255,.12);
+      }
+      .client-kpi .cx-gps-status,
+      .cx-gps-status {
+        display: inline-grid;
+        grid-template-columns: 8px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        border-radius: 14px;
+        padding: 9px 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 12px !important;
+        line-height: 1.25;
+        font-weight: 850;
+        letter-spacing: .01em !important;
+        text-transform: none !important;
+        text-shadow: none !important;
+        -webkit-text-stroke: 0 transparent !important;
+        transform: none !important;
+        border: 1px solid rgba(255,255,255,.14);
+        overflow: hidden;
+        white-space: normal;
+      }
+      .cx-gps-coordinates {
+        display: block;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .cx-gps-led {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        display: inline-block;
+        box-shadow: 0 0 12px currentColor;
+      }
+      .cx-gps-status.inside {
+        color: #39f28a !important;
+        background: rgba(15,185,95,.13);
+        border-color: rgba(57,242,138,.42);
+      }
+      .cx-gps-status.outside {
+        color: #ffb347 !important;
+        background: rgba(255,161,38,.13);
+        border-color: rgba(255,179,71,.46);
+      }
+      .cx-gps-status.unconfigured {
+        color: rgba(255,255,255,.78) !important;
+        background: rgba(255,255,255,.08);
+        border-color: rgba(255,255,255,.14);
+      }
+      .cx-gps-status.inside .cx-gps-led {
+        background: #39f28a;
+      }
+      .cx-gps-status.outside .cx-gps-led {
+        background: #ffb347;
+      }
+      .cx-gps-status.unconfigured .cx-gps-led {
+        background: rgba(255,255,255,.58);
+      }
+      @media (max-width: 1200px) {
+        .cx-gps-grid {
+          grid-template-columns: 1fr;
+        }
+        .cx-gps-head {
+          display: none;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function loadGpsPerimeters() {
+    if (!state.companyId) return { perimeters: [] };
+    return api(`/gps/companies/${encodeURIComponent(state.companyId)}/perimeters`);
+  }
+
+  async function loadGpsSummary() {
+    if (!state.companyId) return { inside: 0, outside: 0, sent_location: 0, active_people: 0 };
+    return api(`/gps/companies/${encodeURIComponent(state.companyId)}/summary`);
+  }
+
+  function gpsEmptyPerimeter(slot) {
+    return {
+      slot,
+      name: `Punto ${slot}`,
+      latitude_min: "",
+      latitude_max: "",
+      longitude_min: "",
+      longitude_max: "",
+      is_active: slot === 1,
+    };
+  }
+
+  function gpsPerimeterRows(perimeters = []) {
+    const bySlot = new Map((perimeters || []).map((item) => [Number(item.slot), item]));
+    const rows = [];
+    for (let slot = 1; slot <= 5; slot += 1) {
+      rows.push({ ...gpsEmptyPerimeter(slot), ...(bySlot.get(slot) || {}) });
+    }
+    return rows;
+  }
+
+  function gpsNumberValue(value) {
+    if (value === null || value === undefined || value === "") return "";
+    const n = Number(value);
+    return Number.isFinite(n) ? String(n) : "";
+  }
+
+  function renderGpsPerimeterRow(row = {}) {
+    const slot = Number(row.slot || 1);
+    return `
+      <input type="hidden" data-gps-field="slot" value="${h(slot)}">
+      <div><strong>${h(slot)}</strong></div>
+      <input class="cx-gps-input" data-gps-field="name" value="${h(row.name || `Punto ${slot}`)}" placeholder="Nombre punto">
+      <input class="cx-gps-input" data-gps-field="latitude_min" value="${h(gpsNumberValue(row.latitude_min))}" placeholder="Latitud desde">
+      <input class="cx-gps-input" data-gps-field="latitude_max" value="${h(gpsNumberValue(row.latitude_max))}" placeholder="Latitud hasta">
+      <input class="cx-gps-input" data-gps-field="longitude_min" value="${h(gpsNumberValue(row.longitude_min))}" placeholder="Longitud desde (-74...)">
+      <input class="cx-gps-input" data-gps-field="longitude_max" value="${h(gpsNumberValue(row.longitude_max))}" placeholder="Longitud hasta (-74...)">
+      <label class="cx-gps-check">
+        <input type="checkbox" data-gps-field="is_active" ${row.is_active === false ? "" : "checked"}>
+      </label>
+    `;
+  }
+
+  function gpsReadPerimetersFromDom() {
+    const grid = document.querySelector("[data-gps-perimeters-grid]");
+    if (!grid) return [];
+
+    const rows = [];
+    const chunks = Array.from(grid.querySelectorAll("[data-gps-row]"));
+    chunks.forEach((row) => {
+      const get = (field) => row.querySelector(`[data-gps-field="${field}"]`);
+      const toNumberOrNull = (value) => {
+        const text = String(value ?? "").trim().replace(",", ".");
+        if (!text) return null;
+        const n = Number(text);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      rows.push({
+        slot: Number(get("slot")?.value || rows.length + 1),
+        name: String(get("name")?.value || "").trim(),
+        latitude_min: toNumberOrNull(get("latitude_min")?.value),
+        latitude_max: toNumberOrNull(get("latitude_max")?.value),
+        longitude_min: toNumberOrNull(get("longitude_min")?.value),
+        longitude_max: toNumberOrNull(get("longitude_max")?.value),
+        is_active: !!get("is_active")?.checked,
+      });
+    });
+
+    return rows.slice(0, 5);
+  }
+
+  function showGpsNotice(message, type = "ok") {
+    const box = document.getElementById("gpsNotice");
+    if (!box) return;
+    box.innerHTML = `<div class="personal-toast ${type === "error" ? "error" : "ok"}">${h(message)}</div>`;
+    window.clearTimeout(window.__gpsNoticeTimer);
+    window.__gpsNoticeTimer = window.setTimeout(() => {
+      if (box) box.innerHTML = "";
+    }, 2800);
+  }
+
+  async function saveGpsPerimeters() {
+    const perimeters = gpsReadPerimetersFromDom();
+    await api(`/gps/companies/${encodeURIComponent(state.companyId)}/perimeters`, {
+      method: "PUT",
+      body: JSON.stringify({ perimeters }),
+    });
+    await renderGpsModule();
+    setTimeout(() => showGpsNotice("Perímetros GPS guardados."), 60);
+  }
+
+  async function renderGpsModule() {
+    if (!isClientModuleActive("gps")) {
+      render();
+      return;
+    }
+
+    ensureGpsStyles();
+
+    const company = state.company || {};
+    let perimetersData = { perimeters: gpsPerimeterRows([]) };
+    let summary = { inside: 0, outside: 0, sent_location: 0, active_people: 0 };
+    let loadError = "";
+
+    try {
+      [perimetersData, summary] = await Promise.all([loadGpsPerimeters(), loadGpsSummary()]);
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar GPS.";
+    }
+
+    const rows = gpsPerimeterRows(perimetersData.perimeters || []);
+    const inside = Number(summary.inside || 0);
+    const outside = Number(summary.outside || 0);
+    const sent = Number(summary.sent_location || 0);
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+
+            <nav class="client-nav">
+              ${renderClientNav("gps")}
+            </nav>
+
+            <div class="client-footer-id">
+              <strong>Tenant activo</strong><br>
+              ${h(state.companyId || "")}
+            </div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo GPS</div>
+              <h1 class="client-title">GPS</h1>
+              <p class="client-muted">Configura hasta 5 perímetros permitidos. CLONEXA valida las ubicaciones recibidas por el bot.</p>
+
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-gps-refresh>Actualizar</button>
+              </div>
+
+              <div id="gpsNotice">${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}</div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Validación operativa</div>
+              <h2>Resumen GPS</h2>
+
+              <div class="client-kpi-grid">
+                <div class="client-kpi">
+                  <span>Ubicaciones enviadas</span>
+                  <strong>${h(sent)}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>Dentro de perímetro</span>
+                  <strong>${h(inside)}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>Fuera de perímetro</span>
+                  <strong>${h(outside)}</strong>
+                </div>
+              </div>
+
+              <div class="client-eyebrow" style="margin-top:28px">Parámetros permitidos</div>
+              <h2>Perímetros</h2>
+              <p class="client-muted">El bot solo envía ubicación. La validación dentro/fuera la hace CLONEXA con estos parámetros.</p>
+
+              <div class="cx-gps-grid">
+                <div class="cx-gps-head">#</div>
+                <div class="cx-gps-head">Punto</div>
+                <div class="cx-gps-head">Lat desde</div>
+                <div class="cx-gps-head">Lat hasta</div>
+                <div class="cx-gps-head">Lng desde</div>
+                <div class="cx-gps-head">Lng hasta</div>
+                <div class="cx-gps-head">Activo</div>
+              </div>
+
+              <div data-gps-perimeters-grid>
+                ${rows.map((row) => `
+                  <div class="cx-gps-grid" data-gps-row>
+                    ${renderGpsPerimeterRow(row)}
+                  </div>
+                `).join("")}
+              </div>
+
+              <div class="client-actions" style="margin-top:22px">
+                <button class="client-btn" type="button" data-gps-save>Guardar perímetros</button>
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CX_GPS_PERIMETERS_014B_END */
 
 
 
@@ -2672,17 +3089,6 @@
     return api(`/payroll/companies/${encodeURIComponent(state.companyId)}/periods/${encodeURIComponent(periodId)}`);
   }
 
-  async function payrollClosePeriod(period = payrollDefaultPeriod()) {
-    return api(`/payroll/companies/${encodeURIComponent(state.companyId)}/periods/close`, {
-      method: "POST",
-      body: JSON.stringify({
-        period_start: period.from,
-        period_end: period.to,
-        name: `Nómina ${period.from} / ${period.to}`,
-      }),
-    });
-  }
-
   function payrollCards(totals = {}) {
     return `
       <div class="client-kpi-grid">
@@ -2706,21 +3112,11 @@
     `;
   }
 
-  function payrollPeriodsList(periods = []) {
-    if (!Array.isArray(periods) || !periods.length) {
-      return `<div class="cx-payroll-empty">Aún no hay periodos cerrados. Calcula un periodo y presiona “Cerrar periodo”.</div>`;
-    }
-
+  function payrollExportOnlyNotice(period = payrollDefaultPeriod()) {
     return `
-      <div class="cx-payroll-history">
-        ${periods.slice(0, 12).map((period) => `
-          <button class="cx-payroll-period-card" type="button" data-payroll-open-period="${h(period.id)}">
-            <strong>${h(period.name || "Periodo de nómina")}</strong>
-            <span>${h(period.period_start)} → ${h(period.period_end)}</span>
-            <span>Total: ${h(payrollMoney(period.net_amount ?? period.totals_json?.net_amount ?? period.totals_json?.net ?? 0))}</span>
-            <span>Estado: ${h(period.status || "cerrado")}</span>
-          </button>
-        `).join("")}
+      <div class="cx-payroll-empty">
+        Corte calculado del ${h(period.from)} al ${h(period.to)}. Para conservar este corte, usa <strong>Exportar CSV</strong>.
+        El archivo queda como histórico externo del periodo sin bloquear la operación.
       </div>
     `;
   }
@@ -2817,40 +3213,19 @@
     const company = state.company || {};
     let rows = [];
     let totals = payrollTotals([]);
-    let periods = [];
     let loadError = "";
     let loadWarning = "";
     let mode = "Periodo abierto";
-    let selectedClosed = null;
 
     try {
-      periods = await payrollListPeriods();
-
-      if (options.closedPeriod) {
-        selectedClosed = options.closedPeriod;
-      } else if (options.closedPeriodId) {
-        selectedClosed = await payrollGetPeriod(options.closedPeriodId);
-      }
-
-      if (selectedClosed) {
-        rows = payrollNormalizeRows(selectedClosed.rows || selectedClosed.items || []);
-        totals = payrollNormalizeTotals(selectedClosed.totals || selectedClosed.totals_json || {}, rows);
-        period = {
-          from: selectedClosed.period?.period_start || selectedClosed.period_start || period.from,
-          to: selectedClosed.period?.period_end || selectedClosed.period_end || period.to,
-        };
-        mode = "Histórico cerrado";
-      } else {
-        const calculated = await payrollCalculatePeriod(period);
-        rows = calculated.rows;
-        totals = calculated.totals;
-        period = calculated.period || period;
-        loadWarning = calculated.warning || "";
-      }
+      const calculated = await payrollCalculatePeriod(period);
+      rows = calculated.rows;
+      totals = calculated.totals;
+      period = calculated.period || period;
+      loadWarning = calculated.warning || "";
     } catch (error) {
       rows = [];
       totals = payrollTotals([]);
-      periods = [];
       loadError = error.message || "No se pudo cargar nómina.";
     }
 
@@ -2881,7 +3256,7 @@
             <header class="client-hero">
               <div class="client-eyebrow">Modulo Nómina</div>
               <h1 class="client-title">Nómina</h1>
-              <p class="client-muted">Consulta cortes abiertos o históricos congelados por periodo.</p>
+              <p class="client-muted">Consulta cortes por periodo y conserva el resultado exportando CSV.</p>
 
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
@@ -2896,9 +3271,9 @@
             <section class="client-panel">
               <div class="client-eyebrow">Periodo</div>
               <h2>Resumen de nómina</h2>
-              <p class="client-muted">Nómina consume Workforce, Bot y Asistencia. Al cerrar un periodo guarda una foto histórica para consultas futuras.</p>
+              <p class="client-muted">Nómina consume Workforce, Bot y Asistencia. Al finalizar un corte, exporta CSV para guardar el histórico externo del periodo.</p>
 
-              <div class="cx-payroll-status ${selectedClosed ? "closed" : ""}">
+              <div class="cx-payroll-status">
                 ${h(mode)}
               </div>
 
@@ -2912,19 +3287,18 @@
                   <input type="date" data-payroll-to value="${h(period.to)}">
                 </div>
                 <button class="client-btn" type="button" data-payroll-apply>Calcular periodo</button>
-                <button class="client-btn" type="button" data-payroll-close ${selectedClosed ? "disabled" : ""}>Cerrar periodo</button>
                 <button class="client-btn" type="button" data-payroll-export>Exportar CSV</button>
               </div>
 
               ${payrollCards(totals)}
 
               <div class="client-eyebrow" style="margin-top:28px">Detalle por colaborador</div>
-              <h2>${selectedClosed ? "Histórico cerrado" : "Periodo abierto calculado"}</h2>
+              <h2>Periodo calculado</h2>
               ${payrollRowsTable(rows)}
 
-              <div class="client-eyebrow" style="margin-top:32px">Historial</div>
-              <h2>Nóminas cerradas</h2>
-              ${payrollPeriodsList(periods)}
+              <div class="client-eyebrow" style="margin-top:32px">Cierre del corte</div>
+              <h2>Exportación</h2>
+              ${payrollExportOnlyNotice(period)}
             </section>
           </section>
         </div>
@@ -3159,6 +3533,11 @@
           return;
         }
 
+        if (action === "gps:open" && isClientModuleActive("gps")) {
+          await renderGpsModule();
+          return;
+        }
+
         if (action === "reports:open" && isClientModuleActive("reports")) {
           await renderClientModulePlaceholder("reports");
           return;
@@ -3191,6 +3570,11 @@
           return;
         }
 
+        if (code === "gps") {
+          await renderGpsModule();
+          return;
+        }
+
         await renderClientModulePlaceholder(code);
         return;
       }
@@ -3200,35 +3584,22 @@
         return;
       }
 
-      if (target.closest("[data-payroll-close]")) {
-        const period = payrollReadPeriod();
-        if (!period.from || !period.to) return;
-        const button = target.closest("[data-payroll-close]");
-        if (button?.disabled) return;
-        if (!confirm(`Cerrar nómina del ${period.from} al ${period.to}? Quedará guardada como histórico.`)) return;
-        try {
-          if (button) {
-            button.disabled = true;
-            button.textContent = "Cerrando...";
-          }
-          const closed = await payrollClosePeriod(period);
-          await renderPayrollModule(period, { closedPeriod: closed });
-        } catch (error) {
-          alert(error.message || "No se pudo cerrar el periodo.");
-          await renderPayrollModule(period);
-        }
-        return;
-      }
-
-      const payrollPeriodButton = target.closest("[data-payroll-open-period]");
-      if (payrollPeriodButton) {
-        const periodId = payrollPeriodButton.dataset.payrollOpenPeriod;
-        if (periodId) await renderPayrollModule(window.__cxPayrollPeriod || payrollDefaultPeriod(), { closedPeriodId: periodId });
-        return;
-      }
-
       if (target.closest("[data-payroll-export]")) {
         exportPayrollCsv();
+        return;
+      }
+
+      if (target.closest("[data-gps-refresh]")) {
+        await renderGpsModule();
+        return;
+      }
+
+      if (target.closest("[data-gps-save]")) {
+        try {
+          await saveGpsPerimeters();
+        } catch (error) {
+          showGpsNotice(error.message || "No se pudo guardar GPS.", "error");
+        }
         return;
       }
 

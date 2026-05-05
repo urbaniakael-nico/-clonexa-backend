@@ -4,6 +4,7 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -146,6 +147,27 @@ async def ensure_bot_storage(db: AsyncSession) -> None:
     """))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_telegram_user_preferences_company ON company_telegram_user_preferences(company_id);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_telegram_user_preferences_language ON company_telegram_user_preferences(language);"))
+
+    # 014A: acciones pendientes por usuario Telegram.
+    # Se usa para GPS Gate: si la empresa tiene GPS activo, /entrada queda pendiente
+    # hasta que Telegram entregue una ubicación real.
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS company_telegram_pending_actions (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            telegram_user_id varchar(120) NOT NULL,
+            telegram_username varchar(180) NULL,
+            employee_id uuid NULL REFERENCES employees(id) ON DELETE CASCADE,
+            action varchar(80) NOT NULL,
+            payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            expires_at timestamptz NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now(),
+            CONSTRAINT uq_company_telegram_pending_action UNIQUE (company_id, telegram_user_id, action)
+        );
+    """))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_telegram_pending_actions_company ON company_telegram_pending_actions(company_id);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_telegram_pending_actions_action ON company_telegram_pending_actions(action);"))
 
 
 
@@ -490,6 +512,12 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "observation_saved": "📝 Observación registrada.",
         "material_requested": "📦 Solicitud de material registrada.",
         "location_requested": "📍 Solicitud de ubicación registrada. Para ubicación real, usa compartir ubicación en Telegram.",
+        "gps_required_for_start": "📍 Para iniciar turno, comparte tu ubicación actual.\nUsa el botón de abajo: Compartir ubicación.",
+        "gps_location_pending": "📍 Ya estoy esperando tu ubicación para iniciar turno.\nComparte tu ubicación con el botón inferior.",
+        "gps_location_received_shift_started": "✅ Ubicación recibida.\nInicio de turno registrado con GPS validado.",
+        "gps_location_received": "📍 Ubicación registrada.",
+        "gps_no_pending": "No tengo una solicitud de ubicación pendiente. Usa el menú para continuar.",
+        "btn_share_location": "📍 Compartir ubicación",
         "task_started": "🛠️ Acción de tarea registrada.",
         "production_registered": "🏭 Acción de producción registrada.",
         "sale_registered": "💰 Venta registrada.",
@@ -536,6 +564,12 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "observation_saved": "📝 Observation saved.",
         "material_requested": "📦 Material request saved.",
         "location_requested": "📍 Location request saved. For real location, use Telegram location sharing.",
+        "gps_required_for_start": "📍 To start your shift, share your current location.\nUse the button below: Share location.",
+        "gps_location_pending": "📍 I am already waiting for your location to start the shift.\nShare your location using the button below.",
+        "gps_location_received_shift_started": "✅ Location received.\nShift started with GPS validation.",
+        "gps_location_received": "📍 Location saved.",
+        "gps_no_pending": "I do not have a pending location request. Use the menu to continue.",
+        "btn_share_location": "📍 Share location",
         "task_started": "🛠️ Task action saved.",
         "production_registered": "🏭 Production action saved.",
         "sale_registered": "💰 Sale saved.",
@@ -582,6 +616,12 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "observation_saved": "📝 Observation enregistrée.",
         "material_requested": "📦 Demande de matériel enregistrée.",
         "location_requested": "📍 Demande de localisation enregistrée. Pour la localisation réelle, utilisez le partage de position Telegram.",
+        "gps_required_for_start": "📍 Pour commencer le service, partagez votre position actuelle.\nUtilisez le bouton ci-dessous : Partager la position.",
+        "gps_location_pending": "📍 J’attends déjà votre position pour commencer le service.\nPartagez votre position avec le bouton inférieur.",
+        "gps_location_received_shift_started": "✅ Position reçue.\nDébut de service enregistré avec GPS validé.",
+        "gps_location_received": "📍 Position enregistrée.",
+        "gps_no_pending": "Je n’ai pas de demande de position en attente. Utilisez le menu pour continuer.",
+        "btn_share_location": "📍 Partager la position",
         "task_started": "🛠️ Action de tâche enregistrée.",
         "production_registered": "🏭 Action de production enregistrée.",
         "sale_registered": "💰 Vente enregistrée.",
@@ -633,6 +673,19 @@ def _language_keyboard() -> dict[str, Any]:
             ]
         ]
     }
+
+
+def _location_request_keyboard(language: str) -> dict[str, Any]:
+    return {
+        "keyboard": [[{"text": _txt(language, "btn_share_location"), "request_location": True}]],
+        "resize_keyboard": True,
+        "one_time_keyboard": True,
+        "selective": True,
+    }
+
+
+def _remove_reply_keyboard() -> dict[str, Any]:
+    return {"remove_keyboard": True}
 
 
 def _callback_to_command(data: str) -> str:
@@ -747,6 +800,105 @@ async def _enabled_module_codes(db: AsyncSession, company_id: UUID) -> set[str]:
     codes.add("workforce")
     codes.add("bots")
     return codes
+
+
+async def _ensure_gps_perimeter_storage(db: AsyncSession) -> None:
+    """
+    014B GPS:
+    La validación de perímetro pertenece al sistema CLONEXA, no al bot.
+    El bot solo solicita/recibe la ubicación; backend clasifica inside/outside.
+    """
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS company_gps_perimeters (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            slot integer NOT NULL,
+            name varchar(140) NOT NULL DEFAULT '',
+            latitude_min numeric(12,8) NULL,
+            latitude_max numeric(12,8) NULL,
+            longitude_min numeric(12,8) NULL,
+            longitude_max numeric(12,8) NULL,
+            is_active boolean NOT NULL DEFAULT true,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now(),
+            CONSTRAINT uq_company_gps_perimeters_company_slot UNIQUE (company_id, slot),
+            CONSTRAINT ck_company_gps_perimeters_slot CHECK (slot >= 1 AND slot <= 5)
+        );
+    """))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_gps_perimeters_company ON company_gps_perimeters(company_id);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_gps_perimeters_active ON company_gps_perimeters(company_id, is_active);"))
+
+
+def _gps_point_inside_perimeter(latitude: float, longitude: float, perimeter: dict[str, Any]) -> bool:
+    try:
+        lat_min = float(perimeter.get("latitude_min"))
+        lat_max = float(perimeter.get("latitude_max"))
+        lng_min = float(perimeter.get("longitude_min"))
+        lng_max = float(perimeter.get("longitude_max"))
+    except Exception:
+        return False
+
+    if lat_min > lat_max:
+        lat_min, lat_max = lat_max, lat_min
+    if lng_min > lng_max:
+        lng_min, lng_max = lng_max, lng_min
+
+    return lat_min <= latitude <= lat_max and lng_min <= longitude <= lng_max
+
+
+async def _validate_gps_location_for_company(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    latitude: float,
+    longitude: float,
+) -> dict[str, Any]:
+    await _ensure_gps_perimeter_storage(db)
+
+    result = await db.execute(
+        text("""
+            SELECT id, slot, name, latitude_min, latitude_max, longitude_min, longitude_max
+            FROM company_gps_perimeters
+            WHERE company_id = :company_id
+              AND is_active IS TRUE
+              AND latitude_min IS NOT NULL
+              AND latitude_max IS NOT NULL
+              AND longitude_min IS NOT NULL
+              AND longitude_max IS NOT NULL
+            ORDER BY slot ASC
+            LIMIT 5
+        """),
+        {"company_id": str(company_id)},
+    )
+
+    perimeters = [dict(row) for row in result.mappings().all()]
+    if not perimeters:
+        return {
+            "gps_status": "unconfigured",
+            "gps_status_label": "Sin perímetro",
+            "matched_perimeter_id": None,
+            "matched_perimeter_name": None,
+            "matched_perimeter_slot": None,
+        }
+
+    for perimeter in perimeters:
+        if _gps_point_inside_perimeter(latitude, longitude, perimeter):
+            return {
+                "gps_status": "inside",
+                "gps_status_label": "Dentro de perímetro",
+                "matched_perimeter_id": str(perimeter.get("id")),
+                "matched_perimeter_name": perimeter.get("name") or f"Punto {perimeter.get('slot')}",
+                "matched_perimeter_slot": perimeter.get("slot"),
+            }
+
+    return {
+        "gps_status": "outside",
+        "gps_status_label": "Fuera de perímetro",
+        "matched_perimeter_id": None,
+        "matched_perimeter_name": None,
+        "matched_perimeter_slot": None,
+    }
+
 
 
 def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | None = None) -> dict[str, Any]:
@@ -866,6 +1018,183 @@ def _validate_turn_transition(
         return True, None
 
     return True, None
+
+
+async def _set_pending_gps_checkin(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+    telegram_username: str | None,
+    employee_id: UUID,
+    chat_id: str | None,
+    language: str,
+) -> None:
+    await ensure_bot_storage(db)
+    await db.execute(
+        text("""
+            INSERT INTO company_telegram_pending_actions (
+                company_id,
+                telegram_user_id,
+                telegram_username,
+                employee_id,
+                action,
+                payload_json,
+                expires_at,
+                updated_at
+            )
+            VALUES (
+                :company_id,
+                :telegram_user_id,
+                :telegram_username,
+                :employee_id,
+                'gps_check_in',
+                CAST(:payload_json AS jsonb),
+                now() + interval '30 minutes',
+                now()
+            )
+            ON CONFLICT (company_id, telegram_user_id, action)
+            DO UPDATE SET
+                telegram_username = EXCLUDED.telegram_username,
+                employee_id = EXCLUDED.employee_id,
+                payload_json = EXCLUDED.payload_json,
+                expires_at = EXCLUDED.expires_at,
+                updated_at = now()
+        """),
+        {
+            "company_id": str(company_id),
+            "telegram_user_id": str(telegram_user_id),
+            "telegram_username": telegram_username,
+            "employee_id": str(employee_id),
+            "payload_json": json.dumps(
+                {
+                    "chat_id": chat_id,
+                    "language": _lang(language),
+                    "reason": "gps_required_before_check_in",
+                }
+            ),
+        },
+    )
+
+
+async def _get_pending_gps_checkin(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+) -> dict[str, Any] | None:
+    await ensure_bot_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT id, employee_id, payload_json, expires_at
+            FROM company_telegram_pending_actions
+            WHERE company_id = :company_id
+              AND telegram_user_id = :telegram_user_id
+              AND action = 'gps_check_in'
+              AND (expires_at IS NULL OR expires_at > now())
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """),
+        {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        return None
+    return dict(row)
+
+
+async def _clear_pending_gps_checkin(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+) -> None:
+    await db.execute(
+        text("""
+            DELETE FROM company_telegram_pending_actions
+            WHERE company_id = :company_id
+              AND telegram_user_id = :telegram_user_id
+              AND action = 'gps_check_in'
+        """),
+        {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
+    )
+
+
+async def _create_gps_location_event(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    employee: Employee,
+    update: dict[str, Any],
+    message: dict[str, Any],
+    latitude: float,
+    longitude: float,
+    language: str,
+    source_ref_suffix: str = "gps_location",
+) -> WorkforceAttendanceEvent:
+    update_id = str(update.get("update_id") or "")
+    message_id = str(message.get("message_id") or "")
+    source_ref = f"telegram:{update_id}:{message_id}:{source_ref_suffix}"
+    duplicate_result = await db.execute(
+        select(WorkforceAttendanceEvent).where(
+            WorkforceAttendanceEvent.company_id == employee.company_id,
+            WorkforceAttendanceEvent.source_ref == source_ref,
+        )
+    )
+    existing = duplicate_result.scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    location = message.get("location") or {}
+    gps_validation = await _validate_gps_location_for_company(
+        db,
+        company_id=employee.company_id,
+        latitude=latitude,
+        longitude=longitude,
+    )
+    event = WorkforceAttendanceEvent(
+        company_id=employee.company_id,
+        employee_id=employee.id,
+        event_type="gps_location",
+        event_label="Ubicación GPS",
+        employee_name=employee.full_name,
+        employee_role=employee.role,
+        status_after="registered",
+        source="telegram",
+        source_channel="telegram",
+        source_ref=source_ref,
+        bot_instance_id=bot.id,
+        module_code="gps",
+        detail=f"{latitude},{longitude}",
+        notes="Ubicación compartida por Telegram.",
+        latitude=Decimal(str(latitude)),
+        longitude=Decimal(str(longitude)),
+        payload_json={
+            "language": _lang(language),
+            "telegram_update_id": update.get("update_id"),
+            "telegram_message_id": message.get("message_id"),
+            "telegram_user_id": (message.get("from") or {}).get("id"),
+            "telegram_username": (message.get("from") or {}).get("username"),
+            "chat_id": (message.get("chat") or {}).get("id"),
+            "latitude": latitude,
+            "longitude": longitude,
+            "coordinates": f"{latitude},{longitude}",
+            "horizontal_accuracy": location.get("horizontal_accuracy"),
+            "live_period": location.get("live_period"),
+            **gps_validation,
+        },
+        metadata_json={
+            "source": "telegram_listener",
+            "bot_instance_id": str(bot.id),
+            "bot_username": bot.bot_username,
+            "module_code": "gps",
+            **gps_validation,
+        },
+        occurred_at=utcnow(),
+    )
+    db.add(event)
+    await db.flush()
+    return event
 
 
 
@@ -1354,6 +1683,184 @@ async def _create_bot_attendance_event(
 
 
 
+async def _process_telegram_location(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    token: str,
+    update: dict[str, Any],
+    message: dict[str, Any],
+    telegram_user_id: str | None,
+    username: str | None,
+    chat_id: str | None,
+    send_replies: bool,
+) -> TelegramBotPollItem:
+    update_id = update.get("update_id")
+    location = message.get("location") or {}
+    if not telegram_user_id:
+        return TelegramBotPollItem(update_id=update_id, ok=False, action="gps_location", message="Telegram user missing.")
+
+    language = await _get_user_language(db, bot.company_id, telegram_user_id)
+    employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
+    if employee is None:
+        reply = _txt(language, "not_linked", telegram_user_id=telegram_user_id)
+        if send_replies:
+            await _send_telegram_message(token, chat_id, reply, reply_markup=_language_keyboard())
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=False,
+            action="not_linked",
+            message="Empleado no vinculado.",
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    company = await ensure_company_exists(db, bot.company_id)
+    enabled_modules = await _enabled_module_codes(db, bot.company_id)
+    if "gps" not in enabled_modules:
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "module_inactive"), reply_markup=_remove_reply_keyboard())
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=False,
+            action="module_inactive",
+            message="GPS inactive.",
+            employee_id=employee.id,
+            employee_name=employee.full_name,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    try:
+        latitude = float(location.get("latitude"))
+        longitude = float(location.get("longitude"))
+    except Exception:
+        return TelegramBotPollItem(update_id=update_id, ok=False, action="gps_location_invalid", message="Ubicación inválida.")
+
+    pending = await _get_pending_gps_checkin(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+    current = await _get_current_attendance_status(db, employee.company_id, employee.id)
+
+    if pending is not None:
+        command_config = TELEGRAM_COMMANDS["/entrada"]
+        transition_ok, transition_error = _validate_turn_transition(
+            current=current,
+            command_config=command_config,
+            language=language,
+        )
+        if not transition_ok:
+            await _clear_pending_gps_checkin(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+            await db.commit()
+            if send_replies:
+                await _send_telegram_message(
+                    token,
+                    chat_id,
+                    transition_error or _txt(language, "already_working"),
+                    reply_markup=_remove_reply_keyboard(),
+                )
+                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+            return TelegramBotPollItem(
+                update_id=update_id,
+                ok=False,
+                action="turn_validation_failed",
+                message=transition_error or "Transición inválida.",
+                employee_id=employee.id,
+                employee_name=employee.full_name,
+                telegram_user_id=telegram_user_id,
+                telegram_username=username,
+            )
+
+        await _create_gps_location_event(
+            db,
+            bot=bot,
+            employee=employee,
+            update=update,
+            message=message,
+            latitude=latitude,
+            longitude=longitude,
+            language=language,
+            source_ref_suffix="gps_check_in_location",
+        )
+        created, message_text = await _create_bot_attendance_event(
+            db,
+            bot=bot,
+            employee=employee,
+            update=update,
+            message=message,
+            command="/entrada",
+            args="Ubicación GPS validada",
+            command_config=command_config,
+            language=language,
+        )
+        await _clear_pending_gps_checkin(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+        await db.commit()
+
+        if send_replies:
+            await _send_telegram_message(
+                token,
+                chat_id,
+                _txt(language, "gps_location_received_shift_started"),
+                reply_markup=_remove_reply_keyboard(),
+            )
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=created,
+            action="check_in",
+            message=message_text,
+            employee_id=employee.id,
+            employee_name=employee.full_name,
+            event_created=created,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    # Ubicación espontánea durante turno activo: se registra como GPS, pero no inicia turno.
+    status_key = _current_status_key(current)
+    if status_key in {"working", "on_break"}:
+        await _create_gps_location_event(
+            db,
+            bot=bot,
+            employee=employee,
+            update=update,
+            message=message,
+            latitude=latitude,
+            longitude=longitude,
+            language=language,
+            source_ref_suffix="gps_ping_location",
+        )
+        await db.commit()
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "gps_location_received"), reply_markup=_remove_reply_keyboard())
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="gps_location",
+            message="Ubicación GPS registrada.",
+            employee_id=employee.id,
+            employee_name=employee.full_name,
+            event_created=True,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    if send_replies:
+        await _send_telegram_message(token, chat_id, _txt(language, "gps_no_pending"), reply_markup=_remove_reply_keyboard())
+        await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+    return TelegramBotPollItem(
+        update_id=update_id,
+        ok=False,
+        action="gps_no_pending",
+        message="Ubicación recibida sin solicitud pendiente.",
+        employee_id=employee.id,
+        employee_name=employee.full_name,
+        telegram_user_id=telegram_user_id,
+        telegram_username=username,
+    )
+
+
 
 async def _process_telegram_update(
     db: AsyncSession,
@@ -1374,6 +1881,19 @@ async def _process_telegram_update(
 
     if callback_query_id:
         await _answer_callback_query(token, callback_query_id)
+
+    if isinstance(message.get("location"), dict):
+        return await _process_telegram_location(
+            db,
+            bot=bot,
+            token=token,
+            update=update,
+            message=message,
+            telegram_user_id=telegram_user_id,
+            username=username,
+            chat_id=chat_id,
+            send_replies=send_replies,
+        )
 
     if not text_value:
         return TelegramBotPollItem(update_id=update_id, ok=True, action="ignored", message="Mensaje sin texto.")
@@ -1560,6 +2080,36 @@ async def _process_telegram_update(
             ok=False,
             action="turn_validation_failed",
             message=transition_error or "Transición de turno inválida.",
+            employee_id=employee.id,
+            employee_name=employee.full_name,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    if command_config.get("turn_action") == "start_shift" and "gps" in enabled_modules:
+        pending = await _get_pending_gps_checkin(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+        await _set_pending_gps_checkin(
+            db,
+            company_id=bot.company_id,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+            employee_id=employee.id,
+            chat_id=chat_id,
+            language=language,
+        )
+        await db.commit()
+        if send_replies:
+            await _send_telegram_message(
+                token,
+                chat_id,
+                _txt(language, "gps_location_pending" if pending else "gps_required_for_start"),
+                reply_markup=_location_request_keyboard(language),
+            )
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="gps_required_for_check_in",
+            message="GPS requerido antes de iniciar turno.",
             employee_id=employee.id,
             employee_name=employee.full_name,
             telegram_user_id=telegram_user_id,

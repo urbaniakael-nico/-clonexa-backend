@@ -1,14 +1,14 @@
-PATCH: 013-R3 PAYROLL CLOSE FINAL FIX
-FILES:
-- app/api/v1/endpoints/payroll.py
+PATCH CLONEXA 014A GPS BOT GATE
 
-BACKUP REQUIRED:
-- app/api/v1/endpoints/payroll.py
-
-DO NOT TOUCH:
-- app/web/client.js
+Archivos incluidos:
 - app/api/v1/endpoints/bots.py
-- app/api/v1/endpoints/employees.py
-- CRM
-- Workforce
-- Bot listener
+
+No incluidos:
+- client.js
+- admin_v2.js
+- payroll.py
+- employees.py
+- migraciones
+
+Validaciones:
+- python -m py_compile app/api/v1/endpoints/bots.py
