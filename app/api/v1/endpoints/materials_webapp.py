@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+import hashlib
+import hmac
+import json
+import logging
 from typing import Any
+from urllib.parse import parse_qsl
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import httpx
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.v1.endpoints.materials import ensure_materials_storage, _generate_order_number, material_request_out
+from app.api.v1.endpoints.bots import decrypt_token
 
 router = APIRouter()
+logger = logging.getLogger("clonexa.materials_webapp")
 
 ALLOWED_MATERIAL_ROLES = {"admin", "admin_empresa", "supervisor", "inventario", "inventory"}
 
@@ -24,9 +33,18 @@ class WebAppCartItem(BaseModel):
     quantity: int | float | str
 
 
+class WebAppContextIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    init_data: str | None = None
+    telegram_user_id: str | None = None
+    telegram_username: str | None = None
+
+
 class WebAppOrderCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    init_data: str | None = None
     telegram_user_id: str | None = None
     telegram_username: str | None = None
     items: list[WebAppCartItem]
@@ -50,6 +68,99 @@ def _clean(value: Any) -> str:
 def _role_allowed(role: str | None) -> bool:
     raw = _clean(role).lower().replace("-", "_").replace(" ", "_")
     return raw in ALLOWED_MATERIAL_ROLES
+
+
+async def _company_bot_token(db: AsyncSession, company_id: UUID) -> str:
+    result = await db.execute(
+        text("""
+            SELECT bot_token_encrypted
+            FROM company_bot_instances
+            WHERE company_id = :company_id
+              AND channel = 'telegram'
+              AND bot_token_encrypted IS NOT NULL
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1
+        """),
+        {"company_id": str(company_id)},
+    )
+    encrypted = result.scalar()
+    if not encrypted:
+        raise HTTPException(status_code=403, detail="La empresa no tiene bot Telegram configurado.")
+    token = decrypt_token(str(encrypted))
+    if not token:
+        raise HTTPException(status_code=403, detail="No fue posible validar el bot Telegram.")
+    return token
+
+
+def _validate_telegram_init_data(init_data: str | None, bot_token: str) -> dict[str, Any]:
+    raw = _clean(init_data)
+    if not raw:
+        raise HTTPException(status_code=401, detail="Web App no validada por Telegram.")
+
+    pairs = dict(parse_qsl(raw, keep_blank_values=True))
+    received_hash = pairs.pop("hash", None)
+    if not received_hash:
+        raise HTTPException(status_code=401, detail="Firma Telegram ausente.")
+
+    data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(pairs.items()))
+    secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
+    calculated_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(calculated_hash, received_hash):
+        raise HTTPException(status_code=401, detail="Firma Telegram inválida.")
+
+    try:
+        user = json.loads(pairs.get("user") or "{}")
+    except json.JSONDecodeError:
+        user = {}
+
+    telegram_user_id = str(user.get("id") or "").strip()
+    if not telegram_user_id:
+        raise HTTPException(status_code=401, detail="Telegram ID no disponible.")
+
+    return {
+        "telegram_user_id": telegram_user_id,
+        "telegram_username": str(user.get("username") or "").strip(),
+        "telegram_first_name": str(user.get("first_name") or "").strip(),
+        "auth_date": pairs.get("auth_date"),
+    }
+
+
+async def _authorize_webapp_user(
+    db: AsyncSession,
+    company_id: UUID,
+    init_data: str | None,
+) -> dict[str, Any]:
+    await _require_materials_inventory(db, company_id)
+    bot_token = await _company_bot_token(db, company_id)
+    telegram_user = _validate_telegram_init_data(init_data, bot_token)
+    employee = await _employee_from_telegram(db, company_id, telegram_user["telegram_user_id"])
+    return {
+        "bot_token": bot_token,
+        "telegram_user": telegram_user,
+        "employee": employee,
+    }
+
+
+async def _send_telegram_order_confirmation(
+    *,
+    token: str,
+    telegram_user_id: str,
+    order_number: str,
+) -> None:
+    try:
+        text_message = (
+            "✅ Solicitud de material creada\n"
+            f"Orden: {order_number}\n"
+            "Queda pendiente en Materiales."
+        )
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": telegram_user_id, "text": text_message},
+            )
+    except Exception as exc:  # No bloquear la orden si Telegram falla.
+        logger.warning("No se pudo enviar confirmación Telegram de orden %s: %s", order_number, exc)
 
 
 async def _enabled_module_codes(db: AsyncSession, company_id: UUID) -> set[str]:
@@ -110,15 +221,42 @@ def _item_out(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
+@router.post("/companies/{company_id}/context")
+async def webapp_context(
+    company_id: UUID,
+    payload: WebAppContextIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_materials_storage(db)
+    auth = await _authorize_webapp_user(db, company_id, payload.init_data)
+    employee = auth["employee"]
+    telegram_user = auth["telegram_user"]
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "telegram_user_id": telegram_user["telegram_user_id"],
+        "telegram_username": telegram_user.get("telegram_username") or "",
+        "employee": {
+            "id": str(employee.get("id")),
+            "full_name": employee.get("full_name") or "",
+            "role": employee.get("role") or "",
+        },
+        "allowed": True,
+    }
+
+
 @router.get("/companies/{company_id}/inventory")
 async def webapp_inventory_search(
     company_id: UUID,
+    request: Request,
     q: str | None = Query(default=None),
     limit: int = Query(default=30, ge=1, le=60),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_materials_storage(db)
+    await _authorize_webapp_user(db, company_id, request.headers.get("x-telegram-init-data"))
 
     search = f"%{_clean(q).lower()}%"
     params: dict[str, Any] = {
@@ -184,9 +322,11 @@ async def webapp_create_material_order(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_materials_storage(db)
-    await _require_materials_inventory(db, company_id)
 
-    employee = await _employee_from_telegram(db, company_id, payload.telegram_user_id)
+    auth = await _authorize_webapp_user(db, company_id, payload.init_data)
+    employee = auth["employee"]
+    telegram_user = auth["telegram_user"]
+    telegram_user_id = telegram_user["telegram_user_id"]
 
     if not payload.items:
         raise HTTPException(status_code=422, detail="El carrito está vacío.")
@@ -223,7 +363,7 @@ async def webapp_create_material_order(
         })
 
     order_number = await _generate_order_number(db, company_id)
-    source_batch = f"telegram_webapp:{payload.telegram_user_id or 'unknown'}:{uuid4()}"
+    source_batch = f"telegram_webapp:{telegram_user_id}:{uuid4()}"
 
     rows: list[dict[str, Any]] = []
     for index, entry in enumerate(normalized, start=1):
@@ -293,6 +433,12 @@ async def webapp_create_material_order(
         rows.append(dict(result.mappings().first()))
 
     await db.commit()
+
+    await _send_telegram_order_confirmation(
+        token=auth["bot_token"],
+        telegram_user_id=telegram_user_id,
+        order_number=order_number,
+    )
 
     return {
         "ok": True,

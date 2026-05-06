@@ -3355,6 +3355,8 @@
       approved: "Aprobada",
       rejected: "Rechazada",
       delivered: "Entregada",
+      consigned: "Consignada total",
+      consigned_partial: "Consignada parcial",
       returned: "Devuelta total",
       returned_partial: "Devuelta parcial",
       cancelled: "Cancelada",
@@ -3368,6 +3370,36 @@
     return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
   }
 
+  function materialAgeHours(raw) {
+    if (!raw) return Infinity;
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return Infinity;
+    return (Date.now() - date.getTime()) / 36e5;
+  }
+
+  function materialDeliveredAt(row = {}) {
+    return row.delivered_at || row.status_updated_at || row.updated_at || row.created_at || null;
+  }
+
+  function materialValidOrder(row = {}) {
+    const order = String(row.order_number || "").trim();
+    return Boolean(order) && order.toLowerCase() !== "sin orden";
+  }
+
+  function materialCanReturn(row = {}) {
+    const status = String(row.status || "").toLowerCase();
+    return materialValidOrder(row)
+      && ["delivered", "returned_partial", "consigned", "consigned_partial"].includes(status)
+      && materialAgeHours(materialDeliveredAt(row)) <= 48;
+  }
+
+  function materialCanConsign(row = {}) {
+    const status = String(row.status || "").toLowerCase();
+    return materialValidOrder(row)
+      && ["delivered", "returned_partial"].includes(status)
+      && materialAgeHours(materialDeliveredAt(row)) <= 24;
+  }
+
   function materialQuantity(row = {}) {
     const num = Number(row.quantity ?? 1);
     return Number.isFinite(num) ? num : 1;
@@ -3378,6 +3410,10 @@
     const delivered = status === "delivered";
     const returned = status === "returned" || status === "returned_partial";
     const rejected = status === "rejected" || status === "cancelled";
+    const canReturn = materialCanReturn(row);
+    const canConsign = materialCanConsign(row);
+    const age = materialAgeHours(materialDeliveredAt(row));
+    const timeHint = Number.isFinite(age) && age !== Infinity ? `${Math.max(0, Math.round(age))}h` : "";
 
     return `
       <div class="cx-materials-cell">
@@ -3399,8 +3435,11 @@
         <div class="cx-materials-row-actions">
           ${status === "pending" ? `<button class="cx-materials-action primary" type="button" data-material-approve-open="${h(row.id)}">Aprobar</button>` : ""}
           ${status === "approved" ? `<button class="cx-materials-action primary" type="button" data-material-deliver="${h(row.id)}">Entregar</button>` : ""}
-          ${!delivered && !returned && !rejected ? `<button class="cx-materials-action" type="button" data-material-reject="${h(row.id)}">Rechazar</button>` : ""}
-          ${((delivered || status === "returned_partial") && row.order_number) ? `<button class="cx-materials-action" type="button" data-material-return-load="${h(row.order_number || "")}">Devolución</button>` : ""}
+          ${!delivered && !returned && !rejected && !status.startsWith("consigned") ? `<button class="cx-materials-action" type="button" data-material-reject="${h(row.id)}">Rechazar</button>` : ""}
+          ${materialValidOrder(row) ? `<button class="cx-materials-action" type="button" data-material-detail-load="${h(row.order_number || "")}">Detalle</button>` : ""}
+          ${canConsign ? `<button class="cx-materials-action" type="button" data-material-consign-load="${h(row.order_number || "")}">Consigna</button>` : ""}
+          ${canReturn ? `<button class="cx-materials-action" type="button" data-material-return-load="${h(row.order_number || "")}">Devolución</button>` : ""}
+          ${(!canReturn && (delivered || status === "returned_partial" || status.startsWith("consigned")) && materialValidOrder(row)) ? `<span class="client-muted" title="Ventana de devolución: 48h. Consigna: 24h.">${h(timeHint ? "Vence / vencida · " + timeHint : "Sin acción")}</span>` : ""}
         </div>
       </div>
     `;
@@ -3522,33 +3561,48 @@
       return;
     }
     try {
-      const data = await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/search?q=${encodeURIComponent(q)}&limit=8`);
+      const mode = String(window.__cxMaterialsOperationMode || "return");
+      const data = await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/search?q=${encodeURIComponent(q)}&mode=${encodeURIComponent(mode)}&limit=8`);
       renderMaterialReturnSearchResults(Array.isArray(data.orders) ? data.orders : []);
     } catch (_) {
       renderMaterialReturnSearchResults([]);
     }
   }
 
-  function renderMaterialReturnChecklist(data) {
+  function renderMaterialReturnChecklist(data, mode = "return") {
     const box = document.querySelector("[data-material-return-checklist]");
     if (!box) return;
+
+    mode = mode === "consign" ? "consign" : "return";
+    window.__cxMaterialsOperationMode = mode;
+    const saveBtn = document.querySelector("[data-material-return-save]");
+    const observationInput = document.querySelector("[data-material-return-observation]");
+    const titleEl = document.querySelector("[data-material-operation-title]");
+    const helperEl = document.querySelector("[data-material-operation-helper]");
+    if (saveBtn) saveBtn.textContent = mode === "consign" ? "Registrar consigna" : "Registrar devolución";
+    if (observationInput) observationInput.placeholder = mode === "consign" ? "Motivo de consigna / responsable / próximo turno" : "Motivo / estado del material";
+    if (titleEl) titleEl.textContent = mode === "consign" ? "Registrar consigna por número de orden" : "Registrar devolución por número de orden";
+    if (helperEl) helperEl.textContent = mode === "consign"
+      ? "Marca los Label/SKU que quedan en consigna. No suma inventario; queda bajo custodia temporal por 24h."
+      : "Busca la orden de salida, despliega sus materiales y marca los Label/SKU que vuelven al inventario.";
 
     if (!data || data.found === false) {
       box.dataset.materialReturnSelectedOrder = "";
       window.__cxMaterialsReturnOrder = "";
-      box.innerHTML = `<div class="personal-toast error">${h(data?.message || "Orden de salida entregada no encontrada.")}</div>`;
+      box.innerHTML = `<div class="personal-toast error">${h(data?.message || "Orden de salida no encontrada o fuera de ventana operativa.")}</div>`;
       return;
     }
 
     const selectedOrder = String(data.order_number || "").trim();
     box.dataset.materialReturnSelectedOrder = selectedOrder;
+    box.dataset.materialOperationMode = mode;
     window.__cxMaterialsReturnOrder = selectedOrder;
 
     const lines = Array.isArray(data.lines) ? data.lines : [];
     box.innerHTML = `
       <div class="cx-materials-return-summary">
         <strong>Orden ${h(data.order_number || "")}</strong>
-        <span class="client-muted">Solicitante: ${h(data.employee_name || "-")} · Destino: ${h(data.destination || "-")}</span>
+        <span class="client-muted">Solicitante: ${h(data.employee_name || "-")} · Destino: ${h(data.destination || "-")} · Modo: ${h(mode === "consign" ? "Consigna" : "Devolución")}</span>
       </div>
       ${lines.map((line) => {
         const title = [line.name_reference || line.material_name || "Material", line.item_size].filter(Boolean).join(" · ");
@@ -3556,14 +3610,15 @@
         return `
           <details class="cx-materials-return-line" open>
             <summary>${h(title)} <span class="client-muted">pendiente ${h(line.quantity_pending_return || 0)} de ${h(line.quantity || 0)}</span></summary>
+            ${line.notes || line.operation_notes ? `<div class="client-muted" style="padding:0 14px 10px">${h([line.notes, line.operation_notes].filter(Boolean).join(" · "))}</div>` : ""}
             <div class="cx-materials-return-units">
               ${units.length ? units.map((unit) => `
                 <label class="cx-materials-return-unit ${unit.available ? "" : "disabled"}">
                   <input type="checkbox" data-material-return-unit="${h(unit.unit_id)}" data-material-return-unit-order="${h(selectedOrder)}" ${unit.available ? "" : "disabled"}>
                   <span>${h(unit.label_sku || ("Unidad " + (unit.unit_index || "")))}</span>
-                  <small class="client-muted">${h(unit.available ? "Entregada" : "Ya devuelta")}</small>
+                  <small class="client-muted">${h(unit.available ? (mode === "consign" ? "Disponible para consigna" : "Disponible") : materialsStatusLabel(unit.status))}</small>
                 </label>
-              `).join("") : `<div class="client-muted">No hay unidades entregadas pendientes.</div>`}
+              `).join("") : `<div class="client-muted">No hay unidades disponibles para esta operación.</div>`}
             </div>
           </details>
         `;
@@ -3571,23 +3626,26 @@
     `;
   }
 
-  async function loadMaterialReturnChecklist(orderNumber) {
+  async function loadMaterialReturnChecklist(orderNumber, mode = "return") {
     const order = String(orderNumber || "").trim();
+    mode = mode === "consign" ? "consign" : "return";
     const box = document.querySelector("[data-material-return-checklist]");
     if (!order) {
       window.__cxMaterialsReturnOrder = "";
       if (box) {
         box.dataset.materialReturnSelectedOrder = "";
+        box.dataset.materialOperationMode = mode;
         box.innerHTML = "";
       }
       return;
     }
-    const data = await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(order)}/return-checklist`);
-    renderMaterialReturnChecklist(data);
+    const data = await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(order)}/return-checklist?mode=${encodeURIComponent(mode)}`);
+    renderMaterialReturnChecklist(data, mode);
   }
 
   async function returnMaterialOrder() {
     const selectedBox = document.querySelector("[data-material-return-checklist]");
+    const mode = String(selectedBox?.dataset?.materialOperationMode || window.__cxMaterialsOperationMode || "return") === "consign" ? "consign" : "return";
     const orderFromChecklist = String(selectedBox?.dataset?.materialReturnSelectedOrder || window.__cxMaterialsReturnOrder || "").trim();
     const orderFromInput = String(document.querySelector("[data-material-return-order]")?.value || "").trim();
     const observation = String(document.querySelector("[data-material-return-observation]")?.value || "").trim();
@@ -3603,27 +3661,36 @@
       return;
     }
     if (!observation) {
-      showMaterialsNotice("Escribe una observación de devolución.", "error");
+      showMaterialsNotice(mode === "consign" ? "Escribe una observación de consigna." : "Escribe una observación de devolución.", "error");
       return;
     }
     if (!unitIds.length) {
-      showMaterialsNotice("Marca al menos un Label/SKU para devolver.", "error");
+      showMaterialsNotice(mode === "consign" ? "Marca al menos un Label/SKU para consignar." : "Marca al menos un Label/SKU para devolver.", "error");
       return;
     }
 
-    await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(orderNumber)}/return-selected`, {
+    const endpoint = mode === "consign"
+      ? `/materials/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(orderNumber)}/consign-selected`
+      : `/materials/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(orderNumber)}/return-selected`;
+
+    await api(endpoint, {
       method: "POST",
       body: JSON.stringify({ order_number: orderNumber, observation, unit_ids: unitIds }),
     });
     await renderMaterialsModule();
-    setTimeout(() => showMaterialsNotice("Devolución registrada. Inventario actualizado."), 80);
+    setTimeout(() => showMaterialsNotice(mode === "consign" ? "Consigna registrada. Inventario no se movió." : "Devolución registrada. Inventario actualizado."), 80);
   }
 
-  async function fillReturnOrder(orderNumber) {
+  async function fillReturnOrder(orderNumber, mode = "return") {
     const safeOrder = String(orderNumber || "").trim();
+    mode = mode === "consign" ? "consign" : "return";
     window.__cxMaterialsReturnOrder = safeOrder;
+    window.__cxMaterialsOperationMode = mode;
     const checklist = document.querySelector("[data-material-return-checklist]");
-    if (checklist) checklist.dataset.materialReturnSelectedOrder = safeOrder;
+    if (checklist) {
+      checklist.dataset.materialReturnSelectedOrder = safeOrder;
+      checklist.dataset.materialOperationMode = mode;
+    }
     const input = document.querySelector("[data-material-return-order]");
     if (input) {
       input.value = safeOrder;
@@ -3631,15 +3698,56 @@
     }
     renderMaterialReturnSearchResults([]);
     try {
-      await loadMaterialReturnChecklist(safeOrder);
+      await loadMaterialReturnChecklist(safeOrder, mode);
     } catch (error) {
       showMaterialsNotice(error.message || "No se pudo cargar la orden.", "error");
     }
   }
 
-  function exportMaterialsCsv() {
-    const rows = Array.isArray(window.__cxMaterialsRows) ? window.__cxMaterialsRows : [];
-    const headers = ["Orden", "Empleado", "Rol", "Material", "Cantidad", "Estado", "Destino", "Fecha", "Notas"];
+  async function loadMaterialOrderDetail(orderNumber) {
+    const safeOrder = String(orderNumber || "").trim();
+    if (!safeOrder) return;
+    try {
+      const data = await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(safeOrder)}/detail`);
+      const box = document.getElementById("materialsSheetBox");
+      if (!box) return;
+      if (!data || data.found === false) {
+        box.innerHTML = `<div class="personal-toast error">No se encontró detalle de la orden.</div>`;
+        return;
+      }
+      const lines = Array.isArray(data.lines) ? data.lines : [];
+      const events = Array.isArray(data.events) ? data.events : [];
+      box.innerHTML = `
+        <section class="cx-materials-sheet">
+          <div class="client-eyebrow">Detalle / observaciones</div>
+          <h2>${h(data.order_number || safeOrder)}</h2>
+          <p class="client-muted">Solicitante: ${h(data.employee_name || "-")} · Destino: ${h(data.destination || "-")}</p>
+          <div class="cx-materials-table" style="margin-top:16px">
+            <div class="cx-materials-cell cx-materials-head">Material</div>
+            <div class="cx-materials-cell cx-materials-head">Cantidad</div>
+            <div class="cx-materials-cell cx-materials-head">Estado</div>
+            <div class="cx-materials-cell cx-materials-head">Observaciones</div>
+            ${lines.map((line) => `
+              <div class="cx-materials-cell"><strong>${h(line.name_reference || line.material_name || "Material")}</strong><br><span class="client-muted">${h([line.item_size, line.color].filter(Boolean).join(" · "))}</span></div>
+              <div class="cx-materials-cell"><strong>${h(line.quantity || 0)}</strong></div>
+              <div class="cx-materials-cell"><span class="cx-materials-status ${h(line.status || "")}">${h(materialsStatusLabel(line.status))}</span></div>
+              <div class="cx-materials-cell">${h([line.notes, line.operation_notes].filter(Boolean).join("\n") || "-")}</div>
+            `).join("")}
+          </div>
+          <div style="margin-top:18px;display:grid;gap:10px">
+            <strong>Eventos / observaciones</strong>
+            ${events.length ? events.map((event) => `<div class="cx-materials-return-summary"><strong>${h(event.label || event.type || "Evento")}</strong><span class="client-muted">${h(event.at || "")}</span><div>${h(event.detail || "")}</div></div>`).join("") : `<div class="client-muted">Sin observaciones registradas.</div>`}
+          </div>
+        </section>
+      `;
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      showMaterialsNotice(error.message || "No se pudo cargar detalle.", "error");
+    }
+  }
+
+  function downloadMaterialsCsv(rows) {
+    const headers = ["Orden", "Empleado", "Rol", "Material", "Cantidad", "Estado", "Destino", "Fecha", "Entregado", "Devuelto", "Consignado", "Notas", "Observaciones"];
     const csvRows = [headers].concat(rows.map((row) => [
       row.order_number || "",
       row.employee_name || "",
@@ -3649,7 +3757,11 @@
       materialsStatusLabel(row.status),
       row.destination || "",
       row.requested_at || row.created_at || "",
+      row.delivered_at || "",
+      row.returned_at || "",
+      row.consigned_at || "",
       row.notes || "",
+      row.operation_notes || "",
     ]));
 
     const csv = csvRows
@@ -3665,6 +3777,25 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  }
+
+  async function exportMaterialsCsv() {
+    const rows = Array.isArray(window.__cxMaterialsRows) ? window.__cxMaterialsRows : [];
+    downloadMaterialsCsv(rows);
+
+    const shouldPurge = confirm("CSV generado. ¿Deseas depurar órdenes cerradas/no gestionables del panel?\n\nSí: oculta del panel lo ya devuelto/cerrado o vencido.\nNo: conserva la vista actual.");
+    if (!shouldPurge) return;
+
+    try {
+      const result = await api(`/materials/companies/${encodeURIComponent(state.companyId)}/requests/archive-exported`, {
+        method: "POST",
+        body: JSON.stringify({ include_open: false }),
+      });
+      await renderMaterialsModule();
+      setTimeout(() => showMaterialsNotice(`Depuración lista. Órdenes ocultas: ${result.archived_count || 0}.`), 80);
+    } catch (error) {
+      showMaterialsNotice(error.message || "No se pudo depurar después de exportar.", "error");
+    }
   }
 
   async function renderMaterialsModule() {
@@ -3688,6 +3819,10 @@
     const rows = Array.isArray(data.requests) ? data.requests : [];
     const summary = data.summary || {};
     window.__cxMaterialsRows = rows;
+    window.clearTimeout(window.__materialsDailyRefreshTimer);
+    window.__materialsDailyRefreshTimer = window.setTimeout(() => {
+      if (document.querySelector("[data-materials-refresh]")) renderMaterialsModule();
+    }, 24 * 60 * 60 * 1000);
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -3721,6 +3856,7 @@
                 <div class="client-kpi"><span>Pendientes</span><strong>${h(summary.pending || 0)}</strong></div>
                 <div class="client-kpi"><span>Aprobadas</span><strong>${h(summary.approved || 0)}</strong></div>
                 <div class="client-kpi"><span>Entregadas</span><strong>${h(summary.delivered || 0)}</strong></div>
+                <div class="client-kpi"><span>Consigna</span><strong>${h((summary.consigned || 0) + (summary.consigned_partial || 0))}</strong></div>
                 <div class="client-kpi"><span>Devueltas</span><strong>${h((summary.returned || 0) + (summary.returned_partial || 0))}</strong></div>
               </div>
 
@@ -3739,16 +3875,16 @@
             </section>
 
             <section class="client-panel">
-              <div class="client-eyebrow">Devolución</div>
-              <h2>Registrar devolución por número de orden</h2>
-              <p class="client-muted">Busca la orden de salida, despliega sus materiales y marca los Label/SKU que vuelven al inventario.</p>
+              <div class="client-eyebrow">Gestión de salida</div>
+              <h2 data-material-operation-title>Registrar devolución por número de orden</h2>
+              <p class="client-muted" data-material-operation-helper>Busca la orden de salida, despliega sus materiales y marca los Label/SKU que vuelven al inventario.</p>
               <div class="cx-materials-form-row">
                 <label>
                   <span class="client-muted">Número de orden</span>
                   <input class="cx-materials-input" data-material-return-order placeholder="Busca MAT-20260506-000003" autocomplete="off">
                 </label>
                 <label>
-                  <span class="client-muted">Observación de devolución</span>
+                  <span class="client-muted">Observación operativa</span>
                   <input class="cx-materials-input" data-material-return-observation placeholder="Motivo / estado del material">
                 </label>
                 <button class="cx-materials-action primary" type="button" data-material-return-save>Registrar devolución</button>
@@ -4876,7 +5012,7 @@
       }
 
       if (target.closest("[data-materials-export]")) {
-        exportMaterialsCsv();
+        await exportMaterialsCsv();
         return;
       }
 
@@ -4916,15 +5052,27 @@
         return;
       }
 
+      const materialDetailLoad = target.closest("[data-material-detail-load]");
+      if (materialDetailLoad) {
+        await loadMaterialOrderDetail(materialDetailLoad.dataset.materialDetailLoad);
+        return;
+      }
+
+      const materialConsignLoad = target.closest("[data-material-consign-load]");
+      if (materialConsignLoad) {
+        await fillReturnOrder(materialConsignLoad.dataset.materialConsignLoad, "consign");
+        return;
+      }
+
       const materialReturnLoad = target.closest("[data-material-return-load]");
       if (materialReturnLoad) {
-        await fillReturnOrder(materialReturnLoad.dataset.materialReturnLoad);
+        await fillReturnOrder(materialReturnLoad.dataset.materialReturnLoad, "return");
         return;
       }
 
       const materialReturnPick = target.closest("[data-material-return-order-pick]");
       if (materialReturnPick) {
-        await fillReturnOrder(materialReturnPick.dataset.materialReturnOrderPick);
+        await fillReturnOrder(materialReturnPick.dataset.materialReturnOrderPick, window.__cxMaterialsOperationMode || "return");
         return;
       }
 

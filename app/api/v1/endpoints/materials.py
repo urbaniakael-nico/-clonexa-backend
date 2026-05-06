@@ -19,11 +19,13 @@ ORDER_STATUSES = {
     "approved",
     "rejected",
     "delivered",
+    "consigned",
+    "consigned_partial",
     "returned",
     "returned_partial",
     "cancelled",
 }
-FINAL_STATUSES = {"delivered", "returned", "returned_partial", "rejected", "cancelled"}
+FINAL_STATUSES = {"delivered", "consigned", "consigned_partial", "returned", "returned_partial", "rejected", "cancelled"}
 
 
 class MaterialStatusPayload(BaseModel):
@@ -67,6 +69,13 @@ class MaterialReturnSelectedPayload(BaseModel):
     observation: str | None = None
     unit_ids: list[str] | None = None
     order_number: str | None = None
+
+
+class MaterialArchiveExportPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    order_numbers: list[str] | None = None
+    include_open: bool = False
 
 
 def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
@@ -179,6 +188,11 @@ async def ensure_materials_storage(db: AsyncSession) -> None:
         "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS approved_at timestamptz NULL",
         "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS delivered_at timestamptz NULL",
         "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS returned_at timestamptz NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS consigned_at timestamptz NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS archived_at timestamptz NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS exported_at timestamptz NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS closed_at timestamptz NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS operation_notes text NULL",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS quantity numeric(14,2) DEFAULT 0",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS quantity_delta numeric(14,2) DEFAULT 0",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS source_module varchar(80) DEFAULT 'materials'",
@@ -200,12 +214,20 @@ async def ensure_materials_storage(db: AsyncSession) -> None:
             status varchar(40) NOT NULL DEFAULT 'reserved',
             destination text NULL,
             returned_observation text NULL,
+            consigned_observation text NULL,
             delivered_at timestamptz NULL,
+            consigned_at timestamptz NULL,
             returned_at timestamptz NULL,
             created_at timestamptz NOT NULL DEFAULT now(),
             updated_at timestamptz NOT NULL DEFAULT now()
         );
     """))
+
+    for stmt in [
+        "ALTER TABLE material_order_units ADD COLUMN IF NOT EXISTS consigned_observation text NULL",
+        "ALTER TABLE material_order_units ADD COLUMN IF NOT EXISTS consigned_at timestamptz NULL",
+    ]:
+        await db.execute(text(stmt))
 
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_company ON material_requests(company_id);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_status ON material_requests(company_id, status);"))
@@ -316,6 +338,11 @@ def material_request_out(row: dict[str, Any]) -> dict[str, Any]:
         "approved_at": iso("approved_at"),
         "delivered_at": iso("delivered_at"),
         "returned_at": iso("returned_at"),
+        "consigned_at": iso("consigned_at"),
+        "archived_at": iso("archived_at"),
+        "exported_at": iso("exported_at"),
+        "closed_at": iso("closed_at"),
+        "operation_notes": row.get("operation_notes") or "",
         "status_updated_at": iso("status_updated_at"),
         "created_at": iso("created_at"),
         "updated_at": iso("updated_at"),
@@ -328,6 +355,8 @@ def summary_from_requests(rows: list[dict[str, Any]]) -> dict[str, int]:
         "pending": 0,
         "approved": 0,
         "delivered": 0,
+        "consigned": 0,
+        "consigned_partial": 0,
         "returned": 0,
         "returned_partial": 0,
         "rejected": 0,
@@ -413,15 +442,17 @@ async def list_material_requests(
     company_id: UUID,
     status: str | None = None,
     limit: int = 300,
+    include_archived: bool = False,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_materials_storage(db)
     limit = max(1, min(int(limit or 300), 1000))
 
     where_status = ""
+    archived_filter = "" if include_archived else "AND mr.archived_at IS NULL AND mr.exported_at IS NULL"
     params: dict[str, Any] = {"company_id": str(company_id), "limit": limit}
     if status and status != "all":
-        where_status = " AND mr.status = :status"
+        where_status = " AND mr.status = CAST(:status AS varchar)"
         params["status"] = status
 
     result = await db.execute(
@@ -435,16 +466,19 @@ async def list_material_requests(
             FROM material_requests mr
             LEFT JOIN inventory_items ii ON ii.id = mr.inventory_item_id
             WHERE mr.company_id = :company_id
+            {archived_filter}
             {where_status}
             ORDER BY
               CASE mr.status
                 WHEN 'pending' THEN 1
                 WHEN 'approved' THEN 2
                 WHEN 'delivered' THEN 3
-                WHEN 'returned_partial' THEN 4
-                WHEN 'returned' THEN 5
-                WHEN 'rejected' THEN 6
-                ELSE 7
+                WHEN 'consigned_partial' THEN 4
+                WHEN 'consigned' THEN 5
+                WHEN 'returned_partial' THEN 6
+                WHEN 'returned' THEN 7
+                WHEN 'rejected' THEN 8
+                ELSE 9
               END,
               mr.requested_at DESC,
               mr.created_at DESC
@@ -650,6 +684,7 @@ async def deliver_material_request(
 async def search_material_return_orders(
     company_id: UUID,
     q: str = "",
+    mode: str = "return",
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -659,9 +694,13 @@ async def search_material_return_orders(
     if not query:
         return {"company_id": str(company_id), "orders": []}
 
+    mode = "consign" if str(mode or "").lower() in {"consign", "consigna"} else "return"
+    window_sql = "24 hours" if mode == "consign" else "48 hours"
+    status_sql = "('delivered', 'returned_partial')" if mode == "consign" else "('delivered', 'returned_partial', 'consigned', 'consigned_partial')"
+
     limit = max(1, min(int(limit or 10), 25))
     result = await db.execute(
-        text("""
+        text(f"""
             SELECT
               mr.order_number,
               MIN(mr.requested_at) AS requested_at,
@@ -672,12 +711,16 @@ async def search_material_return_orders(
               COALESCE(SUM(mr.quantity), 0) AS quantity_total,
               COALESCE(SUM(GREATEST(mr.quantity - COALESCE(mr.quantity_returned, 0), 0)), 0) AS quantity_pending_return,
               BOOL_OR(mr.status = 'delivered') AS has_delivered,
-              BOOL_OR(mr.status = 'returned_partial') AS has_partial
+              BOOL_OR(mr.status = 'returned_partial') AS has_partial,
+              BOOL_OR(mr.status IN ('consigned', 'consigned_partial')) AS has_consigned
             FROM material_requests mr
             WHERE mr.company_id = :company_id
               AND COALESCE(mr.order_number, '') <> ''
+              AND mr.archived_at IS NULL
+              AND mr.exported_at IS NULL
               AND UPPER(mr.order_number) LIKE UPPER(:query)
-              AND mr.status IN ('delivered', 'returned_partial')
+              AND mr.status IN {status_sql}
+              AND COALESCE(mr.delivered_at, mr.status_updated_at, mr.updated_at, mr.created_at) >= now() - INTERVAL '{window_sql}'
             GROUP BY mr.order_number
             ORDER BY MAX(mr.created_at) DESC
             LIMIT :limit
@@ -697,7 +740,7 @@ async def search_material_return_orders(
             "lines_count": int(row.get("lines_count") or 0),
             "quantity_total": _num(row.get("quantity_total")),
             "quantity_pending_return": pending,
-            "status": "delivered" if row.get("has_delivered") else "returned_partial",
+            "status": "consigned" if row.get("has_consigned") else ("delivered" if row.get("has_delivered") else "returned_partial"),
         })
 
     return {"company_id": str(company_id), "orders": orders}
@@ -744,6 +787,7 @@ async def _ensure_return_units_for_requests(db: AsyncSession, requests: list[dic
 async def get_material_return_checklist(
     company_id: UUID,
     order_number: str,
+    mode: str = "return",
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_materials_storage(db)
@@ -752,8 +796,12 @@ async def get_material_return_checklist(
     if not order_number:
         raise HTTPException(status_code=422, detail="Número de orden obligatorio.")
 
+    mode = "consign" if str(mode or "").lower() in {"consign", "consigna"} else "return"
+    window_sql = "24 hours" if mode == "consign" else "48 hours"
+    status_sql = "('delivered', 'returned_partial')" if mode == "consign" else "('delivered', 'returned_partial', 'consigned', 'consigned_partial')"
+
     result = await db.execute(
-        text("""
+        text(f"""
             SELECT
               mr.*,
               ii.name_reference,
@@ -763,7 +811,10 @@ async def get_material_return_checklist(
             LEFT JOIN inventory_items ii ON ii.id = mr.inventory_item_id
             WHERE mr.company_id = :company_id
               AND mr.order_number = :order_number
-              AND mr.status IN ('delivered', 'returned_partial')
+              AND mr.archived_at IS NULL
+              AND mr.exported_at IS NULL
+              AND mr.status IN {status_sql}
+              AND COALESCE(mr.delivered_at, mr.status_updated_at, mr.updated_at, mr.created_at) >= now() - INTERVAL '{window_sql}'
             ORDER BY mr.created_at ASC, mr.id ASC
         """),
         {"company_id": str(company_id), "order_number": order_number},
@@ -774,7 +825,8 @@ async def get_material_return_checklist(
             "company_id": str(company_id),
             "order_number": order_number,
             "found": False,
-            "message": "Orden de salida entregada no encontrada.",
+            "mode": mode,
+            "message": "Orden de salida no encontrada o fuera de ventana operativa.",
             "lines": [],
         }
 
@@ -808,14 +860,17 @@ async def get_material_return_checklist(
             unit_status = str(unit.get("status") or "").lower()
             label = (unit.get("label_sku") or "").strip()
             index = int(unit.get("unit_index") or 0)
+            available = unit_status == "delivered" if mode == "consign" else unit_status in {"delivered", "consigned"}
             units.append({
                 "unit_id": str(unit.get("id")),
                 "unit_index": index,
                 "label_sku": label or f"Unidad {index}",
                 "status": unit_status or "delivered",
-                "available": unit_status == "delivered",
+                "available": available,
                 "returned_observation": unit.get("returned_observation") or "",
+                "consigned_observation": unit.get("consigned_observation") or "",
                 "returned_at": unit.get("returned_at").isoformat() if hasattr(unit.get("returned_at"), "isoformat") else None,
+                "consigned_at": unit.get("consigned_at").isoformat() if hasattr(unit.get("consigned_at"), "isoformat") else None,
             })
 
         qty = _num(request.get("quantity"))
@@ -832,6 +887,8 @@ async def get_material_return_checklist(
             "quantity_pending_return": max(qty - returned, 0),
             "status": request.get("status") or "",
             "destination": request.get("destination") or "",
+            "notes": request.get("notes") or "",
+            "operation_notes": request.get("operation_notes") or "",
             "units": units,
         })
 
@@ -840,10 +897,12 @@ async def get_material_return_checklist(
         "company_id": str(company_id),
         "order_number": order_number,
         "found": True,
+        "mode": mode,
         "employee_name": first.get("employee_name") or "",
         "employee_role": first.get("employee_role") or "",
         "destination": first.get("destination") or "",
         "requested_at": first.get("requested_at").isoformat() if hasattr(first.get("requested_at"), "isoformat") else None,
+        "delivered_at": first.get("delivered_at").isoformat() if hasattr(first.get("delivered_at"), "isoformat") else None,
         "lines": lines,
     }
 
@@ -898,8 +957,11 @@ async def return_selected_material_units(
             JOIN material_requests mr ON mr.id = mou.request_id
             WHERE mr.company_id = :company_id
               AND mr.order_number = :order_number
-              AND mr.status IN ('delivered', 'returned_partial')
-              AND mou.status = 'delivered'
+              AND mr.status IN ('delivered', 'returned_partial', 'consigned', 'consigned_partial')
+              AND mr.archived_at IS NULL
+              AND mr.exported_at IS NULL
+              AND COALESCE(mr.delivered_at, mr.status_updated_at, mr.updated_at, mr.created_at) >= now() - INTERVAL '48 hours'
+              AND mou.status IN ('delivered', 'consigned')
               AND mou.id IN ({placeholders})
             ORDER BY mou.request_id, mou.unit_index
         """),
@@ -1007,12 +1069,294 @@ async def return_selected_material_units(
         updated_rows.append(dict(update_result.mappings().first()))
 
     await db.commit()
+
     return {
         "company_id": str(company_id),
         "order_number": order_number,
         "returned_quantity": _num(total_returned),
         "updated": [material_request_out(row) for row in updated_rows],
     }
+
+
+@router.post("/companies/{company_id}/orders/{order_number}/consign-selected")
+async def consign_selected_material_units(
+    company_id: UUID,
+    order_number: str,
+    payload: MaterialReturnSelectedPayload,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_materials_storage(db)
+
+    order_number = (order_number or payload.order_number or "").strip()
+    if not order_number:
+        raise HTTPException(status_code=422, detail="Número de orden obligatorio para consigna.")
+
+    observation = (payload.observation or "").strip()
+    if not observation:
+        raise HTTPException(status_code=422, detail="Observación de consigna obligatoria.")
+
+    raw_unit_ids = payload.unit_ids or []
+    unit_ids: list[str] = []
+    for raw in raw_unit_ids:
+        try:
+            unit_ids.append(str(UUID(str(raw))))
+        except Exception:
+            continue
+
+    unit_ids = list(dict.fromkeys(unit_ids))
+    if not unit_ids:
+        raise HTTPException(status_code=422, detail="Selecciona al menos un Label/SKU para consignar.")
+
+    placeholders = ", ".join([f":u{i}" for i in range(len(unit_ids))])
+    params: dict[str, Any] = {
+        "company_id": str(company_id),
+        "order_number": order_number,
+    }
+    params.update({f"u{i}": uid for i, uid in enumerate(unit_ids)})
+
+    result = await db.execute(
+        text(f"""
+            SELECT
+              mou.id AS unit_id,
+              mou.request_id,
+              mou.inventory_item_id,
+              mr.company_id,
+              mr.order_number,
+              mr.quantity,
+              mr.quantity_returned
+            FROM material_order_units mou
+            JOIN material_requests mr ON mr.id = mou.request_id
+            WHERE mr.company_id = :company_id
+              AND mr.order_number = :order_number
+              AND mr.status IN ('delivered', 'returned_partial')
+              AND mr.archived_at IS NULL
+              AND mr.exported_at IS NULL
+              AND COALESCE(mr.delivered_at, mr.status_updated_at, mr.updated_at, mr.created_at) >= now() - INTERVAL '24 hours'
+              AND mou.status = 'delivered'
+              AND mou.id IN ({placeholders})
+            ORDER BY mou.request_id, mou.unit_index
+        """),
+        params,
+    )
+    selected_units = [dict(row) for row in result.mappings().all()]
+    if not selected_units:
+        raise HTTPException(status_code=404, detail="No hay Label/SKU entregados disponibles para consigna dentro de 24 horas.")
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for unit in selected_units:
+        request_id = str(unit["request_id"])
+        item = grouped.setdefault(request_id, {
+            "request_id": request_id,
+            "quantity": _to_decimal(unit.get("quantity"), Decimal("0")),
+            "unit_ids": [],
+        })
+        item["unit_ids"].append(str(unit["unit_id"]))
+
+    updated_rows: list[dict[str, Any]] = []
+    total_consigned = Decimal("0")
+
+    for request_id, group in grouped.items():
+        qty = Decimal(len(group["unit_ids"])).quantize(Decimal("0.01"))
+        total_consigned += qty
+
+        unit_placeholders = ", ".join([f":cu{i}" for i in range(len(group["unit_ids"]))])
+        unit_params = {f"cu{i}": uid for i, uid in enumerate(group["unit_ids"])}
+        unit_params["observation"] = observation
+
+        await db.execute(
+            text(f"""
+                UPDATE material_order_units
+                SET status = 'consigned',
+                    consigned_observation = CAST(:observation AS text),
+                    consigned_at = now(),
+                    updated_at = now()
+                WHERE id IN ({unit_placeholders})
+                  AND status = 'delivered'
+            """),
+            unit_params,
+        )
+
+        counts = await db.execute(
+            text("""
+                SELECT
+                  COUNT(*) FILTER (WHERE status = 'consigned') AS consigned_count,
+                  COUNT(*) FILTER (WHERE status IN ('delivered', 'consigned')) AS active_count
+                FROM material_order_units
+                WHERE request_id = :request_id
+            """),
+            {"request_id": request_id},
+        )
+        count_row = dict(counts.mappings().first() or {})
+        consigned_count = int(count_row.get("consigned_count") or 0)
+        active_count = int(count_row.get("active_count") or 0)
+        new_status = "consigned" if active_count > 0 and consigned_count >= active_count else "consigned_partial"
+
+        update_result = await db.execute(
+            text("""
+                UPDATE material_requests
+                SET status = CAST(:status AS varchar),
+                    consigned_at = COALESCE(consigned_at, now()),
+                    notes = COALESCE(notes, '') || CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\n' END || CAST(:consign_note AS text),
+                    operation_notes = COALESCE(operation_notes, '') || CASE WHEN COALESCE(operation_notes, '') = '' THEN '' ELSE E'\n' END || CAST(:consign_note AS text),
+                    status_updated_at = now(),
+                    updated_at = now()
+                WHERE id = :request_id
+                RETURNING *
+            """),
+            {
+                "request_id": request_id,
+                "status": new_status,
+                "consign_note": f"Consigna: {observation}",
+            },
+        )
+        updated_rows.append(dict(update_result.mappings().first()))
+
+    await db.commit()
+    return {
+        "company_id": str(company_id),
+        "order_number": order_number,
+        "consigned_quantity": _num(total_consigned),
+        "updated": [material_request_out(row) for row in updated_rows],
+    }
+
+
+@router.get("/companies/{company_id}/orders/{order_number}/detail")
+async def get_material_order_detail(
+    company_id: UUID,
+    order_number: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_materials_storage(db)
+
+    order_number = (order_number or "").strip()
+    if not order_number:
+        raise HTTPException(status_code=422, detail="Número de orden obligatorio.")
+
+    result = await db.execute(
+        text("""
+            SELECT
+              mr.*,
+              ii.name_reference,
+              ii.item_size,
+              ii.color
+            FROM material_requests mr
+            LEFT JOIN inventory_items ii ON ii.id = mr.inventory_item_id
+            WHERE mr.company_id = :company_id
+              AND mr.order_number = :order_number
+            ORDER BY mr.created_at ASC, mr.id ASC
+        """),
+        {"company_id": str(company_id), "order_number": order_number},
+    )
+    requests = [dict(row) for row in result.mappings().all()]
+    if not requests:
+        return {"company_id": str(company_id), "order_number": order_number, "found": False, "lines": [], "events": []}
+
+    request_ids = [str(r["id"]) for r in requests]
+    placeholders = ", ".join([f":r{i}" for i in range(len(request_ids))])
+    params = {f"r{i}": rid for i, rid in enumerate(request_ids)}
+
+    units_result = await db.execute(
+        text(f"""
+            SELECT *
+            FROM material_order_units
+            WHERE request_id IN ({placeholders})
+            ORDER BY request_id, unit_index ASC, created_at ASC
+        """),
+        params,
+    )
+    units_by_request: dict[str, list[dict[str, Any]]] = {}
+    for unit in units_result.mappings().all():
+        unit_dict = dict(unit)
+        units_by_request.setdefault(str(unit_dict.get("request_id")), []).append(unit_dict)
+
+    lines = []
+    events = []
+    for request in requests:
+        req_out = material_request_out(request)
+        request_units = []
+        for unit in units_by_request.get(str(request["id"]), []):
+            request_units.append({
+                "unit_id": str(unit.get("id")),
+                "label_sku": unit.get("label_sku") or f"Unidad {unit.get('unit_index') or ''}",
+                "status": unit.get("status") or "",
+                "destination": unit.get("destination") or "",
+                "returned_observation": unit.get("returned_observation") or "",
+                "consigned_observation": unit.get("consigned_observation") or "",
+                "delivered_at": unit.get("delivered_at").isoformat() if hasattr(unit.get("delivered_at"), "isoformat") else None,
+                "returned_at": unit.get("returned_at").isoformat() if hasattr(unit.get("returned_at"), "isoformat") else None,
+                "consigned_at": unit.get("consigned_at").isoformat() if hasattr(unit.get("consigned_at"), "isoformat") else None,
+            })
+        req_out["units"] = request_units
+        lines.append(req_out)
+
+        if request.get("notes"):
+            events.append({"type": "notes", "label": req_out["name_reference"], "detail": request.get("notes"), "at": req_out.get("updated_at")})
+        if request.get("operation_notes"):
+            events.append({"type": "operation_notes", "label": req_out["name_reference"], "detail": request.get("operation_notes"), "at": req_out.get("updated_at")})
+
+    first = requests[0]
+    return {
+        "company_id": str(company_id),
+        "order_number": order_number,
+        "found": True,
+        "employee_name": first.get("employee_name") or "",
+        "employee_role": first.get("employee_role") or "",
+        "destination": first.get("destination") or "",
+        "requested_at": first.get("requested_at").isoformat() if hasattr(first.get("requested_at"), "isoformat") else None,
+        "delivered_at": first.get("delivered_at").isoformat() if hasattr(first.get("delivered_at"), "isoformat") else None,
+        "lines": lines,
+        "events": events,
+    }
+
+
+@router.post("/companies/{company_id}/requests/archive-exported")
+async def archive_exported_material_requests(
+    company_id: UUID,
+    payload: MaterialArchiveExportPayload | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_materials_storage(db)
+
+    include_open = bool(payload.include_open) if payload else False
+    params: dict[str, Any] = {"company_id": str(company_id)}
+    order_filter = ""
+    if payload and payload.order_numbers:
+        order_numbers = [str(x or "").strip() for x in payload.order_numbers if str(x or "").strip()]
+        if order_numbers:
+            placeholders = ", ".join([f":o{i}" for i in range(len(order_numbers))])
+            order_filter = f"AND order_number IN ({placeholders})"
+            params.update({f"o{i}": value for i, value in enumerate(order_numbers)})
+
+    operational_filter = "" if include_open else """
+        AND (
+          status IN ('returned', 'returned_partial', 'rejected', 'cancelled')
+          OR (status = 'delivered' AND COALESCE(delivered_at, status_updated_at, updated_at, created_at) < now() - INTERVAL '48 hours')
+          OR (status IN ('consigned', 'consigned_partial') AND COALESCE(consigned_at, status_updated_at, updated_at, created_at) < now() - INTERVAL '24 hours')
+        )
+    """
+
+    result = await db.execute(
+        text(f"""
+            UPDATE material_requests
+            SET exported_at = COALESCE(exported_at, now()),
+                archived_at = COALESCE(archived_at, now()),
+                closed_at = COALESCE(closed_at, now()),
+                operation_notes = COALESCE(operation_notes, '') ||
+                    CASE WHEN COALESCE(operation_notes, '') = '' THEN '' ELSE E'\\n' END ||
+                    'Exportada y depurada del panel operativo.',
+                updated_at = now()
+            WHERE company_id = :company_id
+              AND archived_at IS NULL
+              AND exported_at IS NULL
+              {order_filter}
+              {operational_filter}
+            RETURNING id
+        """),
+        params,
+    )
+    archived = len(result.mappings().all())
+    await db.commit()
+    return {"company_id": str(company_id), "archived_count": archived}
 
 
 @router.post("/companies/{company_id}/returns")
@@ -1152,10 +1496,10 @@ async def return_material_order(
         update_result = await db.execute(
             text("""
                 UPDATE material_requests
-                SET status = :status,
+                SET status = CAST(:status AS varchar),
                     quantity_returned = :quantity_returned,
                     returned_at = now(),
-                    notes = COALESCE(notes, '') || CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\n' END || :return_note,
+                    notes = COALESCE(notes, '') || CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\n' END || CAST(:return_note AS text),
                     status_updated_at = now(),
                     updated_at = now()
                 WHERE id = :request_id
@@ -1215,8 +1559,8 @@ async def update_material_request_status(
     result = await db.execute(
         text("""
             UPDATE material_requests
-            SET status = :status,
-                notes = COALESCE(NULLIF(:notes, ''), notes),
+            SET status = CAST(:status AS varchar),
+                notes = COALESCE(NULLIF(CAST(:notes AS text), ''), notes),
                 status_updated_at = now(),
                 updated_at = now()
             WHERE id = :request_id

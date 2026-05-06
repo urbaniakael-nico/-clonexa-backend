@@ -967,8 +967,16 @@ async def _validate_gps_location_for_company(
 
 
 
-# CLONEXA 015C-R5 — Telegram Web App para carrito de materiales.
-CLONEXA_MATERIALS_WEBAPP_BASE_URL = os.getenv("CLONEXA_PUBLIC_BASE_URL", "https://reported-papers-catalogue-vii.trycloudflare.com").rstrip("/")
+# CLONEXA 015C-R7 — URL pública configurable para Telegram Web App.
+# Prioridad:
+# 1) PUBLIC_BASE_URL
+# 2) CLONEXA_PUBLIC_BASE_URL
+# 3) URL temporal de desarrollo / fallback
+CLONEXA_MATERIALS_WEBAPP_BASE_URL = (
+    os.getenv("PUBLIC_BASE_URL")
+    or os.getenv("CLONEXA_PUBLIC_BASE_URL")
+    or "https://reported-papers-catalogue-vii.trycloudflare.com"
+).rstrip("/")
 
 
 def _materials_webapp_url(*, company_id: Any, telegram_user_id: str | None = None) -> str:
