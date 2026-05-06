@@ -3048,15 +3048,15 @@
   /* CX_INVENTORY_BASE_015B_END */
 
 
-  /* CX_MATERIALS_BASE_015A_START */
+  /* CX_MATERIALS_INVENTORY_ORDERS_015C_START */
   function ensureMaterialsStyles() {
-    if (document.getElementById("cxMaterialsBaseStyles")) return;
+    if (document.getElementById("cxMaterialsOrdersStyles")) return;
     const style = document.createElement("style");
-    style.id = "cxMaterialsBaseStyles";
+    style.id = "cxMaterialsOrdersStyles";
     style.textContent = `
       .cx-materials-table {
         display: grid;
-        grid-template-columns: minmax(160px, 1.1fr) minmax(220px, 1.4fr) 90px 120px 130px minmax(230px, 1.5fr);
+        grid-template-columns: 150px minmax(150px, 1fr) minmax(220px, 1.4fr) 90px 120px minmax(150px, 1fr) minmax(250px, 1.5fr);
         gap: 0;
         border: 1px solid rgba(255,255,255,.10);
         border-radius: 22px;
@@ -3090,9 +3090,9 @@
         font-weight: 900;
         cursor: pointer;
       }
-      .cx-materials-action:hover {
-        transform: translateY(-1px);
-        border-color: rgba(255,255,255,.26);
+      .cx-materials-action.primary {
+        background: linear-gradient(135deg, var(--cx-primary, #ff2bbd), rgba(255,255,255,.12));
+        border-color: rgba(255,255,255,.24);
       }
       .cx-materials-status {
         display: inline-flex;
@@ -3107,12 +3107,60 @@
       .cx-materials-status.pending { color: #ffe18a; background: rgba(255,210,70,.12); }
       .cx-materials-status.approved { color: #9ee7ff; background: rgba(70,190,255,.12); }
       .cx-materials-status.delivered { color: #39f28a; background: rgba(0,255,136,.12); }
-      .cx-materials-status.returned { color: #d7c2ff; background: rgba(180,140,255,.12); }
+      .cx-materials-status.returned,
+      .cx-materials-status.returned_partial { color: #d7c2ff; background: rgba(180,140,255,.12); }
       .cx-materials-status.rejected { color: #ff8f8f; background: rgba(255,70,70,.12); }
+      .cx-materials-sheet {
+        margin-top: 20px;
+        padding: 18px;
+        border: 1px solid rgba(255,255,255,.13);
+        border-radius: 22px;
+        background: rgba(255,255,255,.06);
+        box-shadow: 0 22px 60px rgba(0,0,0,.18);
+      }
+      .cx-materials-sheet-grid {
+        display: grid;
+        grid-template-columns: 80px minmax(260px,1fr) minmax(220px,1fr);
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 16px;
+        overflow: hidden;
+        margin-top: 14px;
+      }
+      .cx-materials-sheet-grid > div {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(255,255,255,.07);
+        border-right: 1px solid rgba(255,255,255,.07);
+      }
+      .cx-materials-sheet-grid .head {
+        background: rgba(255,255,255,.09);
+        font-weight: 1000;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .12em;
+      }
+      .cx-materials-input {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(0,0,0,.18);
+        color: inherit;
+        border-radius: 13px;
+        padding: 11px 12px;
+        font-weight: 900;
+        outline: none;
+      }
+      .cx-materials-form-row {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr) auto;
+        gap: 12px;
+        align-items: end;
+        margin-top: 14px;
+      }
       @media (max-width: 1100px) {
         .cx-materials-table { grid-template-columns: 1fr; }
         .cx-materials-head { display:none; }
         .cx-materials-cell { border-bottom: 1px solid rgba(255,255,255,.08); }
+        .cx-materials-form-row,
+        .cx-materials-sheet-grid { grid-template-columns: 1fr; }
       }
     `;
     document.head.appendChild(style);
@@ -3124,7 +3172,9 @@
       approved: "Aprobada",
       rejected: "Rechazada",
       delivered: "Entregada",
-      returned: "Devuelta",
+      returned: "Devuelta total",
+      returned_partial: "Devuelta parcial",
+      cancelled: "Cancelada",
     };
     return map[String(status || "pending").toLowerCase()] || "Pendiente";
   }
@@ -3135,26 +3185,39 @@
     return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
   }
 
+  function materialQuantity(row = {}) {
+    const num = Number(row.quantity ?? 1);
+    return Number.isFinite(num) ? num : 1;
+  }
+
   function materialsRequestRow(row = {}) {
     const status = String(row.status || "pending").toLowerCase();
+    const delivered = status === "delivered";
+    const returned = status === "returned" || status === "returned_partial";
+    const rejected = status === "rejected" || status === "cancelled";
+
     return `
+      <div class="cx-materials-cell">
+        <strong>${h(row.order_number || "Sin orden")}</strong><br>
+        <span class="client-muted">${h(materialDateLabel(row.requested_at || row.created_at))}</span>
+      </div>
       <div class="cx-materials-cell">
         <strong>${h(row.employee_name || "Colaborador")}</strong><br>
         <span class="client-muted">${h(row.employee_role || "-")}</span>
       </div>
       <div class="cx-materials-cell">
-        <strong>${h(row.material_name || "Material")}</strong><br>
-        <span class="client-muted">${h(row.notes || "")}</span>
+        <strong>${h(row.name_reference || row.material_name || "Material")}</strong><br>
+        <span class="client-muted">${h([row.item_size, row.color].filter(Boolean).join(" · ") || row.notes || "")}</span>
       </div>
-      <div class="cx-materials-cell"><strong>${h(row.quantity || 1)} ${h(row.unit || "")}</strong></div>
+      <div class="cx-materials-cell"><strong>${h(materialQuantity(row))}</strong></div>
       <div class="cx-materials-cell"><span class="cx-materials-status ${h(status)}">${h(materialsStatusLabel(status))}</span></div>
-      <div class="cx-materials-cell">${h(materialDateLabel(row.requested_at || row.created_at))}</div>
+      <div class="cx-materials-cell">${h(row.destination || "-")}</div>
       <div class="cx-materials-cell">
         <div class="cx-materials-row-actions">
-          <button class="cx-materials-action" type="button" data-material-status="approved" data-material-id="${h(row.id)}">Aprobar</button>
-          <button class="cx-materials-action" type="button" data-material-status="rejected" data-material-id="${h(row.id)}">Rechazar</button>
-          <button class="cx-materials-action" type="button" data-material-status="delivered" data-material-id="${h(row.id)}">Entregar</button>
-          <button class="cx-materials-action" type="button" data-material-status="returned" data-material-id="${h(row.id)}">Devuelto</button>
+          ${status === "pending" ? `<button class="cx-materials-action primary" type="button" data-material-approve-open="${h(row.id)}">Aprobar</button>` : ""}
+          ${status === "approved" ? `<button class="cx-materials-action primary" type="button" data-material-deliver="${h(row.id)}">Entregar</button>` : ""}
+          ${!delivered && !returned && !rejected ? `<button class="cx-materials-action" type="button" data-material-reject="${h(row.id)}">Rechazar</button>` : ""}
+          ${delivered || returned ? `<button class="cx-materials-action" type="button" data-material-return-load="${h(row.order_number || "")}">Devolución</button>` : ""}
         </div>
       </div>
     `;
@@ -3172,28 +3235,121 @@
     window.clearTimeout(window.__materialsNoticeTimer);
     window.__materialsNoticeTimer = window.setTimeout(() => {
       if (box) box.innerHTML = "";
-    }, 2800);
+    }, 3200);
   }
 
-  async function updateMaterialStatus(requestId, status) {
-    await api(`/materials/requests/${encodeURIComponent(requestId)}/status`, {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
+  function renderMaterialsApproveSheet(requestId) {
+    const rows = Array.isArray(window.__cxMaterialsRows) ? window.__cxMaterialsRows : [];
+    const row = rows.find((item) => String(item.id) === String(requestId));
+    const box = document.getElementById("materialsSheetBox");
+    if (!box || !row) return;
+
+    const qty = Math.max(1, Math.min(500, Math.trunc(materialQuantity(row))));
+    const ref = row.name_reference || row.material_name || "Material";
+
+    box.innerHTML = `
+      <section class="cx-materials-sheet" data-material-sheet="${h(row.id)}">
+        <div class="client-eyebrow">Aprobación de orden</div>
+        <h2>${h(row.order_number || "Orden")}</h2>
+        <p class="client-muted">Registra un Label/SKU por cada unidad. El destino se define una sola vez para toda la orden.</p>
+
+        <div class="cx-materials-form-row">
+          <label>
+            <span class="client-muted">Lugar de destino</span>
+            <input class="cx-materials-input" data-material-destination value="${h(row.destination || "")}" placeholder="Ej: Obra norte / Técnico Gómez / Bodega cliente">
+          </label>
+          <label>
+            <span class="client-muted">Observación de aprobación</span>
+            <input class="cx-materials-input" data-material-approval-notes placeholder="Opcional">
+          </label>
+          <button class="cx-materials-action primary" type="button" data-material-approve-save="${h(row.id)}">Guardar aprobación</button>
+        </div>
+
+        <div class="cx-materials-sheet-grid">
+          <div class="head">#</div>
+          <div class="head">Nombre / referencia</div>
+          <div class="head">Label / SKU salida</div>
+          ${Array.from({ length: qty }, (_, index) => `
+            <div>${index + 1}</div>
+            <div><strong>${h(ref)}</strong></div>
+            <div><input class="cx-materials-input" data-material-unit-label data-index="${index + 1}" placeholder="Label/SKU ${index + 1}"></div>
+          `).join("")}
+        </div>
+      </section>
+    `;
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function approveMaterialRequest(requestId) {
+    const sheet = document.querySelector(`[data-material-sheet="${CSS.escape(String(requestId))}"]`);
+    if (!sheet) {
+      renderMaterialsApproveSheet(requestId);
+      return;
+    }
+    const destination = sheet.querySelector("[data-material-destination]")?.value || "";
+    const notes = sheet.querySelector("[data-material-approval-notes]")?.value || "";
+    const units = Array.from(sheet.querySelectorAll("[data-material-unit-label]")).map((input, index) => ({
+      unit_index: index + 1,
+      label_sku: input.value || "",
+    }));
+
+    await api(`/materials/requests/${encodeURIComponent(requestId)}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ destination, notes, units }),
     });
     await renderMaterialsModule();
-    setTimeout(() => showMaterialsNotice("Estado de material actualizado."), 60);
+    setTimeout(() => showMaterialsNotice("Orden aprobada. Ya puedes entregarla."), 80);
+  }
+
+  async function deliverMaterialRequest(requestId) {
+    await api(`/materials/requests/${encodeURIComponent(requestId)}/deliver`, { method: "POST" });
+    await renderMaterialsModule();
+    setTimeout(() => showMaterialsNotice("Orden entregada. Inventario descontado."), 80);
+  }
+
+  async function rejectMaterialRequest(requestId) {
+    if (!confirm("¿Rechazar esta solicitud de material?")) return;
+    await api(`/materials/requests/${encodeURIComponent(requestId)}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "rejected" }),
+    });
+    await renderMaterialsModule();
+    setTimeout(() => showMaterialsNotice("Orden rechazada."), 80);
+  }
+
+  async function returnMaterialOrder() {
+    const orderNumber = document.querySelector("[data-material-return-order]")?.value || "";
+    const observation = document.querySelector("[data-material-return-observation]")?.value || "";
+    const labelsRaw = document.querySelector("[data-material-return-labels]")?.value || "";
+    const labels = labelsRaw.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
+
+    await api(`/materials/companies/${encodeURIComponent(state.companyId)}/returns`, {
+      method: "POST",
+      body: JSON.stringify({ order_number: orderNumber, observation, labels }),
+    });
+    await renderMaterialsModule();
+    setTimeout(() => showMaterialsNotice("Devolución registrada. Inventario actualizado."), 80);
+  }
+
+  function fillReturnOrder(orderNumber) {
+    const input = document.querySelector("[data-material-return-order]");
+    if (input) {
+      input.value = orderNumber || "";
+      input.focus();
+    }
   }
 
   function exportMaterialsCsv() {
     const rows = Array.isArray(window.__cxMaterialsRows) ? window.__cxMaterialsRows : [];
-    const headers = ["Empleado", "Rol", "Material", "Cantidad", "Unidad", "Estado", "Fecha", "Notas"];
+    const headers = ["Orden", "Empleado", "Rol", "Material", "Cantidad", "Estado", "Destino", "Fecha", "Notas"];
     const csvRows = [headers].concat(rows.map((row) => [
+      row.order_number || "",
       row.employee_name || "",
       row.employee_role || "",
-      row.material_name || "",
+      row.name_reference || row.material_name || "",
       row.quantity || "",
-      row.unit || "",
       materialsStatusLabel(row.status),
+      row.destination || "",
       row.requested_at || row.created_at || "",
       row.notes || "",
     ]));
@@ -3206,7 +3362,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `clonexa_materiales_${state.companyId || "empresa"}.csv`;
+    a.download = `clonexa_materiales_ordenes_${state.companyId || "empresa"}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -3250,7 +3406,7 @@
             <header class="client-hero">
               <div class="client-eyebrow">Modulo Materiales</div>
               <h1 class="client-title">Materiales</h1>
-              <p class="client-muted">Gestiona solicitudes operativas capturadas por bot durante el turno.</p>
+              <p class="client-muted">Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
                 <button class="client-btn" type="button" data-materials-refresh>Actualizar</button>
@@ -3261,23 +3417,47 @@
 
             <section class="client-panel">
               <div class="client-eyebrow">Ciclo operativo</div>
-              <h2>Solicitudes de materiales</h2>
+              <h2>Órdenes de materiales</h2>
 
               <div class="client-kpi-grid">
                 <div class="client-kpi"><span>Pendientes</span><strong>${h(summary.pending || 0)}</strong></div>
-                <div class="client-kpi"><span>Aprobadas / Entregadas</span><strong>${h(summary.approved_or_delivered || 0)}</strong></div>
-                <div class="client-kpi"><span>Devueltas</span><strong>${h(summary.returned || 0)}</strong></div>
-                <div class="client-kpi"><span>Rechazadas</span><strong>${h(summary.rejected || 0)}</strong></div>
+                <div class="client-kpi"><span>Aprobadas</span><strong>${h(summary.approved || 0)}</strong></div>
+                <div class="client-kpi"><span>Entregadas</span><strong>${h(summary.delivered || 0)}</strong></div>
+                <div class="client-kpi"><span>Devueltas</span><strong>${h((summary.returned || 0) + (summary.returned_partial || 0))}</strong></div>
               </div>
 
+              <div id="materialsSheetBox"></div>
+
               <div class="cx-materials-table" style="margin-top:22px">
-                <div class="cx-materials-cell cx-materials-head">Empleado</div>
+                <div class="cx-materials-cell cx-materials-head">Orden</div>
+                <div class="cx-materials-cell cx-materials-head">Solicitante</div>
                 <div class="cx-materials-cell cx-materials-head">Material</div>
                 <div class="cx-materials-cell cx-materials-head">Cantidad</div>
                 <div class="cx-materials-cell cx-materials-head">Estado</div>
-                <div class="cx-materials-cell cx-materials-head">Hora</div>
+                <div class="cx-materials-cell cx-materials-head">Destino</div>
                 <div class="cx-materials-cell cx-materials-head">Acciones</div>
-                ${rows.length ? rows.map(materialsRequestRow).join("") : `<div class="cx-materials-cell" style="grid-column:1/-1">No hay solicitudes de materiales.</div>`}
+                ${rows.length ? rows.map(materialsRequestRow).join("") : `<div class="cx-materials-cell" style="grid-column:1/-1">No hay órdenes de materiales.</div>`}
+              </div>
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Devolución</div>
+              <h2>Registrar devolución por número de orden</h2>
+              <p class="client-muted">Cruza la devolución con la orden de salida y suma stock en Inventario.</p>
+              <div class="cx-materials-form-row">
+                <label>
+                  <span class="client-muted">Número de orden</span>
+                  <input class="cx-materials-input" data-material-return-order placeholder="MAT-20260505-000001">
+                </label>
+                <label>
+                  <span class="client-muted">Observación de devolución</span>
+                  <input class="cx-materials-input" data-material-return-observation placeholder="Motivo / estado del material">
+                </label>
+                <button class="cx-materials-action primary" type="button" data-material-return-save>Registrar devolución</button>
+              </div>
+              <div style="margin-top:12px">
+                <span class="client-muted">Labels/SKU devueltos opcionales, separados por coma o salto de línea</span>
+                <textarea class="cx-materials-input" data-material-return-labels rows="3" placeholder="SKU-001, SKU-002"></textarea>
               </div>
             </section>
           </section>
@@ -3285,7 +3465,7 @@
       </main>
     `;
   }
-  /* CX_MATERIALS_BASE_015A_END */
+  /* CX_MATERIALS_INVENTORY_ORDERS_015C_END */
 
 
 
@@ -4401,6 +4581,57 @@
 
       if (target.closest("[data-materials-export]")) {
         exportMaterialsCsv();
+        return;
+      }
+
+      const materialApproveOpen = target.closest("[data-material-approve-open]");
+      if (materialApproveOpen) {
+        renderMaterialsApproveSheet(materialApproveOpen.dataset.materialApproveOpen);
+        return;
+      }
+
+      const materialApproveSave = target.closest("[data-material-approve-save]");
+      if (materialApproveSave) {
+        try {
+          await approveMaterialRequest(materialApproveSave.dataset.materialApproveSave);
+        } catch (error) {
+          showMaterialsNotice(error.message || "No se pudo aprobar la orden.", "error");
+        }
+        return;
+      }
+
+      const materialDeliver = target.closest("[data-material-deliver]");
+      if (materialDeliver) {
+        try {
+          await deliverMaterialRequest(materialDeliver.dataset.materialDeliver);
+        } catch (error) {
+          showMaterialsNotice(error.message || "No se pudo entregar la orden.", "error");
+        }
+        return;
+      }
+
+      const materialReject = target.closest("[data-material-reject]");
+      if (materialReject) {
+        try {
+          await rejectMaterialRequest(materialReject.dataset.materialReject);
+        } catch (error) {
+          showMaterialsNotice(error.message || "No se pudo rechazar la orden.", "error");
+        }
+        return;
+      }
+
+      const materialReturnLoad = target.closest("[data-material-return-load]");
+      if (materialReturnLoad) {
+        fillReturnOrder(materialReturnLoad.dataset.materialReturnLoad);
+        return;
+      }
+
+      if (target.closest("[data-material-return-save]")) {
+        try {
+          await returnMaterialOrder();
+        } catch (error) {
+          showMaterialsNotice(error.message || "No se pudo registrar la devolución.", "error");
+        }
         return;
       }
 

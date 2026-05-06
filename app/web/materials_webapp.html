@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>CLONEXA · Materiales</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #070b14;
+      --card: rgba(255,255,255,.07);
+      --card2: rgba(255,255,255,.1);
+      --text: #f6f8ff;
+      --muted: rgba(246,248,255,.68);
+      --line: rgba(255,255,255,.12);
+      --ok: #42f5a7;
+      --warn: #ffb020;
+      --danger: #ff5577;
+      --accent: #80d8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #13213f 0, var(--bg) 38%, #05070d 100%);
+      color: var(--text);
+      font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    .wrap { padding: 14px; max-width: 760px; margin: 0 auto; }
+    .head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .title { font-size: 18px; font-weight: 800; letter-spacing:.2px; margin:0; }
+    .sub { color: var(--muted); font-size: 12px; margin-top:3px; }
+    .pill { border:1px solid var(--line); background:var(--card); border-radius: 999px; padding:6px 9px; color:var(--muted); font-size:11px; white-space:nowrap; }
+    .search {
+      width:100%;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      border-radius: 16px;
+      padding: 13px 14px;
+      outline: none;
+      font-size: 15px;
+      margin-bottom: 12px;
+    }
+    .grid { display:grid; gap:10px; }
+    .item, .cart {
+      border:1px solid var(--line);
+      background: var(--card);
+      border-radius: 18px;
+      padding: 12px;
+      box-shadow: 0 14px 40px rgba(0,0,0,.22);
+    }
+    .itemTop { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .label { font-weight: 750; font-size: 14px; }
+    .size { color: var(--muted); font-size: 12px; margin-top:3px; }
+    .actions { display:flex; gap:8px; align-items:center; margin-top:11px; }
+    .qty {
+      width: 92px;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.07);
+      color: var(--text);
+      border-radius: 13px;
+      padding: 10px 10px;
+      outline:none;
+    }
+    button {
+      border:0;
+      border-radius: 13px;
+      padding: 10px 12px;
+      font-weight: 750;
+      color:#07111c;
+      background: var(--accent);
+      cursor:pointer;
+    }
+    button.secondary { background: rgba(255,255,255,.12); color: var(--text); border:1px solid var(--line); }
+    button.danger { background: rgba(255,85,119,.16); color: #ffdbe3; border:1px solid rgba(255,85,119,.34); }
+    button.ok { background: var(--ok); color:#04130c; width:100%; padding:13px; font-size:15px; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .cart { margin-top:14px; position: sticky; bottom: 8px; backdrop-filter: blur(14px); }
+    .cartTitle { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .cartTitle strong { font-size: 15px; }
+    .cartLine { display:flex; justify-content:space-between; gap:10px; color:var(--muted); border-top:1px solid var(--line); padding:8px 0; }
+    .cartLine:first-of-type { border-top:0; }
+    .msg { color:var(--muted); text-align:center; padding:18px 8px; }
+    .error { color:#ffd0d8; background:rgba(255,85,119,.14); border:1px solid rgba(255,85,119,.35); border-radius:14px; padding:10px; margin-bottom:10px; display:none; }
+    .success { color:#d8ffe9; background:rgba(66,245,167,.12); border:1px solid rgba(66,245,167,.35); border-radius:14px; padding:12px; margin-bottom:10px; display:none; }
+    .more { width:100%; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div>
+        <h1 class="title">📦 Solicitud de material</h1>
+        <div class="sub">Busca por referencia, nombre o tamaño. Agrega al carrito y confirma.</div>
+      </div>
+      <div class="pill">CLONEXA</div>
+    </div>
+
+    <div id="success" class="success"></div>
+    <div id="error" class="error"></div>
+
+    <input id="search" class="search" placeholder="Buscar material..." autocomplete="off" />
+
+    <div id="items" class="grid">
+      <div class="msg">Cargando inventario...</div>
+    </div>
+    <button id="more" class="secondary more" style="display:none">Ver más</button>
+
+    <div class="cart">
+      <div class="cartTitle">
+        <strong>🛒 Carrito</strong>
+        <button id="clear" class="danger">Vaciar</button>
+      </div>
+      <div id="cartLines" class="msg">Carrito vacío</div>
+      <button id="confirm" class="ok" disabled>Confirmar solicitud</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const tg = window.Telegram?.WebApp;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+  }
+
+  const params = new URLSearchParams(location.search);
+  const companyId = params.get("company_id");
+  const fallbackTelegramId = params.get("telegram_user_id");
+  const telegramUser = tg?.initDataUnsafe?.user || {};
+  const telegramUserId = String(telegramUser.id || fallbackTelegramId || "");
+  const telegramUsername = telegramUser.username || "";
+
+  const el = (id) => document.getElementById(id);
+  const search = el("search");
+  const itemsNode = el("items");
+  const moreBtn = el("more");
+  const cartNode = el("cartLines");
+  const confirmBtn = el("confirm");
+  const clearBtn = el("clear");
+  const errorNode = el("error");
+  const successNode = el("success");
+
+  let q = "";
+  let offset = 0;
+  const limit = 25;
+  let total = 0;
+  let items = [];
+  let cart = [];
+
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
+
+  function showError(msg) {
+    errorNode.textContent = msg || "Error";
+    errorNode.style.display = "block";
+    setTimeout(() => { errorNode.style.display = "none"; }, 5000);
+  }
+
+  function showSuccess(msg) {
+    successNode.textContent = msg;
+    successNode.style.display = "block";
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      ...options,
+    });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; }
+    if (!res.ok) throw new Error(data.detail || text || `HTTP ${res.status}`);
+    return data;
+  }
+
+  function itemLabel(item) {
+    return item.item_size ? `${item.name_reference} · ${item.item_size}` : item.name_reference;
+  }
+
+  function renderItems(append = false) {
+    if (!append) itemsNode.innerHTML = "";
+    if (!items.length) {
+      itemsNode.innerHTML = '<div class="msg">No hay materiales para mostrar.</div>';
+      moreBtn.style.display = "none";
+      return;
+    }
+
+    itemsNode.innerHTML = items.map((item, index) => `
+      <div class="item">
+        <div class="itemTop">
+          <div>
+            <div class="label">${esc(item.name_reference)}</div>
+            ${item.item_size ? `<div class="size">${esc(item.item_size)}</div>` : ""}
+          </div>
+        </div>
+        <div class="actions">
+          <input class="qty" id="qty_${index}" type="number" min="1" step="1" value="1" />
+          <button data-add="${index}">Agregar</button>
+        </div>
+      </div>
+    `).join("");
+
+    document.querySelectorAll("[data-add]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const index = Number(btn.getAttribute("data-add"));
+        const input = el(`qty_${index}`);
+        const qty = Number(input.value || 0);
+        if (!qty || qty <= 0) return showError("Cantidad inválida.");
+        addToCart(items[index], qty);
+      });
+    });
+
+    moreBtn.style.display = (offset + items.length < total) ? "block" : "none";
+  }
+
+  function addToCart(item, qty) {
+    const existing = cart.find(x => x.inventory_item_id === item.id);
+    if (existing) existing.quantity += qty;
+    else cart.push({
+      inventory_item_id: item.id,
+      label: itemLabel(item),
+      quantity: qty,
+    });
+    renderCart();
+  }
+
+  function renderCart() {
+    if (!cart.length) {
+      cartNode.className = "msg";
+      cartNode.innerHTML = "Carrito vacío";
+      confirmBtn.disabled = true;
+      return;
+    }
+    cartNode.className = "";
+    cartNode.innerHTML = cart.map((item, index) => `
+      <div class="cartLine">
+        <span>${index + 1}. ${esc(item.label)}</span>
+        <strong>x ${esc(item.quantity)}</strong>
+      </div>
+    `).join("");
+    confirmBtn.disabled = false;
+  }
+
+  async function loadItems(reset = true) {
+    if (!companyId) return showError("Falta company_id.");
+    if (reset) {
+      offset = 0;
+      items = [];
+      itemsNode.innerHTML = '<div class="msg">Buscando...</div>';
+    }
+    const data = await api(`/api/v1/materials-webapp/companies/${companyId}/inventory?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`);
+    total = data.total || 0;
+    items = reset ? (data.items || []) : items.concat(data.items || []);
+    renderItems();
+  }
+
+  let timer = null;
+  search.addEventListener("input", () => {
+    q = search.value.trim();
+    clearTimeout(timer);
+    timer = setTimeout(() => loadItems(true).catch(err => showError(err.message)), 350);
+  });
+
+  moreBtn.addEventListener("click", () => {
+    offset += limit;
+    api(`/api/v1/materials-webapp/companies/${companyId}/inventory?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`)
+      .then(data => {
+        total = data.total || 0;
+        items = items.concat(data.items || []);
+        renderItems(true);
+      })
+      .catch(err => showError(err.message));
+  });
+
+  clearBtn.addEventListener("click", () => {
+    cart = [];
+    renderCart();
+  });
+
+  confirmBtn.addEventListener("click", async () => {
+    try {
+      confirmBtn.disabled = true;
+      const data = await api(`/api/v1/materials-webapp/companies/${companyId}/orders`, {
+        method: "POST",
+        body: JSON.stringify({
+          telegram_user_id: telegramUserId,
+          telegram_username: telegramUsername,
+          items: cart.map(x => ({ inventory_item_id: x.inventory_item_id, quantity: x.quantity })),
+        }),
+      });
+      showSuccess(`Solicitud enviada. Orden: ${data.order_number}`);
+      cart = [];
+      renderCart();
+      if (tg) {
+        tg.HapticFeedback?.notificationOccurred?.("success");
+        tg.MainButton.setText("Cerrar");
+        tg.MainButton.show();
+        tg.MainButton.onClick(() => tg.close());
+      }
+    } catch (err) {
+      showError(err.message);
+      confirmBtn.disabled = false;
+    }
+  });
+
+  renderCart();
+  loadItems(true).catch(err => showError(err.message));
+})();
+</script>
+</body>
+</html>

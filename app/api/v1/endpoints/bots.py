@@ -5,11 +5,14 @@ import base64
 import contextlib
 import hashlib
 import json
+import re
 import logging
+import os
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -320,7 +323,7 @@ TELEGRAM_COMMANDS: dict[str, dict[str, Any]] = {
         "turn_action": "inside_shift",
         "payroll_affects": False,
         "reply_key": "material_requested",
-        "requires_text": True,
+        "requires_text": False,
     },
     "/materiales": {
         "event_type": "material_request",
@@ -330,7 +333,7 @@ TELEGRAM_COMMANDS: dict[str, dict[str, Any]] = {
         "turn_action": "inside_shift",
         "payroll_affects": False,
         "reply_key": "material_requested",
-        "requires_text": True,
+        "requires_text": False,
     },
     "/ubicacion": {
         "event_type": "gps_ping",
@@ -511,8 +514,21 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "shift_summary": "Feliz descanso, {employee_name}.\n\nTotal acumulado del corte:\nOrdinarias: {regular}\nExtras: {extra}\n\nProyección pago: {projected_pay}\nDescuento del corte: {discount}\nTotal estimado: {estimated_total}",
         "observation_saved": "📝 Observación registrada.",
         "material_requested": "📦 Solicitud de material registrada.",
-        "material_request_prompt": "📦 Indica el material y cantidad. Ejemplo: Cable UTP 20 metros",
-        "material_request_pending": "📦 Ya estoy esperando el detalle del material. Escribe material + cantidad.",
+        "material_request_prompt": "📦 Selecciona el material disponible:",
+        "material_request_pending": "📦 Ya tienes una solicitud de material abierta.",
+        "material_inventory_empty": "📦 No hay materiales disponibles en inventario.",
+        "material_select_prompt": "📦 Selecciona el material que necesitas:",
+        "material_quantity_prompt": "📦 Cantidad para {item_label}:\nEscribe solo el número.",
+        "material_quantity_invalid": "📦 Cantidad inválida. Escribe un número mayor a cero.",
+        "material_quantity_exceeds": "📦 Stock insuficiente. Disponible: {stock}",
+        "material_cart_added": "📦 Agregado al carrito.",
+        "material_cart_empty": "📦 El carrito está vacío. Selecciona un material.",
+        "material_cart_cancelled": "📦 Solicitud de material cancelada.",
+        "material_cart_confirmed": "📦 Solicitud enviada a Materiales. Orden: {order_number}.",
+        "material_cart_title": "📦 Carrito de materiales",
+        "btn_cart_add": "➕ Agregar otro",
+        "btn_cart_confirm": "✅ Confirmar solicitud",
+        "btn_cart_cancel": "❌ Cancelar",
         "location_requested": "📍 Solicitud de ubicación registrada. Para ubicación real, usa compartir ubicación en Telegram.",
         "gps_required_for_start": "📍 Para iniciar turno, comparte tu ubicación actual.\nUsa el botón de abajo: Compartir ubicación.",
         "gps_location_pending": "📍 Ya estoy esperando tu ubicación para iniciar turno.\nComparte tu ubicación con el botón inferior.",
@@ -565,8 +581,21 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "shift_summary": "Rest well, {employee_name}.\n\nCurrent payroll period total:\nRegular: {regular}\nOvertime: {extra}\n\nProjected pay: {projected_pay}\nPeriod discount: {discount}\nEstimated total: {estimated_total}",
         "observation_saved": "📝 Observation saved.",
         "material_requested": "📦 Material request saved.",
-        "material_request_prompt": "📦 Enter material and quantity. Example: UTP cable 20 meters",
-        "material_request_pending": "📦 I am already waiting for material details. Type material + quantity.",
+        "material_request_prompt": "📦 Select an available material:",
+        "material_request_pending": "📦 You already have an open material request.",
+        "material_inventory_empty": "📦 No available materials in inventory.",
+        "material_select_prompt": "📦 Select the material you need:",
+        "material_quantity_prompt": "📦 Quantity for {item_label}:\nType only the number.",
+        "material_quantity_invalid": "📦 Invalid quantity. Type a number greater than zero.",
+        "material_quantity_exceeds": "📦 Not enough stock. Available: {stock}",
+        "material_cart_added": "📦 Added to cart.",
+        "material_cart_empty": "📦 Cart is empty. Select a material.",
+        "material_cart_cancelled": "📦 Material request cancelled.",
+        "material_cart_confirmed": "📦 Request sent to Materials. Order: {order_number}.",
+        "material_cart_title": "📦 Materials cart",
+        "btn_cart_add": "➕ Add another",
+        "btn_cart_confirm": "✅ Confirm request",
+        "btn_cart_cancel": "❌ Cancel",
         "location_requested": "📍 Location request saved. For real location, use Telegram location sharing.",
         "gps_required_for_start": "📍 To start your shift, share your current location.\nUse the button below: Share location.",
         "gps_location_pending": "📍 I am already waiting for your location to start the shift.\nShare your location using the button below.",
@@ -619,8 +648,21 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "shift_summary": "Bon repos, {employee_name}.\n\nTotal cumulé de la période :\nOrdinaires : {regular}\nSupplémentaires : {extra}\n\nProjection paiement : {projected_pay}\nRemise de la période : {discount}\nTotal estimé : {estimated_total}",
         "observation_saved": "📝 Observation enregistrée.",
         "material_requested": "📦 Demande de matériel enregistrée.",
-        "material_request_prompt": "📦 Indiquez le matériel et la quantité. Exemple : câble UTP 20 mètres",
-        "material_request_pending": "📦 J’attends déjà le détail du matériel. Écrivez matériel + quantité.",
+        "material_request_prompt": "📦 Sélectionnez le matériel disponible:",
+        "material_request_pending": "📦 Vous avez déjà une demande de matériel ouverte.",
+        "material_inventory_empty": "📦 Aucun matériel disponible en inventaire.",
+        "material_select_prompt": "📦 Sélectionnez le matériel nécessaire:",
+        "material_quantity_prompt": "📦 Quantité pour {item_label}:\nÉcrivez seulement le nombre.",
+        "material_quantity_invalid": "📦 Quantité invalide. Écrivez un nombre supérieur à zéro.",
+        "material_quantity_exceeds": "📦 Stock insuffisant. Disponible: {stock}",
+        "material_cart_added": "📦 Ajouté au panier.",
+        "material_cart_empty": "📦 Le panier est vide. Sélectionnez un matériel.",
+        "material_cart_cancelled": "📦 Demande de matériel annulée.",
+        "material_cart_confirmed": "📦 Demande envoyée aux Matériaux. Ordre: {order_number}.",
+        "material_cart_title": "📦 Panier de matériaux",
+        "btn_cart_add": "➕ Ajouter un autre",
+        "btn_cart_confirm": "✅ Confirmer la demande",
+        "btn_cart_cancel": "❌ Annuler",
         "location_requested": "📍 Demande de localisation enregistrée. Pour la localisation réelle, utilisez le partage de position Telegram.",
         "gps_required_for_start": "📍 Pour commencer le service, partagez votre position actuelle.\nUtilisez le bouton ci-dessous : Partager la position.",
         "gps_location_pending": "📍 J’attends déjà votre position pour commencer le service.\nPartagez votre position avec le bouton inférieur.",
@@ -808,6 +850,23 @@ async def _enabled_module_codes(db: AsyncSession, company_id: UUID) -> set[str]:
     return codes
 
 
+MATERIAL_REQUEST_ALLOWED_ROLES = {"admin", "admin_empresa", "supervisor", "inventario", "inventory"}
+
+
+def _role_key(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower()).strip("_")
+
+
+def _employee_can_request_material(employee: Employee | None) -> bool:
+    if employee is None:
+        return False
+    role = _role_key(getattr(employee, "role", None) or getattr(employee, "employee_type", None))
+    if role in MATERIAL_REQUEST_ALLOWED_ROLES:
+        return True
+    return role.startswith("admin") or "supervisor" in role or "inventario" in role or "inventory" in role
+
+
+
 async def _ensure_gps_perimeter_storage(db: AsyncSession) -> None:
     """
     014B GPS:
@@ -907,7 +966,47 @@ async def _validate_gps_location_for_company(
 
 
 
-def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | None = None) -> dict[str, Any]:
+
+# CLONEXA 015C-R5 — Telegram Web App para carrito de materiales.
+CLONEXA_MATERIALS_WEBAPP_BASE_URL = os.getenv("CLONEXA_PUBLIC_BASE_URL", "https://reported-papers-catalogue-vii.trycloudflare.com").rstrip("/")
+
+
+def _materials_webapp_url(*, company_id: Any, telegram_user_id: str | None = None) -> str:
+    params = {
+        "company_id": str(company_id),
+    }
+    if telegram_user_id:
+        params["telegram_user_id"] = str(telegram_user_id)
+    return f"{CLONEXA_MATERIALS_WEBAPP_BASE_URL}/webapp/materials?{urlencode(params)}"
+
+
+def _materials_webapp_keyboard(*, company_id: Any, telegram_user_id: str | None = None) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [[
+            {
+                "text": "📦 Abrir inventario",
+                "web_app": {"url": _materials_webapp_url(company_id=company_id, telegram_user_id=telegram_user_id)},
+            }
+        ]]
+    }
+
+
+async def _send_materials_webapp_button(
+    *,
+    token: str,
+    chat_id: str | None,
+    company_id: Any,
+    telegram_user_id: str | None,
+) -> None:
+    await _send_telegram_message(
+        token,
+        chat_id,
+        "📦 Abre el inventario, busca el material, agrega cantidades al carrito y confirma la solicitud.",
+        reply_markup=_materials_webapp_keyboard(company_id=company_id, telegram_user_id=telegram_user_id),
+    )
+
+
+def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | None = None, employee: Employee | None = None) -> dict[str, Any]:
     status_key = status_text or "sin_turno"
     if status_key in {"not_started", "checked_out"}:
         status_key = "sin_turno"
@@ -936,7 +1035,7 @@ def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | 
 
     # Opciones internas del turno. No se muestran Estado ni Venta para evitar ruido operativo.
     extra_rows: list[list[dict[str, str]]] = []
-    if "materials" in enabled_modules:
+    if "materials" in enabled_modules and "inventory" in enabled_modules and _employee_can_request_material(employee):
         extra_rows.append([{"text": _txt(language, "btn_material"), "callback_data": "clx:cmd:material"}])
     if "gps" in enabled_modules:
         extra_rows.append([{"text": _txt(language, "btn_location"), "callback_data": "clx:cmd:ubicacion"}])
@@ -971,7 +1070,7 @@ async def _send_dynamic_menu(
         token,
         chat_id,
         text_value,
-        reply_markup=_menu_keyboard(language, enabled_modules, status_text),
+        reply_markup=_menu_keyboard(language, enabled_modules, status_text, employee),
     )
 
 
@@ -1148,9 +1247,39 @@ async def _ensure_material_requests_storage(db: AsyncSession) -> None:
             updated_at timestamptz NOT NULL DEFAULT now()
         );
     """))
+    for stmt in [
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS order_number varchar(80) NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS inventory_item_id uuid NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS destination text NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS quantity_returned numeric(14,2) NOT NULL DEFAULT 0",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS approved_at timestamptz NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS delivered_at timestamptz NULL",
+        "ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS returned_at timestamptz NULL",
+    ]:
+        await db.execute(text(stmt))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS material_order_units (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            request_id uuid NOT NULL REFERENCES material_requests(id) ON DELETE CASCADE,
+            order_number varchar(80) NOT NULL,
+            inventory_item_id uuid NULL,
+            unit_index integer NOT NULL,
+            label_sku varchar(220) NULL,
+            status varchar(40) NOT NULL DEFAULT 'reserved',
+            destination text NULL,
+            returned_observation text NULL,
+            delivered_at timestamptz NULL,
+            returned_at timestamptz NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        );
+    """))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_company ON material_requests(company_id);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_status ON material_requests(company_id, status);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_employee ON material_requests(company_id, employee_id);"))
+    await db.execute(text("DROP INDEX IF EXISTS uq_material_requests_order;"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_material_requests_order ON material_requests(company_id, order_number);"))
     await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_material_requests_source_ref ON material_requests(company_id, source_ref) WHERE source_ref IS NOT NULL;"))
 
 
@@ -1192,15 +1321,140 @@ def _parse_material_request_text(raw: str) -> dict[str, Any]:
     }
 
 
-async def _set_pending_material_request(
+
+
+
+def _format_material_decimal(value: Any) -> str:
+    try:
+        amount = Decimal(str(value or 0)).quantize(Decimal("0.01"))
+        if amount == amount.to_integral_value():
+            return str(int(amount))
+        return str(amount).rstrip("0").rstrip(".")
+    except Exception:
+        return str(value or "0")
+
+
+def _inventory_item_label(item: dict[str, Any] | None) -> str:
+    item = item or {}
+    base = (
+        item.get("name_reference")
+        or item.get("name")
+        or item.get("reference")
+        or item.get("sku")
+        or "Material"
+    )
+    size = (item.get("item_size") or item.get("size") or "").strip() if isinstance(item.get("item_size") or item.get("size") or "", str) else ""
+    return f"{base} · {size}" if size else str(base)
+
+
+async def _list_inventory_items_for_material_cart(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS inventory_items (
+            id uuid PRIMARY KEY,
+            company_id uuid NOT NULL,
+            name_reference text NULL,
+            item_size varchar(120) NULL,
+            sku text NULL,
+            name text NULL,
+            reference text NULL,
+            current_stock numeric(14,2) DEFAULT 0,
+            status varchar(40) DEFAULT 'active',
+            is_active boolean DEFAULT true,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+    """))
+    result = await db.execute(
+        text("""
+            SELECT id, company_id, name_reference, item_size, sku, name, reference, current_stock, status
+            FROM inventory_items
+            WHERE company_id = :company_id
+              AND COALESCE(status, 'active') = 'active'
+              AND COALESCE(is_active, true) IS TRUE
+              AND COALESCE(current_stock, 0) > 0
+            ORDER BY lower(COALESCE(name_reference, name, reference, sku, '')), created_at DESC
+            LIMIT :limit
+        """),
+        {"company_id": str(company_id), "limit": max(1, min(int(limit or 12), 30))},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def _get_inventory_item_for_material_cart(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    item_id: str,
+) -> dict[str, Any] | None:
+    result = await db.execute(
+        text("""
+            SELECT id, company_id, name_reference, item_size, sku, name, reference, current_stock, status
+            FROM inventory_items
+            WHERE company_id = :company_id
+              AND id = :item_id
+              AND COALESCE(status, 'active') = 'active'
+              AND COALESCE(current_stock, 0) > 0
+            LIMIT 1
+        """),
+        {"company_id": str(company_id), "item_id": str(item_id)},
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+def _material_inventory_keyboard(items: list[dict[str, Any]], language: str) -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = []
+    for item in items:
+        rows.append([{
+            "text": _inventory_item_label(item)[:60],
+            "callback_data": f"clx:mat:item:{item.get('id')}",
+        }])
+    rows.append([{"text": _txt(language, "btn_cart_cancel"), "callback_data": "clx:mat:cancel"}])
+    return {"inline_keyboard": rows}
+
+
+def _material_cart_keyboard(language: str, has_items: bool = True) -> dict[str, Any]:
+    rows = [[{"text": _txt(language, "btn_cart_add"), "callback_data": "clx:mat:add"}]]
+    if has_items:
+        rows.append([{"text": _txt(language, "btn_cart_confirm"), "callback_data": "clx:mat:confirm"}])
+    rows.append([{"text": _txt(language, "btn_cart_cancel"), "callback_data": "clx:mat:cancel"}])
+    return {"inline_keyboard": rows}
+
+
+def _pending_payload(pending: dict[str, Any] | None) -> dict[str, Any]:
+    if not pending:
+        return {}
+    payload = pending.get("payload_json") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            payload = {}
+    return dict(payload or {})
+
+
+def _material_cart_summary(language: str, cart: list[dict[str, Any]]) -> str:
+    if not cart:
+        return _txt(language, "material_cart_empty")
+    lines = [_txt(language, "material_cart_title")]
+    for index, item in enumerate(cart, start=1):
+        lines.append(f"{index}. {item.get('label') or 'Material'} x {_format_material_decimal(item.get('quantity'))}")
+    return "\n".join(lines)
+
+
+async def _set_pending_material_payload(
     db: AsyncSession,
     *,
     company_id: UUID,
     telegram_user_id: str,
     telegram_username: str | None,
     employee_id: UUID,
-    chat_id: str | None,
-    language: str,
+    payload: dict[str, Any],
 ) -> None:
     await ensure_bot_storage(db)
     await db.execute(
@@ -1222,7 +1476,7 @@ async def _set_pending_material_request(
                 :employee_id,
                 'material_request',
                 CAST(:payload_json AS jsonb),
-                now() + interval '30 minutes',
+                now() + interval '45 minutes',
                 now()
             )
             ON CONFLICT (company_id, telegram_user_id, action)
@@ -1238,11 +1492,828 @@ async def _set_pending_material_request(
             "telegram_user_id": str(telegram_user_id),
             "telegram_username": telegram_username,
             "employee_id": str(employee_id),
-            "payload_json": json.dumps({
-                "chat_id": chat_id,
-                "language": _lang(language),
-                "reason": "material_request_detail",
-            }),
+            "payload_json": json.dumps(payload),
+        },
+    )
+
+
+async def _begin_material_cart_flow(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+    telegram_username: str | None,
+    employee_id: UUID,
+    chat_id: str | None,
+    language: str,
+) -> list[dict[str, Any]]:
+    items = await _list_inventory_items_for_material_cart(db, company_id=company_id)
+    await _set_pending_material_payload(
+        db,
+        company_id=company_id,
+        telegram_user_id=telegram_user_id,
+        telegram_username=telegram_username,
+        employee_id=employee_id,
+        payload={
+            "chat_id": chat_id,
+            "language": _lang(language),
+            "step": "select_item",
+            "cart": [],
+        },
+    )
+    return items
+
+
+async def _create_material_cart_order_records(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    employee: Employee,
+    update: dict[str, Any],
+    message: dict[str, Any],
+    cart: list[dict[str, Any]],
+    language: str,
+) -> str:
+    await _ensure_material_requests_storage(db)
+    if not cart:
+        raise HTTPException(status_code=422, detail="Carrito vacío.")
+
+    update_id = str(update.get("update_id") or "")
+    message_id = str(message.get("message_id") or "")
+    callback = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else None
+    if callback and not message_id:
+        message_id = str((callback.get("message") or {}).get("message_id") or "")
+    source_ref = f"telegram:{update_id}:{message_id}:material_cart_confirm"
+
+    duplicate = await db.execute(
+        select(WorkforceAttendanceEvent).where(
+            WorkforceAttendanceEvent.company_id == employee.company_id,
+            WorkforceAttendanceEvent.source_ref == source_ref,
+        )
+    )
+    if duplicate.scalar_one_or_none() is not None:
+        return "duplicado"
+
+    validated: list[dict[str, Any]] = []
+    for item in cart:
+        item_id = str(item.get("inventory_item_id") or "")
+        db_item = await _get_inventory_item_for_material_cart(db, company_id=employee.company_id, item_id=item_id)
+        if not db_item:
+            raise HTTPException(status_code=409, detail="Uno de los materiales ya no está disponible.")
+        qty = Decimal(str(item.get("quantity") or "0")).quantize(Decimal("0.01"))
+        stock = Decimal(str(db_item.get("current_stock") or "0")).quantize(Decimal("0.01"))
+        if qty <= 0:
+            raise HTTPException(status_code=422, detail="Cantidad inválida en carrito.")
+        if stock < qty:
+            raise HTTPException(status_code=409, detail=f"Stock insuficiente para {_inventory_item_label(db_item)}. Disponible: {_format_material_decimal(stock)}.")
+        validated.append({"item": db_item, "quantity": qty})
+
+    order_number = await _generate_material_order_number(db, employee.company_id)
+    detail = _material_cart_summary(language, [
+        {"label": _inventory_item_label(v["item"]), "quantity": v["quantity"]} for v in validated
+    ])
+
+    event = WorkforceAttendanceEvent(
+        company_id=employee.company_id,
+        employee_id=employee.id,
+        event_type="material_request",
+        event_label="Solicitud de material",
+        employee_name=employee.full_name,
+        employee_role=employee.role,
+        status_after="requested",
+        source="telegram",
+        source_channel="telegram",
+        source_ref=source_ref,
+        bot_instance_id=bot.id,
+        module_code="materials",
+        detail=detail,
+        notes=detail,
+        payload_json={
+            "language": _lang(language),
+            "order_number": order_number,
+            "cart": [
+                {
+                    "inventory_item_id": str(v["item"].get("id")),
+                    "label": _inventory_item_label(v["item"]),
+                    "quantity": str(v["quantity"]),
+                }
+                for v in validated
+            ],
+            "telegram_update_id": update.get("update_id"),
+            "telegram_message_id": message.get("message_id"),
+            "telegram_user_id": (message.get("from") or {}).get("id") or ((callback or {}).get("from") or {}).get("id"),
+            "telegram_username": (message.get("from") or {}).get("username") or ((callback or {}).get("from") or {}).get("username"),
+            "chat_id": (message.get("chat") or {}).get("id"),
+        },
+        metadata_json={
+            "source": "telegram_listener",
+            "bot_instance_id": str(bot.id),
+            "bot_username": bot.bot_username,
+            "module_code": "materials",
+            "order_number": order_number,
+            "cart_items": len(validated),
+        },
+        occurred_at=utcnow(),
+    )
+    db.add(event)
+    await db.flush()
+
+    for index, value in enumerate(validated, start=1):
+        db_item = value["item"]
+        qty = value["quantity"]
+        await db.execute(
+            text("""
+                INSERT INTO material_requests (
+                    company_id,
+                    employee_id,
+                    employee_name,
+                    employee_role,
+                    inventory_item_id,
+                    material_name,
+                    quantity,
+                    unit,
+                    notes,
+                    status,
+                    source_channel,
+                    source_ref,
+                    attendance_event_id,
+                    requested_at,
+                    status_updated_at,
+                    updated_at,
+                    order_number
+                )
+                VALUES (
+                    :company_id,
+                    :employee_id,
+                    :employee_name,
+                    :employee_role,
+                    :inventory_item_id,
+                    :material_name,
+                    :quantity,
+                    NULL,
+                    :notes,
+                    'pending',
+                    'telegram',
+                    :source_ref,
+                    :attendance_event_id,
+                    :requested_at,
+                    now(),
+                    now(),
+                    :order_number
+                )
+                ON CONFLICT (company_id, source_ref)
+                WHERE source_ref IS NOT NULL
+                DO NOTHING
+            """),
+            {
+                "company_id": str(employee.company_id),
+                "employee_id": str(employee.id),
+                "employee_name": employee.full_name,
+                "employee_role": employee.role,
+                "inventory_item_id": str(db_item["id"]),
+                "material_name": db_item.get("name_reference") or db_item.get("name") or db_item.get("reference") or db_item.get("sku") or "Material",
+                "quantity": qty,
+                "notes": f"Orden generada desde carrito Telegram. Línea {index}.",
+                "source_ref": f"{source_ref}:line:{index}",
+                "attendance_event_id": str(event.id),
+                "requested_at": event.occurred_at,
+                "order_number": order_number,
+            },
+        )
+
+    return order_number
+
+
+async def _material_cart_context(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    telegram_user_id: str,
+    username: str | None,
+    language: str,
+) -> tuple[Employee | None, Company | None, set[str], str | None]:
+    employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
+    if employee is None:
+        return None, None, set(), "not_linked"
+    company = await ensure_company_exists(db, bot.company_id)
+    enabled_modules = await _enabled_module_codes(db, bot.company_id)
+    if "materials" not in enabled_modules or "inventory" not in enabled_modules:
+        return employee, company, enabled_modules, "module_inactive"
+    if not _employee_can_request_material(employee):
+        return employee, company, enabled_modules, "material_not_allowed"
+    current = await _get_current_attendance_status(db, employee.company_id, employee.id)
+    material_config = TELEGRAM_COMMANDS["/material"]
+    transition_ok, _ = _validate_turn_transition(current=current, command_config=material_config, language=language)
+    if not transition_ok:
+        return employee, company, enabled_modules, "turn_validation_failed"
+    return employee, company, enabled_modules, None
+
+
+async def _process_material_cart_callback(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    token: str,
+    update: dict[str, Any],
+    message: dict[str, Any],
+    telegram_user_id: str,
+    username: str | None,
+    chat_id: str | None,
+    text_value: str,
+    language: str,
+    send_replies: bool,
+) -> TelegramBotPollItem:
+    update_id = update.get("update_id")
+
+    employee, company, _, error = await _material_cart_context(
+        db,
+        bot=bot,
+        telegram_user_id=telegram_user_id,
+        username=username,
+        language=language,
+    )
+
+    # IMPORTANTE:
+    # AsyncSession expira objetos ORM al hacer commit/rollback. Si luego se accede
+    # a employee.full_name, company.name o bot.company_id se dispara MissingGreenlet.
+    # Por eso cacheamos primitivos antes de cualquier commit.
+    company_id_value = bot.company_id
+    employee_id_value = employee.id if employee is not None else None
+    employee_name_value = employee.full_name if employee is not None else None
+
+    if error:
+        if send_replies:
+            if error == "not_linked":
+                await _send_telegram_message(
+                    token,
+                    chat_id,
+                    _txt(language, "not_linked", telegram_user_id=telegram_user_id),
+                    reply_markup=_language_keyboard(),
+                )
+            elif error == "module_inactive":
+                await _send_telegram_message(token, chat_id, _txt(language, "module_inactive"))
+            elif error == "turn_validation_failed":
+                await _send_telegram_message(token, chat_id, _txt(language, "must_start_shift"))
+            else:
+                await _send_telegram_message(token, chat_id, "No tienes permisos para solicitar material.")
+
+            if employee is not None and company is not None:
+                await _send_dynamic_menu(
+                    db,
+                    token=token,
+                    chat_id=chat_id,
+                    company=company,
+                    employee=employee,
+                    language=language,
+                )
+
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=False,
+            action=error,
+            message=error,
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    assert employee is not None and company is not None
+
+    action = text_value.removeprefix("clx:mat:").strip()
+    pending = await _get_pending_material_request(
+        db,
+        company_id=company_id_value,
+        telegram_user_id=telegram_user_id,
+    )
+    payload = _pending_payload(pending)
+    cart = list(payload.get("cart") or [])
+
+    if action == "cancel":
+        await _clear_pending_material_request(
+            db,
+            company_id=company_id_value,
+            telegram_user_id=telegram_user_id,
+        )
+        await db.commit()
+
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "material_cart_cancelled"))
+            fresh_employee = await _find_employee_by_telegram(db, company_id_value, telegram_user_id, username)
+            fresh_company = await ensure_company_exists(db, company_id_value)
+            if fresh_employee is not None and fresh_company is not None:
+                await _send_dynamic_menu(
+                    db,
+                    token=token,
+                    chat_id=chat_id,
+                    company=fresh_company,
+                    employee=fresh_employee,
+                    language=language,
+                )
+
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="material_cart_cancelled",
+            message="Carrito cancelado.",
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    if action == "add" or pending is None:
+        items = await _begin_material_cart_flow(
+            db,
+            company_id=company_id_value,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+            employee_id=employee_id_value,
+            chat_id=chat_id,
+            language=language,
+        )
+        await db.commit()
+
+        if send_replies:
+            if items:
+                await _send_telegram_message(
+                    token,
+                    chat_id,
+                    _txt(language, "material_select_prompt"),
+                    reply_markup=_material_inventory_keyboard(items, language),
+                )
+            else:
+                await _send_telegram_message(token, chat_id, _txt(language, "material_inventory_empty"))
+                fresh_employee = await _find_employee_by_telegram(db, company_id_value, telegram_user_id, username)
+                fresh_company = await ensure_company_exists(db, company_id_value)
+                if fresh_employee is not None and fresh_company is not None:
+                    await _send_dynamic_menu(
+                        db,
+                        token=token,
+                        chat_id=chat_id,
+                        company=fresh_company,
+                        employee=fresh_employee,
+                        language=language,
+                    )
+
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="material_select_item",
+            message="Lista de inventario enviada.",
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    if action.startswith("item:"):
+        item_id = action.removeprefix("item:").strip()
+        item = await _get_inventory_item_for_material_cart(
+            db,
+            company_id=company_id_value,
+            item_id=item_id,
+        )
+
+        if not item:
+            items = await _list_inventory_items_for_material_cart(db, company_id=company_id_value)
+            if send_replies:
+                await _send_telegram_message(
+                    token,
+                    chat_id,
+                    _txt(language, "material_inventory_empty") if not items else _txt(language, "material_select_prompt"),
+                    reply_markup=_material_inventory_keyboard(items, language) if items else None,
+                )
+            return TelegramBotPollItem(
+                update_id=update_id,
+                ok=False,
+                action="material_item_unavailable",
+                message="Material no disponible.",
+                employee_id=employee_id_value,
+                employee_name=employee_name_value,
+            )
+
+        item_label = _inventory_item_label(item)
+        stock_value = str(item.get("current_stock") or "0")
+
+        payload.update({
+            "step": "waiting_quantity",
+            "selected_item": {
+                "inventory_item_id": str(item["id"]),
+                "label": item_label,
+                "stock": stock_value,
+            },
+            "cart": cart,
+            "chat_id": chat_id,
+            "language": _lang(language),
+        })
+
+        await _set_pending_material_payload(
+            db,
+            company_id=company_id_value,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+            employee_id=employee_id_value,
+            payload=payload,
+        )
+        await db.commit()
+
+        if send_replies:
+            await _send_telegram_message(
+                token,
+                chat_id,
+                _txt(language, "material_quantity_prompt", item_label=item_label, stock=_format_material_decimal(stock_value)),
+            )
+
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="material_quantity_required",
+            message="Esperando cantidad.",
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    if action == "confirm":
+        if not cart:
+            if send_replies:
+                await _send_telegram_message(
+                    token,
+                    chat_id,
+                    _txt(language, "material_cart_empty"),
+                    reply_markup=_material_cart_keyboard(language, has_items=False),
+                )
+            return TelegramBotPollItem(
+                update_id=update_id,
+                ok=False,
+                action="material_cart_empty",
+                message="Carrito vacío.",
+                employee_id=employee_id_value,
+                employee_name=employee_name_value,
+            )
+
+        try:
+            order_number = await _create_material_cart_order_records(
+                db,
+                bot=bot,
+                employee=employee,
+                update=update,
+                message=message,
+                cart=cart,
+                language=language,
+            )
+        except HTTPException as exc:
+            await db.rollback()
+            if send_replies:
+                await _send_telegram_message(token, chat_id, str(exc.detail))
+                fresh_employee = await _find_employee_by_telegram(db, company_id_value, telegram_user_id, username)
+                fresh_company = await ensure_company_exists(db, company_id_value)
+                if fresh_employee is not None and fresh_company is not None:
+                    await _send_dynamic_menu(
+                        db,
+                        token=token,
+                        chat_id=chat_id,
+                        company=fresh_company,
+                        employee=fresh_employee,
+                        language=language,
+                    )
+            return TelegramBotPollItem(
+                update_id=update_id,
+                ok=False,
+                action="material_cart_confirm_failed",
+                message=str(exc.detail),
+                employee_id=employee_id_value,
+                employee_name=employee_name_value,
+            )
+
+        await _clear_pending_material_request(
+            db,
+            company_id=company_id_value,
+            telegram_user_id=telegram_user_id,
+        )
+        await db.commit()
+
+        if send_replies:
+            await _send_telegram_message(
+                token,
+                chat_id,
+                _txt(language, "material_cart_confirmed", order_number=order_number),
+            )
+            fresh_employee = await _find_employee_by_telegram(db, company_id_value, telegram_user_id, username)
+            fresh_company = await ensure_company_exists(db, company_id_value)
+            if fresh_employee is not None and fresh_company is not None:
+                await _send_dynamic_menu(
+                    db,
+                    token=token,
+                    chat_id=chat_id,
+                    company=fresh_company,
+                    employee=fresh_employee,
+                    language=language,
+                )
+
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="material_cart_confirmed",
+            message=f"Orden {order_number}",
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+            event_created=True,
+        )
+
+    if send_replies:
+        await _send_telegram_message(
+            token,
+            chat_id,
+            _material_cart_summary(language, cart),
+            reply_markup=_material_cart_keyboard(language, has_items=bool(cart)),
+        )
+
+    return TelegramBotPollItem(
+        update_id=update_id,
+        ok=True,
+        action="material_cart_review",
+        message="Carrito mostrado.",
+        employee_id=employee_id_value,
+        employee_name=employee_name_value,
+    )
+
+async def _process_material_cart_text(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    token: str,
+    update: dict[str, Any],
+    message: dict[str, Any],
+    telegram_user_id: str,
+    username: str | None,
+    chat_id: str | None,
+    text_value: str,
+    language: str,
+    send_replies: bool,
+) -> TelegramBotPollItem:
+    update_id = update.get("update_id")
+
+    employee, company, _, error = await _material_cart_context(
+        db,
+        bot=bot,
+        telegram_user_id=telegram_user_id,
+        username=username,
+        language=language,
+    )
+
+    company_id_value = bot.company_id
+    employee_id_value = employee.id if employee is not None else None
+    employee_name_value = employee.full_name if employee is not None else None
+
+    if error:
+        await _clear_pending_material_request(
+            db,
+            company_id=company_id_value,
+            telegram_user_id=telegram_user_id,
+        )
+        await db.commit()
+
+        if send_replies:
+            if error == "not_linked":
+                await _send_telegram_message(
+                    token,
+                    chat_id,
+                    _txt(language, "not_linked", telegram_user_id=telegram_user_id),
+                    reply_markup=_language_keyboard(),
+                )
+            else:
+                await _send_telegram_message(token, chat_id, "No tienes permisos o el módulo no está activo.")
+
+            if employee is not None and company is not None:
+                fresh_employee = await _find_employee_by_telegram(db, company_id_value, telegram_user_id, username)
+                fresh_company = await ensure_company_exists(db, company_id_value)
+                if fresh_employee is not None and fresh_company is not None:
+                    await _send_dynamic_menu(
+                        db,
+                        token=token,
+                        chat_id=chat_id,
+                        company=fresh_company,
+                        employee=fresh_employee,
+                        language=language,
+                    )
+
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=False,
+            action=error,
+            message=error,
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    assert employee is not None and company is not None
+
+    pending = await _get_pending_material_request(
+        db,
+        company_id=company_id_value,
+        telegram_user_id=telegram_user_id,
+    )
+    payload = _pending_payload(pending)
+    cart = list(payload.get("cart") or [])
+    step = str(payload.get("step") or "select_item")
+    selected = payload.get("selected_item") or {}
+
+    if step != "waiting_quantity" or not selected:
+        items = await _list_inventory_items_for_material_cart(db, company_id=company_id_value)
+        if send_replies:
+            await _send_telegram_message(
+                token,
+                chat_id,
+                _txt(language, "material_select_prompt") if items else _txt(language, "material_inventory_empty"),
+                reply_markup=_material_inventory_keyboard(items, language) if items else None,
+            )
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="material_select_item",
+            message="Lista de inventario enviada.",
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    amount_match = re.search(r"\d+(?:[.,]\d+)?", text_value or "")
+    if not amount_match:
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "material_quantity_invalid"))
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=False,
+            action="material_quantity_invalid",
+            message="Cantidad inválida.",
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    quantity = Decimal(amount_match.group(0).replace(",", ".")).quantize(Decimal("0.01"))
+    stock = Decimal(str(selected.get("stock") or "0")).quantize(Decimal("0.01"))
+
+    if quantity <= 0:
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "material_quantity_invalid"))
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=False,
+            action="material_quantity_invalid",
+            message="Cantidad inválida.",
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    if stock < quantity:
+        if send_replies:
+            await _send_telegram_message(
+                token,
+                chat_id,
+                _txt(language, "material_quantity_exceeds", stock=_format_material_decimal(stock)),
+            )
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=False,
+            action="material_quantity_exceeds",
+            message="Stock insuficiente.",
+            employee_id=employee_id_value,
+            employee_name=employee_name_value,
+        )
+
+    selected_id = str(selected.get("inventory_item_id"))
+    merged = False
+    for existing in cart:
+        if str(existing.get("inventory_item_id")) == selected_id:
+            existing["quantity"] = str(
+                (Decimal(str(existing.get("quantity") or "0")) + quantity).quantize(Decimal("0.01"))
+            )
+            merged = True
+            break
+
+    if not merged:
+        cart.append({
+            "inventory_item_id": selected_id,
+            "label": selected.get("label") or "Material",
+            "quantity": str(quantity),
+        })
+
+    payload.update({
+        "step": "cart_review",
+        "selected_item": None,
+        "cart": cart,
+        "chat_id": chat_id,
+        "language": _lang(language),
+    })
+
+    await _set_pending_material_payload(
+        db,
+        company_id=company_id_value,
+        telegram_user_id=telegram_user_id,
+        telegram_username=username,
+        employee_id=employee_id_value,
+        payload=payload,
+    )
+    await db.commit()
+
+    if send_replies:
+        await _send_telegram_message(
+            token,
+            chat_id,
+            _txt(language, "material_cart_added") + "\n\n" + _material_cart_summary(language, cart),
+            reply_markup=_material_cart_keyboard(language, has_items=True),
+        )
+
+    return TelegramBotPollItem(
+        update_id=update_id,
+        ok=True,
+        action="material_cart_added",
+        message="Material agregado al carrito.",
+        employee_id=employee_id_value,
+        employee_name=employee_name_value,
+    )
+
+async def _find_inventory_item_for_material_request(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    material_name: str,
+) -> dict[str, Any] | None:
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS inventory_items (
+            id uuid PRIMARY KEY,
+            company_id uuid NOT NULL,
+            name_reference text NULL,
+            sku text NULL,
+            name text NULL,
+            reference text NULL,
+            current_stock numeric(14,2) DEFAULT 0,
+            status varchar(40) DEFAULT 'active',
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+    """))
+    name = (material_name or "").strip().lower()
+    if not name:
+        return None
+    result = await db.execute(
+        text("""
+            SELECT id, company_id, name_reference, sku, name, reference, current_stock, status
+            FROM inventory_items
+            WHERE company_id = :company_id
+              AND COALESCE(status, 'active') = 'active'
+              AND (
+                lower(COALESCE(name_reference, '')) = :name
+                OR lower(COALESCE(sku, '')) = :name
+                OR lower(COALESCE(name, '')) = :name
+                OR lower(COALESCE(reference, '')) = :name
+                OR lower(COALESCE(name_reference, '')) LIKE :name_like
+              )
+            ORDER BY
+              CASE WHEN lower(COALESCE(name_reference, '')) = :name THEN 1 ELSE 2 END,
+              created_at DESC
+            LIMIT 1
+        """),
+        {
+            "company_id": str(company_id),
+            "name": name,
+            "name_like": f"%{name}%",
+        },
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def _generate_material_order_number(db: AsyncSession, company_id: UUID) -> str:
+    prefix = f"MAT-{utcnow().strftime('%Y%m%d')}-"
+    result = await db.execute(
+        text("""
+            SELECT COALESCE(MAX(CAST(right(order_number, 6) AS integer)), 0) + 1
+            FROM material_requests
+            WHERE company_id = :company_id
+              AND order_number LIKE :prefix_like
+        """),
+        {"company_id": str(company_id), "prefix_like": f"{prefix}%"},
+    )
+    seq = int(result.scalar() or 1)
+    return f"{prefix}{seq:06d}"
+
+
+async def _set_pending_material_request(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+    telegram_username: str | None,
+    employee_id: UUID,
+    chat_id: str | None,
+    language: str,
+) -> None:
+    await _set_pending_material_payload(
+        db,
+        company_id=company_id,
+        telegram_user_id=telegram_user_id,
+        telegram_username=telegram_username,
+        employee_id=employee_id,
+        payload={
+            "chat_id": chat_id,
+            "language": _lang(language),
+            "step": "select_item",
+            "cart": [],
         },
     )
 
@@ -1294,9 +2365,29 @@ async def _create_material_request_record(
     event: WorkforceAttendanceEvent,
     employee: Employee,
     detail: str,
-) -> None:
+) -> str:
     await _ensure_material_requests_storage(db)
     parsed = _parse_material_request_text(detail)
+    material_name = (parsed["material_name"] or "").strip()
+    if not material_name:
+        return "📦 Falta el nombre o referencia del material."
+
+    item = await _find_inventory_item_for_material_request(
+        db,
+        company_id=employee.company_id,
+        material_name=material_name,
+    )
+    if not item:
+        return "📦 Material no disponible en inventario activo. Solicita una referencia existente."
+
+    requested_qty = Decimal(str(parsed["quantity"] or "1")).quantize(Decimal("0.01"))
+    current_stock = Decimal(str(item.get("current_stock") or "0")).quantize(Decimal("0.01"))
+    if requested_qty <= 0:
+        return "📦 La cantidad debe ser mayor a cero."
+    if current_stock < requested_qty:
+        return f"📦 Stock insuficiente. Disponible: {current_stock}."
+
+    order_number = await _generate_material_order_number(db, employee.company_id)
     await db.execute(
         text("""
             INSERT INTO material_requests (
@@ -1304,6 +2395,7 @@ async def _create_material_request_record(
                 employee_id,
                 employee_name,
                 employee_role,
+                inventory_item_id,
                 material_name,
                 quantity,
                 unit,
@@ -1314,13 +2406,15 @@ async def _create_material_request_record(
                 attendance_event_id,
                 requested_at,
                 status_updated_at,
-                updated_at
+                updated_at,
+                order_number
             )
             VALUES (
                 :company_id,
                 :employee_id,
                 :employee_name,
                 :employee_role,
+                :inventory_item_id,
                 :material_name,
                 :quantity,
                 :unit,
@@ -1331,7 +2425,8 @@ async def _create_material_request_record(
                 :attendance_event_id,
                 :requested_at,
                 now(),
-                now()
+                now(),
+                :order_number
             )
             ON CONFLICT (company_id, source_ref)
             WHERE source_ref IS NOT NULL
@@ -1342,15 +2437,18 @@ async def _create_material_request_record(
             "employee_id": str(employee.id),
             "employee_name": employee.full_name,
             "employee_role": employee.role,
-            "material_name": parsed["material_name"],
-            "quantity": parsed["quantity"],
+            "inventory_item_id": str(item["id"]),
+            "material_name": item.get("name_reference") or material_name,
+            "quantity": requested_qty,
             "unit": parsed["unit"],
             "notes": parsed["notes"],
             "source_ref": event.source_ref,
             "attendance_event_id": str(event.id),
             "requested_at": event.occurred_at,
+            "order_number": order_number,
         },
     )
+    return f"📦 Solicitud registrada. Orden: {order_number}."
 
 
 async def _create_gps_location_event(
@@ -1868,8 +2966,9 @@ async def _create_bot_attendance_event(
     db.add(event)
     await db.flush()
 
+    material_reply: str | None = None
     if event_type == "material_request":
-        await _create_material_request_record(
+        material_reply = await _create_material_request_record(
             db,
             event=event,
             employee=employee,
@@ -1920,7 +3019,7 @@ async def _create_bot_attendance_event(
             language=language,
         )
 
-    return True, _txt(language, command_config.get("reply_key") or "status_checked")
+    return True, material_reply or _txt(language, command_config.get("reply_key") or "status_checked")
 
 
 
@@ -2120,6 +3219,9 @@ async def _process_telegram_update(
     telegram_user_id, username, first_name, chat_id, raw_text, callback_query_id = _telegram_identity_from_update(update)
     text_value = (raw_text or "").strip()
 
+    # CLONEXA 015C-R5: language exists for every update, including Telegram callbacks.
+    language = await _get_user_language(db, bot.company_id, telegram_user_id) if telegram_user_id else "es"
+
     if callback_query_id:
         await _answer_callback_query(token, callback_query_id)
 
@@ -2195,6 +3297,34 @@ async def _process_telegram_update(
             telegram_username=username,
         )
 
+    if text_value.startswith("clx:mat:"):
+        # CLONEXA 015C-R5:
+        # Desactivamos callbacks de selección de material. El flujo estable ahora es Telegram Web App.
+        employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
+        enabled_modules = await _enabled_module_codes(db, bot.company_id)
+        if send_replies:
+            if employee is None:
+                await _send_telegram_message(token, chat_id, _txt(language, "not_linked", telegram_user_id=telegram_user_id), reply_markup=_language_keyboard())
+            elif "materials" not in enabled_modules or "inventory" not in enabled_modules or not _employee_can_request_material(employee):
+                await _send_telegram_message(token, chat_id, "No tienes permisos para solicitar material o Inventario no está activo.")
+            else:
+                await _send_materials_webapp_button(
+                    token=token,
+                    chat_id=chat_id,
+                    company_id=bot.company_id,
+                    telegram_user_id=telegram_user_id,
+                )
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="materials_webapp_button",
+            message="Botón Web App Materiales enviado.",
+            employee_id=employee.id if employee else None,
+            employee_name=employee.full_name if employee else None,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
     text_value = _callback_to_command(text_value)
     command, args = _normalize_command(text_value)
     language = await _get_user_language(db, bot.company_id, telegram_user_id)
@@ -2259,67 +3389,18 @@ async def _process_telegram_update(
     if command and not command.startswith("/") and telegram_user_id:
         pending_material = await _get_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
         if pending_material is not None:
-            employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
-            if employee is None:
-                reply = _txt(language, "not_linked", telegram_user_id=telegram_user_id)
-                if send_replies:
-                    await _send_telegram_message(token, chat_id, reply, reply_markup=_language_keyboard())
-                return TelegramBotPollItem(
-                    update_id=update_id,
-                    ok=False,
-                    action="not_linked",
-                    message="Empleado no vinculado.",
-                    telegram_user_id=telegram_user_id,
-                    telegram_username=username,
-                )
-
-            company = await ensure_company_exists(db, bot.company_id)
-            enabled_modules = await _enabled_module_codes(db, bot.company_id)
-            if "materials" not in enabled_modules:
-                await _clear_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
-                await db.commit()
-                if send_replies:
-                    await _send_telegram_message(token, chat_id, _txt(language, "module_inactive"))
-                    await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
-                return TelegramBotPollItem(update_id=update_id, ok=False, action="module_inactive", message="Materiales inactivo.", employee_id=employee.id, employee_name=employee.full_name)
-
-            material_config = TELEGRAM_COMMANDS["/material"]
-            current = await _get_current_attendance_status(db, employee.company_id, employee.id)
-            transition_ok, transition_error = _validate_turn_transition(current=current, command_config=material_config, language=language)
-            if not transition_ok:
-                await _clear_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
-                await db.commit()
-                if send_replies:
-                    await _send_telegram_message(token, chat_id, transition_error or _txt(language, "must_start_shift"))
-                    await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
-                return TelegramBotPollItem(update_id=update_id, ok=False, action="turn_validation_failed", message=transition_error or "Transición inválida.", employee_id=employee.id, employee_name=employee.full_name)
-
-            created, message_text = await _create_bot_attendance_event(
+            return await _process_material_cart_text(
                 db,
                 bot=bot,
-                employee=employee,
+                token=token,
                 update=update,
                 message=message,
-                command="/material",
-                args=text_value,
-                command_config=material_config,
-                language=language,
-            )
-            await _clear_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
-            await db.commit()
-            if send_replies:
-                await _send_telegram_message(token, chat_id, message_text)
-                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
-            return TelegramBotPollItem(
-                update_id=update_id,
-                ok=created,
-                action="material_request",
-                message=message_text,
-                employee_id=employee.id,
-                employee_name=employee.full_name,
-                event_created=created,
                 telegram_user_id=telegram_user_id,
-                telegram_username=username,
+                username=username,
+                chat_id=chat_id,
+                text_value=text_value,
+                language=language,
+                send_replies=send_replies,
             )
 
     command_config = TELEGRAM_COMMANDS.get(command)
@@ -2376,6 +3457,22 @@ async def _process_telegram_update(
             telegram_username=username,
         )
 
+    if command in {"/material", "/materiales"}:
+        if "inventory" not in enabled_modules or not _employee_can_request_material(employee):
+            if send_replies:
+                await _send_telegram_message(token, chat_id, "No tienes permisos para solicitar material o Inventario no está activo.")
+                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+            return TelegramBotPollItem(
+                update_id=update_id,
+                ok=False,
+                action="material_not_allowed",
+                message="Material no permitido.",
+                employee_id=employee.id,
+                employee_name=employee.full_name,
+                telegram_user_id=telegram_user_id,
+                telegram_username=username,
+            )
+
     current = await _get_current_attendance_status(db, employee.company_id, employee.id)
     transition_ok, transition_error = _validate_turn_transition(current=current, command_config=command_config, language=language)
     if not transition_ok:
@@ -2423,29 +3520,21 @@ async def _process_telegram_update(
             telegram_username=username,
         )
 
-    if command in {"/material", "/materiales"} and not args:
-        pending = await _get_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
-        await _set_pending_material_request(
-            db,
-            company_id=bot.company_id,
-            telegram_user_id=telegram_user_id,
-            telegram_username=username,
-            employee_id=employee.id,
-            chat_id=chat_id,
-            language=language,
-        )
-        await db.commit()
+    if command in {"/material", "/materiales"}:
+        # CLONEXA 015C-R5:
+        # Materiales se solicita desde Telegram Web App para soportar inventarios grandes y evitar callbacks.
         if send_replies:
-            await _send_telegram_message(
-                token,
-                chat_id,
-                _txt(language, "material_request_pending" if pending else "material_request_prompt"),
+            await _send_materials_webapp_button(
+                token=token,
+                chat_id=chat_id,
+                company_id=bot.company_id,
+                telegram_user_id=telegram_user_id,
             )
         return TelegramBotPollItem(
             update_id=update_id,
             ok=True,
-            action="material_detail_required",
-            message="Esperando detalle de material.",
+            action="materials_webapp_button",
+            message="Botón Web App Materiales enviado.",
             employee_id=employee.id,
             employee_name=employee.full_name,
             telegram_user_id=telegram_user_id,

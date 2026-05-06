@@ -26,6 +26,7 @@ for _module_name, _prefix, _tags in [
     ("gps", "/gps", ["gps"]),
     ("inventory", "/inventory", ["inventory"]),
     ("materials", "/materials", ["materials"]),
+    ("materials_webapp", "/materials-webapp", ["materials_webapp"]),
     ("bots", "/bots", ["bots"]),
     ("modules", "/modules", ["modules"]),
     ("packages", "/packages", ["packages"]),

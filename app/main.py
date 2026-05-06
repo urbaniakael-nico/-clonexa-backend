@@ -65,6 +65,16 @@ if register_admin_console is not None:
 if register_client_portal is not None:
     register_client_portal(app)
 
+
+# CLONEXA_MATERIALS_WEBAPP_ROUTE
+try:
+    from app.web.materials_webapp_routes import router as materials_webapp_router
+    app.include_router(materials_webapp_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.materials_webapp").warning("Materials Web App no pudo registrarse: %s", exc)
+# END_CLONEXA_MATERIALS_WEBAPP_ROUTE
+
 # CLONEXA web assets
 app.mount("/assets", StaticFiles(directory="app/web/assets"), name="assets")
 
