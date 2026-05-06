@@ -1179,6 +1179,67 @@
         margin-top: 16px;
       }
 
+
+      .cx-materials-return-results,
+      .cx-materials-return-checklist {
+        margin-top: 14px;
+        display: grid;
+        gap: 10px;
+      }
+      .cx-materials-order-pick {
+        width: 100%;
+        text-align: left;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.07);
+        color: inherit;
+        border-radius: 15px;
+        padding: 12px 14px;
+        cursor: pointer;
+        font-weight: 900;
+      }
+      .cx-materials-order-pick:hover {
+        border-color: rgba(255,255,255,.28);
+        transform: translateY(-1px);
+      }
+      .cx-materials-return-summary {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.06);
+        border-radius: 18px;
+        padding: 14px;
+        display: grid;
+        gap: 5px;
+      }
+      .cx-materials-return-line {
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(0,0,0,.14);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .cx-materials-return-line summary {
+        cursor: pointer;
+        padding: 14px;
+        font-weight: 1000;
+      }
+      .cx-materials-return-units {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 8px;
+        padding: 0 14px 14px;
+      }
+      .cx-materials-return-unit {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 11px;
+        border: 1px solid rgba(255,255,255,.10);
+        background: rgba(255,255,255,.06);
+        border-radius: 13px;
+        font-weight: 900;
+      }
+      .cx-materials-return-unit.disabled {
+        opacity: .45;
+      }
+
       @media (max-width: 1100px) {
         .personal-history-toolbar {
           grid-template-columns: 1fr;
@@ -2736,6 +2797,67 @@
       .cx-inv-status.inactive {
         color:#b9b9c6;
       }
+
+      .cx-materials-return-results,
+      .cx-materials-return-checklist {
+        margin-top: 14px;
+        display: grid;
+        gap: 10px;
+      }
+      .cx-materials-order-pick {
+        width: 100%;
+        text-align: left;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.07);
+        color: inherit;
+        border-radius: 15px;
+        padding: 12px 14px;
+        cursor: pointer;
+        font-weight: 900;
+      }
+      .cx-materials-order-pick:hover {
+        border-color: rgba(255,255,255,.28);
+        transform: translateY(-1px);
+      }
+      .cx-materials-return-summary {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.06);
+        border-radius: 18px;
+        padding: 14px;
+        display: grid;
+        gap: 5px;
+      }
+      .cx-materials-return-line {
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(0,0,0,.14);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .cx-materials-return-line summary {
+        cursor: pointer;
+        padding: 14px;
+        font-weight: 1000;
+      }
+      .cx-materials-return-units {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 8px;
+        padding: 0 14px 14px;
+      }
+      .cx-materials-return-unit {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 11px;
+        border: 1px solid rgba(255,255,255,.10);
+        background: rgba(255,255,255,.06);
+        border-radius: 13px;
+        font-weight: 900;
+      }
+      .cx-materials-return-unit.disabled {
+        opacity: .45;
+      }
+
       @media (max-width: 1100px) {
         .cx-inv-form { grid-template-columns: 1fr; }
         .cx-inv-table { min-width: 980px; }
@@ -3155,6 +3277,67 @@
         align-items: end;
         margin-top: 14px;
       }
+
+      .cx-materials-return-results,
+      .cx-materials-return-checklist {
+        margin-top: 14px;
+        display: grid;
+        gap: 10px;
+      }
+      .cx-materials-order-pick {
+        width: 100%;
+        text-align: left;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.07);
+        color: inherit;
+        border-radius: 15px;
+        padding: 12px 14px;
+        cursor: pointer;
+        font-weight: 900;
+      }
+      .cx-materials-order-pick:hover {
+        border-color: rgba(255,255,255,.28);
+        transform: translateY(-1px);
+      }
+      .cx-materials-return-summary {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.06);
+        border-radius: 18px;
+        padding: 14px;
+        display: grid;
+        gap: 5px;
+      }
+      .cx-materials-return-line {
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(0,0,0,.14);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .cx-materials-return-line summary {
+        cursor: pointer;
+        padding: 14px;
+        font-weight: 1000;
+      }
+      .cx-materials-return-units {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 8px;
+        padding: 0 14px 14px;
+      }
+      .cx-materials-return-unit {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 11px;
+        border: 1px solid rgba(255,255,255,.10);
+        background: rgba(255,255,255,.06);
+        border-radius: 13px;
+        font-weight: 900;
+      }
+      .cx-materials-return-unit.disabled {
+        opacity: .45;
+      }
+
       @media (max-width: 1100px) {
         .cx-materials-table { grid-template-columns: 1fr; }
         .cx-materials-head { display:none; }
@@ -3217,7 +3400,7 @@
           ${status === "pending" ? `<button class="cx-materials-action primary" type="button" data-material-approve-open="${h(row.id)}">Aprobar</button>` : ""}
           ${status === "approved" ? `<button class="cx-materials-action primary" type="button" data-material-deliver="${h(row.id)}">Entregar</button>` : ""}
           ${!delivered && !returned && !rejected ? `<button class="cx-materials-action" type="button" data-material-reject="${h(row.id)}">Rechazar</button>` : ""}
-          ${delivered || returned ? `<button class="cx-materials-action" type="button" data-material-return-load="${h(row.order_number || "")}">Devolución</button>` : ""}
+          ${((delivered || status === "returned_partial") && row.order_number) ? `<button class="cx-materials-action" type="button" data-material-return-load="${h(row.order_number || "")}">Devolución</button>` : ""}
         </div>
       </div>
     `;
@@ -3317,25 +3500,140 @@
     setTimeout(() => showMaterialsNotice("Orden rechazada."), 80);
   }
 
-  async function returnMaterialOrder() {
-    const orderNumber = document.querySelector("[data-material-return-order]")?.value || "";
-    const observation = document.querySelector("[data-material-return-observation]")?.value || "";
-    const labelsRaw = document.querySelector("[data-material-return-labels]")?.value || "";
-    const labels = labelsRaw.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
+  function renderMaterialReturnSearchResults(orders = []) {
+    const box = document.querySelector("[data-material-return-results]");
+    if (!box) return;
+    if (!orders.length) {
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML = orders.map((order) => `
+      <button class="cx-materials-order-pick" type="button" data-material-return-order-pick="${h(order.order_number)}">
+        <strong>${h(order.order_number)}</strong>
+        <span class="client-muted"> · ${h(order.employee_name || "Colaborador")} · ${h(order.lines_count || 0)} materiales · pendientes ${h(order.quantity_pending_return || 0)}</span>
+      </button>
+    `).join("");
+  }
 
-    await api(`/materials/companies/${encodeURIComponent(state.companyId)}/returns`, {
+  async function searchMaterialReturnOrders(query) {
+    const q = String(query || "").trim();
+    if (q.length < 4) {
+      renderMaterialReturnSearchResults([]);
+      return;
+    }
+    try {
+      const data = await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/search?q=${encodeURIComponent(q)}&limit=8`);
+      renderMaterialReturnSearchResults(Array.isArray(data.orders) ? data.orders : []);
+    } catch (_) {
+      renderMaterialReturnSearchResults([]);
+    }
+  }
+
+  function renderMaterialReturnChecklist(data) {
+    const box = document.querySelector("[data-material-return-checklist]");
+    if (!box) return;
+
+    if (!data || data.found === false) {
+      box.dataset.materialReturnSelectedOrder = "";
+      window.__cxMaterialsReturnOrder = "";
+      box.innerHTML = `<div class="personal-toast error">${h(data?.message || "Orden de salida entregada no encontrada.")}</div>`;
+      return;
+    }
+
+    const selectedOrder = String(data.order_number || "").trim();
+    box.dataset.materialReturnSelectedOrder = selectedOrder;
+    window.__cxMaterialsReturnOrder = selectedOrder;
+
+    const lines = Array.isArray(data.lines) ? data.lines : [];
+    box.innerHTML = `
+      <div class="cx-materials-return-summary">
+        <strong>Orden ${h(data.order_number || "")}</strong>
+        <span class="client-muted">Solicitante: ${h(data.employee_name || "-")} · Destino: ${h(data.destination || "-")}</span>
+      </div>
+      ${lines.map((line) => {
+        const title = [line.name_reference || line.material_name || "Material", line.item_size].filter(Boolean).join(" · ");
+        const units = Array.isArray(line.units) ? line.units : [];
+        return `
+          <details class="cx-materials-return-line" open>
+            <summary>${h(title)} <span class="client-muted">pendiente ${h(line.quantity_pending_return || 0)} de ${h(line.quantity || 0)}</span></summary>
+            <div class="cx-materials-return-units">
+              ${units.length ? units.map((unit) => `
+                <label class="cx-materials-return-unit ${unit.available ? "" : "disabled"}">
+                  <input type="checkbox" data-material-return-unit="${h(unit.unit_id)}" data-material-return-unit-order="${h(selectedOrder)}" ${unit.available ? "" : "disabled"}>
+                  <span>${h(unit.label_sku || ("Unidad " + (unit.unit_index || "")))}</span>
+                  <small class="client-muted">${h(unit.available ? "Entregada" : "Ya devuelta")}</small>
+                </label>
+              `).join("") : `<div class="client-muted">No hay unidades entregadas pendientes.</div>`}
+            </div>
+          </details>
+        `;
+      }).join("")}
+    `;
+  }
+
+  async function loadMaterialReturnChecklist(orderNumber) {
+    const order = String(orderNumber || "").trim();
+    const box = document.querySelector("[data-material-return-checklist]");
+    if (!order) {
+      window.__cxMaterialsReturnOrder = "";
+      if (box) {
+        box.dataset.materialReturnSelectedOrder = "";
+        box.innerHTML = "";
+      }
+      return;
+    }
+    const data = await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(order)}/return-checklist`);
+    renderMaterialReturnChecklist(data);
+  }
+
+  async function returnMaterialOrder() {
+    const selectedBox = document.querySelector("[data-material-return-checklist]");
+    const orderFromChecklist = String(selectedBox?.dataset?.materialReturnSelectedOrder || window.__cxMaterialsReturnOrder || "").trim();
+    const orderFromInput = String(document.querySelector("[data-material-return-order]")?.value || "").trim();
+    const observation = String(document.querySelector("[data-material-return-observation]")?.value || "").trim();
+    const checkedUnits = Array.from(document.querySelectorAll("[data-material-return-unit]:checked"));
+    const orderFromUnit = String(checkedUnits[0]?.getAttribute("data-material-return-unit-order") || "").trim();
+    const orderNumber = orderFromChecklist || orderFromUnit || orderFromInput;
+    const unitIds = checkedUnits
+      .map((input) => input.getAttribute("data-material-return-unit"))
+      .filter(Boolean);
+
+    if (!orderNumber) {
+      showMaterialsNotice("Selecciona una orden de salida.", "error");
+      return;
+    }
+    if (!observation) {
+      showMaterialsNotice("Escribe una observación de devolución.", "error");
+      return;
+    }
+    if (!unitIds.length) {
+      showMaterialsNotice("Marca al menos un Label/SKU para devolver.", "error");
+      return;
+    }
+
+    await api(`/materials/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(orderNumber)}/return-selected`, {
       method: "POST",
-      body: JSON.stringify({ order_number: orderNumber, observation, labels }),
+      body: JSON.stringify({ order_number: orderNumber, observation, unit_ids: unitIds }),
     });
     await renderMaterialsModule();
     setTimeout(() => showMaterialsNotice("Devolución registrada. Inventario actualizado."), 80);
   }
 
-  function fillReturnOrder(orderNumber) {
+  async function fillReturnOrder(orderNumber) {
+    const safeOrder = String(orderNumber || "").trim();
+    window.__cxMaterialsReturnOrder = safeOrder;
+    const checklist = document.querySelector("[data-material-return-checklist]");
+    if (checklist) checklist.dataset.materialReturnSelectedOrder = safeOrder;
     const input = document.querySelector("[data-material-return-order]");
     if (input) {
-      input.value = orderNumber || "";
+      input.value = safeOrder;
       input.focus();
+    }
+    renderMaterialReturnSearchResults([]);
+    try {
+      await loadMaterialReturnChecklist(safeOrder);
+    } catch (error) {
+      showMaterialsNotice(error.message || "No se pudo cargar la orden.", "error");
     }
   }
 
@@ -3443,11 +3741,11 @@
             <section class="client-panel">
               <div class="client-eyebrow">Devolución</div>
               <h2>Registrar devolución por número de orden</h2>
-              <p class="client-muted">Cruza la devolución con la orden de salida y suma stock en Inventario.</p>
+              <p class="client-muted">Busca la orden de salida, despliega sus materiales y marca los Label/SKU que vuelven al inventario.</p>
               <div class="cx-materials-form-row">
                 <label>
                   <span class="client-muted">Número de orden</span>
-                  <input class="cx-materials-input" data-material-return-order placeholder="MAT-20260505-000001">
+                  <input class="cx-materials-input" data-material-return-order placeholder="Busca MAT-20260506-000003" autocomplete="off">
                 </label>
                 <label>
                   <span class="client-muted">Observación de devolución</span>
@@ -3455,10 +3753,8 @@
                 </label>
                 <button class="cx-materials-action primary" type="button" data-material-return-save>Registrar devolución</button>
               </div>
-              <div style="margin-top:12px">
-                <span class="client-muted">Labels/SKU devueltos opcionales, separados por coma o salto de línea</span>
-                <textarea class="cx-materials-input" data-material-return-labels rows="3" placeholder="SKU-001, SKU-002"></textarea>
-              </div>
+              <div class="cx-materials-return-results" data-material-return-results></div>
+              <div class="cx-materials-return-checklist" data-material-return-checklist></div>
             </section>
           </section>
         </div>
@@ -4622,7 +4918,13 @@
 
       const materialReturnLoad = target.closest("[data-material-return-load]");
       if (materialReturnLoad) {
-        fillReturnOrder(materialReturnLoad.dataset.materialReturnLoad);
+        await fillReturnOrder(materialReturnLoad.dataset.materialReturnLoad);
+        return;
+      }
+
+      const materialReturnPick = target.closest("[data-material-return-order-pick]");
+      if (materialReturnPick) {
+        await fillReturnOrder(materialReturnPick.dataset.materialReturnOrderPick);
         return;
       }
 
@@ -4670,6 +4972,22 @@
           const text = String(row.textContent || "").toLowerCase();
           row.style.display = !query || text.includes(query) ? "" : "none";
         });
+        return;
+      }
+
+      const materialReturnOrderInput = event.target.closest("[data-material-return-order]");
+      if (materialReturnOrderInput) {
+        const query = String(materialReturnOrderInput.value || "").trim();
+        if (query !== String(window.__cxMaterialsReturnOrder || "")) {
+          window.__cxMaterialsReturnOrder = "";
+          const checklist = document.querySelector("[data-material-return-checklist]");
+          if (checklist) checklist.dataset.materialReturnSelectedOrder = "";
+        }
+        window.clearTimeout(window.__materialsReturnSearchTimer);
+        window.__materialsReturnSearchTimer = window.setTimeout(() => {
+          searchMaterialReturnOrders(query);
+        }, 220);
+        return;
       }
     });
   }
@@ -5588,6 +5906,67 @@
         border-radius: 18px;
         padding: 18px;
         background: rgba(0,0,0,.14);
+      }
+
+
+      .cx-materials-return-results,
+      .cx-materials-return-checklist {
+        margin-top: 14px;
+        display: grid;
+        gap: 10px;
+      }
+      .cx-materials-order-pick {
+        width: 100%;
+        text-align: left;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.07);
+        color: inherit;
+        border-radius: 15px;
+        padding: 12px 14px;
+        cursor: pointer;
+        font-weight: 900;
+      }
+      .cx-materials-order-pick:hover {
+        border-color: rgba(255,255,255,.28);
+        transform: translateY(-1px);
+      }
+      .cx-materials-return-summary {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.06);
+        border-radius: 18px;
+        padding: 14px;
+        display: grid;
+        gap: 5px;
+      }
+      .cx-materials-return-line {
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(0,0,0,.14);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .cx-materials-return-line summary {
+        cursor: pointer;
+        padding: 14px;
+        font-weight: 1000;
+      }
+      .cx-materials-return-units {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 8px;
+        padding: 0 14px 14px;
+      }
+      .cx-materials-return-unit {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 11px;
+        border: 1px solid rgba(255,255,255,.10);
+        background: rgba(255,255,255,.06);
+        border-radius: 13px;
+        font-weight: 900;
+      }
+      .cx-materials-return-unit.disabled {
+        opacity: .45;
       }
 
       @media (max-width: 1100px) {

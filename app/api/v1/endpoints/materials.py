@@ -61,6 +61,14 @@ class MaterialReturnPayload(BaseModel):
     labels: list[str] | None = None
 
 
+class MaterialReturnSelectedPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    observation: str | None = None
+    unit_ids: list[str] | None = None
+    order_number: str | None = None
+
+
 def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
     try:
         if value is None or value == "":
@@ -634,6 +642,377 @@ async def deliver_material_request(
     row = dict(result.mappings().first())
     await db.commit()
     return material_request_out(row)
+
+
+
+
+@router.get("/companies/{company_id}/orders/search")
+async def search_material_return_orders(
+    company_id: UUID,
+    q: str = "",
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_materials_storage(db)
+
+    query = (q or "").strip()
+    if not query:
+        return {"company_id": str(company_id), "orders": []}
+
+    limit = max(1, min(int(limit or 10), 25))
+    result = await db.execute(
+        text("""
+            SELECT
+              mr.order_number,
+              MIN(mr.requested_at) AS requested_at,
+              MAX(COALESCE(mr.employee_name, '')) AS employee_name,
+              MAX(COALESCE(mr.employee_role, '')) AS employee_role,
+              MAX(COALESCE(mr.destination, '')) AS destination,
+              COUNT(*) AS lines_count,
+              COALESCE(SUM(mr.quantity), 0) AS quantity_total,
+              COALESCE(SUM(GREATEST(mr.quantity - COALESCE(mr.quantity_returned, 0), 0)), 0) AS quantity_pending_return,
+              BOOL_OR(mr.status = 'delivered') AS has_delivered,
+              BOOL_OR(mr.status = 'returned_partial') AS has_partial
+            FROM material_requests mr
+            WHERE mr.company_id = :company_id
+              AND COALESCE(mr.order_number, '') <> ''
+              AND UPPER(mr.order_number) LIKE UPPER(:query)
+              AND mr.status IN ('delivered', 'returned_partial')
+            GROUP BY mr.order_number
+            ORDER BY MAX(mr.created_at) DESC
+            LIMIT :limit
+        """),
+        {"company_id": str(company_id), "query": f"%{query}%", "limit": limit},
+    )
+
+    orders = []
+    for row in result.mappings().all():
+        pending = _num(row.get("quantity_pending_return"))
+        orders.append({
+            "order_number": row.get("order_number") or "",
+            "requested_at": row.get("requested_at").isoformat() if hasattr(row.get("requested_at"), "isoformat") else None,
+            "employee_name": row.get("employee_name") or "",
+            "employee_role": row.get("employee_role") or "",
+            "destination": row.get("destination") or "",
+            "lines_count": int(row.get("lines_count") or 0),
+            "quantity_total": _num(row.get("quantity_total")),
+            "quantity_pending_return": pending,
+            "status": "delivered" if row.get("has_delivered") else "returned_partial",
+        })
+
+    return {"company_id": str(company_id), "orders": orders}
+
+
+async def _ensure_return_units_for_requests(db: AsyncSession, requests: list[dict[str, Any]]) -> None:
+    for request in requests:
+        request_id = str(request["id"])
+        count_result = await db.execute(
+            text("SELECT COUNT(*) FROM material_order_units WHERE request_id = :request_id"),
+            {"request_id": request_id},
+        )
+        if int(count_result.scalar() or 0) > 0:
+            continue
+
+        qty = _int_quantity(request.get("quantity"))
+        for index in range(qty):
+            await db.execute(
+                text("""
+                    INSERT INTO material_order_units (
+                        company_id, request_id, order_number, inventory_item_id,
+                        unit_index, label_sku, status, destination,
+                        delivered_at, created_at, updated_at
+                    )
+                    VALUES (
+                        :company_id, :request_id, :order_number, :inventory_item_id,
+                        :unit_index, NULL, 'delivered', :destination,
+                        COALESCE(:delivered_at, now()), now(), now()
+                    )
+                """),
+                {
+                    "company_id": str(request["company_id"]),
+                    "request_id": request_id,
+                    "order_number": request.get("order_number"),
+                    "inventory_item_id": str(request.get("inventory_item_id")) if request.get("inventory_item_id") else None,
+                    "unit_index": index + 1,
+                    "destination": request.get("destination") or "",
+                    "delivered_at": request.get("delivered_at"),
+                },
+            )
+
+
+@router.get("/companies/{company_id}/orders/{order_number}/return-checklist")
+async def get_material_return_checklist(
+    company_id: UUID,
+    order_number: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_materials_storage(db)
+
+    order_number = (order_number or "").strip()
+    if not order_number:
+        raise HTTPException(status_code=422, detail="Número de orden obligatorio.")
+
+    result = await db.execute(
+        text("""
+            SELECT
+              mr.*,
+              ii.name_reference,
+              ii.item_size,
+              ii.color
+            FROM material_requests mr
+            LEFT JOIN inventory_items ii ON ii.id = mr.inventory_item_id
+            WHERE mr.company_id = :company_id
+              AND mr.order_number = :order_number
+              AND mr.status IN ('delivered', 'returned_partial')
+            ORDER BY mr.created_at ASC, mr.id ASC
+        """),
+        {"company_id": str(company_id), "order_number": order_number},
+    )
+    requests = [dict(row) for row in result.mappings().all()]
+    if not requests:
+        return {
+            "company_id": str(company_id),
+            "order_number": order_number,
+            "found": False,
+            "message": "Orden de salida entregada no encontrada.",
+            "lines": [],
+        }
+
+    await _ensure_return_units_for_requests(db, requests)
+    await db.commit()
+
+    request_ids = [str(r["id"]) for r in requests]
+    placeholders = ", ".join([f":r{i}" for i in range(len(request_ids))])
+    params = {f"r{i}": rid for i, rid in enumerate(request_ids)}
+
+    units_result = await db.execute(
+        text(f"""
+            SELECT *
+            FROM material_order_units
+            WHERE request_id IN ({placeholders})
+            ORDER BY request_id, unit_index ASC, created_at ASC
+        """),
+        params,
+    )
+
+    units_by_request: dict[str, list[dict[str, Any]]] = {}
+    for unit in units_result.mappings().all():
+        unit_dict = dict(unit)
+        units_by_request.setdefault(str(unit_dict.get("request_id")), []).append(unit_dict)
+
+    lines = []
+    for request in requests:
+        request_id = str(request["id"])
+        units = []
+        for unit in units_by_request.get(request_id, []):
+            unit_status = str(unit.get("status") or "").lower()
+            label = (unit.get("label_sku") or "").strip()
+            index = int(unit.get("unit_index") or 0)
+            units.append({
+                "unit_id": str(unit.get("id")),
+                "unit_index": index,
+                "label_sku": label or f"Unidad {index}",
+                "status": unit_status or "delivered",
+                "available": unit_status == "delivered",
+                "returned_observation": unit.get("returned_observation") or "",
+                "returned_at": unit.get("returned_at").isoformat() if hasattr(unit.get("returned_at"), "isoformat") else None,
+            })
+
+        qty = _num(request.get("quantity"))
+        returned = _num(request.get("quantity_returned"))
+        lines.append({
+            "request_id": request_id,
+            "inventory_item_id": str(request.get("inventory_item_id")) if request.get("inventory_item_id") else None,
+            "name_reference": request.get("name_reference") or request.get("material_name") or "",
+            "material_name": request.get("material_name") or "",
+            "item_size": request.get("item_size") or "",
+            "color": request.get("color") or "",
+            "quantity": qty,
+            "quantity_returned": returned,
+            "quantity_pending_return": max(qty - returned, 0),
+            "status": request.get("status") or "",
+            "destination": request.get("destination") or "",
+            "units": units,
+        })
+
+    first = requests[0]
+    return {
+        "company_id": str(company_id),
+        "order_number": order_number,
+        "found": True,
+        "employee_name": first.get("employee_name") or "",
+        "employee_role": first.get("employee_role") or "",
+        "destination": first.get("destination") or "",
+        "requested_at": first.get("requested_at").isoformat() if hasattr(first.get("requested_at"), "isoformat") else None,
+        "lines": lines,
+    }
+
+
+@router.post("/companies/{company_id}/orders/{order_number}/return-selected")
+async def return_selected_material_units(
+    company_id: UUID,
+    order_number: str,
+    payload: MaterialReturnSelectedPayload,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_materials_storage(db)
+
+    order_number = (order_number or payload.order_number or "").strip()
+    if not order_number:
+        raise HTTPException(status_code=422, detail="Número de orden obligatorio para devolución.")
+
+    observation = (payload.observation or "").strip()
+    if not observation:
+        raise HTTPException(status_code=422, detail="Observación de devolución obligatoria.")
+
+    raw_unit_ids = payload.unit_ids or []
+    unit_ids: list[str] = []
+    for raw in raw_unit_ids:
+        try:
+            unit_ids.append(str(UUID(str(raw))))
+        except Exception:
+            continue
+
+    unit_ids = list(dict.fromkeys(unit_ids))
+    if not unit_ids:
+        raise HTTPException(status_code=422, detail="Selecciona al menos un Label/SKU para devolver.")
+
+    placeholders = ", ".join([f":u{i}" for i in range(len(unit_ids))])
+    params: dict[str, Any] = {
+        "company_id": str(company_id),
+        "order_number": order_number,
+    }
+    params.update({f"u{i}": uid for i, uid in enumerate(unit_ids)})
+
+    result = await db.execute(
+        text(f"""
+            SELECT
+              mou.id AS unit_id,
+              mou.request_id,
+              mou.inventory_item_id,
+              mr.company_id,
+              mr.order_number,
+              mr.quantity,
+              mr.quantity_returned
+            FROM material_order_units mou
+            JOIN material_requests mr ON mr.id = mou.request_id
+            WHERE mr.company_id = :company_id
+              AND mr.order_number = :order_number
+              AND mr.status IN ('delivered', 'returned_partial')
+              AND mou.status = 'delivered'
+              AND mou.id IN ({placeholders})
+            ORDER BY mou.request_id, mou.unit_index
+        """),
+        params,
+    )
+    selected_units = [dict(row) for row in result.mappings().all()]
+    if not selected_units:
+        raise HTTPException(status_code=404, detail="No hay Label/SKU entregados pendientes de devolución para esa orden.")
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for unit in selected_units:
+        request_id = str(unit["request_id"])
+        item = grouped.setdefault(request_id, {
+            "request_id": request_id,
+            "inventory_item_id": str(unit.get("inventory_item_id")) if unit.get("inventory_item_id") else None,
+            "quantity": _to_decimal(unit.get("quantity"), Decimal("0")),
+            "quantity_returned": _to_decimal(unit.get("quantity_returned"), Decimal("0")),
+            "unit_ids": [],
+        })
+        item["unit_ids"].append(str(unit["unit_id"]))
+
+    updated_rows: list[dict[str, Any]] = []
+    total_returned = Decimal("0")
+
+    for request_id, group in grouped.items():
+        qty = Decimal(len(group["unit_ids"])).quantize(Decimal("0.01"))
+        total_returned += qty
+
+        if group.get("inventory_item_id"):
+            await db.execute(
+                text("""
+                    UPDATE inventory_items
+                    SET current_stock = current_stock + :qty,
+                        stock = COALESCE(stock, current_stock) + :qty,
+                        stock_actual = COALESCE(stock_actual, current_stock) + :qty,
+                        updated_at = now()
+                    WHERE id = :item_id
+                """),
+                {"item_id": group["inventory_item_id"], "qty": qty},
+            )
+
+            await db.execute(
+                text("""
+                    INSERT INTO inventory_movements (
+                        id, company_id, item_id, movement_type, quantity_delta, quantity,
+                        source_module, source_ref, notes, type, reason, created_at, updated_at
+                    )
+                    VALUES (
+                        :id, :company_id, :item_id, 'return', :quantity_delta, :quantity,
+                        'materials', :source_ref, :notes, 'return', :reason, now(), now()
+                    )
+                """),
+                {
+                    "id": str(uuid4()),
+                    "company_id": str(company_id),
+                    "item_id": group["inventory_item_id"],
+                    "quantity_delta": qty,
+                    "quantity": qty,
+                    "source_ref": order_number,
+                    "notes": observation,
+                    "reason": "materials_return_selected",
+                },
+            )
+
+        unit_placeholders = ", ".join([f":ru{i}" for i in range(len(group["unit_ids"]))])
+        unit_params = {f"ru{i}": uid for i, uid in enumerate(group["unit_ids"])}
+        unit_params["observation"] = observation
+
+        await db.execute(
+            text(f"""
+                UPDATE material_order_units
+                SET status = 'returned',
+                    returned_observation = :observation,
+                    returned_at = now(),
+                    updated_at = now()
+                WHERE id IN ({unit_placeholders})
+                  AND status = 'delivered'
+            """),
+            unit_params,
+        )
+
+        new_returned = group["quantity_returned"] + qty
+        total = group["quantity"]
+        new_status = "returned" if new_returned >= total else "returned_partial"
+
+        update_result = await db.execute(
+            text("""
+                UPDATE material_requests
+                SET status = CAST(:status AS varchar),
+                    quantity_returned = :quantity_returned,
+                    returned_at = CASE WHEN CAST(:status AS varchar) = 'returned' THEN now() ELSE returned_at END,
+                    notes = COALESCE(notes, '') || CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\n' END || CAST(:return_note AS text),
+                    status_updated_at = now(),
+                    updated_at = now()
+                WHERE id = :request_id
+                RETURNING *
+            """),
+            {
+                "request_id": request_id,
+                "status": new_status,
+                "quantity_returned": new_returned,
+                "return_note": f"Devolución: {observation}",
+            },
+        )
+        updated_rows.append(dict(update_result.mappings().first()))
+
+    await db.commit()
+    return {
+        "company_id": str(company_id),
+        "order_number": order_number,
+        "returned_quantity": _num(total_returned),
+        "updated": [material_request_out(row) for row in updated_rows],
+    }
 
 
 @router.post("/companies/{company_id}/returns")
