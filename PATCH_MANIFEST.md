@@ -1,19 +1,14 @@
-# PATCH MANIFEST — 015C-R8 MATERIALS OPERATION RULES
+# PATCH MANIFEST — 016A-R2 KPIs Realtime True Data
 
-## Files
-- app/api/v1/endpoints/materials.py
+Archivos:
+- app/api/v1/endpoints/kpis.py
 - app/web/client.js
-- README_MATERIALS_OPERATION_RULES_015C_R8.md
-- PATCH_MANIFEST.md
+- README_KPIS_REALTIME_TRUE_DATA_016A_R2.md
 
-## DB changes applied safely by ensure_materials_storage()
-ALTER TABLE IF NOT EXISTS:
-- material_requests.consigned_at
-- material_requests.archived_at
-- material_requests.exported_at
-- material_requests.closed_at
-- material_requests.operation_notes
-- material_order_units.consigned_at
-- material_order_units.consigned_observation
+Validaciones realizadas:
+- node --check app/web/client.js
+- python -m py_compile app/api/v1/endpoints/kpis.py
 
-No hard reset. No data delete.
+Notas:
+- El error de datos falsos venía de usar created_at de payroll_period_items como filtro principal.
+- La fuente correcta para KPI de nómina es el cálculo vivo del módulo payroll y/o periodos cerrados por period_start/period_end.

@@ -626,6 +626,13 @@
     const total = Array.isArray(visible) ? visible.length : 0;
     const metrics = state.dashboardMetrics || {};
 
+    if (Array.isArray(metrics.kpiDashboardCards) && metrics.kpiDashboardCards.length) {
+      return metrics.kpiDashboardCards.slice(0, 4).map((card) => [
+        card.label || "KPI",
+        String(card.format === "money" ? kpiMoney(card.value) : kpiNumber(card.value, Number(card.value || 0) % 1 === 0 ? 0 : 2))
+      ]);
+    }
+
     const kpis = [];
 
     if (hasAnyClientModule(codes, ["workforce"])) {
@@ -683,7 +690,9 @@
       actions.push({ label: "Inventario", action: "inventory:open" });
     }
 
-    if (hasAnyClientModule(codes, ["reports", "kpis"])) {
+    if (hasAnyClientModule(codes, ["kpis"])) {
+      actions.push({ label: "Ver KPIs", action: "kpis:open" });
+    } else if (hasAnyClientModule(codes, ["reports"])) {
       actions.push({ label: "Ver reportes", action: "reports:open" });
     }
 
@@ -4634,6 +4643,605 @@
   }
   /* CX_PAYROLL_CORE_013_R1_END */
 
+
+  /* CX_KPIS_OPERATIVOS_016A_START */
+  function ensureKpisStyles() {
+    if (document.getElementById("cxKpis016AStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxKpis016AStyles";
+    style.textContent = `
+      .cx-kpis-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: end;
+        justify-content: space-between;
+        margin-top: 18px;
+      }
+      .cx-kpis-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: end;
+      }
+      .cx-kpis-field {
+        display: grid;
+        gap: 6px;
+      }
+      .cx-kpis-field span {
+        font-size: 11px;
+        letter-spacing: .11em;
+        text-transform: uppercase;
+        opacity: .72;
+        font-weight: 1000;
+      }
+      .cx-kpis-field input,
+      .cx-kpis-field select {
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(255,255,255,.08);
+        color: var(--cx-text, #fff);
+        border-radius: 14px;
+        padding: 12px 13px;
+        min-height: 44px;
+        outline: none;
+        font-weight: 900;
+      }
+      .cx-kpis-section-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(180px, 1fr));
+        gap: 14px;
+        margin-top: 18px;
+      }
+      .cx-kpis-card {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.065);
+        border-radius: 22px;
+        padding: 18px;
+        box-shadow: 0 18px 44px rgba(0,0,0,.20);
+      }
+      .cx-kpis-card span {
+        display: block;
+        color: rgba(255,255,255,.68);
+        font-size: 12px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        font-weight: 1000;
+      }
+      .cx-kpis-card strong {
+        display: block;
+        margin-top: 8px;
+        font-size: clamp(28px, 4vw, 48px);
+        line-height: .95;
+      }
+      .cx-kpis-card small {
+        color: rgba(255,255,255,.62);
+        font-weight: 800;
+      }
+      .cx-kpis-blocks {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(260px, 1fr));
+        gap: 18px;
+        margin-top: 22px;
+      }
+      .cx-kpis-block {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.055);
+        border-radius: 24px;
+        padding: 20px;
+      }
+      .cx-kpis-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .cx-kpis-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: center;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(255,255,255,.06);
+        border: 1px solid rgba(255,255,255,.09);
+      }
+      .cx-kpis-row strong {
+        font-size: 18px;
+      }
+      .cx-kpis-alert {
+        border-color: rgba(251,191,36,.35);
+        background: rgba(251,191,36,.10);
+      }
+      .cx-kpis-alert.critical {
+        border-color: rgba(248,113,113,.38);
+        background: rgba(248,113,113,.11);
+      }
+      .cx-kpis-empty {
+        padding: 18px;
+        border-radius: 18px;
+        border: 1px dashed rgba(255,255,255,.18);
+        color: rgba(255,255,255,.68);
+      }
+
+      .cx-kpis-search {
+        min-width: min(440px, 100%);
+        flex: 1 1 280px;
+      }
+      .cx-kpis-search input {
+        width: 100%;
+        padding-left: 42px;
+        background:
+          linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.04)),
+          rgba(255,255,255,.08);
+      }
+      .cx-kpis-search-wrap {
+        position: relative;
+      }
+      .cx-kpis-search-wrap::before {
+        content: "⌕";
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        opacity: .75;
+        font-size: 20px;
+        pointer-events: none;
+      }
+      .cx-kpis-pin {
+        margin-top: 14px;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.08);
+        color: var(--cx-text, #fff);
+        border-radius: 14px;
+        padding: 9px 12px;
+        cursor: pointer;
+        font-weight: 900;
+      }
+      .cx-kpis-pin.is-on {
+        border-color: rgba(34,197,94,.38);
+        background: rgba(34,197,94,.13);
+      }
+      .cx-kpis-hidden {
+        display: none !important;
+      }
+      .cx-kpis-live {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(255,255,255,.68);
+        font-size: 12px;
+        font-weight: 900;
+        margin-top: 10px;
+      }
+      @media (max-width: 1100px) {
+        .cx-kpis-section-grid,
+        .cx-kpis-blocks {
+          grid-template-columns: 1fr;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function kpisDefaultPeriod() {
+    const now = new Date();
+    const to = now.toISOString().slice(0, 10);
+    const fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { preset: "7d", start_date: fromDate.toISOString().slice(0, 10), end_date: to, search: "" };
+  }
+
+  function kpisReadPeriod() {
+    const fallback = window.__cxKpisPeriod || kpisDefaultPeriod();
+    const preset = document.querySelector("[data-kpis-preset]")?.value || fallback.preset || "7d";
+    const start_date = document.querySelector("[data-kpis-start]")?.value || fallback.start_date || "";
+    const end_date = document.querySelector("[data-kpis-end]")?.value || fallback.end_date || "";
+    const search = document.querySelector("[data-kpis-search]")?.value ?? fallback.search ?? window.__cxKpisSearch ?? "";
+    window.__cxKpisSearch = search;
+    return { preset, start_date, end_date, search };
+  }
+
+  function kpisQuery(period = kpisDefaultPeriod()) {
+    const params = new URLSearchParams();
+    params.set("preset", period.preset || "7d");
+    if (period.start_date) params.set("start_date", period.start_date);
+    if (period.end_date) params.set("end_date", period.end_date);
+    return params.toString();
+  }
+
+  async function fetchKpisSummary(period = kpisDefaultPeriod()) {
+    if (!state.companyId) throw new Error("Empresa no cargada.");
+    return api(`/kpis/companies/${encodeURIComponent(state.companyId)}/summary?${kpisQuery(period)}`);
+  }
+
+  async function saveKpisDashboardCards(keys = []) {
+    if (!state.companyId) throw new Error("Empresa no cargada.");
+    return api(`/kpis/companies/${encodeURIComponent(state.companyId)}/dashboard-cards`, {
+      method: "POST",
+      body: JSON.stringify({ cards: keys.map((key) => ({ key, enabled: true })) }),
+    });
+  }
+
+  function kpiNumber(value, decimals = 0) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n)) return decimals ? "0.00" : "0";
+    return decimals ? n.toFixed(decimals) : String(Math.round(n));
+  }
+
+  function kpiMoney(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n)) return "$0";
+    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  }
+
+  function kpiNormalizeText(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9ñ\s._-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function kpiSearchText(...parts) {
+    return kpiNormalizeText(parts.filter(Boolean).join(" "));
+  }
+
+  function applyKpisSearchFilter() {
+    const input = document.querySelector("[data-kpis-search]");
+    const query = kpiNormalizeText(input?.value || "");
+    window.__cxKpisSearch = input?.value || "";
+    document.querySelectorAll("[data-kpi-searchable]").forEach((el) => {
+      const haystack = kpiNormalizeText(el.getAttribute("data-kpi-searchable") || "");
+      const visible = !query || haystack.includes(query);
+      el.classList.toggle("cx-kpis-hidden", !visible);
+    });
+  }
+
+  function kpiCard(label, value, hint = "", key = "", showOnDashboard = false) {
+    const searchable = kpiSearchText(label, value, hint, key, moduleLabel(hint), "indicador kpi");
+    return `
+      <div class="cx-kpis-card" data-kpi-searchable="${h(searchable)}">
+        <span>${h(label)}</span>
+        <strong>${h(value)}</strong>
+        ${hint ? `<small>${h(hint)}</small>` : ""}
+        ${key ? `
+          <button class="cx-kpis-pin ${showOnDashboard ? "is-on" : ""}" type="button" data-kpi-dashboard-toggle="${h(key)}">
+            ${showOnDashboard ? "Visible en panel" : "Mostrar en panel"}
+          </button>
+        ` : ""}
+      </div>
+    `;
+  }
+
+  function kpiCardValue(card) {
+    const format = String(card.format || "").toLowerCase();
+    if (format === "money") return kpiMoney(card.value);
+    return kpiNumber(card.value, Number(card.value || 0) % 1 === 0 ? 0 : 2);
+  }
+
+  function kpiRow(label, value, extra = "") {
+    const searchable = kpiSearchText(label, value, extra);
+    return `
+      <div class="cx-kpis-row" data-kpi-searchable="${h(searchable)}">
+        <span>${h(label)}</span>
+        <strong>${h(value)}</strong>
+        ${extra ? `<small>${h(extra)}</small>` : ""}
+      </div>
+    `;
+  }
+
+  function kpiAlertRow(alert) {
+    const level = String(alert.level || "info").toLowerCase();
+    return `
+      <div class="cx-kpis-row cx-kpis-alert ${h(level)}" data-kpi-searchable="${h(kpiSearchText(alert.title || "Alerta", alert.module || "", alert.value ?? "", "alerta riesgo"))}">
+        <span>${h(alert.title || "Alerta")}</span>
+        <strong>${h(alert.value ?? "")}</strong>
+        <small>${h(moduleLabel(alert.module || ""))}</small>
+      </div>
+    `;
+  }
+
+  function renderKpisFilters(period = kpisDefaultPeriod()) {
+    return `
+      <div class="cx-kpis-toolbar">
+        <div class="cx-kpis-filters">
+          <label class="cx-kpis-field">
+            <span>Periodo</span>
+            <select data-kpis-preset>
+              <option value="today" ${period.preset === "today" ? "selected" : ""}>Hoy</option>
+              <option value="7d" ${period.preset === "7d" ? "selected" : ""}>7 días</option>
+              <option value="15d" ${period.preset === "15d" ? "selected" : ""}>15 días</option>
+              <option value="month" ${period.preset === "month" ? "selected" : ""}>Mes</option>
+              <option value="custom" ${period.preset === "custom" ? "selected" : ""}>Personalizado</option>
+            </select>
+          </label>
+          <label class="cx-kpis-field">
+            <span>Desde</span>
+            <input type="date" data-kpis-start value="${h(period.start_date || "")}">
+          </label>
+          <label class="cx-kpis-field">
+            <span>Hasta</span>
+            <input type="date" data-kpis-end value="${h(period.end_date || "")}">
+          </label>
+          <label class="cx-kpis-field cx-kpis-search">
+            <span>Buscar KPI</span>
+            <div class="cx-kpis-search-wrap">
+              <input type="search" data-kpis-search placeholder="Buscar: nómina, horas, gps, stock, materiales, devueltas..." value="${h(period.search || window.__cxKpisSearch || "")}">
+            </div>
+          </label>
+        </div>
+        <div class="client-actions">
+          <button class="client-btn" type="button" data-kpis-apply>Actualizar</button>
+          <button class="client-btn" type="button" data-kpis-export>CSV</button>
+          <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderKpisBlocks(summary = {}) {
+    const employees = summary.employees || {};
+    const attendance = summary.attendance || {};
+    const gps = summary.gps || {};
+    const inventory = summary.inventory || {};
+    const materials = summary.materials || {};
+    const payroll = summary.payroll || {};
+    const modules = new Set(Array.isArray(summary.modules) ? summary.modules : []);
+
+    const blocks = [];
+
+    blocks.push(`
+      <section class="cx-kpis-block" data-kpi-searchable="personal workforce activos pausa eventos asistencia turnos">
+        <div class="client-eyebrow">Personal / Workforce</div>
+        <h2>Estado operativo</h2>
+        <div class="cx-kpis-list">
+          ${kpiRow("Personal activo", kpiNumber(employees.active))}
+          ${kpiRow("Activos ahora", kpiNumber(attendance.active_now))}
+          ${kpiRow("En pausa", kpiNumber(attendance.paused_now))}
+          ${kpiRow("Eventos del periodo", kpiNumber(attendance.events))}
+        </div>
+      </section>
+    `);
+
+    if (modules.has("gps")) {
+      blocks.push(`
+        <section class="cx-kpis-block" data-kpi-searchable="gps ubicacion ubicaciones perimetro dentro fuera coordenadas">
+          <div class="client-eyebrow">GPS</div>
+          <h2>Ubicación y perímetros</h2>
+          <div class="cx-kpis-list">
+            ${kpiRow("Ubicaciones enviadas", kpiNumber(gps.locations))}
+            ${kpiRow("Dentro de perímetro", kpiNumber(gps.inside))}
+            ${kpiRow("Fuera de perímetro", kpiNumber(gps.outside))}
+            ${kpiRow("Perímetros activos", kpiNumber(gps.perimeters))}
+          </div>
+        </section>
+      `);
+    }
+
+    if (modules.has("materials")) {
+      blocks.push(`
+        <section class="cx-kpis-block" data-kpi-searchable="materiales solicitudes ordenes entregadas devueltas consignas pendientes">
+          <div class="client-eyebrow">Materiales</div>
+          <h2>Órdenes y movimientos</h2>
+          <div class="cx-kpis-list">
+            ${kpiRow("Solicitudes del periodo", kpiNumber(materials.total))}
+            ${kpiRow("Entregadas", kpiNumber(materials.delivered))}
+            ${kpiRow("Devueltas", kpiNumber((materials.returned || 0) + (materials.returned_partial || 0)))}
+            ${kpiRow("En consigna", kpiNumber((materials.consigned || 0) + (materials.consigned_partial || 0)))}
+          </div>
+        </section>
+      `);
+    }
+
+    if (modules.has("inventory") || modules.has("stock")) {
+      blocks.push(`
+        <section class="cx-kpis-block" data-kpi-searchable="inventario stock items bajo cero salidas unidades">
+          <div class="client-eyebrow">Inventario</div>
+          <h2>Disponibilidad</h2>
+          <div class="cx-kpis-list">
+            ${kpiRow("Items activos", kpiNumber(inventory.active))}
+            ${kpiRow("Stock bajo", kpiNumber(inventory.low_stock))}
+            ${kpiRow("Stock en cero", kpiNumber(inventory.zero_stock))}
+            ${kpiRow("Unidades en stock", kpiNumber(inventory.total_stock_units))}
+          </div>
+        </section>
+      `);
+    }
+
+    if (modules.has("payroll")) {
+      blocks.push(`
+        <section class="cx-kpis-block" data-kpi-searchable="nomina nómina payroll horas ordinarias extra descuentos bruto neto total estimado corte">
+          <div class="client-eyebrow">Nómina</div>
+          <h2>Estimado del periodo</h2>
+          <div class="cx-kpis-list">
+            ${kpiRow("Horas ordinarias", kpiNumber((payroll.regular_minutes || 0) / 60, 1))}
+            ${kpiRow("Horas extra", kpiNumber((payroll.extra_minutes || 0) / 60, 1))}
+            ${kpiRow("Turnos con corte", kpiNumber(payroll.closed_shifts || 0))}
+            ${kpiRow("Bruto", kpiMoney(payroll.gross_amount))}
+            ${kpiRow("Descuentos", kpiMoney(payroll.discount_amount))}
+            ${kpiRow("Total estimado", kpiMoney(payroll.net_amount))}
+            ${payroll.source ? kpiRow("Fuente", payroll.source) : ""}
+          </div>
+        </section>
+      `);
+    }
+
+    const top = Array.isArray(materials.top_requested) ? materials.top_requested : [];
+    blocks.push(`
+      <section class="cx-kpis-block" data-kpi-searchable="top operativo materiales mas solicitados ranking">
+        <div class="client-eyebrow">Top operativo</div>
+        <h2>Materiales más solicitados</h2>
+        <div class="cx-kpis-list">
+          ${top.length ? top.map((item) => kpiRow(
+            `${item.name_reference || "Material"}${item.item_size ? ` · ${item.item_size}` : ""}`,
+            kpiNumber(item.quantity)
+          )).join("") : `<div class="cx-kpis-empty">Sin solicitudes en el periodo.</div>`}
+        </div>
+      </section>
+    `);
+
+    return `<div class="cx-kpis-blocks">${blocks.join("")}</div>`;
+  }
+
+  function renderKpisAlerts(summary = {}) {
+    const alerts = Array.isArray(summary.alerts) ? summary.alerts : [];
+    return `
+      <section class="cx-kpis-block" data-kpi-searchable="alertas riesgos operativos criticas stock gps pendientes">
+        <div class="client-eyebrow">Alertas</div>
+        <h2>Riesgos operativos</h2>
+        <div class="cx-kpis-list">
+          ${alerts.length ? alerts.map(kpiAlertRow).join("") : `<div class="cx-kpis-empty">Sin alertas críticas en el periodo.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  async function renderKpisModule(period = kpisDefaultPeriod()) {
+    if (!isClientModuleActive("kpis")) {
+      render();
+      return;
+    }
+
+    ensureKpisStyles();
+
+    const company = state.company || {};
+    window.__cxKpisPeriod = period;
+
+    let summary = null;
+    let loadError = "";
+
+    try {
+      summary = await fetchKpisSummary(period);
+      window.__cxKpisSummary = summary;
+    } catch (error) {
+      loadError = error.message || "No se pudieron cargar KPIs.";
+      summary = { cards: [], alerts: [], modules: [] };
+      window.__cxKpisSummary = summary;
+    }
+
+    const cards = Array.isArray(summary.cards) ? summary.cards : [];
+    const mainCards = cards;
+
+    $("app").innerHTML = `
+      <main class="client-shell" data-kpis-root>
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("kpis")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Módulo KPIs</div>
+              <h1 class="client-title">KPIs Operativos</h1>
+              <p class="client-muted">Indicadores ejecutivos calculados desde Workforce, GPS, Materiales, Inventario y Nómina según módulos activos.</p>
+              ${renderKpisFilters(period)}
+              <div class="cx-kpis-live">Actualización automática cada 60s · Fuente: datos reales por módulo</div>
+              ${loadError ? `<div class="personal-toast error" style="margin-top:14px">${h(loadError)}</div>` : ""}
+            </header>
+
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px">
+                <div>
+                  <div class="client-eyebrow">Resumen ejecutivo</div>
+                  <h2>Voltage / Operación viva</h2>
+                </div>
+                <span class="client-badge">${h((summary.modules || []).length)} módulos activos</span>
+              </div>
+
+              <div class="cx-kpis-section-grid">
+                ${mainCards.map((card) => kpiCard(card.label, kpiCardValue(card), moduleLabel(card.module), card.key, !!card.show_on_dashboard)).join("")}
+              </div>
+
+              ${renderKpisBlocks(summary)}
+
+              <div class="cx-kpis-blocks">
+                ${renderKpisAlerts(summary)}
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    applyKpisSearchFilter();
+    setupKpisAutoRefresh();
+  }
+
+  function setupKpisAutoRefresh() {
+    if (window.__cxKpisAutoRefresh) {
+      clearInterval(window.__cxKpisAutoRefresh);
+      window.__cxKpisAutoRefresh = null;
+    }
+    window.__cxKpisAutoRefresh = setInterval(async () => {
+      if (!document.querySelector("[data-kpis-root]")) {
+        clearInterval(window.__cxKpisAutoRefresh);
+        window.__cxKpisAutoRefresh = null;
+        return;
+      }
+      try {
+        await renderKpisModule(kpisReadPeriod());
+      } catch (error) {
+        console.warn("CLONEXA KPIs auto-refresh", error);
+      }
+    }, 60000);
+  }
+
+  if (!window.__cxKpisInputBound) {
+    window.__cxKpisInputBound = true;
+    document.addEventListener("input", (event) => {
+      const target = event.target;
+      if (target && target.matches && target.matches("[data-kpis-search]")) {
+        applyKpisSearchFilter();
+      }
+    });
+  }
+
+  function exportKpisCsv() {
+    const summary = window.__cxKpisSummary || {};
+    const rows = [["Grupo", "Indicador", "Valor"]];
+
+    (summary.cards || []).forEach((card) => {
+      rows.push(["Resumen", card.label || "", card.value ?? 0]);
+    });
+
+    const sections = [
+      ["Personal", summary.employees || {}],
+      ["Asistencia", summary.attendance || {}],
+      ["GPS", summary.gps || {}],
+      ["Inventario", summary.inventory || {}],
+      ["Materiales", summary.materials || {}],
+      ["Nómina", summary.payroll || {}],
+    ];
+
+    sections.forEach(([group, data]) => {
+      Object.entries(data || {}).forEach(([key, value]) => {
+        if (Array.isArray(value) || (value && typeof value === "object")) return;
+        rows.push([group, key, value]);
+      });
+    });
+
+    (summary.alerts || []).forEach((alert) => {
+      rows.push(["Alerta", `${alert.module || ""} - ${alert.title || ""}`, alert.value ?? ""]);
+    });
+
+    const csv = rows.map((line) => line.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clonexa_kpis_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+  /* CX_KPIS_OPERATIVOS_016A_END */
+
+
   async function renderClientModulePlaceholder(code) {
     const company = state.company || {};
     $("app").innerHTML = `
@@ -4875,6 +5483,11 @@
           return;
         }
 
+        if (action === "kpis:open" && isClientModuleActive("kpis")) {
+          await renderKpisModule();
+          return;
+        }
+
         if (action === "reports:open" && isClientModuleActive("reports")) {
           await renderClientModulePlaceholder("reports");
           return;
@@ -4922,6 +5535,11 @@
           return;
         }
 
+        if (code === "kpis") {
+          await renderKpisModule();
+          return;
+        }
+
         await renderClientModulePlaceholder(code);
         return;
       }
@@ -4933,6 +5551,36 @@
 
       if (target.closest("[data-payroll-export]")) {
         exportPayrollCsv();
+        return;
+      }
+
+      if (target.closest("[data-kpis-apply]")) {
+        await renderKpisModule(kpisReadPeriod());
+        return;
+      }
+
+      const kpiDashboardToggle = target.closest("[data-kpi-dashboard-toggle]");
+      if (kpiDashboardToggle) {
+        const key = String(kpiDashboardToggle.dataset.kpiDashboardToggle || "");
+        const summary = window.__cxKpisSummary || {};
+        const cards = Array.isArray(summary.cards) ? summary.cards : [];
+        const selected = cards
+          .filter((card) => !!card.show_on_dashboard)
+          .map((card) => String(card.key || ""))
+          .filter(Boolean);
+
+        const next = new Set(selected);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+
+        await saveKpisDashboardCards(Array.from(next).slice(0, 4));
+        state.dashboardMetrics = await loadClientDashboardMetrics(state.companyId, activeClientModules());
+        await renderKpisModule(window.__cxKpisPeriod || kpisDefaultPeriod());
+        return;
+      }
+
+      if (target.closest("[data-kpis-export]")) {
+        exportKpisCsv();
         return;
       }
 
@@ -5256,6 +5904,17 @@
       } catch (error) {
         metrics.botConfigured = false;
         metrics.botStatus = "error";
+      }
+    }
+
+    if (codes.has("kpis")) {
+      try {
+        const summary = await api(`/kpis/companies/${encodeURIComponent(companyId)}/summary?preset=today`);
+        metrics.kpiDashboardCards = Array.isArray(summary.dashboard_cards)
+          ? summary.dashboard_cards
+          : [];
+      } catch (error) {
+        metrics.kpiDashboardCards = [];
       }
     }
 

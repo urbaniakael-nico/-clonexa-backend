@@ -27,6 +27,7 @@ for _module_name, _prefix, _tags in [
     ("inventory", "/inventory", ["inventory"]),
     ("materials", "/materials", ["materials"]),
     ("materials_webapp", "/materials-webapp", ["materials_webapp"]),
+    ("kpis", "/kpis", ["kpis"]),
     ("bots", "/bots", ["bots"]),
     ("modules", "/modules", ["modules"]),
     ("packages", "/packages", ["packages"]),
