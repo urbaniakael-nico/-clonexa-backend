@@ -3579,7 +3579,7 @@ async def _process_telegram_update(
         employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
         has_language = await _user_language_preference_exists(db, bot.company_id, telegram_user_id)
         if send_replies:
-            if command == "/start":
+            if command == "/start" and employee is None:
                 await _send_telegram_message(
                     token,
                     chat_id,
