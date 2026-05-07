@@ -526,6 +526,9 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "break_started": "☕ Pausa registrada.\nEste tiempo NO suma para nómina ni KPIs de producción.",
         "work_resumed": "✅ Retomaste labores.\nEl tiempo pagable vuelve a contar.",
         "shift_ended": "🏁 Turno finalizado.",
+        "end_shift_summary_prompt": "🏁 Para finalizar turno, por favor resume tu gestión de hoy.\n\nEscribe tu resumen en un solo mensaje.",
+        "end_shift_summary_saved": "📝 Resumen de gestión guardado en el cierre de jornada.",
+        "end_shift_summary_required": "Para cerrar la jornada necesito tu resumen de gestión de hoy.",
         "shift_summary": "Feliz descanso, {employee_name}.\n\nTotal acumulado del corte:\nOrdinarias: {regular}\nExtras: {extra}\n\nProyección pago: {projected_pay}\nDescuento del corte: {discount}\nTotal estimado: {estimated_total}",
         "observation_saved": "📝 Observación registrada.",
         "material_requested": "📦 Solicitud de material registrada.",
@@ -722,7 +725,9 @@ def _lang(value: str | None) -> str:
 
 def _txt(language: str | None, key: str, **kwargs: Any) -> str:
     lang = _lang(language)
-    template = BOT_TEXTS.get(lang, BOT_TEXTS[DEFAULT_LANGUAGE]).get(key, key)
+    template = BOT_TEXTS.get(lang, BOT_TEXTS[DEFAULT_LANGUAGE]).get(key)
+    if template is None:
+        template = BOT_TEXTS[DEFAULT_LANGUAGE].get(key, key)
     return template.format(**kwargs)
 
 
@@ -1245,6 +1250,224 @@ async def _clear_pending_gps_checkin(
               AND action = 'gps_check_in'
         """),
         {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
+    )
+
+
+async def _set_pending_end_shift_summary(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+    telegram_username: str | None,
+    employee_id: UUID,
+    chat_id: str | None,
+    language: str,
+) -> None:
+    await ensure_bot_storage(db)
+    await db.execute(
+        text("""
+            INSERT INTO company_telegram_pending_actions (
+                company_id,
+                telegram_user_id,
+                telegram_username,
+                employee_id,
+                action,
+                payload_json,
+                expires_at,
+                updated_at
+            )
+            VALUES (
+                :company_id,
+                :telegram_user_id,
+                :telegram_username,
+                :employee_id,
+                'end_shift_summary',
+                CAST(:payload_json AS jsonb),
+                now() + interval '90 minutes',
+                now()
+            )
+            ON CONFLICT (company_id, telegram_user_id, action)
+            DO UPDATE SET
+                telegram_username = EXCLUDED.telegram_username,
+                employee_id = EXCLUDED.employee_id,
+                payload_json = EXCLUDED.payload_json,
+                expires_at = EXCLUDED.expires_at,
+                updated_at = now()
+        """),
+        {
+            "company_id": str(company_id),
+            "telegram_user_id": str(telegram_user_id),
+            "telegram_username": telegram_username,
+            "employee_id": str(employee_id),
+            "payload_json": json.dumps(
+                {
+                    "chat_id": chat_id,
+                    "language": _lang(language),
+                    "reason": "end_shift_summary_required",
+                }
+            ),
+        },
+    )
+
+
+async def _get_pending_end_shift_summary(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+) -> dict[str, Any] | None:
+    await ensure_bot_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT id, employee_id, payload_json, expires_at
+            FROM company_telegram_pending_actions
+            WHERE company_id = :company_id
+              AND telegram_user_id = :telegram_user_id
+              AND action = 'end_shift_summary'
+              AND (expires_at IS NULL OR expires_at > now())
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """),
+        {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def _clear_pending_end_shift_summary(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    telegram_user_id: str,
+) -> None:
+    await db.execute(
+        text("""
+            DELETE FROM company_telegram_pending_actions
+            WHERE company_id = :company_id
+              AND telegram_user_id = :telegram_user_id
+              AND action = 'end_shift_summary'
+        """),
+        {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
+    )
+
+
+async def _process_end_shift_summary_text(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    token: str,
+    update: dict[str, Any],
+    message: dict[str, Any],
+    telegram_user_id: str,
+    username: str | None,
+    chat_id: str | None,
+    text_value: str,
+    language: str,
+    send_replies: bool,
+) -> TelegramBotPollItem | None:
+    pending = await _get_pending_end_shift_summary(
+        db,
+        company_id=bot.company_id,
+        telegram_user_id=telegram_user_id,
+    )
+    if pending is None:
+        return None
+
+    summary = (text_value or "").strip()
+
+    if not summary or summary.startswith("/") or summary.startswith("clx:"):
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "end_shift_summary_prompt"))
+        return TelegramBotPollItem(
+            update_id=update.get("update_id"),
+            ok=False,
+            action="end_shift_summary_required",
+            message=_txt(language, "end_shift_summary_required"),
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    employee = None
+    pending_employee_id = pending.get("employee_id")
+    if pending_employee_id:
+        try:
+            employee = await db.get(Employee, UUID(str(pending_employee_id)))
+        except Exception:
+            employee = None
+
+    if employee is None:
+        employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
+
+    employee_status = str(getattr(employee, "status", "") or "").lower() if employee is not None else ""
+    if employee is None or str(employee.company_id) != str(bot.company_id) or employee_status not in {"active", "activo"}:
+        await _clear_pending_end_shift_summary(
+            db,
+            company_id=bot.company_id,
+            telegram_user_id=telegram_user_id,
+        )
+        await db.commit()
+        if send_replies:
+            await _send_telegram_message(
+                token,
+                chat_id,
+                _txt(language, "not_linked", telegram_user_id=telegram_user_id),
+                reply_markup=_language_keyboard(),
+            )
+        return TelegramBotPollItem(
+            update_id=update.get("update_id"),
+            ok=False,
+            action="not_linked",
+            message="Empleado no vinculado.",
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    command_config = TELEGRAM_COMMANDS["/salida"]
+    created, message_text = await _create_bot_attendance_event(
+        db,
+        bot=bot,
+        employee=employee,
+        update=update,
+        message=message,
+        command="/salida",
+        args=summary,
+        command_config=command_config,
+        language=language,
+    )
+
+    await _clear_pending_end_shift_summary(
+        db,
+        company_id=bot.company_id,
+        telegram_user_id=telegram_user_id,
+    )
+    await db.commit()
+
+    if send_replies:
+        company = await ensure_company_exists(db, bot.company_id)
+        await _send_telegram_message(
+            token,
+            chat_id,
+            f"{message_text}\n\n{_txt(language, 'end_shift_summary_saved')}",
+        )
+        await _send_dynamic_menu(
+            db,
+            token=token,
+            chat_id=chat_id,
+            company=company,
+            employee=employee,
+            language=language,
+        )
+
+    return TelegramBotPollItem(
+        update_id=update.get("update_id"),
+        ok=created,
+        action="check_out",
+        message=message_text,
+        employee_id=employee.id,
+        employee_name=employee.full_name,
+        event_created=created,
+        telegram_user_id=telegram_user_id,
+        telegram_username=username,
     )
 
 
@@ -3417,6 +3640,22 @@ async def _process_telegram_update(
         )
 
     if command and not command.startswith("/") and telegram_user_id:
+        end_shift_summary_result = await _process_end_shift_summary_text(
+            db,
+            bot=bot,
+            token=token,
+            update=update,
+            message=message,
+            telegram_user_id=telegram_user_id,
+            username=username,
+            chat_id=chat_id,
+            text_value=text_value,
+            language=language,
+            send_replies=send_replies,
+        )
+        if end_shift_summary_result is not None:
+            return end_shift_summary_result
+
         pending_material = await _get_pending_material_request(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
         if pending_material is not None:
             return await _process_material_cart_text(
@@ -3616,6 +3855,36 @@ async def _process_telegram_update(
             employee_id=employee.id,
             employee_name=employee.full_name,
             event_created=created,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    if command_config.get("turn_action") == "end_shift" and not args:
+        await _set_pending_end_shift_summary(
+            db,
+            company_id=bot.company_id,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+            employee_id=employee.id,
+            chat_id=chat_id,
+            language=language,
+        )
+        await db.commit()
+
+        if callback_query_id:
+            await _answer_callback_query(token, callback_query_id, _txt(language, "end_shift_summary_required"))
+
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "end_shift_summary_prompt"))
+
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="end_shift_summary_requested",
+            message=_txt(language, "end_shift_summary_required"),
+            employee_id=employee.id,
+            employee_name=employee.full_name,
+            event_created=False,
             telegram_user_id=telegram_user_id,
             telegram_username=username,
         )
