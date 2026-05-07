@@ -47,3 +47,8 @@ api_router.include_router(company_users_router.router, prefix="/companies", tags
 # CLONEXA auth router
 from app.api.v1.endpoints import auth as auth_router
 api_router.include_router(auth_router.router, prefix="/auth", tags=["auth"])
+
+# CLONEXA 020B core settings router
+from app.api.v1.endpoints import core_settings as core_settings_router
+api_router.include_router(core_settings_router.router, prefix="/companies", tags=["core_settings"])
+

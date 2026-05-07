@@ -588,7 +588,7 @@
   }
 
   function visibleClientModules(modules = activeClientModules()) {
-    return (Array.isArray(modules) ? modules : []).filter((item) => item.code !== "core");
+    return (Array.isArray(modules) ? modules : []).filter((item) => !["core", "core_settings", "settings"].includes(item.code));
   }
 
   function isClientModuleActive(code) {
