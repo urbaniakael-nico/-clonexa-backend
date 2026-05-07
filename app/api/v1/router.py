@@ -28,6 +28,7 @@ for _module_name, _prefix, _tags in [
     ("materials", "/materials", ["materials"]),
     ("materials_webapp", "/materials-webapp", ["materials_webapp"]),
     ("kpis", "/kpis", ["kpis"]),
+    ("reports", "/reports", ["reports"]),
     ("bots", "/bots", ["bots"]),
     ("modules", "/modules", ["modules"]),
     ("packages", "/packages", ["packages"]),

@@ -7194,3 +7194,711 @@
 })();
 /* CX_WORKFORCE_ASISTENCIA_010B_END */
 
+
+/* CX_REPORTS_016B_START */
+(() => {
+  "use strict";
+
+  const API = "/api/v1";
+
+  const h = (value) =>
+    String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+
+  async function api(path, options = {}) {
+    const res = await fetch(`${API}${path}`, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      ...options,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText} ${text}`);
+    }
+    return res.json();
+  }
+
+  function companyIdFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("company_id") || params.get("companyId") || params.get("tenant") || "";
+  }
+
+  function todayIso(offsetDays = 0) {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function fmt(value) {
+    if (value === null || value === undefined || value === "") return "-";
+    if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toLocaleString("es", { maximumFractionDigits: 2 });
+    return String(value);
+  }
+
+  function fmtMoney(value) {
+    const n = Number(value || 0);
+    return n.toLocaleString("es", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  }
+
+  function fmtDate(value) {
+    if (!value) return "-";
+    try {
+      return new Intl.DateTimeFormat("es", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+    } catch (_) {
+      return String(value);
+    }
+  }
+
+  function reportStyles() {
+    if (document.getElementById("cxReports016BStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxReports016BStyles";
+    style.textContent = `
+      .cx-reports-toolbar {
+        display: grid;
+        grid-template-columns: 130px 130px 160px 160px 180px minmax(240px, 1fr) auto auto auto;
+        gap: 10px;
+        align-items: end;
+        margin-top: 18px;
+      }
+      .cx-reports-field span {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        opacity: .72;
+        margin-bottom: 7px;
+      }
+      .cx-reports-field input,
+      .cx-reports-field select {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.15);
+        background: rgba(0,0,0,.18);
+        color: inherit;
+        border-radius: 14px;
+        padding: 12px 12px;
+        outline: none;
+      }
+      .cx-reports-field select option { color: #111; }
+      .cx-reports-kpis {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(150px, 1fr));
+        gap: 12px;
+        margin: 18px 0;
+      }
+      .cx-reports-kpi {
+        border: 1px solid rgba(255,255,255,.13);
+        background: rgba(255,255,255,.06);
+        border-radius: 18px;
+        padding: 14px;
+        box-shadow: 0 18px 44px rgba(0,0,0,.16);
+      }
+      .cx-reports-kpi span {
+        display: block;
+        opacity: .72;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        margin-bottom: 7px;
+      }
+      .cx-reports-kpi strong {
+        font-size: 24px;
+        line-height: 1;
+      }
+      .cx-reports-chart-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(260px, 1fr));
+        gap: 14px;
+        margin: 18px 0;
+      }
+      .cx-reports-chart {
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.05);
+        border-radius: 20px;
+        padding: 16px;
+        min-height: 210px;
+      }
+      .cx-reports-chart h3 {
+        margin: 0 0 14px;
+        font-size: 16px;
+      }
+      .cx-report-bar {
+        display: grid;
+        grid-template-columns: 120px 1fr 56px;
+        gap: 10px;
+        align-items: center;
+        margin: 9px 0;
+      }
+      .cx-report-bar-label {
+        font-size: 12px;
+        opacity: .85;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .cx-report-bar-track {
+        height: 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.10);
+        overflow: hidden;
+      }
+      .cx-report-bar-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(0,255,136,.85), rgba(255,43,214,.85));
+        min-width: 2px;
+      }
+      .cx-reports-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 18px 0 12px;
+      }
+      .cx-reports-tab {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.06);
+        color: inherit;
+        border-radius: 999px;
+        padding: 10px 13px;
+        cursor: pointer;
+        font-weight: 800;
+      }
+      .cx-reports-tab.active {
+        background: rgba(0,255,136,.18);
+        border-color: rgba(0,255,136,.35);
+      }
+      .cx-reports-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 18px;
+      }
+      table.cx-reports-table {
+        width: 100%;
+        min-width: 1180px;
+        border-collapse: collapse;
+      }
+      .cx-reports-table th,
+      .cx-reports-table td {
+        text-align: left;
+        padding: 11px 12px;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+        font-size: 13px;
+        vertical-align: top;
+      }
+      .cx-reports-table th {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        opacity: .78;
+        background: rgba(255,255,255,.07);
+        position: sticky;
+        top: 0;
+      }
+      .cx-report-badge {
+        display: inline-flex;
+        border-radius: 999px;
+        padding: 6px 9px;
+        border: 1px solid rgba(255,255,255,.13);
+        background: rgba(255,255,255,.07);
+        font-weight: 800;
+      }
+      .cx-report-notice {
+        margin-top: 14px;
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.06);
+        border-radius: 16px;
+        padding: 13px 14px;
+      }
+      .cx-report-notice.error { background: rgba(255,80,80,.16); }
+      @media (max-width: 1200px) {
+        .cx-reports-toolbar { grid-template-columns: 1fr; }
+        .cx-reports-kpis { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+        .cx-reports-chart-grid { grid-template-columns: 1fr; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function reportsReadFilters() {
+    const mode = document.querySelector("[data-reports-mode]")?.value || "general";
+    const preset = document.querySelector("[data-reports-preset]")?.value || "7d";
+    const startDate = document.querySelector("[data-reports-from]")?.value || "";
+    const endDate = document.querySelector("[data-reports-to]")?.value || "";
+    const employeeId = document.querySelector("[data-reports-employee]")?.value || "";
+    const moduleCode = document.querySelector("[data-reports-module]")?.value || "";
+    const status = document.querySelector("[data-reports-status]")?.value || "";
+    const search = document.querySelector("[data-reports-search]")?.value || "";
+    return { mode, preset, startDate, endDate, employeeId, moduleCode, status, search };
+  }
+
+  function reportsDefaultFilters() {
+    return {
+      mode: "general",
+      preset: "7d",
+      startDate: todayIso(-7),
+      endDate: todayIso(0),
+      employeeId: "",
+      moduleCode: "",
+      status: "",
+      search: "",
+    };
+  }
+
+  function reportsUrl(filters = reportsDefaultFilters()) {
+    const companyId = companyIdFromUrl();
+    const params = new URLSearchParams();
+    params.set("preset", filters.preset || "7d");
+    if (filters.startDate) params.set("start_date", filters.startDate);
+    if (filters.endDate) params.set("end_date", filters.endDate);
+    if (filters.employeeId) params.set("employee_id", filters.employeeId);
+    if (filters.moduleCode) params.set("module", filters.moduleCode);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.search) params.set("search", filters.search.trim());
+    return `/reports/companies/${encodeURIComponent(companyId)}/general?${params.toString()}`;
+  }
+
+  async function loadReports(filters) {
+    return api(reportsUrl(filters));
+  }
+
+  function chartBars(items = [], labelKey = "label", valueKey = "value") {
+    const max = Math.max(1, ...items.map((item) => Number(item[valueKey] || 0)));
+    if (!items.length) return `<div class="client-muted">Sin datos para graficar.</div>`;
+    return items.map((item) => {
+      const label = item[labelKey] ?? "-";
+      const value = Number(item[valueKey] || 0);
+      const pct = Math.max(2, Math.min(100, (value / max) * 100));
+      return `
+        <div class="cx-report-bar">
+          <div class="cx-report-bar-label">${h(label)}</div>
+          <div class="cx-report-bar-track"><div class="cx-report-bar-fill" style="width:${pct}%"></div></div>
+          <div>${h(fmt(value))}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function activityChart(items = []) {
+    const prepared = items.map((item) => ({
+      label: String(item.date || "").slice(5),
+      value: Number(item.turnos || 0) + Number(item.gps || 0) + Number(item.materiales || 0),
+    }));
+    return chartBars(prepared);
+  }
+
+  function reportsCards(payload = {}) {
+    const cards = Array.isArray(payload.cards) ? payload.cards : [];
+    return `
+      <div class="cx-reports-kpis">
+        ${cards.map((card) => `
+          <div class="cx-reports-kpi">
+            <span>${h(card.label)}</span>
+            <strong>${card.format === "money" ? h(fmtMoney(card.value)) : h(fmt(card.value))}</strong>
+            <small>${h(card.module || "general")}</small>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function reportsCharts(payload = {}) {
+    const charts = payload.charts || {};
+    return `
+      <div class="cx-reports-chart-grid">
+        <div class="cx-reports-chart">
+          <h3>Actividad por día</h3>
+          ${activityChart(charts.activity_by_day || [])}
+        </div>
+        <div class="cx-reports-chart">
+          <h3>Materiales por estado</h3>
+          ${chartBars(charts.materials_by_status || [])}
+        </div>
+        <div class="cx-reports-chart">
+          <h3>GPS</h3>
+          ${chartBars(charts.gps_distribution || [])}
+        </div>
+        <div class="cx-reports-chart">
+          <h3>Inventario crítico</h3>
+          ${chartBars(charts.inventory_status || [])}
+        </div>
+        <div class="cx-reports-chart">
+          <h3>Nómina</h3>
+          ${chartBars(charts.payroll_breakdown || [])}
+        </div>
+        <div class="cx-reports-chart">
+          <h3>Movimientos inventario</h3>
+          ${chartBars(charts.inventory_movements || [])}
+        </div>
+      </div>
+    `;
+  }
+
+  function employeeOptions(payload = {}, selected = "") {
+    const rows = payload.details?.employee_summary || [];
+    return `
+      <option value="">Todos</option>
+      ${rows.map((row) => {
+        const value = row.employee_id || "";
+        if (!value) return "";
+        return `<option value="${h(value)}" ${String(selected) === String(value) ? "selected" : ""}>${h(row.employee_name || "Sin nombre")}</option>`;
+      }).join("")}
+    `;
+  }
+
+  function reportsToolbar(filters, payload) {
+    return `
+      <div class="cx-reports-toolbar">
+        <label class="cx-reports-field">
+          <span>Tipo</span>
+          <select data-reports-mode>
+            <option value="general" ${filters.mode === "general" ? "selected" : ""}>General</option>
+            <option value="employee" ${filters.mode === "employee" ? "selected" : ""}>Por persona</option>
+          </select>
+        </label>
+        <label class="cx-reports-field">
+          <span>Desde</span>
+          <input type="date" value="${h(filters.startDate || "")}" data-reports-from>
+        </label>
+        <label class="cx-reports-field">
+          <span>Hasta</span>
+          <input type="date" value="${h(filters.endDate || "")}" data-reports-to>
+        </label>
+        <label class="cx-reports-field">
+          <span>Periodo</span>
+          <select data-reports-preset>
+            <option value="today" ${filters.preset === "today" ? "selected" : ""}>Hoy</option>
+            <option value="7d" ${filters.preset === "7d" ? "selected" : ""}>7 días</option>
+            <option value="15d" ${filters.preset === "15d" ? "selected" : ""}>15 días</option>
+            <option value="month" ${filters.preset === "month" ? "selected" : ""}>Mes</option>
+            <option value="custom" ${filters.preset === "custom" ? "selected" : ""}>Personalizado</option>
+          </select>
+        </label>
+        <label class="cx-reports-field">
+          <span>Empleado</span>
+          <select data-reports-employee>
+            ${employeeOptions(payload, filters.employeeId)}
+          </select>
+        </label>
+        <label class="cx-reports-field">
+          <span>Lupa inteligente</span>
+          <input type="search" placeholder="Buscar empleado, MAT, GPS, stock, nómina..." value="${h(filters.search || "")}" data-reports-search>
+        </label>
+        <button class="client-btn" type="button" data-reports-generate>Generar</button>
+        <button class="client-btn" type="button" data-reports-export>CSV</button>
+        <button class="client-btn" type="button" data-reports-dashboard>Volver</button>
+      </div>
+      <div class="cx-reports-toolbar" style="grid-template-columns: 180px 180px 1fr; margin-top:10px">
+        <label class="cx-reports-field">
+          <span>Módulo</span>
+          <select data-reports-module>
+            <option value="">Todos</option>
+            <option value="workforce" ${filters.moduleCode === "workforce" ? "selected" : ""}>Workforce</option>
+            <option value="gps" ${filters.moduleCode === "gps" ? "selected" : ""}>GPS</option>
+            <option value="materials" ${filters.moduleCode === "materials" ? "selected" : ""}>Materiales</option>
+            <option value="inventory" ${filters.moduleCode === "inventory" ? "selected" : ""}>Inventario</option>
+            <option value="payroll" ${filters.moduleCode === "payroll" ? "selected" : ""}>Nómina</option>
+          </select>
+        </label>
+        <label class="cx-reports-field">
+          <span>Estado</span>
+          <input type="text" placeholder="delivered, returned, outside..." value="${h(filters.status || "")}" data-reports-status>
+        </label>
+        <div class="client-muted" style="align-self:end">Reporte general consolida toda la empresa. Por persona filtra al colaborador seleccionado.</div>
+      </div>
+    `;
+  }
+
+  const tableConfigs = {
+    employee_summary: {
+      title: "Resumen por empleado",
+      columns: [
+        ["employee_name", "Empleado"],
+        ["employee_role", "Rol"],
+        ["turnos", "Turnos"],
+        ["eventos", "Eventos"],
+        ["gps", "GPS"],
+        ["gps_fuera", "GPS fuera"],
+        ["materiales", "Materiales"],
+        ["material_devuelto", "Devueltos"],
+        ["consignas", "Consignas"],
+        ["horas_ordinarias", "Horas ord."],
+        ["horas_extra", "Horas extra"],
+        ["total_nomina", "Total nómina"],
+        ["alertas", "Alertas"],
+      ],
+    },
+    materials: {
+      title: "Materiales",
+      columns: [
+        ["order_number", "Orden"],
+        ["employee_name", "Solicitante"],
+        ["material_name", "Material"],
+        ["quantity", "Cantidad"],
+        ["quantity_returned", "Devuelto"],
+        ["status", "Estado"],
+        ["destination", "Destino"],
+        ["requested_at", "Solicitud"],
+        ["delivered_at", "Entrega"],
+        ["returned_at", "Devolución"],
+        ["notes", "Notas"],
+      ],
+    },
+    inventory_items: {
+      title: "Inventario",
+      columns: [
+        ["name_reference", "Referencia"],
+        ["sku", "SKU"],
+        ["item_size", "Tamaño"],
+        ["color", "Color"],
+        ["current_stock", "Stock actual"],
+        ["min_stock", "Mínimo"],
+        ["status", "Estado"],
+        ["updated_at", "Actualizado"],
+      ],
+    },
+    gps: {
+      title: "GPS",
+      columns: [
+        ["employee_name", "Empleado"],
+        ["employee_role", "Rol"],
+        ["gps_status", "Estado GPS"],
+        ["occurred_at", "Fecha/Hora"],
+        ["detail", "Detalle"],
+        ["status", "Estado"],
+      ],
+    },
+    payroll: {
+      title: "Nómina",
+      columns: [
+        ["employee_name", "Empleado"],
+        ["employee_role", "Rol"],
+        ["closed_shifts", "Turnos cerrados"],
+        ["regular_minutes", "Min. ordinarios"],
+        ["extra_minutes", "Min. extra"],
+        ["gross_amount", "Bruto"],
+        ["discount_amount", "Descuentos"],
+        ["net_amount", "Neto"],
+      ],
+    },
+    attendance: {
+      title: "Asistencia / Bitácora",
+      columns: [
+        ["occurred_at", "Fecha/Hora"],
+        ["employee_name", "Empleado"],
+        ["employee_role", "Rol"],
+        ["event_type", "Evento"],
+        ["source_channel", "Canal"],
+        ["module_code", "Módulo"],
+        ["status", "Estado"],
+        ["detail", "Detalle"],
+      ],
+    },
+  };
+
+  function tableValue(row, key) {
+    if (key.endsWith("_at") || key === "occurred_at" || key === "created_at" || key === "updated_at") return fmtDate(row[key]);
+    if (["gross_amount", "discount_amount", "net_amount", "total_nomina"].includes(key)) return fmtMoney(row[key]);
+    return fmt(row[key]);
+  }
+
+  function reportsTabs(active = "employee_summary") {
+    return `
+      <div class="cx-reports-tabs">
+        ${Object.entries(tableConfigs).map(([key, cfg]) => `
+          <button class="cx-reports-tab ${key === active ? "active" : ""}" type="button" data-reports-tab="${h(key)}">${h(cfg.title)}</button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function reportsTable(payload = {}, active = "employee_summary") {
+    const cfg = tableConfigs[active] || tableConfigs.employee_summary;
+    const rows = payload.details?.[active] || [];
+    return `
+      <div class="cx-reports-table-wrap">
+        <table class="cx-reports-table">
+          <thead>
+            <tr>${cfg.columns.map(([, label]) => `<th>${h(label)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.length ? rows.map((row) => `
+              <tr>
+                ${cfg.columns.map(([key]) => `<td>${key === "status" || key === "gps_status" ? `<span class="cx-report-badge">${h(tableValue(row, key))}</span>` : h(tableValue(row, key))}</td>`).join("")}
+              </tr>
+            `).join("") : `
+              <tr><td colspan="${cfg.columns.length}">Sin datos para los filtros seleccionados.</td></tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function reportWarnings(payload = {}, loadError = "") {
+    const errors = Array.isArray(payload.errors) ? payload.errors : [];
+    if (loadError) return `<div class="cx-report-notice error">${h(loadError)}</div>`;
+    if (!errors.length) return "";
+    return `<div class="cx-report-notice">Algunos bloques no tenían datos o no aplican: ${errors.map((e) => h(e.module)).join(", ")}</div>`;
+  }
+
+  async function renderReports(filters = null, activeTab = "employee_summary") {
+    reportStyles();
+    const app = document.getElementById("app");
+    if (!app) return;
+
+    const companyId = companyIdFromUrl();
+    const nextFilters = filters || reportsDefaultFilters();
+
+    let payload = {};
+    let loadError = "";
+
+    try {
+      payload = await loadReports(nextFilters);
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Reportes.";
+      payload = { details: {}, charts: {}, cards: [], errors: [] };
+    }
+
+    window.__cxReportsPayload = payload;
+    window.__cxReportsFilters = nextFilters;
+    window.__cxReportsActiveTab = activeTab;
+
+    const titleMode = nextFilters.employeeId ? "Reporte por persona" : "Reporte general";
+
+    app.innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo"><strong>CLONEXA</strong></div>
+            <h2 class="client-company-name">Reportes</h2>
+            <div class="client-muted">${h(companyId || "tenant")}</div>
+            <nav class="client-nav">
+              <button type="button" data-reports-dashboard>Dashboard</button>
+              <button class="active" type="button">Reportes</button>
+              <button type="button" data-reports-kpis>KPIs</button>
+            </nav>
+            <div class="client-footer-id">
+              <strong>Tenant activo</strong><br>
+              ${h(companyId || "")}
+            </div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Módulo Reportes</div>
+              <h1 class="client-title">${h(titleMode)}</h1>
+              <p class="client-muted">Histórico consolidado de Personal, GPS, Materiales, Inventario y Nómina. No modifica datos; solo audita y exporta.</p>
+              ${reportsToolbar(nextFilters, payload)}
+              ${reportWarnings(payload, loadError)}
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Resumen ejecutivo</div>
+              <h2>Indicadores del periodo</h2>
+              ${reportsCards(payload)}
+              ${reportsCharts(payload)}
+            </section>
+
+            <section class="client-panel" style="margin-top:18px">
+              <div class="client-eyebrow">Detalle operativo</div>
+              <h2>Tablas auditables</h2>
+              ${reportsTabs(activeTab)}
+              ${reportsTable(payload, activeTab)}
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  async function exportReportsCsv() {
+    const filters = window.__cxReportsFilters || reportsReadFilters();
+    const companyId = companyIdFromUrl();
+    const params = new URLSearchParams();
+    params.set("preset", filters.preset || "7d");
+    if (filters.startDate) params.set("start_date", filters.startDate);
+    if (filters.endDate) params.set("end_date", filters.endDate);
+    if (filters.employeeId) params.set("employee_id", filters.employeeId);
+    if (filters.moduleCode) params.set("module", filters.moduleCode);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.search) params.set("search", filters.search.trim());
+
+    const res = await fetch(`${API}/reports/companies/${encodeURIComponent(companyId)}/export.csv?${params.toString()}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${text}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clonexa_reporte_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  document.addEventListener("click", async (event) => {
+    const reportModule = event.target.closest('[data-client-module="reports"], [data-reports-open]');
+    if (reportModule) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      await renderReports();
+      return;
+    }
+  }, true);
+
+  document.addEventListener("click", async (event) => {
+    if (event.target.closest("[data-reports-dashboard]")) {
+      window.location.href = `/client?company_id=${encodeURIComponent(companyIdFromUrl())}`;
+      return;
+    }
+
+    if (event.target.closest("[data-reports-kpis]")) {
+      const kpiBtn = document.querySelector('[data-client-module="kpis"]');
+      if (kpiBtn) kpiBtn.click();
+      return;
+    }
+
+    if (event.target.closest("[data-reports-generate]")) {
+      const filters = reportsReadFilters();
+      if (filters.mode === "employee" && !filters.employeeId) {
+        const search = document.querySelector("[data-reports-search]");
+        if (search) search.placeholder = "Selecciona empleado para reporte por persona";
+      }
+      await renderReports(filters, window.__cxReportsActiveTab || "employee_summary");
+      return;
+    }
+
+    if (event.target.closest("[data-reports-export]")) {
+      try {
+        await exportReportsCsv();
+      } catch (error) {
+        const box = document.querySelector(".client-hero");
+        if (box) box.insertAdjacentHTML("beforeend", `<div class="cx-report-notice error">${h(error.message || "No se pudo exportar CSV.")}</div>`);
+      }
+      return;
+    }
+
+    const tab = event.target.closest("[data-reports-tab]");
+    if (tab) {
+      await renderReports(window.__cxReportsFilters || reportsReadFilters(), tab.dataset.reportsTab || "employee_summary");
+      return;
+    }
+  });
+
+  document.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    const input = event.target.closest("[data-reports-search]");
+    if (!input) return;
+    event.preventDefault();
+    await renderReports(reportsReadFilters(), window.__cxReportsActiveTab || "employee_summary");
+  });
+})();
+/* CX_REPORTS_016B_END */
+

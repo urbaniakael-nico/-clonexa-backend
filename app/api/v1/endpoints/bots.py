@@ -3341,6 +3341,13 @@ async def _process_telegram_update(
         employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
         has_language = await _user_language_preference_exists(db, bot.company_id, telegram_user_id)
         if send_replies:
+            if command == "/start":
+                await _send_telegram_message(
+                    token,
+                    chat_id,
+                    f"🆔 Tu Telegram ID es: {telegram_user_id or 'NO_DETECTADO'}\n\n"
+                    "Entrega este número a la persona encargada para completar tu registro en CLONEXA.",
+                )
             if not has_language:
                 await _send_telegram_message(token, chat_id, _txt(language, "choose_language"), reply_markup=_language_keyboard())
             elif employee is not None:

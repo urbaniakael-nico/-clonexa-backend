@@ -1,12 +1,48 @@
-.env
+﻿# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / IDE
 .DS_Store
-.idea/
+Thumbs.db
 .vscode/
-*.db
+.idea/
+
+# Logs
+*.log
+logs/
+
+# CLONEXA local evidence / backups / goldens
+CLONEXA_*_*.zip
+CLONEXA_*_*
+backup_*/
+backup_*_*/
+GOLDEN_*/
+GOLDEN_*.zip
+
+# Node
+node_modules/
 dist/
 build/
+
+# DB dumps
+*.sql
+*.dump
+*.bak
+*.sqlite
+*.db

@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
   "use strict";
   const form = document.getElementById("loginForm");
   const msg = document.getElementById("loginMessage");
@@ -21,12 +21,34 @@
         body: JSON.stringify({email: email.value.trim(), password: password.value})
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || "Credenciales inválidas");
+      if (!response.ok) throw new Error(data.detail || "Credenciales invÃ¡lidas");
       localStorage.setItem(TOKEN_KEY, data.access_token);
       setMessage("Acceso concedido. Redirigiendo...", true);
-      window.location.href = "/client";
+      const companyId =
+        data.company_id ||
+        data.companyId ||
+        data.company?.id ||
+        data.company?.company_id ||
+        data.user?.company_id ||
+        data.user?.companyId ||
+        data.company_user?.company_id ||
+        data.company_user?.companyId ||
+        data.account?.company_id ||
+        data.account?.companyId ||
+        "";
+
+      if (!companyId) {
+        throw new Error("Login correcto, pero la API no devolvió company_id para abrir el panel cliente.");
+      }
+
+      localStorage.setItem("clonexa_company_id", companyId);
+      localStorage.setItem("company_id", companyId);
+      localStorage.setItem("clonexa_login_payload", JSON.stringify(data));
+
+      window.location.href = `/client?company_id=${encodeURIComponent(companyId)}`;
     } catch (error) {
-      setMessage(error.message || "No fue posible iniciar sesión");
+      setMessage(error.message || "No fue posible iniciar sesiÃ³n");
     }
   });
 })();
+
