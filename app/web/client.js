@@ -7902,3 +7902,543 @@
 })();
 /* CX_REPORTS_016B_END */
 
+
+
+/* CLONEXA 020A-1 CLIENT ACCOUNT SESSION LAYER */
+(function clonexaClientAccountSessionLayer() {
+  "use strict";
+
+  const TOKEN_KEY = "clonexa_access_token";
+  const COMPANY_KEY = "clonexa_company_id";
+  const LEGACY_COMPANY_KEY = "company_id";
+
+  const TEXT = {
+    es: {
+      settings: "Configuración",
+      logout: "Salir",
+      title: "Configuración de cuenta",
+      firstLogin: "Primer ingreso: cambia tu contraseña",
+      account: "Cuenta",
+      email: "Correo",
+      newEmail: "Nuevo correo",
+      currentPassword: "Contraseña actual",
+      newPassword: "Nueva contraseña",
+      confirmPassword: "Confirmar contraseña",
+      language: "Idioma",
+      session: "Sesión",
+      timeout: "Tiempo de ventana abierta",
+      save: "Guardar cambios",
+      close: "Cerrar",
+      saved: "Configuración guardada.",
+      passwordRequired: "Debes cambiar la contraseña para continuar.",
+      sessionExpired: "Sesión expirada por inactividad.",
+      adminHint: "Panel cliente CLONEXA",
+      passwordHelp: "Deja nueva contraseña vacía si no deseas cambiarla.",
+      emailHelp: "Deja nuevo correo vacío si no deseas cambiarlo."
+    },
+    en: {
+      settings: "Settings",
+      logout: "Log out",
+      title: "Account settings",
+      firstLogin: "First login: change your password",
+      account: "Account",
+      email: "Email",
+      newEmail: "New email",
+      currentPassword: "Current password",
+      newPassword: "New password",
+      confirmPassword: "Confirm password",
+      language: "Language",
+      session: "Session",
+      timeout: "Open session window",
+      save: "Save changes",
+      close: "Close",
+      saved: "Settings saved.",
+      passwordRequired: "You must change your password to continue.",
+      sessionExpired: "Session expired due to inactivity.",
+      adminHint: "CLONEXA client panel",
+      passwordHelp: "Leave new password empty if you do not want to change it.",
+      emailHelp: "Leave new email empty if you do not want to change it."
+    },
+    fr: {
+      settings: "Configuration",
+      logout: "Quitter",
+      title: "Configuration du compte",
+      firstLogin: "Première connexion : changez votre mot de passe",
+      account: "Compte",
+      email: "E-mail",
+      newEmail: "Nouvel e-mail",
+      currentPassword: "Mot de passe actuel",
+      newPassword: "Nouveau mot de passe",
+      confirmPassword: "Confirmer le mot de passe",
+      language: "Langue",
+      session: "Session",
+      timeout: "Fenêtre de session ouverte",
+      save: "Enregistrer",
+      close: "Fermer",
+      saved: "Configuration enregistrée.",
+      passwordRequired: "Vous devez changer votre mot de passe pour continuer.",
+      sessionExpired: "Session expirée pour inactivité.",
+      adminHint: "Panneau client CLONEXA",
+      passwordHelp: "Laissez le nouveau mot de passe vide si vous ne souhaitez pas le changer.",
+      emailHelp: "Laissez le nouvel e-mail vide si vous ne souhaitez pas le changer."
+    }
+  };
+
+  let account = null;
+  let idleTimer = null;
+  let forced = false;
+
+  function token() {
+    return localStorage.getItem(TOKEN_KEY) || "";
+  }
+
+  function companyId() {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get("company_id") ||
+      params.get("companyId") ||
+      localStorage.getItem(COMPANY_KEY) ||
+      localStorage.getItem(LEGACY_COMPANY_KEY) ||
+      ""
+    );
+  }
+
+  function lang() {
+    const value = (account && account.language) || localStorage.getItem("clonexa_client_language") || "es";
+    return ["es", "en", "fr"].includes(value) ? value : "es";
+  }
+
+  function t(key) {
+    const pack = TEXT[lang()] || TEXT.es;
+    return pack[key] || TEXT.es[key] || key;
+  }
+
+  function headers() {
+    return {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token()}`
+    };
+  }
+
+  async function accountApi(path, options) {
+    const response = await fetch(`/api/v1/auth${path}`, Object.assign({
+      headers: headers()
+    }, options || {}));
+
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (_) {
+      data = {};
+    }
+
+    if (!response.ok) {
+      throw new Error(data.detail || data.message || `HTTP ${response.status}`);
+    }
+
+    return data;
+  }
+
+  function installStyles() {
+    if (document.getElementById("clx-account-layer-style")) return;
+
+    const style = document.createElement("style");
+    style.id = "clx-account-layer-style";
+    style.textContent = `
+      .clx-account-bar {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 99980;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .clx-account-pill {
+        background: rgba(15, 23, 42, 0.92);
+        color: #fff;
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 999px;
+        padding: 9px 13px;
+        font-size: 13px;
+        box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+        cursor: pointer;
+      }
+      .clx-account-pill.secondary {
+        background: rgba(255,255,255,0.96);
+        color: #0f172a;
+        border-color: rgba(15,23,42,0.12);
+      }
+      .clx-account-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 99990;
+        background: rgba(15, 23, 42, 0.52);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .clx-account-overlay.open {
+        display: flex;
+      }
+      .clx-account-modal {
+        width: min(560px, 96vw);
+        max-height: 92vh;
+        overflow: auto;
+        background: #fff;
+        color: #0f172a;
+        border-radius: 24px;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.35);
+        padding: 24px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .clx-account-modal h2 {
+        margin: 0 0 4px;
+        font-size: 22px;
+      }
+      .clx-account-muted {
+        color: #64748b;
+        font-size: 13px;
+        margin: 0 0 18px;
+      }
+      .clx-account-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .clx-account-grid label {
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .clx-account-grid input,
+      .clx-account-grid select {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        padding: 11px 12px;
+        font-size: 14px;
+      }
+      .clx-account-section {
+        border: 1px solid #e2e8f0;
+        border-radius: 18px;
+        padding: 16px;
+        margin-top: 14px;
+      }
+      .clx-account-section h3 {
+        margin: 0 0 10px;
+        font-size: 15px;
+      }
+      .clx-account-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 18px;
+      }
+      .clx-account-btn {
+        border: 0;
+        border-radius: 12px;
+        padding: 11px 14px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      .clx-account-btn.primary {
+        background: #111827;
+        color: #fff;
+      }
+      .clx-account-btn.ghost {
+        background: #f1f5f9;
+        color: #0f172a;
+      }
+      .clx-account-status {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #166534;
+      }
+      .clx-account-status.error {
+        color: #b91c1c;
+      }
+      .clx-account-forced .clx-account-close {
+        display: none;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function renderShell() {
+    if (document.getElementById("clx-account-bar")) return;
+
+    const bar = document.createElement("div");
+    bar.id = "clx-account-bar";
+    bar.className = "clx-account-bar";
+    bar.innerHTML = `
+      <button type="button" class="clx-account-pill secondary" id="clxAccountSettingsBtn">⚙ ${t("settings")}</button>
+      <button type="button" class="clx-account-pill" id="clxAccountLogoutBtn">⏻ ${t("logout")}</button>
+    `;
+    document.body.appendChild(bar);
+
+    const overlay = document.createElement("div");
+    overlay.id = "clx-account-overlay";
+    overlay.className = "clx-account-overlay";
+    overlay.innerHTML = `
+      <div class="clx-account-modal" id="clx-account-modal">
+        <h2 id="clxAccountTitle">${t("title")}</h2>
+        <p class="clx-account-muted" id="clxAccountSubtitle">${t("adminHint")}</p>
+
+        <div class="clx-account-section">
+          <h3>${t("account")}</h3>
+          <div class="clx-account-grid">
+            <label>
+              ${t("email")}
+              <input id="clxAccountEmail" type="email" disabled>
+            </label>
+            <p class="clx-account-muted">${t("emailHelp")}</p>
+            <label>
+              ${t("newEmail")}
+              <input id="clxAccountNewEmail" type="email" autocomplete="email">
+            </label>
+          </div>
+        </div>
+
+        <div class="clx-account-section">
+          <h3>${t("session")}</h3>
+          <div class="clx-account-grid">
+            <label>
+              ${t("language")}
+              <select id="clxAccountLanguage">
+                <option value="es">Español</option>
+                <option value="en">English</option>
+                <option value="fr">Français</option>
+              </select>
+            </label>
+            <label>
+              ${t("timeout")}
+              <select id="clxAccountTimeout">
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">60 min</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="clx-account-section">
+          <h3>${t("newPassword")}</h3>
+          <p class="clx-account-muted">${t("passwordHelp")}</p>
+          <div class="clx-account-grid">
+            <label>
+              ${t("currentPassword")}
+              <input id="clxAccountCurrentPassword" type="password" autocomplete="current-password">
+            </label>
+            <label>
+              ${t("newPassword")}
+              <input id="clxAccountNewPassword" type="password" autocomplete="new-password">
+            </label>
+            <label>
+              ${t("confirmPassword")}
+              <input id="clxAccountConfirmPassword" type="password" autocomplete="new-password">
+            </label>
+          </div>
+        </div>
+
+        <div id="clxAccountStatus" class="clx-account-status"></div>
+
+        <div class="clx-account-actions">
+          <button type="button" class="clx-account-btn ghost clx-account-close" id="clxAccountCloseBtn">${t("close")}</button>
+          <button type="button" class="clx-account-btn primary" id="clxAccountSaveBtn">${t("save")}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    document.getElementById("clxAccountSettingsBtn").addEventListener("click", () => openSettings(false));
+    document.getElementById("clxAccountLogoutBtn").addEventListener("click", () => logout("manual"));
+    document.getElementById("clxAccountCloseBtn").addEventListener("click", closeSettings);
+    document.getElementById("clxAccountSaveBtn").addEventListener("click", saveSettings);
+  }
+
+  function refreshTexts() {
+    const settingsBtn = document.getElementById("clxAccountSettingsBtn");
+    const logoutBtn = document.getElementById("clxAccountLogoutBtn");
+    if (settingsBtn) settingsBtn.textContent = `⚙ ${t("settings")}`;
+    if (logoutBtn) logoutBtn.textContent = `⏻ ${t("logout")}`;
+    document.documentElement.lang = lang();
+  }
+
+  function fillForm() {
+    if (!account) return;
+    const email = document.getElementById("clxAccountEmail");
+    const newEmail = document.getElementById("clxAccountNewEmail");
+    const langEl = document.getElementById("clxAccountLanguage");
+    const timeoutEl = document.getElementById("clxAccountTimeout");
+    const status = document.getElementById("clxAccountStatus");
+
+    if (email) email.value = account.email || "";
+    if (newEmail) newEmail.value = "";
+    if (langEl) langEl.value = account.language || "es";
+    if (timeoutEl) timeoutEl.value = String(account.session_timeout_minutes || 30);
+    if (status) {
+      status.textContent = "";
+      status.classList.remove("error");
+    }
+  }
+
+  function openSettings(force) {
+    forced = Boolean(force);
+    const overlay = document.getElementById("clx-account-overlay");
+    const modal = document.getElementById("clx-account-modal");
+    const title = document.getElementById("clxAccountTitle");
+    const subtitle = document.getElementById("clxAccountSubtitle");
+
+    if (!overlay || !modal) return;
+
+    fillForm();
+
+    modal.classList.toggle("clx-account-forced", forced);
+    if (title) title.textContent = forced ? t("firstLogin") : t("title");
+    if (subtitle) subtitle.textContent = forced ? t("passwordRequired") : t("adminHint");
+
+    overlay.classList.add("open");
+  }
+
+  function closeSettings() {
+    if (forced) return;
+    const overlay = document.getElementById("clx-account-overlay");
+    if (overlay) overlay.classList.remove("open");
+  }
+
+  function setStatus(message, isError) {
+    const status = document.getElementById("clxAccountStatus");
+    if (!status) return;
+    status.textContent = message || "";
+    status.classList.toggle("error", Boolean(isError));
+  }
+
+  async function saveSettings() {
+    try {
+      setStatus("", false);
+
+      const currentPassword = document.getElementById("clxAccountCurrentPassword").value || "";
+      const newPassword = document.getElementById("clxAccountNewPassword").value || "";
+      const confirmPassword = document.getElementById("clxAccountConfirmPassword").value || "";
+      const newEmail = (document.getElementById("clxAccountNewEmail").value || "").trim();
+      const language = document.getElementById("clxAccountLanguage").value || "es";
+      const sessionTimeout = Number(document.getElementById("clxAccountTimeout").value || 30);
+
+      account = await accountApi("/account/preferences", {
+        method: "PATCH",
+        body: JSON.stringify({
+          language: language,
+          session_timeout_minutes: sessionTimeout
+        })
+      });
+
+      localStorage.setItem("clonexa_client_language", account.language || "es");
+
+      if (newEmail) {
+        if (!currentPassword) throw new Error(t("currentPassword"));
+        account = await accountApi("/account/email", {
+          method: "PATCH",
+          body: JSON.stringify({
+            current_password: currentPassword,
+            new_email: newEmail
+          })
+        });
+      }
+
+      if (newPassword || confirmPassword || forced) {
+        if (!currentPassword) throw new Error(t("currentPassword"));
+        account = await accountApi("/account/password", {
+          method: "PATCH",
+          body: JSON.stringify({
+            current_password: currentPassword,
+            new_password: newPassword,
+            confirm_password: confirmPassword
+          })
+        });
+      }
+
+      refreshTexts();
+      configureIdleTimeout();
+      fillForm();
+      setStatus(t("saved"), false);
+
+      if (!account.must_change_password && !account.temporary_password) {
+        forced = false;
+        setTimeout(closeSettings, 700);
+      }
+    } catch (error) {
+      setStatus(error.message || String(error), true);
+    }
+  }
+
+  async function logout(reason) {
+    try {
+      if (token()) {
+        await accountApi("/logout", { method: "POST", body: JSON.stringify({}) });
+      }
+    } catch (_) {}
+
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem("clonexa_login_payload");
+    localStorage.removeItem("clonexa_company_id");
+    localStorage.removeItem("company_id");
+
+    if (reason === "timeout") {
+      localStorage.setItem("clonexa_logout_reason", t("sessionExpired"));
+    }
+
+    window.location.href = "/login";
+  }
+
+  function configureIdleTimeout() {
+    if (idleTimer) clearTimeout(idleTimer);
+
+    const minutes = Number((account && account.session_timeout_minutes) || 30);
+    const ms = minutes * 60 * 1000;
+
+    const reset = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => logout("timeout"), ms);
+    };
+
+    ["click", "keydown", "scroll", "mousemove", "touchstart"].forEach((eventName) => {
+      window.removeEventListener(eventName, reset, { passive: true });
+      window.addEventListener(eventName, reset, { passive: true });
+    });
+
+    reset();
+  }
+
+  async function init() {
+    if (!token()) return;
+
+    installStyles();
+    renderShell();
+
+    try {
+      account = await accountApi("/account", { method: "GET" });
+      localStorage.setItem("clonexa_client_language", account.language || "es");
+      localStorage.setItem("clonexa_company_id", account.company_id || companyId());
+      localStorage.setItem("company_id", account.company_id || companyId());
+
+      refreshTexts();
+      configureIdleTimeout();
+
+      if (account.must_change_password || account.temporary_password) {
+        openSettings(true);
+      }
+    } catch (error) {
+      console.warn("CLONEXA account layer disabled:", error);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();

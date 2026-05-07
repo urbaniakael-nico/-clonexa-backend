@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   "use strict";
   const form = document.getElementById("loginForm");
   const msg = document.getElementById("loginMessage");
@@ -52,3 +52,34 @@
   });
 })();
 
+
+
+/* CLONEXA 020A-1 LOGIN SESSION MESSAGE */
+(function clonexaLoginSessionMessage() {
+  "use strict";
+
+  function showReason() {
+    const reason = localStorage.getItem("clonexa_logout_reason");
+    if (!reason) return;
+
+    localStorage.removeItem("clonexa_logout_reason");
+
+    const msg = document.getElementById("loginMessage");
+    if (msg) {
+      msg.textContent = reason;
+      msg.classList.add("error");
+      return;
+    }
+
+    const box = document.createElement("div");
+    box.textContent = reason;
+    box.style.cssText = "margin:12px auto;padding:10px 14px;border-radius:12px;background:#fff7ed;color:#9a3412;max-width:520px;font-family:system-ui;";
+    document.body.prepend(box);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", showReason);
+  } else {
+    showReason();
+  }
+})();
