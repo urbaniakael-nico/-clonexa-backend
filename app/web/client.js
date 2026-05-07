@@ -523,6 +523,171 @@
   }
 
 
+
+/* CLONEXA 020D DASHBOARD NATIVE I18N */
+const CLX_DASHBOARD_I18N = {
+  es: {
+    "dashboard.eyebrow": "SISTEMA OPERATIVO EMPRESARIAL",
+    "dashboard.subtitle": "Panel operativo independiente conectado a sus módulos activos.",
+    "dashboard.panel_eyebrow": "MÓDULOS DEL PANEL",
+    "dashboard.services_active": "Servicios activos",
+    "dashboard.modules_active": "módulos activos",
+    "dashboard.active_now": clxDashboardText("dashboard.active_now"),
+    "dashboard.gps_inside": clxDashboardText("dashboard.gps_inside"),
+    "dashboard.material_delivered": clxDashboardText("dashboard.material_delivered"),
+    "dashboard.low_stock": clxDashboardText("dashboard.low_stock"),
+    "dashboard.add_staff": "Agregar personal",
+    "dashboard.view_bot": "Ver bot",
+    "dashboard.view_crm": "Ver CRM",
+    "dashboard.view_payroll": "Ver nómina",
+    "dashboard.inventory": "Inventario",
+    "nav.dashboard": "Dashboard",
+
+    "module.core.title": "Núcleo",
+    "module.core.subtitle": "base operativa",
+    "module.workforce.title": "Workforce",
+    "module.workforce.subtitle": "personal operativo",
+    "module.field.title": "Operación en campo",
+    "module.field.subtitle": "field",
+    "module.gps.title": "GPS",
+    "module.gps.subtitle": "ubicación y rutas",
+    "module.inventory.title": "Inventario",
+    "module.inventory.subtitle": "stock y materiales",
+    "module.materials.title": "Materiales",
+    "module.materials.subtitle": "solicitud y devolución",
+    "module.payroll.title": "Nómina",
+    "module.payroll.subtitle": "corte y cálculo",
+    "module.bots.title": "Bots",
+    "module.bots.subtitle": "telegram / whatsapp",
+    "module.crm.title": "CRM Campo",
+    "module.crm.subtitle": "operación en vivo",
+    "module.kpis.title": "KPIs",
+    "module.kpis.subtitle": "indicadores operativos",
+    "module.reports.title": "Reportes",
+    "module.reports.subtitle": "métricas y auditoría"
+  },
+
+  en: {
+    "dashboard.eyebrow": "BUSINESS OPERATING SYSTEM",
+    "dashboard.subtitle": "Independent operations panel connected to its active modules.",
+    "dashboard.panel_eyebrow": "PANEL MODULES",
+    "dashboard.services_active": "Active services",
+    "dashboard.modules_active": "active modules",
+    "dashboard.active_now": "Active now",
+    "dashboard.gps_inside": "GPS inside",
+    "dashboard.material_delivered": "Delivered material",
+    "dashboard.low_stock": "Low stock",
+    "dashboard.add_staff": "Add staff",
+    "dashboard.view_bot": "View bot",
+    "dashboard.view_crm": "View CRM",
+    "dashboard.view_payroll": "View payroll",
+    "dashboard.inventory": "Inventory",
+    "nav.dashboard": "Dashboard",
+
+    "module.core.title": "Core",
+    "module.core.subtitle": "operating base",
+    "module.workforce.title": "Workforce",
+    "module.workforce.subtitle": "operational staff",
+    "module.field.title": "Field Ops",
+    "module.field.subtitle": "field operation",
+    "module.gps.title": "GPS",
+    "module.gps.subtitle": "location and routes",
+    "module.inventory.title": "Inventory",
+    "module.inventory.subtitle": "stock and materials",
+    "module.materials.title": "Materials",
+    "module.materials.subtitle": "requests and returns",
+    "module.payroll.title": "Payroll",
+    "module.payroll.subtitle": "cutoff and calculation",
+    "module.bots.title": "Bots",
+    "module.bots.subtitle": "telegram / whatsapp",
+    "module.crm.title": "Field CRM",
+    "module.crm.subtitle": "live operation",
+    "module.kpis.title": "KPIs",
+    "module.kpis.subtitle": "operational indicators",
+    "module.reports.title": "Reports",
+    "module.reports.subtitle": "metrics and audit"
+  },
+
+  fr: {
+    "dashboard.eyebrow": "SYSTÈME OPÉRATIONNEL D’ENTREPRISE",
+    "dashboard.subtitle": "Panneau opérationnel indépendant connecté à ses modules actifs.",
+    "dashboard.panel_eyebrow": "MODULES DU PANNEAU",
+    "dashboard.services_active": "Services actifs",
+    "dashboard.modules_active": "modules actifs",
+    "dashboard.active_now": "Actifs maintenant",
+    "dashboard.gps_inside": "GPS à l’intérieur",
+    "dashboard.material_delivered": "Matériel livré",
+    "dashboard.low_stock": "Stock faible",
+    "dashboard.add_staff": "Ajouter du personnel",
+    "dashboard.view_bot": "Voir bot",
+    "dashboard.view_crm": "Voir CRM",
+    "dashboard.view_payroll": "Voir paie",
+    "dashboard.inventory": "Inventaire",
+    "nav.dashboard": "Tableau de bord",
+
+    "module.core.title": "Noyau",
+    "module.core.subtitle": "base opérationnelle",
+    "module.workforce.title": "Workforce",
+    "module.workforce.subtitle": "personnel opérationnel",
+    "module.field.title": "Opération terrain",
+    "module.field.subtitle": "opération terrain",
+    "module.gps.title": "GPS",
+    "module.gps.subtitle": "localisation et itinéraires",
+    "module.inventory.title": "Inventaire",
+    "module.inventory.subtitle": "stock et matériaux",
+    "module.materials.title": "Matériaux",
+    "module.materials.subtitle": "demandes et retours",
+    "module.payroll.title": "Paie",
+    "module.payroll.subtitle": "clôture et calcul",
+    "module.bots.title": "Bots",
+    "module.bots.subtitle": "telegram / whatsapp",
+    "module.crm.title": "CRM Terrain",
+    "module.crm.subtitle": "opération en direct",
+    "module.kpis.title": "KPIs",
+    "module.kpis.subtitle": "indicateurs opérationnels",
+    "module.reports.title": "Rapports",
+    "module.reports.subtitle": "métriques et audit"
+  }
+};
+
+function clxDashboardLanguage() {
+  const value = String(localStorage.getItem("clonexa_client_language") || "es").toLowerCase();
+  return ["es", "en", "fr"].includes(value) ? value : "es";
+}
+
+function clxDashboardText(key, params = {}) {
+  const lang = clxDashboardLanguage();
+  const pack = CLX_DASHBOARD_I18N[lang] || CLX_DASHBOARD_I18N.es;
+  let value = pack[key] || CLX_DASHBOARD_I18N.es[key] || key;
+
+  Object.keys(params || {}).forEach((paramKey) => {
+    value = value.replaceAll(`{${paramKey}}`, String(params[paramKey]));
+  });
+
+  return value;
+}
+
+function clxDashboardModuleMeta(code, source = {}, index = 0) {
+  const safeCode = String(code || "").trim();
+  const fallback = MODULE_UI[safeCode] || [
+    source.name || safeCode || `Modulo ${index + 1}`,
+    source.description || source.category || "servicio activo",
+    (safeCode || String(index + 1)).slice(0, 3).toUpperCase(),
+  ];
+
+  return [
+    clxDashboardText(`module.${safeCode}.title`) === `module.${safeCode}.title`
+      ? fallback[0]
+      : clxDashboardText(`module.${safeCode}.title`),
+    clxDashboardText(`module.${safeCode}.subtitle`) === `module.${safeCode}.subtitle`
+      ? fallback[1]
+      : clxDashboardText(`module.${safeCode}.subtitle`),
+    fallback[2],
+  ];
+}
+/* END CLONEXA 020D DASHBOARD NATIVE I18N */
+
+
   const MODULE_UI = {
     core: ["Core", "base operativa", "COR"],
     workforce: ["Workforce", "personal operativo", "WRK"],
@@ -559,11 +724,7 @@
       ""
     ).trim();
 
-    const meta = MODULE_UI[code] || [
-      source.name || code || `Modulo ${index + 1}`,
-      source.description || source.category || "servicio activo",
-      (code || String(index + 1)).slice(0, 3).toUpperCase(),
-    ];
+    const meta = clxDashboardModuleMeta(code, source, index);
 
     const enabled = row.enabled ?? source.enabled ?? source.is_active ?? true;
 
@@ -602,7 +763,8 @@
   }
 
   function moduleLabel(code) {
-    const meta = MODULE_UI[String(code || "").trim()];
+    const safeCode = String(code || "").trim();
+    const meta = clxDashboardModuleMeta(safeCode, {}, 0);
     return meta ? meta[0] : String(code || "Modulo");
   }
 
@@ -671,23 +833,23 @@
     const actions = [];
 
     if (hasAnyClientModule(codes, ["workforce"])) {
-      actions.push({ label: "Agregar personal", action: "workforce:add" });
+      actions.push({ label: clxDashboardText("dashboard.add_staff"), action: "workforce:add" });
     }
 
     if (hasAnyClientModule(codes, ["bots"])) {
-      actions.push({ label: "Ver bot", action: "bots:open" });
+      actions.push({ label: clxDashboardText("dashboard.view_bot"), action: "bots:open" });
     }
 
     if (hasAnyClientModule(codes, ["crm"])) {
-      actions.push({ label: "Ver CRM", action: "crm:open" });
+      actions.push({ label: clxDashboardText("dashboard.view_crm"), action: "crm:open" });
     }
 
     if (hasAnyClientModule(codes, ["payroll"])) {
-      actions.push({ label: "Ver nómina", action: "payroll:open" });
+      actions.push({ label: clxDashboardText("dashboard.view_payroll"), action: "payroll:open" });
     }
 
     if (hasAnyClientModule(codes, ["inventory"])) {
-      actions.push({ label: "Inventario", action: "inventory:open" });
+      actions.push({ label: clxDashboardText("dashboard.inventory"), action: "inventory:open" });
     }
 
     if (hasAnyClientModule(codes, ["kpis"])) {
@@ -722,7 +884,7 @@
 
   function renderClientNav(activeCode = "dashboard") {
     const modules = visibleClientModules(activeClientModules());
-    const buttons = [`<button class="${activeCode === "dashboard" ? "active" : ""}" type="button" data-client-back-dashboard>Dashboard</button>`];
+    const buttons = [`<button class="${activeCode === "dashboard" ? "active" : ""}" type="button" data-client-back-dashboard>${h(clxDashboardText("nav.dashboard"))}</button>`];
 
     modules.forEach((module) => {
       const code = module.code;
@@ -2990,7 +3152,7 @@
       row.color || "",
       row.current_stock ?? 0,
       row.min_stock ?? 0,
-      row.alert_low ? "Stock bajo" : "",
+      row.alert_low ? clxDashboardText("dashboard.low_stock") : "",
       inventoryStatusLabel(row.status),
     ]));
 
@@ -4996,7 +5158,7 @@
         <h2>Estado operativo</h2>
         <div class="cx-kpis-list">
           ${kpiRow("Personal activo", kpiNumber(employees.active))}
-          ${kpiRow("Activos ahora", kpiNumber(attendance.active_now))}
+          ${kpiRow(clxDashboardText("dashboard.active_now"), kpiNumber(attendance.active_now))}
           ${kpiRow("En pausa", kpiNumber(attendance.paused_now))}
           ${kpiRow("Eventos del periodo", kpiNumber(attendance.events))}
         </div>
@@ -5040,7 +5202,7 @@
           <h2>Disponibilidad</h2>
           <div class="cx-kpis-list">
             ${kpiRow("Items activos", kpiNumber(inventory.active))}
-            ${kpiRow("Stock bajo", kpiNumber(inventory.low_stock))}
+            ${kpiRow(clxDashboardText("dashboard.low_stock"), kpiNumber(inventory.low_stock))}
             ${kpiRow("Stock en cero", kpiNumber(inventory.zero_stock))}
             ${kpiRow("Unidades en stock", kpiNumber(inventory.total_stock_units))}
           </div>
@@ -5820,9 +5982,9 @@
             <header class="client-hero">
               <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
                 <div>
-                  <div class="client-eyebrow">Sistema operativo empresarial</div>
+                  <div class="client-eyebrow">${h(clxDashboardText("dashboard.eyebrow"))}</div>
                   <h1 class="client-title">${h(company.name || "Empresa")}</h1>
-                  <p class="client-muted">Panel operativo independiente conectado a sus m?dulos activos.</p>
+                  <p class="client-muted">${h(clxDashboardText("dashboard.subtitle"))}</p>
                 </div>
                 <span class="client-badge">LIVE</span>
               </div>
@@ -5839,10 +6001,10 @@
             <section class="client-panel">
               <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px">
                 <div>
-                  <div class="client-eyebrow">M?dulos del panel</div>
-                  <h2>Servicios activos</h2>
+                  <div class="client-eyebrow">${h(clxDashboardText("dashboard.panel_eyebrow"))}</div>
+                  <h2>${h(clxDashboardText("dashboard.services_active"))}</h2>
                 </div>
-                <span class="client-badge">${h(modules.length)} modulos activos</span>
+                <span class="client-badge">${h(modules.length)} ${h(clxDashboardText("dashboard.modules_active"))}</span>
               </div>
 
               <div class="client-module-grid">
