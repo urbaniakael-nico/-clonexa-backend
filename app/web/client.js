@@ -1,476 +1,4 @@
 
-/* CLONEXA 020A-4 FULL CLIENT RUNTIME I18N ENGINE */
-(function clonexaFullClientRuntimeI18nEngine() {
-  "use strict";
-
-  const LANG_KEY = "clonexa_client_language";
-
-  const T = {
-    systemOperatingBusiness: {
-      es: "SISTEMA OPERATIVO EMPRESARIAL",
-      en: "BUSINESS OPERATING SYSTEM",
-      fr: "SYSTÈME OPÉRATIONNEL D’ENTREPRISE",
-      a: ["SISTEMA OPERATIVO EMPRESARIAL"]
-    },
-    panelConnected: {
-      es: "Panel operativo independiente conectado a sus módulos activos.",
-      en: "Independent operations panel connected to its active modules.",
-      fr: "Panneau opérationnel indépendant connecté à ses modules actifs.",
-      a: [
-        "Panel operativo independiente conectado a sus módulos activos.",
-        "Panel operativo independiente conectado a sus m?dulos activos.",
-        "Panel operativo independiente conectado a sus mÃ³dulos activos."
-      ]
-    },
-    panelModules: {
-      es: "MÓDULOS DEL PANEL",
-      en: "PANEL MODULES",
-      fr: "MODULES DU PANNEAU",
-      a: ["MÓDULOS DEL PANEL", "MODULOS DEL PANEL", "M?DULOS DEL PANEL", "MÃ³DULOS DEL PANEL"]
-    },
-    activeServices: {
-      es: "Servicios activos",
-      en: "Active services",
-      fr: "Services actifs",
-      a: ["Servicios activos"]
-    },
-    activeTenant: {
-      es: "Tenant activo",
-      en: "Active tenant",
-      fr: "Tenant actif",
-      a: ["Tenant activo", "Active tenant"]
-    },
-    activeNow: {
-      es: "Activos ahora",
-      en: "Active now",
-      fr: "Actifs maintenant",
-      a: ["Activos ahora"]
-    },
-    gpsInside: {
-      es: "GPS dentro",
-      en: "GPS inside",
-      fr: "GPS à l’intérieur",
-      a: ["GPS dentro"]
-    },
-    materialDelivered: {
-      es: "Material entregado",
-      en: "Delivered material",
-      fr: "Matériel livré",
-      a: ["Material entregado"]
-    },
-    lowStock: {
-      es: "Stock bajo",
-      en: "Low stock",
-      fr: "Stock faible",
-      a: ["Stock bajo"]
-    },
-    activeModules: {
-      es: "módulos activos",
-      en: "active modules",
-      fr: "modules actifs",
-      a: ["módulos activos", "modulos activos", "m?dulos activos", "mÃ³dulos activos"]
-    },
-
-    dashboard: { es: "Dashboard", en: "Dashboard", fr: "Tableau de bord", a: ["Dashboard"] },
-    inventory: { es: "Inventario", en: "Inventory", fr: "Inventaire", a: ["Inventario", "Inventory"] },
-    fieldCrm: { es: "CRM Campo", en: "Field CRM", fr: "CRM Terrain", a: ["CRM Campo", "Field CRM"] },
-    payroll: { es: "Nómina", en: "Payroll", fr: "Paie", a: ["Nómina", "Nomina", "Payroll"] },
-    workforce: { es: "Personal", en: "Staff", fr: "Personnel", a: ["Personal", "Workforce", "Staff"] },
-    kpis: { es: "KPIs", en: "KPIs", fr: "KPIs", a: ["KPIs"] },
-    gps: { es: "GPS", en: "GPS", fr: "GPS", a: ["GPS"] },
-    bots: { es: "Bots", en: "Bots", fr: "Bots", a: ["Bots"] },
-    materials: { es: "Materiales", en: "Materials", fr: "Matériaux", a: ["Materiales", "Materials"] },
-    reports: { es: "Reportes", en: "Reports", fr: "Rapports", a: ["Reportes", "Reports"] },
-
-    stockMaterials: { es: "STOCK Y MATERIALES", en: "STOCK AND MATERIALS", fr: "STOCK ET MATÉRIAUX", a: ["STOCK Y MATERIALES"] },
-    liveOperation: { es: "OPERACIÓN EN VIVO", en: "LIVE OPERATION", fr: "OPÉRATION EN DIRECT", a: ["OPERACION EN VIVO", "OPERACIÓN EN VIVO"] },
-    payrollCalc: { es: "CORTE Y CÁLCULO", en: "CUTOFF AND CALCULATION", fr: "CLÔTURE ET CALCUL", a: ["CORTE Y CALCULO", "CORTE Y CÁLCULO"] },
-    operationalStaff: { es: "PERSONAL OPERATIVO", en: "OPERATIONAL STAFF", fr: "PERSONNEL OPÉRATIONNEL", a: ["PERSONAL OPERATIVO", "OPERATIONAL STAFF"] },
-    operationalIndicators: { es: "INDICADORES OPERATIVOS", en: "OPERATIONAL INDICATORS", fr: "INDICATEURS OPÉRATIONNELS", a: ["INDICADORES OPERATIVOS", "OPERATIONAL INDICATORS"] },
-    locationRoutes: { es: "UBICACIÓN Y RUTAS", en: "LOCATION AND ROUTES", fr: "LOCALISATION ET ITINÉRAIRES", a: ["UBICACION Y RUTAS", "UBICACIÓN Y RUTAS"] },
-    requestReturn: { es: "SOLICITUD Y DEVOLUCIÓN", en: "REQUEST AND RETURN", fr: "DEMANDE ET RETOUR", a: ["SOLICITUD Y DEVOLUCION", "SOLICITUD Y DEVOLUCIÓN"] },
-    metricsAudit: { es: "MÉTRICAS Y AUDITORÍA", en: "METRICS AND AUDIT", fr: "MÉTRIQUES ET AUDIT", a: ["METRICAS Y AUDITORIA", "MÉTRICAS Y AUDITORÍA"] },
-
-    moduleInventory: { es: "MÓDULO INVENTARIO", en: "INVENTORY MODULE", fr: "MODULE INVENTAIRE", a: ["MODULO INVENTARIO", "MÓDULO INVENTARIO"] },
-    moduleMaterials: { es: "MÓDULO MATERIALES", en: "MATERIALS MODULE", fr: "MODULE MATÉRIAUX", a: ["MODULO MATERIALES", "MÓDULO MATERIALES"] },
-    moduleCrm: { es: "MÓDULO CRM CAMPO", en: "FIELD CRM MODULE", fr: "MODULE CRM TERRAIN", a: ["MODULO CRM CAMPO", "MÓDULO CRM CAMPO"] },
-    moduleWorkforce: { es: "MÓDULO WORKFORCE", en: "WORKFORCE MODULE", fr: "MODULE PERSONNEL", a: ["MODULO WORKFORCE", "MÓDULO WORKFORCE"] },
-    modulePayroll: { es: "MÓDULO NÓMINA", en: "PAYROLL MODULE", fr: "MODULE PAIE", a: ["MODULO NOMINA", "MÓDULO NÓMINA", "MÃ³dulo NÃ³mina"] },
-    moduleReports: { es: "MÓDULO REPORTES", en: "REPORTS MODULE", fr: "MODULE RAPPORTS", a: ["MODULO REPORTES", "MÓDULO REPORTES", "MÃ³dulo Reportes"] },
-    moduleKpis: { es: "MÓDULO KPIS", en: "KPIS MODULE", fr: "MODULE KPIS", a: ["MODULO KPIS", "MÓDULO KPIS"] },
-    moduleGps: { es: "MÓDULO GPS", en: "GPS MODULE", fr: "MODULE GPS", a: ["MODULO GPS", "MÓDULO GPS"] },
-    moduleBots: { es: "MÓDULO BOTS", en: "BOTS MODULE", fr: "MODULE BOTS", a: ["MODULO BOTS", "MÓDULO BOTS"] },
-
-    inventoryHero: {
-      es: "Catálogo operativo, mínimos y stock actual de solo lectura. Materiales descontará o devolverá stock en la siguiente integración.",
-      en: "Operational catalog, minimums and current read-only stock. Materials will deduct or return stock in the next integration.",
-      fr: "Catalogue opérationnel, minimums et stock actuel en lecture seule. Les matériaux déduiront ou retourneront le stock lors de la prochaine intégration.",
-      a: [
-        "Catálogo operativo, mínimos y stock actual de solo lectura. Materiales descontará o devolverá stock en la siguiente integración.",
-        "Catalogo operativo, minimos y stock actual de solo lectura. Materiales descontara o devolvera stock en la siguiente integracion."
-      ]
-    },
-    inventoryStatus: { es: "Estado del inventario", en: "Inventory status", fr: "État de l’inventaire", a: ["Estado del inventario"] },
-    summary: { es: "RESUMEN", en: "SUMMARY", fr: "RÉSUMÉ", a: ["RESUMEN"] },
-    totalRecords: { es: "Total registros", en: "Total records", fr: "Total des enregistrements", a: ["Total registros"] },
-    createMaterialProduct: { es: "Crear material / producto", en: "Create material / product", fr: "Créer matériau / produit", a: ["Crear material / producto"] },
-    modifyMaterial: { es: "Modificar material", en: "Modify material", fr: "Modifier matériau", a: ["Modificar material"] },
-    createMaterialProductUpper: { es: "CREAR MATERIAL / PRODUCTO", en: "CREATE MATERIAL / PRODUCT", fr: "CRÉER MATÉRIAU / PRODUIT", a: ["CREAR MATERIAL / PRODUCTO"] },
-    newInventoryRecord: { es: "Nuevo registro de inventario", en: "New inventory record", fr: "Nouvel enregistrement d’inventaire", a: ["Nuevo registro de inventario"] },
-    inventoryCreateHelp: {
-      es: "El stock actual se crea desde la cantidad inicial como movimiento. Luego solo cambia por entradas, entregas y devoluciones.",
-      en: "Current stock is created from the initial quantity as a movement. After that, it only changes through entries, deliveries and returns.",
-      fr: "Le stock actuel est créé à partir de la quantité initiale comme mouvement. Ensuite, il ne change que par entrées, livraisons et retours.",
-      a: ["El stock actual se crea desde la cantidad inicial como movimiento. Luego solo cambia por entradas, entregas y devoluciones."]
-    },
-    nameReference: { es: "NOMBRE / REFERENCIA", en: "NAME / REFERENCE", fr: "NOM / RÉFÉRENCE", a: ["NOMBRE / REFERENCIA"] },
-    size: { es: "TAMAÑO", en: "SIZE", fr: "TAILLE", a: ["TAMAÑO", "TAMANO"] },
-    color: { es: "COLOR", en: "COLOR", fr: "COULEUR", a: ["COLOR"] },
-    initialQuantity: { es: "CANTIDAD INICIAL", en: "INITIAL QUANTITY", fr: "QUANTITÉ INITIALE", a: ["CANTIDAD INICIAL"] },
-    minimumAlert: { es: "MÍNIMO ALERTA", en: "MINIMUM ALERT", fr: "ALERTE MINIMUM", a: ["MINIMO ALERTA", "MÍNIMO ALERTA"] },
-    create: { es: "Crear", en: "Create", fr: "Créer", a: ["Crear"] },
-    refresh: { es: "Actualizar", en: "Refresh", fr: "Actualiser", a: ["Actualizar", "Refresh"] },
-    back: { es: "Volver", en: "Back", fr: "Retour", a: ["Volver", "Back"] },
-
-    crmHero: {
-      es: "Vista viva de colaboradores en turno, pausas y núcleos activos de la empresa.",
-      en: "Live view of employees on shift, breaks and active company cores.",
-      fr: "Vue en direct des collaborateurs en service, pauses et noyaux actifs de l’entreprise.",
-      a: ["Vista viva de colaboradores en turno, pausas y nucleos activos de la empresa.", "Vista viva de colaboradores en turno, pausas y núcleos activos de la empresa."]
-    },
-    currentOperationalStatus: { es: "ESTADO OPERATIVO ACTUAL", en: "CURRENT OPERATING STATUS", fr: "ÉTAT OPÉRATIONNEL ACTUEL", a: ["ESTADO OPERATIVO ACTUAL"] },
-    operationLive: { es: "Operación en vivo", en: "Live operation", fr: "Opération en direct", a: ["Operacion en vivo", "Operación en vivo"] },
-    onBreak: { es: "En pausa", en: "On break", fr: "En pause", a: ["En pausa"] },
-    collaborators: { es: "COLABORADORES", en: "EMPLOYEES", fr: "COLLABORATEURS", a: ["COLABORADORES"] },
-    collaboratorStatus: { es: "Estado por colaborador", en: "Status by employee", fr: "Statut par collaborateur", a: ["Estado por colaborador"] },
-    collaborator: { es: "Colaborador", en: "Employee", fr: "Collaborateur", a: ["Colaborador"] },
-    offShift: { es: "Fuera de turno", en: "Off shift", fr: "Hors service", a: ["Fuera de turno"] },
-    timer: { es: "Cronómetro", en: "Timer", fr: "Chronomètre", a: ["Cronometro", "Cronómetro"] },
-    noRequest: { es: "Sin solicitud", en: "No request", fr: "Aucune demande", a: ["Sin solicitud"] },
-
-    staffTitle: { es: "Registro de personal operativo", en: "Operational staff registry", fr: "Registre du personnel opérationnel", a: ["Registro de personal operativo"] },
-    staffSubtitle: { es: "administra su personal de forma independiente.", en: "manages its staff independently.", fr: "gère son personnel de manière indépendante.", a: ["administra su personal de forma independiente."] },
-    staffHero: {
-      es: "Gestiona empleados, técnicos, supervisores y roles conectados a bot, nómina y operación.",
-      en: "Manage employees, technicians, supervisors and roles connected to bot, payroll and operations.",
-      fr: "Gérez les employés, techniciens, superviseurs et rôles connectés au bot, à la paie et aux opérations.",
-      a: ["Gestiona empleados, tecnicos, supervisores y roles conectados a bot, nomina y operacion.", "Gestiona empleados, técnicos, supervisores y roles conectados a bot, nómina y operación."]
-    },
-    editableTable: { es: "TABLA EDITABLE", en: "EDITABLE TABLE", fr: "TABLEAU MODIFIABLE", a: ["TABLA EDITABLE"] },
-    addRow: { es: "Agregar fila", en: "Add row", fr: "Ajouter une ligne", a: ["Agregar fila", "Agregar personal", "Add row"] },
-    saveChanges: { es: "Guardar cambios", en: "Save changes", fr: "Enregistrer", a: ["Guardar cambios", "Save changes"] },
-    history: { es: "Historial", en: "History", fr: "Historique", a: ["Historial", "History"] },
-    all: { es: "Todos", en: "All", fr: "Tous", a: ["Todos", "All"] },
-    activePlural: { es: "Activos", en: "Active", fr: "Actifs", a: ["Activos", "Active"] },
-    inactivePlural: { es: "Inactivos", en: "Inactive", fr: "Inactifs", a: ["Inactivos", "Inactive"] },
-    archivedPlural: { es: "Archivados", en: "Archived", fr: "Archivés", a: ["Archivados", "Archived"] },
-    searchMatches: {
-      es: "Buscar coincidencias: nombre, rol, teléfono, correo, Telegram, estado...",
-      en: "Search matches: name, role, phone, email, Telegram, status...",
-      fr: "Rechercher : nom, rôle, téléphone, e-mail, Telegram, statut...",
-      a: ["Buscar coincidencias: nombre, rol, teléfono, correo, Telegram, estado...", "Buscar coincidencias: nombre, rol, tel?fono, correo, Telegram, estado..."]
-    },
-
-    name: { es: "NOMBRE", en: "NAME", fr: "NOM", a: ["NOMBRE", "Nombre"] },
-    role: { es: "ROL", en: "ROLE", fr: "RÔLE", a: ["ROL", "Rol"] },
-    phone: { es: "TELÉFONO", en: "PHONE", fr: "TÉLÉPHONE", a: ["TELEFONO", "TELÉFONO", "Telefono", "Teléfono"] },
-    email: { es: "CORREO", en: "EMAIL", fr: "E-MAIL", a: ["CORREO", "Correo"] },
-    hireDate: { es: "FECHA INGRESO", en: "HIRE DATE", fr: "DATE D’ENTRÉE", a: ["FECHA INGRESO", "Fecha ingreso"] },
-    regularHour: { es: "HORA ORDINARIA", en: "REGULAR HOUR", fr: "HEURE NORMALE", a: ["HORA ORDINARIA", "Hora ordinaria"] },
-    extraHour: { es: "HORA EXTRA", en: "EXTRA HOUR", fr: "HEURE SUPPLÉMENTAIRE", a: ["HORA EXTRA", "Hora extra"] },
-    discount1: { es: "DESCUENTO 1", en: "DISCOUNT 1", fr: "REMISE 1", a: ["DESCUENTO 1", "Descuento 1"] },
-    discount2: { es: "DESCUENTO 2", en: "DISCOUNT 2", fr: "REMISE 2", a: ["DESCUENTO 2", "Descuento 2"] },
-    status: { es: "ESTADO", en: "STATUS", fr: "STATUT", a: ["ESTADO", "Estado", "STATUS"] },
-    actions: { es: "ACCIONES", en: "ACTIONS", fr: "ACTIONS", a: ["ACCIONES", "Acciones", "ACTIONS"] },
-    save: { es: "Guardar", en: "Save", fr: "Enregistrer", a: ["Guardar", "Save"] },
-    activate: { es: "Activar", en: "Activate", fr: "Activer", a: ["Activar", "Activate"] },
-    deactivate: { es: "Inactivar", en: "Deactivate", fr: "Désactiver", a: ["Inactivar", "Deactivate"] },
-    delete: { es: "Eliminar", en: "Delete", fr: "Supprimer", a: ["Eliminar", "Delete"] },
-    active: { es: "Activo", en: "Active", fr: "Actif", a: ["Activo", "Active"] },
-    inactive: { es: "Inactivo", en: "Inactive", fr: "Inactif", a: ["Inactivo", "Inactive"] },
-    archived: { es: "Archivado", en: "Archived", fr: "Archivé", a: ["Archivado", "Archived"] },
-
-    materialsHero: {
-      es: "Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.",
-      en: "Outbound orders connected to Inventory. Delivery deducts stock; return requires an order number.",
-      fr: "Ordres de sortie connectés à l’inventaire. La livraison déduit le stock ; le retour exige un numéro d’ordre.",
-      a: ["Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.", "Ordenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige numero de orden."]
-    },
-    operationalCycle: { es: "CICLO OPERATIVO", en: "OPERATING CYCLE", fr: "CYCLE OPÉRATIONNEL", a: ["CICLO OPERATIVO"] },
-    materialOrders: { es: "Órdenes de materiales", en: "Material orders", fr: "Ordres de matériaux", a: ["Órdenes de materiales", "Ordenes de materiales"] },
-    pending: { es: "Pendientes", en: "Pending", fr: "En attente", a: ["Pendientes"] },
-    approved: { es: "Aprobadas", en: "Approved", fr: "Approuvées", a: ["Aprobadas"] },
-    delivered: { es: "Entregadas", en: "Delivered", fr: "Livrées", a: ["Entregadas"] },
-    consignment: { es: "Consigna", en: "Consignment", fr: "Consigne", a: ["Consigna"] },
-    returned: { es: "Devueltas", en: "Returned", fr: "Retournées", a: ["Devueltas"] },
-    order: { es: "ORDEN", en: "ORDER", fr: "ORDRE", a: ["ORDEN"] },
-    requester: { es: "SOLICITANTE", en: "REQUESTER", fr: "DEMANDEUR", a: ["SOLICITANTE"] },
-    material: { es: "MATERIAL", en: "MATERIAL", fr: "MATÉRIEL", a: ["MATERIAL"] },
-    quantity: { es: "CANTIDAD", en: "QUANTITY", fr: "QUANTITÉ", a: ["CANTIDAD"] },
-    destination: { es: "DESTINO", en: "DESTINATION", fr: "DESTINATION", a: ["DESTINO"] },
-    detail: { es: "Detalle", en: "Detail", fr: "Détail", a: ["Detalle", "Detail"] },
-    returnAction: { es: "Devolución", en: "Return", fr: "Retour", a: ["Devolución", "Devolucion", "Return"] },
-    outputManagement: { es: "GESTIÓN DE SALIDA", en: "OUTPUT MANAGEMENT", fr: "GESTION DE SORTIE", a: ["GESTIÓN DE SALIDA", "GESTION DE SALIDA"] },
-
-    reportsModuleSubtitle: {
-      es: "Histórico consolidado de Personal, GPS, Materiales, Inventario y Nómina. No modifica datos; solo audita y exporta.",
-      en: "Consolidated history of Staff, GPS, Materials, Inventory and Payroll. It does not modify data; it only audits and exports.",
-      fr: "Historique consolidé du personnel, GPS, matériaux, inventaire et paie. Il ne modifie pas les données ; il audite et exporte uniquement.",
-      a: ["HistÃ³rico consolidado de Personal, GPS, Materiales, Inventario y NÃ³mina. No modifica datos; solo audita y exporta.", "Histórico consolidado de Personal, GPS, Materiales, Inventario y Nómina. No modifica datos; solo audita y exporta."]
-    },
-    executiveSummary: { es: "Resumen ejecutivo", en: "Executive summary", fr: "Résumé exécutif", a: ["Resumen ejecutivo"] },
-    operationalDetail: { es: "Detalle operativo", en: "Operational detail", fr: "Détail opérationnel", a: ["Detalle operativo"] },
-    auditableTables: { es: "Tablas auditables", en: "Auditable tables", fr: "Tableaux auditables", a: ["Tablas auditables"] },
-
-    settings: { es: "Configuración", en: "Settings", fr: "Configuration", a: ["Configuración", "Settings"] },
-    logout: { es: "Salir", en: "Log out", fr: "Quitter", a: ["Salir", "Log out"] }
-  };
-
-  const aliasToKey = new Map();
-
-  Object.keys(T).forEach((key) => {
-    const item = T[key];
-    ["es", "en", "fr"].forEach((lang) => {
-      if (item[lang]) aliasToKey.set(norm(item[lang]), key);
-    });
-    (item.a || []).forEach((alias) => aliasToKey.set(norm(alias), key));
-  });
-
-  const sortedAliases = Array.from(aliasToKey.keys()).sort((a, b) => b.length - a.length);
-
-  function currentLang() {
-    const raw = String(localStorage.getItem(LANG_KEY) || document.documentElement.lang || "es").toLowerCase();
-    return ["es", "en", "fr"].includes(raw) ? raw : "es";
-  }
-
-  function norm(value) {
-    return String(value || "")
-      .replace(/\s+/g, " ")
-      .replace(/[“”]/g, '"')
-      .replace(/[‘’]/g, "'")
-      .trim();
-  }
-
-  function targetForKey(key) {
-    const lang = currentLang();
-    return (T[key] && (T[key][lang] || T[key].es)) || key;
-  }
-
-  function translatePlain(value) {
-    const raw = String(value || "");
-    const clean = norm(raw);
-
-    if (!clean) return raw;
-    if (/^[\d\s.,:$%#@/_-]+$/.test(clean)) return raw;
-    if (clean.includes("@")) return raw;
-    if (/^[A-Z]{2,}-\d{4}/.test(clean)) return raw;
-    if (/^[a-f0-9-]{24,}$/i.test(clean)) return raw;
-
-    let key = aliasToKey.get(norm(clean));
-
-    if (!key) {
-      const activeModulesMatch = clean.match(/^(\d+)\s+(módulos activos|modulos activos|m\?dulos activos|active modules|modules actifs)$/i);
-      if (activeModulesMatch) {
-        return `${activeModulesMatch[1]} ${targetForKey("activeModules")}`;
-      }
-
-      const companyStaff = clean.match(/^(.+?)\s+administra su personal de forma independiente\.?$/i);
-      if (companyStaff) {
-        const suffix = targetForKey("staffSubtitle");
-        return `${companyStaff[1]} ${suffix}`;
-      }
-
-      const showing = clean.match(/^Mostrando\s+(.+?)\s+de\s+(.+?)\s+registros\.?$/i);
-      if (showing) {
-        if (currentLang() === "en") return `Showing ${showing[1]} of ${showing[2]} records.`;
-        if (currentLang() === "fr") return `Affichage ${showing[1]} sur ${showing[2]} enregistrements.`;
-        return `Mostrando ${showing[1]} de ${showing[2]} registros.`;
-      }
-
-      return raw;
-    }
-
-    const translated = targetForKey(key);
-    return raw.replace(clean, translated);
-  }
-
-  function escapeRegExp(value) {
-    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-
-  function translateHtml(html) {
-    let out = String(html || "");
-
-    if (!out || currentLang() === "es") return out;
-
-    for (const alias of sortedAliases) {
-      if (!alias || alias.length < 4) continue;
-      const key = aliasToKey.get(alias);
-      const target = targetForKey(key);
-      if (!target || target === alias) continue;
-
-      out = out.replace(new RegExp(escapeRegExp(alias), "g"), target);
-    }
-
-    out = out.replace(/(\d+)\s+(módulos activos|modulos activos|m\?dulos activos|mÃ³dulos activos)/gi, function(_, n) {
-      return `${n} ${targetForKey("activeModules")}`;
-    });
-
-    return out;
-  }
-
-  function skipElement(el) {
-    if (!el || !el.tagName) return false;
-    const tag = el.tagName.toLowerCase();
-    if (["script", "style", "code", "pre", "textarea"].includes(tag)) return true;
-    if (el.closest && el.closest("[data-clx-no-i18n]")) return true;
-    return false;
-  }
-
-  function translateDom(root) {
-    const base = root || document.body;
-    if (!base) return;
-
-    if (base.nodeType === Node.TEXT_NODE) {
-      const next = translatePlain(base.nodeValue);
-      if (next !== base.nodeValue) base.nodeValue = next;
-      return;
-    }
-
-    if (base.nodeType !== Node.ELEMENT_NODE && base.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
-    if (base.nodeType === Node.ELEMENT_NODE && skipElement(base)) return;
-
-    const walker = document.createTreeWalker(base, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const parent = node.parentElement;
-        if (!parent || skipElement(parent)) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-
-    const nodes = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode);
-
-    nodes.forEach((node) => {
-      const next = translatePlain(node.nodeValue);
-      if (next !== node.nodeValue) node.nodeValue = next;
-    });
-
-    if (base.querySelectorAll) {
-      base.querySelectorAll("[placeholder], [title], [aria-label], input[type='button'], input[type='submit']").forEach((el) => {
-        if (skipElement(el)) return;
-
-        ["placeholder", "title", "aria-label"].forEach((attr) => {
-          if (el.hasAttribute(attr)) {
-            const current = el.getAttribute(attr);
-            const next = translatePlain(current);
-            if (next !== current) el.setAttribute(attr, next);
-          }
-        });
-
-        if (el.matches("input[type='button'], input[type='submit']")) {
-          const next = translatePlain(el.value);
-          if (next !== el.value) el.value = next;
-        }
-      });
-    }
-
-    const settings = document.getElementById("clxAccountSettingsBtn");
-    const logout = document.getElementById("clxAccountLogoutBtn");
-
-    if (settings) settings.textContent = `⚙ ${targetForKey("settings")}`;
-    if (logout) logout.textContent = `⏻ ${targetForKey("logout")}`;
-
-    document.documentElement.lang = currentLang();
-  }
-
-  function installInnerHtmlInterceptor() {
-    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
-    if (!descriptor || !descriptor.set || window.__CLX_FULL_I18N_INNERHTML_INSTALLED__) return;
-
-    window.__CLX_FULL_I18N_INNERHTML_INSTALLED__ = true;
-
-    Object.defineProperty(Element.prototype, "innerHTML", {
-      get: descriptor.get,
-      set: function(value) {
-        const tag = this && this.tagName ? this.tagName.toLowerCase() : "";
-        if (["script", "style", "code", "pre", "textarea"].includes(tag)) {
-          descriptor.set.call(this, value);
-          return;
-        }
-
-        descriptor.set.call(this, translateHtml(String(value || "")));
-      }
-    });
-  }
-
-  let timer = null;
-
-  function run() {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => translateDom(document.body), 60);
-  }
-
-  function setLang(lang) {
-    const selected = String(lang || "es").toLowerCase();
-    if (!["es", "en", "fr"].includes(selected)) return;
-
-    localStorage.setItem(LANG_KEY, selected);
-    document.documentElement.lang = selected;
-    run();
-  }
-
-  installInnerHtmlInterceptor();
-
-  window.CLX_RUNTIME_I18N = {
-    run,
-    setLang,
-    translateDom,
-    translateHtml,
-    t: targetForKey,
-    lang: currentLang
-  };
-
-  document.addEventListener("change", (event) => {
-    const target = event.target;
-    if (target && target.id === "clxAccountLanguage") {
-      setLang(target.value);
-    }
-  }, true);
-
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (target && target.id === "clxAccountSaveBtn") {
-      setTimeout(() => {
-        const langSelect = document.getElementById("clxAccountLanguage");
-        if (langSelect) setLang(langSelect.value);
-        run();
-      }, 250);
-    }
-  }, true);
-
-  const observer = new MutationObserver(run);
-
-  function init() {
-    translateDom(document.body);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["placeholder", "title", "aria-label", "value"]
-    });
-    run();
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-})();
-
-
 
 (() => {
   "use strict";
@@ -7011,2819 +6539,907 @@
 
 
 /* CX_WORKFORCE_ASISTENCIA_010B_START */
-(function () {
-  if (window.__cxWorkforceAsistencia010BLoaded) return;
-  window.__cxWorkforceAsistencia010BLoaded = true;
 
-  const API = "/api/v1";
 
-  const h = (value) =>
-    String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
 
-  function companyIdFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("company_id") || params.get("companyId") || params.get("tenant") || "";
-  }
-
-  async function api(path, options = {}) {
-    const res = await fetch(`${API}${path}`, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-      ...options,
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText} ${text}`);
-    }
-
-    return res.json();
-  }
-
-  function asistenciaStyles() {
-    if (document.getElementById("cxWorkforceAsistencia010BR2Styles")) return;
-
-    const style = document.createElement("style");
-    style.id = "cxWorkforceAsistencia010BR2Styles";
-    style.textContent = `
-      .cx-bitacora-kpis {
-        display: grid;
-        grid-template-columns: repeat(6, minmax(130px, 1fr));
-        gap: 12px;
-        margin: 18px 0;
-      }
-
-      .cx-bitacora-kpi {
-        border: 1px solid rgba(255,255,255,.13);
-        background: rgba(255,255,255,.06);
-        border-radius: 18px;
-        padding: 14px;
-        box-shadow: 0 18px 44px rgba(0,0,0,.18);
-      }
-
-      .cx-bitacora-kpi span {
-        display: block;
-        font-size: 11px;
-        letter-spacing: .04em;
-        text-transform: uppercase;
-        opacity: .76;
-        margin-bottom: 8px;
-      }
-
-      .cx-bitacora-kpi strong {
-        font-size: 24px;
-        line-height: 1;
-      }
-
-      .cx-bitacora-filters {
-        display: grid;
-        grid-template-columns: 150px 150px minmax(220px, 1fr) 190px 160px 150px;
-        gap: 10px;
-        align-items: end;
-        margin: 18px 0;
-      }
-
-      .cx-bitacora-field label {
-        display: block;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-        opacity: .75;
-        margin: 0 0 7px;
-      }
-
-      .cx-bitacora-field input,
-      .cx-bitacora-field select {
-        width: 100%;
-        border: 1px solid rgba(255,255,255,.15);
-        background: rgba(0,0,0,.18);
-        color: inherit;
-        border-radius: 14px;
-        padding: 12px 12px;
-        outline: none;
-      }
-
-      .cx-bitacora-field select option {
-        color: #111;
-      }
-
-      .cx-bitacora-wrap {
-        width: 100%;
-        overflow-x: auto;
-        border-radius: 20px;
-        border: 1px solid rgba(255,255,255,.11);
-      }
-
-      .cx-bitacora-grid {
-        min-width: 1420px;
-        display: grid;
-        grid-template-columns: 170px 190px 120px 170px 130px 130px minmax(260px, 1.2fr) 130px;
-      }
-
-      .cx-bitacora-cell {
-        min-height: 54px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 12px;
-        border-bottom: 1px solid rgba(255,255,255,.08);
-        background: rgba(255,255,255,.03);
-        overflow-wrap: anywhere;
-      }
-
-      .cx-bitacora-head {
-        min-height: 44px;
-        font-size: 11px;
-        letter-spacing: .08em;
-        text-transform: uppercase;
-        opacity: .82;
-        background: rgba(255,255,255,.08);
-        position: sticky;
-        top: 0;
-        z-index: 1;
-      }
-
-      .cx-bitacora-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 999px;
-        padding: 7px 10px;
-        font-size: 12px;
-        font-weight: 800;
-        border: 1px solid rgba(255,255,255,.16);
-        background: rgba(255,255,255,.07);
-      }
-
-      .cx-bitacora-badge.check_in { background: rgba(0, 210, 145, .18); }
-      .cx-bitacora-badge.check_out { background: rgba(113, 128, 150, .20); }
-      .cx-bitacora-badge.break_start,
-      .cx-bitacora-badge.break_end { background: rgba(255, 183, 77, .18); }
-      .cx-bitacora-badge.material_request { background: rgba(255, 43, 166, .18); }
-      .cx-bitacora-badge.observation { background: rgba(125, 92, 255, .18); }
-
-      .cx-bitacora-notice {
-        margin-top: 12px;
-      }
-
-      .cx-bitacora-toast {
-        border-radius: 14px;
-        padding: 12px 14px;
-        border: 1px solid rgba(255,255,255,.14);
-        background: rgba(0, 210, 145, .14);
-      }
-
-      .cx-bitacora-toast.error {
-        background: rgba(255, 80, 80, .16);
-      }
-
-      .cx-bitacora-empty {
-        border: 1px dashed rgba(255,255,255,.16);
-        border-radius: 18px;
-        padding: 18px;
-        background: rgba(0,0,0,.14);
-      }
-
-
-      .cx-materials-return-results,
-      .cx-materials-return-checklist {
-        margin-top: 14px;
-        display: grid;
-        gap: 10px;
-      }
-      .cx-materials-order-pick {
-        width: 100%;
-        text-align: left;
-        border: 1px solid rgba(255,255,255,.14);
-        background: rgba(255,255,255,.07);
-        color: inherit;
-        border-radius: 15px;
-        padding: 12px 14px;
-        cursor: pointer;
-        font-weight: 900;
-      }
-      .cx-materials-order-pick:hover {
-        border-color: rgba(255,255,255,.28);
-        transform: translateY(-1px);
-      }
-      .cx-materials-return-summary {
-        border: 1px solid rgba(255,255,255,.14);
-        background: rgba(255,255,255,.06);
-        border-radius: 18px;
-        padding: 14px;
-        display: grid;
-        gap: 5px;
-      }
-      .cx-materials-return-line {
-        border: 1px solid rgba(255,255,255,.12);
-        background: rgba(0,0,0,.14);
-        border-radius: 18px;
-        overflow: hidden;
-      }
-      .cx-materials-return-line summary {
-        cursor: pointer;
-        padding: 14px;
-        font-weight: 1000;
-      }
-      .cx-materials-return-units {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-        gap: 8px;
-        padding: 0 14px 14px;
-      }
-      .cx-materials-return-unit {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        padding: 10px 11px;
-        border: 1px solid rgba(255,255,255,.10);
-        background: rgba(255,255,255,.06);
-        border-radius: 13px;
-        font-weight: 900;
-      }
-      .cx-materials-return-unit.disabled {
-        opacity: .45;
-      }
-
-      @media (max-width: 1100px) {
-        .cx-bitacora-kpis {
-          grid-template-columns: repeat(2, minmax(140px, 1fr));
-        }
-
-        .cx-bitacora-filters {
-          grid-template-columns: 1fr;
-        }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function todayIsoDate(offsetDays = 0) {
-    const date = new Date();
-    date.setDate(date.getDate() + offsetDays);
-    return date.toISOString().slice(0, 10);
-  }
-
-  function fmtDate(value) {
-    if (!value) return "-";
-    try {
-      return new Intl.DateTimeFormat("es", {
-        dateStyle: "short",
-        timeStyle: "short",
-      }).format(new Date(value));
-    } catch (_) {
-      return String(value);
-    }
-  }
-
-  function eventLabel(row) {
-    const labels = {
-      check_in: "Entrada",
-      check_out: "Salida",
-      break_start: "Pausa",
-      break_end: "Reanudación",
-      material_request: "Solicitud material",
-      material_return: "Devolución material",
-      observation: "Observación",
-      gps_ping: "GPS",
-      task_started: "Tarea iniciada",
-      task_completed: "Tarea cerrada",
-    };
-    return row.event_label || labels[row.event_type] || row.event_type || "Evento";
-  }
-
-  function channelLabel(value) {
-    const labels = {
-      client: "Panel",
-      panel: "Panel",
-      api: "API",
-      bot: "Bot",
-      telegram: "Telegram",
-      whatsapp: "WhatsApp",
-      qr: "QR",
-      system: "Sistema",
-    };
-    return labels[value] || value || "-";
-  }
-
-  function asistenciaNotice(message, type = "ok") {
-    const box = document.querySelector("[data-asistencia-notice]");
-    if (!box) return;
-    box.innerHTML = `<div class="cx-bitacora-toast ${type === "error" ? "error" : ""}">${h(message)}</div>`;
-    window.clearTimeout(window.__cxAsistenciaNoticeTimer);
-    window.__cxAsistenciaNoticeTimer = window.setTimeout(() => {
-      if (box) box.innerHTML = "";
-    }, 2800);
-  }
-
-  function filtersFromDom() {
-    const from = document.querySelector("[data-bitacora-from]")?.value || todayIsoDate(-30);
-    const to = document.querySelector("[data-bitacora-to]")?.value || todayIsoDate(0);
-    const search = document.querySelector("[data-bitacora-search]")?.value || "";
-    const eventType = document.querySelector("[data-bitacora-event]")?.value || "";
-    const moduleCode = document.querySelector("[data-bitacora-module]")?.value || "";
-    const channel = document.querySelector("[data-bitacora-channel]")?.value || "";
-
-    return { from, to, search, eventType, moduleCode, channel };
-  }
-
-  function buildHistoryUrl(companyId, filters = {}) {
-    const params = new URLSearchParams();
-    params.set("company_id", companyId);
-    params.set("limit", "500");
-
-    if (filters.from) params.set("date_from", `${filters.from}T00:00:00`);
-    if (filters.to) params.set("date_to", `${filters.to}T23:59:59`);
-    if (filters.search) params.set("search", filters.search.trim());
-    if (filters.eventType) params.set("event_type", filters.eventType);
-    if (filters.moduleCode) params.set("module_code", filters.moduleCode);
-    if (filters.channel) params.set("source_channel", filters.channel);
-
-    return `/employees/attendance/history?${params.toString()}`;
-  }
-
-  function normalizeRows(payload) {
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.items)) return payload.items;
-    if (Array.isArray(payload?.rows)) return payload.rows;
-    return [];
-  }
-
-  async function loadBitacora(companyId, filters) {
-    return normalizeRows(await api(buildHistoryUrl(companyId, filters)));
-  }
-
-  function bitacoraKpis(rows) {
-    const total = rows.length;
-    const entradas = rows.filter((r) => r.event_type === "check_in").length;
-    const salidas = rows.filter((r) => r.event_type === "check_out").length;
-    const pausas = rows.filter((r) => ["break_start", "break_end"].includes(r.event_type)).length;
-    const solicitudes = rows.filter((r) => String(r.event_type || "").includes("request")).length;
-    const bot = rows.filter((r) => ["bot", "telegram", "whatsapp"].includes(r.source_channel || r.source)).length;
-
-    return `
-      <div class="cx-bitacora-kpis">
-        <div class="cx-bitacora-kpi"><span>Total eventos</span><strong>${h(total)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Entradas</span><strong>${h(entradas)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Salidas</span><strong>${h(salidas)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Pausas</span><strong>${h(pausas)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Solicitudes</span><strong>${h(solicitudes)}</strong></div>
-        <div class="cx-bitacora-kpi"><span>Bot</span><strong>${h(bot)}</strong></div>
-      </div>
-    `;
-  }
-
-  function bitacoraFilters(filters) {
-    return `
-      <div class="cx-bitacora-filters">
-        <div class="cx-bitacora-field">
-          <label>Desde</label>
-          <input type="date" data-bitacora-from value="${h(filters.from)}">
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Hasta</label>
-          <input type="date" data-bitacora-to value="${h(filters.to)}">
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Buscar</label>
-          <input type="search" data-bitacora-search value="${h(filters.search)}" placeholder="Empleado, evento, detalle, canal...">
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Evento</label>
-          <select data-bitacora-event>
-            <option value="">Todos</option>
-            <option value="check_in" ${filters.eventType === "check_in" ? "selected" : ""}>Entrada</option>
-            <option value="check_out" ${filters.eventType === "check_out" ? "selected" : ""}>Salida</option>
-            <option value="break_start" ${filters.eventType === "break_start" ? "selected" : ""}>Pausa</option>
-            <option value="break_end" ${filters.eventType === "break_end" ? "selected" : ""}>Reanudación</option>
-            <option value="material_request" ${filters.eventType === "material_request" ? "selected" : ""}>Solicitud material</option>
-            <option value="observation" ${filters.eventType === "observation" ? "selected" : ""}>Observación</option>
-          </select>
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Canal</label>
-          <select data-bitacora-channel>
-            <option value="">Todos</option>
-            <option value="client" ${filters.channel === "client" ? "selected" : ""}>Panel</option>
-            <option value="bot" ${filters.channel === "bot" ? "selected" : ""}>Bot</option>
-            <option value="telegram" ${filters.channel === "telegram" ? "selected" : ""}>Telegram</option>
-            <option value="whatsapp" ${filters.channel === "whatsapp" ? "selected" : ""}>WhatsApp</option>
-            <option value="qr" ${filters.channel === "qr" ? "selected" : ""}>QR</option>
-          </select>
-        </div>
-        <div class="cx-bitacora-field">
-          <label>Módulo</label>
-          <select data-bitacora-module>
-            <option value="">Todos</option>
-            <option value="workforce" ${filters.moduleCode === "workforce" ? "selected" : ""}>Workforce</option>
-            <option value="materials" ${filters.moduleCode === "materials" ? "selected" : ""}>Materiales</option>
-            <option value="field" ${filters.moduleCode === "field" ? "selected" : ""}>Campo</option>
-            <option value="gps" ${filters.moduleCode === "gps" ? "selected" : ""}>GPS</option>
-            <option value="production" ${filters.moduleCode === "production" ? "selected" : ""}>Producción</option>
-          </select>
-        </div>
-      </div>
-      <div class="client-actions" style="margin-bottom: 16px;">
-        <button class="client-btn" type="button" data-bitacora-search-btn>Buscar</button>
-        <button class="client-btn" type="button" data-asistencia-export>CSV</button>
-      </div>
-    `;
-  }
-
-  function bitacoraGrid(rows) {
-    return `
-      <div class="cx-bitacora-wrap">
-        <div class="cx-bitacora-grid">
-          <div class="cx-bitacora-cell cx-bitacora-head">Fecha / hora</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Empleado</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Rol</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Evento</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Canal</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Módulo</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Detalle</div>
-          <div class="cx-bitacora-cell cx-bitacora-head">Estado</div>
-          ${rows.map((row) => `
-            <div class="cx-bitacora-cell">${h(fmtDate(row.occurred_at || row.created_at))}</div>
-            <div class="cx-bitacora-cell">${h(row.employee_name || "-")}</div>
-            <div class="cx-bitacora-cell">${h(row.employee_role || "-")}</div>
-            <div class="cx-bitacora-cell">
-              <span class="cx-bitacora-badge ${h(row.event_type || "")}">${h(eventLabel(row))}</span>
-            </div>
-            <div class="cx-bitacora-cell">${h(channelLabel(row.source_channel || row.source))}</div>
-            <div class="cx-bitacora-cell">${h(row.module_code || "workforce")}</div>
-            <div class="cx-bitacora-cell">${h(row.detail || row.notes || "-")}</div>
-            <div class="cx-bitacora-cell">${h(row.status_after || row.status || "registered")}</div>
-          `).join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  async function renderAsistencia(customFilters = null) {
-    asistenciaStyles();
-    const companyId = companyIdFromUrl();
-    const app = document.getElementById("app");
-    if (!app) return;
-
-    const filters = customFilters || {
-      from: todayIsoDate(-30),
-      to: todayIsoDate(0),
-      search: "",
-      eventType: "",
-      moduleCode: "",
-      channel: "",
-    };
-
-    let rows = [];
-    let loadError = "";
-
-    try {
-      rows = await loadBitacora(companyId, filters);
-    } catch (error) {
-      rows = [];
-      loadError = error.message || "No se pudo cargar la bitácora operativa.";
-    }
-
-    window.__cxAsistenciaRows = rows;
-    window.__cxAsistenciaFilters = filters;
-
-    app.innerHTML = `
-      <main class="client-shell">
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo"><strong>CLONEXA</strong></div>
-            <h2 class="client-company-name">Workforce</h2>
-            <div class="client-muted">${h(companyId || "tenant")}</div>
-
-            <nav class="client-nav">
-              <button type="button" data-asistencia-dashboard>Dashboard</button>
-              <button type="button" data-asistencia-personal>Personal</button>
-              <button type="button" data-asistencia-historial>Historial</button>
-              <button class="active" type="button">Asistencia</button>
-            </nav>
-
-            <div class="client-footer-id">
-              <strong>Tenant activo</strong><br>
-              ${h(companyId || "")}
-            </div>
-          </aside>
-
-          <section class="client-main">
-            <header class="client-hero">
-              <div class="client-eyebrow">Modulo Workforce</div>
-              <h1 class="client-title">Asistencia</h1>
-              <p class="client-muted">Bitácora operativa de marcaciones e interacciones del personal: bot, panel, QR, solicitudes, observaciones y eventos por empresa.</p>
-
-              <div class="personal-toolbar">
-                <div class="client-actions">
-                  <button class="client-btn" type="button" data-asistencia-personal>Volver a Personal</button>
-                  <button class="client-btn" type="button" data-asistencia-refresh>Actualizar</button>
-                  <button class="client-btn" type="button" data-asistencia-export>CSV</button>
-                </div>
-              </div>
-
-              <div class="cx-bitacora-notice" data-asistencia-notice>
-                ${loadError ? `<div class="cx-bitacora-toast error">${h(loadError)}</div>` : ""}
-              </div>
-            </header>
-
-            <section class="client-panel">
-              <div class="client-eyebrow">Auditoría operativa</div>
-              <h2>Bitácora de asistencia e interacciones</h2>
-              <p class="client-muted">Consulta registros de 15, 20, 30 días o cualquier rango. CRM, Nómina, KPIs, Materiales y GPS consumirán estos eventos sin mezclarse visualmente.</p>
-
-              ${bitacoraFilters(filters)}
-              ${bitacoraKpis(rows)}
-
-              ${rows.length ? bitacoraGrid(rows) : `
-                <div class="cx-bitacora-empty">
-                  No hay eventos para los filtros seleccionados.
-                </div>
-              `}
-            </section>
-          </section>
-        </div>
-      </main>
-    `;
-  }
-
-  function injectAsistenciaButton() {
-    const toolbar = document.querySelector(".personal-toolbar .client-actions");
-    if (!toolbar || toolbar.querySelector("[data-personal-asistencia]")) return;
-
-    const historyBtn = toolbar.querySelector("[data-personal-history]");
-    const btn = document.createElement("button");
-    btn.className = "client-btn";
-    btn.type = "button";
-    btn.dataset.personalAsistencia = "true";
-    btn.textContent = "Asistencia";
-
-    if (historyBtn && historyBtn.nextSibling) {
-      toolbar.insertBefore(btn, historyBtn.nextSibling);
-    } else if (historyBtn) {
-      historyBtn.insertAdjacentElement("afterend", btn);
-    } else {
-      toolbar.appendChild(btn);
-    }
-  }
-
-  function exportAsistenciaCsv() {
-    const rows = Array.isArray(window.__cxAsistenciaRows) ? window.__cxAsistenciaRows : [];
-    const data = [["Fecha/Hora", "Empleado", "Rol", "Evento", "Canal", "Modulo", "Detalle", "Estado"]];
-
-    rows.forEach((row) => {
-      data.push([
-        fmtDate(row.occurred_at || row.created_at),
-        row.employee_name || "",
-        row.employee_role || "",
-        eventLabel(row),
-        channelLabel(row.source_channel || row.source),
-        row.module_code || "workforce",
-        row.detail || row.notes || "",
-        row.status_after || row.status || "registered",
-      ]);
-    });
-
-    const csv = data.map((line) => line.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `clonexa_asistencia_bitacora_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    URL.revokeObjectURL(url);
-  }
-
-  document.addEventListener("click", async (event) => {
-    const asistenciaBtn = event.target.closest("[data-personal-asistencia]");
-    if (asistenciaBtn) {
-      await renderAsistencia();
-      return;
-    }
-
-    if (event.target.closest("[data-asistencia-personal]")) {
-      window.location.href = `/client?company_id=${encodeURIComponent(companyIdFromUrl())}`;
-      return;
-    }
-
-    if (event.target.closest("[data-asistencia-dashboard]")) {
-      window.location.href = `/client?company_id=${encodeURIComponent(companyIdFromUrl())}`;
-      return;
-    }
-
-    if (event.target.closest("[data-asistencia-historial]")) {
-      window.location.href = `/client?company_id=${encodeURIComponent(companyIdFromUrl())}`;
-      return;
-    }
-
-    if (event.target.closest("[data-asistencia-refresh]")) {
-      await renderAsistencia(window.__cxAsistenciaFilters || filtersFromDom());
-      return;
-    }
-
-    if (event.target.closest("[data-bitacora-search-btn]")) {
-      await renderAsistencia(filtersFromDom());
-      return;
-    }
-
-    if (event.target.closest("[data-asistencia-export]")) {
-      exportAsistenciaCsv();
-      return;
-    }
-  });
-
-  document.addEventListener("keydown", async (event) => {
-    if (event.key !== "Enter") return;
-    const input = event.target.closest("[data-bitacora-search]");
-    if (!input) return;
-    event.preventDefault();
-    await renderAsistencia(filtersFromDom());
-  });
-
-  const observer = new MutationObserver(() => {
-    window.clearTimeout(window.__cxAsistenciaInjectTimer);
-    window.__cxAsistenciaInjectTimer = window.setTimeout(injectAsistenciaButton, 80);
-  });
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => {
-      asistenciaStyles();
-      injectAsistenciaButton();
-      observer.observe(document.body, { childList: true, subtree: true });
-    });
-  } else {
-    asistenciaStyles();
-    injectAsistenciaButton();
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
-})();
-/* CX_WORKFORCE_ASISTENCIA_010B_END */
-
-
-/* CX_REPORTS_016B_START */
-(() => {
-  "use strict";
-
-  const API = "/api/v1";
-
-  const h = (value) =>
-    String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-
-  async function api(path, options = {}) {
-    const res = await fetch(`${API}${path}`, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-      ...options,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText} ${text}`);
-    }
-    return res.json();
-  }
-
-  function companyIdFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("company_id") || params.get("companyId") || params.get("tenant") || "";
-  }
-
-  function todayIso(offsetDays = 0) {
-    const d = new Date();
-    d.setDate(d.getDate() + offsetDays);
-    return d.toISOString().slice(0, 10);
-  }
-
-  function fmt(value) {
-    if (value === null || value === undefined || value === "") return "-";
-    if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toLocaleString("es", { maximumFractionDigits: 2 });
-    return String(value);
-  }
-
-  function fmtMoney(value) {
-    const n = Number(value || 0);
-    return n.toLocaleString("es", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-  }
-
-  function fmtDate(value) {
-    if (!value) return "-";
-    try {
-      return new Intl.DateTimeFormat("es", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
-    } catch (_) {
-      return String(value);
-    }
-  }
-
-  function reportStyles() {
-    if (document.getElementById("cxReports016BStyles")) return;
-    const style = document.createElement("style");
-    style.id = "cxReports016BStyles";
-    style.textContent = `
-      .cx-reports-toolbar {
-        display: grid;
-        grid-template-columns: 130px 130px 160px 160px 180px minmax(240px, 1fr) auto auto auto;
-        gap: 10px;
-        align-items: end;
-        margin-top: 18px;
-      }
-      .cx-reports-field span {
-        display: block;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-        opacity: .72;
-        margin-bottom: 7px;
-      }
-      .cx-reports-field input,
-      .cx-reports-field select {
-        width: 100%;
-        border: 1px solid rgba(255,255,255,.15);
-        background: rgba(0,0,0,.18);
-        color: inherit;
-        border-radius: 14px;
-        padding: 12px 12px;
-        outline: none;
-      }
-      .cx-reports-field select option { color: #111; }
-      .cx-reports-kpis {
-        display: grid;
-        grid-template-columns: repeat(5, minmax(150px, 1fr));
-        gap: 12px;
-        margin: 18px 0;
-      }
-      .cx-reports-kpi {
-        border: 1px solid rgba(255,255,255,.13);
-        background: rgba(255,255,255,.06);
-        border-radius: 18px;
-        padding: 14px;
-        box-shadow: 0 18px 44px rgba(0,0,0,.16);
-      }
-      .cx-reports-kpi span {
-        display: block;
-        opacity: .72;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-        margin-bottom: 7px;
-      }
-      .cx-reports-kpi strong {
-        font-size: 24px;
-        line-height: 1;
-      }
-      .cx-reports-chart-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(260px, 1fr));
-        gap: 14px;
-        margin: 18px 0;
-      }
-      .cx-reports-chart {
-        border: 1px solid rgba(255,255,255,.12);
-        background: rgba(255,255,255,.05);
-        border-radius: 20px;
-        padding: 16px;
-        min-height: 210px;
-      }
-      .cx-reports-chart h3 {
-        margin: 0 0 14px;
-        font-size: 16px;
-      }
-      .cx-report-bar {
-        display: grid;
-        grid-template-columns: 120px 1fr 56px;
-        gap: 10px;
-        align-items: center;
-        margin: 9px 0;
-      }
-      .cx-report-bar-label {
-        font-size: 12px;
-        opacity: .85;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .cx-report-bar-track {
-        height: 12px;
-        border-radius: 999px;
-        background: rgba(255,255,255,.10);
-        overflow: hidden;
-      }
-      .cx-report-bar-fill {
-        height: 100%;
-        border-radius: 999px;
-        background: linear-gradient(90deg, rgba(0,255,136,.85), rgba(255,43,214,.85));
-        min-width: 2px;
-      }
-      .cx-reports-tabs {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin: 18px 0 12px;
-      }
-      .cx-reports-tab {
-        border: 1px solid rgba(255,255,255,.14);
-        background: rgba(255,255,255,.06);
-        color: inherit;
-        border-radius: 999px;
-        padding: 10px 13px;
-        cursor: pointer;
-        font-weight: 800;
-      }
-      .cx-reports-tab.active {
-        background: rgba(0,255,136,.18);
-        border-color: rgba(0,255,136,.35);
-      }
-      .cx-reports-table-wrap {
-        width: 100%;
-        overflow-x: auto;
-        border: 1px solid rgba(255,255,255,.12);
-        border-radius: 18px;
-      }
-      table.cx-reports-table {
-        width: 100%;
-        min-width: 1180px;
-        border-collapse: collapse;
-      }
-      .cx-reports-table th,
-      .cx-reports-table td {
-        text-align: left;
-        padding: 11px 12px;
-        border-bottom: 1px solid rgba(255,255,255,.08);
-        font-size: 13px;
-        vertical-align: top;
-      }
-      .cx-reports-table th {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-        opacity: .78;
-        background: rgba(255,255,255,.07);
-        position: sticky;
-        top: 0;
-      }
-      .cx-report-badge {
-        display: inline-flex;
-        border-radius: 999px;
-        padding: 6px 9px;
-        border: 1px solid rgba(255,255,255,.13);
-        background: rgba(255,255,255,.07);
-        font-weight: 800;
-      }
-      .cx-report-notice {
-        margin-top: 14px;
-        border: 1px solid rgba(255,255,255,.12);
-        background: rgba(255,255,255,.06);
-        border-radius: 16px;
-        padding: 13px 14px;
-      }
-      .cx-report-notice.error { background: rgba(255,80,80,.16); }
-      @media (max-width: 1200px) {
-        .cx-reports-toolbar { grid-template-columns: 1fr; }
-        .cx-reports-kpis { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
-        .cx-reports-chart-grid { grid-template-columns: 1fr; }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function reportsReadFilters() {
-    const mode = document.querySelector("[data-reports-mode]")?.value || "general";
-    const preset = document.querySelector("[data-reports-preset]")?.value || "7d";
-    const startDate = document.querySelector("[data-reports-from]")?.value || "";
-    const endDate = document.querySelector("[data-reports-to]")?.value || "";
-    const employeeId = document.querySelector("[data-reports-employee]")?.value || "";
-    const moduleCode = document.querySelector("[data-reports-module]")?.value || "";
-    const status = document.querySelector("[data-reports-status]")?.value || "";
-    const search = document.querySelector("[data-reports-search]")?.value || "";
-    return { mode, preset, startDate, endDate, employeeId, moduleCode, status, search };
-  }
-
-  function reportsDefaultFilters() {
-    return {
-      mode: "general",
-      preset: "7d",
-      startDate: todayIso(-7),
-      endDate: todayIso(0),
-      employeeId: "",
-      moduleCode: "",
-      status: "",
-      search: "",
-    };
-  }
-
-  function reportsUrl(filters = reportsDefaultFilters()) {
-    const companyId = companyIdFromUrl();
-    const params = new URLSearchParams();
-    params.set("preset", filters.preset || "7d");
-    if (filters.startDate) params.set("start_date", filters.startDate);
-    if (filters.endDate) params.set("end_date", filters.endDate);
-    if (filters.employeeId) params.set("employee_id", filters.employeeId);
-    if (filters.moduleCode) params.set("module", filters.moduleCode);
-    if (filters.status) params.set("status", filters.status);
-    if (filters.search) params.set("search", filters.search.trim());
-    return `/reports/companies/${encodeURIComponent(companyId)}/general?${params.toString()}`;
-  }
-
-  async function loadReports(filters) {
-    return api(reportsUrl(filters));
-  }
-
-  function chartBars(items = [], labelKey = "label", valueKey = "value") {
-    const max = Math.max(1, ...items.map((item) => Number(item[valueKey] || 0)));
-    if (!items.length) return `<div class="client-muted">Sin datos para graficar.</div>`;
-    return items.map((item) => {
-      const label = item[labelKey] ?? "-";
-      const value = Number(item[valueKey] || 0);
-      const pct = Math.max(2, Math.min(100, (value / max) * 100));
-      return `
-        <div class="cx-report-bar">
-          <div class="cx-report-bar-label">${h(label)}</div>
-          <div class="cx-report-bar-track"><div class="cx-report-bar-fill" style="width:${pct}%"></div></div>
-          <div>${h(fmt(value))}</div>
-        </div>
-      `;
-    }).join("");
-  }
-
-  function activityChart(items = []) {
-    const prepared = items.map((item) => ({
-      label: String(item.date || "").slice(5),
-      value: Number(item.turnos || 0) + Number(item.gps || 0) + Number(item.materiales || 0),
-    }));
-    return chartBars(prepared);
-  }
-
-  function reportsCards(payload = {}) {
-    const cards = Array.isArray(payload.cards) ? payload.cards : [];
-    return `
-      <div class="cx-reports-kpis">
-        ${cards.map((card) => `
-          <div class="cx-reports-kpi">
-            <span>${h(card.label)}</span>
-            <strong>${card.format === "money" ? h(fmtMoney(card.value)) : h(fmt(card.value))}</strong>
-            <small>${h(card.module || "general")}</small>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function reportsCharts(payload = {}) {
-    const charts = payload.charts || {};
-    return `
-      <div class="cx-reports-chart-grid">
-        <div class="cx-reports-chart">
-          <h3>Actividad por día</h3>
-          ${activityChart(charts.activity_by_day || [])}
-        </div>
-        <div class="cx-reports-chart">
-          <h3>Materiales por estado</h3>
-          ${chartBars(charts.materials_by_status || [])}
-        </div>
-        <div class="cx-reports-chart">
-          <h3>GPS</h3>
-          ${chartBars(charts.gps_distribution || [])}
-        </div>
-        <div class="cx-reports-chart">
-          <h3>Inventario crítico</h3>
-          ${chartBars(charts.inventory_status || [])}
-        </div>
-        <div class="cx-reports-chart">
-          <h3>Nómina</h3>
-          ${chartBars(charts.payroll_breakdown || [])}
-        </div>
-        <div class="cx-reports-chart">
-          <h3>Movimientos inventario</h3>
-          ${chartBars(charts.inventory_movements || [])}
-        </div>
-      </div>
-    `;
-  }
-
-  function employeeOptions(payload = {}, selected = "") {
-    const rows = payload.details?.employee_summary || [];
-    return `
-      <option value="">Todos</option>
-      ${rows.map((row) => {
-        const value = row.employee_id || "";
-        if (!value) return "";
-        return `<option value="${h(value)}" ${String(selected) === String(value) ? "selected" : ""}>${h(row.employee_name || "Sin nombre")}</option>`;
-      }).join("")}
-    `;
-  }
-
-  function reportsToolbar(filters, payload) {
-    return `
-      <div class="cx-reports-toolbar">
-        <label class="cx-reports-field">
-          <span>Tipo</span>
-          <select data-reports-mode>
-            <option value="general" ${filters.mode === "general" ? "selected" : ""}>General</option>
-            <option value="employee" ${filters.mode === "employee" ? "selected" : ""}>Por persona</option>
-          </select>
-        </label>
-        <label class="cx-reports-field">
-          <span>Desde</span>
-          <input type="date" value="${h(filters.startDate || "")}" data-reports-from>
-        </label>
-        <label class="cx-reports-field">
-          <span>Hasta</span>
-          <input type="date" value="${h(filters.endDate || "")}" data-reports-to>
-        </label>
-        <label class="cx-reports-field">
-          <span>Periodo</span>
-          <select data-reports-preset>
-            <option value="today" ${filters.preset === "today" ? "selected" : ""}>Hoy</option>
-            <option value="7d" ${filters.preset === "7d" ? "selected" : ""}>7 días</option>
-            <option value="15d" ${filters.preset === "15d" ? "selected" : ""}>15 días</option>
-            <option value="month" ${filters.preset === "month" ? "selected" : ""}>Mes</option>
-            <option value="custom" ${filters.preset === "custom" ? "selected" : ""}>Personalizado</option>
-          </select>
-        </label>
-        <label class="cx-reports-field">
-          <span>Empleado</span>
-          <select data-reports-employee>
-            ${employeeOptions(payload, filters.employeeId)}
-          </select>
-        </label>
-        <label class="cx-reports-field">
-          <span>Lupa inteligente</span>
-          <input type="search" placeholder="Buscar empleado, MAT, GPS, stock, nómina..." value="${h(filters.search || "")}" data-reports-search>
-        </label>
-        <button class="client-btn" type="button" data-reports-generate>Generar</button>
-        <button class="client-btn" type="button" data-reports-export>CSV</button>
-        <button class="client-btn" type="button" data-reports-dashboard>Volver</button>
-      </div>
-      <div class="cx-reports-toolbar" style="grid-template-columns: 180px 180px 1fr; margin-top:10px">
-        <label class="cx-reports-field">
-          <span>Módulo</span>
-          <select data-reports-module>
-            <option value="">Todos</option>
-            <option value="workforce" ${filters.moduleCode === "workforce" ? "selected" : ""}>Workforce</option>
-            <option value="gps" ${filters.moduleCode === "gps" ? "selected" : ""}>GPS</option>
-            <option value="materials" ${filters.moduleCode === "materials" ? "selected" : ""}>Materiales</option>
-            <option value="inventory" ${filters.moduleCode === "inventory" ? "selected" : ""}>Inventario</option>
-            <option value="payroll" ${filters.moduleCode === "payroll" ? "selected" : ""}>Nómina</option>
-          </select>
-        </label>
-        <label class="cx-reports-field">
-          <span>Estado</span>
-          <input type="text" placeholder="delivered, returned, outside..." value="${h(filters.status || "")}" data-reports-status>
-        </label>
-        <div class="client-muted" style="align-self:end">Reporte general consolida toda la empresa. Por persona filtra al colaborador seleccionado.</div>
-      </div>
-    `;
-  }
-
-  const tableConfigs = {
-    employee_summary: {
-      title: "Resumen por empleado",
-      columns: [
-        ["employee_name", "Empleado"],
-        ["employee_role", "Rol"],
-        ["turnos", "Turnos"],
-        ["eventos", "Eventos"],
-        ["gps", "GPS"],
-        ["gps_fuera", "GPS fuera"],
-        ["materiales", "Materiales"],
-        ["material_devuelto", "Devueltos"],
-        ["consignas", "Consignas"],
-        ["horas_ordinarias", "Horas ord."],
-        ["horas_extra", "Horas extra"],
-        ["total_nomina", "Total nómina"],
-        ["alertas", "Alertas"],
-      ],
-    },
-    materials: {
-      title: "Materiales",
-      columns: [
-        ["order_number", "Orden"],
-        ["employee_name", "Solicitante"],
-        ["material_name", "Material"],
-        ["quantity", "Cantidad"],
-        ["quantity_returned", "Devuelto"],
-        ["status", "Estado"],
-        ["destination", "Destino"],
-        ["requested_at", "Solicitud"],
-        ["delivered_at", "Entrega"],
-        ["returned_at", "Devolución"],
-        ["notes", "Notas"],
-      ],
-    },
-    inventory_items: {
-      title: "Inventario",
-      columns: [
-        ["name_reference", "Referencia"],
-        ["sku", "SKU"],
-        ["item_size", "Tamaño"],
-        ["color", "Color"],
-        ["current_stock", "Stock actual"],
-        ["min_stock", "Mínimo"],
-        ["status", "Estado"],
-        ["updated_at", "Actualizado"],
-      ],
-    },
-    gps: {
-      title: "GPS",
-      columns: [
-        ["employee_name", "Empleado"],
-        ["employee_role", "Rol"],
-        ["gps_status", "Estado GPS"],
-        ["occurred_at", "Fecha/Hora"],
-        ["detail", "Detalle"],
-        ["status", "Estado"],
-      ],
-    },
-    payroll: {
-      title: "Nómina",
-      columns: [
-        ["employee_name", "Empleado"],
-        ["employee_role", "Rol"],
-        ["closed_shifts", "Turnos cerrados"],
-        ["regular_minutes", "Min. ordinarios"],
-        ["extra_minutes", "Min. extra"],
-        ["gross_amount", "Bruto"],
-        ["discount_amount", "Descuentos"],
-        ["net_amount", "Neto"],
-      ],
-    },
-    attendance: {
-      title: "Asistencia / Bitácora",
-      columns: [
-        ["occurred_at", "Fecha/Hora"],
-        ["employee_name", "Empleado"],
-        ["employee_role", "Rol"],
-        ["event_type", "Evento"],
-        ["source_channel", "Canal"],
-        ["module_code", "Módulo"],
-        ["status", "Estado"],
-        ["detail", "Detalle"],
-      ],
-    },
-  };
-
-  function tableValue(row, key) {
-    if (key.endsWith("_at") || key === "occurred_at" || key === "created_at" || key === "updated_at") return fmtDate(row[key]);
-    if (["gross_amount", "discount_amount", "net_amount", "total_nomina"].includes(key)) return fmtMoney(row[key]);
-    return fmt(row[key]);
-  }
-
-  function reportsTabs(active = "employee_summary") {
-    return `
-      <div class="cx-reports-tabs">
-        ${Object.entries(tableConfigs).map(([key, cfg]) => `
-          <button class="cx-reports-tab ${key === active ? "active" : ""}" type="button" data-reports-tab="${h(key)}">${h(cfg.title)}</button>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function reportsTable(payload = {}, active = "employee_summary") {
-    const cfg = tableConfigs[active] || tableConfigs.employee_summary;
-    const rows = payload.details?.[active] || [];
-    return `
-      <div class="cx-reports-table-wrap">
-        <table class="cx-reports-table">
-          <thead>
-            <tr>${cfg.columns.map(([, label]) => `<th>${h(label)}</th>`).join("")}</tr>
-          </thead>
-          <tbody>
-            ${rows.length ? rows.map((row) => `
-              <tr>
-                ${cfg.columns.map(([key]) => `<td>${key === "status" || key === "gps_status" ? `<span class="cx-report-badge">${h(tableValue(row, key))}</span>` : h(tableValue(row, key))}</td>`).join("")}
-              </tr>
-            `).join("") : `
-              <tr><td colspan="${cfg.columns.length}">Sin datos para los filtros seleccionados.</td></tr>
-            `}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function reportWarnings(payload = {}, loadError = "") {
-    const errors = Array.isArray(payload.errors) ? payload.errors : [];
-    if (loadError) return `<div class="cx-report-notice error">${h(loadError)}</div>`;
-    if (!errors.length) return "";
-    return `<div class="cx-report-notice">Algunos bloques no tenían datos o no aplican: ${errors.map((e) => h(e.module)).join(", ")}</div>`;
-  }
-
-  async function renderReports(filters = null, activeTab = "employee_summary") {
-    reportStyles();
-    const app = document.getElementById("app");
-    if (!app) return;
-
-    const companyId = companyIdFromUrl();
-    const nextFilters = filters || reportsDefaultFilters();
-
-    let payload = {};
-    let loadError = "";
-
-    try {
-      payload = await loadReports(nextFilters);
-    } catch (error) {
-      loadError = error.message || "No se pudo cargar Reportes.";
-      payload = { details: {}, charts: {}, cards: [], errors: [] };
-    }
-
-    window.__cxReportsPayload = payload;
-    window.__cxReportsFilters = nextFilters;
-    window.__cxReportsActiveTab = activeTab;
-
-    const titleMode = nextFilters.employeeId ? "Reporte por persona" : "Reporte general";
-
-    app.innerHTML = `
-      <main class="client-shell">
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo"><strong>CLONEXA</strong></div>
-            <h2 class="client-company-name">Reportes</h2>
-            <div class="client-muted">${h(companyId || "tenant")}</div>
-            <nav class="client-nav">
-              <button type="button" data-reports-dashboard>Dashboard</button>
-              <button class="active" type="button">Reportes</button>
-              <button type="button" data-reports-kpis>KPIs</button>
-            </nav>
-            <div class="client-footer-id">
-              <strong>Tenant activo</strong><br>
-              ${h(companyId || "")}
-            </div>
-          </aside>
-
-          <section class="client-main">
-            <header class="client-hero">
-              <div class="client-eyebrow">Módulo Reportes</div>
-              <h1 class="client-title">${h(titleMode)}</h1>
-              <p class="client-muted">Histórico consolidado de Personal, GPS, Materiales, Inventario y Nómina. No modifica datos; solo audita y exporta.</p>
-              ${reportsToolbar(nextFilters, payload)}
-              ${reportWarnings(payload, loadError)}
-            </header>
-
-            <section class="client-panel">
-              <div class="client-eyebrow">Resumen ejecutivo</div>
-              <h2>Indicadores del periodo</h2>
-              ${reportsCards(payload)}
-              ${reportsCharts(payload)}
-            </section>
-
-            <section class="client-panel" style="margin-top:18px">
-              <div class="client-eyebrow">Detalle operativo</div>
-              <h2>Tablas auditables</h2>
-              ${reportsTabs(activeTab)}
-              ${reportsTable(payload, activeTab)}
-            </section>
-          </section>
-        </div>
-      </main>
-    `;
-  }
-
-  async function exportReportsCsv() {
-    const filters = window.__cxReportsFilters || reportsReadFilters();
-    const companyId = companyIdFromUrl();
-    const params = new URLSearchParams();
-    params.set("preset", filters.preset || "7d");
-    if (filters.startDate) params.set("start_date", filters.startDate);
-    if (filters.endDate) params.set("end_date", filters.endDate);
-    if (filters.employeeId) params.set("employee_id", filters.employeeId);
-    if (filters.moduleCode) params.set("module", filters.moduleCode);
-    if (filters.status) params.set("status", filters.status);
-    if (filters.search) params.set("search", filters.search.trim());
-
-    const res = await fetch(`${API}/reports/companies/${encodeURIComponent(companyId)}/export.csv?${params.toString()}`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${text}`);
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `clonexa_reporte_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  document.addEventListener("click", async (event) => {
-    const reportModule = event.target.closest('[data-client-module="reports"], [data-reports-open]');
-    if (reportModule) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      await renderReports();
-      return;
-    }
-  }, true);
-
-  document.addEventListener("click", async (event) => {
-    if (event.target.closest("[data-reports-dashboard]")) {
-      window.location.href = `/client?company_id=${encodeURIComponent(companyIdFromUrl())}`;
-      return;
-    }
-
-    if (event.target.closest("[data-reports-kpis]")) {
-      const kpiBtn = document.querySelector('[data-client-module="kpis"]');
-      if (kpiBtn) kpiBtn.click();
-      return;
-    }
-
-    if (event.target.closest("[data-reports-generate]")) {
-      const filters = reportsReadFilters();
-      if (filters.mode === "employee" && !filters.employeeId) {
-        const search = document.querySelector("[data-reports-search]");
-        if (search) search.placeholder = "Selecciona empleado para reporte por persona";
-      }
-      await renderReports(filters, window.__cxReportsActiveTab || "employee_summary");
-      return;
-    }
-
-    if (event.target.closest("[data-reports-export]")) {
-      try {
-        await exportReportsCsv();
-      } catch (error) {
-        const box = document.querySelector(".client-hero");
-        if (box) box.insertAdjacentHTML("beforeend", `<div class="cx-report-notice error">${h(error.message || "No se pudo exportar CSV.")}</div>`);
-      }
-      return;
-    }
-
-    const tab = event.target.closest("[data-reports-tab]");
-    if (tab) {
-      await renderReports(window.__cxReportsFilters || reportsReadFilters(), tab.dataset.reportsTab || "employee_summary");
-      return;
-    }
-  });
-
-  document.addEventListener("keydown", async (event) => {
-    if (event.key !== "Enter") return;
-    const input = event.target.closest("[data-reports-search]");
-    if (!input) return;
-    event.preventDefault();
-    await renderReports(reportsReadFilters(), window.__cxReportsActiveTab || "employee_summary");
-  });
-})();
-/* CX_REPORTS_016B_END */
-
-
-
-/* CLONEXA 020A-1 CLIENT ACCOUNT SESSION LAYER */
-(function clonexaClientAccountSessionLayer() {
-  "use strict";
-
-  const TOKEN_KEY = "clonexa_access_token";
-  const COMPANY_KEY = "clonexa_company_id";
-  const LEGACY_COMPANY_KEY = "company_id";
-
-  const TEXT = {
-    es: {
-      settings: "Configuración",
-      logout: "Salir",
-      title: "Configuración de cuenta",
-      firstLogin: "Primer ingreso: cambia tu contraseña",
-      account: "Cuenta",
-      email: "Correo",
-      newEmail: "Nuevo correo",
-      currentPassword: "Contraseña actual",
-      newPassword: "Nueva contraseña",
-      confirmPassword: "Confirmar contraseña",
-      language: "Idioma",
-      session: "Sesión",
-      timeout: "Tiempo de ventana abierta",
-      save: "Guardar cambios",
-      close: "Cerrar",
-      saved: "Configuración guardada.",
-      passwordRequired: "Debes cambiar la contraseña para continuar.",
-      sessionExpired: "Sesión expirada por inactividad.",
-      adminHint: "Panel cliente CLONEXA",
-      passwordHelp: "Deja nueva contraseña vacía si no deseas cambiarla.",
-      emailHelp: "Deja nuevo correo vacío si no deseas cambiarlo."
-    },
-    en: {
-      settings: "Settings",
-      logout: "Log out",
-      title: "Account settings",
-      firstLogin: "First login: change your password",
-      account: "Account",
-      email: "Email",
-      newEmail: "New email",
-      currentPassword: "Current password",
-      newPassword: "New password",
-      confirmPassword: "Confirm password",
-      language: "Language",
-      session: "Session",
-      timeout: "Open session window",
-      save: "Save changes",
-      close: "Close",
-      saved: "Settings saved.",
-      passwordRequired: "You must change your password to continue.",
-      sessionExpired: "Session expired due to inactivity.",
-      adminHint: "CLONEXA client panel",
-      passwordHelp: "Leave new password empty if you do not want to change it.",
-      emailHelp: "Leave new email empty if you do not want to change it."
-    },
-    fr: {
-      settings: "Configuration",
-      logout: "Quitter",
-      title: "Configuration du compte",
-      firstLogin: "Première connexion : changez votre mot de passe",
-      account: "Compte",
-      email: "E-mail",
-      newEmail: "Nouvel e-mail",
-      currentPassword: "Mot de passe actuel",
-      newPassword: "Nouveau mot de passe",
-      confirmPassword: "Confirmer le mot de passe",
-      language: "Langue",
-      session: "Session",
-      timeout: "Fenêtre de session ouverte",
-      save: "Enregistrer",
-      close: "Fermer",
-      saved: "Configuration enregistrée.",
-      passwordRequired: "Vous devez changer votre mot de passe pour continuer.",
-      sessionExpired: "Session expirée pour inactivité.",
-      adminHint: "Panneau client CLONEXA",
-      passwordHelp: "Laissez le nouveau mot de passe vide si vous ne souhaitez pas le changer.",
-      emailHelp: "Laissez le nouvel e-mail vide si vous ne souhaitez pas le changer."
-    }
-  };
-
-  let account = null;
-  let idleTimer = null;
-  let forced = false;
-
-  function token() {
-    return localStorage.getItem(TOKEN_KEY) || "";
-  }
-
-  function companyId() {
-    const params = new URLSearchParams(window.location.search);
-    return (
-      params.get("company_id") ||
-      params.get("companyId") ||
-      localStorage.getItem(COMPANY_KEY) ||
-      localStorage.getItem(LEGACY_COMPANY_KEY) ||
-      ""
-    );
-  }
-
-  function lang() {
-    const value = (account && account.language) || localStorage.getItem("clonexa_client_language") || "es";
-    return ["es", "en", "fr"].includes(value) ? value : "es";
-  }
-
-  function t(key) {
-    const pack = TEXT[lang()] || TEXT.es;
-    return pack[key] || TEXT.es[key] || key;
-  }
-
-  function headers() {
-    return {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token()}`
-    };
-  }
-
-  async function accountApi(path, options) {
-    const response = await fetch(`/api/v1/auth${path}`, Object.assign({
-      headers: headers()
-    }, options || {}));
-
-    let data = {};
-    try {
-      data = await response.json();
-    } catch (_) {
-      data = {};
-    }
-
-    if (!response.ok) {
-      throw new Error(data.detail || data.message || `HTTP ${response.status}`);
-    }
-
-    return data;
-  }
-
-  function installStyles() {
-    if (document.getElementById("clx-account-layer-style")) return;
-
-    const style = document.createElement("style");
-    style.id = "clx-account-layer-style";
-    style.textContent = `
-      .clx-account-bar {
-        position: fixed;
-        top: 14px;
-        right: 14px;
-        z-index: 99980;
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-      .clx-account-pill {
-        background: rgba(15, 23, 42, 0.92);
-        color: #fff;
-        border: 1px solid rgba(255,255,255,0.14);
-        border-radius: 999px;
-        padding: 9px 13px;
-        font-size: 13px;
-        box-shadow: 0 12px 30px rgba(0,0,0,0.18);
-        cursor: pointer;
-      }
-      .clx-account-pill.secondary {
-        background: rgba(255,255,255,0.96);
-        color: #0f172a;
-        border-color: rgba(15,23,42,0.12);
-      }
-      .clx-account-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 99990;
-        background: rgba(15, 23, 42, 0.52);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-      }
-      .clx-account-overlay.open {
-        display: flex;
-      }
-      .clx-account-modal {
-        width: min(560px, 96vw);
-        max-height: 92vh;
-        overflow: auto;
-        background: #fff;
-        color: #0f172a;
-        border-radius: 24px;
-        box-shadow: 0 30px 80px rgba(0,0,0,0.35);
-        padding: 24px;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-      .clx-account-modal h2 {
-        margin: 0 0 4px;
-        font-size: 22px;
-      }
-      .clx-account-muted {
-        color: #64748b;
-        font-size: 13px;
-        margin: 0 0 18px;
-      }
-      .clx-account-grid {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 12px;
-      }
-      .clx-account-grid label {
-        display: grid;
-        gap: 6px;
-        font-size: 13px;
-        font-weight: 700;
-      }
-      .clx-account-grid input,
-      .clx-account-grid select {
-        width: 100%;
-        border: 1px solid #cbd5e1;
-        border-radius: 12px;
-        padding: 11px 12px;
-        font-size: 14px;
-      }
-      .clx-account-section {
-        border: 1px solid #e2e8f0;
-        border-radius: 18px;
-        padding: 16px;
-        margin-top: 14px;
-      }
-      .clx-account-section h3 {
-        margin: 0 0 10px;
-        font-size: 15px;
-      }
-      .clx-account-actions {
-        display: flex;
-        gap: 10px;
-        justify-content: flex-end;
-        margin-top: 18px;
-      }
-      .clx-account-btn {
-        border: 0;
-        border-radius: 12px;
-        padding: 11px 14px;
-        font-weight: 800;
-        cursor: pointer;
-      }
-      .clx-account-btn.primary {
-        background: #111827;
-        color: #fff;
-      }
-      .clx-account-btn.ghost {
-        background: #f1f5f9;
-        color: #0f172a;
-      }
-      .clx-account-status {
-        margin-top: 12px;
-        font-size: 13px;
-        color: #166534;
-      }
-      .clx-account-status.error {
-        color: #b91c1c;
-      }
-      .clx-account-forced .clx-account-close {
-        display: none;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function renderShell() {
-    if (document.getElementById("clx-account-bar")) return;
-
-    const bar = document.createElement("div");
-    bar.id = "clx-account-bar";
-    bar.className = "clx-account-bar";
-    bar.innerHTML = `
-      <button type="button" class="clx-account-pill secondary" id="clxAccountSettingsBtn">⚙ ${t("settings")}</button>
-      <button type="button" class="clx-account-pill" id="clxAccountLogoutBtn">⏻ ${t("logout")}</button>
-    `;
-    document.body.appendChild(bar);
-
-    const overlay = document.createElement("div");
-    overlay.id = "clx-account-overlay";
-    overlay.className = "clx-account-overlay";
-    overlay.innerHTML = `
-      <div class="clx-account-modal" id="clx-account-modal">
-        <h2 id="clxAccountTitle">${t("title")}</h2>
-        <p class="clx-account-muted" id="clxAccountSubtitle">${t("adminHint")}</p>
-
-        <div class="clx-account-section">
-          <h3>${t("account")}</h3>
-          <div class="clx-account-grid">
-            <label>
-              ${t("email")}
-              <input id="clxAccountEmail" type="email" disabled>
-            </label>
-            <p class="clx-account-muted">${t("emailHelp")}</p>
-            <label>
-              ${t("newEmail")}
-              <input id="clxAccountNewEmail" type="email" autocomplete="email">
-            </label>
-          </div>
-        </div>
-
-        <div class="clx-account-section">
-          <h3>${t("session")}</h3>
-          <div class="clx-account-grid">
-            <label>
-              ${t("language")}
-              <select id="clxAccountLanguage">
-                <option value="es">Español</option>
-                <option value="en">English</option>
-                <option value="fr">Français</option>
-              </select>
-            </label>
-            <label>
-              ${t("timeout")}
-              <select id="clxAccountTimeout">
-                <option value="15">15 min</option>
-                <option value="30">30 min</option>
-                <option value="60">60 min</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <div class="clx-account-section">
-          <h3>${t("newPassword")}</h3>
-          <p class="clx-account-muted">${t("passwordHelp")}</p>
-          <div class="clx-account-grid">
-            <label>
-              ${t("currentPassword")}
-              <input id="clxAccountCurrentPassword" type="password" autocomplete="current-password">
-            </label>
-            <label>
-              ${t("newPassword")}
-              <input id="clxAccountNewPassword" type="password" autocomplete="new-password">
-            </label>
-            <label>
-              ${t("confirmPassword")}
-              <input id="clxAccountConfirmPassword" type="password" autocomplete="new-password">
-            </label>
-          </div>
-        </div>
-
-        <div id="clxAccountStatus" class="clx-account-status"></div>
-
-        <div class="clx-account-actions">
-          <button type="button" class="clx-account-btn ghost clx-account-close" id="clxAccountCloseBtn">${t("close")}</button>
-          <button type="button" class="clx-account-btn primary" id="clxAccountSaveBtn">${t("save")}</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    document.getElementById("clxAccountSettingsBtn").addEventListener("click", () => openSettings(false));
-    document.getElementById("clxAccountLogoutBtn").addEventListener("click", () => logout("manual"));
-    document.getElementById("clxAccountCloseBtn").addEventListener("click", closeSettings);
-    document.getElementById("clxAccountSaveBtn").addEventListener("click", saveSettings);
-  }
-
-  function refreshTexts() {
-    const settingsBtn = document.getElementById("clxAccountSettingsBtn");
-    const logoutBtn = document.getElementById("clxAccountLogoutBtn");
-    if (settingsBtn) settingsBtn.textContent = `⚙ ${t("settings")}`;
-    if (logoutBtn) logoutBtn.textContent = `⏻ ${t("logout")}`;
-    document.documentElement.lang = lang();
-  }
-
-  function fillForm() {
-    if (!account) return;
-    const email = document.getElementById("clxAccountEmail");
-    const newEmail = document.getElementById("clxAccountNewEmail");
-    const langEl = document.getElementById("clxAccountLanguage");
-    const timeoutEl = document.getElementById("clxAccountTimeout");
-    const status = document.getElementById("clxAccountStatus");
-
-    if (email) email.value = account.email || "";
-    if (newEmail) newEmail.value = "";
-    if (langEl) langEl.value = account.language || "es";
-    if (timeoutEl) timeoutEl.value = String(account.session_timeout_minutes || 30);
-    if (status) {
-      status.textContent = "";
-      status.classList.remove("error");
-    }
-  }
-
-  function openSettings(force) {
-    forced = Boolean(force);
-    const overlay = document.getElementById("clx-account-overlay");
-    const modal = document.getElementById("clx-account-modal");
-    const title = document.getElementById("clxAccountTitle");
-    const subtitle = document.getElementById("clxAccountSubtitle");
-
-    if (!overlay || !modal) return;
-
-    fillForm();
-
-    modal.classList.toggle("clx-account-forced", forced);
-    if (title) title.textContent = forced ? t("firstLogin") : t("title");
-    if (subtitle) subtitle.textContent = forced ? t("passwordRequired") : t("adminHint");
-
-    overlay.classList.add("open");
-  }
-
-  function closeSettings() {
-    if (forced) return;
-    const overlay = document.getElementById("clx-account-overlay");
-    if (overlay) overlay.classList.remove("open");
-  }
-
-  function setStatus(message, isError) {
-    const status = document.getElementById("clxAccountStatus");
-    if (!status) return;
-    status.textContent = message || "";
-    status.classList.toggle("error", Boolean(isError));
-  }
-
-  async function saveSettings() {
-    try {
-      setStatus("", false);
-
-      const currentPassword = document.getElementById("clxAccountCurrentPassword").value || "";
-      const newPassword = document.getElementById("clxAccountNewPassword").value || "";
-      const confirmPassword = document.getElementById("clxAccountConfirmPassword").value || "";
-      const newEmail = (document.getElementById("clxAccountNewEmail").value || "").trim();
-      const language = document.getElementById("clxAccountLanguage").value || "es";
-      const sessionTimeout = Number(document.getElementById("clxAccountTimeout").value || 30);
-
-      account = await accountApi("/account/preferences", {
-        method: "PATCH",
-        body: JSON.stringify({
-          language: language,
-          session_timeout_minutes: sessionTimeout
-        })
-      });
-
-      localStorage.setItem("clonexa_client_language", account.language || "es");
-
-      if (newEmail) {
-        if (!currentPassword) throw new Error(t("currentPassword"));
-        account = await accountApi("/account/email", {
-          method: "PATCH",
-          body: JSON.stringify({
-            current_password: currentPassword,
-            new_email: newEmail
-          })
-        });
-      }
-
-      if (newPassword || confirmPassword || forced) {
-        if (!currentPassword) throw new Error(t("currentPassword"));
-        account = await accountApi("/account/password", {
-          method: "PATCH",
-          body: JSON.stringify({
-            current_password: currentPassword,
-            new_password: newPassword,
-            confirm_password: confirmPassword
-          })
-        });
-      }
-
-      refreshTexts();
-      configureIdleTimeout();
-      fillForm();
-      setStatus(t("saved"), false);
-
-      if (!account.must_change_password && !account.temporary_password) {
-        forced = false;
-        setTimeout(closeSettings, 700);
-      }
-    } catch (error) {
-      setStatus(error.message || String(error), true);
-    }
-  }
-
-  async function logout(reason) {
-    try {
-      if (token()) {
-        await accountApi("/logout", { method: "POST", body: JSON.stringify({}) });
-      }
-    } catch (_) {}
-
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem("clonexa_login_payload");
-    localStorage.removeItem("clonexa_company_id");
-    localStorage.removeItem("company_id");
-
-    if (reason === "timeout") {
-      localStorage.setItem("clonexa_logout_reason", t("sessionExpired"));
-    }
-
-    window.location.href = "/login";
-  }
-
-  function configureIdleTimeout() {
-    if (idleTimer) clearTimeout(idleTimer);
-
-    const minutes = Number((account && account.session_timeout_minutes) || 30);
-    const ms = minutes * 60 * 1000;
-
-    const reset = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => logout("timeout"), ms);
-    };
-
-    ["click", "keydown", "scroll", "mousemove", "touchstart"].forEach((eventName) => {
-      window.removeEventListener(eventName, reset, { passive: true });
-      window.addEventListener(eventName, reset, { passive: true });
-    });
-
-    reset();
-  }
-
-  async function init() {
-    if (!token()) return;
-
-    installStyles();
-    renderShell();
-
-    try {
-      account = await accountApi("/account", { method: "GET" });
-      localStorage.setItem("clonexa_client_language", account.language || "es");
-      localStorage.setItem("clonexa_company_id", account.company_id || companyId());
-      localStorage.setItem("company_id", account.company_id || companyId());
-
-      refreshTexts();
-      configureIdleTimeout();
-
-      if (account.must_change_password || account.temporary_password) {
-        openSettings(true);
-      }
-    } catch (error) {
-      console.warn("CLONEXA account layer disabled:", error);
-    }
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-})();
-
-
-/* CLONEXA 020A-2 CLIENT GLOBAL I18N + BRANDING BINDING */
-(function clonexaClientGlobalI18nBranding() {
-  "use strict";
-
-  const STORAGE_LANG = "clonexa_client_language";
-
-  const DICT = {
-    es: {
-      settings: "Configuración",
-      logout: "Salir",
-      close: "Cerrar",
-      save: "Guardar",
-      saveChanges: "Guardar cambios",
-      cancel: "Cancelar",
-      search: "Buscar",
-      status: "Estado",
-      company: "Empresa",
-      dashboard: "Dashboard",
-      active: "Activo",
-      inactive: "Inactivo",
-      archived: "Archivado",
-      actions: "Acciones",
-      name: "Nombre",
-      fullName: "Nombre completo",
-      role: "Rol",
-      phone: "Teléfono",
-      email: "Correo",
-      telegramId: "Telegram ID",
-      hireDate: "Fecha ingreso",
-      regularHour: "Hora ordinaria",
-      extraHour: "Hora extra",
-      discount1: "Descuento 1",
-      discount2: "Descuento 2",
-      activate: "Activar",
-      deactivate: "Inactivar",
-      delete: "Eliminar",
-      addStaff: "Agregar personal",
-      seeBot: "Ver bot",
-      seeCrm: "Ver CRM",
-      seePayroll: "Ver nómina",
-      inventory: "Inventario",
-      seeKpis: "Ver KPIs",
-      seeReports: "Ver reportes",
-      seeOperation: "Ver operación",
-      activeStaff: "Personal activo",
-      channels: "Canales",
-      reports: "Reportes",
-      sales: "Ventas",
-      stores: "Tiendas",
-      activeModules: "Módulos activos",
-      modules: "Módulos",
-      live: "LIVE",
-      core: "Core",
-      coreDesc: "base operativa",
-      workforce: "Personal",
-      workforceDesc: "personal operativo",
-      fieldOps: "Campo",
-      fieldOpsDesc: "operación en campo",
-      technicians: "Técnicos",
-      techniciansDesc: "inicio turno y estados",
-      gps: "GPS",
-      gpsDesc: "ubicación y rutas",
-      tasks: "Tareas / Solicitudes",
-      tasksDesc: "solicitudes operativas",
-      requests: "Solicitudes",
-      requestsDesc: "flujo de aprobación",
-      materials: "Materiales",
-      materialsDesc: "solicitud y devolución",
-      payroll: "Nómina",
-      payrollDesc: "corte y cálculo",
-      payrollBiweekly: "Nómina Quincenal",
-      currentCut: "corte actual",
-      billing: "Facturación",
-      billingDesc: "cobros y facturación",
-      reportsDesc: "métricas y auditoría",
-      kpis: "KPIs",
-      kpisDesc: "indicadores operativos",
-      crmField: "CRM Campo",
-      crmDesc: "operación en vivo",
-      tenantSettings: "ajustes del tenant",
-      production: "Producción",
-      productionDesc: "referencias y costos",
-      retail: "Retail",
-      retailDesc: "tiendas y ventas",
-      salesDesc: "actividad comercial",
-      storesDesc: "puntos de venta",
-      hospitality: "Hospitality",
-      hospitalityDesc: "pedidos e inventario",
-      bots: "Bots",
-      botsDesc: "Telegram / WhatsApp",
-      noHistory: "No hay registros de historial para los filtros seleccionados.",
-      accountSettings: "Configuración de cuenta",
-      firstLogin: "Primer ingreso: cambia tu contraseña",
-      account: "Cuenta",
-      newEmail: "Nuevo correo",
-      currentPassword: "Contraseña actual",
-      newPassword: "Nueva contraseña",
-      confirmPassword: "Confirmar contraseña",
-      language: "Idioma",
-      session: "Sesión",
-      timeout: "Tiempo de ventana abierta",
-      saved: "Configuración guardada.",
-      passwordRequired: "Debes cambiar la contraseña para continuar.",
-      sessionExpired: "Sesión expirada por inactividad.",
-      clientPanel: "Panel cliente CLONEXA",
-      passwordHelp: "Deja nueva contraseña vacía si no deseas cambiarla.",
-      emailHelp: "Deja nuevo correo vacío si no deseas cambiarlo."
-    },
-    en: {
-      settings: "Settings",
-      logout: "Log out",
-      close: "Close",
-      save: "Save",
-      saveChanges: "Save changes",
-      cancel: "Cancel",
-      search: "Search",
-      status: "Status",
-      company: "Company",
-      dashboard: "Dashboard",
-      active: "Active",
-      inactive: "Inactive",
-      archived: "Archived",
-      actions: "Actions",
-      name: "Name",
-      fullName: "Full name",
-      role: "Role",
-      phone: "Phone",
-      email: "Email",
-      telegramId: "Telegram ID",
-      hireDate: "Hire date",
-      regularHour: "Regular hour",
-      extraHour: "Extra hour",
-      discount1: "Discount 1",
-      discount2: "Discount 2",
-      activate: "Activate",
-      deactivate: "Deactivate",
-      delete: "Delete",
-      addStaff: "Add staff",
-      seeBot: "View bot",
-      seeCrm: "View CRM",
-      seePayroll: "View payroll",
-      inventory: "Inventory",
-      seeKpis: "View KPIs",
-      seeReports: "View reports",
-      seeOperation: "View operation",
-      activeStaff: "Active staff",
-      channels: "Channels",
-      reports: "Reports",
-      sales: "Sales",
-      stores: "Stores",
-      activeModules: "Active modules",
-      modules: "Modules",
-      live: "LIVE",
-      core: "Core",
-      coreDesc: "operational base",
-      workforce: "Staff",
-      workforceDesc: "operational staff",
-      fieldOps: "Field Ops",
-      fieldOpsDesc: "field operation",
-      technicians: "Technicians",
-      techniciansDesc: "shift start and status",
-      gps: "GPS",
-      gpsDesc: "location and routes",
-      tasks: "Tasks / Requests",
-      tasksDesc: "operational requests",
-      requests: "Requests",
-      requestsDesc: "approval flow",
-      materials: "Materials",
-      materialsDesc: "request and return",
-      payroll: "Payroll",
-      payrollDesc: "cutoff and calculation",
-      payrollBiweekly: "Biweekly Payroll",
-      currentCut: "current cutoff",
-      billing: "Billing",
-      billingDesc: "charges and invoicing",
-      reportsDesc: "metrics and audit",
-      kpis: "KPIs",
-      kpisDesc: "operational indicators",
-      crmField: "Field CRM",
-      crmDesc: "live operation",
-      tenantSettings: "tenant settings",
-      production: "Production",
-      productionDesc: "references and costs",
-      retail: "Retail",
-      retailDesc: "stores and sales",
-      salesDesc: "commercial activity",
-      storesDesc: "points of sale",
-      hospitality: "Hospitality",
-      hospitalityDesc: "orders and inventory",
-      bots: "Bots",
-      botsDesc: "Telegram / WhatsApp",
-      noHistory: "No history records match the selected filters.",
-      accountSettings: "Account settings",
-      firstLogin: "First login: change your password",
-      account: "Account",
-      newEmail: "New email",
-      currentPassword: "Current password",
-      newPassword: "New password",
-      confirmPassword: "Confirm password",
-      language: "Language",
-      session: "Session",
-      timeout: "Open session window",
-      saved: "Settings saved.",
-      passwordRequired: "You must change your password to continue.",
-      sessionExpired: "Session expired due to inactivity.",
-      clientPanel: "CLONEXA client panel",
-      passwordHelp: "Leave new password empty if you do not want to change it.",
-      emailHelp: "Leave new email empty if you do not want to change it."
-    },
-    fr: {
-      settings: "Configuration",
-      logout: "Quitter",
-      close: "Fermer",
-      save: "Enregistrer",
-      saveChanges: "Enregistrer",
-      cancel: "Annuler",
-      search: "Rechercher",
-      status: "Statut",
-      company: "Entreprise",
-      dashboard: "Tableau de bord",
-      active: "Actif",
-      inactive: "Inactif",
-      archived: "Archivé",
-      actions: "Actions",
-      name: "Nom",
-      fullName: "Nom complet",
-      role: "Rôle",
-      phone: "Téléphone",
-      email: "E-mail",
-      telegramId: "Telegram ID",
-      hireDate: "Date d’entrée",
-      regularHour: "Heure normale",
-      extraHour: "Heure supplémentaire",
-      discount1: "Remise 1",
-      discount2: "Remise 2",
-      activate: "Activer",
-      deactivate: "Désactiver",
-      delete: "Supprimer",
-      addStaff: "Ajouter du personnel",
-      seeBot: "Voir le bot",
-      seeCrm: "Voir CRM",
-      seePayroll: "Voir paie",
-      inventory: "Inventaire",
-      seeKpis: "Voir KPIs",
-      seeReports: "Voir rapports",
-      seeOperation: "Voir opération",
-      activeStaff: "Personnel actif",
-      channels: "Canaux",
-      reports: "Rapports",
-      sales: "Ventes",
-      stores: "Magasins",
-      activeModules: "Modules actifs",
-      modules: "Modules",
-      live: "LIVE",
-      core: "Core",
-      coreDesc: "base opérationnelle",
-      workforce: "Personnel",
-      workforceDesc: "personnel opérationnel",
-      fieldOps: "Terrain",
-      fieldOpsDesc: "opération terrain",
-      technicians: "Techniciens",
-      techniciansDesc: "début de service et états",
-      gps: "GPS",
-      gpsDesc: "localisation et itinéraires",
-      tasks: "Tâches / Demandes",
-      tasksDesc: "demandes opérationnelles",
-      requests: "Demandes",
-      requestsDesc: "flux d’approbation",
-      materials: "Matériaux",
-      materialsDesc: "demande et retour",
-      payroll: "Paie",
-      payrollDesc: "coupe et calcul",
-      payrollBiweekly: "Paie bimensuelle",
-      currentCut: "coupe actuelle",
-      billing: "Facturation",
-      billingDesc: "encaissements et facturation",
-      reportsDesc: "métriques et audit",
-      kpis: "KPIs",
-      kpisDesc: "indicateurs opérationnels",
-      crmField: "CRM Terrain",
-      crmDesc: "opération en direct",
-      tenantSettings: "paramètres du tenant",
-      production: "Production",
-      productionDesc: "références et coûts",
-      retail: "Retail",
-      retailDesc: "magasins et ventes",
-      salesDesc: "activité commerciale",
-      storesDesc: "points de vente",
-      hospitality: "Hospitality",
-      hospitalityDesc: "commandes et inventaire",
-      bots: "Bots",
-      botsDesc: "Telegram / WhatsApp",
-      noHistory: "Aucun historique ne correspond aux filtres sélectionnés.",
-      accountSettings: "Configuration du compte",
-      firstLogin: "Première connexion : changez votre mot de passe",
-      account: "Compte",
-      newEmail: "Nouvel e-mail",
-      currentPassword: "Mot de passe actuel",
-      newPassword: "Nouveau mot de passe",
-      confirmPassword: "Confirmer le mot de passe",
-      language: "Langue",
-      session: "Session",
-      timeout: "Fenêtre de session ouverte",
-      saved: "Configuration enregistrée.",
-      passwordRequired: "Vous devez changer votre mot de passe pour continuer.",
-      sessionExpired: "Session expirée pour inactivité.",
-      clientPanel: "Panneau client CLONEXA",
-      passwordHelp: "Laissez le nouveau mot de passe vide si vous ne souhaitez pas le changer.",
-      emailHelp: "Laissez le nouvel e-mail vide si vous ne souhaitez pas le changer."
-    }
-  };
-
-  const PHRASE_TO_KEY = {};
-  Object.keys(DICT).forEach((lang) => {
-    Object.keys(DICT[lang]).forEach((key) => {
-      PHRASE_TO_KEY[String(DICT[lang][key]).trim()] = key;
-    });
-  });
-
-  [
-    ["Configuracion", "settings"],
-    ["Dashboard", "dashboard"],
-    ["Personal", "workforce"],
-    ["Workforce", "workforce"],
-    ["Inventario", "inventory"],
-    ["Materiales", "materials"],
-    ["Reportes", "reports"],
-    ["Nomina", "payroll"],
-    ["Nómina", "payroll"],
-    ["Produccion", "production"],
-    ["Producción", "production"],
-    ["GPS", "gps"],
-    ["CRM Campo", "crmField"],
-    ["KPIs", "kpis"],
-    ["Guardar", "save"],
-    ["Cancelar", "cancel"],
-    ["Buscar", "search"],
-    ["Estado", "status"],
-    ["Empresa", "company"],
-    ["Acciones", "actions"],
-    ["Correo", "email"],
-    ["Telefono", "phone"],
-    ["Teléfono", "phone"],
-    ["Eliminar", "delete"],
-    ["Activar", "activate"],
-    ["Inactivar", "deactivate"]
-  ].forEach(([phrase, key]) => {
-    PHRASE_TO_KEY[phrase] = key;
-  });
-
-  function currentLang() {
-    const stored = String(localStorage.getItem(STORAGE_LANG) || document.documentElement.lang || "es").toLowerCase();
-    return ["es", "en", "fr"].includes(stored) ? stored : "es";
-  }
-
-  function t(key) {
-    const lang = currentLang();
-    return (DICT[lang] && DICT[lang][key]) || DICT.es[key] || key;
-  }
-
-  function translateString(value) {
-    if (typeof value !== "string") return value;
-
-    const raw = value;
-    const trimmed = raw.trim();
-
-    if (!trimmed) return raw;
-    if (/^[\d\s.,:$%#@/_-]+$/.test(trimmed)) return raw;
-    if (/^[a-f0-9-]{24,}$/i.test(trimmed)) return raw;
-
-    const key = PHRASE_TO_KEY[trimmed];
-    if (!key) return raw;
-
-    const translated = t(key);
-    return raw.replace(trimmed, translated);
-  }
-
-  function shouldSkipElement(el) {
-    if (!el || !el.tagName) return false;
-
-    const tag = el.tagName.toLowerCase();
-
-    if (["script", "style", "code", "pre", "textarea"].includes(tag)) return true;
-    if (el.closest && el.closest("[data-clx-no-i18n]")) return true;
-
-    return false;
-  }
-
-  function translateNode(root) {
-    const target = root || document.body;
-    if (!target) return;
-
-    if (target.nodeType === Node.TEXT_NODE) {
-      const next = translateString(target.nodeValue || "");
-      if (next !== target.nodeValue) target.nodeValue = next;
-      return;
-    }
-
-    if (target.nodeType !== Node.ELEMENT_NODE && target.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
-
-    const element = target.nodeType === Node.ELEMENT_NODE ? target : null;
-
-    if (element && shouldSkipElement(element)) return;
-
-    if (element) {
-      ["placeholder", "title", "aria-label"].forEach((attr) => {
-        if (element.hasAttribute && element.hasAttribute(attr)) {
-          const current = element.getAttribute(attr);
-          const next = translateString(current || "");
-          if (next !== current) element.setAttribute(attr, next);
-        }
-      });
-
-      if (
-        element.tagName &&
-        element.tagName.toLowerCase() === "input" &&
-        ["button", "submit", "reset"].includes(String(element.type || "").toLowerCase())
-      ) {
-        element.value = translateString(element.value || "");
-      }
-    }
-
-    const walker = document.createTreeWalker(
-      target,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          const parent = node.parentElement;
-          if (!parent || shouldSkipElement(parent)) return NodeFilter.FILTER_REJECT;
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }
-    );
-
-    const textNodes = [];
-    while (walker.nextNode()) textNodes.push(walker.currentNode);
-
-    textNodes.forEach((node) => {
-      const next = translateString(node.nodeValue || "");
-      if (next !== node.nodeValue) node.nodeValue = next;
-    });
-
-    if (target.querySelectorAll) {
-      target.querySelectorAll("[placeholder], [title], [aria-label], input[type='button'], input[type='submit']").forEach((el) => {
-        if (shouldSkipElement(el)) return;
-
-        ["placeholder", "title", "aria-label"].forEach((attr) => {
-          if (el.hasAttribute(attr)) {
-            const current = el.getAttribute(attr);
-            const next = translateString(current || "");
-            if (next !== current) el.setAttribute(attr, next);
-          }
-        });
-
-        if (el.matches("input[type='button'], input[type='submit']")) {
-          el.value = translateString(el.value || "");
-        }
-      });
-    }
-
-    document.documentElement.lang = currentLang();
-  }
-
-  function installBrandingOverrides() {
-    let style = document.getElementById("clx-i18n-branding-overrides");
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "clx-i18n-branding-overrides";
-      document.head.appendChild(style);
-    }
-
-    style.textContent = `
-      .clx-account-bar {
-        top: 16px !important;
-        right: 16px !important;
-      }
-
-      .clx-account-pill,
-      .clx-account-pill.secondary {
-        background: linear-gradient(135deg, var(--cx-secondary, #00ff88), var(--cx-primary, #ff2bd6)) !important;
-        color: #020617 !important;
-        border: 1px solid rgba(255,255,255,.28) !important;
-        box-shadow: 0 0 34px color-mix(in srgb, var(--cx-primary, #ff2bd6) 45%, transparent), 0 18px 44px rgba(0,0,0,.28) !important;
-        font-weight: 1000 !important;
-      }
-
-      .clx-account-overlay {
-        background:
-          radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--cx-primary, #ff2bd6) 34%, transparent), transparent 34%),
-          radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--cx-secondary, #00ff88) 28%, transparent), transparent 34%),
-          rgba(2, 6, 23, .76) !important;
-      }
-
-      .clx-account-modal {
-        background:
-          linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.06)),
-          var(--cx-bg, #050509) !important;
-        color: var(--cx-text, #f8fafc) !important;
-        border: 1px solid color-mix(in srgb, var(--cx-primary, #ff2bd6) 44%, rgba(255,255,255,.12)) !important;
-        box-shadow: 0 0 52px color-mix(in srgb, var(--cx-primary, #ff2bd6) 30%, transparent), 0 32px 90px rgba(0,0,0,.48) !important;
-        backdrop-filter: blur(24px) saturate(1.25) !important;
-      }
-
-      .clx-account-section {
-        background: rgba(255,255,255,.055) !important;
-        border-color: rgba(255,255,255,.14) !important;
-      }
-
-      .clx-account-muted {
-        color: color-mix(in srgb, var(--cx-text, #f8fafc) 72%, transparent) !important;
-      }
-
-      .clx-account-grid input,
-      .clx-account-grid select {
-        background: rgba(0,0,0,.24) !important;
-        color: var(--cx-text, #f8fafc) !important;
-        border-color: rgba(255,255,255,.16) !important;
-      }
-
-      .clx-account-grid select option {
-        color: #020617 !important;
-      }
-
-      .clx-account-btn.primary {
-        background: linear-gradient(135deg, var(--cx-secondary, #00ff88), var(--cx-primary, #ff2bd6)) !important;
-        color: #020617 !important;
-        box-shadow: 0 0 30px color-mix(in srgb, var(--cx-primary, #ff2bd6) 40%, transparent) !important;
-      }
-
-      .clx-account-btn.ghost {
-        background: rgba(255,255,255,.09) !important;
-        color: var(--cx-text, #f8fafc) !important;
-        border: 1px solid rgba(255,255,255,.14) !important;
-      }
-    `;
-  }
-
-  let translateTimer = null;
-
-  function scheduleTranslate() {
-    if (translateTimer) clearTimeout(translateTimer);
-    translateTimer = setTimeout(() => {
-      installBrandingOverrides();
-      translateNode(document.body);
-    }, 80);
-  }
-
-  function setLanguage(lang) {
-    if (!["es", "en", "fr"].includes(lang)) return;
-    localStorage.setItem(STORAGE_LANG, lang);
-    document.documentElement.lang = lang;
-    scheduleTranslate();
-  }
-
-  window.CLX_I18N = {
-    t,
-    translate: () => translateNode(document.body),
-    setLanguage,
-    lang: currentLang,
-    dict: DICT
-  };
-
-  document.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!target) return;
-
-    if (target.id === "clxAccountLanguage") {
-      setLanguage(String(target.value || "es").toLowerCase());
-    }
-  }, true);
-
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!target) return;
-
-    if (target.id === "clxAccountSaveBtn") {
-      setTimeout(() => {
-        const select = document.getElementById("clxAccountLanguage");
-        if (select && select.value) setLanguage(String(select.value).toLowerCase());
-        scheduleTranslate();
-      }, 350);
-    }
-  }, true);
-
-  const observer = new MutationObserver((mutations) => {
-    if (!mutations.length) return;
-    scheduleTranslate();
-  });
-
-  function init() {
-    installBrandingOverrides();
-    translateNode(document.body);
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["placeholder", "title", "aria-label", "value"]
-    });
-
-    scheduleTranslate();
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-})();
-
-
-/* CLONEXA 020A-3 FULL CLIENT MODULE I18N */
-(function clonexaFullClientModuleI18n() {
+/* CLONEXA 020A-5 CLIENT I18N CONSOLIDATED ENGINE */
+(function clonexaClientI18nConsolidatedEngine() {
   "use strict";
 
   const LANG_KEY = "clonexa_client_language";
 
-  const I18N = {
+  const TX = {
     es: {
-      moduleWorkforce: "MÓDULO WORKFORCE",
-      moduleMaterials: "MÓDULO MATERIALES",
-      moduleInventory: "MÓDULO INVENTARIO",
-      moduleCrm: "MÓDULO CRM CAMPO",
-      modulePayroll: "MÓDULO NÓMINA",
-      moduleReports: "MÓDULO REPORTES",
-      moduleKpis: "MÓDULO KPIS",
-      moduleGps: "MÓDULO GPS",
-      moduleBots: "MÓDULO BOTS",
+      "initializingCompanyPanel": "Inicializando Panel Empresa",
+      "connectingBos": "Conectando con el sistema operativo empresarial...",
+      "businessOperatingSystem": "SISTEMA OPERATIVO EMPRESARIAL",
+      "independentPanel": "Panel operativo independiente conectado a sus módulos activos.",
+      "panelModules": "MÓDULOS DEL PANEL",
+      "activeServices": "Servicios activos",
+      "activeTenant": "Tenant activo",
+      "activeNow": "Activos ahora",
+      "gpsInside": "GPS dentro",
+      "deliveredMaterial": "Material entregado",
+      "lowStock": "Stock bajo",
+      "activeModules": "módulos activos",
 
-      dashboard: "Dashboard",
-      inventory: "Inventario",
-      fieldCrm: "CRM Campo",
-      payroll: "Nómina",
-      workforce: "Personal",
-      staff: "Personal",
-      kpis: "KPIs",
-      gps: "GPS",
-      bots: "Bots",
-      materials: "Materiales",
-      reports: "Reportes",
+      "dashboard": "Dashboard",
+      "inventory": "Inventario",
+      "fieldCrm": "CRM Campo",
+      "payroll": "Nómina",
+      "staff": "Personal",
+      "workforce": "Workforce",
+      "kpis": "KPIs",
+      "gps": "GPS",
+      "bots": "Bots",
+      "materials": "Materiales",
+      "reports": "Reportes",
 
-      staffTitle: "Registro de personal operativo",
-      staffSubtitle: "{company} administra su personal de forma independiente.",
-      staffHeroText: "Gestiona empleados, técnicos, supervisores y roles conectados a bot, nómina y operación.",
-      editableTable: "TABLA EDITABLE",
-      addRow: "Agregar fila",
-      saveChanges: "Guardar cambios",
-      history: "Historial",
-      back: "Volver",
-      total: "TOTAL",
-      activePlural: "ACTIVOS",
-      inactivePlural: "INACTIVOS",
-      archivedPlural: "ARCHIVADOS",
-      searchMatches: "Buscar coincidencias: nombre, rol, teléfono, correo, Telegram, estado...",
-      all: "Todos",
-      active: "Activos",
-      inactive: "Inactivos",
-      archived: "Archivados",
-      showing: "Mostrando",
-      records: "registros",
+      "stockMaterials": "STOCK Y MATERIALES",
+      "liveOperationUpper": "OPERACIÓN EN VIVO",
+      "payrollCalc": "CORTE Y CÁLCULO",
+      "operationalStaff": "PERSONAL OPERATIVO",
+      "operationalIndicators": "INDICADORES OPERATIVOS",
+      "locationRoutes": "UBICACIÓN Y RUTAS",
+      "requestReturn": "SOLICITUD Y DEVOLUCIÓN",
+      "metricsAudit": "MÉTRICAS Y AUDITORÍA",
+      "activePackage": "Activa un paquete desde Admin V2",
 
-      name: "NOMBRE",
-      role: "ROL",
-      phone: "TELÉFONO",
-      email: "CORREO",
-      telegramId: "TELEGRAM ID",
-      hireDate: "FECHA INGRESO",
-      regularHour: "HORA ORDINARIA",
-      extraHour: "HORA EXTRA",
-      discount1: "DESCUENTO 1",
-      discount2: "DESCUENTO 2",
-      status: "ESTADO",
-      actions: "ACCIONES",
-      save: "Guardar",
-      activate: "Activar",
-      deactivate: "Inactivar",
-      delete: "Eliminar",
-      supervisor: "Supervisor",
-      operator: "Operador",
-      technician: "Técnico",
+      "moduleInventory": "MÓDULO INVENTARIO",
+      "moduleMaterials": "MÓDULO MATERIALES",
+      "moduleCrm": "MÓDULO CRM CAMPO",
+      "moduleWorkforce": "MÓDULO WORKFORCE",
+      "modulePayroll": "MÓDULO NÓMINA",
+      "moduleReports": "MÓDULO REPORTES",
+      "moduleKpis": "MÓDULO KPIS",
+      "moduleGps": "MÓDULO GPS",
+      "moduleBots": "MÓDULO BOTS",
 
-      materialsTitle: "Órdenes de materiales",
-      materialsHeroText: "Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.",
-      operationalCycle: "CICLO OPERATIVO",
-      pending: "Pendientes",
-      approved: "Aprobadas",
-      delivered: "Entregadas",
-      consignment: "Consigna",
-      returned: "Devueltas",
-      order: "ORDEN",
-      requester: "SOLICITANTE",
-      material: "MATERIAL",
-      quantity: "CANTIDAD",
-      destination: "DESTINO",
-      detail: "Detalle",
-      return: "Devolución",
-      update: "Actualizar",
-      outputManagement: "GESTIÓN DE SALIDA",
+      "back": "Volver",
+      "refresh": "Actualizar",
+      "csv": "CSV",
+      "create": "Crear",
+      "save": "Guardar",
+      "saveChanges": "Guardar cambios",
+      "cancel": "Cancelar",
+      "search": "Buscar",
+      "detail": "Detalle",
+      "returnAction": "Devolución",
+      "consignment": "Consigna",
+      "approve": "Aprobar",
+      "reject": "Rechazar",
+      "deliver": "Entregar",
+      "disable": "Deshabilitar",
+      "exportCsv": "Exportar CSV",
 
-      tenantActive: "Tenant activo",
-      clientPanel: "Panel cliente",
-      settings: "Configuración",
-      logout: "Salir",
-      csv: "CSV"
+      "summary": "RESUMEN",
+      "inventoryStatus": "Estado del inventario",
+      "active": "Activo",
+      "activePlural": "Activos",
+      "inactive": "Inactivo",
+      "inactivePlural": "Inactivos",
+      "archived": "Archivado",
+      "archivedPlural": "Archivados",
+      "total": "Total",
+      "totalUpper": "TOTAL",
+      "totalRecords": "Total registros",
+      "created": "Creados",
+      "edited": "Editados",
+      "available": "Disponibilidad",
+      "stock": "Stock",
+      "currentStock": "Stock actual",
+      "minimumStock": "Stock mínimo",
+
+      "inventoryHero": "Catálogo operativo, mínimos y stock actual de solo lectura. Materiales descontará o devolverá stock en la siguiente integración.",
+      "createMaterialProduct": "Crear material / producto",
+      "modifyMaterial": "Modificar material",
+      "createMaterialProductUpper": "CREAR MATERIAL / PRODUCTO",
+      "newInventoryRecord": "Nuevo registro de inventario",
+      "inventoryCreateHelp": "El stock actual se crea desde la cantidad inicial como movimiento. Luego solo cambia por entradas, entregas y devoluciones.",
+      "nameReference": "NOMBRE / REFERENCIA",
+      "nameReferenceMixed": "Nombre / referencia",
+      "nameReferenceRequired": "Nombre / referencia es obligatorio.",
+      "size": "TAMAÑO",
+      "color": "COLOR",
+      "initialQuantity": "CANTIDAD INICIAL",
+      "minimumAlert": "MÍNIMO ALERTA",
+      "enterQuantity": "Ingresar cantidad",
+      "entry": "Entrada",
+      "entries": "Entradas",
+      "outputs": "Salidas",
+      "inventoryMovements": "Movimientos inventario",
+      "criticalInventory": "Inventario crítico",
+
+      "crmHero": "Vista viva de colaboradores en turno, pausas y núcleos activos de la empresa.",
+      "currentOperationalStatus": "ESTADO OPERATIVO ACTUAL",
+      "operationLive": "Operación en vivo",
+      "onBreak": "En pausa",
+      "collaboratorsUpper": "COLABORADORES",
+      "collaboratorStatus": "Estado por colaborador",
+      "collaborator": "Colaborador",
+      "collaborators": "Colaboradores",
+      "offShift": "Fuera de turno",
+      "timer": "Cronómetro",
+      "noRequest": "Sin solicitud",
+      "noTask": "Sin tarea",
+      "noShift": "Sin turno",
+      "noLocation": "Sin ubicación",
+      "gpsStatus": "Estado GPS",
+      "insidePerimeter": "Dentro de perímetro",
+      "outsidePerimeter": "Fuera de perímetro",
+
+      "staffHero": "Gestiona empleados, técnicos, supervisores y roles conectados a bot, nómina y operación.",
+      "staffTitle": "Registro de personal operativo",
+      "staffSubtitle": "administra su personal de forma independiente.",
+      "editableTable": "TABLA EDITABLE",
+      "addRow": "Agregar fila",
+      "addStaff": "Agregar personal",
+      "history": "Historial",
+      "searchMatches": "Buscar coincidencias: nombre, rol, teléfono, correo, Telegram, estado...",
+      "all": "Todos",
+      "showing": "Mostrando",
+      "records": "registros",
+      "name": "Nombre",
+      "nameUpper": "NOMBRE",
+      "fullName": "Nombre completo",
+      "role": "Rol",
+      "roleUpper": "ROL",
+      "phone": "Teléfono",
+      "phoneUpper": "TELÉFONO",
+      "email": "Correo",
+      "emailUpper": "CORREO",
+      "telegramId": "Telegram ID",
+      "telegramIdUpper": "TELEGRAM ID",
+      "hireDate": "Fecha ingreso",
+      "hireDateUpper": "FECHA INGRESO",
+      "regularHour": "Hora ordinaria",
+      "regularHourUpper": "HORA ORDINARIA",
+      "extraHour": "Hora extra",
+      "extraHourUpper": "HORA EXTRA",
+      "discount1": "Descuento 1",
+      "discount1Upper": "DESCUENTO 1",
+      "discount2": "Descuento 2",
+      "discount2Upper": "DESCUENTO 2",
+      "status": "Estado",
+      "statusUpper": "ESTADO",
+      "actions": "Acciones",
+      "actionsUpper": "ACCIONES",
+      "activate": "Activar",
+      "deactivate": "Inactivar",
+      "delete": "Eliminar",
+      "supervisor": "Supervisor",
+      "operator": "Operador",
+      "technician": "Técnico",
+      "adminCompany": "Admin empresa",
+      "employee": "Empleado",
+      "event": "Evento",
+      "field": "Campo",
+      "oldValue": "Valor anterior",
+      "newValue": "Valor nuevo",
+      "source": "Fuente",
+      "notes": "Notas",
+      "noHistoryRecords": "No hay registros de historial para los filtros seleccionados.",
+      "personalSaved": "Personal guardado correctamente.",
+      "employeeCreated": "Empleado creado",
+      "employeeEdited": "Empleado editado",
+      "employeeActivated": "Empleado activado",
+      "employeeDeactivated": "Empleado inactivado",
+      "employeeArchived": "Empleado archivado",
+      "employeeRestored": "Empleado restaurado",
+
+      "materialsHero": "Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.",
+      "operationalCycle": "CICLO OPERATIVO",
+      "materialOrders": "Órdenes de materiales",
+      "pending": "Pendientes",
+      "approved": "Aprobadas",
+      "delivered": "Entregadas",
+      "returned": "Devueltas",
+      "order": "Orden",
+      "orderUpper": "ORDEN",
+      "requester": "Solicitante",
+      "requesterUpper": "SOLICITANTE",
+      "material": "Material",
+      "materialUpper": "MATERIAL",
+      "quantity": "Cantidad",
+      "quantityUpper": "CANTIDAD",
+      "destination": "Destino",
+      "destinationUpper": "DESTINO",
+      "outputManagement": "GESTIÓN DE SALIDA",
+      "materialStatus": "Materiales por estado",
+      "requestedMaterials": "Materiales más solicitados",
+      "orderApproval": "Aprobación de orden",
+      "approvalObservation": "Observación de aprobación",
+      "saveApproval": "Guardar aprobación",
+      "registerConsignment": "Registrar consigna",
+      "registerReturn": "Registrar devolución",
+      "returnByOrder": "Registrar devolución por número de orden",
+      "consignmentByOrder": "Registrar consigna por número de orden",
+      "orderNumber": "Número de orden",
+      "destinationPlace": "Lugar de destino",
+      "reasonState": "Motivo / estado del material",
+      "consignmentReason": "Motivo de consigna / responsable / próximo turno",
+      "delivery": "Entrega",
+      "deliveredOne": "Entregado",
+      "returnedOne": "Devuelto",
+      "partialReturned": "Devuelta parcial",
+      "totalReturned": "Devuelta total",
+      "partialConsigned": "Consignada parcial",
+      "totalConsigned": "Consignada total",
+      "noMaterialOrders": "No hay órdenes de materiales.",
+
+      "payrollHero": "Nómina consume Workforce, Bot y Asistencia. Al finalizar un corte, exporta CSV para guardar el histórico externo del periodo.",
+      "calculatePeriod": "Calcular periodo",
+      "period": "Periodo",
+      "periodCalculated": "Periodo calculado",
+      "cutClose": "Cierre del corte",
+      "payrollSummary": "Resumen de nómina",
+      "ordinaryHours": "Horas ordinarias",
+      "extraHours": "Horas extra",
+      "discounts": "Descuentos",
+      "gross": "Bruto",
+      "estimatedTotal": "Total estimado",
+      "estimatedNetTotal": "Total neto estimado",
+      "payrollTotal": "Total nómina",
+      "closedShifts": "Colaboradores con cierre",
+      "noClosedShifts": "No hay turnos cerrados para el periodo seleccionado.",
+      "exportOnlyNotice": "Consulta cortes por periodo y conserva el resultado exportando CSV.",
+
+      "kpisHero": "Indicadores ejecutivos calculados desde Workforce, GPS, Materiales, Inventario y Nómina según módulos activos.",
+      "operationalKpis": "KPIs Operativos",
+      "executiveIndicators": "Indicadores ejecutivos",
+      "periodIndicators": "Indicadores del periodo",
+      "riskAlerts": "Riesgos operativos",
+      "topOperation": "Top operativo",
+      "smartSearch": "Lupa inteligente",
+      "autoRefresh": "Actualización automática cada 60s · Fuente: datos reales por módulo",
+      "searchKpi": "Buscar KPI",
+      "noCriticalAlerts": "Sin alertas críticas en el periodo.",
+
+      "reportsHero": "Histórico consolidado de Personal, GPS, Materiales, Inventario y Nómina. No modifica datos; solo audita y exporta.",
+      "executiveSummary": "Resumen ejecutivo",
+      "operationalDetail": "Detalle operativo",
+      "auditableTables": "Tablas auditables",
+      "generalReport": "Reporte general",
+      "personReport": "Reporte por persona",
+      "byPerson": "Por persona",
+      "general": "General",
+      "selectEmployeeReport": "Selecciona empleado para reporte por persona",
+      "auditOperation": "Auditoría operativa",
+      "assistance": "Asistencia",
+      "bitacora": "Bitácora operativa de marcaciones e interacciones del personal: bot, panel, QR, solicitudes, observaciones y eventos por empresa.",
+      "noEvents": "No hay eventos para los filtros seleccionados.",
+      "noDataFilters": "Sin datos para los filtros seleccionados.",
+      "noDataChart": "Sin datos para graficar.",
+
+      "gpsSummary": "Resumen GPS",
+      "perimeters": "Perímetros",
+      "allowedParameters": "Parámetros permitidos",
+      "savePerimeters": "Guardar perímetros",
+      "gpsSaved": "Perímetros GPS guardados.",
+      "pointName": "Nombre punto",
+      "latFrom": "Latitud desde",
+      "latTo": "Latitud hasta",
+      "lngFrom": "Longitud desde",
+      "lngTo": "Longitud hasta",
+      "showInPanel": "Mostrar en panel",
+      "gpsConfigHelp": "Configura hasta 5 perímetros permitidos. CLONEXA valida las ubicaciones recibidas por el bot.",
+      "botOnlyLocation": "El bot solo envía ubicación. La validación dentro/fuera la hace CLONEXA con estos parámetros.",
+
+      "botTelegram": "Bot Telegram",
+      "botInternalName": "Nombre interno del bot",
+      "saveName": "Guardar nombre",
+      "botNameUpdated": "Nombre del bot actualizado.",
+      "technicalConfig": "Configuración técnica administrada desde CLONEXA Admin V2.",
+      "channelStatus": "Estado operativo del canal configurado para esta empresa.",
+      "operationalChannel": "Canal operativo",
+
+      "settings": "Configuración",
+      "logout": "Salir",
+      "language": "Idioma",
+      "session": "Sesión",
+      "account": "Cuenta"
     },
 
     en: {
-      moduleWorkforce: "WORKFORCE MODULE",
-      moduleMaterials: "MATERIALS MODULE",
-      moduleInventory: "INVENTORY MODULE",
-      moduleCrm: "FIELD CRM MODULE",
-      modulePayroll: "PAYROLL MODULE",
-      moduleReports: "REPORTS MODULE",
-      moduleKpis: "KPIS MODULE",
-      moduleGps: "GPS MODULE",
-      moduleBots: "BOTS MODULE",
+      "initializingCompanyPanel": "Initializing Company Panel",
+      "connectingBos": "Connecting to the business operating system...",
+      "businessOperatingSystem": "BUSINESS OPERATING SYSTEM",
+      "independentPanel": "Independent operations panel connected to its active modules.",
+      "panelModules": "PANEL MODULES",
+      "activeServices": "Active services",
+      "activeTenant": "Active tenant",
+      "activeNow": "Active now",
+      "gpsInside": "GPS inside",
+      "deliveredMaterial": "Delivered material",
+      "lowStock": "Low stock",
+      "activeModules": "active modules",
 
-      dashboard: "Dashboard",
-      inventory: "Inventory",
-      fieldCrm: "Field CRM",
-      payroll: "Payroll",
-      workforce: "Staff",
-      staff: "Staff",
-      kpis: "KPIs",
-      gps: "GPS",
-      bots: "Bots",
-      materials: "Materials",
-      reports: "Reports",
+      "dashboard": "Dashboard",
+      "inventory": "Inventory",
+      "fieldCrm": "Field CRM",
+      "payroll": "Payroll",
+      "staff": "Staff",
+      "workforce": "Workforce",
+      "kpis": "KPIs",
+      "gps": "GPS",
+      "bots": "Bots",
+      "materials": "Materials",
+      "reports": "Reports",
 
-      staffTitle: "Operational staff registry",
-      staffSubtitle: "{company} manages its staff independently.",
-      staffHeroText: "Manage employees, technicians, supervisors and roles connected to bot, payroll and operations.",
-      editableTable: "EDITABLE TABLE",
-      addRow: "Add row",
-      saveChanges: "Save changes",
-      history: "History",
-      back: "Back",
-      total: "TOTAL",
-      activePlural: "ACTIVE",
-      inactivePlural: "INACTIVE",
-      archivedPlural: "ARCHIVED",
-      searchMatches: "Search matches: name, role, phone, email, Telegram, status...",
-      all: "All",
-      active: "Active",
-      inactive: "Inactive",
-      archived: "Archived",
-      showing: "Showing",
-      records: "records",
+      "stockMaterials": "STOCK AND MATERIALS",
+      "liveOperationUpper": "LIVE OPERATION",
+      "payrollCalc": "CUTOFF AND CALCULATION",
+      "operationalStaff": "OPERATIONAL STAFF",
+      "operationalIndicators": "OPERATIONAL INDICATORS",
+      "locationRoutes": "LOCATION AND ROUTES",
+      "requestReturn": "REQUEST AND RETURN",
+      "metricsAudit": "METRICS AND AUDIT",
+      "activePackage": "Activate a package from Admin V2",
 
-      name: "NAME",
-      role: "ROLE",
-      phone: "PHONE",
-      email: "EMAIL",
-      telegramId: "TELEGRAM ID",
-      hireDate: "HIRE DATE",
-      regularHour: "REGULAR HOUR",
-      extraHour: "EXTRA HOUR",
-      discount1: "DISCOUNT 1",
-      discount2: "DISCOUNT 2",
-      status: "STATUS",
-      actions: "ACTIONS",
-      save: "Save",
-      activate: "Activate",
-      deactivate: "Deactivate",
-      delete: "Delete",
-      supervisor: "Supervisor",
-      operator: "Operator",
-      technician: "Technician",
+      "moduleInventory": "INVENTORY MODULE",
+      "moduleMaterials": "MATERIALS MODULE",
+      "moduleCrm": "FIELD CRM MODULE",
+      "moduleWorkforce": "WORKFORCE MODULE",
+      "modulePayroll": "PAYROLL MODULE",
+      "moduleReports": "REPORTS MODULE",
+      "moduleKpis": "KPIS MODULE",
+      "moduleGps": "GPS MODULE",
+      "moduleBots": "BOTS MODULE",
 
-      materialsTitle: "Material orders",
-      materialsHeroText: "Outbound orders connected to Inventory. Delivery deducts stock; return requires an order number.",
-      operationalCycle: "OPERATING CYCLE",
-      pending: "Pending",
-      approved: "Approved",
-      delivered: "Delivered",
-      consignment: "Consignment",
-      returned: "Returned",
-      order: "ORDER",
-      requester: "REQUESTER",
-      material: "MATERIAL",
-      quantity: "QUANTITY",
-      destination: "DESTINATION",
-      detail: "Detail",
-      return: "Return",
-      update: "Refresh",
-      outputManagement: "OUTPUT MANAGEMENT",
+      "back": "Back",
+      "refresh": "Refresh",
+      "csv": "CSV",
+      "create": "Create",
+      "save": "Save",
+      "saveChanges": "Save changes",
+      "cancel": "Cancel",
+      "search": "Search",
+      "detail": "Detail",
+      "returnAction": "Return",
+      "consignment": "Consignment",
+      "approve": "Approve",
+      "reject": "Reject",
+      "deliver": "Deliver",
+      "disable": "Disable",
+      "exportCsv": "Export CSV",
 
-      tenantActive: "Active tenant",
-      clientPanel: "Client panel",
-      settings: "Settings",
-      logout: "Log out",
-      csv: "CSV"
+      "summary": "SUMMARY",
+      "inventoryStatus": "Inventory status",
+      "active": "Active",
+      "activePlural": "Active",
+      "inactive": "Inactive",
+      "inactivePlural": "Inactive",
+      "archived": "Archived",
+      "archivedPlural": "Archived",
+      "total": "Total",
+      "totalUpper": "TOTAL",
+      "totalRecords": "Total records",
+      "created": "Created",
+      "edited": "Edited",
+      "available": "Availability",
+      "stock": "Stock",
+      "currentStock": "Current stock",
+      "minimumStock": "Minimum stock",
+
+      "inventoryHero": "Operational catalog, minimums and current read-only stock. Materials will deduct or return stock in the next integration.",
+      "createMaterialProduct": "Create material / product",
+      "modifyMaterial": "Modify material",
+      "createMaterialProductUpper": "CREATE MATERIAL / PRODUCT",
+      "newInventoryRecord": "New inventory record",
+      "inventoryCreateHelp": "Current stock is created from the initial quantity as a movement. After that, it only changes through entries, deliveries and returns.",
+      "nameReference": "NAME / REFERENCE",
+      "nameReferenceMixed": "Name / reference",
+      "nameReferenceRequired": "Name / reference is required.",
+      "size": "SIZE",
+      "color": "COLOR",
+      "initialQuantity": "INITIAL QUANTITY",
+      "minimumAlert": "MINIMUM ALERT",
+      "enterQuantity": "Enter quantity",
+      "entry": "Entry",
+      "entries": "Entries",
+      "outputs": "Outputs",
+      "inventoryMovements": "Inventory movements",
+      "criticalInventory": "Critical inventory",
+
+      "crmHero": "Live view of employees on shift, breaks and active company cores.",
+      "currentOperationalStatus": "CURRENT OPERATING STATUS",
+      "operationLive": "Live operation",
+      "onBreak": "On break",
+      "collaboratorsUpper": "EMPLOYEES",
+      "collaboratorStatus": "Status by employee",
+      "collaborator": "Employee",
+      "collaborators": "Employees",
+      "offShift": "Off shift",
+      "timer": "Timer",
+      "noRequest": "No request",
+      "noTask": "No task",
+      "noShift": "No shift",
+      "noLocation": "No location",
+      "gpsStatus": "GPS status",
+      "insidePerimeter": "Inside perimeter",
+      "outsidePerimeter": "Outside perimeter",
+
+      "staffHero": "Manage employees, technicians, supervisors and roles connected to bot, payroll and operations.",
+      "staffTitle": "Operational staff registry",
+      "staffSubtitle": "manages its staff independently.",
+      "editableTable": "EDITABLE TABLE",
+      "addRow": "Add row",
+      "addStaff": "Add staff",
+      "history": "History",
+      "searchMatches": "Search matches: name, role, phone, email, Telegram, status...",
+      "all": "All",
+      "showing": "Showing",
+      "records": "records",
+      "name": "Name",
+      "nameUpper": "NAME",
+      "fullName": "Full name",
+      "role": "Role",
+      "roleUpper": "ROLE",
+      "phone": "Phone",
+      "phoneUpper": "PHONE",
+      "email": "Email",
+      "emailUpper": "EMAIL",
+      "telegramId": "Telegram ID",
+      "telegramIdUpper": "TELEGRAM ID",
+      "hireDate": "Hire date",
+      "hireDateUpper": "HIRE DATE",
+      "regularHour": "Regular hour",
+      "regularHourUpper": "REGULAR HOUR",
+      "extraHour": "Extra hour",
+      "extraHourUpper": "EXTRA HOUR",
+      "discount1": "Discount 1",
+      "discount1Upper": "DISCOUNT 1",
+      "discount2": "Discount 2",
+      "discount2Upper": "DISCOUNT 2",
+      "status": "Status",
+      "statusUpper": "STATUS",
+      "actions": "Actions",
+      "actionsUpper": "ACTIONS",
+      "activate": "Activate",
+      "deactivate": "Deactivate",
+      "delete": "Delete",
+      "supervisor": "Supervisor",
+      "operator": "Operator",
+      "technician": "Technician",
+      "adminCompany": "Company admin",
+      "employee": "Employee",
+      "event": "Event",
+      "field": "Field",
+      "oldValue": "Old value",
+      "newValue": "New value",
+      "source": "Source",
+      "notes": "Notes",
+      "noHistoryRecords": "No history records match the selected filters.",
+      "personalSaved": "Staff saved successfully.",
+      "employeeCreated": "Employee created",
+      "employeeEdited": "Employee edited",
+      "employeeActivated": "Employee activated",
+      "employeeDeactivated": "Employee deactivated",
+      "employeeArchived": "Employee archived",
+      "employeeRestored": "Employee restored",
+
+      "materialsHero": "Outbound orders connected to Inventory. Delivery deducts stock; return requires an order number.",
+      "operationalCycle": "OPERATING CYCLE",
+      "materialOrders": "Material orders",
+      "pending": "Pending",
+      "approved": "Approved",
+      "delivered": "Delivered",
+      "returned": "Returned",
+      "order": "Order",
+      "orderUpper": "ORDER",
+      "requester": "Requester",
+      "requesterUpper": "REQUESTER",
+      "material": "Material",
+      "materialUpper": "MATERIAL",
+      "quantity": "Quantity",
+      "quantityUpper": "QUANTITY",
+      "destination": "Destination",
+      "destinationUpper": "DESTINATION",
+      "outputManagement": "OUTPUT MANAGEMENT",
+      "materialStatus": "Materials by status",
+      "requestedMaterials": "Most requested materials",
+      "orderApproval": "Order approval",
+      "approvalObservation": "Approval note",
+      "saveApproval": "Save approval",
+      "registerConsignment": "Register consignment",
+      "registerReturn": "Register return",
+      "returnByOrder": "Register return by order number",
+      "consignmentByOrder": "Register consignment by order number",
+      "orderNumber": "Order number",
+      "destinationPlace": "Destination place",
+      "reasonState": "Material reason / status",
+      "consignmentReason": "Consignment reason / responsible / next shift",
+      "delivery": "Delivery",
+      "deliveredOne": "Delivered",
+      "returnedOne": "Returned",
+      "partialReturned": "Partially returned",
+      "totalReturned": "Fully returned",
+      "partialConsigned": "Partially consigned",
+      "totalConsigned": "Fully consigned",
+      "noMaterialOrders": "There are no material orders.",
+
+      "payrollHero": "Payroll uses Workforce, Bot and Attendance. When closing a period, export CSV to keep the external history.",
+      "calculatePeriod": "Calculate period",
+      "period": "Period",
+      "periodCalculated": "Period calculated",
+      "cutClose": "Cutoff close",
+      "payrollSummary": "Payroll summary",
+      "ordinaryHours": "Ordinary hours",
+      "extraHours": "Extra hours",
+      "discounts": "Discounts",
+      "gross": "Gross",
+      "estimatedTotal": "Estimated total",
+      "estimatedNetTotal": "Estimated net total",
+      "payrollTotal": "Payroll total",
+      "closedShifts": "Employees with checkout",
+      "noClosedShifts": "There are no closed shifts for the selected period.",
+      "exportOnlyNotice": "Query periods and keep the result by exporting CSV.",
+
+      "kpisHero": "Executive indicators calculated from Workforce, GPS, Materials, Inventory and Payroll according to active modules.",
+      "operationalKpis": "Operational KPIs",
+      "executiveIndicators": "Executive indicators",
+      "periodIndicators": "Period indicators",
+      "riskAlerts": "Operational risks",
+      "topOperation": "Operational top",
+      "smartSearch": "Smart search",
+      "autoRefresh": "Automatic refresh every 60s · Source: real module data",
+      "searchKpi": "Search KPI",
+      "noCriticalAlerts": "No critical alerts in the period.",
+
+      "reportsHero": "Consolidated history of Staff, GPS, Materials, Inventory and Payroll. It does not modify data; it only audits and exports.",
+      "executiveSummary": "Executive summary",
+      "operationalDetail": "Operational detail",
+      "auditableTables": "Auditable tables",
+      "generalReport": "General report",
+      "personReport": "Person report",
+      "byPerson": "By person",
+      "general": "General",
+      "selectEmployeeReport": "Select employee for person report",
+      "auditOperation": "Operational audit",
+      "assistance": "Attendance",
+      "bitacora": "Operational log of staff check-ins and interactions: bot, panel, QR, requests, notes and company events.",
+      "noEvents": "There are no events for the selected filters.",
+      "noDataFilters": "No data for the selected filters.",
+      "noDataChart": "No data to chart.",
+
+      "gpsSummary": "GPS summary",
+      "perimeters": "Perimeters",
+      "allowedParameters": "Allowed parameters",
+      "savePerimeters": "Save perimeters",
+      "gpsSaved": "GPS perimeters saved.",
+      "pointName": "Point name",
+      "latFrom": "Latitude from",
+      "latTo": "Latitude to",
+      "lngFrom": "Longitude from",
+      "lngTo": "Longitude to",
+      "showInPanel": "Show in panel",
+      "gpsConfigHelp": "Configure up to 5 allowed perimeters. CLONEXA validates bot locations with these parameters.",
+      "botOnlyLocation": "The bot only sends location. CLONEXA validates inside/outside using these parameters.",
+
+      "botTelegram": "Telegram Bot",
+      "botInternalName": "Internal bot name",
+      "saveName": "Save name",
+      "botNameUpdated": "Bot name updated.",
+      "technicalConfig": "Technical configuration managed from CLONEXA Admin V2.",
+      "channelStatus": "Operational status of the channel configured for this company.",
+      "operationalChannel": "Operational channel",
+
+      "settings": "Settings",
+      "logout": "Log out",
+      "language": "Language",
+      "session": "Session",
+      "account": "Account"
     },
 
     fr: {
-      moduleWorkforce: "MODULE PERSONNEL",
-      moduleMaterials: "MODULE MATÉRIAUX",
-      moduleInventory: "MODULE INVENTAIRE",
-      moduleCrm: "MODULE CRM TERRAIN",
-      modulePayroll: "MODULE PAIE",
-      moduleReports: "MODULE RAPPORTS",
-      moduleKpis: "MODULE KPIS",
-      moduleGps: "MODULE GPS",
-      moduleBots: "MODULE BOTS",
+      "initializingCompanyPanel": "Initialisation du panneau entreprise",
+      "connectingBos": "Connexion au système opérationnel d’entreprise...",
+      "businessOperatingSystem": "SYSTÈME OPÉRATIONNEL D’ENTREPRISE",
+      "independentPanel": "Panneau opérationnel indépendant connecté à ses modules actifs.",
+      "panelModules": "MODULES DU PANNEAU",
+      "activeServices": "Services actifs",
+      "activeTenant": "Tenant actif",
+      "activeNow": "Actifs maintenant",
+      "gpsInside": "GPS à l’intérieur",
+      "deliveredMaterial": "Matériel livré",
+      "lowStock": "Stock faible",
+      "activeModules": "modules actifs",
 
-      dashboard: "Tableau de bord",
-      inventory: "Inventaire",
-      fieldCrm: "CRM Terrain",
-      payroll: "Paie",
-      workforce: "Personnel",
-      staff: "Personnel",
-      kpis: "KPIs",
-      gps: "GPS",
-      bots: "Bots",
-      materials: "Matériaux",
-      reports: "Rapports",
+      "dashboard": "Tableau de bord",
+      "inventory": "Inventaire",
+      "fieldCrm": "CRM Terrain",
+      "payroll": "Paie",
+      "staff": "Personnel",
+      "workforce": "Workforce",
+      "kpis": "KPIs",
+      "gps": "GPS",
+      "bots": "Bots",
+      "materials": "Matériaux",
+      "reports": "Rapports",
 
-      staffTitle: "Registre du personnel opérationnel",
-      staffSubtitle: "{company} gère son personnel de manière indépendante.",
-      staffHeroText: "Gérez les employés, techniciens, superviseurs et rôles connectés au bot, à la paie et aux opérations.",
-      editableTable: "TABLEAU MODIFIABLE",
-      addRow: "Ajouter une ligne",
-      saveChanges: "Enregistrer",
-      history: "Historique",
-      back: "Retour",
-      total: "TOTAL",
-      activePlural: "ACTIFS",
-      inactivePlural: "INACTIFS",
-      archivedPlural: "ARCHIVÉS",
-      searchMatches: "Rechercher : nom, rôle, téléphone, e-mail, Telegram, statut...",
-      all: "Tous",
-      active: "Actifs",
-      inactive: "Inactifs",
-      archived: "Archivés",
-      showing: "Affichage",
-      records: "enregistrements",
+      "stockMaterials": "STOCK ET MATÉRIAUX",
+      "liveOperationUpper": "OPÉRATION EN DIRECT",
+      "payrollCalc": "CLÔTURE ET CALCUL",
+      "operationalStaff": "PERSONNEL OPÉRATIONNEL",
+      "operationalIndicators": "INDICATEURS OPÉRATIONNELS",
+      "locationRoutes": "LOCALISATION ET ITINÉRAIRES",
+      "requestReturn": "DEMANDE ET RETOUR",
+      "metricsAudit": "MÉTRIQUES ET AUDIT",
+      "activePackage": "Activez un forfait depuis Admin V2",
 
-      name: "NOM",
-      role: "RÔLE",
-      phone: "TÉLÉPHONE",
-      email: "E-MAIL",
-      telegramId: "TELEGRAM ID",
-      hireDate: "DATE D’ENTRÉE",
-      regularHour: "HEURE NORMALE",
-      extraHour: "HEURE SUPPLÉMENTAIRE",
-      discount1: "REMISE 1",
-      discount2: "REMISE 2",
-      status: "STATUT",
-      actions: "ACTIONS",
-      save: "Enregistrer",
-      activate: "Activer",
-      deactivate: "Désactiver",
-      delete: "Supprimer",
-      supervisor: "Superviseur",
-      operator: "Opérateur",
-      technician: "Technicien",
+      "moduleInventory": "MODULE INVENTAIRE",
+      "moduleMaterials": "MODULE MATÉRIAUX",
+      "moduleCrm": "MODULE CRM TERRAIN",
+      "moduleWorkforce": "MODULE PERSONNEL",
+      "modulePayroll": "MODULE PAIE",
+      "moduleReports": "MODULE RAPPORTS",
+      "moduleKpis": "MODULE KPIS",
+      "moduleGps": "MODULE GPS",
+      "moduleBots": "MODULE BOTS",
 
-      materialsTitle: "Ordres de matériaux",
-      materialsHeroText: "Ordres de sortie connectés à l’inventaire. La livraison déduit le stock ; le retour exige un numéro d’ordre.",
-      operationalCycle: "CYCLE OPÉRATIONNEL",
-      pending: "En attente",
-      approved: "Approuvées",
-      delivered: "Livrées",
-      consignment: "Consigne",
-      returned: "Retournées",
-      order: "ORDRE",
-      requester: "DEMANDEUR",
-      material: "MATÉRIEL",
-      quantity: "QUANTITÉ",
-      destination: "DESTINATION",
-      detail: "Détail",
-      return: "Retour",
-      update: "Actualiser",
-      outputManagement: "GESTION DE SORTIE",
+      "back": "Retour",
+      "refresh": "Actualiser",
+      "csv": "CSV",
+      "create": "Créer",
+      "save": "Enregistrer",
+      "saveChanges": "Enregistrer",
+      "cancel": "Annuler",
+      "search": "Rechercher",
+      "detail": "Détail",
+      "returnAction": "Retour",
+      "consignment": "Consigne",
+      "approve": "Approuver",
+      "reject": "Rejeter",
+      "deliver": "Livrer",
+      "disable": "Désactiver",
+      "exportCsv": "Exporter CSV",
 
-      tenantActive: "Tenant actif",
-      clientPanel: "Panneau client",
-      settings: "Configuration",
-      logout: "Quitter",
-      csv: "CSV"
+      "summary": "RÉSUMÉ",
+      "inventoryStatus": "État de l’inventaire",
+      "active": "Actif",
+      "activePlural": "Actifs",
+      "inactive": "Inactif",
+      "inactivePlural": "Inactifs",
+      "archived": "Archivé",
+      "archivedPlural": "Archivés",
+      "total": "Total",
+      "totalUpper": "TOTAL",
+      "totalRecords": "Total des enregistrements",
+      "created": "Créés",
+      "edited": "Modifiés",
+      "available": "Disponibilité",
+      "stock": "Stock",
+      "currentStock": "Stock actuel",
+      "minimumStock": "Stock minimum",
+
+      "inventoryHero": "Catalogue opérationnel, minimums et stock actuel en lecture seule. Les matériaux déduiront ou retourneront le stock lors de la prochaine intégration.",
+      "createMaterialProduct": "Créer matériau / produit",
+      "modifyMaterial": "Modifier matériau",
+      "createMaterialProductUpper": "CRÉER MATÉRIAU / PRODUIT",
+      "newInventoryRecord": "Nouvel enregistrement d’inventaire",
+      "inventoryCreateHelp": "Le stock actuel est créé à partir de la quantité initiale comme mouvement. Ensuite, il ne change que par entrées, livraisons et retours.",
+      "nameReference": "NOM / RÉFÉRENCE",
+      "nameReferenceMixed": "Nom / référence",
+      "nameReferenceRequired": "Nom / référence obligatoire.",
+      "size": "TAILLE",
+      "color": "COULEUR",
+      "initialQuantity": "QUANTITÉ INITIALE",
+      "minimumAlert": "ALERTE MINIMUM",
+      "enterQuantity": "Saisir quantité",
+      "entry": "Entrée",
+      "entries": "Entrées",
+      "outputs": "Sorties",
+      "inventoryMovements": "Mouvements inventaire",
+      "criticalInventory": "Inventaire critique",
+
+      "crmHero": "Vue en direct des collaborateurs en service, pauses et noyaux actifs de l’entreprise.",
+      "currentOperationalStatus": "ÉTAT OPÉRATIONNEL ACTUEL",
+      "operationLive": "Opération en direct",
+      "onBreak": "En pause",
+      "collaboratorsUpper": "COLLABORATEURS",
+      "collaboratorStatus": "Statut par collaborateur",
+      "collaborator": "Collaborateur",
+      "collaborators": "Collaborateurs",
+      "offShift": "Hors service",
+      "timer": "Chronomètre",
+      "noRequest": "Aucune demande",
+      "noTask": "Aucune tâche",
+      "noShift": "Aucun service",
+      "noLocation": "Aucune localisation",
+      "gpsStatus": "Statut GPS",
+      "insidePerimeter": "Dans le périmètre",
+      "outsidePerimeter": "Hors périmètre",
+
+      "staffHero": "Gérez les employés, techniciens, superviseurs et rôles connectés au bot, à la paie et aux opérations.",
+      "staffTitle": "Registre du personnel opérationnel",
+      "staffSubtitle": "gère son personnel de manière indépendante.",
+      "editableTable": "TABLEAU MODIFIABLE",
+      "addRow": "Ajouter une ligne",
+      "addStaff": "Ajouter du personnel",
+      "history": "Historique",
+      "searchMatches": "Rechercher : nom, rôle, téléphone, e-mail, Telegram, statut...",
+      "all": "Tous",
+      "showing": "Affichage",
+      "records": "enregistrements",
+      "name": "Nom",
+      "nameUpper": "NOM",
+      "fullName": "Nom complet",
+      "role": "Rôle",
+      "roleUpper": "RÔLE",
+      "phone": "Téléphone",
+      "phoneUpper": "TÉLÉPHONE",
+      "email": "E-mail",
+      "emailUpper": "E-MAIL",
+      "telegramId": "Telegram ID",
+      "telegramIdUpper": "TELEGRAM ID",
+      "hireDate": "Date d’entrée",
+      "hireDateUpper": "DATE D’ENTRÉE",
+      "regularHour": "Heure normale",
+      "regularHourUpper": "HEURE NORMALE",
+      "extraHour": "Heure supplémentaire",
+      "extraHourUpper": "HEURE SUPPLÉMENTAIRE",
+      "discount1": "Remise 1",
+      "discount1Upper": "REMISE 1",
+      "discount2": "Remise 2",
+      "discount2Upper": "REMISE 2",
+      "status": "Statut",
+      "statusUpper": "STATUT",
+      "actions": "Actions",
+      "actionsUpper": "ACTIONS",
+      "activate": "Activer",
+      "deactivate": "Désactiver",
+      "delete": "Supprimer",
+      "supervisor": "Superviseur",
+      "operator": "Opérateur",
+      "technician": "Technicien",
+      "adminCompany": "Admin entreprise",
+      "employee": "Employé",
+      "event": "Événement",
+      "field": "Champ",
+      "oldValue": "Ancienne valeur",
+      "newValue": "Nouvelle valeur",
+      "source": "Source",
+      "notes": "Notes",
+      "noHistoryRecords": "Aucun historique ne correspond aux filtres sélectionnés.",
+      "personalSaved": "Personnel enregistré correctement.",
+      "employeeCreated": "Employé créé",
+      "employeeEdited": "Employé modifié",
+      "employeeActivated": "Employé activé",
+      "employeeDeactivated": "Employé désactivé",
+      "employeeArchived": "Employé archivé",
+      "employeeRestored": "Employé restauré",
+
+      "materialsHero": "Ordres de sortie connectés à l’inventaire. La livraison déduit le stock ; le retour exige un numéro d’ordre.",
+      "operationalCycle": "CYCLE OPÉRATIONNEL",
+      "materialOrders": "Ordres de matériaux",
+      "pending": "En attente",
+      "approved": "Approuvées",
+      "delivered": "Livrées",
+      "returned": "Retournées",
+      "order": "Ordre",
+      "orderUpper": "ORDRE",
+      "requester": "Demandeur",
+      "requesterUpper": "DEMANDEUR",
+      "material": "Matériel",
+      "materialUpper": "MATÉRIEL",
+      "quantity": "Quantité",
+      "quantityUpper": "QUANTITÉ",
+      "destination": "Destination",
+      "destinationUpper": "DESTINATION",
+      "outputManagement": "GESTION DE SORTIE",
+      "materialStatus": "Matériaux par statut",
+      "requestedMaterials": "Matériaux les plus demandés",
+      "orderApproval": "Approbation de l’ordre",
+      "approvalObservation": "Note d’approbation",
+      "saveApproval": "Enregistrer approbation",
+      "registerConsignment": "Enregistrer consigne",
+      "registerReturn": "Enregistrer retour",
+      "returnByOrder": "Enregistrer retour par numéro d’ordre",
+      "consignmentByOrder": "Enregistrer consigne par numéro d’ordre",
+      "orderNumber": "Numéro d’ordre",
+      "destinationPlace": "Lieu de destination",
+      "reasonState": "Motif / statut du matériel",
+      "consignmentReason": "Motif de consigne / responsable / prochain service",
+      "delivery": "Livraison",
+      "deliveredOne": "Livré",
+      "returnedOne": "Retourné",
+      "partialReturned": "Retour partiel",
+      "totalReturned": "Retour total",
+      "partialConsigned": "Consigne partielle",
+      "totalConsigned": "Consigne totale",
+      "noMaterialOrders": "Il n’y a pas d’ordres de matériaux.",
+
+      "payrollHero": "La paie utilise Workforce, Bot et Assistance. À la clôture d’une période, exportez CSV pour conserver l’historique externe.",
+      "calculatePeriod": "Calculer période",
+      "period": "Période",
+      "periodCalculated": "Période calculée",
+      "cutClose": "Clôture de période",
+      "payrollSummary": "Résumé de paie",
+      "ordinaryHours": "Heures ordinaires",
+      "extraHours": "Heures supplémentaires",
+      "discounts": "Remises",
+      "gross": "Brut",
+      "estimatedTotal": "Total estimé",
+      "estimatedNetTotal": "Total net estimé",
+      "payrollTotal": "Total paie",
+      "closedShifts": "Collaborateurs avec sortie",
+      "noClosedShifts": "Il n’y a pas de services clôturés pour la période sélectionnée.",
+      "exportOnlyNotice": "Consultez les périodes et conservez le résultat en exportant CSV.",
+
+      "kpisHero": "Indicateurs exécutifs calculés depuis Workforce, GPS, Matériaux, Inventaire et Paie selon les modules actifs.",
+      "operationalKpis": "KPIs opérationnels",
+      "executiveIndicators": "Indicateurs exécutifs",
+      "periodIndicators": "Indicateurs de période",
+      "riskAlerts": "Risques opérationnels",
+      "topOperation": "Top opérationnel",
+      "smartSearch": "Recherche intelligente",
+      "autoRefresh": "Actualisation automatique toutes les 60s · Source : données réelles par module",
+      "searchKpi": "Rechercher KPI",
+      "noCriticalAlerts": "Aucune alerte critique sur la période.",
+
+      "reportsHero": "Historique consolidé du personnel, GPS, matériaux, inventaire et paie. Il ne modifie pas les données ; il audite et exporte uniquement.",
+      "executiveSummary": "Résumé exécutif",
+      "operationalDetail": "Détail opérationnel",
+      "auditableTables": "Tableaux auditables",
+      "generalReport": "Rapport général",
+      "personReport": "Rapport par personne",
+      "byPerson": "Par personne",
+      "general": "Général",
+      "selectEmployeeReport": "Sélectionner un employé pour le rapport par personne",
+      "auditOperation": "Audit opérationnel",
+      "assistance": "Assistance",
+      "bitacora": "Journal opérationnel des pointages et interactions du personnel : bot, panneau, QR, demandes, notes et événements d’entreprise.",
+      "noEvents": "Aucun événement pour les filtres sélectionnés.",
+      "noDataFilters": "Aucune donnée pour les filtres sélectionnés.",
+      "noDataChart": "Aucune donnée à afficher.",
+
+      "gpsSummary": "Résumé GPS",
+      "perimeters": "Périmètres",
+      "allowedParameters": "Paramètres autorisés",
+      "savePerimeters": "Enregistrer périmètres",
+      "gpsSaved": "Périmètres GPS enregistrés.",
+      "pointName": "Nom du point",
+      "latFrom": "Latitude depuis",
+      "latTo": "Latitude jusqu’à",
+      "lngFrom": "Longitude depuis",
+      "lngTo": "Longitude jusqu’à",
+      "showInPanel": "Afficher dans le panneau",
+      "gpsConfigHelp": "Configurez jusqu’à 5 périmètres autorisés. CLONEXA valide les localisations du bot avec ces paramètres.",
+      "botOnlyLocation": "Le bot envoie uniquement la localisation. CLONEXA valide intérieur/extérieur avec ces paramètres.",
+
+      "botTelegram": "Bot Telegram",
+      "botInternalName": "Nom interne du bot",
+      "saveName": "Enregistrer nom",
+      "botNameUpdated": "Nom du bot mis à jour.",
+      "technicalConfig": "Configuration technique gérée depuis CLONEXA Admin V2.",
+      "channelStatus": "Statut opérationnel du canal configuré pour cette entreprise.",
+      "operationalChannel": "Canal opérationnel",
+
+      "settings": "Configuration",
+      "logout": "Quitter",
+      "language": "Langue",
+      "session": "Session",
+      "account": "Compte"
     }
   };
 
   const ALIASES = {
-    "MODULO WORKFORCE": "moduleWorkforce",
-    "MÓDULO WORKFORCE": "moduleWorkforce",
-    "WORKFORCE MODULE": "moduleWorkforce",
-
-    "MODULO MATERIALES": "moduleMaterials",
-    "MÓDULO MATERIALES": "moduleMaterials",
-    "MATERIALS MODULE": "moduleMaterials",
-
-    "MODULO INVENTARIO": "moduleInventory",
-    "MÓDULO INVENTARIO": "moduleInventory",
-    "MODULO CRM CAMPO": "moduleCrm",
-    "MÓDULO CRM CAMPO": "moduleCrm",
-    "MODULO NÓMINA": "modulePayroll",
-    "MÓDULO NÓMINA": "modulePayroll",
-    "MODULO REPORTES": "moduleReports",
-    "MÓDULO REPORTES": "moduleReports",
-    "MODULO KPIS": "moduleKpis",
-    "MÓDULO KPIS": "moduleKpis",
-    "MODULO GPS": "moduleGps",
-    "MÓDULO GPS": "moduleGps",
-    "MODULO BOTS": "moduleBots",
-    "MÓDULO BOTS": "moduleBots",
+    "Inicializando Panel Empresa": "initializingCompanyPanel",
+    "Conectando con el sistema operativo empresarial...": "connectingBos",
+    "Sistema operativo empresarial": "businessOperatingSystem",
+    "SISTEMA OPERATIVO EMPRESARIAL": "businessOperatingSystem",
+    "Panel operativo independiente conectado a sus módulos activos.": "independentPanel",
+    "Panel operativo independiente conectado a sus m?dulos activos.": "independentPanel",
+    "Panel operativo independiente conectado a sus mÃ³dulos activos.": "independentPanel",
+    "MÓDULOS DEL PANEL": "panelModules",
+    "M?DULOS DEL PANEL": "panelModules",
+    "MÃ³DULOS DEL PANEL": "panelModules",
+    "Servicios activos": "activeServices",
+    "Tenant activo": "activeTenant",
+    "Activos ahora": "activeNow",
+    "GPS dentro": "gpsInside",
+    "Material entregado": "deliveredMaterial",
+    "Stock bajo": "lowStock",
 
     "Dashboard": "dashboard",
     "Inventario": "inventory",
@@ -9833,132 +7449,409 @@
     "Nómina": "payroll",
     "Nomina": "payroll",
     "Payroll": "payroll",
-    "Personal": "workforce",
-    "Workforce": "workforce",
+    "Personal": "staff",
     "Staff": "staff",
+    "Workforce": "staff",
+    "KPIs": "kpis",
+    "GPS": "gps",
+    "Bots": "bots",
     "Materiales": "materials",
     "Materials": "materials",
     "Reportes": "reports",
     "Reports": "reports",
 
-    "Registro de personal operativo": "staffTitle",
-    "Operational staff registry": "staffTitle",
-    "Gestiona empleados, tecnicos, supervisores y roles conectados a bot, nomina y operacion.": "staffHeroText",
-    "Gestiona empleados, técnicos, supervisores y roles conectados a bot, nómina y operación.": "staffHeroText",
+    "STOCK Y MATERIALES": "stockMaterials",
+    "OPERACION EN VIVO": "liveOperationUpper",
+    "OPERACIÓN EN VIVO": "liveOperationUpper",
+    "CORTE Y CALCULO": "payrollCalc",
+    "CORTE Y CÁLCULO": "payrollCalc",
+    "PERSONAL OPERATIVO": "operationalStaff",
+    "OPERATIONAL STAFF": "operationalStaff",
+    "INDICADORES OPERATIVOS": "operationalIndicators",
+    "OPERATIONAL INDICATORS": "operationalIndicators",
+    "UBICACION Y RUTAS": "locationRoutes",
+    "UBICACIÓN Y RUTAS": "locationRoutes",
+    "SOLICITUD Y DEVOLUCION": "requestReturn",
+    "SOLICITUD Y DEVOLUCIÓN": "requestReturn",
+    "METRICAS Y AUDITORIA": "metricsAudit",
+    "MÉTRICAS Y AUDITORÍA": "metricsAudit",
+    "Activa un paquete desde Admin V2": "activePackage",
 
-    "TABLA EDITABLE": "editableTable",
-    "Agregar fila": "addRow",
-    "Agregar personal": "addRow",
-    "Guardar cambios": "saveChanges",
-    "Historial": "history",
+    "Modulo Inventario": "moduleInventory",
+    "Módulo Inventario": "moduleInventory",
+    "MODULO INVENTARIO": "moduleInventory",
+    "MÓDULO INVENTARIO": "moduleInventory",
+    "Modulo Materiales": "moduleMaterials",
+    "Módulo Materiales": "moduleMaterials",
+    "MODULO MATERIALES": "moduleMaterials",
+    "MÓDULO MATERIALES": "moduleMaterials",
+    "Modulo CRM Campo": "moduleCrm",
+    "Módulo CRM Campo": "moduleCrm",
+    "MODULO CRM CAMPO": "moduleCrm",
+    "MÓDULO CRM CAMPO": "moduleCrm",
+    "Modulo Workforce": "moduleWorkforce",
+    "Módulo Workforce": "moduleWorkforce",
+    "MODULO WORKFORCE": "moduleWorkforce",
+    "MÓDULO WORKFORCE": "moduleWorkforce",
+    "Modulo Nómina": "modulePayroll",
+    "Módulo Nómina": "modulePayroll",
+    "MÃ³dulo NÃ³mina": "modulePayroll",
+    "MODULO NÓMINA": "modulePayroll",
+    "MÓDULO NÓMINA": "modulePayroll",
+    "Modulo Reportes": "moduleReports",
+    "Módulo Reportes": "moduleReports",
+    "MÃ³dulo Reportes": "moduleReports",
+    "MODULO REPORTES": "moduleReports",
+    "MÓDULO REPORTES": "moduleReports",
+    "Módulo KPIs": "moduleKpis",
+    "MODULO KPIS": "moduleKpis",
+    "MÓDULO KPIS": "moduleKpis",
+    "Modulo GPS": "moduleGps",
+    "Módulo GPS": "moduleGps",
+    "MODULO GPS": "moduleGps",
+    "MÓDULO GPS": "moduleGps",
+    "Modulo Bots": "moduleBots",
+    "Módulo Bots": "moduleBots",
+    "MODULO BOTS": "moduleBots",
+    "MÓDULO BOTS": "moduleBots",
+
     "Volver": "back",
-    "TOTAL": "total",
-    "ACTIVOS": "activePlural",
-    "INACTIVOS": "inactivePlural",
-    "ARCHIVADOS": "archivedPlural",
-    "Todos": "all",
-    "Activos": "active",
-    "Inactivos": "inactive",
-    "Archivados": "archived",
-
-    "NOMBRE": "name",
-    "ROL": "role",
-    "TELEFONO": "phone",
-    "TELÉFONO": "phone",
-    "CORREO": "email",
-    "TELEGRAM ID": "telegramId",
-    "FECHA INGRESO": "hireDate",
-    "HORA ORDINARIA": "regularHour",
-    "HORA EXTRA": "extraHour",
-    "DESCUENTO 1": "discount1",
-    "DESCUENTO 2": "discount2",
-    "ESTADO": "status",
-    "ACCIONES": "actions",
+    "Back": "back",
+    "Actualizar": "refresh",
+    "Refresh": "refresh",
+    "CSV": "csv",
+    "Crear": "create",
     "Guardar": "save",
+    "Save": "save",
+    "Guardar cambios": "saveChanges",
+    "Save changes": "saveChanges",
+    "Cancelar": "cancel",
+    "Buscar": "search",
+    "Detalle": "detail",
+    "Detail": "detail",
+    "Devolución": "returnAction",
+    "Devolucion": "returnAction",
+    "Return": "returnAction",
+    "Consigna": "consignment",
+    "Aprobar": "approve",
+    "Rechazar": "reject",
+    "Entregar": "deliver",
+    "Deshabilitar": "disable",
+    "Exportar CSV": "exportCsv",
+
+    "Resumen": "summary",
+    "RESUMEN": "summary",
+    "Estado del inventario": "inventoryStatus",
+    "Activo": "active",
+    "Active": "active",
+    "Activos": "activePlural",
+    "Inactivo": "inactive",
+    "Inactive": "inactive",
+    "Inactivos": "inactivePlural",
+    "Archivado": "archived",
+    "Archived": "archived",
+    "Archivados": "archivedPlural",
+    "Total": "total",
+    "TOTAL": "totalUpper",
+    "Total registros": "totalRecords",
+    "Creados": "created",
+    "Editados": "edited",
+    "Disponibilidad": "available",
+    "Stock": "stock",
+    "Stock actual": "currentStock",
+    "Stock minimo": "minimumStock",
+    "Stock mínimo": "minimumStock",
+
+    "Catálogo operativo, mínimos y stock actual de solo lectura. Materiales descontará o devolverá stock en la siguiente integración.": "inventoryHero",
+    "Catalogo operativo, minimos y stock actual de solo lectura. Materiales descontara o devolvera stock en la siguiente integracion.": "inventoryHero",
+    "Crear material / producto": "createMaterialProduct",
+    "Modificar material": "modifyMaterial",
+    "CREAR MATERIAL / PRODUCTO": "createMaterialProductUpper",
+    "Nuevo registro de inventario": "newInventoryRecord",
+    "El stock actual se crea desde la cantidad inicial como movimiento. Luego solo cambia por entradas, entregas y devoluciones.": "inventoryCreateHelp",
+    "NOMBRE / REFERENCIA": "nameReference",
+    "Nombre / referencia": "nameReferenceMixed",
+    "Nombre / referencia es obligatorio.": "nameReferenceRequired",
+    "TAMAÑO": "size",
+    "TAMANO": "size",
+    "Tamaño": "size",
+    "COLOR": "color",
+    "Color": "color",
+    "CANTIDAD INICIAL": "initialQuantity",
+    "Cantidad inicial": "initialQuantity",
+    "MÍNIMO ALERTA": "minimumAlert",
+    "MINIMO ALERTA": "minimumAlert",
+    "Mínimo alerta": "minimumAlert",
+    "Ingresar cantidad": "enterQuantity",
+    "Entrada": "entry",
+    "Entradas": "entries",
+    "Salidas": "outputs",
+    "Movimientos inventario": "inventoryMovements",
+    "Inventario crítico": "criticalInventory",
+
+    "Vista viva de colaboradores en turno, pausas y núcleos activos de la empresa.": "crmHero",
+    "Vista viva de colaboradores en turno, pausas y nucleos activos de la empresa.": "crmHero",
+    "ESTADO OPERATIVO ACTUAL": "currentOperationalStatus",
+    "Estado operativo actual": "currentOperationalStatus",
+    "Operación en vivo": "operationLive",
+    "Operacion en vivo": "operationLive",
+    "En pausa": "onBreak",
+    "COLABORADORES": "collaboratorsUpper",
+    "Colaboradores": "collaborators",
+    "Estado por colaborador": "collaboratorStatus",
+    "Colaborador": "collaborator",
+    "Fuera de turno": "offShift",
+    "Cronómetro": "timer",
+    "Cronometro": "timer",
+    "Sin solicitud": "noRequest",
+    "Sin tarea": "noTask",
+    "Sin turno": "noShift",
+    "Sin ubicacion": "noLocation",
+    "Sin ubicación": "noLocation",
+    "Estado GPS": "gpsStatus",
+    "Dentro de perímetro": "insidePerimeter",
+    "Fuera de perímetro": "outsidePerimeter",
+
+    "Gestiona empleados, técnicos, supervisores y roles conectados a bot, nómina y operación.": "staffHero",
+    "Gestiona empleados, tecnicos, supervisores y roles conectados a bot, nomina y operacion.": "staffHero",
+    "Registro de personal operativo": "staffTitle",
+    "TABLA EDITABLE": "editableTable",
+    "Tabla editable": "editableTable",
+    "+ Agregar fila": "addRow",
+    "Agregar fila": "addRow",
+    "Agregar personal": "addStaff",
+    "Historial": "history",
+    "Buscar coincidencias: nombre, rol, teléfono, correo, Telegram, estado...": "searchMatches",
+    "Buscar coincidencias: nombre, rol, tel?fono, correo, Telegram, estado...": "searchMatches",
+    "Todos": "all",
+    "Mostrando": "showing",
+    "registros": "records",
+    "Nombre": "name",
+    "NOMBRE": "nameUpper",
+    "Nombre completo": "fullName",
+    "Rol": "role",
+    "ROL": "roleUpper",
+    "Telefono": "phone",
+    "Teléfono": "phone",
+    "TELEFONO": "phoneUpper",
+    "TELÉFONO": "phoneUpper",
+    "Correo": "email",
+    "CORREO": "emailUpper",
+    "Telegram ID": "telegramId",
+    "TELEGRAM ID": "telegramIdUpper",
+    "Fecha ingreso": "hireDate",
+    "FECHA INGRESO": "hireDateUpper",
+    "Hora ordinaria": "regularHour",
+    "HORA ORDINARIA": "regularHourUpper",
+    "Hora extra": "extraHour",
+    "HORA EXTRA": "extraHourUpper",
+    "Descuento 1": "discount1",
+    "DESCUENTO 1": "discount1Upper",
+    "Descuento 2": "discount2",
+    "DESCUENTO 2": "discount2Upper",
+    "Estado": "status",
+    "ESTADO": "statusUpper",
+    "STATUS": "statusUpper",
+    "Acciones": "actions",
+    "ACCIONES": "actionsUpper",
     "Activar": "activate",
     "Inactivar": "deactivate",
     "Eliminar": "delete",
-    "Activo": "active",
-    "Inactivo": "inactive",
-    "Archivado": "archived",
     "Supervisor": "supervisor",
+    "Operador": "operator",
+    "Tecnico": "technician",
+    "Técnico": "technician",
+    "Admin empresa": "adminCompany",
+    "Empleado": "employee",
+    "Evento": "event",
+    "Campo": "field",
+    "Valor anterior": "oldValue",
+    "Valor nuevo": "newValue",
+    "Fuente": "source",
+    "Notas": "notes",
+    "No hay registros de historial para los filtros seleccionados.": "noHistoryRecords",
+    "Personal guardado correctamente.": "personalSaved",
+    "Empleado creado": "employeeCreated",
+    "Empleado editado": "employeeEdited",
+    "Empleado activado": "employeeActivated",
+    "Empleado inactivado": "employeeDeactivated",
+    "Empleado archivado": "employeeArchived",
+    "Empleado restaurado": "employeeRestored",
 
-    "Órdenes de materiales": "materialsTitle",
-    "Ordenes de materiales": "materialsTitle",
-    "Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.": "materialsHeroText",
-    "Ordenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige numero de orden.": "materialsHeroText",
+    "Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.": "materialsHero",
+    "Ordenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige numero de orden.": "materialsHero",
     "CICLO OPERATIVO": "operationalCycle",
+    "Órdenes de materiales": "materialOrders",
+    "Ordenes de materiales": "materialOrders",
     "Pendientes": "pending",
     "Aprobadas": "approved",
     "Entregadas": "delivered",
-    "Consigna": "consignment",
     "Devueltas": "returned",
-    "ORDEN": "order",
-    "SOLICITANTE": "requester",
-    "MATERIAL": "material",
-    "CANTIDAD": "quantity",
-    "STATUS": "status",
-    "DESTINO": "destination",
-    "Detalle": "detail",
-    "Devolución": "return",
-    "Devolucion": "return",
-    "Actualizar": "update",
+    "Orden": "order",
+    "ORDEN": "orderUpper",
+    "Solicitante": "requester",
+    "SOLICITANTE": "requesterUpper",
+    "Material": "material",
+    "MATERIAL": "materialUpper",
+    "Cantidad": "quantity",
+    "CANTIDAD": "quantityUpper",
+    "Destino": "destination",
+    "DESTINO": "destinationUpper",
     "GESTIÓN DE SALIDA": "outputManagement",
     "GESTION DE SALIDA": "outputManagement",
+    "Materiales por estado": "materialStatus",
+    "Materiales más solicitados": "requestedMaterials",
+    "Aprobación de orden": "orderApproval",
+    "Observación de aprobación": "approvalObservation",
+    "Guardar aprobación": "saveApproval",
+    "Registrar consigna": "registerConsignment",
+    "Registrar devolución": "registerReturn",
+    "Registrar devolucion": "registerReturn",
+    "Registrar devolución por número de orden": "returnByOrder",
+    "Registrar consigna por número de orden": "consignmentByOrder",
+    "Número de orden": "orderNumber",
+    "Lugar de destino": "destinationPlace",
+    "Motivo / estado del material": "reasonState",
+    "Motivo de consigna / responsable / próximo turno": "consignmentReason",
+    "Entrega": "delivery",
+    "Entregado": "deliveredOne",
+    "Devuelto": "returnedOne",
+    "Devuelta parcial": "partialReturned",
+    "Devuelta total": "totalReturned",
+    "Consignada parcial": "partialConsigned",
+    "Consignada total": "totalConsigned",
+    "No hay órdenes de materiales.": "noMaterialOrders",
 
-    "Tenant activo": "tenantActive",
+    "Nómina consume Workforce, Bot y Asistencia. Al finalizar un corte, exporta CSV para guardar el histórico externo del periodo.": "payrollHero",
+    "Calcular periodo": "calculatePeriod",
+    "Periodo": "period",
+    "Periodo calculado": "periodCalculated",
+    "Cierre del corte": "cutClose",
+    "Resumen de nómina": "payrollSummary",
+    "Horas ordinarias": "ordinaryHours",
+    "Horas ord.": "ordinaryHours",
+    "Horas extra": "extraHours",
+    "Descuentos": "discounts",
+    "Bruto": "gross",
+    "Total estimado": "estimatedTotal",
+    "Total neto estimado": "estimatedNetTotal",
+    "Total nómina": "payrollTotal",
+    "Total nomina": "payrollTotal",
+    "Colaboradores con cierre": "closedShifts",
+    "No hay turnos cerrados para el periodo seleccionado.": "noClosedShifts",
+    "Consulta cortes por periodo y conserva el resultado exportando CSV.": "exportOnlyNotice",
+
+    "Indicadores ejecutivos calculados desde Workforce, GPS, Materiales, Inventario y Nómina según módulos activos.": "kpisHero",
+    "KPIs Operativos": "operationalKpis",
+    "Indicadores ejecutivos": "executiveIndicators",
+    "Indicadores del periodo": "periodIndicators",
+    "Riesgos operativos": "riskAlerts",
+    "Top operativo": "topOperation",
+    "Lupa inteligente": "smartSearch",
+    "Actualización automática cada 60s · Fuente: datos reales por módulo": "autoRefresh",
+    "Buscar KPI": "searchKpi",
+    "Sin alertas críticas en el periodo.": "noCriticalAlerts",
+
+    "Histórico consolidado de Personal, GPS, Materiales, Inventario y Nómina. No modifica datos; solo audita y exporta.": "reportsHero",
+    "HistÃ³rico consolidado de Personal, GPS, Materiales, Inventario y NÃ³mina. No modifica datos; solo audita y exporta.": "reportsHero",
+    "Resumen ejecutivo": "executiveSummary",
+    "Detalle operativo": "operationalDetail",
+    "Tablas auditables": "auditableTables",
+    "Reporte general": "generalReport",
+    "Reporte por persona": "personReport",
+    "Por persona": "byPerson",
+    "General": "general",
+    "Selecciona empleado para reporte por persona": "selectEmployeeReport",
+    "Auditoría operativa": "auditOperation",
+    "Auditoria operativa": "auditOperation",
+    "Asistencia": "assistance",
+    "Bitácora operativa de marcaciones e interacciones del personal: bot, panel, QR, solicitudes, observaciones y eventos por empresa.": "bitacora",
+    "No hay eventos para los filtros seleccionados.": "noEvents",
+    "Sin datos para los filtros seleccionados.": "noDataFilters",
+    "Sin datos para graficar.": "noDataChart",
+
+    "Resumen GPS": "gpsSummary",
+    "Perímetros": "perimeters",
+    "Perimetros": "perimeters",
+    "Parámetros permitidos": "allowedParameters",
+    "Parametros permitidos": "allowedParameters",
+    "Guardar perímetros": "savePerimeters",
+    "Perímetros GPS guardados.": "gpsSaved",
+    "Nombre punto": "pointName",
+    "Latitud desde": "latFrom",
+    "Latitud hasta": "latTo",
+    "Lng desde": "lngFrom",
+    "Lng hasta": "lngTo",
+    "Mostrar en panel": "showInPanel",
+    "Configura hasta 5 perímetros permitidos. CLONEXA valida las ubicaciones recibidas por el bot.": "gpsConfigHelp",
+    "El bot solo envía ubicación. La validación dentro/fuera la hace CLONEXA con estos parámetros.": "botOnlyLocation",
+
+    "Bot Telegram": "botTelegram",
+    "Nombre interno del bot": "botInternalName",
+    "Guardar nombre": "saveName",
+    "Nombre del bot actualizado.": "botNameUpdated",
+    "Configuracion tecnica administrada desde CLONEXA Admin V2.": "technicalConfig",
+    "Configuración técnica administrada desde CLONEXA Admin V2.": "technicalConfig",
+    "Estado operativo del canal configurado para esta empresa.": "channelStatus",
+    "Canal operativo": "operationalChannel",
+
     "Configuración": "settings",
     "Settings": "settings",
     "Salir": "logout",
-    "Log out": "logout"
+    "Log out": "logout",
+    "Idioma": "language",
+    "Sesión": "session",
+    "Cuenta": "account"
   };
-
-  Object.keys(I18N).forEach((lang) => {
-    Object.keys(I18N[lang]).forEach((key) => {
-      ALIASES[I18N[lang][key]] = key;
-    });
-  });
 
   function lang() {
     const raw = String(localStorage.getItem(LANG_KEY) || document.documentElement.lang || "es").toLowerCase();
     return ["es", "en", "fr"].includes(raw) ? raw : "es";
   }
 
-  function tr(key) {
-    return (I18N[lang()] && I18N[lang()][key]) || I18N.es[key] || key;
+  function clean(value) {
+    return String(value || "")
+      .replace(/\s+/g, " ")
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .trim();
   }
 
-  function normalizeText(value) {
-    return String(value || "").replace(/\s+/g, " ").trim();
+  function target(key) {
+    const pack = TX[lang()] || TX.es;
+    return pack[key] || TX.es[key] || key;
   }
 
-  function translateExact(value) {
-    const original = String(value || "");
-    const clean = normalizeText(original);
+  function translateText(value) {
+    const raw = String(value || "");
+    const c = clean(raw);
 
-    if (!clean) return original;
-    if (/^[\d\s.,:$%#@/_-]+$/.test(clean)) return original;
-    if (clean.includes("@")) return original;
-    if (/^[A-Z]{2,}-\d{4}/.test(clean)) return original;
+    if (!c) return raw;
+    if (/^[\d\s.,:$%#@/_-]+$/.test(c)) return raw;
+    if (c.includes("@")) return raw;
+    if (/^[A-Z]{2,}-\d{4}/.test(c)) return raw;
+    if (/^[a-f0-9-]{24,}$/i.test(c)) return raw;
 
-    const key = ALIASES[clean];
+    let key = ALIASES[c];
+
     if (!key) {
-      const showingMatch = clean.match(/^Mostrando\s+(.+?)\s+de\s+(.+?)\s+registros\.?$/i);
-      if (showingMatch) {
-        if (lang() === "en") return `Showing ${showingMatch[1]} of ${showingMatch[2]} records.`;
-        if (lang() === "fr") return `Affichage ${showingMatch[1]} sur ${showingMatch[2]} enregistrements.`;
-        return `Mostrando ${showingMatch[1]} de ${showingMatch[2]} registros.`;
+      const modules = c.match(/^(\d+)\s+(módulos activos|modulos activos|m\?dulos activos|active modules|modules actifs)$/i);
+      if (modules) return `${modules[1]} ${target("activeModules")}`;
+
+      const staffCompany = c.match(/^(.+?)\s+administra su personal de forma independiente\.?$/i);
+      if (staffCompany) return `${staffCompany[1]} ${target("staffSubtitle")}`;
+
+      const showing = c.match(/^Mostrando\s+(.+?)\s+de\s+(.+?)\s+registros\.?$/i);
+      if (showing) {
+        if (lang() === "en") return `Showing ${showing[1]} of ${showing[2]} records.`;
+        if (lang() === "fr") return `Affichage ${showing[1]} sur ${showing[2]} enregistrements.`;
+        return `Mostrando ${showing[1]} de ${showing[2]} registros.`;
       }
 
-      const companySubtitle = clean.match(/^(.+?) administra su personal de forma independiente\.?$/i);
-      if (companySubtitle) {
-        return tr("staffSubtitle").replace("{company}", companySubtitle[1]);
-      }
-
-      return original;
+      return raw;
     }
 
-    return original.replace(clean, tr(key));
+    return raw.replace(c, target(key));
   }
 
   function skip(el) {
@@ -9969,12 +7862,12 @@
     return false;
   }
 
-  function translateElement(root) {
+  function translateDom(root) {
     const base = root || document.body;
     if (!base) return;
 
     if (base.nodeType === Node.TEXT_NODE) {
-      const next = translateExact(base.nodeValue);
+      const next = translateText(base.nodeValue);
       if (next !== base.nodeValue) base.nodeValue = next;
       return;
     }
@@ -9982,23 +7875,19 @@
     if (base.nodeType !== Node.ELEMENT_NODE && base.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
     if (base.nodeType === Node.ELEMENT_NODE && skip(base)) return;
 
-    const walker = document.createTreeWalker(
-      base,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          const parent = node.parentElement;
-          if (!parent || skip(parent)) return NodeFilter.FILTER_REJECT;
-          return NodeFilter.FILTER_ACCEPT;
-        }
+    const walker = document.createTreeWalker(base, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || skip(parent)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
       }
-    );
+    });
 
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
 
     nodes.forEach((node) => {
-      const next = translateExact(node.nodeValue);
+      const next = translateText(node.nodeValue);
       if (next !== node.nodeValue) node.nodeValue = next;
     });
 
@@ -10009,56 +7898,83 @@
         ["placeholder", "title", "aria-label"].forEach((attr) => {
           if (el.hasAttribute(attr)) {
             const current = el.getAttribute(attr);
-            const next = translateExact(current);
+            const next = translateText(current);
             if (next !== current) el.setAttribute(attr, next);
           }
         });
 
         if (el.matches("input[type='button'], input[type='submit']")) {
-          const next = translateExact(el.value);
+          const next = translateText(el.value);
           if (next !== el.value) el.value = next;
         }
       });
     }
 
-    document.documentElement.lang = lang();
-  }
-
-  function fixAccountButtons() {
     const settings = document.getElementById("clxAccountSettingsBtn");
     const logout = document.getElementById("clxAccountLogoutBtn");
 
-    if (settings) settings.textContent = `⚙ ${tr("settings")}`;
-    if (logout) logout.textContent = `⏻ ${tr("logout")}`;
+    if (settings) settings.textContent = `⚙ ${target("settings")}`;
+    if (logout) logout.textContent = `⏻ ${target("logout")}`;
+
+    document.documentElement.lang = lang();
   }
 
   let timer = null;
+  let burstTimer = null;
 
   function run() {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      translateElement(document.body);
-      fixAccountButtons();
-    }, 80);
+    timer = setTimeout(() => translateDom(document.body), 40);
   }
 
+  function burst() {
+    let ticks = 0;
+    if (burstTimer) clearInterval(burstTimer);
+
+    burstTimer = setInterval(() => {
+      ticks += 1;
+      translateDom(document.body);
+      if (ticks >= 28) clearInterval(burstTimer);
+    }, 250);
+  }
+
+  function setLanguage(value) {
+    const selected = String(value || "es").toLowerCase();
+    if (!["es", "en", "fr"].includes(selected)) return;
+
+    localStorage.setItem(LANG_KEY, selected);
+    document.documentElement.lang = selected;
+    run();
+    burst();
+  }
+
+  window.CLX_I18N_020A5 = {
+    run,
+    burst,
+    setLanguage,
+    t: target,
+    lang
+  };
+
   document.addEventListener("change", (event) => {
-    const target = event.target;
-    if (target && target.id === "clxAccountLanguage") {
-      const selected = String(target.value || "es").toLowerCase();
-      if (["es", "en", "fr"].includes(selected)) {
-        localStorage.setItem(LANG_KEY, selected);
-        document.documentElement.lang = selected;
-        run();
-      }
+    const targetEl = event.target;
+    if (targetEl && targetEl.id === "clxAccountLanguage") {
+      setLanguage(targetEl.value);
+    } else {
+      run();
     }
+  }, true);
+
+  document.addEventListener("click", () => {
+    run();
+    setTimeout(run, 300);
+    setTimeout(run, 900);
   }, true);
 
   const observer = new MutationObserver(run);
 
   function init() {
-    translateElement(document.body);
-    fixAccountButtons();
+    translateDom(document.body);
 
     observer.observe(document.body, {
       childList: true,
@@ -10068,15 +7984,8 @@
       attributeFilter: ["placeholder", "title", "aria-label", "value"]
     });
 
-    run();
+    burst();
   }
-
-  window.CLX_FULL_I18N = {
-    run,
-    translateElement,
-    tr,
-    lang
-  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
@@ -10084,3 +7993,4 @@
     init();
   }
 })();
+
