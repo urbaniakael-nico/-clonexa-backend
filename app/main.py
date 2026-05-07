@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fastapi.responses import RedirectResponse
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,18 @@ except Exception:
 
 
 app = FastAPI(title="Clonexa Backend")
+
+@app.middleware("http")
+async def _clonexa_legacy_admin_redirect(request, call_next):
+    """
+    CLONEXA 019D:
+    /admin legacy queda depurado como redirect permanente a /admin-v2.
+    No se elimina para no romper accesos guardados.
+    """
+    if request.url.path.rstrip("/") == "/admin":
+        return RedirectResponse(url="/admin-v2", status_code=308)
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
