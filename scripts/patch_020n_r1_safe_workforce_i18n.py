@@ -1,4 +1,12 @@
+﻿from pathlib import Path
+import re
 
+html_path = Path("app/web/client.html")
+js_path = Path("app/web/client_workforce_i18n_safe.js")
+
+html = html_path.read_text(encoding="utf-8-sig")
+
+js = r'''
 (function clonexaSafeWorkforceI18n020NR1() {
   "use strict";
 
@@ -401,3 +409,42 @@
     init();
   }
 })();
+'''
+
+js_path.write_text(js, encoding="utf-8")
+
+html = re.sub(
+    r'\s*<script[^>]+src=["\'][^"\']*client_workforce_i18n_safe\.js[^"\']*["\'][^>]*>\s*</script>\s*',
+    "\n",
+    html,
+    flags=re.IGNORECASE,
+)
+
+payroll_matches = list(re.finditer(
+    r'<script[^>]+src=["\']([^"\']*client_payroll_i18n_safe\.js[^"\']*)["\'][^>]*>\s*</script>',
+    html,
+    flags=re.IGNORECASE,
+))
+
+if payroll_matches:
+    last = payroll_matches[-1]
+    src = last.group(1)
+    safe_src = re.sub(r'client_payroll_i18n_safe\.js(?:\?v=[^"\']*)?', 'client_workforce_i18n_safe.js?v=020NR1', src)
+    html = html[:last.end()] + f'\n<script src="{safe_src}"></script>\n' + html[last.end():]
+else:
+    materials_matches = list(re.finditer(
+        r'<script[^>]+src=["\']([^"\']*client_materials_i18n_safe\.js[^"\']*)["\'][^>]*>\s*</script>',
+        html,
+        flags=re.IGNORECASE,
+    ))
+    if materials_matches:
+        last = materials_matches[-1]
+        src = last.group(1)
+        safe_src = re.sub(r'client_materials_i18n_safe\.js(?:\?v=[^"\']*)?', 'client_workforce_i18n_safe.js?v=020NR1', src)
+        html = html[:last.end()] + f'\n<script src="{safe_src}"></script>\n' + html[last.end():]
+    else:
+        html = html.replace("</body>", '<script src="/client-static/client_workforce_i18n_safe.js?v=020NR1"></script>\n</body>')
+
+html_path.write_text(html, encoding="utf-8")
+
+print("PATCH_OK: 020N-R1 safe external Workforce i18n super dictionary added")
