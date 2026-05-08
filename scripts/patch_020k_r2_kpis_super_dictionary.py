@@ -1,4 +1,10 @@
+﻿from pathlib import Path
+import re
 
+js_path = Path("app/web/client_kpis_i18n_safe.js")
+html_path = Path("app/web/client.html")
+
+js = r'''
 (function clonexaSafeKpisI18n020KR2() {
   "use strict";
 
@@ -643,3 +649,17 @@
     init();
   }
 })();
+'''
+
+js_path.write_text(js, encoding="utf-8")
+
+html = html_path.read_text(encoding="utf-8-sig")
+html = re.sub(
+    r"client_kpis_i18n_safe\.js(?:\?v=[^\"']*)?",
+    "client_kpis_i18n_safe.js?v=020KR2",
+    html,
+    flags=re.IGNORECASE,
+)
+html_path.write_text(html, encoding="utf-8")
+
+print("PATCH_OK: 020K-R2 KPIs super dictionary applied")
