@@ -1,4 +1,10 @@
+﻿from pathlib import Path
+import re
 
+html_path = Path("app/web/client.html")
+js_path = Path("app/web/client_workforce_i18n_safe.js")
+
+js = r'''
 (function clonexaSafeWorkforceI18n020NR2() {
   "use strict";
 
@@ -385,3 +391,17 @@
     init();
   }
 })();
+'''
+
+js_path.write_text(js, encoding="utf-8")
+
+html = html_path.read_text(encoding="utf-8-sig")
+html = re.sub(
+    r"client_workforce_i18n_safe\.js(?:\?v=[^\"']*)?",
+    "client_workforce_i18n_safe.js?v=020NR2",
+    html,
+    flags=re.IGNORECASE,
+)
+html_path.write_text(html, encoding="utf-8")
+
+print("PATCH_OK: 020N-R2 Workforce attendance/history dictionary applied")
