@@ -98,7 +98,7 @@ def _validate_time(value: str, field: str) -> str:
     return value
 
 
-def _range_utc(date_value: str, start_time: str, end_time: str, tz_name: str) -> tuple[str, str]:
+def _range_utc(date_value: str, start_time: str, end_time: str, tz_name: str) -> tuple[datetime, datetime]:
     try:
         tz = ZoneInfo(tz_name or "America/Bogota")
     except Exception:
@@ -111,8 +111,8 @@ def _range_utc(date_value: str, start_time: str, end_time: str, tz_name: str) ->
         raise HTTPException(status_code=422, detail="La hora fin debe ser mayor a la hora inicio.")
 
     return (
-        start_local.astimezone(ZoneInfo("UTC")).isoformat(),
-        end_local.astimezone(ZoneInfo("UTC")).isoformat(),
+        start_local.astimezone(ZoneInfo("UTC")),
+        end_local.astimezone(ZoneInfo("UTC")),
     )
 
 
@@ -852,8 +852,8 @@ async def _preview_payload(
         "end_time": end_time,
         "timezone": timezone,
         "range_utc": {
-            "start": start_utc,
-            "end": end_utc,
+            "start": start_utc.isoformat(),
+            "end": end_utc.isoformat(),
         },
         "active_modules": active_modules,
         "metrics": metrics,
