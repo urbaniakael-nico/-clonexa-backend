@@ -57,3 +57,8 @@ api_router.include_router(core_settings_router.router, prefix="/companies", tags
 # CLONEXA 022B day closing router
 from app.api.v1.endpoints import day_closing as day_closing_router
 api_router.include_router(day_closing_router.router, prefix="/day-closing", tags=["day_closing"])
+
+
+# CLONEXA 022B-R4 safe day closing save router
+from app.api.v1.endpoints import day_closing_safe as day_closing_safe_router
+api_router.include_router(day_closing_safe_router.router, prefix="/day-closing-safe", tags=["day_closing_safe"])
