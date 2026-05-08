@@ -1,4 +1,12 @@
+﻿from pathlib import Path
+import re
 
+html_path = Path("app/web/client.html")
+js_path = Path("app/web/client_core_settings_i18n_safe.js")
+
+html = html_path.read_text(encoding="utf-8-sig")
+
+js = r'''
 (function clonexaCoreSettingsI18n020OR2() {
   "use strict";
 
@@ -364,3 +372,35 @@
     init();
   }
 })();
+'''
+
+js_path.write_text(js, encoding="utf-8")
+
+html = re.sub(
+    r'\s*<script[^>]+src=["\'][^"\']*client_core_settings_i18n_safe\.js[^"\']*["\'][^>]*>\s*</script>\s*',
+    "\n",
+    html,
+    flags=re.IGNORECASE
+)
+
+matches = list(re.finditer(
+    r'<script[^>]+src=["\']([^"\']*client_core_settings\.js[^"\']*)["\'][^>]*>\s*</script>',
+    html,
+    flags=re.IGNORECASE
+))
+
+if matches:
+    last = matches[-1]
+    src = last.group(1)
+    i18n_src = re.sub(
+        r'client_core_settings\.js(?:\?v=[^"\']*)?',
+        'client_core_settings_i18n_safe.js?v=020OR2',
+        src
+    )
+    html = html[:last.end()] + f'\n<script src="{i18n_src}"></script>\n' + html[last.end():]
+else:
+    html = html.replace("</body>", '<script src="/client-static/client_core_settings_i18n_safe.js?v=020OR2"></script>\n</body>')
+
+html_path.write_text(html, encoding="utf-8")
+
+print("PATCH_OK: 020O-R2 Core Settings clean i18n installed")
