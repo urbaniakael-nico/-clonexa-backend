@@ -164,6 +164,7 @@ async def _active_modules(db: AsyncSession, company_id: str) -> list[str]:
         )
         return [_clean(row[0]) for row in result.all() if _clean(row[0])]
     except Exception:
+        await db.rollback()
         return []
 
 
@@ -282,6 +283,7 @@ async def _fetch_event_rows(
                 rows.append(_row_dict(row, table_name))
 
         except Exception as exc:
+            await db.rollback()
             warnings.append(f"{table_name}: {type(exc).__name__}: {exc}")
 
     deduped: dict[str, dict[str, Any]] = {}
@@ -365,13 +367,26 @@ async def _fetch_material_rows(
                 _select(cols, "updated_at"),
             ]
 
+            order_candidates = [
+                col for col in [
+                    "status_updated_at",
+                    "delivered_at",
+                    "requested_at",
+                    "created_at",
+                    "updated_at",
+                ]
+                if col in cols
+            ]
+
+            order_expr = "COALESCE(" + ", ".join(order_candidates) + ")" if order_candidates else "1"
+
             result = await db.execute(
                 text(f"""
                     SELECT {", ".join(select_parts)}
                     FROM {table_name}
                     WHERE company_id::text = :company_id
                       AND ({time_filter})
-                    ORDER BY COALESCE(status_updated_at, delivered_at, requested_at, created_at, updated_at) ASC NULLS LAST
+                    ORDER BY {order_expr} ASC NULLS LAST
                     LIMIT 3000
                 """),
                 {
@@ -390,6 +405,7 @@ async def _fetch_material_rows(
                 rows.append(data)
 
         except Exception as exc:
+            await db.rollback()
             warnings.append(f"{table_name}: {type(exc).__name__}: {exc}")
 
     deduped: dict[str, dict[str, Any]] = {}
@@ -444,6 +460,7 @@ async def _fetch_inventory_rows(db: AsyncSession, company_id: str) -> tuple[list
             return [_row_dict(row, table_name) for row in result.mappings().all()], warnings
 
         except Exception as exc:
+            await db.rollback()
             warnings.append(f"{table_name}: {type(exc).__name__}: {exc}")
 
     return [], warnings
@@ -487,6 +504,7 @@ async def _fetch_employee_rows(db: AsyncSession, company_id: str) -> tuple[list[
         return [_row_dict(row, "employees") for row in result.mappings().all()], warnings
 
     except Exception as exc:
+        await db.rollback()
         warnings.append(f"employees: {type(exc).__name__}: {exc}")
         return [], warnings
 
@@ -899,6 +917,11 @@ async def save_day_closing(
     status = _clean(payload.get("status") or "generated")
 
     summary = await _preview_payload(db, company_id, date_value, start_time, end_time, timezone)
+
+    # El preview consulta fuentes opcionales. Si alguna falla y fue capturada,
+    # PostgreSQL puede dejar la transacción en aborted. Limpiamos antes de guardar.
+    await db.rollback()
+
     summary["responsible"] = responsible
     summary["notes"] = notes
     summary["status"] = status
