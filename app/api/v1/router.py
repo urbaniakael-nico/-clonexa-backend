@@ -52,3 +52,8 @@ api_router.include_router(auth_router.router, prefix="/auth", tags=["auth"])
 from app.api.v1.endpoints import core_settings as core_settings_router
 api_router.include_router(core_settings_router.router, prefix="/companies", tags=["core_settings"])
 
+
+
+# CLONEXA 022B day closing router
+from app.api.v1.endpoints import day_closing as day_closing_router
+api_router.include_router(day_closing_router.router, prefix="/day-closing", tags=["day_closing"])
