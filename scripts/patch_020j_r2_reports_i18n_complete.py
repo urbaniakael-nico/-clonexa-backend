@@ -1,4 +1,11 @@
+﻿from pathlib import Path
+import re
 
+path = Path("app/web/client_reports_i18n_safe.js")
+js = path.read_text(encoding="utf-8-sig")
+
+# Reemplazo completo del script Reportes por versión ampliada R2.
+js = r'''
 (function clonexaSafeReportsI18n020JR2() {
   "use strict";
 
@@ -538,3 +545,7 @@
     init();
   }
 })();
+'''
+
+path.write_text(js, encoding="utf-8")
+print("PATCH_OK: 020J-R2 Reports i18n expanded")
