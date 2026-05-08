@@ -1,4 +1,10 @@
+﻿from pathlib import Path
+import re
 
+html_path = Path("app/web/client.html")
+js_path = Path("app/web/client_reports_i18n_safe.js")
+
+js = r'''
 (function clonexaSafeReportsI18n020JR3() {
   "use strict";
 
@@ -298,3 +304,46 @@
     init();
   }
 })();
+'''
+
+js_path.write_text(js, encoding="utf-8")
+
+html = html_path.read_text(encoding="utf-8-sig")
+
+# Quitar cualquier tag viejo de Reports
+html = re.sub(
+    r'\s*<script[^>]+src=["\'][^"\']*client_reports_i18n_safe\.js[^"\']*["\'][^>]*>\s*</script>\s*',
+    "\n",
+    html,
+    flags=re.IGNORECASE,
+)
+
+# Insertar Reports antes de KPIs si existe KPIs; si no después de CRM
+kpis_match = list(re.finditer(
+    r'<script[^>]+src=["\']([^"\']*client_kpis_i18n_safe\.js[^"\']*)["\'][^>]*>\s*</script>',
+    html,
+    flags=re.IGNORECASE
+))
+
+if kpis_match:
+    first = kpis_match[0]
+    src = first.group(1)
+    reports_src = re.sub(r'client_kpis_i18n_safe\.js(?:\?v=[^"\']*)?', 'client_reports_i18n_safe.js?v=020JR3', src)
+    html = html[:first.start()] + f'<script src="{reports_src}"></script>\n' + html[first.start():]
+else:
+    crm_match = list(re.finditer(
+        r'<script[^>]+src=["\']([^"\']*client_crm_i18n_safe\.js[^"\']*)["\'][^>]*>\s*</script>',
+        html,
+        flags=re.IGNORECASE
+    ))
+    if crm_match:
+      last = crm_match[-1]
+      src = last.group(1)
+      reports_src = re.sub(r'client_crm_i18n_safe\.js(?:\?v=[^"\']*)?', 'client_reports_i18n_safe.js?v=020JR3', src)
+      html = html[:last.end()] + f'\n<script src="{reports_src}"></script>\n' + html[last.end():]
+    else:
+      html = html.replace("</body>", '<script src="/client-static/client_reports_i18n_safe.js?v=020JR3"></script>\n</body>')
+
+html_path.write_text(html, encoding="utf-8")
+
+print("PATCH_OK: 020J-R3 Reports i18n repaired and reinserted")
