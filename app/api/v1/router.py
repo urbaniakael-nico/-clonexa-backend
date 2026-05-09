@@ -80,3 +80,8 @@ api_router.include_router(velvet_bot_v1_router.router, prefix="/velvet-bot-v1", 
 # CLONEXA Company Bots V1 router
 from app.api.v1.endpoints import company_bots_v1 as company_bots_v1_router
 api_router.include_router(company_bots_v1_router.router, prefix="/company-bots-v1", tags=["company_bots_v1"])
+
+
+# CLONEXA Module Catalog V1 router
+from app.api.v1.endpoints import module_catalog_v1 as module_catalog_v1_router
+api_router.include_router(module_catalog_v1_router.router, prefix="/module-catalog-v1", tags=["module_catalog_v1"])

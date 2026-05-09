@@ -201,7 +201,7 @@
       id: raw.id || raw.package_id || raw.uuid,
       code: raw.code || raw.package_code || "",
       name: raw.name || raw.package_name || raw.nombre || raw.code || "Paquete",
-      description: raw.description || raw.descripcion || "",
+      description: raw.description || raw.descripción || "",
       is_active: raw.is_active !== false && raw.status !== "inactive",
       modules: safeArray(raw.modules || raw.package_modules || raw.packageModules),
     };
@@ -214,14 +214,14 @@
 
     const meta = typeof cxModuleMeta === "function"
       ? cxModuleMeta({ ...source, code })
-      : { name: source.name || code || "Modulo", description: source.description || "", category: source.category || "general" };
+      : { name: source.name || code || "Módulo", description: source.description || "", category: source.category || "general" };
 
     return {
       id: source.id || input.module_id || input.id || code,
       company_module_id: input.module ? input.id : null,
       module_id: input.module_id || source.id || input.id || null,
       code,
-      name: meta.name || source.name || code || "Modulo",
+      name: meta.name || source.name || code || "Módulo",
       description: source.description || input.description || meta.description || "",
       category: source.category || input.category || meta.category || "general",
       is_active: source.is_active !== false,
@@ -534,7 +534,7 @@
 
         ${!botsEnabled ? `
           <div class="cx-alert" style="display:block;margin:12px 0">
-            El modulo Bots no esta activo para esta empresa. Puedes guardar el token, pero activa Bots para usar captura operativa.
+            El módulo Bots no esta activo para esta empresa. Puedes guardar el token, pero activa Bots para usar captura operativa.
           </div>
         ` : ""}
 
@@ -835,7 +835,7 @@
     production: ["Producción", "Control de tiempos, referencias, productividad y costos.", "Producción", "PRD"],
     references: ["Referencias", "Catálogo de referencias, productos o servicios medibles.", "Producción", "REF"],
     crm: ["CRM Campo", "Vista operativa para seguimiento, control y acciones por empresa.", "Reportes", "CRM"],
-    kpis: ["KPIs", "Indicadores ejecutivos y metricas por modulo.", "Reportes", "KPI"],
+    kpis: ["KPIs", "Indicadores ejecutivos y metricas por módulo.", "Reportes", "KPI"],
     reports: ["Reportes", "Reportes operativos, historicos y auditoria.", "Reportes", "REP"],
     commercial_closing: ["Cierre comercial", "Seguimiento de ventas, cierres y resultados comerciales.", "Retail", "COM"],
     requests: ["Solicitudes", "Solicitudes internas, aprobaciones y estados.", "Retail", "REQ"],
@@ -846,9 +846,9 @@
 
   function cxModuleMeta(module) {
     const code = String(module?.code || module?.module_code || "").trim();
-    const fallbackName = module?.name || code || "Modulo";
+    const fallbackName = module?.name || code || "Módulo";
     const fallbackCategory = module?.category || "general";
-    const meta = CX_MODULE_META[code] || [fallbackName, module?.description || "Modulo operativo disponible para asignar por empresa.", fallbackCategory, code.slice(0, 3).toUpperCase() || "MOD"];
+    const meta = CX_MODULE_META[code] || [fallbackName, module?.description || "Módulo operativo disponible para asignar por empresa.", fallbackCategory, code.slice(0, 3).toUpperCase() || "MOD"];
 
     return {
       code,
@@ -896,7 +896,7 @@
         const code = infoButton.dataset.moduleCode;
         const module = state.modules.find((item) => item.code === code) || { code };
         const meta = cxModuleMeta(module);
-        alert(`${meta.name}\n\n${meta.description}\n\nCategoria: ${meta.categoryLabel}\nCodigo: ${meta.code}`);
+        alert(`${meta.name}\n\n${meta.description}\n\nCategoría: ${meta.categoryLabel}\nCódigo: ${meta.code}`);
         return;
       }
 
@@ -923,7 +923,7 @@
         if (typeof renderCompanies === "function") renderCompanies();
         if (typeof renderModules === "function") renderModules();
       } catch (error) {
-        alert(`No se pudo ${action === "activate" ? "activar" : "desactivar"} el modulo: ${error.message}`);
+        alert(`No se pudo ${action === "activate" ? "activar" : "desactivar"} el módulo: ${error.message}`);
       } finally {
         toggleButton.disabled = false;
       }
@@ -945,7 +945,7 @@
       };
 
       if (!payload.code || !payload.name) {
-        alert("Codigo y nombre son obligatorios.");
+        alert("Código y nombre son obligatorios.");
         return;
       }
 
@@ -965,11 +965,11 @@
         renderModules();
         form.reset();
       } catch (error) {
-        alert(`No se pudo crear el modulo: ${error.message}`);
+        alert(`No se pudo crear el módulo: ${error.message}`);
       } finally {
         if (button) {
           button.disabled = false;
-          button.textContent = "Crear modulo";
+          button.textContent = "Crear módulo";
         }
       }
     });
@@ -984,7 +984,7 @@
     if (!grid) return;
 
     if (!state.modules.length) {
-      grid.innerHTML = `<div class="cx-empty-state">No se pudieron cargar modulos.</div>`;
+      grid.innerHTML = `<div class="cx-empty-state">No se pudieron cargar módulos.</div>`;
       return;
     }
 
@@ -1003,20 +1003,20 @@
       <section class="cx-panel" style="grid-column:1/-1;margin-bottom:18px">
         <div class="cx-card-head">
           <div>
-            <h3>Crear modulo</h3>
-            <p>Agrega un modulo global reutilizable para paquetes y empresas.</p>
+            <h3>Crear módulo</h3>
+            <p>Agrega un módulo global reutilizable para paquetes y empresas.</p>
           </div>
-          <span class="cx-badge cx-badge-primary">${escapeHtml(state.modules.length)} modulos</span>
+          <span class="cx-badge cx-badge-primary">${escapeHtml(state.modules.length)} módulos</span>
         </div>
 
         <form class="cx-form" id="createModuleForm" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end">
-          <label>Codigo
+          <label>Código
             <input name="code" placeholder="tecnicos_field" required />
           </label>
           <label>Nombre
             <input name="name" placeholder="Tecnicos Field" required />
           </label>
-          <label>Categoria
+          <label>Categoría
             <select name="category">
               <option value="core">Core</option>
               <option value="field">Campo</option>
@@ -1030,9 +1030,9 @@
               <option value="custom">Custom</option>
             </select>
           </label>
-          <button class="cx-btn cx-btn-primary" type="submit">Crear modulo</button>
-          <label style="grid-column:1/-1">Descripcion
-            <input name="description" placeholder="Que ejecuta este modulo dentro de CLONEXA" />
+          <button class="cx-btn cx-btn-primary" type="submit">Crear módulo</button>
+          <label style="grid-column:1/-1">Descripción
+            <input name="description" placeholder="Que ejecuta este módulo dentro de CLONEXA" />
           </label>
         </form>
       </section>
@@ -1041,7 +1041,7 @@
         <section style="grid-column:1/-1">
           <div class="cx-section-title">
             <h3>${escapeHtml(category)}</h3>
-            <p>${escapeHtml(modules.length)} modulos disponibles</p>
+            <p>${escapeHtml(modules.length)} módulos disponibles</p>
           </div>
 
           <div class="cx-module-grid">
@@ -1170,7 +1170,7 @@
     const tabs = [
       ["resumen", "Resumen"],
       ["usuarios", "Acceso Maestro"],
-      ["modulos", "MÃƒÂ³dulos"],
+      ["módulos", "MÃƒÂ³dulos"],
       ["paquete", "Paquete"],
       ["branding", "Branding"],
       ["crm", "CRM"],
@@ -1951,7 +1951,7 @@
     orders: "pedidos ordenes comandas compra solicitud cliente mesa",
     tables: "mesas mesa cuenta qr restaurante bar",
     bots: "bot bots telegram whatsapp automatizacion mensajes entrada",
-    qr: "qr codigo mesa escanear acceso link",
+    qr: "qr código mesa escanear acceso link",
     inventory: "inventario stock existencias productos materiales almacen",
     materials: "materiales material solicitud entregar devolver herramientas stock tecnico",
     stock: "stock inventario minimo existencias alerta",
@@ -2029,7 +2029,7 @@
 
 
     
-    if (tab === "modulos") {
+    if (tab === "módulos") {
       const companyRows = cxCompanyModuleRowMap(company.id);
       const allModules = state.modules.length ? state.modules.map(normalizeModule) : modules.map(normalizeModule);
       const activeModules = allModules.filter((module) => {
@@ -2057,7 +2057,7 @@
       node.innerHTML = `
         <div class="cx-card-head" style="margin-bottom:16px">
           <div>
-            <h3>Modulos de ${escapeHtml(company.name)}</h3>
+            <h3>Módulos de ${escapeHtml(company.name)}</h3>
             <p>Activa o desactiva servicios para esta empresa. Los cambios afectan el CRM y el portal cliente.</p>
           </div>
           <span class="cx-badge cx-badge-primary">${escapeHtml(activeModules.length)} activos</span>
@@ -2066,7 +2066,7 @@
         <section class="cx-panel" style="margin-bottom:18px">
           <div class="cx-card-head">
             <div>
-              <h3>Modulos activos</h3>
+              <h3>Módulos activos</h3>
               <p>Servicios prendidos actualmente para ${escapeHtml(company.name)}.</p>
             </div>
             <span class="cx-badge cx-badge-live">${escapeHtml(activeModules.length)} activos</span>
@@ -2089,7 +2089,7 @@
                 </button>
               `;
             }).join("") : `
-              <span class="cx-empty-state">No hay modulos activos. Activa servicios desde el catálogo inferior.</span>
+              <span class="cx-empty-state">No hay módulos activos. Activa servicios desde el catálogo inferior.</span>
             `}
           </div>
         </section>
@@ -2097,8 +2097,8 @@
         <section class="cx-panel" style="margin-bottom:18px">
           <div class="cx-card-head">
             <div>
-              <h3>Buscar modulo</h3>
-              <p>Busca por nombre, categoria o necesidad operativa.</p>
+              <h3>Buscar módulo</h3>
+              <p>Busca por nombre, categoría o necesidad operativa.</p>
             </div>
           </div>
 
@@ -2134,7 +2134,7 @@
           </div>
 
           <p style="margin-top:12px;opacity:.72">
-            Mostrando ${escapeHtml(visibleModules.length)} de ${escapeHtml(allModules.length)} modulos.
+            Mostrando ${escapeHtml(visibleModules.length)} de ${escapeHtml(allModules.length)} módulos.
           </p>
         </section>
 
@@ -3090,7 +3090,7 @@
    - No rompe render.
    - No toca backend.
    - No oculta por busqueda.
-   - Ordena los modulos por relevancia y pone primero el mas parecido.
+   - Ordena los módulos por relevancia y pone primero el mas parecido.
 */
 ;(() => {
   if (window.__cxCompanyModuleSmartSearchR4) return;
@@ -3111,7 +3111,7 @@
     pedidos: "pedidos pedido orden ordenes comandas compra solicitud cliente mesa",
     tables: "mesas mesa cuenta qr restaurante bar",
     bots: "bot bots telegram whatsapp automatizacion mensajes entrada",
-    qr: "qr codigo mesa escanear acceso link",
+    qr: "qr código mesa escanear acceso link",
     inventory: "inventario stock existencias productos materiales almacen",
     inventario: "inventario stock existencias productos materiales almacen",
     materials: "materiales material solicitud entregar devolver herramientas stock tecnico pedir material",
@@ -3282,7 +3282,7 @@
     const visibleCount = ranked.filter((item) => !item.hidden).length;
     const info = searchPanel.querySelector("p[style*='margin-top']");
     if (info) {
-      info.textContent = `Mostrando ${visibleCount} de ${cards.length} modulos. ${query ? "Resultados ordenados por relevancia." : ""}`;
+      info.textContent = `Mostrando ${visibleCount} de ${cards.length} módulos. ${query ? "Resultados ordenados por relevancia." : ""}`;
     }
   }
 

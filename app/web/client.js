@@ -560,7 +560,7 @@
     ).trim();
 
     const meta = MODULE_UI[code] || [
-      source.name || code || `Modulo ${index + 1}`,
+      source.name || code || `Módulo ${index + 1}`,
       source.description || source.category || "servicio activo",
       (code || String(index + 1)).slice(0, 3).toUpperCase(),
     ];
@@ -603,7 +603,7 @@
 
   function moduleLabel(code) {
     const meta = MODULE_UI[String(code || "").trim()];
-    return meta ? meta[0] : String(code || "Modulo");
+    return meta ? meta[0] : String(code || "Módulo");
   }
 
 
@@ -659,7 +659,7 @@
 
     if (!kpis.length) {
       kpis.push(["Empresa", company.name || "Activa"]);
-      kpis.push(["Modulos activos", String(total)]);
+      kpis.push(["Módulos activos", String(total)]);
       kpis.push(["Estado", "LIVE"]);
     }
 
@@ -1499,7 +1499,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo Workforce</div>
+              <div class="client-eyebrow">Módulo Workforce</div>
               <h1 class="client-title">Historial de Personal</h1>
               <p class="client-muted">Consulta registros, ediciones, activaciones, inactivaciones y archivados por rango de fechas.</p>
 
@@ -1665,7 +1665,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo Bots</div>
+              <div class="client-eyebrow">Módulo Bots</div>
               <h1 class="client-title">Bots</h1>
               <p class="client-muted">Estado operativo del canal configurado para esta empresa.</p>
 
@@ -2009,7 +2009,7 @@
       payroll: "Nómina",
       kpis: "KPIs",
       reports: "Reportes",
-      modules: "Modulos",
+      modules: "Módulos",
       channels: "Canales",
     };
 
@@ -2307,7 +2307,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo CRM Campo</div>
+              <div class="client-eyebrow">Módulo CRM Campo</div>
               <h1 class="client-title">CRM Campo</h1>
               <p class="client-muted">Vista viva de colaboradores en turno, pausas y nucleos activos de la empresa.</p>
 
@@ -2611,7 +2611,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo GPS</div>
+              <div class="client-eyebrow">Módulo GPS</div>
               <h1 class="client-title">GPS</h1>
               <p class="client-muted">Configura hasta 5 perímetros permitidos. CLONEXA valida las ubicaciones recibidas por el bot.</p>
 
@@ -3171,7 +3171,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo Inventario</div>
+              <div class="client-eyebrow">Módulo Inventario</div>
               <h1 class="client-title">Inventario</h1>
               <p class="client-muted">Catálogo operativo, mínimos y stock actual de solo lectura. Materiales descontará o devolverá stock en la siguiente integración.</p>
               <div class="client-actions">
@@ -3875,7 +3875,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo Materiales</div>
+              <div class="client-eyebrow">Módulo Materiales</div>
               <h1 class="client-title">Materiales</h1>
               <p class="client-muted">Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.</p>
               <div class="client-actions">
@@ -4619,7 +4619,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo Nómina</div>
+              <div class="client-eyebrow">Módulo Nómina</div>
               <h1 class="client-title">Nómina</h1>
               <p class="client-muted">Consulta cortes por periodo y conserva el resultado exportando CSV.</p>
 
@@ -5285,9 +5285,9 @@
           </aside>
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo activo</div>
+              <div class="client-eyebrow">Módulo activo</div>
               <h1 class="client-title">${h(moduleLabel(code))}</h1>
-              <p class="client-muted">Este modulo esta asignado a la empresa y se construira como pantalla independiente.</p>
+              <p class="client-muted">Este módulo esta asignado a la empresa y se construira como pantalla independiente.</p>
               <div class="client-actions"><button class="client-btn" type="button" data-client-back-dashboard>Volver</button></div>
             </header>
           </section>
@@ -5334,7 +5334,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo Workforce</div>
+              <div class="client-eyebrow">Módulo Workforce</div>
               <h1 class="client-title">Personal</h1>
               <p class="client-muted">Gestiona empleados, tecnicos, supervisores y roles conectados a bot, nomina y operacion.</p>
 
@@ -5871,7 +5871,7 @@
                   <div class="client-eyebrow">M?dulos del panel</div>
                   <h2>Servicios activos</h2>
                 </div>
-                <span class="client-badge">${h(modules.length)} modulos activos</span>
+                <span class="client-badge">${h(modules.length)} módulos activos</span>
               </div>
 
               <div class="client-module-grid">
@@ -5884,7 +5884,7 @@
                 `).join("") : `
                   <div class="client-module-card">
                     <div class="client-badge">OFF</div>
-                    <strong>Sin modulos activos</strong>
+                    <strong>Sin módulos activos</strong>
                     <small>Activa un paquete desde Admin V2</small>
                   </div>
                 `}
@@ -7070,7 +7070,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Modulo Workforce</div>
+              <div class="client-eyebrow">Módulo Workforce</div>
               <h1 class="client-title">Asistencia</h1>
               <p class="client-muted">Bitácora operativa de marcaciones e interacciones del personal: bot, panel, QR, solicitudes, observaciones y eventos por empresa.</p>
 
@@ -7129,7 +7129,7 @@
 
   function exportAsistenciaCsv() {
     const rows = Array.isArray(window.__cxAsistenciaRows) ? window.__cxAsistenciaRows : [];
-    const data = [["Fecha/Hora", "Empleado", "Rol", "Evento", "Canal", "Modulo", "Detalle", "Estado"]];
+    const data = [["Fecha/Hora", "Empleado", "Rol", "Evento", "Canal", "Módulo", "Detalle", "Estado"]];
 
     rows.forEach((row) => {
       data.push([
