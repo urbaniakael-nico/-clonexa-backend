@@ -65,3 +65,8 @@ api_router.include_router(core_settings_router.router, prefix="/companies", tags
 # CLONEXA References V1 router
 from app.api.v1.endpoints import references_v1 as references_v1_router
 api_router.include_router(references_v1_router.router, prefix="/references-v1", tags=["references_v1"])
+
+
+# CLONEXA Bot Flow V1 router
+from app.api.v1.endpoints import bot_flow_v1 as bot_flow_v1_router
+api_router.include_router(bot_flow_v1_router.router, prefix="/bot-flow-v1", tags=["bot_flow_v1"])
