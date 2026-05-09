@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  window.CLONEXA_REFERENCES_V1_BUILD = "REF_02C_CLIENT_ANTIBLOCK_2026_05_09";
+  window.CLONEXA_REFERENCES_V1_BUILD = "REF_02D_CLIENT_THEME_SYNC_2026_05_09";
 
   const MODULE_CODES = new Set(["references", "ref"]);
 
@@ -208,6 +208,134 @@
     return (I18N[lang] && I18N[lang][key]) || I18N.es[key] || key;
   }
 
+  function firstColor(values, fallback) {
+    for (const value of values) {
+      const raw = String(value || "").trim();
+      if (!raw) continue;
+      if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(raw)) return raw;
+      if (/^rgb\(/i.test(raw) || /^rgba\(/i.test(raw) || /^hsl\(/i.test(raw)) return raw;
+    }
+    return fallback;
+  }
+
+  function readJsonStorage(keys) {
+    for (const key of keys) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch (_) {}
+    }
+    return {};
+  }
+
+  function deepFindColor(obj, names) {
+    if (!obj || typeof obj !== "object") return "";
+    const wanted = new Set(names.map((x) => String(x).toLowerCase()));
+
+    for (const [key, value] of Object.entries(obj)) {
+      const k = String(key).toLowerCase();
+
+      if (wanted.has(k) && typeof value === "string") return value;
+
+      if (value && typeof value === "object") {
+        const found = deepFindColor(value, names);
+        if (found) return found;
+      }
+    }
+
+    return "";
+  }
+
+  function detectTheme() {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const bodyStyle = getComputedStyle(document.body);
+
+    const stored = readJsonStorage([
+      "clonexa_company",
+      "clonexa_current_company",
+      "clonexa_company_settings",
+      "clonexa_theme",
+      "CLONEXA_COMPANY",
+      "CLONEXA_THEME",
+      "clonexa_core_settings",
+      "CLX_CORE_SETTINGS"
+    ]);
+
+    const primary = firstColor([
+      rootStyle.getPropertyValue("--clx-primary"),
+      rootStyle.getPropertyValue("--clx-brand-primary"),
+      rootStyle.getPropertyValue("--clx-company-primary"),
+      rootStyle.getPropertyValue("--tenant-primary"),
+      rootStyle.getPropertyValue("--brand-primary"),
+      rootStyle.getPropertyValue("--primary-color"),
+      rootStyle.getPropertyValue("--accent-color"),
+      bodyStyle.getPropertyValue("--clx-primary"),
+      bodyStyle.getPropertyValue("--clx-brand-primary"),
+      bodyStyle.getPropertyValue("--tenant-primary"),
+      deepFindColor(stored, [
+        "primary",
+        "primaryColor",
+        "primary_color",
+        "brandColor",
+        "brand_color",
+        "accent",
+        "accentColor",
+        "accent_color"
+      ])
+    ], "var(--ref-primary)");
+
+    const secondary = firstColor([
+      rootStyle.getPropertyValue("--clx-secondary"),
+      rootStyle.getPropertyValue("--clx-brand-secondary"),
+      rootStyle.getPropertyValue("--clx-company-secondary"),
+      rootStyle.getPropertyValue("--tenant-secondary"),
+      rootStyle.getPropertyValue("--brand-secondary"),
+      rootStyle.getPropertyValue("--secondary-color"),
+      bodyStyle.getPropertyValue("--clx-secondary"),
+      bodyStyle.getPropertyValue("--tenant-secondary"),
+      deepFindColor(stored, [
+        "secondary",
+        "secondaryColor",
+        "secondary_color",
+        "brandSecondary",
+        "brand_secondary"
+      ])
+    ], "var(--ref-secondary)");
+
+    const surface = firstColor([
+      rootStyle.getPropertyValue("--clx-surface"),
+      rootStyle.getPropertyValue("--clx-card"),
+      rootStyle.getPropertyValue("--surface-color"),
+      rootStyle.getPropertyValue("--card-color"),
+      bodyStyle.getPropertyValue("--clx-surface"),
+      deepFindColor(stored, [
+        "surface",
+        "surfaceColor",
+        "surface_color",
+        "card",
+        "cardColor",
+        "card_color"
+      ])
+    ], "rgba(10,14,25,.94)");
+
+    return { primary, secondary, surface };
+  }
+
+  function applyTheme() {
+    if (!state.root) return;
+
+    const theme = detectTheme();
+
+    state.root.style.setProperty("--ref-primary", theme.primary);
+    state.root.style.setProperty("--ref-secondary", theme.secondary);
+    state.root.style.setProperty("--ref-surface", theme.surface);
+    state.root.style.setProperty("--ref-primary-soft", `color-mix(in srgb, ${theme.primary} 38%, transparent)`);
+    state.root.style.setProperty("--ref-secondary-soft", `color-mix(in srgb, ${theme.secondary} 42%, transparent)`);
+    state.root.style.setProperty("--ref-primary-border", `color-mix(in srgb, ${theme.primary} 70%, white 10%)`);
+  }
+
   function escapeHtml(value) {
     return String(value == null ? "" : value)
       .replace(/&/g, "&amp;")
@@ -266,15 +394,15 @@
     style.id = "clx-references-v1-styles";
     style.textContent = `
       .clx-ref-page{width:100%;min-height:100vh;padding:28px;color:#fff;font-family:inherit}
-      .clx-ref-hero{border:1px solid rgba(255,255,255,.14);border-radius:28px;padding:28px;background:linear-gradient(135deg,rgba(8,13,24,.96),rgba(255,0,170,.38));box-shadow:0 24px 70px rgba(0,0,0,.25);margin-bottom:20px}
-      .clx-ref-eyebrow{letter-spacing:.34em;color:#ff18c7;font-weight:900;font-size:13px;text-transform:uppercase;margin-bottom:10px}
+      .clx-ref-hero{border:1px solid rgba(255,255,255,.14);border-radius:28px;padding:28px;background:linear-gradient(135deg,rgba(8,13,24,.96),var(--ref-primary-soft));box-shadow:0 24px 70px rgba(0,0,0,.25);margin-bottom:20px}
+      .clx-ref-eyebrow{letter-spacing:.34em;color:var(--ref-primary);font-weight:900;font-size:13px;text-transform:uppercase;margin-bottom:10px}
       .clx-ref-title{font-size:clamp(44px,6vw,82px);line-height:.9;font-weight:950;margin:0 0 14px}
       .clx-ref-subtitle{color:rgba(255,255,255,.72);font-size:16px;max-width:980px}
       .clx-ref-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
-      .clx-ref-btn{border:0;border-radius:18px;padding:13px 18px;background:linear-gradient(135deg,#ff12b8,#6e2d82);color:#080912;font-weight:900;cursor:pointer;box-shadow:0 14px 28px rgba(0,0,0,.25)}
+      .clx-ref-btn{border:0;border-radius:18px;padding:13px 18px;background:linear-gradient(135deg,var(--ref-primary),var(--ref-secondary));color:#080912;font-weight:900;cursor:pointer;box-shadow:0 14px 28px rgba(0,0,0,.25)}
       .clx-ref-btn.secondary{background:rgba(255,255,255,.11);color:#fff;border:1px solid rgba(255,255,255,.12)}
-      .clx-ref-btn.danger{background:rgba(255,70,120,.17);color:#fff;border:1px solid rgba(255,70,120,.45)}
-      .clx-ref-card{border:1px solid rgba(255,255,255,.12);border-radius:26px;padding:22px;background:linear-gradient(135deg,rgba(10,14,25,.94),rgba(80,16,83,.55));margin-bottom:18px}
+      .clx-ref-btn.danger{background:color-mix(in srgb, var(--ref-primary) 20%, transparent);color:#fff;border:1px solid color-mix(in srgb, var(--ref-primary) 55%, transparent)}
+      .clx-ref-card{border:1px solid rgba(255,255,255,.12);border-radius:26px;padding:22px;background:linear-gradient(135deg,var(--ref-surface),var(--ref-secondary-soft));margin-bottom:18px}
       .clx-ref-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:12px;margin-top:16px}
       .clx-ref-kpi{border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:16px;background:rgba(255,255,255,.08)}
       .clx-ref-kpi label{display:block;color:rgba(255,255,255,.66);font-size:12px;font-weight:900;margin-bottom:8px}
@@ -367,6 +495,7 @@
 
   function render() {
     if (!state.root) return;
+    applyTheme();
 
     const summary = state.summary || {};
     const items = state.items || [];
@@ -724,6 +853,7 @@
       state.root.setAttribute("data-clx-references-v1-mounted", "1");
 
       bindEvents();
+      applyTheme();
       render();
       loadData();
     } catch (error) {
