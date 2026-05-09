@@ -1696,11 +1696,11 @@
                 </div>
                 <div class="client-kpi">
                   <span>Flujo</span>
-                  <strong>${h(clientBotFlowLabel(config?.flow_code))}</strong>
+                  <strong>${h(clientBotFlowLabel(bot?.flow_code))}</strong>
                 </div>
                 <div class="client-kpi">
                   <span>Webhook</span>
-                  <strong>${h(config?.webhook_mode === "dedicated" ? "Dedicado" : "Pendiente")}</strong>
+                  <strong>${h(bot?.webhook_mode === "dedicated" ? "Dedicado" : "Pendiente")}</strong>
                 </div>
               </div>
 
