@@ -5286,18 +5286,29 @@
 
   function reportsAdapterQuery() {
     const range = reportsAdapterDefaultRange();
-    const from = document.querySelector("[data-adaptive-reports-from]")?.value || range.from;
-    const to = document.querySelector("[data-adaptive-reports-to]")?.value || range.to;
-    const preset = document.querySelector("[data-adaptive-reports-preset]")?.value || "7d";
 
-    return { from, to, preset };
+    return {
+      from: document.querySelector("[data-adaptive-reports-from]")?.value || range.from,
+      to: document.querySelector("[data-adaptive-reports-to]")?.value || range.to,
+      preset: document.querySelector("[data-adaptive-reports-preset]")?.value || "7d",
+    };
   }
 
-  function reportsAdapterKpisHtml(items) {
+  function reportsDataBar(value, max) {
+    const width = max > 0 ? Math.min((Number(value || 0) / max) * 100, 100) : 0;
+
+    return `
+      <div style="height:11px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden">
+        <div style="height:100%;width:${width}%;background:linear-gradient(90deg,rgba(0,255,180,.85),rgba(255,0,180,.85));"></div>
+      </div>
+    `;
+  }
+
+  function reportSummaryCards(items) {
     const rows = Array.isArray(items) ? items : [];
 
     if (!rows.length) {
-      return `<div class="client-muted">Sin indicadores para el periodo.</div>`;
+      return `<div class="client-muted">Sin datos consolidados para este periodo.</div>`;
     }
 
     return `
@@ -5313,55 +5324,81 @@
     `;
   }
 
-  function reportsAdapterBlockHtml(block) {
-    const kpis = Array.isArray(block?.kpis) ? block.kpis : [];
-    const byDay = Array.isArray(block?.by_day) ? block.by_day : [];
-    const byReference = Array.isArray(block?.by_reference) ? block.by_reference : [];
+  function reportChartHtml(chart) {
+    const rows = Array.isArray(chart) ? chart : [];
+
+    if (!rows.length) {
+      return `<div class="client-muted">Sin datos para graficar.</div>`;
+    }
+
+    const max = Math.max(...rows.map((item) => Number(item.value || 0)), 1);
+
+    return `
+      <div class="client-report-bars">
+        ${rows.map((item) => `
+          <div style="display:grid;grid-template-columns:180px 1fr 70px;gap:12px;align-items:center;margin:10px 0">
+            <strong>${h(item.label || "Sin clasificar")}</strong>
+            ${reportsDataBar(item.value, max)}
+            <span>${h(item.value ?? 0)}</span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function reportTableHtml(section) {
+    const cols = Array.isArray(section?.columns) ? section.columns : [];
+    const rows = Array.isArray(section?.rows) ? section.rows : [];
+
+    if (!cols.length || !rows.length) {
+      return `<div class="client-muted">Sin registros detallados para esta sección.</div>`;
+    }
+
+    return `
+      <div style="overflow:auto;margin-top:14px">
+        <table class="client-table" style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr>
+              ${cols.map((col) => `<th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">${h(col)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.slice(0, 80).map((row) => `
+              <tr>
+                ${cols.map((col) => `<td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top">${h(row[col] ?? "")}</td>`).join("")}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        ${rows.length > 80 ? `<p class="client-muted">Mostrando 80 de ${h(rows.length)} registros. Usa CSV para descargar completo.</p>` : ""}
+      </div>
+    `;
+  }
+
+  function reportSectionHtml(section) {
+    const summary = Array.isArray(section?.summary) ? section.summary : [];
 
     return `
       <section class="client-panel">
-        <div class="client-section-kicker">${h(block?.code || "módulo")}</div>
-        <h2>${h(block?.title || "Bloque")}</h2>
-        <div class="client-kpi-grid">
-          ${kpis.map((item) => `
-            <div class="client-kpi">
-              <span>${h(item.label || "Indicador")}</span>
-              <strong>${h(item.value ?? 0)}</strong>
-            </div>
-          `).join("") || `<div class="client-muted">Sin indicadores.</div>`}
+        <div class="client-section-kicker">${h(section?.code || "sección")}</div>
+        <h2>${h(section?.title || "Reporte")}</h2>
+
+        ${summary.length ? reportSummaryCards(summary.map((item) => ({ ...item, module: section?.title || "" }))) : ""}
+
+        <div class="client-panel" style="margin-top:14px">
+          <h3>Distribución</h3>
+          ${reportChartHtml(section?.chart || [])}
         </div>
 
-        ${byDay.length ? `
-          <div class="client-panel" style="margin-top:14px">
-            <h3>Actividad por día</h3>
-            ${byDay.map((item) => `
-              <div style="display:grid;grid-template-columns:90px 1fr 70px;gap:12px;align-items:center;margin:8px 0">
-                <strong>${h(item.label || "")}</strong>
-                <div style="height:10px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden">
-                  <div style="height:100%;width:${Math.min(Number(item.value || 0) * 8, 100)}%;background:linear-gradient(90deg,rgba(0,255,180,.85),rgba(255,0,180,.85));"></div>
-                </div>
-                <span>${h(item.value ?? 0)}</span>
-              </div>
-            `).join("")}
-          </div>
-        ` : ""}
-
-        ${byReference.length ? `
-          <div class="client-panel" style="margin-top:14px">
-            <h3>Producción por referencia</h3>
-            ${byReference.map((item) => `
-              <div style="display:grid;grid-template-columns:1fr 90px;gap:12px;align-items:center;margin:8px 0">
-                <strong>${h(item.label || "")}</strong>
-                <span>${h(item.value ?? 0)}</span>
-              </div>
-            `).join("")}
-          </div>
-        ` : ""}
+        <div class="client-panel" style="margin-top:14px">
+          <h3>Detalle recolectado</h3>
+          ${reportTableHtml(section)}
+        </div>
       </section>
     `;
   }
 
-  async function loadAdaptiveReportsSummary() {
+  async function loadAdaptiveReportsDetail() {
     const query = reportsAdapterQuery();
     const qs = new URLSearchParams({
       date_from: query.from,
@@ -5369,7 +5406,7 @@
       preset: query.preset,
     });
 
-    return await api(`/adaptive-reports-v1/companies/${state.companyId}/summary?${qs.toString()}`);
+    return await api(`/adaptive-reports-detail-v1/companies/${state.companyId}/detail?${qs.toString()}`);
   }
 
   async function renderAdaptiveReportsModule() {
@@ -5381,7 +5418,7 @@
     let loadError = "";
 
     try {
-      report = await api(`/adaptive-reports-v1/companies/${state.companyId}/summary?date_from=${range.from}&date_to=${range.to}&preset=7d`);
+      report = await api(`/adaptive-reports-detail-v1/companies/${state.companyId}/detail?date_from=${range.from}&date_to=${range.to}&preset=7d`);
     } catch (error) {
       loadError = error.message || "No se pudo cargar Reportes.";
       report = null;
@@ -5402,9 +5439,9 @@
           <section class="client-main">
             <header class="client-hero">
               <div class="client-eyebrow">Módulo transversal</div>
-              <h1 class="client-title">Reportes</h1>
+              <h1 class="client-title">Reporte operativo</h1>
               <p class="client-muted">
-                Reporte adaptativo por módulos activos. No modifica datos; solo audita, consolida y exporta.
+                Consolida la información real recolectada en el periodo: jornadas, producción, materiales, inventario y operación activa según módulos de esta empresa.
               </p>
 
               <div class="client-actions" style="display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:10px;align-items:end">
@@ -5431,27 +5468,19 @@
 
             <section class="client-panel">
               <div class="client-section-kicker">Resumen ejecutivo</div>
-              <h2>Indicadores del periodo</h2>
+              <h2>Información consolidada</h2>
               <p class="client-muted">
-                ${h(report?.date_from || range.from)} → ${h(report?.date_to || range.to)}
+                ${h(report?.date_from || range.from)} → ${h(report?.date_to || range.to)} · ${h(report?.total_rows || 0)} registros detallados.
               </p>
-              ${reportsAdapterKpisHtml(report?.executive_kpis || [])}
+              ${reportSummaryCards(report?.executive_kpis || [])}
             </section>
 
-            <section class="client-panel">
-              <div class="client-section-kicker">Módulos leídos</div>
-              <h2>Fuentes activas de esta empresa</h2>
-              <div class="client-module-grid">
-                ${(report?.active_modules || []).map((code) => `
-                  <div class="client-service-card">
-                    <span>${h(code)}</span>
-                    <strong>${h(moduleLabel(code))}</strong>
-                  </div>
-                `).join("") || `<div class="client-muted">Sin módulos activos detectados.</div>`}
-              </div>
-            </section>
-
-            ${(report?.blocks || []).map(reportsAdapterBlockHtml).join("")}
+            ${(report?.sections || []).map(reportSectionHtml).join("") || `
+              <section class="client-panel">
+                <h2>Sin registros para este periodo</h2>
+                <p class="client-muted">No se encontraron datos detallados en los módulos activos.</p>
+              </section>
+            `}
           </section>
         </div>
       </main>
@@ -5459,20 +5488,7 @@
   }
 
   async function refreshAdaptiveReportsModule() {
-    let report = null;
-    try {
-      report = await loadAdaptiveReportsSummary();
-    } catch (error) {
-      alert(error.message || "No se pudo generar el reporte.");
-      return;
-    }
-
     await renderAdaptiveReportsModule();
-
-    const fromInput = document.querySelector("[data-adaptive-reports-from]");
-    const toInput = document.querySelector("[data-adaptive-reports-to]");
-    if (fromInput) fromInput.value = report.date_from;
-    if (toInput) toInput.value = report.date_to;
   }
 
   function exportAdaptiveReportsCsv() {
@@ -5483,7 +5499,7 @@
       preset: query.preset,
     });
 
-    window.open(`${API}/adaptive-reports-v1/companies/${state.companyId}/export.csv?${qs.toString()}`, "_blank");
+    window.open(`${API}/adaptive-reports-detail-v1/companies/${state.companyId}/detail.csv?${qs.toString()}`, "_blank");
   }
 
   if (!window.__cxReportsAdapter01Bound) {
@@ -5538,8 +5554,9 @@
     return String(item?.value ?? 0);
   }
 
-  function adaptiveKpiCards(items, currency) {
+  function adaptiveKpiCards(items, currency, options = {}) {
     const rows = Array.isArray(items) ? items : [];
+    const allowToggle = Boolean(options.allowToggle);
 
     if (!rows.length) {
       return `<div class="client-muted">Sin indicadores para los módulos activos.</div>`;
@@ -5552,6 +5569,17 @@
             <span>${h(item.label || "Indicador")}</span>
             <strong>${h(formatAdaptiveKpiValue(item, currency))}</strong>
             <small>${h(item.module || "")}</small>
+            ${allowToggle ? `
+              <button
+                class="client-btn"
+                type="button"
+                data-kpi-panel-toggle="${h(item.key || "")}"
+                data-kpi-panel-visible="${item.panel_visible ? "false" : "true"}"
+                style="margin-top:10px"
+              >
+                ${item.panel_visible ? "Quitar del panel" : "Mostrar en panel"}
+              </button>
+            ` : ""}
           </div>
         `).join("")}
       </div>
@@ -5563,12 +5591,12 @@
       <section class="client-panel">
         <div class="client-section-kicker">${h(section?.code || "módulo")}</div>
         <h2>${h(section?.title || "Indicadores")}</h2>
-        ${adaptiveKpiCards(section?.items || [], currency)}
+        ${adaptiveKpiCards(section?.items || [], currency, { allowToggle: true })}
       </section>
     `;
   }
 
-  async function loadAdaptiveKpisSummary() {
+  async function loadAdaptiveKpisPanel() {
     const query = kpisAdapterQuery();
     const qs = new URLSearchParams({
       date_from: query.from,
@@ -5576,7 +5604,7 @@
       preset: query.preset,
     });
 
-    return await api(`/adaptive-kpis-v1/companies/${state.companyId}/summary?${qs.toString()}`);
+    return await api(`/adaptive-kpis-panel-v1/companies/${state.companyId}/panel?${qs.toString()}`);
   }
 
   async function renderAdaptiveKpisModule() {
@@ -5588,7 +5616,7 @@
     let loadError = "";
 
     try {
-      kpis = await api(`/adaptive-kpis-v1/companies/${state.companyId}/summary?date_from=${range.from}&date_to=${range.to}&preset=7d`);
+      kpis = await api(`/adaptive-kpis-panel-v1/companies/${state.companyId}/panel?date_from=${range.from}&date_to=${range.to}&preset=7d`);
     } catch (error) {
       loadError = error.message || "No se pudieron cargar KPIs.";
       kpis = null;
@@ -5596,6 +5624,8 @@
 
     const companyName = kpis?.company_name || company.name || "Empresa";
     const currency = kpis?.currency || "COP";
+    const selectedCount = Array.isArray(kpis?.selected_keys) ? kpis.selected_keys.length : 0;
+    const maxPanel = kpis?.max_panel_kpis || 4;
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -5612,9 +5642,9 @@
           <section class="client-main">
             <header class="client-hero">
               <div class="client-eyebrow">Módulo transversal</div>
-              <h1 class="client-title">KPIs operativos</h1>
+              <h1 class="client-title">Data Board KPIs</h1>
               <p class="client-muted">
-                Indicadores adaptativos de ${h(companyName)} calculados según los módulos activos. Moneda: ${h(currency)}.
+                Indicadores adaptativos de ${h(companyName)}. Configura hasta ${h(maxPanel)} tarjetas visibles en el panel principal. Moneda: ${h(currency)}.
               </p>
 
               <div class="client-actions" style="display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:10px;align-items:end">
@@ -5639,25 +5669,17 @@
             ${loadError ? `<div class="client-panel"><strong>${h(loadError)}</strong></div>` : ""}
 
             <section class="client-panel">
-              <div class="client-section-kicker">Resumen ejecutivo</div>
-              <h2>${h(companyName)}</h2>
-              <p class="client-muted">
-                ${h(kpis?.date_from || range.from)} → ${h(kpis?.date_to || range.to)} · Moneda ${h(currency)}
-              </p>
-              ${adaptiveKpiCards(kpis?.items || [], currency)}
+              <div class="client-section-kicker">Panel principal</div>
+              <h2>Tarjetas visibles (${h(selectedCount)} / ${h(maxPanel)})</h2>
+              <p class="client-muted">Estas son las tarjetas configuradas para el tablero principal de la empresa.</p>
+              ${adaptiveKpiCards(kpis?.top_cards || [], currency)}
             </section>
 
             <section class="client-panel">
-              <div class="client-section-kicker">Módulos leídos</div>
-              <h2>Fuentes activas de esta empresa</h2>
-              <div class="client-module-grid">
-                ${(kpis?.active_modules || []).map((code) => `
-                  <div class="client-service-card">
-                    <span>${h(code)}</span>
-                    <strong>${h(moduleLabel(code))}</strong>
-                  </div>
-                `).join("") || `<div class="client-muted">Sin módulos activos detectados.</div>`}
-              </div>
+              <div class="client-section-kicker">Configuración</div>
+              <h2>Activar o desactivar KPIs del panel</h2>
+              <p class="client-muted">Máximo ${h(maxPanel)} tarjetas principales. Los demás indicadores siguen disponibles aquí.</p>
+              ${adaptiveKpiCards(kpis?.items || [], currency, { allowToggle: true })}
             </section>
 
             ${(kpis?.sections || []).map((section) => adaptiveKpiSection(section, currency)).join("")}
@@ -5671,6 +5693,23 @@
     await renderAdaptiveKpisModule();
   }
 
+  async function toggleKpiPanelItem(button) {
+    const key = String(button?.dataset?.kpiPanelToggle || "").trim();
+    const visible = String(button?.dataset?.kpiPanelVisible || "false") === "true";
+
+    if (!key) return;
+
+    try {
+      await api(`/adaptive-kpis-panel-v1/companies/${state.companyId}/panel/toggle`, {
+        method: "POST",
+        body: JSON.stringify({ key, visible }),
+      });
+      await renderAdaptiveKpisModule();
+    } catch (error) {
+      alert(error.message || "No se pudo actualizar el panel.");
+    }
+  }
+
   if (!window.__cxKpisAdapter01Bound) {
     window.__cxKpisAdapter01Bound = true;
 
@@ -5679,6 +5718,13 @@
       if (generate) {
         event.preventDefault();
         await refreshAdaptiveKpisModule();
+        return;
+      }
+
+      const toggle = event.target.closest("[data-kpi-panel-toggle]");
+      if (toggle) {
+        event.preventDefault();
+        await toggleKpiPanelItem(toggle);
       }
     });
   }
