@@ -90,3 +90,8 @@ api_router.include_router(module_catalog_v1_router.router, prefix="/module-catal
 # CLONEXA Adaptive Reports V1 router
 from app.api.v1.endpoints import adaptive_reports_v1 as adaptive_reports_v1_router
 api_router.include_router(adaptive_reports_v1_router.router, prefix="/adaptive-reports-v1", tags=["adaptive_reports_v1"])
+
+
+# CLONEXA Adaptive KPIs V1 router
+from app.api.v1.endpoints import adaptive_kpis_v1 as adaptive_kpis_v1_router
+api_router.include_router(adaptive_kpis_v1_router.router, prefix="/adaptive-kpis-v1", tags=["adaptive_kpis_v1"])
