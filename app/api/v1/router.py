@@ -75,3 +75,8 @@ api_router.include_router(bot_flow_v1_router.router, prefix="/bot-flow-v1", tags
 # CLONEXA Velvet Bot V1 router
 from app.api.v1.endpoints import velvet_bot_v1 as velvet_bot_v1_router
 api_router.include_router(velvet_bot_v1_router.router, prefix="/velvet-bot-v1", tags=["velvet_bot_v1"])
+
+
+# CLONEXA Company Bots V1 router
+from app.api.v1.endpoints import company_bots_v1 as company_bots_v1_router
+api_router.include_router(company_bots_v1_router.router, prefix="/company-bots-v1", tags=["company_bots_v1"])

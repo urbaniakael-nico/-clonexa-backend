@@ -478,7 +478,7 @@
           <div class="cx-actions" style="margin-top:10px;gap:10px;flex-wrap:wrap">
             <button class="cx-btn cx-btn-primary" type="submit">Guardar token</button>
             <button class="cx-btn" type="button" data-test-telegram-bot="${escapeHtml(company.id)}">Probar conexion</button>
-            ${config?.configured ? `<button class="cx-btn" type="button" data-start-telegram-listener="${escapeHtml(company.id)}">Iniciar escucha</button>` : ""}
+            ${config?.configured ? `<button class="cx-btn cx-btn-primary" type="button" data-start-telegram-listener="${escapeHtml(company.id)}">Activar webhook dedicado</button>` : ""}
             ${config?.configured ? `<button class="cx-btn" type="button" data-deactivate-telegram-bot="${escapeHtml(company.id)}">Desactivar bot</button>` : ""}
           </div>
           <small>No pegues este token en chats ni documentos. CLONEXA lo guarda por empresa y lo devuelve siempre enmascarado.</small>
@@ -519,13 +519,15 @@
 
   async function startTelegramBotListener(companyId) {
     try {
-      const data = await apiPost(`${API}/bots/companies/${companyId}/telegram/listener/start`, {});
+      const data = await apiPost(`${API}/company-bots-v1/companies/${companyId}/telegram/activate-webhook`, {
+        flow_code: "velvet_references",
+      });
       state.companyBotConfigs.set(botConfigKey(companyId, "telegram"), data);
-      showToast("Escucha del bot iniciada. Ya no necesitas PowerShell para capturar mensajes.");
+      showToast("Webhook dedicado activado para esta empresa.");
       const company = state.companies.find((c) => c.id === companyId);
       if (company) renderCompanyDetailTab(company);
     } catch (error) {
-      showToast(`No se pudo iniciar la escucha: ${error.message}`, "error");
+      showToast(`No se pudo activar el webhook dedicado: ${error.message}`, "error");
     }
   }
 
