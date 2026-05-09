@@ -1470,42 +1470,17 @@ def _ref_poll_item(
     update_id: Any,
     action: str,
     message: str,
-    employee: Employee | None = None,
-    employee_id_value: Any | None = None,
-    employee_name_value: str | None = None,
+    employee: Employee,
     telegram_user_id: str,
     telegram_username: str | None,
 ) -> TelegramBotPollItem:
-    # REF_03B_GREENLET_SAFE_FIX:
-    # Nunca leer atributos ORM expirados después de db.commit().
-    safe_employee_id = employee_id_value
-    safe_employee_name = employee_name_value
-
-    if employee is not None:
-        if safe_employee_id is None:
-            safe_employee_id = getattr(employee, "_clx_safe_employee_id", None)
-        if safe_employee_name is None:
-            safe_employee_name = getattr(employee, "_clx_safe_employee_name", None)
-
-    if safe_employee_id is None and employee is not None:
-        try:
-            safe_employee_id = employee.id
-        except Exception:
-            safe_employee_id = None
-
-    if safe_employee_name is None and employee is not None:
-        try:
-            safe_employee_name = employee.full_name
-        except Exception:
-            safe_employee_name = ""
-
     return TelegramBotPollItem(
         update_id=update_id,
         ok=True,
         action=action,
         message=message,
-        employee_id=safe_employee_id,
-        employee_name=safe_employee_name or "",
+        employee_id=employee.id,
+        employee_name=employee.full_name,
         event_created=True,
         telegram_user_id=telegram_user_id,
         telegram_username=telegram_username,
@@ -1557,17 +1532,6 @@ async def _handle_reference_flow(
     callback_query_id: str | None,
     send_replies: bool,
 ) -> TelegramBotPollItem | None:
-    # REF_03B_GREENLET_SAFE_FIX:
-    # Snapshot antes de cualquier commit para evitar lazy-load async fuera de greenlet.
-    employee_id_value = str(employee.id)
-    employee_name_value = str(employee.full_name or "")
-
-    try:
-        setattr(employee, "_clx_safe_employee_id", employee_id_value)
-        setattr(employee, "_clx_safe_employee_name", employee_name_value)
-    except Exception:
-        pass
-
     enabled_modules = await _enabled_module_codes(db, bot.company_id)
 
     if not _references_enabled_from_codes(enabled_modules):
@@ -1613,8 +1577,8 @@ async def _handle_reference_flow(
         await _save_reference_production_close(
             db,
             company_id=bot.company_id,
-            employee_id=employee_id_value,
-            employee_name=employee_name_value,
+            employee_id=employee.id,
+            employee_name=employee.full_name,
             telegram_user_id=telegram_user_id,
             reference_name=reference_name,
             size=size,
@@ -1631,17 +1595,7 @@ async def _handle_reference_flow(
 
         if send_replies:
             await _send_telegram_message(token, chat_id, msg)
-            fresh_employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
-            fresh_company = await ensure_company_exists(db, bot.company_id)
-            if fresh_employee is not None and fresh_company is not None:
-                await _send_dynamic_menu(
-                    db,
-                    token=token,
-                    chat_id=chat_id,
-                    company=fresh_company,
-                    employee=fresh_employee,
-                    language=language,
-                )
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
 
         return _ref_poll_item(
             update_id=update_id,
@@ -1714,8 +1668,8 @@ async def _handle_reference_flow(
         await _open_reference_session(
             db,
             company_id=bot.company_id,
-            employee_id=employee_id_value,
-            employee_name=employee_name_value,
+            employee_id=employee.id,
+            employee_name=employee.full_name,
             telegram_user_id=telegram_user_id,
             reference_name=str(ref["name"]),
         )
@@ -1725,17 +1679,7 @@ async def _handle_reference_flow(
 
         if send_replies:
             await _send_telegram_message(token, chat_id, msg)
-            fresh_employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
-            fresh_company = await ensure_company_exists(db, bot.company_id)
-            if fresh_employee is not None and fresh_company is not None:
-                await _send_dynamic_menu(
-                    db,
-                    token=token,
-                    chat_id=chat_id,
-                    company=fresh_company,
-                    employee=fresh_employee,
-                    language=language,
-                )
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
 
         return _ref_poll_item(
             update_id=update_id,
@@ -1798,8 +1742,8 @@ async def _handle_reference_flow(
         await _open_reference_session(
             db,
             company_id=bot.company_id,
-            employee_id=employee_id_value,
-            employee_name=employee_name_value,
+            employee_id=employee.id,
+            employee_name=employee.full_name,
             telegram_user_id=telegram_user_id,
             reference_name=str(ref["name"]),
         )
@@ -1809,17 +1753,7 @@ async def _handle_reference_flow(
 
         if send_replies:
             await _send_telegram_message(token, chat_id, msg)
-            fresh_employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
-            fresh_company = await ensure_company_exists(db, bot.company_id)
-            if fresh_employee is not None and fresh_company is not None:
-                await _send_dynamic_menu(
-                    db,
-                    token=token,
-                    chat_id=chat_id,
-                    company=fresh_company,
-                    employee=fresh_employee,
-                    language=language,
-                )
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
 
         return _ref_poll_item(
             update_id=update_id,
@@ -1925,7 +1859,7 @@ async def _handle_reference_flow(
             company_id=bot.company_id,
             telegram_user_id=telegram_user_id,
             telegram_username=username,
-            employee_id=employee_id_value,
+            employee_id=employee.id,
             payload=payload,
         )
         await db.commit()
