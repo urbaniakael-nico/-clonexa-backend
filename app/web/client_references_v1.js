@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  window.CLONEXA_REFERENCES_V1_BUILD = "REF_02B_CLIENT_LAYOUT_FIX_2026_05_09";
+  window.CLONEXA_REFERENCES_V1_BUILD = "REF_02C_CLIENT_ANTIBLOCK_2026_05_09";
 
   const MODULE_CODES = new Set(["references", "ref"]);
 
@@ -300,9 +300,8 @@
   }
 
   function isReferencesScreen() {
-    const text = (document.body.innerText || "").toLowerCase();
-    if (!text.includes("references") && !text.includes("referencias") && !text.includes("références")) return false;
-
+    // Anti-bloqueo: NO leer document.body.innerText.
+    // Solo detectamos pantalla por H1/H2 exacto del placeholder.
     const headers = Array.from(document.querySelectorAll("h1,h2"));
     return headers.some((node) => {
       const value = (node.textContent || "").trim().toLowerCase();
@@ -319,34 +318,51 @@
 
     if (!header) return null;
 
-    // Nunca montar sobre main/body porque elimina el sidebar del portal cliente.
     let node = header.parentElement;
 
-    for (let i = 0; i < 8 && node && node !== document.body; i += 1) {
-      const buttons = Array.from(node.querySelectorAll("button,a")).map((el) => {
-        return (el.textContent || "").trim().toLowerCase();
-      });
+    for (let i = 0; i < 10 && node && node !== document.body; i += 1) {
+      const tag = (node.tagName || "").toLowerCase();
+      const id = (node.id || "").toLowerCase();
+      const klass = String(node.className || "").toLowerCase();
+      const text = (node.textContent || "").toLowerCase();
 
-      const containsSidebar =
-        buttons.includes("dashboard") ||
-        buttons.includes("crm campo") ||
-        buttons.includes("workforce") ||
-        buttons.includes("ajustes") ||
-        buttons.includes("cerrar sesión") ||
-        buttons.includes("settings") ||
-        buttons.includes("log out");
+      const forbidden =
+        tag === "body" ||
+        tag === "html" ||
+        tag === "main" ||
+        id === "app" ||
+        klass.includes("client-shell") ||
+        text.includes("tenant activo") ||
+        text.includes("active tenant") ||
+        text.includes("cerrar sesión") ||
+        text.includes("log out") ||
+        text.includes("ajustes") ||
+        text.includes("settings");
 
-      const containsHeader = node.contains(header);
+      const hasReferenceTitle =
+        text.includes("references") ||
+        text.includes("referencias") ||
+        text.includes("références");
+
+      const hasPlaceholder =
+        text.includes("módulo activo") ||
+        text.includes("modulo activo") ||
+        text.includes("module active") ||
+        text.includes("este módulo está asignado") ||
+        text.includes("este modulo esta asignado") ||
+        text.includes("this module is assigned");
+
       const widthOk = (node.offsetWidth || 0) > 420;
 
-      if (containsHeader && widthOk && !containsSidebar && node.tagName.toLowerCase() !== "main") {
+      if (!forbidden && hasReferenceTitle && hasPlaceholder && widthOk) {
         return node;
       }
 
       node = node.parentElement;
     }
 
-    return header.parentElement || null;
+    // Seguridad: si no encontramos contenedor limpio, no montamos.
+    return null;
   }
 
   function render() {
@@ -689,33 +705,46 @@
   }
 
   function mount() {
-    if (!isReferencesScreen()) return;
+    try {
+      if (!isReferencesScreen()) return;
 
-    const target = findMountTarget();
-    if (!target) return;
+      const target = findMountTarget();
 
-    if (target.getAttribute("data-clx-references-v1-mounted") === "1") return;
+      if (!target) {
+        console.warn("[CLONEXA References] Safe mount skipped: no clean module container found.");
+        return;
+      }
 
-    injectStyles();
+      if (target.getAttribute("data-clx-references-v1-mounted") === "1") return;
 
-    state.companyId = getCompanyId();
-    state.root = target;
-    state.root.setAttribute("data-clx-references-v1-mounted", "1");
+      injectStyles();
 
-    bindEvents();
-    render();
-    loadData();
+      state.companyId = getCompanyId();
+      state.root = target;
+      state.root.setAttribute("data-clx-references-v1-mounted", "1");
+
+      bindEvents();
+      render();
+      loadData();
+    } catch (error) {
+      console.error("[CLONEXA References] mount failed safely:", error);
+    }
   }
 
   window.CLONEXA_RENDER_REFERENCES_V1 = mount;
 
   const observer = new MutationObserver(() => {
-    if (document.body) mount();
+    clearTimeout(window.__CLX_REF_MOUNT_TIMER__);
+    window.__CLX_REF_MOUNT_TIMER__ = setTimeout(() => {
+      if (document.body) mount();
+    }, 120);
   });
 
   function start() {
     mount();
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
   }
 
   if (document.readyState === "loading") {
