@@ -60,6 +60,3 @@ api_router.include_router(core_settings_router.router, prefix="/companies", tags
 
 
 
-# CLONEXA Day Closing V1 clean backend router
-from app.api.v1.endpoints import day_closing_v1 as day_closing_v1_router
-api_router.include_router(day_closing_v1_router.router, prefix="/day-closing-v1", tags=["day_closing_v1"])
