@@ -1400,6 +1400,77 @@ async def _ref_send_menu(db, token, chat_id, company_id, employee_id, language, 
     )
 
 
+
+# CLONEXA REF_03C_GREENLET_SNAPSHOT_FIX
+def _ref_safe_attr(obj, attr, default=None):
+    try:
+        return getattr(obj, attr)
+    except Exception:
+        return default
+
+
+async def _ref_safe_snapshot(db, *, bot, employee, current, telegram_user_id, username):
+    # Refrescar ORM dentro del contexto async antes de leer atributos.
+    for obj in (bot, employee, current):
+        if obj is None:
+            continue
+        try:
+            await db.refresh(obj)
+        except Exception:
+            pass
+
+    company_id_value = _ref_safe_attr(bot, "company_id") or _ref_safe_attr(employee, "company_id")
+    employee_id_value = _ref_safe_attr(employee, "id")
+    employee_name_value = _ref_safe_attr(employee, "full_name") or ""
+
+    # Fallback SQL plano si el ORM sigue expirado.
+    if not company_id_value or not employee_id_value:
+        try:
+            row_result = await db.execute(
+                text("""
+                    SELECT
+                        id::text AS employee_id,
+                        company_id::text AS company_id,
+                        COALESCE(full_name, '') AS employee_name
+                    FROM employees
+                    WHERE telegram_user_id::text = :telegram_user_id
+                    LIMIT 1
+                """),
+                {"telegram_user_id": str(telegram_user_id)},
+            )
+            row = row_result.mappings().first()
+            if row:
+                company_id_value = company_id_value or row["company_id"]
+                employee_id_value = employee_id_value or row["employee_id"]
+                employee_name_value = employee_name_value or row["employee_name"]
+        except Exception:
+            pass
+
+    company_id_value = str(company_id_value or "")
+    employee_id_value = str(employee_id_value or "")
+    employee_name_value = str(employee_name_value or "")
+
+    if not company_id_value or not employee_id_value:
+        raise RuntimeError("ref_snapshot_failed: company_id/employee_id missing")
+
+    try:
+        fresh_current = await _get_current_attendance_status(
+            db,
+            UUID(company_id_value),
+            UUID(employee_id_value),
+        )
+        status_key = _current_status_key(fresh_current)
+    except Exception:
+        try:
+            status_key = _current_status_key(current)
+        except Exception:
+            status_key = "sin_turno"
+
+    enabled_modules = await _enabled_module_codes(db, UUID(company_id_value))
+
+    return company_id_value, employee_id_value, employee_name_value, status_key, enabled_modules
+
+
 async def _ref_handle_bot_flow(
     db,
     *,
@@ -1418,11 +1489,14 @@ async def _ref_handle_bot_flow(
     callback_query_id,
     send_replies,
 ):
-    company_id_value = str(bot.company_id)
-    employee_id_value = str(employee.id)
-    employee_name_value = str(employee.full_name or "")
-    status_key = _current_status_key(current)
-    enabled_modules = await _enabled_module_codes(db, bot.company_id)
+    company_id_value, employee_id_value, employee_name_value, status_key, enabled_modules = await _ref_safe_snapshot(
+        db,
+        bot=bot,
+        employee=employee,
+        current=current,
+        telegram_user_id=telegram_user_id,
+        username=username,
+    )
 
     if not _ref_enabled(enabled_modules):
         return None
@@ -1485,6 +1559,12 @@ async def _ref_handle_bot_flow(
             if send_replies:
                 await _send_telegram_message(token, chat_id, _ref_txt(language, "no_refs"))
             return _ref_poll_item(update_id, False, "reference_start_missing", "reference_missing", employee_id_value, employee_name_value, telegram_user_id, username, False)
+
+        try:
+            await db.refresh(bot)
+            await db.refresh(employee)
+        except Exception:
+            pass
 
         created, message_text = await _create_bot_attendance_event(
             db,
@@ -1593,6 +1673,12 @@ async def _ref_handle_bot_flow(
     if command_lower in end_commands or raw_lower in end_commands:
         if status_key not in {"working", "on_break"}:
             return None
+
+        try:
+            await db.refresh(bot)
+            await db.refresh(employee)
+        except Exception:
+            pass
 
         created, message_text = await _create_bot_attendance_event(
             db,
