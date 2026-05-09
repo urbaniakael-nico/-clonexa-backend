@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -284,44 +284,56 @@ async def production_kpis(db: AsyncSession, company_id: str, start: date, end: d
     bot_active = 0
     initial_qty = 0
     finished_qty = 0
-    closures = 0
+    closures_total = 0
+    closures_period = 0
     active_sessions = 0
 
     if await table_exists(db, "product_references"):
         refs = intval(await safe_scalar(
             db,
-            "SELECT count(*) FROM product_references WHERE company_id = :company_id",
+            "SELECT count(*) FROM product_references WHERE company_id::text = :company_id",
             params,
         ))
         bot_active = intval(await safe_scalar(
             db,
-            "SELECT count(*) FROM product_references WHERE company_id = :company_id AND bot_active IS TRUE",
+            "SELECT count(*) FROM product_references WHERE company_id::text = :company_id AND bot_active IS TRUE",
             params,
         ))
         initial_qty = intval(await safe_scalar(
             db,
-            "SELECT COALESCE(sum(initial_quantity), 0) FROM product_references WHERE company_id = :company_id",
+            "SELECT COALESCE(sum(initial_quantity), 0) FROM product_references WHERE company_id::text = :company_id",
             params,
         ))
 
     if await table_exists(db, "reference_production_closures"):
+        # Producción del módulo = acumulado productivo real.
+        # El periodo queda como KPI separado para no ocultar cierres por diferencias de fecha/zona.
         finished_qty = intval(await safe_scalar(
             db,
             """
             SELECT COALESCE(sum(quantity_finished), 0)
             FROM reference_production_closures
-            WHERE company_id = :company_id
-              AND closed_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
+            WHERE company_id::text = :company_id
             """,
             params,
         ))
 
-        closures = intval(await safe_scalar(
+        closures_total = intval(await safe_scalar(
             db,
             """
             SELECT count(*)
             FROM reference_production_closures
-            WHERE company_id = :company_id
+            WHERE company_id::text = :company_id
+            """,
+            params,
+        ))
+
+        closures_period = intval(await safe_scalar(
+            db,
+            """
+            SELECT count(*)
+            FROM reference_production_closures
+            WHERE company_id::text = :company_id
               AND closed_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
             """,
             params,
@@ -333,13 +345,14 @@ async def production_kpis(db: AsyncSession, company_id: str, start: date, end: d
             """
             SELECT count(*)
             FROM reference_work_sessions
-            WHERE company_id = :company_id
+            WHERE company_id::text = :company_id
               AND status = 'active'
             """,
             params,
         ))
 
     pending = max(initial_qty - finished_qty, 0)
+    over_finished = max(finished_qty - initial_qty, 0)
     progress = round((finished_qty / initial_qty) * 100, 2) if initial_qty > 0 else 0
 
     return [
@@ -348,11 +361,12 @@ async def production_kpis(db: AsyncSession, company_id: str, start: date, end: d
         {"key": "initial_qty", "label": "Cantidad inicial", "value": initial_qty, "module": "Producción"},
         {"key": "finished_qty", "label": "Terminadas", "value": finished_qty, "module": "Producción"},
         {"key": "pending_qty", "label": "Pendientes", "value": pending, "module": "Producción"},
+        {"key": "over_finished_qty", "label": "Sobreproducidas", "value": over_finished, "module": "Producción"},
         {"key": "progress", "label": "Avance", "value": f"{progress}%", "module": "Producción"},
-        {"key": "closures", "label": "Cierres producción", "value": closures, "module": "Producción"},
+        {"key": "closures", "label": "Cierres producción", "value": closures_total, "module": "Producción"},
+        {"key": "closures_period", "label": "Cierres del periodo", "value": closures_period, "module": "Producción"},
         {"key": "active_sessions", "label": "Sesiones activas", "value": active_sessions, "module": "Producción"},
     ]
-
 
 async def payroll_kpis(db: AsyncSession, company_id: str, start: date, end: date, currency: str) -> list[dict[str, Any]]:
     amount = 0.0
