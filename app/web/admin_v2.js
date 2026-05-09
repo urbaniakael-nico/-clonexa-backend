@@ -653,7 +653,7 @@
         state.errors.push(`Paquetes: ${error.message}`);
       }),
       loadModules().catch((error) => {
-        state.errors.push(`MÃƒÂ³dulos: ${error.message}`);
+        state.errors.push(`Módulos: ${error.message}`);
       }),
     ];
 
@@ -700,7 +700,7 @@
         <div class="cx-detail-grid">
           <div class="cx-kv"><span>Empresas activas</span><strong>${escapeHtml(state.companies.filter(c => c.status === "active").length)}</strong></div>
           <div class="cx-kv"><span>Paquetes SaaS</span><strong>${escapeHtml(state.packages.length)}</strong></div>
-          <div class="cx-kv"><span>MÃƒÂ³dulos globales</span><strong>${escapeHtml(state.modules.length)}</strong></div>
+          <div class="cx-kv"><span>Módulos globales</span><strong>${escapeHtml(state.modules.length)}</strong></div>
           <div class="cx-kv"><span>Estado</span><strong>${state.health && state.health.ok !== false ? "Operativo" : "Revisar API"}</strong></div>
         </div>
         ${state.errors.length ? `<div class="cx-alert">${escapeHtml(state.errors.slice(-3).join(" Ã‚Â· "))}</div>` : ""}
@@ -809,7 +809,7 @@
           ${pkg.is_active ? `<span class="cx-badge cx-badge-live">Activo</span>` : `<span class="cx-badge">Inactivo</span>`}
         </div>
         <p>${escapeHtml(pkg.description || "Paquete SaaS disponible para activar por empresa.")}</p>
-        <small>MÃƒÂ³dulos incluidos: ${escapeHtml(pkg.modules.length || "Ã¢â‚¬â€")}</small>
+        <small>Módulos incluidos: ${escapeHtml(pkg.modules.length || "Ã¢â‚¬â€")}</small>
       </article>
     `).join("");
   }
@@ -1101,7 +1101,7 @@
         <div class="cx-kv"><span>API</span><strong>${state.health && state.health.ok !== false ? "LIVE" : "OFFLINE"}</strong></div>
         <div class="cx-kv"><span>Empresas</span><strong>${escapeHtml(state.companies.length)}</strong></div>
         <div class="cx-kv"><span>Paquetes</span><strong>${escapeHtml(state.packages.length)}</strong></div>
-        <div class="cx-kv"><span>MÃƒÂ³dulos</span><strong>${escapeHtml(state.modules.length)}</strong></div>
+        <div class="cx-kv"><span>Módulos</span><strong>${escapeHtml(state.modules.length)}</strong></div>
         <div class="cx-kv"><span>ÃƒÅ¡ltimo refresh</span><strong>${escapeHtml(state.lastRefresh || "Ã¢â‚¬â€")}</strong></div>
         <div class="cx-kv"><span>PostgreSQL</span><strong>${state.health && state.health.ok !== false ? "Derivado OK" : "No verificado"}</strong></div>
       </div>
@@ -1170,7 +1170,7 @@
     const tabs = [
       ["resumen", "Resumen"],
       ["usuarios", "Acceso Maestro"],
-      ["módulos", "MÃƒÂ³dulos"],
+      ["módulos", "Módulos"],
       ["paquete", "Paquete"],
       ["branding", "Branding"],
       ["crm", "CRM"],
@@ -1916,7 +1916,7 @@
           <div class="cx-kv"><span>Plan</span><strong>${escapeHtml(company.plan || "Ã¢â‚¬â€")}</strong></div>
           <div class="cx-kv"><span>Timezone</span><strong>${escapeHtml(company.timezone)}</strong></div>
           <div class="cx-kv"><span>Paquete detectado</span><strong>${escapeHtml(packageForCompany(company))}</strong></div>
-          <div class="cx-kv"><span>MÃƒÂ³dulos activos</span><strong>${escapeHtml(moduleCodesForCompany(company.id).length)}</strong></div>
+          <div class="cx-kv"><span>Módulos activos</span><strong>${escapeHtml(moduleCodesForCompany(company.id).length)}</strong></div>
           <div class="cx-kv"><span>Acceso Maestro</span><strong>${ownerAccessBadge(users)}</strong></div>
         </div>
       `;
@@ -2840,12 +2840,12 @@
     });
 
     const titles = {
-      dashboard: ["Dashboard", "Control central de empresas, mÃƒÂ³dulos, paquetes, accesos y paneles cliente."],
-      companies: ["Empresas", "GestiÃƒÂ³n de tenants, paquetes, mÃƒÂ³dulos, Acceso Maestro y CRM."],
+      dashboard: ["Dashboard", "Control central de empresas, módulos, paquetes, accesos y paneles cliente."],
+      companies: ["Empresas", "GestiÃƒÂ³n de tenants, paquetes, módulos, Acceso Maestro y CRM."],
       users: ["Acceso Maestro", "Usuario dueÃƒÂ±o/encargado, regeneraciÃƒÂ³n de clave y desbloqueo."],
       packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
-      modules: ["MÃƒÂ³dulos", "CatÃƒÂ¡logo global y mÃƒÂ³dulos activos por tenant."],
-      access: ["Accesos", "Rutas operativas rÃƒÂ¡pidas del ecosistema."],
+      modules: ["Módulos", "CatÃƒÂ¡logo global y módulos activos por tenant."],
+      access: ["Accesos", "Rutas operativas rápidas del ecosistema."],
       crm: ["CRM / Panel Empresa", "Estado resumido de branding, experiencia y panel cliente."],
       health: ["Health / Estado del sistema", "Estado de API y conteos principales."]
     };
