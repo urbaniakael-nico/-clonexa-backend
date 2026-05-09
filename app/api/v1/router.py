@@ -110,3 +110,8 @@ api_router.include_router(adaptive_reports_detail_v1_router.router, prefix="/ada
 # CLONEXA Production V1 router
 from app.api.v1.endpoints import production_v1 as production_v1_router
 api_router.include_router(production_v1_router.router, prefix="/production-v1", tags=["production_v1"])
+
+
+# CLONEXA CRM Live V1 router
+from app.api.v1.endpoints import crm_live_v1 as crm_live_v1_router
+api_router.include_router(crm_live_v1_router.router, prefix="/crm-live-v1", tags=["crm_live_v1"])
