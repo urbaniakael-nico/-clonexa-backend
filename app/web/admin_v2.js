@@ -406,7 +406,16 @@
     }
 
     try {
-      const data = await apiGet(`${API}/bots/companies/${companyId}/telegram`);
+      const baseConfig = await apiGet(`${API}/bots/companies/${companyId}/telegram`);
+      let data = baseConfig || {};
+
+      try {
+        const webhookStatus = await apiGet(`${API}/company-bots-v1/companies/${companyId}/telegram/status`);
+        data = { ...data, ...(webhookStatus || {}) };
+      } catch (statusError) {
+        // El endpoint dedicado puede no existir en instalaciones antiguas.
+      }
+
       state.companyBotConfigs.set(key, data || {});
       return data || {};
     } catch (error) {
@@ -429,9 +438,79 @@
     return `<span class="cx-badge ${cls}">${escapeHtml(label)}</span>`;
   }
 
+
+  function botFlowLabel(value) {
+    const code = String(value || "base").toLowerCase();
+
+    const labels = {
+      base: "Base / Workforce",
+      velvet_references: "Velvet / Referencias producción",
+      field_operations: "Campo / GPS / Materiales",
+      retail_sales: "Retail / Ventas",
+      hospitality_orders: "Hospitality / Pedidos",
+    };
+
+    return labels[code] || code;
+  }
+
+  function suggestedBotFlow(company) {
+    const codes = moduleCodesForCompany(company.id);
+
+    if (codes.includes("references") && codes.includes("workforce")) return "velvet_references";
+    if (codes.includes("gps") || codes.includes("materials") || codes.includes("field")) return "field_operations";
+    if (codes.includes("sales") || codes.includes("stores") || codes.includes("retail")) return "retail_sales";
+    if (codes.includes("hospitality") || codes.includes("orders") || codes.includes("tables")) return "hospitality_orders";
+
+    return "base";
+  }
+
+  function botFlowOptions(company, selected) {
+    const codes = moduleCodesForCompany(company.id);
+    const options = [
+      ["base", "Base / Workforce"],
+    ];
+
+    if (codes.includes("references") && codes.includes("workforce")) {
+      options.push(["velvet_references", "Velvet / Referencias producción"]);
+    }
+
+    if (codes.includes("gps") || codes.includes("materials") || codes.includes("field")) {
+      options.push(["field_operations", "Campo / GPS / Materiales"]);
+    }
+
+    if (codes.includes("sales") || codes.includes("stores") || codes.includes("retail")) {
+      options.push(["retail_sales", "Retail / Ventas"]);
+    }
+
+    if (codes.includes("hospitality") || codes.includes("orders") || codes.includes("tables")) {
+      options.push(["hospitality_orders", "Hospitality / Pedidos"]);
+    }
+
+    const unique = new Map(options);
+    const selectedValue = selected || suggestedBotFlow(company);
+
+    return [...unique.entries()]
+      .map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === selectedValue ? "selected" : ""}>${escapeHtml(label)}</option>`)
+      .join("");
+  }
+
+  function botWebhookLabel(config) {
+    const mode = String(config?.webhook_mode || "").toLowerCase();
+
+    if (mode === "dedicated") return "Webhook dedicado";
+    if (config?.configured) return "Pendiente de activar";
+
+    return "Sin configurar";
+  }
+
+
   function renderCompanyAccessPanel(company) {
     const config = telegramConfig(company.id);
-    const botsEnabled = moduleCodesForCompany(company.id).includes("bots");
+    const botModuleCodes = moduleCodesForCompany(company.id);
+    const botsEnabled = botModuleCodes.includes("bots");
+    const botFlowCode = config?.flow_code || suggestedBotFlow(company);
+    const botWebhookMode = botWebhookLabel(config);
+    const botWebhookUrl = config?.webhook_url || "";
     const botStatus = config?.loading
       ? `<span class="cx-badge">Cargando...</span>`
       : telegramBotStatusBadge(config);
@@ -440,7 +519,7 @@
       <div class="cx-cards-grid" style="margin-bottom:18px">
         <a class="cx-package-card" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer"><h3>Portal cliente</h3><p>Vista del tenant.</p></a>
         <a class="cx-package-card" href="/admin" target="_blank" rel="noreferrer"><h3>Admin actual</h3><p>Configurador especializado.</p></a>
-        <a class="cx-package-card" href="/docs" target="_blank" rel="noreferrer"><h3>Swagger</h3><p>Documentacion API.</p></a>
+        <a class="cx-package-card" href="/docs" target="_blank" rel="noreferrer"><h3>Swagger</h3><p>Documentación API.</p></a>
         <button class="cx-package-card" data-copy="${escapeHtml(company.id)}" type="button"><h3>Copiar Company ID</h3><p>${escapeHtml(company.id)}</p></button>
       </div>
 
@@ -464,7 +543,9 @@
           <div class="cx-kv"><span>Company ID</span><strong>${escapeHtml(company.id)}</strong></div>
           <div class="cx-kv"><span>Token</span><strong>${escapeHtml(config?.masked_token || "No configurado")}</strong></div>
           <div class="cx-kv"><span>Usuario bot</span><strong>${escapeHtml(config?.bot_username ? `@${config.bot_username}` : "Sin validar")}</strong></div>
-          <div class="cx-kv"><span>Ultima validacion</span><strong>${escapeHtml(config?.last_validated_at || "Sin validar")}</strong></div>
+          <div class="cx-kv"><span>Flujo</span><strong>${escapeHtml(botFlowLabel(botFlowCode))}</strong></div>
+          <div class="cx-kv"><span>Webhook</span><strong>${escapeHtml(botWebhookMode)}</strong></div>
+          <div class="cx-kv"><span>Última validación</span><strong>${escapeHtml(config?.last_validated_at || "Sin validar")}</strong></div>
           <div class="cx-kv"><span>Error</span><strong>${escapeHtml(config?.last_error || "Sin error")}</strong></div>
         </div>
 
@@ -473,12 +554,19 @@
             <input name="name" type="text" value="${escapeHtml(config?.name || `${company.name} Telegram Bot`)}" placeholder="Bot ${escapeHtml(company.name)}" />
           </label>
           <label>Token Telegram BotFather
-            <input name="token" type="password" autocomplete="off" placeholder="${config?.configured ? "Pega un token nuevo solo si quieres reemplazarlo" : "Pega aqui el token de BotFather"}" />
+            <input name="token" type="password" autocomplete="off" placeholder="${config?.configured ? "Pega un token nuevo solo si quieres reemplazarlo" : "Pega aquí el token de BotFather"}" />
           </label>
+          <label>Flujo del bot
+            <select name="flow_code" data-bot-flow-company="${escapeHtml(company.id)}">
+              ${botFlowOptions(company, botFlowCode)}
+            </select>
+            <small>El flujo se sugiere según los módulos activos de esta empresa.</small>
+          </label>
+          ${botWebhookUrl ? `<div class="cx-alert" style="display:block;margin:10px 0"><strong>Webhook dedicado:</strong><br>${escapeHtml(botWebhookUrl)}</div>` : ""}
           <div class="cx-actions" style="margin-top:10px;gap:10px;flex-wrap:wrap">
             <button class="cx-btn cx-btn-primary" type="submit">Guardar token</button>
-            <button class="cx-btn" type="button" data-test-telegram-bot="${escapeHtml(company.id)}">Probar conexion</button>
-            ${config?.configured ? `<button class="cx-btn cx-btn-primary" type="button" data-start-telegram-listener="${escapeHtml(company.id)}">Activar webhook dedicado</button>` : ""}
+            <button class="cx-btn" type="button" data-test-telegram-bot="${escapeHtml(company.id)}">Probar conexión</button>
+            ${config?.configured ? `<button class="cx-btn cx-btn-primary" type="button" data-start-telegram-listener="${escapeHtml(company.id)}">${config?.webhook_mode === "dedicated" ? "Reinstalar webhook dedicado" : "Activar webhook dedicado"}</button>` : ""}
             ${config?.configured ? `<button class="cx-btn" type="button" data-deactivate-telegram-bot="${escapeHtml(company.id)}">Desactivar bot</button>` : ""}
           </div>
           <small>No pegues este token en chats ni documentos. CLONEXA lo guarda por empresa y lo devuelve siempre enmascarado.</small>
@@ -493,6 +581,7 @@
     const body = Object.fromEntries(new FormData(form).entries());
     body.token = String(body.token || "").trim();
     body.name = String(body.name || "").trim();
+    delete body.flow_code;
 
     try {
       const data = await apiPut(`${API}/bots/companies/${companyId}/telegram`, body);
@@ -519,9 +608,15 @@
 
   async function startTelegramBotListener(companyId) {
     try {
+      const flowSelect = [...document.querySelectorAll("[data-bot-flow-company]")]
+        .find((node) => node.dataset.botFlowCompany === companyId);
+
+      const flowCode = String(flowSelect?.value || telegramConfig(companyId)?.flow_code || "base").trim();
+
       const data = await apiPost(`${API}/company-bots-v1/companies/${companyId}/telegram/activate-webhook`, {
-        flow_code: "velvet_references",
+        flow_code: flowCode,
       });
+
       state.companyBotConfigs.set(botConfigKey(companyId, "telegram"), data);
       showToast("Webhook dedicado activado para esta empresa.");
       const company = state.companies.find((c) => c.id === companyId);
@@ -723,22 +818,22 @@
   const CX_MODULE_META = {
     core: ["Nucleo", "Base operativa del tenant. Habilita estructura principal, estado de empresa y servicios base.", "Core", "COR"],
     workforce: ["Personal", "Gestion de personal operativo, roles internos y disponibilidad por empresa.", "Core", "WRK"],
-    field: ["Operacion en campo", "Control para equipos externos, rutas, evidencias y actividad operativa.", "Campo", "FLD"],
+    field: ["Operación en campo", "Control para equipos externos, rutas, evidencias y actividad operativa.", "Campo", "FLD"],
     gps: ["GPS", "Ubicacion, rutas y control de equipos en campo.", "Campo", "GPS"],
-    payroll: ["Nomina", "Calculo de horas, cortes y pagos operativos.", "Finanzas", "PAY"],
+    payroll: ["Nómina", "Calculo de horas, cortes y pagos operativos.", "Finanzas", "PAY"],
     day_closing: ["Cierre de dia", "Resumen diario de ventas, pedidos, inventario y operacion.", "Hospitality", "DAY"],
     hospitality: ["Hospitality", "Motor para bares, restaurantes, mesas, pedidos y atencion comercial.", "Hospitality", "HSP"],
-    loyalty: ["Fidelizacion", "Clientes recurrentes, beneficios y seguimiento comercial.", "Hospitality", "LOY"],
-    orders: ["Pedidos", "Creacion, seguimiento y estados de pedidos.", "Hospitality", "ORD"],
+    loyalty: ["Fidelización", "Clientes recurrentes, beneficios y seguimiento comercial.", "Hospitality", "LOY"],
+    orders: ["Pedidos", "Creación, seguimiento y estados de pedidos.", "Hospitality", "ORD"],
     tables: ["Mesas", "Gestion de mesas, cuentas y sesiones por QR.", "Hospitality", "TBL"],
     bots: ["Bots", "Entrada por Telegram, WhatsApp y automatizaciones.", "Input", "BOT"],
     qr: ["QR", "Accesos por QR para mesas, operaciones o formularios.", "Input", "QR"],
     inventory: ["Inventario", "Stock, existencias y control operativo de productos o materiales.", "Inventario", "INV"],
     materials: ["Materiales", "Solicitud, entrega, devolucion y control de materiales.", "Inventario", "MAT"],
     stock: ["Stock", "Existencias, minimos y alertas de disponibilidad.", "Inventario", "STK"],
-    costs: ["Costos", "Costeo por referencia, produccion, servicio o pedido.", "Produccion", "CST"],
-    production: ["Produccion", "Control de tiempos, referencias, productividad y costos.", "Produccion", "PRD"],
-    references: ["Referencias", "Catalogo de referencias, productos o servicios medibles.", "Produccion", "REF"],
+    costs: ["Costos", "Costeo por referencia, produccion, servicio o pedido.", "Producción", "CST"],
+    production: ["Producción", "Control de tiempos, referencias, productividad y costos.", "Producción", "PRD"],
+    references: ["Referencias", "Catálogo de referencias, productos o servicios medibles.", "Producción", "REF"],
     crm: ["CRM Campo", "Vista operativa para seguimiento, control y acciones por empresa.", "Reportes", "CRM"],
     kpis: ["KPIs", "Indicadores ejecutivos y metricas por modulo.", "Reportes", "KPI"],
     reports: ["Reportes", "Reportes operativos, historicos y auditoria.", "Reportes", "REP"],
@@ -926,7 +1021,7 @@
               <option value="core">Core</option>
               <option value="field">Campo</option>
               <option value="inventory">Inventario</option>
-              <option value="production">Produccion</option>
+              <option value="production">Producción</option>
               <option value="finance">Finanzas</option>
               <option value="hospitality">Hospitality</option>
               <option value="retail">Retail</option>
@@ -1862,7 +1957,7 @@
     stock: "stock inventario minimo existencias alerta",
     costs: "costos costo produccion gasto margen referencia",
     production: "produccion fabricar referencias tiempos productividad costos",
-    references: "referencias productos servicios catalogo sku",
+    references: "referencias productos servicios catálogo sku",
     crm: "crm panel cliente seguimiento gestion comercial campo",
     kpis: "kpi kpis indicadores metricas rendimiento tablero",
     reports: "reportes informes historicos auditoria exportar",
@@ -1994,7 +2089,7 @@
                 </button>
               `;
             }).join("") : `
-              <span class="cx-empty-state">No hay modulos activos. Activa servicios desde el catalogo inferior.</span>
+              <span class="cx-empty-state">No hay modulos activos. Activa servicios desde el catálogo inferior.</span>
             `}
           </div>
         </section>
@@ -3024,7 +3119,7 @@
     stock: "stock inventario minimo existencias alerta",
     costs: "costos costo produccion gasto margen referencia",
     production: "produccion fabricar referencias tiempos productividad costos",
-    references: "referencias productos servicios catalogo sku",
+    references: "referencias productos servicios catálogo sku",
     crm: "crm panel cliente seguimiento gestion comercial campo",
     kpis: "kpi kpis indicadores metricas rendimiento tablero",
     reports: "reportes informes historicos auditoria exportar",

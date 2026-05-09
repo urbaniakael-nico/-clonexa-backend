@@ -533,14 +533,14 @@
     requests: ["Solicitudes", "flujo de aprobacion", "REQ"],
     inventory: ["Inventario", "stock y materiales", "INV"],
     materials: ["Materiales", "solicitud y devolucion", "MAT"],
-    payroll: ["Nomina", "corte y calculo", "PAY"],
-    payroll_biweekly: ["Nomina Quincenal", "corte actual", "PAY"],
+    payroll: ["Nómina", "corte y calculo", "PAY"],
+    payroll_biweekly: ["Nómina Quincenal", "corte actual", "PAY"],
     billing: ["Billing", "cobros y facturacion", "BIL"],
     reports: ["Reportes", "metricas y auditoria", "REP"],
     kpis: ["KPIs", "indicadores operativos", "KPI"],
     crm: ["CRM Campo", "operacion en vivo", "CRM"],
-    settings: ["Configuracion", "ajustes del tenant", "CFG"],
-    production: ["Produccion", "referencias y costos", "PRD"],
+    settings: ["Configuración", "ajustes del tenant", "CFG"],
+    production: ["Producción", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
     sales: ["Ventas", "actividad comercial", "SAL"],
     stores: ["Tiendas", "puntos de venta", "STR"],
@@ -1600,10 +1600,31 @@
   async function loadClientBotConfig() {
     if (!state.companyId) return null;
     try {
-      return await api(`/bots/companies/${state.companyId}/telegram`);
+      const baseConfig = await api(`/bots/companies/${state.companyId}/telegram`);
+      try {
+        const webhookStatus = await api(`/company-bots-v1/companies/${state.companyId}/telegram/status`);
+        return { ...(baseConfig || {}), ...(webhookStatus || {}) };
+      } catch (statusError) {
+        return baseConfig;
+      }
     } catch (error) {
       return { configured: false, status: "error", last_error: error.message || "No se pudo cargar bot" };
     }
+  }
+
+
+  function clientBotFlowLabel(value) {
+    const code = String(value || "base").toLowerCase();
+
+    const labels = {
+      base: "Base / Workforce",
+      velvet_references: "Velvet / Referencias producción",
+      field_operations: "Campo / GPS / Materiales",
+      retail_sales: "Retail / Ventas",
+      hospitality_orders: "Hospitality / Pedidos",
+    };
+
+    return labels[code] || code;
   }
 
   function botStatusLabel(status) {
@@ -1658,7 +1679,7 @@
             <section class="client-panel">
               <div class="client-eyebrow">Canal operativo</div>
               <h2>Bot Telegram</h2>
-              <p class="client-muted">Configuracion tecnica administrada desde CLONEXA Admin V2.</p>
+              <p class="client-muted">Configuración tecnica administrada desde CLONEXA Admin V2.</p>
 
               <div class="client-kpi-grid">
                 <div class="client-kpi">
@@ -1672,6 +1693,14 @@
                 <div class="client-kpi">
                   <span>Bot</span>
                   <strong>${h(botUsername)}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>Flujo</span>
+                  <strong>${h(clientBotFlowLabel(config?.flow_code))}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>Webhook</span>
+                  <strong>${h(config?.webhook_mode === "dedicated" ? "Dedicado" : "Pendiente")}</strong>
                 </div>
               </div>
 
@@ -1969,7 +1998,7 @@
       gps: "GPS",
       field: "Campo",
       materials: "Materiales",
-      production: "Produccion",
+      production: "Producción",
       sales: "Ventas",
       stores: "Tiendas",
       retail: "Retail",
@@ -1977,7 +2006,7 @@
       stock: "Stock",
       orders: "Pedidos",
       requests: "Solicitudes",
-      payroll: "Nomina",
+      payroll: "Nómina",
       kpis: "KPIs",
       reports: "Reportes",
       modules: "Modulos",
@@ -2290,7 +2319,7 @@
 
             <section class="client-panel">
               <div class="client-eyebrow">Estado operativo actual</div>
-              <h2>Operacion en vivo</h2>
+              <h2>Operación en vivo</h2>
 
               <div class="client-kpi-grid">
                 <div class="client-kpi">
