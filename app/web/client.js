@@ -6099,11 +6099,7 @@
     if (!raw) return null;
 
     raw = raw.replace(" ", "T");
-
-    // PostgreSQL puede enviar microsegundos: .395147
     raw = raw.replace(/(\.\d{3})\d+/, "$1");
-
-    // PostgreSQL puede enviar zona corta: +00
     raw = raw.replace(/([+-]\d{2})$/, "$1:00");
 
     if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
@@ -6160,6 +6156,20 @@
       node.textContent = crmLiveFormatDuration(Date.now() - startedAt.getTime());
     });
 
+    document.querySelectorAll("[data-effective-counter]").forEach((node) => {
+      const baseSeconds = Number(node.dataset.effectiveCounter || 0);
+      const running = String(node.dataset.effectiveRunning || "false") === "true";
+      const sync = crmLiveParseDate(node.dataset.effectiveSync || "");
+
+      let seconds = baseSeconds;
+
+      if (running && sync) {
+        seconds += Math.max(Math.floor((Date.now() - sync.getTime()) / 1000), 0);
+      }
+
+      node.textContent = crmLiveFormatDuration(seconds * 1000);
+    });
+
     document.querySelectorAll("[data-live-seconds]").forEach((node) => {
       const seconds = Number(node.dataset.liveSeconds || 0);
       node.textContent = crmLiveFormatDuration(seconds * 1000);
@@ -6201,6 +6211,17 @@
     `;
   }
 
+  function crmEffectiveCounterMarkup(seconds, running) {
+    return `
+      <strong
+        style="font-size:26px"
+        data-effective-counter="${h(seconds || 0)}"
+        data-effective-running="${running ? "true" : "false"}"
+        data-effective-sync="${h(new Date().toISOString())}"
+      >00:00:00</strong>
+    `;
+  }
+
   function crmTurnRow(row) {
     const status = String(row.work_status || "").toLowerCase();
 
@@ -6216,10 +6237,10 @@
 
         <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
           <div>
-            <strong>Turno iniciado</strong>
-            <div class="client-muted">Cronómetro de jornada</div>
+            <strong>Turno efectivo</strong>
+            <div class="client-muted">Congelado durante la pausa</div>
           </div>
-          <strong style="font-size:22px" data-live-since="${h(row.shift_started_at || "")}">00:00:00</strong>
+          ${crmEffectiveCounterMarkup(row.shift_effective_seconds || 0, false)}
         </div>
       `;
     }
@@ -6228,10 +6249,10 @@
       return `
         <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
           <div>
-            <strong>Turno iniciado</strong>
-            <div class="client-muted">Cronómetro de jornada</div>
+            <strong>Turno efectivo</strong>
+            <div class="client-muted">Tiempo pagable / productivo</div>
           </div>
-          <strong style="font-size:26px" data-live-since="${h(row.shift_started_at || row.status_started_at || row.reference_timeline?.[0]?.started_at || "")}">00:00:00</strong>
+          ${crmEffectiveCounterMarkup(row.shift_effective_seconds || 0, true)}
         </div>
       `;
     }
@@ -6249,6 +6270,8 @@
 
   function crmReferenceTimeline(row) {
     const timeline = Array.isArray(row.reference_timeline) ? row.reference_timeline : [];
+    const isPaused = String(row.work_status || "").toLowerCase() === "on_break";
+    const isWorking = String(row.work_status || "").toLowerCase() === "working";
 
     if (!timeline.length) {
       return `
@@ -6263,15 +6286,27 @@
       <div style="padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
         <strong>Producción del turno</strong>
         <div style="margin-top:10px;display:grid;gap:10px">
-          ${timeline.map((item) => `
-            <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:12px;border-radius:16px;background:${item.is_active ? "rgba(0,255,180,.10)" : "rgba(255,255,255,.06)"};border:1px solid ${item.is_active ? "rgba(0,255,180,.25)" : "rgba(255,255,255,.1)"}">
-              <div>
-                <strong>${h(item.reference_name || "Referencia")}</strong>
-                <div class="client-muted">${item.is_active ? "Referencia activa · corriendo" : "Referencia cerrada"}</div>
+          ${timeline.map((item) => {
+            const active = !!item.is_active;
+            const running = active && isWorking;
+            const label = active
+              ? (isPaused ? "Referencia activa · pausada" : "Referencia activa · corriendo")
+              : "Referencia cerrada";
+
+            const counter = active
+              ? crmEffectiveCounterMarkup(item.effective_seconds || 0, running)
+              : `<strong style="font-size:22px" data-live-seconds="${h(item.effective_seconds || item.duration_seconds || 0)}">00:00:00</strong>`;
+
+            return `
+              <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:12px;border-radius:16px;background:${active ? "rgba(0,255,180,.10)" : "rgba(255,255,255,.06)"};border:1px solid ${active ? "rgba(0,255,180,.25)" : "rgba(255,255,255,.1)"}">
+                <div>
+                  <strong>${h(item.reference_name || "Referencia")}</strong>
+                  <div class="client-muted">${h(label)}</div>
+                </div>
+                ${counter}
               </div>
-              <strong style="font-size:22px" ${item.is_active ? `data-live-since="${h(item.started_at || "")}"` : `data-live-seconds="${h(item.duration_seconds || 0)}"`}>00:00:00</strong>
-            </div>
-          `).join("")}
+            `;
+          }).join("")}
         </div>
       </div>
     `;
@@ -6332,7 +6367,7 @@
               <div class="client-eyebrow">Módulo compartido · tiempo real</div>
               <h1 class="client-title">CRM Campo</h1>
               <p class="client-muted">
-                Vista viva de colaboradores, turno, pausa, referencia actual y tiempos de producción.
+                Vista viva de colaboradores, pausa, turno efectivo y referencia sin sumar tiempo muerto.
               </p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
@@ -6379,7 +6414,9 @@
 
     document.addEventListener("click", async (event) => {
       const moduleTrigger = event.target.closest('[data-client-module="crm"]');
-      if (moduleTrigger && isClientModuleActivo("crm")) {
+      const actionTrigger = event.target.closest('[data-client-action="crm:open"]');
+
+      if ((moduleTrigger || actionTrigger) && isClientModuleActive("crm")) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();

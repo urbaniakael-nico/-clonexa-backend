@@ -430,6 +430,7 @@ def build_summary(
         "by_reference_period": sorted(by_reference_period.values(), key=lambda x: x["finished_quantity"], reverse=True),
         "graph_source": "period" if closures_period else "all_time_fallback",
         "sessions": sessions,
+        "time_rule": "pause_excluded_from_shift_and_reference",
     }
 
 
