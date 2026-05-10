@@ -6014,7 +6014,7 @@
             <section class="client-panel">
               <div class="client-section-kicker">Cierres</div>
               <h2>Cierres de producción del periodo</h2>
-              ${productionClosuresTable(data?.closures_period || [])}
+              ${productionClosuresTable(data?.closures_display || data?.closures_period || [])}
             </section>
           </section>
         </div>
@@ -6096,22 +6096,21 @@
     if (!value) return null;
 
     let raw = String(value).trim();
-
     if (!raw) return null;
 
-    // PostgreSQL: "2026-05-09 19:12:33.123456+00:00"
-    // JS Date:   "2026-05-09T19:12:33.123+00:00"
     raw = raw.replace(" ", "T");
 
-    const match = raw.match(/^(.*\.\d{3})\d+(.*)$/);
-    if (match) raw = `${match[1]}${match[2]}`;
+    // PostgreSQL puede enviar microsegundos: .395147
+    raw = raw.replace(/(\.\d{3})\d+/, "$1");
 
-    if (!/[zZ]|[+-]\d\d:?\d\d$/.test(raw)) {
+    // PostgreSQL puede enviar zona corta: +00
+    raw = raw.replace(/([+-]\d{2})$/, "$1:00");
+
+    if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
       raw = `${raw}Z`;
     }
 
     const date = new Date(raw);
-
     if (Number.isNaN(date.getTime())) return null;
 
     return date;
@@ -6186,6 +6185,7 @@
       ["Activos", summary?.active_now ?? 0],
       ["En pausa", summary?.on_break ?? 0],
       ["Con referencia", summary?.with_active_reference ?? 0],
+      ["Sesiones ref.", summary?.active_reference_sessions ?? 0],
       ["Producción", summary?.production_enabled ? "ON" : "OFF"],
     ];
 
@@ -6212,6 +6212,14 @@
             <div class="client-muted">Tiempo en pausa</div>
           </div>
           <strong style="font-size:26px;color:#ffd58a" data-live-since="${h(row.pause_started_at || row.status_started_at || "")}">00:00:00</strong>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
+          <div>
+            <strong>Turno iniciado</strong>
+            <div class="client-muted">Cronómetro de jornada</div>
+          </div>
+          <strong style="font-size:22px" data-live-since="${h(row.shift_started_at || "")}">00:00:00</strong>
         </div>
       `;
     }
@@ -9099,8 +9107,8 @@
       emailHelp: "Deja nuevo correo vacío si no deseas cambiarlo."
     },
     en: {
-      settings: "Settings",
-      logout: "Log out",
+      settings: "Ajustes",
+      logout: "Cerrar sesión",
       title: "Account settings",
       firstLogin: "First login: change your password",
       account: "Account",
@@ -9114,7 +9122,7 @@
       timeout: "Open session window",
       save: "Save changes",
       close: "Close",
-      saved: "Settings saved.",
+      saved: "Ajustes saved.",
       passwordRequired: "You must change your password to continue.",
       sessionExpired: "Session expired due to inactivity.",
       adminHint: "CLONEXA client panel",
@@ -9337,7 +9345,7 @@
     bar.id = "clx-account-bar";
     bar.className = "clx-account-bar";
     bar.innerHTML = `
-      <button type="button" class="clx-account-pill secondary" id="clxAccountSettingsBtn">⚙ ${t("settings")}</button>
+      <button type="button" class="clx-account-pill secondary" id="clxAccountAjustesBtn">⚙ ${t("settings")}</button>
       <button type="button" class="clx-account-pill" id="clxAccountLogoutBtn">⏻ ${t("logout")}</button>
     `;
     document.body.appendChild(bar);
@@ -9416,14 +9424,14 @@
     `;
     document.body.appendChild(overlay);
 
-    document.getElementById("clxAccountSettingsBtn").addEventListener("click", () => openSettings(false));
+    document.getElementById("clxAccountAjustesBtn").addEventListener("click", () => openAjustes(false));
     document.getElementById("clxAccountLogoutBtn").addEventListener("click", () => logout("manual"));
-    document.getElementById("clxAccountCloseBtn").addEventListener("click", closeSettings);
-    document.getElementById("clxAccountSaveBtn").addEventListener("click", saveSettings);
+    document.getElementById("clxAccountCloseBtn").addEventListener("click", closeAjustes);
+    document.getElementById("clxAccountSaveBtn").addEventListener("click", saveAjustes);
   }
 
   function refreshTexts() {
-    const settingsBtn = document.getElementById("clxAccountSettingsBtn");
+    const settingsBtn = document.getElementById("clxAccountAjustesBtn");
     const logoutBtn = document.getElementById("clxAccountLogoutBtn");
     if (settingsBtn) settingsBtn.textContent = `⚙ ${t("settings")}`;
     if (logoutBtn) logoutBtn.textContent = `⏻ ${t("logout")}`;
@@ -9448,7 +9456,7 @@
     }
   }
 
-  function openSettings(force) {
+  function openAjustes(force) {
     forced = Boolean(force);
     const overlay = document.getElementById("clx-account-overlay");
     const modal = document.getElementById("clx-account-modal");
@@ -9466,7 +9474,7 @@
     overlay.classList.add("open");
   }
 
-  function closeSettings() {
+  function closeAjustes() {
     if (forced) return;
     const overlay = document.getElementById("clx-account-overlay");
     if (overlay) overlay.classList.remove("open");
@@ -9479,7 +9487,7 @@
     status.classList.toggle("error", Boolean(isError));
   }
 
-  async function saveSettings() {
+  async function saveAjustes() {
     try {
       setStatus("", false);
 
@@ -9530,7 +9538,7 @@
 
       if (!account.must_change_password && !account.temporary_password) {
         forced = false;
-        setTimeout(closeSettings, 700);
+        setTimeout(closeAjustes, 700);
       }
     } catch (error) {
       setStatus(error.message || String(error), true);
@@ -9591,7 +9599,7 @@
       configureIdleTimeout();
 
       if (account.must_change_password || account.temporary_password) {
-        openSettings(true);
+        openAjustes(true);
       }
     } catch (error) {
       console.warn("CLONEXA account layer disabled:", error);

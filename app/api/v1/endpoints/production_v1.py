@@ -424,6 +424,7 @@ def build_summary(
         },
         "references": refs,
         "closures_period": closures_period,
+        "closures_display": graph_rows,
         "closures_all_time": closures_all,
         "by_employee_period": sorted(by_employee_map.values(), key=lambda x: x["finished_quantity"], reverse=True),
         "by_reference_period": sorted(by_reference_period.values(), key=lambda x: x["finished_quantity"], reverse=True),
