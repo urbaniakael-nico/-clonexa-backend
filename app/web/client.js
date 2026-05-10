@@ -6383,6 +6383,8 @@
               ${crmLiveKpis(snapshot?.summary || {})}
             </section>
 
+            ${crmCoreCardsConfig(snapshot || {})}
+
             <section class="client-panel">
               <div class="client-section-kicker">Colaboradores</div>
               <h2>Estado por colaborador</h2>
@@ -6428,6 +6430,21 @@
       if (refresh) {
         event.preventDefault();
         await renderCrmCoreModule();
+        return;
+      }
+
+      const config = event.target.closest("[data-crm-config-cards]");
+      if (config) {
+        event.preventDefault();
+        const panel = document.querySelector("[data-crm-card-config-panel]");
+        if (panel) panel.style.display = panel.style.display === "none" ? "block" : "none";
+        return;
+      }
+
+      const save = event.target.closest("[data-crm-save-cards]");
+      if (save) {
+        event.preventDefault();
+        await saveCrmCoreCards();
       }
     }, true);
   }
@@ -6541,31 +6558,46 @@
     return `<span style="padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#dbe7ff">Fuera de turno</span>`;
   }
 
-  function crmCoreKpis(summary) {
-    const cards = [
-      ["Activos", summary?.active_now ?? 0],
-      ["En pausa", summary?.on_break ?? 0],
-      ["Fuera", summary?.out ?? 0],
-    ];
+  function crmCoreKpis(snapshot) {
+    const cards = Array.isArray(snapshot?.cards?.visible) ? snapshot.cards.visible : [];
 
-    if (summary?.production_adapter) {
-      cards.push(["Con referencia", summary?.with_reference ?? 0]);
-      cards.push(["Producción", "ON"]);
-    }
-
-    if (summary?.gps_adapter) cards.push(["GPS", "ON"]);
-    if (summary?.materials_adapter) cards.push(["Materiales", "ON"]);
-    if (summary?.inventory_adapter) cards.push(["Inventario", "ON"]);
+    if (!cards.length) return `<div class="client-muted">Sin tarjetas configuradas.</div>`;
 
     return `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
-        ${cards.map(([label, value]) => `
-          <div style="padding:16px;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)">
-            <div style="font-size:12px;opacity:.75;text-transform:uppercase;letter-spacing:.08em">${h(label)}</div>
-            <strong style="display:block;margin-top:8px;font-size:28px;line-height:1">${h(value)}</strong>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        ${cards.map((card) => `
+          <div style="min-width:130px;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.11)">
+            <div style="font-size:11px;opacity:.72;text-transform:uppercase;letter-spacing:.08em">${h(card.label)}</div>
+            <strong style="display:block;margin-top:5px;font-size:20px;line-height:1">${h(card.value)}</strong>
           </div>
         `).join("")}
       </div>
+    `;
+  }
+
+  function crmCoreCardsConfig(snapshot) {
+    const catalog = Array.isArray(snapshot?.cards?.catalog) ? snapshot.cards.catalog : [];
+    const available = catalog.filter((card) => card.available);
+
+    if (!available.length) return "";
+
+    return `
+      <section class="client-panel" data-crm-card-config-panel style="display:none">
+        <div class="client-section-kicker">Configuración</div>
+        <h2>Tarjetas visibles</h2>
+        <p class="client-muted">Selecciona hasta 6 tarjetas para este CRM. Se guardan por empresa.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px">
+          ${available.map((card) => `
+            <label style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)">
+              <input type="checkbox" data-crm-card-code="${h(card.code)}" ${card.selected ? "checked" : ""}>
+              <span>${h(card.label)}</span>
+            </label>
+          `).join("")}
+        </div>
+        <div class="client-actions" style="margin-top:14px">
+          <button class="client-btn client-btn-primary" type="button" data-crm-save-cards>Guardar tarjetas</button>
+        </div>
+      </section>
     `;
   }
 
@@ -6688,6 +6720,21 @@
     return await api(`/crm-core-v1/companies/${state.companyId}/snapshot`);
   }
 
+
+  async function saveCrmCoreCards() {
+    const checked = Array.from(document.querySelectorAll("[data-crm-card-code]:checked"))
+      .map((node) => node.dataset.crmCardCode)
+      .filter(Boolean)
+      .slice(0, 6);
+
+    await api(`/crm-core-v1/companies/${state.companyId}/cards`, {
+      method: "PUT",
+      body: JSON.stringify({ cards: checked }),
+    });
+
+    await renderCrmCoreModule();
+  }
+
   async function renderCrmCoreModule() {
     if (typeof crmLiveStopTimers === "function") crmLiveStopTimers();
     crmCoreStopTimers();
@@ -6726,6 +6773,7 @@
               </p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-crm-config-cards>Tarjetas</button>
                 <button class="client-btn client-btn-primary" type="button" data-crm-core-refresh>Actualizar</button>
               </div>
             </header>
@@ -6735,7 +6783,7 @@
             <section class="client-panel">
               <div class="client-section-kicker">Estado operativo actual</div>
               <h2>Operación en vivo</h2>
-              ${crmCoreKpis(snapshot?.summary || {})}
+              ${crmCoreKpis(snapshot || {})}
             </section>
 
             <section class="client-panel">

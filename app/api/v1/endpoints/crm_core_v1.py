@@ -1,9 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
+import json
 
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +17,17 @@ START_EVENTS = {"check_in", "entrada", "start_shift", "shift_start", "inicio_tur
 PAUSE_START_EVENTS = {"break_start", "pause_start", "pause", "pausa", "break", "on_break"}
 PAUSE_END_EVENTS = {"break_end", "pause_end", "resume", "return", "retorno", "reanudar", "clock_resume"}
 END_EVENTS = {"check_out", "salida", "end_shift", "shift_end", "fin_turno", "clock_out"}
+
+CARD_CATALOG = [
+    {"code": "core_active", "label": "Activos", "module": "core"},
+    {"code": "core_break", "label": "En pausa", "module": "core"},
+    {"code": "core_out", "label": "Fuera", "module": "core"},
+    {"code": "production_reference", "label": "Con referencia", "module": "production"},
+    {"code": "production_on", "label": "Producción", "module": "production"},
+    {"code": "gps_on", "label": "GPS", "module": "gps"},
+    {"code": "materials_on", "label": "Materiales", "module": "materials"},
+    {"code": "inventory_on", "label": "Inventario", "module": "inventory"},
+]
 
 
 def clean(value: Any) -> str:
@@ -154,6 +167,132 @@ async def active_modules(db: AsyncSession, company_id: str) -> set[str]:
     )
 
     return {clean(row.get("code")).lower() for row in rows if clean(row.get("code"))}
+
+
+async def ensure_card_storage(db: AsyncSession) -> None:
+    await db.execute(
+        text("""
+            CREATE TABLE IF NOT EXISTS crm_card_preferences (
+                company_id text NOT NULL,
+                scope text NOT NULL DEFAULT 'crm',
+                cards jsonb NOT NULL DEFAULT '[]'::jsonb,
+                updated_at timestamptz NOT NULL DEFAULT now(),
+                PRIMARY KEY (company_id, scope)
+            )
+        """)
+    )
+    await db.commit()
+
+
+def default_card_codes(modules: set[str]) -> list[str]:
+    cards = ["core_active", "core_break", "core_out"]
+
+    if {"production", "references"}.issubset(modules):
+        cards = ["core_active", "core_break", "production_reference", "production_on"]
+
+    if "gps" in modules and "gps_on" not in cards:
+        cards.append("gps_on")
+
+    if "materials" in modules and "materials_on" not in cards:
+        cards.append("materials_on")
+
+    if "inventory" in modules and "inventory_on" not in cards:
+        cards.append("inventory_on")
+
+    return cards[:6]
+
+
+def card_available(card: dict[str, Any], modules: set[str]) -> bool:
+    module = clean(card.get("module")).lower()
+
+    if module == "core":
+        return True
+
+    if module == "production":
+        return {"production", "references"}.issubset(modules)
+
+    return module in modules
+
+
+async def selected_card_codes(db: AsyncSession, company_id: str, modules: set[str]) -> list[str]:
+    await ensure_card_storage(db)
+
+    rows = await safe_rows(
+        db,
+        """
+        SELECT cards
+        FROM crm_card_preferences
+        WHERE company_id = :company_id
+          AND scope = 'crm'
+        LIMIT 1
+        """,
+        {"company_id": company_id},
+    )
+
+    if not rows:
+        return default_card_codes(modules)
+
+    raw = rows[0].get("cards")
+
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = []
+
+    allowed = {
+        card["code"]
+        for card in CARD_CATALOG
+        if card_available(card, modules)
+    }
+
+    selected = []
+    for item in raw or []:
+        code = clean(item)
+        if code in allowed and code not in selected:
+            selected.append(code)
+
+    return selected[:6] or default_card_codes(modules)
+
+
+def build_cards(summary: dict[str, Any], modules: set[str], selected: list[str]) -> dict[str, Any]:
+    values = {
+        "core_active": summary.get("active_now", 0),
+        "core_break": summary.get("on_break", 0),
+        "core_out": summary.get("out", 0),
+        "production_reference": summary.get("with_reference", 0),
+        "production_on": "ON" if summary.get("production_adapter") else "OFF",
+        "gps_on": "ON" if summary.get("gps_adapter") else "OFF",
+        "materials_on": "ON" if summary.get("materials_adapter") else "OFF",
+        "inventory_on": "ON" if summary.get("inventory_adapter") else "OFF",
+    }
+
+    catalog = [
+        {
+            **card,
+            "available": card_available(card, modules),
+            "selected": card["code"] in selected,
+            "value": values.get(card["code"], 0),
+        }
+        for card in CARD_CATALOG
+    ]
+
+    visible = [
+        {
+            "code": item["code"],
+            "label": item["label"],
+            "value": item["value"],
+            "module": item["module"],
+        }
+        for item in catalog
+        if item["available"] and item["selected"]
+    ]
+
+    return {
+        "catalog": catalog,
+        "selected": selected,
+        "visible": visible[:6],
+    }
 
 
 async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
@@ -478,6 +617,75 @@ async def reference_sessions_for_employee(
     return output
 
 
+def normalize_reference_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    output = []
+
+    for row in rows:
+        started_at = parse_dt(row.get("started_at"))
+        ended_at = parse_dt(row.get("ended_at"))
+        status = clean(row.get("status")).lower()
+        is_active = status == "active" or ended_at is None
+
+        output.append({
+            "session_id": row.get("id") or row.get("session_id"),
+            "employee_id": clean(row.get("employee_id")),
+            "employee_name": clean(row.get("employee_name")),
+            "telegram_user_id": clean(row.get("telegram_user_id")),
+            "reference_id": clean(row.get("reference_id")),
+            "reference_name": clean(row.get("reference_name")),
+            "started_at": dt_text(started_at),
+            "ended_at": dt_text(ended_at),
+            "status": status,
+            "is_active": is_active,
+            "stored_seconds": intval(row.get("stored_seconds")),
+        })
+
+    return output
+
+
+async def active_reference_sessions_company(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
+    if not await table_exists(db, "reference_work_sessions"):
+        return []
+
+    rows = await safe_rows(
+        db,
+        """
+        SELECT
+            id,
+            COALESCE(employee_id, '') AS employee_id,
+            COALESCE(employee_name, '') AS employee_name,
+            COALESCE(telegram_user_id, '') AS telegram_user_id,
+            COALESCE(reference_id, '') AS reference_id,
+            COALESCE(reference_name, '') AS reference_name,
+            started_at::text AS started_at,
+            ended_at::text AS ended_at,
+            COALESCE(status, '') AS status,
+            GREATEST(COALESCE(duration_minutes, 0) * 60, 0)::int AS stored_seconds
+        FROM reference_work_sessions
+        WHERE company_id::text = :company_id
+          AND (lower(COALESCE(status, '')) = 'active' OR ended_at IS NULL)
+        ORDER BY started_at DESC
+        LIMIT 100
+        """,
+        {"company_id": company_id},
+    )
+
+    return normalize_reference_rows(rows)
+
+
+def session_matches_employee(session: dict[str, Any], employee_id: str, employee_name: str, telegram_user_id: str) -> bool:
+    if clean(session.get("employee_id")) == employee_id:
+        return True
+
+    if telegram_user_id and clean(session.get("telegram_user_id")) == telegram_user_id:
+        return True
+
+    if employee_name and clean(session.get("employee_name")).lower() == employee_name.lower():
+        return True
+
+    return False
+
+
 def earliest_active_reference_start(sessions: list[dict[str, Any]]) -> datetime | None:
     starts = [
         parse_dt(item.get("started_at"))
@@ -531,6 +739,82 @@ def production_adapter(
     }
 
 
+
+
+@router.get("/companies/{company_id}/cards")
+async def get_crm_cards(
+    company_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    modules = await active_modules(db, company_id)
+    selected = await selected_card_codes(db, company_id, modules)
+
+    empty_summary = {
+        "active_now": 0,
+        "on_break": 0,
+        "out": 0,
+        "with_reference": 0,
+        "production_adapter": {"production", "references"}.issubset(modules),
+        "gps_adapter": "gps" in modules,
+        "materials_adapter": "materials" in modules,
+        "inventory_adapter": "inventory" in modules,
+    }
+
+    return {
+        "ok": True,
+        "company_id": company_id,
+        "cards": build_cards(empty_summary, modules, selected),
+    }
+
+
+@router.put("/companies/{company_id}/cards")
+async def put_crm_cards(
+    company_id: str,
+    payload: dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_card_storage(db)
+
+    modules = await active_modules(db, company_id)
+
+    allowed = {
+        card["code"]
+        for card in CARD_CATALOG
+        if card_available(card, modules)
+    }
+
+    raw_cards = payload.get("cards", [])
+    if not isinstance(raw_cards, list):
+        raw_cards = []
+
+    selected = []
+    for item in raw_cards:
+        code = clean(item)
+        if code in allowed and code not in selected:
+            selected.append(code)
+
+    selected = selected[:6] or default_card_codes(modules)
+
+    await db.execute(
+        text("""
+            INSERT INTO crm_card_preferences (company_id, scope, cards, updated_at)
+            VALUES (:company_id, 'crm', CAST(:cards AS jsonb), now())
+            ON CONFLICT (company_id, scope)
+            DO UPDATE SET cards = EXCLUDED.cards, updated_at = now()
+        """),
+        {
+            "company_id": company_id,
+            "cards": json.dumps(selected),
+        },
+    )
+    await db.commit()
+
+    return {
+        "ok": True,
+        "company_id": company_id,
+        "selected": selected,
+    }
+
 @router.get("/companies/{company_id}/snapshot")
 async def crm_core_snapshot(
     company_id: str,
@@ -540,8 +824,15 @@ async def crm_core_snapshot(
     company = await company_profile(db, company_id)
     modules = await active_modules(db, company_id)
     employees = await employees_snapshot(db, company_id)
+    company_active_sessions = await active_reference_sessions_company(db, company_id)
+
+    active_people = [
+        employee for employee in employees
+        if normalize_status(employee.get("work_status")) in {"working", "on_break"}
+    ]
 
     rows = []
+    consumed_session_ids: set[str] = set()
 
     for employee in employees:
         employee_id = clean(employee.get("employee_id"))
@@ -567,6 +858,23 @@ async def crm_core_snapshot(
             None,
         )
 
+        if not preliminary_sessions and employee_status in {"working", "on_break"}:
+            preliminary_sessions = [
+                session for session in company_active_sessions
+                if session_matches_employee(session, employee_id, employee_name, telegram_user_id)
+            ]
+
+        if not preliminary_sessions and employee_status in {"working", "on_break"} and len(active_people) == 1:
+            preliminary_sessions = [
+                session for session in company_active_sessions
+                if clean(session.get("session_id")) not in consumed_session_ids
+            ]
+
+        for session in preliminary_sessions:
+            sid = clean(session.get("session_id"))
+            if sid:
+                consumed_session_ids.add(sid)
+
         shift_start = latest_shift_start_from_events(events)
 
         ref_start = earliest_active_reference_start(preliminary_sessions)
@@ -588,6 +896,9 @@ async def crm_core_snapshot(
             telegram_user_id,
             shift_start,
         )
+
+        if not sessions and preliminary_sessions:
+            sessions = preliminary_sessions
 
         pause_intervals, current_pause_started = pause_intervals_from_events(
             events,
@@ -670,6 +981,28 @@ async def crm_core_snapshot(
 
     production_enabled = {"production", "references"}.issubset(modules)
 
+    summary = {
+        "employees_total": len(rows),
+        "active_now": sum(1 for row in rows if row["core"]["status"] == "working"),
+        "on_break": sum(1 for row in rows if row["core"]["status"] == "on_break"),
+        "out": sum(1 for row in rows if row["core"]["status"] not in {"working", "on_break"}),
+        "production_adapter": production_enabled,
+        "gps_adapter": "gps" in modules,
+        "materials_adapter": "materials" in modules,
+        "inventory_adapter": "inventory" in modules,
+        "with_reference": sum(
+            1
+            for row in rows
+            for adapter in row["adapters"]
+            if adapter.get("code") == "production_references"
+            for item in adapter.get("items", [])
+            if item.get("is_active")
+        ) if production_enabled else 0,
+    }
+
+    selected = await selected_card_codes(db, company_id, modules)
+    cards = build_cards(summary, modules, selected)
+
     return {
         "ok": True,
         "company_id": company_id,
@@ -679,23 +1012,7 @@ async def crm_core_snapshot(
         "mode": "crm_core_with_adapters",
         "server_time": dt_text(now_value),
         "active_modules": sorted(modules),
-        "summary": {
-            "employees_total": len(rows),
-            "active_now": sum(1 for row in rows if row["core"]["status"] == "working"),
-            "on_break": sum(1 for row in rows if row["core"]["status"] == "on_break"),
-            "out": sum(1 for row in rows if row["core"]["status"] not in {"working", "on_break"}),
-            "production_adapter": production_enabled,
-            "gps_adapter": "gps" in modules,
-            "materials_adapter": "materials" in modules,
-            "inventory_adapter": "inventory" in modules,
-            "with_reference": sum(
-                1
-                for row in rows
-                for adapter in row["adapters"]
-                if adapter.get("code") == "production_references"
-                for item in adapter.get("items", [])
-                if item.get("is_active")
-            ) if production_enabled else 0,
-        },
+        "summary": summary,
+        "cards": cards,
         "employees": rows,
     }
