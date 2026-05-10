@@ -317,6 +317,165 @@ def build_closed_shifts(events: list[dict]) -> list[dict]:
     return closed
 
 
+
+
+# CLONEXA CORE_PAYROLL_CONFIG_01
+def _cx_payroll_number(value, default=0.0) -> float:
+    try:
+        if value is None or value == "":
+            return float(default)
+        return float(str(value).replace(",", "."))
+    except Exception:
+        return float(default)
+
+
+def _cx_payroll_money(value) -> float:
+    return round(_cx_payroll_number(value, 0.0), 2)
+
+
+async def _cx_ensure_company_settings_storage(db: AsyncSession) -> None:
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS company_settings (
+            company_id text PRIMARY KEY,
+            settings_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+
+
+async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
+    await _cx_ensure_company_settings_storage(db)
+
+    result = await db.execute(
+        text("""
+            SELECT settings_json
+            FROM company_settings
+            WHERE company_id = :company_id
+            LIMIT 1
+        """),
+        {"company_id": str(company_id)},
+    )
+
+    row = result.mappings().first()
+    settings = {}
+
+    if row:
+        raw = row.get("settings_json") or {}
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                raw = {}
+        if isinstance(raw, dict):
+            settings = raw
+
+    payroll_settings = settings.get("payroll") if isinstance(settings.get("payroll"), dict) else {}
+    hours_limit = payroll_settings.get("ordinary_hours_limit")
+
+    if hours_limit is None or hours_limit == "":
+        return {
+            "enabled": False,
+            "source": "legacy_payroll_calculation",
+            "label": "Regla actual del sistema",
+            "ordinary_hours_limit": None,
+            "ordinary_minutes_limit": None,
+            "pause_policy": "exclude",
+        }
+
+    hours = _cx_payroll_number(hours_limit, 0.0)
+
+    if hours <= 0:
+        return {
+            "enabled": False,
+            "source": "invalid_company_settings",
+            "label": "Configuración inválida: total de horas ordinarias no válido",
+            "ordinary_hours_limit": None,
+            "ordinary_minutes_limit": None,
+            "pause_policy": "exclude",
+        }
+
+    minutes = int(round(hours * 60))
+
+    return {
+        "enabled": True,
+        "source": "company_settings",
+        "label": f"Hasta {hours:g}h ordinarias; después extra. Pausas excluidas.",
+        "ordinary_hours_limit": hours,
+        "ordinary_minutes_limit": minutes,
+        "pause_policy": "exclude",
+    }
+
+
+async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: dict) -> dict:
+    rule = await _cx_company_payroll_rule(db, company_id)
+
+    snapshot["payroll_rule"] = rule
+
+    if not rule.get("enabled"):
+        totals = snapshot.get("totals") if isinstance(snapshot.get("totals"), dict) else {}
+        totals["payroll_rule"] = rule
+        snapshot["totals"] = totals
+        return snapshot
+
+    limit_minutes = int(rule.get("ordinary_minutes_limit") or 0)
+    rows = snapshot.get("rows") if isinstance(snapshot.get("rows"), list) else []
+
+    total_regular = 0
+    total_extra = 0
+    total_gross = 0.0
+    total_discounts = 0.0
+    total_net = 0.0
+
+    for row in rows:
+        current_regular = int(_cx_payroll_number(row.get("regular_minutes"), 0))
+        current_extra = int(_cx_payroll_number(row.get("extra_minutes"), 0))
+        effective_minutes = current_regular + current_extra
+
+        regular_minutes = min(effective_minutes, limit_minutes)
+        extra_minutes = max(effective_minutes - limit_minutes, 0)
+
+        regular_rate = _cx_payroll_money(row.get("hourly_rate_regular"))
+        extra_rate = _cx_payroll_money(row.get("hourly_rate_extra"))
+
+        regular_amount = round((regular_minutes / 60.0) * regular_rate, 2)
+        extra_amount = round((extra_minutes / 60.0) * extra_rate, 2)
+        gross_amount = round(regular_amount + extra_amount, 2)
+
+        discount_amount = _cx_payroll_money(
+            row.get("discount_amount", row.get("deduction_amount", row.get("discounts", 0)))
+        )
+        net_amount = round(gross_amount - discount_amount, 2)
+
+        row["regular_minutes"] = regular_minutes
+        row["extra_minutes"] = extra_minutes
+        row["regular_amount"] = regular_amount
+        row["extra_amount"] = extra_amount
+        row["gross_amount"] = gross_amount
+        row["discount_amount"] = discount_amount
+        row["net_amount"] = net_amount
+        row["payroll_rule"] = rule
+
+        total_regular += regular_minutes
+        total_extra += extra_minutes
+        total_gross += gross_amount
+        total_discounts += discount_amount
+        total_net += net_amount
+
+    totals = snapshot.get("totals") if isinstance(snapshot.get("totals"), dict) else {}
+
+    totals["regular_minutes"] = total_regular
+    totals["extra_minutes"] = total_extra
+    totals["gross_amount"] = round(total_gross, 2)
+    totals["discount_amount"] = round(total_discounts, 2)
+    totals["net_amount"] = round(total_net, 2)
+    totals["payroll_rule"] = rule
+
+    snapshot["rows"] = rows
+    snapshot["totals"] = totals
+    return snapshot
+
+
 async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
     start_dt = datetime.combine(period_start, time.min).replace(tzinfo=timezone.utc)
     end_dt = datetime.combine(period_end, time.max).replace(tzinfo=timezone.utc)
@@ -481,7 +640,7 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         "net_amount": float(totals["net_amount"]),
     }
 
-    return {
+    snapshot_payload = {
         "period": {
             "company_id": str(company_id),
             "period_start": period_start.isoformat(),
@@ -491,6 +650,9 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         "rows": serializable_rows,
         "totals": serializable_totals,
     }
+
+    snapshot_payload = await _cx_apply_payroll_config_rule(db, company_id, snapshot_payload)
+    return snapshot_payload
 
 
 @router.post("/companies/{company_id}/periods/calculate")

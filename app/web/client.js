@@ -786,6 +786,159 @@
       .join("");
   }
 
+
+  /* CX_CORE_PAYROLL_CONFIG_01_START */
+  function corePayrollConfigNumber(value) {
+    const n = Number(String(value ?? "").replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function corePayrollRuleLabel(rule = null) {
+    if (!rule || !rule.enabled) return "Regla actual del sistema";
+    return rule.label || `Hasta ${rule.ordinary_hours_limit}h ordinarias; después extra. Pausas excluidas.`;
+  }
+
+  async function loadCompanySettingsV1() {
+    return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`);
+  }
+
+  async function saveCompanyPayrollSettingsV1() {
+    const hoursInput = document.querySelector("[data-core-payroll-hours-limit]");
+    const hours = corePayrollConfigNumber(hoursInput?.value || "");
+
+    if (!hours || hours <= 0) {
+      alert("Ingresa un total de horas ordinarias mayor a cero.");
+      return;
+    }
+
+    await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        payroll: {
+          ordinary_hours_limit: hours,
+          pause_policy: "exclude",
+        },
+        payroll_cuts: {
+          allow_close: true,
+          allow_export: true,
+          allow_archive: true,
+        },
+      }),
+    });
+
+    await renderCoreSettingsModule();
+  }
+
+  function renderPayrollRuleCard(rule = null) {
+    return `
+      <section class="client-panel" style="padding:16px">
+        <div class="client-eyebrow">Regla aplicada</div>
+        <h2>Nómina</h2>
+        <p class="client-muted">${h(corePayrollRuleLabel(rule))}</p>
+      </section>
+    `;
+  }
+
+  async function renderCoreSettingsModule() {
+    const company = state.company || {};
+    let data = { settings: {} };
+    let loadError = "";
+
+    try {
+      data = await loadCompanySettingsV1();
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar configuración.";
+    }
+
+    const settings = data.settings || {};
+    const payroll = settings.payroll || {};
+    const cuts = settings.payroll_cuts || {};
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("core_settings")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Núcleo</div>
+              <h1 class="client-title">Configuración</h1>
+              <p class="client-muted">Reglas centrales por empresa. Los módulos leen esta configuración; no se parcha por cliente.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+              </div>
+              <div id="coreSettingsNotice">${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}</div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Nómina</div>
+              <h2>Total de horas ordinarias</h2>
+              <p class="client-muted">Hasta este total se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.</p>
+
+              <div style="display:grid;grid-template-columns:minmax(220px,320px) auto;gap:12px;align-items:end;margin-top:16px">
+                <label>
+                  <span class="client-muted">Total horas ordinarias hasta</span>
+                  <input
+                    data-core-payroll-hours-limit
+                    type="number"
+                    min="0.01"
+                    step="0.25"
+                    value="${h(payroll.ordinary_hours_limit ?? "")}"
+                    placeholder="Ej: 48"
+                    style="width:100%;margin-top:7px;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.22);color:inherit;border-radius:14px;padding:13px;font-weight:900"
+                  >
+                </label>
+
+                <button class="client-btn client-btn-primary" type="button" data-core-payroll-save>Guardar regla</button>
+              </div>
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Cortes</div>
+              <h2>Acciones permitidas</h2>
+              <p class="client-muted">Estas acciones quedan disponibles para el flujo de cortes de nómina: cerrar corte, exportar y archivar sin borrar histórico.</p>
+
+              <div class="client-kpi-grid">
+                <div class="client-kpi"><span>Cerrar corte</span><strong>${cuts.allow_close === false ? "OFF" : "ON"}</strong></div>
+                <div class="client-kpi"><span>Exportar corte</span><strong>${cuts.allow_export === false ? "OFF" : "ON"}</strong></div>
+                <div class="client-kpi"><span>Archivar corte</span><strong>${cuts.allow_archive === false ? "OFF" : "ON"}</strong></div>
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  if (!window.__cxCorePayrollConfig01Bound) {
+    window.__cxCorePayrollConfig01Bound = true;
+
+    document.addEventListener("click", async (event) => {
+      const settingsTrigger = event.target.closest('[data-client-module="core_settings"], [data-client-module="settings"]');
+      if (settingsTrigger) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        await renderCoreSettingsModule();
+        return;
+      }
+
+      const savePayroll = event.target.closest("[data-core-payroll-save]");
+      if (savePayroll) {
+        event.preventDefault();
+        await saveCompanyPayrollSettingsV1();
+      }
+    }, true);
+  }
+  /* CX_CORE_PAYROLL_CONFIG_01_END */
+
+
   function renderClientNav(activeCode = "dashboard") {
     const modules = visibleClientModules(activeClientModules());
     const buttons = [`<button class="${activeCode === "dashboard" ? "active" : ""}" type="button" data-client-back-dashboard>Dashboard</button>`];
@@ -798,6 +951,15 @@
         </button>
       `);
     });
+
+    const settingsActive = activeClientModules().some((module) => ["core_settings", "settings", "core"].includes(String(module.code || "")));
+    if (settingsActive) {
+      buttons.push(`
+        <button class="${activeCode === "core_settings" || activeCode === "settings" ? "active" : ""}" type="button" data-client-module="core_settings">
+          Configuración
+        </button>
+      `);
+    }
 
     return buttons.join("");
   }
@@ -4647,6 +4809,7 @@
     let loadError = "";
     let loadWarning = "";
     let mode = "Periodo abierto";
+    let payrollRule = null;
 
     try {
       const calculated = await payrollCalculatePeriod(period);
@@ -4654,6 +4817,7 @@
       totals = calculated.totals;
       period = calculated.period || period;
       loadWarning = calculated.warning || "";
+      payrollRule = calculated.rule || null;
     } catch (error) {
       rows = [];
       totals = payrollTotals([]);
