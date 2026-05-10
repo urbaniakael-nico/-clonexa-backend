@@ -115,3 +115,8 @@ api_router.include_router(production_v1_router.router, prefix="/production-v1", 
 # CLONEXA CRM Live V1 router
 from app.api.v1.endpoints import crm_live_v1 as crm_live_v1_router
 api_router.include_router(crm_live_v1_router.router, prefix="/crm-live-v1", tags=["crm_live_v1"])
+
+
+# CLONEXA CRM Core V1 router
+from app.api.v1.endpoints import crm_core_v1 as crm_core_v1_router
+api_router.include_router(crm_core_v1_router.router, prefix="/crm-core-v1", tags=["crm_core_v1"])
