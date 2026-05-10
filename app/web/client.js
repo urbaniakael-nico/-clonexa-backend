@@ -6112,11 +6112,11 @@
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
 
-    const hh = String(hours).padStart(2, "0");
-    const mm = String(minutes).padStart(2, "0");
-    const ss = String(seconds).padStart(2, "0");
-
-    return `${hh}:${mm}:${ss}`;
+    return [
+      String(hours).padStart(2, "0"),
+      String(minutes).padStart(2, "0"),
+      String(seconds).padStart(2, "0"),
+    ].join(":");
   }
 
   function crmLiveStopTimers() {
@@ -6138,8 +6138,8 @@
       return;
     }
 
-    document.querySelectorAll("[data-crm-live-timer]").forEach((node) => {
-      const startedAt = crmLiveParseDate(node.dataset.crmLiveTimer || "");
+    document.querySelectorAll("[data-live-since]").forEach((node) => {
+      const startedAt = crmLiveParseDate(node.dataset.liveSince || "");
       if (!startedAt) {
         node.textContent = "00:00:00";
         return;
@@ -6147,16 +6147,25 @@
 
       node.textContent = crmLiveFormatDuration(Date.now() - startedAt.getTime());
     });
+
+    document.querySelectorAll("[data-live-seconds]").forEach((node) => {
+      const seconds = Number(node.dataset.liveSeconds || 0);
+      node.textContent = crmLiveFormatDuration(seconds * 1000);
+    });
   }
 
-  function crmLiveStatusClass(status) {
-    const value = String(status || "").toLowerCase();
+  function crmStatusBadge(row) {
+    const status = String(row.work_status || "").toLowerCase();
 
-    if (value === "working") return "Activo";
-    if (value === "on_break") return "En pausa";
-    if (value === "checked_out") return "Fuera de turno";
+    if (status === "working") {
+      return `<span style="padding:8px 12px;border-radius:999px;background:rgba(0,255,180,.14);border:1px solid rgba(0,255,180,.35);color:#adffe8">Activo</span>`;
+    }
 
-    return "Fuera de turno";
+    if (status === "on_break") {
+      return `<span style="padding:8px 12px;border-radius:999px;background:rgba(255,172,28,.16);border:1px solid rgba(255,172,28,.4);color:#ffd58a">En pausa</span>`;
+    }
+
+    return `<span style="padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#dbe7ff">Fuera de turno</span>`;
   }
 
   function crmLiveKpis(summary) {
@@ -6165,57 +6174,102 @@
       ["En pausa", summary?.on_break ?? 0],
       ["Con referencia", summary?.with_active_reference ?? 0],
       ["Producción", summary?.production_enabled ? "ON" : "OFF"],
-      ["Referencias", summary?.references_enabled ? "ON" : "OFF"],
-      ["Nómina", summary?.payroll_enabled ? "ON" : "OFF"],
     ];
 
     return `
-      <div class="client-kpi-grid">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
         ${cards.map(([label, value]) => `
-          <div class="client-kpi">
-            <span>${h(label)}</span>
-            <strong>${h(value)}</strong>
+          <div style="padding:16px;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)">
+            <div style="font-size:12px;opacity:.75;text-transform:uppercase;letter-spacing:.08em">${h(label)}</div>
+            <strong style="display:block;margin-top:8px;font-size:30px;line-height:1">${h(value)}</strong>
           </div>
         `).join("")}
       </div>
     `;
   }
 
-  function crmLiveEmployeeCard(row) {
-    const status = crmLiveStatusClass(row.work_status);
-    const statusStartedAt = row.status_started_at || "";
-    const referenceStartedAt = row.reference_started_at || "";
+  function crmTurnRow(row) {
+    const status = String(row.work_status || "").toLowerCase();
+
+    if (status === "on_break") {
+      return `
+        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
+          <div>
+            <strong style="color:#ffd58a">Pausa activa</strong>
+            <div class="client-muted">Tiempo en pausa</div>
+          </div>
+          <strong style="font-size:26px;color:#ffd58a" data-live-since="${h(row.pause_started_at || row.status_started_at || "")}">00:00:00</strong>
+        </div>
+      `;
+    }
+
+    if (status === "working") {
+      return `
+        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
+          <div>
+            <strong>Turno iniciado</strong>
+            <div class="client-muted">Cronómetro de jornada</div>
+          </div>
+          <strong style="font-size:26px" data-live-since="${h(row.shift_started_at || row.status_started_at || "")}">00:00:00</strong>
+        </div>
+      `;
+    }
 
     return `
-      <article class="client-panel">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
+        <div>
+          <strong>Fuera de turno</strong>
+          <div class="client-muted">Sin jornada activa</div>
+        </div>
+        <strong style="font-size:26px">00:00:00</strong>
+      </div>
+    `;
+  }
+
+  function crmReferenceTimeline(row) {
+    const timeline = Array.isArray(row.reference_timeline) ? row.reference_timeline : [];
+
+    if (!timeline.length) {
+      return `
+        <div style="padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
+          <strong>Producción actual</strong>
+          <div class="client-muted">Sin referencia activa</div>
+        </div>
+      `;
+    }
+
+    return `
+      <div style="padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
+        <strong>Producción del turno</strong>
+        <div style="margin-top:10px;display:grid;gap:10px">
+          ${timeline.map((item) => `
+            <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:12px;border-radius:16px;background:${item.is_active ? "rgba(0,255,180,.10)" : "rgba(255,255,255,.06)"};border:1px solid ${item.is_active ? "rgba(0,255,180,.25)" : "rgba(255,255,255,.1)"}">
+              <div>
+                <strong>${h(item.reference_name || "Referencia")}</strong>
+                <div class="client-muted">${item.is_active ? "Referencia activa" : "Referencia cerrada"}</div>
+              </div>
+              <strong style="font-size:22px" ${item.is_active ? `data-live-since="${h(item.started_at || "")}"` : `data-live-seconds="${h(item.duration_seconds || 0)}"`}>00:00:00</strong>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function crmLiveEmployeeCard(row) {
+    return `
+      <article style="padding:20px;border-radius:26px;background:linear-gradient(135deg,rgba(255,255,255,.11),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);box-shadow:0 20px 45px rgba(0,0,0,.22)">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
           <div>
-            <span class="client-muted">Colaborador</span>
-            <h2 style="margin:6px 0 0">${h(row.employee_name || "Empleado")}</h2>
-            ${row.employee_role ? `<p class="client-muted">${h(row.employee_role)}</p>` : ""}
+            <div class="client-muted">Colaborador</div>
+            <h2 style="margin:4px 0 4px;font-size:28px;letter-spacing:.04em">${h(row.employee_name || "Empleado")}</h2>
+            ${row.employee_role ? `<div class="client-muted">${h(row.employee_role)}</div>` : ""}
           </div>
-          <strong>${h(status)}</strong>
+          ${crmStatusBadge(row)}
         </div>
 
-        <div class="client-kpi-grid" style="margin-top:14px">
-          <div class="client-kpi">
-            <span>Cronómetro turno</span>
-            <strong data-crm-live-timer="${h(statusStartedAt)}">${statusStartedAt ? "00:00:00" : "00:00:00"}</strong>
-            <small>${h(status)}</small>
-          </div>
-
-          <div class="client-kpi">
-            <span>Producción actual</span>
-            <strong>${row.has_active_reference ? h(row.reference_name || "Referencia") : "SIN PRODUCCIÓN"}</strong>
-            <small>${row.has_active_reference ? "Referencia activa" : "Sin referencia activa"}</small>
-          </div>
-
-          <div class="client-kpi">
-            <span>Tiempo en referencia</span>
-            <strong data-crm-live-timer="${h(referenceStartedAt)}">${referenceStartedAt ? "00:00:00" : "00:00:00"}</strong>
-            <small>${row.has_active_reference ? "Corriendo" : "Sin producción"}</small>
-          </div>
-        </div>
+        ${crmTurnRow(row)}
+        ${crmReferenceTimeline(row)}
       </article>
     `;
   }
@@ -6257,7 +6311,7 @@
               <div class="client-eyebrow">Módulo compartido · tiempo real</div>
               <h1 class="client-title">CRM Campo</h1>
               <p class="client-muted">
-                Vista viva de colaboradores, turno, pausa, referencia actual y tiempo corriendo por módulo activo.
+                Vista viva de colaboradores, turno, pausa, referencia actual y tiempos de producción.
               </p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
@@ -6276,7 +6330,7 @@
             <section class="client-panel">
               <div class="client-section-kicker">Colaboradores</div>
               <h2>Estado por colaborador</h2>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px">
                 ${(snapshot?.employees || []).map(crmLiveEmployeeCard).join("") || `<div class="client-muted">Sin colaboradores activos.</div>`}
               </div>
             </section>
@@ -6296,7 +6350,7 @@
       }
 
       await renderCrmLiveModule();
-    }, 15000);
+    }, 20000);
   }
 
   if (!window.__cxCrmLive01Bound) {

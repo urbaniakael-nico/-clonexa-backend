@@ -105,6 +105,7 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
         name_expr = "'Empleado'"
 
     role_expr = "COALESCE(e.role, '')" if "role" in employee_cols else "''"
+
     status_filter = ""
     if "status" in employee_cols:
         status_filter = "AND lower(COALESCE(e.status, 'active')) IN ('active', 'activo')"
@@ -132,7 +133,7 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
                 {last_event_type_expr} AS last_event_type
             """
 
-    employees = await safe_rows(
+    return await safe_rows(
         db,
         f"""
         SELECT
@@ -149,34 +150,81 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
         {"company_id": company_id},
     )
 
-    return employees
 
-
-async def active_reference_sessions(db: AsyncSession, company_id: str) -> dict[str, dict[str, Any]]:
-    if not await table_exists(db, "reference_work_sessions"):
-        return {}
+async def latest_shift_start(db: AsyncSession, company_id: str, employee_id: str) -> str | None:
+    if not await table_exists(db, "workforce_attendance_events"):
+        return None
 
     rows = await safe_rows(
         db,
         """
-        SELECT DISTINCT ON (employee_id)
+        SELECT COALESCE(occurred_at, created_at)::text AS started_at
+        FROM workforce_attendance_events
+        WHERE company_id::text = :company_id
+          AND employee_id::text = :employee_id
+          AND lower(COALESCE(event_type, '')) IN ('check_in', 'entrada')
+        ORDER BY COALESCE(occurred_at, created_at) DESC
+        LIMIT 1
+        """,
+        {"company_id": company_id, "employee_id": employee_id},
+    )
+
+    return clean(rows[0].get("started_at")) if rows else None
+
+
+async def reference_timeline(
+    db: AsyncSession,
+    company_id: str,
+    employee_id: str,
+    shift_started_at: str | None,
+) -> list[dict[str, Any]]:
+    if not await table_exists(db, "reference_work_sessions"):
+        return []
+
+    rows = await safe_rows(
+        db,
+        """
+        SELECT
             id,
             employee_id,
             COALESCE(employee_name, '') AS employee_name,
             COALESCE(reference_id, '') AS reference_id,
             COALESCE(reference_name, '') AS reference_name,
-            started_at::text AS reference_started_at,
-            EXTRACT(EPOCH FROM (now() - started_at))::int AS reference_elapsed_seconds,
-            COALESCE(status, '') AS status
+            started_at::text AS started_at,
+            ended_at::text AS ended_at,
+            COALESCE(status, '') AS status,
+            CASE
+                WHEN status = 'active'
+                    THEN EXTRACT(EPOCH FROM (now() - started_at))::int
+                ELSE GREATEST(COALESCE(duration_minutes, 0) * 60, 0)::int
+            END AS duration_seconds
         FROM reference_work_sessions
         WHERE company_id::text = :company_id
-          AND status = 'active'
-        ORDER BY employee_id, started_at DESC
+          AND employee_id::text = :employee_id
+          AND (:shift_started_at IS NULL OR started_at >= CAST(:shift_started_at AS timestamptz))
+        ORDER BY started_at ASC
+        LIMIT 30
         """,
-        {"company_id": company_id},
+        {
+            "company_id": company_id,
+            "employee_id": employee_id,
+            "shift_started_at": shift_started_at or None,
+        },
     )
 
-    return {clean(row.get("employee_id")): row for row in rows}
+    return [
+        {
+            "session_id": row.get("id"),
+            "reference_id": row.get("reference_id"),
+            "reference_name": clean(row.get("reference_name")),
+            "started_at": row.get("started_at"),
+            "ended_at": row.get("ended_at"),
+            "status": clean(row.get("status")),
+            "is_active": clean(row.get("status")).lower() == "active",
+            "duration_seconds": intval(row.get("duration_seconds")),
+        }
+        for row in rows
+    ]
 
 
 def status_label(status: str) -> str:
@@ -209,16 +257,25 @@ async def crm_live_snapshot(
     company = await company_profile(db, company_id)
     modules = await active_modules(db, company_id)
     employees = await employees_snapshot(db, company_id)
-    sessions = await active_reference_sessions(db, company_id)
 
     rows: list[dict[str, Any]] = []
 
     for employee in employees:
         employee_id = clean(employee.get("employee_id"))
         work_status = normalize_status(employee.get("work_status"))
-        session = sessions.get(employee_id)
+        status_started_at = employee.get("status_started_at")
 
-        has_production = bool(session)
+        shift_started_at = None
+        pause_started_at = None
+
+        if work_status in {"working", "on_break"}:
+            shift_started_at = await latest_shift_start(db, company_id, employee_id) or status_started_at
+
+        if work_status == "on_break":
+            pause_started_at = status_started_at
+
+        timeline = await reference_timeline(db, company_id, employee_id, shift_started_at)
+        active_reference = next((item for item in timeline if item.get("is_active")), None)
 
         rows.append({
             "employee_id": employee_id,
@@ -226,14 +283,14 @@ async def crm_live_snapshot(
             "employee_role": clean(employee.get("employee_role")),
             "work_status": work_status,
             "work_status_label": status_label(work_status),
-            "status_started_at": employee.get("status_started_at"),
+            "status_started_at": status_started_at,
+            "shift_started_at": shift_started_at,
+            "pause_started_at": pause_started_at,
             "last_event_type": clean(employee.get("last_event_type")),
-            "has_active_reference": has_production,
-            "reference_session_id": session.get("id") if session else None,
-            "reference_id": session.get("reference_id") if session else None,
-            "reference_name": session.get("reference_name") if session else None,
-            "reference_started_at": session.get("reference_started_at") if session else None,
-            "reference_elapsed_seconds": intval(session.get("reference_elapsed_seconds")) if session else 0,
+            "has_active_reference": bool(active_reference),
+            "active_reference_name": active_reference.get("reference_name") if active_reference else None,
+            "active_reference_started_at": active_reference.get("started_at") if active_reference else None,
+            "reference_timeline": timeline,
         })
 
     active_count = sum(1 for row in rows if row["work_status"] == "working")
