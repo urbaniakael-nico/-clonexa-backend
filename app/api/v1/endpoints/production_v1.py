@@ -852,6 +852,8 @@ def build_summary(
             "minutes_period": sessions.get("total_minutes_period", 0),
             "effective_seconds_period": sessions.get("total_effective_seconds_period", 0),
             "effective_label_period": sessions.get("total_effective_label_period", "00:00:00"),
+            "effective_seconds_period": sessions.get("total_effective_seconds_period", 0),
+            "effective_label_period": sessions.get("total_effective_label_period", "00:00:00"),
         },
         "references": refs,
         "closures_period": closures_period,
