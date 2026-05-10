@@ -10328,6 +10328,232 @@
     }
   }
 
+
+  /* CX_ACCOUNT_SETTINGS_PAYROLL_FINAL_START */
+  async function cxAccountLoadPayrollSettings() {
+    try {
+      return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}?ts=${Date.now()}`);
+    } catch (error) {
+      return {
+        ok: false,
+        settings: {
+          payroll: {},
+          payroll_cuts: {
+            allow_close: true,
+            allow_export: true,
+            allow_archive: true,
+          },
+        },
+        error: error.message || String(error),
+      };
+    }
+  }
+
+  function cxAccountFindEmailPanel() {
+    const modal = document.getElementById("clx-account-modal");
+    if (!modal) return null;
+
+    const changeEmailButton = Array.from(modal.querySelectorAll("button"))
+      .find((btn) => String(btn.textContent || "").toLowerCase().includes("cambiar correo"));
+
+    if (changeEmailButton) {
+      let node = changeEmailButton.parentElement;
+      let fallback = changeEmailButton.parentElement;
+
+      for (let i = 0; i < 10 && node && node !== modal; i += 1) {
+        const text = String(node.textContent || "").toLowerCase();
+
+        if (
+          text.includes("cambiar correo") &&
+          text.includes("nuevo correo") &&
+          text.includes("contraseña actual") &&
+          !text.includes("cambiar contraseña")
+        ) {
+          return node;
+        }
+
+        if (
+          text.includes("cambiar correo") &&
+          text.includes("nuevo correo") &&
+          !text.includes("nueva contraseña") &&
+          !text.includes("confirmar nueva contraseña")
+        ) {
+          fallback = node;
+        }
+
+        node = node.parentElement;
+      }
+
+      return fallback;
+    }
+
+    const newEmail = document.getElementById("clxAccountNewEmail");
+    if (!newEmail) return null;
+
+    let node = newEmail.parentElement;
+    let fallback = newEmail.parentElement;
+
+    for (let i = 0; i < 10 && node && node !== modal; i += 1) {
+      const text = String(node.textContent || "").toLowerCase();
+
+      if (
+        text.includes("cambiar correo") &&
+        text.includes("nuevo correo") &&
+        !text.includes("nueva contraseña")
+      ) {
+        fallback = node;
+      }
+
+      node = node.parentElement;
+    }
+
+    return fallback;
+  }
+
+  function cxAccountPayrollCard(settings = {}) {
+    const payroll = settings.payroll || {};
+    const cuts = settings.payroll_cuts || {};
+    const hours = payroll.ordinary_hours_limit ?? "";
+
+    return `
+      <div id="clxPayrollSettingsCard"
+        style="
+          margin-top:22px;
+          padding-top:22px;
+          border-top:1px solid rgba(255,255,255,.14);
+        "
+      >
+        <h3 style="margin:0 0 14px;font-size:22px;font-weight:1000">Nómina y cortes</h3>
+
+        <label style="display:block;margin-bottom:14px">
+          <span style="display:block;margin-bottom:8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:1000;opacity:.72">
+            Total horas ordinarias hasta
+          </span>
+
+          <input
+            id="clxPayrollOrdinaryHoursLimit"
+            type="number"
+            min="0.01"
+            step="0.25"
+            value="${h(hours)}"
+            placeholder="Ej: 48"
+            style="
+              width:100%;
+              border:1px solid rgba(255,255,255,.16);
+              background:rgba(0,0,0,.28);
+              color:inherit;
+              border-radius:16px;
+              padding:14px 16px;
+              font-weight:1000;
+              outline:none;
+            "
+          >
+        </label>
+
+        <p style="margin:0 0 14px;opacity:.72;font-weight:800;line-height:1.35">
+          Hasta este total se calcula como hora ordinaria. Después de ese total se calcula como extra. Las pausas no cuentan.
+        </p>
+
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0">
+          <div style="padding:12px;border-radius:15px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10)">
+            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Cerrar corte</span>
+            <strong>${cuts.allow_close === false ? "OFF" : "ON"}</strong>
+          </div>
+
+          <div style="padding:12px;border-radius:15px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10)">
+            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Exportar</span>
+            <strong>${cuts.allow_export === false ? "OFF" : "ON"}</strong>
+          </div>
+
+          <div style="padding:12px;border-radius:15px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10)">
+            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Archivar</span>
+            <strong>${cuts.allow_archive === false ? "OFF" : "ON"}</strong>
+          </div>
+        </div>
+
+        <button
+          id="clxPayrollSettingsSaveBtn"
+          type="button"
+          style="
+            border:0;
+            border-radius:16px;
+            padding:14px 22px;
+            font-weight:1000;
+            color:white;
+            cursor:pointer;
+            background:linear-gradient(135deg,#ff1fb8,#8b5cf6);
+          "
+        >
+          Guardar nómina
+        </button>
+
+        <div id="clxPayrollSettingsStatus" style="margin-top:12px;font-weight:900;opacity:.78"></div>
+      </div>
+    `;
+  }
+
+  async function cxAccountInjectPayrollSettings() {
+    const modal = document.getElementById("clx-account-modal");
+    if (!modal) return;
+
+    const emailPanel = cxAccountFindEmailPanel();
+    if (!emailPanel) return;
+
+    const data = await cxAccountLoadPayrollSettings();
+    const settings = data.settings || {};
+
+    const existing = document.getElementById("clxPayrollSettingsCard");
+    if (existing) existing.remove();
+
+    emailPanel.insertAdjacentHTML("beforeend", cxAccountPayrollCard(settings));
+  }
+
+  async function cxAccountSavePayrollSettings() {
+    const input = document.getElementById("clxPayrollOrdinaryHoursLimit");
+    const status = document.getElementById("clxPayrollSettingsStatus");
+
+    const hours = Number(String(input?.value || "").replace(",", "."));
+
+    if (!Number.isFinite(hours) || hours <= 0) {
+      if (status) status.textContent = "Ingresa un total de horas ordinarias válido.";
+      return;
+    }
+
+    if (status) status.textContent = "Guardando...";
+
+    await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        payroll: {
+          ordinary_hours_limit: hours,
+          pause_policy: "exclude",
+        },
+        payroll_cuts: {
+          allow_close: true,
+          allow_export: true,
+          allow_archive: true,
+        },
+      }),
+    });
+
+    if (status) status.textContent = "Configuración guardada.";
+  }
+
+  if (!window.__cxAccountSettingsPayrollFinalBound) {
+    window.__cxAccountSettingsPayrollFinalBound = true;
+
+    document.addEventListener("click", async (event) => {
+      const savePayroll = event.target.closest("#clxPayrollSettingsSaveBtn");
+      if (savePayroll) {
+        event.preventDefault();
+        event.stopPropagation();
+        await cxAccountSavePayrollSettings();
+      }
+    }, true);
+  }
+  /* CX_ACCOUNT_SETTINGS_PAYROLL_FINAL_END */
+
+
   function openAjustes(force) {
     forced = Boolean(force);
     const overlay = document.getElementById("clx-account-overlay");
@@ -10344,6 +10570,7 @@
     if (subtitle) subtitle.textContent = forced ? t("passwordRequired") : t("adminHint");
 
     overlay.classList.add("open");
+    cxAccountInjectPayrollSettings();
   }
 
   function closeAjustes() {
@@ -10483,232 +10710,4 @@
   } else {
     init();
   }
-
-  /* CX_SETTINGS_MODAL_PAYROLL_01_START */
-  function cxSettingsTextIncludes(node, text) {
-    return String(node?.textContent || "").toLowerCase().includes(String(text || "").toLowerCase());
-  }
-
-  function cxFindSettingsModal() {
-    const candidates = Array.from(document.querySelectorAll("div, section, article, main"));
-    return candidates.find((node) => {
-      const text = String(node.textContent || "").toLowerCase();
-      return text.includes("ajustes") &&
-             text.includes("cambiar correo") &&
-             text.includes("cambiar contraseña") &&
-             text.includes("sesión");
-    }) || null;
-  }
-
-  function cxFindPanelByTitle(modal, title) {
-    const headings = Array.from(modal.querySelectorAll("h1,h2,h3,h4,strong,div,span"))
-      .filter((node) => cxSettingsTextIncludes(node, title));
-
-    for (const heading of headings) {
-      let node = heading;
-
-      for (let i = 0; i < 8 && node; i += 1) {
-        const text = String(node.textContent || "").toLowerCase();
-
-        if (
-          text.includes(title.toLowerCase()) &&
-          text.includes("nuevo correo") &&
-          text.includes("contraseña actual") &&
-          !text.includes("cambiar contraseña nueva contraseña")
-        ) {
-          return node;
-        }
-
-        node = node.parentElement;
-      }
-    }
-
-    return null;
-  }
-
-  function cxPayrollSettingsCardHtml(settings = {}) {
-    const payroll = settings.payroll || {};
-    const cuts = settings.payroll_cuts || {};
-    const hours = payroll.ordinary_hours_limit ?? "";
-
-    return `
-      <section
-        data-cx-settings-payroll-card
-        style="
-          grid-column: 2 / 3;
-          padding: 26px;
-          border-radius: 24px;
-          background: linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
-          border: 1px solid rgba(255,255,255,.13);
-          box-shadow: 0 18px 40px rgba(0,0,0,.18);
-        "
-      >
-        <h2 style="margin:0 0 16px;font-size:24px">Nómina y cortes</h2>
-
-        <div style="margin-bottom:18px">
-          <label style="display:block;font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:900;opacity:.72;margin-bottom:8px">
-            Total horas ordinarias hasta
-          </label>
-
-          <input
-            data-cx-payroll-hours-limit
-            type="number"
-            min="0.01"
-            step="0.25"
-            value="${h(hours)}"
-            placeholder="Ej: 48"
-            style="
-              width:100%;
-              padding:14px 16px;
-              border-radius:16px;
-              border:1px solid rgba(255,255,255,.15);
-              background:rgba(0,0,0,.28);
-              color:inherit;
-              font-weight:900;
-              outline:none;
-            "
-          >
-
-          <p style="margin:10px 0 0;opacity:.72;font-size:13px;line-height:1.35">
-            Hasta este total se calcula como ordinaria. Después de ese total se calcula como extra. Las pausas no cuentan.
-          </p>
-        </div>
-
-        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0">
-          <div style="padding:12px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09)">
-            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Cerrar corte</span>
-            <strong>${cuts.allow_close === false ? "OFF" : "ON"}</strong>
-          </div>
-          <div style="padding:12px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09)">
-            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Exportar</span>
-            <strong>${cuts.allow_export === false ? "OFF" : "ON"}</strong>
-          </div>
-          <div style="padding:12px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09)">
-            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Archivar</span>
-            <strong>${cuts.allow_archive === false ? "OFF" : "ON"}</strong>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          data-cx-save-payroll-settings
-          style="
-            border:0;
-            border-radius:16px;
-            padding:14px 22px;
-            font-weight:1000;
-            color:white;
-            cursor:pointer;
-            background:linear-gradient(135deg,#ff1fb8,#8b5cf6);
-          "
-        >
-          Guardar nómina
-        </button>
-
-        <div data-cx-payroll-settings-status style="margin-top:12px;font-weight:800;opacity:.78"></div>
-      </section>
-    `;
-  }
-
-  async function cxLoadCompanySettingsForModal() {
-    try {
-      return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`);
-    } catch (error) {
-      return { ok: false, settings: {} };
-    }
-  }
-
-  async function cxInjectPayrollSettingsIntoModal() {
-    const modal = cxFindSettingsModal();
-    if (!modal) return;
-
-    if (modal.querySelector("[data-cx-settings-payroll-card]")) return;
-
-    const emailPanel = cxFindPanelByTitle(modal, "Cambiar correo");
-    if (!emailPanel) return;
-
-    const data = await cxLoadCompanySettingsForModal();
-    const settings = data.settings || {};
-
-    emailPanel.insertAdjacentHTML("afterend", cxPayrollSettingsCardHtml(settings));
-  }
-
-  async function cxSavePayrollSettingsFromModal() {
-    const card = document.querySelector("[data-cx-settings-payroll-card]");
-    if (!card) return;
-
-    const input = card.querySelector("[data-cx-payroll-hours-limit]");
-    const status = card.querySelector("[data-cx-payroll-settings-status]");
-
-    const raw = String(input?.value || "").replace(",", ".");
-    const hours = Number(raw);
-
-    if (!Number.isFinite(hours) || hours <= 0) {
-      if (status) status.textContent = "Ingresa un total de horas ordinarias válido.";
-      return;
-    }
-
-    if (status) status.textContent = "Guardando...";
-
-    await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        payroll: {
-          ordinary_hours_limit: hours,
-          pause_policy: "exclude",
-        },
-        payroll_cuts: {
-          allow_close: true,
-          allow_export: true,
-          allow_archive: true,
-        },
-      }),
-    });
-
-    if (status) status.textContent = "Configuración guardada.";
-  }
-
-  function cxSchedulePayrollSettingsModalInjection() {
-    setTimeout(cxInjectPayrollSettingsIntoModal, 80);
-    setTimeout(cxInjectPayrollSettingsIntoModal, 250);
-    setTimeout(cxInjectPayrollSettingsIntoModal, 700);
-  }
-
-  if (!window.__cxSettingsModalPayroll01Bound) {
-    window.__cxSettingsModalPayroll01Bound = true;
-
-    document.addEventListener("click", async (event) => {
-      const save = event.target.closest("[data-cx-save-payroll-settings]");
-      if (save) {
-        event.preventDefault();
-        await cxSavePayrollSettingsFromModal();
-        return;
-      }
-
-      const text = String(event.target?.textContent || "").toLowerCase();
-      const settingsLike =
-        event.target.closest("[data-client-settings], [data-open-settings], [data-client-module='settings'], [data-client-module='core_settings']") ||
-        text.includes("ajustes") ||
-        text.includes("configuración") ||
-        text.includes("settings");
-
-      if (settingsLike) {
-        cxSchedulePayrollSettingsModalInjection();
-      }
-    }, true);
-
-    const observer = new MutationObserver(() => {
-      if (document.querySelector("[data-cx-settings-payroll-card]")) return;
-      const modal = cxFindSettingsModal();
-      if (modal) cxSchedulePayrollSettingsModalInjection();
-    });
-
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-    });
-  }
-  /* CX_SETTINGS_MODAL_PAYROLL_01_END */
-
-
 })();
