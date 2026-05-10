@@ -6106,20 +6106,6 @@
             </section>
 
             <section class="client-panel">
-              <div class="client-section-kicker">Tiempos</div>
-              <h2>Tiempo total por referencia</h2>
-              <p class="client-muted">Suma efectiva entre todos los operarios. Las pausas no cuentan.</p>
-              ${productionTimeByReferenceTable(data?.time_by_reference || data?.sessions?.time_by_reference || [])}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Tiempos</div>
-              <h2>Tiempo por operario y referencia</h2>
-              <p class="client-muted">Tiempo efectivo dedicado por cada operario a cada referencia.</p>
-              ${productionTimeByOperatorTable(data?.time_by_operator_reference || data?.sessions?.time_by_operator_reference || [])}
-            </section>
-
-            <section class="client-panel">
               <div class="client-section-kicker">Referencias</div>
               <h2>Avance por referencia y talla</h2>
               ${productionReferencesTable(data?.references || [])}

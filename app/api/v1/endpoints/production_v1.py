@@ -909,36 +909,25 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         SELECT count(*)
         FROM reference_work_sessions
         WHERE company_id::text = :company_id
-          AND (lower(COALESCE(status, '')) = 'active' OR ended_at IS NULL)
+          AND (lower(COALESCE(status::text, '')) = 'active' OR ended_at IS NULL)
         """,
         {"company_id": company_id},
     ))
 
-    # Consulta directa y segura. No depende de JOIN con product_references.
-    sessions = await safe_rows(
+    # Lectura robusta: trae la fila completa como JSONB para no romper por columnas antiguas/nuevas.
+    raw_rows = await safe_rows(
         db,
         """
-        SELECT
-            id,
-            COALESCE(employee_id, '') AS employee_id,
-            COALESCE(employee_name, '') AS employee_name,
-            COALESCE(telegram_user_id, '') AS telegram_user_id,
-            COALESCE(reference_id, '') AS reference_id,
-            COALESCE(reference_name, 'Sin referencia') AS reference_name,
-            '' AS size,
-            started_at::text AS started_at,
-            ended_at::text AS ended_at,
-            COALESCE(status, '') AS status,
-            GREATEST(COALESCE(duration_minutes, 0) * 60, 0)::int AS stored_seconds
-        FROM reference_work_sessions
-        WHERE company_id::text = :company_id
+        SELECT to_jsonb(s) AS row
+        FROM reference_work_sessions s
+        WHERE s.company_id::text = :company_id
           AND (
-                started_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
-                OR (ended_at IS NOT NULL AND ended_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date))
-                OR lower(COALESCE(status, '')) = 'active'
-                OR ended_at IS NULL
+                s.started_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
+                OR (s.ended_at IS NOT NULL AND s.ended_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date))
+                OR lower(COALESCE(s.status::text, '')) = 'active'
+                OR s.ended_at IS NULL
           )
-        ORDER BY started_at ASC
+        ORDER BY s.started_at ASC
         LIMIT 2000
         """,
         {
@@ -947,6 +936,47 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             "date_to": end.isoformat(),
         },
     )
+
+    query_strategy = "period_or_active_jsonb"
+
+    # Fallback: si hay sesiones activas pero el filtro anterior no devolvió filas,
+    # lee directo las sesiones activas. Esto protege Producción contra esquemas legacy.
+    if not raw_rows and active_sessions > 0:
+        raw_rows = await safe_rows(
+            db,
+            """
+            SELECT to_jsonb(s) AS row
+            FROM reference_work_sessions s
+            WHERE s.company_id::text = :company_id
+              AND (lower(COALESCE(s.status::text, '')) = 'active' OR s.ended_at IS NULL)
+            ORDER BY s.started_at ASC
+            LIMIT 2000
+            """,
+            {"company_id": company_id},
+        )
+        query_strategy = "active_jsonb_fallback"
+
+    # Fallback final: si aun así viene vacío, trae últimas sesiones de la empresa.
+    # No se usa para inventar datos; solo para que el dashboard pueda mostrar sesiones existentes.
+    if not raw_rows and active_sessions > 0:
+        raw_rows = await safe_rows(
+            db,
+            """
+            SELECT to_jsonb(s) AS row
+            FROM reference_work_sessions s
+            WHERE s.company_id::text = :company_id
+            ORDER BY COALESCE(s.updated_at, s.created_at, s.started_at) DESC
+            LIMIT 2000
+            """,
+            {"company_id": company_id},
+        )
+        query_strategy = "company_recent_jsonb_fallback"
+
+    sessions = []
+    for wrapper in raw_rows:
+        row = wrapper.get("row") if isinstance(wrapper, dict) else None
+        if isinstance(row, dict):
+            sessions.append(row)
 
     closure_period, closure_all = await _prod_closure_totals(db, company_id, start, end)
 
@@ -967,6 +997,10 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         started_at = _prod_parse_dt(session.get("started_at"))
         ended_at = _prod_parse_dt(session.get("ended_at"))
         is_active = status == "active" or ended_at is None
+
+        if not started_at:
+            continue
+
         end_for_calc = ended_at or now_value
 
         effective_seconds = await _prod_effective_seconds(
@@ -979,8 +1013,12 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             end_for_calc,
         )
 
-        if effective_seconds <= 0 and intval(session.get("stored_seconds")) > 0:
-            effective_seconds = intval(session.get("stored_seconds"))
+        stored_seconds = intval(session.get("duration_minutes")) * 60
+        if effective_seconds <= 0 and stored_seconds > 0:
+            effective_seconds = stored_seconds
+
+        if effective_seconds <= 0:
+            continue
 
         total_effective_seconds += effective_seconds
 
@@ -1074,6 +1112,7 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         "active_sessions": active_sessions,
         "total_sessions_period": len(sessions),
         "raw_sessions_found": len(sessions),
+        "query_strategy": query_strategy,
         "total_effective_seconds_period": total_effective_seconds,
         "total_effective_label_period": _prod_format_seconds(total_effective_seconds),
         "total_minutes_period": round(total_effective_seconds / 60, 2),
