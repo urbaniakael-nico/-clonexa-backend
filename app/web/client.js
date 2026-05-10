@@ -6405,7 +6405,7 @@
         return;
       }
 
-      await renderCrmLiveModule();
+      await renderCrmCoreModule();
     }, 20000);
   }
 
@@ -6420,14 +6420,14 @@
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        await renderCrmLiveModule();
+        await renderCrmCoreModule();
         return;
       }
 
-      const refresh = event.target.closest("[data-crm-live-refresh]");
+      const refresh = event.target.closest("[data-crm-core-refresh]");
       if (refresh) {
         event.preventDefault();
-        await renderCrmLiveModule();
+        await renderCrmCoreModule();
       }
     }, true);
   }
@@ -6546,10 +6546,16 @@
       ["Activos", summary?.active_now ?? 0],
       ["En pausa", summary?.on_break ?? 0],
       ["Fuera", summary?.out ?? 0],
-      ["Producción", summary?.production_adapter ? "ON" : "OFF"],
-      ["GPS", summary?.gps_adapter ? "ON" : "OFF"],
-      ["Materiales", summary?.materials_adapter ? "ON" : "OFF"],
     ];
+
+    if (summary?.production_adapter) {
+      cards.push(["Con referencia", summary?.with_reference ?? 0]);
+      cards.push(["Producción", "ON"]);
+    }
+
+    if (summary?.gps_adapter) cards.push(["GPS", "ON"]);
+    if (summary?.materials_adapter) cards.push(["Materiales", "ON"]);
+    if (summary?.inventory_adapter) cards.push(["Inventario", "ON"]);
 
     return `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
@@ -7000,7 +7006,7 @@
         }
 
         if (action === "crm:open" && isClientModuleActivo("crm")) {
-          await renderCrmModule();
+          await renderCrmCoreModule();
           return;
         }
 
@@ -7044,7 +7050,7 @@
         }
 
         if (code === "crm" && isClientModuleActivo("crm")) {
-          await renderCrmLiveModule();
+          await renderCrmCoreModule();
           return;
         }
 
@@ -7067,7 +7073,7 @@
         }
 
         if (code === "crm") {
-          await renderCrmModule();
+          await renderCrmCoreModule();
           return;
         }
 

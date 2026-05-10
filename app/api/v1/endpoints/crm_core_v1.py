@@ -11,22 +11,10 @@ from app.api.deps import get_db
 
 router = APIRouter()
 
-
-START_EVENTS = {
-    "check_in", "entrada", "start_shift", "shift_start", "inicio_turno", "clock_in"
-}
-
-PAUSE_START_EVENTS = {
-    "break_start", "pause_start", "pause", "pausa", "break", "on_break"
-}
-
-PAUSE_END_EVENTS = {
-    "break_end", "pause_end", "resume", "return", "retorno", "reanudar", "clock_resume"
-}
-
-END_EVENTS = {
-    "check_out", "salida", "end_shift", "shift_end", "fin_turno", "clock_out"
-}
+START_EVENTS = {"check_in", "entrada", "start_shift", "shift_start", "inicio_turno", "clock_in"}
+PAUSE_START_EVENTS = {"break_start", "pause_start", "pause", "pausa", "break", "on_break"}
+PAUSE_END_EVENTS = {"break_end", "pause_end", "resume", "return", "retorno", "reanudar", "clock_resume"}
+END_EVENTS = {"check_out", "salida", "end_shift", "shift_end", "fin_turno", "clock_out"}
 
 
 def clean(value: Any) -> str:
@@ -98,25 +86,6 @@ def overlap_seconds(a_start: datetime, a_end: datetime, b_start: datetime, b_end
     return int((end - start).total_seconds())
 
 
-async def table_exists(db: AsyncSession, table_name: str) -> bool:
-    result = await db.execute(text("SELECT to_regclass(:table_name)"), {"table_name": table_name})
-    return bool(result.scalar())
-
-
-async def table_columns(db: AsyncSession, table_name: str) -> set[str]:
-    result = await db.execute(
-        text("""
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = :table_name
-        """),
-        {"table_name": table_name},
-    )
-
-    return {str(row[0]) for row in result.all()}
-
-
 async def safe_rows(db: AsyncSession, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     try:
         result = await db.execute(text(sql), params)
@@ -126,11 +95,30 @@ async def safe_rows(db: AsyncSession, sql: str, params: dict[str, Any]) -> list[
         return []
 
 
+async def table_exists(db: AsyncSession, table_name: str) -> bool:
+    result = await db.execute(text("SELECT to_regclass(:table_name)"), {"table_name": table_name})
+    return bool(result.scalar())
+
+
+async def table_column_types(db: AsyncSession, table_name: str) -> dict[str, str]:
+    result = await db.execute(
+        text("""
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = :table_name
+        """),
+        {"table_name": table_name},
+    )
+
+    return {str(row[0]): str(row[1]) for row in result.all()}
+
+
 async def company_profile(db: AsyncSession, company_id: str) -> dict[str, Any]:
     if not await table_exists(db, "companies"):
         return {"id": company_id, "name": "Empresa", "slug": ""}
 
-    cols = await table_columns(db, "companies")
+    cols = await table_column_types(db, "companies")
     name_expr = "COALESCE(name, 'Empresa')" if "name" in cols else "'Empresa'"
     slug_expr = "COALESCE(slug, '')" if "slug" in cols else "''"
 
@@ -172,7 +160,7 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
     if not await table_exists(db, "employees"):
         return []
 
-    cols = await table_columns(db, "employees")
+    cols = await table_column_types(db, "employees")
 
     if "full_name" in cols:
         name_expr = "COALESCE(e.full_name, '')"
@@ -196,8 +184,9 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
     """
 
     if await table_exists(db, "workforce_attendance_status"):
-        status_cols = await table_columns(db, "workforce_attendance_status")
-        if {"company_id", "employee_id", "status"}.issubset(status_cols):
+        status_cols = await table_column_types(db, "workforce_attendance_status")
+
+        if {"company_id", "employee_id", "status"}.issubset(set(status_cols)):
             last_event_at_expr = "s.last_event_at::text" if "last_event_at" in status_cols else "NULL::text"
             last_event_type_expr = "COALESCE(s.last_event_type, '')" if "last_event_type" in status_cols else "''"
 
@@ -259,16 +248,46 @@ def status_label(status: str) -> str:
     return "Fuera de turno"
 
 
-async def attendance_events(db: AsyncSession, company_id: str, employee_id: str) -> list[dict[str, Any]]:
+async def attendance_events(
+    db: AsyncSession,
+    company_id: str,
+    employee_id: str,
+    telegram_user_id: str,
+    employee_name: str,
+) -> list[dict[str, Any]]:
     if not await table_exists(db, "workforce_attendance_events"):
         return []
 
-    cols = await table_columns(db, "workforce_attendance_events")
+    cols = await table_column_types(db, "workforce_attendance_events")
 
-    if "event_type" not in cols or "employee_id" not in cols or "company_id" not in cols:
+    if "event_type" not in cols or "company_id" not in cols:
         return []
 
-    at_expr = "COALESCE(occurred_at, created_at)" if "occurred_at" in cols and "created_at" in cols else "created_at"
+    if "occurred_at" in cols and "created_at" in cols:
+        at_expr = "COALESCE(occurred_at, created_at)"
+    elif "occurred_at" in cols:
+        at_expr = "occurred_at"
+    elif "created_at" in cols:
+        at_expr = "created_at"
+    else:
+        return []
+
+    match_parts: list[str] = []
+
+    if "employee_id" in cols:
+        match_parts.append("employee_id::text = :employee_id")
+
+    if "telegram_user_id" in cols:
+        match_parts.append("(:telegram_user_id <> '' AND telegram_user_id::text = :telegram_user_id)")
+
+    if "employee_name" in cols:
+        match_parts.append("(:employee_name <> '' AND lower(COALESCE(employee_name, '')) = lower(:employee_name))")
+
+    if cols.get("payload_json") in {"json", "jsonb"}:
+        match_parts.append("(:telegram_user_id <> '' AND payload_json->>'telegram_user_id' = :telegram_user_id)")
+
+    if not match_parts:
+        return []
 
     rows = await safe_rows(
         db,
@@ -278,22 +297,25 @@ async def attendance_events(db: AsyncSession, company_id: str, employee_id: str)
             {at_expr}::text AS event_at
         FROM workforce_attendance_events
         WHERE company_id::text = :company_id
-          AND employee_id::text = :employee_id
+          AND ({' OR '.join(match_parts)})
         ORDER BY {at_expr} ASC
-        LIMIT 700
+        LIMIT 1000
         """,
         {
             "company_id": company_id,
             "employee_id": employee_id,
+            "telegram_user_id": telegram_user_id,
+            "employee_name": employee_name,
         },
     )
 
     parsed = []
-    for row in rows:
-        event_at = parse_dt(row.get("event_at"))
-        event_type = clean(row.get("event_type")).lower()
 
-        if event_at and event_type:
+    for row in rows:
+        event_type = clean(row.get("event_type")).lower()
+        event_at = parse_dt(row.get("event_at"))
+
+        if event_type and event_at:
             parsed.append({"event_type": event_type, "event_at": event_at})
 
     return parsed
@@ -308,9 +330,11 @@ def latest_shift_start_from_events(events: list[dict[str, Any]]) -> datetime | N
 
         if event_type in START_EVENTS:
             active_start = event_at
+            continue
 
         if event_type in END_EVENTS:
             active_start = None
+            continue
 
     return active_start
 
@@ -327,7 +351,7 @@ def pause_intervals_from_events(
         return [], None
 
     intervals: list[tuple[datetime, datetime]] = []
-    open_pause: datetime | None = None
+    open_pause = None
 
     for event in events:
         event_type = clean(event.get("event_type")).lower()
@@ -346,7 +370,7 @@ def pause_intervals_from_events(
             continue
 
         if event_type in PAUSE_END_EVENTS:
-            if open_pause is not None and event_at > open_pause:
+            if open_pause and event_at > open_pause:
                 intervals.append((open_pause, event_at))
                 open_pause = None
             continue
@@ -355,6 +379,7 @@ def pause_intervals_from_events(
 
     if current_status == "on_break":
         current_pause_started = open_pause or status_started_at or now_value
+
         if current_pause_started < shift_start:
             current_pause_started = shift_start
 
@@ -365,7 +390,6 @@ def pause_intervals_from_events(
 
 
 def effective_seconds_for_interval(
-    *,
     start: datetime | None,
     end: datetime | None,
     pause_intervals: list[tuple[datetime, datetime]],
@@ -382,7 +406,6 @@ def effective_seconds_for_interval(
 async def reference_sessions_for_employee(
     db: AsyncSession,
     company_id: str,
-    *,
     employee_id: str,
     employee_name: str,
     telegram_user_id: str,
@@ -455,34 +478,19 @@ async def reference_sessions_for_employee(
     return output
 
 
-async def all_active_reference_sessions(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
-    if not await table_exists(db, "reference_work_sessions"):
-        return []
+def earliest_active_reference_start(sessions: list[dict[str, Any]]) -> datetime | None:
+    starts = [
+        parse_dt(item.get("started_at"))
+        for item in sessions
+        if item.get("is_active") and parse_dt(item.get("started_at"))
+    ]
 
-    return await safe_rows(
-        db,
-        """
-        SELECT
-            id,
-            COALESCE(employee_id, '') AS employee_id,
-            COALESCE(employee_name, '') AS employee_name,
-            COALESCE(telegram_user_id, '') AS telegram_user_id,
-            COALESCE(reference_name, '') AS reference_name,
-            started_at::text AS started_at,
-            ended_at::text AS ended_at,
-            COALESCE(status, '') AS status
-        FROM reference_work_sessions
-        WHERE company_id::text = :company_id
-          AND (lower(COALESCE(status, '')) = 'active' OR ended_at IS NULL)
-        ORDER BY started_at DESC
-        LIMIT 50
-        """,
-        {"company_id": company_id},
-    )
+    starts = [item for item in starts if item]
+
+    return min(starts) if starts else None
 
 
 def production_adapter(
-    *,
     modules: set[str],
     employee_status: str,
     sessions: list[dict[str, Any]],
@@ -500,13 +508,7 @@ def production_adapter(
         is_active = bool(session.get("is_active"))
 
         end_for_calc = ended_at or now_value
-
-        effective_seconds = effective_seconds_for_interval(
-            start=started_at,
-            end=end_for_calc,
-            pause_intervals=pause_intervals,
-        )
-
+        effective_seconds = effective_seconds_for_interval(started_at, end_for_calc, pause_intervals)
         running = is_active and employee_status == "working"
 
         items.append({
@@ -538,15 +540,8 @@ async def crm_core_snapshot(
     company = await company_profile(db, company_id)
     modules = await active_modules(db, company_id)
     employees = await employees_snapshot(db, company_id)
-    all_active_sessions = await all_active_reference_sessions(db, company_id)
-
-    active_people = [
-        employee for employee in employees
-        if normalize_status(employee.get("work_status")) in {"working", "on_break"}
-    ]
 
     rows = []
-    assigned_fallback_session_ids: set[str] = set()
 
     for employee in employees:
         employee_id = clean(employee.get("employee_id"))
@@ -555,14 +550,44 @@ async def crm_core_snapshot(
         employee_status = normalize_status(employee.get("work_status"))
         status_started_at = parse_dt(employee.get("status_started_at"))
 
-        events = await attendance_events(db, company_id, employee_id)
+        events = await attendance_events(
+            db,
+            company_id,
+            employee_id,
+            telegram_user_id,
+            employee_name,
+        )
+
+        preliminary_sessions = await reference_sessions_for_employee(
+            db,
+            company_id,
+            employee_id,
+            employee_name,
+            telegram_user_id,
+            None,
+        )
+
         shift_start = latest_shift_start_from_events(events)
 
-        if employee_status in {"working", "on_break"} and shift_start is None:
-            shift_start = status_started_at
+        ref_start = earliest_active_reference_start(preliminary_sessions)
 
-        if employee_status not in {"working", "on_break"}:
+        if employee_status in {"working", "on_break"}:
+            if ref_start and (shift_start is None or ref_start < shift_start):
+                shift_start = ref_start
+
+            if shift_start is None:
+                shift_start = status_started_at
+        else:
             shift_start = None
+
+        sessions = await reference_sessions_for_employee(
+            db,
+            company_id,
+            employee_id,
+            employee_name,
+            telegram_user_id,
+            shift_start,
+        )
 
         pause_intervals, current_pause_started = pause_intervals_from_events(
             events,
@@ -572,54 +597,23 @@ async def crm_core_snapshot(
             now_value=now_value,
         )
 
-        shift_effective_seconds = effective_seconds_for_interval(
-            start=shift_start,
-            end=now_value,
-            pause_intervals=pause_intervals,
-        ) if employee_status in {"working", "on_break"} else 0
+        shift_effective_seconds = (
+            effective_seconds_for_interval(shift_start, now_value, pause_intervals)
+            if employee_status in {"working", "on_break"}
+            else 0
+        )
 
         pause_accumulated_seconds = sum(seconds_between(start, end) for start, end in pause_intervals)
         current_pause_seconds = seconds_between(current_pause_started, now_value) if current_pause_started else 0
 
-        sessions = await reference_sessions_for_employee(
-            db,
-            company_id,
-            employee_id=employee_id,
-            employee_name=employee_name,
-            telegram_user_id=telegram_user_id,
-            shift_start=shift_start,
-        )
-
-        if not sessions and employee_status in {"working", "on_break"} and len(active_people) == 1 and all_active_sessions:
-            fallback = [
-                session for session in all_active_sessions
-                if clean(session.get("id")) not in assigned_fallback_session_ids
-            ]
-            if fallback:
-                latest = fallback[0]
-                assigned_fallback_session_ids.add(clean(latest.get("id")))
-                sessions = [{
-                    "session_id": latest.get("id"),
-                    "employee_id": clean(latest.get("employee_id")),
-                    "employee_name": clean(latest.get("employee_name")),
-                    "telegram_user_id": clean(latest.get("telegram_user_id")),
-                    "reference_id": "",
-                    "reference_name": clean(latest.get("reference_name")),
-                    "started_at": dt_text(parse_dt(latest.get("started_at"))),
-                    "ended_at": dt_text(parse_dt(latest.get("ended_at"))),
-                    "status": clean(latest.get("status")).lower(),
-                    "is_active": True,
-                    "stored_seconds": 0,
-                }]
-
         adapters = []
 
         production = production_adapter(
-            modules=modules,
-            employee_status=employee_status,
-            sessions=sessions,
-            pause_intervals=pause_intervals,
-            now_value=now_value,
+            modules,
+            employee_status,
+            sessions,
+            pause_intervals,
+            now_value,
         )
 
         if production:
@@ -631,7 +625,7 @@ async def crm_core_snapshot(
                 "title": "GPS",
                 "enabled": True,
                 "items": [],
-                "placeholder": "Adapter GPS listo para conectar ubicación/ruta.",
+                "placeholder": "GPS activo para ubicación, rutas y perímetros.",
             })
 
         if "materials" in modules:
@@ -640,7 +634,7 @@ async def crm_core_snapshot(
                 "title": "Materiales",
                 "enabled": True,
                 "items": [],
-                "placeholder": "Adapter Materiales listo para solicitudes/entregas.",
+                "placeholder": "Materiales activo para solicitudes, entregas y devoluciones.",
             })
 
         if "inventory" in modules:
@@ -649,7 +643,7 @@ async def crm_core_snapshot(
                 "title": "Inventario",
                 "enabled": True,
                 "items": [],
-                "placeholder": "Adapter Inventario listo para stock operativo.",
+                "placeholder": "Inventario activo para stock y disponibilidad.",
             })
 
         rows.append({
@@ -674,6 +668,8 @@ async def crm_core_snapshot(
             "adapters": adapters,
         })
 
+    production_enabled = {"production", "references"}.issubset(modules)
+
     return {
         "ok": True,
         "company_id": company_id,
@@ -688,10 +684,18 @@ async def crm_core_snapshot(
             "active_now": sum(1 for row in rows if row["core"]["status"] == "working"),
             "on_break": sum(1 for row in rows if row["core"]["status"] == "on_break"),
             "out": sum(1 for row in rows if row["core"]["status"] not in {"working", "on_break"}),
-            "production_adapter": {"production", "references"}.issubset(modules),
+            "production_adapter": production_enabled,
             "gps_adapter": "gps" in modules,
             "materials_adapter": "materials" in modules,
             "inventory_adapter": "inventory" in modules,
+            "with_reference": sum(
+                1
+                for row in rows
+                for adapter in row["adapters"]
+                if adapter.get("code") == "production_references"
+                for item in adapter.get("items", [])
+                if item.get("is_active")
+            ) if production_enabled else 0,
         },
         "employees": rows,
     }
