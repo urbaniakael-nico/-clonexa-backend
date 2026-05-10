@@ -5791,6 +5791,104 @@
     `;
   }
 
+
+  function productionFormatSeconds(value) {
+    let totalSeconds = Number(value || 0);
+    if (!Number.isFinite(totalSeconds) || totalSeconds < 0) totalSeconds = 0;
+
+    totalSeconds = Math.floor(totalSeconds);
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    return [
+      String(hours).padStart(2, "0"),
+      String(minutes).padStart(2, "0"),
+      String(seconds).padStart(2, "0"),
+    ].join(":");
+  }
+
+  function productionTimeByReferenceTable(rows) {
+    const items = Array.isArray(rows) ? rows : [];
+
+    if (!items.length) {
+      return `<div class="client-muted">Sin tiempos por referencia en este periodo.</div>`;
+    }
+
+    return `
+      <div style="overflow:auto">
+        <table class="client-table" style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Referencia</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Talla</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Tiempo total</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Operarios</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Sesiones</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Terminadas</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Seg / unidad</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.slice(0, 80).map((row) => `
+              <tr>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)"><strong>${h(row.reference_name || "Sin referencia")}</strong></td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.size || "-")}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.total_effective_label || productionFormatSeconds(row.total_effective_seconds))}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.operators_count ?? 0)}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.sessions_count ?? 0)}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.finished_quantity_period || row.finished_quantity_all_time || 0)}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.seconds_per_unit_period || row.seconds_per_unit_all_time || "-")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function productionTimeByOperatorTable(rows) {
+    const items = Array.isArray(rows) ? rows : [];
+
+    if (!items.length) {
+      return `<div class="client-muted">Sin tiempos por operario en este periodo.</div>`;
+    }
+
+    return `
+      <div style="overflow:auto">
+        <table class="client-table" style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Operario</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Referencia</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Talla</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Tiempo efectivo</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Sesiones</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Activa</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Terminadas</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Seg / unidad</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.slice(0, 120).map((row) => `
+              <tr>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)"><strong>${h(row.employee_name || row.employee_id || "Sin operario")}</strong></td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.reference_name || "Sin referencia")}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.size || "-")}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.effective_label || productionFormatSeconds(row.effective_seconds))}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.sessions_count ?? 0)}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${row.is_active ? "Sí" : "No"}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.finished_quantity_period || row.finished_quantity_all_time || 0)}</td>
+                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.seconds_per_unit_period || row.seconds_per_unit_all_time || "-")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
   function productionKpiCards(totals) {
     const cards = [
       ["Referencias", totals?.references_total ?? 0],
@@ -5800,7 +5898,7 @@
       ["Avance", `${totals?.progress_percent ?? 0}%`],
       ["Cierres", totals?.closures_total ?? 0],
       ["Sesiones activas", totals?.active_sessions ?? 0],
-      ["Minutos periodo", totals?.minutes_period ?? 0],
+      ["Tiempo efectivo", totals?.effective_label_period || productionFormatSeconds(totals?.effective_seconds_period || 0)],
     ];
 
     return `
@@ -5991,6 +6089,20 @@
               <div class="client-section-kicker">Resumen operativo</div>
               <h2>Estado productivo</h2>
               ${productionKpiCards(data?.totals || {})}
+            </section>
+
+            <section class="client-panel">
+              <div class="client-section-kicker">Tiempos</div>
+              <h2>Tiempo total por referencia</h2>
+              <p class="client-muted">Suma efectiva entre todos los operarios. Las pausas no cuentan.</p>
+              ${productionTimeByReferenceTable(data?.time_by_reference || data?.sessions?.time_by_reference || [])}
+            </section>
+
+            <section class="client-panel">
+              <div class="client-section-kicker">Tiempos</div>
+              <h2>Tiempo por operario y referencia</h2>
+              <p class="client-muted">Tiempo efectivo dedicado por cada operario a cada referencia.</p>
+              ${productionTimeByOperatorTable(data?.time_by_operator_reference || data?.sessions?.time_by_operator_reference || [])}
             </section>
 
             <section class="client-panel">
