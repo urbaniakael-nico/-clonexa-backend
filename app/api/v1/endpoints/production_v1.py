@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 import io
@@ -386,7 +386,9 @@ def build_summary(
     by_employee_map: dict[str, dict[str, Any]] = {}
     by_reference_period: dict[str, dict[str, Any]] = {}
 
-    for row in closures_period:
+    graph_rows = closures_period if closures_period else closures_all
+
+    for row in graph_rows:
         employee = clean(row.get("employee_name")) or clean(row.get("employee_id")) or "Sin empleado"
         emp = by_employee_map.setdefault(employee, {"employee": employee, "closures": 0, "finished_quantity": 0})
         emp["closures"] += 1
@@ -425,6 +427,7 @@ def build_summary(
         "closures_all_time": closures_all,
         "by_employee_period": sorted(by_employee_map.values(), key=lambda x: x["finished_quantity"], reverse=True),
         "by_reference_period": sorted(by_reference_period.values(), key=lambda x: x["finished_quantity"], reverse=True),
+        "graph_source": "period" if closures_period else "all_time_fallback",
         "sessions": sessions,
     }
 

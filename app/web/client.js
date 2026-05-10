@@ -80,7 +80,7 @@
     };
   }
 
-  function brandingBackground(b) {
+  function brandingVolverground(b) {
     if (b.background_style === "holografico") {
       return `
         radial-gradient(circle at 0% 0%, ${b.primary_color}88, transparent 32%),
@@ -269,7 +269,7 @@
         margin: 0;
         min-height: 100vh;
         color: ${b.text_color};
-        background: ${brandingBackground(b)} !important;
+        background: ${brandingVolverground(b)} !important;
         font-family: ${fp.family} !important;
         overflow-x: hidden;
       }
@@ -591,7 +591,7 @@
     return (Array.isArray(modules) ? modules : []).filter((item) => !["core", "core_settings", "settings"].includes(item.code));
   }
 
-  function isClientModuleActive(code) {
+  function isClientModuleActivo(code) {
     const normalized = String(code || "").trim();
     if (!normalized || normalized === "core") return false;
     return activeClientModules().some((module) => module.code === normalized && module.enabled);
@@ -654,7 +654,7 @@
     }
 
     if (hasAnyClientModule(codes, ["stores"])) {
-      kpis.push(["Tiendas", metrics.storesActive ?? "OK"]);
+      kpis.push(["Tiendas", metrics.storesActivo ?? "OK"]);
     }
 
     if (!kpis.length) {
@@ -2041,7 +2041,7 @@
 
   function crmModuleValueForPerson(code, person = {}) {
     if (code === "modules") return `${visibleClientModules(activeClientModules()).length} activos`;
-    if (code === "channels") return isClientModuleActive("bots") ? "Telegram" : "-";
+    if (code === "channels") return isClientModuleActivo("bots") ? "Telegram" : "-";
 
     const event = (person.events || [])
       .slice()
@@ -2136,7 +2136,7 @@
 
   function crmTopCardValue(code, crm = {}) {
     if (code === "modules") return `${visibleClientModules(activeClientModules()).length}`;
-    if (code === "channels") return isClientModuleActive("bots") && crm.bot?.configured ? "ON" : "OFF";
+    if (code === "channels") return isClientModuleActivo("bots") && crm.bot?.configured ? "ON" : "OFF";
 
     const count = (crm.todayEvents || [])
       .filter((event) => String(event.module_code || "workforce").toLowerCase() === code)
@@ -2144,20 +2144,20 @@
 
     if (count > 0) return count;
 
-    return isClientModuleActive(code) ? "ON" : "-";
+    return isClientModuleActivo(code) ? "ON" : "-";
   }
 
   async function loadClientCrmData() {
     const companyId = state.companyId;
     const [employeesResult, eventsResult, botResult, gpsResult] = await Promise.allSettled([
-      isClientModuleActive("workforce")
+      isClientModuleActivo("workforce")
         ? api(`/employees?company_id=${encodeURIComponent(companyId)}&include_archived=true`)
         : Promise.resolve([]),
       api(`/employees/attendance/history?company_id=${encodeURIComponent(companyId)}&limit=200`),
-      isClientModuleActive("bots")
+      isClientModuleActivo("bots")
         ? api(`/bots/companies/${encodeURIComponent(companyId)}/telegram`)
         : Promise.resolve(null),
-      isClientModuleActive("gps")
+      isClientModuleActivo("gps")
         ? api(`/gps/companies/${encodeURIComponent(companyId)}/summary`)
         : Promise.resolve(null),
     ]);
@@ -2239,7 +2239,7 @@
     };
   }
 
-  function renderCrmCollaboratorCards(people = [], moduleCodes = []) {
+  function renderCrmColaboradorCards(people = [], moduleCodes = []) {
     if (!people.length) {
       return `<div class="personal-empty">No hay colaboradores operativos para mostrar.</div>`;
     }
@@ -2276,12 +2276,12 @@
   }
 
   async function renderCrmModule() {
-    if (!isClientModuleActive("crm")) {
+    if (!isClientModuleActivo("crm")) {
       render();
       return;
     }
 
-    if (isClientModuleActive("gps")) ensureGpsStyles();
+    if (isClientModuleActivo("gps")) ensureGpsStyles();
 
     const company = state.company || {};
     const crm = await loadClientCrmData();
@@ -2342,7 +2342,7 @@
 
               <div class="client-eyebrow" style="margin-top:28px">Colaboradores</div>
               <h2>Estado por colaborador</h2>
-              ${renderCrmCollaboratorCards(crm.people, moduleCards)}
+              ${renderCrmColaboradorCards(crm.people, moduleCards)}
             </section>
           </section>
         </div>
@@ -2568,7 +2568,7 @@
   }
 
   async function renderGpsModule() {
-    if (!isClientModuleActive("gps")) {
+    if (!isClientModuleActivo("gps")) {
       render();
       return;
     }
@@ -3136,7 +3136,7 @@
   }
 
   async function renderInventoryModule() {
-    if (!isClientModuleActive("inventory")) {
+    if (!isClientModuleActivo("inventory")) {
       render();
       return;
     }
@@ -3837,7 +3837,7 @@
   }
 
   async function renderMaterialsModule() {
-    if (!isClientModuleActive("materials")) {
+    if (!isClientModuleActivo("materials")) {
       render();
       return;
     }
@@ -3857,8 +3857,8 @@
     const rows = Array.isArray(data.requests) ? data.requests : [];
     const summary = data.summary || {};
     window.__cxMaterialsRows = rows;
-    window.clearTimeout(window.__materialsDailyRefreshTimer);
-    window.__materialsDailyRefreshTimer = window.setTimeout(() => {
+    window.clearTimeout(window.__materialsDailyActualizarTimer);
+    window.__materialsDailyActualizarTimer = window.setTimeout(() => {
       if (document.querySelector("[data-materials-refresh]")) renderMaterialsModule();
     }, 24 * 60 * 60 * 1000);
 
@@ -4568,7 +4568,7 @@
   }
 
   async function renderPayrollModule(period = payrollDefaultPeriod(), options = {}) {
-    if (!isClientModuleActive("payroll")) {
+    if (!isClientModuleActivo("payroll")) {
       render();
       return;
     }
@@ -5126,7 +5126,7 @@
   }
 
   async function renderKpisModule(period = kpisDefaultPeriod()) {
-    if (!isClientModuleActive("kpis")) {
+    if (!isClientModuleActivo("kpis")) {
       render();
       return;
     }
@@ -5197,18 +5197,18 @@
     `;
 
     applyKpisSearchFilter();
-    setupKpisAutoRefresh();
+    setupKpisAutoActualizar();
   }
 
-  function setupKpisAutoRefresh() {
-    if (window.__cxKpisAutoRefresh) {
-      clearInterval(window.__cxKpisAutoRefresh);
-      window.__cxKpisAutoRefresh = null;
+  function setupKpisAutoActualizar() {
+    if (window.__cxKpisAutoActualizar) {
+      clearInterval(window.__cxKpisAutoActualizar);
+      window.__cxKpisAutoActualizar = null;
     }
-    window.__cxKpisAutoRefresh = setInterval(async () => {
+    window.__cxKpisAutoActualizar = setInterval(async () => {
       if (!document.querySelector("[data-kpis-root]")) {
-        clearInterval(window.__cxKpisAutoRefresh);
-        window.__cxKpisAutoRefresh = null;
+        clearInterval(window.__cxKpisAutoActualizar);
+        window.__cxKpisAutoActualizar = null;
         return;
       }
       try {
@@ -5739,7 +5739,7 @@
       const moduleCode = String(moduleTrigger?.dataset?.clientModule || "").trim();
       const actionCode = String(actionTrigger?.dataset?.clientAction || "").trim();
 
-      if ((moduleCode === "kpis" || actionCode === "kpis:open") && isClientModuleActive("kpis")) {
+      if ((moduleCode === "kpis" || actionCode === "kpis:open") && isClientModuleActivo("kpis")) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -5747,7 +5747,7 @@
         return;
       }
 
-      if ((moduleCode === "reports" || actionCode === "reports:open") && isClientModuleActive("reports")) {
+      if ((moduleCode === "reports" || actionCode === "reports:open") && isClientModuleActivo("reports")) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -5759,7 +5759,7 @@
 
 
 
-  /* CX_PRODUCTION_01_START */
+  /* CX_PRODUCCIÓN_01_START */
   function productionDefaultRange() {
     const end = new Date();
     const start = new Date();
@@ -6065,7 +6065,7 @@
 
     document.addEventListener("click", async (event) => {
       const moduleTrigger = event.target.closest('[data-client-module="production"]');
-      if (moduleTrigger && isClientModuleActive("production")) {
+      if (moduleTrigger && isClientModuleActivo("production")) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -6087,7 +6087,7 @@
       }
     }, true);
   }
-  /* CX_PRODUCTION_01_END */
+  /* CX_PRODUCCIÓN_01_END */
 
 
 
@@ -6095,9 +6095,22 @@
   function crmLiveParseDate(value) {
     if (!value) return null;
 
-    const raw = String(value).trim();
-    const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
-    const date = new Date(normalized);
+    let raw = String(value).trim();
+
+    if (!raw) return null;
+
+    // PostgreSQL: "2026-05-09 19:12:33.123456+00:00"
+    // JS Date:   "2026-05-09T19:12:33.123+00:00"
+    raw = raw.replace(" ", "T");
+
+    const match = raw.match(/^(.*\.\d{3})\d+(.*)$/);
+    if (match) raw = `${match[1]}${match[2]}`;
+
+    if (!/[zZ]|[+-]\d\d:?\d\d$/.test(raw)) {
+      raw = `${raw}Z`;
+    }
+
+    const date = new Date(raw);
 
     if (Number.isNaN(date.getTime())) return null;
 
@@ -6120,9 +6133,9 @@
   }
 
   function crmLiveStopTimers() {
-    if (window.__cxCrmLiveRefreshInterval) {
-      clearInterval(window.__cxCrmLiveRefreshInterval);
-      window.__cxCrmLiveRefreshInterval = null;
+    if (window.__cxCrmLiveActualizarInterval) {
+      clearInterval(window.__cxCrmLiveActualizarInterval);
+      window.__cxCrmLiveActualizarInterval = null;
     }
 
     if (window.__cxCrmLiveTimerInterval) {
@@ -6210,7 +6223,7 @@
             <strong>Turno iniciado</strong>
             <div class="client-muted">Cronómetro de jornada</div>
           </div>
-          <strong style="font-size:26px" data-live-since="${h(row.shift_started_at || row.status_started_at || "")}">00:00:00</strong>
+          <strong style="font-size:26px" data-live-since="${h(row.shift_started_at || row.status_started_at || row.reference_timeline?.[0]?.started_at || "")}">00:00:00</strong>
         </div>
       `;
     }
@@ -6246,7 +6259,7 @@
             <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:12px;border-radius:16px;background:${item.is_active ? "rgba(0,255,180,.10)" : "rgba(255,255,255,.06)"};border:1px solid ${item.is_active ? "rgba(0,255,180,.25)" : "rgba(255,255,255,.1)"}">
               <div>
                 <strong>${h(item.reference_name || "Referencia")}</strong>
-                <div class="client-muted">${item.is_active ? "Referencia activa" : "Referencia cerrada"}</div>
+                <div class="client-muted">${item.is_active ? "Referencia activa · corriendo" : "Referencia cerrada"}</div>
               </div>
               <strong style="font-size:22px" ${item.is_active ? `data-live-since="${h(item.started_at || "")}"` : `data-live-seconds="${h(item.duration_seconds || 0)}"`}>00:00:00</strong>
             </div>
@@ -6343,7 +6356,7 @@
 
     window.__cxCrmLiveTimerInterval = setInterval(crmLiveUpdateTimers, 1000);
 
-    window.__cxCrmLiveRefreshInterval = setInterval(async () => {
+    window.__cxCrmLiveActualizarInterval = setInterval(async () => {
       if (!document.querySelector("[data-crm-live-root]")) {
         crmLiveStopTimers();
         return;
@@ -6358,7 +6371,7 @@
 
     document.addEventListener("click", async (event) => {
       const moduleTrigger = event.target.closest('[data-client-module="crm"]');
-      if (moduleTrigger && isClientModuleActive("crm")) {
+      if (moduleTrigger && isClientModuleActivo("crm")) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -6581,48 +6594,48 @@
       if (clientAction) {
         const action = String(clientAction.dataset.clientAction || "");
 
-        if (action === "workforce:add" && isClientModuleActive("workforce")) {
+        if (action === "workforce:add" && isClientModuleActivo("workforce")) {
           await renderPersonalModule();
           setTimeout(() => document.querySelector("[data-personal-add-row]")?.click(), 60);
           return;
         }
 
-        if (action === "bots:open" && isClientModuleActive("bots")) {
+        if (action === "bots:open" && isClientModuleActivo("bots")) {
           await renderBotsModule();
           return;
         }
 
-        if (action === "crm:open" && isClientModuleActive("crm")) {
+        if (action === "crm:open" && isClientModuleActivo("crm")) {
           await renderCrmModule();
           return;
         }
 
-        if (action === "payroll:open" && isClientModuleActive("payroll")) {
+        if (action === "payroll:open" && isClientModuleActivo("payroll")) {
           await renderPayrollModule();
           return;
         }
 
-        if (action === "inventory:open" && isClientModuleActive("inventory")) {
+        if (action === "inventory:open" && isClientModuleActivo("inventory")) {
           await renderInventoryModule();
           return;
         }
 
-        if (action === "materials:open" && isClientModuleActive("materials")) {
+        if (action === "materials:open" && isClientModuleActivo("materials")) {
           await renderMaterialsModule();
           return;
         }
 
-        if (action === "gps:open" && isClientModuleActive("gps")) {
+        if (action === "gps:open" && isClientModuleActivo("gps")) {
           await renderGpsModule();
           return;
         }
 
-        if (action === "kpis:open" && isClientModuleActive("kpis")) {
+        if (action === "kpis:open" && isClientModuleActivo("kpis")) {
           await renderAdaptiveKpisModule();
           return;
         }
 
-        if (action === "reports:open" && isClientModuleActive("reports")) {
+        if (action === "reports:open" && isClientModuleActivo("reports")) {
           await renderAdaptiveReportsModule();
           return;
         }
@@ -6631,23 +6644,23 @@
       const moduleTrigger = target.closest("[data-client-module]");
       if (moduleTrigger) {
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
-        if (code === "reports" && isClientModuleActive("reports")) {
+        if (code === "reports" && isClientModuleActivo("reports")) {
           await renderAdaptiveReportsModule();
           return;
         }
 
-        if (code === "crm" && isClientModuleActive("crm")) {
+        if (code === "crm" && isClientModuleActivo("crm")) {
           await renderCrmLiveModule();
           return;
         }
 
-        if (code === "production" && isClientModuleActive("production")) {
+        if (code === "production" && isClientModuleActivo("production")) {
           await renderProductionModule();
           return;
         }
 
 
-        if (!isClientModuleActive(code)) return;
+        if (!isClientModuleActivo(code)) return;
 
         if (code === "workforce") {
           await renderPersonalModule();
@@ -8914,7 +8927,7 @@
 
     window.__cxReportsPayload = payload;
     window.__cxReportsFilters = nextFilters;
-    window.__cxReportsActiveTab = activeTab;
+    window.__cxReportsActivoTab = activeTab;
 
     const titleMode = nextFilters.employeeId ? "Reporte por persona" : "Reporte general";
 
@@ -9020,7 +9033,7 @@
         const search = document.querySelector("[data-reports-search]");
         if (search) search.placeholder = "Selecciona empleado para reporte por persona";
       }
-      await renderReports(filters, window.__cxReportsActiveTab || "employee_summary");
+      await renderReports(filters, window.__cxReportsActivoTab || "employee_summary");
       return;
     }
 
@@ -9046,7 +9059,7 @@
     const input = event.target.closest("[data-reports-search]");
     if (!input) return;
     event.preventDefault();
-    await renderReports(reportsReadFilters(), window.__cxReportsActiveTab || "employee_summary");
+    await renderReports(reportsReadFilters(), window.__cxReportsActivoTab || "employee_summary");
   });
 })();
 /* CX_REPORTS_016B_END */

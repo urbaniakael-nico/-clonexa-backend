@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
@@ -105,6 +105,7 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
         name_expr = "'Empleado'"
 
     role_expr = "COALESCE(e.role, '')" if "role" in employee_cols else "''"
+    telegram_expr = "COALESCE(e.telegram_user_id::text, '')" if "telegram_user_id" in employee_cols else "''"
 
     status_filter = ""
     if "status" in employee_cols:
@@ -140,6 +141,7 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
             e.id::text AS employee_id,
             {name_expr} AS employee_name,
             {role_expr} AS employee_role,
+            {telegram_expr} AS telegram_user_id,
             {status_fields}
         FROM employees e
         {status_join}
@@ -177,7 +179,16 @@ async def reference_timeline(
     company_id: str,
     employee_id: str,
     shift_started_at: str | None,
+    telegram_user_id: str | None = None,
+    employee_name: str | None = None,
 ) -> list[dict[str, Any]]:
+    """
+    Fuente de verdad productiva:
+    - Primero intenta por employee_id.
+    - Si el bot guardó telegram_user_id, también empata por telegram.
+    - Si quedaron sesiones antiguas por nombre, empata por employee_name.
+    - La sesión activa es status='active' o ended_at IS NULL.
+    """
     if not await table_exists(db, "reference_work_sessions"):
         return []
 
@@ -188,43 +199,56 @@ async def reference_timeline(
             id,
             employee_id,
             COALESCE(employee_name, '') AS employee_name,
+            COALESCE(telegram_user_id, '') AS telegram_user_id,
             COALESCE(reference_id, '') AS reference_id,
             COALESCE(reference_name, '') AS reference_name,
             started_at::text AS started_at,
             ended_at::text AS ended_at,
             COALESCE(status, '') AS status,
             CASE
-                WHEN status = 'active'
+                WHEN lower(COALESCE(status, '')) = 'active' OR ended_at IS NULL
                     THEN EXTRACT(EPOCH FROM (now() - started_at))::int
                 ELSE GREATEST(COALESCE(duration_minutes, 0) * 60, 0)::int
             END AS duration_seconds
         FROM reference_work_sessions
         WHERE company_id::text = :company_id
-          AND employee_id::text = :employee_id
+          AND (
+                employee_id::text = :employee_id
+                OR (:telegram_user_id IS NOT NULL AND telegram_user_id::text = :telegram_user_id)
+                OR (:employee_name IS NOT NULL AND lower(COALESCE(employee_name, '')) = lower(:employee_name))
+          )
           AND (:shift_started_at IS NULL OR started_at >= CAST(:shift_started_at AS timestamptz))
         ORDER BY started_at ASC
-        LIMIT 30
+        LIMIT 50
         """,
         {
             "company_id": company_id,
             "employee_id": employee_id,
+            "telegram_user_id": telegram_user_id or None,
+            "employee_name": employee_name or None,
             "shift_started_at": shift_started_at or None,
         },
     )
 
-    return [
-        {
+    output = []
+
+    for row in rows:
+        status = clean(row.get("status")).lower()
+        ended_at = row.get("ended_at")
+        is_active = status == "active" or not ended_at
+
+        output.append({
             "session_id": row.get("id"),
             "reference_id": row.get("reference_id"),
             "reference_name": clean(row.get("reference_name")),
             "started_at": row.get("started_at"),
-            "ended_at": row.get("ended_at"),
-            "status": clean(row.get("status")),
-            "is_active": clean(row.get("status")).lower() == "active",
+            "ended_at": ended_at,
+            "status": status,
+            "is_active": is_active,
             "duration_seconds": intval(row.get("duration_seconds")),
-        }
-        for row in rows
-    ]
+        })
+
+    return output
 
 
 def status_label(status: str) -> str:
@@ -270,11 +294,20 @@ async def crm_live_snapshot(
 
         if work_status in {"working", "on_break"}:
             shift_started_at = await latest_shift_start(db, company_id, employee_id) or status_started_at
+            if not status_started_at:
+                status_started_at = shift_started_at
 
         if work_status == "on_break":
             pause_started_at = status_started_at
 
-        timeline = await reference_timeline(db, company_id, employee_id, shift_started_at)
+        timeline = await reference_timeline(
+            db,
+            company_id,
+            employee_id,
+            shift_started_at,
+            telegram_user_id=clean(employee.get("telegram_user_id")),
+            employee_name=clean(employee.get("employee_name")),
+        )
         active_reference = next((item for item in timeline if item.get("is_active")), None)
 
         rows.append({
