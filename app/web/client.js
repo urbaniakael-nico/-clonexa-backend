@@ -620,11 +620,77 @@
     return options.some((code) => codes.has(code));
   }
 
+  /* CX_VELVET_DASHBOARD_FORCE_02_START */
+  const CX_VELVET_LAB_COMPANY_ID = "d63cf68c-be5b-4a30-aee4-341973018db1";
+
+  function isVelvetLabTenant() {
+    return String(state.companyId || "").toLowerCase() === CX_VELVET_LAB_COMPANY_ID;
+  }
+
+  function clientDashboardCompanyName(company = {}) {
+    if (isVelvetLabTenant()) return "VELVET LAB";
+    return company.name || "Empresa";
+  }
+
+  function velvetDashboardPercent(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n)) return "0%";
+    return `${n.toLocaleString("es-CO", { maximumFractionDigits: 2 })}%`;
+  }
+
+  async function loadVelvetLabDashboardMetrics() {
+    if (!isVelvetLabTenant()) return;
+
+    const metrics = state.dashboardMetrics || {};
+    state.dashboardMetrics = metrics;
+
+    const [crmResult, refsResult, prodResult] = await Promise.allSettled([
+      api(`/crm-core-v1/companies/${encodeURIComponent(state.companyId)}/snapshot?ts=${Date.now()}`),
+      api(`/references-v1/companies/${encodeURIComponent(state.companyId)}/summary?ts=${Date.now()}`),
+      api(`/production-v1/companies/${encodeURIComponent(state.companyId)}/summary?preset=7d&view=active&ts=${Date.now()}`),
+    ]);
+
+    if (crmResult.status === "fulfilled") {
+      metrics.velvetPersonalConnected = Number(crmResult.value?.summary?.active_now || 0);
+      metrics.velvetPersonalPaused = Number(crmResult.value?.summary?.on_break || 0);
+    }
+
+    if (refsResult.status === "fulfilled") {
+      metrics.velvetActiveReferences = Number(
+        refsResult.value?.bot_active_total ??
+        refsResult.value?.active_total ??
+        refsResult.value?.references_active ??
+        refsResult.value?.references_total ??
+        0
+      );
+    }
+
+    if (prodResult.status === "fulfilled") {
+      metrics.velvetProductionProgress = Number(
+        prodResult.value?.totals?.progress_percent ??
+        prodResult.value?.summary?.progress_percent ??
+        0
+      );
+    }
+  }
+  /* CX_VELVET_DASHBOARD_FORCE_02_END */
+
+
+
   function buildClientHeroKpis(modules = [], company = {}) {
     const visible = visibleClientModules(modules);
     const codes = clientModuleCodes(visible);
     const total = Array.isArray(visible) ? visible.length : 0;
     const metrics = state.dashboardMetrics || {};
+
+    if (isVelvetLabTenant()) {
+      return [
+        ["Personal conectado", String(metrics.velvetPersonalConnected ?? 0)],
+        ["Personal pausa", String(metrics.velvetPersonalPaused ?? 0)],
+        ["Total referencias activas", String(metrics.velvetActiveReferences ?? 0)],
+        ["% producción avance", velvetDashboardPercent(metrics.velvetProductionProgress ?? 0)],
+      ];
+    }
 
     if (Array.isArray(metrics.kpiDashboardCards) && metrics.kpiDashboardCards.length) {
       return metrics.kpiDashboardCards.slice(0, 4).map((card) => [
@@ -653,8 +719,8 @@
       kpis.push(["Ventas", metrics.salesToday ?? "0"]);
     }
 
-    if (hasAnyClientModule(codes, ["stores"])) {
-      kpis.push(["Tiendas", metrics.storesActivo ?? "OK"]);
+    if (hasAnyClientModule(codes, ["inventory", "stock"])) {
+      kpis.push(["Stock bajo", metrics.lowStock ?? "0"]);
     }
 
     if (!kpis.length) {
@@ -1482,7 +1548,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -1650,7 +1716,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -2292,7 +2358,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -2596,7 +2662,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -3163,7 +3229,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("inventory")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -3867,7 +3933,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("materials")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -4604,7 +4670,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -5156,7 +5222,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("kpis")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -5429,7 +5495,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("reports")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -5632,7 +5698,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("kpis")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -6130,7 +6196,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("production")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -6556,7 +6622,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("crm")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -6958,7 +7024,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("crm")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -7045,7 +7111,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav(code)}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -7086,7 +7152,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -7602,7 +7668,8 @@
   bindPersonalModuleEvents();
 
 
-  function render() {
+  async function render() {
+    await loadVelvetLabDashboardMetrics();
     const company = state.company || {};
     const b = normalizeBranding(state.branding || {});
     applyBranding();
@@ -7614,7 +7681,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -7632,7 +7699,7 @@
               <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
                 <div>
                   <div class="client-eyebrow">Sistema operativo empresarial</div>
-                  <h1 class="client-title">${h(company.name || "Empresa")}</h1>
+                  <h1 class="client-title">${h(clientDashboardCompanyName(company))}</h1>
                   <p class="client-muted">Panel operativo independiente conectado a sus m?dulos activos.</p>
                 </div>
                 <span class="client-badge">LIVE</span>
