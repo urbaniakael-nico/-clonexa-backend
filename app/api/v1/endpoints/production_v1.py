@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import uuid
+
 from datetime import datetime, timezone
 
 import csv
@@ -8,7 +11,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -159,6 +162,52 @@ async def ensure_storage(db: AsyncSession) -> None:
         ON reference_production_closures (company_id, closed_at DESC)
     """))
 
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS archived_at timestamptz NULL
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS archived_by text NULL
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS archive_reason text NULL
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS archived_snapshot_id text NULL
+    """))
+
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS production_archive_snapshots (
+            id text PRIMARY KEY,
+            company_id text NOT NULL,
+            reference_id text NULL,
+            reference_name text NULL,
+            size text NULL,
+            snapshot_type text NOT NULL DEFAULT 'reference_archive',
+            date_from date NULL,
+            date_to date NULL,
+            payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_product_references_company_archived
+        ON product_references (company_id, archived_at)
+    """))
+
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_production_archive_snapshots_company_created
+        ON production_archive_snapshots (company_id, created_at DESC)
+    """))
+
     await db.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_reference_work_sessions_company_status
         ON reference_work_sessions (company_id, status)
@@ -183,10 +232,22 @@ async def active_modules(db: AsyncSession, company_id: str) -> set[str]:
     }
 
 
-async def reference_rows(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
+async def reference_rows(db: AsyncSession, company_id: str, view: str = "active") -> list[dict[str, Any]]:
+    view = clean(view or "active").lower()
+    if view not in {"active", "archived", "all"}:
+        view = "active"
+
+    where = ["pr.company_id::text = :company_id"]
+    params: dict[str, Any] = {"company_id": company_id}
+
+    if view == "active":
+        where.append("pr.archived_at IS NULL")
+    elif view == "archived":
+        where.append("pr.archived_at IS NOT NULL")
+
     rows = await safe_rows(
         db,
-        """
+        f"""
         SELECT
             pr.id,
             pr.name,
@@ -194,6 +255,10 @@ async def reference_rows(db: AsyncSession, company_id: str) -> list[dict[str, An
             COALESCE(pr.initial_quantity, 0) AS initial_quantity,
             COALESCE(pr.bot_active, false) AS bot_active,
             pr.activation_date::text AS activation_date,
+            pr.archived_at::text AS archived_at,
+            COALESCE(pr.archived_by, '') AS archived_by,
+            COALESCE(pr.archive_reason, '') AS archive_reason,
+            COALESCE(pr.archived_snapshot_id, '') AS archived_snapshot_id,
             COALESCE((
                 SELECT sum(c.quantity_finished)
                 FROM reference_production_closures c
@@ -207,10 +272,13 @@ async def reference_rows(db: AsyncSession, company_id: str) -> list[dict[str, An
                   )
             ), 0) AS finished_quantity
         FROM product_references pr
-        WHERE pr.company_id::text = :company_id
-        ORDER BY pr.name ASC, pr.size ASC
+        WHERE {" AND ".join(where)}
+        ORDER BY
+            CASE WHEN pr.archived_at IS NULL THEN 0 ELSE 1 END,
+            pr.name ASC,
+            pr.size ASC
         """,
-        {"company_id": company_id},
+        params,
     )
 
     output = []
@@ -224,8 +292,8 @@ async def reference_rows(db: AsyncSession, company_id: str) -> list[dict[str, An
 
         output.append({
             "id": row.get("id"),
-            "name": clean(row.get("name")),
-            "size": clean(row.get("size")),
+            "name": row.get("name"),
+            "size": row.get("size"),
             "initial_quantity": initial,
             "finished_quantity": finished,
             "pending_quantity": pending,
@@ -233,6 +301,11 @@ async def reference_rows(db: AsyncSession, company_id: str) -> list[dict[str, An
             "progress_percent": progress,
             "bot_active": bool(row.get("bot_active")),
             "activation_date": row.get("activation_date"),
+            "archived": bool(row.get("archived_at")),
+            "archived_at": row.get("archived_at"),
+            "archived_by": row.get("archived_by"),
+            "archive_reason": row.get("archive_reason"),
+            "archived_snapshot_id": row.get("archived_snapshot_id"),
         })
 
     return output
@@ -1217,13 +1290,14 @@ async def production_summary(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     preset: str | None = Query("7d"),
+    view: str | None = Query("active"),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_storage(db)
 
     start, end = date_range(date_from, date_to, preset)
     modules = await active_modules(db, company_id)
-    refs = await reference_rows(db, company_id)
+    refs = await reference_rows(db, company_id, view or "active")
     closures_period = await closures_rows(db, company_id, start, end, 500)
     closures_all = await closures_all_time_rows(db, company_id, 500)
     sessions = await sessions_summary(db, company_id, start, end)
@@ -1263,12 +1337,263 @@ async def production_closures(
     }
 
 
+
+
+@router.post("/companies/{company_id}/references/{reference_id}/archive")
+async def production_archive_reference(
+    company_id: str,
+    reference_id: str,
+    payload: dict[str, Any] = Body(default={}),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_storage(db)
+
+    reason = clean(payload.get("reason")) or "Archivado desde Producción"
+    archived_by = clean(payload.get("archived_by")) or "client_panel"
+    preset = clean(payload.get("preset")) or "7d"
+    date_from = clean(payload.get("date_from")) or None
+    date_to = clean(payload.get("date_to")) or None
+
+    ref_rows = await safe_rows(
+        db,
+        """
+        SELECT to_jsonb(pr) AS row
+        FROM product_references pr
+        WHERE pr.company_id::text = :company_id
+          AND pr.id::text = :reference_id
+        LIMIT 1
+        """,
+        {
+            "company_id": company_id,
+            "reference_id": reference_id,
+        },
+    )
+
+    if not ref_rows or not isinstance(ref_rows[0].get("row"), dict):
+        raise HTTPException(status_code=404, detail="Referencia no encontrada.")
+
+    ref = ref_rows[0]["row"]
+    reference_name = clean(ref.get("name"))
+    size = clean(ref.get("size"))
+
+    snapshot_id = str(uuid.uuid4())
+
+    # Snapshot antes de archivar. Usa view=all para no perder contexto.
+    snapshot_payload = await production_summary(
+        company_id=company_id,
+        date_from=date_from,
+        date_to=date_to,
+        preset=preset,
+        view="all",
+        db=db,
+    )
+
+    await db.execute(
+        text("""
+            INSERT INTO production_archive_snapshots (
+                id,
+                company_id,
+                reference_id,
+                reference_name,
+                size,
+                snapshot_type,
+                date_from,
+                date_to,
+                payload,
+                created_at
+            )
+            VALUES (
+                :id,
+                :company_id,
+                :reference_id,
+                :reference_name,
+                :size,
+                'reference_archive',
+                CAST(:date_from AS date),
+                CAST(:date_to AS date),
+                CAST(:payload AS jsonb),
+                now()
+            )
+        """),
+        {
+            "id": snapshot_id,
+            "company_id": company_id,
+            "reference_id": reference_id,
+            "reference_name": reference_name,
+            "size": size,
+            "date_from": snapshot_payload.get("date_from"),
+            "date_to": snapshot_payload.get("date_to"),
+            "payload": json.dumps(snapshot_payload, default=str),
+        },
+    )
+
+    # Cierra sesiones activas de esta referencia para que no sigan corriendo.
+    await db.execute(
+        text("""
+            UPDATE reference_work_sessions
+            SET
+                ended_at = COALESCE(ended_at, now()),
+                status = CASE
+                    WHEN lower(COALESCE(status, '')) = 'active' OR ended_at IS NULL THEN 'closed'
+                    ELSE status
+                END,
+                duration_minutes = CASE
+                    WHEN ended_at IS NULL THEN GREATEST(
+                        COALESCE(duration_minutes, 0),
+                        CEIL(EXTRACT(EPOCH FROM (now() - started_at)) / 60.0)::int
+                    )
+                    ELSE COALESCE(duration_minutes, 0)
+                END,
+                updated_at = now()
+            WHERE company_id::text = :company_id
+              AND (
+                    reference_id::text = :reference_id
+                    OR lower(COALESCE(reference_name, '')) = lower(:reference_name)
+              )
+              AND (lower(COALESCE(status, '')) = 'active' OR ended_at IS NULL)
+        """),
+        {
+            "company_id": company_id,
+            "reference_id": reference_id,
+            "reference_name": reference_name,
+        },
+    )
+
+    # Archivar = ocultar del panel operativo y apagar del bot.
+    await db.execute(
+        text("""
+            UPDATE product_references
+            SET
+                bot_active = false,
+                archived_at = now(),
+                archived_by = :archived_by,
+                archive_reason = :reason,
+                archived_snapshot_id = :snapshot_id,
+                updated_at = now()
+            WHERE company_id::text = :company_id
+              AND id::text = :reference_id
+        """),
+        {
+            "company_id": company_id,
+            "reference_id": reference_id,
+            "archived_by": archived_by,
+            "reason": reason,
+            "snapshot_id": snapshot_id,
+        },
+    )
+
+    await db.commit()
+
+    return {
+        "ok": True,
+        "action": "reference_archived",
+        "company_id": company_id,
+        "reference_id": reference_id,
+        "reference_name": reference_name,
+        "size": size,
+        "snapshot_id": snapshot_id,
+        "panel_visible": False,
+        "bot_active": False,
+        "message": "Referencia archivada. No se borró información; quedó disponible en histórico/reportes.",
+    }
+
+
+@router.post("/companies/{company_id}/references/{reference_id}/restore")
+async def production_restore_reference(
+    company_id: str,
+    reference_id: str,
+    payload: dict[str, Any] = Body(default={}),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_storage(db)
+
+    bot_active = bool(payload.get("bot_active", True))
+
+    result = await db.execute(
+        text("""
+            UPDATE product_references
+            SET
+                archived_at = NULL,
+                archived_by = NULL,
+                archive_reason = NULL,
+                archived_snapshot_id = NULL,
+                bot_active = :bot_active,
+                updated_at = now()
+            WHERE company_id::text = :company_id
+              AND id::text = :reference_id
+            RETURNING id, name, size, bot_active
+        """),
+        {
+            "company_id": company_id,
+            "reference_id": reference_id,
+            "bot_active": bot_active,
+        },
+    )
+
+    row = result.mappings().first()
+    if not row:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="Referencia no encontrada.")
+
+    await db.commit()
+
+    return {
+        "ok": True,
+        "action": "reference_restored",
+        "company_id": company_id,
+        "reference_id": row["id"],
+        "reference_name": row["name"],
+        "size": row["size"],
+        "bot_active": bool(row["bot_active"]),
+        "panel_visible": True,
+    }
+
+
+@router.get("/companies/{company_id}/archive-snapshots")
+async def production_archive_snapshots(
+    company_id: str,
+    limit: int = Query(100),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_storage(db)
+
+    rows = await safe_rows(
+        db,
+        """
+        SELECT
+            id,
+            company_id,
+            reference_id,
+            reference_name,
+            size,
+            snapshot_type,
+            date_from::text AS date_from,
+            date_to::text AS date_to,
+            created_at::text AS created_at
+        FROM production_archive_snapshots
+        WHERE company_id::text = :company_id
+        ORDER BY created_at DESC
+        LIMIT :limit
+        """,
+        {
+            "company_id": company_id,
+            "limit": limit,
+        },
+    )
+
+    return {
+        "ok": True,
+        "company_id": company_id,
+        "items": rows,
+    }
+
 @router.get("/companies/{company_id}/export.csv")
 async def production_export_csv(
     company_id: str,
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     preset: str | None = Query("7d"),
+    view: str | None = Query("active"),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     data = await production_summary(
@@ -1276,6 +1601,7 @@ async def production_export_csv(
         date_from=date_from,
         date_to=date_to,
         preset=preset,
+        view=view,
         db=db,
     )
 

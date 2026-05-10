@@ -4878,7 +4878,7 @@
 
   async function fetchKpisSummary(period = kpisDefaultPeriod()) {
     if (!state.companyId) throw new Error("Empresa no cargada.");
-    return api(`/kpis/companies/${encodeURIComponent(state.companyId)}/summary?${kpisQuery(period)}`);
+    return api(`/kpis/companies/${encodeURIComponent(state.companyId)}/summary?view=${encodeURIComponent(state.productionReferenceView || "active")}&${kpisQuery(period)}`);
   }
 
   async function saveKpisDashboardCards(keys = []) {
@@ -5916,12 +5916,28 @@
 
   function productionReferencesTable(rows) {
     const items = Array.isArray(rows) ? rows : [];
+    const view = state.productionReferenceView || "active";
+
+    const toolbar = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;flex-wrap:wrap">
+        <div class="client-muted">Panel operativo: activas. Histórico: archivadas/todas.</div>
+        <label style="display:flex;align-items:center;gap:8px">
+          <span class="client-muted">Vista</span>
+          <select data-production-view-select style="padding:9px 12px;border-radius:12px;background:rgba(0,0,0,.22);color:inherit;border:1px solid rgba(255,255,255,.16)">
+            <option value="active" ${view === "active" ? "selected" : ""}>Activas</option>
+            <option value="archived" ${view === "archived" ? "selected" : ""}>Archivadas</option>
+            <option value="all" ${view === "all" ? "selected" : ""}>Todas</option>
+          </select>
+        </label>
+      </div>
+    `;
 
     if (!items.length) {
-      return `<div class="client-muted">Sin referencias productivas registradas.</div>`;
+      return `${toolbar}<div class="client-muted">Sin referencias en esta vista.</div>`;
     }
 
     return `
+      ${toolbar}
       <div style="overflow:auto">
         <table class="client-table" style="width:100%;border-collapse:collapse">
           <thead>
@@ -5932,27 +5948,33 @@
               <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Terminada</th>
               <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Pendiente</th>
               <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Avance</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Bot</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Estado</th>
+              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Acción</th>
             </tr>
           </thead>
           <tbody>
-            ${items.map((row) => `
-              <tr>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.name || "")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.size || "")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.initial_quantity ?? 0)}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.finished_quantity ?? 0)}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.pending_quantity ?? 0)}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08);min-width:160px">
-                  <strong>${h(row.progress_percent ?? 0)}%</strong>
-                  ${productionProgressBar(row.progress_percent)}
-                  ${Number(row.over_finished_quantity || 0) > 0 ? `<small>Sobreproducción: ${h(row.over_finished_quantity)}</small>` : ""}
-                </td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">
-                  ${row.bot_active ? "Visible" : "Oculta"}
-                </td>
-              </tr>
-            `).join("")}
+            ${items.map((row) => {
+              const archived = !!row.archived;
+              return `
+                <tr>
+                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)"><strong>${h(row.name || "")}</strong></td>
+                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.size || "")}</td>
+                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.initial_quantity ?? 0)}</td>
+                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.finished_quantity ?? 0)}</td>
+                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.pending_quantity ?? 0)}</td>
+                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.progress_percent ?? 0)}%</td>
+                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">
+                    ${archived ? `<span style="padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.08)">Archivada</span>` : `<span style="padding:6px 10px;border-radius:999px;background:rgba(0,255,180,.12)">Activa</span>`}
+                  </td>
+                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">
+                    ${archived
+                      ? `<button class="client-btn" type="button" data-production-restore-reference="${h(row.id)}">Restaurar</button>`
+                      : `<button class="client-btn client-btn-primary" type="button" data-production-archive-reference="${h(row.id)}" data-production-reference-name="${h(row.name || "")}">Exportar y archivar</button>`
+                    }
+                  </td>
+                </tr>
+              `;
+            }).join("")}
           </tbody>
         </table>
       </div>
@@ -6021,6 +6043,73 @@
     }).join("");
   }
 
+
+  async function archiveProductionReference(referenceId, referenceName) {
+    const confirmed = window.confirm(
+      `Exportar y archivar "${referenceName || "esta referencia"}"?\n\nNo se borrará información. La referencia saldrá del panel operativo, se apagará del bot y quedará en histórico.`
+    );
+
+    if (!confirmed) return;
+
+    await api(`/production-v1/companies/${state.companyId}/references/${encodeURIComponent(referenceId)}/archive`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Exportada y archivada desde panel Producción",
+        archived_by: "client_panel",
+        preset: state.productionPreset || "7d",
+        date_from: state.productionDateFrom || null,
+        date_to: state.productionDateTo || null,
+      }),
+    });
+
+    state.productionReferenceView = "active";
+    await renderProductionModule();
+  }
+
+  async function restoreProductionReference(referenceId) {
+    const confirmed = window.confirm("Restaurar referencia al panel operativo y al bot?");
+    if (!confirmed) return;
+
+    await api(`/production-v1/companies/${state.companyId}/references/${encodeURIComponent(referenceId)}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ bot_active: true }),
+    });
+
+    state.productionReferenceView = "active";
+    await renderProductionModule();
+  }
+
+
+  if (!window.__cxProductionArchive01Bound) {
+    window.__cxProductionArchive01Bound = true;
+
+    document.addEventListener("change", async (event) => {
+      const viewSelect = event.target.closest("[data-production-view-select]");
+      if (viewSelect) {
+        state.productionReferenceView = viewSelect.value || "active";
+        await renderProductionModule();
+      }
+    }, true);
+
+    document.addEventListener("click", async (event) => {
+      const archiveBtn = event.target.closest("[data-production-archive-reference]");
+      if (archiveBtn) {
+        event.preventDefault();
+        await archiveProductionReference(
+          archiveBtn.dataset.productionArchiveReference,
+          archiveBtn.dataset.productionReferenceName || ""
+        );
+        return;
+      }
+
+      const restoreBtn = event.target.closest("[data-production-restore-reference]");
+      if (restoreBtn) {
+        event.preventDefault();
+        await restoreProductionReference(restoreBtn.dataset.productionRestoreReference);
+      }
+    }, true);
+  }
+
   async function renderProductionModule() {
     const company = state.company || {};
     const b = normalizeBranding(state.branding || {});
@@ -6030,7 +6119,7 @@
     let loadError = "";
 
     try {
-      data = await api(`/production-v1/companies/${state.companyId}/summary?date_from=${range.from}&date_to=${range.to}&preset=7d`);
+      data = await api(`/production-v1/companies/${state.companyId}/summary?view=${encodeURIComponent(state.productionReferenceView || "active")}&date_from=${range.from}&date_to=${range.to}&preset=7d`);
     } catch (error) {
       loadError = error.message || "No se pudo cargar Producción.";
       data = null;
@@ -6147,7 +6236,7 @@
     let data = null;
 
     try {
-      data = await api(`/production-v1/companies/${state.companyId}/summary?${qs.toString()}`);
+      data = await api(`/production-v1/companies/${state.companyId}/summary?view=${encodeURIComponent(state.productionReferenceView || "active")}&${qs.toString()}`);
     } catch (error) {
       alert(error.message || "No se pudo actualizar Producción.");
       return;
@@ -6169,7 +6258,7 @@
       preset: query.preset,
     });
 
-    window.open(`${API}/production-v1/companies/${state.companyId}/export.csv?${qs.toString()}`, "_blank");
+    window.open(`${API}/production-v1/companies/${state.companyId}/export.csv?view=${encodeURIComponent(state.productionReferenceView || "all")}&${qs.toString()}`, "_blank");
   }
 
   if (!window.__cxProduction01Bound) {
@@ -7631,7 +7720,7 @@
 
     if (codes.has("kpis")) {
       try {
-        const summary = await api(`/kpis/companies/${encodeURIComponent(companyId)}/summary?preset=today`);
+        const summary = await api(`/kpis/companies/${encodeURIComponent(companyId)}/summary?view=${encodeURIComponent(state.productionReferenceView || "active")}&preset=today`);
         metrics.kpiDashboardCards = Array.isArray(summary.dashboard_cards)
           ? summary.dashboard_cards
           : [];
@@ -9549,7 +9638,7 @@
     if (filters.status) params.set("status", filters.status);
     if (filters.search) params.set("search", filters.search.trim());
 
-    const res = await fetch(`${API}/reports/companies/${encodeURIComponent(companyId)}/export.csv?${params.toString()}`);
+    const res = await fetch(`${API}/reports/companies/${encodeURIComponent(companyId)}/export.csv?view=${encodeURIComponent(state.productionReferenceView || "all")}&${params.toString()}`);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`${res.status} ${text}`);
