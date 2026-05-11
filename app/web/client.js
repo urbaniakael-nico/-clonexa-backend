@@ -612,18 +612,77 @@
     return active;
   }
 
+  /* CX_017H_HIDE_CORE_SETTINGS_MODULE_START */
+  const CX_HIDDEN_CLIENT_MODULE_CODES_017H = new Set([
+    "core",
+    "settings",
+    "core_settings",
+    "settings_core",
+    "client_settings",
+    "tenant_settings",
+    "company_settings",
+    "configuration",
+    "config",
+    "configuracion",
+    "ajustes"
+  ]);
+
+  function cxNormalizeModuleToken017H(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function cxIsHiddenClientModule017H(item = {}) {
+    const raw = item.raw || {};
+    const rawModule = raw.module && typeof raw.module === "object" ? raw.module : {};
+
+    const tokens = [
+      item.code,
+      item.title,
+      item.name,
+      raw.code,
+      raw.module_code,
+      raw.name,
+      raw.title,
+      rawModule.code,
+      rawModule.module_code,
+      rawModule.name,
+      rawModule.title
+    ]
+      .map(cxNormalizeModuleToken017H)
+      .filter(Boolean);
+
+    return tokens.some((token) =>
+      CX_HIDDEN_CLIENT_MODULE_CODES_017H.has(token) ||
+      token.includes("core_settings") ||
+      token.includes("tenant_settings") ||
+      token.includes("company_settings")
+    );
+  }
+
   function visibleClientModules(modules = activeClientModules()) {
-    return (Array.isArray(modules) ? modules : []).filter((item) => {
-      const code = item && item.code;
-      return code && !isClientHiddenModuleCode(code);
-    });
+    return (Array.isArray(modules) ? modules : []).filter((item) => !cxIsHiddenClientModule017H(item));
   }
 
   function isClientModuleActive(code) {
     const normalized = String(code || "").trim();
-    if (!normalized || isClientHiddenModuleCode(normalized)) return false;
-    return activeClientModules().some((module) => module.code === normalized && module.enabled);
+
+    if (!normalized || cxIsHiddenClientModule017H({ code: normalized })) {
+      return false;
+    }
+
+    return activeClientModules().some((module) =>
+      module.code === normalized &&
+      module.enabled &&
+      !cxIsHiddenClientModule017H(module)
+    );
   }
+  /* CX_017H_HIDE_CORE_SETTINGS_MODULE_END */
+
 
   function clientVisibleModuleCodes(modules = activeClientModules()) {
     return clientModuleCodes(visibleClientModules(modules));
