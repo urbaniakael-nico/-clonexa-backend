@@ -11459,4 +11459,634 @@
   /* CX_017D_PAYROLL_I18N_SOURCE_TRUTH_END */
 
 
+
+  /* CX_017E_FORCE_PAYROLL_SETTINGS_VISIBLE_START */
+  (function cx017eForcePayrollSettingsVisible() {
+    "use strict";
+
+    const CX017E_LANGUAGES = Object.freeze([
+      { code: "es", label: "EspaÃ±ol" },
+      { code: "en", label: "English" },
+      { code: "fr", label: "FranÃ§ais" },
+      { code: "pt", label: "PortuguÃªs" },
+    ]);
+
+    const CX017E_I18N = Object.freeze({
+      es: {
+        payroll_settings: "ConfiguraciÃ³n de nÃ³mina",
+        ordinary_weekly_hours: "Total de horas ordinarias semanales",
+        ordinary_weekly_hours_help: "Hasta este total se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.",
+        ordinary_weekly_hours_hint: "Ejemplo: 40, 48 o 49 segÃºn la legislaciÃ³n/configuraciÃ³n de esta empresa.",
+        save_payroll_rule: "Guardar regla de nÃ³mina",
+        saving: "Guardando...",
+        saved: "Regla de nÃ³mina guardada para esta empresa.",
+        invalid_hours: "Ingresa un total de horas ordinarias vÃ¡lido entre 1 y 168.",
+        loading: "Cargando regla de nÃ³mina...",
+        endpoint_error: "No pude guardar la regla. Revisa el endpoint de ajustes.",
+        settings: "Ajustes",
+        panel_preferences: "Preferencias del panel",
+        language: "Idioma",
+        currency: "Moneda",
+        timezone: "Zona horaria detectada",
+        dashboard: "Dashboard",
+        bots: "Bots",
+        gps: "GPS",
+        workforce: "Workforce",
+        personal: "Personal",
+        payroll: "NÃ³mina",
+        inventory: "Inventario",
+        materials: "Materiales",
+        kpis: "KPIs",
+        crm_field: "CRM Campo",
+        reports: "Reportes",
+        back: "Volver",
+        logout: "Cerrar sesiÃ³n",
+        session: "SesiÃ³n",
+        change_email: "Cambiar correo",
+        change_password: "Cambiar contraseÃ±a",
+        current_password: "ContraseÃ±a actual",
+        new_password: "Nueva contraseÃ±a",
+        confirm_new_password: "Confirmar nueva contraseÃ±a",
+        active_tenant: "Tenant activo",
+        total: "Total",
+        active: "Activos",
+        inactive: "Inactivos",
+        archived: "Archivados",
+        search: "Buscar",
+        filters: "Filtros",
+        all: "Todos",
+        status: "Estado",
+        actions: "Acciones",
+        export_csv: "Exportar CSV"
+      },
+      en: {
+        payroll_settings: "Payroll settings",
+        ordinary_weekly_hours: "Total weekly regular hours",
+        ordinary_weekly_hours_help: "Up to this total is calculated as regular time. After that total, time is calculated as overtime. Breaks do not count.",
+        ordinary_weekly_hours_hint: "Example: 40, 48, or 49 depending on this companyâ€™s rules.",
+        save_payroll_rule: "Save payroll rule",
+        saving: "Saving...",
+        saved: "Payroll rule saved for this company.",
+        invalid_hours: "Enter a valid regular-hours total between 1 and 168.",
+        loading: "Loading payroll rule...",
+        endpoint_error: "I could not save the rule. Check the settings endpoint.",
+        settings: "Settings",
+        panel_preferences: "Panel preferences",
+        language: "Language",
+        currency: "Currency",
+        timezone: "Detected time zone",
+        dashboard: "Dashboard",
+        bots: "Bots",
+        gps: "GPS",
+        workforce: "Workforce",
+        personal: "People",
+        payroll: "Payroll",
+        inventory: "Inventory",
+        materials: "Materials",
+        kpis: "KPIs",
+        crm_field: "Field CRM",
+        reports: "Reports",
+        back: "Back",
+        logout: "Log out",
+        session: "Session",
+        change_email: "Change email",
+        change_password: "Change password",
+        current_password: "Current password",
+        new_password: "New password",
+        confirm_new_password: "Confirm new password",
+        active_tenant: "Active tenant",
+        total: "Total",
+        active: "Active",
+        inactive: "Inactive",
+        archived: "Archived",
+        search: "Search",
+        filters: "Filters",
+        all: "All",
+        status: "Status",
+        actions: "Actions",
+        export_csv: "Export CSV"
+      },
+      fr: {
+        payroll_settings: "Configuration de paie",
+        ordinary_weekly_hours: "Total dâ€™heures ordinaires hebdomadaires",
+        ordinary_weekly_hours_help: "Jusquâ€™Ã  ce total, le temps est calculÃ© comme ordinaire. Au-delÃ , il est calculÃ© comme heure supplÃ©mentaire. Les pauses ne comptent pas.",
+        ordinary_weekly_hours_hint: "Exemple : 40, 48 ou 49 selon les rÃ¨gles de cette entreprise.",
+        save_payroll_rule: "Enregistrer la rÃ¨gle de paie",
+        saving: "Enregistrement...",
+        saved: "RÃ¨gle de paie enregistrÃ©e pour cette entreprise.",
+        invalid_hours: "Saisissez un total dâ€™heures ordinaires valide entre 1 et 168.",
+        loading: "Chargement de la rÃ¨gle de paie...",
+        endpoint_error: "Impossible dâ€™enregistrer la rÃ¨gle. VÃ©rifiez lâ€™endpoint des rÃ©glages.",
+        settings: "RÃ©glages",
+        panel_preferences: "PrÃ©fÃ©rences du panneau",
+        language: "Langue",
+        currency: "Devise",
+        timezone: "Fuseau horaire dÃ©tectÃ©",
+        dashboard: "Tableau de bord",
+        bots: "Bots",
+        gps: "GPS",
+        workforce: "Personnel",
+        personal: "Personnel",
+        payroll: "Paie",
+        inventory: "Inventaire",
+        materials: "MatÃ©riaux",
+        kpis: "KPIs",
+        crm_field: "CRM Terrain",
+        reports: "Rapports",
+        back: "Retour",
+        logout: "Se dÃ©connecter",
+        session: "Session",
+        change_email: "Changer lâ€™e-mail",
+        change_password: "Changer le mot de passe",
+        current_password: "Mot de passe actuel",
+        new_password: "Nouveau mot de passe",
+        confirm_new_password: "Confirmer le nouveau mot de passe",
+        active_tenant: "Tenant actif",
+        total: "Total",
+        active: "Actifs",
+        inactive: "Inactifs",
+        archived: "ArchivÃ©s",
+        search: "Rechercher",
+        filters: "Filtres",
+        all: "Tous",
+        status: "Statut",
+        actions: "Actions",
+        export_csv: "Exporter CSV"
+      },
+      pt: {
+        payroll_settings: "ConfiguraÃ§Ã£o da folha",
+        ordinary_weekly_hours: "Total de horas ordinÃ¡rias semanais",
+        ordinary_weekly_hours_help: "AtÃ© este total Ã© calculado como tempo ordinÃ¡rio. A partir desse total Ã© calculado como hora extra. Pausas nÃ£o contam.",
+        ordinary_weekly_hours_hint: "Exemplo: 40, 48 ou 49 conforme as regras desta empresa.",
+        save_payroll_rule: "Salvar regra da folha",
+        saving: "Salvando...",
+        saved: "Regra da folha salva para esta empresa.",
+        invalid_hours: "Insira um total de horas ordinÃ¡rias vÃ¡lido entre 1 e 168.",
+        loading: "Carregando regra da folha...",
+        endpoint_error: "NÃ£o consegui salvar a regra. Verifique o endpoint de ajustes.",
+        settings: "Ajustes",
+        panel_preferences: "PreferÃªncias do painel",
+        language: "Idioma",
+        currency: "Moeda",
+        timezone: "Fuso horÃ¡rio detectado",
+        dashboard: "Dashboard",
+        bots: "Bots",
+        gps: "GPS",
+        workforce: "Equipe",
+        personal: "Pessoal",
+        payroll: "Folha",
+        inventory: "InventÃ¡rio",
+        materials: "Materiais",
+        kpis: "KPIs",
+        crm_field: "CRM Campo",
+        reports: "RelatÃ³rios",
+        back: "Voltar",
+        logout: "Sair",
+        session: "SessÃ£o",
+        change_email: "Alterar e-mail",
+        change_password: "Alterar senha",
+        current_password: "Senha atual",
+        new_password: "Nova senha",
+        confirm_new_password: "Confirmar nova senha",
+        active_tenant: "Tenant ativo",
+        total: "Total",
+        active: "Ativos",
+        inactive: "Inativos",
+        archived: "Arquivados",
+        search: "Buscar",
+        filters: "Filtros",
+        all: "Todos",
+        status: "Status",
+        actions: "AÃ§Ãµes",
+        export_csv: "Exportar CSV"
+      }
+    });
+
+    window.CLONEXA_I18N = window.CLONEXA_I18N || {};
+    window.CLONEXA_I18N.languages = CX017E_LANGUAGES;
+    window.CLONEXA_I18N.dictionary = Object.assign({}, window.CLONEXA_I18N.dictionary || {}, CX017E_I18N);
+
+    function companyId() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        return (window.state && window.state.companyId) ||
+          (typeof state !== "undefined" && state.companyId) ||
+          params.get("company_id") ||
+          params.get("companyId") ||
+          localStorage.getItem("clonexa_company_id") ||
+          localStorage.getItem("company_id") ||
+          "";
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function readStoredSettings() {
+      const candidates = [
+        "clonexa_client_settings",
+        "CLONEXA_CLIENT_SETTINGS",
+        `clonexa_client_settings_${companyId()}`,
+      ];
+      for (const key of candidates) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === "object") return parsed.settings || parsed;
+        } catch (_) {}
+      }
+      return (window.CLONEXA_CLIENT_SETTINGS && typeof window.CLONEXA_CLIENT_SETTINGS === "object")
+        ? window.CLONEXA_CLIENT_SETTINGS
+        : {};
+    }
+
+    function lang() {
+      const settings = readStoredSettings();
+      const raw = settings.language ||
+        settings.locale ||
+        localStorage.getItem("clonexa_client_language") ||
+        document.documentElement.lang ||
+        "es";
+      return CX017E_I18N[raw] ? raw : "es";
+    }
+
+    function t(key) {
+      const code = lang();
+      return (CX017E_I18N[code] && CX017E_I18N[code][key]) ||
+        (CX017E_I18N.es && CX017E_I18N.es[key]) ||
+        key;
+    }
+
+    window.CLONEXA_I18N.t = window.CLONEXA_I18N.t || t;
+
+    function normalize(value) {
+      return String(value || "")
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+    }
+
+    function installStyle() {
+      if (document.getElementById("cx017e-payroll-settings-style")) return;
+      const style = document.createElement("style");
+      style.id = "cx017e-payroll-settings-style";
+      style.textContent = `
+        #cx017ePayrollSettingsCard{
+          border:1px solid rgba(255,255,255,.18);
+          border-radius:24px;
+          padding:24px;
+          background:linear-gradient(145deg,rgba(255,255,255,.075),rgba(255,43,214,.11));
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 18px 60px rgba(0,0,0,.18);
+          color:inherit;
+          margin:16px 0;
+          min-width:0;
+        }
+        #cx017ePayrollSettingsCard h3{
+          margin:0 0 10px;
+          font-size:20px;
+          font-weight:1000;
+          letter-spacing:-.02em;
+        }
+        #cx017ePayrollSettingsCard p{
+          margin:0 0 14px;
+          opacity:.76;
+          line-height:1.45;
+          font-weight:700;
+        }
+        .cx017e-payroll-row{
+          display:grid;
+          grid-template-columns:minmax(160px,1fr) auto;
+          gap:12px;
+          align-items:end;
+        }
+        #cx017ePayrollSettingsCard label{
+          display:grid;
+          gap:8px;
+          font-size:12px;
+          font-weight:1000;
+          letter-spacing:.12em;
+          text-transform:uppercase;
+          opacity:.88;
+        }
+        #cx017ePayrollOrdinaryHoursLimit{
+          width:100%;
+          box-sizing:border-box;
+          border:1px solid rgba(255,255,255,.16);
+          border-radius:16px;
+          padding:14px 16px;
+          background:rgba(0,0,0,.32);
+          color:inherit;
+          font-size:16px;
+          font-weight:1000;
+          outline:none;
+        }
+        #cx017ePayrollSaveBtn{
+          border:0;
+          border-radius:16px;
+          padding:14px 20px;
+          min-height:48px;
+          cursor:pointer;
+          color:#fff;
+          font-weight:1000;
+          background:linear-gradient(135deg,#ff1fb8,#8b5cf6);
+          white-space:nowrap;
+        }
+        #cx017ePayrollStatus{
+          margin-top:12px;
+          min-height:18px;
+          font-size:13px;
+          font-weight:900;
+          opacity:.82;
+        }
+        #cx017ePayrollStatus.error{color:#fecaca;opacity:1}
+        @media (max-width:820px){.cx017e-payroll-row{grid-template-columns:1fr}}
+      `;
+      document.head.appendChild(style);
+    }
+
+    async function requestJson(path, options = {}) {
+      const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
+      const response = await fetch(path, Object.assign({}, options, { headers }));
+      const text = await response.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { raw: text }; }
+      if (!response.ok) {
+        const err = new Error(data.detail || data.message || `HTTP ${response.status}`);
+        err.status = response.status;
+        err.data = data;
+        throw err;
+      }
+      return data;
+    }
+
+    async function loadSettings() {
+      const id = companyId();
+      if (!id) return {};
+      const paths = [
+        `/api/v1/companies/${encodeURIComponent(id)}/client-settings?ts=${Date.now()}`,
+        `/api/v1/company-settings-v1/companies/${encodeURIComponent(id)}?ts=${Date.now()}`
+      ];
+      for (const path of paths) {
+        try {
+          const data = await requestJson(path);
+          const settings = data.settings || data.client_settings || data || {};
+          window.CLONEXA_CLIENT_SETTINGS = settings;
+          try { localStorage.setItem("clonexa_client_settings", JSON.stringify(settings)); } catch (_) {}
+          return settings;
+        } catch (_) {}
+      }
+      return readStoredSettings();
+    }
+
+    function mergeDeep(base = {}, extra = {}) {
+      const out = Object.assign({}, base || {});
+      Object.entries(extra || {}).forEach(([key, value]) => {
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          out[key] = mergeDeep(out[key] && typeof out[key] === "object" ? out[key] : {}, value);
+        } else if (value !== undefined) {
+          out[key] = value;
+        }
+      });
+      return out;
+    }
+
+    async function saveSettings(payload) {
+      const id = companyId();
+      if (!id) throw new Error("company_id missing");
+
+      const paths = [
+        `/api/v1/companies/${encodeURIComponent(id)}/client-settings`,
+        `/api/v1/company-settings-v1/companies/${encodeURIComponent(id)}`
+      ];
+
+      let lastError = null;
+      for (const path of paths) {
+        try {
+          const data = await requestJson(path, {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          });
+          const settings = data.settings || data.client_settings || payload;
+          window.CLONEXA_CLIENT_SETTINGS = settings;
+          try { localStorage.setItem("clonexa_client_settings", JSON.stringify(settings)); } catch (_) {}
+          return settings;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new Error(t("endpoint_error"));
+    }
+
+    function modalCandidates() {
+      const fixed = Array.from(document.querySelectorAll("body *")).filter((el) => {
+        const cs = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        if (r.width < 320 || r.height < 220) return false;
+        if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity || 1) === 0) return false;
+        const txt = normalize(el.textContent || "");
+        return txt.includes("ajustes") ||
+          txt.includes("settings") ||
+          txt.includes("reglages") ||
+          txt.includes("preferencias del panel") ||
+          txt.includes("panel preferences") ||
+          txt.includes("cambiar correo") ||
+          txt.includes("change email");
+      });
+      const exact = document.getElementById("clx-account-modal");
+      if (exact) fixed.unshift(exact);
+      const unique = [];
+      fixed.forEach((el) => {
+        if (!unique.includes(el)) unique.push(el);
+      });
+      return unique;
+    }
+
+    function findSettingsModal() {
+      const candidates = modalCandidates();
+      const scored = candidates.map((el) => {
+        const txt = normalize(el.textContent || "");
+        const r = el.getBoundingClientRect();
+        let score = 0;
+        if (el.id === "clx-account-modal") score += 100;
+        if (txt.includes("preferencias del panel") || txt.includes("panel preferences")) score += 60;
+        if (txt.includes("cambiar correo") || txt.includes("change email")) score += 50;
+        if (txt.includes("ajustes") || txt.includes("settings")) score += 30;
+        if (r.top >= 0 && r.left >= 0) score += 10;
+        score += Math.min(20, Math.round((r.width * r.height) / 50000));
+        return { el, score };
+      }).sort((a, b) => b.score - a.score);
+      return scored[0] ? scored[0].el : null;
+    }
+
+    function findPreferencesCard(modal) {
+      if (!modal) return null;
+      const headings = Array.from(modal.querySelectorAll("h1,h2,h3,h4,strong,label,span,div,p")).filter((el) => {
+        const txt = normalize(el.textContent || "");
+        return txt.includes("preferencias del panel") ||
+          txt.includes("panel preferences") ||
+          txt.includes("preferences") ||
+          txt.includes("preferencias") ||
+          txt.includes("idioma") ||
+          txt.includes("language") ||
+          txt.includes("moneda") ||
+          txt.includes("currency");
+      });
+
+      for (const heading of headings) {
+        let node = heading;
+        let best = null;
+        for (let i = 0; i < 8 && node && node !== modal; i += 1) {
+          const r = node.getBoundingClientRect();
+          const txt = normalize(node.textContent || "");
+          if (r.width >= 220 && r.height >= 80 && r.height <= 700 && (
+              txt.includes("idioma") || txt.includes("language") || txt.includes("moneda") || txt.includes("currency")
+            )) {
+            best = node;
+          }
+          node = node.parentElement;
+        }
+        if (best) return best;
+      }
+      return null;
+    }
+
+    function cardHtml(hours) {
+      const value = Number.isFinite(Number(hours)) && Number(hours) > 0 ? Number(hours) : 48;
+      return `
+        <h3>${t("payroll_settings")}</h3>
+        <p>${t("ordinary_weekly_hours_help")}</p>
+        <div class="cx017e-payroll-row">
+          <label for="cx017ePayrollOrdinaryHoursLimit">${t("ordinary_weekly_hours")}
+            <input id="cx017ePayrollOrdinaryHoursLimit" type="number" min="1" max="168" step="0.25" value="${String(value).replace('"', "&quot;")}" placeholder="48">
+          </label>
+          <button id="cx017ePayrollSaveBtn" type="button">${t("save_payroll_rule")}</button>
+        </div>
+        <p style="margin-top:10px;font-size:12px">${t("ordinary_weekly_hours_hint")}</p>
+        <div id="cx017ePayrollStatus"></div>
+      `;
+    }
+
+    async function inject() {
+      installStyle();
+      const modal = findSettingsModal();
+      if (!modal) return false;
+
+      let card = document.getElementById("cx017ePayrollSettingsCard");
+      if (!card) {
+        card = document.createElement("section");
+        card.id = "cx017ePayrollSettingsCard";
+        const preferenceCard = findPreferencesCard(modal);
+        if (preferenceCard && preferenceCard.parentElement) {
+          preferenceCard.insertAdjacentElement("afterend", card);
+        } else {
+          const grid = Array.from(modal.querySelectorAll("div,section,article")).find((el) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 500 && r.height > 250 && window.getComputedStyle(el).display.includes("grid");
+          });
+          if (grid) grid.insertBefore(card, grid.children[1] || null);
+          else modal.appendChild(card);
+        }
+      }
+
+      const status = card.querySelector("#cx017ePayrollStatus");
+      if (status) status.textContent = t("loading");
+
+      const settings = await loadSettings();
+      const hours =
+        settings?.payroll?.ordinary_hours_limit ??
+        settings?.payroll?.regular_hours_limit ??
+        settings?.payroll_regular_hours_limit ??
+        settings?.ordinary_hours_limit ??
+        48;
+
+      card.innerHTML = cardHtml(hours);
+      return true;
+    }
+
+    async function saveRule() {
+      const input = document.getElementById("cx017ePayrollOrdinaryHoursLimit");
+      const status = document.getElementById("cx017ePayrollStatus");
+      const hours = Number(String(input && input.value || "").replace(",", "."));
+      if (!Number.isFinite(hours) || hours <= 0 || hours > 168) {
+        if (status) {
+          status.textContent = t("invalid_hours");
+          status.classList.add("error");
+        }
+        return;
+      }
+
+      if (status) {
+        status.textContent = t("saving");
+        status.classList.remove("error");
+      }
+
+      try {
+        const current = await loadSettings();
+        const next = mergeDeep(current, {
+          payroll: {
+            ordinary_hours_limit: hours,
+            pause_policy: current?.payroll?.pause_policy || "exclude",
+          },
+          payroll_regular_hours_limit: hours
+        });
+        await saveSettings(next);
+        if (status) status.textContent = t("saved");
+      } catch (error) {
+        if (status) {
+          status.textContent = error.message || t("endpoint_error");
+          status.classList.add("error");
+        }
+      }
+    }
+
+    function scheduleInject(times = [0, 80, 220, 500, 1000, 1800, 3000]) {
+      times.forEach((ms) => setTimeout(() => inject().catch(() => {}), ms));
+    }
+
+    function bind() {
+      if (window.__cx017ePayrollVisibleBound) return;
+      window.__cx017ePayrollVisibleBound = true;
+
+      document.addEventListener("click", (event) => {
+        if (event.target && event.target.closest && event.target.closest("#cx017ePayrollSaveBtn")) {
+          event.preventDefault();
+          event.stopPropagation();
+          saveRule();
+          return;
+        }
+
+        const txt = normalize(event.target && event.target.textContent || "");
+        if (
+          txt.includes("ajustes") ||
+          txt.includes("settings") ||
+          (event.target && event.target.closest && event.target.closest("#clxAccountAjustesBtn")) ||
+          (event.target && event.target.closest && event.target.closest("[data-action='settings']"))
+        ) {
+          scheduleInject();
+        }
+      }, true);
+
+      const observer = new MutationObserver(() => {
+        clearTimeout(window.__cx017ePayrollTimer);
+        window.__cx017ePayrollTimer = setTimeout(() => {
+          const modal = findSettingsModal();
+          const hasCard = document.getElementById("cx017ePayrollSettingsCard");
+          if (modal && !hasCard) inject().catch(() => {});
+        }, 120);
+      });
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+
+      scheduleInject([300, 900, 1800]);
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", bind);
+    } else {
+      bind();
+    }
+  })();
+  /* CX_017E_FORCE_PAYROLL_SETTINGS_VISIBLE_END */
+
+
 })();
