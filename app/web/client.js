@@ -12,7 +12,6 @@
     companyModules: [],
     personalHistoryRows: [],
     dashboardMetrics: {},
-    clientSettings: null,
   };
 
   const h = (value) =>
@@ -49,198 +48,6 @@
     return /^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
   }
 
-
-  /* CX_017C_CLIENT_SETTINGS_SOURCE_START */
-  const DEFAULT_CLIENT_SETTINGS = Object.freeze({
-    language: "es",
-    currency: "COP",
-    timezone: "America/Bogota",
-    inactivity_lock_minutes: 30,
-    session_timeout_minutes: 30,
-    payroll: {
-      ordinary_hours_limit: 48,
-      pause_policy: "exclude",
-    },
-    payroll_cuts: {
-      allow_close: true,
-      allow_export: true,
-      allow_archive: true,
-    },
-  });
-
-  function clientDeepMerge(base = {}, extra = {}) {
-    const output = { ...(base || {}) };
-    Object.entries(extra || {}).forEach(([key, value]) => {
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        output[key] = clientDeepMerge(output[key] && typeof output[key] === "object" ? output[key] : {}, value);
-      } else if (value !== undefined && value !== null && value !== "") {
-        output[key] = value;
-      }
-    });
-    return output;
-  }
-
-  function normalizeClientSettings(raw = {}, company = {}) {
-    const source = raw && raw.settings && typeof raw.settings === "object" ? raw.settings : (raw || {});
-    const nested = source.client_settings && typeof source.client_settings === "object" ? source.client_settings : source;
-    const legacyLocalization = source.localization && typeof source.localization === "object" ? source.localization : {};
-    const companyJson = company?.settings_json && typeof company.settings_json === "object" ? company.settings_json : {};
-    const companyClientSettings = companyJson.client_settings && typeof companyJson.client_settings === "object" ? companyJson.client_settings : {};
-    const companyLocalization = companyJson.localization && typeof companyJson.localization === "object" ? companyJson.localization : {};
-
-    const merged = clientDeepMerge(DEFAULT_CLIENT_SETTINGS, companyClientSettings);
-    const withCompany = clientDeepMerge(merged, {
-      language: companyLocalization.language,
-      currency: companyLocalization.currency,
-      timezone: company.timezone || companyLocalization.timezone,
-      payroll: companyJson.payroll,
-      payroll_cuts: companyJson.payroll_cuts,
-    });
-    const withLegacy = clientDeepMerge(withCompany, {
-      language: legacyLocalization.language,
-      currency: legacyLocalization.currency,
-      timezone: legacyLocalization.timezone,
-      payroll: source.payroll,
-      payroll_cuts: source.payroll_cuts,
-    });
-    const normalized = clientDeepMerge(withLegacy, nested);
-
-    const language = String(normalized.language || DEFAULT_CLIENT_SETTINGS.language).trim().toLowerCase();
-    const currency = String(normalized.currency || DEFAULT_CLIENT_SETTINGS.currency).trim().toUpperCase();
-    const timezone = String(normalized.timezone || company.timezone || DEFAULT_CLIENT_SETTINGS.timezone).trim();
-    const inactivity = Number(normalized.inactivity_lock_minutes || normalized.session_timeout_minutes || DEFAULT_CLIENT_SETTINGS.inactivity_lock_minutes);
-    const hours = Number(String(normalized?.payroll?.ordinary_hours_limit ?? DEFAULT_CLIENT_SETTINGS.payroll.ordinary_hours_limit).replace(",", "."));
-
-    return {
-      ...normalized,
-      language: ["es", "en", "fr", "pt"].includes(language) ? language : "es",
-      currency: currency || "COP",
-      timezone: timezone || "America/Bogota",
-      inactivity_lock_minutes: Number.isFinite(inactivity) && inactivity > 0 ? inactivity : 30,
-      session_timeout_minutes: Number.isFinite(inactivity) && inactivity > 0 ? inactivity : 30,
-      payroll: {
-        ...(normalized.payroll || {}),
-        ordinary_hours_limit: Number.isFinite(hours) && hours > 0 ? hours : DEFAULT_CLIENT_SETTINGS.payroll.ordinary_hours_limit,
-        pause_policy: normalized?.payroll?.pause_policy || "exclude",
-      },
-      payroll_cuts: {
-        allow_close: normalized?.payroll_cuts?.allow_close !== false,
-        allow_export: normalized?.payroll_cuts?.allow_export !== false,
-        allow_archive: normalized?.payroll_cuts?.allow_archive !== false,
-      },
-    };
-  }
-
-  function persistClientSettings(settings = {}) {
-    const normalized = normalizeClientSettings(settings, state.company || {});
-    state.clientSettings = normalized;
-    window.CLONEXA_CLIENT_SETTINGS = normalized;
-    localStorage.setItem("clonexa_client_settings", JSON.stringify(normalized));
-    localStorage.setItem("clonexa_client_language", normalized.language);
-    localStorage.setItem("clonexa_client_currency", normalized.currency);
-    localStorage.setItem("clonexa_client_timezone", normalized.timezone);
-    return normalized;
-  }
-
-  function getClientSetting(path, fallback = null) {
-    const settings = state.clientSettings || normalizeClientSettings({}, state.company || {});
-    if (!path) return settings;
-    const value = String(path).split(".").reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), settings);
-    return value === undefined || value === null || value === "" ? fallback : value;
-  }
-
-  function clientLocale() {
-    const language = getClientSetting("language", localStorage.getItem("clonexa_client_language") || "es");
-    const currency = getClientSetting("currency", localStorage.getItem("clonexa_client_currency") || "COP");
-    if (language === "en") return currency === "USD" ? "en-US" : "en-GB";
-    if (language === "fr") return "fr-FR";
-    if (language === "pt") return "pt-BR";
-    return "es-CO";
-  }
-
-  function clientNumber(value, options = {}) {
-    const n = Number(value || 0);
-    if (!Number.isFinite(n)) return "0";
-    return n.toLocaleString(clientLocale(), options);
-  }
-
-  function clientDateTime(value, options = {}) {
-    if (!value) return "â€”";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleString(clientLocale(), {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: getClientSetting("timezone", "America/Bogota"),
-      ...options,
-    });
-  }
-
-  function formatMoney(value, options = {}) {
-    const n = Number(value || 0);
-    const currency = String(options.currency || getClientSetting("currency", localStorage.getItem("clonexa_client_currency") || "COP")).toUpperCase();
-    return new Intl.NumberFormat(clientLocale(), {
-      style: "currency",
-      currency,
-      minimumFractionDigits: options.minimumFractionDigits ?? 0,
-      maximumFractionDigits: options.maximumFractionDigits ?? 2,
-    }).format(Number.isFinite(n) ? n : 0);
-  }
-
-  function getPayrollRegularHoursLimit() {
-    const hours = Number(String(getClientSetting("payroll.ordinary_hours_limit", 48)).replace(",", "."));
-    return Number.isFinite(hours) && hours > 0 ? hours : 48;
-  }
-
-  function translateLabel(key) {
-    const language = getClientSetting("language", "es");
-    const dictionary = {
-      es: { dashboard: "Dashboard", settings: "Ajustes", payroll: "NÃ³mina", currency: "Moneda" },
-      en: { dashboard: "Dashboard", settings: "Settings", payroll: "Payroll", currency: "Currency" },
-      fr: { dashboard: "Tableau de bord", settings: "RÃ©glages", payroll: "Paie", currency: "Devise" },
-      pt: { dashboard: "Dashboard", settings: "Ajustes", payroll: "Folha", currency: "Moeda" },
-    };
-    return dictionary[language]?.[key] || dictionary.es[key] || key;
-  }
-
-  async function loadUnifiedClientSettings() {
-    try {
-      return await api(`/companies/${encodeURIComponent(state.companyId)}/client-settings?ts=${Date.now()}`);
-    } catch (primaryError) {
-      try {
-        return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}?ts=${Date.now()}`);
-      } catch (_) {
-        throw primaryError;
-      }
-    }
-  }
-
-  async function saveUnifiedClientSettings(payload = {}) {
-    try {
-      return await api(`/companies/${encodeURIComponent(state.companyId)}/client-settings`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-    } catch (primaryError) {
-      return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-    }
-  }
-
-  window.CLONEXA_CLIENT = {
-    getClientSetting,
-    formatMoney,
-    getPayrollRegularHoursLimit,
-    translateLabel,
-  };
-  /* CX_017C_CLIENT_SETTINGS_SOURCE_END */
-
-
   function normalizeBranding(raw = {}) {
     const allowedStyles = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid"];
     const allowedFonts = ["Inter", "Manrope", "Sora", "Space Grotesk", "Rajdhani", "Orbitron", "Poppins", "Montserrat"];
@@ -273,7 +80,7 @@
     };
   }
 
-  function brandingVolverground(b) {
+  function brandingBackground(b) {
     if (b.background_style === "holografico") {
       return `
         radial-gradient(circle at 0% 0%, ${b.primary_color}88, transparent 32%),
@@ -462,7 +269,7 @@
         margin: 0;
         min-height: 100vh;
         color: ${b.text_color};
-        background: ${brandingVolverground(b)} !important;
+        background: ${brandingBackground(b)} !important;
         font-family: ${fp.family} !important;
         overflow-x: hidden;
       }
@@ -719,21 +526,21 @@
   const MODULE_UI = {
     core: ["Core", "base operativa", "COR"],
     workforce: ["Workforce", "personal operativo", "WRK"],
-    field: ["Field Ops", "operación en campo", "FLD"],
+    field: ["Field Ops", "operacion en campo", "FLD"],
     technicians: ["Tecnicos", "inicio turno y estados", "TEC"],
     gps: ["GPS", "ubicacion y rutas", "GPS"],
     tasks: ["Tareas / Solicitudes", "solicitudes operativas", "TSK"],
     requests: ["Solicitudes", "flujo de aprobacion", "REQ"],
     inventory: ["Inventario", "stock y materiales", "INV"],
     materials: ["Materiales", "solicitud y devolucion", "MAT"],
-    payroll: ["Nómina", "corte y calculo", "PAY"],
-    payroll_biweekly: ["Nómina Quincenal", "corte actual", "PAY"],
+    payroll: ["Nomina", "corte y calculo", "PAY"],
+    payroll_biweekly: ["Nomina Quincenal", "corte actual", "PAY"],
     billing: ["Billing", "cobros y facturacion", "BIL"],
     reports: ["Reportes", "metricas y auditoria", "REP"],
     kpis: ["KPIs", "indicadores operativos", "KPI"],
-    crm: ["CRM Campo", "operación en vivo", "CRM"],
-    settings: ["Configuración", "ajustes del tenant", "CFG"],
-    production: ["Producción", "referencias y costos", "PRD"],
+    crm: ["CRM Campo", "operacion en vivo", "CRM"],
+    settings: ["Configuracion", "ajustes del tenant", "CFG"],
+    production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
     sales: ["Ventas", "actividad comercial", "SAL"],
     stores: ["Tiendas", "puntos de venta", "STR"],
@@ -753,7 +560,7 @@
     ).trim();
 
     const meta = MODULE_UI[code] || [
-      source.name || code || `Módulo ${index + 1}`,
+      source.name || code || `Modulo ${index + 1}`,
       source.description || source.category || "servicio activo",
       (code || String(index + 1)).slice(0, 3).toUpperCase(),
     ];
@@ -781,10 +588,10 @@
   }
 
   function visibleClientModules(modules = activeClientModules()) {
-    return (Array.isArray(modules) ? modules : []).filter((item) => !["core", "core_settings", "settings"].includes(item.code));
+    return (Array.isArray(modules) ? modules : []).filter((item) => item.code !== "core");
   }
 
-  function isClientModuleActivo(code) {
+  function isClientModuleActive(code) {
     const normalized = String(code || "").trim();
     if (!normalized || normalized === "core") return false;
     return activeClientModules().some((module) => module.code === normalized && module.enabled);
@@ -796,7 +603,7 @@
 
   function moduleLabel(code) {
     const meta = MODULE_UI[String(code || "").trim()];
-    return meta ? meta[0] : String(code || "Módulo");
+    return meta ? meta[0] : String(code || "Modulo");
   }
 
 
@@ -813,77 +620,11 @@
     return options.some((code) => codes.has(code));
   }
 
-  /* CX_VELVET_DASHBOARD_FORCE_02_START */
-  const CX_VELVET_LAB_COMPANY_ID = "d63cf68c-be5b-4a30-aee4-341973018db1";
-
-  function isVelvetLabTenant() {
-    return String(state.companyId || "").toLowerCase() === CX_VELVET_LAB_COMPANY_ID;
-  }
-
-  function clientDashboardCompanyName(company = {}) {
-    if (isVelvetLabTenant()) return "VELVET LAB";
-    return company.name || "Empresa";
-  }
-
-  function velvetDashboardPercent(value) {
-    const n = Number(value || 0);
-    if (!Number.isFinite(n)) return "0%";
-    return `${clientNumber(n, { maximumFractionDigits: 2 })}%`;
-  }
-
-  async function loadVelvetLabDashboardMetrics() {
-    if (!isVelvetLabTenant()) return;
-
-    const metrics = state.dashboardMetrics || {};
-    state.dashboardMetrics = metrics;
-
-    const [crmResult, refsResult, prodResult] = await Promise.allSettled([
-      api(`/crm-core-v1/companies/${encodeURIComponent(state.companyId)}/snapshot?ts=${Date.now()}`),
-      api(`/references-v1/companies/${encodeURIComponent(state.companyId)}/summary?ts=${Date.now()}`),
-      api(`/production-v1/companies/${encodeURIComponent(state.companyId)}/summary?preset=7d&view=active&ts=${Date.now()}`),
-    ]);
-
-    if (crmResult.status === "fulfilled") {
-      metrics.velvetPersonalConnected = Number(crmResult.value?.summary?.active_now || 0);
-      metrics.velvetPersonalPaused = Number(crmResult.value?.summary?.on_break || 0);
-    }
-
-    if (refsResult.status === "fulfilled") {
-      metrics.velvetActiveReferences = Number(
-        refsResult.value?.bot_active_total ??
-        refsResult.value?.active_total ??
-        refsResult.value?.references_active ??
-        refsResult.value?.references_total ??
-        0
-      );
-    }
-
-    if (prodResult.status === "fulfilled") {
-      metrics.velvetProductionProgress = Number(
-        prodResult.value?.totals?.progress_percent ??
-        prodResult.value?.summary?.progress_percent ??
-        0
-      );
-    }
-  }
-  /* CX_VELVET_DASHBOARD_FORCE_02_END */
-
-
-
   function buildClientHeroKpis(modules = [], company = {}) {
     const visible = visibleClientModules(modules);
     const codes = clientModuleCodes(visible);
     const total = Array.isArray(visible) ? visible.length : 0;
     const metrics = state.dashboardMetrics || {};
-
-    if (isVelvetLabTenant()) {
-      return [
-        ["Personal conectado", String(metrics.velvetPersonalConnected ?? 0)],
-        ["Personal pausa", String(metrics.velvetPersonalPaused ?? 0)],
-        ["Total referencias activas", String(metrics.velvetActiveReferences ?? 0)],
-        ["% producción avance", velvetDashboardPercent(metrics.velvetProductionProgress ?? 0)],
-      ];
-    }
 
     if (Array.isArray(metrics.kpiDashboardCards) && metrics.kpiDashboardCards.length) {
       return metrics.kpiDashboardCards.slice(0, 4).map((card) => [
@@ -912,13 +653,13 @@
       kpis.push(["Ventas", metrics.salesToday ?? "0"]);
     }
 
-    if (hasAnyClientModule(codes, ["inventory", "stock"])) {
-      kpis.push(["Stock bajo", metrics.lowStock ?? "0"]);
+    if (hasAnyClientModule(codes, ["stores"])) {
+      kpis.push(["Tiendas", metrics.storesActive ?? "OK"]);
     }
 
     if (!kpis.length) {
       kpis.push(["Empresa", company.name || "Activa"]);
-      kpis.push(["Módulos activos", String(total)]);
+      kpis.push(["Modulos activos", String(total)]);
       kpis.push(["Estado", "LIVE"]);
     }
 
@@ -956,7 +697,7 @@
     }
 
     if (!actions.length) {
-      actions.push({ label: "Ver operación", action: "dashboard" });
+      actions.push({ label: "Ver operacion", action: "dashboard" });
     }
 
     return actions.slice(0, 3);
@@ -978,161 +719,6 @@
       .map((item) => `<button class="client-btn" type="button" data-client-action="${h(item.action)}">${h(item.label)}</button>`)
       .join("");
   }
-
-
-  /* CX_CORE_PAYROLL_CONFIG_01_START */
-  function corePayrollConfigNumber(value) {
-    const n = Number(String(value ?? "").replace(",", "."));
-    return Number.isFinite(n) ? n : null;
-  }
-
-  function corePayrollRuleLabel(rule = null) {
-    if (!rule || !rule.enabled) return "Regla actual del sistema";
-    return rule.label || `Hasta ${rule.ordinary_hours_limit}h ordinarias; después extra. Pausas excluidas.`;
-  }
-
-  async function loadCompanySettingsV1() {
-    return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`);
-  }
-
-  async function saveCompanyPayrollSettingsV1() {
-    const hoursInput = document.querySelector("[data-core-payroll-hours-limit]");
-    const hours = corePayrollConfigNumber(hoursInput?.value || "");
-
-    if (!hours || hours <= 0) {
-      alert("Ingresa un total de horas ordinarias mayor a cero.");
-      return;
-    }
-
-    await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        payroll: {
-          ordinary_hours_limit: hours,
-          pause_policy: "exclude",
-        },
-        payroll_cuts: {
-          allow_close: true,
-          allow_export: true,
-          allow_archive: true,
-        },
-      }),
-    });
-
-    await renderCoreSettingsModule();
-  }
-
-  function renderPayrollRuleCard(rule = null) {
-    return `
-      <section class="client-panel" style="padding:16px">
-        <div class="client-eyebrow">Regla aplicada</div>
-        <h2>Nómina</h2>
-        <p class="client-muted">${h(corePayrollRuleLabel(rule))}</p>
-      </section>
-    `;
-  }
-
-  async function renderCoreSettingsModule() {
-    const company = state.company || {};
-    let data = { settings: {} };
-    let loadError = "";
-
-    try {
-      data = await loadCompanySettingsV1();
-    } catch (error) {
-      loadError = error.message || "No se pudo cargar configuración.";
-    }
-
-    const settings = data.settings || {};
-    const payroll = settings.payroll || {};
-    const cuts = settings.payroll_cuts || {};
-
-    $("app").innerHTML = `
-      <main class="client-shell">
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
-            <div class="client-muted">${h(company.slug || "tenant")}</div>
-            <nav class="client-nav">${renderClientNav("core_settings")}</nav>
-            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
-          </aside>
-
-          <section class="client-main">
-            <header class="client-hero">
-              <div class="client-eyebrow">Núcleo</div>
-              <h1 class="client-title">Configuración</h1>
-              <p class="client-muted">Reglas centrales por empresa. Los módulos leen esta configuración; no se parcha por cliente.</p>
-              <div class="client-actions">
-                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
-              </div>
-              <div id="coreSettingsNotice">${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}</div>
-            </header>
-
-            <section class="client-panel">
-              <div class="client-eyebrow">Nómina</div>
-              <h2>Total de horas ordinarias</h2>
-              <p class="client-muted">Hasta este total se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.</p>
-
-              <div style="display:grid;grid-template-columns:minmax(220px,320px) auto;gap:12px;align-items:end;margin-top:16px">
-                <label>
-                  <span class="client-muted">Total horas ordinarias hasta</span>
-                  <input
-                    data-core-payroll-hours-limit
-                    type="number"
-                    min="0.01"
-                    step="0.25"
-                    value="${h(payroll.ordinary_hours_limit ?? "")}"
-                    placeholder="Ej: 48"
-                    style="width:100%;margin-top:7px;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.22);color:inherit;border-radius:14px;padding:13px;font-weight:900"
-                  >
-                </label>
-
-                <button class="client-btn client-btn-primary" type="button" data-core-payroll-save>Guardar regla</button>
-              </div>
-            </section>
-
-            <section class="client-panel">
-              <div class="client-eyebrow">Cortes</div>
-              <h2>Acciones permitidas</h2>
-              <p class="client-muted">Estas acciones quedan disponibles para el flujo de cortes de nómina: cerrar corte, exportar y archivar sin borrar histórico.</p>
-
-              <div class="client-kpi-grid">
-                <div class="client-kpi"><span>Cerrar corte</span><strong>${cuts.allow_close === false ? "OFF" : "ON"}</strong></div>
-                <div class="client-kpi"><span>Exportar corte</span><strong>${cuts.allow_export === false ? "OFF" : "ON"}</strong></div>
-                <div class="client-kpi"><span>Archivar corte</span><strong>${cuts.allow_archive === false ? "OFF" : "ON"}</strong></div>
-              </div>
-            </section>
-          </section>
-        </div>
-      </main>
-    `;
-  }
-
-  if (!window.__cxCorePayrollConfig01Bound) {
-    window.__cxCorePayrollConfig01Bound = true;
-
-    document.addEventListener("click", async (event) => {
-      const settingsTrigger = event.target.closest('[data-client-module="core_settings"], [data-client-module="settings"]');
-      if (settingsTrigger) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        const ajustesButton = document.getElementById("clxAccountAjustesBtn");
-        if (ajustesButton) ajustesButton.click();
-        else window.dispatchEvent(new CustomEvent("clonexa:open-settings"));
-        return;
-      }
-
-      const savePayroll = event.target.closest("[data-core-payroll-save]");
-      if (savePayroll) {
-        event.preventDefault();
-        await saveCompanyPayrollSettingsV1();
-      }
-    }, true);
-  }
-  /* CX_CORE_PAYROLL_CONFIG_01_END */
-
 
   function renderClientNav(activeCode = "dashboard") {
     const modules = visibleClientModules(activeClientModules());
@@ -1749,7 +1335,13 @@
     if (!value) return "—";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
-    return clientDateTime(value);
+    return date.toLocaleString("es-CO", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   function flattenHistoryRows(items) {
@@ -1890,7 +1482,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -1907,7 +1499,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo Workforce</div>
+              <div class="client-eyebrow">Modulo Workforce</div>
               <h1 class="client-title">Historial de Personal</h1>
               <p class="client-muted">Consulta registros, ediciones, activaciones, inactivaciones y archivados por rango de fechas.</p>
 
@@ -2008,31 +1600,10 @@
   async function loadClientBotConfig() {
     if (!state.companyId) return null;
     try {
-      const baseConfig = await api(`/bots/companies/${state.companyId}/telegram`);
-      try {
-        const webhookStatus = await api(`/company-bots-v1/companies/${state.companyId}/telegram/status`);
-        return { ...(baseConfig || {}), ...(webhookStatus || {}) };
-      } catch (statusError) {
-        return baseConfig;
-      }
+      return await api(`/bots/companies/${state.companyId}/telegram`);
     } catch (error) {
       return { configured: false, status: "error", last_error: error.message || "No se pudo cargar bot" };
     }
-  }
-
-
-  function clientBotFlowLabel(value) {
-    const code = String(value || "base").toLowerCase();
-
-    const labels = {
-      base: "Base / Workforce",
-      velvet_references: "Velvet / Referencias producción",
-      field_operations: "Campo / GPS / Materiales",
-      retail_sales: "Retail / Ventas",
-      hospitality_orders: "Hospitality / Pedidos",
-    };
-
-    return labels[code] || code;
   }
 
   function botStatusLabel(status) {
@@ -2058,7 +1629,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -2073,7 +1644,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo Bots</div>
+              <div class="client-eyebrow">Modulo Bots</div>
               <h1 class="client-title">Bots</h1>
               <p class="client-muted">Estado operativo del canal configurado para esta empresa.</p>
 
@@ -2087,7 +1658,7 @@
             <section class="client-panel">
               <div class="client-eyebrow">Canal operativo</div>
               <h2>Bot Telegram</h2>
-              <p class="client-muted">Configuración tecnica administrada desde CLONEXA Admin V2.</p>
+              <p class="client-muted">Configuracion tecnica administrada desde CLONEXA Admin V2.</p>
 
               <div class="client-kpi-grid">
                 <div class="client-kpi">
@@ -2101,14 +1672,6 @@
                 <div class="client-kpi">
                   <span>Bot</span>
                   <strong>${h(botUsername)}</strong>
-                </div>
-                <div class="client-kpi">
-                  <span>Flujo</span>
-                  <strong>${h(clientBotFlowLabel(bot?.flow_code))}</strong>
-                </div>
-                <div class="client-kpi">
-                  <span>Webhook</span>
-                  <strong>${h(bot?.webhook_mode === "dedicated" ? "Dedicado" : "Pendiente")}</strong>
                 </div>
               </div>
 
@@ -2406,7 +1969,7 @@
       gps: "GPS",
       field: "Campo",
       materials: "Materiales",
-      production: "Producción",
+      production: "Produccion",
       sales: "Ventas",
       stores: "Tiendas",
       retail: "Retail",
@@ -2414,10 +1977,10 @@
       stock: "Stock",
       orders: "Pedidos",
       requests: "Solicitudes",
-      payroll: "Nómina",
+      payroll: "Nomina",
       kpis: "KPIs",
       reports: "Reportes",
-      modules: "Módulos",
+      modules: "Modulos",
       channels: "Canales",
     };
 
@@ -2449,7 +2012,7 @@
 
   function crmModuleValueForPerson(code, person = {}) {
     if (code === "modules") return `${visibleClientModules(activeClientModules()).length} activos`;
-    if (code === "channels") return isClientModuleActivo("bots") ? "Telegram" : "-";
+    if (code === "channels") return isClientModuleActive("bots") ? "Telegram" : "-";
 
     const event = (person.events || [])
       .slice()
@@ -2544,7 +2107,7 @@
 
   function crmTopCardValue(code, crm = {}) {
     if (code === "modules") return `${visibleClientModules(activeClientModules()).length}`;
-    if (code === "channels") return isClientModuleActivo("bots") && crm.bot?.configured ? "ON" : "OFF";
+    if (code === "channels") return isClientModuleActive("bots") && crm.bot?.configured ? "ON" : "OFF";
 
     const count = (crm.todayEvents || [])
       .filter((event) => String(event.module_code || "workforce").toLowerCase() === code)
@@ -2552,20 +2115,20 @@
 
     if (count > 0) return count;
 
-    return isClientModuleActivo(code) ? "ON" : "-";
+    return isClientModuleActive(code) ? "ON" : "-";
   }
 
   async function loadClientCrmData() {
     const companyId = state.companyId;
     const [employeesResult, eventsResult, botResult, gpsResult] = await Promise.allSettled([
-      isClientModuleActivo("workforce")
+      isClientModuleActive("workforce")
         ? api(`/employees?company_id=${encodeURIComponent(companyId)}&include_archived=true`)
         : Promise.resolve([]),
       api(`/employees/attendance/history?company_id=${encodeURIComponent(companyId)}&limit=200`),
-      isClientModuleActivo("bots")
+      isClientModuleActive("bots")
         ? api(`/bots/companies/${encodeURIComponent(companyId)}/telegram`)
         : Promise.resolve(null),
-      isClientModuleActivo("gps")
+      isClientModuleActive("gps")
         ? api(`/gps/companies/${encodeURIComponent(companyId)}/summary`)
         : Promise.resolve(null),
     ]);
@@ -2647,7 +2210,7 @@
     };
   }
 
-  function renderCrmColaboradorCards(people = [], moduleCodes = []) {
+  function renderCrmCollaboratorCards(people = [], moduleCodes = []) {
     if (!people.length) {
       return `<div class="personal-empty">No hay colaboradores operativos para mostrar.</div>`;
     }
@@ -2684,12 +2247,12 @@
   }
 
   async function renderCrmModule() {
-    if (!isClientModuleActivo("crm")) {
+    if (!isClientModuleActive("crm")) {
       render();
       return;
     }
 
-    if (isClientModuleActivo("gps")) ensureGpsStyles();
+    if (isClientModuleActive("gps")) ensureGpsStyles();
 
     const company = state.company || {};
     const crm = await loadClientCrmData();
@@ -2700,7 +2263,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -2715,7 +2278,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo CRM Campo</div>
+              <div class="client-eyebrow">Modulo CRM Campo</div>
               <h1 class="client-title">CRM Campo</h1>
               <p class="client-muted">Vista viva de colaboradores en turno, pausas y nucleos activos de la empresa.</p>
 
@@ -2727,7 +2290,7 @@
 
             <section class="client-panel">
               <div class="client-eyebrow">Estado operativo actual</div>
-              <h2>Operación en vivo</h2>
+              <h2>Operacion en vivo</h2>
 
               <div class="client-kpi-grid">
                 <div class="client-kpi">
@@ -2750,7 +2313,7 @@
 
               <div class="client-eyebrow" style="margin-top:28px">Colaboradores</div>
               <h2>Estado por colaborador</h2>
-              ${renderCrmColaboradorCards(crm.people, moduleCards)}
+              ${renderCrmCollaboratorCards(crm.people, moduleCards)}
             </section>
           </section>
         </div>
@@ -2976,7 +2539,7 @@
   }
 
   async function renderGpsModule() {
-    if (!isClientModuleActivo("gps")) {
+    if (!isClientModuleActive("gps")) {
       render();
       return;
     }
@@ -3004,7 +2567,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -3019,7 +2582,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo GPS</div>
+              <div class="client-eyebrow">Modulo GPS</div>
               <h1 class="client-title">GPS</h1>
               <p class="client-muted">Configura hasta 5 perímetros permitidos. CLONEXA valida las ubicaciones recibidas por el bot.</p>
 
@@ -3320,7 +2883,7 @@
 
   function inventoryQtyLabel(value) {
     const n = inventoryNumber(value);
-    return clientNumber(n, { maximumFractionDigits: 2 });
+    return n.toLocaleString("es-CO", { maximumFractionDigits: 2 });
   }
 
   function inventoryStatusLabel(status = "") {
@@ -3544,7 +3107,7 @@
   }
 
   async function renderInventoryModule() {
-    if (!isClientModuleActivo("inventory")) {
+    if (!isClientModuleActive("inventory")) {
       render();
       return;
     }
@@ -3571,7 +3134,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("inventory")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -3579,7 +3142,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo Inventario</div>
+              <div class="client-eyebrow">Modulo Inventario</div>
               <h1 class="client-title">Inventario</h1>
               <p class="client-muted">Catálogo operativo, mínimos y stock actual de solo lectura. Materiales descontará o devolverá stock en la siguiente integración.</p>
               <div class="client-actions">
@@ -4245,7 +3808,7 @@
   }
 
   async function renderMaterialsModule() {
-    if (!isClientModuleActivo("materials")) {
+    if (!isClientModuleActive("materials")) {
       render();
       return;
     }
@@ -4265,8 +3828,8 @@
     const rows = Array.isArray(data.requests) ? data.requests : [];
     const summary = data.summary || {};
     window.__cxMaterialsRows = rows;
-    window.clearTimeout(window.__materialsDailyActualizarTimer);
-    window.__materialsDailyActualizarTimer = window.setTimeout(() => {
+    window.clearTimeout(window.__materialsDailyRefreshTimer);
+    window.__materialsDailyRefreshTimer = window.setTimeout(() => {
       if (document.querySelector("[data-materials-refresh]")) renderMaterialsModule();
     }, 24 * 60 * 60 * 1000);
 
@@ -4275,7 +3838,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("materials")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -4283,7 +3846,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo Materiales</div>
+              <div class="client-eyebrow">Modulo Materiales</div>
               <h1 class="client-title">Materiales</h1>
               <p class="client-muted">Órdenes de salida conectadas a Inventario. Entregar descuenta stock; devolver exige número de orden.</p>
               <div class="client-actions">
@@ -4522,7 +4085,7 @@
 
   function payrollMoney(value) {
     const num = payrollNumber(value);
-    return formatMoney(num, {
+    return num.toLocaleString("es-CO", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
@@ -4967,7 +4530,7 @@
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `clonexa_nómina_${period.from}_${period.to}.csv`;
+    a.download = `clonexa_nomina_${period.from}_${period.to}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -4976,7 +4539,7 @@
   }
 
   async function renderPayrollModule(period = payrollDefaultPeriod(), options = {}) {
-    if (!isClientModuleActivo("payroll")) {
+    if (!isClientModuleActive("payroll")) {
       render();
       return;
     }
@@ -4989,7 +4552,6 @@
     let loadError = "";
     let loadWarning = "";
     let mode = "Periodo abierto";
-    let payrollRule = null;
 
     try {
       const calculated = await payrollCalculatePeriod(period);
@@ -4997,7 +4559,6 @@
       totals = calculated.totals;
       period = calculated.period || period;
       loadWarning = calculated.warning || "";
-      payrollRule = calculated.rule || null;
     } catch (error) {
       rows = [];
       totals = payrollTotals([]);
@@ -5014,7 +4575,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -5029,7 +4590,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo Nómina</div>
+              <div class="client-eyebrow">Modulo Nómina</div>
               <h1 class="client-title">Nómina</h1>
               <p class="client-muted">Consulta cortes por periodo y conserva el resultado exportando CSV.</p>
 
@@ -5288,7 +4849,7 @@
 
   async function fetchKpisSummary(period = kpisDefaultPeriod()) {
     if (!state.companyId) throw new Error("Empresa no cargada.");
-    return api(`/kpis/companies/${encodeURIComponent(state.companyId)}/summary?view=${encodeURIComponent(state.productionReferenceView || "active")}&${kpisQuery(period)}`);
+    return api(`/kpis/companies/${encodeURIComponent(state.companyId)}/summary?${kpisQuery(period)}`);
   }
 
   async function saveKpisDashboardCards(keys = []) {
@@ -5308,7 +4869,7 @@
   function kpiMoney(value) {
     const n = Number(value || 0);
     if (!Number.isFinite(n)) return "$0";
-    return formatMoney(n);
+    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
   }
 
   function kpiNormalizeText(value) {
@@ -5489,7 +5050,7 @@
 
     if (modules.has("payroll")) {
       blocks.push(`
-        <section class="cx-kpis-block" data-kpi-searchable="nómina nómina payroll horas ordinarias extra descuentos bruto neto total estimado corte">
+        <section class="cx-kpis-block" data-kpi-searchable="nomina nómina payroll horas ordinarias extra descuentos bruto neto total estimado corte">
           <div class="client-eyebrow">Nómina</div>
           <h2>Estimado del periodo</h2>
           <div class="cx-kpis-list">
@@ -5536,7 +5097,7 @@
   }
 
   async function renderKpisModule(period = kpisDefaultPeriod()) {
-    if (!isClientModuleActivo("kpis")) {
+    if (!isClientModuleActive("kpis")) {
       render();
       return;
     }
@@ -5566,7 +5127,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav("kpis")}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
@@ -5607,18 +5168,18 @@
     `;
 
     applyKpisSearchFilter();
-    setupKpisAutoActualizar();
+    setupKpisAutoRefresh();
   }
 
-  function setupKpisAutoActualizar() {
-    if (window.__cxKpisAutoActualizar) {
-      clearInterval(window.__cxKpisAutoActualizar);
-      window.__cxKpisAutoActualizar = null;
+  function setupKpisAutoRefresh() {
+    if (window.__cxKpisAutoRefresh) {
+      clearInterval(window.__cxKpisAutoRefresh);
+      window.__cxKpisAutoRefresh = null;
     }
-    window.__cxKpisAutoActualizar = setInterval(async () => {
+    window.__cxKpisAutoRefresh = setInterval(async () => {
       if (!document.querySelector("[data-kpis-root]")) {
-        clearInterval(window.__cxKpisAutoActualizar);
-        window.__cxKpisAutoActualizar = null;
+        clearInterval(window.__cxKpisAutoRefresh);
+        window.__cxKpisAutoRefresh = null;
         return;
       }
       try {
@@ -5681,1773 +5242,6 @@
   /* CX_KPIS_OPERATIVOS_016A_END */
 
 
-
-  /* CX_REPORTS_ADAPTER_01_START */
-  function reportsAdapterDefaultRange() {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 6);
-
-    return {
-      from: start.toISOString().slice(0, 10),
-      to: end.toISOString().slice(0, 10),
-    };
-  }
-
-  function reportsAdapterQuery() {
-    const range = reportsAdapterDefaultRange();
-
-    return {
-      from: document.querySelector("[data-adaptive-reports-from]")?.value || range.from,
-      to: document.querySelector("[data-adaptive-reports-to]")?.value || range.to,
-      preset: document.querySelector("[data-adaptive-reports-preset]")?.value || "7d",
-    };
-  }
-
-  function reportsDataBar(value, max) {
-    const width = max > 0 ? Math.min((Number(value || 0) / max) * 100, 100) : 0;
-
-    return `
-      <div style="height:11px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden">
-        <div style="height:100%;width:${width}%;background:linear-gradient(90deg,rgba(0,255,180,.85),rgba(255,0,180,.85));"></div>
-      </div>
-    `;
-  }
-
-  function reportSummaryCards(items) {
-    const rows = Array.isArray(items) ? items : [];
-
-    if (!rows.length) {
-      return `<div class="client-muted">Sin datos consolidados para este periodo.</div>`;
-    }
-
-    return `
-      <div class="client-kpi-grid">
-        ${rows.map((item) => `
-          <div class="client-kpi">
-            <span>${h(item.label || "Indicador")}</span>
-            <strong>${h(item.value ?? 0)}</strong>
-            <small>${h(item.module || "")}</small>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function reportChartHtml(chart) {
-    const rows = Array.isArray(chart) ? chart : [];
-
-    if (!rows.length) {
-      return `<div class="client-muted">Sin datos para graficar.</div>`;
-    }
-
-    const max = Math.max(...rows.map((item) => Number(item.value || 0)), 1);
-
-    return `
-      <div class="client-report-bars">
-        ${rows.map((item) => `
-          <div style="display:grid;grid-template-columns:180px 1fr 70px;gap:12px;align-items:center;margin:10px 0">
-            <strong>${h(item.label || "Sin clasificar")}</strong>
-            ${reportsDataBar(item.value, max)}
-            <span>${h(item.value ?? 0)}</span>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function reportTableHtml(section) {
-    const cols = Array.isArray(section?.columns) ? section.columns : [];
-    const rows = Array.isArray(section?.rows) ? section.rows : [];
-
-    if (!cols.length || !rows.length) {
-      return `<div class="client-muted">Sin registros detallados para esta sección.</div>`;
-    }
-
-    return `
-      <div style="overflow:auto;margin-top:14px">
-        <table class="client-table" style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr>
-              ${cols.map((col) => `<th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">${h(col)}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.slice(0, 80).map((row) => `
-              <tr>
-                ${cols.map((col) => `<td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top">${h(row[col] ?? "")}</td>`).join("")}
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-        ${rows.length > 80 ? `<p class="client-muted">Mostrando 80 de ${h(rows.length)} registros. Usa CSV para descargar completo.</p>` : ""}
-      </div>
-    `;
-  }
-
-  function reportSectionHtml(section) {
-    const summary = Array.isArray(section?.summary) ? section.summary : [];
-
-    return `
-      <section class="client-panel">
-        <div class="client-section-kicker">${h(section?.code || "sección")}</div>
-        <h2>${h(section?.title || "Reporte")}</h2>
-
-        ${summary.length ? reportSummaryCards(summary.map((item) => ({ ...item, module: section?.title || "" }))) : ""}
-
-        <div class="client-panel" style="margin-top:14px">
-          <h3>Distribución</h3>
-          ${reportChartHtml(section?.chart || [])}
-        </div>
-
-        <div class="client-panel" style="margin-top:14px">
-          <h3>Detalle recolectado</h3>
-          ${reportTableHtml(section)}
-        </div>
-      </section>
-    `;
-  }
-
-  async function loadAdaptiveReportsDetail() {
-    const query = reportsAdapterQuery();
-    const qs = new URLSearchParams({
-      date_from: query.from,
-      date_to: query.to,
-      preset: query.preset,
-    });
-
-    return await api(`/adaptive-reports-detail-v1/companies/${state.companyId}/detail?${qs.toString()}`);
-  }
-
-  async function renderAdaptiveReportsModule() {
-    const company = state.company || {};
-    const b = normalizeBranding(state.branding || {});
-    const range = reportsAdapterDefaultRange();
-
-    let report = null;
-    let loadError = "";
-
-    try {
-      report = await api(`/adaptive-reports-detail-v1/companies/${state.companyId}/detail?date_from=${range.from}&date_to=${range.to}&preset=7d`);
-    } catch (error) {
-      loadError = error.message || "No se pudo cargar Reportes.";
-      report = null;
-    }
-
-    $("app").innerHTML = `
-      <main class="client-shell">
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
-            <div class="client-muted">${h(company.slug || "tenant")}</div>
-            <nav class="client-nav">${renderClientNav("reports")}</nav>
-            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
-            <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
-          </aside>
-
-          <section class="client-main">
-            <header class="client-hero">
-              <div class="client-eyebrow">Módulo transversal</div>
-              <h1 class="client-title">Reporte operativo</h1>
-              <p class="client-muted">
-                Consolida la información real recolectada en el periodo: jornadas, producción, materiales, inventario y operación activa según módulos de esta empresa.
-              </p>
-
-              <div class="client-actions" style="display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:10px;align-items:end">
-                <label>Desde
-                  <input type="date" data-adaptive-reports-from value="${h(report?.date_from || range.from)}">
-                </label>
-                <label>Hasta
-                  <input type="date" data-adaptive-reports-to value="${h(report?.date_to || range.to)}">
-                </label>
-                <label>Periodo
-                  <select data-adaptive-reports-preset>
-                    <option value="7d" selected>7 días</option>
-                    <option value="30d">30 días</option>
-                    <option value="month">Mes actual</option>
-                    <option value="today">Hoy</option>
-                  </select>
-                </label>
-                <button class="client-btn client-btn-primary" type="button" data-adaptive-reports-generate>Generar</button>
-                <button class="client-btn" type="button" data-adaptive-reports-export>CSV</button>
-              </div>
-            </header>
-
-            ${loadError ? `<div class="client-panel"><strong>${h(loadError)}</strong></div>` : ""}
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Resumen ejecutivo</div>
-              <h2>Información consolidada</h2>
-              <p class="client-muted">
-                ${h(report?.date_from || range.from)} → ${h(report?.date_to || range.to)} · ${h(report?.total_rows || 0)} registros detallados.
-              </p>
-              ${reportSummaryCards(report?.executive_kpis || [])}
-            </section>
-
-            ${(report?.sections || []).map(reportSectionHtml).join("") || `
-              <section class="client-panel">
-                <h2>Sin registros para este periodo</h2>
-                <p class="client-muted">No se encontraron datos detallados en los módulos activos.</p>
-              </section>
-            `}
-          </section>
-        </div>
-      </main>
-    `;
-  }
-
-  async function refreshAdaptiveReportsModule() {
-    await renderAdaptiveReportsModule();
-  }
-
-  function exportAdaptiveReportsCsv() {
-    const query = reportsAdapterQuery();
-    const qs = new URLSearchParams({
-      date_from: query.from,
-      date_to: query.to,
-      preset: query.preset,
-    });
-
-    window.open(`${API}/adaptive-reports-detail-v1/companies/${state.companyId}/detail.csv?${qs.toString()}`, "_blank");
-  }
-
-  if (!window.__cxReportsAdapter01Bound) {
-    window.__cxReportsAdapter01Bound = true;
-    document.addEventListener("click", async (event) => {
-      const generate = event.target.closest("[data-adaptive-reports-generate]");
-      if (generate) {
-        event.preventDefault();
-        await refreshAdaptiveReportsModule();
-        return;
-      }
-
-      const exportButton = event.target.closest("[data-adaptive-reports-export]");
-      if (exportButton) {
-        event.preventDefault();
-        exportAdaptiveReportsCsv();
-      }
-    });
-  }
-  /* CX_REPORTS_ADAPTER_01_END */
-
-
-
-  /* CX_KPIS_ADAPTER_01_START */
-  function kpisAdapterDefaultRange() {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 6);
-
-    return {
-      from: start.toISOString().slice(0, 10),
-      to: end.toISOString().slice(0, 10),
-    };
-  }
-
-  function kpisAdapterQuery() {
-    const range = kpisAdapterDefaultRange();
-
-    return {
-      from: document.querySelector("[data-adaptive-kpis-from]")?.value || range.from,
-      to: document.querySelector("[data-adaptive-kpis-to]")?.value || range.to,
-      preset: document.querySelector("[data-adaptive-kpis-preset]")?.value || "7d",
-    };
-  }
-
-  function formatAdaptiveKpiValue(item, currency) {
-    if (item?.format === "currency") {
-      const value = Number(item.value || 0);
-      return formatMoney(value, { currency: item.currency || currency || getClientSetting("currency", "COP"), maximumFractionDigits: 0 });
-    }
-
-    return String(item?.value ?? 0);
-  }
-
-  function adaptiveKpiCards(items, currency, options = {}) {
-    const rows = Array.isArray(items) ? items : [];
-    const allowToggle = Boolean(options.allowToggle);
-
-    if (!rows.length) {
-      return `<div class="client-muted">Sin indicadores para los módulos activos.</div>`;
-    }
-
-    return `
-      <div class="client-kpi-grid">
-        ${rows.map((item) => `
-          <div class="client-kpi">
-            <span>${h(item.label || "Indicador")}</span>
-            <strong>${h(formatAdaptiveKpiValue(item, currency))}</strong>
-            <small>${h(item.module || "")}</small>
-            ${allowToggle ? `
-              <button
-                class="client-btn"
-                type="button"
-                data-kpi-panel-toggle="${h(item.key || "")}"
-                data-kpi-panel-visible="${item.panel_visible ? "false" : "true"}"
-                style="margin-top:10px"
-              >
-                ${item.panel_visible ? "Quitar del panel" : "Mostrar en panel"}
-              </button>
-            ` : ""}
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function adaptiveKpiSection(section, currency) {
-    return `
-      <section class="client-panel">
-        <div class="client-section-kicker">${h(section?.code || "módulo")}</div>
-        <h2>${h(section?.title || "Indicadores")}</h2>
-        ${adaptiveKpiCards(section?.items || [], currency, { allowToggle: true })}
-      </section>
-    `;
-  }
-
-  async function loadAdaptiveKpisPanel() {
-    const query = kpisAdapterQuery();
-    const qs = new URLSearchParams({
-      date_from: query.from,
-      date_to: query.to,
-      preset: query.preset,
-    });
-
-    return await api(`/adaptive-kpis-panel-v1/companies/${state.companyId}/panel?${qs.toString()}`);
-  }
-
-  async function renderAdaptiveKpisModule() {
-    const company = state.company || {};
-    const b = normalizeBranding(state.branding || {});
-    const range = kpisAdapterDefaultRange();
-
-    let kpis = null;
-    let loadError = "";
-
-    try {
-      kpis = await api(`/adaptive-kpis-panel-v1/companies/${state.companyId}/panel?date_from=${range.from}&date_to=${range.to}&preset=7d`);
-    } catch (error) {
-      loadError = error.message || "No se pudieron cargar KPIs.";
-      kpis = null;
-    }
-
-    const companyName = kpis?.company_name || company.name || "Empresa";
-    const currency = kpis?.currency || getClientSetting("currency", "COP");
-    const selectedCount = Array.isArray(kpis?.selected_keys) ? kpis.selected_keys.length : 0;
-    const maxPanel = kpis?.max_panel_kpis || 4;
-
-    $("app").innerHTML = `
-      <main class="client-shell">
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
-            <div class="client-muted">${h(company.slug || "tenant")}</div>
-            <nav class="client-nav">${renderClientNav("kpis")}</nav>
-            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
-            <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
-          </aside>
-
-          <section class="client-main">
-            <header class="client-hero">
-              <div class="client-eyebrow">Módulo transversal</div>
-              <h1 class="client-title">Data Board KPIs</h1>
-              <p class="client-muted">
-                Indicadores adaptativos de ${h(companyName)}. Configura hasta ${h(maxPanel)} tarjetas visibles en el panel principal. Moneda: ${h(currency)}.
-              </p>
-
-              <div class="client-actions" style="display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:10px;align-items:end">
-                <label>Desde
-                  <input type="date" data-adaptive-kpis-from value="${h(kpis?.date_from || range.from)}">
-                </label>
-                <label>Hasta
-                  <input type="date" data-adaptive-kpis-to value="${h(kpis?.date_to || range.to)}">
-                </label>
-                <label>Periodo
-                  <select data-adaptive-kpis-preset>
-                    <option value="7d" selected>7 días</option>
-                    <option value="30d">30 días</option>
-                    <option value="month">Mes actual</option>
-                    <option value="today">Hoy</option>
-                  </select>
-                </label>
-                <button class="client-btn client-btn-primary" type="button" data-adaptive-kpis-generate>Actualizar</button>
-              </div>
-            </header>
-
-            ${loadError ? `<div class="client-panel"><strong>${h(loadError)}</strong></div>` : ""}
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Panel principal</div>
-              <h2>Tarjetas visibles (${h(selectedCount)} / ${h(maxPanel)})</h2>
-              <p class="client-muted">Estas son las tarjetas configuradas para el tablero principal de la empresa.</p>
-              ${adaptiveKpiCards(kpis?.top_cards || [], currency)}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Configuración</div>
-              <h2>Activar o desactivar KPIs del panel</h2>
-              <p class="client-muted">Máximo ${h(maxPanel)} tarjetas principales. Los demás indicadores siguen disponibles aquí.</p>
-              ${adaptiveKpiCards(kpis?.items || [], currency, { allowToggle: true })}
-            </section>
-
-            ${(kpis?.sections || []).map((section) => adaptiveKpiSection(section, currency)).join("")}
-          </section>
-        </div>
-      </main>
-    `;
-  }
-
-  async function refreshAdaptiveKpisModule() {
-    await renderAdaptiveKpisModule();
-  }
-
-  async function toggleKpiPanelItem(button) {
-    const key = String(button?.dataset?.kpiPanelToggle || "").trim();
-    const visible = String(button?.dataset?.kpiPanelVisible || "false") === "true";
-
-    if (!key) return;
-
-    try {
-      await api(`/adaptive-kpis-panel-v1/companies/${state.companyId}/panel/toggle`, {
-        method: "POST",
-        body: JSON.stringify({ key, visible }),
-      });
-      await renderAdaptiveKpisModule();
-    } catch (error) {
-      alert(error.message || "No se pudo actualizar el panel.");
-    }
-  }
-
-  if (!window.__cxKpisAdapter01Bound) {
-    window.__cxKpisAdapter01Bound = true;
-
-    document.addEventListener("click", async (event) => {
-      const generate = event.target.closest("[data-adaptive-kpis-generate]");
-      if (generate) {
-        event.preventDefault();
-        await refreshAdaptiveKpisModule();
-        return;
-      }
-
-      const toggle = event.target.closest("[data-kpi-panel-toggle]");
-      if (toggle) {
-        event.preventDefault();
-        await toggleKpiPanelItem(toggle);
-      }
-    });
-  }
-
-  if (!window.__cxReportsKpisHardCutover01Bound) {
-    window.__cxReportsKpisHardCutover01Bound = true;
-
-    document.addEventListener("click", async (event) => {
-      const moduleTrigger = event.target.closest("[data-client-module]");
-      const actionTrigger = event.target.closest("[data-client-action]");
-
-      const moduleCode = String(moduleTrigger?.dataset?.clientModule || "").trim();
-      const actionCode = String(actionTrigger?.dataset?.clientAction || "").trim();
-
-      if ((moduleCode === "kpis" || actionCode === "kpis:open") && isClientModuleActivo("kpis")) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        await renderAdaptiveKpisModule();
-        return;
-      }
-
-      if ((moduleCode === "reports" || actionCode === "reports:open") && isClientModuleActivo("reports")) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        await renderAdaptiveReportsModule();
-      }
-    }, true);
-  }
-  /* CX_KPIS_ADAPTER_01_END */
-
-
-
-  /* CX_PRODUCCIÓN_01_START */
-  function productionDefaultRange() {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 6);
-
-    return {
-      from: start.toISOString().slice(0, 10),
-      to: end.toISOString().slice(0, 10),
-    };
-  }
-
-  function productionQuery() {
-    const range = productionDefaultRange();
-
-    return {
-      from: document.querySelector("[data-production-from]")?.value || range.from,
-      to: document.querySelector("[data-production-to]")?.value || range.to,
-      preset: document.querySelector("[data-production-preset]")?.value || "7d",
-    };
-  }
-
-  function productionProgressBar(value) {
-    const width = Math.min(Number(value || 0), 100);
-
-    return `
-      <div style="height:12px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden">
-        <div style="height:100%;width:${width}%;background:linear-gradient(90deg,rgba(0,255,180,.85),rgba(255,0,180,.85));"></div>
-      </div>
-    `;
-  }
-
-
-  function productionFormatSeconds(value) {
-    let totalSeconds = Number(value || 0);
-    if (!Number.isFinite(totalSeconds) || totalSeconds < 0) totalSeconds = 0;
-
-    totalSeconds = Math.floor(totalSeconds);
-
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-
-    return [
-      String(hours).padStart(2, "0"),
-      String(minutes).padStart(2, "0"),
-      String(seconds).padStart(2, "0"),
-    ].join(":");
-  }
-
-  function productionTimeByReferenceTable(rows) {
-    const items = Array.isArray(rows) ? rows : [];
-
-    if (!items.length) {
-      return `<div class="client-muted">Sin tiempos por referencia en este periodo.</div>`;
-    }
-
-    return `
-      <div style="overflow:auto">
-        <table class="client-table" style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Referencia</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Talla</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Tiempo total</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Operarios</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Sesiones</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Terminadas</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Seg / unidad</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.slice(0, 80).map((row) => `
-              <tr>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)"><strong>${h(row.reference_name || "Sin referencia")}</strong></td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.size || "-")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.total_effective_label || productionFormatSeconds(row.total_effective_seconds))}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.operators_count ?? 0)}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.sessions_count ?? 0)}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.finished_quantity_period || row.finished_quantity_all_time || 0)}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.seconds_per_unit_period || row.seconds_per_unit_all_time || "-")}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function productionTimeByOperatorTable(rows) {
-    const items = Array.isArray(rows) ? rows : [];
-
-    if (!items.length) {
-      return `<div class="client-muted">Sin tiempos por operario en este periodo.</div>`;
-    }
-
-    return `
-      <div style="overflow:auto">
-        <table class="client-table" style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Operario</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Referencia</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Talla</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Tiempo efectivo</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Sesiones</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Activa</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Terminadas</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Seg / unidad</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.slice(0, 120).map((row) => `
-              <tr>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)"><strong>${h(row.employee_name || row.employee_id || "Sin operario")}</strong></td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.reference_name || "Sin referencia")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.size || "-")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.effective_label || productionFormatSeconds(row.effective_seconds))}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.sessions_count ?? 0)}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${row.is_active ? "Sí" : "No"}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.finished_quantity_period || row.finished_quantity_all_time || 0)}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.seconds_per_unit_period || row.seconds_per_unit_all_time || "-")}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function productionKpiCards(totals) {
-    const cards = [
-      ["Referencias", totals?.references_total ?? 0],
-      ["Inicial", totals?.initial_quantity_total ?? 0],
-      ["Terminadas", totals?.finished_quantity_total ?? 0],
-      ["Pendientes", totals?.pending_quantity_total ?? 0],
-      ["Avance", `${totals?.progress_percent ?? 0}%`],
-      ["Cierres", totals?.closures_total ?? 0],
-      ["Sesiones activas", totals?.active_sessions ?? 0],
-      ["Tiempo efectivo", totals?.effective_label_period || productionFormatSeconds(totals?.effective_seconds_period || 0)],
-    ];
-
-    return `
-      <div class="client-kpi-grid">
-        ${cards.map(([label, value]) => `
-          <div class="client-kpi">
-            <span>${h(label)}</span>
-            <strong>${h(value)}</strong>
-            <small>Producción</small>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function productionReferencesTable(rows) {
-    const items = Array.isArray(rows) ? rows : [];
-    const view = state.productionReferenceView || "active";
-
-    const toolbar = `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;flex-wrap:wrap">
-        <div class="client-muted">Panel operativo: activas. Histórico: archivadas/todas.</div>
-        <label style="display:flex;align-items:center;gap:8px">
-          <span class="client-muted">Vista</span>
-          <select data-production-view-select style="padding:9px 12px;border-radius:12px;background:rgba(0,0,0,.22);color:inherit;border:1px solid rgba(255,255,255,.16)">
-            <option value="active" ${view === "active" ? "selected" : ""}>Activas</option>
-            <option value="archived" ${view === "archived" ? "selected" : ""}>Archivadas</option>
-            <option value="all" ${view === "all" ? "selected" : ""}>Todas</option>
-          </select>
-        </label>
-      </div>
-    `;
-
-    if (!items.length) {
-      return `${toolbar}<div class="client-muted">Sin referencias en esta vista.</div>`;
-    }
-
-    return `
-      ${toolbar}
-      <div style="overflow:auto">
-        <table class="client-table" style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Referencia</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Talla</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Inicial</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Terminada</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Pendiente</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Avance</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Estado</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map((row) => {
-              const archived = !!row.archived;
-              return `
-                <tr>
-                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)"><strong>${h(row.name || "")}</strong></td>
-                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.size || "")}</td>
-                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.initial_quantity ?? 0)}</td>
-                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.finished_quantity ?? 0)}</td>
-                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.pending_quantity ?? 0)}</td>
-                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.progress_percent ?? 0)}%</td>
-                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">
-                    ${archived ? `<span style="padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.08)">Archivada</span>` : `<span style="padding:6px 10px;border-radius:999px;background:rgba(0,255,180,.12)">Activa</span>`}
-                  </td>
-                  <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">
-                    ${archived
-                      ? `<button class="client-btn" type="button" data-production-restore-reference="${h(row.id)}">Restaurar</button>`
-                      : `<button class="client-btn client-btn-primary" type="button" data-production-archive-reference="${h(row.id)}" data-production-reference-name="${h(row.name || "")}">Exportar y archivar</button>`
-                    }
-                  </td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function productionClosuresTable(rows) {
-    const items = Array.isArray(rows) ? rows : [];
-
-    if (!items.length) {
-      return `<div class="client-muted">Sin cierres de producción en este periodo.</div>`;
-    }
-
-    return `
-      <div style="overflow:auto">
-        <table class="client-table" style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Fecha</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Empleado</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Referencia</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Talla</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Total</th>
-              <th style="text-align:left;padding:10px;border-bottom:1px solid rgba(255,255,255,.12)">Canal</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.slice(0, 120).map((row) => `
-              <tr>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.closed_at || "")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.employee_name || "")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.reference_name || "")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.size || "")}</td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)"><strong>${h(row.quantity_finished ?? 0)}</strong></td>
-                <td style="padding:10px;border-bottom:1px solid rgba(255,255,255,.08)">${h(row.source_channel || "")}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function productionBars(rows, labelKey, valueKey) {
-    const items = Array.isArray(rows) ? rows : [];
-
-    if (!items.length) {
-      return `<div class="client-muted">Sin datos para graficar.</div>`;
-    }
-
-    const max = Math.max(...items.map((item) => Number(item[valueKey] || 0)), 1);
-
-    return items.map((item) => {
-      const value = Number(item[valueKey] || 0);
-      const width = Math.min((value / max) * 100, 100);
-
-      return `
-        <div style="display:grid;grid-template-columns:190px 1fr 70px;gap:12px;align-items:center;margin:10px 0">
-          <strong>${h(item[labelKey] || "Sin dato")}</strong>
-          <div style="height:11px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden">
-            <div style="height:100%;width:${width}%;background:linear-gradient(90deg,rgba(0,255,180,.85),rgba(255,0,180,.85));"></div>
-          </div>
-          <span>${h(value)}</span>
-        </div>
-      `;
-    }).join("");
-  }
-
-
-  async function archiveProductionReference(referenceId, referenceName) {
-    const confirmed = window.confirm(
-      `Exportar y archivar "${referenceName || "esta referencia"}"?\n\nNo se borrará información. La referencia saldrá del panel operativo, se apagará del bot y quedará en histórico.`
-    );
-
-    if (!confirmed) return;
-
-    await api(`/production-v1/companies/${state.companyId}/references/${encodeURIComponent(referenceId)}/archive`, {
-      method: "POST",
-      body: JSON.stringify({
-        reason: "Exportada y archivada desde panel Producción",
-        archived_by: "client_panel",
-        preset: state.productionPreset || "7d",
-        date_from: state.productionDateFrom || null,
-        date_to: state.productionDateTo || null,
-      }),
-    });
-
-    state.productionReferenceView = "active";
-    await renderProductionModule();
-  }
-
-  async function restoreProductionReference(referenceId) {
-    const confirmed = window.confirm("Restaurar referencia al panel operativo y al bot?");
-    if (!confirmed) return;
-
-    await api(`/production-v1/companies/${state.companyId}/references/${encodeURIComponent(referenceId)}/restore`, {
-      method: "POST",
-      body: JSON.stringify({ bot_active: true }),
-    });
-
-    state.productionReferenceView = "active";
-    await renderProductionModule();
-  }
-
-
-  if (!window.__cxProductionArchive01Bound) {
-    window.__cxProductionArchive01Bound = true;
-
-    document.addEventListener("change", async (event) => {
-      const viewSelect = event.target.closest("[data-production-view-select]");
-      if (viewSelect) {
-        state.productionReferenceView = viewSelect.value || "active";
-        await renderProductionModule();
-      }
-    }, true);
-
-    document.addEventListener("click", async (event) => {
-      const archiveBtn = event.target.closest("[data-production-archive-reference]");
-      if (archiveBtn) {
-        event.preventDefault();
-        await archiveProductionReference(
-          archiveBtn.dataset.productionArchiveReference,
-          archiveBtn.dataset.productionReferenceName || ""
-        );
-        return;
-      }
-
-      const restoreBtn = event.target.closest("[data-production-restore-reference]");
-      if (restoreBtn) {
-        event.preventDefault();
-        await restoreProductionReference(restoreBtn.dataset.productionRestoreReference);
-      }
-    }, true);
-  }
-
-  async function renderProductionModule() {
-    const company = state.company || {};
-    const b = normalizeBranding(state.branding || {});
-    const range = productionDefaultRange();
-
-    let data = null;
-    let loadError = "";
-
-    try {
-      data = await api(`/production-v1/companies/${state.companyId}/summary?view=${encodeURIComponent(state.productionReferenceView || "active")}&date_from=${range.from}&date_to=${range.to}&preset=7d`);
-    } catch (error) {
-      loadError = error.message || "No se pudo cargar Producción.";
-      data = null;
-    }
-
-    $("app").innerHTML = `
-      <main class="client-shell">
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
-            <div class="client-muted">${h(company.slug || "tenant")}</div>
-            <nav class="client-nav">${renderClientNav("production")}</nav>
-            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
-            <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
-          </aside>
-
-          <section class="client-main">
-            <header class="client-hero">
-              <div class="client-eyebrow">Módulo operativo</div>
-              <h1 class="client-title">Producción</h1>
-              <p class="client-muted">
-                Control de referencias, cierres del bot, cantidades terminadas, pendientes, avance y tiempos productivos.
-              </p>
-
-              <div class="client-actions" style="display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:10px;align-items:end">
-                <label>Desde
-                  <input type="date" data-production-from value="${h(data?.date_from || range.from)}">
-                </label>
-                <label>Hasta
-                  <input type="date" data-production-to value="${h(data?.date_to || range.to)}">
-                </label>
-                <label>Periodo
-                  <select data-production-preset>
-                    <option value="7d" selected>7 días</option>
-                    <option value="30d">30 días</option>
-                    <option value="month">Mes actual</option>
-                    <option value="today">Hoy</option>
-                  </select>
-                </label>
-                <button class="client-btn client-btn-primary" type="button" data-production-refresh>Actualizar</button>
-                <button class="client-btn" type="button" data-production-export>CSV</button>
-              </div>
-            </header>
-
-            ${loadError ? `<div class="client-panel"><strong>${h(loadError)}</strong></div>` : ""}
-
-            ${data && !data.module_active ? `
-              <section class="client-panel">
-                <strong>Producción no está activa para esta empresa.</strong>
-                <p class="client-muted">Actívala desde Admin V2 → Empresa → Módulos → Producción.</p>
-              </section>
-            ` : ""}
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Resumen operativo</div>
-              <h2>Estado productivo</h2>
-              ${productionKpiCards(data?.totals || {})}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Tiempos</div>
-              <h2>Tiempo total por referencia</h2>
-              <p class="client-muted">Suma efectiva entre todos los operarios. Las pausas no cuentan.</p>
-              ${productionTimeByReferenceTable(data?.time_by_reference || data?.sessions?.time_by_reference || [])}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Tiempos</div>
-              <h2>Tiempo por operario y referencia</h2>
-              <p class="client-muted">Tiempo efectivo dedicado por cada operario a cada referencia.</p>
-              ${productionTimeByOperatorTable(data?.time_by_operator_reference || data?.sessions?.time_by_operator_reference || [])}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Referencias</div>
-              <h2>Avance por referencia y talla</h2>
-              ${productionReferencesTable(data?.references || [])}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Periodo</div>
-              <h2>Producción por empleado</h2>
-              ${productionBars(data?.by_employee_period || [], "employee", "finished_quantity")}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Periodo</div>
-              <h2>Producción por referencia</h2>
-              ${productionBars(data?.by_reference_period || [], "reference", "finished_quantity")}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Cierres</div>
-              <h2>Cierres de producción del periodo</h2>
-              ${productionClosuresTable(data?.closures_display || data?.closures_period || [])}
-            </section>
-          </section>
-        </div>
-      </main>
-    `;
-  }
-
-  async function refreshProductionModule() {
-    const query = productionQuery();
-    const qs = new URLSearchParams({
-      date_from: query.from,
-      date_to: query.to,
-      preset: query.preset,
-    });
-
-    const company = state.company || {};
-    const b = normalizeBranding(state.branding || {});
-    let data = null;
-
-    try {
-      data = await api(`/production-v1/companies/${state.companyId}/summary?view=${encodeURIComponent(state.productionReferenceView || "active")}&${qs.toString()}`);
-    } catch (error) {
-      alert(error.message || "No se pudo actualizar Producción.");
-      return;
-    }
-
-    await renderProductionModule();
-
-    const fromInput = document.querySelector("[data-production-from]");
-    const toInput = document.querySelector("[data-production-to]");
-    if (fromInput) fromInput.value = data.date_from;
-    if (toInput) toInput.value = data.date_to;
-  }
-
-  function exportProductionCsv() {
-    const query = productionQuery();
-    const qs = new URLSearchParams({
-      date_from: query.from,
-      date_to: query.to,
-      preset: query.preset,
-    });
-
-    window.open(`${API}/production-v1/companies/${state.companyId}/export.csv?view=${encodeURIComponent(state.productionReferenceView || "all")}&${qs.toString()}`, "_blank");
-  }
-
-  if (!window.__cxProduction01Bound) {
-    window.__cxProduction01Bound = true;
-
-    document.addEventListener("click", async (event) => {
-      const moduleTrigger = event.target.closest('[data-client-module="production"]');
-      if (moduleTrigger && isClientModuleActivo("production")) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        await renderProductionModule();
-        return;
-      }
-
-      const refresh = event.target.closest("[data-production-refresh]");
-      if (refresh) {
-        event.preventDefault();
-        await refreshProductionModule();
-        return;
-      }
-
-      const exportBtn = event.target.closest("[data-production-export]");
-      if (exportBtn) {
-        event.preventDefault();
-        exportProductionCsv();
-      }
-    }, true);
-  }
-  /* CX_PRODUCCIÓN_01_END */
-
-
-
-  /* CX_CRM_LIVE_01_START */
-  function crmLiveParseDate(value) {
-    if (!value) return null;
-
-    let raw = String(value).trim();
-    if (!raw) return null;
-
-    raw = raw.replace(" ", "T");
-    raw = raw.replace(/(\.\d{3})\d+/, "$1");
-    raw = raw.replace(/([+-]\d{2})$/, "$1:00");
-
-    if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
-      raw = `${raw}Z`;
-    }
-
-    const date = new Date(raw);
-    if (Number.isNaN(date.getTime())) return null;
-
-    return date;
-  }
-
-  function crmLiveFormatDuration(ms) {
-    if (!Number.isFinite(ms) || ms < 0) ms = 0;
-
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-
-    return [
-      String(hours).padStart(2, "0"),
-      String(minutes).padStart(2, "0"),
-      String(seconds).padStart(2, "0"),
-    ].join(":");
-  }
-
-  function crmLiveStopTimers() {
-    if (window.__cxCrmLiveActualizarInterval) {
-      clearInterval(window.__cxCrmLiveActualizarInterval);
-      window.__cxCrmLiveActualizarInterval = null;
-    }
-
-    if (window.__cxCrmLiveTimerInterval) {
-      clearInterval(window.__cxCrmLiveTimerInterval);
-      window.__cxCrmLiveTimerInterval = null;
-    }
-  }
-
-  function crmLiveUpdateTimers() {
-    const root = document.querySelector("[data-crm-live-root]");
-    if (!root) {
-      crmLiveStopTimers();
-      return;
-    }
-
-    document.querySelectorAll("[data-live-since]").forEach((node) => {
-      const startedAt = crmLiveParseDate(node.dataset.liveSince || "");
-      if (!startedAt) {
-        node.textContent = "00:00:00";
-        return;
-      }
-
-      node.textContent = crmLiveFormatDuration(Date.now() - startedAt.getTime());
-    });
-
-    document.querySelectorAll("[data-effective-counter]").forEach((node) => {
-      const baseSeconds = Number(node.dataset.effectiveCounter || 0);
-      const running = String(node.dataset.effectiveRunning || "false") === "true";
-      const sync = crmLiveParseDate(node.dataset.effectiveSync || "");
-
-      let seconds = baseSeconds;
-
-      if (running && sync) {
-        seconds += Math.max(Math.floor((Date.now() - sync.getTime()) / 1000), 0);
-      }
-
-      node.textContent = crmLiveFormatDuration(seconds * 1000);
-    });
-
-    document.querySelectorAll("[data-live-seconds]").forEach((node) => {
-      const seconds = Number(node.dataset.liveSeconds || 0);
-      node.textContent = crmLiveFormatDuration(seconds * 1000);
-    });
-  }
-
-  function crmStatusBadge(row) {
-    const status = String(row.work_status || "").toLowerCase();
-
-    if (status === "working") {
-      return `<span style="padding:8px 12px;border-radius:999px;background:rgba(0,255,180,.14);border:1px solid rgba(0,255,180,.35);color:#adffe8">Activo</span>`;
-    }
-
-    if (status === "on_break") {
-      return `<span style="padding:8px 12px;border-radius:999px;background:rgba(255,172,28,.16);border:1px solid rgba(255,172,28,.4);color:#ffd58a">En pausa</span>`;
-    }
-
-    return `<span style="padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#dbe7ff">Fuera de turno</span>`;
-  }
-
-  function crmLiveKpis(summary) {
-    const cards = [
-      ["Activos", summary?.active_now ?? 0],
-      ["En pausa", summary?.on_break ?? 0],
-      ["Con referencia", summary?.with_active_reference ?? 0],
-      ["Sesiones ref.", summary?.active_reference_sessions ?? 0],
-      ["Producción", summary?.production_enabled ? "ON" : "OFF"],
-    ];
-
-    return `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
-        ${cards.map(([label, value]) => `
-          <div style="padding:16px;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)">
-            <div style="font-size:12px;opacity:.75;text-transform:uppercase;letter-spacing:.08em">${h(label)}</div>
-            <strong style="display:block;margin-top:8px;font-size:30px;line-height:1">${h(value)}</strong>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function crmEffectiveCounterMarkup(seconds, running) {
-    return `
-      <strong
-        style="font-size:26px"
-        data-effective-counter="${h(seconds || 0)}"
-        data-effective-running="${running ? "true" : "false"}"
-        data-effective-sync="${h(new Date().toISOString())}"
-      >00:00:00</strong>
-    `;
-  }
-
-  function crmTurnRow(row) {
-    const status = String(row.work_status || "").toLowerCase();
-
-    if (status === "on_break") {
-      return `
-        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-          <div>
-            <strong style="color:#ffd58a">Pausa activa</strong>
-            <div class="client-muted">Tiempo en pausa</div>
-          </div>
-          <strong style="font-size:26px;color:#ffd58a" data-live-since="${h(row.pause_started_at || row.status_started_at || "")}">00:00:00</strong>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-          <div>
-            <strong>Turno efectivo</strong>
-            <div class="client-muted">Congelado durante la pausa</div>
-          </div>
-          ${crmEffectiveCounterMarkup(row.shift_effective_seconds || 0, false)}
-        </div>
-      `;
-    }
-
-    if (status === "working") {
-      return `
-        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-          <div>
-            <strong>Turno efectivo</strong>
-            <div class="client-muted">Tiempo pagable / productivo</div>
-          </div>
-          ${crmEffectiveCounterMarkup(row.shift_effective_seconds || 0, true)}
-        </div>
-      `;
-    }
-
-    return `
-      <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-        <div>
-          <strong>Fuera de turno</strong>
-          <div class="client-muted">Sin jornada activa</div>
-        </div>
-        <strong style="font-size:26px">00:00:00</strong>
-      </div>
-    `;
-  }
-
-  function crmReferenceTimeline(row) {
-    const timeline = Array.isArray(row.reference_timeline) ? row.reference_timeline : [];
-    const isPaused = String(row.work_status || "").toLowerCase() === "on_break";
-    const isWorking = String(row.work_status || "").toLowerCase() === "working";
-
-    if (!timeline.length) {
-      return `
-        <div style="padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-          <strong>Producción actual</strong>
-          <div class="client-muted">Sin referencia activa</div>
-        </div>
-      `;
-    }
-
-    return `
-      <div style="padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-        <strong>Producción del turno</strong>
-        <div style="margin-top:10px;display:grid;gap:10px">
-          ${timeline.map((item) => {
-            const active = !!item.is_active;
-            const running = active && isWorking;
-            const label = active
-              ? (isPaused ? "Referencia activa · pausada" : "Referencia activa · corriendo")
-              : "Referencia cerrada";
-
-            const counter = active
-              ? crmEffectiveCounterMarkup(item.effective_seconds || 0, running)
-              : `<strong style="font-size:22px" data-live-seconds="${h(item.effective_seconds || item.duration_seconds || 0)}">00:00:00</strong>`;
-
-            return `
-              <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:12px;border-radius:16px;background:${active ? "rgba(0,255,180,.10)" : "rgba(255,255,255,.06)"};border:1px solid ${active ? "rgba(0,255,180,.25)" : "rgba(255,255,255,.1)"}">
-                <div>
-                  <strong>${h(item.reference_name || "Referencia")}</strong>
-                  <div class="client-muted">${h(label)}</div>
-                </div>
-                ${counter}
-              </div>
-            `;
-          }).join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  function crmLiveEmployeeCard(row) {
-    return `
-      <article style="padding:20px;border-radius:26px;background:linear-gradient(135deg,rgba(255,255,255,.11),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);box-shadow:0 20px 45px rgba(0,0,0,.22)">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
-          <div>
-            <div class="client-muted">Colaborador</div>
-            <h2 style="margin:4px 0 4px;font-size:28px;letter-spacing:.04em">${h(row.employee_name || "Empleado")}</h2>
-            ${row.employee_role ? `<div class="client-muted">${h(row.employee_role)}</div>` : ""}
-          </div>
-          ${crmStatusBadge(row)}
-        </div>
-
-        ${crmTurnRow(row)}
-        ${crmReferenceTimeline(row)}
-      </article>
-    `;
-  }
-
-  async function loadCrmLiveSnapshot() {
-    return await api(`/crm-live-v1/companies/${state.companyId}/snapshot`);
-  }
-
-  async function renderCrmLiveModule() {
-    crmLiveStopTimers();
-
-    const company = state.company || {};
-    const b = normalizeBranding(state.branding || {});
-
-    let snapshot = null;
-    let loadError = "";
-
-    try {
-      snapshot = await loadCrmLiveSnapshot();
-    } catch (error) {
-      loadError = error.message || "No se pudo cargar CRM en vivo.";
-      snapshot = null;
-    }
-
-    $("app").innerHTML = `
-      <main class="client-shell" data-crm-live-root>
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
-            <div class="client-muted">${h(company.slug || "tenant")}</div>
-            <nav class="client-nav">${renderClientNav("crm")}</nav>
-            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
-            <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
-          </aside>
-
-          <section class="client-main">
-            <header class="client-hero">
-              <div class="client-eyebrow">Módulo compartido · tiempo real</div>
-              <h1 class="client-title">CRM Campo</h1>
-              <p class="client-muted">
-                Vista viva de colaboradores, pausa, turno efectivo y referencia sin sumar tiempo muerto.
-              </p>
-              <div class="client-actions">
-                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
-                <button class="client-btn client-btn-primary" type="button" data-crm-live-refresh>Actualizar</button>
-              </div>
-            </header>
-
-            ${loadError ? `<section class="client-panel"><strong>${h(loadError)}</strong></section>` : ""}
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Estado operativo actual</div>
-              <h2>Operación en vivo</h2>
-              ${crmLiveKpis(snapshot?.summary || {})}
-            </section>
-
-            ${crmCoreCardsConfig(snapshot || {})}
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Colaboradores</div>
-              <h2>Estado por colaborador</h2>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px">
-                ${(snapshot?.employees || []).map(crmLiveEmployeeCard).join("") || `<div class="client-muted">Sin colaboradores activos.</div>`}
-              </div>
-            </section>
-          </section>
-        </div>
-      </main>
-    `;
-
-    crmLiveUpdateTimers();
-
-    window.__cxCrmLiveTimerInterval = setInterval(crmLiveUpdateTimers, 1000);
-
-    window.__cxCrmLiveActualizarInterval = setInterval(async () => {
-      if (!document.querySelector("[data-crm-live-root]")) {
-        crmLiveStopTimers();
-        return;
-      }
-
-      await renderCrmCoreModule();
-    }, 20000);
-  }
-
-  if (!window.__cxCrmLive01Bound) {
-    window.__cxCrmLive01Bound = true;
-
-    document.addEventListener("click", async (event) => {
-      const moduleTrigger = event.target.closest('[data-client-module="crm"]');
-      const actionTrigger = event.target.closest('[data-client-action="crm:open"]');
-
-      if ((moduleTrigger || actionTrigger) && isClientModuleActive("crm")) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        await renderCrmCoreModule();
-        return;
-      }
-
-      const refresh = event.target.closest("[data-crm-core-refresh]");
-      if (refresh) {
-        event.preventDefault();
-        await renderCrmCoreModule();
-        return;
-      }
-
-      const config = event.target.closest("[data-crm-config-cards]");
-      if (config) {
-        event.preventDefault();
-        const panel = document.querySelector("[data-crm-card-config-panel]");
-        if (panel) panel.style.display = panel.style.display === "none" ? "block" : "none";
-        return;
-      }
-
-      const save = event.target.closest("[data-crm-save-cards]");
-      if (save) {
-        event.preventDefault();
-        await saveCrmCoreCards();
-      }
-    }, true);
-  }
-  /* CX_CRM_LIVE_01_END */
-
-
-
-  /* CX_CRM_CORE_ADAPTERS_01_START */
-  function crmCoreParseDate(value) {
-    if (!value) return null;
-
-    let raw = String(value).trim();
-    if (!raw) return null;
-
-    raw = raw.replace(" ", "T");
-    raw = raw.replace(/(\.\d{3})\d+/, "$1");
-    raw = raw.replace(/([+-]\d{2})$/, "$1:00");
-
-    if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
-      raw = `${raw}Z`;
-    }
-
-    const date = new Date(raw);
-
-    if (Number.isNaN(date.getTime())) return null;
-
-    return date;
-  }
-
-  function crmCoreFormatDuration(ms) {
-    if (!Number.isFinite(ms) || ms < 0) ms = 0;
-
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-
-    return [
-      String(hours).padStart(2, "0"),
-      String(minutes).padStart(2, "0"),
-      String(seconds).padStart(2, "0"),
-    ].join(":");
-  }
-
-  function crmCoreStopTimers() {
-    if (window.__cxCrmCoreTimerInterval) {
-      clearInterval(window.__cxCrmCoreTimerInterval);
-      window.__cxCrmCoreTimerInterval = null;
-    }
-
-    if (window.__cxCrmCoreRefreshInterval) {
-      clearInterval(window.__cxCrmCoreRefreshInterval);
-      window.__cxCrmCoreRefreshInterval = null;
-    }
-  }
-
-  function crmCoreUpdateTimers() {
-    const root = document.querySelector("[data-crm-core-root]");
-    if (!root) {
-      crmCoreStopTimers();
-      return;
-    }
-
-    document.querySelectorAll("[data-crm-core-counter]").forEach((node) => {
-      const baseSeconds = Number(node.dataset.crmCoreCounter || 0);
-      const running = String(node.dataset.crmCoreRunning || "false") === "true";
-      const syncAt = crmCoreParseDate(node.dataset.crmCoreSync || "");
-
-      let seconds = baseSeconds;
-
-      if (running && syncAt) {
-        seconds += Math.max(Math.floor((Date.now() - syncAt.getTime()) / 1000), 0);
-      }
-
-      node.textContent = crmCoreFormatDuration(seconds * 1000);
-    });
-
-    document.querySelectorAll("[data-crm-core-since]").forEach((node) => {
-      const startAt = crmCoreParseDate(node.dataset.crmCoreSince || "");
-      if (!startAt) {
-        node.textContent = "00:00:00";
-        return;
-      }
-
-      node.textContent = crmCoreFormatDuration(Date.now() - startAt.getTime());
-    });
-  }
-
-  function crmCoreCounter(seconds, running, size = 26) {
-    return `
-      <strong
-        style="font-size:${size}px"
-        data-crm-core-counter="${h(seconds || 0)}"
-        data-crm-core-running="${running ? "true" : "false"}"
-        data-crm-core-sync="${h(new Date().toISOString())}"
-      >00:00:00</strong>
-    `;
-  }
-
-  function crmCoreStatusBadge(core) {
-    const status = String(core?.status || "").toLowerCase();
-
-    if (status === "working") {
-      return `<span style="padding:8px 12px;border-radius:999px;background:rgba(0,255,180,.14);border:1px solid rgba(0,255,180,.35);color:#adffe8">Activo</span>`;
-    }
-
-    if (status === "on_break") {
-      return `<span style="padding:8px 12px;border-radius:999px;background:rgba(255,172,28,.16);border:1px solid rgba(255,172,28,.4);color:#ffd58a">En pausa</span>`;
-    }
-
-    return `<span style="padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#dbe7ff">Fuera de turno</span>`;
-  }
-
-  function crmCoreKpis(snapshot) {
-    const cards = Array.isArray(snapshot?.cards?.visible) ? snapshot.cards.visible : [];
-
-    if (!cards.length) return `<div class="client-muted">Sin tarjetas configuradas.</div>`;
-
-    return `
-      <div style="display:flex;flex-wrap:wrap;gap:10px">
-        ${cards.map((card) => `
-          <div style="min-width:130px;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.11)">
-            <div style="font-size:11px;opacity:.72;text-transform:uppercase;letter-spacing:.08em">${h(card.label)}</div>
-            <strong style="display:block;margin-top:5px;font-size:20px;line-height:1">${h(card.value)}</strong>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  function crmCoreCardsConfig(snapshot) {
-    const catalog = Array.isArray(snapshot?.cards?.catalog) ? snapshot.cards.catalog : [];
-    const available = catalog.filter((card) => card.available);
-
-    if (!available.length) return "";
-
-    return `
-      <section class="client-panel" data-crm-card-config-panel style="display:none">
-        <div class="client-section-kicker">Configuración</div>
-        <h2>Tarjetas visibles</h2>
-        <p class="client-muted">Selecciona hasta 6 tarjetas para este CRM. Se guardan por empresa.</p>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px">
-          ${available.map((card) => `
-            <label style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)">
-              <input type="checkbox" data-crm-card-code="${h(card.code)}" ${card.selected ? "checked" : ""}>
-              <span>${h(card.label)}</span>
-            </label>
-          `).join("")}
-        </div>
-        <div class="client-actions" style="margin-top:14px">
-          <button class="client-btn client-btn-primary" type="button" data-crm-save-cards>Guardar tarjetas</button>
-        </div>
-      </section>
-    `;
-  }
-
-  function crmCoreTimeRows(core) {
-    const status = String(core?.status || "").toLowerCase();
-
-    const shiftRow = `
-      <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-        <div>
-          <strong>Turno efectivo</strong>
-          <div class="client-muted">${status === "on_break" ? "Congelado durante la pausa" : "Tiempo pagable / productivo"}</div>
-        </div>
-        ${crmCoreCounter(core?.shift_effective_seconds || 0, status === "working")}
-      </div>
-    `;
-
-    const pauseRow = status === "on_break"
-      ? `
-        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-          <div>
-            <strong style="color:#ffd58a">Pausa activa</strong>
-            <div class="client-muted">No suma a nómina ni producción</div>
-          </div>
-          <strong style="font-size:26px;color:#ffd58a" data-crm-core-since="${h(core?.pause_started_at || "")}">00:00:00</strong>
-        </div>
-      `
-      : `
-        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-          <div>
-            <strong>Pausa acumulada</strong>
-            <div class="client-muted">Tiempo no pagable</div>
-          </div>
-          ${crmCoreCounter(core?.pause_accumulated_seconds || 0, false)}
-        </div>
-      `;
-
-    if (status === "sin_turno" || status === "checked_out") {
-      return `
-        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-          <div>
-            <strong>Fuera de turno</strong>
-            <div class="client-muted">Sin jornada activa</div>
-          </div>
-          <strong style="font-size:26px">00:00:00</strong>
-        </div>
-      `;
-    }
-
-    return shiftRow + pauseRow;
-  }
-
-  function crmProductionAdapter(adapter, core) {
-    const items = Array.isArray(adapter?.items) ? adapter.items : [];
-    const status = String(core?.status || "").toLowerCase();
-
-    if (!items.length) return "";
-
-    return `
-      <div style="padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-        <strong>${h(adapter.title || "Producción del turno")}</strong>
-        <div style="margin-top:10px;display:grid;gap:10px">
-          ${items.map((item) => {
-            const active = !!item.is_active;
-            const running = active && status === "working" && !!item.running;
-            const label = active
-              ? (status === "on_break" ? "Referencia activa · pausada" : "Referencia activa · corriendo")
-              : "Referencia cerrada";
-
-            return `
-              <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:12px;border-radius:16px;background:${active ? "rgba(0,255,180,.10)" : "rgba(255,255,255,.06)"};border:1px solid ${active ? "rgba(0,255,180,.25)" : "rgba(255,255,255,.1)"}">
-                <div>
-                  <strong>${h(item.reference_name || "Referencia")}</strong>
-                  <div class="client-muted">${h(label)}</div>
-                </div>
-                ${crmCoreCounter(item.effective_seconds || 0, running, 22)}
-              </div>
-            `;
-          }).join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  function crmGenericAdapter(adapter) {
-    if (adapter?.code === "production_references") return "";
-
-    return `
-      <div style="padding:14px 0;border-top:1px solid rgba(255,255,255,.1)">
-        <strong>${h(adapter?.title || adapter?.code || "Adapter")}</strong>
-        <div class="client-muted">${h(adapter?.placeholder || "Adapter listo para conectar datos del módulo.")}</div>
-      </div>
-    `;
-  }
-
-  function crmCoreEmployeeCard(row) {
-    const core = row.core || {};
-    const adapters = Array.isArray(row.adapters) ? row.adapters : [];
-    const production = adapters.find((adapter) => adapter.code === "production_references");
-    const genericAdapters = adapters.filter((adapter) => adapter.code !== "production_references");
-
-    return `
-      <article style="padding:20px;border-radius:26px;background:linear-gradient(135deg,rgba(255,255,255,.11),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);box-shadow:0 20px 45px rgba(0,0,0,.22)">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
-          <div>
-            <div class="client-muted">Colaborador</div>
-            <h2 style="margin:4px 0 4px;font-size:28px;letter-spacing:.04em">${h(row.employee_name || "Empleado")}</h2>
-            ${row.employee_role ? `<div class="client-muted">${h(row.employee_role)}</div>` : ""}
-          </div>
-          ${crmCoreStatusBadge(core)}
-        </div>
-
-        ${crmCoreTimeRows(core)}
-        ${production ? crmProductionAdapter(production, core) : ""}
-        ${genericAdapters.map(crmGenericAdapter).join("")}
-      </article>
-    `;
-  }
-
-  async function loadCrmCoreSnapshot() {
-    return await api(`/crm-core-v1/companies/${state.companyId}/snapshot`);
-  }
-
-
-  async function saveCrmCoreCards() {
-    const checked = Array.from(document.querySelectorAll("[data-crm-card-code]:checked"))
-      .map((node) => node.dataset.crmCardCode)
-      .filter(Boolean)
-      .slice(0, 6);
-
-    await api(`/crm-core-v1/companies/${state.companyId}/cards`, {
-      method: "PUT",
-      body: JSON.stringify({ cards: checked }),
-    });
-
-    await renderCrmCoreModule();
-  }
-
-  async function renderCrmCoreModule() {
-    if (typeof crmLiveStopTimers === "function") crmLiveStopTimers();
-    crmCoreStopTimers();
-
-    const company = state.company || {};
-    const b = normalizeBranding(state.branding || {});
-
-    let snapshot = null;
-    let loadError = "";
-
-    try {
-      snapshot = await loadCrmCoreSnapshot();
-    } catch (error) {
-      loadError = error.message || "No se pudo cargar CRM Core.";
-      snapshot = null;
-    }
-
-    $("app").innerHTML = `
-      <main class="client-shell" data-crm-core-root>
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
-            <div class="client-muted">${h(company.slug || "tenant")}</div>
-            <nav class="client-nav">${renderClientNav("crm")}</nav>
-            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
-            <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
-          </aside>
-
-          <section class="client-main">
-            <header class="client-hero">
-              <div class="client-eyebrow">CRM Core · adapters dinámicos</div>
-              <h1 class="client-title">CRM Campo</h1>
-              <p class="client-muted">
-                Núcleo universal de turno efectivo, pausa y módulos activos por empresa.
-              </p>
-              <div class="client-actions">
-                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
-                <button class="client-btn" type="button" data-crm-config-cards>Tarjetas</button>
-                <button class="client-btn client-btn-primary" type="button" data-crm-core-refresh>Actualizar</button>
-              </div>
-            </header>
-
-            ${loadError ? `<section class="client-panel"><strong>${h(loadError)}</strong></section>` : ""}
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Estado operativo actual</div>
-              <h2>Operación en vivo</h2>
-              ${crmCoreKpis(snapshot || {})}
-            </section>
-
-            <section class="client-panel">
-              <div class="client-section-kicker">Colaboradores</div>
-              <h2>Estado por colaborador</h2>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px">
-                ${(snapshot?.employees || []).map(crmCoreEmployeeCard).join("") || `<div class="client-muted">Sin colaboradores activos.</div>`}
-              </div>
-            </section>
-          </section>
-        </div>
-      </main>
-    `;
-
-    crmCoreUpdateTimers();
-
-    window.__cxCrmCoreTimerInterval = setInterval(crmCoreUpdateTimers, 1000);
-
-    window.__cxCrmCoreRefreshInterval = setInterval(async () => {
-      if (!document.querySelector("[data-crm-core-root]")) {
-        crmCoreStopTimers();
-        return;
-      }
-
-      await renderCrmCoreModule();
-    }, 20000);
-  }
-
-  if (!window.__cxCrmCoreAdapters01Bound) {
-    window.__cxCrmCoreAdapters01Bound = true;
-
-    document.addEventListener("click", async (event) => {
-      const moduleTrigger = event.target.closest('[data-client-module="crm"]');
-      const actionTrigger = event.target.closest('[data-client-action="crm:open"]');
-
-      if ((moduleTrigger || actionTrigger) && isClientModuleActive("crm")) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        await renderCrmCoreModule();
-        return;
-      }
-
-      const refresh = event.target.closest("[data-crm-core-refresh]");
-      if (refresh) {
-        event.preventDefault();
-        await renderCrmCoreModule();
-      }
-    }, true);
-  }
-  /* CX_CRM_CORE_ADAPTERS_01_END */
-
-
   async function renderClientModulePlaceholder(code) {
     const company = state.company || {};
     $("app").innerHTML = `
@@ -7455,16 +5249,16 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
             <nav class="client-nav">${renderClientNav(code)}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
           </aside>
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo activo</div>
+              <div class="client-eyebrow">Modulo activo</div>
               <h1 class="client-title">${h(moduleLabel(code))}</h1>
-              <p class="client-muted">Este módulo esta asignado a la empresa y se construirá como pantalla independiente.</p>
+              <p class="client-muted">Este modulo esta asignado a la empresa y se construira como pantalla independiente.</p>
               <div class="client-actions"><button class="client-btn" type="button" data-client-back-dashboard>Volver</button></div>
             </header>
           </section>
@@ -7496,7 +5290,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -7511,9 +5305,9 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo Workforce</div>
+              <div class="client-eyebrow">Modulo Workforce</div>
               <h1 class="client-title">Personal</h1>
-              <p class="client-muted">Gestiona empleados, técnicos, supervisores y roles conectados a bot, nómina y operación.</p>
+              <p class="client-muted">Gestiona empleados, tecnicos, supervisores y roles conectados a bot, nomina y operacion.</p>
 
               <div class="personal-toolbar">
                 <div class="client-actions">
@@ -7653,49 +5447,49 @@
       if (clientAction) {
         const action = String(clientAction.dataset.clientAction || "");
 
-        if (action === "workforce:add" && isClientModuleActivo("workforce")) {
+        if (action === "workforce:add" && isClientModuleActive("workforce")) {
           await renderPersonalModule();
           setTimeout(() => document.querySelector("[data-personal-add-row]")?.click(), 60);
           return;
         }
 
-        if (action === "bots:open" && isClientModuleActivo("bots")) {
+        if (action === "bots:open" && isClientModuleActive("bots")) {
           await renderBotsModule();
           return;
         }
 
-        if (action === "crm:open" && isClientModuleActivo("crm")) {
-          await renderCrmCoreModule();
+        if (action === "crm:open" && isClientModuleActive("crm")) {
+          await renderCrmModule();
           return;
         }
 
-        if (action === "payroll:open" && isClientModuleActivo("payroll")) {
+        if (action === "payroll:open" && isClientModuleActive("payroll")) {
           await renderPayrollModule();
           return;
         }
 
-        if (action === "inventory:open" && isClientModuleActivo("inventory")) {
+        if (action === "inventory:open" && isClientModuleActive("inventory")) {
           await renderInventoryModule();
           return;
         }
 
-        if (action === "materials:open" && isClientModuleActivo("materials")) {
+        if (action === "materials:open" && isClientModuleActive("materials")) {
           await renderMaterialsModule();
           return;
         }
 
-        if (action === "gps:open" && isClientModuleActivo("gps")) {
+        if (action === "gps:open" && isClientModuleActive("gps")) {
           await renderGpsModule();
           return;
         }
 
-        if (action === "kpis:open" && isClientModuleActivo("kpis")) {
-          await renderAdaptiveKpisModule();
+        if (action === "kpis:open" && isClientModuleActive("kpis")) {
+          await renderKpisModule();
           return;
         }
 
-        if (action === "reports:open" && isClientModuleActivo("reports")) {
-          await renderAdaptiveReportsModule();
+        if (action === "reports:open" && isClientModuleActive("reports")) {
+          await renderClientModulePlaceholder("reports");
           return;
         }
       }
@@ -7703,23 +5497,8 @@
       const moduleTrigger = target.closest("[data-client-module]");
       if (moduleTrigger) {
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
-        if (code === "reports" && isClientModuleActivo("reports")) {
-          await renderAdaptiveReportsModule();
-          return;
-        }
 
-        if (code === "crm" && isClientModuleActivo("crm")) {
-          await renderCrmCoreModule();
-          return;
-        }
-
-        if (code === "production" && isClientModuleActivo("production")) {
-          await renderProductionModule();
-          return;
-        }
-
-
-        if (!isClientModuleActivo(code)) return;
+        if (!isClientModuleActive(code)) return;
 
         if (code === "workforce") {
           await renderPersonalModule();
@@ -7732,7 +5511,7 @@
         }
 
         if (code === "crm") {
-          await renderCrmCoreModule();
+          await renderCrmModule();
           return;
         }
 
@@ -7757,7 +5536,7 @@
         }
 
         if (code === "kpis") {
-          await renderAdaptiveKpisModule();
+          await renderKpisModule();
           return;
         }
 
@@ -8012,8 +5791,7 @@
   bindPersonalModuleEvents();
 
 
-  async function render() {
-    await loadVelvetLabDashboardMetrics();
+  function render() {
     const company = state.company || {};
     const b = normalizeBranding(state.branding || {});
     applyBranding();
@@ -8025,7 +5803,7 @@
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, b)}</div>
-            <h2 class="client-company-name">${h(clientDashboardCompanyName(company))}</h2>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
             <div class="client-muted">${h(company.slug || "tenant")}</div>
 
             <nav class="client-nav">
@@ -8043,7 +5821,7 @@
               <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
                 <div>
                   <div class="client-eyebrow">Sistema operativo empresarial</div>
-                  <h1 class="client-title">${h(clientDashboardCompanyName(company))}</h1>
+                  <h1 class="client-title">${h(company.name || "Empresa")}</h1>
                   <p class="client-muted">Panel operativo independiente conectado a sus m?dulos activos.</p>
                 </div>
                 <span class="client-badge">LIVE</span>
@@ -8064,7 +5842,7 @@
                   <div class="client-eyebrow">M?dulos del panel</div>
                   <h2>Servicios activos</h2>
                 </div>
-                <span class="client-badge">${h(modules.length)} módulos activos</span>
+                <span class="client-badge">${h(modules.length)} modulos activos</span>
               </div>
 
               <div class="client-module-grid">
@@ -8077,7 +5855,7 @@
                 `).join("") : `
                   <div class="client-module-card">
                     <div class="client-badge">OFF</div>
-                    <strong>Sin módulos activos</strong>
+                    <strong>Sin modulos activos</strong>
                     <small>Activa un paquete desde Admin V2</small>
                   </div>
                 `}
@@ -8131,7 +5909,7 @@
 
     if (codes.has("kpis")) {
       try {
-        const summary = await api(`/kpis/companies/${encodeURIComponent(companyId)}/summary?view=${encodeURIComponent(state.productionReferenceView || "active")}&preset=today`);
+        const summary = await api(`/kpis/companies/${encodeURIComponent(companyId)}/summary?preset=today`);
         metrics.kpiDashboardCards = Array.isArray(summary.dashboard_cards)
           ? summary.dashboard_cards
           : [];
@@ -8171,13 +5949,6 @@
     state.companyId = company.id || company.company_id || companyId;
     state.experience = experience || {};
     state.companyModules = Array.isArray(companyModules) ? companyModules : [];
-    persistClientSettings(company?.settings_json?.client_settings || company?.settings_json || {}, company);
-    try {
-      const loadedSettings = await loadUnifiedClientSettings();
-      persistClientSettings(loadedSettings?.settings || loadedSettings || {}, company);
-    } catch (error) {
-      console.warn("[CLONEXA Client] client settings fallback:", error);
-    }
     state.dashboardMetrics = await loadClientDashboardMetrics(state.companyId, activeClientModules());
     state.branding =
       experience?.branding ||
@@ -8750,8 +6521,6 @@
     applyPersonalFilters();
   }
 
-  window.addEventListener("clonexa:open-settings", () => openAjustes(false));
-
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
   } else {
@@ -9272,7 +7041,7 @@
 
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Módulo Workforce</div>
+              <div class="client-eyebrow">Modulo Workforce</div>
               <h1 class="client-title">Asistencia</h1>
               <p class="client-muted">Bitácora operativa de marcaciones e interacciones del personal: bot, panel, QR, solicitudes, observaciones y eventos por empresa.</p>
 
@@ -9331,7 +7100,7 @@
 
   function exportAsistenciaCsv() {
     const rows = Array.isArray(window.__cxAsistenciaRows) ? window.__cxAsistenciaRows : [];
-    const data = [["Fecha/Hora", "Empleado", "Rol", "Evento", "Canal", "Módulo", "Detalle", "Estado"]];
+    const data = [["Fecha/Hora", "Empleado", "Rol", "Evento", "Canal", "Modulo", "Detalle", "Estado"]];
 
     rows.forEach((row) => {
       data.push([
@@ -9411,8 +7180,6 @@
     window.__cxAsistenciaInjectTimer = window.setTimeout(injectAsistenciaButton, 80);
   });
 
-  window.addEventListener("clonexa:open-settings", () => openAjustes(false));
-
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       asistenciaStyles();
@@ -9467,23 +7234,13 @@
 
   function fmt(value) {
     if (value === null || value === undefined || value === "") return "-";
-    if (typeof value === "number") {
-      let settings = {};
-      try { settings = JSON.parse(localStorage.getItem("clonexa_client_settings") || "{}"); } catch (_) { settings = {}; }
-      const locale = settings.language === "en" ? "en-US" : settings.language === "fr" ? "fr-FR" : settings.language === "pt" ? "pt-BR" : "es-CO";
-      return Number.isInteger(value) ? String(value) : value.toLocaleString(locale, { maximumFractionDigits: 2 });
-    }
+    if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toLocaleString("es", { maximumFractionDigits: 2 });
     return String(value);
   }
 
   function fmtMoney(value) {
     const n = Number(value || 0);
-    let settings = {};
-    try { settings = JSON.parse(localStorage.getItem("clonexa_client_settings") || "{}"); } catch (_) { settings = {}; }
-    const language = String(settings.language || localStorage.getItem("clonexa_client_language") || "es");
-    const currency = String(settings.currency || localStorage.getItem("clonexa_client_currency") || "COP").toUpperCase();
-    const locale = language === "en" ? "en-US" : language === "fr" ? "fr-FR" : language === "pt" ? "pt-BR" : "es-CO";
-    return n.toLocaleString(locale, { style: "currency", currency, maximumFractionDigits: 2 });
+    return n.toLocaleString("es", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
   }
 
   function fmtDate(value) {
@@ -9870,7 +7627,7 @@
         ["consignas", "Consignas"],
         ["horas_ordinarias", "Horas ord."],
         ["horas_extra", "Horas extra"],
-        ["total_nómina", "Total nómina"],
+        ["total_nomina", "Total nómina"],
         ["alertas", "Alertas"],
       ],
     },
@@ -9944,7 +7701,7 @@
 
   function tableValue(row, key) {
     if (key.endsWith("_at") || key === "occurred_at" || key === "created_at" || key === "updated_at") return fmtDate(row[key]);
-    if (["gross_amount", "discount_amount", "net_amount", "total_nómina"].includes(key)) return fmtMoney(row[key]);
+    if (["gross_amount", "discount_amount", "net_amount", "total_nomina"].includes(key)) return fmtMoney(row[key]);
     return fmt(row[key]);
   }
 
@@ -10008,7 +7765,7 @@
 
     window.__cxReportsPayload = payload;
     window.__cxReportsFilters = nextFilters;
-    window.__cxReportsActivoTab = activeTab;
+    window.__cxReportsActiveTab = activeTab;
 
     const titleMode = nextFilters.employeeId ? "Reporte por persona" : "Reporte general";
 
@@ -10070,7 +7827,7 @@
     if (filters.status) params.set("status", filters.status);
     if (filters.search) params.set("search", filters.search.trim());
 
-    const res = await fetch(`${API}/reports/companies/${encodeURIComponent(companyId)}/export.csv?view=${encodeURIComponent(state.productionReferenceView || "all")}&${params.toString()}`);
+    const res = await fetch(`${API}/reports/companies/${encodeURIComponent(companyId)}/export.csv?${params.toString()}`);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`${res.status} ${text}`);
@@ -10114,7 +7871,7 @@
         const search = document.querySelector("[data-reports-search]");
         if (search) search.placeholder = "Selecciona empleado para reporte por persona";
       }
-      await renderReports(filters, window.__cxReportsActivoTab || "employee_summary");
+      await renderReports(filters, window.__cxReportsActiveTab || "employee_summary");
       return;
     }
 
@@ -10140,1953 +7897,8 @@
     const input = event.target.closest("[data-reports-search]");
     if (!input) return;
     event.preventDefault();
-    await renderReports(reportsReadFilters(), window.__cxReportsActivoTab || "employee_summary");
+    await renderReports(reportsReadFilters(), window.__cxReportsActiveTab || "employee_summary");
   });
 })();
 /* CX_REPORTS_016B_END */
 
-
-
-/* CLONEXA 020A-1 CLIENT ACCOUNT SESSION LAYER */
-(function clonexaClientAccountSessionLayer() {
-  "use strict";
-
-  const TOKEN_KEY = "clonexa_access_token";
-  const COMPANY_KEY = "clonexa_company_id";
-  const LEGACY_COMPANY_KEY = "company_id";
-
-  const TEXT = {
-    es: {
-      settings: "Configuración",
-      logout: "Salir",
-      title: "Configuración de cuenta",
-      firstLogin: "Primer ingreso: cambia tu contraseña",
-      account: "Cuenta",
-      email: "Correo",
-      newEmail: "Nuevo correo",
-      currentPassword: "Contraseña actual",
-      newPassword: "Nueva contraseña",
-      confirmPassword: "Confirmar contraseña",
-      language: "Idioma",
-      session: "Sesión",
-      timeout: "Bloqueo por inactividad",
-      currency: "Moneda",
-      timezone: "Zona horaria",
-      save: "Guardar cambios",
-      close: "Cerrar",
-      saved: "Configuración guardada.",
-      passwordRequired: "Debes cambiar la contraseña para continuar.",
-      sessionExpired: "Sesión expirada por inactividad.",
-      adminHint: "ConfiguraciÃ³n central por empresa. Todos los mÃ³dulos instalados leen estos ajustes.",
-      passwordHelp: "Deja nueva contraseña vacía si no deseas cambiarla.",
-      emailHelp: "Deja nuevo correo vacío si no deseas cambiarlo."
-    },
-    en: {
-      settings: "Ajustes",
-      logout: "Cerrar sesión",
-      title: "Account settings",
-      firstLogin: "First login: change your password",
-      account: "Account",
-      email: "Email",
-      newEmail: "New email",
-      currentPassword: "Current password",
-      newPassword: "New password",
-      confirmPassword: "Confirm password",
-      language: "Language",
-      session: "Session",
-      timeout: "Inactivity lock",
-      currency: "Currency",
-      timezone: "Time zone",
-      save: "Save changes",
-      close: "Close",
-      saved: "Settings saved.",
-      passwordRequired: "You must change your password to continue.",
-      sessionExpired: "Session expired due to inactivity.",
-      adminHint: "CLONEXA client panel",
-      passwordHelp: "Leave new password empty if you do not want to change it.",
-      emailHelp: "Leave new email empty if you do not want to change it."
-    },
-    fr: {
-      settings: "RÃ©glages",
-      logout: "Se dÃ©connecter",
-      title: "RÃ©glages client",
-      firstLogin: "Première connexion : changez votre mot de passe",
-      account: "Compte",
-      email: "E-mail",
-      newEmail: "Nouvel e-mail",
-      currentPassword: "Mot de passe actuel",
-      newPassword: "Nouveau mot de passe",
-      confirmPassword: "Confirmer le mot de passe",
-      language: "Langue",
-      session: "Session",
-      timeout: "Fenêtre de session ouverte",
-      save: "Enregistrer",
-      close: "Fermer",
-      saved: "Configuration enregistrée.",
-      passwordRequired: "Vous devez changer votre mot de passe pour continuer.",
-      sessionExpired: "Session expirée pour inactivité.",
-      adminHint: "Panneau client CLONEXA",
-      passwordHelp: "Laissez le nouveau mot de passe vide si vous ne souhaitez pas le changer.",
-      emailHelp: "Laissez le nouvel e-mail vide si vous ne souhaitez pas le changer."
-    }
-  };
-
-  let account = null;
-  let idleTimer = null;
-  let forced = false;
-
-  function token() {
-    return localStorage.getItem(TOKEN_KEY) || "";
-  }
-
-  /* CX_017C_ACCOUNT_SETTINGS_SOURCE_START */
-  function h(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  const ACCOUNT_DEFAULT_SETTINGS = {
-    language: "es",
-    currency: "COP",
-    timezone: "America/Bogota",
-    inactivity_lock_minutes: 30,
-    session_timeout_minutes: 30,
-    payroll: { ordinary_hours_limit: 48, pause_policy: "exclude" },
-    payroll_cuts: { allow_close: true, allow_export: true, allow_archive: true },
-  };
-
-  function mergeSettings(base = {}, extra = {}) {
-    const out = { ...(base || {}) };
-    Object.entries(extra || {}).forEach(([key, value]) => {
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        out[key] = mergeSettings(out[key] && typeof out[key] === "object" ? out[key] : {}, value);
-      } else if (value !== undefined && value !== null && value !== "") {
-        out[key] = value;
-      }
-    });
-    return out;
-  }
-
-  function normalizeSettings(raw = {}) {
-    const source = raw && raw.settings && typeof raw.settings === "object" ? raw.settings : (raw || {});
-    const nested = source.client_settings && typeof source.client_settings === "object" ? source.client_settings : source;
-    const merged = mergeSettings(ACCOUNT_DEFAULT_SETTINGS, source);
-    const normalized = mergeSettings(merged, nested);
-    const inactivity = Number(normalized.inactivity_lock_minutes || normalized.session_timeout_minutes || 30);
-    const hours = Number(String(normalized?.payroll?.ordinary_hours_limit ?? 48).replace(",", "."));
-
-    return {
-      ...normalized,
-      language: ["es", "en", "fr", "pt"].includes(String(normalized.language || "es").toLowerCase()) ? String(normalized.language || "es").toLowerCase() : "es",
-      currency: String(normalized.currency || "COP").toUpperCase(),
-      timezone: String(normalized.timezone || "America/Bogota"),
-      inactivity_lock_minutes: Number.isFinite(inactivity) && inactivity > 0 ? inactivity : 30,
-      session_timeout_minutes: Number.isFinite(inactivity) && inactivity > 0 ? inactivity : 30,
-      payroll: {
-        ...(normalized.payroll || {}),
-        ordinary_hours_limit: Number.isFinite(hours) && hours > 0 ? hours : 48,
-        pause_policy: normalized?.payroll?.pause_policy || "exclude",
-      },
-      payroll_cuts: {
-        allow_close: normalized?.payroll_cuts?.allow_close !== false,
-        allow_export: normalized?.payroll_cuts?.allow_export !== false,
-        allow_archive: normalized?.payroll_cuts?.allow_archive !== false,
-      },
-    };
-  }
-
-  function persistSettings(settings = {}) {
-    const normalized = normalizeSettings(settings);
-    localStorage.setItem("clonexa_client_settings", JSON.stringify(normalized));
-    localStorage.setItem("clonexa_client_language", normalized.language);
-    localStorage.setItem("clonexa_client_currency", normalized.currency);
-    localStorage.setItem("clonexa_client_timezone", normalized.timezone);
-    window.CLONEXA_CLIENT_SETTINGS = normalized;
-    return normalized;
-  }
-
-  function localSettings() {
-    try {
-      return normalizeSettings(JSON.parse(localStorage.getItem("clonexa_client_settings") || "{}"));
-    } catch (_) {
-      return normalizeSettings({});
-    }
-  }
-
-  async function settingsApi(path, options) {
-    const response = await fetch(`/api/v1${path}`, Object.assign({
-      headers: headers(),
-    }, options || {}));
-
-    let data = {};
-    try { data = await response.json(); } catch (_) { data = {}; }
-
-    if (!response.ok) {
-      throw new Error(data.detail || data.message || `HTTP ${response.status}`);
-    }
-
-    return data;
-  }
-
-  async function loadCompanyClientSettings() {
-    const id = companyId();
-    if (!id) return { settings: localSettings() };
-
-    try {
-      const data = await settingsApi(`/companies/${encodeURIComponent(id)}/client-settings?ts=${Date.now()}`, { method: "GET" });
-      persistSettings(data.settings || data);
-      return data;
-    } catch (primaryError) {
-      try {
-        const legacy = await settingsApi(`/company-settings-v1/companies/${encodeURIComponent(id)}?ts=${Date.now()}`, { method: "GET" });
-        persistSettings(legacy.settings || legacy);
-        return legacy;
-      } catch (_) {
-        return { ok: false, settings: localSettings(), error: primaryError.message || String(primaryError) };
-      }
-    }
-  }
-
-  async function saveCompanyClientSettings(payload = {}) {
-    const id = companyId();
-    if (!id) throw new Error("company_id requerido para guardar ajustes.");
-    try {
-      const data = await settingsApi(`/companies/${encodeURIComponent(id)}/client-settings`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-      persistSettings(data.settings || data);
-      return data;
-    } catch (primaryError) {
-      const legacy = await settingsApi(`/company-settings-v1/companies/${encodeURIComponent(id)}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-      persistSettings(legacy.settings || payload);
-      return legacy;
-    }
-  }
-  /* CX_017C_ACCOUNT_SETTINGS_SOURCE_END */
-
-  function companyId() {
-    const params = new URLSearchParams(window.location.search);
-    return (
-      params.get("company_id") ||
-      params.get("companyId") ||
-      localStorage.getItem(COMPANY_KEY) ||
-      localStorage.getItem(LEGACY_COMPANY_KEY) ||
-      ""
-    );
-  }
-
-  function lang() {
-    const value = (account && account.language) || localStorage.getItem("clonexa_client_language") || "es";
-    return ["es", "en", "fr"].includes(value) ? value : "es";
-  }
-
-  function t(key) {
-    const pack = TEXT[lang()] || TEXT.es;
-    return pack[key] || TEXT.es[key] || key;
-  }
-
-  function headers() {
-    return {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token()}`
-    };
-  }
-
-  async function accountApi(path, options) {
-    const response = await fetch(`/api/v1/auth${path}`, Object.assign({
-      headers: headers()
-    }, options || {}));
-
-    let data = {};
-    try {
-      data = await response.json();
-    } catch (_) {
-      data = {};
-    }
-
-    if (!response.ok) {
-      throw new Error(data.detail || data.message || `HTTP ${response.status}`);
-    }
-
-    return data;
-  }
-
-  function installStyles() {
-    if (document.getElementById("clx-account-layer-style")) return;
-
-    const style = document.createElement("style");
-    style.id = "clx-account-layer-style";
-    style.textContent = `
-      .clx-account-bar {
-        position: fixed;
-        top: 14px;
-        right: 14px;
-        z-index: 99980;
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-      .clx-account-pill {
-        background: rgba(15, 23, 42, 0.92);
-        color: #fff;
-        border: 1px solid rgba(255,255,255,0.14);
-        border-radius: 999px;
-        padding: 9px 13px;
-        font-size: 13px;
-        box-shadow: 0 12px 30px rgba(0,0,0,0.18);
-        cursor: pointer;
-      }
-      .clx-account-pill.secondary {
-        background: rgba(255,255,255,0.96);
-        color: #0f172a;
-        border-color: rgba(15,23,42,0.12);
-      }
-      .clx-account-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 99990;
-        background: rgba(15, 23, 42, 0.52);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-      }
-      .clx-account-overlay.open {
-        display: flex;
-      }
-      .clx-account-modal {
-        width: min(560px, 96vw);
-        max-height: 92vh;
-        overflow: auto;
-        background: #fff;
-        color: #0f172a;
-        border-radius: 24px;
-        box-shadow: 0 30px 80px rgba(0,0,0,0.35);
-        padding: 24px;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-      .clx-account-modal h2 {
-        margin: 0 0 4px;
-        font-size: 22px;
-      }
-      .clx-account-muted {
-        color: #64748b;
-        font-size: 13px;
-        margin: 0 0 18px;
-      }
-      .clx-account-grid {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 12px;
-      }
-      .clx-account-grid label {
-        display: grid;
-        gap: 6px;
-        font-size: 13px;
-        font-weight: 700;
-      }
-      .clx-account-grid input,
-      .clx-account-grid select {
-        width: 100%;
-        border: 1px solid #cbd5e1;
-        border-radius: 12px;
-        padding: 11px 12px;
-        font-size: 14px;
-      }
-      .clx-account-section {
-        border: 1px solid #e2e8f0;
-        border-radius: 18px;
-        padding: 16px;
-        margin-top: 14px;
-      }
-      .clx-account-section h3 {
-        margin: 0 0 10px;
-        font-size: 15px;
-      }
-      .clx-account-actions {
-        display: flex;
-        gap: 10px;
-        justify-content: flex-end;
-        margin-top: 18px;
-      }
-      .clx-account-btn {
-        border: 0;
-        border-radius: 12px;
-        padding: 11px 14px;
-        font-weight: 800;
-        cursor: pointer;
-      }
-      .clx-account-btn.primary {
-        background: #111827;
-        color: #fff;
-      }
-      .clx-account-btn.ghost {
-        background: #f1f5f9;
-        color: #0f172a;
-      }
-      .clx-account-status {
-        margin-top: 12px;
-        font-size: 13px;
-        color: #166534;
-      }
-      .clx-account-status.error {
-        color: #b91c1c;
-      }
-      .clx-account-forced .clx-account-close {
-        display: none;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function renderShell() {
-    if (document.getElementById("clx-account-bar")) return;
-
-    const bar = document.createElement("div");
-    bar.id = "clx-account-bar";
-    bar.className = "clx-account-bar";
-    bar.innerHTML = `
-      <button type="button" class="clx-account-pill secondary" id="clxAccountAjustesBtn">⚙ ${t("settings")}</button>
-      <button type="button" class="clx-account-pill" id="clxAccountLogoutBtn">⏻ ${t("logout")}</button>
-    `;
-    document.body.appendChild(bar);
-
-    const overlay = document.createElement("div");
-    overlay.id = "clx-account-overlay";
-    overlay.className = "clx-account-overlay";
-    overlay.innerHTML = `
-      <div class="clx-account-modal" id="clx-account-modal">
-        <h2 id="clxAccountTitle">${t("title")}</h2>
-        <p class="clx-account-muted" id="clxAccountSubtitle">${t("adminHint")}</p>
-
-        <div class="clx-account-section">
-          <h3>${t("account")}</h3>
-          <div class="clx-account-grid">
-            <label>
-              ${t("email")}
-              <input id="clxAccountEmail" type="email" disabled>
-            </label>
-            <p class="clx-account-muted">${t("emailHelp")}</p>
-            <label>
-              ${t("newEmail")}
-              <input id="clxAccountNewEmail" type="email" autocomplete="email">
-            </label>
-          </div>
-        </div>
-
-        <div class="clx-account-section">
-          <h3>${t("session")}</h3>
-          <div class="clx-account-grid">
-            <label>
-              ${t("language")}
-              <select id="clxAccountLanguage">
-                <option value="es">Español</option>
-                <option value="en">English</option>
-                <option value="fr">Français</option>
-              </select>
-            </label>
-            <label>
-              ${t("timeout")}
-              <select id="clxAccountTimeout">
-                <option value="15">15 min</option>
-                <option value="30">30 min</option>
-                <option value="60">60 min</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <div class="clx-account-section">
-          <h3>${t("newPassword")}</h3>
-          <p class="clx-account-muted">${t("passwordHelp")}</p>
-          <div class="clx-account-grid">
-            <label>
-              ${t("currentPassword")}
-              <input id="clxAccountCurrentPassword" type="password" autocomplete="current-password">
-            </label>
-            <label>
-              ${t("newPassword")}
-              <input id="clxAccountNewPassword" type="password" autocomplete="new-password">
-            </label>
-            <label>
-              ${t("confirmPassword")}
-              <input id="clxAccountConfirmPassword" type="password" autocomplete="new-password">
-            </label>
-          </div>
-        </div>
-
-        <div id="clxAccountStatus" class="clx-account-status"></div>
-
-        <div class="clx-account-actions">
-          <button type="button" class="clx-account-btn ghost clx-account-close" id="clxAccountCloseBtn">${t("close")}</button>
-          <button type="button" class="clx-account-btn primary" id="clxAccountSaveBtn">${t("save")}</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    document.getElementById("clxAccountAjustesBtn").addEventListener("click", () => openAjustes(false));
-    document.getElementById("clxAccountLogoutBtn").addEventListener("click", () => logout("manual"));
-    document.getElementById("clxAccountCloseBtn").addEventListener("click", closeAjustes);
-    document.getElementById("clxAccountSaveBtn").addEventListener("click", saveAjustes);
-  }
-
-  function refreshTexts() {
-    const settingsBtn = document.getElementById("clxAccountAjustesBtn");
-    const logoutBtn = document.getElementById("clxAccountLogoutBtn");
-    if (settingsBtn) settingsBtn.textContent = `⚙ ${t("settings")}`;
-    if (logoutBtn) logoutBtn.textContent = `⏻ ${t("logout")}`;
-    document.documentElement.lang = lang();
-  }
-
-  function fillForm() {
-    if (!account) return;
-    const email = document.getElementById("clxAccountEmail");
-    const newEmail = document.getElementById("clxAccountNewEmail");
-    const langEl = document.getElementById("clxAccountLanguage");
-    const timeoutEl = document.getElementById("clxAccountTimeout");
-    const currencyEl = document.getElementById("clxAccountCurrency");
-    const timezoneEl = document.getElementById("clxAccountTimezone");
-    const status = document.getElementById("clxAccountStatus");
-    const settings = localSettings();
-
-    if (email) email.value = account.email || "";
-    if (newEmail) newEmail.value = "";
-    if (langEl) langEl.value = settings.language || account.language || "es";
-    if (timeoutEl) timeoutEl.value = String(settings.inactivity_lock_minutes || account.session_timeout_minutes || 30);
-    if (currencyEl) currencyEl.value = settings.currency || "COP";
-    if (timezoneEl) timezoneEl.value = settings.timezone || "America/Bogota";
-    if (status) {
-      status.textContent = "";
-      status.classList.remove("error");
-    }
-  }
-
-
-  /* CX_ACCOUNT_SETTINGS_PAYROLL_FINAL_START */
-  async function cxAccountLoadPayrollSettings() {
-    return await loadCompanyClientSettings();
-  }
-
-  function cxAccountFindEmailPanel() {
-    const modal = document.getElementById("clx-account-modal");
-    if (!modal) return null;
-
-    const changeEmailButton = Array.from(modal.querySelectorAll("button"))
-      .find((btn) => String(btn.textContent || "").toLowerCase().includes("cambiar correo"));
-
-    if (changeEmailButton) {
-      let node = changeEmailButton.parentElement;
-      let fallback = changeEmailButton.parentElement;
-
-      for (let i = 0; i < 10 && node && node !== modal; i += 1) {
-        const text = String(node.textContent || "").toLowerCase();
-
-        if (
-          text.includes("cambiar correo") &&
-          text.includes("nuevo correo") &&
-          text.includes("contraseña actual") &&
-          !text.includes("cambiar contraseña")
-        ) {
-          return node;
-        }
-
-        if (
-          text.includes("cambiar correo") &&
-          text.includes("nuevo correo") &&
-          !text.includes("nueva contraseña") &&
-          !text.includes("confirmar nueva contraseña")
-        ) {
-          fallback = node;
-        }
-
-        node = node.parentElement;
-      }
-
-      return fallback;
-    }
-
-    const newEmail = document.getElementById("clxAccountNewEmail");
-    if (!newEmail) return null;
-
-    let node = newEmail.parentElement;
-    let fallback = newEmail.parentElement;
-
-    for (let i = 0; i < 10 && node && node !== modal; i += 1) {
-      const text = String(node.textContent || "").toLowerCase();
-
-      if (
-        text.includes("cambiar correo") &&
-        text.includes("nuevo correo") &&
-        !text.includes("nueva contraseña")
-      ) {
-        fallback = node;
-      }
-
-      node = node.parentElement;
-    }
-
-    return fallback;
-  }
-
-  function cxAccountPayrollCard(settings = {}) {
-    const payroll = settings.payroll || {};
-    const cuts = settings.payroll_cuts || {};
-    const hours = payroll.ordinary_hours_limit ?? "";
-
-    return `
-      <div id="clxPayrollSettingsCard"
-        style="
-          margin-top:22px;
-          padding-top:22px;
-          border-top:1px solid rgba(255,255,255,.14);
-        "
-      >
-        <h3 style="margin:0 0 14px;font-size:22px;font-weight:1000">Nómina y cortes</h3>
-
-        <label style="display:block;margin-bottom:14px">
-          <span style="display:block;margin-bottom:8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:1000;opacity:.72">
-            Total horas ordinarias hasta
-          </span>
-
-          <input
-            id="clxPayrollOrdinaryHoursLimit"
-            type="number"
-            min="0.01"
-            step="0.25"
-            value="${h(hours)}"
-            placeholder="Ej: 48"
-            style="
-              width:100%;
-              border:1px solid rgba(255,255,255,.16);
-              background:rgba(0,0,0,.28);
-              color:inherit;
-              border-radius:16px;
-              padding:14px 16px;
-              font-weight:1000;
-              outline:none;
-            "
-          >
-        </label>
-
-        <p style="margin:0 0 14px;opacity:.72;font-weight:800;line-height:1.35">
-          Hasta este total se calcula como hora ordinaria. Después de ese total se calcula como extra. Las pausas no cuentan.
-        </p>
-
-        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0">
-          <div style="padding:12px;border-radius:15px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10)">
-            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Cerrar corte</span>
-            <strong>${cuts.allow_close === false ? "OFF" : "ON"}</strong>
-          </div>
-
-          <div style="padding:12px;border-radius:15px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10)">
-            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Exportar</span>
-            <strong>${cuts.allow_export === false ? "OFF" : "ON"}</strong>
-          </div>
-
-          <div style="padding:12px;border-radius:15px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10)">
-            <span style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.68">Archivar</span>
-            <strong>${cuts.allow_archive === false ? "OFF" : "ON"}</strong>
-          </div>
-        </div>
-
-        <button
-          id="clxPayrollSettingsSaveBtn"
-          type="button"
-          style="
-            border:0;
-            border-radius:16px;
-            padding:14px 22px;
-            font-weight:1000;
-            color:white;
-            cursor:pointer;
-            background:linear-gradient(135deg,#ff1fb8,#8b5cf6);
-          "
-        >
-          Guardar nómina
-        </button>
-
-        <div id="clxPayrollSettingsStatus" style="margin-top:12px;font-weight:900;opacity:.78"></div>
-      </div>
-    `;
-  }
-
-  async function cxAccountInjectPayrollSettings() {
-    const modal = document.getElementById("clx-account-modal");
-    if (!modal) return;
-
-    const emailPanel = cxAccountFindEmailPanel();
-    if (!emailPanel) return;
-
-    const data = await cxAccountLoadPayrollSettings();
-    const settings = data.settings || {};
-
-    const existing = document.getElementById("clxPayrollSettingsCard");
-    if (existing) existing.remove();
-
-    emailPanel.insertAdjacentHTML("beforeend", cxAccountPayrollCard(settings));
-  }
-
-  async function cxAccountSavePayrollSettings() {
-    const input = document.getElementById("clxPayrollOrdinaryHoursLimit");
-    const status = document.getElementById("clxPayrollSettingsStatus");
-
-    const hours = Number(String(input?.value || "").replace(",", "."));
-
-    if (!Number.isFinite(hours) || hours <= 0) {
-      if (status) status.textContent = "Ingresa un total de horas ordinarias válido.";
-      return;
-    }
-
-    if (status) status.textContent = "Guardando...";
-
-    await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        payroll: {
-          ordinary_hours_limit: hours,
-          pause_policy: "exclude",
-        },
-        payroll_cuts: {
-          allow_close: true,
-          allow_export: true,
-          allow_archive: true,
-        },
-      }),
-    });
-
-    if (status) status.textContent = "Configuración guardada.";
-  }
-
-  if (!window.__cxAccountSettingsPayrollFinalBound) {
-    window.__cxAccountSettingsPayrollFinalBound = true;
-
-    document.addEventListener("click", async (event) => {
-      const savePayroll = event.target.closest("#clxPayrollSettingsSaveBtn");
-      if (savePayroll) {
-        event.preventDefault();
-        event.stopPropagation();
-        await cxAccountSavePayrollSettings();
-      }
-    }, true);
-  }
-  /* CX_ACCOUNT_SETTINGS_PAYROLL_FINAL_END */
-
-
-  async function syncCompanySettingsIntoForm() {
-    const data = await loadCompanyClientSettings();
-    const settings = persistSettings(data.settings || data);
-    const langEl = document.getElementById("clxAccountLanguage");
-    const timeoutEl = document.getElementById("clxAccountTimeout");
-    const currencyEl = document.getElementById("clxAccountCurrency");
-    const timezoneEl = document.getElementById("clxAccountTimezone");
-    if (langEl) langEl.value = settings.language || "es";
-    if (timeoutEl) timeoutEl.value = String(settings.inactivity_lock_minutes || 30);
-    if (currencyEl) currencyEl.value = settings.currency || "COP";
-    if (timezoneEl) timezoneEl.value = settings.timezone || "America/Bogota";
-  }
-
-  function openAjustes(force) {
-    forced = Boolean(force);
-    const overlay = document.getElementById("clx-account-overlay");
-    const modal = document.getElementById("clx-account-modal");
-    const title = document.getElementById("clxAccountTitle");
-    const subtitle = document.getElementById("clxAccountSubtitle");
-
-    if (!overlay || !modal) return;
-
-    fillForm();
-
-    modal.classList.toggle("clx-account-forced", forced);
-    if (title) title.textContent = forced ? t("firstLogin") : t("title");
-    if (subtitle) subtitle.textContent = forced ? t("passwordRequired") : t("adminHint");
-
-    overlay.classList.add("open");
-    syncCompanySettingsIntoForm().finally(() => cxAccountInjectPayrollSettings());
-  }
-
-  function closeAjustes() {
-    if (forced) return;
-    const overlay = document.getElementById("clx-account-overlay");
-    if (overlay) overlay.classList.remove("open");
-  }
-
-  function setStatus(message, isError) {
-    const status = document.getElementById("clxAccountStatus");
-    if (!status) return;
-    status.textContent = message || "";
-    status.classList.toggle("error", Boolean(isError));
-  }
-
-  async function saveAjustes() {
-    try {
-      setStatus("", false);
-
-      const currentPassword = document.getElementById("clxAccountCurrentPassword").value || "";
-      const newPassword = document.getElementById("clxAccountNewPassword").value || "";
-      const confirmPassword = document.getElementById("clxAccountConfirmPassword").value || "";
-      const newEmail = (document.getElementById("clxAccountNewEmail").value || "").trim();
-      const language = document.getElementById("clxAccountLanguage").value || "es";
-      const sessionTimeout = Number(document.getElementById("clxAccountTimeout").value || 30);
-      const currency = document.getElementById("clxAccountCurrency")?.value || "COP";
-      const timezone = document.getElementById("clxAccountTimezone")?.value || "America/Bogota";
-
-      await saveCompanyClientSettings({
-        ...localSettings(),
-        language: language,
-        currency: currency,
-        timezone: timezone,
-        inactivity_lock_minutes: sessionTimeout,
-        session_timeout_minutes: sessionTimeout,
-      });
-
-      account = await accountApi("/account/preferences", {
-        method: "PATCH",
-        body: JSON.stringify({
-          language: language,
-          session_timeout_minutes: sessionTimeout
-        })
-      });
-
-      localStorage.setItem("clonexa_client_language", account.language || "es");
-
-      if (newEmail) {
-        if (!currentPassword) throw new Error(t("currentPassword"));
-        account = await accountApi("/account/email", {
-          method: "PATCH",
-          body: JSON.stringify({
-            current_password: currentPassword,
-            new_email: newEmail
-          })
-        });
-      }
-
-      if (newPassword || confirmPassword || forced) {
-        if (!currentPassword) throw new Error(t("currentPassword"));
-        account = await accountApi("/account/password", {
-          method: "PATCH",
-          body: JSON.stringify({
-            current_password: currentPassword,
-            new_password: newPassword,
-            confirm_password: confirmPassword
-          })
-        });
-      }
-
-      refreshTexts();
-      configureIdleTimeout();
-      fillForm();
-      setStatus(t("saved"), false);
-
-      if (!account.must_change_password && !account.temporary_password) {
-        forced = false;
-        setTimeout(closeAjustes, 700);
-      }
-    } catch (error) {
-      setStatus(error.message || String(error), true);
-    }
-  }
-
-  async function logout(reason) {
-    try {
-      if (token()) {
-        await accountApi("/logout", { method: "POST", body: JSON.stringify({}) });
-      }
-    } catch (_) {}
-
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem("clonexa_login_payload");
-    localStorage.removeItem("clonexa_company_id");
-    localStorage.removeItem("company_id");
-
-    if (reason === "timeout") {
-      localStorage.setItem("clonexa_logout_reason", t("sessionExpired"));
-    }
-
-    window.location.href = "/login";
-  }
-
-  function configureIdleTimeout() {
-    if (idleTimer) clearTimeout(idleTimer);
-
-    const minutes = Number(localSettings().inactivity_lock_minutes || (account && account.session_timeout_minutes) || 30);
-    const ms = minutes * 60 * 1000;
-
-    const reset = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => logout("timeout"), ms);
-    };
-
-    ["click", "keydown", "scroll", "mousemove", "touchstart"].forEach((eventName) => {
-      window.removeEventListener(eventName, reset, { passive: true });
-      window.addEventListener(eventName, reset, { passive: true });
-    });
-
-    reset();
-  }
-
-  async function init() {
-    if (!token()) return;
-
-    installStyles();
-    renderShell();
-
-    try {
-      account = await accountApi("/account", { method: "GET" });
-      await loadCompanyClientSettings();
-      localStorage.setItem("clonexa_client_language", localSettings().language || account.language || "es");
-      localStorage.setItem("clonexa_company_id", account.company_id || companyId());
-      localStorage.setItem("company_id", account.company_id || companyId());
-
-      refreshTexts();
-      configureIdleTimeout();
-
-      if (account.must_change_password || account.temporary_password) {
-        openAjustes(true);
-      }
-    } catch (error) {
-      console.warn("CLONEXA account layer disabled:", error);
-    }
-  }
-
-  window.addEventListener("clonexa:open-settings", () => openAjustes(false));
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-
-  /* CX_017D_PAYROLL_I18N_SOURCE_TRUTH_START */
-  const CX017D_SUPPORTED_LANGUAGES = Object.freeze([
-    { code: "es", label: "EspaÃ±ol" },
-    { code: "en", label: "English" },
-    { code: "fr", label: "FranÃ§ais" },
-    { code: "pt", label: "PortuguÃªs" },
-  ]);
-
-  const CX017D_DICTIONARY = Object.freeze({
-    es: {
-      dashboard: "Dashboard", bots: "Bots", gps: "GPS", workforce: "Workforce", personal: "Personal",
-      payroll: "NÃ³mina", inventory: "Inventario", materials: "Materiales", kpis: "KPIs", crm_field: "CRM Campo",
-      reports: "Reportes", settings: "Ajustes", active_tenant: "Tenant activo", back: "Volver", logout: "Cerrar sesiÃ³n",
-      session: "SesiÃ³n", save: "Guardar", save_settings: "Guardar ajustes", saved: "ConfiguraciÃ³n guardada.",
-      saving: "Guardando...", close: "Cerrar", language: "Idioma", inactivity_lock: "Bloqueo por inactividad",
-      currency: "Moneda", timezone: "Zona horaria detectada", panel_preferences: "Preferencias del panel",
-      core_settings: "Ajustes del nÃºcleo", settings_subtitle: "ConfiguraciÃ³n nÃºcleo del portal cliente para esta empresa.",
-      change_email: "Cambiar correo", new_email: "Nuevo correo", current_password: "ContraseÃ±a actual",
-      change_password: "Cambiar contraseÃ±a", new_password: "Nueva contraseÃ±a", confirm_new_password: "Confirmar nueva contraseÃ±a",
-      payroll_settings: "ConfiguraciÃ³n de nÃ³mina", ordinary_weekly_hours: "Total de horas ordinarias semanales",
-      ordinary_weekly_hours_help: "Hasta este total se calcula como hora ordinaria. A partir de este total se calcula como hora extra. Las pausas no cuentan.",
-      save_payroll_rule: "Guardar regla de nÃ³mina", invalid_hours: "Ingresa un total de horas ordinarias vÃ¡lido.",
-      payroll_rule_saved: "Regla de nÃ³mina guardada para esta empresa.", hours: "horas", ordinary_hours: "Horas ordinarias",
-      extra_hours: "Horas extra", total: "Total", active: "Activo", inactive: "Inactivo", archived: "Archivado",
-      search: "Buscar", filters: "Filtros", all: "Todos", csv: "CSV", export_csv: "Exportar CSV", status: "Estado",
-      actions: "Acciones", name: "Nombre", role: "Rol", phone: "TelÃ©fono", email: "Correo", telegram_id: "Telegram ID",
-      hire_date: "Fecha ingreso", regular_rate: "Hora ordinaria", extra_rate: "Hora extra", deduction_1: "Descuento 1",
-      deduction_2: "Descuento 2", add_row: "Agregar fila", save_changes: "Guardar cambios", save_row: "Guardar fila",
-      activate: "Activar", deactivate: "Inactivar", delete_archive: "Eliminar / archivar", started_shifts: "Turnos iniciados",
-      stock_zero: "Stock cero", requests: "Solicitudes", location: "UbicaciÃ³n", information: "InformaciÃ³n",
-      executive_summary: "Resumen ejecutivo", operational_report: "Reporte operativo", from: "Desde", to: "Hasta",
-      period: "Periodo", module: "MÃ³dulo", person: "Persona", event: "Evento", channel: "Canal", source: "Fuente",
-      detail: "Detalle", evidence: "Evidencia", materials_requests: "Solicitudes de materiales", stock: "Stock",
-      minimum_stock: "Stock mÃ­nimo", quantity: "Cantidad", product: "Producto", reference: "Referencia", size: "TamaÃ±o",
-      color: "Color", cost: "Costo", sales: "Ventas", orders: "Pedidos", stores: "Tiendas", production: "ProducciÃ³n",
-      hospitality: "Hospitality", retail: "Retail", field_operations: "OperaciÃ³n en campo"
-    },
-    en: {
-      dashboard: "Dashboard", bots: "Bots", gps: "GPS", workforce: "Workforce", personal: "People",
-      payroll: "Payroll", inventory: "Inventory", materials: "Materials", kpis: "KPIs", crm_field: "Field CRM",
-      reports: "Reports", settings: "Settings", active_tenant: "Active tenant", back: "Back", logout: "Log out",
-      session: "Session", save: "Save", save_settings: "Save settings", saved: "Settings saved.", saving: "Saving...",
-      close: "Close", language: "Language", inactivity_lock: "Inactivity lock", currency: "Currency", timezone: "Detected time zone",
-      panel_preferences: "Panel preferences", core_settings: "Core settings",
-      settings_subtitle: "Core configuration for this company client portal.", change_email: "Change email", new_email: "New email",
-      current_password: "Current password", change_password: "Change password", new_password: "New password",
-      confirm_new_password: "Confirm new password", payroll_settings: "Payroll settings", ordinary_weekly_hours: "Total weekly regular hours",
-      ordinary_weekly_hours_help: "Up to this total is calculated as regular time. After this total, time is calculated as overtime. Breaks do not count.",
-      save_payroll_rule: "Save payroll rule", invalid_hours: "Enter a valid regular-hours total.",
-      payroll_rule_saved: "Payroll rule saved for this company.", hours: "hours", ordinary_hours: "Regular hours",
-      extra_hours: "Overtime hours", total: "Total", active: "Active", inactive: "Inactive", archived: "Archived",
-      search: "Search", filters: "Filters", all: "All", csv: "CSV", export_csv: "Export CSV", status: "Status",
-      actions: "Actions", name: "Name", role: "Role", phone: "Phone", email: "Email", telegram_id: "Telegram ID",
-      hire_date: "Hire date", regular_rate: "Regular rate", extra_rate: "Overtime rate", deduction_1: "Deduction 1",
-      deduction_2: "Deduction 2", add_row: "Add row", save_changes: "Save changes", save_row: "Save row",
-      activate: "Activate", deactivate: "Deactivate", delete_archive: "Delete / archive", started_shifts: "Started shifts",
-      stock_zero: "Zero stock", requests: "Requests", location: "Location", information: "Information",
-      executive_summary: "Executive summary", operational_report: "Operational report", from: "From", to: "To",
-      period: "Period", module: "Module", person: "Person", event: "Event", channel: "Channel", source: "Source",
-      detail: "Detail", evidence: "Evidence", materials_requests: "Material requests", stock: "Stock",
-      minimum_stock: "Minimum stock", quantity: "Quantity", product: "Product", reference: "Reference", size: "Size",
-      color: "Color", cost: "Cost", sales: "Sales", orders: "Orders", stores: "Stores", production: "Production",
-      hospitality: "Hospitality", retail: "Retail", field_operations: "Field operations"
-    },
-    fr: {
-      dashboard: "Tableau de bord", bots: "Bots", gps: "GPS", workforce: "Personnel", personal: "Personnel",
-      payroll: "Paie", inventory: "Inventaire", materials: "MatÃ©riaux", kpis: "KPIs", crm_field: "CRM Terrain",
-      reports: "Rapports", settings: "RÃ©glages", active_tenant: "Tenant actif", back: "Retour", logout: "Se dÃ©connecter",
-      session: "Session", save: "Enregistrer", save_settings: "Enregistrer les rÃ©glages", saved: "Configuration enregistrÃ©e.",
-      saving: "Enregistrement...", close: "Fermer", language: "Langue", inactivity_lock: "Verrouillage par inactivitÃ©",
-      currency: "Devise", timezone: "Fuseau horaire dÃ©tectÃ©", panel_preferences: "PrÃ©fÃ©rences du panneau",
-      core_settings: "RÃ©glages du noyau", settings_subtitle: "Configuration du noyau du portail client pour cette entreprise.",
-      change_email: "Changer lâ€™e-mail", new_email: "Nouvel e-mail", current_password: "Mot de passe actuel",
-      change_password: "Changer le mot de passe", new_password: "Nouveau mot de passe", confirm_new_password: "Confirmer le nouveau mot de passe",
-      payroll_settings: "Configuration de paie", ordinary_weekly_hours: "Total dâ€™heures ordinaires hebdomadaires",
-      ordinary_weekly_hours_help: "Jusquâ€™Ã  ce total, le temps est calculÃ© comme ordinaire. Au-delÃ , il est calculÃ© comme heure supplÃ©mentaire. Les pauses ne comptent pas.",
-      save_payroll_rule: "Enregistrer la rÃ¨gle de paie", invalid_hours: "Saisissez un total dâ€™heures ordinaires valide.",
-      payroll_rule_saved: "RÃ¨gle de paie enregistrÃ©e pour cette entreprise.", hours: "heures", ordinary_hours: "Heures ordinaires",
-      extra_hours: "Heures supplÃ©mentaires", total: "Total", active: "Actif", inactive: "Inactif", archived: "ArchivÃ©",
-      search: "Rechercher", filters: "Filtres", all: "Tous", csv: "CSV", export_csv: "Exporter CSV", status: "Statut",
-      actions: "Actions", name: "Nom", role: "RÃ´le", phone: "TÃ©lÃ©phone", email: "E-mail", telegram_id: "Telegram ID",
-      hire_date: "Date dâ€™entrÃ©e", regular_rate: "Taux ordinaire", extra_rate: "Taux supplÃ©mentaire", deduction_1: "DÃ©duction 1",
-      deduction_2: "DÃ©duction 2", add_row: "Ajouter une ligne", save_changes: "Enregistrer les modifications", save_row: "Enregistrer la ligne",
-      activate: "Activer", deactivate: "DÃ©sactiver", delete_archive: "Supprimer / archiver", started_shifts: "Tours commencÃ©s",
-      stock_zero: "Stock zÃ©ro", requests: "Demandes", location: "Localisation", information: "Information",
-      executive_summary: "RÃ©sumÃ© exÃ©cutif", operational_report: "Rapport opÃ©rationnel", from: "De", to: "Ã€",
-      period: "PÃ©riode", module: "Module", person: "Personne", event: "Ã‰vÃ©nement", channel: "Canal", source: "Source",
-      detail: "DÃ©tail", evidence: "Preuve", materials_requests: "Demandes de matÃ©riaux", stock: "Stock",
-      minimum_stock: "Stock minimum", quantity: "QuantitÃ©", product: "Produit", reference: "RÃ©fÃ©rence", size: "Taille",
-      color: "Couleur", cost: "CoÃ»t", sales: "Ventes", orders: "Commandes", stores: "Magasins", production: "Production",
-      hospitality: "HospitalitÃ©", retail: "Retail", field_operations: "OpÃ©ration terrain"
-    },
-    pt: {
-      dashboard: "Dashboard", bots: "Bots", gps: "GPS", workforce: "Equipe", personal: "Pessoal",
-      payroll: "Folha", inventory: "InventÃ¡rio", materials: "Materiais", kpis: "KPIs", crm_field: "CRM Campo",
-      reports: "RelatÃ³rios", settings: "Ajustes", active_tenant: "Tenant ativo", back: "Voltar", logout: "Sair",
-      session: "SessÃ£o", save: "Salvar", save_settings: "Salvar ajustes", saved: "ConfiguraÃ§Ã£o salva.", saving: "Salvando...",
-      close: "Fechar", language: "Idioma", inactivity_lock: "Bloqueio por inatividade", currency: "Moeda", timezone: "Fuso horÃ¡rio detectado",
-      panel_preferences: "PreferÃªncias do painel", core_settings: "Ajustes do nÃºcleo",
-      settings_subtitle: "ConfiguraÃ§Ã£o central do portal do cliente para esta empresa.", change_email: "Alterar e-mail", new_email: "Novo e-mail",
-      current_password: "Senha atual", change_password: "Alterar senha", new_password: "Nova senha", confirm_new_password: "Confirmar nova senha",
-      payroll_settings: "ConfiguraÃ§Ã£o da folha", ordinary_weekly_hours: "Total de horas ordinÃ¡rias semanais",
-      ordinary_weekly_hours_help: "AtÃ© este total Ã© calculado como tempo ordinÃ¡rio. A partir deste total Ã© calculado como hora extra. Pausas nÃ£o contam.",
-      save_payroll_rule: "Salvar regra da folha", invalid_hours: "Insira um total de horas ordinÃ¡rias vÃ¡lido.",
-      payroll_rule_saved: "Regra da folha salva para esta empresa.", hours: "horas", ordinary_hours: "Horas ordinÃ¡rias",
-      extra_hours: "Horas extras", total: "Total", active: "Ativo", inactive: "Inativo", archived: "Arquivado",
-      search: "Buscar", filters: "Filtros", all: "Todos", csv: "CSV", export_csv: "Exportar CSV", status: "Status",
-      actions: "AÃ§Ãµes", name: "Nome", role: "FunÃ§Ã£o", phone: "Telefone", email: "E-mail", telegram_id: "Telegram ID",
-      hire_date: "Data de entrada", regular_rate: "Hora ordinÃ¡ria", extra_rate: "Hora extra", deduction_1: "Desconto 1",
-      deduction_2: "Desconto 2", add_row: "Adicionar linha", save_changes: "Salvar alteraÃ§Ãµes", save_row: "Salvar linha",
-      activate: "Ativar", deactivate: "Desativar", delete_archive: "Excluir / arquivar", started_shifts: "Turnos iniciados",
-      stock_zero: "Estoque zero", requests: "SolicitaÃ§Ãµes", location: "LocalizaÃ§Ã£o", information: "InformaÃ§Ã£o",
-      executive_summary: "Resumo executivo", operational_report: "RelatÃ³rio operacional", from: "De", to: "AtÃ©",
-      period: "PerÃ­odo", module: "MÃ³dulo", person: "Pessoa", event: "Evento", channel: "Canal", source: "Fonte",
-      detail: "Detalhe", evidence: "EvidÃªncia", materials_requests: "SolicitaÃ§Ãµes de materiais", stock: "Estoque",
-      minimum_stock: "Estoque mÃ­nimo", quantity: "Quantidade", product: "Produto", reference: "ReferÃªncia", size: "Tamanho",
-      color: "Cor", cost: "Custo", sales: "Vendas", orders: "Pedidos", stores: "Lojas", production: "ProduÃ§Ã£o",
-      hospitality: "Hospitality", retail: "Retail", field_operations: "OperaÃ§Ã£o em campo"
-    }
-  });
-
-  const CX017D_ALIASES = Object.freeze({
-    "configuracion": "settings", "configuraciÃ³n": "settings", "settings": "settings", "ajustes": "settings",
-    "rÃ©glages": "settings", "guardar ajustes": "save_settings", "save settings": "save_settings",
-    "idioma": "language", "language": "language", "langue": "language", "moneda": "currency", "currency": "currency",
-    "devise": "currency", "bloqueo por inactividad": "inactivity_lock", "inactivity lock": "inactivity_lock",
-    "zona horaria detectada": "timezone", "detected time zone": "timezone", "preferencias del panel": "panel_preferences",
-    "panel preferences": "panel_preferences", "change email": "change_email", "cambiar correo": "change_email",
-    "change password": "change_password", "cambiar contraseÃ±a": "change_password", "log out": "logout",
-    "cerrar sesiÃ³n": "logout", "cerrar sesion": "logout", "dashboard": "dashboard", "nÃ³mina": "payroll",
-    "nomina": "payroll", "payroll": "payroll", "paie": "payroll", "inventario": "inventory", "inventory": "inventory",
-    "inventaire": "inventory", "materiales": "materials", "materials": "materials", "matÃ©riaux": "materials",
-    "reportes": "reports", "reports": "reports", "rapports": "reports", "personal": "personal", "people": "personal",
-    "crm campo": "crm_field", "field crm": "crm_field", "kpis": "kpis", "bots": "bots", "gps": "gps",
-    "total de horas ordinarias semanales": "ordinary_weekly_hours", "total weekly regular hours": "ordinary_weekly_hours"
-  });
-
-  function cx017dLang() {
-    try {
-      const fromSettings = typeof getClientSetting === "function" ? getClientSetting("language", null) : null;
-      const raw = fromSettings || localStorage.getItem("clonexa_client_language") || "es";
-      return CX017D_DICTIONARY[raw] ? raw : "es";
-    } catch (_) { return "es"; }
-  }
-
-  function cx017dNormalizeText(value) {
-    return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
-  }
-
-  function cx017dKeyFromText(value) {
-    const normalized = cx017dNormalizeText(value);
-    if (!normalized) return null;
-    if (CX017D_ALIASES[normalized]) return CX017D_ALIASES[normalized];
-    for (const langCode of Object.keys(CX017D_DICTIONARY)) {
-      const pack = CX017D_DICTIONARY[langCode] || {};
-      for (const [key, label] of Object.entries(pack)) {
-        if (cx017dNormalizeText(label) === normalized) return key;
-      }
-    }
-    return null;
-  }
-
-  function cx017dT(key, params = {}) {
-    const langCode = cx017dLang();
-    const label = (CX017D_DICTIONARY[langCode] && CX017D_DICTIONARY[langCode][key])
-      || (CX017D_DICTIONARY.es && CX017D_DICTIONARY.es[key]) || key;
-    return String(label).replace(/\{(\w+)\}/g, (_, name) => params[name] ?? "");
-  }
-
-  function cx017dTranslateText(value) {
-    const key = cx017dKeyFromText(value);
-    return key ? cx017dT(key) : String(value || "");
-  }
-
-  function cx017dTranslateDom(root = document.body) {
-    if (!root || !root.querySelectorAll) return;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const parent = node.parentElement;
-        if (!parent) return NodeFilter.FILTER_REJECT;
-        const tag = String(parent.tagName || "").toLowerCase();
-        if (["script", "style", "textarea", "input"].includes(tag)) return NodeFilter.FILTER_REJECT;
-        const text = String(node.nodeValue || "");
-        if (!text.trim() || text.trim().length > 90) return NodeFilter.FILTER_REJECT;
-        return cx017dKeyFromText(text) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-      }
-    });
-    const nodes = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode);
-    nodes.forEach((node) => {
-      const raw = String(node.nodeValue || "");
-      const translated = cx017dTranslateText(raw);
-      if (translated && translated !== raw.trim()) {
-        const leading = (raw.match(/^\s*/) || [""])[0];
-        const trailing = (raw.match(/\s*$/) || [""])[0];
-        node.nodeValue = `${leading}${translated}${trailing}`;
-      }
-    });
-    root.querySelectorAll("input[placeholder], textarea[placeholder], [title], [aria-label]").forEach((el) => {
-      ["placeholder", "title", "aria-label"].forEach((attr) => {
-        const value = el.getAttribute(attr);
-        const key = cx017dKeyFromText(value);
-        if (key) el.setAttribute(attr, cx017dT(key));
-      });
-    });
-    document.documentElement.lang = cx017dLang();
-  }
-
-  function cx017dCompanyId() {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      return ((typeof state !== "undefined" && state.companyId) || params.get("company_id") || params.get("companyId")
-        || localStorage.getItem("clonexa_company_id") || localStorage.getItem("company_id") || "");
-    } catch (_) { return ""; }
-  }
-
-  async function cx017dApi(path, options = {}) {
-    if (typeof api === "function") return api(path, options);
-    const response = await fetch(`/api/v1${path}`, { headers: { "Content-Type": "application/json" }, ...options });
-    const text = await response.text();
-    let data = {};
-    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { raw: text }; }
-    if (!response.ok) throw new Error(data.detail || data.message || `HTTP ${response.status}`);
-    return data;
-  }
-
-  async function cx017dLoadSettings() {
-    const companyId = cx017dCompanyId();
-    if (!companyId) throw new Error("company_id missing");
-    if (typeof loadUnifiedClientSettings === "function") return loadUnifiedClientSettings();
-    return cx017dApi(`/companies/${encodeURIComponent(companyId)}/client-settings?ts=${Date.now()}`);
-  }
-
-  async function cx017dSaveSettings(payload = {}) {
-    const companyId = cx017dCompanyId();
-    if (!companyId) throw new Error("company_id missing");
-    if (typeof saveUnifiedClientSettings === "function") return saveUnifiedClientSettings(payload);
-    return cx017dApi(`/companies/${encodeURIComponent(companyId)}/client-settings`, {
-      method: "PUT", body: JSON.stringify(payload),
-    });
-  }
-
-  function cx017dDeepMerge(base = {}, extra = {}) {
-    const output = { ...(base || {}) };
-    Object.entries(extra || {}).forEach(([key, value]) => {
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        output[key] = cx017dDeepMerge(output[key] && typeof output[key] === "object" ? output[key] : {}, value);
-      } else if (value !== undefined && value !== null && value !== "") output[key] = value;
-    });
-    return output;
-  }
-
-  function cx017dInstallStyles() {
-    if (document.getElementById("cx017d-settings-style")) return;
-    const style = document.createElement("style");
-    style.id = "cx017d-settings-style";
-    style.textContent = `
-      .cx017d-settings-card{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:24px;background:linear-gradient(145deg,rgba(255,255,255,.08),rgba(255,43,214,.10));box-shadow:inset 0 1px 0 rgba(255,255,255,.07);margin-top:16px}
-      .cx017d-settings-card h3{margin:0 0 10px;color:#fff;font-size:20px;letter-spacing:-.02em}
-      .cx017d-settings-card p{color:rgba(255,255,255,.72);line-height:1.45;margin:0 0 16px}
-      .cx017d-settings-card label{display:grid;gap:8px;color:rgba(255,255,255,.78);font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:12px}
-      .cx017d-settings-card input{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(0,0,0,.34);color:#fff;padding:14px 16px;font-size:16px;outline:none}
-      .cx017d-settings-row{display:grid;grid-template-columns:minmax(160px,1fr) auto;gap:12px;align-items:end}
-      .cx017d-settings-btn{border:0;border-radius:16px;background:linear-gradient(135deg,#ff2bd6,#8b5cf6);color:#fff;padding:14px 18px;font-weight:900;cursor:pointer;min-height:48px}
-      .cx017d-settings-status{margin-top:12px;color:rgba(255,255,255,.78);min-height:18px;font-size:13px}.cx017d-settings-status.error{color:#fecaca}
-      @media (max-width:820px){.cx017d-settings-row{grid-template-columns:1fr}}
-    `;
-    document.head.appendChild(style);
-  }
-
-  function cx017dFindSettingsAnchor(modal) {
-    const panels = Array.from(modal.querySelectorAll("section,article,div")).filter((el) => {
-      const text = cx017dNormalizeText(el.textContent || "");
-      return el.querySelector("select,input") && (
-        text.includes("preferencias del panel") || text.includes("panel preferences") || text.includes("idioma")
-        || text.includes("language") || text.includes("moneda") || text.includes("currency")
-      );
-    }).sort((a, b) => {
-      const ar = a.getBoundingClientRect(); const br = b.getBoundingClientRect();
-      return (ar.width * ar.height) - (br.width * br.height);
-    });
-    return panels[0] || null;
-  }
-
-  function cx017dPayrollCard(hours) {
-    const safeHours = Number.isFinite(Number(hours)) && Number(hours) > 0 ? Number(hours) : 48;
-    return `
-      <h3>${cx017dT("payroll_settings")}</h3>
-      <p>${cx017dT("ordinary_weekly_hours_help")}</p>
-      <div class="cx017d-settings-row">
-        <label>${cx017dT("ordinary_weekly_hours")}
-          <input id="cx017dPayrollOrdinaryHoursLimit" type="number" min="1" max="168" step="0.25" value="${safeHours}">
-        </label>
-        <button type="button" class="cx017d-settings-btn" id="cx017dPayrollSaveBtn">${cx017dT("save_payroll_rule")}</button>
-      </div>
-      <div id="cx017dPayrollStatus" class="cx017d-settings-status"></div>`;
-  }
-
-  async function cx017dInjectPayrollSettings() {
-    const modal = document.getElementById("clx-account-modal");
-    if (!modal) return;
-    cx017dInstallStyles();
-    const old = document.getElementById("clxPayrollSettingsCard");
-    if (old) old.remove();
-    let card = document.getElementById("cx017dPayrollSettingsCard");
-    if (!card) {
-      card = document.createElement("section");
-      card.id = "cx017dPayrollSettingsCard";
-      card.className = "cx017d-settings-card";
-      const anchor = cx017dFindSettingsAnchor(modal);
-      if (anchor && anchor.parentElement) anchor.insertAdjacentElement("afterend", card);
-      else modal.appendChild(card);
-    }
-    let hours = 48;
-    try {
-      const data = await cx017dLoadSettings();
-      const settings = data.settings || data || {};
-      hours = Number(settings?.payroll?.ordinary_hours_limit || settings?.payroll_regular_hours_limit || 48);
-    } catch (_) {}
-    card.innerHTML = cx017dPayrollCard(hours);
-    cx017dTranslateDom(card);
-  }
-
-  async function cx017dSavePayrollRule() {
-    const input = document.getElementById("cx017dPayrollOrdinaryHoursLimit");
-    const status = document.getElementById("cx017dPayrollStatus");
-    const hours = Number(String(input?.value || "").replace(",", "."));
-    if (!Number.isFinite(hours) || hours <= 0 || hours > 168) {
-      if (status) { status.textContent = cx017dT("invalid_hours"); status.classList.add("error"); }
-      return;
-    }
-    if (status) { status.textContent = cx017dT("saving"); status.classList.remove("error"); }
-    try {
-      const currentData = await cx017dLoadSettings();
-      const currentSettings = currentData.settings || currentData || {};
-      const merged = cx017dDeepMerge(currentSettings, { payroll: { ordinary_hours_limit: hours, pause_policy: currentSettings?.payroll?.pause_policy || "exclude" } });
-      const saved = await cx017dSaveSettings(merged);
-      const savedSettings = saved.settings || saved || merged;
-      try {
-        if (typeof persistClientSettings === "function") persistClientSettings(savedSettings);
-        if (typeof state !== "undefined") state.clientSettings = savedSettings;
-      } catch (_) {}
-      window.CLONEXA_CLIENT_SETTINGS = savedSettings;
-      localStorage.setItem("clonexa_client_settings", JSON.stringify(savedSettings));
-      if (status) status.textContent = cx017dT("payroll_rule_saved");
-    } catch (error) {
-      if (status) { status.textContent = error.message || String(error); status.classList.add("error"); }
-    }
-  }
-
-  function cx017dInstallObserver() {
-    if (window.__cx017dI18nObserverInstalled) return;
-    window.__cx017dI18nObserverInstalled = true;
-    let timer = null;
-    const schedule = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        cx017dTranslateDom(document.body);
-        const overlay = document.getElementById("clx-account-overlay");
-        if (overlay?.classList.contains("open")) cx017dInjectPayrollSettings();
-      }, 80);
-    };
-    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("click", (event) => {
-      const text = cx017dNormalizeText(event.target?.textContent || "");
-      if (event.target.closest("#clxAccountAjustesBtn") || event.target.closest("[data-action='settings']") || text === "ajustes" || text === "settings") {
-        setTimeout(() => { cx017dInjectPayrollSettings(); cx017dTranslateDom(document.body); }, 180);
-      }
-      if (event.target.closest("#cx017dPayrollSaveBtn")) {
-        event.preventDefault(); event.stopPropagation(); cx017dSavePayrollRule();
-      }
-    }, true);
-    document.addEventListener("change", (event) => {
-      const target = event.target;
-      if (target && (target.id === "clxAccountLanguage" || target.name === "language" || String(target.id || "").toLowerCase().includes("language"))) {
-        setTimeout(() => cx017dTranslateDom(document.body), 180);
-      }
-    }, true);
-    setTimeout(() => { cx017dTranslateDom(document.body); cx017dInjectPayrollSettings(); }, 400);
-  }
-
-  window.CLONEXA_I18N = {
-    languages: CX017D_SUPPORTED_LANGUAGES,
-    dictionary: CX017D_DICTIONARY,
-    t: cx017dT,
-    translateDom: cx017dTranslateDom,
-  };
-
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", cx017dInstallObserver);
-  else cx017dInstallObserver();
-  /* CX_017D_PAYROLL_I18N_SOURCE_TRUTH_END */
-
-
-
-  /* CX_017E_FORCE_PAYROLL_SETTINGS_VISIBLE_START */
-  (function cx017eForcePayrollSettingsVisible() {
-    "use strict";
-
-    const CX017E_LANGUAGES = Object.freeze([
-      { code: "es", label: "EspaÃ±ol" },
-      { code: "en", label: "English" },
-      { code: "fr", label: "FranÃ§ais" },
-      { code: "pt", label: "PortuguÃªs" },
-    ]);
-
-    const CX017E_I18N = Object.freeze({
-      es: {
-        payroll_settings: "ConfiguraciÃ³n de nÃ³mina",
-        ordinary_weekly_hours: "Total de horas ordinarias semanales",
-        ordinary_weekly_hours_help: "Hasta este total se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.",
-        ordinary_weekly_hours_hint: "Ejemplo: 40, 48 o 49 segÃºn la legislaciÃ³n/configuraciÃ³n de esta empresa.",
-        save_payroll_rule: "Guardar regla de nÃ³mina",
-        saving: "Guardando...",
-        saved: "Regla de nÃ³mina guardada para esta empresa.",
-        invalid_hours: "Ingresa un total de horas ordinarias vÃ¡lido entre 1 y 168.",
-        loading: "Cargando regla de nÃ³mina...",
-        endpoint_error: "No pude guardar la regla. Revisa el endpoint de ajustes.",
-        settings: "Ajustes",
-        panel_preferences: "Preferencias del panel",
-        language: "Idioma",
-        currency: "Moneda",
-        timezone: "Zona horaria detectada",
-        dashboard: "Dashboard",
-        bots: "Bots",
-        gps: "GPS",
-        workforce: "Workforce",
-        personal: "Personal",
-        payroll: "NÃ³mina",
-        inventory: "Inventario",
-        materials: "Materiales",
-        kpis: "KPIs",
-        crm_field: "CRM Campo",
-        reports: "Reportes",
-        back: "Volver",
-        logout: "Cerrar sesiÃ³n",
-        session: "SesiÃ³n",
-        change_email: "Cambiar correo",
-        change_password: "Cambiar contraseÃ±a",
-        current_password: "ContraseÃ±a actual",
-        new_password: "Nueva contraseÃ±a",
-        confirm_new_password: "Confirmar nueva contraseÃ±a",
-        active_tenant: "Tenant activo",
-        total: "Total",
-        active: "Activos",
-        inactive: "Inactivos",
-        archived: "Archivados",
-        search: "Buscar",
-        filters: "Filtros",
-        all: "Todos",
-        status: "Estado",
-        actions: "Acciones",
-        export_csv: "Exportar CSV"
-      },
-      en: {
-        payroll_settings: "Payroll settings",
-        ordinary_weekly_hours: "Total weekly regular hours",
-        ordinary_weekly_hours_help: "Up to this total is calculated as regular time. After that total, time is calculated as overtime. Breaks do not count.",
-        ordinary_weekly_hours_hint: "Example: 40, 48, or 49 depending on this companyâ€™s rules.",
-        save_payroll_rule: "Save payroll rule",
-        saving: "Saving...",
-        saved: "Payroll rule saved for this company.",
-        invalid_hours: "Enter a valid regular-hours total between 1 and 168.",
-        loading: "Loading payroll rule...",
-        endpoint_error: "I could not save the rule. Check the settings endpoint.",
-        settings: "Settings",
-        panel_preferences: "Panel preferences",
-        language: "Language",
-        currency: "Currency",
-        timezone: "Detected time zone",
-        dashboard: "Dashboard",
-        bots: "Bots",
-        gps: "GPS",
-        workforce: "Workforce",
-        personal: "People",
-        payroll: "Payroll",
-        inventory: "Inventory",
-        materials: "Materials",
-        kpis: "KPIs",
-        crm_field: "Field CRM",
-        reports: "Reports",
-        back: "Back",
-        logout: "Log out",
-        session: "Session",
-        change_email: "Change email",
-        change_password: "Change password",
-        current_password: "Current password",
-        new_password: "New password",
-        confirm_new_password: "Confirm new password",
-        active_tenant: "Active tenant",
-        total: "Total",
-        active: "Active",
-        inactive: "Inactive",
-        archived: "Archived",
-        search: "Search",
-        filters: "Filters",
-        all: "All",
-        status: "Status",
-        actions: "Actions",
-        export_csv: "Export CSV"
-      },
-      fr: {
-        payroll_settings: "Configuration de paie",
-        ordinary_weekly_hours: "Total dâ€™heures ordinaires hebdomadaires",
-        ordinary_weekly_hours_help: "Jusquâ€™Ã  ce total, le temps est calculÃ© comme ordinaire. Au-delÃ , il est calculÃ© comme heure supplÃ©mentaire. Les pauses ne comptent pas.",
-        ordinary_weekly_hours_hint: "Exemple : 40, 48 ou 49 selon les rÃ¨gles de cette entreprise.",
-        save_payroll_rule: "Enregistrer la rÃ¨gle de paie",
-        saving: "Enregistrement...",
-        saved: "RÃ¨gle de paie enregistrÃ©e pour cette entreprise.",
-        invalid_hours: "Saisissez un total dâ€™heures ordinaires valide entre 1 et 168.",
-        loading: "Chargement de la rÃ¨gle de paie...",
-        endpoint_error: "Impossible dâ€™enregistrer la rÃ¨gle. VÃ©rifiez lâ€™endpoint des rÃ©glages.",
-        settings: "RÃ©glages",
-        panel_preferences: "PrÃ©fÃ©rences du panneau",
-        language: "Langue",
-        currency: "Devise",
-        timezone: "Fuseau horaire dÃ©tectÃ©",
-        dashboard: "Tableau de bord",
-        bots: "Bots",
-        gps: "GPS",
-        workforce: "Personnel",
-        personal: "Personnel",
-        payroll: "Paie",
-        inventory: "Inventaire",
-        materials: "MatÃ©riaux",
-        kpis: "KPIs",
-        crm_field: "CRM Terrain",
-        reports: "Rapports",
-        back: "Retour",
-        logout: "Se dÃ©connecter",
-        session: "Session",
-        change_email: "Changer lâ€™e-mail",
-        change_password: "Changer le mot de passe",
-        current_password: "Mot de passe actuel",
-        new_password: "Nouveau mot de passe",
-        confirm_new_password: "Confirmer le nouveau mot de passe",
-        active_tenant: "Tenant actif",
-        total: "Total",
-        active: "Actifs",
-        inactive: "Inactifs",
-        archived: "ArchivÃ©s",
-        search: "Rechercher",
-        filters: "Filtres",
-        all: "Tous",
-        status: "Statut",
-        actions: "Actions",
-        export_csv: "Exporter CSV"
-      },
-      pt: {
-        payroll_settings: "ConfiguraÃ§Ã£o da folha",
-        ordinary_weekly_hours: "Total de horas ordinÃ¡rias semanais",
-        ordinary_weekly_hours_help: "AtÃ© este total Ã© calculado como tempo ordinÃ¡rio. A partir desse total Ã© calculado como hora extra. Pausas nÃ£o contam.",
-        ordinary_weekly_hours_hint: "Exemplo: 40, 48 ou 49 conforme as regras desta empresa.",
-        save_payroll_rule: "Salvar regra da folha",
-        saving: "Salvando...",
-        saved: "Regra da folha salva para esta empresa.",
-        invalid_hours: "Insira um total de horas ordinÃ¡rias vÃ¡lido entre 1 e 168.",
-        loading: "Carregando regra da folha...",
-        endpoint_error: "NÃ£o consegui salvar a regra. Verifique o endpoint de ajustes.",
-        settings: "Ajustes",
-        panel_preferences: "PreferÃªncias do painel",
-        language: "Idioma",
-        currency: "Moeda",
-        timezone: "Fuso horÃ¡rio detectado",
-        dashboard: "Dashboard",
-        bots: "Bots",
-        gps: "GPS",
-        workforce: "Equipe",
-        personal: "Pessoal",
-        payroll: "Folha",
-        inventory: "InventÃ¡rio",
-        materials: "Materiais",
-        kpis: "KPIs",
-        crm_field: "CRM Campo",
-        reports: "RelatÃ³rios",
-        back: "Voltar",
-        logout: "Sair",
-        session: "SessÃ£o",
-        change_email: "Alterar e-mail",
-        change_password: "Alterar senha",
-        current_password: "Senha atual",
-        new_password: "Nova senha",
-        confirm_new_password: "Confirmar nova senha",
-        active_tenant: "Tenant ativo",
-        total: "Total",
-        active: "Ativos",
-        inactive: "Inativos",
-        archived: "Arquivados",
-        search: "Buscar",
-        filters: "Filtros",
-        all: "Todos",
-        status: "Status",
-        actions: "AÃ§Ãµes",
-        export_csv: "Exportar CSV"
-      }
-    });
-
-    window.CLONEXA_I18N = window.CLONEXA_I18N || {};
-    window.CLONEXA_I18N.languages = CX017E_LANGUAGES;
-    window.CLONEXA_I18N.dictionary = Object.assign({}, window.CLONEXA_I18N.dictionary || {}, CX017E_I18N);
-
-    function companyId() {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        return (window.state && window.state.companyId) ||
-          (typeof state !== "undefined" && state.companyId) ||
-          params.get("company_id") ||
-          params.get("companyId") ||
-          localStorage.getItem("clonexa_company_id") ||
-          localStorage.getItem("company_id") ||
-          "";
-      } catch (_) {
-        return "";
-      }
-    }
-
-    function readStoredSettings() {
-      const candidates = [
-        "clonexa_client_settings",
-        "CLONEXA_CLIENT_SETTINGS",
-        `clonexa_client_settings_${companyId()}`,
-      ];
-      for (const key of candidates) {
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw) continue;
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === "object") return parsed.settings || parsed;
-        } catch (_) {}
-      }
-      return (window.CLONEXA_CLIENT_SETTINGS && typeof window.CLONEXA_CLIENT_SETTINGS === "object")
-        ? window.CLONEXA_CLIENT_SETTINGS
-        : {};
-    }
-
-    function lang() {
-      const settings = readStoredSettings();
-      const raw = settings.language ||
-        settings.locale ||
-        localStorage.getItem("clonexa_client_language") ||
-        document.documentElement.lang ||
-        "es";
-      return CX017E_I18N[raw] ? raw : "es";
-    }
-
-    function t(key) {
-      const code = lang();
-      return (CX017E_I18N[code] && CX017E_I18N[code][key]) ||
-        (CX017E_I18N.es && CX017E_I18N.es[key]) ||
-        key;
-    }
-
-    window.CLONEXA_I18N.t = window.CLONEXA_I18N.t || t;
-
-    function normalize(value) {
-      return String(value || "")
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .toLowerCase();
-    }
-
-    function installStyle() {
-      if (document.getElementById("cx017e-payroll-settings-style")) return;
-      const style = document.createElement("style");
-      style.id = "cx017e-payroll-settings-style";
-      style.textContent = `
-        #cx017ePayrollSettingsCard{
-          border:1px solid rgba(255,255,255,.18);
-          border-radius:24px;
-          padding:24px;
-          background:linear-gradient(145deg,rgba(255,255,255,.075),rgba(255,43,214,.11));
-          box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 18px 60px rgba(0,0,0,.18);
-          color:inherit;
-          margin:16px 0;
-          min-width:0;
-        }
-        #cx017ePayrollSettingsCard h3{
-          margin:0 0 10px;
-          font-size:20px;
-          font-weight:1000;
-          letter-spacing:-.02em;
-        }
-        #cx017ePayrollSettingsCard p{
-          margin:0 0 14px;
-          opacity:.76;
-          line-height:1.45;
-          font-weight:700;
-        }
-        .cx017e-payroll-row{
-          display:grid;
-          grid-template-columns:minmax(160px,1fr) auto;
-          gap:12px;
-          align-items:end;
-        }
-        #cx017ePayrollSettingsCard label{
-          display:grid;
-          gap:8px;
-          font-size:12px;
-          font-weight:1000;
-          letter-spacing:.12em;
-          text-transform:uppercase;
-          opacity:.88;
-        }
-        #cx017ePayrollOrdinaryHoursLimit{
-          width:100%;
-          box-sizing:border-box;
-          border:1px solid rgba(255,255,255,.16);
-          border-radius:16px;
-          padding:14px 16px;
-          background:rgba(0,0,0,.32);
-          color:inherit;
-          font-size:16px;
-          font-weight:1000;
-          outline:none;
-        }
-        #cx017ePayrollSaveBtn{
-          border:0;
-          border-radius:16px;
-          padding:14px 20px;
-          min-height:48px;
-          cursor:pointer;
-          color:#fff;
-          font-weight:1000;
-          background:linear-gradient(135deg,#ff1fb8,#8b5cf6);
-          white-space:nowrap;
-        }
-        #cx017ePayrollStatus{
-          margin-top:12px;
-          min-height:18px;
-          font-size:13px;
-          font-weight:900;
-          opacity:.82;
-        }
-        #cx017ePayrollStatus.error{color:#fecaca;opacity:1}
-        @media (max-width:820px){.cx017e-payroll-row{grid-template-columns:1fr}}
-      `;
-      document.head.appendChild(style);
-    }
-
-    async function requestJson(path, options = {}) {
-      const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
-      const response = await fetch(path, Object.assign({}, options, { headers }));
-      const text = await response.text();
-      let data = {};
-      try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { raw: text }; }
-      if (!response.ok) {
-        const err = new Error(data.detail || data.message || `HTTP ${response.status}`);
-        err.status = response.status;
-        err.data = data;
-        throw err;
-      }
-      return data;
-    }
-
-    async function loadSettings() {
-      const id = companyId();
-      if (!id) return {};
-      const paths = [
-        `/api/v1/companies/${encodeURIComponent(id)}/client-settings?ts=${Date.now()}`,
-        `/api/v1/company-settings-v1/companies/${encodeURIComponent(id)}?ts=${Date.now()}`
-      ];
-      for (const path of paths) {
-        try {
-          const data = await requestJson(path);
-          const settings = data.settings || data.client_settings || data || {};
-          window.CLONEXA_CLIENT_SETTINGS = settings;
-          try { localStorage.setItem("clonexa_client_settings", JSON.stringify(settings)); } catch (_) {}
-          return settings;
-        } catch (_) {}
-      }
-      return readStoredSettings();
-    }
-
-    function mergeDeep(base = {}, extra = {}) {
-      const out = Object.assign({}, base || {});
-      Object.entries(extra || {}).forEach(([key, value]) => {
-        if (value && typeof value === "object" && !Array.isArray(value)) {
-          out[key] = mergeDeep(out[key] && typeof out[key] === "object" ? out[key] : {}, value);
-        } else if (value !== undefined) {
-          out[key] = value;
-        }
-      });
-      return out;
-    }
-
-    async function saveSettings(payload) {
-      const id = companyId();
-      if (!id) throw new Error("company_id missing");
-
-      const paths = [
-        `/api/v1/companies/${encodeURIComponent(id)}/client-settings`,
-        `/api/v1/company-settings-v1/companies/${encodeURIComponent(id)}`
-      ];
-
-      let lastError = null;
-      for (const path of paths) {
-        try {
-          const data = await requestJson(path, {
-            method: "PUT",
-            body: JSON.stringify(payload),
-          });
-          const settings = data.settings || data.client_settings || payload;
-          window.CLONEXA_CLIENT_SETTINGS = settings;
-          try { localStorage.setItem("clonexa_client_settings", JSON.stringify(settings)); } catch (_) {}
-          return settings;
-        } catch (error) {
-          lastError = error;
-        }
-      }
-      throw lastError || new Error(t("endpoint_error"));
-    }
-
-    function modalCandidates() {
-      const fixed = Array.from(document.querySelectorAll("body *")).filter((el) => {
-        const cs = window.getComputedStyle(el);
-        const r = el.getBoundingClientRect();
-        if (r.width < 320 || r.height < 220) return false;
-        if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity || 1) === 0) return false;
-        const txt = normalize(el.textContent || "");
-        return txt.includes("ajustes") ||
-          txt.includes("settings") ||
-          txt.includes("reglages") ||
-          txt.includes("preferencias del panel") ||
-          txt.includes("panel preferences") ||
-          txt.includes("cambiar correo") ||
-          txt.includes("change email");
-      });
-      const exact = document.getElementById("clx-account-modal");
-      if (exact) fixed.unshift(exact);
-      const unique = [];
-      fixed.forEach((el) => {
-        if (!unique.includes(el)) unique.push(el);
-      });
-      return unique;
-    }
-
-    function findSettingsModal() {
-      const candidates = modalCandidates();
-      const scored = candidates.map((el) => {
-        const txt = normalize(el.textContent || "");
-        const r = el.getBoundingClientRect();
-        let score = 0;
-        if (el.id === "clx-account-modal") score += 100;
-        if (txt.includes("preferencias del panel") || txt.includes("panel preferences")) score += 60;
-        if (txt.includes("cambiar correo") || txt.includes("change email")) score += 50;
-        if (txt.includes("ajustes") || txt.includes("settings")) score += 30;
-        if (r.top >= 0 && r.left >= 0) score += 10;
-        score += Math.min(20, Math.round((r.width * r.height) / 50000));
-        return { el, score };
-      }).sort((a, b) => b.score - a.score);
-      return scored[0] ? scored[0].el : null;
-    }
-
-    function findPreferencesCard(modal) {
-      if (!modal) return null;
-      const headings = Array.from(modal.querySelectorAll("h1,h2,h3,h4,strong,label,span,div,p")).filter((el) => {
-        const txt = normalize(el.textContent || "");
-        return txt.includes("preferencias del panel") ||
-          txt.includes("panel preferences") ||
-          txt.includes("preferences") ||
-          txt.includes("preferencias") ||
-          txt.includes("idioma") ||
-          txt.includes("language") ||
-          txt.includes("moneda") ||
-          txt.includes("currency");
-      });
-
-      for (const heading of headings) {
-        let node = heading;
-        let best = null;
-        for (let i = 0; i < 8 && node && node !== modal; i += 1) {
-          const r = node.getBoundingClientRect();
-          const txt = normalize(node.textContent || "");
-          if (r.width >= 220 && r.height >= 80 && r.height <= 700 && (
-              txt.includes("idioma") || txt.includes("language") || txt.includes("moneda") || txt.includes("currency")
-            )) {
-            best = node;
-          }
-          node = node.parentElement;
-        }
-        if (best) return best;
-      }
-      return null;
-    }
-
-    function cardHtml(hours) {
-      const value = Number.isFinite(Number(hours)) && Number(hours) > 0 ? Number(hours) : 48;
-      return `
-        <h3>${t("payroll_settings")}</h3>
-        <p>${t("ordinary_weekly_hours_help")}</p>
-        <div class="cx017e-payroll-row">
-          <label for="cx017ePayrollOrdinaryHoursLimit">${t("ordinary_weekly_hours")}
-            <input id="cx017ePayrollOrdinaryHoursLimit" type="number" min="1" max="168" step="0.25" value="${String(value).replace('"', "&quot;")}" placeholder="48">
-          </label>
-          <button id="cx017ePayrollSaveBtn" type="button">${t("save_payroll_rule")}</button>
-        </div>
-        <p style="margin-top:10px;font-size:12px">${t("ordinary_weekly_hours_hint")}</p>
-        <div id="cx017ePayrollStatus"></div>
-      `;
-    }
-
-    async function inject() {
-      installStyle();
-      const modal = findSettingsModal();
-      if (!modal) return false;
-
-      let card = document.getElementById("cx017ePayrollSettingsCard");
-      if (!card) {
-        card = document.createElement("section");
-        card.id = "cx017ePayrollSettingsCard";
-        const preferenceCard = findPreferencesCard(modal);
-        if (preferenceCard && preferenceCard.parentElement) {
-          preferenceCard.insertAdjacentElement("afterend", card);
-        } else {
-          const grid = Array.from(modal.querySelectorAll("div,section,article")).find((el) => {
-            const r = el.getBoundingClientRect();
-            return r.width > 500 && r.height > 250 && window.getComputedStyle(el).display.includes("grid");
-          });
-          if (grid) grid.insertBefore(card, grid.children[1] || null);
-          else modal.appendChild(card);
-        }
-      }
-
-      const status = card.querySelector("#cx017ePayrollStatus");
-      if (status) status.textContent = t("loading");
-
-      const settings = await loadSettings();
-      const hours =
-        settings?.payroll?.ordinary_hours_limit ??
-        settings?.payroll?.regular_hours_limit ??
-        settings?.payroll_regular_hours_limit ??
-        settings?.ordinary_hours_limit ??
-        48;
-
-      card.innerHTML = cardHtml(hours);
-      return true;
-    }
-
-    async function saveRule() {
-      const input = document.getElementById("cx017ePayrollOrdinaryHoursLimit");
-      const status = document.getElementById("cx017ePayrollStatus");
-      const hours = Number(String(input && input.value || "").replace(",", "."));
-      if (!Number.isFinite(hours) || hours <= 0 || hours > 168) {
-        if (status) {
-          status.textContent = t("invalid_hours");
-          status.classList.add("error");
-        }
-        return;
-      }
-
-      if (status) {
-        status.textContent = t("saving");
-        status.classList.remove("error");
-      }
-
-      try {
-        const current = await loadSettings();
-        const next = mergeDeep(current, {
-          payroll: {
-            ordinary_hours_limit: hours,
-            pause_policy: current?.payroll?.pause_policy || "exclude",
-          },
-          payroll_regular_hours_limit: hours
-        });
-        await saveSettings(next);
-        if (status) status.textContent = t("saved");
-      } catch (error) {
-        if (status) {
-          status.textContent = error.message || t("endpoint_error");
-          status.classList.add("error");
-        }
-      }
-    }
-
-    function scheduleInject(times = [0, 80, 220, 500, 1000, 1800, 3000]) {
-      times.forEach((ms) => setTimeout(() => inject().catch(() => {}), ms));
-    }
-
-    function bind() {
-      if (window.__cx017ePayrollVisibleBound) return;
-      window.__cx017ePayrollVisibleBound = true;
-
-      document.addEventListener("click", (event) => {
-        if (event.target && event.target.closest && event.target.closest("#cx017ePayrollSaveBtn")) {
-          event.preventDefault();
-          event.stopPropagation();
-          saveRule();
-          return;
-        }
-
-        const txt = normalize(event.target && event.target.textContent || "");
-        if (
-          txt.includes("ajustes") ||
-          txt.includes("settings") ||
-          (event.target && event.target.closest && event.target.closest("#clxAccountAjustesBtn")) ||
-          (event.target && event.target.closest && event.target.closest("[data-action='settings']"))
-        ) {
-          scheduleInject();
-        }
-      }, true);
-
-      const observer = new MutationObserver(() => {
-        clearTimeout(window.__cx017ePayrollTimer);
-        window.__cx017ePayrollTimer = setTimeout(() => {
-          const modal = findSettingsModal();
-          const hasCard = document.getElementById("cx017ePayrollSettingsCard");
-          if (modal && !hasCard) inject().catch(() => {});
-        }, 120);
-      });
-      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
-
-      scheduleInject([300, 900, 1800]);
-    }
-
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", bind);
-    } else {
-      bind();
-    }
-  })();
-  /* CX_017E_FORCE_PAYROLL_SETTINGS_VISIBLE_END */
-
-
-})();

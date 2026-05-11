@@ -19,10 +19,6 @@ ALLOWED_THEME_MODES = {"dark", "light"}
 ALLOWED_BRANDING_FONTS = {"Inter", "Manrope", "Sora", "Space Grotesk", "Rajdhani", "Orbitron", "Poppins", "Montserrat"}
 ALLOWED_CARD_STYLES = {"glass_premium", "neon_border", "soft_solid", "dark_elevated"}
 
-CLIENT_SETTINGS_LANGUAGES = {"es", "en", "fr", "pt"}
-CLIENT_SETTINGS_CURRENCIES = {"COP", "USD", "EUR", "MXN", "PEN", "CLP", "ARS"}
-CLIENT_SETTINGS_DEFAULT_TIMEZONE = "America/Bogota"
-
 
 class CompanyCreateRequest(BaseModel):
     name: str
@@ -64,17 +60,6 @@ class CompanyBrandingRequest(BaseModel):
     button_color: Optional[str] = None
     success_color: Optional[str] = None
     custom_css_json: Optional[Dict[str, Any]] = None
-
-
-class CompanyClientSettingsRequest(BaseModel):
-    language: Optional[str] = None
-    currency: Optional[str] = None
-    timezone: Optional[str] = None
-    inactivity_lock_minutes: Optional[int] = None
-    session_timeout_minutes: Optional[int] = None
-    payroll: Optional[Dict[str, Any]] = None
-    payroll_cuts: Optional[Dict[str, Any]] = None
-
 
 
 def _now() -> datetime:
@@ -386,194 +371,6 @@ def _experience_payload(company: Company) -> Dict[str, Any]:
 
 
 
-
-def _number(value: Any, default: float) -> float:
-    try:
-        if value is None or value == "":
-            return default
-        return float(str(value).replace(",", "."))
-    except Exception:
-        return default
-
-
-def _bool_default(value: Any, default: bool = True) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() not in {"0", "false", "off", "no", "none"}
-
-
-def _default_client_settings(company: Optional[Company] = None, timezone_override: Optional[str] = None) -> Dict[str, Any]:
-    timezone_value = (
-        timezone_override
-        or getattr(company, "timezone", None)
-        or CLIENT_SETTINGS_DEFAULT_TIMEZONE
-    )
-
-    return {
-        "language": "es",
-        "currency": "COP",
-        "timezone": timezone_value,
-        "inactivity_lock_minutes": 30,
-        "session_timeout_minutes": 30,
-        "payroll": {
-            "ordinary_hours_limit": 48,
-            "pause_policy": "exclude",
-        },
-        "payroll_cuts": {
-            "allow_close": True,
-            "allow_export": True,
-            "allow_archive": True,
-        },
-    }
-
-
-def _deep_merge(base: Dict[str, Any], extra: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    output = dict(base or {})
-    if not isinstance(extra, dict):
-        return output
-
-    for key, value in extra.items():
-        if value is None:
-            continue
-        if isinstance(value, dict) and isinstance(output.get(key), dict):
-            output[key] = _deep_merge(output[key], value)
-        elif value != "":
-            output[key] = value
-
-    return output
-
-
-def _normalise_client_settings(
-    raw: Optional[Dict[str, Any]],
-    company: Optional[Company] = None,
-    timezone_override: Optional[str] = None,
-) -> Dict[str, Any]:
-    raw = raw or {}
-    if "settings" in raw and isinstance(raw.get("settings"), dict):
-        raw = raw["settings"]
-
-    store_settings = raw.get("client_settings") if isinstance(raw.get("client_settings"), dict) else {}
-    localization = raw.get("localization") if isinstance(raw.get("localization"), dict) else {}
-
-    merged = _default_client_settings(company, timezone_override)
-    merged = _deep_merge(merged, raw)
-    merged = _deep_merge(merged, store_settings)
-
-    language = str(merged.get("language") or localization.get("language") or "es").strip().lower()
-    if language not in CLIENT_SETTINGS_LANGUAGES:
-        language = "es"
-
-    currency = str(merged.get("currency") or localization.get("currency") or "COP").strip().upper()
-    if currency not in CLIENT_SETTINGS_CURRENCIES:
-        currency = "COP"
-
-    timezone_value = str(
-        merged.get("timezone")
-        or localization.get("timezone")
-        or timezone_override
-        or getattr(company, "timezone", None)
-        or CLIENT_SETTINGS_DEFAULT_TIMEZONE
-    ).strip() or CLIENT_SETTINGS_DEFAULT_TIMEZONE
-
-    inactivity = int(_number(
-        merged.get("inactivity_lock_minutes") or merged.get("session_timeout_minutes"),
-        30,
-    ))
-    if inactivity <= 0:
-        inactivity = 30
-
-    payroll = merged.get("payroll") if isinstance(merged.get("payroll"), dict) else {}
-    payroll_cuts = merged.get("payroll_cuts") if isinstance(merged.get("payroll_cuts"), dict) else {}
-
-    ordinary_hours = _number(
-        payroll.get("ordinary_hours_limit")
-        or merged.get("payroll_regular_hours_limit")
-        or merged.get("ordinary_hours_limit"),
-        48,
-    )
-    if ordinary_hours <= 0:
-        ordinary_hours = 48
-
-    return {
-        "language": language,
-        "currency": currency,
-        "timezone": timezone_value,
-        "inactivity_lock_minutes": inactivity,
-        "session_timeout_minutes": inactivity,
-        "payroll": {
-            **payroll,
-            "ordinary_hours_limit": ordinary_hours,
-            "pause_policy": str(payroll.get("pause_policy") or "exclude"),
-        },
-        "payroll_cuts": {
-            "allow_close": _bool_default(payroll_cuts.get("allow_close"), True),
-            "allow_export": _bool_default(payroll_cuts.get("allow_export"), True),
-            "allow_archive": _bool_default(payroll_cuts.get("allow_archive"), True),
-        },
-    }
-
-
-def _read_client_settings(company: Company) -> Dict[str, Any]:
-    store = _read_json_store(company)
-    raw = {}
-
-    if isinstance(store.get("client_settings"), dict):
-        raw = _deep_merge(raw, store["client_settings"])
-    if isinstance(store.get("localization"), dict):
-        raw["localization"] = store["localization"]
-    if isinstance(store.get("payroll"), dict):
-        raw["payroll"] = store["payroll"]
-    if isinstance(store.get("payroll_cuts"), dict):
-        raw["payroll_cuts"] = store["payroll_cuts"]
-
-    return _normalise_client_settings(raw, company)
-
-
-def _write_client_settings(company: Company, incoming: Dict[str, Any]) -> Dict[str, Any]:
-    column = _json_store_column()
-    if not column:
-        raise HTTPException(
-            status_code=500,
-            detail="No existe columna JSON persistente en companies para guardar ajustes del cliente.",
-        )
-
-    current_store = _read_json_store(company)
-    current_settings = _read_client_settings(company)
-    merged = _deep_merge(current_settings, incoming or {})
-    normalized = _normalise_client_settings(merged, company)
-
-    current_store["client_settings"] = normalized
-    current_store["localization"] = {
-        "language": normalized["language"],
-        "currency": normalized["currency"],
-        "timezone": normalized["timezone"],
-    }
-    current_store["payroll"] = normalized["payroll"]
-    current_store["payroll_cuts"] = normalized["payroll_cuts"]
-    current_store["updated_at"] = _now().isoformat()
-
-    setattr(company, column, current_store)
-
-    if hasattr(company, "timezone"):
-        company.timezone = normalized["timezone"]
-
-    _touch_company(company)
-    return normalized
-
-
-def _client_settings_response(company: Company) -> Dict[str, Any]:
-    settings = _read_client_settings(company)
-    return {
-        "ok": True,
-        "company_id": str(getattr(company, "id", "")),
-        "settings": settings,
-        **settings,
-    }
-
-
-
 def _normalize_branding_extra_fields(data: dict) -> dict:
     font_family = data.get("font_family") or data.get("fontFamily") or "Inter"
     card_style = data.get("card_style") or data.get("cardStyle") or "glass_premium"
@@ -628,10 +425,7 @@ async def create_company(payload: CompanyCreateRequest, db: AsyncSession = Depen
     if "plan" in columns:
         values["plan"] = payload.plan or "standard"
     if "settings_json" in columns:
-        base_settings = payload.settings_json or {}
-        if not isinstance(base_settings.get("client_settings"), dict):
-            base_settings["client_settings"] = _normalise_client_settings(base_settings, None, payload.timezone or CLIENT_SETTINGS_DEFAULT_TIMEZONE)
-        values["settings_json"] = base_settings
+        values["settings_json"] = payload.settings_json or {}
     if "created_at" in columns:
         values["created_at"] = now
     if "updated_at" in columns:
@@ -647,40 +441,6 @@ async def create_company(payload: CompanyCreateRequest, db: AsyncSession = Depen
 @router.get("/{company_id}")
 async def get_company(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     return _company_payload(await _get_company_or_404(db, company_id))
-
-
-@router.get("/{company_id}/client-settings")
-async def get_company_client_settings(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    company = await _get_company_or_404(db, company_id)
-    return _client_settings_response(company)
-
-
-@router.put("/{company_id}/client-settings")
-async def update_company_client_settings(
-    company_id: UUID,
-    payload: CompanyClientSettingsRequest,
-    db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
-    company = await _get_company_or_404(db, company_id)
-    incoming = payload.model_dump(exclude_none=True)
-    _write_client_settings(company, incoming)
-    await db.commit()
-    await db.refresh(company)
-    return _client_settings_response(company)
-
-
-@router.patch("/{company_id}/client-settings")
-async def patch_company_client_settings(
-    company_id: UUID,
-    payload: CompanyClientSettingsRequest,
-    db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
-    company = await _get_company_or_404(db, company_id)
-    incoming = payload.model_dump(exclude_none=True)
-    _write_client_settings(company, incoming)
-    await db.commit()
-    await db.refresh(company)
-    return _client_settings_response(company)
 
 
 @router.patch("/{company_id}")
