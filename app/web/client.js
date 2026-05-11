@@ -2652,6 +2652,8 @@
     if (!companyId) return null;
 
     const paths = [
+      "/crm-core-v1/companies/{company_id}/snapshot",
+      "/crm-live-v1/companies/{company_id}/snapshot",
       "/crm-core/companies/{company_id}/snapshot",
       "/crm-live/companies/{company_id}/snapshot",
       "/crm/companies/{company_id}/snapshot"
@@ -2721,16 +2723,129 @@
     };
   }
 
+
+  /* CX_018F_CRM_REFERENCE_LIVE_BINDING_START */
+  function crmHasUsefulProductionContext018F(person = {}) {
+    const adapter = crmFindAdapter018B(person, "production");
+    const items = Array.isArray(adapter?.items) ? adapter.items : [];
+
+    return items.some((item) => {
+      const name = String(item?.reference_name || item?.name || item?.reference || "").trim();
+      return name && !/^sin\s+referencia$/i.test(name);
+    });
+  }
+
+  function crmReferenceFallbackSeconds018F(person = {}, session = {}) {
+    const startedAt = crmDateToMs018B(session.started_at || session.created_at);
+    if (!startedAt) return 0;
+
+    const raw = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    const status = crmNormalizeStatus018B(person.status || person.metrics?.status);
+    const core = person.metrics?.snapshotCore || person.snapshotRow?.core || {};
+    const currentPause = status === "on_break"
+      ? crmParseSeconds018B(core.current_pause_seconds ?? Math.floor((person.metrics?.pauseMs || 0) / 1000))
+      : 0;
+
+    return Math.max(raw - currentPause, 0);
+  }
+
+  function crmAttachProductionSession018F(person = {}, session = {}) {
+    if (!person || !session) return person;
+
+    const referenceName = String(session.reference_name || session.name || session.reference || "").trim();
+    if (!referenceName) return person;
+
+    const status = crmNormalizeStatus018B(person.status || person.metrics?.status);
+    const seconds = crmReferenceFallbackSeconds018F(person, session);
+    const running = status === "working";
+
+    const item = {
+      session_id: session.id || session.session_id || "",
+      employee_id: session.employee_id || person.employeeId || person.employee?.id || "",
+      employee_name: session.employee_name || person.name || person.employee?.full_name || "",
+      telegram_user_id: session.telegram_user_id || person.employee?.telegram_user_id || "",
+      reference_id: session.reference_id || "",
+      reference_name: referenceName,
+      started_at: session.started_at || session.created_at || "",
+      ended_at: session.ended_at || "",
+      status: session.status || "active",
+      is_active: true,
+      effective_seconds: seconds,
+      duration_seconds: seconds,
+      running,
+      source: "references_v1_active_session",
+      label: running ? "Active reference" : "Paused reference",
+    };
+
+    const adapters = Array.isArray(person.adapters) ? person.adapters : [];
+    let adapter = adapters.find((entry) => {
+      const code = cxCrmNormalizeCode018B(entry?.code || entry?.module || entry?.title);
+      return code === "production" || code === "production_references";
+    });
+
+    if (!adapter) {
+      adapter = {
+        code: "production_references",
+        title: "Production",
+        enabled: true,
+        items: [],
+      };
+      adapters.push(adapter);
+    }
+
+    adapter.code = "production_references";
+    adapter.enabled = true;
+    adapter.items = [item];
+
+    person.adapters = adapters;
+    return person;
+  }
+
+  async function crmHydrateProductionSessions018F(crm = {}) {
+    if (!crm || !state.companyId) return crm;
+
+    const active = cxCrmActiveModuleSet018B();
+    if (!active.has("production") && !active.has("references")) return crm;
+
+    const people = Array.isArray(crm.people) ? crm.people : [];
+
+    await Promise.all(people.map(async (person) => {
+      try {
+        if (crmHasUsefulProductionContext018F(person)) return;
+
+        const employeeId = person.employeeId || person.employee?.id;
+        if (!employeeId) return;
+
+        const data = await api(`/references-v1/companies/${encodeURIComponent(state.companyId)}/flow/active-session?employee_id=${encodeURIComponent(employeeId)}`);
+
+        if (data && data.active && data.session) {
+          crmAttachProductionSession018F(person, data.session);
+        }
+      } catch (error) {
+        // Do not break CRM if the optional live production source is unavailable.
+      }
+    }));
+
+    if (crm.summary) {
+      crm.summary.with_reference = people.filter((person) => crmHasUsefulProductionContext018F(person)).length;
+    }
+
+    return crm;
+  }
+  /* CX_018F_CRM_REFERENCE_LIVE_BINDING_END */
+
+
   async function loadClientCrmData() {
     const snapshot = await crmLoadAdaptiveSnapshot018B();
 
     if (snapshot) {
-      return crmNormalizeSnapshot018B(snapshot);
+      const normalized = crmNormalizeSnapshot018B(snapshot);
+      return await crmHydrateProductionSessions018F(normalized);
     }
 
     const legacy = await loadClientCrmDataLegacy018B();
     legacy.dynamicModules = crmPickSummaryModules018B(legacy);
-    return legacy;
+    return await crmHydrateProductionSessions018F(legacy);
   }
   /* CX_018B_CRM_ADAPTIVE_SINGLE_CONTEXT_END */
 
