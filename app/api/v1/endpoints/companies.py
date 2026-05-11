@@ -62,6 +62,16 @@ class CompanyBrandingRequest(BaseModel):
     custom_css_json: Optional[Dict[str, Any]] = None
 
 
+
+class CompanyClientSettingsRequest(BaseModel):
+    language: Optional[str] = None
+    currency: Optional[str] = None
+    timezone: Optional[str] = None
+    inactivity_lock_minutes: Optional[int] = None
+    payroll_regular_hours_limit: Optional[float] = None
+    payroll: Optional[Dict[str, Any]] = None
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -359,7 +369,8 @@ def _experience_payload(company: Company) -> Dict[str, Any]:
         "company_id": str(getattr(company, "id", "")),
         "branding": branding,
         "company_branding": branding,
-        "localization": {},
+        "localization": _read_client_settings(company),
+        "client_settings": _read_client_settings(company),
         "layout": {},
         "launchpad_cards": [],
         "widgets": [],
@@ -369,6 +380,91 @@ def _experience_payload(company: Company) -> Dict[str, Any]:
         "alert_rules": [],
     }
 
+
+
+
+def _number_or_default(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+        if number > 0 and number <= 168:
+            return number
+    except Exception:
+        pass
+    return default
+
+
+def _read_client_settings(company: Company) -> Dict[str, Any]:
+    store = _read_json_store(company)
+    client = store.get("client_settings") if isinstance(store.get("client_settings"), dict) else {}
+    payroll = client.get("payroll") if isinstance(client.get("payroll"), dict) else {}
+
+    ordinary_hours = _number_or_default(
+        payroll.get("ordinary_hours_limit", client.get("payroll_regular_hours_limit", 48)),
+        48,
+    )
+
+    return {
+        "company_id": str(getattr(company, "id", "")),
+        "language": str(client.get("language") or "es"),
+        "currency": str(client.get("currency") or "COP"),
+        "timezone": str(client.get("timezone") or getattr(company, "timezone", "America/Bogota") or "America/Bogota"),
+        "inactivity_lock_minutes": int(client.get("inactivity_lock_minutes") or 30),
+        "payroll_regular_hours_limit": ordinary_hours,
+        "payroll": {
+            "ordinary_hours_limit": ordinary_hours,
+        },
+    }
+
+
+def _write_client_settings(company: Company, payload: CompanyClientSettingsRequest) -> Dict[str, Any]:
+    column = _json_store_column()
+    if not column:
+        raise HTTPException(
+            status_code=500,
+            detail="No existe una columna JSON persistente en companies para guardar ajustes del cliente.",
+        )
+
+    store = _read_json_store(company)
+    client = dict(store.get("client_settings") or {})
+    payroll = dict(client.get("payroll") or {})
+
+    data = payload.model_dump(exclude_unset=True)
+
+    if "language" in data and data.get("language") is not None:
+        language = str(data.get("language") or "es").strip().lower()
+        client["language"] = language or "es"
+
+    if "currency" in data and data.get("currency") is not None:
+        currency = str(data.get("currency") or "COP").strip().upper()
+        client["currency"] = currency or "COP"
+
+    if "timezone" in data and data.get("timezone") is not None:
+        timezone = str(data.get("timezone") or "America/Bogota").strip()
+        client["timezone"] = timezone or "America/Bogota"
+        if hasattr(company, "timezone"):
+            company.timezone = client["timezone"]
+
+    if "inactivity_lock_minutes" in data and data.get("inactivity_lock_minutes") is not None:
+        try:
+            minutes = int(data.get("inactivity_lock_minutes") or 30)
+        except Exception:
+            minutes = 30
+        client["inactivity_lock_minutes"] = max(1, min(minutes, 1440))
+
+    payroll_payload = data.get("payroll") if isinstance(data.get("payroll"), dict) else {}
+    ordinary_value = data.get("payroll_regular_hours_limit", payroll_payload.get("ordinary_hours_limit"))
+    if ordinary_value is not None:
+        payroll["ordinary_hours_limit"] = _number_or_default(ordinary_value, 48)
+        client["payroll_regular_hours_limit"] = payroll["ordinary_hours_limit"]
+
+    client["payroll"] = payroll
+    client["updated_at"] = _now().isoformat()
+
+    store["client_settings"] = client
+    setattr(company, column, store)
+    _touch_company(company)
+
+    return _read_client_settings(company)
 
 
 def _normalize_branding_extra_fields(data: dict) -> dict:
@@ -486,6 +582,26 @@ async def delete_company_as_archive(company_id: UUID, db: AsyncSession = Depends
     await db.commit()
     await db.refresh(company)
     return _company_payload(company)
+
+
+
+@router.get("/{company_id}/client-settings")
+async def get_company_client_settings(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    return _read_client_settings(company)
+
+
+@router.put("/{company_id}/client-settings")
+async def update_company_client_settings(
+    company_id: UUID,
+    payload: CompanyClientSettingsRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    result = _write_client_settings(company, payload)
+    await db.commit()
+    await db.refresh(company)
+    return _read_client_settings(company)
 
 
 @router.get("/{company_id}/experience")

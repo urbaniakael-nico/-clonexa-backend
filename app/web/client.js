@@ -548,6 +548,31 @@
     bots: ["Bots", "Telegram / WhatsApp", "BOT"],
   };
 
+
+  const CLIENT_HIDDEN_MODULE_CODES = new Set([
+    "core",
+    "settings",
+    "setting",
+    "configuration",
+    "configuracion",
+    "configuración",
+    "ajustes",
+    "account",
+    "preferences"
+  ]);
+
+  function normalizeClientModuleCode(code = "") {
+    return String(code || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function isClientHiddenModuleCode(code = "") {
+    return CLIENT_HIDDEN_MODULE_CODES.has(normalizeClientModuleCode(code));
+  }
+
   function normalizeClientModule(row = {}, index = 0) {
     const source = row.module && typeof row.module === "object" ? row.module : row;
 
@@ -588,12 +613,15 @@
   }
 
   function visibleClientModules(modules = activeClientModules()) {
-    return (Array.isArray(modules) ? modules : []).filter((item) => item.code !== "core");
+    return (Array.isArray(modules) ? modules : []).filter((item) => {
+      const code = item && item.code;
+      return code && !isClientHiddenModuleCode(code);
+    });
   }
 
   function isClientModuleActive(code) {
     const normalized = String(code || "").trim();
-    if (!normalized || normalized === "core") return false;
+    if (!normalized || isClientHiddenModuleCode(normalized)) return false;
     return activeClientModules().some((module) => module.code === normalized && module.enabled);
   }
 
@@ -7902,3 +7930,247 @@
 })();
 /* CX_REPORTS_016B_END */
 
+/* CX_017G_SAFE_SETTINGS_PAYROLL_START */
+(function () {
+  if (window.__cx017gSafeSettingsPayrollLoaded) return;
+  window.__cx017gSafeSettingsPayrollLoaded = true;
+
+  const API = "/api/v1";
+  const DEFAULT_ORDINARY_HOURS = 48;
+
+  function cxCompanyId() {
+    try {
+      return new URLSearchParams(window.location.search).get("company_id") || "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function cxText(value) {
+    return String(value ?? "");
+  }
+
+  function cxNorm(value) {
+    return cxText(value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function cxEscape(value) {
+    return cxText(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  async function cxFetchSettings() {
+    const companyId = cxCompanyId();
+    if (!companyId) return {};
+    const response = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/client-settings`, {
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) return {};
+    return await response.json();
+  }
+
+  async function cxSavePayrollHours(value) {
+    const companyId = cxCompanyId();
+    if (!companyId) throw new Error("company_id no disponible.");
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 168) {
+      throw new Error("Ingresa un total valido entre 1 y 168 horas.");
+    }
+
+    const response = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/client-settings`, {
+      method: "PUT",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ payroll_regular_hours_limit: hours })
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `No se pudo guardar la regla (${response.status}).`);
+    }
+
+    return await response.json();
+  }
+
+  function cxFindSettingsModal() {
+    const preferredSelectors = [
+      "#clx-account-modal",
+      "#cx-account-modal",
+      ".clx-account-modal",
+      ".cx-account-modal",
+      "[role='dialog']",
+      ".modal",
+      ".settings-modal"
+    ];
+
+    const preferred = [];
+    preferredSelectors.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((element) => preferred.push(element));
+    });
+
+    const candidates = preferred.length ? preferred : Array.from(document.body.querySelectorAll("section, article, div"));
+    let best = null;
+    let bestScore = -1;
+
+    for (const element of candidates) {
+      if (!element || element.id === "app") continue;
+      const style = window.getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 280 || rect.height < 180) continue;
+
+      const text = cxNorm(element.innerText || "");
+      if (!text) continue;
+
+      let score = 0;
+      if (text.includes("preferencias del panel") || text.includes("panel preferences") || text.includes("preferences du panneau") || text.includes("preferencias do painel")) score += 5;
+      if (text.includes("cambiar correo") || text.includes("change email") || text.includes("changer le courriel") || text.includes("alterar email")) score += 3;
+      if (text.includes("cambiar contrasena") || text.includes("change password") || text.includes("changer le mot de passe") || text.includes("alterar senha")) score += 3;
+      if (text.includes("bloqueo por inactividad") || text.includes("inactivity lock")) score += 2;
+      if (text.includes("moneda") || text.includes("currency") || text.includes("devise") || text.includes("moeda")) score += 2;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = element;
+      }
+    }
+
+    return bestScore >= 7 ? best : null;
+  }
+
+  function cxFindPreferencesCard(modal) {
+    if (!modal) return null;
+    const nodes = Array.from(modal.querySelectorAll("section, article, div"));
+    let best = null;
+    let bestScore = -1;
+
+    for (const node of nodes) {
+      const text = cxNorm(node.innerText || "");
+      if (!text) continue;
+
+      let score = 0;
+      if (text.includes("preferencias del panel") || text.includes("panel preferences") || text.includes("preferences du panneau") || text.includes("preferencias do painel")) score += 5;
+      if (text.includes("idioma") || text.includes("language") || text.includes("langue")) score += 2;
+      if (text.includes("moneda") || text.includes("currency") || text.includes("devise") || text.includes("moeda")) score += 2;
+      if (text.includes("zona horaria") || text.includes("time zone") || text.includes("fuseau horaire") || text.includes("fuso horario")) score += 2;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = node;
+      }
+    }
+
+    return bestScore >= 7 ? best : null;
+  }
+
+  function cxPayrollCardHtml(value) {
+    const hours = Number(value || DEFAULT_ORDINARY_HOURS);
+    return `
+      <section id="cxTenantPayrollSettingsCard" class="client-panel cx-tenant-payroll-settings-card" style="margin-top:16px">
+        <div class="client-eyebrow">Nómina</div>
+        <h2>Configuración de nómina</h2>
+        <p class="client-muted">Hasta este total semanal se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.</p>
+
+        <label class="cx-tenant-payroll-label" style="display:block;margin-top:14px">
+          <span style="display:block;font-size:12px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Total de horas ordinarias semanales</span>
+          <input id="cxTenantOrdinaryHoursInput" type="number" min="1" max="168" step="0.25" value="${cxEscape(hours)}" style="width:100%;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.26);color:inherit;border-radius:16px;padding:14px 16px;font-weight:900;outline:none">
+        </label>
+
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px">
+          <button class="client-btn" type="button" data-cx-save-payroll-settings>Guardar regla de nómina</button>
+          <span class="client-muted" data-cx-payroll-settings-status>Ejemplo: 40, 48 o 49 según la legislación/configuración de esta empresa.</span>
+        </div>
+      </section>
+    `;
+  }
+
+  async function cxMountPayrollSettingsCard() {
+    const modal = cxFindSettingsModal();
+    if (!modal) return false;
+    if (modal.querySelector("#cxTenantPayrollSettingsCard")) return true;
+
+    const preferencesCard = cxFindPreferencesCard(modal);
+    if (!preferencesCard) return false;
+
+    let currentValue = DEFAULT_ORDINARY_HOURS;
+    try {
+      const settings = await cxFetchSettings();
+      currentValue =
+        settings?.payroll_regular_hours_limit ??
+        settings?.payroll?.ordinary_hours_limit ??
+        DEFAULT_ORDINARY_HOURS;
+    } catch (error) {
+      currentValue = DEFAULT_ORDINARY_HOURS;
+    }
+
+    preferencesCard.insertAdjacentHTML("afterend", cxPayrollCardHtml(currentValue));
+    return true;
+  }
+
+  function cxInstallObserver() {
+    const run = () => {
+      cxMountPayrollSettingsCard().catch(() => {});
+    };
+
+    document.addEventListener("click", () => {
+      window.setTimeout(run, 80);
+      window.setTimeout(run, 300);
+      window.setTimeout(run, 900);
+    }, true);
+
+    const observer = new MutationObserver(() => {
+      window.clearTimeout(window.__cx017gPayrollObserverTimer);
+      window.__cx017gPayrollObserverTimer = window.setTimeout(run, 80);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    run();
+  }
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-cx-save-payroll-settings]");
+    if (!button) return;
+
+    event.preventDefault();
+
+    const card = button.closest("#cxTenantPayrollSettingsCard");
+    const input = card ? card.querySelector("#cxTenantOrdinaryHoursInput") : null;
+    const status = card ? card.querySelector("[data-cx-payroll-settings-status]") : null;
+
+    try {
+      button.disabled = true;
+      if (status) status.textContent = "Guardando...";
+      const saved = await cxSavePayrollHours(input ? input.value : DEFAULT_ORDINARY_HOURS);
+      const nextValue = saved?.payroll_regular_hours_limit ?? saved?.payroll?.ordinary_hours_limit ?? input?.value;
+      if (input && nextValue !== undefined) input.value = nextValue;
+      if (status) status.textContent = "Regla guardada para esta empresa.";
+    } catch (error) {
+      if (status) status.textContent = error.message || "No se pudo guardar.";
+    } finally {
+      button.disabled = false;
+    }
+  }, true);
+
+  window.CLONEXA_SETTINGS_PAYROLL = {
+    mount: cxMountPayrollSettingsCard,
+    get: cxFetchSettings,
+    savePayrollHours: cxSavePayrollHours
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", cxInstallObserver);
+  } else {
+    cxInstallObserver();
+  }
+})();
+/* CX_017G_SAFE_SETTINGS_PAYROLL_END */
