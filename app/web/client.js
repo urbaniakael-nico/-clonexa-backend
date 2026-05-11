@@ -5829,6 +5829,797 @@
   /* CX_KPIS_OPERATIVOS_016A_END */
 
 
+
+  /* CX_018E_PRODUCTION_ANALYTICS_MODULE_START */
+  const CX_PROD_I18N_018E = {
+    es: {
+      eyebrow: "MÃ³dulo ProducciÃ³n",
+      title: "ProducciÃ³n",
+      subtitle: "Tiempos, referencias, cierres, cantidades y productividad por empresa.",
+      back: "Volver",
+      refresh: "Actualizar",
+      csv: "CSV",
+      period: "Periodo",
+      from: "Desde",
+      to: "Hasta",
+      preset: "Rango",
+      view: "Vista",
+      apply: "Aplicar",
+      active: "Activas",
+      all: "Todas",
+      archived: "Archivadas",
+      today: "Hoy",
+      sevenDays: "7 dÃ­as",
+      month: "Mes",
+      thirtyDays: "30 dÃ­as",
+      custom: "Personalizado",
+      summary: "Resumen productivo",
+      referencesActive: "Referencias activas",
+      totalTime: "Tiempo productivo",
+      closedQuantity: "Cantidad cerrada",
+      avgProgress: "Avance promedio",
+      activeSessions: "Sesiones activas",
+      referenceProgress: "Avance por referencia",
+      timeByReference: "Tiempo por referencia",
+      timeByCollaborator: "Tiempo por colaborador y referencia",
+      referenceDetail: "Detalle por referencia",
+      closures: "Cierres de referencia",
+      reference: "Referencia",
+      size: "Talla / variante",
+      initialQuantity: "Cantidad total",
+      finishedQuantity: "Cantidad cerrada",
+      pendingQuantity: "Pendiente",
+      overQuantity: "Sobreproducida",
+      progress: "Avance",
+      collaborators: "Colaboradores",
+      sessions: "Sesiones",
+      status: "Estado",
+      collaborator: "Colaborador",
+      time: "Tiempo",
+      closedAt: "Fecha cierre",
+      channel: "Canal",
+      notes: "Notas",
+      empty: "Sin datos productivos todavÃ­a.",
+      noClosures: "Sin cierres en este periodo.",
+      noTime: "Sin tiempos productivos en este periodo.",
+      error: "No se pudo cargar ProducciÃ³n.",
+      moduleInactive: "El mÃ³dulo ProducciÃ³n no estÃ¡ activo para esta empresa."
+    },
+    en: {
+      eyebrow: "Production module",
+      title: "Production",
+      subtitle: "Times, references, closures, quantities and productivity by company.",
+      back: "Back",
+      refresh: "Refresh",
+      csv: "CSV",
+      period: "Period",
+      from: "From",
+      to: "To",
+      preset: "Range",
+      view: "View",
+      apply: "Apply",
+      active: "Active",
+      all: "All",
+      archived: "Archived",
+      today: "Today",
+      sevenDays: "7 days",
+      month: "Month",
+      thirtyDays: "30 days",
+      custom: "Custom",
+      summary: "Production summary",
+      referencesActive: "Active references",
+      totalTime: "Production time",
+      closedQuantity: "Closed quantity",
+      avgProgress: "Average progress",
+      activeSessions: "Active sessions",
+      referenceProgress: "Reference progress",
+      timeByReference: "Time by reference",
+      timeByCollaborator: "Time by collaborator and reference",
+      referenceDetail: "Reference detail",
+      closures: "Reference closures",
+      reference: "Reference",
+      size: "Size / variant",
+      initialQuantity: "Total quantity",
+      finishedQuantity: "Closed quantity",
+      pendingQuantity: "Pending",
+      overQuantity: "Overproduced",
+      progress: "Progress",
+      collaborators: "Collaborators",
+      sessions: "Sessions",
+      status: "Status",
+      collaborator: "Collaborator",
+      time: "Time",
+      closedAt: "Closed at",
+      channel: "Channel",
+      notes: "Notes",
+      empty: "No production data yet.",
+      noClosures: "No closures in this period.",
+      noTime: "No production time in this period.",
+      error: "Could not load Production.",
+      moduleInactive: "Production module is not active for this company."
+    },
+    fr: {
+      eyebrow: "Module production",
+      title: "Production",
+      subtitle: "Temps, rÃ©fÃ©rences, clÃ´tures, quantitÃ©s et productivitÃ© par entreprise.",
+      back: "Retour",
+      refresh: "Actualiser",
+      csv: "CSV",
+      period: "PÃ©riode",
+      from: "Depuis",
+      to: "Jusqu'Ã ",
+      preset: "Plage",
+      view: "Vue",
+      apply: "Appliquer",
+      active: "Actives",
+      all: "Toutes",
+      archived: "ArchivÃ©es",
+      today: "Aujourd'hui",
+      sevenDays: "7 jours",
+      month: "Mois",
+      thirtyDays: "30 jours",
+      custom: "PersonnalisÃ©",
+      summary: "RÃ©sumÃ© de production",
+      referencesActive: "RÃ©fÃ©rences actives",
+      totalTime: "Temps de production",
+      closedQuantity: "QuantitÃ© clÃ´turÃ©e",
+      avgProgress: "Progression moyenne",
+      activeSessions: "Sessions actives",
+      referenceProgress: "Progression par rÃ©fÃ©rence",
+      timeByReference: "Temps par rÃ©fÃ©rence",
+      timeByCollaborator: "Temps par collaborateur et rÃ©fÃ©rence",
+      referenceDetail: "DÃ©tail par rÃ©fÃ©rence",
+      closures: "ClÃ´tures de rÃ©fÃ©rence",
+      reference: "RÃ©fÃ©rence",
+      size: "Taille / variante",
+      initialQuantity: "QuantitÃ© totale",
+      finishedQuantity: "QuantitÃ© clÃ´turÃ©e",
+      pendingQuantity: "Restant",
+      overQuantity: "Surproduction",
+      progress: "Progression",
+      collaborators: "Collaborateurs",
+      sessions: "Sessions",
+      status: "Ã‰tat",
+      collaborator: "Collaborateur",
+      time: "Temps",
+      closedAt: "Date de clÃ´ture",
+      channel: "Canal",
+      notes: "Notes",
+      empty: "Aucune donnÃ©e de production.",
+      noClosures: "Aucune clÃ´ture dans cette pÃ©riode.",
+      noTime: "Aucun temps de production dans cette pÃ©riode.",
+      error: "Impossible de charger Production.",
+      moduleInactive: "Le module Production n'est pas actif pour cette entreprise."
+    },
+    pt: {
+      eyebrow: "MÃ³dulo produÃ§Ã£o",
+      title: "ProduÃ§Ã£o",
+      subtitle: "Tempos, referÃªncias, fechamentos, quantidades e produtividade por empresa.",
+      back: "Voltar",
+      refresh: "Atualizar",
+      csv: "CSV",
+      period: "PerÃ­odo",
+      from: "Desde",
+      to: "AtÃ©",
+      preset: "Intervalo",
+      view: "Vista",
+      apply: "Aplicar",
+      active: "Ativas",
+      all: "Todas",
+      archived: "Arquivadas",
+      today: "Hoje",
+      sevenDays: "7 dias",
+      month: "MÃªs",
+      thirtyDays: "30 dias",
+      custom: "Personalizado",
+      summary: "Resumo de produÃ§Ã£o",
+      referencesActive: "ReferÃªncias ativas",
+      totalTime: "Tempo de produÃ§Ã£o",
+      closedQuantity: "Quantidade fechada",
+      avgProgress: "Progresso mÃ©dio",
+      activeSessions: "SessÃµes ativas",
+      referenceProgress: "Progresso por referÃªncia",
+      timeByReference: "Tempo por referÃªncia",
+      timeByCollaborator: "Tempo por colaborador e referÃªncia",
+      referenceDetail: "Detalhe por referÃªncia",
+      closures: "Fechamentos de referÃªncia",
+      reference: "ReferÃªncia",
+      size: "Tamanho / variante",
+      initialQuantity: "Quantidade total",
+      finishedQuantity: "Quantidade fechada",
+      pendingQuantity: "Pendente",
+      overQuantity: "Sobreproduzida",
+      progress: "Progresso",
+      collaborators: "Colaboradores",
+      sessions: "SessÃµes",
+      status: "Estado",
+      collaborator: "Colaborador",
+      time: "Tempo",
+      closedAt: "Data fechamento",
+      channel: "Canal",
+      notes: "Notas",
+      empty: "Ainda sem dados de produÃ§Ã£o.",
+      noClosures: "Sem fechamentos neste perÃ­odo.",
+      noTime: "Sem tempo de produÃ§Ã£o neste perÃ­odo.",
+      error: "NÃ£o foi possÃ­vel carregar ProduÃ§Ã£o.",
+      moduleInactive: "O mÃ³dulo ProduÃ§Ã£o nÃ£o estÃ¡ ativo para esta empresa."
+    }
+  };
+
+  function cxProdSafeText018E(value) {
+    return String(value ?? "");
+  }
+
+  function cxProdLang018E(settings = {}) {
+    const candidates = [
+      settings.language,
+      settings.client_settings && settings.client_settings.language,
+      window.CLONEXA_CLIENT_SETTINGS && window.CLONEXA_CLIENT_SETTINGS.language,
+      window.clonexaClientSettings && window.clonexaClientSettings.language,
+      document.documentElement.getAttribute("lang")
+    ];
+
+    for (const candidate of candidates) {
+      const code = cxProdSafeText018E(candidate).trim().toLowerCase().slice(0, 2);
+      if (CX_PROD_I18N_018E[code]) return code;
+    }
+
+    return "es";
+  }
+
+  function cxProdT018E(settings, key) {
+    const lang = cxProdLang018E(settings || {});
+    return (CX_PROD_I18N_018E[lang] && CX_PROD_I18N_018E[lang][key]) || CX_PROD_I18N_018E.es[key] || key;
+  }
+
+  async function cxProdLoadSettings018E() {
+    try {
+      if (window.CLONEXA_SETTINGS_PAYROLL && typeof window.CLONEXA_SETTINGS_PAYROLL.get === "function") {
+        const settings = await window.CLONEXA_SETTINGS_PAYROLL.get(false);
+        if (settings && typeof settings === "object") return settings;
+      }
+    } catch (error) {}
+
+    try {
+      if (!state.companyId) return {};
+      return await api(`/companies/${encodeURIComponent(state.companyId)}/client-settings`);
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function cxProdNum018E(value, decimals = 0) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return decimals ? "0.00" : "0";
+    return number.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
+  }
+
+  function cxProdPercent018E(value) {
+    const number = Math.max(0, Math.min(100, Number(value || 0)));
+    return `${cxProdNum018E(number, number % 1 === 0 ? 0 : 1)}%`;
+  }
+
+  function cxProdSeconds018E(value) {
+    const seconds = Math.max(0, Math.floor(Number(value || 0)));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours <= 0) return `${minutes}m`;
+    return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  }
+
+  function cxProdDate018E(value) {
+    const raw = cxProdSafeText018E(value);
+    if (!raw) return "-";
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw.slice(0, 19);
+    return date.toLocaleString();
+  }
+
+  function cxProdRefKey018E(referenceName, size, referenceId = "") {
+    const id = cxProdSafeText018E(referenceId).trim();
+    if (id) return `id:${id}`;
+    return `${cxProdSafeText018E(referenceName).trim().toLowerCase()}__${cxProdSafeText018E(size).trim().toLowerCase()}`;
+  }
+
+  function cxProdBuildTimeMap018E(summary = {}) {
+    const map = new Map();
+    const rows = Array.isArray(summary.time_by_reference) ? summary.time_by_reference : [];
+
+    rows.forEach((row) => {
+      const keyById = cxProdRefKey018E(row.reference_name, row.size, row.reference_id);
+      const keyByName = cxProdRefKey018E(row.reference_name, row.size, "");
+      map.set(keyById, row);
+      map.set(keyByName, row);
+    });
+
+    return map;
+  }
+
+  function cxProdReferenceTime018E(row = {}, timeMap = new Map()) {
+    return timeMap.get(cxProdRefKey018E(row.name, row.size, row.id)) ||
+      timeMap.get(cxProdRefKey018E(row.name, row.size, "")) ||
+      {};
+  }
+
+  function cxProdDownloadUrl018E(filters = {}) {
+    const params = new URLSearchParams();
+    params.set("preset", filters.preset || "7d");
+    params.set("view", filters.view || "active");
+    if (filters.date_from) params.set("date_from", filters.date_from);
+    if (filters.date_to) params.set("date_to", filters.date_to);
+
+    return `${API}/production-v1/companies/${encodeURIComponent(state.companyId)}/export.csv?${params.toString()}`;
+  }
+
+  function cxProdDefaultFilters018E() {
+    const now = new Date();
+    const to = now.toISOString().slice(0, 10);
+    const fromDate = new Date(now);
+    fromDate.setDate(fromDate.getDate() - 6);
+    return {
+      preset: "7d",
+      date_from: fromDate.toISOString().slice(0, 10),
+      date_to: to,
+      view: "active"
+    };
+  }
+
+  function cxProdReadFilters018E() {
+    return {
+      preset: document.querySelector("[data-production-preset]")?.value || "7d",
+      date_from: document.querySelector("[data-production-from]")?.value || "",
+      date_to: document.querySelector("[data-production-to]")?.value || "",
+      view: document.querySelector("[data-production-view]")?.value || "active"
+    };
+  }
+
+  async function cxProdLoadSummary018E(filters = cxProdDefaultFilters018E()) {
+    const params = new URLSearchParams();
+    params.set("preset", filters.preset || "7d");
+    params.set("view", filters.view || "active");
+    if (filters.date_from) params.set("date_from", filters.date_from);
+    if (filters.date_to) params.set("date_to", filters.date_to);
+
+    return await api(`/production-v1/companies/${encodeURIComponent(state.companyId)}/summary?${params.toString()}`);
+  }
+
+  function cxProdCard018E(label, value, meta = "") {
+    return `
+      <div class="client-kpi cx-prod-kpi">
+        <span>${h(label)}</span>
+        <strong>${h(value)}</strong>
+        ${meta ? `<small>${h(meta)}</small>` : ""}
+      </div>
+    `;
+  }
+
+  function cxProdBar018E(label, value, max, meta = "") {
+    const safeMax = Math.max(1, Number(max || 1));
+    const safeValue = Math.max(0, Number(value || 0));
+    const percent = Math.min(100, Math.round((safeValue / safeMax) * 100));
+    return `
+      <div class="cx-prod-bar-row">
+        <div class="cx-prod-bar-head">
+          <strong>${h(label || "-")}</strong>
+          <span>${h(meta || cxProdNum018E(safeValue))}</span>
+        </div>
+        <div class="cx-prod-bar-track">
+          <div class="cx-prod-bar-fill" style="width:${percent}%"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function cxProdTableCell018E(value, className = "") {
+    return `<div class="cx-prod-cell ${className}">${h(value ?? "")}</div>`;
+  }
+
+  function cxProdProgressCell018E(value) {
+    return `<div class="cx-prod-cell"><span class="cx-prod-progress-pill">${h(cxProdPercent018E(value))}</span></div>`;
+  }
+
+  function cxProdEnsureStyles018E() {
+    let style = document.getElementById("cxProductionAnalyticsStyles018E");
+    if (style) return;
+
+    style = document.createElement("style");
+    style.id = "cxProductionAnalyticsStyles018E";
+    document.head.appendChild(style);
+
+    style.textContent = `
+      .cx-prod-filters {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(140px, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+        align-items: end;
+      }
+      .cx-prod-field label {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .12em;
+        opacity: .78;
+        font-weight: 1000;
+        margin-bottom: 6px;
+      }
+      .cx-prod-field input,
+      .cx-prod-field select {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(0,0,0,.22);
+        color: inherit;
+        border-radius: 14px;
+        padding: 12px 12px;
+        outline: none;
+        font-weight: 900;
+      }
+      .cx-prod-kpi small {
+        display:block;
+        margin-top: 8px;
+        opacity: .72;
+        font-weight: 900;
+      }
+      .cx-prod-charts {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(260px, 1fr));
+        gap: 18px;
+        margin-top: 18px;
+      }
+      .cx-prod-chart {
+        border-radius: 24px;
+        padding: 18px;
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(0,0,0,.12);
+      }
+      .cx-prod-chart h3 {
+        margin: 0 0 14px;
+        font-size: 18px;
+      }
+      .cx-prod-bar-row {
+        display: grid;
+        gap: 8px;
+        margin: 12px 0;
+      }
+      .cx-prod-bar-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        font-size: 13px;
+      }
+      .cx-prod-bar-track {
+        height: 12px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255,255,255,.12);
+      }
+      .cx-prod-bar-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--cx-secondary, #00ff88), var(--cx-primary, #ff2bd6));
+        box-shadow: 0 0 18px rgba(255,255,255,.25);
+      }
+      .cx-prod-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        border-radius: 22px;
+        border: 1px solid rgba(255,255,255,.13);
+        margin-top: 14px;
+      }
+      .cx-prod-grid {
+        min-width: 1180px;
+        display: grid;
+        grid-template-columns: 1.5fr .9fr .8fr .8fr .8fr .8fr .8fr .9fr .8fr;
+      }
+      .cx-prod-operator-grid {
+        min-width: 960px;
+        display: grid;
+        grid-template-columns: 1.2fr 1.4fr .8fr .8fr .8fr;
+      }
+      .cx-prod-closures-grid {
+        min-width: 980px;
+        display: grid;
+        grid-template-columns: 1.1fr 1.1fr 1.5fr .8fr .8fr .8fr 1.4fr;
+      }
+      .cx-prod-cell {
+        padding: 13px 12px;
+        border-bottom: 1px solid rgba(255,255,255,.09);
+        background: rgba(0,0,0,.08);
+        font-weight: 850;
+      }
+      .cx-prod-head {
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        font-size: 11px;
+        opacity: .82;
+        background: rgba(0,0,0,.22);
+      }
+      .cx-prod-progress-pill {
+        display: inline-flex;
+        min-width: 70px;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 6px 10px;
+        color: #020617;
+        background: linear-gradient(135deg, var(--cx-secondary, #00ff88), var(--cx-primary, #ff2bd6));
+        font-weight: 1000;
+      }
+      .cx-prod-empty {
+        padding: 18px;
+        border-radius: 18px;
+        background: rgba(0,0,0,.12);
+        border: 1px solid rgba(255,255,255,.1);
+        opacity: .8;
+        font-weight: 900;
+      }
+      @media (max-width: 1000px) {
+        .cx-prod-filters,
+        .cx-prod-charts {
+          grid-template-columns: 1fr;
+        }
+      }
+    `;
+  }
+
+  function cxProdReferenceRows018E(summary, settings) {
+    const refs = Array.isArray(summary.references) ? summary.references : [];
+    const timeMap = cxProdBuildTimeMap018E(summary);
+
+    if (!refs.length) {
+      return `<div class="cx-prod-empty">${h(cxProdT018E(settings, "empty"))}</div>`;
+    }
+
+    const rows = refs.map((row) => {
+      const time = cxProdReferenceTime018E(row, timeMap);
+      const progress = Number(row.progress_percent || 0);
+      const stateLabel = row.archived ? cxProdT018E(settings, "archived") : cxProdT018E(settings, "active");
+
+      return [
+        cxProdTableCell018E(row.name || "-"),
+        cxProdTableCell018E(row.size || "-"),
+        cxProdTableCell018E(cxProdNum018E(row.initial_quantity)),
+        cxProdTableCell018E(cxProdNum018E(row.finished_quantity)),
+        cxProdTableCell018E(cxProdNum018E(row.pending_quantity)),
+        cxProdTableCell018E(cxProdNum018E(row.over_finished_quantity)),
+        cxProdProgressCell018E(progress),
+        cxProdTableCell018E(time.total_effective_label || cxProdSeconds018E(time.total_effective_seconds || 0)),
+        cxProdTableCell018E(`${cxProdNum018E(time.operators_count || 0)} / ${stateLabel}`)
+      ].join("");
+    }).join("");
+
+    return `
+      <div class="cx-prod-table-wrap">
+        <div class="cx-prod-grid">
+          ${cxProdTableCell018E(cxProdT018E(settings, "reference"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "size"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "initialQuantity"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "finishedQuantity"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "pendingQuantity"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "overQuantity"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "progress"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "time"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "collaborators"), "cx-prod-head")}
+          ${rows}
+        </div>
+      </div>
+    `;
+  }
+
+  function cxProdOperatorRows018E(summary, settings) {
+    const rows = Array.isArray(summary.time_by_operator_reference) ? summary.time_by_operator_reference : [];
+
+    if (!rows.length) {
+      return `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noTime"))}</div>`;
+    }
+
+    return `
+      <div class="cx-prod-table-wrap">
+        <div class="cx-prod-operator-grid">
+          ${cxProdTableCell018E(cxProdT018E(settings, "collaborator"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "reference"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "size"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "time"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "sessions"), "cx-prod-head")}
+          ${rows.slice(0, 120).map((row) => `
+            ${cxProdTableCell018E(row.employee_name || row.telegram_user_id || "-")}
+            ${cxProdTableCell018E(row.reference_name || "-")}
+            ${cxProdTableCell018E(row.size || "-")}
+            ${cxProdTableCell018E(row.effective_label || cxProdSeconds018E(row.effective_seconds || 0))}
+            ${cxProdTableCell018E(cxProdNum018E(row.sessions_count || 0))}
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function cxProdClosureRows018E(summary, settings) {
+    const rows = Array.isArray(summary.closures_period) && summary.closures_period.length
+      ? summary.closures_period
+      : (Array.isArray(summary.closures_display) ? summary.closures_display : []);
+
+    if (!rows.length) {
+      return `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noClosures"))}</div>`;
+    }
+
+    return `
+      <div class="cx-prod-table-wrap">
+        <div class="cx-prod-closures-grid">
+          ${cxProdTableCell018E(cxProdT018E(settings, "closedAt"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "collaborator"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "reference"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "size"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "finishedQuantity"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "channel"), "cx-prod-head")}
+          ${cxProdTableCell018E(cxProdT018E(settings, "notes"), "cx-prod-head")}
+          ${rows.slice(0, 160).map((row) => `
+            ${cxProdTableCell018E(cxProdDate018E(row.closed_at))}
+            ${cxProdTableCell018E(row.employee_name || row.telegram_user_id || "-")}
+            ${cxProdTableCell018E(row.reference_name || "-")}
+            ${cxProdTableCell018E(row.size || "-")}
+            ${cxProdTableCell018E(cxProdNum018E(row.quantity_finished || 0))}
+            ${cxProdTableCell018E(row.source_channel || "-")}
+            ${cxProdTableCell018E(row.notes || "")}
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function cxProdCharts018E(summary, settings) {
+    const refs = Array.isArray(summary.references) ? summary.references : [];
+    const timeRows = Array.isArray(summary.time_by_reference) ? summary.time_by_reference : [];
+    const maxTime = Math.max(1, ...timeRows.map((row) => Number(row.total_effective_seconds || 0)));
+
+    return `
+      <div class="cx-prod-charts">
+        <section class="cx-prod-chart">
+          <h3>${h(cxProdT018E(settings, "referenceProgress"))}</h3>
+          ${
+            refs.length
+              ? refs.slice(0, 10).map((row) => cxProdBar018E(`${row.name || "-"} ${row.size ? "/ " + row.size : ""}`, row.progress_percent || 0, 100, cxProdPercent018E(row.progress_percent || 0))).join("")
+              : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "empty"))}</div>`
+          }
+        </section>
+
+        <section class="cx-prod-chart">
+          <h3>${h(cxProdT018E(settings, "timeByReference"))}</h3>
+          ${
+            timeRows.length
+              ? timeRows.slice(0, 10).map((row) => cxProdBar018E(`${row.reference_name || "-"} ${row.size ? "/ " + row.size : ""}`, row.total_effective_seconds || 0, maxTime, row.total_effective_label || cxProdSeconds018E(row.total_effective_seconds || 0))).join("")
+              : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noTime"))}</div>`
+          }
+        </section>
+      </div>
+    `;
+  }
+
+  async function renderProductionModule(filters = cxProdDefaultFilters018E()) {
+    if (!isClientModuleActive("production")) {
+      render();
+      return;
+    }
+
+    cxProdEnsureStyles018E();
+
+    const company = state.company || {};
+    const settings = await cxProdLoadSettings018E();
+    let summary = null;
+    let loadError = "";
+
+    try {
+      summary = await cxProdLoadSummary018E(filters);
+    } catch (error) {
+      summary = null;
+      loadError = error.message || cxProdT018E(settings, "error");
+    }
+
+    const totals = (summary && summary.totals) || {};
+    const references = Array.isArray(summary && summary.references) ? summary.references : [];
+    const progressValues = references.map((row) => Number(row.progress_percent || 0)).filter((value) => Number.isFinite(value));
+    const avgProgress = progressValues.length ? progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length : Number(totals.progress_percent || 0);
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("production")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">${h(cxProdT018E(settings, "eyebrow"))}</div>
+              <h1 class="client-title">${h(cxProdT018E(settings, "title"))}</h1>
+              <p class="client-muted">${h(cxProdT018E(settings, "subtitle"))}</p>
+
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>${h(cxProdT018E(settings, "back"))}</button>
+                <button class="client-btn" type="button" data-production-refresh>${h(cxProdT018E(settings, "refresh"))}</button>
+                <button class="client-btn" type="button" data-production-export>${h(cxProdT018E(settings, "csv"))}</button>
+              </div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">${h(cxProdT018E(settings, "period"))}</div>
+              <h2>${h(cxProdT018E(settings, "summary"))}</h2>
+
+              <div class="cx-prod-filters">
+                <div class="cx-prod-field">
+                  <label>${h(cxProdT018E(settings, "preset"))}</label>
+                  <select data-production-preset>
+                    <option value="today" ${filters.preset === "today" ? "selected" : ""}>${h(cxProdT018E(settings, "today"))}</option>
+                    <option value="7d" ${filters.preset === "7d" ? "selected" : ""}>${h(cxProdT018E(settings, "sevenDays"))}</option>
+                    <option value="30d" ${filters.preset === "30d" ? "selected" : ""}>${h(cxProdT018E(settings, "thirtyDays"))}</option>
+                    <option value="month" ${filters.preset === "month" ? "selected" : ""}>${h(cxProdT018E(settings, "month"))}</option>
+                    <option value="custom" ${filters.preset === "custom" ? "selected" : ""}>${h(cxProdT018E(settings, "custom"))}</option>
+                  </select>
+                </div>
+                <div class="cx-prod-field">
+                  <label>${h(cxProdT018E(settings, "from"))}</label>
+                  <input type="date" data-production-from value="${h(filters.date_from || "")}">
+                </div>
+                <div class="cx-prod-field">
+                  <label>${h(cxProdT018E(settings, "to"))}</label>
+                  <input type="date" data-production-to value="${h(filters.date_to || "")}">
+                </div>
+                <div class="cx-prod-field">
+                  <label>${h(cxProdT018E(settings, "view"))}</label>
+                  <select data-production-view>
+                    <option value="active" ${filters.view === "active" ? "selected" : ""}>${h(cxProdT018E(settings, "active"))}</option>
+                    <option value="all" ${filters.view === "all" ? "selected" : ""}>${h(cxProdT018E(settings, "all"))}</option>
+                    <option value="archived" ${filters.view === "archived" ? "selected" : ""}>${h(cxProdT018E(settings, "archived"))}</option>
+                  </select>
+                </div>
+                <div class="cx-prod-field">
+                  <button class="client-btn" type="button" data-production-apply>${h(cxProdT018E(settings, "apply"))}</button>
+                </div>
+              </div>
+
+              ${loadError ? `<div class="personal-toast error" style="margin-top:14px">${h(loadError)}</div>` : ""}
+            </section>
+
+            <section class="client-panel">
+              <div class="client-kpi-grid">
+                ${cxProdCard018E(cxProdT018E(settings, "referencesActive"), cxProdNum018E(totals.references_total || references.length))}
+                ${cxProdCard018E(cxProdT018E(settings, "totalTime"), totals.effective_label_period || cxProdSeconds018E(totals.effective_seconds_period || 0))}
+                ${cxProdCard018E(cxProdT018E(settings, "closedQuantity"), cxProdNum018E(totals.finished_quantity_total || 0), `${cxProdT018E(settings, "closedQuantity")} / ${cxProdT018E(settings, "initialQuantity")}`)}
+                ${cxProdCard018E(cxProdT018E(settings, "avgProgress"), cxProdPercent018E(avgProgress), `${cxProdT018E(settings, "activeSessions")}: ${cxProdNum018E(totals.active_sessions || 0)}`)}
+              </div>
+
+              ${summary ? cxProdCharts018E(summary, settings) : ""}
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">${h(cxProdT018E(settings, "referenceDetail"))}</div>
+              <h2>${h(cxProdT018E(settings, "referenceDetail"))}</h2>
+              ${summary ? cxProdReferenceRows018E(summary, settings) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "empty"))}</div>`}
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">${h(cxProdT018E(settings, "timeByCollaborator"))}</div>
+              <h2>${h(cxProdT018E(settings, "timeByCollaborator"))}</h2>
+              ${summary ? cxProdOperatorRows018E(summary, settings) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noTime"))}</div>`}
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">${h(cxProdT018E(settings, "closures"))}</div>
+              <h2>${h(cxProdT018E(settings, "closures"))}</h2>
+              ${summary ? cxProdClosureRows018E(summary, settings) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noClosures"))}</div>`}
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CX_018E_PRODUCTION_ANALYTICS_MODULE_END */
+
+
   async function renderClientModulePlaceholder(code) {
     const company = state.company || {};
     $("app").innerHTML = `
@@ -6055,6 +6846,11 @@
           return;
         }
 
+        if (action === "production:open" && isClientModuleActive("production")) {
+          await renderProductionModule();
+          return;
+        }
+
         if (action === "inventory:open" && isClientModuleActive("inventory")) {
           await renderInventoryModule();
           return;
@@ -6107,6 +6903,11 @@
           return;
         }
 
+        if (code === "production") {
+          await renderProductionModule();
+          return;
+        }
+
         if (code === "inventory") {
           await renderInventoryModule();
           return;
@@ -6138,6 +6939,22 @@
 
       if (target.closest("[data-payroll-export]")) {
         exportPayrollCsv();
+        return;
+      }
+
+      if (target.closest("[data-production-apply]") || target.closest("[data-production-refresh]")) {
+        await renderProductionModule(cxProdReadFilters018E());
+        return;
+      }
+
+      if (target.closest("[data-production-export]")) {
+        const filters = cxProdReadFilters018E();
+        const a = document.createElement("a");
+        a.href = cxProdDownloadUrl018E(filters);
+        a.download = `clonexa_production_${state.companyId || "company"}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
         return;
       }
 
