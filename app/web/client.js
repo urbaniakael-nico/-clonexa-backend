@@ -2205,7 +2205,7 @@
     return isClientModuleActive(code) ? "ON" : "-";
   }
 
-  async function loadClientCrmData() {
+  async function loadClientCrmDataLegacy018B() {
     const companyId = state.companyId;
     const [employeesResult, eventsResult, botResult, gpsResult] = await Promise.allSettled([
       isClientModuleActive("workforce")
@@ -2297,41 +2297,539 @@
     };
   }
 
+  
+  /* CX_018B_CRM_ADAPTIVE_SINGLE_CONTEXT_START */
+  const CX_CRM_TOP_MODULE_PRIORITY_018B = [
+    "production",
+    "references",
+    "gps",
+    "materials",
+    "field",
+    "requests",
+    "orders",
+    "inventory",
+    "stock",
+    "retail",
+    "stores",
+    "hospitality",
+    "bots",
+    "payroll"
+  ];
+
+  const CX_CRM_CONTEXT_MODULE_PRIORITY_018B = [
+    "production",
+    "references",
+    "gps",
+    "materials",
+    "field",
+    "requests",
+    "orders",
+    "retail",
+    "stores",
+    "hospitality",
+    "bots",
+    "payroll"
+  ];
+
+  let cxCrmRealtimeTimer018B = null;
+
+  function cxCrmNormalizeCode018B(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function cxCrmActiveModuleSet018B() {
+    return clientModuleCodes(visibleClientModules(activeClientModules()));
+  }
+
+  function crmPickSummaryModules018B(crm = {}) {
+    const active = cxCrmActiveModuleSet018B();
+    const snapshotModules = new Set((crm.activeModules || crm.snapshot?.active_modules || []).map(cxCrmNormalizeCode018B));
+
+    const has = (code) => active.has(code) || snapshotModules.has(code);
+    const selected = [];
+
+    CX_CRM_TOP_MODULE_PRIORITY_018B.forEach((code) => {
+      if (selected.length >= 2) return;
+
+      if (code === "references") {
+        if ((has("production") || has("references")) && !selected.includes("production")) {
+          selected.push("production");
+        }
+        return;
+      }
+
+      if (code === "bots") {
+        if ((has("bots") || has("bot")) && !selected.includes("bots")) selected.push("bots");
+        return;
+      }
+
+      if (has(code) && !selected.includes(code)) selected.push(code);
+    });
+
+    while (selected.length < 2) {
+      selected.push(selected.length === 0 ? "modules" : "channels");
+    }
+
+    return selected.slice(0, 2);
+  }
+
+  function crmTopCardValue018B(code, crm = {}) {
+    const summary = crm.summary || crm.snapshot?.summary || {};
+
+    if (code === "modules") return `${visibleClientModules(activeClientModules()).length}`;
+    if (code === "channels") return isClientModuleActive("bots") && crm.bot?.configured ? "ON" : "OFF";
+    if (code === "production") return summary.with_reference !== undefined ? String(summary.with_reference) : crmTopCardValue(code, crm);
+    if (code === "gps") return summary.gps_inside !== undefined ? String(summary.gps_inside) : crmTopCardValue(code, crm);
+    if (code === "materials") return summary.materials_pending !== undefined ? String(summary.materials_pending) : crmTopCardValue(code, crm);
+
+    return crmTopCardValue(code, crm);
+  }
+
+  function crmParseSeconds018B(value) {
+    const n = Number(value || 0);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  function crmDateToMs018B(value) {
+    if (!value) return 0;
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  function crmNormalizeStatus018B(status) {
+    const value = cxCrmNormalizeCode018B(status);
+    if (["working", "trabajando", "activo", "active"].includes(value)) return "working";
+    if (["on_break", "break", "pause", "pausa", "en_pausa"].includes(value)) return "on_break";
+    if (["checked_out", "finished", "finalizado", "turno_finalizado", "salida", "out"].includes(value)) return "checked_out";
+    return "not_started";
+  }
+
+  function crmStatusTone018B(status) {
+    const normalized = crmNormalizeStatus018B(status);
+    if (normalized === "working") return "active";
+    if (normalized === "on_break") return "pause";
+    if (normalized === "checked_out") return "out";
+    return "idle";
+  }
+
+  function crmSingleContextCode018B(person = {}, moduleCodes = []) {
+    const active = cxCrmActiveModuleSet018B();
+    const personAdapters = new Set((person.adapters || []).map((adapter) => cxCrmNormalizeCode018B(adapter.code || adapter.module || adapter.title)));
+
+    const available = (code) => {
+      if (code === "production") {
+        return active.has("production") || active.has("references") || personAdapters.has("production") || personAdapters.has("production_references");
+      }
+
+      if (code === "gps") return active.has("gps") || personAdapters.has("gps") || !!person.gpsInfo;
+      return active.has(code) || personAdapters.has(code);
+    };
+
+    const ordered = [
+      ...CX_CRM_CONTEXT_MODULE_PRIORITY_018B,
+      ...(Array.isArray(moduleCodes) ? moduleCodes : [])
+    ].map((code) => code === "references" ? "production" : cxCrmNormalizeCode018B(code));
+
+    return ordered.find((code, index) => code && ordered.indexOf(code) === index && available(code)) || "";
+  }
+
+  function crmFindAdapter018B(person = {}, code = "") {
+    const wanted = cxCrmNormalizeCode018B(code);
+    return (person.adapters || []).find((adapter) => {
+      const adapterCode = cxCrmNormalizeCode018B(adapter.code || adapter.module || adapter.title);
+      if (wanted === "production") return adapterCode === "production" || adapterCode === "production_references";
+      return adapterCode === wanted;
+    }) || null;
+  }
+
+  function crmFormatSeconds018B(seconds) {
+    return crmDurationLabel(crmParseSeconds018B(seconds) * 1000);
+  }
+
+  function crmProductionContext018B(person = {}) {
+    const adapter = crmFindAdapter018B(person, "production");
+    const items = Array.isArray(adapter?.items) ? adapter.items : [];
+    const activeItem = items.find((item) => item && (item.is_active || item.running || !item.ended_at)) || items[0] || null;
+
+    if (activeItem) {
+      const refName = activeItem.reference_name || activeItem.name || activeItem.reference || "Sin referencia";
+      const seconds = crmParseSeconds018B(activeItem.effective_seconds ?? activeItem.duration_seconds);
+      const running = Boolean(activeItem.running && crmNormalizeStatus018B(person.status) === "working");
+      return {
+        code: "production",
+        label: "Referencia",
+        value: refName,
+        meta: seconds ? crmFormatSeconds018B(seconds) : "--:--",
+        timer: running ? { seconds, type: "active", running: true } : null,
+        tone: running ? "active" : "idle"
+      };
+    }
+
+    const eventValue = crmModuleValueForPerson("production", person);
+    return {
+      code: "production",
+      label: "Referencia",
+      value: eventValue && eventValue !== crmModuleFallback("production") ? eventValue : "Sin referencia",
+      meta: "--:--",
+      tone: "idle"
+    };
+  }
+
+  function crmGpsContext018B(person = {}) {
+    const gpsInfo = person.gpsInfo || null;
+    let status = "";
+    let coords = "";
+
+    if (gpsInfo) {
+      status = String(gpsInfo.gps_status || gpsInfo.status || "").toLowerCase();
+      coords = gpsInfo.coordinates || (
+        gpsInfo.latitude !== undefined && gpsInfo.longitude !== undefined
+          ? `${Number(gpsInfo.latitude).toFixed(6)}, ${Number(gpsInfo.longitude).toFixed(6)}`
+          : ""
+      );
+    }
+
+    if (!coords) {
+      const event = crmGpsLatestEvent(person);
+      status = event ? crmGpsStatusFromEvent(event) : status;
+      coords = event ? crmGpsCoordinatesFromEvent(event) : coords;
+    }
+
+    const normalized = crmGpsStatusClass(status);
+    return {
+      code: "gps",
+      label: "UbicaciÃ³n",
+      value: normalized === "inside" ? "Dentro de rango" : (normalized === "outside" ? "Fuera de rango" : "Sin ubicaciÃ³n"),
+      meta: coords || "",
+      tone: normalized === "outside" ? "warning" : (normalized === "inside" ? "ok" : "idle")
+    };
+  }
+
+  function crmGenericContext018B(person = {}, code = "") {
+    const adapter = crmFindAdapter018B(person, code);
+    const items = Array.isArray(adapter?.items) ? adapter.items : [];
+    const first = items[0] || null;
+    const labels = {
+      materials: "Materiales",
+      field: "Tarea",
+      requests: "Solicitud",
+      orders: "Pedido",
+      retail: "Retail",
+      stores: "Punto",
+      hospitality: "Hospitality",
+      bots: "Canal",
+      payroll: "NÃ³mina"
+    };
+
+    if (first) {
+      return {
+        code,
+        label: labels[code] || crmModuleDisplay(code),
+        value: first.title || first.label || first.name || first.status || crmModuleValueForPerson(code, person),
+        meta: first.detail || first.meta || "",
+        tone: "idle"
+      };
+    }
+
+    return {
+      code,
+      label: labels[code] || crmModuleDisplay(code),
+      value: crmModuleValueForPerson(code, person),
+      meta: "",
+      tone: "idle"
+    };
+  }
+
+  function crmEmployeeContext018B(person = {}, moduleCodes = []) {
+    const code = crmSingleContextCode018B(person, moduleCodes);
+    if (!code) return null;
+
+    if (code === "production") return crmProductionContext018B(person);
+    if (code === "gps") return crmGpsContext018B(person);
+    return crmGenericContext018B(person, code);
+  }
+
+  function crmContextMarkup018B(person = {}, moduleCodes = []) {
+    const ctx = crmEmployeeContext018B(person, moduleCodes);
+    if (!ctx) return "";
+
+    const tone = ctx.tone || "idle";
+    const timerAttr = ctx.timer
+      ? ` data-cx-crm-timer data-base-seconds="${h(ctx.timer.seconds)}" data-timer-kind="${h(ctx.timer.type || "active")}" data-running="${ctx.timer.running ? "1" : "0"}" data-rendered-at="${Date.now()}"`
+      : "";
+
+    return `
+      <div class="cx-crm-context-card ${h(tone)}">
+        <span>${h(ctx.label)}</span>
+        <strong>${h(ctx.value || "-")}</strong>
+        ${ctx.meta ? `<small${timerAttr}>${h(ctx.meta)}</small>` : ""}
+      </div>
+    `;
+  }
+
+  function crmTimerData018B(person = {}) {
+    const status = crmNormalizeStatus018B(person.status || person.metrics?.status);
+    const metrics = person.metrics || {};
+    const core = metrics.snapshotCore || person.snapshotRow?.core || {};
+
+    if (status === "on_break") {
+      const seconds = crmParseSeconds018B(core.current_pause_seconds ?? core.pause_accumulated_seconds ?? Math.floor((metrics.pauseMs || 0) / 1000));
+      return { seconds, kind: "pause", running: true };
+    }
+
+    if (status === "working") {
+      const seconds = crmParseSeconds018B(core.shift_effective_seconds ?? Math.floor((metrics.payableMs || 0) / 1000));
+      return { seconds, kind: "active", running: true };
+    }
+
+    const seconds = crmParseSeconds018B(core.shift_effective_seconds ?? Math.floor((metrics.payableMs || 0) / 1000));
+    return { seconds, kind: "idle", running: false };
+  }
+
+  function crmTimerMarkup018B(person = {}) {
+    const timer = crmTimerData018B(person);
+    const renderedAt = Date.now();
+    const css = timer.kind === "pause" ? "cx-crm-timer pause" : "cx-crm-timer";
+    const value = timer.seconds > 0 ? crmFormatSeconds018B(timer.seconds) : "--:--";
+
+    return `
+      <strong
+        class="${css}"
+        data-cx-crm-timer
+        data-base-seconds="${h(timer.seconds)}"
+        data-timer-kind="${h(timer.kind)}"
+        data-running="${timer.running ? "1" : "0"}"
+        data-rendered-at="${renderedAt}"
+      >${h(value)}</strong>
+    `;
+  }
+
+  function crmTickRealtimeTimers018B() {
+    document.querySelectorAll("[data-cx-crm-timer]").forEach((el) => {
+      const base = crmParseSeconds018B(el.getAttribute("data-base-seconds"));
+      const renderedAt = Number(el.getAttribute("data-rendered-at") || Date.now());
+      const running = el.getAttribute("data-running") === "1";
+      const kind = el.getAttribute("data-timer-kind") || "active";
+      const extra = running ? Math.max(0, Math.floor((Date.now() - renderedAt) / 1000)) : 0;
+      const seconds = base + extra;
+
+      el.textContent = seconds > 0 ? crmFormatSeconds018B(seconds) : "--:--";
+      el.classList.toggle("pause", kind === "pause");
+    });
+  }
+
+  function crmStartRealtimeTimers018B() {
+    if (cxCrmRealtimeTimer018B) {
+      clearInterval(cxCrmRealtimeTimer018B);
+      cxCrmRealtimeTimer018B = null;
+    }
+
+    crmTickRealtimeTimers018B();
+
+    if (document.querySelector("[data-cx-crm-timer]")) {
+      cxCrmRealtimeTimer018B = setInterval(crmTickRealtimeTimers018B, 1000);
+    }
+  }
+
+  async function crmTrySnapshotEndpoint018B(companyId, path) {
+    try {
+      const data = await api(path.replace("{company_id}", encodeURIComponent(companyId)));
+      if (data && data.ok && Array.isArray(data.employees)) return data;
+    } catch (error) {
+      return null;
+    }
+
+    return null;
+  }
+
+  async function crmLoadAdaptiveSnapshot018B() {
+    const companyId = state.companyId;
+    if (!companyId) return null;
+
+    const paths = [
+      "/crm-core/companies/{company_id}/snapshot",
+      "/crm-live/companies/{company_id}/snapshot",
+      "/crm/companies/{company_id}/snapshot"
+    ];
+
+    for (const path of paths) {
+      const data = await crmTrySnapshotEndpoint018B(companyId, path);
+      if (data) return data;
+    }
+
+    return null;
+  }
+
+  function crmNormalizeSnapshot018B(snapshot = {}) {
+    const employees = Array.isArray(snapshot.employees) ? snapshot.employees : [];
+    const activeModules = (snapshot.active_modules || []).map(cxCrmNormalizeCode018B);
+
+    const people = employees.map((row) => {
+      const core = row.core || {};
+      const status = crmNormalizeStatus018B(core.status || row.work_status);
+      const name = row.employee_name || row.name || "Empleado";
+      const role = row.employee_role || row.role || "";
+      const person = {
+        employee: {
+          id: row.employee_id,
+          full_name: name,
+          role,
+          employee_type: role,
+        },
+        employeeId: row.employee_id,
+        name,
+        role,
+        status,
+        events: [],
+        latest: null,
+        adapters: Array.isArray(row.adapters) ? row.adapters : [],
+        snapshotRow: row,
+        gpsInfo: row.gps || null,
+        metrics: {
+          status,
+          latest: null,
+          snapshotCore: core,
+          grossMs: crmParseSeconds018B(core.shift_gross_seconds || core.shift_effective_seconds) * 1000,
+          pauseMs: crmParseSeconds018B(core.current_pause_seconds || core.pause_accumulated_seconds) * 1000,
+          payableMs: crmParseSeconds018B(core.shift_effective_seconds) * 1000,
+          timer: "--:--",
+        },
+      };
+
+      return person;
+    });
+
+    return {
+      employees,
+      events: [],
+      todayEvents: [],
+      people,
+      working: people.filter((person) => person.status === "working"),
+      onBreak: people.filter((person) => person.status === "on_break"),
+      offShift: people.filter((person) => !["working", "on_break"].includes(person.status)),
+      bot: null,
+      gpsSummary: null,
+      snapshot,
+      summary: snapshot.summary || {},
+      activeModules,
+      dynamicModules: crmPickSummaryModules018B({ snapshot, activeModules }),
+    };
+  }
+
+  async function loadClientCrmData() {
+    const snapshot = await crmLoadAdaptiveSnapshot018B();
+
+    if (snapshot) {
+      return crmNormalizeSnapshot018B(snapshot);
+    }
+
+    const legacy = await loadClientCrmDataLegacy018B();
+    legacy.dynamicModules = crmPickSummaryModules018B(legacy);
+    return legacy;
+  }
+  /* CX_018B_CRM_ADAPTIVE_SINGLE_CONTEXT_END */
+
   function renderCrmCollaboratorCards(people = [], moduleCodes = []) {
     if (!people.length) {
       return `<div class="personal-empty">No hay colaboradores operativos para mostrar.</div>`;
     }
 
     return `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:18px">
+      <style>
+        .cx-crm-people-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          gap: 16px;
+          margin-top: 18px;
+        }
+        .cx-crm-person-card {
+          padding: 20px;
+          min-height: 198px;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .cx-crm-person-head {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+        }
+        .cx-crm-timer-wrap span,
+        .cx-crm-context-card span {
+          display: block;
+          margin-bottom: 6px;
+          font-size: 12px;
+          letter-spacing: .08em;
+          text-transform: uppercase;
+          opacity: .76;
+          font-weight: 950;
+        }
+        .cx-crm-timer {
+          display: block;
+          font-size: 30px;
+          line-height: 1;
+          letter-spacing: .02em;
+        }
+        .cx-crm-timer.pause {
+          color: #ff9b21;
+          text-shadow: 0 0 18px rgba(255,155,33,.35);
+        }
+        .cx-crm-context-card {
+          border: 1px solid rgba(255,255,255,.12);
+          border-radius: 16px;
+          padding: 13px 14px;
+          background: rgba(255,255,255,.045);
+        }
+        .cx-crm-context-card strong {
+          display: block;
+          font-size: 17px;
+          line-height: 1.12;
+          overflow-wrap: anywhere;
+        }
+        .cx-crm-context-card small {
+          display: block;
+          margin-top: 8px;
+          font-weight: 950;
+          opacity: .88;
+        }
+        .cx-crm-context-card.ok {
+          border-color: rgba(92, 255, 164, .42);
+          background: rgba(92, 255, 164, .11);
+        }
+        .cx-crm-context-card.warning {
+          border-color: rgba(255, 155, 33, .52);
+          background: rgba(255, 155, 33, .13);
+        }
+      </style>
+      <div class="cx-crm-people-grid">
         ${people.map((person) => `
-          <article class="client-kpi" style="padding:20px;min-height:180px">
-            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+          <article class="client-kpi cx-crm-person-card">
+            <div class="cx-crm-person-head">
               <div>
                 <span>Colaborador</span>
                 <strong style="font-size:22px">${h(person.name)}</strong>
               </div>
-              <span class="personal-status-pill">${h(crmStatusLabel(person.status))}</span>
+              <span class="personal-status-pill ${h(crmStatusTone018B(person.status))}">${h(crmStatusLabel(person.status))}</span>
             </div>
 
-            <div style="margin-top:18px">
-              <span>Cronometro</span>
-              <strong style="font-size:30px">${h(person.metrics.timer)}</strong>
+            <div class="cx-crm-timer-wrap">
+              <span>${person.status === "on_break" ? "Tiempo en pausa" : "Tiempo activo"}</span>
+              ${crmTimerMarkup018B(person)}
             </div>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px">
-              ${moduleCodes.slice(0, 2).map((code) => `
-                <div style="border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px;background:rgba(255,255,255,.045)">
-                  <span>${h(crmModuleDisplay(code))}</span>
-                  ${crmModuleValueMarkupForPerson(code, person)}
-                </div>
-              `).join("")}
-            </div>
+            ${crmContextMarkup018B(person, moduleCodes)}
           </article>
         `).join("")}
       </div>
     `;
   }
+
 
   async function renderCrmModule() {
     if (!isClientModuleActive("crm")) {
@@ -2343,7 +2841,7 @@
 
     const company = state.company || {};
     const crm = await loadClientCrmData();
-    const moduleCards = crm.dynamicModules || crmDynamicModuleCodes();
+    const moduleCards = crmPickSummaryModules018B(crm);
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -2390,11 +2888,11 @@
                 </div>
                 <div class="client-kpi">
                   <span>${h(crmModuleDisplay(moduleCards[0]))}</span>
-                  <strong>${h(crmTopCardValue(moduleCards[0], crm))}</strong>
+                  <strong>${h(crmTopCardValue018B(moduleCards[0], crm))}</strong>
                 </div>
                 <div class="client-kpi">
                   <span>${h(crmModuleDisplay(moduleCards[1]))}</span>
-                  <strong>${h(crmTopCardValue(moduleCards[1], crm))}</strong>
+                  <strong>${h(crmTopCardValue018B(moduleCards[1], crm))}</strong>
                 </div>
               </div>
 
@@ -2406,6 +2904,8 @@
         </div>
       </main>
     `;
+
+    crmStartRealtimeTimers018B();
   }
 
 
