@@ -10208,7 +10208,7 @@
     },
     fr: {
       settings: "RÃ©glages",
-      logout: "Quitter",
+      logout: "Se dÃ©connecter",
       title: "RÃ©glages client",
       firstLogin: "Première connexion : changez votre mot de passe",
       account: "Compte",
@@ -11065,4 +11065,398 @@
   } else {
     init();
   }
+
+  /* CX_017D_PAYROLL_I18N_SOURCE_TRUTH_START */
+  const CX017D_SUPPORTED_LANGUAGES = Object.freeze([
+    { code: "es", label: "EspaÃ±ol" },
+    { code: "en", label: "English" },
+    { code: "fr", label: "FranÃ§ais" },
+    { code: "pt", label: "PortuguÃªs" },
+  ]);
+
+  const CX017D_DICTIONARY = Object.freeze({
+    es: {
+      dashboard: "Dashboard", bots: "Bots", gps: "GPS", workforce: "Workforce", personal: "Personal",
+      payroll: "NÃ³mina", inventory: "Inventario", materials: "Materiales", kpis: "KPIs", crm_field: "CRM Campo",
+      reports: "Reportes", settings: "Ajustes", active_tenant: "Tenant activo", back: "Volver", logout: "Cerrar sesiÃ³n",
+      session: "SesiÃ³n", save: "Guardar", save_settings: "Guardar ajustes", saved: "ConfiguraciÃ³n guardada.",
+      saving: "Guardando...", close: "Cerrar", language: "Idioma", inactivity_lock: "Bloqueo por inactividad",
+      currency: "Moneda", timezone: "Zona horaria detectada", panel_preferences: "Preferencias del panel",
+      core_settings: "Ajustes del nÃºcleo", settings_subtitle: "ConfiguraciÃ³n nÃºcleo del portal cliente para esta empresa.",
+      change_email: "Cambiar correo", new_email: "Nuevo correo", current_password: "ContraseÃ±a actual",
+      change_password: "Cambiar contraseÃ±a", new_password: "Nueva contraseÃ±a", confirm_new_password: "Confirmar nueva contraseÃ±a",
+      payroll_settings: "ConfiguraciÃ³n de nÃ³mina", ordinary_weekly_hours: "Total de horas ordinarias semanales",
+      ordinary_weekly_hours_help: "Hasta este total se calcula como hora ordinaria. A partir de este total se calcula como hora extra. Las pausas no cuentan.",
+      save_payroll_rule: "Guardar regla de nÃ³mina", invalid_hours: "Ingresa un total de horas ordinarias vÃ¡lido.",
+      payroll_rule_saved: "Regla de nÃ³mina guardada para esta empresa.", hours: "horas", ordinary_hours: "Horas ordinarias",
+      extra_hours: "Horas extra", total: "Total", active: "Activo", inactive: "Inactivo", archived: "Archivado",
+      search: "Buscar", filters: "Filtros", all: "Todos", csv: "CSV", export_csv: "Exportar CSV", status: "Estado",
+      actions: "Acciones", name: "Nombre", role: "Rol", phone: "TelÃ©fono", email: "Correo", telegram_id: "Telegram ID",
+      hire_date: "Fecha ingreso", regular_rate: "Hora ordinaria", extra_rate: "Hora extra", deduction_1: "Descuento 1",
+      deduction_2: "Descuento 2", add_row: "Agregar fila", save_changes: "Guardar cambios", save_row: "Guardar fila",
+      activate: "Activar", deactivate: "Inactivar", delete_archive: "Eliminar / archivar", started_shifts: "Turnos iniciados",
+      stock_zero: "Stock cero", requests: "Solicitudes", location: "UbicaciÃ³n", information: "InformaciÃ³n",
+      executive_summary: "Resumen ejecutivo", operational_report: "Reporte operativo", from: "Desde", to: "Hasta",
+      period: "Periodo", module: "MÃ³dulo", person: "Persona", event: "Evento", channel: "Canal", source: "Fuente",
+      detail: "Detalle", evidence: "Evidencia", materials_requests: "Solicitudes de materiales", stock: "Stock",
+      minimum_stock: "Stock mÃ­nimo", quantity: "Cantidad", product: "Producto", reference: "Referencia", size: "TamaÃ±o",
+      color: "Color", cost: "Costo", sales: "Ventas", orders: "Pedidos", stores: "Tiendas", production: "ProducciÃ³n",
+      hospitality: "Hospitality", retail: "Retail", field_operations: "OperaciÃ³n en campo"
+    },
+    en: {
+      dashboard: "Dashboard", bots: "Bots", gps: "GPS", workforce: "Workforce", personal: "People",
+      payroll: "Payroll", inventory: "Inventory", materials: "Materials", kpis: "KPIs", crm_field: "Field CRM",
+      reports: "Reports", settings: "Settings", active_tenant: "Active tenant", back: "Back", logout: "Log out",
+      session: "Session", save: "Save", save_settings: "Save settings", saved: "Settings saved.", saving: "Saving...",
+      close: "Close", language: "Language", inactivity_lock: "Inactivity lock", currency: "Currency", timezone: "Detected time zone",
+      panel_preferences: "Panel preferences", core_settings: "Core settings",
+      settings_subtitle: "Core configuration for this company client portal.", change_email: "Change email", new_email: "New email",
+      current_password: "Current password", change_password: "Change password", new_password: "New password",
+      confirm_new_password: "Confirm new password", payroll_settings: "Payroll settings", ordinary_weekly_hours: "Total weekly regular hours",
+      ordinary_weekly_hours_help: "Up to this total is calculated as regular time. After this total, time is calculated as overtime. Breaks do not count.",
+      save_payroll_rule: "Save payroll rule", invalid_hours: "Enter a valid regular-hours total.",
+      payroll_rule_saved: "Payroll rule saved for this company.", hours: "hours", ordinary_hours: "Regular hours",
+      extra_hours: "Overtime hours", total: "Total", active: "Active", inactive: "Inactive", archived: "Archived",
+      search: "Search", filters: "Filters", all: "All", csv: "CSV", export_csv: "Export CSV", status: "Status",
+      actions: "Actions", name: "Name", role: "Role", phone: "Phone", email: "Email", telegram_id: "Telegram ID",
+      hire_date: "Hire date", regular_rate: "Regular rate", extra_rate: "Overtime rate", deduction_1: "Deduction 1",
+      deduction_2: "Deduction 2", add_row: "Add row", save_changes: "Save changes", save_row: "Save row",
+      activate: "Activate", deactivate: "Deactivate", delete_archive: "Delete / archive", started_shifts: "Started shifts",
+      stock_zero: "Zero stock", requests: "Requests", location: "Location", information: "Information",
+      executive_summary: "Executive summary", operational_report: "Operational report", from: "From", to: "To",
+      period: "Period", module: "Module", person: "Person", event: "Event", channel: "Channel", source: "Source",
+      detail: "Detail", evidence: "Evidence", materials_requests: "Material requests", stock: "Stock",
+      minimum_stock: "Minimum stock", quantity: "Quantity", product: "Product", reference: "Reference", size: "Size",
+      color: "Color", cost: "Cost", sales: "Sales", orders: "Orders", stores: "Stores", production: "Production",
+      hospitality: "Hospitality", retail: "Retail", field_operations: "Field operations"
+    },
+    fr: {
+      dashboard: "Tableau de bord", bots: "Bots", gps: "GPS", workforce: "Personnel", personal: "Personnel",
+      payroll: "Paie", inventory: "Inventaire", materials: "MatÃ©riaux", kpis: "KPIs", crm_field: "CRM Terrain",
+      reports: "Rapports", settings: "RÃ©glages", active_tenant: "Tenant actif", back: "Retour", logout: "Se dÃ©connecter",
+      session: "Session", save: "Enregistrer", save_settings: "Enregistrer les rÃ©glages", saved: "Configuration enregistrÃ©e.",
+      saving: "Enregistrement...", close: "Fermer", language: "Langue", inactivity_lock: "Verrouillage par inactivitÃ©",
+      currency: "Devise", timezone: "Fuseau horaire dÃ©tectÃ©", panel_preferences: "PrÃ©fÃ©rences du panneau",
+      core_settings: "RÃ©glages du noyau", settings_subtitle: "Configuration du noyau du portail client pour cette entreprise.",
+      change_email: "Changer lâ€™e-mail", new_email: "Nouvel e-mail", current_password: "Mot de passe actuel",
+      change_password: "Changer le mot de passe", new_password: "Nouveau mot de passe", confirm_new_password: "Confirmer le nouveau mot de passe",
+      payroll_settings: "Configuration de paie", ordinary_weekly_hours: "Total dâ€™heures ordinaires hebdomadaires",
+      ordinary_weekly_hours_help: "Jusquâ€™Ã  ce total, le temps est calculÃ© comme ordinaire. Au-delÃ , il est calculÃ© comme heure supplÃ©mentaire. Les pauses ne comptent pas.",
+      save_payroll_rule: "Enregistrer la rÃ¨gle de paie", invalid_hours: "Saisissez un total dâ€™heures ordinaires valide.",
+      payroll_rule_saved: "RÃ¨gle de paie enregistrÃ©e pour cette entreprise.", hours: "heures", ordinary_hours: "Heures ordinaires",
+      extra_hours: "Heures supplÃ©mentaires", total: "Total", active: "Actif", inactive: "Inactif", archived: "ArchivÃ©",
+      search: "Rechercher", filters: "Filtres", all: "Tous", csv: "CSV", export_csv: "Exporter CSV", status: "Statut",
+      actions: "Actions", name: "Nom", role: "RÃ´le", phone: "TÃ©lÃ©phone", email: "E-mail", telegram_id: "Telegram ID",
+      hire_date: "Date dâ€™entrÃ©e", regular_rate: "Taux ordinaire", extra_rate: "Taux supplÃ©mentaire", deduction_1: "DÃ©duction 1",
+      deduction_2: "DÃ©duction 2", add_row: "Ajouter une ligne", save_changes: "Enregistrer les modifications", save_row: "Enregistrer la ligne",
+      activate: "Activer", deactivate: "DÃ©sactiver", delete_archive: "Supprimer / archiver", started_shifts: "Tours commencÃ©s",
+      stock_zero: "Stock zÃ©ro", requests: "Demandes", location: "Localisation", information: "Information",
+      executive_summary: "RÃ©sumÃ© exÃ©cutif", operational_report: "Rapport opÃ©rationnel", from: "De", to: "Ã€",
+      period: "PÃ©riode", module: "Module", person: "Personne", event: "Ã‰vÃ©nement", channel: "Canal", source: "Source",
+      detail: "DÃ©tail", evidence: "Preuve", materials_requests: "Demandes de matÃ©riaux", stock: "Stock",
+      minimum_stock: "Stock minimum", quantity: "QuantitÃ©", product: "Produit", reference: "RÃ©fÃ©rence", size: "Taille",
+      color: "Couleur", cost: "CoÃ»t", sales: "Ventes", orders: "Commandes", stores: "Magasins", production: "Production",
+      hospitality: "HospitalitÃ©", retail: "Retail", field_operations: "OpÃ©ration terrain"
+    },
+    pt: {
+      dashboard: "Dashboard", bots: "Bots", gps: "GPS", workforce: "Equipe", personal: "Pessoal",
+      payroll: "Folha", inventory: "InventÃ¡rio", materials: "Materiais", kpis: "KPIs", crm_field: "CRM Campo",
+      reports: "RelatÃ³rios", settings: "Ajustes", active_tenant: "Tenant ativo", back: "Voltar", logout: "Sair",
+      session: "SessÃ£o", save: "Salvar", save_settings: "Salvar ajustes", saved: "ConfiguraÃ§Ã£o salva.", saving: "Salvando...",
+      close: "Fechar", language: "Idioma", inactivity_lock: "Bloqueio por inatividade", currency: "Moeda", timezone: "Fuso horÃ¡rio detectado",
+      panel_preferences: "PreferÃªncias do painel", core_settings: "Ajustes do nÃºcleo",
+      settings_subtitle: "ConfiguraÃ§Ã£o central do portal do cliente para esta empresa.", change_email: "Alterar e-mail", new_email: "Novo e-mail",
+      current_password: "Senha atual", change_password: "Alterar senha", new_password: "Nova senha", confirm_new_password: "Confirmar nova senha",
+      payroll_settings: "ConfiguraÃ§Ã£o da folha", ordinary_weekly_hours: "Total de horas ordinÃ¡rias semanais",
+      ordinary_weekly_hours_help: "AtÃ© este total Ã© calculado como tempo ordinÃ¡rio. A partir deste total Ã© calculado como hora extra. Pausas nÃ£o contam.",
+      save_payroll_rule: "Salvar regra da folha", invalid_hours: "Insira um total de horas ordinÃ¡rias vÃ¡lido.",
+      payroll_rule_saved: "Regra da folha salva para esta empresa.", hours: "horas", ordinary_hours: "Horas ordinÃ¡rias",
+      extra_hours: "Horas extras", total: "Total", active: "Ativo", inactive: "Inativo", archived: "Arquivado",
+      search: "Buscar", filters: "Filtros", all: "Todos", csv: "CSV", export_csv: "Exportar CSV", status: "Status",
+      actions: "AÃ§Ãµes", name: "Nome", role: "FunÃ§Ã£o", phone: "Telefone", email: "E-mail", telegram_id: "Telegram ID",
+      hire_date: "Data de entrada", regular_rate: "Hora ordinÃ¡ria", extra_rate: "Hora extra", deduction_1: "Desconto 1",
+      deduction_2: "Desconto 2", add_row: "Adicionar linha", save_changes: "Salvar alteraÃ§Ãµes", save_row: "Salvar linha",
+      activate: "Ativar", deactivate: "Desativar", delete_archive: "Excluir / arquivar", started_shifts: "Turnos iniciados",
+      stock_zero: "Estoque zero", requests: "SolicitaÃ§Ãµes", location: "LocalizaÃ§Ã£o", information: "InformaÃ§Ã£o",
+      executive_summary: "Resumo executivo", operational_report: "RelatÃ³rio operacional", from: "De", to: "AtÃ©",
+      period: "PerÃ­odo", module: "MÃ³dulo", person: "Pessoa", event: "Evento", channel: "Canal", source: "Fonte",
+      detail: "Detalhe", evidence: "EvidÃªncia", materials_requests: "SolicitaÃ§Ãµes de materiais", stock: "Estoque",
+      minimum_stock: "Estoque mÃ­nimo", quantity: "Quantidade", product: "Produto", reference: "ReferÃªncia", size: "Tamanho",
+      color: "Cor", cost: "Custo", sales: "Vendas", orders: "Pedidos", stores: "Lojas", production: "ProduÃ§Ã£o",
+      hospitality: "Hospitality", retail: "Retail", field_operations: "OperaÃ§Ã£o em campo"
+    }
+  });
+
+  const CX017D_ALIASES = Object.freeze({
+    "configuracion": "settings", "configuraciÃ³n": "settings", "settings": "settings", "ajustes": "settings",
+    "rÃ©glages": "settings", "guardar ajustes": "save_settings", "save settings": "save_settings",
+    "idioma": "language", "language": "language", "langue": "language", "moneda": "currency", "currency": "currency",
+    "devise": "currency", "bloqueo por inactividad": "inactivity_lock", "inactivity lock": "inactivity_lock",
+    "zona horaria detectada": "timezone", "detected time zone": "timezone", "preferencias del panel": "panel_preferences",
+    "panel preferences": "panel_preferences", "change email": "change_email", "cambiar correo": "change_email",
+    "change password": "change_password", "cambiar contraseÃ±a": "change_password", "log out": "logout",
+    "cerrar sesiÃ³n": "logout", "cerrar sesion": "logout", "dashboard": "dashboard", "nÃ³mina": "payroll",
+    "nomina": "payroll", "payroll": "payroll", "paie": "payroll", "inventario": "inventory", "inventory": "inventory",
+    "inventaire": "inventory", "materiales": "materials", "materials": "materials", "matÃ©riaux": "materials",
+    "reportes": "reports", "reports": "reports", "rapports": "reports", "personal": "personal", "people": "personal",
+    "crm campo": "crm_field", "field crm": "crm_field", "kpis": "kpis", "bots": "bots", "gps": "gps",
+    "total de horas ordinarias semanales": "ordinary_weekly_hours", "total weekly regular hours": "ordinary_weekly_hours"
+  });
+
+  function cx017dLang() {
+    try {
+      const fromSettings = typeof getClientSetting === "function" ? getClientSetting("language", null) : null;
+      const raw = fromSettings || localStorage.getItem("clonexa_client_language") || "es";
+      return CX017D_DICTIONARY[raw] ? raw : "es";
+    } catch (_) { return "es"; }
+  }
+
+  function cx017dNormalizeText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function cx017dKeyFromText(value) {
+    const normalized = cx017dNormalizeText(value);
+    if (!normalized) return null;
+    if (CX017D_ALIASES[normalized]) return CX017D_ALIASES[normalized];
+    for (const langCode of Object.keys(CX017D_DICTIONARY)) {
+      const pack = CX017D_DICTIONARY[langCode] || {};
+      for (const [key, label] of Object.entries(pack)) {
+        if (cx017dNormalizeText(label) === normalized) return key;
+      }
+    }
+    return null;
+  }
+
+  function cx017dT(key, params = {}) {
+    const langCode = cx017dLang();
+    const label = (CX017D_DICTIONARY[langCode] && CX017D_DICTIONARY[langCode][key])
+      || (CX017D_DICTIONARY.es && CX017D_DICTIONARY.es[key]) || key;
+    return String(label).replace(/\{(\w+)\}/g, (_, name) => params[name] ?? "");
+  }
+
+  function cx017dTranslateText(value) {
+    const key = cx017dKeyFromText(value);
+    return key ? cx017dT(key) : String(value || "");
+  }
+
+  function cx017dTranslateDom(root = document.body) {
+    if (!root || !root.querySelectorAll) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        const tag = String(parent.tagName || "").toLowerCase();
+        if (["script", "style", "textarea", "input"].includes(tag)) return NodeFilter.FILTER_REJECT;
+        const text = String(node.nodeValue || "");
+        if (!text.trim() || text.trim().length > 90) return NodeFilter.FILTER_REJECT;
+        return cx017dKeyFromText(text) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((node) => {
+      const raw = String(node.nodeValue || "");
+      const translated = cx017dTranslateText(raw);
+      if (translated && translated !== raw.trim()) {
+        const leading = (raw.match(/^\s*/) || [""])[0];
+        const trailing = (raw.match(/\s*$/) || [""])[0];
+        node.nodeValue = `${leading}${translated}${trailing}`;
+      }
+    });
+    root.querySelectorAll("input[placeholder], textarea[placeholder], [title], [aria-label]").forEach((el) => {
+      ["placeholder", "title", "aria-label"].forEach((attr) => {
+        const value = el.getAttribute(attr);
+        const key = cx017dKeyFromText(value);
+        if (key) el.setAttribute(attr, cx017dT(key));
+      });
+    });
+    document.documentElement.lang = cx017dLang();
+  }
+
+  function cx017dCompanyId() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return ((typeof state !== "undefined" && state.companyId) || params.get("company_id") || params.get("companyId")
+        || localStorage.getItem("clonexa_company_id") || localStorage.getItem("company_id") || "");
+    } catch (_) { return ""; }
+  }
+
+  async function cx017dApi(path, options = {}) {
+    if (typeof api === "function") return api(path, options);
+    const response = await fetch(`/api/v1${path}`, { headers: { "Content-Type": "application/json" }, ...options });
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { raw: text }; }
+    if (!response.ok) throw new Error(data.detail || data.message || `HTTP ${response.status}`);
+    return data;
+  }
+
+  async function cx017dLoadSettings() {
+    const companyId = cx017dCompanyId();
+    if (!companyId) throw new Error("company_id missing");
+    if (typeof loadUnifiedClientSettings === "function") return loadUnifiedClientSettings();
+    return cx017dApi(`/companies/${encodeURIComponent(companyId)}/client-settings?ts=${Date.now()}`);
+  }
+
+  async function cx017dSaveSettings(payload = {}) {
+    const companyId = cx017dCompanyId();
+    if (!companyId) throw new Error("company_id missing");
+    if (typeof saveUnifiedClientSettings === "function") return saveUnifiedClientSettings(payload);
+    return cx017dApi(`/companies/${encodeURIComponent(companyId)}/client-settings`, {
+      method: "PUT", body: JSON.stringify(payload),
+    });
+  }
+
+  function cx017dDeepMerge(base = {}, extra = {}) {
+    const output = { ...(base || {}) };
+    Object.entries(extra || {}).forEach(([key, value]) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        output[key] = cx017dDeepMerge(output[key] && typeof output[key] === "object" ? output[key] : {}, value);
+      } else if (value !== undefined && value !== null && value !== "") output[key] = value;
+    });
+    return output;
+  }
+
+  function cx017dInstallStyles() {
+    if (document.getElementById("cx017d-settings-style")) return;
+    const style = document.createElement("style");
+    style.id = "cx017d-settings-style";
+    style.textContent = `
+      .cx017d-settings-card{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:24px;background:linear-gradient(145deg,rgba(255,255,255,.08),rgba(255,43,214,.10));box-shadow:inset 0 1px 0 rgba(255,255,255,.07);margin-top:16px}
+      .cx017d-settings-card h3{margin:0 0 10px;color:#fff;font-size:20px;letter-spacing:-.02em}
+      .cx017d-settings-card p{color:rgba(255,255,255,.72);line-height:1.45;margin:0 0 16px}
+      .cx017d-settings-card label{display:grid;gap:8px;color:rgba(255,255,255,.78);font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:12px}
+      .cx017d-settings-card input{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(0,0,0,.34);color:#fff;padding:14px 16px;font-size:16px;outline:none}
+      .cx017d-settings-row{display:grid;grid-template-columns:minmax(160px,1fr) auto;gap:12px;align-items:end}
+      .cx017d-settings-btn{border:0;border-radius:16px;background:linear-gradient(135deg,#ff2bd6,#8b5cf6);color:#fff;padding:14px 18px;font-weight:900;cursor:pointer;min-height:48px}
+      .cx017d-settings-status{margin-top:12px;color:rgba(255,255,255,.78);min-height:18px;font-size:13px}.cx017d-settings-status.error{color:#fecaca}
+      @media (max-width:820px){.cx017d-settings-row{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cx017dFindSettingsAnchor(modal) {
+    const panels = Array.from(modal.querySelectorAll("section,article,div")).filter((el) => {
+      const text = cx017dNormalizeText(el.textContent || "");
+      return el.querySelector("select,input") && (
+        text.includes("preferencias del panel") || text.includes("panel preferences") || text.includes("idioma")
+        || text.includes("language") || text.includes("moneda") || text.includes("currency")
+      );
+    }).sort((a, b) => {
+      const ar = a.getBoundingClientRect(); const br = b.getBoundingClientRect();
+      return (ar.width * ar.height) - (br.width * br.height);
+    });
+    return panels[0] || null;
+  }
+
+  function cx017dPayrollCard(hours) {
+    const safeHours = Number.isFinite(Number(hours)) && Number(hours) > 0 ? Number(hours) : 48;
+    return `
+      <h3>${cx017dT("payroll_settings")}</h3>
+      <p>${cx017dT("ordinary_weekly_hours_help")}</p>
+      <div class="cx017d-settings-row">
+        <label>${cx017dT("ordinary_weekly_hours")}
+          <input id="cx017dPayrollOrdinaryHoursLimit" type="number" min="1" max="168" step="0.25" value="${safeHours}">
+        </label>
+        <button type="button" class="cx017d-settings-btn" id="cx017dPayrollSaveBtn">${cx017dT("save_payroll_rule")}</button>
+      </div>
+      <div id="cx017dPayrollStatus" class="cx017d-settings-status"></div>`;
+  }
+
+  async function cx017dInjectPayrollSettings() {
+    const modal = document.getElementById("clx-account-modal");
+    if (!modal) return;
+    cx017dInstallStyles();
+    const old = document.getElementById("clxPayrollSettingsCard");
+    if (old) old.remove();
+    let card = document.getElementById("cx017dPayrollSettingsCard");
+    if (!card) {
+      card = document.createElement("section");
+      card.id = "cx017dPayrollSettingsCard";
+      card.className = "cx017d-settings-card";
+      const anchor = cx017dFindSettingsAnchor(modal);
+      if (anchor && anchor.parentElement) anchor.insertAdjacentElement("afterend", card);
+      else modal.appendChild(card);
+    }
+    let hours = 48;
+    try {
+      const data = await cx017dLoadSettings();
+      const settings = data.settings || data || {};
+      hours = Number(settings?.payroll?.ordinary_hours_limit || settings?.payroll_regular_hours_limit || 48);
+    } catch (_) {}
+    card.innerHTML = cx017dPayrollCard(hours);
+    cx017dTranslateDom(card);
+  }
+
+  async function cx017dSavePayrollRule() {
+    const input = document.getElementById("cx017dPayrollOrdinaryHoursLimit");
+    const status = document.getElementById("cx017dPayrollStatus");
+    const hours = Number(String(input?.value || "").replace(",", "."));
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 168) {
+      if (status) { status.textContent = cx017dT("invalid_hours"); status.classList.add("error"); }
+      return;
+    }
+    if (status) { status.textContent = cx017dT("saving"); status.classList.remove("error"); }
+    try {
+      const currentData = await cx017dLoadSettings();
+      const currentSettings = currentData.settings || currentData || {};
+      const merged = cx017dDeepMerge(currentSettings, { payroll: { ordinary_hours_limit: hours, pause_policy: currentSettings?.payroll?.pause_policy || "exclude" } });
+      const saved = await cx017dSaveSettings(merged);
+      const savedSettings = saved.settings || saved || merged;
+      try {
+        if (typeof persistClientSettings === "function") persistClientSettings(savedSettings);
+        if (typeof state !== "undefined") state.clientSettings = savedSettings;
+      } catch (_) {}
+      window.CLONEXA_CLIENT_SETTINGS = savedSettings;
+      localStorage.setItem("clonexa_client_settings", JSON.stringify(savedSettings));
+      if (status) status.textContent = cx017dT("payroll_rule_saved");
+    } catch (error) {
+      if (status) { status.textContent = error.message || String(error); status.classList.add("error"); }
+    }
+  }
+
+  function cx017dInstallObserver() {
+    if (window.__cx017dI18nObserverInstalled) return;
+    window.__cx017dI18nObserverInstalled = true;
+    let timer = null;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        cx017dTranslateDom(document.body);
+        const overlay = document.getElementById("clx-account-overlay");
+        if (overlay?.classList.contains("open")) cx017dInjectPayrollSettings();
+      }, 80);
+    };
+    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("click", (event) => {
+      const text = cx017dNormalizeText(event.target?.textContent || "");
+      if (event.target.closest("#clxAccountAjustesBtn") || event.target.closest("[data-action='settings']") || text === "ajustes" || text === "settings") {
+        setTimeout(() => { cx017dInjectPayrollSettings(); cx017dTranslateDom(document.body); }, 180);
+      }
+      if (event.target.closest("#cx017dPayrollSaveBtn")) {
+        event.preventDefault(); event.stopPropagation(); cx017dSavePayrollRule();
+      }
+    }, true);
+    document.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target && (target.id === "clxAccountLanguage" || target.name === "language" || String(target.id || "").toLowerCase().includes("language"))) {
+        setTimeout(() => cx017dTranslateDom(document.body), 180);
+      }
+    }, true);
+    setTimeout(() => { cx017dTranslateDom(document.body); cx017dInjectPayrollSettings(); }, 400);
+  }
+
+  window.CLONEXA_I18N = {
+    languages: CX017D_SUPPORTED_LANGUAGES,
+    dictionary: CX017D_DICTIONARY,
+    t: cx017dT,
+    translateDom: cx017dTranslateDom,
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", cx017dInstallObserver);
+  else cx017dInstallObserver();
+  /* CX_017D_PAYROLL_I18N_SOURCE_TRUTH_END */
+
+
 })();
