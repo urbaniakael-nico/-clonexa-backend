@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from datetime import datetime, timezone
 from typing import Any
@@ -411,6 +412,13 @@ async def attendance_events(
     else:
         return []
 
+    detail_expr = "COALESCE(detail, '')" if "detail" in cols else "''"
+    event_label_expr = "COALESCE(event_label, '')" if "event_label" in cols else "''"
+    metadata_expr = "COALESCE(metadata_json::text, '')" if "metadata_json" in cols else "''"
+    payload_expr = "COALESCE(payload_json::text, '')" if "payload_json" in cols else "''"
+    status_after_expr = "COALESCE(status_after, '')" if "status_after" in cols else "''"
+    module_code_expr = "COALESCE(module_code, '')" if "module_code" in cols else "''"
+
     match_parts: list[str] = []
 
     if "employee_id" in cols:
@@ -433,12 +441,18 @@ async def attendance_events(
         f"""
         SELECT
             lower(COALESCE(event_type, '')) AS event_type,
-            {at_expr}::text AS event_at
+            {at_expr}::text AS event_at,
+            {detail_expr} AS detail,
+            {event_label_expr} AS event_label,
+            {metadata_expr} AS metadata_json,
+            {payload_expr} AS payload_json,
+            {status_after_expr} AS status_after,
+            {module_code_expr} AS module_code
         FROM workforce_attendance_events
         WHERE company_id::text = :company_id
           AND ({' OR '.join(match_parts)})
         ORDER BY {at_expr} ASC
-        LIMIT 1000
+        LIMIT 1500
         """,
         {
             "company_id": company_id,
@@ -455,7 +469,16 @@ async def attendance_events(
         event_at = parse_dt(row.get("event_at"))
 
         if event_type and event_at:
-            parsed.append({"event_type": event_type, "event_at": event_at})
+            parsed.append({
+                "event_type": event_type,
+                "event_at": event_at,
+                "detail": clean(row.get("detail")),
+                "event_label": clean(row.get("event_label")),
+                "metadata_json": row.get("metadata_json"),
+                "payload_json": row.get("payload_json"),
+                "status_after": clean(row.get("status_after")),
+                "module_code": clean(row.get("module_code")),
+            })
 
     return parsed
 
@@ -476,6 +499,112 @@ def latest_shift_start_from_events(events: list[dict[str, Any]]) -> datetime | N
             continue
 
     return active_start
+
+
+# CX_018C_CRM_REFERENCE_TIMER_SOURCE_START
+def json_object_from_event_value(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+
+    raw = clean(value)
+    if not raw:
+        return {}
+
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def reference_name_from_event(event: dict[str, Any]) -> str:
+    metadata = json_object_from_event_value(event.get("metadata_json"))
+    payload = json_object_from_event_value(event.get("payload_json"))
+
+    for data in (metadata, payload):
+        for key in (
+            "reference_name",
+            "reference",
+            "current_reference",
+            "production_reference",
+            "selected_reference",
+        ):
+            value = clean(data.get(key))
+            if value:
+                return value
+
+    detail = clean(event.get("detail"))
+    label = clean(event.get("event_label"))
+    blob = f"{detail} {label}".strip()
+
+    patterns = [
+        r"referencia\s+inicial\s*:\s*(.+)$",
+        r"referencia\s*:\s*(.+)$",
+        r"reference\s*:\s*(.+)$",
+        r"turno\s+iniciado\s+en\s+referencia\s*:\s*(.+)$",
+        r"shift\s+started\s+on\s+reference\s*:\s*(.+)$",
+        r"cambio\s+de\s+referencia\s+registrado\s*:\s*(.+)$",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, blob, re.IGNORECASE)
+        if match:
+            value = clean(match.group(1))
+            value = re.split(r"[.。\n\r]", value, maxsplit=1)[0].strip()
+            if value:
+                return value
+
+    return ""
+
+
+def fallback_reference_sessions_from_events(
+    events: list[dict[str, Any]],
+    *,
+    employee_id: str,
+    employee_name: str,
+    telegram_user_id: str,
+    shift_start: datetime | None,
+    employee_status: str,
+) -> list[dict[str, Any]]:
+    if employee_status not in {"working", "on_break"}:
+        return []
+
+    latest: dict[str, Any] | None = None
+
+    for event in events:
+        event_at = event.get("event_at")
+        if not event_at:
+            continue
+
+        if shift_start and event_at < shift_start:
+            continue
+
+        event_type = clean(event.get("event_type")).lower()
+
+        if event_type in END_EVENTS:
+            latest = None
+            continue
+
+        name = reference_name_from_event(event)
+        if name:
+            latest = {
+                "session_id": f"attendance_reference:{employee_id}:{int(event_at.timestamp())}",
+                "employee_id": employee_id,
+                "employee_name": employee_name,
+                "telegram_user_id": telegram_user_id,
+                "reference_id": "",
+                "reference_name": name,
+                "started_at": dt_text(event_at),
+                "ended_at": None,
+                "status": "active",
+                "is_active": True,
+                "stored_seconds": 0,
+                "source": "attendance_event_fallback",
+            }
+
+    return [latest] if latest else []
+# CX_018C_CRM_REFERENCE_TIMER_SOURCE_END
 
 
 def pause_intervals_from_events(
@@ -705,7 +834,7 @@ def production_adapter(
     pause_intervals: list[tuple[datetime, datetime]],
     now_value: datetime,
 ) -> dict[str, Any] | None:
-    if not {"production", "references"}.issubset(modules):
+    if "production" not in modules and "references" not in modules:
         return None
 
     items = []
@@ -877,6 +1006,19 @@ async def crm_core_snapshot(
 
         shift_start = latest_shift_start_from_events(events)
 
+        if not preliminary_sessions and employee_status in {"working", "on_break"}:
+            fallback_preliminary_sessions = fallback_reference_sessions_from_events(
+                events,
+                employee_id=employee_id,
+                employee_name=employee_name,
+                telegram_user_id=telegram_user_id,
+                shift_start=shift_start or status_started_at,
+                employee_status=employee_status,
+            )
+
+            if fallback_preliminary_sessions:
+                preliminary_sessions = fallback_preliminary_sessions
+
         ref_start = earliest_active_reference_start(preliminary_sessions)
 
         if employee_status in {"working", "on_break"}:
@@ -899,6 +1041,16 @@ async def crm_core_snapshot(
 
         if not sessions and preliminary_sessions:
             sessions = preliminary_sessions
+
+        if not sessions and employee_status in {"working", "on_break"}:
+            sessions = fallback_reference_sessions_from_events(
+                events,
+                employee_id=employee_id,
+                employee_name=employee_name,
+                telegram_user_id=telegram_user_id,
+                shift_start=shift_start,
+                employee_status=employee_status,
+            )
 
         pause_intervals, current_pause_started = pause_intervals_from_events(
             events,
