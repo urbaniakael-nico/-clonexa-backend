@@ -7989,13 +7989,71 @@
 })();
 /* CX_REPORTS_016B_END */
 
-/* CX_017G_SAFE_SETTINGS_PAYROLL_START */
+/* CX_017I_PAYROLL_SETTINGS_FINAL_START */
 (function () {
-  if (window.__cx017gSafeSettingsPayrollLoaded) return;
-  window.__cx017gSafeSettingsPayrollLoaded = true;
+  "use strict";
+
+  if (window.__cx017iPayrollSettingsFinalLoaded) return;
+  window.__cx017iPayrollSettingsFinalLoaded = true;
 
   const API = "/api/v1";
   const DEFAULT_ORDINARY_HOURS = 48;
+  const CARD_SELECTOR = "#cxTenantPayrollSettingsCard,[data-cx-payroll-settings-card],.cx-tenant-payroll-settings-card";
+
+  const DICT = {
+    es: {
+      eyebrow: "NÃ³mina",
+      title: "ConfiguraciÃ³n de nÃ³mina",
+      description: "Hasta este total semanal se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.",
+      label: "Total de horas ordinarias semanales",
+      save: "Guardar regla de nÃ³mina",
+      saving: "Guardando...",
+      saved: "Regla guardada para esta empresa.",
+      invalid: "Ingresa un total vÃ¡lido entre 1 y 168 horas.",
+      error: "No se pudo guardar.",
+      example: "Ejemplo: 40, 48 o 49 segÃºn la legislaciÃ³n/configuraciÃ³n de esta empresa."
+    },
+    en: {
+      eyebrow: "Payroll",
+      title: "Payroll settings",
+      description: "Up to this weekly total is calculated as ordinary time. After this total, time is calculated as overtime. Breaks do not count.",
+      label: "Weekly ordinary hours",
+      save: "Save payroll rule",
+      saving: "Saving...",
+      saved: "Rule saved for this company.",
+      invalid: "Enter a valid total between 1 and 168 hours.",
+      error: "Could not save.",
+      example: "Example: 40, 48 or 49 depending on this company configuration."
+    },
+    fr: {
+      eyebrow: "Paie",
+      title: "ParamÃ¨tres de paie",
+      description: "Jusquâ€™Ã  ce total hebdomadaire, le temps est calculÃ© comme heures ordinaires. Au-delÃ , il est calculÃ© comme heures supplÃ©mentaires. Les pauses ne comptent pas.",
+      label: "Heures ordinaires hebdomadaires",
+      save: "Enregistrer la rÃ¨gle de paie",
+      saving: "Enregistrement...",
+      saved: "RÃ¨gle enregistrÃ©e pour cette entreprise.",
+      invalid: "Saisissez un total valide entre 1 et 168 heures.",
+      error: "Impossible dâ€™enregistrer.",
+      example: "Exemple : 40, 48 ou 49 selon la configuration de cette entreprise."
+    },
+    pt: {
+      eyebrow: "Folha",
+      title: "ConfiguraÃ§Ã£o da folha",
+      description: "AtÃ© este total semanal, o tempo Ã© calculado como hora ordinÃ¡ria. ApÃ³s esse total, Ã© calculado como hora extra. Pausas nÃ£o contam.",
+      label: "Horas ordinÃ¡rias semanais",
+      save: "Salvar regra da folha",
+      saving: "Salvando...",
+      saved: "Regra salva para esta empresa.",
+      invalid: "Insira um total vÃ¡lido entre 1 e 168 horas.",
+      error: "NÃ£o foi possÃ­vel salvar.",
+      example: "Exemplo: 40, 48 ou 49 conforme a configuraÃ§Ã£o desta empresa."
+    }
+  };
+
+  let settingsCache = null;
+  let settingsCacheAt = 0;
+  let settingsPromise = null;
 
   function cxCompanyId() {
     try {
@@ -8009,15 +8067,6 @@
     return String(value ?? "");
   }
 
-  function cxNorm(value) {
-    return cxText(value)
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
   function cxEscape(value) {
     return cxText(value)
       .replaceAll("&", "&amp;")
@@ -8027,22 +8076,90 @@
       .replaceAll("'", "&#039;");
   }
 
-  async function cxFetchSettings() {
+  function cxNorm(value) {
+    return cxText(value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function cxLang(settings) {
+    const candidates = [
+      settings && settings.language,
+      window.CLONEXA_CLIENT_SETTINGS && window.CLONEXA_CLIENT_SETTINGS.language,
+      window.clonexaClientSettings && window.clonexaClientSettings.language,
+      document.documentElement.getAttribute("lang")
+    ];
+
+    for (const candidate of candidates) {
+      const code = cxText(candidate).trim().toLowerCase().slice(0, 2);
+      if (DICT[code]) return code;
+    }
+
+    return "es";
+  }
+
+  function cxT(settings, key) {
+    const lang = cxLang(settings);
+    return (DICT[lang] && DICT[lang][key]) || DICT.es[key] || key;
+  }
+
+  function cxOrdinaryHours(settings) {
+    const raw =
+      settings?.payroll_regular_hours_limit ??
+      settings?.payroll?.ordinary_hours_limit ??
+      settings?.client_settings?.payroll?.ordinary_hours_limit ??
+      settings?.client_settings?.payroll_regular_hours_limit ??
+      DEFAULT_ORDINARY_HOURS;
+
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 && value <= 168 ? value : DEFAULT_ORDINARY_HOURS;
+  }
+
+  async function cxFetchSettings(force = false) {
+    const now = Date.now();
+
+    if (!force && settingsCache && now - settingsCacheAt < 5000) {
+      return settingsCache;
+    }
+
+    if (!force && settingsPromise) {
+      return settingsPromise;
+    }
+
     const companyId = cxCompanyId();
     if (!companyId) return {};
-    const response = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/client-settings`, {
+
+    settingsPromise = fetch(`${API}/companies/${encodeURIComponent(companyId)}/client-settings`, {
       headers: { "Accept": "application/json" }
-    });
-    if (!response.ok) return {};
-    return await response.json();
+    })
+      .then(async (response) => {
+        if (!response.ok) return {};
+        return response.json();
+      })
+      .then((settings) => {
+        settingsCache = settings || {};
+        settingsCacheAt = Date.now();
+        window.CLONEXA_CLIENT_SETTINGS = settingsCache;
+        return settingsCache;
+      })
+      .finally(() => {
+        settingsPromise = null;
+      });
+
+    return settingsPromise;
   }
 
   async function cxSavePayrollHours(value) {
     const companyId = cxCompanyId();
     if (!companyId) throw new Error("company_id no disponible.");
+
     const hours = Number(value);
     if (!Number.isFinite(hours) || hours <= 0 || hours > 168) {
-      throw new Error("Ingresa un total valido entre 1 y 168 horas.");
+      const settings = settingsCache || {};
+      throw new Error(cxT(settings, "invalid"));
     }
 
     const response = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/client-settings`, {
@@ -8051,19 +8168,26 @@
         "Accept": "application/json",
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ payroll_regular_hours_limit: hours })
+      body: JSON.stringify({
+        payroll_regular_hours_limit: hours,
+        payroll: { ordinary_hours_limit: hours }
+      })
     });
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(text || `No se pudo guardar la regla (${response.status}).`);
+      throw new Error(text || `settings_save_failed_${response.status}`);
     }
 
-    return await response.json();
+    const saved = await response.json();
+    settingsCache = saved || {};
+    settingsCacheAt = Date.now();
+    window.CLONEXA_CLIENT_SETTINGS = settingsCache;
+    return settingsCache;
   }
 
   function cxFindSettingsModal() {
-    const preferredSelectors = [
+    const selectors = [
       "#clx-account-modal",
       "#cx-account-modal",
       ".clx-account-modal",
@@ -8074,7 +8198,7 @@
     ];
 
     const preferred = [];
-    preferredSelectors.forEach((selector) => {
+    selectors.forEach((selector) => {
       document.querySelectorAll(selector).forEach((element) => preferred.push(element));
     });
 
@@ -8084,8 +8208,10 @@
 
     for (const element of candidates) {
       if (!element || element.id === "app") continue;
+
       const style = window.getComputedStyle(element);
       if (style.display === "none" || style.visibility === "hidden") continue;
+
       const rect = element.getBoundingClientRect();
       if (rect.width < 280 || rect.height < 180) continue;
 
@@ -8093,11 +8219,11 @@
       if (!text) continue;
 
       let score = 0;
-      if (text.includes("preferencias del panel") || text.includes("panel preferences") || text.includes("preferences du panneau") || text.includes("preferencias do painel")) score += 5;
-      if (text.includes("cambiar correo") || text.includes("change email") || text.includes("changer le courriel") || text.includes("alterar email")) score += 3;
-      if (text.includes("cambiar contrasena") || text.includes("change password") || text.includes("changer le mot de passe") || text.includes("alterar senha")) score += 3;
-      if (text.includes("bloqueo por inactividad") || text.includes("inactivity lock")) score += 2;
-      if (text.includes("moneda") || text.includes("currency") || text.includes("devise") || text.includes("moeda")) score += 2;
+      if (element.id === "clx-account-modal" || element.id === "cx-account-modal") score += 20;
+      if (text.includes("settings") || text.includes("ajustes") || text.includes("configuracion") || text.includes("reglages") || text.includes("parametros")) score += 6;
+      if (text.includes("panel preferences") || text.includes("preferencias del panel") || text.includes("preferencias") || text.includes("currency") || text.includes("moneda")) score += 6;
+      if (text.includes("change password") || text.includes("cambiar contrasena") || text.includes("changer le mot de passe") || text.includes("alterar senha")) score += 4;
+      if (text.includes("log out") || text.includes("cerrar sesion") || text.includes("session") || text.includes("sessao")) score += 3;
 
       if (score > bestScore) {
         bestScore = score;
@@ -8109,20 +8235,21 @@
   }
 
   function cxFindPreferencesCard(modal) {
-    if (!modal) return null;
-    const nodes = Array.from(modal.querySelectorAll("section, article, div"));
+    const nodes = Array.from(modal.querySelectorAll("section, article, div, form"));
     let best = null;
     let bestScore = -1;
 
     for (const node of nodes) {
+      if (node.matches(CARD_SELECTOR) || node.querySelector(CARD_SELECTOR)) continue;
+
       const text = cxNorm(node.innerText || "");
       if (!text) continue;
 
       let score = 0;
-      if (text.includes("preferencias del panel") || text.includes("panel preferences") || text.includes("preferences du panneau") || text.includes("preferencias do painel")) score += 5;
-      if (text.includes("idioma") || text.includes("language") || text.includes("langue")) score += 2;
-      if (text.includes("moneda") || text.includes("currency") || text.includes("devise") || text.includes("moeda")) score += 2;
-      if (text.includes("zona horaria") || text.includes("time zone") || text.includes("fuseau horaire") || text.includes("fuso horario")) score += 2;
+      if (text.includes("panel preferences") || text.includes("preferencias del panel")) score += 8;
+      if (text.includes("language") || text.includes("idioma") || text.includes("langue") || text.includes("idioma")) score += 3;
+      if (text.includes("currency") || text.includes("moneda") || text.includes("devise") || text.includes("moeda")) score += 3;
+      if (text.includes("time zone") || text.includes("zona horaria") || text.includes("fuseau horaire") || text.includes("fuso horario")) score += 2;
 
       if (score > bestScore) {
         bestScore = score;
@@ -8133,67 +8260,108 @@
     return bestScore >= 7 ? best : null;
   }
 
-  function cxPayrollCardHtml(value) {
-    const hours = Number(value || DEFAULT_ORDINARY_HOURS);
+  function cxPayrollCardHtml(settings) {
+    const hours = cxOrdinaryHours(settings);
+    const lang = cxLang(settings);
+
     return `
-      <section id="cxTenantPayrollSettingsCard" class="client-panel cx-tenant-payroll-settings-card" style="margin-top:16px">
-        <div class="client-eyebrow">Nómina</div>
-        <h2>Configuración de nómina</h2>
-        <p class="client-muted">Hasta este total semanal se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.</p>
+      <section
+        id="cxTenantPayrollSettingsCard"
+        data-cx-payroll-settings-card="1"
+        data-cx-card-lang="${cxEscape(lang)}"
+        data-cx-hours="${cxEscape(hours)}"
+        class="client-panel cx-tenant-payroll-settings-card"
+        style="margin-top:16px"
+      >
+        <div class="client-eyebrow">${cxEscape(cxT(settings, "eyebrow"))}</div>
+        <h2>${cxEscape(cxT(settings, "title"))}</h2>
+        <p class="client-muted">${cxEscape(cxT(settings, "description"))}</p>
 
         <label class="cx-tenant-payroll-label" style="display:block;margin-top:14px">
-          <span style="display:block;font-size:12px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Total de horas ordinarias semanales</span>
-          <input id="cxTenantOrdinaryHoursInput" type="number" min="1" max="168" step="0.25" value="${cxEscape(hours)}" style="width:100%;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.26);color:inherit;border-radius:16px;padding:14px 16px;font-weight:900;outline:none">
+          <span style="display:block;font-size:12px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">
+            ${cxEscape(cxT(settings, "label"))}
+          </span>
+          <input
+            id="cxTenantOrdinaryHoursInput"
+            type="number"
+            min="1"
+            max="168"
+            step="0.25"
+            value="${cxEscape(hours)}"
+            style="width:100%;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.26);color:inherit;border-radius:16px;padding:14px 16px;font-weight:900;outline:none"
+          >
         </label>
 
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px">
-          <button class="client-btn" type="button" data-cx-save-payroll-settings>Guardar regla de nómina</button>
-          <span class="client-muted" data-cx-payroll-settings-status>Ejemplo: 40, 48 o 49 según la legislación/configuración de esta empresa.</span>
+          <button class="client-btn" type="button" data-cx-save-payroll-settings>${cxEscape(cxT(settings, "save"))}</button>
+          <span class="client-muted" data-cx-payroll-settings-status>${cxEscape(cxT(settings, "example"))}</span>
         </div>
       </section>
     `;
   }
 
-  async function cxMountPayrollSettingsCard() {
+  function cxCleanDuplicateCards(modal) {
+    const cards = Array.from(document.querySelectorAll(CARD_SELECTOR));
+    let first = null;
+
+    cards.forEach((card) => {
+      if (!first && modal.contains(card)) {
+        first = card;
+      } else {
+        card.remove();
+      }
+    });
+
+    return first;
+  }
+
+  async function cxMountPayrollSettingsCard(force = false) {
     const modal = cxFindSettingsModal();
     if (!modal) return false;
-    if (modal.querySelector("#cxTenantPayrollSettingsCard")) return true;
 
     const preferencesCard = cxFindPreferencesCard(modal);
     if (!preferencesCard) return false;
 
-    let currentValue = DEFAULT_ORDINARY_HOURS;
-    try {
-      const settings = await cxFetchSettings();
-      currentValue =
-        settings?.payroll_regular_hours_limit ??
-        settings?.payroll?.ordinary_hours_limit ??
-        DEFAULT_ORDINARY_HOURS;
-    } catch (error) {
-      currentValue = DEFAULT_ORDINARY_HOURS;
+    const settings = await cxFetchSettings(force);
+    const lang = cxLang(settings);
+    const hours = cxOrdinaryHours(settings);
+    const existing = cxCleanDuplicateCards(modal);
+
+    if (
+      existing &&
+      existing.getAttribute("data-cx-card-lang") === lang &&
+      Number(existing.getAttribute("data-cx-hours")) === Number(hours)
+    ) {
+      return true;
     }
 
-    preferencesCard.insertAdjacentHTML("afterend", cxPayrollCardHtml(currentValue));
+    if (existing) {
+      existing.outerHTML = cxPayrollCardHtml(settings);
+    } else {
+      preferencesCard.insertAdjacentHTML("afterend", cxPayrollCardHtml(settings));
+    }
+
     return true;
   }
 
-  function cxInstallObserver() {
-    const run = () => {
-      cxMountPayrollSettingsCard().catch(() => {});
+  function cxInstallPayrollSettingsFinal() {
+    const run = (force = false) => {
+      window.clearTimeout(window.__cx017iPayrollMountTimer);
+      window.__cx017iPayrollMountTimer = window.setTimeout(() => {
+        cxMountPayrollSettingsCard(force).catch(() => {});
+      }, 80);
     };
 
     document.addEventListener("click", () => {
-      window.setTimeout(run, 80);
-      window.setTimeout(run, 300);
-      window.setTimeout(run, 900);
+      window.setTimeout(() => run(false), 80);
+      window.setTimeout(() => run(false), 300);
+      window.setTimeout(() => run(false), 900);
     }, true);
 
-    const observer = new MutationObserver(() => {
-      window.clearTimeout(window.__cx017gPayrollObserverTimer);
-      window.__cx017gPayrollObserverTimer = window.setTimeout(run, 80);
-    });
+    const observer = new MutationObserver(() => run(false));
     observer.observe(document.body, { childList: true, subtree: true });
-    run();
+
+    run(true);
   }
 
   document.addEventListener("click", async (event) => {
@@ -8205,16 +8373,21 @@
     const card = button.closest("#cxTenantPayrollSettingsCard");
     const input = card ? card.querySelector("#cxTenantOrdinaryHoursInput") : null;
     const status = card ? card.querySelector("[data-cx-payroll-settings-status]") : null;
+    const currentSettings = settingsCache || {};
 
     try {
       button.disabled = true;
-      if (status) status.textContent = "Guardando...";
+      if (status) status.textContent = cxT(currentSettings, "saving");
+
       const saved = await cxSavePayrollHours(input ? input.value : DEFAULT_ORDINARY_HOURS);
-      const nextValue = saved?.payroll_regular_hours_limit ?? saved?.payroll?.ordinary_hours_limit ?? input?.value;
-      if (input && nextValue !== undefined) input.value = nextValue;
-      if (status) status.textContent = "Regla guardada para esta empresa.";
+      const nextValue = cxOrdinaryHours(saved);
+
+      if (input) input.value = nextValue;
+      if (status) status.textContent = cxT(saved, "saved");
+
+      await cxMountPayrollSettingsCard(true);
     } catch (error) {
-      if (status) status.textContent = error.message || "No se pudo guardar.";
+      if (status) status.textContent = error.message || cxT(currentSettings, "error");
     } finally {
       button.disabled = false;
     }
@@ -8227,9 +8400,11 @@
   };
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", cxInstallObserver);
+    document.addEventListener("DOMContentLoaded", cxInstallPayrollSettingsFinal);
   } else {
-    cxInstallObserver();
+    cxInstallPayrollSettingsFinal();
   }
 })();
-/* CX_017G_SAFE_SETTINGS_PAYROLL_END */
+/* CX_017I_PAYROLL_SETTINGS_FINAL_END */
+
+

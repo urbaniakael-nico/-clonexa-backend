@@ -345,33 +345,111 @@ async def _cx_ensure_company_settings_storage(db: AsyncSession) -> None:
 
 
 async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
-    await _cx_ensure_company_settings_storage(db)
+    """
+    CLONEXA 017I:
+    Source of truth de la regla de nÃ³mina por tenant.
 
-    result = await db.execute(
-        text("""
-            SELECT settings_json
-            FROM company_settings
-            WHERE company_id = :company_id
-            LIMIT 1
-        """),
-        {"company_id": str(company_id)},
-    )
+    Primero lee companies.settings_json/client_settings, que es donde el portal /client
+    guarda los ajustes por company_id. Mantiene fallback a company_settings para
+    compatibilidad con hotfixes antiguos.
+    """
+    hours_limit = None
+    source = None
 
-    row = result.mappings().first()
-    settings = {}
-
-    if row:
-        raw = row.get("settings_json") or {}
-        if isinstance(raw, str):
+    async def _json_from_row_value(value):
+        if value is None:
+            return {}
+        if isinstance(value, str):
             try:
-                raw = json.loads(raw)
+                parsed = json.loads(value)
             except Exception:
-                raw = {}
-        if isinstance(raw, dict):
-            settings = raw
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return value if isinstance(value, dict) else {}
 
-    payroll_settings = settings.get("payroll") if isinstance(settings.get("payroll"), dict) else {}
-    hours_limit = payroll_settings.get("ordinary_hours_limit")
+    def _extract_hours(settings: dict):
+        if not isinstance(settings, dict):
+            return None
+
+        client = settings.get("client_settings") if isinstance(settings.get("client_settings"), dict) else {}
+        payroll = client.get("payroll") if isinstance(client.get("payroll"), dict) else {}
+        direct_payroll = settings.get("payroll") if isinstance(settings.get("payroll"), dict) else {}
+
+        candidates = [
+            payroll.get("ordinary_hours_limit"),
+            client.get("payroll_regular_hours_limit"),
+            direct_payroll.get("ordinary_hours_limit"),
+            settings.get("payroll_regular_hours_limit"),
+        ]
+
+        for candidate in candidates:
+            if candidate is not None and candidate != "":
+                return candidate
+        return None
+
+    allowed_company_json_columns = [
+        "settings_json",
+        "experience_json",
+        "metadata_json",
+        "branding_json",
+    ]
+
+    columns_result = await db.execute(text("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'companies'
+          AND column_name IN ('settings_json', 'experience_json', 'metadata_json', 'branding_json')
+    """))
+    existing_columns = [
+        str(row["column_name"])
+        for row in columns_result.mappings().all()
+        if str(row["column_name"]) in allowed_company_json_columns
+    ]
+
+    for column in existing_columns:
+        company_result = await db.execute(
+            text(f"""
+                SELECT {column} AS settings_json
+                FROM companies
+                WHERE id::text = :company_id
+                LIMIT 1
+            """),
+            {"company_id": str(company_id)},
+        )
+        row = company_result.mappings().first()
+        if not row:
+            continue
+
+        settings = await _json_from_row_value(row.get("settings_json"))
+        extracted = _extract_hours(settings)
+        if extracted is not None:
+            hours_limit = extracted
+            source = f"companies.{column}.client_settings"
+            break
+
+    if hours_limit is None:
+        await _cx_ensure_company_settings_storage(db)
+
+        result = await db.execute(
+            text("""
+                SELECT settings_json
+                FROM company_settings
+                WHERE company_id = :company_id
+                LIMIT 1
+            """),
+            {"company_id": str(company_id)},
+        )
+
+        row = result.mappings().first()
+        if row:
+            settings = await _json_from_row_value(row.get("settings_json"))
+            extracted = _extract_hours(settings)
+            if extracted is None:
+                legacy_payroll = settings.get("payroll") if isinstance(settings.get("payroll"), dict) else {}
+                extracted = legacy_payroll.get("ordinary_hours_limit")
+            if extracted is not None:
+                hours_limit = extracted
+                source = "company_settings.settings_json"
 
     if hours_limit is None or hours_limit == "":
         return {
@@ -385,11 +463,11 @@ async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
 
     hours = _cx_payroll_number(hours_limit, 0.0)
 
-    if hours <= 0:
+    if hours <= 0 or hours > 168:
         return {
             "enabled": False,
             "source": "invalid_company_settings",
-            "label": "Configuración inválida: total de horas ordinarias no válido",
+            "label": "ConfiguraciÃ³n invÃ¡lida: total de horas ordinarias no vÃ¡lido",
             "ordinary_hours_limit": None,
             "ordinary_minutes_limit": None,
             "pause_policy": "exclude",
@@ -399,12 +477,13 @@ async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
 
     return {
         "enabled": True,
-        "source": "company_settings",
-        "label": f"Hasta {hours:g}h ordinarias; después extra. Pausas excluidas.",
+        "source": source or "company_client_settings",
+        "label": f"Hasta {hours:g}h ordinarias; despuÃ©s extra. Pausas excluidas.",
         "ordinary_hours_limit": hours,
         "ordinary_minutes_limit": minutes,
         "pause_policy": "exclude",
     }
+
 
 
 async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: dict) -> dict:
@@ -454,7 +533,7 @@ async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: 
         row["gross_amount"] = gross_amount
         row["discount_amount"] = discount_amount
         row["net_amount"] = net_amount
-        row["payroll_rule"] = rule
+        row["payroll_rule"] = {**rule, "applied_by": "CX_017I_COMPANY_PAYROLL_RULE"}
 
         total_regular += regular_minutes
         total_extra += extra_minutes
@@ -469,7 +548,7 @@ async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: 
     totals["gross_amount"] = round(total_gross, 2)
     totals["discount_amount"] = round(total_discounts, 2)
     totals["net_amount"] = round(total_net, 2)
-    totals["payroll_rule"] = rule
+    totals["payroll_rule"] = {**rule, "applied_by": "CX_017I_COMPANY_PAYROLL_RULE"}
 
     snapshot["rows"] = rows
     snapshot["totals"] = totals
