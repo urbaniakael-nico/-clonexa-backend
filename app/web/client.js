@@ -12,6 +12,7 @@
     companyModules: [],
     personalHistoryRows: [],
     dashboardMetrics: {},
+    clientSettings: null,
   };
 
   const h = (value) =>
@@ -47,6 +48,198 @@
     const v = String(value || "").trim();
     return /^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
   }
+
+
+  /* CX_017C_CLIENT_SETTINGS_SOURCE_START */
+  const DEFAULT_CLIENT_SETTINGS = Object.freeze({
+    language: "es",
+    currency: "COP",
+    timezone: "America/Bogota",
+    inactivity_lock_minutes: 30,
+    session_timeout_minutes: 30,
+    payroll: {
+      ordinary_hours_limit: 48,
+      pause_policy: "exclude",
+    },
+    payroll_cuts: {
+      allow_close: true,
+      allow_export: true,
+      allow_archive: true,
+    },
+  });
+
+  function clientDeepMerge(base = {}, extra = {}) {
+    const output = { ...(base || {}) };
+    Object.entries(extra || {}).forEach(([key, value]) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        output[key] = clientDeepMerge(output[key] && typeof output[key] === "object" ? output[key] : {}, value);
+      } else if (value !== undefined && value !== null && value !== "") {
+        output[key] = value;
+      }
+    });
+    return output;
+  }
+
+  function normalizeClientSettings(raw = {}, company = {}) {
+    const source = raw && raw.settings && typeof raw.settings === "object" ? raw.settings : (raw || {});
+    const nested = source.client_settings && typeof source.client_settings === "object" ? source.client_settings : source;
+    const legacyLocalization = source.localization && typeof source.localization === "object" ? source.localization : {};
+    const companyJson = company?.settings_json && typeof company.settings_json === "object" ? company.settings_json : {};
+    const companyClientSettings = companyJson.client_settings && typeof companyJson.client_settings === "object" ? companyJson.client_settings : {};
+    const companyLocalization = companyJson.localization && typeof companyJson.localization === "object" ? companyJson.localization : {};
+
+    const merged = clientDeepMerge(DEFAULT_CLIENT_SETTINGS, companyClientSettings);
+    const withCompany = clientDeepMerge(merged, {
+      language: companyLocalization.language,
+      currency: companyLocalization.currency,
+      timezone: company.timezone || companyLocalization.timezone,
+      payroll: companyJson.payroll,
+      payroll_cuts: companyJson.payroll_cuts,
+    });
+    const withLegacy = clientDeepMerge(withCompany, {
+      language: legacyLocalization.language,
+      currency: legacyLocalization.currency,
+      timezone: legacyLocalization.timezone,
+      payroll: source.payroll,
+      payroll_cuts: source.payroll_cuts,
+    });
+    const normalized = clientDeepMerge(withLegacy, nested);
+
+    const language = String(normalized.language || DEFAULT_CLIENT_SETTINGS.language).trim().toLowerCase();
+    const currency = String(normalized.currency || DEFAULT_CLIENT_SETTINGS.currency).trim().toUpperCase();
+    const timezone = String(normalized.timezone || company.timezone || DEFAULT_CLIENT_SETTINGS.timezone).trim();
+    const inactivity = Number(normalized.inactivity_lock_minutes || normalized.session_timeout_minutes || DEFAULT_CLIENT_SETTINGS.inactivity_lock_minutes);
+    const hours = Number(String(normalized?.payroll?.ordinary_hours_limit ?? DEFAULT_CLIENT_SETTINGS.payroll.ordinary_hours_limit).replace(",", "."));
+
+    return {
+      ...normalized,
+      language: ["es", "en", "fr", "pt"].includes(language) ? language : "es",
+      currency: currency || "COP",
+      timezone: timezone || "America/Bogota",
+      inactivity_lock_minutes: Number.isFinite(inactivity) && inactivity > 0 ? inactivity : 30,
+      session_timeout_minutes: Number.isFinite(inactivity) && inactivity > 0 ? inactivity : 30,
+      payroll: {
+        ...(normalized.payroll || {}),
+        ordinary_hours_limit: Number.isFinite(hours) && hours > 0 ? hours : DEFAULT_CLIENT_SETTINGS.payroll.ordinary_hours_limit,
+        pause_policy: normalized?.payroll?.pause_policy || "exclude",
+      },
+      payroll_cuts: {
+        allow_close: normalized?.payroll_cuts?.allow_close !== false,
+        allow_export: normalized?.payroll_cuts?.allow_export !== false,
+        allow_archive: normalized?.payroll_cuts?.allow_archive !== false,
+      },
+    };
+  }
+
+  function persistClientSettings(settings = {}) {
+    const normalized = normalizeClientSettings(settings, state.company || {});
+    state.clientSettings = normalized;
+    window.CLONEXA_CLIENT_SETTINGS = normalized;
+    localStorage.setItem("clonexa_client_settings", JSON.stringify(normalized));
+    localStorage.setItem("clonexa_client_language", normalized.language);
+    localStorage.setItem("clonexa_client_currency", normalized.currency);
+    localStorage.setItem("clonexa_client_timezone", normalized.timezone);
+    return normalized;
+  }
+
+  function getClientSetting(path, fallback = null) {
+    const settings = state.clientSettings || normalizeClientSettings({}, state.company || {});
+    if (!path) return settings;
+    const value = String(path).split(".").reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), settings);
+    return value === undefined || value === null || value === "" ? fallback : value;
+  }
+
+  function clientLocale() {
+    const language = getClientSetting("language", localStorage.getItem("clonexa_client_language") || "es");
+    const currency = getClientSetting("currency", localStorage.getItem("clonexa_client_currency") || "COP");
+    if (language === "en") return currency === "USD" ? "en-US" : "en-GB";
+    if (language === "fr") return "fr-FR";
+    if (language === "pt") return "pt-BR";
+    return "es-CO";
+  }
+
+  function clientNumber(value, options = {}) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n)) return "0";
+    return n.toLocaleString(clientLocale(), options);
+  }
+
+  function clientDateTime(value, options = {}) {
+    if (!value) return "â€”";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString(clientLocale(), {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: getClientSetting("timezone", "America/Bogota"),
+      ...options,
+    });
+  }
+
+  function formatMoney(value, options = {}) {
+    const n = Number(value || 0);
+    const currency = String(options.currency || getClientSetting("currency", localStorage.getItem("clonexa_client_currency") || "COP")).toUpperCase();
+    return new Intl.NumberFormat(clientLocale(), {
+      style: "currency",
+      currency,
+      minimumFractionDigits: options.minimumFractionDigits ?? 0,
+      maximumFractionDigits: options.maximumFractionDigits ?? 2,
+    }).format(Number.isFinite(n) ? n : 0);
+  }
+
+  function getPayrollRegularHoursLimit() {
+    const hours = Number(String(getClientSetting("payroll.ordinary_hours_limit", 48)).replace(",", "."));
+    return Number.isFinite(hours) && hours > 0 ? hours : 48;
+  }
+
+  function translateLabel(key) {
+    const language = getClientSetting("language", "es");
+    const dictionary = {
+      es: { dashboard: "Dashboard", settings: "Ajustes", payroll: "NÃ³mina", currency: "Moneda" },
+      en: { dashboard: "Dashboard", settings: "Settings", payroll: "Payroll", currency: "Currency" },
+      fr: { dashboard: "Tableau de bord", settings: "RÃ©glages", payroll: "Paie", currency: "Devise" },
+      pt: { dashboard: "Dashboard", settings: "Ajustes", payroll: "Folha", currency: "Moeda" },
+    };
+    return dictionary[language]?.[key] || dictionary.es[key] || key;
+  }
+
+  async function loadUnifiedClientSettings() {
+    try {
+      return await api(`/companies/${encodeURIComponent(state.companyId)}/client-settings?ts=${Date.now()}`);
+    } catch (primaryError) {
+      try {
+        return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}?ts=${Date.now()}`);
+      } catch (_) {
+        throw primaryError;
+      }
+    }
+  }
+
+  async function saveUnifiedClientSettings(payload = {}) {
+    try {
+      return await api(`/companies/${encodeURIComponent(state.companyId)}/client-settings`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    } catch (primaryError) {
+      return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    }
+  }
+
+  window.CLONEXA_CLIENT = {
+    getClientSetting,
+    formatMoney,
+    getPayrollRegularHoursLimit,
+    translateLabel,
+  };
+  /* CX_017C_CLIENT_SETTINGS_SOURCE_END */
+
 
   function normalizeBranding(raw = {}) {
     const allowedStyles = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid"];
@@ -635,7 +828,7 @@
   function velvetDashboardPercent(value) {
     const n = Number(value || 0);
     if (!Number.isFinite(n)) return "0%";
-    return `${n.toLocaleString("es-CO", { maximumFractionDigits: 2 })}%`;
+    return `${clientNumber(n, { maximumFractionDigits: 2 })}%`;
   }
 
   async function loadVelvetLabDashboardMetrics() {
@@ -925,7 +1118,9 @@
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        await renderCoreSettingsModule();
+        const ajustesButton = document.getElementById("clxAccountAjustesBtn");
+        if (ajustesButton) ajustesButton.click();
+        else window.dispatchEvent(new CustomEvent("clonexa:open-settings"));
         return;
       }
 
@@ -951,15 +1146,6 @@
         </button>
       `);
     });
-
-    const settingsActive = activeClientModules().some((module) => ["core_settings", "settings", "core"].includes(String(module.code || "")));
-    if (settingsActive) {
-      buttons.push(`
-        <button class="${activeCode === "core_settings" || activeCode === "settings" ? "active" : ""}" type="button" data-client-module="core_settings">
-          Configuración
-        </button>
-      `);
-    }
 
     return buttons.join("");
   }
@@ -1563,13 +1749,7 @@
     if (!value) return "—";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleString("es-CO", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return clientDateTime(value);
   }
 
   function flattenHistoryRows(items) {
@@ -3140,7 +3320,7 @@
 
   function inventoryQtyLabel(value) {
     const n = inventoryNumber(value);
-    return n.toLocaleString("es-CO", { maximumFractionDigits: 2 });
+    return clientNumber(n, { maximumFractionDigits: 2 });
   }
 
   function inventoryStatusLabel(status = "") {
@@ -4342,7 +4522,7 @@
 
   function payrollMoney(value) {
     const num = payrollNumber(value);
-    return num.toLocaleString("es-CO", {
+    return formatMoney(num, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
@@ -5128,7 +5308,7 @@
   function kpiMoney(value) {
     const n = Number(value || 0);
     if (!Number.isFinite(n)) return "$0";
-    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    return formatMoney(n);
   }
 
   function kpiNormalizeText(value) {
@@ -5778,7 +5958,7 @@
   function formatAdaptiveKpiValue(item, currency) {
     if (item?.format === "currency") {
       const value = Number(item.value || 0);
-      return `${new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 }).format(value)} ${item.currency || currency || "COP"}`;
+      return formatMoney(value, { currency: item.currency || currency || getClientSetting("currency", "COP"), maximumFractionDigits: 0 });
     }
 
     return String(item?.value ?? 0);
@@ -5853,7 +6033,7 @@
     }
 
     const companyName = kpis?.company_name || company.name || "Empresa";
-    const currency = kpis?.currency || "COP";
+    const currency = kpis?.currency || getClientSetting("currency", "COP");
     const selectedCount = Array.isArray(kpis?.selected_keys) ? kpis.selected_keys.length : 0;
     const maxPanel = kpis?.max_panel_kpis || 4;
 
@@ -7991,6 +8171,13 @@
     state.companyId = company.id || company.company_id || companyId;
     state.experience = experience || {};
     state.companyModules = Array.isArray(companyModules) ? companyModules : [];
+    persistClientSettings(company?.settings_json?.client_settings || company?.settings_json || {}, company);
+    try {
+      const loadedSettings = await loadUnifiedClientSettings();
+      persistClientSettings(loadedSettings?.settings || loadedSettings || {}, company);
+    } catch (error) {
+      console.warn("[CLONEXA Client] client settings fallback:", error);
+    }
     state.dashboardMetrics = await loadClientDashboardMetrics(state.companyId, activeClientModules());
     state.branding =
       experience?.branding ||
@@ -8562,6 +8749,8 @@
     bindEvents();
     applyPersonalFilters();
   }
+
+  window.addEventListener("clonexa:open-settings", () => openAjustes(false));
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
@@ -9222,6 +9411,8 @@
     window.__cxAsistenciaInjectTimer = window.setTimeout(injectAsistenciaButton, 80);
   });
 
+  window.addEventListener("clonexa:open-settings", () => openAjustes(false));
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       asistenciaStyles();
@@ -9276,13 +9467,23 @@
 
   function fmt(value) {
     if (value === null || value === undefined || value === "") return "-";
-    if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toLocaleString("es", { maximumFractionDigits: 2 });
+    if (typeof value === "number") {
+      let settings = {};
+      try { settings = JSON.parse(localStorage.getItem("clonexa_client_settings") || "{}"); } catch (_) { settings = {}; }
+      const locale = settings.language === "en" ? "en-US" : settings.language === "fr" ? "fr-FR" : settings.language === "pt" ? "pt-BR" : "es-CO";
+      return Number.isInteger(value) ? String(value) : value.toLocaleString(locale, { maximumFractionDigits: 2 });
+    }
     return String(value);
   }
 
   function fmtMoney(value) {
     const n = Number(value || 0);
-    return n.toLocaleString("es", { style: "currency", currency: "COP", maximumFractionDigits: 2 });
+    let settings = {};
+    try { settings = JSON.parse(localStorage.getItem("clonexa_client_settings") || "{}"); } catch (_) { settings = {}; }
+    const language = String(settings.language || localStorage.getItem("clonexa_client_language") || "es");
+    const currency = String(settings.currency || localStorage.getItem("clonexa_client_currency") || "COP").toUpperCase();
+    const locale = language === "en" ? "en-US" : language === "fr" ? "fr-FR" : language === "pt" ? "pt-BR" : "es-CO";
+    return n.toLocaleString(locale, { style: "currency", currency, maximumFractionDigits: 2 });
   }
 
   function fmtDate(value) {
@@ -9968,13 +10169,15 @@
       confirmPassword: "Confirmar contraseña",
       language: "Idioma",
       session: "Sesión",
-      timeout: "Tiempo de ventana abierta",
+      timeout: "Bloqueo por inactividad",
+      currency: "Moneda",
+      timezone: "Zona horaria",
       save: "Guardar cambios",
       close: "Cerrar",
       saved: "Configuración guardada.",
       passwordRequired: "Debes cambiar la contraseña para continuar.",
       sessionExpired: "Sesión expirada por inactividad.",
-      adminHint: "Panel cliente CLONEXA",
+      adminHint: "ConfiguraciÃ³n central por empresa. Todos los mÃ³dulos instalados leen estos ajustes.",
       passwordHelp: "Deja nueva contraseña vacía si no deseas cambiarla.",
       emailHelp: "Deja nuevo correo vacío si no deseas cambiarlo."
     },
@@ -9991,10 +10194,12 @@
       confirmPassword: "Confirm password",
       language: "Language",
       session: "Session",
-      timeout: "Open session window",
+      timeout: "Inactivity lock",
+      currency: "Currency",
+      timezone: "Time zone",
       save: "Save changes",
       close: "Close",
-      saved: "Ajustes saved.",
+      saved: "Settings saved.",
       passwordRequired: "You must change your password to continue.",
       sessionExpired: "Session expired due to inactivity.",
       adminHint: "CLONEXA client panel",
@@ -10002,9 +10207,9 @@
       emailHelp: "Leave new email empty if you do not want to change it."
     },
     fr: {
-      settings: "Configuration",
+      settings: "RÃ©glages",
       logout: "Quitter",
-      title: "Configuration du compte",
+      title: "RÃ©glages client",
       firstLogin: "Première connexion : changez votre mot de passe",
       account: "Compte",
       email: "E-mail",
@@ -10033,6 +10238,139 @@
   function token() {
     return localStorage.getItem(TOKEN_KEY) || "";
   }
+
+  /* CX_017C_ACCOUNT_SETTINGS_SOURCE_START */
+  function h(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  const ACCOUNT_DEFAULT_SETTINGS = {
+    language: "es",
+    currency: "COP",
+    timezone: "America/Bogota",
+    inactivity_lock_minutes: 30,
+    session_timeout_minutes: 30,
+    payroll: { ordinary_hours_limit: 48, pause_policy: "exclude" },
+    payroll_cuts: { allow_close: true, allow_export: true, allow_archive: true },
+  };
+
+  function mergeSettings(base = {}, extra = {}) {
+    const out = { ...(base || {}) };
+    Object.entries(extra || {}).forEach(([key, value]) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        out[key] = mergeSettings(out[key] && typeof out[key] === "object" ? out[key] : {}, value);
+      } else if (value !== undefined && value !== null && value !== "") {
+        out[key] = value;
+      }
+    });
+    return out;
+  }
+
+  function normalizeSettings(raw = {}) {
+    const source = raw && raw.settings && typeof raw.settings === "object" ? raw.settings : (raw || {});
+    const nested = source.client_settings && typeof source.client_settings === "object" ? source.client_settings : source;
+    const merged = mergeSettings(ACCOUNT_DEFAULT_SETTINGS, source);
+    const normalized = mergeSettings(merged, nested);
+    const inactivity = Number(normalized.inactivity_lock_minutes || normalized.session_timeout_minutes || 30);
+    const hours = Number(String(normalized?.payroll?.ordinary_hours_limit ?? 48).replace(",", "."));
+
+    return {
+      ...normalized,
+      language: ["es", "en", "fr", "pt"].includes(String(normalized.language || "es").toLowerCase()) ? String(normalized.language || "es").toLowerCase() : "es",
+      currency: String(normalized.currency || "COP").toUpperCase(),
+      timezone: String(normalized.timezone || "America/Bogota"),
+      inactivity_lock_minutes: Number.isFinite(inactivity) && inactivity > 0 ? inactivity : 30,
+      session_timeout_minutes: Number.isFinite(inactivity) && inactivity > 0 ? inactivity : 30,
+      payroll: {
+        ...(normalized.payroll || {}),
+        ordinary_hours_limit: Number.isFinite(hours) && hours > 0 ? hours : 48,
+        pause_policy: normalized?.payroll?.pause_policy || "exclude",
+      },
+      payroll_cuts: {
+        allow_close: normalized?.payroll_cuts?.allow_close !== false,
+        allow_export: normalized?.payroll_cuts?.allow_export !== false,
+        allow_archive: normalized?.payroll_cuts?.allow_archive !== false,
+      },
+    };
+  }
+
+  function persistSettings(settings = {}) {
+    const normalized = normalizeSettings(settings);
+    localStorage.setItem("clonexa_client_settings", JSON.stringify(normalized));
+    localStorage.setItem("clonexa_client_language", normalized.language);
+    localStorage.setItem("clonexa_client_currency", normalized.currency);
+    localStorage.setItem("clonexa_client_timezone", normalized.timezone);
+    window.CLONEXA_CLIENT_SETTINGS = normalized;
+    return normalized;
+  }
+
+  function localSettings() {
+    try {
+      return normalizeSettings(JSON.parse(localStorage.getItem("clonexa_client_settings") || "{}"));
+    } catch (_) {
+      return normalizeSettings({});
+    }
+  }
+
+  async function settingsApi(path, options) {
+    const response = await fetch(`/api/v1${path}`, Object.assign({
+      headers: headers(),
+    }, options || {}));
+
+    let data = {};
+    try { data = await response.json(); } catch (_) { data = {}; }
+
+    if (!response.ok) {
+      throw new Error(data.detail || data.message || `HTTP ${response.status}`);
+    }
+
+    return data;
+  }
+
+  async function loadCompanyClientSettings() {
+    const id = companyId();
+    if (!id) return { settings: localSettings() };
+
+    try {
+      const data = await settingsApi(`/companies/${encodeURIComponent(id)}/client-settings?ts=${Date.now()}`, { method: "GET" });
+      persistSettings(data.settings || data);
+      return data;
+    } catch (primaryError) {
+      try {
+        const legacy = await settingsApi(`/company-settings-v1/companies/${encodeURIComponent(id)}?ts=${Date.now()}`, { method: "GET" });
+        persistSettings(legacy.settings || legacy);
+        return legacy;
+      } catch (_) {
+        return { ok: false, settings: localSettings(), error: primaryError.message || String(primaryError) };
+      }
+    }
+  }
+
+  async function saveCompanyClientSettings(payload = {}) {
+    const id = companyId();
+    if (!id) throw new Error("company_id requerido para guardar ajustes.");
+    try {
+      const data = await settingsApi(`/companies/${encodeURIComponent(id)}/client-settings`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      persistSettings(data.settings || data);
+      return data;
+    } catch (primaryError) {
+      const legacy = await settingsApi(`/company-settings-v1/companies/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      persistSettings(legacy.settings || payload);
+      return legacy;
+    }
+  }
+  /* CX_017C_ACCOUNT_SETTINGS_SOURCE_END */
 
   function companyId() {
     const params = new URLSearchParams(window.location.search);
@@ -10316,12 +10654,17 @@
     const newEmail = document.getElementById("clxAccountNewEmail");
     const langEl = document.getElementById("clxAccountLanguage");
     const timeoutEl = document.getElementById("clxAccountTimeout");
+    const currencyEl = document.getElementById("clxAccountCurrency");
+    const timezoneEl = document.getElementById("clxAccountTimezone");
     const status = document.getElementById("clxAccountStatus");
+    const settings = localSettings();
 
     if (email) email.value = account.email || "";
     if (newEmail) newEmail.value = "";
-    if (langEl) langEl.value = account.language || "es";
-    if (timeoutEl) timeoutEl.value = String(account.session_timeout_minutes || 30);
+    if (langEl) langEl.value = settings.language || account.language || "es";
+    if (timeoutEl) timeoutEl.value = String(settings.inactivity_lock_minutes || account.session_timeout_minutes || 30);
+    if (currencyEl) currencyEl.value = settings.currency || "COP";
+    if (timezoneEl) timezoneEl.value = settings.timezone || "America/Bogota";
     if (status) {
       status.textContent = "";
       status.classList.remove("error");
@@ -10331,22 +10674,7 @@
 
   /* CX_ACCOUNT_SETTINGS_PAYROLL_FINAL_START */
   async function cxAccountLoadPayrollSettings() {
-    try {
-      return await api(`/company-settings-v1/companies/${encodeURIComponent(state.companyId)}?ts=${Date.now()}`);
-    } catch (error) {
-      return {
-        ok: false,
-        settings: {
-          payroll: {},
-          payroll_cuts: {
-            allow_close: true,
-            allow_export: true,
-            allow_archive: true,
-          },
-        },
-        error: error.message || String(error),
-      };
-    }
+    return await loadCompanyClientSettings();
   }
 
   function cxAccountFindEmailPanel() {
@@ -10554,6 +10882,19 @@
   /* CX_ACCOUNT_SETTINGS_PAYROLL_FINAL_END */
 
 
+  async function syncCompanySettingsIntoForm() {
+    const data = await loadCompanyClientSettings();
+    const settings = persistSettings(data.settings || data);
+    const langEl = document.getElementById("clxAccountLanguage");
+    const timeoutEl = document.getElementById("clxAccountTimeout");
+    const currencyEl = document.getElementById("clxAccountCurrency");
+    const timezoneEl = document.getElementById("clxAccountTimezone");
+    if (langEl) langEl.value = settings.language || "es";
+    if (timeoutEl) timeoutEl.value = String(settings.inactivity_lock_minutes || 30);
+    if (currencyEl) currencyEl.value = settings.currency || "COP";
+    if (timezoneEl) timezoneEl.value = settings.timezone || "America/Bogota";
+  }
+
   function openAjustes(force) {
     forced = Boolean(force);
     const overlay = document.getElementById("clx-account-overlay");
@@ -10570,7 +10911,7 @@
     if (subtitle) subtitle.textContent = forced ? t("passwordRequired") : t("adminHint");
 
     overlay.classList.add("open");
-    cxAccountInjectPayrollSettings();
+    syncCompanySettingsIntoForm().finally(() => cxAccountInjectPayrollSettings());
   }
 
   function closeAjustes() {
@@ -10596,6 +10937,17 @@
       const newEmail = (document.getElementById("clxAccountNewEmail").value || "").trim();
       const language = document.getElementById("clxAccountLanguage").value || "es";
       const sessionTimeout = Number(document.getElementById("clxAccountTimeout").value || 30);
+      const currency = document.getElementById("clxAccountCurrency")?.value || "COP";
+      const timezone = document.getElementById("clxAccountTimezone")?.value || "America/Bogota";
+
+      await saveCompanyClientSettings({
+        ...localSettings(),
+        language: language,
+        currency: currency,
+        timezone: timezone,
+        inactivity_lock_minutes: sessionTimeout,
+        session_timeout_minutes: sessionTimeout,
+      });
 
       account = await accountApi("/account/preferences", {
         method: "PATCH",
@@ -10666,7 +11018,7 @@
   function configureIdleTimeout() {
     if (idleTimer) clearTimeout(idleTimer);
 
-    const minutes = Number((account && account.session_timeout_minutes) || 30);
+    const minutes = Number(localSettings().inactivity_lock_minutes || (account && account.session_timeout_minutes) || 30);
     const ms = minutes * 60 * 1000;
 
     const reset = () => {
@@ -10690,7 +11042,8 @@
 
     try {
       account = await accountApi("/account", { method: "GET" });
-      localStorage.setItem("clonexa_client_language", account.language || "es");
+      await loadCompanyClientSettings();
+      localStorage.setItem("clonexa_client_language", localSettings().language || account.language || "es");
       localStorage.setItem("clonexa_company_id", account.company_id || companyId());
       localStorage.setItem("company_id", account.company_id || companyId());
 
@@ -10704,6 +11057,8 @@
       console.warn("CLONEXA account layer disabled:", error);
     }
   }
+
+  window.addEventListener("clonexa:open-settings", () => openAjustes(false));
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
