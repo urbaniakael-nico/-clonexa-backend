@@ -546,6 +546,10 @@
     stores: ["Tiendas", "puntos de venta", "STR"],
     hospitality: ["Hospitality", "pedidos e inventario", "HSP"],
     bots: ["Bots", "Telegram / WhatsApp", "BOT"],
+    mini_panel: ["Mini Paneles", "links operativos", "MIN"],
+    mini_paneles: ["Mini Paneles", "links operativos", "MIN"],
+    creacion_minipanel: ["Mini Paneles", "links operativos", "MIN"],
+    creacion_mini_panel: ["Mini Paneles", "links operativos", "MIN"],
   };
 
 
@@ -6735,6 +6739,477 @@
   /* CX_018E_PRODUCTION_ANALYTICS_MODULE_END */
 
 
+
+  /* CLONEXA_019B_CLIENT_MINI_PANEL_LINKS_START */
+  const CX_MINI_PANEL_MODULE_CODES_019B = new Set([
+    "mini_panel",
+    "mini_paneles",
+    "creacion_minipanel",
+    "creacion_mini_panel"
+  ]);
+
+  const CX_MINI_PANEL_TYPES_019B = {
+    store: {
+      label: { es: "Tiendas", en: "Stores", fr: "Boutiques", pt: "Lojas" },
+      description: {
+        es: "Link base para mini paneles de tienda.",
+        en: "Base link for store mini panels.",
+        fr: "Lien de base pour les mini panneaux de boutique.",
+        pt: "Link base para mini paineis de loja."
+      }
+    },
+    sales: {
+      label: { es: "Ventas", en: "Sales", fr: "Ventes", pt: "Vendas" },
+      description: {
+        es: "Link base para mini paneles de vendedores.",
+        en: "Base link for sales mini panels.",
+        fr: "Lien de base pour les mini panneaux de vente.",
+        pt: "Link base para mini paineis de vendas."
+      }
+    },
+    logistics: {
+      label: { es: "Logistica", en: "Logistics", fr: "Logistique", pt: "Logistica" },
+      description: {
+        es: "Link base para mini paneles de logistica.",
+        en: "Base link for logistics mini panels.",
+        fr: "Lien de base pour les mini panneaux de logistique.",
+        pt: "Link base para mini paineis de logistica."
+      }
+    },
+    inventory: {
+      label: { es: "Inventarios", en: "Inventory", fr: "Inventaires", pt: "Inventarios" },
+      description: {
+        es: "Link base para mini paneles de inventario.",
+        en: "Base link for inventory mini panels.",
+        fr: "Lien de base pour les mini panneaux d'inventaire.",
+        pt: "Link base para mini paineis de inventario."
+      }
+    },
+    other: {
+      label: { es: "Otros", en: "Other", fr: "Autres", pt: "Outros" },
+      description: {
+        es: "Link base para mini paneles personalizados.",
+        en: "Base link for custom mini panels.",
+        fr: "Lien de base pour les mini panneaux personnalises.",
+        pt: "Link base para mini paineis personalizados."
+      }
+    }
+  };
+
+  const CX_MINI_PANEL_I18N_019B = {
+    es: {
+      eyebrow: "Modulo Mini Paneles",
+      title: "Mini Paneles",
+      subtitle: "Enlaces operativos habilitados desde Admin V2 segun el paquete asignado a esta empresa.",
+      back: "Volver",
+      refresh: "Actualizar",
+      package: "Paquete",
+      inherited: "Capacidad heredada del paquete",
+      enabled: "Habilitado",
+      disabled: "Deshabilitado",
+      usersAllowed: "Usuarios permitidos",
+      link: "Link de acceso",
+      copy: "Copiar enlace",
+      copied: "Copiado",
+      noPackage: "No se encontro el paquete asignado a esta empresa.",
+      noSettings: "El paquete no tiene mini_panel habilitado.",
+      noTypes: "No hay tipos de mini panel habilitados para este paquete.",
+      moduleInactive: "El modulo Mini Paneles no esta activo para esta empresa.",
+      source: "Fuente",
+      pending: "Los usuarios se asignaran en el modulo Usuarios.",
+      error: "No se pudieron cargar los mini paneles."
+    },
+    en: {
+      eyebrow: "Mini Panels Module",
+      title: "Mini Panels",
+      subtitle: "Operational links enabled from Admin V2 according to this company's package.",
+      back: "Back",
+      refresh: "Refresh",
+      package: "Package",
+      inherited: "Capability inherited from package",
+      enabled: "Enabled",
+      disabled: "Disabled",
+      usersAllowed: "Allowed users",
+      link: "Access link",
+      copy: "Copy link",
+      copied: "Copied",
+      noPackage: "The package assigned to this company was not found.",
+      noSettings: "The package does not have mini_panel enabled.",
+      noTypes: "There are no mini panel types enabled for this package.",
+      moduleInactive: "The Mini Panels module is not active for this company.",
+      source: "Source",
+      pending: "Users will be assigned in the Users module.",
+      error: "Mini panels could not be loaded."
+    },
+    fr: {
+      eyebrow: "Module Mini Panneaux",
+      title: "Mini Panneaux",
+      subtitle: "Liens operationnels actives depuis Admin V2 selon le paquet de cette entreprise.",
+      back: "Retour",
+      refresh: "Actualiser",
+      package: "Paquet",
+      inherited: "Capacite heritee du paquet",
+      enabled: "Active",
+      disabled: "Desactive",
+      usersAllowed: "Utilisateurs autorises",
+      link: "Lien d'acces",
+      copy: "Copier le lien",
+      copied: "Copie",
+      noPackage: "Le paquet assigne a cette entreprise est introuvable.",
+      noSettings: "Le paquet n'a pas mini_panel active.",
+      noTypes: "Aucun type de mini panneau n'est active pour ce paquet.",
+      moduleInactive: "Le module Mini Panneaux n'est pas actif pour cette entreprise.",
+      source: "Source",
+      pending: "Les utilisateurs seront assignes dans le module Utilisateurs.",
+      error: "Impossible de charger les mini panneaux."
+    },
+    pt: {
+      eyebrow: "Modulo Mini Paineis",
+      title: "Mini Paineis",
+      subtitle: "Links operacionais habilitados no Admin V2 conforme o pacote desta empresa.",
+      back: "Voltar",
+      refresh: "Atualizar",
+      package: "Pacote",
+      inherited: "Capacidade herdada do pacote",
+      enabled: "Habilitado",
+      disabled: "Desabilitado",
+      usersAllowed: "Usuarios permitidos",
+      link: "Link de acesso",
+      copy: "Copiar link",
+      copied: "Copiado",
+      noPackage: "O pacote atribuido a esta empresa nao foi encontrado.",
+      noSettings: "O pacote nao tem mini_panel habilitado.",
+      noTypes: "Nao ha tipos de mini painel habilitados para este pacote.",
+      moduleInactive: "O modulo Mini Paineis nao esta ativo para esta empresa.",
+      source: "Fonte",
+      pending: "Os usuarios serao atribuidos no modulo Usuarios.",
+      error: "Nao foi possivel carregar os mini paineis."
+    }
+  };
+
+  let cxMiniPanelClientSettingsCache019B = null;
+
+  function cxIsMiniPanelModuleCode019B(code) {
+    return CX_MINI_PANEL_MODULE_CODES_019B.has(String(code || "").trim());
+  }
+
+  function cxMiniPanelText019B(settings, key) {
+    const lang = cxMiniPanelLang019B(settings);
+    return (CX_MINI_PANEL_I18N_019B[lang] && CX_MINI_PANEL_I18N_019B[lang][key])
+      || CX_MINI_PANEL_I18N_019B.es[key]
+      || key;
+  }
+
+  function cxMiniPanelLang019B(settings = {}) {
+    const candidates = [
+      settings.language,
+      settings.client_settings && settings.client_settings.language,
+      state.company && state.company.settings_json && state.company.settings_json.language,
+      state.company && state.company.settings_json && state.company.settings_json.client_settings && state.company.settings_json.client_settings.language,
+      window.CLONEXA_CLIENT_SETTINGS && window.CLONEXA_CLIENT_SETTINGS.language,
+      window.clonexaClientSettings && window.clonexaClientSettings.language,
+      document.documentElement.getAttribute("lang")
+    ];
+
+    for (const candidate of candidates) {
+      const code = String(candidate || "").trim().toLowerCase().slice(0, 2);
+      if (CX_MINI_PANEL_I18N_019B[code]) return code;
+    }
+
+    return "es";
+  }
+
+  async function cxMiniPanelClientSettings019B(force = false) {
+    if (!force && cxMiniPanelClientSettingsCache019B) return cxMiniPanelClientSettingsCache019B;
+
+    try {
+      if (!state.companyId) return {};
+      cxMiniPanelClientSettingsCache019B = await api(`/companies/${encodeURIComponent(state.companyId)}/client-settings`);
+      return cxMiniPanelClientSettingsCache019B || {};
+    } catch (error) {
+      cxMiniPanelClientSettingsCache019B = {};
+      return {};
+    }
+  }
+
+  function cxMiniPanelEnsureStyles019B() {
+    if (document.getElementById("cxMiniPanelLinks019BStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "cxMiniPanelLinks019BStyles";
+    style.textContent = `
+      .cx-mini-links-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .cx-mini-link-card {
+        border: 1px solid rgba(255,255,255,.14);
+        background:
+          radial-gradient(circle at 0% 0%, rgba(255,255,255,.12), transparent 34%),
+          rgba(255,255,255,.065);
+        border-radius: 24px;
+        padding: 18px;
+        box-shadow: 0 24px 70px rgba(0,0,0,.22);
+        overflow: hidden;
+      }
+
+      .cx-mini-link-card h3 {
+        margin: 8px 0 8px;
+        font-size: 24px;
+      }
+
+      .cx-mini-link-meta {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0;
+      }
+
+      .cx-mini-link-pill {
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(255,255,255,.08);
+        color: var(--cx-text, #fff);
+        border-radius: 999px;
+        padding: 7px 10px;
+        font-size: 12px;
+        font-weight: 1000;
+      }
+
+      .cx-mini-link-box {
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(0,0,0,.22);
+        border-radius: 16px;
+        padding: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+        color: rgba(255,255,255,.82);
+      }
+
+      .cx-mini-link-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+
+      .cx-mini-empty {
+        border: 1px dashed rgba(255,255,255,.18);
+        background: rgba(255,255,255,.055);
+        border-radius: 24px;
+        padding: 24px;
+        color: rgba(255,255,255,.74);
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxMiniPanelPackageKey019B(company = {}) {
+    return String(
+      company.package_code ||
+      company.package ||
+      company.plan_code ||
+      company.plan ||
+      company.package_id ||
+      company.saas_package_id ||
+      ""
+    ).trim();
+  }
+
+  function cxMiniPanelFindPackage019B(packages = [], company = {}) {
+    const key = cxMiniPanelPackageKey019B(company).toLowerCase();
+    if (!key) return null;
+
+    return (Array.isArray(packages) ? packages : []).find((item) => {
+      const candidates = [
+        item.id,
+        item.code,
+        item.name,
+        item.slug
+      ].map((value) => String(value || "").trim().toLowerCase());
+
+      return candidates.includes(key);
+    }) || null;
+  }
+
+  function cxMiniPanelAbsoluteUrl019B(pathOrUrl) {
+    const raw = String(pathOrUrl || "").trim();
+    if (!raw) return "";
+
+    try {
+      return new URL(raw, window.location.origin).href;
+    } catch (error) {
+      return raw;
+    }
+  }
+
+  function cxMiniPanelLink019B(typeCode, typeData = {}) {
+    const template = String(typeData.login_template || "").trim()
+      || `/mini-panel/login?company_id={company_id}&type=${encodeURIComponent(typeCode)}`;
+
+    const replaced = template
+      .replaceAll("{company_id}", encodeURIComponent(state.companyId || ""))
+      .replaceAll("{type}", encodeURIComponent(typeCode));
+
+    return cxMiniPanelAbsoluteUrl019B(replaced);
+  }
+
+  async function cxLoadMiniPanelPackage019B(force = false) {
+    const company = state.company || {};
+    const settings = await cxMiniPanelClientSettings019B(force);
+    let packages = [];
+    let selectedPackage = null;
+    let packageSettings = null;
+    let error = "";
+
+    try {
+      packages = await api("/packages");
+      selectedPackage = cxMiniPanelFindPackage019B(packages, company);
+    } catch (err) {
+      error = err.message || cxMiniPanelText019B(settings, "error");
+    }
+
+    if (selectedPackage && selectedPackage.id) {
+      try {
+        const data = await api(`/packages/${encodeURIComponent(selectedPackage.id)}/mini-panel-settings`);
+        packageSettings = data && data.mini_panel ? data.mini_panel : data;
+      } catch (err) {
+        packageSettings = null;
+        error = err.message || cxMiniPanelText019B(settings, "error");
+      }
+    }
+
+    return {
+      settings,
+      packages,
+      selectedPackage,
+      packageSettings,
+      error
+    };
+  }
+
+  function cxMiniPanelEnabledTypes019B(packageSettings = {}) {
+    const source = packageSettings && packageSettings.mini_panel ? packageSettings.mini_panel : packageSettings;
+    if (!source || source.enabled !== true) return [];
+
+    const rawTypes = source.types && typeof source.types === "object" ? source.types : {};
+
+    return Object.entries(rawTypes)
+      .filter(([, value]) => value && value.enabled === true)
+      .map(([code, value]) => ({
+        code,
+        ...value,
+        users_allowed: Number(value.users_allowed || 0)
+      }))
+      .filter((item) => item.users_allowed > 0);
+  }
+
+  function cxMiniPanelTypeLabel019B(code, item = {}, settings = {}) {
+    const lang = cxMiniPanelLang019B(settings);
+    const meta = CX_MINI_PANEL_TYPES_019B[code] || {};
+    const translated = meta.label && (meta.label[lang] || meta.label.es);
+    return item.label || translated || code;
+  }
+
+  function cxMiniPanelTypeDescription019B(code, settings = {}) {
+    const lang = cxMiniPanelLang019B(settings);
+    const meta = CX_MINI_PANEL_TYPES_019B[code] || {};
+    return meta.description && (meta.description[lang] || meta.description.es) || "";
+  }
+
+  function cxMiniPanelCards019B(types = [], settings = {}) {
+    return types.map((item) => {
+      const label = cxMiniPanelTypeLabel019B(item.code, item, settings);
+      const link = cxMiniPanelLink019B(item.code, item);
+
+      return `
+        <article class="cx-mini-link-card">
+          <div class="client-eyebrow">${h(cxMiniPanelText019B(settings, "enabled"))}</div>
+          <h3>${h(label)}</h3>
+          <p class="client-muted">${h(cxMiniPanelTypeDescription019B(item.code, settings))}</p>
+
+          <div class="cx-mini-link-meta">
+            <span class="cx-mini-link-pill">${h(cxMiniPanelText019B(settings, "usersAllowed"))}: ${h(item.users_allowed)}</span>
+            <span class="cx-mini-link-pill">type=${h(item.code)}</span>
+          </div>
+
+          <div class="client-label">${h(cxMiniPanelText019B(settings, "link"))}</div>
+          <div class="cx-mini-link-box">${h(link)}</div>
+
+          <div class="cx-mini-link-actions">
+            <button class="client-btn" type="button" data-minipanel-copy-link="${h(link)}">${h(cxMiniPanelText019B(settings, "copy"))}</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  async function renderMiniPanelLinksModule019B(force = false) {
+    cxMiniPanelEnsureStyles019B();
+
+    const company = state.company || {};
+    const moduleActive = ["mini_panel", "mini_paneles", "creacion_minipanel", "creacion_mini_panel"].some((code) => isClientModuleActive(code));
+    const data = await cxLoadMiniPanelPackage019B(force);
+    const settings = data.settings || {};
+    const selectedPackage = data.selectedPackage;
+    const packageSettings = data.packageSettings || {};
+    const types = cxMiniPanelEnabledTypes019B(packageSettings);
+
+    let body = "";
+
+    if (!moduleActive) {
+      body = `<div class="cx-mini-empty">${h(cxMiniPanelText019B(settings, "moduleInactive"))}</div>`;
+    } else if (!selectedPackage) {
+      body = `<div class="cx-mini-empty">${h(cxMiniPanelText019B(settings, "noPackage"))}</div>`;
+    } else if (!packageSettings || packageSettings.enabled !== true) {
+      body = `<div class="cx-mini-empty">${h(cxMiniPanelText019B(settings, "noSettings"))}</div>`;
+    } else if (!types.length) {
+      body = `<div class="cx-mini-empty">${h(cxMiniPanelText019B(settings, "noTypes"))}</div>`;
+    } else {
+      body = `<div class="cx-mini-links-grid">${cxMiniPanelCards019B(types, settings)}</div>`;
+    }
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("mini_panel")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">${h(cxMiniPanelText019B(settings, "eyebrow"))}</div>
+              <h1 class="client-title">${h(cxMiniPanelText019B(settings, "title"))}</h1>
+              <p class="client-muted">${h(cxMiniPanelText019B(settings, "subtitle"))}</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>${h(cxMiniPanelText019B(settings, "back"))}</button>
+                <button class="client-btn" type="button" data-minipanel-refresh>${h(cxMiniPanelText019B(settings, "refresh"))}</button>
+              </div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">${h(cxMiniPanelText019B(settings, "inherited"))}</div>
+              <h2>${h(cxMiniPanelText019B(settings, "package"))}: ${h(selectedPackage ? (selectedPackage.name || selectedPackage.code || selectedPackage.id) : cxMiniPanelPackageKey019B(company) || "-")}</h2>
+              <p class="client-muted">${h(cxMiniPanelText019B(settings, "pending"))}</p>
+              ${data.error ? `<div class="personal-toast error" style="margin-top:14px">${h(data.error)}</div>` : ""}
+              ${body}
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CLONEXA_019B_CLIENT_MINI_PANEL_LINKS_END */
+
+
   async function renderClientModulePlaceholder(code) {
     const company = state.company || {};
     $("app").innerHTML = `
@@ -6839,6 +7314,37 @@
 
     document.addEventListener("click", async (event) => {
       const target = event.target;
+
+      const miniPanelCopyBtn = target.closest("[data-minipanel-copy-link]");
+      if (miniPanelCopyBtn) {
+        const value = String(miniPanelCopyBtn.dataset.minipanelCopyLink || "");
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(value);
+          } else {
+            const input = document.createElement("textarea");
+            input.value = value;
+            input.setAttribute("readonly", "readonly");
+            input.style.position = "fixed";
+            input.style.opacity = "0";
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand("copy");
+            input.remove();
+          }
+          const previous = miniPanelCopyBtn.textContent;
+          miniPanelCopyBtn.textContent = "Copiado";
+          setTimeout(() => { miniPanelCopyBtn.textContent = previous; }, 1400);
+        } catch (error) {
+          alert(value);
+        }
+        return;
+      }
+
+      if (target.closest("[data-minipanel-refresh]")) {
+        await renderMiniPanelLinksModule019B(true);
+        return;
+      }
 
       if (target.closest("[data-client-back-dashboard]")) {
         render();
@@ -7040,6 +7546,11 @@
 
         if (code === "kpis") {
           await renderKpisModule();
+          return;
+        }
+
+        if (cxIsMiniPanelModuleCode019B(code)) {
+          await renderMiniPanelLinksModule019B();
           return;
         }
 
