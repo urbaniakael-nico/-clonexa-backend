@@ -6817,7 +6817,9 @@
       moduleInactive: "El modulo Mini Paneles no esta activo para esta empresa.",
       source: "Fuente",
       pending: "Los usuarios se asignaran en el modulo Usuarios.",
-      error: "No se pudieron cargar los mini paneles."
+      error: "No se pudieron cargar los mini paneles.",
+      needMore: "Si necesitas mas usuarios, comunicate con el administrador de CLONEXA.",
+      linkFor: "Link para"
     },
     en: {
       eyebrow: "Mini Panels Module",
@@ -6839,7 +6841,9 @@
       moduleInactive: "The Mini Panels module is not active for this company.",
       source: "Source",
       pending: "Users will be assigned in the Users module.",
-      error: "Mini panels could not be loaded."
+      error: "Mini panels could not be loaded.",
+      needMore: "If you need more users, contact the CLONEXA administrator.",
+      linkFor: "Link for"
     },
     fr: {
       eyebrow: "Module Mini Panneaux",
@@ -6861,7 +6865,9 @@
       moduleInactive: "Le module Mini Panneaux n'est pas actif pour cette entreprise.",
       source: "Source",
       pending: "Les utilisateurs seront assignes dans le module Utilisateurs.",
-      error: "Impossible de charger les mini panneaux."
+      error: "Impossible de charger les mini panneaux.",
+      needMore: "Si vous avez besoin de plus d utilisateurs, contactez l administrateur CLONEXA.",
+      linkFor: "Lien pour"
     },
     pt: {
       eyebrow: "Modulo Mini Paineis",
@@ -6883,7 +6889,9 @@
       moduleInactive: "O modulo Mini Paineis nao esta ativo para esta empresa.",
       source: "Fonte",
       pending: "Os usuarios serao atribuidos no modulo Usuarios.",
-      error: "Nao foi possivel carregar os mini paineis."
+      error: "Nao foi possivel carregar os mini paineis.",
+      needMore: "Se precisar de mais usuarios, fale com o administrador da CLONEXA.",
+      linkFor: "Link para"
     }
   };
 
@@ -7058,6 +7066,102 @@
     return cxMiniPanelAbsoluteUrl019B(replaced);
   }
 
+  function cxMiniPanelPackageSearchScore019B(pkg = {}, company = {}) {
+    const companyTokens = [
+      company.id,
+      company.company_id,
+      company.name,
+      company.slug,
+      company.plan,
+      company.package,
+      company.package_code,
+      company.plan_code
+    ]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    const packageText = [
+      pkg.id,
+      pkg.code,
+      pkg.name,
+      pkg.slug,
+      pkg.description
+    ]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .join(" ");
+
+    let score = 0;
+
+    companyTokens.forEach((token) => {
+      if (!token) return;
+      if (packageText.includes(token)) score += 20;
+      const compact = token.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      if (compact && packageText.includes(compact)) score += 10;
+    });
+
+    const packageKey = cxMiniPanelPackageKey019B(company).toLowerCase();
+    if (packageKey) {
+      const directTokens = [pkg.id, pkg.code, pkg.name, pkg.slug]
+        .map((value) => String(value || "").trim().toLowerCase());
+      if (directTokens.includes(packageKey)) score += 1000;
+    }
+
+    return score;
+  }
+
+  async function cxMiniPanelFetchPackageSettings019B(packageId) {
+    if (!packageId) return null;
+
+    const data = await api(`/packages/${encodeURIComponent(packageId)}/mini-panel-settings`);
+    return data && data.mini_panel ? data.mini_panel : data;
+  }
+
+  async function cxMiniPanelFindEnabledPackage019B(packages = [], company = {}, directPackage = null) {
+    const rows = Array.isArray(packages) ? packages : [];
+    const candidates = [];
+
+    const ordered = [...rows].sort((a, b) => {
+      const aDirect = directPackage && a.id === directPackage.id ? 1 : 0;
+      const bDirect = directPackage && b.id === directPackage.id ? 1 : 0;
+      if (aDirect !== bDirect) return bDirect - aDirect;
+      return cxMiniPanelPackageSearchScore019B(b, company) - cxMiniPanelPackageSearchScore019B(a, company);
+    });
+
+    for (const pkg of ordered) {
+      if (!pkg || !pkg.id) continue;
+
+      try {
+        const packageSettings = await cxMiniPanelFetchPackageSettings019B(pkg.id);
+        const types = cxMiniPanelEnabledTypes019B(packageSettings);
+        if (packageSettings && packageSettings.enabled === true && types.length) {
+          candidates.push({
+            selectedPackage: pkg,
+            packageSettings,
+            score: cxMiniPanelPackageSearchScore019B(pkg, company),
+          });
+        }
+      } catch (error) {
+        // Un paquete sin configuracion mini_panel no debe romper el modulo cliente.
+      }
+    }
+
+    if (!candidates.length) {
+      return { selectedPackage: directPackage || null, packageSettings: null };
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+
+    if (candidates[0].score > 0) {
+      return candidates[0];
+    }
+
+    if (candidates.length === 1) {
+      return candidates[0];
+    }
+
+    return { selectedPackage: directPackage || null, packageSettings: null };
+  }
+
   async function cxLoadMiniPanelPackage019B(force = false) {
     const company = state.company || {};
     const settings = await cxMiniPanelClientSettings019B(force);
@@ -7069,18 +7173,24 @@
     try {
       packages = await api("/packages");
       selectedPackage = cxMiniPanelFindPackage019B(packages, company);
+
+      if (selectedPackage && selectedPackage.id) {
+        try {
+          packageSettings = await cxMiniPanelFetchPackageSettings019B(selectedPackage.id);
+        } catch (err) {
+          packageSettings = null;
+        }
+      }
+
+      if (!packageSettings || packageSettings.enabled !== true || !cxMiniPanelEnabledTypes019B(packageSettings).length) {
+        const fallback = await cxMiniPanelFindEnabledPackage019B(packages, company, selectedPackage);
+        if (fallback && fallback.selectedPackage && fallback.packageSettings) {
+          selectedPackage = fallback.selectedPackage;
+          packageSettings = fallback.packageSettings;
+        }
+      }
     } catch (err) {
       error = err.message || cxMiniPanelText019B(settings, "error");
-    }
-
-    if (selectedPackage && selectedPackage.id) {
-      try {
-        const data = await api(`/packages/${encodeURIComponent(selectedPackage.id)}/mini-panel-settings`);
-        packageSettings = data && data.mini_panel ? data.mini_panel : data;
-      } catch (err) {
-        packageSettings = null;
-        error = err.message || cxMiniPanelText019B(settings, "error");
-      }
     }
 
     return {
@@ -7125,11 +7235,12 @@
     return types.map((item) => {
       const label = cxMiniPanelTypeLabel019B(item.code, item, settings);
       const link = cxMiniPanelLink019B(item.code, item);
+      const linkFor = cxMiniPanelText019B(settings, "linkFor");
 
       return `
         <article class="cx-mini-link-card">
           <div class="client-eyebrow">${h(cxMiniPanelText019B(settings, "enabled"))}</div>
-          <h3>${h(label)}</h3>
+          <h3>${h(linkFor)} ${h(label)}</h3>
           <p class="client-muted">${h(cxMiniPanelTypeDescription019B(item.code, settings))}</p>
 
           <div class="cx-mini-link-meta">
@@ -7170,7 +7281,7 @@
     } else if (!types.length) {
       body = `<div class="cx-mini-empty">${h(cxMiniPanelText019B(settings, "noTypes"))}</div>`;
     } else {
-      body = `<div class="cx-mini-links-grid">${cxMiniPanelCards019B(types, settings)}</div>`;
+      body = `<div class="cx-mini-links-grid">${cxMiniPanelCards019B(types, settings)}</div><div class="cx-mini-empty" style="margin-top:16px">${h(cxMiniPanelText019B(settings, "needMore"))}</div>`;
     }
 
     $("app").innerHTML = `
