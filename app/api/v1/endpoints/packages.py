@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -210,6 +210,76 @@ async def create_package(
 
 
 
+
+# CLONEXA_019A_R2_PACKAGE_BUILDER_ENDPOINTS_START
+@router.put("/{package_id}", response_model=PackageWithModulesOut)
+async def update_package(
+    package_id: uuid.UUID,
+    payload: dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> PackageWithModulesOut:
+    package = await _get_package_or_404_basic(db, package_id)
+
+    code = payload.get("code")
+    if code is not None:
+        code = str(code).strip().lower()
+        if not code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="package_code_required")
+        if code != package.code:
+            existing = await db.execute(select(Package.id).where(Package.code == code, Package.id != package.id))
+            if existing.scalar_one_or_none():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="package_code_already_exists")
+            package.code = code
+
+    name = payload.get("name")
+    if name is not None:
+        name = str(name).strip()
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="package_name_required")
+        package.name = name
+
+    if "description" in payload:
+        description = payload.get("description")
+        package.description = str(description).strip() if description is not None else None
+
+    if "is_active" in payload:
+        package.is_active = bool(payload.get("is_active"))
+
+    if "module_codes" in payload:
+        raw_codes = payload.get("module_codes") or []
+        if not isinstance(raw_codes, list):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="module_codes_must_be_list")
+
+        module_codes = []
+        seen_codes = set()
+        for raw in raw_codes:
+            code_item = str(raw or "").strip()
+            if code_item and code_item not in seen_codes:
+                seen_codes.add(code_item)
+                module_codes.append(code_item)
+
+        modules = []
+        if module_codes:
+            module_result = await db.execute(select(Module).where(Module.code.in_(module_codes)))
+            modules = list(module_result.scalars().all())
+            found_codes = {module.code for module in modules}
+            missing = sorted(set(module_codes) - found_codes)
+            if missing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "modules_not_found", "module_codes": missing},
+                )
+
+        await db.execute(delete(PackageModule).where(PackageModule.package_id == package.id))
+        await db.flush()
+
+        for module in modules:
+            db.add(PackageModule(package_id=package.id, module_id=module.id, settings={}))
+
+    await db.commit()
+    package = await get_package_with_modules_or_404(db, package.id)
+    return serialize_package_with_modules(package)
+# CLONEXA_019A_R2_PACKAGE_BUILDER_ENDPOINTS_END
 
 # CLONEXA_019A_R1_PACKAGE_MINI_PANEL_CAPABILITIES_ENDPOINTS_START
 @router.get("/{package_id}/mini-panel-settings")

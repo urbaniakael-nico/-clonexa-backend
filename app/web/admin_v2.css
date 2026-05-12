@@ -707,3 +707,60 @@ p {
     grid-template-columns: 1fr;
   }
 }
+
+/* CLONEXA_019A_R2_PACKAGE_BUILDER_START */
+.cx-package-builder-layout {
+  align-items: start;
+  gap: 18px;
+}
+
+.cx-package-builder-form h3 {
+  margin: 0;
+  letter-spacing: .08em;
+}
+
+.cx-packages-list {
+  display: grid;
+  gap: 14px;
+}
+
+.cx-module-builder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.cx-module-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 16px;
+  background: rgba(255,255,255,.035);
+  cursor: pointer;
+}
+
+.cx-module-pick.is-selected {
+  border-color: rgba(0,255,136,.45);
+  background: rgba(0,255,136,.08);
+}
+
+.cx-module-pick input {
+  margin-top: 3px;
+}
+
+.cx-module-pick strong {
+  display: block;
+}
+
+.cx-module-pick small {
+  display: block;
+  opacity: .7;
+  margin-top: 4px;
+}
+/* CLONEXA_019A_R2_PACKAGE_BUILDER_END */

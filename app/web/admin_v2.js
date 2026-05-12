@@ -350,7 +350,19 @@
 
   async function loadPackages() {
     const data = await apiGet(`${API}/packages`);
-    state.packages = safeArray(data).map(normalizePackage);
+    const rows = safeArray(data).map(normalizePackage);
+
+    const detailed = await Promise.all(rows.map(async (pkg) => {
+      if (!pkg.id) return pkg;
+      try {
+        const detail = await apiGet(`${API}/packages/${pkg.id}`);
+        return normalizePackage(detail);
+      } catch (_) {
+        return pkg;
+      }
+    }));
+
+    state.packages = detailed;
     return state.packages;
   }
 
@@ -789,7 +801,7 @@
     return `${origin}/mini-panel/login?company_id={company_id}&type=${encodeURIComponent(typeCode)}`;
   }
 
-  /* CLONEXA_019A_R1_PACKAGE_MINI_PANEL_CAPABILITIES_START */
+  /* CLONEXA_019A_R2_PACKAGE_BUILDER_MINI_PANEL_START */
   const CX_PACKAGE_MINI_PANEL_TYPES = [
     { code: "store", label: "Tiendas" },
     { code: "sales", label: "Ventas" },
@@ -808,9 +820,7 @@
     CX_PACKAGE_MINI_PANEL_TYPES.forEach((def) => {
       const current = rawTypes[def.code] && typeof rawTypes[def.code] === "object" ? rawTypes[def.code] : {};
       const enabled = current.enabled === true;
-      const usersAllowed = Number.isFinite(Number(current.users_allowed))
-        ? Number(current.users_allowed)
-        : 0;
+      const usersAllowed = Number.isFinite(Number(current.users_allowed)) ? Number(current.users_allowed) : 0;
       types[def.code] = {
         enabled,
         label: current.label || def.label,
@@ -830,9 +840,64 @@
     const config = cxPackageMiniPanelDefaultSettings(settings || {});
     const enabledTypes = CX_PACKAGE_MINI_PANEL_TYPES.filter((def) => config.types[def.code]?.enabled);
     if (!config.enabled || !enabledTypes.length) return "Mini panel deshabilitado";
-    return enabledTypes
-      .map((def) => `${def.label}: ${config.types[def.code].users_allowed || 0}`)
-      .join(" · ");
+    return enabledTypes.map((def) => `${def.label}: ${config.types[def.code].users_allowed || 0}`).join(" · ");
+  }
+
+  function cxPackageHasMiniPanelModule(pkg) {
+    return safeArray(pkg?.modules).some((module) => {
+      const code = String(typeof module === "string" ? module : (module.code || module.module_code || module.name || "")).toLowerCase();
+      const name = String(typeof module === "string" ? module : (module.name || "")).toLowerCase();
+      const text = `${code} ${name}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      return text.includes("mini_panel") || text.includes("minipanel") || text.includes("mini panel") || text.includes("creacion mini");
+    });
+  }
+
+  function cxIsMiniPanelModuleCode(code) {
+    const module = state.modules.find((item) => String(item.code || item.module_code || "").trim() === String(code || "").trim());
+    const text = [
+      code,
+      module?.name,
+      module?.description,
+    ].filter(Boolean).join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return text.includes("mini_panel") || text.includes("minipanel") || text.includes("mini panel") || text.includes("creacion mini");
+  }
+
+  function cxPackageMiniPanelFromForm(form) {
+    const enabled = !!form.querySelector("[name='builder_mini_panel_enabled']")?.checked;
+    const payload = {
+      enabled,
+      types: {},
+    };
+
+    CX_PACKAGE_MINI_PANEL_TYPES.forEach((def) => {
+      const typeEnabled = !!form.querySelector(`[name='builder_type_enabled_${def.code}']`)?.checked;
+      const usersAllowed = Number(form.querySelector(`[name='builder_type_users_${def.code}']`)?.value || 0);
+      payload.types[def.code] = {
+        enabled: enabled && typeEnabled,
+        label: def.label,
+        users_allowed: enabled && typeEnabled ? (CX_PACKAGE_MINI_PANEL_USER_LIMITS.includes(usersAllowed) ? usersAllowed : 1) : 0,
+      };
+    });
+
+    return payload;
+  }
+
+  function cxReadPackageBuilderForm(form) {
+    const raw = Object.fromEntries(new FormData(form).entries());
+    const moduleCodes = Array.from(form.querySelectorAll("[name='module_codes']:checked"))
+      .map((input) => String(input.value || "").trim())
+      .filter(Boolean);
+
+    return {
+      package_payload: {
+        code: String(raw.code || "").trim().toLowerCase().replace(/[^a-z0-9_:-]+/g, "_").replace(/^_+|_+$/g, ""),
+        name: String(raw.name || "").trim(),
+        description: String(raw.description || "").trim(),
+        is_active: raw.is_active === "on",
+        module_codes: Array.from(new Set(moduleCodes)),
+      },
+      mini_panel: cxPackageMiniPanelFromForm(form),
+    };
   }
 
   async function loadPackageMiniPanelSettings(packageId, force = false) {
@@ -862,161 +927,344 @@
     return normalized;
   }
 
-  function cxReadPackageMiniPanelForm(form) {
-    const payload = {
-      enabled: !!form.querySelector("[name='mini_panel_enabled']")?.checked,
-      types: {},
-    };
+  async function cxSavePackageFromBuilder(form) {
+    const editingId = form.dataset.editingPackageId || "";
+    const { package_payload, mini_panel } = cxReadPackageBuilderForm(form);
 
-    CX_PACKAGE_MINI_PANEL_TYPES.forEach((def) => {
-      const enabled = !!form.querySelector(`[name='type_enabled_${def.code}']`)?.checked;
-      const usersAllowed = Number(form.querySelector(`[name='type_users_${def.code}']`)?.value || 0);
+    if (!package_payload.name || !package_payload.code) {
+      throw new Error("Nombre y código del paquete son obligatorios.");
+    }
 
-      payload.types[def.code] = {
-        enabled,
-        label: def.label,
-        users_allowed: enabled ? (CX_PACKAGE_MINI_PANEL_USER_LIMITS.includes(usersAllowed) ? usersAllowed : 1) : 0,
-      };
-    });
+    let saved;
+    if (editingId) {
+      saved = await apiPut(`${API}/packages/${editingId}`, package_payload);
+    } else {
+      saved = await apiPost(`${API}/packages`, package_payload);
+    }
 
-    return payload;
+    const normalized = normalizePackage(saved);
+    const packageId = normalized.id;
+
+    if (package_payload.module_codes.some(cxIsMiniPanelModuleCode)) {
+      await savePackageMiniPanelSettings(packageId, mini_panel);
+    } else {
+      await savePackageMiniPanelSettings(packageId, cxPackageMiniPanelDefaultSettings({ enabled: false }));
+    }
+
+    await loadPackages();
+    return normalized;
   }
 
-  function cxRenderPackageMiniPanelCard(pkg, settings) {
+  function cxPackageModuleCodes(pkg) {
+    return safeArray(pkg?.modules)
+      .map((module) => String(typeof module === "string" ? module : (module.code || module.module_code || "")).trim())
+      .filter(Boolean);
+  }
+
+  function cxRenderPackageModuleSelector(selectedCodes = []) {
+    const selected = new Set(selectedCodes.map(String));
+    const modules = state.modules.map(normalizeModule).filter((item) => item.code).sort((a, b) => {
+      const ca = String(a.category || "").localeCompare(String(b.category || ""), "es");
+      return ca || String(a.name || a.code).localeCompare(String(b.name || b.code), "es");
+    });
+
+    if (!modules.length) {
+      return `<div class="cx-empty-state">No hay módulos cargados para armar paquetes.</div>`;
+    }
+
+    return `
+      <div class="cx-module-builder-grid">
+        ${modules.map((module) => {
+          const meta = typeof cxModuleMeta === "function" ? cxModuleMeta(module) : { name: module.name, badge: module.code, categoryLabel: module.category || "General" };
+          const checked = selected.has(module.code);
+          return `
+            <label class="cx-module-pick ${checked ? "is-selected" : ""}">
+              <input type="checkbox" name="module_codes" value="${escapeHtml(module.code)}" ${checked ? "checked" : ""} data-builder-module-code="${escapeHtml(module.code)}">
+              <span>
+                <strong>${escapeHtml(meta.name || module.name || module.code)}</strong>
+                <small>${escapeHtml(module.code)} · ${escapeHtml(meta.categoryLabel || module.category || "General")}</small>
+              </span>
+            </label>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function cxRenderPackageMiniPanelBuilder(settings = {}, miniPanelSelected = false) {
     const config = cxPackageMiniPanelDefaultSettings(settings || {});
-    const typeRows = CX_PACKAGE_MINI_PANEL_TYPES.map((def) => {
-      const row = config.types[def.code] || { enabled: false, label: def.label, users_allowed: 0 };
-      const hidden = !row.enabled;
-      const userOptions = CX_PACKAGE_MINI_PANEL_USER_LIMITS
-        .map((limit) => `<option value="${limit}" ${Number(row.users_allowed) === limit ? "selected" : ""}>${limit}</option>`)
-        .join("");
-
-      return `
-        <div class="cx-mini-card" data-mini-package-type-section="${escapeHtml(def.code)}" ${hidden ? "hidden" : ""}>
-          <div class="cx-card-head">
-            <div>
-              <strong>${escapeHtml(def.label)}</strong>
-              <p>Capacidad del subpanel para este paquete.</p>
-            </div>
-            <span class="cx-badge cx-badge-live">Activo</span>
-          </div>
-          <input type="hidden" name="type_enabled_${escapeHtml(def.code)}" value="${row.enabled ? "1" : ""}" data-mini-package-type-enabled="${escapeHtml(def.code)}">
-          <label>Enlace base generado
-            <input value="${escapeHtml(cxMiniPanelLoginTemplate(def.code))}" readonly>
-          </label>
-          <label>Usuarios permitidos
-            <select name="type_users_${escapeHtml(def.code)}">
-              ${userOptions}
-            </select>
-          </label>
-        </div>
-      `;
-    }).join("");
-
+    const isEnabled = miniPanelSelected && config.enabled;
     const selectedBadges = CX_PACKAGE_MINI_PANEL_TYPES
       .filter((def) => config.types[def.code]?.enabled)
-      .map((def) => `<span class="cx-badge cx-badge-live" data-mini-package-badge="${escapeHtml(def.code)}">${escapeHtml(def.label)}</span>`)
+      .map((def) => `<span class="cx-badge cx-badge-live" data-builder-mini-type-badge="${escapeHtml(def.code)}">${escapeHtml(def.label)}</span>`)
       .join("");
 
     return `
-      <section class="cx-mini-card cx-package-mini-panel-config" data-package-mini-panel="${escapeHtml(pkg.id)}">
+      <section class="cx-mini-card" data-builder-mini-panel-section ${miniPanelSelected ? "" : "hidden"} style="margin-top:14px">
         <div class="cx-card-head">
           <div>
-            <strong>Mini paneles</strong>
-            <p>Configuración general del paquete. Las empresas actuales y futuras heredan estos límites.</p>
+            <strong>Configuración mini_panel</strong>
+            <p>Solo aparece cuando el paquete incluye el módulo CREACION MINI_PANEL.</p>
           </div>
-          <span class="cx-badge ${config.enabled ? "cx-badge-live" : ""}">${config.enabled ? "Habilitado" : "Deshabilitado"}</span>
+          <span class="cx-badge ${isEnabled ? "cx-badge-live" : ""}">${isEnabled ? "Habilitado" : "Pendiente"}</span>
         </div>
 
-        ${config.unavailable ? `<div class="cx-empty-state">Endpoint no disponible todavía. Sube el backend 019A-R1 para guardar esta configuración.</div>` : ""}
+        <label style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" name="builder_mini_panel_enabled" ${isEnabled ? "checked" : ""}>
+          Habilitar mini_panel en este paquete
+        </label>
 
-        <form class="cx-form" data-package-mini-panel-form data-package-id="${escapeHtml(pkg.id)}">
-          <label style="display:flex;align-items:center;gap:10px">
-            <input type="checkbox" name="mini_panel_enabled" ${config.enabled ? "checked" : ""}>
-            Habilitar mini_panel en este paquete
-          </label>
+        <label>Tipos permitidos
+          <select data-builder-mini-type-picker>
+            <option value="">Seleccionar tipo</option>
+            ${CX_PACKAGE_MINI_PANEL_TYPES.map((def) => `<option value="${escapeHtml(def.code)}">${escapeHtml(def.label)}</option>`).join("")}
+          </select>
+        </label>
 
-          <label>Tipos permitidos
-            <select data-mini-package-type-picker>
-              <option value="">Seleccionar tipo</option>
-              ${CX_PACKAGE_MINI_PANEL_TYPES.map((def) => `<option value="${escapeHtml(def.code)}">${escapeHtml(def.label)}</option>`).join("")}
-            </select>
-          </label>
+        <div class="cx-actions" data-builder-mini-selected-types style="margin:8px 0 12px">
+          ${selectedBadges || `<span class="cx-badge">Sin tipos seleccionados</span>`}
+        </div>
 
-          <div class="cx-actions" data-mini-package-selected-types style="margin:8px 0 12px">
-            ${selectedBadges || `<span class="cx-badge">Sin tipos seleccionados</span>`}
-          </div>
+        <div class="cx-detail-grid" data-builder-mini-types-grid>
+          ${CX_PACKAGE_MINI_PANEL_TYPES.map((def) => {
+            const row = config.types[def.code] || { enabled: false, users_allowed: 0 };
+            const userOptions = CX_PACKAGE_MINI_PANEL_USER_LIMITS
+              .map((limit) => `<option value="${limit}" ${Number(row.users_allowed) === limit ? "selected" : ""}>${limit}</option>`)
+              .join("");
 
-          <div class="cx-detail-grid" data-mini-package-types-grid>
-            ${typeRows}
-          </div>
-
-          <button class="cx-btn cx-btn-primary" type="submit">Guardar mini paneles del paquete</button>
-        </form>
+            return `
+              <div class="cx-mini-card" data-builder-mini-type-section="${escapeHtml(def.code)}" ${row.enabled ? "" : "hidden"}>
+                <div class="cx-card-head">
+                  <div>
+                    <strong>${escapeHtml(def.label)}</strong>
+                    <p>Capacidad operativa heredada por empresas con este paquete.</p>
+                  </div>
+                  <span class="cx-badge cx-badge-live">Activo</span>
+                </div>
+                <label style="display:flex;align-items:center;gap:10px">
+                  <input type="checkbox" name="builder_type_enabled_${escapeHtml(def.code)}" ${row.enabled ? "checked" : ""} data-builder-mini-type-enabled="${escapeHtml(def.code)}">
+                  Tipo habilitado
+                </label>
+                <label>Enlace base generado
+                  <input value="${escapeHtml(cxMiniPanelLoginTemplate(def.code))}" readonly>
+                </label>
+                <label>Usuarios permitidos
+                  <select name="builder_type_users_${escapeHtml(def.code)}">
+                    ${userOptions}
+                  </select>
+                </label>
+              </div>
+            `;
+          }).join("")}
+        </div>
       </section>
     `;
   }
 
-  function cxSyncPackageMiniPanelBadges(form) {
+  function cxRenderPackageBuilder(pkg = null) {
+    const editing = pkg ? normalizePackage(pkg) : null;
+    const packageId = editing?.id || "";
+    const selectedCodes = editing ? cxPackageModuleCodes(editing) : [];
+    const miniSelected = selectedCodes.some(cxIsMiniPanelModuleCode);
+    const miniSettings = packageId ? (state.packageMiniPanelSettings.get(packageId) || cxPackageMiniPanelDefaultSettings()) : cxPackageMiniPanelDefaultSettings();
+
+    return `
+      <form class="cx-form cx-package-builder-form" data-package-builder-form data-editing-package-id="${escapeHtml(packageId)}">
+        <div class="cx-card-head">
+          <div>
+            <h3>ARMAR PAQUETES</h3>
+            <p>Crea paquetes SaaS seleccionando módulos a gusto. Si incluyes CREACION MINI_PANEL, se habilita su configuracion.</p>
+          </div>
+          ${editing ? `<span class="cx-badge cx-badge-live">Editando</span>` : `<span class="cx-badge">Nuevo</span>`}
+        </div>
+
+        <label>Nombre del paquete
+          <input name="name" type="text" required value="${escapeHtml(editing?.name || "")}" placeholder="Retail Mundo Case">
+        </label>
+
+        <label>Código del paquete
+          <input name="code" type="text" required value="${escapeHtml(editing?.code || "")}" placeholder="retail_mundo_case">
+        </label>
+
+        <label>Descripción
+          <textarea name="description" rows="3" placeholder="Paquete SaaS para tiendas, ventas y mini paneles.">${escapeHtml(editing?.description || "")}</textarea>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" name="is_active" ${editing && editing.is_active === false ? "" : "checked"}>
+          Paquete activo
+        </label>
+
+        <div class="cx-mini-card">
+          <div class="cx-card-head">
+            <div>
+              <strong>Módulos incluidos</strong>
+              <p>Selecciona los módulos que tendrá este paquete.</p>
+            </div>
+            <span class="cx-badge">${escapeHtml(selectedCodes.length)} seleccionados</span>
+          </div>
+          ${cxRenderPackageModuleSelector(selectedCodes)}
+        </div>
+
+        ${cxRenderPackageMiniPanelBuilder(miniSettings, miniSelected)}
+
+        <div class="cx-actions" style="margin-top:14px">
+          <button class="cx-btn cx-btn-primary" type="submit">${editing ? "Guardar cambios del paquete" : "Guardar paquete"}</button>
+          <button class="cx-btn" type="button" data-package-builder-reset>Limpiar</button>
+        </div>
+      </form>
+    `;
+  }
+
+  function cxSyncBuilderMiniPanelVisibility(form) {
+    if (!form) return;
+    const miniSelected = Array.from(form.querySelectorAll("[name='module_codes']:checked")).some((input) => cxIsMiniPanelModuleCode(input.value));
+    const section = form.querySelector("[data-builder-mini-panel-section]");
+    if (section) section.hidden = !miniSelected;
+
+    const enabled = form.querySelector("[name='builder_mini_panel_enabled']");
+    if (enabled && !miniSelected) enabled.checked = false;
+  }
+
+  function cxSyncBuilderMiniBadges(form) {
     if (!form) return;
     const selected = CX_PACKAGE_MINI_PANEL_TYPES
-      .filter((def) => {
-        const hiddenInput = form.querySelector(`[data-mini-package-type-enabled='${def.code}']`);
-        return hiddenInput && hiddenInput.value === "1";
-      })
-      .map((def) => `<span class="cx-badge cx-badge-live" data-mini-package-badge="${escapeHtml(def.code)}">${escapeHtml(def.label)}</span>`)
+      .filter((def) => form.querySelector(`[name='builder_type_enabled_${def.code}']`)?.checked)
+      .map((def) => `<span class="cx-badge cx-badge-live" data-builder-mini-type-badge="${escapeHtml(def.code)}">${escapeHtml(def.label)}</span>`)
       .join("");
 
-    const target = form.querySelector("[data-mini-package-selected-types]");
+    const target = form.querySelector("[data-builder-mini-selected-types]");
     if (target) target.innerHTML = selected || `<span class="cx-badge">Sin tipos seleccionados</span>`;
   }
 
-  function cxBindPackageMiniPanelEvents() {
-    if (window.__cxPackageMiniPanelEventsBound) return;
-    window.__cxPackageMiniPanelEventsBound = true;
+  function cxRenderPackageCapabilitiesSummary(pkg, settings) {
+    const config = cxPackageMiniPanelDefaultSettings(settings || {});
+    const modules = cxPackageModuleCodes(pkg);
+    const moduleChips = modules.length
+      ? modules.map((code) => `<span class="cx-badge">${escapeHtml(code)}</span>`).join("")
+      : `<span class="cx-badge">Sin módulos</span>`;
+
+    const miniRows = config.enabled
+      ? CX_PACKAGE_MINI_PANEL_TYPES.filter((def) => config.types[def.code]?.enabled).map((def) => `
+          <div class="cx-kv">
+            <span>${escapeHtml(def.label)}</span>
+            <strong>${escapeHtml(config.types[def.code].users_allowed)} usuarios</strong>
+          </div>
+        `).join("")
+      : `<div class="cx-empty-state">Mini panel deshabilitado en este paquete.</div>`;
+
+    return `
+      <div class="cx-mini-card">
+        <strong>Capacidades heredadas</strong>
+        <div class="cx-actions" style="margin:10px 0">${moduleChips}</div>
+        <div class="cx-detail-grid">${miniRows}</div>
+      </div>
+    `;
+  }
+
+  function cxFindPackageByCodeOrName(value) {
+    const target = String(value || "").trim().toLowerCase();
+    if (!target) return null;
+    return state.packages.find((pkg) => {
+      const normalized = normalizePackage(pkg);
+      return String(normalized.code || "").toLowerCase() === target || String(normalized.name || "").toLowerCase() === target;
+    }) || null;
+  }
+
+  function cxRenderCompanyPackageInheritedCapabilities(company) {
+    const current = packageForCompany(company);
+    const pkg = cxFindPackageByCodeOrName(current);
+    if (!pkg) {
+      return `<div class="cx-empty-state" style="margin-top:12px">Selecciona y activa un paquete para ver sus capacidades heredadas.</div>`;
+    }
+
+    const settings = state.packageMiniPanelSettings.get(pkg.id) || cxPackageMiniPanelDefaultSettings();
+    return `<div style="margin-top:12px">${cxRenderPackageCapabilitiesSummary(pkg, settings)}</div>`;
+  }
+
+  function cxBindPackageBuilderEvents() {
+    if (window.__cxPackageBuilderEventsBound) return;
+    window.__cxPackageBuilderEventsBound = true;
 
     document.addEventListener("change", (event) => {
-      const picker = event.target.closest("[data-mini-package-type-picker]");
-      if (!picker) return;
+      const moduleInput = event.target.closest("[data-builder-module-code]");
+      if (moduleInput) {
+        const form = moduleInput.closest("[data-package-builder-form]");
+        cxSyncBuilderMiniPanelVisibility(form);
+        moduleInput.closest(".cx-module-pick")?.classList.toggle("is-selected", moduleInput.checked);
+        return;
+      }
 
-      const form = picker.closest("[data-package-mini-panel-form]");
-      const code = picker.value;
-      if (!form || !code) return;
+      const picker = event.target.closest("[data-builder-mini-type-picker]");
+      if (picker) {
+        const form = picker.closest("[data-package-builder-form]");
+        const code = picker.value;
+        if (!form || !code) return;
 
-      const hiddenInput = form.querySelector(`[data-mini-package-type-enabled='${code}']`);
-      const section = form.querySelector(`[data-mini-package-type-section='${code}']`);
-      if (hiddenInput) hiddenInput.value = "1";
-      if (section) section.hidden = false;
+        const enabled = form.querySelector(`[name='builder_type_enabled_${code}']`);
+        const section = form.querySelector(`[data-builder-mini-type-section='${code}']`);
+        if (enabled) enabled.checked = true;
+        if (section) section.hidden = false;
 
-      const users = form.querySelector(`[name='type_users_${code}']`);
-      if (users && !users.value) users.value = "1";
+        const users = form.querySelector(`[name='builder_type_users_${code}']`);
+        if (users && !users.value) users.value = "1";
 
-      picker.value = "";
-      cxSyncPackageMiniPanelBadges(form);
+        const globalEnabled = form.querySelector("[name='builder_mini_panel_enabled']");
+        if (globalEnabled) globalEnabled.checked = true;
+
+        picker.value = "";
+        cxSyncBuilderMiniBadges(form);
+        return;
+      }
+
+      const miniType = event.target.closest("[data-builder-mini-type-enabled]");
+      if (miniType) {
+        const form = miniType.closest("[data-package-builder-form]");
+        const code = miniType.dataset.builderMiniTypeEnabled;
+        const section = form?.querySelector(`[data-builder-mini-type-section='${code}']`);
+        if (section) section.hidden = !miniType.checked;
+        cxSyncBuilderMiniBadges(form);
+      }
     });
 
-    document.addEventListener("click", (event) => {
-      const badge = event.target.closest("[data-mini-package-badge]");
-      if (!badge) return;
+    document.addEventListener("click", async (event) => {
+      const editButton = event.target.closest("[data-package-builder-edit]");
+      if (editButton) {
+        const packageId = editButton.dataset.packageBuilderEdit;
+        const pkg = state.packages.find((item) => String(item.id) === String(packageId));
+        if (!pkg) return;
 
-      const form = badge.closest("[data-package-mini-panel-form]");
-      const code = badge.dataset.miniPackageBadge;
-      if (!form || !code) return;
+        await loadPackageMiniPanelSettings(packageId, true);
+        const holder = document.querySelector("[data-package-builder-holder]");
+        if (holder) holder.innerHTML = cxRenderPackageBuilder(pkg);
+        holder?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
 
-      const hiddenInput = form.querySelector(`[data-mini-package-type-enabled='${code}']`);
-      const section = form.querySelector(`[data-mini-package-type-section='${code}']`);
-      if (hiddenInput) hiddenInput.value = "";
-      if (section) section.hidden = true;
+      const resetButton = event.target.closest("[data-package-builder-reset]");
+      if (resetButton) {
+        const holder = document.querySelector("[data-package-builder-holder]");
+        if (holder) holder.innerHTML = cxRenderPackageBuilder();
+        return;
+      }
 
-      cxSyncPackageMiniPanelBadges(form);
+      const badge = event.target.closest("[data-builder-mini-type-badge]");
+      if (badge) {
+        const form = badge.closest("[data-package-builder-form]");
+        const code = badge.dataset.builderMiniTypeBadge;
+        const enabled = form?.querySelector(`[name='builder_type_enabled_${code}']`);
+        const section = form?.querySelector(`[data-builder-mini-type-section='${code}']`);
+        if (enabled) enabled.checked = false;
+        if (section) section.hidden = true;
+        cxSyncBuilderMiniBadges(form);
+      }
     });
 
     document.addEventListener("submit", async (event) => {
-      const form = event.target.closest("[data-package-mini-panel-form]");
+      const form = event.target.closest("[data-package-builder-form]");
       if (!form) return;
 
       event.preventDefault();
-      const packageId = form.dataset.packageId;
       const button = form.querySelector("button[type='submit']");
       const originalText = button ? button.textContent : "";
 
@@ -1026,20 +1274,15 @@
       }
 
       try {
-        const payload = cxReadPackageMiniPanelForm(form);
-        await savePackageMiniPanelSettings(packageId, payload);
-        const pkg = state.packages.find((item) => String(item.id) === String(packageId));
-        if (pkg) {
-          const holder = document.querySelector(`[data-package-mini-panel-holder='${CSS.escape(String(packageId))}']`);
-          if (holder) holder.innerHTML = cxRenderPackageMiniPanelCard(pkg, state.packageMiniPanelSettings.get(packageId));
-        }
-        showToast("Configuración de mini paneles guardada.");
+        await cxSavePackageFromBuilder(form);
+        showToast("Paquete guardado correctamente.");
+        renderPackages();
       } catch (error) {
-        showToast(`No se pudo guardar mini paneles: ${error.message}`, "error");
+        showToast(`No se pudo guardar el paquete: ${error.message}`, "error");
       } finally {
         if (button) {
           button.disabled = false;
-          button.textContent = originalText || "Guardar mini paneles del paquete";
+          button.textContent = originalText || "Guardar paquete";
         }
       }
     });
@@ -1056,45 +1299,68 @@
     }
 
     if (!grid) return;
-    if (!state.packages.length) {
-      grid.innerHTML = `<div class="cx-empty-state">No se pudieron cargar paquetes.</div>`;
-      return;
-    }
 
-    cxBindPackageMiniPanelEvents();
+    cxBindPackageBuilderEvents();
 
-    grid.innerHTML = state.packages.map((pkg) => {
-      const packageSettings = state.packageMiniPanelSettings.get(pkg.id) || cxPackageMiniPanelDefaultSettings();
+    const packageCards = state.packages.length ? state.packages.map((pkg) => {
+      const normalized = normalizePackage(pkg);
+      const settings = state.packageMiniPanelSettings.get(normalized.id) || cxPackageMiniPanelDefaultSettings();
+      const modules = cxPackageModuleCodes(normalized);
+      const modulePreview = modules.length
+        ? modules.slice(0, 7).map((code) => `<span class="cx-badge">${escapeHtml(code)}</span>`).join("")
+        : `<span class="cx-badge">Sin módulos</span>`;
+
       return `
         <article class="cx-package-card">
           <div class="cx-card-head">
             <div>
-              <h3>${escapeHtml(pkg.name)}</h3>
-              <p>${escapeHtml(pkg.code)}</p>
+              <h3>${escapeHtml(normalized.name)}</h3>
+              <p>${escapeHtml(normalized.code)}</p>
             </div>
-            ${pkg.is_active ? `<span class="cx-badge cx-badge-live">Activo</span>` : `<span class="cx-badge">Inactivo</span>`}
+            ${normalized.is_active ? `<span class="cx-badge cx-badge-live">Activo</span>` : `<span class="cx-badge">Inactivo</span>`}
           </div>
-          <p>${escapeHtml(pkg.description || "Paquete SaaS disponible para activar por empresa.")}</p>
-          <small>Módulos incluidos: ${escapeHtml(safeArray(pkg.modules).length || "—")}</small>
+          <p>${escapeHtml(normalized.description || "Paquete SaaS disponible para activar por empresa.")}</p>
+          <div class="cx-actions" style="margin:10px 0">${modulePreview}</div>
           <div class="cx-kv" style="margin-top:12px">
-            <span>Capacidad mini_panel</span>
-            <strong>${escapeHtml(cxPackageMiniPanelEnabledSummary(packageSettings))}</strong>
+            <span>Mini paneles</span>
+            <strong data-package-mini-summary="${escapeHtml(normalized.id)}">${escapeHtml(cxPackageMiniPanelEnabledSummary(settings))}</strong>
           </div>
-          <div data-package-mini-panel-holder="${escapeHtml(pkg.id)}">
-            ${cxRenderPackageMiniPanelCard(pkg, packageSettings)}
+          <div class="cx-actions" style="margin-top:12px">
+            <button class="cx-btn cx-btn-small" type="button" data-package-builder-edit="${escapeHtml(normalized.id)}">Editar en ARMAR PAQUETES</button>
           </div>
         </article>
       `;
-    }).join("");
+    }).join("") : `<div class="cx-empty-state">No hay paquetes creados. Usa ARMAR PAQUETES para crear el primero.</div>`;
+
+    grid.innerHTML = `
+      <div class="cx-layout-two cx-package-builder-layout">
+        <section>
+          <div class="cx-card-head">
+            <div>
+              <h3>Paquetes creados</h3>
+              <p>Productos SaaS disponibles para asignar a empresas.</p>
+            </div>
+            <span class="cx-badge">${escapeHtml(state.packages.length)} paquetes</span>
+          </div>
+          <div class="cx-packages-list">
+            ${packageCards}
+          </div>
+        </section>
+        <aside data-package-builder-holder>
+          ${cxRenderPackageBuilder()}
+        </aside>
+      </div>
+    `;
 
     state.packages.forEach((pkg) => {
-      loadPackageMiniPanelSettings(pkg.id).then((settings) => {
-        const holder = document.querySelector(`[data-package-mini-panel-holder='${CSS.escape(String(pkg.id))}']`);
-        if (holder) holder.innerHTML = cxRenderPackageMiniPanelCard(pkg, settings);
+      const normalized = normalizePackage(pkg);
+      loadPackageMiniPanelSettings(normalized.id).then((settings) => {
+        const summary = document.querySelector(`[data-package-mini-summary='${CSS.escape(String(normalized.id))}']`);
+        if (summary) summary.textContent = cxPackageMiniPanelEnabledSummary(settings);
       });
     });
   }
-  /* CLONEXA_019A_R1_PACKAGE_MINI_PANEL_CAPABILITIES_END */
+/* CLONEXA_019A_R2_PACKAGE_BUILDER_MINI_PANEL_END */
 
 
   const CX_MODULE_META = {
@@ -2469,10 +2735,13 @@
     if (tab === "paquete") {
       node.innerHTML = `
         <form class="cx-form" id="activatePackageForm">
-          <label>Activar paquete para ${escapeHtml(company.name)}
+          <label>Seleccionar paquete creado para ${escapeHtml(company.name)}
             <select name="package_code" required>
               <option value="">Seleccionar paquete</option>
-              ${state.packages.map((pkg) => `<option value="${escapeHtml(pkg.code)}">${escapeHtml(pkg.name)} (${escapeHtml(pkg.code)})</option>`).join("")}
+              ${state.packages.map((pkg) => {
+                const normalized = normalizePackage(pkg);
+                return `<option value="${escapeHtml(normalized.code)}">${escapeHtml(normalized.name)} (${escapeHtml(normalized.code)})</option>`;
+              }).join("")}
             </select>
           </label>
           <button class="cx-btn cx-btn-primary" type="submit">Activar paquete</button>
@@ -2481,7 +2750,17 @@
           <strong>Paquete detectado actual</strong>
           <p>${escapeHtml(packageForCompany(company))}</p>
         </div>
+        ${cxRenderCompanyPackageInheritedCapabilities(company)}
       `;
+
+      const currentPkg = cxFindPackageByCodeOrName(packageForCompany(company));
+      if (currentPkg) {
+        loadPackageMiniPanelSettings(currentPkg.id).then(() => {
+          if (state.selectedCompanyId === company.id && state.activeDetailTab === "paquete") {
+            renderCompanyDetailTab(company);
+          }
+        }).catch(() => null);
+      }
       return;
     }
 
