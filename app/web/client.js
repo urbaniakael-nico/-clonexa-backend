@@ -2485,9 +2485,11 @@
   }
 
   function crmGpsContext018B(person = {}) {
-    const gpsInfo = person.gpsInfo || null;
+    const gpsInfo = person.gpsInfo || person.snapshotRow?.gps || null;
     let status = "";
     let coords = "";
+    let zoneName = "";
+    let label = "";
 
     if (gpsInfo) {
       status = String(gpsInfo.gps_status || gpsInfo.status || "").toLowerCase();
@@ -2496,20 +2498,52 @@
           ? `${Number(gpsInfo.latitude).toFixed(6)}, ${Number(gpsInfo.longitude).toFixed(6)}`
           : ""
       );
+      zoneName = String(
+        gpsInfo.zone_name ||
+        gpsInfo.perimeter_name ||
+        gpsInfo.perimeter?.name ||
+        gpsInfo.perimeter?.label ||
+        ""
+      ).trim();
+      label = String(gpsInfo.gps_label || "").trim();
     }
 
     if (!coords) {
       const event = crmGpsLatestEvent(person);
       status = event ? crmGpsStatusFromEvent(event) : status;
       coords = event ? crmGpsCoordinatesFromEvent(event) : coords;
+
+      const payload = event?.payload_json || event?.payload || {};
+      const metadata = event?.metadata_json || event?.metadata || {};
+      zoneName = zoneName || String(
+        payload.zone_name ||
+        payload.perimeter_name ||
+        payload.perimeter?.name ||
+        metadata.zone_name ||
+        metadata.perimeter_name ||
+        metadata.perimeter?.name ||
+        ""
+      ).trim();
+      label = label || String(payload.gps_label || metadata.gps_label || "").trim();
     }
 
     const normalized = crmGpsStatusClass(status);
+    const stateLabel = label || crmGpsStatusLabel(normalized);
+
+    let value = "Sin ubicación";
+    if (normalized === "inside") {
+      value = zoneName || "Zona autorizada";
+    } else if (normalized === "outside") {
+      value = "Fuera de zona autorizada";
+    } else if (coords) {
+      value = zoneName || "Ubicación recibida";
+    }
+
     return {
       code: "gps",
-      label: "UbicaciÃ³n",
-      value: normalized === "inside" ? "Dentro de rango" : (normalized === "outside" ? "Fuera de rango" : "Sin ubicaciÃ³n"),
-      meta: coords || "",
+      label: "Ubicación",
+      value,
+      meta: [stateLabel, coords].filter(Boolean).join(" · "),
       tone: normalized === "outside" ? "warning" : (normalized === "inside" ? "ok" : "idle")
     };
   }
@@ -2568,7 +2602,7 @@
       : "";
 
     return `
-      <div class="cx-crm-context-card ${h(tone)}">
+      <div class="cx-crm-context-card ${h(ctx.code || "")} ${h(tone)}">
         <span>${h(ctx.label)}</span>
         <strong>${h(ctx.value || "-")}</strong>
         ${ctx.meta ? `<small${timerAttr}>${h(ctx.meta)}</small>` : ""}
@@ -2925,6 +2959,14 @@
           border-color: rgba(255, 155, 33, .52);
           background: rgba(255, 155, 33, .13);
         }
+        .cx-crm-context-card.gps.ok strong {
+          color: #5cff9f;
+          text-shadow: 0 0 18px rgba(92,255,159,.22);
+        }
+        .cx-crm-context-card.gps.warning strong {
+          color: #ff9b21;
+          text-shadow: 0 0 18px rgba(255,155,33,.28);
+        }
       </style>
       <div class="cx-crm-people-grid">
         ${people.map((person) => `
@@ -2938,7 +2980,7 @@
             </div>
 
             <div class="cx-crm-timer-wrap">
-              <span>${person.status === "on_break" ? "Tiempo en pausa" : "Tiempo activo"}</span>
+              <span>${crmNormalizeStatus018B(person.status) === "on_break" ? "Tiempo en pausa" : "Tiempo activo"}</span>
               ${crmTimerMarkup018B(person)}
             </div>
 

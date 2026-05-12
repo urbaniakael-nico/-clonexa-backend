@@ -827,6 +827,193 @@ def earliest_active_reference_start(sessions: list[dict[str, Any]]) -> datetime 
     return min(starts) if starts else None
 
 
+# CX_019D_PAUSE_B_R1_GPS_HELPERS_START
+def crm_gps_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def crm_gps_perimeter_out(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": clean(row.get("id")),
+        "company_id": clean(row.get("company_id")),
+        "slot": intval(row.get("slot")),
+        "name": clean(row.get("name")) or f"Punto {intval(row.get('slot'))}",
+        "latitude_min": crm_gps_float(row.get("latitude_min")),
+        "latitude_max": crm_gps_float(row.get("latitude_max")),
+        "longitude_min": crm_gps_float(row.get("longitude_min")),
+        "longitude_max": crm_gps_float(row.get("longitude_max")),
+        "is_active": bool(row.get("is_active")),
+    }
+
+
+def crm_gps_point_inside(latitude: float, longitude: float, perimeter: dict[str, Any]) -> bool:
+    lat_min = crm_gps_float(perimeter.get("latitude_min"))
+    lat_max = crm_gps_float(perimeter.get("latitude_max"))
+    lng_min = crm_gps_float(perimeter.get("longitude_min"))
+    lng_max = crm_gps_float(perimeter.get("longitude_max"))
+
+    if None in {lat_min, lat_max, lng_min, lng_max}:
+        return False
+
+    if lat_min > lat_max:
+        lat_min, lat_max = lat_max, lat_min
+    if lng_min > lng_max:
+        lng_min, lng_max = lng_max, lng_min
+
+    return lat_min <= latitude <= lat_max and lng_min <= longitude <= lng_max
+
+
+def crm_gps_validate(latitude: float, longitude: float, perimeters: list[dict[str, Any]]) -> dict[str, Any]:
+    valid = [
+        item for item in perimeters
+        if item.get("is_active")
+        and item.get("latitude_min") is not None
+        and item.get("latitude_max") is not None
+        and item.get("longitude_min") is not None
+        and item.get("longitude_max") is not None
+    ]
+
+    if not valid:
+        return {
+            "gps_status": "unconfigured",
+            "gps_label": "Sin perímetro configurado",
+            "perimeter": None,
+        }
+
+    for perimeter in valid:
+        if crm_gps_point_inside(latitude, longitude, perimeter):
+            return {
+                "gps_status": "inside",
+                "gps_label": "Dentro de perímetro",
+                "perimeter": {
+                    "id": clean(perimeter.get("id")),
+                    "slot": intval(perimeter.get("slot")),
+                    "name": clean(perimeter.get("name")) or f"Punto {intval(perimeter.get('slot'))}",
+                },
+            }
+
+    return {
+        "gps_status": "outside",
+        "gps_label": "Fuera de perímetro",
+        "perimeter": None,
+    }
+
+
+async def crm_gps_load_perimeters(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
+    if not await table_exists(db, "company_gps_perimeters"):
+        return []
+
+    rows = await safe_rows(
+        db,
+        """
+        SELECT id::text AS id,
+               company_id::text AS company_id,
+               slot,
+               name,
+               latitude_min,
+               latitude_max,
+               longitude_min,
+               longitude_max,
+               is_active
+        FROM company_gps_perimeters
+        WHERE company_id::text = :company_id
+        ORDER BY slot ASC
+        """,
+        {"company_id": company_id},
+    )
+    return [crm_gps_perimeter_out(row) for row in rows]
+
+
+async def crm_gps_people_by_employee(db: AsyncSession, company_id: str) -> dict[str, dict[str, Any]]:
+    if not await table_exists(db, "workforce_attendance_events"):
+        return {}
+
+    cols = await table_column_types(db, "workforce_attendance_events")
+    required = {"company_id", "event_type", "employee_id", "latitude", "longitude"}
+    if not required.issubset(set(cols)):
+        return {}
+
+    if "occurred_at" in cols and "created_at" in cols:
+        at_expr = "COALESCE(occurred_at, created_at)"
+    elif "occurred_at" in cols:
+        at_expr = "occurred_at"
+    elif "created_at" in cols:
+        at_expr = "created_at"
+    else:
+        return {}
+
+    employee_name_expr = "COALESCE(employee_name, '')" if "employee_name" in cols else "''"
+    employee_role_expr = "COALESCE(employee_role, '')" if "employee_role" in cols else "''"
+    telegram_expr = "COALESCE(telegram_user_id::text, '')" if "telegram_user_id" in cols else "''"
+    payload_expr = "COALESCE(payload_json::text, '')" if "payload_json" in cols else "''"
+
+    perimeters = await crm_gps_load_perimeters(db, company_id)
+
+    rows = await safe_rows(
+        db,
+        f"""
+        SELECT DISTINCT ON (employee_id)
+               employee_id::text AS employee_id,
+               {employee_name_expr} AS employee_name,
+               {employee_role_expr} AS employee_role,
+               {telegram_expr} AS telegram_user_id,
+               latitude,
+               longitude,
+               {payload_expr} AS payload_json,
+               {at_expr}::text AS occurred_at
+        FROM workforce_attendance_events
+        WHERE company_id::text = :company_id
+          AND lower(COALESCE(event_type, '')) IN ('gps_location', 'gps_ping')
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+        ORDER BY employee_id, {at_expr} DESC
+        """,
+        {"company_id": company_id},
+    )
+
+    by_employee: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        employee_id = clean(row.get("employee_id"))
+        if not employee_id:
+            continue
+
+        lat = crm_gps_float(row.get("latitude"))
+        lng = crm_gps_float(row.get("longitude"))
+        if lat is None or lng is None:
+            continue
+
+        validation = crm_gps_validate(lat, lng, perimeters)
+        perimeter = validation.get("perimeter")
+        zone_name = clean((perimeter or {}).get("name"))
+
+        gps_info = {
+            "employee_id": employee_id,
+            "employee_name": clean(row.get("employee_name")),
+            "employee_role": clean(row.get("employee_role")),
+            "telegram_user_id": clean(row.get("telegram_user_id")),
+            "latitude": lat,
+            "longitude": lng,
+            "coordinates": f"{lat:.6f}, {lng:.6f}",
+            "gps_status": validation.get("gps_status") or "unconfigured",
+            "gps_label": validation.get("gps_label") or "Sin validación",
+            "perimeter": perimeter,
+            "perimeter_name": zone_name,
+            "zone_name": zone_name,
+            "occurred_at": clean(row.get("occurred_at")),
+        }
+
+        by_employee[employee_id] = gps_info
+
+    return by_employee
+# CX_019D_PAUSE_B_R1_GPS_HELPERS_END
+
+
 def production_adapter(
     modules: set[str],
     employee_status: str,
@@ -885,6 +1072,10 @@ async def get_crm_cards(
         "with_reference": 0,
         "production_adapter": {"production", "references"}.issubset(modules),
         "gps_adapter": "gps" in modules,
+        "gps_sent_location": 0,
+        "gps_inside": 0,
+        "gps_outside": 0,
+        "gps_unconfigured": 0,
         "materials_adapter": "materials" in modules,
         "inventory_adapter": "inventory" in modules,
     }
@@ -954,6 +1145,7 @@ async def crm_core_snapshot(
     modules = await active_modules(db, company_id)
     employees = await employees_snapshot(db, company_id)
     company_active_sessions = await active_reference_sessions_company(db, company_id)
+    gps_people_by_employee = await crm_gps_people_by_employee(db, company_id) if "gps" in modules else {}
 
     active_people = [
         employee for employee in employees
@@ -969,6 +1161,7 @@ async def crm_core_snapshot(
         telegram_user_id = clean(employee.get("telegram_user_id"))
         employee_status = normalize_status(employee.get("work_status"))
         status_started_at = parse_dt(employee.get("status_started_at"))
+        gps_info = gps_people_by_employee.get(employee_id) if "gps" in modules else None
 
         events = await attendance_events(
             db,
@@ -1083,11 +1276,33 @@ async def crm_core_snapshot(
             adapters.append(production)
 
         if "gps" in modules:
+            gps_items = []
+            if gps_info:
+                gps_items.append({
+                    "title": gps_info.get("zone_name") or (
+                        "Fuera de zona autorizada"
+                        if gps_info.get("gps_status") == "outside"
+                        else "Sin ubicación"
+                    ),
+                    "name": gps_info.get("zone_name") or "",
+                    "detail": gps_info.get("coordinates") or "",
+                    "status": gps_info.get("gps_status") or "unconfigured",
+                    "gps_status": gps_info.get("gps_status") or "unconfigured",
+                    "gps_label": gps_info.get("gps_label") or "Sin validación",
+                    "latitude": gps_info.get("latitude"),
+                    "longitude": gps_info.get("longitude"),
+                    "coordinates": gps_info.get("coordinates") or "",
+                    "perimeter": gps_info.get("perimeter"),
+                    "perimeter_name": gps_info.get("perimeter_name") or gps_info.get("zone_name") or "",
+                    "zone_name": gps_info.get("zone_name") or "",
+                    "occurred_at": gps_info.get("occurred_at"),
+                })
+
             adapters.append({
                 "code": "gps",
                 "title": "GPS",
                 "enabled": True,
-                "items": [],
+                "items": gps_items,
                 "placeholder": "GPS activo para ubicación, rutas y perímetros.",
             })
 
@@ -1114,6 +1329,7 @@ async def crm_core_snapshot(
             "employee_name": employee_name,
             "employee_role": clean(employee.get("employee_role")),
             "telegram_user_id": telegram_user_id,
+            "gps": gps_info,
             "core": {
                 "status": employee_status,
                 "status_label": status_label(employee_status),
@@ -1140,6 +1356,10 @@ async def crm_core_snapshot(
         "out": sum(1 for row in rows if row["core"]["status"] not in {"working", "on_break"}),
         "production_adapter": production_enabled,
         "gps_adapter": "gps" in modules,
+        "gps_sent_location": sum(1 for row in rows if row.get("gps")),
+        "gps_inside": sum(1 for row in rows if (row.get("gps") or {}).get("gps_status") == "inside"),
+        "gps_outside": sum(1 for row in rows if (row.get("gps") or {}).get("gps_status") == "outside"),
+        "gps_unconfigured": sum(1 for row in rows if (row.get("gps") or {}).get("gps_status") == "unconfigured"),
         "materials_adapter": "materials" in modules,
         "inventory_adapter": "inventory" in modules,
         "with_reference": sum(
