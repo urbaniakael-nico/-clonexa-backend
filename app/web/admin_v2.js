@@ -5,6 +5,7 @@
     health: null,
     companies: [],
     packages: [],
+    packageMiniPanelSettings: new Map(),
     modules: [],
     companyModules: new Map(),
     companyUsers: new Map(),
@@ -783,6 +784,267 @@
     return `<span class="cx-badge">${escapeHtml(s)}</span>`;
   }
 
+  function cxMiniPanelLoginTemplate(typeCode) {
+    const origin = window.location.origin || "";
+    return `${origin}/mini-panel/login?company_id={company_id}&type=${encodeURIComponent(typeCode)}`;
+  }
+
+  /* CLONEXA_019A_R1_PACKAGE_MINI_PANEL_CAPABILITIES_START */
+  const CX_PACKAGE_MINI_PANEL_TYPES = [
+    { code: "store", label: "Tiendas" },
+    { code: "sales", label: "Ventas" },
+    { code: "logistics", label: "Logística" },
+    { code: "inventory", label: "Inventarios" },
+    { code: "other", label: "Otros" },
+  ];
+
+  const CX_PACKAGE_MINI_PANEL_USER_LIMITS = [1, 3, 5, 10, 15];
+
+  function cxPackageMiniPanelDefaultSettings(raw = {}) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const rawTypes = source.types && typeof source.types === "object" ? source.types : {};
+    const types = {};
+
+    CX_PACKAGE_MINI_PANEL_TYPES.forEach((def) => {
+      const current = rawTypes[def.code] && typeof rawTypes[def.code] === "object" ? rawTypes[def.code] : {};
+      const enabled = current.enabled === true;
+      const usersAllowed = Number.isFinite(Number(current.users_allowed))
+        ? Number(current.users_allowed)
+        : 0;
+      types[def.code] = {
+        enabled,
+        label: current.label || def.label,
+        users_allowed: enabled ? (CX_PACKAGE_MINI_PANEL_USER_LIMITS.includes(usersAllowed) ? usersAllowed : 1) : 0,
+        login_template: current.login_template || cxMiniPanelLoginTemplate(def.code),
+      };
+    });
+
+    return {
+      enabled: source.enabled === true,
+      types,
+      updated_at: source.updated_at || null,
+    };
+  }
+
+  function cxPackageMiniPanelEnabledSummary(settings) {
+    const config = cxPackageMiniPanelDefaultSettings(settings || {});
+    const enabledTypes = CX_PACKAGE_MINI_PANEL_TYPES.filter((def) => config.types[def.code]?.enabled);
+    if (!config.enabled || !enabledTypes.length) return "Mini panel deshabilitado";
+    return enabledTypes
+      .map((def) => `${def.label}: ${config.types[def.code].users_allowed || 0}`)
+      .join(" · ");
+  }
+
+  async function loadPackageMiniPanelSettings(packageId, force = false) {
+    if (!packageId) return cxPackageMiniPanelDefaultSettings();
+    if (!force && state.packageMiniPanelSettings.has(packageId)) {
+      return state.packageMiniPanelSettings.get(packageId);
+    }
+
+    try {
+      const data = await apiGet(`${API}/packages/${packageId}/mini-panel-settings`);
+      const normalized = cxPackageMiniPanelDefaultSettings(data && data.mini_panel ? data.mini_panel : data);
+      state.packageMiniPanelSettings.set(packageId, normalized);
+      return normalized;
+    } catch (error) {
+      const fallback = cxPackageMiniPanelDefaultSettings();
+      fallback.unavailable = true;
+      fallback.error = error.message;
+      state.packageMiniPanelSettings.set(packageId, fallback);
+      return fallback;
+    }
+  }
+
+  async function savePackageMiniPanelSettings(packageId, payload) {
+    const data = await apiPut(`${API}/packages/${packageId}/mini-panel-settings`, payload);
+    const normalized = cxPackageMiniPanelDefaultSettings(data && data.mini_panel ? data.mini_panel : data);
+    state.packageMiniPanelSettings.set(packageId, normalized);
+    return normalized;
+  }
+
+  function cxReadPackageMiniPanelForm(form) {
+    const payload = {
+      enabled: !!form.querySelector("[name='mini_panel_enabled']")?.checked,
+      types: {},
+    };
+
+    CX_PACKAGE_MINI_PANEL_TYPES.forEach((def) => {
+      const enabled = !!form.querySelector(`[name='type_enabled_${def.code}']`)?.checked;
+      const usersAllowed = Number(form.querySelector(`[name='type_users_${def.code}']`)?.value || 0);
+
+      payload.types[def.code] = {
+        enabled,
+        label: def.label,
+        users_allowed: enabled ? (CX_PACKAGE_MINI_PANEL_USER_LIMITS.includes(usersAllowed) ? usersAllowed : 1) : 0,
+      };
+    });
+
+    return payload;
+  }
+
+  function cxRenderPackageMiniPanelCard(pkg, settings) {
+    const config = cxPackageMiniPanelDefaultSettings(settings || {});
+    const typeRows = CX_PACKAGE_MINI_PANEL_TYPES.map((def) => {
+      const row = config.types[def.code] || { enabled: false, label: def.label, users_allowed: 0 };
+      const hidden = !row.enabled;
+      const userOptions = CX_PACKAGE_MINI_PANEL_USER_LIMITS
+        .map((limit) => `<option value="${limit}" ${Number(row.users_allowed) === limit ? "selected" : ""}>${limit}</option>`)
+        .join("");
+
+      return `
+        <div class="cx-mini-card" data-mini-package-type-section="${escapeHtml(def.code)}" ${hidden ? "hidden" : ""}>
+          <div class="cx-card-head">
+            <div>
+              <strong>${escapeHtml(def.label)}</strong>
+              <p>Capacidad del subpanel para este paquete.</p>
+            </div>
+            <span class="cx-badge cx-badge-live">Activo</span>
+          </div>
+          <input type="hidden" name="type_enabled_${escapeHtml(def.code)}" value="${row.enabled ? "1" : ""}" data-mini-package-type-enabled="${escapeHtml(def.code)}">
+          <label>Enlace base generado
+            <input value="${escapeHtml(cxMiniPanelLoginTemplate(def.code))}" readonly>
+          </label>
+          <label>Usuarios permitidos
+            <select name="type_users_${escapeHtml(def.code)}">
+              ${userOptions}
+            </select>
+          </label>
+        </div>
+      `;
+    }).join("");
+
+    const selectedBadges = CX_PACKAGE_MINI_PANEL_TYPES
+      .filter((def) => config.types[def.code]?.enabled)
+      .map((def) => `<span class="cx-badge cx-badge-live" data-mini-package-badge="${escapeHtml(def.code)}">${escapeHtml(def.label)}</span>`)
+      .join("");
+
+    return `
+      <section class="cx-mini-card cx-package-mini-panel-config" data-package-mini-panel="${escapeHtml(pkg.id)}">
+        <div class="cx-card-head">
+          <div>
+            <strong>Mini paneles</strong>
+            <p>Configuración general del paquete. Las empresas actuales y futuras heredan estos límites.</p>
+          </div>
+          <span class="cx-badge ${config.enabled ? "cx-badge-live" : ""}">${config.enabled ? "Habilitado" : "Deshabilitado"}</span>
+        </div>
+
+        ${config.unavailable ? `<div class="cx-empty-state">Endpoint no disponible todavía. Sube el backend 019A-R1 para guardar esta configuración.</div>` : ""}
+
+        <form class="cx-form" data-package-mini-panel-form data-package-id="${escapeHtml(pkg.id)}">
+          <label style="display:flex;align-items:center;gap:10px">
+            <input type="checkbox" name="mini_panel_enabled" ${config.enabled ? "checked" : ""}>
+            Habilitar mini_panel en este paquete
+          </label>
+
+          <label>Tipos permitidos
+            <select data-mini-package-type-picker>
+              <option value="">Seleccionar tipo</option>
+              ${CX_PACKAGE_MINI_PANEL_TYPES.map((def) => `<option value="${escapeHtml(def.code)}">${escapeHtml(def.label)}</option>`).join("")}
+            </select>
+          </label>
+
+          <div class="cx-actions" data-mini-package-selected-types style="margin:8px 0 12px">
+            ${selectedBadges || `<span class="cx-badge">Sin tipos seleccionados</span>`}
+          </div>
+
+          <div class="cx-detail-grid" data-mini-package-types-grid>
+            ${typeRows}
+          </div>
+
+          <button class="cx-btn cx-btn-primary" type="submit">Guardar mini paneles del paquete</button>
+        </form>
+      </section>
+    `;
+  }
+
+  function cxSyncPackageMiniPanelBadges(form) {
+    if (!form) return;
+    const selected = CX_PACKAGE_MINI_PANEL_TYPES
+      .filter((def) => {
+        const hiddenInput = form.querySelector(`[data-mini-package-type-enabled='${def.code}']`);
+        return hiddenInput && hiddenInput.value === "1";
+      })
+      .map((def) => `<span class="cx-badge cx-badge-live" data-mini-package-badge="${escapeHtml(def.code)}">${escapeHtml(def.label)}</span>`)
+      .join("");
+
+    const target = form.querySelector("[data-mini-package-selected-types]");
+    if (target) target.innerHTML = selected || `<span class="cx-badge">Sin tipos seleccionados</span>`;
+  }
+
+  function cxBindPackageMiniPanelEvents() {
+    if (window.__cxPackageMiniPanelEventsBound) return;
+    window.__cxPackageMiniPanelEventsBound = true;
+
+    document.addEventListener("change", (event) => {
+      const picker = event.target.closest("[data-mini-package-type-picker]");
+      if (!picker) return;
+
+      const form = picker.closest("[data-package-mini-panel-form]");
+      const code = picker.value;
+      if (!form || !code) return;
+
+      const hiddenInput = form.querySelector(`[data-mini-package-type-enabled='${code}']`);
+      const section = form.querySelector(`[data-mini-package-type-section='${code}']`);
+      if (hiddenInput) hiddenInput.value = "1";
+      if (section) section.hidden = false;
+
+      const users = form.querySelector(`[name='type_users_${code}']`);
+      if (users && !users.value) users.value = "1";
+
+      picker.value = "";
+      cxSyncPackageMiniPanelBadges(form);
+    });
+
+    document.addEventListener("click", (event) => {
+      const badge = event.target.closest("[data-mini-package-badge]");
+      if (!badge) return;
+
+      const form = badge.closest("[data-package-mini-panel-form]");
+      const code = badge.dataset.miniPackageBadge;
+      if (!form || !code) return;
+
+      const hiddenInput = form.querySelector(`[data-mini-package-type-enabled='${code}']`);
+      const section = form.querySelector(`[data-mini-package-type-section='${code}']`);
+      if (hiddenInput) hiddenInput.value = "";
+      if (section) section.hidden = true;
+
+      cxSyncPackageMiniPanelBadges(form);
+    });
+
+    document.addEventListener("submit", async (event) => {
+      const form = event.target.closest("[data-package-mini-panel-form]");
+      if (!form) return;
+
+      event.preventDefault();
+      const packageId = form.dataset.packageId;
+      const button = form.querySelector("button[type='submit']");
+      const originalText = button ? button.textContent : "";
+
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Guardando...";
+      }
+
+      try {
+        const payload = cxReadPackageMiniPanelForm(form);
+        await savePackageMiniPanelSettings(packageId, payload);
+        const pkg = state.packages.find((item) => String(item.id) === String(packageId));
+        if (pkg) {
+          const holder = document.querySelector(`[data-package-mini-panel-holder='${CSS.escape(String(packageId))}']`);
+          if (holder) holder.innerHTML = cxRenderPackageMiniPanelCard(pkg, state.packageMiniPanelSettings.get(packageId));
+        }
+        showToast("Configuración de mini paneles guardada.");
+      } catch (error) {
+        showToast(`No se pudo guardar mini paneles: ${error.message}`, "error");
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = originalText || "Guardar mini paneles del paquete";
+        }
+      }
+    });
+  }
+
   function renderPackages() {
     const grid = el("#packagesGrid");
     const select = el("#createCompanyPackageSelect");
@@ -799,20 +1061,40 @@
       return;
     }
 
-    grid.innerHTML = state.packages.map((pkg) => `
-      <article class="cx-package-card">
-        <div class="cx-card-head">
-          <div>
-            <h3>${escapeHtml(pkg.name)}</h3>
-            <p>${escapeHtml(pkg.code)}</p>
+    cxBindPackageMiniPanelEvents();
+
+    grid.innerHTML = state.packages.map((pkg) => {
+      const packageSettings = state.packageMiniPanelSettings.get(pkg.id) || cxPackageMiniPanelDefaultSettings();
+      return `
+        <article class="cx-package-card">
+          <div class="cx-card-head">
+            <div>
+              <h3>${escapeHtml(pkg.name)}</h3>
+              <p>${escapeHtml(pkg.code)}</p>
+            </div>
+            ${pkg.is_active ? `<span class="cx-badge cx-badge-live">Activo</span>` : `<span class="cx-badge">Inactivo</span>`}
           </div>
-          ${pkg.is_active ? `<span class="cx-badge cx-badge-live">Activo</span>` : `<span class="cx-badge">Inactivo</span>`}
-        </div>
-        <p>${escapeHtml(pkg.description || "Paquete SaaS disponible para activar por empresa.")}</p>
-        <small>Módulos incluidos: ${escapeHtml(pkg.modules.length || "Ã¢â‚¬â€")}</small>
-      </article>
-    `).join("");
+          <p>${escapeHtml(pkg.description || "Paquete SaaS disponible para activar por empresa.")}</p>
+          <small>Módulos incluidos: ${escapeHtml(safeArray(pkg.modules).length || "—")}</small>
+          <div class="cx-kv" style="margin-top:12px">
+            <span>Capacidad mini_panel</span>
+            <strong>${escapeHtml(cxPackageMiniPanelEnabledSummary(packageSettings))}</strong>
+          </div>
+          <div data-package-mini-panel-holder="${escapeHtml(pkg.id)}">
+            ${cxRenderPackageMiniPanelCard(pkg, packageSettings)}
+          </div>
+        </article>
+      `;
+    }).join("");
+
+    state.packages.forEach((pkg) => {
+      loadPackageMiniPanelSettings(pkg.id).then((settings) => {
+        const holder = document.querySelector(`[data-package-mini-panel-holder='${CSS.escape(String(pkg.id))}']`);
+        if (holder) holder.innerHTML = cxRenderPackageMiniPanelCard(pkg, settings);
+      });
+    });
   }
+  /* CLONEXA_019A_R1_PACKAGE_MINI_PANEL_CAPABILITIES_END */
 
 
   const CX_MODULE_META = {
