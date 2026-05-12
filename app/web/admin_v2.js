@@ -2733,28 +2733,51 @@
     }
 
     if (tab === "paquete") {
+      const detectedPackageCode = packageForCompany(company);
+      const currentPkg = cxFindPackageByCodeOrName(detectedPackageCode);
+      const needsPackageCapabilities = currentPkg && !state.packageMiniPanelSettings.has(currentPkg.id);
+
+      const packageOptions = state.packages.map((pkg) => {
+        const normalized = normalizePackage(pkg);
+        const selected = String(normalized.code || "").toLowerCase() === String(detectedPackageCode || "").toLowerCase()
+          || String(normalized.name || "").toLowerCase() === String(detectedPackageCode || "").toLowerCase();
+        return `<option value="${escapeHtml(normalized.code)}" ${selected ? "selected" : ""}>${escapeHtml(normalized.name)} (${escapeHtml(normalized.code)})</option>`;
+      }).join("");
+
+      const inheritedCapabilities = needsPackageCapabilities
+        ? `<div class="cx-empty-state" style="margin-top:12px">Cargando capacidades heredadas del paquete...</div>`
+        : cxRenderCompanyPackageInheritedCapabilities(company);
+
       node.innerHTML = `
-        <form class="cx-form" id="activatePackageForm">
-          <label>Seleccionar paquete creado para ${escapeHtml(company.name)}
-            <select name="package_code" required>
-              <option value="">Seleccionar paquete</option>
-              ${state.packages.map((pkg) => {
-                const normalized = normalizePackage(pkg);
-                return `<option value="${escapeHtml(normalized.code)}">${escapeHtml(normalized.name)} (${escapeHtml(normalized.code)})</option>`;
-              }).join("")}
-            </select>
-          </label>
-          <button class="cx-btn cx-btn-primary" type="submit">Activar paquete</button>
-        </form>
-        <div class="cx-mini-card" style="margin-top:12px">
+        <section class="cx-mini-card">
+          <div class="cx-card-head">
+            <div>
+              <strong>Asignar paquete a empresa</strong>
+              <p>Esta seccion solo aplica paquetes ya creados desde Admin V2 -> Paquetes. No arma paquetes aqui.</p>
+            </div>
+            <span class="cx-badge">${escapeHtml(detectedPackageCode || "Sin paquete")}</span>
+          </div>
+
+          <form class="cx-form" id="activatePackageForm" style="margin-top:12px">
+            <label>Seleccionar paquete creado para ${escapeHtml(company.name)}
+              <select name="package_code" required>
+                <option value="">Seleccionar paquete</option>
+                ${packageOptions}
+              </select>
+            </label>
+            <button class="cx-btn cx-btn-primary" type="submit">Activar paquete</button>
+          </form>
+        </section>
+
+        <section class="cx-mini-card" style="margin-top:12px">
           <strong>Paquete detectado actual</strong>
-          <p>${escapeHtml(packageForCompany(company))}</p>
-        </div>
-        ${cxRenderCompanyPackageInheritedCapabilities(company)}
+          <p>${escapeHtml(detectedPackageCode || "Sin paquete")}</p>
+        </section>
+
+        ${inheritedCapabilities}
       `;
 
-      const currentPkg = cxFindPackageByCodeOrName(packageForCompany(company));
-      if (currentPkg) {
+      if (needsPackageCapabilities) {
         loadPackageMiniPanelSettings(currentPkg.id).then(() => {
           if (state.selectedCompanyId === company.id && state.activeDetailTab === "paquete") {
             renderCompanyDetailTab(company);
