@@ -3538,6 +3538,26 @@ async def _process_telegram_location(
     current = await _get_current_attendance_status(db, employee.company_id, employee.id)
 
     if pending is not None:
+        pending_live_period = location.get("live_period")
+        if not pending_live_period:
+            if send_replies:
+                await _send_telegram_message(
+                    token,
+                    chat_id,
+                    _txt(language, "gps_live_required_strict"),
+                    reply_markup=_remove_reply_keyboard(),
+                )
+            return TelegramBotPollItem(
+                update_id=update_id,
+                ok=False,
+                action="gps_live_location_required_for_check_in",
+                message="Ubicacion en vivo requerida para iniciar turno.",
+                employee_id=employee.id,
+                employee_name=employee.full_name,
+                telegram_user_id=telegram_user_id,
+                telegram_username=username,
+            )
+
         command_config = TELEGRAM_COMMANDS["/entrada"]
         transition_ok, transition_error = _validate_turn_transition(
             current=current,
@@ -4016,7 +4036,7 @@ async def _process_telegram_update(
                 token,
                 chat_id,
                 _txt(language, "gps_location_pending" if pending else "gps_required_for_start"),
-                reply_markup=_location_request_keyboard(language),
+                reply_markup=_remove_reply_keyboard(),
             )
         return TelegramBotPollItem(
             update_id=update_id,
