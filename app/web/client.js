@@ -7321,6 +7321,262 @@
   /* CLONEXA_019B_CLIENT_MINI_PANEL_LINKS_END */
 
 
+
+  /* CLONEXA_019C_SALES_MINIPANEL_USERS_FRONTEND_START */
+  const CX_SALES_ROLE_TOKENS_019C = new Set([
+    "vendedor",
+    "ventas",
+    "sales",
+    "comercial",
+    "asesor_comercial",
+    "asesor comercial"
+  ]);
+
+  function cxSalesEnsureStyles019C() {
+    if (document.getElementById("cxSalesMiniPanelStyles019C")) return;
+
+    const style = document.createElement("style");
+    style.id = "cxSalesMiniPanelStyles019C";
+    style.textContent = `
+      .cx-sales-access-grid {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .cx-sales-access-row {
+        display: grid;
+        grid-template-columns: minmax(190px, 1.4fr) minmax(130px, .8fr) minmax(180px, 1fr) minmax(220px, 1.2fr) auto;
+        gap: 10px;
+        align-items: center;
+        padding: 14px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 18px;
+        background: rgba(255,255,255,.06);
+      }
+      .cx-sales-access-row strong { display:block; }
+      .cx-sales-muted { color: rgba(255,255,255,.68); font-size: 12px; }
+      .cx-sales-chip {
+        display:inline-flex;
+        align-items:center;
+        gap:6px;
+        border-radius:999px;
+        padding:6px 10px;
+        border:1px solid rgba(255,255,255,.16);
+        background: rgba(255,255,255,.08);
+        font-size:12px;
+      }
+      .cx-sales-code {
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size:12px;
+      }
+      .cx-sales-password {
+        margin-top: 8px;
+        padding: 10px;
+        border-radius: 14px;
+        background: rgba(34,197,94,.12);
+        border: 1px solid rgba(34,197,94,.25);
+      }
+      @media (max-width: 1100px) {
+        .cx-sales-access-row { grid-template-columns: 1fr; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxNormalizeRole019C(value = "") {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function cxIsSalesEmployee019C(employee = {}) {
+    const tokens = [
+      employee.role,
+      employee.employee_type,
+      employee.position,
+      employee.job_title
+    ].map(cxNormalizeRole019C).filter(Boolean);
+
+    return tokens.some((token) =>
+      CX_SALES_ROLE_TOKENS_019C.has(token) ||
+      token.includes("vendedor") ||
+      token.includes("ventas") ||
+      token.includes("comercial")
+    );
+  }
+
+  function cxSalesEmployeeKey019C(employee = {}) {
+    return String(employee.id || employee.employee_id || "");
+  }
+
+  async function cxLoadSalesMiniPanelUsers019C() {
+    if (!state.companyId) return [];
+    try {
+      const rows = await api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users?panel_type=sales`);
+      return Array.isArray(rows) ? rows : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  async function cxCreateSalesMiniPanelUser019C(employeeId, link) {
+    return api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users/sales/from-employee`, {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: employeeId,
+        link: link || ""
+      })
+    });
+  }
+
+  async function cxGetSalesMiniPanelLink019C() {
+    try {
+      const data = await cxLoadMiniPanelPackage019B(false);
+      const settings = data.packageSettings || {};
+      const types = cxMiniPanelEnabledTypes019B(settings);
+      const sales = types.find((item) => String(item.code || "") === "sales");
+      if (!sales) return null;
+      return {
+        link: cxMiniPanelLink019B("sales", sales),
+        users_allowed: Number(sales.users_allowed || 0),
+        label: cxMiniPanelTypeLabel019B("sales", sales, data.settings || {}),
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function cxSalesUsersByEmployee019C(users = []) {
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach((user) => {
+      const employeeId = String(user.employee_id || "");
+      if (employeeId) map.set(employeeId, user);
+    });
+    return map;
+  }
+
+  function cxSalesAccessRow019C(employee, assigned, salesLink) {
+    const employeeId = cxSalesEmployeeKey019C(employee);
+    const assignedUser = assigned ? (assigned.username || assigned.email || "") : "";
+    const statusText = assigned ? (assigned.status || "active") : "pendiente";
+    const link = assigned && assigned.link ? assigned.link : (salesLink ? salesLink.link : "");
+
+    return `
+      <div class="cx-sales-access-row" data-sales-employee-id="${h(employeeId)}">
+        <div>
+          <strong>${h(employee.full_name || employee.name || "Sin nombre")}</strong>
+          <div class="cx-sales-muted">${h(employee.phone || "Sin telefono")}</div>
+        </div>
+        <div>
+          <span class="cx-sales-chip">${h(employee.role || employee.employee_type || "vendedor")}</span>
+        </div>
+        <div>
+          <div class="cx-sales-muted">Link ventas</div>
+          <div class="cx-sales-code">${h(link || "No disponible")}</div>
+        </div>
+        <div>
+          <div class="cx-sales-muted">Usuario mini panel</div>
+          <strong>${h(assignedUser || "Sin usuario")}</strong>
+          <div class="cx-sales-muted">Estado: ${h(statusText)}</div>
+        </div>
+        <div>
+          ${
+            assigned
+              ? `<span class="cx-sales-chip">Activo</span>`
+              : `<button class="client-btn" type="button" data-sales-minipanel-create="${h(employeeId)}" data-sales-minipanel-link="${h(link || "")}" ${!salesLink ? "disabled" : ""}>Generar usuario</button>`
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderSalesModule019C() {
+    cxSalesEnsureStyles019C();
+
+    const company = state.company || {};
+    let employees = [];
+    let users = [];
+    let loadError = "";
+    let lastCreated = window.__cxSalesMiniPanelLastCreated019C || null;
+
+    try {
+      employees = await loadPersonalEmployees();
+      users = await cxLoadSalesMiniPanelUsers019C();
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar ventas.";
+    }
+
+    const salesLink = await cxGetSalesMiniPanelLink019C();
+    const sellers = (Array.isArray(employees) ? employees : []).filter((employee) =>
+      String(employee.status || "active") !== "archived" && cxIsSalesEmployee019C(employee)
+    );
+    const assignedByEmployee = cxSalesUsersByEmployee019C(users);
+
+    const rows = sellers.length
+      ? sellers.map((employee) => cxSalesAccessRow019C(employee, assignedByEmployee.get(cxSalesEmployeeKey019C(employee)), salesLink)).join("")
+      : `<div class="cx-mini-empty">No hay vendedores en Workforce. Crea personal con rol Vendedor para asignar acceso.</div>`;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("sales")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Ventas</div>
+              <h1 class="client-title">Ventas</h1>
+              <p class="client-muted">Asigna accesos de mini panel a vendedores creados en Workforce.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-sales-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Accesos de vendedores</div>
+              <h2>Usuarios mini panel ventas</h2>
+              <p class="client-muted">Fuente: Workforce. Rol requerido: vendedor, ventas, comercial o asesor comercial.</p>
+
+              ${loadError ? `<div class="personal-toast error" style="margin-top:14px">${h(loadError)}</div>` : ""}
+              ${!salesLink ? `<div class="personal-toast error" style="margin-top:14px">El paquete no tiene link de Ventas habilitado desde Admin V2.</div>` : `
+                <div class="cx-mini-empty" style="margin-top:14px">
+                  Link ventas: <strong>${h(salesLink.link)}</strong><br>
+                  Usuarios permitidos por paquete: <strong>${h(salesLink.users_allowed)}</strong>
+                </div>
+              `}
+              ${lastCreated ? `
+                <div class="cx-sales-password">
+                  Usuario creado: <strong>${h(lastCreated.username || lastCreated.email)}</strong><br>
+                  Clave temporal: <strong>${h(lastCreated.temporary_password || "")}</strong><br>
+                  Guarda esta clave. Luego el vendedor debera cambiarla.
+                </div>
+              ` : ""}
+
+              <div class="cx-sales-access-grid">
+                ${rows}
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CLONEXA_019C_SALES_MINIPANEL_USERS_FRONTEND_END */
+
+
   async function renderClientModulePlaceholder(code) {
     const company = state.company || {};
     $("app").innerHTML = `
@@ -7657,6 +7913,11 @@
 
         if (code === "kpis") {
           await renderKpisModule();
+          return;
+        }
+
+        if (code === "sales") {
+          await renderSalesModule019C();
           return;
         }
 
