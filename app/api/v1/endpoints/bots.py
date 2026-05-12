@@ -172,6 +172,38 @@ async def ensure_bot_storage(db: AsyncSession) -> None:
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_telegram_pending_actions_company ON company_telegram_pending_actions(company_id);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_telegram_pending_actions_action ON company_telegram_pending_actions(action);"))
 
+    # CLONEXA_019D_C1_TELEGRAM_LIVE_LOCATION_TRACKING_START
+    # Sesiones internas de seguimiento GPS por turno.
+    # Importante: esto NO fuerza ni cancela la ubicación en vivo del teléfono.
+    # CLONEXA abre/cierra su sesión operativa y procesa updates solo mientras el turno esté activo.
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS gps_tracking_sessions (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            employee_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+            telegram_user_id varchar(120) NULL,
+            chat_id varchar(120) NULL,
+            source_channel varchar(80) NOT NULL DEFAULT 'telegram_live_location',
+            status varchar(40) NOT NULL DEFAULT 'active',
+            started_at timestamptz NOT NULL DEFAULT now(),
+            ended_at timestamptz NULL,
+            last_location_at timestamptz NULL,
+            last_event_id uuid NULL,
+            metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        );
+    """))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_gps_tracking_sessions_company ON gps_tracking_sessions(company_id);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_gps_tracking_sessions_employee ON gps_tracking_sessions(company_id, employee_id);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_gps_tracking_sessions_status ON gps_tracking_sessions(company_id, status);"))
+    await db.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_gps_tracking_sessions_active_employee
+        ON gps_tracking_sessions(company_id, employee_id)
+        WHERE status = 'active';
+    """))
+    # CLONEXA_019D_C1_TELEGRAM_LIVE_LOCATION_TRACKING_END
+
 
 
 
@@ -548,9 +580,9 @@ BOT_TEXTS: dict[str, dict[str, str]] = {
         "btn_cart_confirm": "✅ Confirmar solicitud",
         "btn_cart_cancel": "❌ Cancelar",
         "location_requested": "📍 Solicitud de ubicación registrada. Para ubicación real, usa compartir ubicación en Telegram.",
-        "gps_required_for_start": "📍 Para iniciar turno, comparte tu ubicación actual.\nUsa el botón de abajo: Compartir ubicación.",
+        "gps_required_for_start": "📍 Para iniciar turno, comparte tu ubicación.\nRecomendado: usa ubicación en vivo durante la jornada. Si tu Telegram solo permite ubicación actual, envíala para iniciar y mantén actualizado el GPS desde /ubicacion.",
         "gps_location_pending": "📍 Ya estoy esperando tu ubicación para iniciar turno.\nComparte tu ubicación con el botón inferior.",
-        "gps_location_received_shift_started": "✅ Ubicación recibida.\nInicio de turno registrado con GPS validado.",
+        "gps_location_received_shift_started": "✅ Ubicación recibida.\nInicio de turno registrado con GPS validado. CLONEXA procesará ubicaciones en vivo mientras el turno esté activo.",
         "gps_location_received": "📍 Ubicación registrada.",
         "gps_no_pending": "No tengo una solicitud de ubicación pendiente. Usa el menú para continuar.",
         "btn_share_location": "📍 Compartir ubicación",
@@ -1251,6 +1283,175 @@ async def _clear_pending_gps_checkin(
         """),
         {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
     )
+
+
+# CLONEXA_019D_C1_TELEGRAM_LIVE_LOCATION_TRACKING_START
+def _is_live_location_message(message: dict[str, Any] | None) -> bool:
+    """
+    Telegram envía ubicaciones en vivo como message.location y luego como edited_message.location.
+    No todos los clientes conservan live_period en cada update; edit_date también es señal útil.
+    """
+    if not isinstance(message, dict):
+        return False
+
+    location = message.get("location")
+    if not isinstance(location, dict):
+        return False
+
+    return bool(location.get("live_period") or message.get("edit_date"))
+
+
+async def _open_gps_tracking_session(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    employee: Employee,
+    telegram_user_id: str | None,
+    chat_id: str | None,
+    event: WorkforceAttendanceEvent,
+    message: dict[str, Any],
+) -> None:
+    await ensure_bot_storage(db)
+
+    location = message.get("location") or {}
+    metadata = {
+        "source": "telegram_live_location",
+        "telegram_user_id": telegram_user_id,
+        "chat_id": chat_id,
+        "telegram_message_id": message.get("message_id"),
+        "live_period": location.get("live_period"),
+        "opened_by": "check_in_gps_location",
+        "last_event_id": str(event.id),
+    }
+
+    await db.execute(
+        text("""
+            UPDATE gps_tracking_sessions
+               SET status = 'closed',
+                   ended_at = COALESCE(ended_at, now()),
+                   updated_at = now(),
+                   metadata_json = COALESCE(metadata_json, '{}'::jsonb) || CAST(:closed_metadata AS jsonb)
+             WHERE company_id = :company_id
+               AND employee_id = :employee_id
+               AND status = 'active'
+        """),
+        {
+            "company_id": str(company_id),
+            "employee_id": str(employee.id),
+            "closed_metadata": json.dumps({"closed_reason": "new_check_in_reopened"}),
+        },
+    )
+
+    await db.execute(
+        text("""
+            INSERT INTO gps_tracking_sessions (
+                company_id,
+                employee_id,
+                telegram_user_id,
+                chat_id,
+                source_channel,
+                status,
+                started_at,
+                last_location_at,
+                last_event_id,
+                metadata_json,
+                updated_at
+            )
+            VALUES (
+                :company_id,
+                :employee_id,
+                :telegram_user_id,
+                :chat_id,
+                'telegram_live_location',
+                'active',
+                :started_at,
+                :last_location_at,
+                :last_event_id,
+                CAST(:metadata_json AS jsonb),
+                now()
+            )
+        """),
+        {
+            "company_id": str(company_id),
+            "employee_id": str(employee.id),
+            "telegram_user_id": str(telegram_user_id or ""),
+            "chat_id": str(chat_id or ""),
+            "started_at": event.occurred_at,
+            "last_location_at": event.occurred_at,
+            "last_event_id": str(event.id),
+            "metadata_json": json.dumps(metadata, ensure_ascii=False, default=str),
+        },
+    )
+
+
+async def _touch_gps_tracking_session(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    employee: Employee,
+    event: WorkforceAttendanceEvent,
+    message: dict[str, Any],
+) -> None:
+    await ensure_bot_storage(db)
+
+    location = message.get("location") or {}
+    metadata = {
+        "last_event_id": str(event.id),
+        "last_live_period": location.get("live_period"),
+        "last_telegram_message_id": message.get("message_id"),
+        "last_telegram_edit_date": message.get("edit_date"),
+    }
+
+    await db.execute(
+        text("""
+            UPDATE gps_tracking_sessions
+               SET last_location_at = :last_location_at,
+                   last_event_id = :last_event_id,
+                   updated_at = now(),
+                   metadata_json = COALESCE(metadata_json, '{}'::jsonb) || CAST(:metadata_json AS jsonb)
+             WHERE company_id = :company_id
+               AND employee_id = :employee_id
+               AND status = 'active'
+        """),
+        {
+            "company_id": str(company_id),
+            "employee_id": str(employee.id),
+            "last_location_at": event.occurred_at,
+            "last_event_id": str(event.id),
+            "metadata_json": json.dumps(metadata, ensure_ascii=False, default=str),
+        },
+    )
+
+
+async def _close_gps_tracking_session(
+    db: AsyncSession,
+    *,
+    company_id: UUID,
+    employee: Employee,
+    ended_at: datetime,
+    reason: str = "check_out",
+) -> None:
+    await ensure_bot_storage(db)
+
+    await db.execute(
+        text("""
+            UPDATE gps_tracking_sessions
+               SET status = 'closed',
+                   ended_at = :ended_at,
+                   updated_at = now(),
+                   metadata_json = COALESCE(metadata_json, '{}'::jsonb) || CAST(:metadata_json AS jsonb)
+             WHERE company_id = :company_id
+               AND employee_id = :employee_id
+               AND status = 'active'
+        """),
+        {
+            "company_id": str(company_id),
+            "employee_id": str(employee.id),
+            "ended_at": ended_at,
+            "metadata_json": json.dumps({"closed_reason": reason}, ensure_ascii=False),
+        },
+    )
+# CLONEXA_019D_C1_TELEGRAM_LIVE_LOCATION_TRACKING_END
 
 
 async def _set_pending_end_shift_summary(
@@ -3257,6 +3458,14 @@ async def _create_bot_attendance_event(
             event.metadata_json = metadata
             await db.flush()
 
+        await _close_gps_tracking_session(
+            db,
+            company_id=employee.company_id,
+            employee=employee,
+            ended_at=occurred_at,
+            reason="check_out",
+        )
+
         return True, await _shift_end_summary_message(
             db,
             employee=employee,
@@ -3283,6 +3492,7 @@ async def _process_telegram_location(
 ) -> TelegramBotPollItem:
     update_id = update.get("update_id")
     location = message.get("location") or {}
+    is_live_location = _is_live_location_message(message)
     if not telegram_user_id:
         return TelegramBotPollItem(update_id=update_id, ok=False, action="gps_location", message="Telegram user missing.")
 
@@ -3356,7 +3566,7 @@ async def _process_telegram_location(
                 telegram_username=username,
             )
 
-        await _create_gps_location_event(
+        gps_event = await _create_gps_location_event(
             db,
             bot=bot,
             employee=employee,
@@ -3377,6 +3587,15 @@ async def _process_telegram_location(
             args="Ubicación GPS validada",
             command_config=command_config,
             language=language,
+        )
+        await _open_gps_tracking_session(
+            db,
+            company_id=bot.company_id,
+            employee=employee,
+            telegram_user_id=telegram_user_id,
+            chat_id=chat_id,
+            event=gps_event,
+            message=message,
         )
         await _clear_pending_gps_checkin(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
         await db.commit()
@@ -3405,7 +3624,7 @@ async def _process_telegram_location(
     # Ubicación espontánea durante turno activo: se registra como GPS, pero no inicia turno.
     status_key = _current_status_key(current)
     if status_key in {"working", "on_break"}:
-        await _create_gps_location_event(
+        gps_event = await _create_gps_location_event(
             db,
             bot=bot,
             employee=employee,
@@ -3416,8 +3635,15 @@ async def _process_telegram_location(
             language=language,
             source_ref_suffix="gps_ping_location",
         )
+        await _touch_gps_tracking_session(
+            db,
+            company_id=bot.company_id,
+            employee=employee,
+            event=gps_event,
+            message=message,
+        )
         await db.commit()
-        if send_replies:
+        if send_replies and not is_live_location:
             await _send_telegram_message(token, chat_id, _txt(language, "gps_location_received"), reply_markup=_remove_reply_keyboard())
             await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
         return TelegramBotPollItem(
@@ -3428,6 +3654,20 @@ async def _process_telegram_location(
             employee_id=employee.id,
             employee_name=employee.full_name,
             event_created=True,
+            telegram_user_id=telegram_user_id,
+            telegram_username=username,
+        )
+
+    if is_live_location:
+        # Si Telegram sigue enviando ubicación después de finalizar turno,
+        # CLONEXA la ignora para no contaminar CRM/Reportes de una jornada cerrada.
+        return TelegramBotPollItem(
+            update_id=update_id,
+            ok=True,
+            action="gps_live_ignored_closed_shift",
+            message="Ubicación en vivo ignorada porque no hay turno activo.",
+            employee_id=employee.id,
+            employee_name=employee.full_name,
             telegram_user_id=telegram_user_id,
             telegram_username=username,
         )
