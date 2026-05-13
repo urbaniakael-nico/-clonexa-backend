@@ -764,3 +764,103 @@ p {
   margin-top: 4px;
 }
 /* CLONEXA_019A_R2_PACKAGE_BUILDER_END */
+
+
+/* CLONEXA_019G_COMPANY_MINIPANEL_INTERNAL_MODULES_START */
+.cx-company-minipanel-modules {
+  border-color: rgba(255, 0, 200, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(255, 0, 200, 0.10), transparent 34%),
+    rgba(255, 255, 255, 0.035);
+}
+
+.cx-company-minipanel-modules .cx-card-head {
+  gap: 14px;
+}
+
+.cx-company-minipanel-editor {
+  margin-top: 16px;
+}
+
+.cx-mini-internal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.cx-mini-internal-card {
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 22px;
+  padding: 16px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025)),
+    rgba(0, 0, 0, 0.12);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.18);
+}
+
+.cx-mini-internal-card .cx-card-head {
+  align-items: flex-start;
+}
+
+.cx-mini-internal-card strong {
+  font-size: 1rem;
+}
+
+.cx-mini-internal-card p {
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.cx-mini-internal-type-toggle {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.cx-mini-internal-feature-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cx-mini-internal-feature-list label {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 9px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.032);
+  cursor: pointer;
+}
+
+.cx-mini-internal-feature-list label:hover,
+.cx-mini-internal-type-toggle:hover {
+  border-color: rgba(255, 0, 200, 0.24);
+  background: rgba(255, 0, 200, 0.075);
+}
+
+.cx-mini-internal-feature-list input,
+.cx-mini-internal-type-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #ff2aa8;
+}
+
+@media (max-width: 900px) {
+  .cx-company-minipanel-modules .cx-card-head {
+    align-items: stretch;
+  }
+
+  .cx-mini-internal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* CLONEXA_019G_COMPANY_MINIPANEL_INTERNAL_MODULES_END */
+

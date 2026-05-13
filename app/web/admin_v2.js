@@ -2446,6 +2446,330 @@
       cxUpdateBrandingPreview();
     }
   });
+
+  /* CLONEXA_019G_COMPANY_MINIPANEL_INTERNAL_MODULES_START */
+  const CX_MINI_PANEL_INTERNAL_MODULE_GROUPS = [
+    {
+      type: "sales",
+      label: "Ventas",
+      description: "Opciones internas para vendedores y actividad comercial.",
+      modules: [
+        { code: "workday", label: "Jornada" },
+        { code: "pause_resume", label: "Pausa / retomar" },
+        { code: "quotes", label: "Cotizaciones" },
+        { code: "notes", label: "Notas" },
+        { code: "sales_register", label: "Registro ventas" },
+        { code: "day_close", label: "Cierre dÃ­a" },
+        { code: "goals", label: "Meta" },
+        { code: "promotions", label: "Promociones" },
+      ],
+    },
+    {
+      type: "store",
+      label: "Tiendas",
+      description: "Opciones internas para puntos de venta y cajas.",
+      modules: [
+        { code: "store_staff", label: "Personal tienda" },
+        { code: "requests", label: "Solicitudes" },
+        { code: "quotes", label: "Cotizaciones" },
+        { code: "cash_close", label: "Cierre caja" },
+        { code: "history", label: "Historial" },
+      ],
+    },
+    {
+      type: "inventory",
+      label: "Inventario",
+      description: "Opciones internas para control de inventario desde mini panel.",
+      modules: [
+        { code: "entries", label: "Entradas" },
+        { code: "counting", label: "Conteo" },
+        { code: "adjustments", label: "Ajustes" },
+        { code: "requests", label: "Solicitudes" },
+        { code: "evidence", label: "Evidencias / facturas" },
+      ],
+    },
+    {
+      type: "logistics",
+      label: "LogÃ­stica",
+      description: "Opciones internas para entregas, rutas y solicitudes.",
+      modules: [
+        { code: "tasks", label: "Tareas" },
+        { code: "routes", label: "Rutas" },
+        { code: "deliveries", label: "Entregas" },
+        { code: "materials", label: "Materiales" },
+        { code: "evidence", label: "Evidencias" },
+      ],
+    },
+    {
+      type: "other",
+      label: "Otro",
+      description: "Espacio adaptable para empresas futuras.",
+      modules: [
+        { code: "custom_form", label: "Formulario" },
+        { code: "notes", label: "Notas" },
+        { code: "attachments", label: "Adjuntos" },
+        { code: "daily_report", label: "Reporte diario" },
+      ],
+    },
+  ];
+
+  window.__cxMiniPanelInternalUx = window.__cxMiniPanelInternalUx || {
+    open: new Map(),
+  };
+
+  function cxGetCompanyMiniPanelModuleRow(companyId) {
+    const rows = safeArray(state.companyModules?.get(companyId)).map(normalizeModule);
+    return rows.find((row) => row.enabled !== false && cxIsMiniPanelModuleCode(row.code));
+  }
+
+  function cxMiniPanelInternalDefaultConfig(raw = {}) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const sourceTypes = source.types && typeof source.types === "object" ? source.types : {};
+    const types = {};
+
+    CX_MINI_PANEL_INTERNAL_MODULE_GROUPS.forEach((group) => {
+      const current = sourceTypes[group.type] && typeof sourceTypes[group.type] === "object" ? sourceTypes[group.type] : {};
+      const currentModules = current.modules && typeof current.modules === "object" ? current.modules : {};
+      const modules = {};
+
+      group.modules.forEach((item) => {
+        modules[item.code] = currentModules[item.code] === true;
+      });
+
+      types[group.type] = {
+        enabled: current.enabled === true,
+        label: current.label || group.label,
+        modules,
+      };
+    });
+
+    return {
+      enabled: source.enabled === true,
+      types,
+      updated_at: source.updated_at || null,
+    };
+  }
+
+  function cxCompanyMiniPanelInternalSettings(row) {
+    const settings = row?.settings && typeof row.settings === "object" ? row.settings : {};
+    return cxMiniPanelInternalDefaultConfig(
+      settings.mini_panel_internal_modules ||
+      settings.minipanel_internal_modules ||
+      settings.internal_modules ||
+      {}
+    );
+  }
+
+  function cxCompanyMiniPanelInternalSummary(config) {
+    const normalized = cxMiniPanelInternalDefaultConfig(config || {});
+    let activeTypes = 0;
+    let activeModules = 0;
+
+    CX_MINI_PANEL_INTERNAL_MODULE_GROUPS.forEach((group) => {
+      const row = normalized.types[group.type] || {};
+      const enabledCount = Object.values(row.modules || {}).filter(Boolean).length;
+      if (row.enabled || enabledCount > 0) activeTypes += 1;
+      activeModules += enabledCount;
+    });
+
+    if (!activeTypes && !activeModules) return "Sin configurar";
+    return `${activeTypes} tipos Â· ${activeModules} mÃ³dulos internos`;
+  }
+
+  function cxMiniPanelInternalConfigFromForm(form) {
+    const payload = {
+      enabled: true,
+      types: {},
+      updated_at: new Date().toISOString(),
+    };
+
+    CX_MINI_PANEL_INTERNAL_MODULE_GROUPS.forEach((group) => {
+      const typeEnabled = !!form.querySelector(`[name="cx_mini_internal_type_${group.type}"]`)?.checked;
+      const modules = {};
+
+      group.modules.forEach((item) => {
+        modules[item.code] = !!form.querySelector(`[name="cx_mini_internal_module_${group.type}_${item.code}"]`)?.checked;
+      });
+
+      payload.types[group.type] = {
+        enabled: typeEnabled || Object.values(modules).some(Boolean),
+        label: group.label,
+        modules,
+      };
+    });
+
+    return payload;
+  }
+
+  function cxRenderCompanyMiniPanelInternalModulesSection(company) {
+    const miniPanelModule = cxGetCompanyMiniPanelModuleRow(company.id);
+    if (!miniPanelModule) return "";
+
+    const config = cxCompanyMiniPanelInternalSettings(miniPanelModule);
+    const isOpen = window.__cxMiniPanelInternalUx.open.get(company.id) === true;
+    const summary = cxCompanyMiniPanelInternalSummary(config);
+
+    return `
+      <section class="cx-panel cx-company-minipanel-modules" style="margin-bottom:18px">
+        <div class="cx-card-head">
+          <div>
+            <h3>MÃ³dulos para Mini Panel</h3>
+            <p>Configura quÃ© opciones internas aparecerÃ¡n dentro de los mini paneles de esta empresa. No modifica los mÃ³dulos principales de CLONEXA.</p>
+          </div>
+          <div class="cx-actions" style="gap:8px">
+            <span class="cx-badge cx-badge-live">CREACION MINI_PANEL activo</span>
+            <span class="cx-badge">${escapeHtml(summary)}</span>
+            <button
+              class="cx-btn ${isOpen ? "cx-btn-primary" : ""}"
+              type="button"
+              data-cx-company-minipanel-internal-toggle
+              data-company-id="${escapeHtml(company.id)}"
+            >
+              ${isOpen ? "Cerrar configuraciÃ³n" : "Ajustar mÃ³dulos"}
+            </button>
+          </div>
+        </div>
+
+        <div ${isOpen ? "" : "hidden"} class="cx-company-minipanel-editor">
+          <form
+            class="cx-form"
+            data-cx-company-minipanel-internal-form
+            data-company-id="${escapeHtml(company.id)}"
+            data-module-code="${escapeHtml(miniPanelModule.code)}"
+          >
+            <div class="cx-mini-internal-grid">
+              ${CX_MINI_PANEL_INTERNAL_MODULE_GROUPS.map((group) => {
+                const row = config.types[group.type] || { enabled: false, modules: {} };
+                const enabledCount = Object.values(row.modules || {}).filter(Boolean).length;
+
+                return `
+                  <article class="cx-mini-internal-card">
+                    <div class="cx-card-head">
+                      <div>
+                        <strong>${escapeHtml(group.label)}</strong>
+                        <p>${escapeHtml(group.description)}</p>
+                      </div>
+                      <span class="cx-badge ${enabledCount ? "cx-badge-live" : ""}">${escapeHtml(enabledCount)} activos</span>
+                    </div>
+
+                    <label class="cx-mini-internal-type-toggle">
+                      <input
+                        type="checkbox"
+                        name="cx_mini_internal_type_${escapeHtml(group.type)}"
+                        data-cx-mini-panel-type-check
+                        data-mini-type="${escapeHtml(group.type)}"
+                        ${row.enabled ? "checked" : ""}
+                      >
+                      Habilitar tipo ${escapeHtml(group.label)}
+                    </label>
+
+                    <div class="cx-mini-internal-feature-list">
+                      ${group.modules.map((item) => `
+                        <label>
+                          <input
+                            type="checkbox"
+                            name="cx_mini_internal_module_${escapeHtml(group.type)}_${escapeHtml(item.code)}"
+                            data-cx-mini-panel-module-check
+                            data-mini-type="${escapeHtml(group.type)}"
+                            ${row.modules?.[item.code] ? "checked" : ""}
+                          >
+                          <span>${escapeHtml(item.label)}</span>
+                        </label>
+                      `).join("")}
+                    </div>
+                  </article>
+                `;
+              }).join("")}
+            </div>
+
+            <div class="cx-actions" style="margin-top:14px">
+              <button class="cx-btn cx-btn-primary" type="submit">Guardar mÃ³dulos para mini panel</button>
+              <span class="cx-empty-state">Esta configuraciÃ³n queda guardada en el mÃ³dulo CREACION MINI_PANEL de esta empresa.</span>
+            </div>
+          </form>
+        </div>
+      </section>
+    `;
+  }
+
+  function cxBindCompanyMiniPanelInternalModulesEvents() {
+    if (window.__cxMiniPanelInternalModulesEventsBound) return;
+    window.__cxMiniPanelInternalModulesEventsBound = true;
+
+    document.addEventListener("click", (event) => {
+      const toggle = event.target.closest("[data-cx-company-minipanel-internal-toggle]");
+      if (!toggle) return;
+
+      const companyId = toggle.dataset.companyId;
+      window.__cxMiniPanelInternalUx.open.set(companyId, window.__cxMiniPanelInternalUx.open.get(companyId) !== true);
+      if (typeof renderCompanies === "function") renderCompanies();
+    });
+
+    document.addEventListener("change", (event) => {
+      const moduleCheck = event.target.closest("[data-cx-mini-panel-module-check]");
+      if (moduleCheck && moduleCheck.checked) {
+        const form = moduleCheck.closest("[data-cx-company-minipanel-internal-form]");
+        const type = moduleCheck.dataset.miniType;
+        const typeCheck = form?.querySelector(`[data-cx-mini-panel-type-check][data-mini-type="${type}"]`);
+        if (typeCheck) typeCheck.checked = true;
+      }
+
+      const typeCheck = event.target.closest("[data-cx-mini-panel-type-check]");
+      if (typeCheck && !typeCheck.checked) {
+        const form = typeCheck.closest("[data-cx-company-minipanel-internal-form]");
+        const type = typeCheck.dataset.miniType;
+        form?.querySelectorAll(`[data-cx-mini-panel-module-check][data-mini-type="${type}"]`).forEach((input) => {
+          input.checked = false;
+        });
+      }
+    });
+
+    document.addEventListener("submit", async (event) => {
+      const form = event.target.closest("[data-cx-company-minipanel-internal-form]");
+      if (!form) return;
+
+      event.preventDefault();
+
+      const companyId = form.dataset.companyId;
+      const moduleCode = form.dataset.moduleCode;
+      const submit = form.querySelector("button[type='submit']");
+
+      if (!companyId || !moduleCode) return;
+
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = "Guardando...";
+      }
+
+      try {
+        const config = cxMiniPanelInternalConfigFromForm(form);
+        await cxJsonRequest(`/companies/${companyId}/modules/${moduleCode}/activate`, {
+          method: "POST",
+          body: JSON.stringify({
+            settings: {
+              mini_panel_internal_modules: config,
+            },
+          }),
+        });
+
+        await loadCompanyModules(companyId);
+        showToast("MÃ³dulos para mini panel guardados.");
+        if (typeof renderCompanies === "function") renderCompanies();
+      } catch (error) {
+        showToast(error.message || "No se pudo guardar la configuraciÃ³n de mini panel.", "error");
+      } finally {
+        if (submit) {
+          submit.disabled = false;
+          submit.textContent = "Guardar mÃ³dulos para mini panel";
+        }
+      }
+    });
+  }
+
+  cxBindCompanyMiniPanelInternalModulesEvents();
+  /* CLONEXA_019G_COMPANY_MINIPANEL_INTERNAL_MODULES_END */
+
+
   function renderCompanyDetailTab(company) {
     const node = el("#companyDetailContent");
     if (!node) return;
