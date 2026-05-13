@@ -7619,6 +7619,15 @@
         background: rgba(34,197,94,.12);
         border: 1px solid rgba(34,197,94,.25);
       }
+      .cx-sales-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .cx-sales-password strong {
+        user-select: all;
+      }
       @media (max-width: 1100px) {
         .cx-sales-access-row { grid-template-columns: 1fr; }
       }
@@ -7676,6 +7685,27 @@
     });
   }
 
+  /* CLONEXA_019D_R2_SALES_RESET_PASSWORD_FRONTEND_START */
+  async function cxResetSalesMiniPanelPassword019DR2(userId) {
+    return api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users/${encodeURIComponent(userId)}/reset-password`, {
+      method: "POST"
+    });
+  }
+
+  async function cxCopyText019DR2(value, label = "Texto") {
+    const text = String(value || "");
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      cxSalesNotice019DR1(`${label} copiado.`);
+      return true;
+    } catch (error) {
+      window.prompt(`Copia ${label.toLowerCase()}:`, text);
+      return false;
+    }
+  }
+  /* CLONEXA_019D_R2_SALES_RESET_PASSWORD_FRONTEND_END */
+
   async function cxGetSalesMiniPanelLink019C() {
     try {
       const data = await cxLoadMiniPanelPackage019B(false);
@@ -7705,6 +7735,7 @@
   function cxSalesAccessRow019C(employee, assigned, salesLink) {
     const employeeId = cxSalesEmployeeKey019C(employee);
     const assignedUser = assigned ? (assigned.username || assigned.email || "") : "";
+    const assignedId = assigned ? String(assigned.id || "") : "";
     const statusText = assigned ? (assigned.status || "active") : "pendiente";
     const link = assigned && assigned.link ? assigned.link : (salesLink ? salesLink.link : "");
 
@@ -7729,7 +7760,11 @@
         <div>
           ${
             assigned
-              ? `<span class="cx-sales-chip">Activo</span>`
+              ? `<div class="cx-sales-actions">
+                  <span class="cx-sales-chip">Activo</span>
+                  <button class="client-btn" type="button" data-sales-minipanel-reset="${h(assignedId)}" data-sales-minipanel-username="${h(assignedUser)}">Regenerar clave</button>
+                  <button class="client-btn" type="button" data-sales-copy="${h(assignedUser)}">Copiar usuario</button>
+                </div>`
               : `<button class="client-btn" type="button" data-sales-minipanel-create="${h(employeeId)}" data-sales-minipanel-link="${h(link || "")}" ${!salesLink ? "disabled" : ""}>Generar usuario</button>`
           }
         </div>
@@ -7799,9 +7834,11 @@
               `}
               ${lastCreated ? `
                 <div class="cx-sales-password">
-                  Usuario creado: <strong>${h(lastCreated.username || lastCreated.email)}</strong><br>
-                  Clave temporal: <strong>${h(lastCreated.temporary_password || "")}</strong><br>
-                  Guarda esta clave. Luego el vendedor debera cambiarla.
+                  Usuario: <strong>${h(lastCreated.username || lastCreated.email)}</strong><br>
+                  ${lastCreated.temporary_password
+                    ? `Clave temporal: <strong>${h(lastCreated.temporary_password)}</strong><br><span class="cx-sales-muted">Guarda esta clave. Solo se muestra una vez.</span>`
+                    : `<span class="cx-sales-muted">Usuario activo. Para entregar una clave nueva usa Regenerar clave.</span>`
+                  }
                 </div>
               ` : ""}
 
@@ -7843,6 +7880,51 @@
       return;
     }
 
+    const copyButton = event.target.closest("[data-sales-copy]");
+    if (copyButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      await cxCopyText019DR2(copyButton.getAttribute("data-sales-copy") || "", "Usuario");
+      return;
+    }
+
+    const resetButton = event.target.closest("[data-sales-minipanel-reset]");
+    if (resetButton) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const userId = resetButton.getAttribute("data-sales-minipanel-reset") || "";
+      const originalText = resetButton.textContent || "Regenerar clave";
+
+      if (!userId) {
+        cxSalesNotice019DR1("No se encontro el usuario mini panel para regenerar clave.", true);
+        return;
+      }
+
+      try {
+        resetButton.disabled = true;
+        resetButton.textContent = "Regenerando...";
+
+        const updated = await cxResetSalesMiniPanelPassword019DR2(userId);
+        window.__cxSalesMiniPanelLastCreated019C = updated || null;
+
+        await renderSalesModule019C();
+
+        const username = updated?.username || updated?.email || "usuario";
+        const tempPassword = updated?.temporary_password || "";
+        cxSalesNotice019DR1(
+          tempPassword
+            ? `Clave regenerada para ${username}: ${tempPassword}`
+            : `Clave regenerada para ${username}.`
+        );
+      } catch (error) {
+        resetButton.disabled = false;
+        resetButton.textContent = originalText;
+        cxSalesNotice019DR1(error.message || "No se pudo regenerar la clave.", true);
+      }
+      return;
+    }
+
     const button = event.target.closest("[data-sales-minipanel-create]");
     if (!button) return;
 
@@ -7854,7 +7936,7 @@
     const originalText = button.textContent || "Generar usuario";
 
     if (!employeeId) {
-      cxSalesNotice019DR1("No se encontrÃ³ el empleado de Workforce para generar el usuario.", true);
+      cxSalesNotice019DR1("No se encontro el empleado de Workforce para generar el usuario.", true);
       return;
     }
 
@@ -7872,7 +7954,7 @@
       cxSalesNotice019DR1(
         tempPassword
           ? `Usuario generado: ${username}. Clave temporal: ${tempPassword}`
-          : `Usuario ya existente: ${username}`
+          : `Usuario ya existente: ${username}. Usa Regenerar clave para crear una clave nueva.`
       );
     } catch (error) {
       button.disabled = false;

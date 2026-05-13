@@ -456,6 +456,49 @@ async def create_sales_mini_panel_user(
 
     return _cx_minipanel_user_payload_019c(user, temporary_password=temp_password)
 
+
+# CLONEXA_019D_R2_MINIPANEL_PASSWORD_RESET_START
+@router.post("/{company_id}/mini-panel-users/{user_id}/reset-password")
+async def reset_mini_panel_user_password_019d_r2(
+    company_id: UUID,
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    result = await db.execute(
+        select(CompanyUser).where(
+            CompanyUser.company_id == company_id,
+            CompanyUser.id == user_id,
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario mini panel no encontrado.")
+
+    if not _cx_is_minipanel_user_019c(user):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El usuario no pertenece a mini panel.")
+
+    settings = _cx_user_settings_019c(user)
+    mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    panel_type = str(mini_panel.get("type") or "").strip().lower()
+    if panel_type not in MINI_PANEL_ALLOWED_TYPES_019C:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de mini panel invalido.")
+
+    temp_password = generate_temporary_password()
+    now = datetime.now(timezone.utc)
+
+    user.password_hash = hash_password(temp_password)
+    user.must_change_password = True
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    user.last_password_reset_at = now
+    user.updated_at = now
+
+    await db.commit()
+    await db.refresh(user)
+
+    return _cx_minipanel_user_payload_019c(user, temporary_password=temp_password)
+# CLONEXA_019D_R2_MINIPANEL_PASSWORD_RESET_END
+
 # CLONEXA_019C_SALES_MINIPANEL_USERS_BACKEND_END
 
 
