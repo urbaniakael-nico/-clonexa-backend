@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -498,6 +498,367 @@ async def reset_mini_panel_user_password_019d_r2(
 
     return _cx_minipanel_user_payload_019c(user, temporary_password=temp_password)
 # CLONEXA_019D_R2_MINIPANEL_PASSWORD_RESET_END
+
+# CLONEXA_019F_MINI_PANEL_SALES_OPERATIVE_START
+
+async def _cx_mp_work_ensure_019f(db: AsyncSession) -> None:
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS mini_panel_work_sessions (
+            id uuid PRIMARY KEY,
+            company_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            employee_id uuid NULL,
+            panel_type text NOT NULL,
+            status text NOT NULL DEFAULT 'active',
+            location_label text NOT NULL DEFAULT 'Trabajo',
+            started_at timestamptz NOT NULL DEFAULT now(),
+            ended_at timestamptz NULL,
+            active_seconds integer NOT NULL DEFAULT 0,
+            break_seconds integer NOT NULL DEFAULT 0,
+            active_started_at timestamptz NULL,
+            current_break_started_at timestamptz NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_mini_panel_work_sessions_company_user_type
+        ON mini_panel_work_sessions (company_id, user_id, panel_type, started_at DESC)
+    """))
+
+
+def _cx_mp_dt_019f(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _cx_mp_seconds_between_019f(start: Any, end: datetime) -> int:
+    started = _cx_mp_dt_019f(start)
+    if not started:
+        return 0
+    return max(0, int((end - started).total_seconds()))
+
+
+def _cx_mp_label_019f(value: Any) -> str | None:
+    dt = _cx_mp_dt_019f(value)
+    if not dt:
+        return None
+    return dt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+
+
+async def _cx_mp_auth_context_019f(
+    db: AsyncSession,
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str],
+) -> tuple[Company, CompanyUser, Dict[str, Any]]:
+    clean_type = _cx_panel_type_019d(panel_type)
+    token = _cx_bearer_token_019d(authorization)
+    user = await get_current_company_user(db, token)
+
+    if str(user.company_id) != str(company_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El usuario no pertenece a esta empresa.")
+
+    settings = _cx_user_settings_019c(user)
+    mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    if mini_panel.get("enabled") is not True or str(mini_panel.get("type") or "") != clean_type:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acceso no autorizado para este mini panel.")
+
+    company = await _cx_company_or_404_019d(db, company_id)
+    return company, user, mini_panel
+
+
+def _cx_mp_operational_payload_019f(row: Any) -> Dict[str, Any]:
+    data = dict(row or {})
+    now = datetime.now(timezone.utc)
+
+    status_value = str(data.get("status") or "active").lower()
+    active_seconds = int(data.get("active_seconds") or 0)
+    break_seconds = int(data.get("break_seconds") or 0)
+
+    if status_value == "active":
+        active_seconds += _cx_mp_seconds_between_019f(data.get("active_started_at"), now)
+    elif status_value == "break":
+        break_seconds += _cx_mp_seconds_between_019f(data.get("current_break_started_at"), now)
+
+    started_at = _cx_mp_dt_019f(data.get("started_at"))
+    ended_at = _cx_mp_dt_019f(data.get("ended_at"))
+    active_started_at = _cx_mp_dt_019f(data.get("active_started_at"))
+    current_break_started_at = _cx_mp_dt_019f(data.get("current_break_started_at"))
+
+    return {
+        "id": str(data.get("id")),
+        "company_id": str(data.get("company_id")),
+        "user_id": str(data.get("user_id")),
+        "employee_id": str(data.get("employee_id")) if data.get("employee_id") else None,
+        "panel_type": str(data.get("panel_type") or ""),
+        "status": status_value,
+        "location_label": data.get("location_label") or "Trabajo",
+        "started_at": started_at.isoformat() if started_at else None,
+        "started_label": _cx_mp_label_019f(started_at),
+        "ended_at": ended_at.isoformat() if ended_at else None,
+        "active_started_at": active_started_at.isoformat() if active_started_at else None,
+        "current_break_started_at": current_break_started_at.isoformat() if current_break_started_at else None,
+        "active_seconds": active_seconds,
+        "break_seconds": break_seconds,
+        "paid_seconds": active_seconds,
+        "server_time": now.isoformat(),
+        "kpis": {
+            "monthly_sales_total": 0,
+            "monthly_goal": 0,
+            "goal_currency": "COP",
+            "promotions": [],
+        },
+    }
+
+
+async def _cx_mp_fetch_open_session_019f(
+    db: AsyncSession,
+    company_id: UUID,
+    user_id: UUID,
+    panel_type: str,
+) -> Dict[str, Any] | None:
+    await _cx_mp_work_ensure_019f(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM mini_panel_work_sessions
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND user_id = CAST(:user_id AS uuid)
+              AND panel_type = :panel_type
+              AND status IN ('active', 'break')
+            ORDER BY started_at DESC
+            LIMIT 1
+        """),
+        {
+            "company_id": str(company_id),
+            "user_id": str(user_id),
+            "panel_type": panel_type,
+        },
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def _cx_mp_fetch_session_by_id_019f(db: AsyncSession, session_id: str) -> Dict[str, Any]:
+    result = await db.execute(
+        text("SELECT * FROM mini_panel_work_sessions WHERE id = CAST(:id AS uuid) LIMIT 1"),
+        {"id": str(session_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SesiÃ³n operativa no encontrada.")
+    return dict(row)
+
+
+async def _cx_mp_create_session_019f(
+    db: AsyncSession,
+    company_id: UUID,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+    panel_type: str,
+) -> Dict[str, Any]:
+    await _cx_mp_work_ensure_019f(db)
+    now = datetime.now(timezone.utc)
+    session_id = str(uuid4())
+    employee_id = mini_panel.get("employee_id")
+
+    await db.execute(
+        text("""
+            INSERT INTO mini_panel_work_sessions (
+                id,
+                company_id,
+                user_id,
+                employee_id,
+                panel_type,
+                status,
+                location_label,
+                started_at,
+                active_started_at,
+                active_seconds,
+                break_seconds,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                CAST(:id AS uuid),
+                CAST(:company_id AS uuid),
+                CAST(:user_id AS uuid),
+                CAST(:employee_id AS uuid),
+                :panel_type,
+                'active',
+                'Trabajo',
+                :now,
+                :now,
+                0,
+                0,
+                :now,
+                :now
+            )
+        """),
+        {
+            "id": session_id,
+            "company_id": str(company_id),
+            "user_id": str(user.id),
+            "employee_id": str(employee_id) if employee_id else None,
+            "panel_type": panel_type,
+            "now": now,
+        },
+    )
+    await db.commit()
+    return await _cx_mp_fetch_session_by_id_019f(db, session_id)
+
+
+async def _cx_mp_get_or_create_session_019f(
+    db: AsyncSession,
+    company_id: UUID,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+    panel_type: str,
+) -> Dict[str, Any]:
+    open_session = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, panel_type)
+    if open_session:
+        return open_session
+    return await _cx_mp_create_session_019f(db, company_id, user, mini_panel, panel_type)
+
+
+@router.get("/{company_id}/mini-panel-operational-session")
+async def mini_panel_operational_session_019f(
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    clean_type = _cx_panel_type_019d(panel_type)
+    row = await _cx_mp_get_or_create_session_019f(db, company_id, user, mini_panel, clean_type)
+    return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(row)}
+
+
+@router.post("/{company_id}/mini-panel-operational-session/pause")
+async def mini_panel_operational_pause_019f(
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    _, user, _ = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    clean_type = _cx_panel_type_019d(panel_type)
+    row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesiÃ³n operativa activa.")
+    if str(row.get("status") or "") == "break":
+        return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(row)}
+
+    now = datetime.now(timezone.utc)
+    active_delta = _cx_mp_seconds_between_019f(row.get("active_started_at"), now)
+    await db.execute(
+        text("""
+            UPDATE mini_panel_work_sessions
+            SET status = 'break',
+                active_seconds = COALESCE(active_seconds, 0) + :active_delta,
+                active_started_at = NULL,
+                current_break_started_at = :now,
+                updated_at = :now
+            WHERE id = CAST(:id AS uuid)
+        """),
+        {"id": str(row["id"]), "active_delta": active_delta, "now": now},
+    )
+    await db.commit()
+    updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
+    return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
+
+
+@router.post("/{company_id}/mini-panel-operational-session/resume")
+async def mini_panel_operational_resume_019f(
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    _, user, _ = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    clean_type = _cx_panel_type_019d(panel_type)
+    row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesiÃ³n operativa activa.")
+    if str(row.get("status") or "") == "active":
+        return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(row)}
+
+    now = datetime.now(timezone.utc)
+    break_delta = _cx_mp_seconds_between_019f(row.get("current_break_started_at"), now)
+    await db.execute(
+        text("""
+            UPDATE mini_panel_work_sessions
+            SET status = 'active',
+                break_seconds = COALESCE(break_seconds, 0) + :break_delta,
+                current_break_started_at = NULL,
+                active_started_at = :now,
+                updated_at = :now
+            WHERE id = CAST(:id AS uuid)
+        """),
+        {"id": str(row["id"]), "break_delta": break_delta, "now": now},
+    )
+    await db.commit()
+    updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
+    return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
+
+
+@router.post("/{company_id}/mini-panel-operational-session/finish")
+async def mini_panel_operational_finish_019f(
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    _, user, _ = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    clean_type = _cx_panel_type_019d(panel_type)
+    row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesiÃ³n operativa activa.")
+
+    now = datetime.now(timezone.utc)
+    active_delta = 0
+    break_delta = 0
+
+    if str(row.get("status") or "") == "active":
+        active_delta = _cx_mp_seconds_between_019f(row.get("active_started_at"), now)
+    elif str(row.get("status") or "") == "break":
+        break_delta = _cx_mp_seconds_between_019f(row.get("current_break_started_at"), now)
+
+    await db.execute(
+        text("""
+            UPDATE mini_panel_work_sessions
+            SET status = 'finished',
+                ended_at = :now,
+                active_seconds = COALESCE(active_seconds, 0) + :active_delta,
+                break_seconds = COALESCE(break_seconds, 0) + :break_delta,
+                active_started_at = NULL,
+                current_break_started_at = NULL,
+                updated_at = :now
+            WHERE id = CAST(:id AS uuid)
+        """),
+        {
+            "id": str(row["id"]),
+            "active_delta": active_delta,
+            "break_delta": break_delta,
+            "now": now,
+        },
+    )
+    await db.commit()
+    updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
+    return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
+
+# CLONEXA_019F_MINI_PANEL_SALES_OPERATIVE_END
 
 # CLONEXA_019C_SALES_MINIPANEL_USERS_BACKEND_END
 
