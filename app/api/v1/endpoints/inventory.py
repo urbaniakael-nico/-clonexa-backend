@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,187 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 
 router = APIRouter()
+
+# CX_019E_INVENTORY_INVOICE_BACKEND_START
+MAX_INVOICE_BYTES = 8 * 1024 * 1024
+ALLOWED_INVOICE_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf",
+}
+
+
+def _invoice_content_type(upload: UploadFile) -> str:
+    content_type = (upload.content_type or "").strip().lower()
+    filename = (upload.filename or "").lower()
+
+    if content_type in ALLOWED_INVOICE_TYPES:
+        return content_type
+    if filename.endswith(".jpg") or filename.endswith(".jpeg"):
+        return "image/jpeg"
+    if filename.endswith(".png"):
+        return "image/png"
+    if filename.endswith(".webp"):
+        return "image/webp"
+    if filename.endswith(".pdf"):
+        return "application/pdf"
+
+    raise HTTPException(status_code=422, detail="Factura inválida. Usa JPG, PNG, WEBP o PDF.")
+
+
+async def _read_invoice_upload(upload: UploadFile | None) -> dict[str, Any] | None:
+    if upload is None:
+        return None
+
+    original_name = (upload.filename or "").strip()
+    if not original_name:
+        return None
+
+    content_type = _invoice_content_type(upload)
+    content = await upload.read()
+
+    if not content:
+        return None
+    if len(content) > MAX_INVOICE_BYTES:
+        raise HTTPException(status_code=422, detail="La factura supera el máximo permitido de 8 MB.")
+
+    return {
+        "invoice_original_name": original_name[:260],
+        "invoice_content_type": content_type,
+        "invoice_file_bytes": content,
+        "invoice_file_size": len(content),
+    }
+
+
+def _movement_invoice_url(movement_id: Any, original_name: Any = None) -> str | None:
+    if not movement_id or not original_name:
+        return None
+    return f"/api/v1/inventory/movements/{movement_id}/invoice"
+
+
+def inventory_movement_out(row: dict[str, Any]) -> dict[str, Any]:
+    def iso(key: str) -> str | None:
+        value = row.get(key)
+        return value.isoformat() if hasattr(value, "isoformat") else None
+
+    movement_id = row.get("id")
+    original_name = row.get("invoice_original_name")
+    return {
+        "id": str(movement_id),
+        "company_id": str(row.get("company_id")),
+        "item_id": str(row.get("item_id")) if row.get("item_id") else None,
+        "movement_type": row.get("movement_type") or row.get("type") or "entry",
+        "quantity_delta": _float(row.get("quantity_delta")),
+        "quantity": _float(row.get("quantity") if row.get("quantity") is not None else row.get("quantity_delta")),
+        "stock_before": _float(row.get("stock_before")),
+        "stock_after": _float(row.get("stock_after")),
+        "source_module": row.get("source_module") or "inventory",
+        "source_ref": row.get("source_ref") or "",
+        "notes": row.get("notes") or "",
+        "name_reference": row.get("name_reference") or "",
+        "size": row.get("item_size") or "",
+        "color": row.get("color") or "",
+        "invoice_original_name": original_name or "",
+        "invoice_content_type": row.get("invoice_content_type") or "",
+        "invoice_file_size": int(row.get("invoice_file_size") or 0),
+        "invoice_file_url": _movement_invoice_url(movement_id, original_name),
+        "created_at": iso("created_at"),
+    }
+
+
+async def _insert_inventory_entry(
+    db: AsyncSession,
+    item_id: UUID,
+    quantity: Decimal,
+    notes: str | None = None,
+    invoice_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if quantity <= 0:
+        raise HTTPException(status_code=422, detail="La cantidad ingresada debe ser mayor a cero.")
+
+    result = await db.execute(
+        text("""
+            UPDATE inventory_items
+            SET current_stock = current_stock + :quantity,
+                stock = COALESCE(stock, current_stock + :quantity),
+                stock_actual = COALESCE(stock_actual, current_stock + :quantity),
+                updated_at = now()
+            WHERE id = :item_id
+            RETURNING *
+        """),
+        {"item_id": str(item_id), "quantity": quantity},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Material no encontrado.")
+
+    item = dict(row)
+    stock_after = _to_decimal(item.get("current_stock"))
+    stock_before = stock_after - quantity
+    movement_id = str(uuid4())
+    invoice_data = invoice_data or {}
+
+    await db.execute(
+        text("""
+            INSERT INTO inventory_movements (
+                id,
+                company_id,
+                item_id,
+                movement_type,
+                quantity_delta,
+                quantity,
+                stock_before,
+                stock_after,
+                source_module,
+                notes,
+                invoice_original_name,
+                invoice_content_type,
+                invoice_file_bytes,
+                invoice_file_size,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                :id,
+                :company_id,
+                :item_id,
+                'entry',
+                :quantity_delta,
+                :quantity_delta,
+                :stock_before,
+                :stock_after,
+                'inventory',
+                :notes,
+                :invoice_original_name,
+                :invoice_content_type,
+                :invoice_file_bytes,
+                :invoice_file_size,
+                now(),
+                now()
+            )
+        """),
+        {
+            "id": movement_id,
+            "company_id": str(item["company_id"]),
+            "item_id": str(item["id"]),
+            "quantity_delta": quantity,
+            "stock_before": stock_before,
+            "stock_after": stock_after,
+            "notes": (notes or "").strip() or "Entrada desde Inventario",
+            "invoice_original_name": invoice_data.get("invoice_original_name"),
+            "invoice_content_type": invoice_data.get("invoice_content_type"),
+            "invoice_file_bytes": invoice_data.get("invoice_file_bytes"),
+            "invoice_file_size": invoice_data.get("invoice_file_size"),
+        },
+    )
+
+    await db.commit()
+    output = inventory_item_out(item)
+    output["movement_id"] = movement_id
+    return output
+# CX_019E_INVENTORY_INVOICE_BACKEND_END
+
 
 VALID_ITEM_STATUSES = {"active", "inactive"}
 VALID_MOVEMENT_TYPES = {"initial", "entry", "delivery", "return", "manual_adjustment"}
@@ -94,7 +275,14 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
             source_module varchar(80) NOT NULL DEFAULT 'inventory',
             source_ref varchar(220) NULL,
             notes text NULL,
-            created_at timestamptz NOT NULL DEFAULT now()
+            stock_before numeric(14,2) NULL,
+            stock_after numeric(14,2) NULL,
+            invoice_original_name text NULL,
+            invoice_content_type varchar(140) NULL,
+            invoice_file_bytes bytea NULL,
+            invoice_file_size integer NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
         );
     """))
 
@@ -125,6 +313,14 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS source_ref varchar(220) NULL",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS notes text NULL",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS stock_before numeric(14,2) NULL",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS stock_after numeric(14,2) NULL",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS invoice_original_name text NULL",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS invoice_content_type varchar(140) NULL",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS invoice_file_bytes bytea NULL",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS invoice_file_size integer NULL",
+        "SELECT 1 /* CX_019E_INVENTORY_STORAGE_COLUMNS */",
         "ALTER TABLE inventory_movements ALTER COLUMN quantity SET DEFAULT 0",
         "UPDATE inventory_movements SET quantity = COALESCE(quantity, quantity_delta, 0)",
         "UPDATE inventory_movements SET quantity_delta = COALESCE(quantity_delta, quantity, 0)",
@@ -308,10 +504,10 @@ async def create_inventory_item(
         await db.execute(
             text("""
                 INSERT INTO inventory_movements (
-                    id, company_id, item_id, movement_type, quantity_delta, quantity, source_module, notes, created_at
+                    id, company_id, item_id, movement_type, quantity_delta, quantity, stock_before, stock_after, source_module, notes, created_at, updated_at
                 )
                 VALUES (
-                    :id, :company_id, :item_id, 'initial', :quantity_delta, :quantity_delta, 'inventory', 'Cantidad inicial', now()
+                    :id, :company_id, :item_id, 'initial', :quantity_delta, :quantity_delta, 0, :quantity_delta, 'inventory', 'Cantidad inicial', now(), now()
                 )
             """),
             {
@@ -378,6 +574,7 @@ async def update_inventory_item(
     return inventory_item_out(dict(row))
 
 
+
 @router.post("/items/{item_id}/entry")
 async def add_inventory_entry(
     item_id: UUID,
@@ -387,44 +584,119 @@ async def add_inventory_entry(
     await ensure_inventory_storage(db)
 
     quantity = _to_decimal(payload.quantity)
-    if quantity <= 0:
-        raise HTTPException(status_code=422, detail="La cantidad ingresada debe ser mayor a cero.")
+    return await _insert_inventory_entry(
+        db=db,
+        item_id=item_id,
+        quantity=quantity,
+        notes=payload.notes or "Entrada desde Inventario",
+        invoice_data=None,
+    )
+
+
+@router.post("/items/{item_id}/entry-with-invoice")
+async def add_inventory_entry_with_invoice(
+    item_id: UUID,
+    quantity: str = Form(...),
+    notes: str | None = Form(None),
+    invoice: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_inventory_storage(db)
+
+    qty = _to_decimal(quantity)
+    invoice_data = await _read_invoice_upload(invoice)
+    return await _insert_inventory_entry(
+        db=db,
+        item_id=item_id,
+        quantity=qty,
+        notes=notes or "Entrada desde Inventario",
+        invoice_data=invoice_data,
+    )
+
+
+@router.get("/companies/{company_id}/movements")
+async def list_inventory_movements(
+    company_id: UUID,
+    item_id: UUID | None = Query(None),
+    limit: int = Query(120),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_inventory_storage(db)
+
+    limit = max(1, min(int(limit or 120), 500))
+    filters = ["m.company_id = :company_id"]
+    params: dict[str, Any] = {"company_id": str(company_id), "limit": limit}
+
+    if item_id:
+        filters.append("m.item_id = :item_id")
+        params["item_id"] = str(item_id)
+
+    result = await db.execute(
+        text(f"""
+            SELECT
+                m.id,
+                m.company_id,
+                m.item_id,
+                m.movement_type,
+                m.quantity_delta,
+                m.quantity,
+                m.stock_before,
+                m.stock_after,
+                m.source_module,
+                m.source_ref,
+                m.notes,
+                m.invoice_original_name,
+                m.invoice_content_type,
+                m.invoice_file_size,
+                m.created_at,
+                i.name_reference,
+                i.item_size,
+                i.color
+            FROM inventory_movements m
+            LEFT JOIN inventory_items i ON i.id = m.item_id
+            WHERE {" AND ".join(filters)}
+            ORDER BY m.created_at DESC
+            LIMIT :limit
+        """),
+        params,
+    )
+
+    movements = [inventory_movement_out(dict(row)) for row in result.mappings().all()]
+    return {"company_id": str(company_id), "movements": movements}
+
+
+@router.get("/movements/{movement_id}/invoice")
+async def get_inventory_movement_invoice(
+    movement_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await ensure_inventory_storage(db)
 
     result = await db.execute(
         text("""
-            UPDATE inventory_items
-            SET current_stock = current_stock + :quantity,
-                updated_at = now()
-            WHERE id = :item_id
-            RETURNING *
+            SELECT invoice_original_name, invoice_content_type, invoice_file_bytes
+            FROM inventory_movements
+            WHERE id = :movement_id
+            LIMIT 1
         """),
-        {"item_id": str(item_id), "quantity": quantity},
+        {"movement_id": str(movement_id)},
     )
     row = result.mappings().first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Material no encontrado.")
+    if not row or not row.get("invoice_file_bytes"):
+        raise HTTPException(status_code=404, detail="Factura no encontrada.")
 
-    item = dict(row)
-    await db.execute(
-        text("""
-            INSERT INTO inventory_movements (
-                id, company_id, item_id, movement_type, quantity_delta, quantity, source_module, notes, created_at
-            )
-            VALUES (
-                :id, :company_id, :item_id, 'entry', :quantity_delta, :quantity_delta, 'inventory', :notes, now()
-            )
-        """),
-        {
-            "id": str(uuid4()),
-            "company_id": str(item["company_id"]),
-            "item_id": str(item["id"]),
-            "quantity_delta": quantity,
-            "notes": (payload.notes or "").strip() or "Entrada manual",
-        },
+    original_name = str(row.get("invoice_original_name") or "factura")
+    safe_name = original_name.replace("\\", "_").replace("/", "_").replace('"', "")
+    content_type = str(row.get("invoice_content_type") or "application/octet-stream")
+    content = row.get("invoice_file_bytes")
+    if isinstance(content, memoryview):
+        content = content.tobytes()
+
+    return Response(
+        content=bytes(content),
+        media_type=content_type,
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )
-
-    await db.commit()
-    return inventory_item_out(item)
 
 
 @router.post("/items/{item_id}/disable")

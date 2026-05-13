@@ -38,6 +38,24 @@
     return res.json();
   }
 
+  // CX_019E_INVENTORY_INVOICE_FRONTEND_START
+  async function apiForm(path, formData, options = {}) {
+    const res = await fetch(`${API}${path}`, {
+      method: options.method || "POST",
+      body: formData,
+      ...(options.fetchOptions || {}),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText} ${text}`);
+    }
+
+    return res.json();
+  }
+  // CX_019E_INVENTORY_INVOICE_FRONTEND_END
+
+
   function companyIdFromUrl() {
     const params = new URLSearchParams(window.location.search);
     return params.get("company_id") || params.get("companyId") || params.get("tenant") || "";
@@ -3615,6 +3633,48 @@
         opacity: .45;
       }
 
+
+      .cx-inv-invoice-input {
+        min-width: 180px;
+        max-width: 220px;
+      }
+      .cx-inv-history {
+        margin-top: 22px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 22px;
+        overflow: hidden;
+        background: rgba(0,0,0,.12);
+      }
+      .cx-inv-history-grid {
+        min-width: 1180px;
+        display: grid;
+        grid-template-columns: 150px minmax(210px,1fr) 90px 100px 100px minmax(190px,1fr) 160px;
+      }
+      .cx-inv-history-cell {
+        padding: 12px 13px;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+        border-right: 1px solid rgba(255,255,255,.06);
+        font-weight: 850;
+      }
+      .cx-inv-history-head {
+        background: rgba(255,255,255,.08);
+        text-transform: uppercase;
+        letter-spacing: .10em;
+        font-size: 11px;
+        opacity: .76;
+        font-weight: 1000;
+      }
+      .cx-inv-file-link {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 12px;
+        padding: 9px 10px;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.08);
+        color: inherit;
+        text-decoration: none;
+        font-weight: 1000;
+      }
       @media (max-width: 1100px) {
         .cx-inv-form { grid-template-columns: 1fr; }
         .cx-inv-table { min-width: 980px; }
@@ -3650,6 +3710,12 @@
     if (!state.companyId) return { summary: {}, items: [] };
     const qs = query ? `&q=${encodeURIComponent(query)}` : "";
     return api(`/inventory/companies/${encodeURIComponent(state.companyId)}/items?include_inactive=true&limit=800${qs}`);
+  }
+
+  async function loadInventoryMovements(itemId = "") {
+    if (!state.companyId) return { movements: [] };
+    const qs = itemId ? `&item_id=${encodeURIComponent(itemId)}` : "";
+    return api(`/inventory/companies/${encodeURIComponent(state.companyId)}/movements?limit=120${qs}`);
   }
 
   function showInventoryNotice(message, type = "ok") {
@@ -3700,27 +3766,49 @@
   async function updateInventoryItem(itemId) {
     const row = document.querySelector(`[data-inventory-row="${CSS.escape(String(itemId))}"]`);
     if (!row) return;
+
     await api(`/inventory/items/${encodeURIComponent(itemId)}`, {
       method: "PATCH",
       body: JSON.stringify(inventoryRowPayload(row)),
     });
+
+    const entrySaved = await addInventoryEntry(itemId, { noRender: true, optional: true });
+
     await renderInventoryModule();
-    setTimeout(() => showInventoryNotice("Material actualizado."), 80);
+    setTimeout(() => showInventoryNotice(entrySaved ? "Material actualizado. Entrada registrada y stock actualizado." : "Material actualizado."), 80);
   }
 
-  async function addInventoryEntry(itemId) {
+  async function addInventoryEntry(itemId, options = {}) {
     const input = document.querySelector(`[data-inventory-entry-qty="${CSS.escape(String(itemId))}"]`);
+    const invoiceInput = document.querySelector(`[data-inventory-entry-invoice="${CSS.escape(String(itemId))}"]`);
     const quantity = inventoryNumber(input?.value || 0);
+
     if (quantity <= 0) {
-      showInventoryNotice("Ingresa una cantidad mayor a cero.", "error");
-      return;
+      if (!options.optional) showInventoryNotice("Ingresa una cantidad mayor a cero.", "error");
+      return false;
     }
-    await api(`/inventory/items/${encodeURIComponent(itemId)}/entry`, {
-      method: "POST",
-      body: JSON.stringify({ quantity, notes: "Entrada desde Inventario" }),
-    });
-    await renderInventoryModule();
-    setTimeout(() => showInventoryNotice("Entrada registrada. Stock actualizado."), 80);
+
+    const invoiceFile = invoiceInput?.files && invoiceInput.files.length ? invoiceInput.files[0] : null;
+
+    if (invoiceFile) {
+      const form = new FormData();
+      form.append("quantity", String(quantity));
+      form.append("notes", "Entrada desde Inventario");
+      form.append("invoice", invoiceFile);
+      await apiForm(`/inventory/items/${encodeURIComponent(itemId)}/entry-with-invoice`, form);
+    } else {
+      await api(`/inventory/items/${encodeURIComponent(itemId)}/entry`, {
+        method: "POST",
+        body: JSON.stringify({ quantity, notes: "Entrada desde Inventario" }),
+      });
+    }
+
+    if (!options.noRender) {
+      await renderInventoryModule();
+      setTimeout(() => showInventoryNotice(invoiceFile ? "Entrada registrada con factura. Stock actualizado." : "Entrada registrada. Stock actualizado."), 80);
+    }
+
+    return true;
   }
 
   async function disableInventoryItem(itemId) {
@@ -3822,7 +3910,7 @@
     `;
   }
 
-  function renderInventoryModifyPanel(rows = []) {
+  function renderInventoryModifyPanel(rows = [], movements = []) {
     return `
       <section class="client-panel">
         <div class="client-eyebrow">Modificar material</div>
@@ -3842,15 +3930,68 @@
                 <th>Alerta</th>
                 <th>Estado</th>
                 <th>Ingresar cantidad</th>
+                <th>Factura</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="9">No hay materiales en inventario.</td></tr>`}
+              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="10">No hay materiales en inventario.</td></tr>`}
             </tbody>
           </table>
         </div>
+
+        ${renderInventoryHistoryPanel(movements)}
       </section>
+    `;
+  }
+
+  function inventoryMovementDate(raw) {
+    if (!raw) return "-";
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+  }
+
+  function renderInventoryMovementRow(row = {}) {
+    const qty = Number(row.quantity_delta ?? row.quantity ?? 0);
+    const invoiceUrl = String(row.invoice_file_url || "");
+    return `
+      <div class="cx-inv-history-cell">${h(inventoryMovementDate(row.created_at))}</div>
+      <div class="cx-inv-history-cell">
+        <strong>${h(row.name_reference || "Material")}</strong><br>
+        <span class="client-muted">${h([row.size, row.color].filter(Boolean).join(" · ") || "")}</span>
+      </div>
+      <div class="cx-inv-history-cell"><strong>${h(inventoryQtyLabel(qty))}</strong></div>
+      <div class="cx-inv-history-cell">${h(inventoryQtyLabel(row.stock_before || 0))}</div>
+      <div class="cx-inv-history-cell">${h(inventoryQtyLabel(row.stock_after || 0))}</div>
+      <div class="cx-inv-history-cell">${h(row.notes || "-")}</div>
+      <div class="cx-inv-history-cell">
+        ${invoiceUrl ? `<a class="cx-inv-file-link" href="${h(invoiceUrl)}" target="_blank" rel="noopener">Ver factura</a><br><small class="client-muted">${h(row.invoice_original_name || "")}</small>` : `<span class="client-muted">Sin factura</span>`}
+      </div>
+    `;
+  }
+
+  function renderInventoryHistoryPanel(movements = []) {
+    const rows = Array.isArray(movements) ? movements : [];
+    return `
+      <div class="cx-inv-history">
+        <div style="padding:16px 16px 4px">
+          <div class="client-eyebrow">Historial de ingresos</div>
+          <h3 style="margin:6px 0 10px">Entradas y facturas</h3>
+          <p class="client-muted">Cada ingreso queda auditado con stock anterior, stock nuevo y factura adjunta si aplica.</p>
+        </div>
+        <div style="overflow-x:auto">
+          <div class="cx-inv-history-grid">
+            <div class="cx-inv-history-cell cx-inv-history-head">Fecha</div>
+            <div class="cx-inv-history-cell cx-inv-history-head">Material</div>
+            <div class="cx-inv-history-cell cx-inv-history-head">Cantidad</div>
+            <div class="cx-inv-history-cell cx-inv-history-head">Antes</div>
+            <div class="cx-inv-history-cell cx-inv-history-head">Después</div>
+            <div class="cx-inv-history-cell cx-inv-history-head">Notas</div>
+            <div class="cx-inv-history-cell cx-inv-history-head">Factura</div>
+            ${rows.length ? rows.map(renderInventoryMovementRow).join("") : `<div class="cx-inv-history-cell" style="grid-column:1 / -1">No hay ingresos registrados todavía.</div>`}
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -3864,17 +4005,21 @@
 
     const company = state.company || {};
     let data = { summary: {}, items: [] };
+    let movementsData = { movements: [] };
     let loadError = "";
 
     try {
       data = await loadInventoryItems();
+      movementsData = await loadInventoryMovements();
     } catch (error) {
       loadError = error.message || "No se pudo cargar Inventario.";
     }
 
     const rows = Array.isArray(data.items) ? data.items : [];
+    const movements = Array.isArray(movementsData.movements) ? movementsData.movements : [];
     const summary = data.summary || {};
     window.__cxInventoryRows = rows;
+    window.__cxInventoryMovements = movements;
     const mode = inventoryMode();
 
     $("app").innerHTML = `
@@ -3918,7 +4063,7 @@
               </div>
             </section>
 
-            ${mode === "create" ? renderInventoryCreatePanel() : renderInventoryModifyPanel(rows)}
+            ${mode === "create" ? renderInventoryCreatePanel() : renderInventoryModifyPanel(rows, movements)}
           </section>
         </div>
       </main>
