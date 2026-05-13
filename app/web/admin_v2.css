@@ -1006,3 +1006,111 @@ p {
   }
 }
 /* CLONEXA_019G_R2_FORCE_COMPANY_MINIPANEL_INTERNAL_MODULES_END */
+
+/* CLONEXA_019G_R3_MINIPANEL_EXISTING_MODULES_START */
+.cx-mp-existing-section {
+  margin: 26px 0;
+  padding: 22px;
+  border: 1px solid rgba(255, 43, 193, 0.36);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 43, 193, 0.13), transparent 32%),
+    linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025));
+  box-shadow: 0 18px 52px rgba(0,0,0,0.30);
+}
+
+.cx-mp-existing-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.cx-mp-existing-kicker {
+  color: #ff2bc1;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.cx-mp-existing-head h3 {
+  margin: 0 0 8px;
+  color: #fff;
+  font-size: 24px;
+}
+
+.cx-mp-existing-head p {
+  margin: 0;
+  color: rgba(255,255,255,0.68);
+  max-width: 900px;
+}
+
+.cx-mp-toggle {
+  border: 1px solid rgba(255,43,193,.42);
+  background: linear-gradient(135deg, #ff2bc1, #8b00ff);
+  color: #fff;
+  border-radius: 18px;
+  padding: 14px 18px;
+  font-weight: 900;
+  cursor: pointer;
+  min-width: 230px;
+  box-shadow: 0 16px 36px rgba(255,43,193,.22);
+}
+
+.cx-mp-toggle.is-on {
+  background: rgba(0, 212, 128, 0.18);
+  border-color: rgba(0, 212, 128, 0.55);
+  color: #38ffac;
+  box-shadow: 0 14px 34px rgba(0, 212, 128, 0.13);
+}
+
+.cx-mp-existing-summary {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.78);
+  font-weight: 800;
+}
+
+.cx-mp-existing-help {
+  margin-top: 10px;
+  color: rgba(255,255,255,0.58);
+  font-size: 13px;
+}
+
+.cx-mp-module-slot {
+  margin-top: 12px;
+}
+
+.cx-mp-module-btn {
+  width: 100%;
+  border: 1px solid rgba(255,43,193,.35);
+  background: rgba(255,43,193,.11);
+  color: #fff;
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.cx-mp-module-btn.is-on {
+  border-color: rgba(0,212,128,.55);
+  background: rgba(0,212,128,.16);
+  color: #38ffac;
+}
+
+@media (max-width: 900px) {
+  .cx-mp-existing-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cx-mp-toggle {
+    width: 100%;
+  }
+}
+/* CLONEXA_019G_R3_MINIPANEL_EXISTING_MODULES_END */
