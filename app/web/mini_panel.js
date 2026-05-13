@@ -270,9 +270,9 @@
     const isFinished = operational.status === "finished";
 
     root.innerHTML = `
-      <section class="mp-sales-dashboard mp-sales-dashboard-r1 mp-sales-dashboard-r2">
-        <header class="mp-sales-header mp-sales-header-r1 mp-sales-header-r2">
-          <div class="mp-header-main mp-header-main-r1 mp-header-main-r2">
+      <section class="mp-sales-dashboard mp-sales-dashboard-r1 mp-sales-dashboard-r2 mp-sales-dashboard-r3">
+        <header class="mp-sales-header mp-sales-header-r1 mp-sales-header-r2 mp-sales-header-r3">
+          <section class="mp-header-main mp-header-main-r1 mp-header-main-r2 mp-header-main-r3">
             <div class="mp-kicker">Mini Panel ${h(mini.type_label || labelType(panelType))}</div>
             <h1>${h(companyName)}</h1>
             <p>Portal operativo personalizado para ${h(employeeName)}.</p>
@@ -284,44 +284,39 @@
               <span class="mp-chip">UbicaciÃ³n: ${h(locationLabel)}</span>
               <span class="mp-chip">Usuario: ${h(mini.username || user.email || "â€”")}</span>
             </div>
-          </div>
+          </section>
 
-          <aside class="mp-state-panel mp-state-panel-r1 mp-state-panel-r2">
-            <div class="mp-state-row">
-              <span>Estado</span>
+          <section class="mp-time-panel-r3">
+            <div class="mp-mini-panel-title-r3">
+              <span>Tiempos</span>
               <strong data-operational-status class="mp-status-pill ${h(operational.status || "active")}">${h(operationalLabel(operational.status))}</strong>
             </div>
 
-            <div class="mp-live-stack-r2">
-              <article class="mp-time-line-r2">
+            <div class="mp-time-stack-r3">
+              <article class="mp-time-card-r3">
                 <span>Activo</span>
                 <strong data-active-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
               </article>
 
-              <article class="mp-time-line-r2 pause">
+              <article class="mp-time-card-r3 pause">
                 <span>Pausa</span>
                 <strong data-break-timer>${h(formatSeconds(operational.break_seconds || 0))}</strong>
               </article>
+            </div>
+          </section>
 
-              <article class="mp-time-line-r2">
-                <span>Pago</span>
-                <strong data-paid-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
-              </article>
-
-              <article class="mp-time-line-r2 start">
-                <span>Inicio</span>
-                <strong>${h(operational.started_label || "Ahora")}</strong>
-                <small>${h(locationLabel)}</small>
-              </article>
+          <section class="mp-action-panel-r3">
+            <div class="mp-mini-panel-title-r3">
+              <span>Acciones</span>
             </div>
 
-            <div class="mp-actions mp-actions-r1">
+            <div class="mp-action-stack-r3">
               <button class="mp-button small" type="button" data-action="pause" ${operational.status === "active" ? "" : "disabled"}>Pausa</button>
               <button class="mp-button small secondary" type="button" data-action="resume" ${operational.status === "break" ? "" : "disabled"}>Retomar labores</button>
               <button class="mp-button small danger" type="button" data-action="finish" ${isFinished ? "disabled" : ""}>Finalizar turno</button>
               <button class="mp-button small ghost" type="button" data-change-password>Cambiar contraseÃ±a</button>
             </div>
-          </aside>
+          </section>
         </header>
 
         <section class="mp-dashboard-section">
@@ -332,11 +327,11 @@
             </div>
           </div>
 
-          <div class="mp-kpi-grid">
+          <div class="mp-kpi-grid mp-kpi-grid-r3">
             <article class="mp-kpi-card">
               <span>Total ventas mes</span>
               <strong>${h(formatMoney(salesTotal))}</strong>
-              <small>Consolidado del vendedor</small>
+              <small>Sumatoria de registros de venta</small>
             </article>
 
             <article class="mp-kpi-card">
@@ -346,15 +341,21 @@
               <small>${goalPct}% de cumplimiento</small>
             </article>
 
+            <article class="mp-kpi-card notes">
+              <span>Notas</span>
+              <strong>PrÃ³ximo</strong>
+              <small>Notas internas pendientes de activar.</small>
+            </article>
+
             <article class="mp-kpi-card wide">
-              <span>Promociones</span>
+              <span>Promociones / mensaje</span>
               <strong>Sin promociones activas</strong>
               <small>Este espacio recibirÃ¡ campaÃ±as enviadas desde el CRM madre Mundo Case.</small>
             </article>
           </div>
         </section>
 
-        <section class="mp-dashboard-section mp-modules-section-r1">
+        <section class="mp-dashboard-section mp-modules-section-r1 mp-modules-section-r3">
           <div class="mp-section-title">
             <div>
               <div class="mp-kicker">MÃ³dulos</div>
@@ -362,11 +363,11 @@
             </div>
           </div>
 
-          <div class="mp-modules-grid">
-            ${moduleCard("CotizaciÃ³n", "Crear cotizaciones para clientes.", "COT")}
+          <div class="mp-modules-grid mp-modules-grid-r3">
+            ${moduleCard("Cotizaciones", "Crear cotizaciones para clientes.", "COT")}
             ${moduleCard("Notas", "Registrar notas de seguimiento.", "NOT")}
-            ${moduleCard("Registro de venta", "Reportar ventas cerradas.", "VEN")}
-            ${moduleCard("Cierre dÃ­a", "Enviar cierre diario del vendedor.", "CIE")}
+            ${moduleCard("Registro ventas", "Reportar ventas cerradas.", "VEN")}
+            ${moduleCard("Realizar cierre", "Enviar cierre diario del vendedor.", "CIE")}
           </div>
 
           <div class="mp-message ok" data-panel-message></div>

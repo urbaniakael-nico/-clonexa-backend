@@ -754,3 +754,225 @@ p {
   }
 }
 /* CLONEXA_019F_R2_COMPACT_LAYOUT_END */
+
+/* CLONEXA_019F_R3_HORIZONTAL_TOP_GRID_START */
+.mp-sales-dashboard-r3 {
+  min-height: calc(100vh - 26px);
+  gap: 14px;
+  grid-template-rows: auto auto 1fr;
+}
+
+.mp-sales-header-r3 {
+  display: grid;
+  grid-template-columns: minmax(520px, 1fr) minmax(210px, 280px) minmax(220px, 300px);
+  gap: 14px;
+  align-items: stretch;
+  margin-bottom: 0;
+}
+
+.mp-header-main-r3,
+.mp-time-panel-r3,
+.mp-action-panel-r3 {
+  border: 1px solid rgba(255,255,255,.14);
+  background: linear-gradient(145deg, rgba(255,255,255,.105), rgba(255,255,255,.052));
+  border-radius: 26px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.22);
+}
+
+.mp-header-main-r3 {
+  min-height: 168px;
+  padding: clamp(20px, 2vw, 28px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.mp-header-main-r3 .mp-kicker {
+  margin-bottom: 6px;
+}
+
+.mp-header-main-r3 h1 {
+  font-size: clamp(46px, 5vw, 76px);
+  line-height: .88;
+  margin-bottom: 8px;
+}
+
+.mp-header-main-r3 p {
+  margin-bottom: 8px;
+  line-height: 1.25;
+}
+
+.mp-header-main-r3 .mp-meta.compact {
+  margin: 8px 0 0;
+  gap: 8px;
+}
+
+.mp-header-main-r3 .mp-chip {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.mp-time-panel-r3,
+.mp-action-panel-r3 {
+  min-height: 168px;
+  padding: 14px;
+  display: grid;
+  align-content: stretch;
+  gap: 10px;
+}
+
+.mp-mini-panel-title-r3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 25px;
+}
+
+.mp-mini-panel-title-r3 span {
+  color: rgba(255,255,255,.66);
+  text-transform: uppercase;
+  letter-spacing: .13em;
+  font-weight: 1000;
+  font-size: 10px;
+}
+
+.mp-time-stack-r3 {
+  display: grid;
+  gap: 10px;
+  align-content: stretch;
+}
+
+.mp-time-card-r3 {
+  min-height: 54px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 17px;
+  background: linear-gradient(145deg, rgba(255,255,255,.108), rgba(255,255,255,.045));
+}
+
+.mp-time-card-r3 span {
+  margin: 0;
+  color: rgba(255,255,255,.62);
+  font-size: 9px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: .10em;
+  font-weight: 1000;
+}
+
+.mp-time-card-r3 strong {
+  font-size: clamp(22px, 1.8vw, 30px);
+  line-height: 1;
+  letter-spacing: -.045em;
+  white-space: nowrap;
+}
+
+.mp-time-card-r3.pause strong {
+  color: #fed7aa;
+}
+
+.mp-action-stack-r3 {
+  display: grid;
+  gap: 9px;
+  align-content: center;
+}
+
+.mp-action-stack-r3 .mp-button {
+  width: 100%;
+  min-height: 37px;
+  padding: 9px 11px;
+  border-radius: 13px;
+  font-size: 12px;
+}
+
+.mp-action-stack-r3 .mp-button.ghost {
+  width: 100%;
+}
+
+.mp-kpi-grid-r3 {
+  display: grid;
+  grid-template-columns: minmax(150px, .85fr) minmax(180px, 1fr) minmax(150px, .85fr) minmax(320px, 1.65fr);
+  gap: 14px;
+}
+
+.mp-kpi-grid-r3 .mp-kpi-card {
+  min-height: 122px;
+}
+
+.mp-kpi-card.notes strong {
+  font-size: clamp(22px, 2vw, 30px);
+}
+
+.mp-modules-section-r3 {
+  min-height: 330px;
+  padding: 22px;
+}
+
+.mp-modules-grid-r3 {
+  grid-template-columns: repeat(4, minmax(210px, 1fr));
+  gap: 20px;
+}
+
+.mp-modules-grid-r3 .mp-module-card {
+  min-height: 215px;
+  padding: 28px;
+}
+
+.mp-modules-grid-r3 .mp-module-card strong {
+  font-size: clamp(26px, 2.4vw, 34px);
+}
+
+@media (max-width: 1280px) {
+  .mp-sales-header-r3 {
+    grid-template-columns: minmax(420px, 1fr) minmax(190px, 245px) minmax(210px, 270px);
+  }
+
+  .mp-kpi-grid-r3 {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+
+  .mp-modules-grid-r3 {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .mp-sales-header-r3 {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .mp-header-main-r3 {
+    grid-column: 1 / -1;
+  }
+
+  .mp-kpi-grid-r3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .mp-sales-header-r3,
+  .mp-kpi-grid-r3,
+  .mp-modules-grid-r3 {
+    grid-template-columns: 1fr;
+  }
+
+  .mp-header-main-r3 {
+    min-height: 0;
+  }
+
+  .mp-time-panel-r3,
+  .mp-action-panel-r3 {
+    min-height: 0;
+  }
+
+  .mp-modules-grid-r3 .mp-module-card {
+    min-height: 165px;
+  }
+}
+/* CLONEXA_019F_R3_HORIZONTAL_TOP_GRID_END */
