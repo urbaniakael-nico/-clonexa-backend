@@ -10,6 +10,7 @@
 
   let timerHandle = null;
   let currentOperational = null;
+  let currentModuleConfig = null;
 
   const TYPE_LABELS = {
     sales: "Ventas",
@@ -242,9 +243,262 @@
   }
   // CLONEXA_019F_R1_PASSWORD_HELPERS_END
 
-  function moduleCard(title, description, tag) {
+
+  /* CLONEXA_019H_MINIPANEL_DYNAMIC_MODULES_START */
+  const PANEL_TYPE_ALIASES_019H = {
+    sales: "sales",
+    venta: "sales",
+    ventas: "sales",
+    store: "store",
+    stores: "store",
+    tienda: "store",
+    tiendas: "store",
+    inventory: "inventory",
+    inventario: "inventory",
+    logistics: "logistics",
+    logistica: "logistics",
+    logÃ­stica: "logistics",
+    field: "logistics",
+    other: "other"
+  };
+
+  const MODULE_DEFS_019H = {
+    cotizacion: {
+      title: "Cotizaciones",
+      description: "Crear cotizaciones para clientes.",
+      tag: "COT"
+    },
+    cotizaciones: {
+      title: "Cotizaciones",
+      description: "Crear cotizaciones para clientes.",
+      tag: "COT"
+    },
+    quote: {
+      title: "Cotizaciones",
+      description: "Crear cotizaciones para clientes.",
+      tag: "COT"
+    },
+    quotes: {
+      title: "Cotizaciones",
+      description: "Crear cotizaciones para clientes.",
+      tag: "COT"
+    },
+    notas_o_agenda: {
+      title: "Notas",
+      description: "Registrar notas de seguimiento.",
+      tag: "NOT"
+    },
+    notes: {
+      title: "Notas",
+      description: "Registrar notas de seguimiento.",
+      tag: "NOT"
+    },
+    notas: {
+      title: "Notas",
+      description: "Registrar notas de seguimiento.",
+      tag: "NOT"
+    },
+    registro_venta: {
+      title: "Registro ventas",
+      description: "Reportar ventas cerradas.",
+      tag: "VEN"
+    },
+    registro_ventas: {
+      title: "Registro ventas",
+      description: "Reportar ventas cerradas.",
+      tag: "VEN"
+    },
+    sales_register: {
+      title: "Registro ventas",
+      description: "Reportar ventas cerradas.",
+      tag: "VEN"
+    },
+    sales: {
+      title: "Registro ventas",
+      description: "Reportar ventas cerradas.",
+      tag: "VEN"
+    },
+    day_closing: {
+      title: "Realizar cierre",
+      description: "Enviar cierre diario del vendedor.",
+      tag: "CIE"
+    },
+    cierre_dia: {
+      title: "Realizar cierre",
+      description: "Enviar cierre diario del vendedor.",
+      tag: "CIE"
+    },
+    cierre_dÃ­a: {
+      title: "Realizar cierre",
+      description: "Enviar cierre diario del vendedor.",
+      tag: "CIE"
+    },
+    commercial_closing: {
+      title: "Realizar cierre",
+      description: "Enviar cierre diario del vendedor.",
+      tag: "CIE"
+    },
+    kpis: {
+      title: "KPIs",
+      description: "Consultar indicadores asignados al vendedor.",
+      tag: "KPI"
+    },
+    requests: {
+      title: "Solicitudes",
+      description: "Crear y consultar solicitudes operativas.",
+      tag: "REQ"
+    },
+    stores: {
+      title: "Tiendas",
+      description: "OperaciÃ³n asignada a tiendas.",
+      tag: "STR"
+    },
+    inventory: {
+      title: "Inventario",
+      description: "Consultar y registrar movimientos de inventario.",
+      tag: "INV"
+    },
+    materials: {
+      title: "Materiales",
+      description: "Gestionar solicitudes y entregas de materiales.",
+      tag: "MAT"
+    },
+    reports: {
+      title: "Reportes",
+      description: "Consultar reportes operativos asignados.",
+      tag: "REP"
+    },
+    workforce: {
+      title: "Personal",
+      description: "Consultar personal operativo asignado.",
+      tag: "WRK"
+    },
+    gps: {
+      title: "GPS",
+      description: "Consultar ubicaciÃ³n y control operativo.",
+      tag: "GPS"
+    },
+    crm: {
+      title: "CRM Campo",
+      description: "Consultar operaciÃ³n en campo.",
+      tag: "CRM"
+    }
+  };
+
+  function normalizePanelType019H(value) {
+    const raw = String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    return PANEL_TYPE_ALIASES_019H[raw] || raw || "sales";
+  }
+
+  function normalizeModuleCode019H(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function titleFromCode019H(code, moduleNames = {}) {
+    const rawName = moduleNames[code] || moduleNames[normalizeModuleCode019H(code)] || "";
+    const clean = String(rawName || code || "MÃ³dulo").replace(/_/g, " ").trim();
+    return clean.replace(/\w\S*/g, (part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
+  }
+
+  function moduleDefinition019H(code, moduleNames = {}) {
+    const normalized = normalizeModuleCode019H(code);
+    const def = MODULE_DEFS_019H[normalized];
+    if (def) return { ...def, code: normalized };
+
+    const title = titleFromCode019H(normalized, moduleNames);
+    return {
+      code: normalized,
+      title,
+      description: "MÃ³dulo asignado desde Admin V2.",
+      tag: normalized.slice(0, 3).toUpperCase() || "MOD"
+    };
+  }
+
+  function extractMiniPanelSettings019H(companyModules) {
+    const rows = Array.isArray(companyModules) ? companyModules : [];
+    const miniRow = rows.find((row) => {
+      const module = row.module || {};
+      const code = normalizeModuleCode019H(module.code || row.module_code || row.code || "");
+      const name = normalizeModuleCode019H(module.name || row.name || "");
+      return code === "mini_panel" || name.includes("mini_panel") || name.includes("creacion_mini");
+    });
+
+    const settings = miniRow && typeof miniRow.settings === "object" ? miniRow.settings : {};
+    const config = settings.mini_panel_modules && typeof settings.mini_panel_modules === "object"
+      ? settings.mini_panel_modules
+      : settings;
+
+    return config && typeof config === "object" ? config : {};
+  }
+
+  function panelConfig019H(config, type) {
+    const normalized = normalizePanelType019H(type);
+    const panels = config && typeof config.panels === "object" ? config.panels : {};
+    return panels[normalized] || panels[type] || panels[`${normalized}s`] || {};
+  }
+
+  function assignedModuleCodes019H(config, type) {
+    const row = panelConfig019H(config, type);
+    const modules = Array.isArray(row.modules) ? row.modules : [];
+    return Array.from(new Set(modules.map(normalizeModuleCode019H).filter(Boolean)));
+  }
+
+  async function loadMiniPanelModuleConfig019H() {
+    try {
+      if (!companyId) return { enabled: false, modules: [], module_names: {} };
+
+      const data = await api(`/api/v1/companies/${encodeURIComponent(companyId)}/modules?enabled_only=true`, {
+        headers: authHeaders()
+      });
+
+      const config = extractMiniPanelSettings019H(data);
+      const panel = panelConfig019H(config, panelType);
+      const codes = assignedModuleCodes019H(config, panelType);
+      const moduleNames = config.module_names && typeof config.module_names === "object" ? config.module_names : {};
+
+      return {
+        enabled: config.enabled === true || panel.enabled === true || codes.length > 0,
+        selected_panel: normalizePanelType019H(panelType),
+        modules: codes,
+        module_names: moduleNames,
+        raw: config
+      };
+    } catch (error) {
+      console.warn("CLONEXA 019H mini panel modules fallback:", error);
+      return { enabled: false, modules: [], module_names: {}, error: error.message || String(error) };
+    }
+  }
+
+  function buildDynamicMiniPanelModules019H(moduleConfig) {
+    const config = moduleConfig || {};
+    const codes = Array.isArray(config.modules) ? config.modules : [];
+    return codes
+      .map((code) => moduleDefinition019H(code, config.module_names || {}))
+      .filter((item) => item && item.code);
+  }
+
+  function renderDynamicModulesHtml019H(dynamicModules) {
+    if (!dynamicModules.length) {
+      return `
+        <div class="mp-modules-empty-019h">
+          <strong>No hay mÃ³dulos asignados a este mini panel.</strong>
+          <small>Agrega mÃ³dulos desde Admin V2 â†’ Empresa â†’ MÃ³dulos â†’ MÃ³dulos para Mini Panel.</small>
+        </div>
+      `;
+    }
+
+    return dynamicModules.map((item) => moduleCard(item.title, item.description, item.tag, item.code)).join("");
+  }
+  /* CLONEXA_019H_MINIPANEL_DYNAMIC_MODULES_END */
+
+  function moduleCard(title, description, tag, code = "") {
     return `
-      <button class="mp-module-card" type="button" data-module="${h(tag)}">
+      <button class="mp-module-card" type="button" data-module="${h(code || tag)}" data-module-title="${h(title)}">
         <span>${h(tag)}</span>
         <strong>${h(title)}</strong>
         <small>${h(description)}</small>
@@ -252,7 +506,7 @@
     `;
   }
 
-  function renderShell(session, operational) {
+  function renderShell(session, operational, moduleConfig = null) {
     setShellMode(true);
 
     const company = session.company || {};
@@ -268,6 +522,8 @@
     const goal = Number(kpis.monthly_goal || 0);
     const goalPct = goal > 0 ? Math.min(100, Math.round((salesTotal / goal) * 100)) : 0;
     const isFinished = operational.status === "finished";
+    const dynamicModules019H = buildDynamicMiniPanelModules019H(moduleConfig || currentModuleConfig);
+    const modulesHtml019H = renderDynamicModulesHtml019H(dynamicModules019H);
 
     root.innerHTML = `
       <section class="mp-sales-dashboard mp-sales-dashboard-r1 mp-sales-dashboard-r2 mp-sales-dashboard-r3">
@@ -364,10 +620,7 @@
           </div>
 
           <div class="mp-modules-grid mp-modules-grid-r3">
-            ${moduleCard("Cotizaciones", "Crear cotizaciones para clientes.", "COT")}
-            ${moduleCard("Notas", "Registrar notas de seguimiento.", "NOT")}
-            ${moduleCard("Registro ventas", "Reportar ventas cerradas.", "VEN")}
-            ${moduleCard("Realizar cierre", "Enviar cierre diario del vendedor.", "CIE")}
+            ${modulesHtml019H}
           </div>
 
           <div class="mp-message ok" data-panel-message></div>
@@ -501,7 +754,7 @@
     try {
       const updated = await operationalAction(action);
       const op = updated.operational_session || updated;
-      renderShell(session, op);
+      renderShell(session, op, currentModuleConfig);
     } catch (error) {
       if (msg) {
         msg.classList.remove("ok");
@@ -528,7 +781,8 @@
       });
 
       const operational = await loadOperationalSession();
-      renderShell(session, operational.operational_session || operational);
+      currentModuleConfig = await loadMiniPanelModuleConfig019H();
+      renderShell(session, operational.operational_session || operational, currentModuleConfig);
     } catch (error) {
       localStorage.removeItem(storageKey);
       renderLogin(error.message || "SesiÃ³n expirada. Ingresa de nuevo.");

@@ -976,3 +976,39 @@ p {
   }
 }
 /* CLONEXA_019F_R3_HORIZONTAL_TOP_GRID_END */
+
+/* CLONEXA_019H_MINIPANEL_DYNAMIC_MODULES_START */
+.mp-modules-empty-019h {
+  grid-column: 1 / -1;
+  min-height: 150px;
+  padding: 22px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(255,255,255,.18);
+  border-radius: 26px;
+  background: rgba(255,255,255,.055);
+  color: #fff;
+}
+
+.mp-modules-empty-019h strong {
+  font-size: 22px;
+  display: block;
+}
+
+.mp-modules-empty-019h small {
+  color: rgba(255,255,255,.66);
+  font-weight: 800;
+}
+
+.mp-module-card[data-module] {
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.mp-module-card[data-module]:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,43,193,.38);
+  background: linear-gradient(145deg, rgba(255,255,255,.14), rgba(255,255,255,.065));
+}
+/* CLONEXA_019H_MINIPANEL_DYNAMIC_MODULES_END */
+
