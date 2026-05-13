@@ -7814,6 +7814,74 @@
       </main>
     `;
   }
+
+  /* CLONEXA_019D_R1_SALES_GENERATE_USER_CLICK_FIX_START */
+  function cxSalesNotice019DR1(message, isError = false) {
+    const panel = document.querySelector(".cx-sales-access-grid") || document.querySelector(".client-panel");
+    if (!panel) {
+      if (message) window.alert(message);
+      return;
+    }
+
+    const existing = document.getElementById("cxSalesMiniPanelNotice019DR1");
+    if (existing) existing.remove();
+
+    const notice = document.createElement("div");
+    notice.id = "cxSalesMiniPanelNotice019DR1";
+    notice.className = `personal-toast ${isError ? "error" : ""}`;
+    notice.style.margin = "14px 0";
+    notice.textContent = message || "";
+    panel.insertAdjacentElement("beforebegin", notice);
+  }
+
+  document.addEventListener("click", async (event) => {
+    const refreshButton = event.target.closest("[data-sales-refresh]");
+    if (refreshButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      await renderSalesModule019C();
+      return;
+    }
+
+    const button = event.target.closest("[data-sales-minipanel-create]");
+    if (!button) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const employeeId = button.getAttribute("data-sales-minipanel-create") || "";
+    const link = button.getAttribute("data-sales-minipanel-link") || "";
+    const originalText = button.textContent || "Generar usuario";
+
+    if (!employeeId) {
+      cxSalesNotice019DR1("No se encontrÃ³ el empleado de Workforce para generar el usuario.", true);
+      return;
+    }
+
+    try {
+      button.disabled = true;
+      button.textContent = "Generando...";
+
+      const created = await cxCreateSalesMiniPanelUser019C(employeeId, link);
+      window.__cxSalesMiniPanelLastCreated019C = created || null;
+
+      await renderSalesModule019C();
+
+      const username = created?.username || created?.email || "usuario generado";
+      const tempPassword = created?.temporary_password || "";
+      cxSalesNotice019DR1(
+        tempPassword
+          ? `Usuario generado: ${username}. Clave temporal: ${tempPassword}`
+          : `Usuario ya existente: ${username}`
+      );
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = originalText;
+      cxSalesNotice019DR1(error.message || "No se pudo generar el usuario mini panel.", true);
+    }
+  }, true);
+  /* CLONEXA_019D_R1_SALES_GENERATE_USER_CLICK_FIX_END */
+
   /* CLONEXA_019C_SALES_MINIPANEL_USERS_FRONTEND_END */
 
 
