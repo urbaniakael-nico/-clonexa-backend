@@ -270,9 +270,9 @@
     const isFinished = operational.status === "finished";
 
     root.innerHTML = `
-      <section class="mp-sales-dashboard mp-sales-dashboard-r1">
-        <header class="mp-sales-header mp-sales-header-r1">
-          <div class="mp-header-main mp-header-main-r1">
+      <section class="mp-sales-dashboard mp-sales-dashboard-r1 mp-sales-dashboard-r2">
+        <header class="mp-sales-header mp-sales-header-r1 mp-sales-header-r2">
+          <div class="mp-header-main mp-header-main-r1 mp-header-main-r2">
             <div class="mp-kicker">Mini Panel ${h(mini.type_label || labelType(panelType))}</div>
             <h1>${h(companyName)}</h1>
             <p>Portal operativo personalizado para ${h(employeeName)}.</p>
@@ -284,38 +284,35 @@
               <span class="mp-chip">UbicaciÃ³n: ${h(locationLabel)}</span>
               <span class="mp-chip">Usuario: ${h(mini.username || user.email || "â€”")}</span>
             </div>
-
-            <div class="mp-header-time-grid">
-              <article class="mp-time-card compact">
-                <span>Tiempo activo</span>
-                <strong data-active-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
-                <small>Tiempo pago acumulado</small>
-              </article>
-
-              <article class="mp-time-card compact pause">
-                <span>Tiempo en pausa</span>
-                <strong data-break-timer>${h(formatSeconds(operational.break_seconds || 0))}</strong>
-                <small>No suma al tiempo pago</small>
-              </article>
-
-              <article class="mp-time-card compact">
-                <span>Tiempo pago</span>
-                <strong data-paid-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
-                <small>Activo sin pausas</small>
-              </article>
-
-              <article class="mp-time-card compact">
-                <span>Inicio</span>
-                <strong class="mp-start-label">${h(operational.started_label || "Ahora")}</strong>
-                <small>${h(locationLabel)}</small>
-              </article>
-            </div>
           </div>
 
-          <aside class="mp-state-panel mp-state-panel-r1">
+          <aside class="mp-state-panel mp-state-panel-r1 mp-state-panel-r2">
             <div class="mp-state-row">
               <span>Estado</span>
               <strong data-operational-status class="mp-status-pill ${h(operational.status || "active")}">${h(operationalLabel(operational.status))}</strong>
+            </div>
+
+            <div class="mp-live-stack-r2">
+              <article class="mp-time-line-r2">
+                <span>Activo</span>
+                <strong data-active-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
+              </article>
+
+              <article class="mp-time-line-r2 pause">
+                <span>Pausa</span>
+                <strong data-break-timer>${h(formatSeconds(operational.break_seconds || 0))}</strong>
+              </article>
+
+              <article class="mp-time-line-r2">
+                <span>Pago</span>
+                <strong data-paid-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
+              </article>
+
+              <article class="mp-time-line-r2 start">
+                <span>Inicio</span>
+                <strong>${h(operational.started_label || "Ahora")}</strong>
+                <small>${h(locationLabel)}</small>
+              </article>
             </div>
 
             <div class="mp-actions mp-actions-r1">
