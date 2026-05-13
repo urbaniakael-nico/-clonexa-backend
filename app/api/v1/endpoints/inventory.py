@@ -98,6 +98,8 @@ def inventory_movement_out(row: dict[str, Any]) -> dict[str, Any]:
         "invoice_file_size": int(row.get("invoice_file_size") or 0),
         "invoice_file_url": _movement_invoice_url(movement_id, original_name),
         "created_at": iso("created_at"),
+        "exported_at": iso("exported_at"),
+        "archived_at": iso("archived_at"),
     }
 
 
@@ -231,6 +233,10 @@ class InventoryEntryPayload(BaseModel):
     notes: str | None = None
 
 
+class InventoryArchivePayload(BaseModel):
+    movement_ids: list[str] | None = None
+
+
 def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
     try:
         if value is None or value == "":
@@ -320,6 +326,8 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS invoice_content_type varchar(140) NULL",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS invoice_file_bytes bytea NULL",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS invoice_file_size integer NULL",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS exported_at timestamptz NULL",
+        "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS archived_at timestamptz NULL",
         "SELECT 1 /* CX_019E_INVENTORY_STORAGE_COLUMNS */",
         "ALTER TABLE inventory_movements ALTER COLUMN quantity SET DEFAULT 0",
         "UPDATE inventory_movements SET quantity = COALESCE(quantity, quantity_delta, 0)",
@@ -618,14 +626,18 @@ async def add_inventory_entry_with_invoice(
 async def list_inventory_movements(
     company_id: UUID,
     item_id: UUID | None = Query(None),
-    limit: int = Query(120),
+    limit: int = Query(10),
+    include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_inventory_storage(db)
 
-    limit = max(1, min(int(limit or 120), 500))
+    limit = max(1, min(int(limit or 10), 500))
     filters = ["m.company_id = :company_id"]
     params: dict[str, Any] = {"company_id": str(company_id), "limit": limit}
+
+    if not include_archived:
+        filters.append("m.archived_at IS NULL")
 
     if item_id:
         filters.append("m.item_id = :item_id")
@@ -648,6 +660,8 @@ async def list_inventory_movements(
                 m.invoice_original_name,
                 m.invoice_content_type,
                 m.invoice_file_size,
+                m.exported_at,
+                m.archived_at,
                 m.created_at,
                 i.name_reference,
                 i.item_size,
@@ -663,6 +677,42 @@ async def list_inventory_movements(
 
     movements = [inventory_movement_out(dict(row)) for row in result.mappings().all()]
     return {"company_id": str(company_id), "movements": movements}
+
+
+# CX_019E_R1_INVENTORY_HISTORY_ARCHIVE_BACKEND
+@router.post("/companies/{company_id}/movements/archive-exported")
+async def archive_inventory_movements_after_export(
+    company_id: UUID,
+    payload: InventoryArchivePayload,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_inventory_storage(db)
+
+    movement_ids = [
+        str(item).strip()
+        for item in (payload.movement_ids or [])
+        if str(item).strip()
+    ]
+
+    if not movement_ids:
+        return {"company_id": str(company_id), "archived": 0}
+
+    result = await db.execute(
+        text("""
+            UPDATE inventory_movements
+            SET exported_at = COALESCE(exported_at, now()),
+                archived_at = COALESCE(archived_at, now()),
+                updated_at = now()
+            WHERE company_id = :company_id
+              AND id::text = ANY(:movement_ids)
+              AND archived_at IS NULL
+            RETURNING id
+        """),
+        {"company_id": str(company_id), "movement_ids": movement_ids},
+    )
+    archived = len(result.mappings().all())
+    await db.commit()
+    return {"company_id": str(company_id), "archived": archived}
 
 
 @router.get("/movements/{movement_id}/invoice")

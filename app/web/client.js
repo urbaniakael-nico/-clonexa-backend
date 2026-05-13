@@ -3638,6 +3638,26 @@
         min-width: 180px;
         max-width: 220px;
       }
+      .cx-inv-invoice-picker {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 155px;
+        border: 1px dashed rgba(255,255,255,.28);
+        background: rgba(255,255,255,.07);
+        border-radius: 12px;
+        padding: 10px 12px;
+        cursor: pointer;
+        font-weight: 1000;
+        text-align: center;
+      }
+      .cx-inv-invoice-picker input {
+        display: none;
+      }
+      .cx-inv-invoice-picker:hover {
+        border-color: rgba(255,255,255,.48);
+        background: rgba(255,255,255,.11);
+      }
       .cx-inv-history {
         margin-top: 22px;
         border: 1px solid rgba(255,255,255,.12);
@@ -3715,7 +3735,17 @@
   async function loadInventoryMovements(itemId = "") {
     if (!state.companyId) return { movements: [] };
     const qs = itemId ? `&item_id=${encodeURIComponent(itemId)}` : "";
-    return api(`/inventory/companies/${encodeURIComponent(state.companyId)}/movements?limit=120${qs}`);
+    return api(`/inventory/companies/${encodeURIComponent(state.companyId)}/movements?limit=10&include_archived=false${qs}`);
+  }
+
+  async function archiveInventoryMovements(movementIds = []) {
+    if (!state.companyId) return { archived: 0 };
+    const ids = (Array.isArray(movementIds) ? movementIds : []).map((id) => String(id || "").trim()).filter(Boolean);
+    if (!ids.length) return { archived: 0 };
+    return api(`/inventory/companies/${encodeURIComponent(state.companyId)}/movements/archive-exported`, {
+      method: "POST",
+      body: JSON.stringify({ movement_ids: ids }),
+    });
   }
 
   function showInventoryNotice(message, type = "ok") {
@@ -3817,17 +3847,25 @@
     setTimeout(() => showInventoryNotice("Material deshabilitado."), 80);
   }
 
-  function exportInventoryCsv() {
-    const rows = Array.isArray(window.__cxInventoryRows) ? window.__cxInventoryRows : [];
-    const headers = ["Nombre / referencia", "Tamaño", "Color", "Stock actual", "Stock minimo", "Alerta", "Estado"];
-    const csvRows = [headers].concat(rows.map((row) => [
+  async function exportInventoryCsv() {
+    const movements = Array.isArray(window.__cxInventoryMovements) ? window.__cxInventoryMovements : [];
+
+    if (!movements.length) {
+      showInventoryNotice("No hay entradas visibles para exportar.", "error");
+      return;
+    }
+
+    const headers = ["Fecha", "Material", "Tamano", "Color", "Cantidad", "Stock anterior", "Stock nuevo", "Notas", "Factura"];
+    const csvRows = [headers].concat(movements.map((row) => [
+      inventoryMovementDate(row.created_at),
       row.name_reference || "",
       row.size || "",
       row.color || "",
-      row.current_stock ?? 0,
-      row.min_stock ?? 0,
-      row.alert_low ? "Stock bajo" : "",
-      inventoryStatusLabel(row.status),
+      row.quantity_delta ?? row.quantity ?? 0,
+      row.stock_before ?? 0,
+      row.stock_after ?? 0,
+      row.notes || "",
+      row.invoice_original_name || "",
     ]));
 
     const csv = csvRows
@@ -3838,11 +3876,18 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `clonexa_inventario_${state.companyId || "empresa"}.csv`;
+    a.download = `clonexa_inventario_ingresos_${state.companyId || "empresa"}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+
+    const movementIds = movements.map((row) => row.id).filter(Boolean);
+    if (movementIds.length) {
+      await archiveInventoryMovements(movementIds);
+      await renderInventoryModule();
+      setTimeout(() => showInventoryNotice("CSV exportado. Entradas archivadas de la vista principal."), 80);
+    }
   }
 
   function renderInventoryCreatePanel() {
@@ -3898,6 +3943,12 @@
         </td>
         <td>
           <input data-inventory-entry-qty="${h(row.id)}" type="number" min="0" step="0.01" placeholder="Cantidad">
+        </td>
+        <td>
+          <label class="cx-inv-invoice-picker">
+            <input data-inventory-entry-invoice="${h(row.id)}" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
+            <span>Adjuntar factura</span>
+          </label>
         </td>
         <td>
           <div class="cx-inv-actions">
@@ -3971,13 +4022,13 @@
   }
 
   function renderInventoryHistoryPanel(movements = []) {
-    const rows = Array.isArray(movements) ? movements : [];
+    const rows = (Array.isArray(movements) ? movements : []).slice(0, 10);
     return `
       <div class="cx-inv-history">
         <div style="padding:16px 16px 4px">
           <div class="client-eyebrow">Historial de ingresos</div>
-          <h3 style="margin:6px 0 10px">Entradas y facturas</h3>
-          <p class="client-muted">Cada ingreso queda auditado con stock anterior, stock nuevo y factura adjunta si aplica.</p>
+          <h3 style="margin:6px 0 10px">Ultimas 10 entradas y facturas</h3>
+          <p class="client-muted">Cada ingreso queda auditado. Al exportar CSV, estas entradas se archivan visualmente sin borrar la base de datos.</p>
         </div>
         <div style="overflow-x:auto">
           <div class="cx-inv-history-grid">
@@ -4041,7 +4092,7 @@
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
                 <button class="client-btn" type="button" data-inventory-refresh>Actualizar</button>
-                <button class="client-btn" type="button" data-inventory-export>CSV</button>
+                <button class="client-btn" type="button" data-inventory-export>CSV + archivar</button>
               </div>
               <div id="inventoryNotice">${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}</div>
             </header>
@@ -4059,7 +4110,7 @@
               <div class="cx-inv-modebar">
                 <button class="${mode === "create" ? "active" : ""}" type="button" data-inventory-mode="create">Crear material / producto</button>
                 <button class="${mode === "modify" ? "active" : ""}" type="button" data-inventory-mode="modify">Modificar material</button>
-                <button type="button" data-inventory-export>CSV</button>
+                <button type="button" data-inventory-export>CSV + archivar</button>
               </div>
             </section>
 
@@ -4069,6 +4120,8 @@
       </main>
     `;
   }
+
+  /* CX_019E_R1_INVENTORY_HISTORY_ARCHIVE_CLIENT */
   /* CX_INVENTORY_BASE_015B_END */
 
 
@@ -8239,7 +8292,11 @@
       }
 
       if (target.closest("[data-inventory-export]")) {
-        exportInventoryCsv();
+        try {
+          await exportInventoryCsv();
+        } catch (error) {
+          showInventoryNotice(error.message || "No se pudo exportar CSV.", "error");
+        }
         return;
       }
 
