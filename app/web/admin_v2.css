@@ -864,8 +864,8 @@ p {
 }
 /* CLONEXA_019G_COMPANY_MINIPANEL_INTERNAL_MODULES_END */
 
-/* CLONEXA_019G_R4_CLEAN_MINIPANEL_EXISTING_MODULES_START */
-.cx-mp-final-section {
+/* CLONEXA_019G_R5_FORCE_MINIPANEL_PANEL_ASSIGNMENT_START */
+.cx-mp-r5-section {
   margin: 26px 0;
   padding: 22px;
   border: 1px solid rgba(255, 43, 193, 0.38);
@@ -876,14 +876,14 @@ p {
   box-shadow: 0 18px 52px rgba(0,0,0,0.30);
 }
 
-.cx-mp-final-head {
+.cx-mp-r5-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 18px;
 }
 
-.cx-mp-final-kicker {
+.cx-mp-r5-kicker {
   color: #ff2bc1;
   font-size: 12px;
   font-weight: 900;
@@ -892,19 +892,19 @@ p {
   margin-bottom: 8px;
 }
 
-.cx-mp-final-head h3 {
+.cx-mp-r5-head h3 {
   margin: 0 0 8px;
   color: #fff;
   font-size: 24px;
 }
 
-.cx-mp-final-head p {
+.cx-mp-r5-head p {
   margin: 0;
   color: rgba(255,255,255,0.70);
   max-width: 920px;
 }
 
-.cx-mp-final-toggle {
+.cx-mp-r5-toggle {
   border: 1px solid rgba(255,43,193,.42);
   background: linear-gradient(135deg, #ff2bc1, #8b00ff);
   color: #fff;
@@ -912,18 +912,18 @@ p {
   padding: 14px 18px;
   font-weight: 900;
   cursor: pointer;
-  min-width: 260px;
+  min-width: 270px;
   box-shadow: 0 16px 36px rgba(255,43,193,.22);
 }
 
-.cx-mp-final-toggle.is-on {
+.cx-mp-r5-toggle.is-on {
   background: rgba(0, 212, 128, 0.18);
   border-color: rgba(0, 212, 128, 0.55);
   color: #38ffac;
   box-shadow: 0 14px 34px rgba(0, 212, 128, 0.13);
 }
 
-.cx-mp-final-summary {
+.cx-mp-r5-summary {
   margin-top: 14px;
   padding: 12px 14px;
   border-radius: 16px;
@@ -933,11 +933,67 @@ p {
   font-weight: 800;
 }
 
-.cx-mp-final-slot {
+.cx-mp-r5-body {
+  margin-top: 16px;
+}
+
+.cx-mp-r5-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.cx-mp-r5-panel {
+  text-align: left;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.055);
+  color: #fff;
+  border-radius: 18px;
+  padding: 14px;
+  cursor: pointer;
+}
+
+.cx-mp-r5-panel.is-selected {
+  border-color: rgba(0,212,128,.55);
+  background: rgba(0,212,128,.13);
+}
+
+.cx-mp-r5-panel span {
+  display: block;
+  font-weight: 900;
+  font-size: 16px;
+}
+
+.cx-mp-r5-panel small {
+  display: block;
+  color: rgba(255,255,255,.72);
+  margin: 5px 0;
+  font-weight: 800;
+}
+
+.cx-mp-r5-panel code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(255,255,255,.58);
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.cx-mp-r5-empty {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.055);
+  color: rgba(255,255,255,.72);
+}
+
+.cx-mp-r5-slot {
   margin-top: 12px;
 }
 
-.cx-mp-final-module-btn {
+.cx-mp-r5-module-btn {
   width: 100%;
   border: 1px solid rgba(255,43,193,.35);
   background: rgba(255,43,193,.11);
@@ -948,20 +1004,25 @@ p {
   cursor: pointer;
 }
 
-.cx-mp-final-module-btn.is-on {
+.cx-mp-r5-module-btn.is-on {
   border-color: rgba(0,212,128,.55);
   background: rgba(0,212,128,.16);
   color: #38ffac;
 }
 
 @media (max-width: 900px) {
-  .cx-mp-final-head {
+  .cx-mp-r5-head {
     flex-direction: column;
-    align-items: stretch;
   }
 
-  .cx-mp-final-toggle {
+  .cx-mp-r5-toggle {
     width: 100%;
   }
+
+  .cx-mp-r5-panels {
+    grid-template-columns: 1fr;
+  }
 }
-/* CLONEXA_019G_R4_CLEAN_MINIPANEL_EXISTING_MODULES_END */
+/* CLONEXA_019G_R5_FORCE_MINIPANEL_PANEL_ASSIGNMENT_END */
+/* CLONEXA_FORCE_BUILD_20260513_161603 */
+
