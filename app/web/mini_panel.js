@@ -244,149 +244,63 @@
   // CLONEXA_019F_R1_PASSWORD_HELPERS_END
 
 
-  /* CLONEXA_019H_MINIPANEL_DYNAMIC_MODULES_START */
+  /* CLONEXA_019H_R1_SAFE_DYNAMIC_MODULES_START */
   const PANEL_TYPE_ALIASES_019H = {
-    sales: "sales",
-    venta: "sales",
-    ventas: "sales",
-    store: "store",
-    stores: "store",
-    tienda: "store",
-    tiendas: "store",
-    inventory: "inventory",
-    inventario: "inventory",
-    logistics: "logistics",
-    logistica: "logistics",
-    logÃ­stica: "logistics",
-    field: "logistics",
-    other: "other"
+    "sales": "sales",
+    "venta": "sales",
+    "ventas": "sales",
+    "store": "store",
+    "stores": "store",
+    "tienda": "store",
+    "tiendas": "store",
+    "inventory": "inventory",
+    "inventario": "inventory",
+    "logistics": "logistics",
+    "logistica": "logistics",
+    "field": "logistics",
+    "other": "other"
   };
 
   const MODULE_DEFS_019H = {
-    cotizacion: {
-      title: "Cotizaciones",
-      description: "Crear cotizaciones para clientes.",
-      tag: "COT"
-    },
-    cotizaciones: {
-      title: "Cotizaciones",
-      description: "Crear cotizaciones para clientes.",
-      tag: "COT"
-    },
-    quote: {
-      title: "Cotizaciones",
-      description: "Crear cotizaciones para clientes.",
-      tag: "COT"
-    },
-    quotes: {
-      title: "Cotizaciones",
-      description: "Crear cotizaciones para clientes.",
-      tag: "COT"
-    },
-    notas_o_agenda: {
-      title: "Notas",
-      description: "Registrar notas de seguimiento.",
-      tag: "NOT"
-    },
-    notes: {
-      title: "Notas",
-      description: "Registrar notas de seguimiento.",
-      tag: "NOT"
-    },
-    notas: {
-      title: "Notas",
-      description: "Registrar notas de seguimiento.",
-      tag: "NOT"
-    },
-    registro_venta: {
-      title: "Registro ventas",
-      description: "Reportar ventas cerradas.",
-      tag: "VEN"
-    },
-    registro_ventas: {
-      title: "Registro ventas",
-      description: "Reportar ventas cerradas.",
-      tag: "VEN"
-    },
-    sales_register: {
-      title: "Registro ventas",
-      description: "Reportar ventas cerradas.",
-      tag: "VEN"
-    },
-    sales: {
-      title: "Registro ventas",
-      description: "Reportar ventas cerradas.",
-      tag: "VEN"
-    },
-    day_closing: {
-      title: "Realizar cierre",
-      description: "Enviar cierre diario del vendedor.",
-      tag: "CIE"
-    },
-    cierre_dia: {
-      title: "Realizar cierre",
-      description: "Enviar cierre diario del vendedor.",
-      tag: "CIE"
-    },
-    cierre_dÃ­a: {
-      title: "Realizar cierre",
-      description: "Enviar cierre diario del vendedor.",
-      tag: "CIE"
-    },
-    commercial_closing: {
-      title: "Realizar cierre",
-      description: "Enviar cierre diario del vendedor.",
-      tag: "CIE"
-    },
-    kpis: {
-      title: "KPIs",
-      description: "Consultar indicadores asignados al vendedor.",
-      tag: "KPI"
-    },
-    requests: {
-      title: "Solicitudes",
-      description: "Crear y consultar solicitudes operativas.",
-      tag: "REQ"
-    },
-    stores: {
-      title: "Tiendas",
-      description: "OperaciÃ³n asignada a tiendas.",
-      tag: "STR"
-    },
-    inventory: {
-      title: "Inventario",
-      description: "Consultar y registrar movimientos de inventario.",
-      tag: "INV"
-    },
-    materials: {
-      title: "Materiales",
-      description: "Gestionar solicitudes y entregas de materiales.",
-      tag: "MAT"
-    },
-    reports: {
-      title: "Reportes",
-      description: "Consultar reportes operativos asignados.",
-      tag: "REP"
-    },
-    workforce: {
-      title: "Personal",
-      description: "Consultar personal operativo asignado.",
-      tag: "WRK"
-    },
-    gps: {
-      title: "GPS",
-      description: "Consultar ubicaciÃ³n y control operativo.",
-      tag: "GPS"
-    },
-    crm: {
-      title: "CRM Campo",
-      description: "Consultar operaciÃ³n en campo.",
-      tag: "CRM"
-    }
+    "cotizacion": { title: "Cotizaciones", description: "Crear cotizaciones para clientes.", tag: "COT" },
+    "cotizaciones": { title: "Cotizaciones", description: "Crear cotizaciones para clientes.", tag: "COT" },
+    "quote": { title: "Cotizaciones", description: "Crear cotizaciones para clientes.", tag: "COT" },
+    "quotes": { title: "Cotizaciones", description: "Crear cotizaciones para clientes.", tag: "COT" },
+
+    "notas_o_agenda": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
+    "notes": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
+    "notas": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
+
+    "registro_venta": { title: "Registro ventas", description: "Reportar ventas cerradas.", tag: "VEN" },
+    "registro_ventas": { title: "Registro ventas", description: "Reportar ventas cerradas.", tag: "VEN" },
+    "sales_register": { title: "Registro ventas", description: "Reportar ventas cerradas.", tag: "VEN" },
+    "sales": { title: "Registro ventas", description: "Reportar ventas cerradas.", tag: "VEN" },
+
+    "day_closing": { title: "Realizar cierre", description: "Enviar cierre diario del vendedor.", tag: "CIE" },
+    "cierre_dia": { title: "Realizar cierre", description: "Enviar cierre diario del vendedor.", tag: "CIE" },
+    "cierre_de_dia": { title: "Realizar cierre", description: "Enviar cierre diario del vendedor.", tag: "CIE" },
+    "commercial_closing": { title: "Realizar cierre", description: "Enviar cierre diario del vendedor.", tag: "CIE" },
+
+    "kpis": { title: "KPIs", description: "Consultar indicadores asignados.", tag: "KPI" },
+    "requests": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
+    "stores": { title: "Tiendas", description: "Operacion asignada a tiendas.", tag: "STR" },
+    "inventory": { title: "Inventario", description: "Consultar y registrar movimientos de inventario.", tag: "INV" },
+    "materials": { title: "Materiales", description: "Gestionar materiales asignados.", tag: "MAT" },
+    "reports": { title: "Reportes", description: "Consultar reportes operativos asignados.", tag: "REP" },
+    "workforce": { title: "Personal", description: "Consultar personal operativo asignado.", tag: "WRK" },
+    "gps": { title: "GPS", description: "Consultar ubicacion y control operativo.", tag: "GPS" },
+    "crm": { title: "CRM Campo", description: "Consultar operacion en campo.", tag: "CRM" },
+    "field": { title: "Operacion en campo", description: "Consultar actividades en campo.", tag: "FLD" },
+    "bots": { title: "Bots", description: "Consultar canales automatizados.", tag: "BOT" }
   };
 
   function normalizePanelType019H(value) {
-    const raw = String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    const raw = String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
     return PANEL_TYPE_ALIASES_019H[raw] || raw || "sales";
   }
 
@@ -400,8 +314,9 @@
   }
 
   function titleFromCode019H(code, moduleNames = {}) {
-    const rawName = moduleNames[code] || moduleNames[normalizeModuleCode019H(code)] || "";
-    const clean = String(rawName || code || "MÃ³dulo").replace(/_/g, " ").trim();
+    const normalized = normalizeModuleCode019H(code);
+    const rawName = moduleNames[code] || moduleNames[normalized] || "";
+    const clean = String(rawName || normalized || "Modulo").replace(/_/g, " ").trim();
     return clean.replace(/\w\S*/g, (part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
   }
 
@@ -414,7 +329,7 @@
     return {
       code: normalized,
       title,
-      description: "MÃ³dulo asignado desde Admin V2.",
+      description: "Modulo asignado desde Admin V2.",
       tag: normalized.slice(0, 3).toUpperCase() || "MOD"
     };
   }
@@ -422,35 +337,43 @@
   function extractMiniPanelSettings019H(companyModules) {
     const rows = Array.isArray(companyModules) ? companyModules : [];
     const miniRow = rows.find((row) => {
-      const module = row.module || {};
-      const code = normalizeModuleCode019H(module.code || row.module_code || row.code || "");
-      const name = normalizeModuleCode019H(module.name || row.name || "");
+      const code = normalizeModuleCode019H(row?.module?.code || row?.code || row?.module_code || "");
+      const name = normalizeModuleCode019H(row?.module?.name || row?.name || "");
       return code === "mini_panel" || name.includes("mini_panel") || name.includes("creacion_mini");
     });
 
-    const settings = miniRow && typeof miniRow.settings === "object" ? miniRow.settings : {};
-    const config = settings.mini_panel_modules && typeof settings.mini_panel_modules === "object"
-      ? settings.mini_panel_modules
-      : settings;
+    const settings = miniRow && typeof miniRow.settings === "object" && miniRow.settings ? miniRow.settings : {};
 
-    return config && typeof config === "object" ? config : {};
+    if (settings.mini_panel_modules && typeof settings.mini_panel_modules === "object") {
+      return settings.mini_panel_modules;
+    }
+
+    if (settings.panels && typeof settings.panels === "object") {
+      return settings;
+    }
+
+    return { enabled: false, panels: {}, module_names: {} };
   }
 
-  function panelConfig019H(config, type) {
-    const normalized = normalizePanelType019H(type);
-    const panels = config && typeof config.panels === "object" ? config.panels : {};
-    return panels[normalized] || panels[type] || panels[`${normalized}s`] || {};
+  function panelConfig019H(config, typeValue) {
+    const type = normalizePanelType019H(typeValue);
+    const panels = config && typeof config.panels === "object" && config.panels ? config.panels : {};
+    return panels[type] || panels[`${type}s`] || panels[type === "stores" ? "store" : ""] || {};
   }
 
-  function assignedModuleCodes019H(config, type) {
-    const row = panelConfig019H(config, type);
-    const modules = Array.isArray(row.modules) ? row.modules : [];
-    return Array.from(new Set(modules.map(normalizeModuleCode019H).filter(Boolean)));
+  function assignedModuleCodes019H(config, typeValue) {
+    const panel = panelConfig019H(config, typeValue);
+    const modules = Array.isArray(panel.modules) ? panel.modules : [];
+    return modules
+      .map((code) => normalizeModuleCode019H(code))
+      .filter(Boolean)
+      .filter((code, index, arr) => arr.indexOf(code) === index);
   }
 
   async function loadMiniPanelModuleConfig019H() {
+    const empty = { enabled: false, modules: [], module_names: {}, raw: null };
     try {
-      if (!companyId) return { enabled: false, modules: [], module_names: {} };
+      if (!companyId) return empty;
 
       const data = await api(`/api/v1/companies/${encodeURIComponent(companyId)}/modules?enabled_only=true`, {
         headers: authHeaders()
@@ -459,7 +382,7 @@
       const config = extractMiniPanelSettings019H(data);
       const panel = panelConfig019H(config, panelType);
       const codes = assignedModuleCodes019H(config, panelType);
-      const moduleNames = config.module_names && typeof config.module_names === "object" ? config.module_names : {};
+      const moduleNames = config && typeof config.module_names === "object" && config.module_names ? config.module_names : {};
 
       return {
         enabled: config.enabled === true || panel.enabled === true || codes.length > 0,
@@ -469,8 +392,11 @@
         raw: config
       };
     } catch (error) {
-      console.warn("CLONEXA 019H mini panel modules fallback:", error);
-      return { enabled: false, modules: [], module_names: {}, error: error.message || String(error) };
+      console.warn("CLONEXA 019H-R1 modules fallback:", error);
+      return {
+        ...empty,
+        error: error && error.message ? error.message : String(error)
+      };
     }
   }
 
@@ -486,17 +412,19 @@
     if (!dynamicModules.length) {
       return `
         <div class="mp-modules-empty-019h">
-          <strong>No hay mÃ³dulos asignados a este mini panel.</strong>
-          <small>Agrega mÃ³dulos desde Admin V2 â†’ Empresa â†’ MÃ³dulos â†’ MÃ³dulos para Mini Panel.</small>
+          <strong>No hay modulos asignados a este mini panel.</strong>
+          <small>Agrega modulos desde Admin V2 - Empresa - Modulos - Modulos para Mini Panel.</small>
         </div>
       `;
     }
 
     return dynamicModules.map((item) => moduleCard(item.title, item.description, item.tag, item.code)).join("");
   }
-  /* CLONEXA_019H_MINIPANEL_DYNAMIC_MODULES_END */
+  /* CLONEXA_019H_R1_SAFE_DYNAMIC_MODULES_END */
 
-  function moduleCard(title, description, tag, code = "") {
+
+
+function moduleCard(title, description, tag, code = "") {
     return `
       <button class="mp-module-card" type="button" data-module="${h(code || tag)}" data-module-title="${h(title)}">
         <span>${h(tag)}</span>
@@ -781,7 +709,10 @@
       });
 
       const operational = await loadOperationalSession();
-      currentModuleConfig = await loadMiniPanelModuleConfig019H();
+      currentModuleConfig = await loadMiniPanelModuleConfig019H().catch((error) => {
+        console.warn("CLONEXA 019H-R1 config fallback:", error);
+        return { enabled: false, modules: [], module_names: {}, error: error?.message || String(error) };
+      });
       renderShell(session, operational.operational_session || operational, currentModuleConfig);
     } catch (error) {
       localStorage.removeItem(storageKey);
@@ -795,3 +726,4 @@
     bootShell();
   }
 })();
+// CLONEXA_FORCE_BUILD_019H_R1_20260513224440
