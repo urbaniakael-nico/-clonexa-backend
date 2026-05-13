@@ -30,4 +30,16 @@ def register_client_portal(app: FastAPI) -> None:
         async def client_page() -> HTMLResponse:
             return _read_html(web_dir / "client.html")
 
+    # CLONEXA_019D_MINI_PANEL_ROUTES_START
+    if not any(getattr(route, "path", None) == "/mini-panel/login" for route in app.routes):
+        @app.get("/mini-panel/login", response_class=HTMLResponse, include_in_schema=False)
+        async def mini_panel_login_page() -> HTMLResponse:
+            return _read_html(web_dir / "mini_panel.html")
+
+    if not any(getattr(route, "path", None) == "/mini-panel" for route in app.routes):
+        @app.get("/mini-panel", response_class=HTMLResponse, include_in_schema=False)
+        async def mini_panel_shell_page() -> HTMLResponse:
+            return _read_html(web_dir / "mini_panel.html")
+    # CLONEXA_019D_MINI_PANEL_ROUTES_END
+
     app.state.clonexa_client_portal_registered = True

@@ -5,14 +5,14 @@ from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.models.auth import CompanyUser
-from app.models.core import Employee
+from app.models.core import Company, Employee
 from app.schemas.auth import (
     AdminCreateCompanyUserRequest,
     AdminResetPasswordRequest,
@@ -23,13 +23,17 @@ from app.schemas.auth import (
 )
 from app.services.auth_service import (
     company_user_out_payload,
+    create_access_token,
     create_company_user,
+    get_access_token_expire_minutes,
+    get_current_company_user,
     list_company_users,
     reset_company_user_password,
     unlock_company_user,
     update_company_user,
     generate_temporary_password,
     hash_password,
+    verify_password,
 )
 
 router = APIRouter()
@@ -39,6 +43,240 @@ router = APIRouter()
 class SalesMiniPanelUserCreateRequest(BaseModel):
     employee_id: UUID
     link: Optional[str] = None
+
+
+# CLONEXA_019D_MINIPANEL_LOGIN_BACKEND_START
+
+class MiniPanelLoginRequest(BaseModel):
+    username: str
+    password: str
+    panel_type: str
+
+
+def _cx_bearer_token_019d(authorization: Optional[str]) -> str:
+    raw = str(authorization or "").strip()
+    if not raw.lower().startswith("bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token requerido.")
+    token = raw.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido.")
+    return token
+
+
+def _cx_panel_type_019d(value: Any) -> str:
+    panel_type = str(value or "").strip().lower()
+    aliases = {
+        "ventas": "sales",
+        "sales": "sales",
+        "tiendas": "store",
+        "store": "store",
+        "stores": "store",
+        "inventario": "inventory",
+        "inventarios": "inventory",
+        "inventory": "inventory",
+        "logistica": "logistics",
+        "logística": "logistics",
+        "logistics": "logistics",
+        "otro": "other",
+        "otros": "other",
+        "other": "other",
+    }
+    clean = aliases.get(panel_type, panel_type)
+    if clean not in MINI_PANEL_ALLOWED_TYPES_019C:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de mini panel inválido.")
+    return clean
+
+
+def _cx_minipanel_type_label_019d(panel_type: str) -> str:
+    return {
+        "sales": "Ventas",
+        "store": "Tiendas",
+        "inventory": "Inventarios",
+        "logistics": "Logística",
+        "other": "Otros",
+    }.get(panel_type, panel_type)
+
+
+async def _cx_company_or_404_019d(db: AsyncSession, company_id: UUID) -> Company:
+    result = await db.execute(select(Company).where(Company.id == company_id))
+    company = result.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Empresa no encontrada.")
+    if str(getattr(company, "status", "") or "").lower() not in {"active", "activo"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Empresa inactiva.")
+    return company
+
+
+def _cx_minipanel_user_matches_login_019d(user: CompanyUser, username: str, panel_type: str) -> bool:
+    settings = _cx_user_settings_019c(user)
+    mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    if mini_panel.get("enabled") is not True:
+        return False
+    if str(mini_panel.get("type") or "").strip().lower() != panel_type:
+        return False
+
+    login = str(username or "").strip().lower()
+    candidates = {
+        str(user.email or "").strip().lower(),
+        str(mini_panel.get("username") or "").strip().lower(),
+    }
+    return login in candidates
+
+
+async def _cx_find_minipanel_login_user_019d(
+    db: AsyncSession,
+    company_id: UUID,
+    *,
+    username: str,
+    panel_type: str,
+) -> Optional[CompanyUser]:
+    result = await db.execute(select(CompanyUser).where(CompanyUser.company_id == company_id))
+    users = result.scalars().all()
+    for user in users:
+        if _cx_minipanel_user_matches_login_019d(user, username, panel_type):
+            return user
+    return None
+
+
+async def _cx_minipanel_session_payload_019d(
+    db: AsyncSession,
+    company: Company,
+    user: CompanyUser,
+    panel_type: str,
+) -> Dict[str, Any]:
+    settings = _cx_user_settings_019c(user)
+    mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    employee_payload: Dict[str, Any] | None = None
+
+    raw_employee_id = mini_panel.get("employee_id")
+    if raw_employee_id:
+        try:
+            employee_id = UUID(str(raw_employee_id))
+            result = await db.execute(
+                select(Employee).where(
+                    Employee.company_id == company.id,
+                    Employee.id == employee_id,
+                )
+            )
+            employee = result.scalar_one_or_none()
+            if employee:
+                employee_payload = {
+                    "id": str(employee.id),
+                    "full_name": employee.full_name,
+                    "phone": employee.phone,
+                    "role": employee.role or employee.employee_type,
+                    "status": employee.status,
+                }
+        except Exception:
+            employee_payload = None
+
+    return {
+        "ok": True,
+        "company": {
+            "id": str(company.id),
+            "name": company.name,
+            "slug": company.slug,
+            "status": company.status,
+            "timezone": company.timezone,
+        },
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "status": user.status,
+            "must_change_password": bool(getattr(user, "must_change_password", False)),
+        },
+        "mini_panel": {
+            "enabled": True,
+            "type": panel_type,
+            "type_label": _cx_minipanel_type_label_019d(panel_type),
+            "username": mini_panel.get("username") or user.email,
+            "employee_id": mini_panel.get("employee_id"),
+            "link": mini_panel.get("link"),
+            "source": mini_panel.get("source"),
+        },
+        "employee": employee_payload,
+    }
+
+
+@router.post("/{company_id}/mini-panel-login")
+async def mini_panel_login(
+    company_id: UUID,
+    payload: MiniPanelLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    panel_type = _cx_panel_type_019d(payload.panel_type)
+    company = await _cx_company_or_404_019d(db, company_id)
+
+    user = await _cx_find_minipanel_login_user_019d(
+        db,
+        company_id,
+        username=payload.username,
+        panel_type=panel_type,
+    )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario o clave inválidos.")
+
+    if str(user.status or "").lower() not in {"active", "activo"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo o bloqueado.")
+
+    if not verify_password(payload.password, user.password_hash):
+        user.failed_login_attempts = int(user.failed_login_attempts or 0) + 1
+        await db.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario o clave inválidos.")
+
+    user.failed_login_attempts = 0
+    user.last_login_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(user)
+
+    expires_in_minutes = get_access_token_expire_minutes()
+    token = create_access_token(
+        {
+            "sub": str(user.id),
+            "user_id": str(user.id),
+            "company_id": str(company_id),
+            "role": user.role,
+            "mini_panel": True,
+            "panel_type": panel_type,
+        },
+        expires_minutes=expires_in_minutes,
+    )
+
+    session = await _cx_minipanel_session_payload_019d(db, company, user, panel_type)
+    session.update({
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": expires_in_minutes * 60,
+    })
+    return session
+
+
+@router.get("/{company_id}/mini-panel-session")
+async def mini_panel_session(
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    clean_type = _cx_panel_type_019d(panel_type)
+    token = _cx_bearer_token_019d(authorization)
+    user = await get_current_company_user(db, token)
+
+    if str(user.company_id) != str(company_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El usuario no pertenece a esta empresa.")
+
+    settings = _cx_user_settings_019c(user)
+    mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    if mini_panel.get("enabled") is not True or str(mini_panel.get("type") or "") != clean_type:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acceso no autorizado para este mini panel.")
+
+    company = await _cx_company_or_404_019d(db, company_id)
+    return await _cx_minipanel_session_payload_019d(db, company, user, clean_type)
+
+
+# CLONEXA_019D_MINIPANEL_LOGIN_BACKEND_END
 
 
 MINI_PANEL_ALLOWED_TYPES_019C = {"sales", "store", "inventory", "logistics", "other"}
