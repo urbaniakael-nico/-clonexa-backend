@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
   const API = "/api/v1";
 
   const state = {
@@ -2447,327 +2447,7 @@
     }
   });
 
-  /* CLONEXA_019G_COMPANY_MINIPANEL_INTERNAL_MODULES_START */
-  const CX_MINI_PANEL_INTERNAL_MODULE_GROUPS = [
-    {
-      type: "sales",
-      label: "Ventas",
-      description: "Opciones internas para vendedores y actividad comercial.",
-      modules: [
-        { code: "workday", label: "Jornada" },
-        { code: "pause_resume", label: "Pausa / retomar" },
-        { code: "quotes", label: "Cotizaciones" },
-        { code: "notes", label: "Notas" },
-        { code: "sales_register", label: "Registro ventas" },
-        { code: "day_close", label: "Cierre dÃ­a" },
-        { code: "goals", label: "Meta" },
-        { code: "promotions", label: "Promociones" },
-      ],
-    },
-    {
-      type: "store",
-      label: "Tiendas",
-      description: "Opciones internas para puntos de venta y cajas.",
-      modules: [
-        { code: "store_staff", label: "Personal tienda" },
-        { code: "requests", label: "Solicitudes" },
-        { code: "quotes", label: "Cotizaciones" },
-        { code: "cash_close", label: "Cierre caja" },
-        { code: "history", label: "Historial" },
-      ],
-    },
-    {
-      type: "inventory",
-      label: "Inventario",
-      description: "Opciones internas para control de inventario desde mini panel.",
-      modules: [
-        { code: "entries", label: "Entradas" },
-        { code: "counting", label: "Conteo" },
-        { code: "adjustments", label: "Ajustes" },
-        { code: "requests", label: "Solicitudes" },
-        { code: "evidence", label: "Evidencias / facturas" },
-      ],
-    },
-    {
-      type: "logistics",
-      label: "LogÃ­stica",
-      description: "Opciones internas para entregas, rutas y solicitudes.",
-      modules: [
-        { code: "tasks", label: "Tareas" },
-        { code: "routes", label: "Rutas" },
-        { code: "deliveries", label: "Entregas" },
-        { code: "materials", label: "Materiales" },
-        { code: "evidence", label: "Evidencias" },
-      ],
-    },
-    {
-      type: "other",
-      label: "Otro",
-      description: "Espacio adaptable para empresas futuras.",
-      modules: [
-        { code: "custom_form", label: "Formulario" },
-        { code: "notes", label: "Notas" },
-        { code: "attachments", label: "Adjuntos" },
-        { code: "daily_report", label: "Reporte diario" },
-      ],
-    },
-  ];
-
-  window.__cxMiniPanelInternalUx = window.__cxMiniPanelInternalUx || {
-    open: new Map(),
-  };
-
-  function cxGetCompanyMiniPanelModuleRow(companyId) {
-    const rows = safeArray(state.companyModules?.get(companyId)).map(normalizeModule);
-    return rows.find((row) => row.enabled !== false && cxIsMiniPanelModuleCode(row.code));
-  }
-
-  function cxMiniPanelInternalDefaultConfig(raw = {}) {
-    const source = raw && typeof raw === "object" ? raw : {};
-    const sourceTypes = source.types && typeof source.types === "object" ? source.types : {};
-    const types = {};
-
-    CX_MINI_PANEL_INTERNAL_MODULE_GROUPS.forEach((group) => {
-      const current = sourceTypes[group.type] && typeof sourceTypes[group.type] === "object" ? sourceTypes[group.type] : {};
-      const currentModules = current.modules && typeof current.modules === "object" ? current.modules : {};
-      const modules = {};
-
-      group.modules.forEach((item) => {
-        modules[item.code] = currentModules[item.code] === true;
-      });
-
-      types[group.type] = {
-        enabled: current.enabled === true,
-        label: current.label || group.label,
-        modules,
-      };
-    });
-
-    return {
-      enabled: source.enabled === true,
-      types,
-      updated_at: source.updated_at || null,
-    };
-  }
-
-  function cxCompanyMiniPanelInternalSettings(row) {
-    const settings = row?.settings && typeof row.settings === "object" ? row.settings : {};
-    return cxMiniPanelInternalDefaultConfig(
-      settings.mini_panel_internal_modules ||
-      settings.minipanel_internal_modules ||
-      settings.internal_modules ||
-      {}
-    );
-  }
-
-  function cxCompanyMiniPanelInternalSummary(config) {
-    const normalized = cxMiniPanelInternalDefaultConfig(config || {});
-    let activeTypes = 0;
-    let activeModules = 0;
-
-    CX_MINI_PANEL_INTERNAL_MODULE_GROUPS.forEach((group) => {
-      const row = normalized.types[group.type] || {};
-      const enabledCount = Object.values(row.modules || {}).filter(Boolean).length;
-      if (row.enabled || enabledCount > 0) activeTypes += 1;
-      activeModules += enabledCount;
-    });
-
-    if (!activeTypes && !activeModules) return "Sin configurar";
-    return `${activeTypes} tipos Â· ${activeModules} mÃ³dulos internos`;
-  }
-
-  function cxMiniPanelInternalConfigFromForm(form) {
-    const payload = {
-      enabled: true,
-      types: {},
-      updated_at: new Date().toISOString(),
-    };
-
-    CX_MINI_PANEL_INTERNAL_MODULE_GROUPS.forEach((group) => {
-      const typeEnabled = !!form.querySelector(`[name="cx_mini_internal_type_${group.type}"]`)?.checked;
-      const modules = {};
-
-      group.modules.forEach((item) => {
-        modules[item.code] = !!form.querySelector(`[name="cx_mini_internal_module_${group.type}_${item.code}"]`)?.checked;
-      });
-
-      payload.types[group.type] = {
-        enabled: typeEnabled || Object.values(modules).some(Boolean),
-        label: group.label,
-        modules,
-      };
-    });
-
-    return payload;
-  }
-
-  function cxRenderCompanyMiniPanelInternalModulesSection(company) {
-    const miniPanelModule = cxGetCompanyMiniPanelModuleRow(company.id);
-    if (!miniPanelModule) return "";
-
-    const config = cxCompanyMiniPanelInternalSettings(miniPanelModule);
-    const isOpen = window.__cxMiniPanelInternalUx.open.get(company.id) === true;
-    const summary = cxCompanyMiniPanelInternalSummary(config);
-
-    return `
-      <section class="cx-panel cx-company-minipanel-modules" style="margin-bottom:18px">
-        <div class="cx-card-head">
-          <div>
-            <h3>MÃ³dulos para Mini Panel</h3>
-            <p>Configura quÃ© opciones internas aparecerÃ¡n dentro de los mini paneles de esta empresa. No modifica los mÃ³dulos principales de CLONEXA.</p>
-          </div>
-          <div class="cx-actions" style="gap:8px">
-            <span class="cx-badge cx-badge-live">CREACION MINI_PANEL activo</span>
-            <span class="cx-badge">${escapeHtml(summary)}</span>
-            <button
-              class="cx-btn ${isOpen ? "cx-btn-primary" : ""}"
-              type="button"
-              data-cx-company-minipanel-internal-toggle
-              data-company-id="${escapeHtml(company.id)}"
-            >
-              ${isOpen ? "Cerrar configuraciÃ³n" : "Ajustar mÃ³dulos"}
-            </button>
-          </div>
-        </div>
-
-        <div ${isOpen ? "" : "hidden"} class="cx-company-minipanel-editor">
-          <form
-            class="cx-form"
-            data-cx-company-minipanel-internal-form
-            data-company-id="${escapeHtml(company.id)}"
-            data-module-code="${escapeHtml(miniPanelModule.code)}"
-          >
-            <div class="cx-mini-internal-grid">
-              ${CX_MINI_PANEL_INTERNAL_MODULE_GROUPS.map((group) => {
-                const row = config.types[group.type] || { enabled: false, modules: {} };
-                const enabledCount = Object.values(row.modules || {}).filter(Boolean).length;
-
-                return `
-                  <article class="cx-mini-internal-card">
-                    <div class="cx-card-head">
-                      <div>
-                        <strong>${escapeHtml(group.label)}</strong>
-                        <p>${escapeHtml(group.description)}</p>
-                      </div>
-                      <span class="cx-badge ${enabledCount ? "cx-badge-live" : ""}">${escapeHtml(enabledCount)} activos</span>
-                    </div>
-
-                    <label class="cx-mini-internal-type-toggle">
-                      <input
-                        type="checkbox"
-                        name="cx_mini_internal_type_${escapeHtml(group.type)}"
-                        data-cx-mini-panel-type-check
-                        data-mini-type="${escapeHtml(group.type)}"
-                        ${row.enabled ? "checked" : ""}
-                      >
-                      Habilitar tipo ${escapeHtml(group.label)}
-                    </label>
-
-                    <div class="cx-mini-internal-feature-list">
-                      ${group.modules.map((item) => `
-                        <label>
-                          <input
-                            type="checkbox"
-                            name="cx_mini_internal_module_${escapeHtml(group.type)}_${escapeHtml(item.code)}"
-                            data-cx-mini-panel-module-check
-                            data-mini-type="${escapeHtml(group.type)}"
-                            ${row.modules?.[item.code] ? "checked" : ""}
-                          >
-                          <span>${escapeHtml(item.label)}</span>
-                        </label>
-                      `).join("")}
-                    </div>
-                  </article>
-                `;
-              }).join("")}
-            </div>
-
-            <div class="cx-actions" style="margin-top:14px">
-              <button class="cx-btn cx-btn-primary" type="submit">Guardar mÃ³dulos para mini panel</button>
-              <span class="cx-empty-state">Esta configuraciÃ³n queda guardada en el mÃ³dulo CREACION MINI_PANEL de esta empresa.</span>
-            </div>
-          </form>
-        </div>
-      </section>
-    `;
-  }
-
-  function cxBindCompanyMiniPanelInternalModulesEvents() {
-    if (window.__cxMiniPanelInternalModulesEventsBound) return;
-    window.__cxMiniPanelInternalModulesEventsBound = true;
-
-    document.addEventListener("click", (event) => {
-      const toggle = event.target.closest("[data-cx-company-minipanel-internal-toggle]");
-      if (!toggle) return;
-
-      const companyId = toggle.dataset.companyId;
-      window.__cxMiniPanelInternalUx.open.set(companyId, window.__cxMiniPanelInternalUx.open.get(companyId) !== true);
-      if (typeof renderCompanies === "function") renderCompanies();
-    });
-
-    document.addEventListener("change", (event) => {
-      const moduleCheck = event.target.closest("[data-cx-mini-panel-module-check]");
-      if (moduleCheck && moduleCheck.checked) {
-        const form = moduleCheck.closest("[data-cx-company-minipanel-internal-form]");
-        const type = moduleCheck.dataset.miniType;
-        const typeCheck = form?.querySelector(`[data-cx-mini-panel-type-check][data-mini-type="${type}"]`);
-        if (typeCheck) typeCheck.checked = true;
-      }
-
-      const typeCheck = event.target.closest("[data-cx-mini-panel-type-check]");
-      if (typeCheck && !typeCheck.checked) {
-        const form = typeCheck.closest("[data-cx-company-minipanel-internal-form]");
-        const type = typeCheck.dataset.miniType;
-        form?.querySelectorAll(`[data-cx-mini-panel-module-check][data-mini-type="${type}"]`).forEach((input) => {
-          input.checked = false;
-        });
-      }
-    });
-
-    document.addEventListener("submit", async (event) => {
-      const form = event.target.closest("[data-cx-company-minipanel-internal-form]");
-      if (!form) return;
-
-      event.preventDefault();
-
-      const companyId = form.dataset.companyId;
-      const moduleCode = form.dataset.moduleCode;
-      const submit = form.querySelector("button[type='submit']");
-
-      if (!companyId || !moduleCode) return;
-
-      if (submit) {
-        submit.disabled = true;
-        submit.textContent = "Guardando...";
-      }
-
-      try {
-        const config = cxMiniPanelInternalConfigFromForm(form);
-        await cxJsonRequest(`/companies/${companyId}/modules/${moduleCode}/activate`, {
-          method: "POST",
-          body: JSON.stringify({
-            settings: {
-              mini_panel_internal_modules: config,
-            },
-          }),
-        });
-
-        await loadCompanyModules(companyId);
-        showToast("MÃ³dulos para mini panel guardados.");
-        if (typeof renderCompanies === "function") renderCompanies();
-      } catch (error) {
-        showToast(error.message || "No se pudo guardar la configuraciÃ³n de mini panel.", "error");
-      } finally {
-        if (submit) {
-          submit.disabled = false;
-          submit.textContent = "Guardar mÃ³dulos para mini panel";
-        }
-      }
-    });
-  }
-
-  cxBindCompanyMiniPanelInternalModulesEvents();
-  /* CLONEXA_019G_COMPANY_MINIPANEL_INTERNAL_MODULES_END */
+  
 
 
   function renderCompanyDetailTab(company) {
@@ -4226,41 +3906,36 @@
 
 // CLONEXA_FORCE_BUILD_019G_R6_20260513_163613
 
-/* CLONEXA_019G_R6_MINIPANEL_ASSIGNMENT_LIST_REMOVE_MULTI_START */
-(function () {
-  if (window.__CLONEXA_019G_R6_MINIPANEL_ASSIGNMENT__) return;
-  window.__CLONEXA_019G_R6_MINIPANEL_ASSIGNMENT__ = true;
 
-  const SECTION_ID = "cx-mini-panel-assignment-r6";
-  const STORAGE_PREFIX = "clonexa.miniPanelAssignments.v6.";
-  const LEGACY_STORAGE_PREFIX = "clonexa.miniPanelAssignments.v5.";
+// CLONEXA_FORCE_BUILD_019G_R6_20260513_163650
+
+/* CLONEXA_019G_R6B_RESTORE_FINAL_START */
+(function () {
+  const SECTION_ID = "cx-mp-r6b-section";
+  const STORAGE_PREFIX = "clonexa.miniPanelAssignments.r6b.";
   const API = "/api/v1";
 
   const PANEL_DEFS = [
-    { type: "sales", label: "Ventas", moduleCodes: ["sales"], aliases: ["ventas", "sales"] },
-    { type: "store", label: "Tiendas", moduleCodes: ["stores"], aliases: ["tiendas", "stores", "store"] },
-    { type: "inventory", label: "Inventario", moduleCodes: ["inventory"], aliases: ["inventario", "inventory"] },
-    { type: "logistics", label: "LogÃ­stica", moduleCodes: ["field", "logistics"], aliases: ["logistica", "logÃ­stica", "field", "logistics"] },
-    { type: "other", label: "Otro", moduleCodes: [], aliases: ["otro", "other"] }
+    { type: "sales", label: "Ventas", keys: ["ventas", "sales", "sal"] },
+    { type: "store", label: "Tiendas", keys: ["tiendas", "stores", "store", "str"] },
+    { type: "inventory", label: "Inventario", keys: ["inventario", "inventory", "inv"] },
+    { type: "logistics", label: "Logística", keys: ["logistica", "logística", "field", "gps", "fld"] },
+    { type: "other", label: "Otro", keys: ["otro", "other"] }
   ];
-
-  const SKIP_CODES = new Set(["core", "core_settings", "mini_panel"]);
 
   const KNOWN = {
     "nucleo": "core",
-    "nÃºcleo": "core",
     "core": "core",
     "ajustes": "core_settings",
     "core_settings": "core_settings",
     "creacion mini_panel": "mini_panel",
     "creacion mini _panel": "mini_panel",
-    "creaciÃ³n mini_panel": "mini_panel",
     "mini_panel": "mini_panel",
     "personal": "workforce",
     "workforce": "workforce",
     "gps": "gps",
     "nomina": "payroll",
-    "nÃ³mina": "payroll",
+    "nómina": "payroll",
     "payroll": "payroll",
     "crm campo": "crm",
     "crm": "crm",
@@ -4280,36 +3955,20 @@
     "materials": "materials",
     "reportes": "reports",
     "reports": "reports",
+    "cotizaciones": "cotizacion",
+    "cotizacion": "cotizacion",
+    "cotización": "cotizacion",
+    "registro venta": "registro_venta",
+    "registro de venta": "registro_venta",
+    "cierre de dia": "day_closing",
+    "cierre día": "day_closing",
+    "day_closing": "day_closing",
     "operacion en campo": "field",
-    "operaciÃ³n en campo": "field",
-    "logistica": "field",
-    "logÃ­stica": "field",
+    "operación en campo": "field",
     "field": "field"
   };
 
-  const DEFAULT_LABELS = {
-    workforce: "Personal",
-    gps: "GPS",
-    payroll: "NÃ³mina",
-    crm: "CRM Campo",
-    kpis: "KPIs",
-    bots: "Bots",
-    commercial_closing: "Cierre comercial",
-    sales: "Ventas",
-    stores: "Tiendas",
-    requests: "Solicitudes",
-    inventory: "Inventario",
-    materials: "Materiales",
-    reports: "Reportes",
-    field: "LogÃ­stica"
-  };
-
-  const runtime = {
-    mountedOnce: false,
-    remoteHydrated: new Set(),
-    rendering: false,
-    timer: null
-  };
+  const SKIP_CODES = new Set(["core", "core_settings", "mini_panel"]);
 
   function norm(value) {
     return String(value || "")
@@ -4330,23 +3989,23 @@
     return match ? match[0] : "unknown-company";
   }
 
+  function pageText() {
+    return norm(document.body.innerText || "");
+  }
+
   function isCompanyModulesTab() {
-    const text = norm(document.body.innerText);
+    const text = pageText();
     return text.includes("modulos activos") && text.includes("buscar modulo");
   }
 
-  function activeSegment() {
-    const text = document.body.innerText || "";
-    const n = norm(text);
-    const a = n.indexOf("modulos activos");
-    const b = n.indexOf("buscar modulo");
-    if (a >= 0 && b > a) return text.slice(a, b);
-    return text;
-  }
-
   function hasMiniPanelActive() {
-    const t = norm(activeSegment());
-    return t.includes("mini_panel") || t.includes("mini panel") || t.includes("minipanel") || t.includes("creacion mini");
+    const text = pageText();
+    return (
+      text.includes("mini_panel") ||
+      text.includes("mini panel") ||
+      text.includes("minipanel") ||
+      text.includes("creacion mini")
+    );
   }
 
   function findHeading(label) {
@@ -4355,126 +4014,111 @@
       .find((node) => norm(node.textContent) === target) || null;
   }
 
-  function normalizeConfig(config) {
+  function panelLink(companyId, type) {
+    return `${window.location.origin}/mini-panel/login?company_id=${encodeURIComponent(companyId)}&type=${encodeURIComponent(type)}`;
+  }
+
+  function detectPanels(companyId, config) {
+    const text = pageText();
+    const panels = [];
+
+    PANEL_DEFS.forEach((panel) => {
+      const detected = panel.keys.some((key) => text.includes(norm(key)));
+      const already = config?.panels?.[panel.type]?.enabled === true;
+
+      if (detected || already || panel.type === "other") {
+        panels.push(panel.type);
+      }
+    });
+
+    if (!panels.includes("sales") && text.includes("ventas")) panels.push("sales");
+    if (!panels.includes("store") && text.includes("tiendas")) panels.push("store");
+
+    return Array.from(new Set(panels));
+  }
+
+  function loadConfig(companyId) {
+    try {
+      const raw = localStorage.getItem(STORAGE_PREFIX + companyId);
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+
+    return {
+      enabled: false,
+      selected_panel: "",
+      panels: {},
+      module_names: {}
+    };
+  }
+
+  function normalizeConfig(companyId, config) {
     const next = config && typeof config === "object" ? config : {};
     next.enabled = next.enabled === true;
     next.panels = next.panels && typeof next.panels === "object" ? next.panels : {};
+    next.module_names = next.module_names && typeof next.module_names === "object" ? next.module_names : {};
 
-    PANEL_DEFS.forEach((panel) => {
-      const row = next.panels[panel.type] && typeof next.panels[panel.type] === "object"
-        ? next.panels[panel.type]
-        : {};
+    const detected = detectPanels(companyId, next);
 
-      next.panels[panel.type] = {
-        enabled: row.enabled === true,
-        link: row.link || "",
-        modules: Array.from(new Set(Array.isArray(row.modules) ? row.modules.map(String).filter(Boolean) : []))
+    detected.forEach((type) => {
+      const current = next.panels[type] && typeof next.panels[type] === "object" ? next.panels[type] : {};
+      next.panels[type] = {
+        enabled: true,
+        link: panelLink(companyId, type),
+        modules: Array.isArray(current.modules) ? current.modules : []
       };
     });
 
+    Object.keys(next.panels).forEach((type) => {
+      if (!detected.includes(type)) {
+        next.panels[type].enabled = next.panels[type].enabled === true;
+        next.panels[type].link = next.panels[type].link || panelLink(companyId, type);
+        next.panels[type].modules = Array.isArray(next.panels[type].modules) ? next.panels[type].modules : [];
+      }
+    });
+
+    const activePanels = PANEL_DEFS.filter((p) => next.panels[p.type]?.enabled);
     if (!next.selected_panel || !next.panels[next.selected_panel]?.enabled) {
-      const first = PANEL_DEFS.find((panel) => next.panels[panel.type]?.enabled);
-      next.selected_panel = first ? first.type : "";
+      next.selected_panel = activePanels[0]?.type || "";
     }
 
     return next;
   }
 
-  function readStorage(key) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) return JSON.parse(raw);
-    } catch (_) {}
-    return null;
-  }
-
-  function loadConfig(companyId) {
-    const current = readStorage(STORAGE_PREFIX + companyId);
-    if (current) return normalizeConfig(current);
-
-    const legacy = readStorage(LEGACY_STORAGE_PREFIX + companyId);
-    if (legacy) {
-      const migrated = normalizeConfig(legacy);
-      localStorage.setItem(STORAGE_PREFIX + companyId, JSON.stringify(migrated));
-      return migrated;
-    }
-
-    return normalizeConfig({
-      enabled: false,
-      selected_panel: "",
-      panels: {},
-      updated_at: null
-    });
-  }
-
   function saveLocal(companyId, config) {
-    const payload = normalizeConfig({
+    const payload = normalizeConfig(companyId, {
       ...config,
       company_id: companyId,
       updated_at: new Date().toISOString()
     });
+
     localStorage.setItem(STORAGE_PREFIX + companyId, JSON.stringify(payload));
     return payload;
   }
 
   async function saveRemote(companyId, config) {
-    const payload = normalizeConfig({
-      enabled: config.enabled === true,
-      selected_panel: config.selected_panel || "",
-      panels: config.panels || {},
-      updated_at: new Date().toISOString()
-    });
-
     try {
       await fetch(`${API}/companies/${encodeURIComponent(companyId)}/modules/mini_panel/activate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           settings: {
-            mini_panel_assignments: payload,
-            mini_panel_modules: payload
+            mini_panel_modules: {
+              enabled: config.enabled === true,
+              selected_panel: config.selected_panel || "",
+              panels: config.panels || {},
+              module_names: config.module_names || {},
+              updated_at: new Date().toISOString()
+            }
           }
         })
       });
-      return true;
     } catch (error) {
-      console.warn("CLONEXA 019G-R6 remote save fallback:", error);
-      return false;
+      console.warn("CLONEXA mini panel save fallback:", error);
     }
   }
 
-  async function hydrateRemoteOnce(companyId) {
-    if (runtime.remoteHydrated.has(companyId)) return;
-    runtime.remoteHydrated.add(companyId);
-
-    try {
-      const response = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/modules`);
-      if (!response.ok) return;
-
-      const rows = await response.json();
-      const miniRow = Array.isArray(rows)
-        ? rows.find((row) => {
-            const code = row?.module?.code || row?.module_code || row?.code || "";
-            return String(code).trim() === "mini_panel";
-          })
-        : null;
-
-      const remote = miniRow?.settings?.mini_panel_assignments || miniRow?.settings?.mini_panel_modules;
-      if (!remote || typeof remote !== "object") return;
-
-      const local = loadConfig(companyId);
-      const remoteTime = Date.parse(remote.updated_at || 0) || 0;
-      const localTime = Date.parse(local.updated_at || 0) || 0;
-
-      if (!local.updated_at || remoteTime > localTime) {
-        const merged = detectPanels(companyId, normalizeConfig(remote));
-        saveLocal(companyId, merged);
-        updateSection(merged);
-        refreshModuleButtons(companyId, merged);
-      }
-    } catch (error) {
-      console.warn("CLONEXA 019G-R6 remote hydrate:", error);
-    }
+  function panelLabel(type) {
+    return PANEL_DEFS.find((p) => p.type === type)?.label || type;
   }
 
   function getModuleCards() {
@@ -4482,20 +4126,27 @@
       .filter((card) => {
         if (card.closest(`#${SECTION_ID}`)) return false;
 
-        const t = norm(card.innerText);
-        if (!t) return false;
-        if (t.includes("modulos para mini panel")) return false;
-        if (t.includes("configuracion por empresa")) return false;
-        if (t.includes("buscar modulo")) return false;
-        if (t.includes("panel destino") && t.includes("modulos asignados")) return false;
+        const text = norm(card.innerText);
+        if (!text) return false;
+        if (text.includes("modulos para mini panel")) return false;
+        if (text.includes("configuracion por empresa")) return false;
+        if (text.includes("buscar modulo")) return false;
 
-        return t.includes("activar") || t.includes("desactivar") || t.includes("activo") || t.includes("inactivo");
+        return (
+          text.includes("info") &&
+          (
+            text.includes("activar") ||
+            text.includes("desactivar") ||
+            text.includes("activo") ||
+            text.includes("inactivo")
+          )
+        );
       });
   }
 
-  function extractName(card) {
+  function extractModuleName(card) {
     const title = Array.from(card.querySelectorAll("h3,h4,strong,b"))
-      .map((n) => String(n.textContent || "").trim())
+      .map((node) => String(node.textContent || "").trim())
       .filter(Boolean)[0];
 
     if (title) return title;
@@ -4503,23 +4154,24 @@
     return String(card.innerText || "")
       .split("\n")
       .map((x) => x.trim())
-      .filter(Boolean)[0] || "MÃ³dulo";
+      .filter(Boolean)[0] || "Módulo";
   }
 
-  function extractCode(card) {
+  function extractModuleCode(card) {
     const text = norm(card.innerText);
-    const directCodes = [
+    const knownCodes = [
       "core_settings", "mini_panel", "commercial_closing",
+      "registro_venta", "day_closing", "cotizacion",
       "workforce", "payroll", "requests", "stores", "sales",
       "inventory", "materials", "reports", "field", "gps",
       "crm", "kpis", "bots", "core"
     ];
 
-    for (const code of directCodes) {
+    for (const code of knownCodes) {
       if (text.includes(code)) return code;
     }
 
-    const name = norm(extractName(card));
+    const name = norm(extractModuleName(card));
     if (KNOWN[name]) return KNOWN[name];
 
     for (const [key, code] of Object.entries(KNOWN)) {
@@ -4530,212 +4182,154 @@
   }
 
   function shouldSkip(code, name) {
-    const t = norm(`${code} ${name}`);
-    return SKIP_CODES.has(code) || t.includes("creacion mini") || t.includes("nucleo") || t.includes("ajustes");
+    const text = norm(`${code} ${name}`);
+    return SKIP_CODES.has(code) || text.includes("creacion mini") || text.includes("nucleo") || text.includes("ajustes");
   }
 
-  function moduleCatalog() {
-    const catalog = { ...DEFAULT_LABELS };
-    getModuleCards().forEach((card) => {
-      const code = extractCode(card);
-      const name = extractName(card);
-      if (code && !shouldSkip(code, name)) catalog[code] = name;
-    });
-    return catalog;
+  function activePanels(config) {
+    return PANEL_DEFS.filter((panel) => config.panels?.[panel.type]?.enabled);
   }
 
-  function activeCodesFromScreen() {
-    const codes = new Set();
-    const segment = norm(activeSegment());
-
-    Object.entries(KNOWN).forEach(([key, code]) => {
-      if (segment.includes(norm(key))) codes.add(code);
-    });
-
-    getModuleCards().forEach((card) => {
-      const t = norm(card.innerText);
-      if (t.includes("activo") && !t.includes("inactivo")) {
-        const code = extractCode(card);
-        if (code) codes.add(code);
-      }
-    });
-
-    return codes;
-  }
-
-  function panelLink(companyId, type) {
-    return `${window.location.origin}/mini-panel/login?company_id=${encodeURIComponent(companyId)}&type=${encodeURIComponent(type)}`;
-  }
-
-  function detectPanels(companyId, config) {
-    const activeCodes = activeCodesFromScreen();
-    const next = normalizeConfig(config);
-
-    PANEL_DEFS.forEach((panel) => {
-      const activeByModule = panel.moduleCodes.some((code) => activeCodes.has(code));
-      const activeBySavedModules = Array.isArray(next.panels[panel.type]?.modules) && next.panels[panel.type].modules.length > 0;
-      const activeByConfig = next.panels[panel.type]?.enabled === true;
-      const enabled = panel.type === "other" ? (activeByConfig || activeBySavedModules) : (activeByModule || activeByConfig || activeBySavedModules);
-
-      next.panels[panel.type] = {
-        ...next.panels[panel.type],
-        enabled,
-        link: panelLink(companyId, panel.type),
-        modules: Array.from(new Set(Array.isArray(next.panels[panel.type]?.modules) ? next.panels[panel.type].modules : []))
-      };
-    });
-
-    if (!next.selected_panel || !next.panels[next.selected_panel]?.enabled) {
-      const first = PANEL_DEFS.find((panel) => next.panels[panel.type]?.enabled);
-      next.selected_panel = first ? first.type : "";
-    }
-
-    return next;
-  }
-
-  function selectedPanel(config) {
-    return PANEL_DEFS.find((panel) => panel.type === config.selected_panel) || null;
-  }
-
-  function selectedPanelLabel(config) {
-    return selectedPanel(config)?.label || "Sin panel";
-  }
-
-  function selectedPanelModules(config) {
+  function selectedModules(config) {
     const panel = config.panels?.[config.selected_panel];
-    return Array.from(new Set(Array.isArray(panel?.modules) ? panel.modules : []));
+    return Array.isArray(panel?.modules) ? panel.modules : [];
   }
 
-  function buildPanelOptions(config) {
-    const enabledPanels = PANEL_DEFS.filter((panel) => config.panels?.[panel.type]?.enabled);
+  function assignedListHtml(config) {
+    const modules = selectedModules(config);
+    const label = panelLabel(config.selected_panel);
 
-    if (!enabledPanels.length) {
-      return `<div class="cx-mp-r6-empty">No hay paneles destino activos. Activa Ventas, Tiendas, Inventario o LogÃ­stica para esta empresa.</div>`;
+    if (!config.enabled) {
+      return `<div class="cx-mp-r6b-empty">Activa módulos para minipanel para comenzar.</div>`;
+    }
+
+    if (!config.selected_panel) {
+      return `<div class="cx-mp-r6b-empty">Selecciona un panel destino.</div>`;
+    }
+
+    if (!modules.length) {
+      return `<div class="cx-mp-r6b-empty">Sin módulos asignados a ${label}.</div>`;
     }
 
     return `
-      <div class="cx-mp-r6-panels">
-        ${enabledPanels.map((panel) => {
-          const row = config.panels[panel.type];
-          const checked = config.selected_panel === panel.type;
-          const count = Array.isArray(row.modules) ? row.modules.length : 0;
-          return `
-            <button type="button" class="cx-mp-r6-panel ${checked ? "is-selected" : ""}" data-cx-mp-r6-panel="${panel.type}">
-              <span>${panel.label}</span>
-              <small>${count} mÃ³dulo${count === 1 ? "" : "s"}</small>
-              <code title="${row.link}">${row.link}</code>
-            </button>
-          `;
-        }).join("")}
+      <div class="cx-mp-r6b-assigned-list">
+        ${modules.map((code) => `
+          <div class="cx-mp-r6b-assigned-item">
+            <div>
+              <strong>${config.module_names?.[code] || code}</strong>
+              <small>${code}</small>
+            </div>
+            <button type="button" data-cx-mp-r6b-remove="${code}">Quitar</button>
+          </div>
+        `).join("")}
       </div>
     `;
   }
 
-  function buildAssignedModules(config) {
-    const catalog = moduleCatalog();
-    const panel = selectedPanel(config);
-    const modules = selectedPanelModules(config);
-    const link = config.panels?.[config.selected_panel]?.link || "";
-
-    if (!config.enabled || !panel) {
-      return `<div class="cx-mp-r6-empty">Activa mÃ³dulos para minipanel y selecciona un panel destino.</div>`;
-    }
-
-    const rows = modules.length
-      ? modules.map((code) => `
-          <div class="cx-mp-r6-assigned-item">
-            <span>${catalog[code] || code}</span>
-            <code>${code}</code>
-            <button type="button" data-cx-mp-r6-remove="${code}">Quitar</button>
-          </div>
-        `).join("")
-      : `<div class="cx-mp-r6-empty">Sin mÃ³dulos asignados a ${panel.label}. Usa â€œAgregar a mini panel ${panel.label}â€ en los mÃ³dulos existentes.</div>`;
+  function buildSection(companyId, config) {
+    const panels = activePanels(config);
 
     return `
-      <div class="cx-mp-r6-selected">
-        <div class="cx-mp-r6-selected-head">
+      <section id="${SECTION_ID}" class="cx-mp-r6b-section">
+        <div class="cx-mp-r6b-head">
           <div>
-            <strong>Panel seleccionado: ${panel.label}</strong>
-            <p>Los mÃ³dulos asignados aquÃ­ serÃ¡n los disponibles para este mini panel.</p>
-          </div>
-          <button type="button" class="cx-mp-r6-copy-link" data-cx-mp-r6-copy="${link}">Copiar link</button>
-        </div>
-        <div class="cx-mp-r6-link">${link}</div>
-        <div class="cx-mp-r6-assigned-title">MÃ³dulos asignados a ${panel.label}</div>
-        <div class="cx-mp-r6-assigned-list">
-          ${rows}
-        </div>
-      </div>
-    `;
-  }
-
-  function summaryHtml(config) {
-    if (!config.enabled) return "Desactivado. Activa el botÃ³n para asignar mÃ³dulos existentes a mini paneles.";
-    return `Panel destino: <strong>${selectedPanelLabel(config)}</strong> Â· MÃ³dulos asignados: <strong>${selectedPanelModules(config).length}</strong>`;
-  }
-
-  function buildSection(config) {
-    return `
-      <section id="${SECTION_ID}" class="cx-mp-r6-section">
-        <div class="cx-mp-r6-head">
-          <div>
-            <div class="cx-mp-r6-kicker">CONFIGURACIÃ“N POR EMPRESA</div>
-            <h3>MÃ³dulos para Mini Panel</h3>
-            <p>Activa esta opciÃ³n, selecciona el panel destino y agrega mÃ³dulos existentes de esta empresa al mini panel.</p>
+            <div class="cx-mp-r6b-kicker">CONFIGURACIÓN POR EMPRESA</div>
+            <h3>Módulos para Mini Panel</h3>
+            <p>Activa esta opción, selecciona el panel destino y agrega módulos existentes de esta empresa.</p>
           </div>
 
-          <button class="cx-mp-r6-toggle ${config.enabled ? "is-on" : ""}" type="button" data-cx-mp-r6-toggle>
-            ${config.enabled ? "MÃ³dulos para minipanel activos" : "Activar mÃ³dulos para minipanel"}
+          <button class="cx-mp-r6b-toggle ${config.enabled ? "is-on" : ""}" type="button" data-cx-mp-r6b-toggle>
+            ${config.enabled ? "Módulos para minipanel activos" : "Activar módulos para minipanel"}
           </button>
         </div>
 
-        <div class="cx-mp-r6-summary" data-cx-mp-r6-summary>
+        <div class="cx-mp-r6b-summary" data-cx-mp-r6b-summary>
           ${summaryHtml(config)}
         </div>
 
-        <div class="cx-mp-r6-body" data-cx-mp-r6-body ${config.enabled ? "" : "hidden"}>
-          <div class="cx-mp-r6-body-title">Panel destino</div>
-          ${buildPanelOptions(config)}
-          ${buildAssignedModules(config)}
+        <div class="cx-mp-r6b-body" data-cx-mp-r6b-body ${config.enabled ? "" : "hidden"}>
+          <div class="cx-mp-r6b-panels">
+            ${panels.map((panel) => {
+              const row = config.panels[panel.type];
+              const selected = config.selected_panel === panel.type;
+              const count = Array.isArray(row.modules) ? row.modules.length : 0;
+
+              return `
+                <button type="button" class="cx-mp-r6b-panel ${selected ? "is-selected" : ""}" data-cx-mp-r6b-panel="${panel.type}">
+                  <span>${panel.label}</span>
+                  <small>${count} módulos asignados</small>
+                  <code>${row.link}</code>
+                </button>
+              `;
+            }).join("")}
+          </div>
+
+          <div class="cx-mp-r6b-selected">
+            <div>
+              <strong>Panel seleccionado: ${panelLabel(config.selected_panel)}</strong>
+              <p>${config.panels?.[config.selected_panel]?.link || ""}</p>
+            </div>
+          </div>
+
+          <div class="cx-mp-r6b-assigned">
+            <strong>Módulos asignados a ${panelLabel(config.selected_panel)}</strong>
+            ${assignedListHtml(config)}
+          </div>
         </div>
       </section>
     `;
   }
 
-  function updateSection(config) {
+  function summaryHtml(config) {
+    if (!config.enabled) return "Desactivado. Activa el botón para asignar módulos existentes.";
+    return `Panel destino: <strong>${panelLabel(config.selected_panel)}</strong> · Módulos asignados: <strong>${selectedModules(config).length}</strong>`;
+  }
+
+  function renderSection(companyId, config) {
     const section = document.getElementById(SECTION_ID);
     if (!section) return;
 
-    const bodyState = JSON.stringify({
-      enabled: config.enabled,
-      selected: config.selected_panel,
-      panels: config.panels
-    });
-
-    const toggle = section.querySelector("[data-cx-mp-r6-toggle]");
-    if (toggle) {
-      toggle.classList.toggle("is-on", !!config.enabled);
-      toggle.textContent = config.enabled ? "MÃ³dulos para minipanel activos" : "Activar mÃ³dulos para minipanel";
-    }
-
-    const summary = section.querySelector("[data-cx-mp-r6-summary]");
-    if (summary) summary.innerHTML = summaryHtml(config);
-
-    const body = section.querySelector("[data-cx-mp-r6-body]");
-    if (body) {
-      body.hidden = !config.enabled;
-      if (body.dataset.state !== bodyState) {
-        body.dataset.state = bodyState;
-        body.innerHTML = `
-          <div class="cx-mp-r6-body-title">Panel destino</div>
-          ${buildPanelOptions(config)}
-          ${buildAssignedModules(config)}
-        `;
-      }
-    }
+    section.outerHTML = buildSection(companyId, config);
   }
 
-  function cleanupLegacyDom() {
+  function refreshModuleButtons(companyId, config) {
+    const selected = config.selected_panel;
+    const label = panelLabel(selected);
+
+    getModuleCards().forEach((card) => {
+      const code = extractModuleCode(card);
+      const name = extractModuleName(card);
+
+      if (!code || shouldSkip(code, name)) return;
+
+      let slot = card.querySelector("[data-cx-mp-r6b-slot]");
+      if (!slot) {
+        slot = document.createElement("div");
+        slot.setAttribute("data-cx-mp-r6b-slot", "1");
+        slot.className = "cx-mp-r6b-slot";
+        card.appendChild(slot);
+      }
+
+      if (!config.enabled || !selected || !config.panels?.[selected]?.enabled) {
+        slot.innerHTML = "";
+        return;
+      }
+
+      const modules = selectedModules(config);
+      const added = modules.includes(code);
+
+      slot.innerHTML = `
+        <button type="button"
+          class="cx-mp-r6b-module-btn ${added ? "is-on" : ""}"
+          data-cx-mp-r6b-add="${code}"
+          data-cx-mp-r6b-name="${String(name).replaceAll('"', '&quot;')}">
+          ${added ? `Agregado a ${label}` : `Agregar a mini panel ${label}`}
+        </button>
+      `;
+    });
+  }
+
+  function removeOldSections() {
     [
       "cx-company-minipanel-internal-section",
       "cx-company-minipanel-existing-modules-section",
@@ -4748,200 +4342,110 @@
     )).forEach((node) => node.remove());
   }
 
-  function refreshModuleButtons(companyId, config) {
-    const panel = selectedPanel(config);
-    const panelLabel = panel?.label || "";
-
-    getModuleCards().forEach((card) => {
-      const code = extractCode(card);
-      const name = extractName(card);
-
-      if (!code || shouldSkip(code, name)) return;
-
-      let slot = card.querySelector("[data-cx-mp-r6-slot]");
-      if (!slot) {
-        slot = document.createElement("div");
-        slot.setAttribute("data-cx-mp-r6-slot", "1");
-        slot.className = "cx-mp-r6-slot";
-        card.appendChild(slot);
-      }
-
-      if (!config.enabled || !panel || !config.panels?.[panel.type]?.enabled) {
-        if (slot.dataset.state !== "hidden") {
-          slot.dataset.state = "hidden";
-          slot.innerHTML = "";
-        }
-        return;
-      }
-
-      const modules = selectedPanelModules(config);
-      const added = modules.includes(code);
-      const state = `${panel.type}:${code}:${added ? "on" : "off"}`;
-
-      if (slot.dataset.state === state) return;
-
-      slot.dataset.state = state;
-      slot.innerHTML = `
-        <button type="button" class="cx-mp-r6-module-btn ${added ? "is-on" : ""}" data-cx-mp-r6-module="${code}">
-          ${added ? `Agregado a ${panelLabel}` : `Agregar a mini panel ${panelLabel}`}
-        </button>
-      `;
-    });
+  async function persistAndRefresh(companyId, config) {
+    const saved = saveLocal(companyId, config);
+    renderSection(companyId, saved);
+    refreshModuleButtons(companyId, saved);
+    await saveRemote(companyId, saved);
   }
 
-  function mutateConfig(companyId, mutator) {
-    let config = detectPanels(companyId, loadConfig(companyId));
-    mutator(config);
-    config = normalizeConfig(config);
-    config = saveLocal(companyId, config);
-    updateSection(config);
-    refreshModuleButtons(companyId, config);
-    saveRemote(companyId, config);
-    return config;
-  }
-
-  function bindEvents() {
-    if (window.__CLONEXA_019G_R6_EVENTS_BOUND__) return;
-    window.__CLONEXA_019G_R6_EVENTS_BOUND__ = true;
-
-    document.addEventListener("click", (event) => {
-      const section = event.target.closest(`#${SECTION_ID}`);
-      const companyId = getCompanyId();
-
-      const moduleButton = event.target.closest("[data-cx-mp-r6-module]");
-      if (moduleButton) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const code = moduleButton.getAttribute("data-cx-mp-r6-module");
-        mutateConfig(companyId, (config) => {
-          config.enabled = true;
-          const panel = config.selected_panel;
-          if (!panel || !config.panels?.[panel]?.enabled) return;
-
-          const row = config.panels[panel];
-          row.modules = Array.isArray(row.modules) ? row.modules : [];
-
-          if (row.modules.includes(code)) {
-            row.modules = row.modules.filter((item) => item !== code);
-          } else {
-            row.modules = Array.from(new Set([...row.modules, code]));
-          }
-        });
-
-        return;
-      }
-
-      if (!section) return;
-
-      const toggle = event.target.closest("[data-cx-mp-r6-toggle]");
-      if (toggle) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        mutateConfig(companyId, (config) => {
-          config.enabled = !config.enabled;
-          if (!config.enabled) config.selected_panel = "";
-          if (config.enabled && !config.selected_panel) {
-            const first = PANEL_DEFS.find((panel) => config.panels?.[panel.type]?.enabled);
-            config.selected_panel = first ? first.type : "";
-          }
-        });
-        return;
-      }
-
-      const panelButton = event.target.closest("[data-cx-mp-r6-panel]");
-      if (panelButton) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        mutateConfig(companyId, (config) => {
-          config.enabled = true;
-          config.selected_panel = panelButton.getAttribute("data-cx-mp-r6-panel") || config.selected_panel;
-        });
-        return;
-      }
-
-      const removeButton = event.target.closest("[data-cx-mp-r6-remove]");
-      if (removeButton) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const code = removeButton.getAttribute("data-cx-mp-r6-remove");
-        mutateConfig(companyId, (config) => {
-          const panel = config.selected_panel;
-          if (!panel || !config.panels?.[panel]) return;
-          config.panels[panel].modules = (config.panels[panel].modules || []).filter((item) => item !== code);
-        });
-        return;
-      }
-
-      const copyButton = event.target.closest("[data-cx-mp-r6-copy]");
-      if (copyButton) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const link = copyButton.getAttribute("data-cx-mp-r6-copy") || "";
-        navigator.clipboard?.writeText(link);
-        copyButton.textContent = "Copiado";
-        setTimeout(() => { copyButton.textContent = "Copiar link"; }, 1200);
-      }
-    }, true);
-  }
-
-  async function mount() {
-    if (runtime.rendering) return;
+  function mount() {
     if (!isCompanyModulesTab()) return;
 
-    runtime.rendering = true;
+    removeOldSections();
 
-    try {
-      cleanupLegacyDom();
-
-      const companyId = getCompanyId();
-
-      if (!hasMiniPanelActive()) {
-        document.getElementById(SECTION_ID)?.remove();
-        return;
-      }
-
-      let config = detectPanels(companyId, loadConfig(companyId));
-      config = saveLocal(companyId, config);
-
-      if (!document.getElementById(SECTION_ID)) {
-        const searchHeading = findHeading("Buscar mÃ³dulo");
-        if (!searchHeading || !searchHeading.parentNode) return;
-
-        const wrapper = document.createElement("div");
-        wrapper.innerHTML = buildSection(config).trim();
-        searchHeading.parentNode.insertBefore(wrapper.firstElementChild, searchHeading);
-      }
-
-      updateSection(config);
-      refreshModuleButtons(companyId, config);
-      hydrateRemoteOnce(companyId);
-    } finally {
-      runtime.rendering = false;
+    if (!hasMiniPanelActive()) {
+      document.getElementById(SECTION_ID)?.remove();
+      return;
     }
+
+    const companyId = getCompanyId();
+    let config = normalizeConfig(companyId, loadConfig(companyId));
+    config = saveLocal(companyId, config);
+
+    if (!document.getElementById(SECTION_ID)) {
+      const anchor = findHeading("Buscar módulo");
+      if (!anchor || !anchor.parentNode) return;
+
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = buildSection(companyId, config).trim();
+      anchor.parentNode.insertBefore(wrapper.firstElementChild, anchor);
+    } else {
+      renderSection(companyId, config);
+    }
+
+    refreshModuleButtons(companyId, config);
   }
 
+  document.addEventListener("click", async (event) => {
+    const companyId = getCompanyId();
+
+    const toggle = event.target.closest("[data-cx-mp-r6b-toggle]");
+    if (toggle) {
+      let config = normalizeConfig(companyId, loadConfig(companyId));
+      config.enabled = !config.enabled;
+      await persistAndRefresh(companyId, config);
+      return;
+    }
+
+    const panelBtn = event.target.closest("[data-cx-mp-r6b-panel]");
+    if (panelBtn) {
+      let config = normalizeConfig(companyId, loadConfig(companyId));
+      config.enabled = true;
+      config.selected_panel = panelBtn.getAttribute("data-cx-mp-r6b-panel");
+      await persistAndRefresh(companyId, config);
+      return;
+    }
+
+    const addBtn = event.target.closest("[data-cx-mp-r6b-add]");
+    if (addBtn) {
+      let config = normalizeConfig(companyId, loadConfig(companyId));
+      const panel = config.selected_panel;
+      const code = addBtn.getAttribute("data-cx-mp-r6b-add");
+      const name = addBtn.getAttribute("data-cx-mp-r6b-name") || code;
+
+      if (!panel || !code) return;
+
+      config.panels[panel].modules = Array.isArray(config.panels[panel].modules) ? config.panels[panel].modules : [];
+      config.module_names[code] = name;
+
+      if (config.panels[panel].modules.includes(code)) {
+        config.panels[panel].modules = config.panels[panel].modules.filter((item) => item !== code);
+      } else {
+        config.panels[panel].modules.push(code);
+      }
+
+      await persistAndRefresh(companyId, config);
+      return;
+    }
+
+    const removeBtn = event.target.closest("[data-cx-mp-r6b-remove]");
+    if (removeBtn) {
+      let config = normalizeConfig(companyId, loadConfig(companyId));
+      const panel = config.selected_panel;
+      const code = removeBtn.getAttribute("data-cx-mp-r6b-remove");
+
+      if (!panel || !code) return;
+
+      config.panels[panel].modules = (config.panels[panel].modules || []).filter((item) => item !== code);
+      await persistAndRefresh(companyId, config);
+    }
+  });
+
+  let timer = null;
   function schedule() {
-    clearTimeout(runtime.timer);
-    runtime.timer = setTimeout(() => {
-      mount().catch((error) => console.warn("CLONEXA 019G-R6:", error));
-    }, 220);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      try { mount(); } catch (error) { console.warn("CLONEXA 019G-R6B:", error); }
+    }, 250);
   }
-
-  bindEvents();
 
   document.addEventListener("DOMContentLoaded", schedule);
-  document.addEventListener("change", () => setTimeout(schedule, 250));
-
-  new MutationObserver(() => {
-    if (!runtime.rendering) schedule();
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener("change", schedule);
+  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
 
   schedule();
 })();
-/* CLONEXA_019G_R6_MINIPANEL_ASSIGNMENT_LIST_REMOVE_MULTI_END */
-// CLONEXA_FORCE_BUILD_019G_R6_20260513_163650
+/* CLONEXA_019G_R6B_RESTORE_FINAL_END */
+// CLONEXA_FORCE_BUILD_019G_R6B_20260513_164425
+
