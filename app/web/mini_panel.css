@@ -407,3 +407,138 @@ p {
   .mp-time-grid, .mp-modules-grid { grid-template-columns: 1fr; }
   .mp-state-row { align-items: flex-start; flex-direction: column; }
 }
+
+/* CLONEXA_019F_R1_LAYOUT_PASSWORD_START */
+.mp-sales-dashboard-r1 {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 16px;
+}
+
+.mp-sales-header-r1 {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  margin-bottom: 0;
+}
+
+.mp-header-main-r1 {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.mp-header-time-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(145px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.mp-time-card.compact {
+  padding: 13px 14px;
+  border-radius: 18px;
+  min-height: 104px;
+  background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.055));
+}
+
+.mp-time-card.compact span {
+  font-size: 10px;
+  margin-bottom: 7px;
+}
+
+.mp-time-card.compact strong {
+  font-size: clamp(24px, 2.3vw, 34px);
+  letter-spacing: -.045em;
+}
+
+.mp-time-card.compact .mp-start-label {
+  font-size: clamp(18px, 1.55vw, 25px);
+  line-height: 1.05;
+}
+
+.mp-state-panel-r1 {
+  min-height: 100%;
+}
+
+.mp-actions-r1 {
+  grid-template-columns: 1fr;
+}
+
+.mp-actions-r1 .mp-button {
+  min-height: 44px;
+}
+
+.mp-button.ghost.small {
+  width: 100%;
+}
+
+.mp-modules-section-r1 {
+  padding-bottom: 22px;
+}
+
+.mp-module-card {
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.mp-module-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255,34,184,.42);
+  background: linear-gradient(145deg, rgba(255,34,184,.16), rgba(56,189,248,.08));
+}
+
+.mp-modal[hidden] {
+  display: none !important;
+}
+
+.mp-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.mp-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5,5,16,.72);
+  backdrop-filter: blur(8px);
+}
+
+.mp-modal-card {
+  position: relative;
+  width: min(520px, 100%);
+  border: 1px solid rgba(255,255,255,.16);
+  background: linear-gradient(145deg, rgba(30,18,52,.98), rgba(17,23,58,.96));
+  border-radius: 26px;
+  padding: 24px;
+  box-shadow: 0 30px 90px rgba(0,0,0,.56);
+}
+
+.mp-modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 1180px) {
+  .mp-sales-header-r1 {
+    grid-template-columns: 1fr;
+  }
+
+  .mp-header-time-grid {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .mp-header-time-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mp-modal-actions {
+    grid-template-columns: 1fr;
+  }
+}
+/* CLONEXA_019F_R1_LAYOUT_PASSWORD_END */
+

@@ -224,6 +224,24 @@
     });
   }
 
+
+  // CLONEXA_019F_R1_PASSWORD_HELPERS_START
+  async function changePasswordRequest(currentPassword, newPassword, confirmPassword) {
+    return api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-change-password?panel_type=${encodeURIComponent(panelType)}`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword
+      })
+    });
+  }
+  // CLONEXA_019F_R1_PASSWORD_HELPERS_END
+
   function moduleCard(title, description, tag) {
     return `
       <button class="mp-module-card" type="button" data-module="${h(tag)}">
@@ -249,11 +267,12 @@
     const salesTotal = Number(kpis.monthly_sales_total || 0);
     const goal = Number(kpis.monthly_goal || 0);
     const goalPct = goal > 0 ? Math.min(100, Math.round((salesTotal / goal) * 100)) : 0;
+    const isFinished = operational.status === "finished";
 
     root.innerHTML = `
-      <section class="mp-sales-dashboard">
-        <header class="mp-sales-header">
-          <div class="mp-header-main">
+      <section class="mp-sales-dashboard mp-sales-dashboard-r1">
+        <header class="mp-sales-header mp-sales-header-r1">
+          <div class="mp-header-main mp-header-main-r1">
             <div class="mp-kicker">Mini Panel ${h(mini.type_label || labelType(panelType))}</div>
             <h1>${h(companyName)}</h1>
             <p>Portal operativo personalizado para ${h(employeeName)}.</p>
@@ -265,49 +284,48 @@
               <span class="mp-chip">UbicaciÃ³n: ${h(locationLabel)}</span>
               <span class="mp-chip">Usuario: ${h(mini.username || user.email || "â€”")}</span>
             </div>
+
+            <div class="mp-header-time-grid">
+              <article class="mp-time-card compact">
+                <span>Tiempo activo</span>
+                <strong data-active-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
+                <small>Tiempo pago acumulado</small>
+              </article>
+
+              <article class="mp-time-card compact pause">
+                <span>Tiempo en pausa</span>
+                <strong data-break-timer>${h(formatSeconds(operational.break_seconds || 0))}</strong>
+                <small>No suma al tiempo pago</small>
+              </article>
+
+              <article class="mp-time-card compact">
+                <span>Tiempo pago</span>
+                <strong data-paid-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
+                <small>Activo sin pausas</small>
+              </article>
+
+              <article class="mp-time-card compact">
+                <span>Inicio</span>
+                <strong class="mp-start-label">${h(operational.started_label || "Ahora")}</strong>
+                <small>${h(locationLabel)}</small>
+              </article>
+            </div>
           </div>
 
-          <aside class="mp-state-panel">
+          <aside class="mp-state-panel mp-state-panel-r1">
             <div class="mp-state-row">
               <span>Estado</span>
               <strong data-operational-status class="mp-status-pill ${h(operational.status || "active")}">${h(operationalLabel(operational.status))}</strong>
             </div>
 
-            <div class="mp-actions">
+            <div class="mp-actions mp-actions-r1">
               <button class="mp-button small" type="button" data-action="pause" ${operational.status === "active" ? "" : "disabled"}>Pausa</button>
               <button class="mp-button small secondary" type="button" data-action="resume" ${operational.status === "break" ? "" : "disabled"}>Retomar labores</button>
-              <button class="mp-button small danger" type="button" data-action="finish" ${operational.status === "finished" ? "disabled" : ""}>Finalizar sesiÃ³n</button>
+              <button class="mp-button small danger" type="button" data-action="finish" ${isFinished ? "disabled" : ""}>Finalizar turno</button>
+              <button class="mp-button small ghost" type="button" data-change-password>Cambiar contraseÃ±a</button>
             </div>
-
-            <button class="mp-button ghost" type="button" data-logout>Cerrar sesiÃ³n</button>
           </aside>
         </header>
-
-        <section class="mp-time-grid">
-          <article class="mp-time-card">
-            <span>Tiempo activo</span>
-            <strong data-active-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
-            <small>Tiempo pago acumulado</small>
-          </article>
-
-          <article class="mp-time-card pause">
-            <span>Tiempo en pausa</span>
-            <strong data-break-timer>${h(formatSeconds(operational.break_seconds || 0))}</strong>
-            <small>No suma al tiempo pago</small>
-          </article>
-
-          <article class="mp-time-card">
-            <span>Tiempo pago</span>
-            <strong data-paid-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
-            <small>Activo sin pausas</small>
-          </article>
-
-          <article class="mp-time-card">
-            <span>Inicio</span>
-            <strong>${h(operational.started_label || "Ahora")}</strong>
-            <small>${h(locationLabel)}</small>
-          </article>
-        </section>
 
         <section class="mp-dashboard-section">
           <div class="mp-section-title">
@@ -339,7 +357,7 @@
           </div>
         </section>
 
-        <section class="mp-dashboard-section">
+        <section class="mp-dashboard-section mp-modules-section-r1">
           <div class="mp-section-title">
             <div>
               <div class="mp-kicker">MÃ³dulos</div>
@@ -356,16 +374,43 @@
 
           <div class="mp-message ok" data-panel-message></div>
         </section>
+
+        <div class="mp-modal" data-password-modal hidden>
+          <div class="mp-modal-backdrop" data-password-close></div>
+          <section class="mp-modal-card">
+            <div class="mp-kicker">Seguridad</div>
+            <h2>Cambiar contraseÃ±a</h2>
+            <p>Actualiza tu clave de acceso al mini panel.</p>
+
+            <form class="mp-form" id="miniPanelPasswordForm">
+              <div class="mp-field">
+                <label>Clave actual</label>
+                <input id="mpCurrentPassword" type="password" autocomplete="current-password" required />
+              </div>
+
+              <div class="mp-field">
+                <label>Nueva clave</label>
+                <input id="mpNewPassword" type="password" autocomplete="new-password" minlength="8" required />
+              </div>
+
+              <div class="mp-field">
+                <label>Confirmar nueva clave</label>
+                <input id="mpConfirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+              </div>
+
+              <div class="mp-modal-actions">
+                <button class="mp-button secondary" type="button" data-password-close>Cancelar</button>
+                <button class="mp-button" type="submit">Guardar contraseÃ±a</button>
+              </div>
+
+              <div class="mp-message" id="miniPanelPasswordMessage"></div>
+            </form>
+          </section>
+        </div>
       </section>
     `;
 
     startTimers(operational);
-
-    root.querySelector("[data-logout]")?.addEventListener("click", () => {
-      clearTimer();
-      localStorage.removeItem(storageKey);
-      window.location.href = loginUrl();
-    });
 
     root.querySelector("[data-action='pause']")?.addEventListener("click", async () => {
       await runOperationalAction("pause", session);
@@ -376,24 +421,82 @@
     });
 
     root.querySelector("[data-action='finish']")?.addEventListener("click", async () => {
-      const updated = await operationalAction("finish");
-      startTimers(updated.operational_session || updated);
       const msg = root.querySelector("[data-panel-message]");
-      if (msg) msg.textContent = "SesiÃ³n operativa finalizada.";
-      window.setTimeout(() => {
-        clearTimer();
-        localStorage.removeItem(storageKey);
-        window.location.href = loginUrl();
-      }, 900);
+      try {
+        const updated = await operationalAction("finish");
+        startTimers(updated.operational_session || updated);
+        if (msg) msg.textContent = "Turno finalizado.";
+        window.setTimeout(() => {
+          clearTimer();
+          localStorage.removeItem(storageKey);
+          window.location.href = loginUrl();
+        }, 900);
+      } catch (error) {
+        if (msg) {
+          msg.classList.remove("ok");
+          msg.textContent = error.message || "No fue posible finalizar el turno.";
+        }
+      }
+    });
+
+    const modal = root.querySelector("[data-password-modal]");
+    const passwordForm = root.querySelector("#miniPanelPasswordForm");
+    const passwordMsg = root.querySelector("#miniPanelPasswordMessage");
+
+    function closePasswordModal() {
+      if (modal) modal.hidden = true;
+      if (passwordForm) passwordForm.reset();
+      if (passwordMsg) {
+        passwordMsg.classList.remove("ok");
+        passwordMsg.textContent = "";
+      }
+    }
+
+    root.querySelector("[data-change-password]")?.addEventListener("click", () => {
+      if (modal) modal.hidden = false;
+    });
+
+    root.querySelectorAll("[data-password-close]").forEach((button) => {
+      button.addEventListener("click", closePasswordModal);
+    });
+
+    passwordForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const currentPassword = root.querySelector("#mpCurrentPassword")?.value || "";
+      const newPassword = root.querySelector("#mpNewPassword")?.value || "";
+      const confirmPassword = root.querySelector("#mpConfirmPassword")?.value || "";
+
+      if (passwordMsg) {
+        passwordMsg.classList.add("ok");
+        passwordMsg.textContent = "Actualizando contraseÃ±a...";
+      }
+
+      try {
+        await changePasswordRequest(currentPassword, newPassword, confirmPassword);
+        if (passwordMsg) {
+          passwordMsg.classList.add("ok");
+          passwordMsg.textContent = "ContraseÃ±a actualizada.";
+        }
+        window.setTimeout(closePasswordModal, 900);
+      } catch (error) {
+        if (passwordMsg) {
+          passwordMsg.classList.remove("ok");
+          passwordMsg.textContent = error.message || "No fue posible cambiar la contraseÃ±a.";
+        }
+      }
     });
 
     root.querySelectorAll("[data-module]").forEach((button) => {
       button.addEventListener("click", () => {
         const msg = root.querySelector("[data-panel-message]");
-        if (msg) msg.textContent = "MÃ³dulo listo para activar en la siguiente fase.";
+        if (msg) {
+          msg.classList.add("ok");
+          msg.textContent = "MÃ³dulo listo para activar en la siguiente fase.";
+        }
       });
     });
   }
+
 
   async function runOperationalAction(action, session) {
     const msg = root.querySelector("[data-panel-message]");

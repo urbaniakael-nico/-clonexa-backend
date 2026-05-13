@@ -858,6 +858,51 @@ async def mini_panel_operational_finish_019f(
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
     return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
 
+
+
+# CLONEXA_019F_R1_CHANGE_PASSWORD_BACKEND_START
+class MiniPanelChangePasswordRequest019FR1(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str
+
+
+@router.post("/{company_id}/mini-panel-change-password")
+async def mini_panel_change_password_019f_r1(
+    company_id: UUID,
+    panel_type: str,
+    payload: MiniPanelChangePasswordRequest019FR1,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    _, user, _ = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+
+    current_password = str(payload.current_password or "")
+    new_password = str(payload.new_password or "")
+    confirm_password = str(payload.confirm_password or "")
+
+    if not verify_password(current_password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Clave actual incorrecta.")
+
+    if len(new_password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La nueva clave debe tener mÃ­nimo 8 caracteres.")
+
+    if new_password != confirm_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La confirmaciÃ³n no coincide.")
+
+    now = datetime.now(timezone.utc)
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    user.last_password_reset_at = now
+    user.updated_at = now
+
+    await db.commit()
+
+    return {"ok": True, "message": "ContraseÃ±a actualizada."}
+# CLONEXA_019F_R1_CHANGE_PASSWORD_BACKEND_END
+
 # CLONEXA_019F_MINI_PANEL_SALES_OPERATIVE_END
 
 # CLONEXA_019C_SALES_MINIPANEL_USERS_BACKEND_END
