@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --cx-bg: #050509;
   --cx-bg-soft: #09090f;
   --cx-panel: rgba(17, 17, 27, 0.78);
@@ -864,169 +864,26 @@ p {
 }
 /* CLONEXA_019G_COMPANY_MINIPANEL_INTERNAL_MODULES_END */
 
-
-/* CLONEXA_019G_R2_FORCE_COMPANY_MINIPANEL_INTERNAL_MODULES_START */
-.cx-mini-internal-section {
-  margin: 28px 0;
-  padding: 22px;
-  border: 1px solid rgba(255, 43, 193, 0.34);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at top left, rgba(255, 43, 193, 0.16), transparent 34%),
-    linear-gradient(135deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025));
-  box-shadow: 0 18px 50px rgba(0,0,0,0.32);
-}
-
-.cx-mini-internal-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 18px;
-}
-
-.cx-mini-internal-kicker {
-  color: #ff2bc1;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: .22em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.cx-mini-internal-head h3 {
-  margin: 0 0 8px;
-  font-size: 24px;
-  color: #fff;
-}
-
-.cx-mini-internal-head p {
-  margin: 0;
-  color: rgba(255,255,255,0.70);
-  max-width: 780px;
-}
-
-.cx-mini-internal-badge {
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(0, 212, 128, 0.14);
-  border: 1px solid rgba(0, 212, 128, 0.45);
-  color: #38ffac;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.cx-mini-internal-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.cx-mini-internal-card {
-  padding: 18px;
-  border-radius: 20px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-}
-
-.cx-mini-internal-card-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-  margin-bottom: 14px;
-}
-
-.cx-mini-internal-card strong {
-  display: block;
-  color: #fff;
-  font-size: 18px;
-}
-
-.cx-mini-internal-card p {
-  margin: 5px 0 0;
-  color: rgba(255,255,255,0.60);
-}
-
-.cx-mini-internal-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: rgba(0,0,0,0.22);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: #fff;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.cx-mini-internal-features {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.cx-mini-internal-check {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px;
-  border-radius: 14px;
-  background: rgba(0,0,0,0.20);
-  border: 1px solid rgba(255,255,255,0.10);
-  color: rgba(255,255,255,0.84);
-  font-weight: 700;
-}
-
-.cx-mini-internal-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 18px;
-  flex-wrap: wrap;
-}
-
-.cx-mini-internal-status {
-  color: rgba(255,255,255,0.68);
-  font-weight: 800;
-}
-
-@media (max-width: 980px) {
-  .cx-mini-internal-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .cx-mini-internal-features {
-    grid-template-columns: 1fr;
-  }
-
-  .cx-mini-internal-head {
-    flex-direction: column;
-  }
-}
-/* CLONEXA_019G_R2_FORCE_COMPANY_MINIPANEL_INTERNAL_MODULES_END */
-
-/* CLONEXA_019G_R3_MINIPANEL_EXISTING_MODULES_START */
-.cx-mp-existing-section {
+/* CLONEXA_019G_R4_CLEAN_MINIPANEL_EXISTING_MODULES_START */
+.cx-mp-final-section {
   margin: 26px 0;
   padding: 22px;
-  border: 1px solid rgba(255, 43, 193, 0.36);
+  border: 1px solid rgba(255, 43, 193, 0.38);
   border-radius: 24px;
   background:
-    radial-gradient(circle at top left, rgba(255, 43, 193, 0.13), transparent 32%),
-    linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025));
+    radial-gradient(circle at top left, rgba(255, 43, 193, 0.14), transparent 34%),
+    linear-gradient(135deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025));
   box-shadow: 0 18px 52px rgba(0,0,0,0.30);
 }
 
-.cx-mp-existing-head {
+.cx-mp-final-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 18px;
 }
 
-.cx-mp-existing-kicker {
+.cx-mp-final-kicker {
   color: #ff2bc1;
   font-size: 12px;
   font-weight: 900;
@@ -1035,19 +892,19 @@ p {
   margin-bottom: 8px;
 }
 
-.cx-mp-existing-head h3 {
+.cx-mp-final-head h3 {
   margin: 0 0 8px;
   color: #fff;
   font-size: 24px;
 }
 
-.cx-mp-existing-head p {
+.cx-mp-final-head p {
   margin: 0;
-  color: rgba(255,255,255,0.68);
-  max-width: 900px;
+  color: rgba(255,255,255,0.70);
+  max-width: 920px;
 }
 
-.cx-mp-toggle {
+.cx-mp-final-toggle {
   border: 1px solid rgba(255,43,193,.42);
   background: linear-gradient(135deg, #ff2bc1, #8b00ff);
   color: #fff;
@@ -1055,38 +912,32 @@ p {
   padding: 14px 18px;
   font-weight: 900;
   cursor: pointer;
-  min-width: 230px;
+  min-width: 260px;
   box-shadow: 0 16px 36px rgba(255,43,193,.22);
 }
 
-.cx-mp-toggle.is-on {
+.cx-mp-final-toggle.is-on {
   background: rgba(0, 212, 128, 0.18);
   border-color: rgba(0, 212, 128, 0.55);
   color: #38ffac;
   box-shadow: 0 14px 34px rgba(0, 212, 128, 0.13);
 }
 
-.cx-mp-existing-summary {
+.cx-mp-final-summary {
   margin-top: 14px;
   padding: 12px 14px;
   border-radius: 16px;
   background: rgba(0,0,0,0.22);
   border: 1px solid rgba(255,255,255,0.10);
-  color: rgba(255,255,255,0.78);
+  color: rgba(255,255,255,0.80);
   font-weight: 800;
 }
 
-.cx-mp-existing-help {
-  margin-top: 10px;
-  color: rgba(255,255,255,0.58);
-  font-size: 13px;
-}
-
-.cx-mp-module-slot {
+.cx-mp-final-slot {
   margin-top: 12px;
 }
 
-.cx-mp-module-btn {
+.cx-mp-final-module-btn {
   width: 100%;
   border: 1px solid rgba(255,43,193,.35);
   background: rgba(255,43,193,.11);
@@ -1097,20 +948,20 @@ p {
   cursor: pointer;
 }
 
-.cx-mp-module-btn.is-on {
+.cx-mp-final-module-btn.is-on {
   border-color: rgba(0,212,128,.55);
   background: rgba(0,212,128,.16);
   color: #38ffac;
 }
 
 @media (max-width: 900px) {
-  .cx-mp-existing-head {
+  .cx-mp-final-head {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .cx-mp-toggle {
+  .cx-mp-final-toggle {
     width: 100%;
   }
 }
-/* CLONEXA_019G_R3_MINIPANEL_EXISTING_MODULES_END */
+/* CLONEXA_019G_R4_CLEAN_MINIPANEL_EXISTING_MODULES_END */
