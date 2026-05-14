@@ -668,6 +668,42 @@
     return "issued";
   }
 
+  function quoteDocumentType021B(quote) {
+    const explicit = String(quote?.document_type || "").toLowerCase();
+    if (explicit === "account") return "account";
+    return String(quote?.status || "").toLowerCase() === "converted" ? "account" : "quote";
+  }
+
+  function quoteAccountNumber021B(quote) {
+    const raw = String(quote?.account_number || quote?.document_number || quote?.quote_number || "").trim();
+    if (raw.toUpperCase().startsWith("CB-")) return raw;
+    const original = String(quote?.quote_number || raw || "").trim();
+    if (!original) return "CB";
+    return "CB-" + original.replace(/^(COT-|CT-|CB-)/i, "");
+  }
+
+  function quoteDisplayNumber021B(quote, forcedType = "") {
+    const docType = forcedType || quoteDocumentType021B(quote);
+    if (docType === "account") return quoteAccountNumber021B(quote);
+    return String(quote?.quote_number || quote?.document_number || "CT").trim();
+  }
+
+  function quotePdfLabel021B(quote, forcedType = "") {
+    const docType = forcedType || quoteDocumentType021B(quote);
+    return docType === "account" ? "PDF cuenta de cobro" : "PDF cotización";
+  }
+
+  function renderQuoteSignaturePreview021B(container, dataUrl) {
+    const preview = container?.querySelector("[data-quote-signature-preview]");
+    if (!preview) return;
+    if (!dataUrl) {
+      preview.innerHTML = "<span>Sin firma adjunta.</span>";
+      return;
+    }
+    preview.innerHTML = `<img src="${h(dataUrl)}" alt="Firma adjunta" />`;
+  }
+
+
   function formatQuoteDate021A(value) {
     const raw = String(value || "");
     if (!raw) return "—";
@@ -819,33 +855,42 @@
     if (!items.length) {
       return `
         <div class="mp-quotes-empty-021a">
-          <strong>No hay cotizaciones para mostrar.</strong>
-          <small>Crea la primera cotización desde el formulario superior.</small>
+          <strong>No hay documentos para mostrar.</strong>
+          <small>Crea una cotización desde el formulario superior o ajusta el filtro.</small>
         </div>
       `;
     }
 
-    return items.map((quote) => `
-      <article class="mp-quote-row-021a ${h(quoteStatusClass021A(quote.status))}" data-quote-row="${h(quote.id)}">
-        <div>
-          <span>${h(quote.quote_number || "COT")}</span>
-          <strong>${h(quote.client_name || "Cliente")}</strong>
-          <small>${h(formatQuoteDate021A(quote.created_at))} · ${h(quoteStatusLabel021A(quote.status))}</small>
-        </div>
-        <div class="mp-quote-row-amount-021a">${h(quoteMoney021A(quote.total || 0))}</div>
-        <div class="mp-quote-row-actions-021a">
-          <button class="mp-button secondary mini" type="button" data-quote-detail="${h(quote.id)}">Detalle</button>
-          <button class="mp-button mini" type="button" data-quote-pdf="${h(quote.id)}" data-quote-number="${h(quote.quote_number || "cotizacion")}">PDF</button>
-          <button class="mp-button ghost mini" type="button" data-quote-convert="${h(quote.id)}">Pasar a cuenta de cobro</button>
-          <button class="mp-button ghost danger mini" type="button" data-quote-archive="${h(quote.id)}">Archivar</button>
-        </div>
-      </article>
-    `).join("");
+    return items.map((quote) => {
+      const docType = quoteDocumentType021B(quote);
+      const displayNumber = quoteDisplayNumber021B(quote, docType);
+      const converted = docType === "account";
+      return `
+        <article class="mp-quote-row-021a ${h(quoteStatusClass021A(quote.status))}" data-quote-row="${h(quote.id)}">
+          <div>
+            <span>${h(displayNumber)}</span>
+            <strong>${h(quote.client_name || "Cliente")}</strong>
+            <small>${h(formatQuoteDate021A(quote.created_at))} · ${h(converted ? "Cuenta de cobro" : "Cotización")}</small>
+          </div>
+          <div class="mp-quote-row-amount-021a">${h(quoteMoney021A(quote.total || 0))}</div>
+          <div class="mp-quote-row-actions-021a">
+            <button class="mp-button secondary mini" type="button" data-quote-detail="${h(quote.id)}">Detalle</button>
+            <button class="mp-button mini" type="button" data-quote-pdf="${h(quote.id)}" data-quote-doc-type="${h(docType)}" data-quote-number="${h(displayNumber)}">${h(quotePdfLabel021B(quote, docType))}</button>
+            ${converted ? `<button class="mp-button ghost mini" type="button" data-quote-pdf="${h(quote.id)}" data-quote-doc-type="quote" data-quote-number="${h(quoteDisplayNumber021B(quote, "quote"))}">PDF cotización</button>` : `<button class="mp-button ghost mini" type="button" data-quote-convert="${h(quote.id)}">Pasar a cuenta de cobro</button>`}
+            <button class="mp-button ghost danger mini" type="button" data-quote-archive="${h(quote.id)}">Archivar</button>
+          </div>
+        </article>
+      `;
+    }).join("");
   }
+
 
   function initQuoteSignature021A(overlay, state) {
     const canvas = overlay.querySelector("[data-quote-signature]");
     const clear = overlay.querySelector("[data-clear-signature]");
+    const attach = overlay.querySelector("[data-attach-signature]");
+    const fileInput = overlay.querySelector("[data-quote-signature-file]");
+    const previewBox = overlay.querySelector("[data-quote-signature-preview]");
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
@@ -873,14 +918,23 @@
     }
 
     function saveSignature() {
-      state.signatureData = hasInk ? canvas.toDataURL("image/png") : "";
+      state.signatureData = hasInk ? canvas.toDataURL("image/png") : (state.signatureData || "");
+      renderQuoteSignaturePreview021B(overlay, state.signatureData);
+    }
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      hasInk = false;
     }
 
     resize();
+    renderQuoteSignaturePreview021B(overlay, state.signatureData);
 
     canvas.addEventListener("pointerdown", (event) => {
       drawing = true;
       hasInk = true;
+      state.signatureData = "";
+      renderQuoteSignaturePreview021B(overlay, "");
       canvas.setPointerCapture(event.pointerId);
       const p = point(event);
       ctx.beginPath();
@@ -906,27 +960,53 @@
       saveSignature();
     });
 
+    attach?.addEventListener("click", () => fileInput?.click());
+
+    fileInput?.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        alert("Adjunta una imagen de firma válida.");
+        fileInput.value = "";
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        clearCanvas();
+        state.signatureData = String(reader.result || "");
+        if (previewBox) {
+          previewBox.innerHTML = `<img src="${h(state.signatureData)}" alt="Firma adjunta" />`;
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
     clear?.addEventListener("click", () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      hasInk = false;
+      clearCanvas();
       state.signatureData = "";
+      if (fileInput) fileInput.value = "";
+      renderQuoteSignaturePreview021B(overlay, "");
     });
 
     window.setTimeout(resize, 60);
   }
 
-  async function downloadQuotePdf021A(quoteId, quoteNumber) {
-    const response = await quotesApi021A(`/${encodeURIComponent(quoteId)}/pdf`, { raw: true });
+
+  async function downloadQuotePdf021A(quoteId, quoteNumber, documentType = "quote") {
+    const suffix = documentType === "account" ? "account" : "quote";
+    const response = await quotesApi021A(`/${encodeURIComponent(quoteId)}/pdf&document_type=${encodeURIComponent(suffix)}`, { raw: true });
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${quoteNumber || "cotizacion"}.pdf`;
+    a.download = `${quoteNumber || (suffix === "account" ? "cuenta-cobro" : "cotizacion")}.pdf`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
+
 
   function fillQuoteForm021A(form, quote, state) {
     if (!form || !quote) return;
@@ -960,6 +1040,7 @@
     const editingLabel = form.querySelector("[data-quote-editing]");
     if (editingLabel) editingLabel.textContent = `Editando ${quote.quote_number || "cotización"}`;
 
+    renderQuoteSignaturePreview021B(form, state.signatureData);
     recalcQuoteTotals021A(form);
     form.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -977,6 +1058,9 @@
     const canvas = form.querySelector("[data-quote-signature]");
     const ctx = canvas?.getContext("2d");
     if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const fileInput = form.querySelector("[data-quote-signature-file]");
+    if (fileInput) fileInput.value = "";
+    renderQuoteSignaturePreview021B(form, "");
     recalcQuoteTotals021A(form);
   }
 
@@ -1085,12 +1169,21 @@
               </div>
 
               <div class="mp-quotes-signature-wrap-021a">
-                <div>
-                  <strong>Firma digital</strong>
-                  <small>Firma sobre el recuadro para adjuntarla al PDF.</small>
+                <div class="mp-quotes-signature-head-021b">
+                  <div>
+                    <strong>Firma digital</strong>
+                    <small>Firma sobre el recuadro o adjunta una imagen de firma para incluirla en el PDF.</small>
+                  </div>
+                  <div class="mp-quotes-signature-actions-021b">
+                    <button class="mp-button secondary mini" type="button" data-attach-signature>Adjuntar firma</button>
+                    <button class="mp-button ghost mini" type="button" data-clear-signature>Limpiar firma</button>
+                  </div>
                 </div>
+                <input type="file" accept="image/*" data-quote-signature-file hidden />
                 <canvas data-quote-signature></canvas>
-                <button class="mp-button ghost mini" type="button" data-clear-signature>Limpiar firma</button>
+                <div class="mp-quotes-signature-preview-021b" data-quote-signature-preview>
+                  <span>Sin firma adjunta.</span>
+                </div>
               </div>
 
               <footer class="mp-quotes-form-footer-021a">
@@ -1117,7 +1210,12 @@
               </div>
             </div>
             <div class="mp-quotes-search-021a">
-              <input data-quotes-search placeholder="Buscar por nombre, NIT, correo o número..." />
+              <input data-quotes-search placeholder="Buscar por nombre, NIT, correo, número, cotización o cuenta de cobro..." />
+              <select data-quotes-type-filter title="Filtrar documentos">
+                <option value="">Todos</option>
+                <option value="quote">Cotizaciones</option>
+                <option value="account">Cuentas de cobro</option>
+              </select>
               <button class="mp-button secondary mini" type="button" data-quotes-refresh>Buscar</button>
             </div>
             <div class="mp-quotes-summary-strip-021a">
@@ -1145,6 +1243,7 @@
     const listBox = overlay.querySelector("[data-quotes-list]");
     const msg = overlay.querySelector("[data-quotes-message]");
     const search = overlay.querySelector("[data-quotes-search]");
+    const typeFilter = overlay.querySelector("[data-quotes-type-filter]");
 
     function setMsg(text, ok = true) {
       if (!msg) return;
@@ -1170,7 +1269,8 @@
       listBox.innerHTML = `<div class="mp-quotes-empty-021a">Cargando cotizaciones...</div>`;
       try {
         const q = search?.value || "";
-        const data = await quotesApi021A(`?q=${encodeURIComponent(q)}`);
+        const documentType = typeFilter?.value || "";
+        const data = await quotesApi021A(`?q=${encodeURIComponent(q)}&document_type=${encodeURIComponent(documentType)}`);
         listBox.innerHTML = renderQuotesList021A(Array.isArray(data.items) ? data.items : []);
       } catch (error) {
         listBox.innerHTML = `<div class="mp-quotes-empty-021a">No fue posible cargar cotizaciones: ${h(error.message || "error")}</div>`;
@@ -1235,7 +1335,7 @@
       if (pdfId) {
         try {
           target.disabled = true;
-          await downloadQuotePdf021A(pdfId, target.getAttribute("data-quote-number") || "cotizacion");
+          await downloadQuotePdf021A(pdfId, target.getAttribute("data-quote-number") || "cotizacion", target.getAttribute("data-quote-doc-type") || "quote");
         } catch (error) {
           setMsg(error.message || "No fue posible generar PDF.", false);
         } finally {
@@ -1261,10 +1361,12 @@
       const convertId = target.getAttribute("data-quote-convert");
       if (convertId) {
         try {
-          await quotesApi021A(`/${encodeURIComponent(convertId)}/convert`, { method: "POST" });
+          const converted = await quotesApi021A(`/${encodeURIComponent(convertId)}/convert`, { method: "POST" });
+          const convertedQuote = converted.quote || {};
           await refreshSummary();
           await refreshList();
-          setMsg("Cotización pasada a cuenta de cobro.", true);
+          setMsg("Cuenta de cobro generada. Descargando PDF...", true);
+          await downloadQuotePdf021A(convertId, quoteDisplayNumber021B(convertedQuote, "account"), "account");
         } catch (error) {
           setMsg(error.message || "No fue posible pasar a cuenta de cobro.", false);
         }
@@ -1276,6 +1378,10 @@
         event.preventDefault();
         await refreshList();
       }
+    });
+
+    typeFilter?.addEventListener("change", async () => {
+      await refreshList();
     });
 
     form?.addEventListener("submit", async (event) => {

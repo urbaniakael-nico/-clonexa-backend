@@ -339,7 +339,39 @@ async def _require_quotes_enabled(conn: asyncpg.Connection, company_id: uuid.UUI
 
 async def _company_profile(conn: asyncpg.Connection, company_id: uuid.UUID) -> dict[str, Any]:
     row = await conn.fetchrow("SELECT * FROM companies WHERE id = $1::uuid LIMIT 1", company_id)
-    return dict(row) if row else {}
+    if not row:
+        return {}
+
+    profile = dict(row)
+    store = _json(profile.get("settings_json"), {})
+    branding_candidates: list[Any] = [
+        profile.get("branding"),
+        profile.get("company_branding"),
+        profile.get("branding_json"),
+        store.get("branding") if isinstance(store, dict) else None,
+        store.get("company_branding") if isinstance(store, dict) else None,
+        (store.get("experience") or {}).get("branding")
+        if isinstance(store, dict) and isinstance(store.get("experience"), dict)
+        else None,
+    ]
+
+    branding: dict[str, Any] = {}
+    for candidate in branding_candidates:
+        if isinstance(candidate, dict) and candidate:
+            branding = candidate
+            break
+
+    logo_url = (
+        str(branding.get("logo_url") or branding.get("logo") or branding.get("brand_logo_url") or "").strip()
+        if isinstance(branding, dict)
+        else ""
+    )
+
+    profile["branding"] = branding
+    profile["company_branding"] = branding
+    profile["logo_url"] = logo_url
+    profile["brand_logo_url"] = logo_url
+    return profile
 
 
 def _sanitize_items(items: list[QuoteItemIn]) -> tuple[list[dict[str, Any]], float]:
@@ -412,16 +444,51 @@ def _signature(value: str | None) -> str | None:
     return raw
 
 
+def _account_number_from_quote_number(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        year = datetime.now(timezone.utc).year
+        return f"CB-{year}-0001"
+
+    upper = raw.upper()
+    for prefix in ("COT-", "CT-", "COTIZACION-", "COTIZACIÓN-"):
+        if upper.startswith(prefix):
+            return "CB-" + raw[len(prefix):]
+
+    if upper.startswith("CB-"):
+        return raw
+
+    return f"CB-{raw}"
+
+
+def _quote_number_for_account_base(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    upper = raw.upper()
+    if upper.startswith("CB-"):
+        return "CT-" + raw[3:]
+    return raw
+
+
 def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
     items = _json(row["items"], [])
     discounts = _json(row["discounts"], [])
     payment = _json(row["payment"], {})
+    status_value = row["status"]
+    quote_number = row["quote_number"]
+    is_account = str(status_value or "").lower() == "converted"
+    account_number = _account_number_from_quote_number(quote_number)
 
     return {
         "id": str(row["id"]),
         "company_id": str(row["company_id"]),
         "panel_type": row["panel_type"],
-        "quote_number": row["quote_number"],
+        "quote_number": quote_number,
+        "account_number": account_number,
+        "document_number": account_number if is_account else quote_number,
+        "document_type": "account" if is_account else "quote",
+        "document_label": "Cuenta de cobro" if is_account else "Cotización",
         "client_name": row["client_name"],
         "client_document": row["client_document"] or "",
         "client_address": row["client_address"] or "",
@@ -435,7 +502,7 @@ def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
         "subtotal": _money(row["subtotal"]),
         "discount_total": _money(row["discount_total"]),
         "total": _money(row["total"]),
-        "status": row["status"],
+        "status": status_value,
         "converted_at": row["converted_at"].isoformat() if row["converted_at"] else None,
         "archived_at": row["archived_at"].isoformat() if row["archived_at"] else None,
         "created_by": str(row["created_by"]) if row["created_by"] else None,
@@ -444,30 +511,31 @@ def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
 
-
 async def _next_quote_number(conn: asyncpg.Connection, company_id: uuid.UUID) -> str:
     year = datetime.now(timezone.utc).year
-    prefix = f"COT-{year}-"
-    last = await conn.fetchval(
+    rows = await conn.fetch(
         """
         SELECT quote_number
         FROM mini_panel_quotes
         WHERE company_id = $1::uuid
-          AND quote_number LIKE $2
+          AND (quote_number LIKE $2 OR quote_number LIKE $3)
         ORDER BY quote_number DESC
-        LIMIT 1
+        LIMIT 200
         """,
         company_id,
-        f"{prefix}%",
+        f"CT-{year}-%",
+        f"COT-{year}-%",
     )
-    next_num = 1
-    if last:
-        try:
-            next_num = int(str(last).split("-")[-1]) + 1
-        except Exception:
-            next_num = 1
-    return f"{prefix}{next_num:04d}"
 
+    max_num = 0
+    for row in rows:
+        raw = str(row["quote_number"] or "")
+        try:
+            max_num = max(max_num, int(raw.split("-")[-1]))
+        except Exception:
+            continue
+
+    return f"CT-{year}-{max_num + 1:04d}"
 
 async def _insert_or_update_quote(
     conn: asyncpg.Connection,
@@ -648,6 +716,7 @@ async def list_quotes(
     panel_type: str = Query("sales"),
     q: str | None = Query(default=None),
     include_archived: bool = Query(False),
+    document_type: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     conn = await _connect()
@@ -658,6 +727,14 @@ async def list_quotes(
 
         query = f"%{_clean_text(q, 120)}%"
         status_filter = "" if include_archived else "AND status <> 'archived'"
+
+        doc = _norm(document_type or "")
+        document_filter = ""
+        if doc in {"account", "accounts", "cuenta", "cuentas", "cuenta_cobro", "cuentas_cobro", "cobro", "cb"}:
+            document_filter = "AND status = 'converted'"
+        elif doc in {"quote", "quotes", "cotizacion", "cotizaciones", "cotizar", "ct", "cot"}:
+            document_filter = "AND status <> 'converted'"
+
         rows = await conn.fetch(
             f"""
             SELECT *
@@ -665,12 +742,15 @@ async def list_quotes(
             WHERE company_id = $1::uuid
               AND panel_type = $2
               {status_filter}
+              {document_filter}
               AND (
                 $3 = '%%'
                 OR client_name ILIKE $3
                 OR quote_number ILIKE $3
+                OR ('CB-' || regexp_replace(quote_number, '^(COT-|CT-|CB-)', '')) ILIKE $3
                 OR client_document ILIKE $3
                 OR client_email ILIKE $3
+                OR CASE WHEN status = 'converted' THEN 'cuenta de cobro' ELSE 'cotizacion' END ILIKE $3
               )
             ORDER BY created_at DESC
             LIMIT 100
@@ -849,15 +929,27 @@ def _load_image_reader(source: str):
         return None
 
     raw = str(source or "").strip()
+    if not raw:
+        return None
+
     try:
         if raw.startswith("data:image/"):
             encoded = raw.split(",", 1)[1]
             return ImageReader(io.BytesIO(base64.b64decode(encoded)))
+
+        if raw.startswith("/"):
+            base_url = str(os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_PUBLIC_URL") or "").strip().rstrip("/")
+            if base_url:
+                raw = base_url + raw
+
         if raw.startswith("http://") or raw.startswith("https://"):
             import urllib.request
 
             with urllib.request.urlopen(raw, timeout=8) as response:
                 return ImageReader(io.BytesIO(response.read()))
+
+        if os.path.exists(raw):
+            return ImageReader(raw)
     except Exception:
         return None
 
@@ -873,20 +965,60 @@ def _signature_reader(signature_data_url: str):
     return _load_image_reader(signature_data_url)
 
 
-def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any]) -> bytes:
+def _document_type_for_pdf(requested: str | None, quote: dict[str, Any]) -> str:
+    doc = _norm(requested or "")
+    if doc in {"account", "accounts", "cuenta", "cuenta_cobro", "cobro", "cb"}:
+        return "account"
+    if doc in {"quote", "quotes", "cotizacion", "cotizaciones", "ct", "cot"}:
+        return "quote"
+    return "account" if str(quote.get("status") or "").lower() == "converted" else "quote"
+
+
+def _document_number_for_pdf(quote: dict[str, Any], document_type: str) -> str:
+    if document_type == "account":
+        return _account_number_from_quote_number(quote.get("quote_number") or quote.get("document_number"))
+    return _quote_number_for_account_base(quote.get("quote_number") or quote.get("document_number")) or str(quote.get("quote_number") or "")
+
+
+def _company_logo_url(company: dict[str, Any]) -> str:
+    settings = _json(company.get("settings_json"), {})
+    branding_candidates = [
+        company.get("branding"),
+        company.get("company_branding"),
+        company.get("branding_json"),
+        settings.get("branding") if isinstance(settings, dict) else None,
+        settings.get("company_branding") if isinstance(settings, dict) else None,
+        (settings.get("experience") or {}).get("branding")
+        if isinstance(settings, dict) and isinstance(settings.get("experience"), dict)
+        else None,
+    ]
+
+    for candidate in branding_candidates:
+        if isinstance(candidate, dict):
+            logo = str(candidate.get("logo_url") or candidate.get("logo") or candidate.get("brand_logo_url") or "").strip()
+            if logo:
+                return logo
+
+    return str(company.get("logo_url") or company.get("logo") or company.get("brand_logo_url") or "").strip()
+
+
+def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_type: str = "quote") -> bytes:
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
-        from reportlab.lib.styles import ParagraphStyle
-        from reportlab.lib.units import inch
         from reportlab.pdfbase.pdfmetrics import stringWidth
         from reportlab.pdfgen import canvas
-        from reportlab.platypus import Paragraph
     except Exception as exc:
         raise HTTPException(
             status_code=503,
             detail=f"Motor PDF no disponible. Falta instalar reportlab: {exc}",
         )
+
+    document_type = "account" if document_type == "account" else "quote"
+    is_account = document_type == "account"
+    document_title = "CUENTA DE COBRO" if is_account else "COTIZACIÓN"
+    document_subtitle = "Cuenta de cobro generada desde CLONEXA" if is_account else "Cotización comercial emitida desde CLONEXA"
+    document_number = _document_number_for_pdf(quote, document_type)
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
@@ -895,64 +1027,64 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any]) -> bytes:
     y = height - margin
 
     company_name = str(company.get("name") or company.get("slug") or "CLONEXA")
-    logo_url = str(company.get("logo_url") or company.get("logo") or company.get("brand_logo_url") or "")
+    logo_url = _company_logo_url(company)
     logo = _load_image_reader(logo_url)
 
     def draw_watermark() -> None:
+        if logo is None:
+            return
+
         c.saveState()
         try:
-            c.setFillAlpha(0.06)
-            c.setStrokeAlpha(0.05)
+            c.setFillAlpha(0.055)
+            c.setStrokeAlpha(0.04)
         except Exception:
             pass
 
-        if logo is not None:
-            try:
-                c.drawImage(logo, width / 2 - 155, height / 2 - 115, width=310, height=230, preserveAspectRatio=True, mask="auto")
-            except Exception:
-                pass
-
-        c.setFillColor(colors.HexColor("#6b5cff"))
-        c.setFont("Helvetica-Bold", 46)
-        c.translate(width / 2, height / 2)
-        c.rotate(35)
-        text = company_name[:32]
-        c.drawCentredString(0, 0, text)
+        try:
+            c.drawImage(
+                logo,
+                width / 2 - 170,
+                height / 2 - 128,
+                width=340,
+                height=256,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+        except Exception:
+            pass
         c.restoreState()
 
     def draw_header() -> None:
         nonlocal y
         draw_watermark()
         c.setFillColor(colors.HexColor("#141428"))
-        c.rect(0, height - 108, width, 108, fill=1, stroke=0)
+        c.rect(0, height - 112, width, 112, fill=1, stroke=0)
 
         if logo is not None:
             try:
-                c.drawImage(logo, margin, height - 92, width=74, height=54, preserveAspectRatio=True, mask="auto")
+                c.drawImage(logo, margin, height - 94, width=78, height=58, preserveAspectRatio=True, mask="auto")
             except Exception:
-                c.setFillColor(colors.white)
-                c.setFont("Helvetica-Bold", 10)
-                c.drawString(margin, height - 70, "LOGO")
-        else:
-            c.setFillColor(colors.white)
-            c.setFont("Helvetica-Bold", 10)
-            c.drawString(margin, height - 70, "LOGO")
+                pass
 
+        text_x = margin + 94 if logo is not None else margin
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 18)
-        c.drawString(margin + 92, height - 56, company_name[:44])
+        c.drawString(text_x, height - 50, company_name[:44])
         c.setFont("Helvetica", 9)
-        c.drawString(margin + 92, height - 74, "Cotizacion comercial emitida desde CLONEXA")
+        c.drawString(text_x, height - 69, document_subtitle)
 
         c.setFillColor(colors.HexColor("#ff2ebd"))
-        c.setFont("Helvetica-Bold", 16)
-        c.drawRightString(width - margin, height - 54, quote["quote_number"])
+        c.setFont("Helvetica-Bold", 18)
+        c.drawRightString(width - margin, height - 48, document_title)
         c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawRightString(width - margin, height - 68, document_number)
         c.setFont("Helvetica", 9)
         created = str(quote.get("created_at") or "")[:10]
-        c.drawRightString(width - margin, height - 74, f"Fecha: {created}")
+        c.drawRightString(width - margin, height - 84, f"Fecha: {created}")
 
-        y = height - 136
+        y = height - 140
 
     def draw_label_value(label: str, value: str, x: float, yy: float, w: float) -> None:
         c.setFillColor(colors.HexColor("#6b6b82"))
@@ -988,11 +1120,11 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any]) -> bytes:
     c.setFillColor(colors.HexColor("#17172d"))
     c.setFont("Helvetica-Bold", 11)
     c.drawString(margin + 14, y - 24, "Datos del cliente")
-    draw_label_value("Nombre / razon social", quote.get("client_name", ""), margin + 14, y - 44, 210)
+    draw_label_value("Nombre / razón social", quote.get("client_name", ""), margin + 14, y - 44, 210)
     draw_label_value("CC / NIT", quote.get("client_document", ""), margin + 238, y - 44, 90)
-    draw_label_value("Telefono", quote.get("client_phone", ""), margin + 348, y - 44, 95)
+    draw_label_value("Teléfono", quote.get("client_phone", ""), margin + 348, y - 44, 95)
     draw_label_value("Correo", quote.get("client_email", ""), margin + 455, y - 44, 120)
-    draw_label_value("Direccion", quote.get("client_address", ""), margin + 14, y - 70, 500)
+    draw_label_value("Dirección", quote.get("client_address", ""), margin + 14, y - 70, 500)
     y -= 112
 
     c.setFillColor(colors.HexColor("#17172d"))
@@ -1087,7 +1219,7 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any]) -> bytes:
 
     c.setFillColor(colors.HexColor("#6b6b82"))
     c.setFont("Helvetica", 7)
-    c.drawCentredString(width / 2, 30, "Documento generado por CLONEXA · Mini Panel Ventas")
+    c.drawCentredString(width / 2, 30, f"{document_title} generado por CLONEXA · Mini Panel Ventas")
     c.save()
     buffer.seek(0)
     return buffer.getvalue()
@@ -1098,6 +1230,7 @@ async def quote_pdf(
     company_id: uuid.UUID,
     quote_id: uuid.UUID,
     panel_type: str = Query("sales"),
+    document_type: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ) -> Response:
     conn = await _connect()
@@ -1123,8 +1256,9 @@ async def quote_pdf(
 
         company = await _company_profile(conn, company_id)
         quote = _quote_payload(row)
-        pdf = _build_quote_pdf(quote, company)
-        filename = f"{quote['quote_number']}.pdf"
+        doc_type = _document_type_for_pdf(document_type, quote)
+        pdf = _build_quote_pdf(quote, company, doc_type)
+        filename = f"{_document_number_for_pdf(quote, doc_type)}.pdf"
         return StreamingResponse(
             io.BytesIO(pdf),
             media_type="application/pdf",
