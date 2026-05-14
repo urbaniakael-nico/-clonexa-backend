@@ -3983,6 +3983,55 @@
     return norm(value).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   }
 
+  // CLONEXA_022A_HIERARCHY_SOURCE_OF_TRUTH_START
+  const MODULE_ALIAS_CANONICAL_022A = {
+    "cotizacion": "cotizacion",
+    "cotizaciones": "cotizacion",
+    "cotización": "cotizacion",
+    "quote": "cotizacion",
+    "quotes": "cotizacion",
+    "quotation": "cotizacion",
+    "presupuesto": "cotizacion",
+    "presupuestos": "cotizacion",
+
+    "nota": "notas",
+    "notas": "notas",
+    "notes": "notas",
+    "agenda": "notas",
+    "recordatorio": "notas",
+    "recordatorios": "notas",
+    "notas_o_agenda": "notas",
+
+    "registro_venta": "registro_venta",
+    "registro_ventas": "registro_venta",
+    "registro de venta": "registro_venta",
+    "sales_register": "registro_venta",
+
+    "cierre_dia": "day_closing",
+    "cierre_de_dia": "day_closing",
+    "cierre de dia": "day_closing",
+    "cierre dia": "day_closing",
+    "day_closing": "day_closing",
+    "commercial_closing": "day_closing"
+  };
+
+  function canonicalModuleCode022A(value) {
+    const code = slug(value);
+    return MODULE_ALIAS_CANONICAL_022A[code] || MODULE_ALIAS_CANONICAL_022A[norm(value)] || code;
+  }
+
+  function uniqueCodes022A(values) {
+    const seen = new Set();
+    return (Array.isArray(values) ? values : [])
+      .map((code) => canonicalModuleCode022A(code))
+      .filter((code) => {
+        if (!code || seen.has(code)) return false;
+        seen.add(code);
+        return true;
+      });
+  }
+  // CLONEXA_022A_HIERARCHY_SOURCE_OF_TRUTH_END
+
   function getCompanyId() {
     const text = document.body.innerText || "";
     const match = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
@@ -4051,20 +4100,68 @@
     };
   }
 
+  function extractRemoteMiniPanelConfig022A(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const miniRow = list.find((row) => {
+      const code = canonicalModuleCode022A(row?.module?.code || row?.module_code || row?.code || "");
+      const name = slug(row?.module?.name || row?.name || "");
+      return code === "mini_panel" || name.includes("mini_panel") || name.includes("creacion_mini");
+    });
+
+    const settings = miniRow && typeof miniRow.settings === "object" && miniRow.settings ? miniRow.settings : {};
+    const config = settings.mini_panel_modules && typeof settings.mini_panel_modules === "object"
+      ? settings.mini_panel_modules
+      : (settings.panels && typeof settings.panels === "object" ? settings : null);
+
+    if (!config) return null;
+
+    return {
+      enabled: config.enabled === true,
+      selected_panel: config.selected_panel || "",
+      panels: config.panels || {},
+      module_names: config.module_names || {},
+      company_id: config.company_id || "",
+      updated_at: config.updated_at || ""
+    };
+  }
+
+  async function loadRemoteConfig022A(companyId) {
+    try {
+      const response = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/modules?enabled_only=true`, {
+        headers: { "Content-Type": "application/json" }
+      });
+
+      if (!response.ok) return null;
+
+      const data = await response.json().catch(() => []);
+      return extractRemoteMiniPanelConfig022A(data);
+    } catch (error) {
+      console.warn("CLONEXA 022A remote mini panel load fallback:", error);
+      return null;
+    }
+  }
+
   function normalizeConfig(companyId, config) {
-    const next = config && typeof config === "object" ? config : {};
+    const next = config && typeof config === "object" ? { ...config } : {};
     next.enabled = next.enabled === true;
     next.panels = next.panels && typeof next.panels === "object" ? next.panels : {};
     next.module_names = next.module_names && typeof next.module_names === "object" ? next.module_names : {};
+
+    const normalizedNames = {};
+    Object.entries(next.module_names || {}).forEach(([code, name]) => {
+      const canonical = canonicalModuleCode022A(code);
+      if (canonical) normalizedNames[canonical] = name;
+    });
+    next.module_names = normalizedNames;
 
     const detected = detectPanels(companyId, next);
 
     detected.forEach((type) => {
       const current = next.panels[type] && typeof next.panels[type] === "object" ? next.panels[type] : {};
       next.panels[type] = {
-        enabled: true,
-        link: panelLink(companyId, type),
-        modules: Array.isArray(current.modules) ? current.modules : []
+        enabled: current.enabled === false ? false : true,
+        link: current.link || panelLink(companyId, type),
+        modules: uniqueCodes022A(current.modules)
       };
     });
 
@@ -4072,7 +4169,7 @@
       if (!detected.includes(type)) {
         next.panels[type].enabled = next.panels[type].enabled === true;
         next.panels[type].link = next.panels[type].link || panelLink(companyId, type);
-        next.panels[type].modules = Array.isArray(next.panels[type].modules) ? next.panels[type].modules : [];
+        next.panels[type].modules = uniqueCodes022A(next.panels[type].modules);
       }
     });
 
@@ -4168,17 +4265,17 @@
     ];
 
     for (const code of knownCodes) {
-      if (text.includes(code)) return code;
+      if (text.includes(code)) return canonicalModuleCode022A(code);
     }
 
     const name = norm(extractModuleName(card));
-    if (KNOWN[name]) return KNOWN[name];
+    if (KNOWN[name]) return canonicalModuleCode022A(KNOWN[name]);
 
     for (const [key, code] of Object.entries(KNOWN)) {
-      if (name.includes(norm(key))) return code;
+      if (name.includes(norm(key))) return canonicalModuleCode022A(code);
     }
 
-    return slug(name);
+    return canonicalModuleCode022A(name);
   }
 
   function shouldSkip(code, name) {
@@ -4192,7 +4289,7 @@
 
   function selectedModules(config) {
     const panel = config.panels?.[config.selected_panel];
-    return Array.isArray(panel?.modules) ? panel.modules : [];
+    return uniqueCodes022A(Array.isArray(panel?.modules) ? panel.modules : []);
   }
 
   function assignedListHtml(config) {
@@ -4315,7 +4412,7 @@
         return;
       }
 
-      const modules = selectedModules(config);
+      const modules = uniqueCodes022A(selectedModules(config));
       const added = modules.includes(code);
 
       slot.innerHTML = `
@@ -4349,7 +4446,7 @@
     await saveRemote(companyId, saved);
   }
 
-  function mount() {
+  async function mount() {
     if (!isCompanyModulesTab()) return;
 
     removeOldSections();
@@ -4360,7 +4457,8 @@
     }
 
     const companyId = getCompanyId();
-    let config = normalizeConfig(companyId, loadConfig(companyId));
+    const remote = await loadRemoteConfig022A(companyId);
+    let config = normalizeConfig(companyId, remote || loadConfig(companyId));
     config = saveLocal(companyId, config);
 
     if (!document.getElementById(SECTION_ID)) {
@@ -4401,16 +4499,17 @@
     if (addBtn) {
       let config = normalizeConfig(companyId, loadConfig(companyId));
       const panel = config.selected_panel;
-      const code = addBtn.getAttribute("data-cx-mp-r6b-add");
+      const rawCode = addBtn.getAttribute("data-cx-mp-r6b-add");
+      const code = canonicalModuleCode022A(rawCode);
       const name = addBtn.getAttribute("data-cx-mp-r6b-name") || code;
 
       if (!panel || !code) return;
 
-      config.panels[panel].modules = Array.isArray(config.panels[panel].modules) ? config.panels[panel].modules : [];
+      config.panels[panel].modules = uniqueCodes022A(config.panels[panel].modules);
       config.module_names[code] = name;
 
       if (config.panels[panel].modules.includes(code)) {
-        config.panels[panel].modules = config.panels[panel].modules.filter((item) => item !== code);
+        config.panels[panel].modules = config.panels[panel].modules.filter((item) => canonicalModuleCode022A(item) !== code);
       } else {
         config.panels[panel].modules.push(code);
       }
@@ -4423,11 +4522,11 @@
     if (removeBtn) {
       let config = normalizeConfig(companyId, loadConfig(companyId));
       const panel = config.selected_panel;
-      const code = removeBtn.getAttribute("data-cx-mp-r6b-remove");
+      const code = canonicalModuleCode022A(removeBtn.getAttribute("data-cx-mp-r6b-remove"));
 
       if (!panel || !code) return;
 
-      config.panels[panel].modules = (config.panels[panel].modules || []).filter((item) => item !== code);
+      config.panels[panel].modules = (config.panels[panel].modules || []).filter((item) => canonicalModuleCode022A(item) !== code);
       await persistAndRefresh(companyId, config);
     }
   });
@@ -4436,7 +4535,11 @@
   function schedule() {
     clearTimeout(timer);
     timer = setTimeout(() => {
-      try { mount(); } catch (error) { console.warn("CLONEXA 019G-R6B:", error); }
+      try {
+        Promise.resolve(mount()).catch((error) => console.warn("CLONEXA 022A hierarchy:", error));
+      } catch (error) {
+        console.warn("CLONEXA 022A hierarchy:", error);
+      }
     }, 250);
   }
 

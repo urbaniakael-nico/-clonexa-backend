@@ -1648,6 +1648,45 @@
       .replace(/^_+|_+$/g, "");
   }
 
+  // CLONEXA_022A_HIERARCHY_SOURCE_OF_TRUTH_START
+  // Canonicaliza alias para que un módulo exista una sola vez por panel.
+  // Importante: Mini Panel NO hereda automáticamente módulos activos de empresa.
+  // Solo renderiza los módulos asignados explícitamente a su panel_type.
+  const MODULE_ALIAS_CANONICAL_022A = {
+    "cotizacion": "cotizacion",
+    "cotizaciones": "cotizacion",
+    "cotizar": "cotizacion",
+    "quote": "cotizacion",
+    "quotes": "cotizacion",
+    "quotation": "cotizacion",
+    "quotations": "cotizacion",
+    "presupuesto": "cotizacion",
+    "presupuestos": "cotizacion",
+
+    "nota": "notas",
+    "notas": "notas",
+    "notes": "notas",
+    "agenda": "notas",
+    "recordatorio": "notas",
+    "recordatorios": "notas",
+    "notas_o_agenda": "notas",
+
+    "registro_venta": "registro_venta",
+    "registro_ventas": "registro_venta",
+    "sales_register": "registro_venta",
+
+    "cierre_dia": "day_closing",
+    "cierre_de_dia": "day_closing",
+    "day_closing": "day_closing",
+    "commercial_closing": "day_closing"
+  };
+
+  function canonicalModuleCode022A(value) {
+    const normalized = normalizeModuleCode019H(value);
+    return MODULE_ALIAS_CANONICAL_022A[normalized] || normalized;
+  }
+  // CLONEXA_022A_HIERARCHY_SOURCE_OF_TRUTH_END
+
   function titleFromCode019H(code, moduleNames = {}) {
     const normalized = normalizeModuleCode019H(code);
     const rawName = moduleNames[code] || moduleNames[normalized] || "";
@@ -1700,47 +1739,27 @@
     const panel = panelConfig019H(config, typeValue);
     const modules = Array.isArray(panel.modules) ? panel.modules : [];
     return modules
-      .map((code) => normalizeModuleCode019H(code))
+      .map((code) => canonicalModuleCode022A(code))
       .filter(Boolean)
       .filter((code, index, arr) => arr.indexOf(code) === index);
   }
 
 
-  /* CLONEXA_021D_UNIVERSAL_MODULE_FALLBACK_START */
-  function activeUniversalModuleCodes021D(companyModules) {
-    const rows = Array.isArray(companyModules) ? companyModules : [];
-    const out = [];
-
-    rows.forEach((row) => {
-      const enabled = row?.enabled ?? row?.module?.enabled ?? row?.module?.is_active ?? true;
-      if (enabled === false) return;
-
-      const rawCode = row?.module?.code || row?.module_code || row?.code || row?.module?.name || row?.name || "";
-      const code = normalizeModuleCode019H(rawCode);
-      if (!code) return;
-
-      if (typeof isQuotesCode021A === "function" && isQuotesCode021A(code)) {
-        out.push("cotizaciones");
-        return;
-      }
-
-      if (typeof isNotesCode020A === "function" && isNotesCode020A(code)) {
-        out.push("notas");
-      }
-    });
-
-    return out.filter((code, index, arr) => code && arr.indexOf(code) === index);
+  /* CLONEXA_022A_MINIPANEL_STRICT_ASSIGNMENT_START */
+  function activeUniversalModuleCodes021D(_companyModules) {
+    // 022A: módulo activo en empresa = capacidad disponible, NO asignación automática al mini panel.
+    // Se conserva la función por compatibilidad con patches previos, pero no agrega módulos heredados.
+    return [];
   }
 
-  function mergeUniversalMiniPanelCodes021D(panelCodes, companyModules) {
+  function mergeUniversalMiniPanelCodes021D(panelCodes, _companyModules) {
     const base = Array.isArray(panelCodes) ? panelCodes : [];
-    const universal = activeUniversalModuleCodes021D(companyModules);
-    return [...base, ...universal]
-      .map((code) => normalizeModuleCode019H(code))
+    return base
+      .map((code) => canonicalModuleCode022A(code))
       .filter(Boolean)
       .filter((code, index, arr) => arr.indexOf(code) === index);
   }
-  /* CLONEXA_021D_UNIVERSAL_MODULE_FALLBACK_END */
+  /* CLONEXA_022A_MINIPANEL_STRICT_ASSIGNMENT_END */
 
 
   async function loadMiniPanelModuleConfig019H() {
@@ -1757,10 +1776,12 @@
       const codes = assignedModuleCodes019H(config, panelType);
       const moduleNames = config && typeof config.module_names === "object" && config.module_names ? config.module_names : {};
 
+      const effectiveCodes022A = mergeUniversalMiniPanelCodes021D(codes, data);
+
       return {
-        enabled: config.enabled === true || panel.enabled === true || mergeUniversalMiniPanelCodes021D(codes, data).length > 0,
+        enabled: config.enabled === true || panel.enabled === true || effectiveCodes022A.length > 0,
         selected_panel: normalizePanelType019H(panelType),
-        modules: mergeUniversalMiniPanelCodes021D(codes, data),
+        modules: effectiveCodes022A,
         module_names: moduleNames,
         raw: config
       };
@@ -1776,7 +1797,15 @@
   function buildDynamicMiniPanelModules019H(moduleConfig) {
     const config = moduleConfig || {};
     const codes = Array.isArray(config.modules) ? config.modules : [];
+    const seen = new Set();
+
     return codes
+      .map((code) => canonicalModuleCode022A(code))
+      .filter((code) => {
+        if (!code || seen.has(code)) return false;
+        seen.add(code);
+        return true;
+      })
       .map((code) => moduleDefinition019H(code, config.module_names || {}))
       .filter((item) => item && item.code);
   }
