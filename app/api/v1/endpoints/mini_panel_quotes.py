@@ -1267,7 +1267,12 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_ty
     document_type = "account" if document_type == "account" else "quote"
     is_account = document_type == "account"
     document_title = "CUENTA DE COBRO" if is_account else "COTIZACIÓN"
-    document_subtitle = "Cuenta de cobro generada desde CLONEXA" if is_account else "Cotización comercial emitida desde CLONEXA"
+    # CLONEXA_021H_QUOTES_PDF_GLOBAL_LAYOUT_FIX_START
+    # Encabezado corporativo global:
+    # en la parte superior solo va el nombre de la empresa.
+    # El footer conserva la marca CLONEXA/SaaS.
+    document_subtitle = ""
+    # CLONEXA_021H_QUOTES_PDF_GLOBAL_LAYOUT_FIX_END
     document_number = _document_number_for_pdf(quote, document_type)
 
     buffer = io.BytesIO()
@@ -1321,8 +1326,8 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_ty
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 18)
         c.drawString(text_x, height - 50, company_name[:44])
-        c.setFont("Helvetica", 9)
-        c.drawString(text_x, height - 69, document_subtitle)
+        # 021H: No se imprime subtítulo comercial en cabecera.
+        # La cabecera superior conserva únicamente el nombre de la empresa.
 
         c.setFillColor(colors.HexColor("#ff2ebd"))
         c.setFont("Helvetica-Bold", 18)
@@ -1336,14 +1341,49 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_ty
 
         y = height - 140
 
-    def draw_label_value(label: str, value: str, x: float, yy: float, w: float) -> None:
+    def draw_label_value(label: str, value: str, x: float, yy: float, w: float, max_lines: int = 2) -> None:
         c.setFillColor(colors.HexColor("#6b6b82"))
         c.setFont("Helvetica-Bold", 7)
         c.drawString(x, yy, label.upper())
         c.setFillColor(colors.HexColor("#17172d"))
-        c.setFont("Helvetica", 9)
-        safe = str(value or "-")[:90]
-        c.drawString(x, yy - 13, safe)
+        font = "Helvetica"
+        size = 9
+        c.setFont(font, size)
+
+        raw = str(value or "-").strip()
+        if not raw:
+            raw = "-"
+
+        # 021H: ajuste global para que correos y valores largos no salgan del bloque gris.
+        # Soporta textos sin espacios como correos/NIT mediante recorte con elipsis por ancho real.
+        def fit_line(line: str) -> str:
+            line = str(line or "").strip()
+            if stringWidth(line, font, size) <= w:
+                return line
+            ellipsis = "..."
+            while line and stringWidth(line + ellipsis, font, size) > w:
+                line = line[:-1]
+            return (line + ellipsis) if line else ellipsis
+
+        lines: list[str] = []
+        current = ""
+
+        for token in raw.replace("\n", " ").split():
+            candidate = f"{current} {token}".strip()
+            if not current or stringWidth(candidate, font, size) <= w:
+                current = candidate
+            else:
+                lines.append(fit_line(current))
+                current = token
+
+        if current:
+            lines.append(fit_line(current))
+
+        if not lines:
+            lines = ["-"]
+
+        for idx, line in enumerate(lines[:max_lines]):
+            c.drawString(x, yy - 13 - (idx * (size + 2)), line)
 
     def draw_wrapped(text: str, x: float, yy: float, max_width: float, font: str = "Helvetica", size: int = 8) -> float:
         c.setFont(font, size)
@@ -1366,16 +1406,28 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_ty
     draw_header()
 
     c.setFillColor(colors.HexColor("#f3f4ff"))
-    c.roundRect(margin, y - 84, width - margin * 2, 74, 10, fill=1, stroke=0)
+    # 021H: bloque más alto y columnas balanceadas para contener correo/dirección.
+    c.roundRect(margin, y - 100, width - margin * 2, 90, 10, fill=1, stroke=0)
     c.setFillColor(colors.HexColor("#17172d"))
     c.setFont("Helvetica-Bold", 11)
     c.drawString(margin + 14, y - 24, "Datos del cliente")
-    draw_label_value("Nombre / razón social", quote.get("client_name", ""), margin + 14, y - 44, 210)
-    draw_label_value("CC / NIT", quote.get("client_document", ""), margin + 238, y - 44, 90)
-    draw_label_value("Teléfono", quote.get("client_phone", ""), margin + 348, y - 44, 95)
-    draw_label_value("Correo", quote.get("client_email", ""), margin + 455, y - 44, 120)
-    draw_label_value("Dirección", quote.get("client_address", ""), margin + 14, y - 70, 500)
-    y -= 112
+
+    block_left = margin + 14
+    block_right = width - margin - 14
+    block_width = block_right - block_left
+
+    col_name_w = 225
+    col_doc_w = 105
+    col_phone_w = 100
+
+    draw_label_value("Nombre / razón social", quote.get("client_name", ""), block_left, y - 44, col_name_w)
+    draw_label_value("CC / NIT", quote.get("client_document", ""), block_left + 250, y - 44, col_doc_w)
+    draw_label_value("Teléfono", quote.get("client_phone", ""), block_left + 370, y - 44, col_phone_w)
+
+    # Correo en segunda línea con ancho suficiente. Evita desbordes en PDF para cualquier empresa.
+    draw_label_value("Dirección", quote.get("client_address", ""), block_left, y - 72, 295)
+    draw_label_value("Correo", quote.get("client_email", ""), block_left + 320, y - 72, block_width - 320)
+    y -= 126
 
     c.setFillColor(colors.HexColor("#17172d"))
     c.setFont("Helvetica-Bold", 11)
@@ -1469,7 +1521,8 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_ty
 
     c.setFillColor(colors.HexColor("#6b6b82"))
     c.setFont("Helvetica", 7)
-    c.drawCentredString(width / 2, 30, f"{document_title} generado por CLONEXA · Mini Panel Ventas")
+    footer_label = "Cuenta de cobro" if is_account else "Cotización"
+    c.drawCentredString(width / 2, 30, f"{footer_label} generado por © Clonexasaas@gmail.com")
     c.save()
     buffer.seek(0)
     return buffer.getvalue()
