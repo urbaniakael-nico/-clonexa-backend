@@ -584,6 +584,732 @@
 /* CLONEXA_020A_NOTES_CALENDAR_END */
 
 
+  /* CLONEXA_021A_QUOTES_MODULE_START */
+  const QUOTE_CODES_021A = new Set([
+    "cotizacion",
+    "cotizaciones",
+    "cotizar",
+    "quote",
+    "quotes",
+    "quotation",
+    "quotations",
+    "presupuesto",
+    "presupuestos"
+  ]);
+
+  let currentQuotesSummary021A = null;
+
+  function isQuotesCode021A(code) {
+    const normalized = normalizeModuleCode019H(code);
+    return QUOTE_CODES_021A.has(normalized);
+  }
+
+  function quotesModuleEnabled021A(moduleConfig) {
+    const config = moduleConfig || currentModuleConfig || {};
+    const modules = Array.isArray(config.modules) ? config.modules : [];
+    return modules.some((code) => isQuotesCode021A(code));
+  }
+
+  function defaultQuotesSummary021A() {
+    return {
+      active_count: 0,
+      total_amount: 0,
+      latest: null
+    };
+  }
+
+  async function quotesApi021A(path = "", options = {}) {
+    const base = `/api/v1/mini-panel-quotes/companies/${encodeURIComponent(companyId)}`;
+    const separator = path.includes("?") ? "&" : "?";
+    const url = `${base}${path}${separator}panel_type=${encodeURIComponent(panelType)}`;
+    const headers = {
+      ...authHeaders(),
+      ...(options.headers || {})
+    };
+
+    const response = await fetch(url, {
+      ...options,
+      headers
+    });
+
+    if (options.raw === true) {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || errorData.message || "Solicitud rechazada.");
+      }
+      return response;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.detail || data.message || "Solicitud rechazada.");
+    }
+    return data;
+  }
+
+  async function loadQuotesSummary021A(moduleConfig) {
+    if (!quotesModuleEnabled021A(moduleConfig)) return defaultQuotesSummary021A();
+    return quotesApi021A("/summary");
+  }
+
+  function quoteStatusLabel021A(value) {
+    const status = String(value || "").toLowerCase();
+    if (status === "archived") return "Archivada";
+    if (status === "converted") return "Cuenta de cobro";
+    if (status === "draft") return "Borrador";
+    return "Emitida";
+  }
+
+  function quoteStatusClass021A(value) {
+    const status = String(value || "").toLowerCase();
+    if (status === "archived") return "archived";
+    if (status === "converted") return "converted";
+    if (status === "draft") return "draft";
+    return "issued";
+  }
+
+  function formatQuoteDate021A(value) {
+    const raw = String(value || "");
+    if (!raw) return "—";
+    const date = raw.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return raw.slice(0, 16);
+    const [year, month, day] = date.split("-");
+    return `${day}/${month}/${year}`;
+  }
+
+  function parseQuoteMoney021A(value) {
+    const raw = String(value ?? "")
+      .replace(/[^\d,.-]/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".");
+    const number = Number(raw);
+    return Number.isFinite(number) ? Math.max(0, number) : 0;
+  }
+
+  function quoteMoney021A(value) {
+    return formatMoney(Number(value || 0));
+  }
+
+  function updateQuotesCard021A(summary) {
+    const data = summary || defaultQuotesSummary021A();
+    const count = document.querySelector("[data-quotes-card-count]");
+    const total = document.querySelector("[data-quotes-card-total]");
+    const latest = document.querySelector("[data-quotes-card-latest]");
+
+    if (count) count.textContent = `${Number(data.active_count || 0)} activas`;
+    if (total) total.textContent = `${quoteMoney021A(data.total_amount || 0)} cotizado`;
+
+    const latestQuote = data.latest || null;
+    if (latest) {
+      latest.textContent = latestQuote
+        ? `Última: ${latestQuote.quote_number || "cotización"} · ${latestQuote.client_name || "cliente"}`
+        : "Sin cotizaciones registradas";
+    }
+  }
+
+  function quotePayloadFromForm021A(form, signatureData) {
+    const itemRows = Array.from(form.querySelectorAll("[data-quote-item-row]"));
+    const items = itemRows
+      .map((row) => ({
+        description: row.querySelector("[name='item_description']")?.value || "",
+        quantity: parseQuoteMoney021A(row.querySelector("[name='item_quantity']")?.value || "0"),
+        unit_price: parseQuoteMoney021A(row.querySelector("[name='item_unit_price']")?.value || "0")
+      }))
+      .filter((item) => item.description.trim());
+
+    const discountRows = Array.from(form.querySelectorAll("[data-quote-discount-row]"));
+    const discounts = discountRows.map((row) => ({
+      name: row.querySelector("[name='discount_name']")?.value || "",
+      description: row.querySelector("[name='discount_description']")?.value || "",
+      value: parseQuoteMoney021A(row.querySelector("[name='discount_value']")?.value || "0")
+    }));
+
+    return {
+      client_name: form.querySelector("[name='client_name']")?.value || "",
+      client_document: form.querySelector("[name='client_document']")?.value || "",
+      client_address: form.querySelector("[name='client_address']")?.value || "",
+      client_phone: form.querySelector("[name='client_phone']")?.value || "",
+      client_email: form.querySelector("[name='client_email']")?.value || "",
+      items,
+      discounts,
+      payment: {
+        detail: form.querySelector("[name='payment_detail']")?.value || "",
+        name: form.querySelector("[name='payment_name']")?.value || "",
+        method: form.querySelector("[name='payment_method']")?.value || "transferencia",
+        data: form.querySelector("[name='payment_data']")?.value || ""
+      },
+      notes: form.querySelector("[name='quote_notes']")?.value || "",
+      signature_data_url: signatureData || ""
+    };
+  }
+
+  function renderQuoteItemRow021A(item = {}) {
+    return `
+      <div class="mp-quote-item-row-021a" data-quote-item-row>
+        <div class="mp-field concept">
+          <label>Detalle de concepto</label>
+          <input name="item_description" value="${h(item.description || "")}" placeholder="Ej: servicio, producto, referencia..." required />
+        </div>
+        <div class="mp-field qty">
+          <label>Cantidad</label>
+          <input name="item_quantity" type="number" min="0" step="0.01" value="${h(item.quantity ?? 1)}" data-quote-calc />
+        </div>
+        <div class="mp-field money">
+          <label>Valor unitario</label>
+          <input name="item_unit_price" type="number" min="0" step="0.01" value="${h(item.unit_price ?? 0)}" data-quote-calc />
+        </div>
+        <div class="mp-quote-line-total-021a">
+          <span>Total</span>
+          <strong data-line-total>${h(quoteMoney021A((Number(item.quantity || 1) * Number(item.unit_price || 0))))}</strong>
+        </div>
+        <button class="mp-button ghost danger mini" type="button" data-remove-quote-item>Quitar</button>
+      </div>
+    `;
+  }
+
+  function renderQuoteDiscountRow021A(index, discount = {}) {
+    return `
+      <div class="mp-quote-discount-row-021a" data-quote-discount-row>
+        <div class="mp-field">
+          <label>Descuento ${index} · Nombre</label>
+          <input name="discount_name" value="${h(discount.name || "")}" placeholder="Ej: pronto pago" />
+        </div>
+        <div class="mp-field">
+          <label>Descripción</label>
+          <input name="discount_description" value="${h(discount.description || "")}" placeholder="Detalle del descuento" />
+        </div>
+        <div class="mp-field">
+          <label>Valor descuento</label>
+          <input name="discount_value" type="number" min="0" step="0.01" value="${h(discount.value || 0)}" data-quote-calc />
+        </div>
+      </div>
+    `;
+  }
+
+  function recalcQuoteTotals021A(container) {
+    let subtotal = 0;
+
+    container.querySelectorAll("[data-quote-item-row]").forEach((row) => {
+      const qty = parseQuoteMoney021A(row.querySelector("[name='item_quantity']")?.value || 0);
+      const unit = parseQuoteMoney021A(row.querySelector("[name='item_unit_price']")?.value || 0);
+      const total = qty * unit;
+      subtotal += total;
+      const lineTotal = row.querySelector("[data-line-total]");
+      if (lineTotal) lineTotal.textContent = quoteMoney021A(total);
+    });
+
+    let discounts = 0;
+    container.querySelectorAll("[data-quote-discount-row] [name='discount_value']").forEach((input) => {
+      discounts += parseQuoteMoney021A(input.value || 0);
+    });
+
+    discounts = Math.min(discounts, subtotal);
+    const total = Math.max(0, subtotal - discounts);
+
+    const subtotalNode = container.querySelector("[data-quote-subtotal]");
+    const discountsNode = container.querySelector("[data-quote-discounts]");
+    const totalNode = container.querySelector("[data-quote-total]");
+
+    if (subtotalNode) subtotalNode.textContent = quoteMoney021A(subtotal);
+    if (discountsNode) discountsNode.textContent = quoteMoney021A(discounts);
+    if (totalNode) totalNode.textContent = quoteMoney021A(total);
+  }
+
+  function renderQuotesList021A(items = []) {
+    if (!items.length) {
+      return `
+        <div class="mp-quotes-empty-021a">
+          <strong>No hay cotizaciones para mostrar.</strong>
+          <small>Crea la primera cotización desde el formulario superior.</small>
+        </div>
+      `;
+    }
+
+    return items.map((quote) => `
+      <article class="mp-quote-row-021a ${h(quoteStatusClass021A(quote.status))}" data-quote-row="${h(quote.id)}">
+        <div>
+          <span>${h(quote.quote_number || "COT")}</span>
+          <strong>${h(quote.client_name || "Cliente")}</strong>
+          <small>${h(formatQuoteDate021A(quote.created_at))} · ${h(quoteStatusLabel021A(quote.status))}</small>
+        </div>
+        <div class="mp-quote-row-amount-021a">${h(quoteMoney021A(quote.total || 0))}</div>
+        <div class="mp-quote-row-actions-021a">
+          <button class="mp-button secondary mini" type="button" data-quote-detail="${h(quote.id)}">Detalle</button>
+          <button class="mp-button mini" type="button" data-quote-pdf="${h(quote.id)}" data-quote-number="${h(quote.quote_number || "cotizacion")}">PDF</button>
+          <button class="mp-button ghost mini" type="button" data-quote-convert="${h(quote.id)}">Pasar a cuenta de cobro</button>
+          <button class="mp-button ghost danger mini" type="button" data-quote-archive="${h(quote.id)}">Archivar</button>
+        </div>
+      </article>
+    `).join("");
+  }
+
+  function initQuoteSignature021A(overlay, state) {
+    const canvas = overlay.querySelector("[data-quote-signature]");
+    const clear = overlay.querySelector("[data-clear-signature]");
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    let drawing = false;
+    let hasInk = false;
+
+    function resize() {
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(420, Math.floor(rect.width * ratio));
+      canvas.height = Math.max(150, Math.floor(rect.height * ratio));
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "#ffffff";
+    }
+
+    function point(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+    }
+
+    function saveSignature() {
+      state.signatureData = hasInk ? canvas.toDataURL("image/png") : "";
+    }
+
+    resize();
+
+    canvas.addEventListener("pointerdown", (event) => {
+      drawing = true;
+      hasInk = true;
+      canvas.setPointerCapture(event.pointerId);
+      const p = point(event);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (!drawing) return;
+      const p = point(event);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      saveSignature();
+    });
+
+    canvas.addEventListener("pointerup", (event) => {
+      drawing = false;
+      try { canvas.releasePointerCapture(event.pointerId); } catch (_) {}
+      saveSignature();
+    });
+
+    canvas.addEventListener("pointerleave", () => {
+      drawing = false;
+      saveSignature();
+    });
+
+    clear?.addEventListener("click", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      hasInk = false;
+      state.signatureData = "";
+    });
+
+    window.setTimeout(resize, 60);
+  }
+
+  async function downloadQuotePdf021A(quoteId, quoteNumber) {
+    const response = await quotesApi021A(`/${encodeURIComponent(quoteId)}/pdf`, { raw: true });
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${quoteNumber || "cotizacion"}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  function fillQuoteForm021A(form, quote, state) {
+    if (!form || !quote) return;
+
+    state.editingId = quote.id || null;
+    state.signatureData = quote.signature_data_url || "";
+
+    form.querySelector("[name='client_name']").value = quote.client_name || "";
+    form.querySelector("[name='client_document']").value = quote.client_document || "";
+    form.querySelector("[name='client_address']").value = quote.client_address || "";
+    form.querySelector("[name='client_phone']").value = quote.client_phone || "";
+    form.querySelector("[name='client_email']").value = quote.client_email || "";
+    form.querySelector("[name='payment_detail']").value = quote.payment?.detail || "";
+    form.querySelector("[name='payment_name']").value = quote.payment?.name || "";
+    form.querySelector("[name='payment_method']").value = quote.payment?.method || "transferencia";
+    form.querySelector("[name='payment_data']").value = quote.payment?.data || "";
+    form.querySelector("[name='quote_notes']").value = quote.notes || "";
+
+    const itemsBox = form.querySelector("[data-quote-items]");
+    if (itemsBox) {
+      const items = Array.isArray(quote.items) && quote.items.length ? quote.items : [{ description: "", quantity: 1, unit_price: 0 }];
+      itemsBox.innerHTML = items.map((item) => renderQuoteItemRow021A(item)).join("");
+    }
+
+    const discountsBox = form.querySelector("[data-quote-discounts-box]");
+    if (discountsBox) {
+      const discounts = Array.isArray(quote.discounts) ? quote.discounts : [];
+      discountsBox.innerHTML = [0, 1].map((_, index) => renderQuoteDiscountRow021A(index + 1, discounts[index] || {})).join("");
+    }
+
+    const editingLabel = form.querySelector("[data-quote-editing]");
+    if (editingLabel) editingLabel.textContent = `Editando ${quote.quote_number || "cotización"}`;
+
+    recalcQuoteTotals021A(form);
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function resetQuoteForm021A(form, state) {
+    state.editingId = null;
+    state.signatureData = "";
+    form.reset();
+    const itemsBox = form.querySelector("[data-quote-items]");
+    if (itemsBox) itemsBox.innerHTML = renderQuoteItemRow021A();
+    const discountsBox = form.querySelector("[data-quote-discounts-box]");
+    if (discountsBox) discountsBox.innerHTML = [1, 2].map((index) => renderQuoteDiscountRow021A(index)).join("");
+    const editingLabel = form.querySelector("[data-quote-editing]");
+    if (editingLabel) editingLabel.textContent = "Nueva cotización";
+    const canvas = form.querySelector("[data-quote-signature]");
+    const ctx = canvas?.getContext("2d");
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    recalcQuoteTotals021A(form);
+  }
+
+  async function openQuotesModule021A(session) {
+    if (!quotesModuleEnabled021A(currentModuleConfig)) {
+      alert("Cotizaciones no está asignado a este mini panel.");
+      return;
+    }
+
+    const company = session.company || {};
+    const state = { editingId: null, signatureData: "" };
+
+    const overlay = document.createElement("div");
+    overlay.className = "mp-modal mp-quotes-modal-021a";
+    overlay.innerHTML = `
+      <div class="mp-modal-backdrop" data-quotes-close></div>
+      <section class="mp-quotes-card-021a">
+        <header class="mp-quotes-header-021a">
+          <div>
+            <div class="mp-kicker">Cotizaciones</div>
+            <h2>Generador comercial</h2>
+            <p>${h(company.name || company.slug || "Empresa")} · ${h(labelType(panelType))}</p>
+          </div>
+          <button class="mp-button secondary" type="button" data-quotes-close>Cerrar</button>
+        </header>
+
+        <div class="mp-quotes-content-021a">
+          <section class="mp-quotes-form-panel-021a">
+            <div class="mp-quotes-section-head-021a">
+              <div>
+                <span data-quote-editing>Nueva cotización</span>
+                <strong>Formulario de cotización</strong>
+              </div>
+              <div class="mp-quotes-total-pill-021a">
+                <small>Total</small>
+                <b data-quote-total>${h(quoteMoney021A(0))}</b>
+              </div>
+            </div>
+
+            <form class="mp-quotes-form-021a" data-quotes-form>
+              <div class="mp-quotes-client-grid-021a">
+                <div class="mp-field wide">
+                  <label>Tu nombre o razón social</label>
+                  <input name="client_name" placeholder="Cliente / empresa" required />
+                </div>
+                <div class="mp-field">
+                  <label>CC / NIT</label>
+                  <input name="client_document" placeholder="Documento" />
+                </div>
+                <div class="mp-field">
+                  <label>Teléfono</label>
+                  <input name="client_phone" placeholder="Teléfono" />
+                </div>
+                <div class="mp-field wide">
+                  <label>Dirección</label>
+                  <input name="client_address" placeholder="Dirección del cliente" />
+                </div>
+                <div class="mp-field">
+                  <label>Correo</label>
+                  <input name="client_email" type="email" placeholder="correo@cliente.com" />
+                </div>
+              </div>
+
+              <div class="mp-quotes-subsection-021a">
+                <div class="mp-quotes-subtitle-021a">
+                  <strong>Conceptos</strong>
+                  <button class="mp-button secondary mini" type="button" data-add-quote-item>Agregar línea</button>
+                </div>
+                <div data-quote-items>
+                  ${renderQuoteItemRow021A()}
+                </div>
+              </div>
+
+              <div class="mp-quotes-discounts-021a" data-quote-discounts-box>
+                ${renderQuoteDiscountRow021A(1)}
+                ${renderQuoteDiscountRow021A(2)}
+              </div>
+
+              <div class="mp-quotes-payment-grid-021a">
+                <div class="mp-field">
+                  <label>Detalle pago 1</label>
+                  <input name="payment_detail" placeholder="Ej: anticipo, saldo, contado..." />
+                </div>
+                <div class="mp-field">
+                  <label>Nombre</label>
+                  <input name="payment_name" placeholder="Responsable / banco / referencia" />
+                </div>
+                <div class="mp-field">
+                  <label>Forma</label>
+                  <select name="payment_method">
+                    <option value="efectivo">Efectivo</option>
+                    <option value="transferencia" selected>Transferencia</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                </div>
+                <div class="mp-field wide">
+                  <label>Datos de pago</label>
+                  <textarea name="payment_data" rows="3" placeholder="Cuenta, referencia, condiciones, vencimiento..."></textarea>
+                </div>
+              </div>
+
+              <div class="mp-field">
+                <label>Observaciones / condiciones</label>
+                <textarea name="quote_notes" rows="3" placeholder="Validez de oferta, tiempos de entrega, garantías..."></textarea>
+              </div>
+
+              <div class="mp-quotes-signature-wrap-021a">
+                <div>
+                  <strong>Firma digital</strong>
+                  <small>Firma sobre el recuadro para adjuntarla al PDF.</small>
+                </div>
+                <canvas data-quote-signature></canvas>
+                <button class="mp-button ghost mini" type="button" data-clear-signature>Limpiar firma</button>
+              </div>
+
+              <footer class="mp-quotes-form-footer-021a">
+                <div class="mp-quotes-totals-021a">
+                  <span>Subtotal: <b data-quote-subtotal>${h(quoteMoney021A(0))}</b></span>
+                  <span>Descuentos: <b data-quote-discounts>${h(quoteMoney021A(0))}</b></span>
+                  <span>Total: <b data-quote-total>${h(quoteMoney021A(0))}</b></span>
+                </div>
+                <div class="mp-quotes-actions-021a">
+                  <button class="mp-button secondary" type="button" data-reset-quote>Nuevo</button>
+                  <button class="mp-button" type="submit">Guardar cotización</button>
+                </div>
+              </footer>
+
+              <div class="mp-message" data-quotes-message></div>
+            </form>
+          </section>
+
+          <section class="mp-quotes-list-panel-021a">
+            <div class="mp-quotes-section-head-021a">
+              <div>
+                <span>Historial</span>
+                <strong>Buscar cotizaciones</strong>
+              </div>
+            </div>
+            <div class="mp-quotes-search-021a">
+              <input data-quotes-search placeholder="Buscar por nombre, NIT, correo o número..." />
+              <button class="mp-button secondary mini" type="button" data-quotes-refresh>Buscar</button>
+            </div>
+            <div class="mp-quotes-summary-strip-021a">
+              <article>
+                <span>Activas</span>
+                <strong data-quotes-summary-count>0</strong>
+              </article>
+              <article>
+                <span>Monto</span>
+                <strong data-quotes-summary-total>${h(quoteMoney021A(0))}</strong>
+              </article>
+            </div>
+            <div class="mp-quotes-list-021a" data-quotes-list>
+              <div class="mp-quotes-empty-021a">Cargando cotizaciones...</div>
+            </div>
+          </section>
+        </div>
+      </section>
+    `;
+
+    document.body.appendChild(overlay);
+    initQuoteSignature021A(overlay, state);
+
+    const form = overlay.querySelector("[data-quotes-form]");
+    const listBox = overlay.querySelector("[data-quotes-list]");
+    const msg = overlay.querySelector("[data-quotes-message]");
+    const search = overlay.querySelector("[data-quotes-search]");
+
+    function setMsg(text, ok = true) {
+      if (!msg) return;
+      msg.classList.toggle("ok", ok);
+      msg.textContent = text || "";
+    }
+
+    async function refreshSummary() {
+      try {
+        currentQuotesSummary021A = await loadQuotesSummary021A(currentModuleConfig);
+        updateQuotesCard021A(currentQuotesSummary021A);
+        const count = overlay.querySelector("[data-quotes-summary-count]");
+        const total = overlay.querySelector("[data-quotes-summary-total]");
+        if (count) count.textContent = String(currentQuotesSummary021A.active_count || 0);
+        if (total) total.textContent = quoteMoney021A(currentQuotesSummary021A.total_amount || 0);
+      } catch (error) {
+        console.warn("No fue posible cargar resumen de cotizaciones", error);
+      }
+    }
+
+    async function refreshList() {
+      if (!listBox) return;
+      listBox.innerHTML = `<div class="mp-quotes-empty-021a">Cargando cotizaciones...</div>`;
+      try {
+        const q = search?.value || "";
+        const data = await quotesApi021A(`?q=${encodeURIComponent(q)}`);
+        listBox.innerHTML = renderQuotesList021A(Array.isArray(data.items) ? data.items : []);
+      } catch (error) {
+        listBox.innerHTML = `<div class="mp-quotes-empty-021a">No fue posible cargar cotizaciones: ${h(error.message || "error")}</div>`;
+      }
+    }
+
+    overlay.querySelectorAll("[data-quotes-close]").forEach((button) => {
+      button.addEventListener("click", () => overlay.remove());
+    });
+
+    overlay.addEventListener("input", (event) => {
+      if (event.target && event.target.matches("[data-quote-calc]")) {
+        recalcQuoteTotals021A(form);
+      }
+    });
+
+    overlay.querySelector("[data-add-quote-item]")?.addEventListener("click", () => {
+      const box = overlay.querySelector("[data-quote-items]");
+      if (box) {
+        box.insertAdjacentHTML("beforeend", renderQuoteItemRow021A());
+        recalcQuoteTotals021A(form);
+      }
+    });
+
+    overlay.addEventListener("click", async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+
+      if (target.matches("[data-remove-quote-item]")) {
+        const rows = overlay.querySelectorAll("[data-quote-item-row]");
+        if (rows.length > 1) {
+          target.closest("[data-quote-item-row]")?.remove();
+          recalcQuoteTotals021A(form);
+        }
+        return;
+      }
+
+      if (target.matches("[data-reset-quote]")) {
+        resetQuoteForm021A(form, state);
+        setMsg("");
+        return;
+      }
+
+      if (target.matches("[data-quotes-refresh]")) {
+        await refreshList();
+        return;
+      }
+
+      const detailId = target.getAttribute("data-quote-detail");
+      if (detailId) {
+        try {
+          const data = await quotesApi021A(`/${encodeURIComponent(detailId)}`);
+          fillQuoteForm021A(form, data.quote, state);
+          setMsg("Cotización cargada en el formulario.", true);
+        } catch (error) {
+          setMsg(error.message || "No fue posible cargar el detalle.", false);
+        }
+        return;
+      }
+
+      const pdfId = target.getAttribute("data-quote-pdf");
+      if (pdfId) {
+        try {
+          target.disabled = true;
+          await downloadQuotePdf021A(pdfId, target.getAttribute("data-quote-number") || "cotizacion");
+        } catch (error) {
+          setMsg(error.message || "No fue posible generar PDF.", false);
+        } finally {
+          target.disabled = false;
+        }
+        return;
+      }
+
+      const archiveId = target.getAttribute("data-quote-archive");
+      if (archiveId) {
+        if (!confirm("¿Archivar esta cotización?")) return;
+        try {
+          await quotesApi021A(`/${encodeURIComponent(archiveId)}/archive`, { method: "POST" });
+          await refreshSummary();
+          await refreshList();
+          setMsg("Cotización archivada.", true);
+        } catch (error) {
+          setMsg(error.message || "No fue posible archivar.", false);
+        }
+        return;
+      }
+
+      const convertId = target.getAttribute("data-quote-convert");
+      if (convertId) {
+        try {
+          await quotesApi021A(`/${encodeURIComponent(convertId)}/convert`, { method: "POST" });
+          await refreshSummary();
+          await refreshList();
+          setMsg("Cotización pasada a cuenta de cobro.", true);
+        } catch (error) {
+          setMsg(error.message || "No fue posible pasar a cuenta de cobro.", false);
+        }
+      }
+    });
+
+    search?.addEventListener("keydown", async (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        await refreshList();
+      }
+    });
+
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setMsg("Guardando cotización...", true);
+
+      try {
+        const payload = quotePayloadFromForm021A(form, state.signatureData);
+        const method = state.editingId ? "PATCH" : "POST";
+        const path = state.editingId ? `/${encodeURIComponent(state.editingId)}` : "";
+        const data = await quotesApi021A(path, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const quote = data.quote || {};
+        setMsg(`Cotización ${quote.quote_number || ""} guardada.`, true);
+        resetQuoteForm021A(form, state);
+        await refreshSummary();
+        await refreshList();
+      } catch (error) {
+        setMsg(error.message || "No fue posible guardar la cotización.", false);
+      }
+    });
+
+    recalcQuoteTotals021A(form);
+    await refreshSummary();
+    await refreshList();
+  }
+  /* CLONEXA_021A_QUOTES_MODULE_END */
+
+
+
   function clearTimer() {
     if (timerHandle) {
       window.clearInterval(timerHandle);
@@ -956,6 +1682,17 @@ function moduleCard(title, description, tag, code = "") {
     const dynamicModules019H = buildDynamicMiniPanelModules019H(moduleConfig || currentModuleConfig);
     const modulesHtml019H = renderDynamicModulesHtml019H(dynamicModules019H);
 
+    const quotesEnabled021A = quotesModuleEnabled021A(moduleConfig || currentModuleConfig);
+    const quotesSummary021A = currentQuotesSummary021A || defaultQuotesSummary021A();
+    const quotesCardHtml021A = quotesEnabled021A ? `
+            <article class="mp-kpi-card quotes" data-quotes-card role="button" tabindex="0">
+              <span>Cotizaciones</span>
+              <strong data-quotes-card-count>${h(`${Number(quotesSummary021A.active_count || 0)} activas`)}</strong>
+              <small data-quotes-card-total>${h(`${quoteMoney021A(quotesSummary021A.total_amount || 0)} cotizado`)}</small>
+              <small data-quotes-card-latest>${h(quotesSummary021A.latest ? `Última: ${quotesSummary021A.latest.quote_number || "cotización"} · ${quotesSummary021A.latest.client_name || "cliente"}` : "Sin cotizaciones registradas")}</small>
+            </article>
+    ` : "";
+
     const notesEnabled020A = notesModuleEnabled020A(moduleConfig || currentModuleConfig);
     const notesSummary020A = currentNotesSummary020A || defaultNotesSummary020A();
     const notesCardHtml020A = notesEnabled020A ? `
@@ -1037,6 +1774,7 @@ function moduleCard(title, description, tag, code = "") {
               <div class="mp-progress"><i style="width:${goalPct}%"></i></div>
               <small>${goalPct}% de cumplimiento</small>
             </article>
+            ${quotesCardHtml021A}
             ${notesCardHtml020A}
 <article class="mp-kpi-card wide">
               <span>Promociones / mensaje</span>
@@ -1172,6 +1910,17 @@ function moduleCard(title, description, tag, code = "") {
       }
     });
 
+    root.querySelector("[data-quotes-card]")?.addEventListener("click", async () => {
+      await openQuotesModule021A(session);
+    });
+
+    root.querySelector("[data-quotes-card]")?.addEventListener("keydown", async (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        await openQuotesModule021A(session);
+      }
+    });
+
     root.querySelector("[data-notes-card]")?.addEventListener("click", async () => {
       await openNotesCalendar020A(session);
     });
@@ -1186,6 +1935,11 @@ function moduleCard(title, description, tag, code = "") {
     root.querySelectorAll("[data-module]").forEach((button) => {
       button.addEventListener("click", async () => {
         const moduleCode = button.getAttribute("data-module") || "";
+        if (isQuotesCode021A(moduleCode)) {
+          await openQuotesModule021A(session);
+          return;
+        }
+
         if (isNotesCode020A(moduleCode)) {
           await openNotesCalendar020A(session);
           return;
