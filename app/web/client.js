@@ -8574,6 +8574,23 @@
     });
   }
 
+
+  /* CLONEXA_021F_R1_CLIENT_QUOTES_SCOPE_START */
+  function cxClientQuotesScope021F() {
+    // En /client el modulo Cotizaciones debe leer todo lo creado por la empresa,
+    // sin importar si nacio en sales, stores, inventory, other o client.
+    return "all";
+  }
+
+  function cxClientQuotePanelForAction021F(quoteId) {
+    const quotes = Array.isArray(window.__cxUniversalQuotesCache021E)
+      ? window.__cxUniversalQuotesCache021E
+      : [];
+    const quote = quotes.find((item) => String(item.id) === String(quoteId));
+    return quote && quote.panel_type ? String(quote.panel_type) : cxClientQuotesScope021F();
+  }
+  /* CLONEXA_021F_R1_CLIENT_QUOTES_SCOPE_END */
+
   async function renderClientUniversalQuotesModule021D(activeCode = "cotizaciones") {
     ensureUniversalModuleStyles021D();
 
@@ -8585,8 +8602,8 @@
 
     try {
       const docFilter = filter === "quotes" ? "&document_type=quote" : filter === "accounts" ? "&document_type=account" : "";
-      payload = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&include_archived=true&q=${encodeURIComponent(query)}${docFilter}`);
-      summary = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/summary?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`);
+      payload = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxClientQuotesScope021F())}&include_archived=true&q=${encodeURIComponent(query)}${docFilter}`);
+      summary = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/summary?panel_type=${encodeURIComponent(cxClientQuotesScope021F())}`);
     } catch (err) {
       error = err.message || "No se pudieron cargar cotizaciones.";
     }
@@ -9020,15 +9037,15 @@
     if (quotePdf) {
       const id = quotePdf.dataset.clientQuotePdf;
       const docType = quotePdf.dataset.documentType || "quote";
-      window.open(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&document_type=${encodeURIComponent(docType)}`, "_blank", "noopener");
+      window.open(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}&document_type=${encodeURIComponent(docType)}`, "_blank", "noopener");
       return;
     }
 
     const quoteConvert = event.target.closest("[data-client-quote-convert]");
     if (quoteConvert) {
       const id = quoteConvert.dataset.clientQuoteConvert;
-      await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/convert?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, { method: "POST", body: JSON.stringify({}) });
-      window.open(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&document_type=account`, "_blank", "noopener");
+      await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/convert?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}`, { method: "POST", body: JSON.stringify({}) });
+      window.open(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}&document_type=account`, "_blank", "noopener");
       await renderClientUniversalQuotesModule021D("cotizaciones");
       return;
     }
@@ -9036,7 +9053,7 @@
     const quoteArchive = event.target.closest("[data-client-quote-archive]");
     if (quoteArchive) {
       const id = quoteArchive.dataset.clientQuoteArchive;
-      await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/archive?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, { method: "POST", body: JSON.stringify({}) });
+      await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/archive?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}`, { method: "POST", body: JSON.stringify({}) });
       await renderClientUniversalQuotesModule021D("cotizaciones");
       return;
     }

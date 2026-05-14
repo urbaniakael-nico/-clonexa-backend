@@ -168,6 +168,17 @@ def _panel(value: str) -> str:
     return PANEL_ALIASES.get(normalized, normalized or "sales")
 
 
+# CLONEXA_021F_R1_CROSS_PANEL_BACKEND_START
+def _is_cross_panel_quotes_021f(panel_type: str | None) -> bool:
+    normalized = _norm(panel_type or "")
+    return normalized in {"", "all", "client", "main", "principal", "universal", "global", "*"}
+
+
+def _quote_panel_for_action_021f(panel_type: str | None) -> str:
+    return "all" if _is_cross_panel_quotes_021f(panel_type) else _panel(panel_type or "sales")
+# CLONEXA_021F_R1_CROSS_PANEL_BACKEND_END
+
+
 def _json(value: Any, fallback: Any = None) -> Any:
     if fallback is None:
         fallback = {}
@@ -760,6 +771,7 @@ async def _insert_or_update_quote(
     )
 
 
+
 @router.get("/companies/{company_id}/summary")
 async def get_quotes_summary(
     company_id: uuid.UUID,
@@ -772,38 +784,64 @@ async def get_quotes_summary(
         await _require_access(conn, company_id, authorization)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
-        row = await conn.fetchrow(
-            """
-            SELECT
-              COUNT(*) FILTER (WHERE status <> 'archived') AS active_count,
-              COALESCE(SUM(total) FILTER (WHERE status <> 'archived'), 0) AS total_amount,
-              MAX(created_at) AS last_created_at
-            FROM mini_panel_quotes
-            WHERE company_id = $1::uuid
-              AND panel_type = $2
-            """,
-            company_id,
-            _panel(panel_type),
-        )
+        if _is_cross_panel_quotes_021f(panel_type):
+            row = await conn.fetchrow(
+                """
+                SELECT
+                  COUNT(*) FILTER (WHERE status <> 'archived') AS active_count,
+                  COALESCE(SUM(total) FILTER (WHERE status <> 'archived'), 0) AS total_amount,
+                  MAX(created_at) AS last_created_at
+                FROM mini_panel_quotes
+                WHERE company_id = $1::uuid
+                """,
+                company_id,
+            )
 
-        latest = await conn.fetchrow(
-            """
-            SELECT *
-            FROM mini_panel_quotes
-            WHERE company_id = $1::uuid
-              AND panel_type = $2
-              AND status <> 'archived'
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            company_id,
-            _panel(panel_type),
-        )
+            latest = await conn.fetchrow(
+                """
+                SELECT *
+                FROM mini_panel_quotes
+                WHERE company_id = $1::uuid
+                  AND status <> 'archived'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                company_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                SELECT
+                  COUNT(*) FILTER (WHERE status <> 'archived') AS active_count,
+                  COALESCE(SUM(total) FILTER (WHERE status <> 'archived'), 0) AS total_amount,
+                  MAX(created_at) AS last_created_at
+                FROM mini_panel_quotes
+                WHERE company_id = $1::uuid
+                  AND panel_type = $2
+                """,
+                company_id,
+                _panel(panel_type),
+            )
+
+            latest = await conn.fetchrow(
+                """
+                SELECT *
+                FROM mini_panel_quotes
+                WHERE company_id = $1::uuid
+                  AND panel_type = $2
+                  AND status <> 'archived'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                company_id,
+                _panel(panel_type),
+            )
 
         return {
             "active_count": int(row["active_count"] or 0) if row else 0,
             "total_amount": _money(row["total_amount"] if row else 0),
             "latest": _quote_payload(latest) if latest else None,
+            "panel_scope": _quote_panel_for_action_021f(panel_type),
         }
     finally:
         await conn.close()
@@ -834,12 +872,13 @@ async def list_quotes(
         elif doc in {"quote", "quotes", "cotizacion", "cotizaciones", "cotizar", "ct", "cot"}:
             document_filter = "AND status <> 'converted'"
 
+        panel_condition = "" if _is_cross_panel_quotes_021f(panel_type) else "AND panel_type = $2"
         rows = await conn.fetch(
             f"""
             SELECT *
             FROM mini_panel_quotes
             WHERE company_id = $1::uuid
-              AND panel_type = $2
+              {panel_condition}
               {status_filter}
               {document_filter}
               AND (
@@ -859,7 +898,10 @@ async def list_quotes(
             query,
         )
 
-        return {"items": [_quote_payload(row) for row in rows]}
+        return {
+            "items": [_quote_payload(row) for row in rows],
+            "panel_scope": _quote_panel_for_action_021f(panel_type),
+        }
     finally:
         await conn.close()
 
@@ -877,25 +919,38 @@ async def get_quote(
         await _require_access(conn, company_id, authorization)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
-        row = await conn.fetchrow(
-            """
-            SELECT *
-            FROM mini_panel_quotes
-            WHERE id = $1::uuid
-              AND company_id = $2::uuid
-              AND panel_type = $3
-            LIMIT 1
-            """,
-            quote_id,
-            company_id,
-            _panel(panel_type),
-        )
+        if _is_cross_panel_quotes_021f(panel_type):
+            row = await conn.fetchrow(
+                """
+                SELECT *
+                FROM mini_panel_quotes
+                WHERE id = $1::uuid
+                  AND company_id = $2::uuid
+                LIMIT 1
+                """,
+                quote_id,
+                company_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                SELECT *
+                FROM mini_panel_quotes
+                WHERE id = $1::uuid
+                  AND company_id = $2::uuid
+                  AND panel_type = $3
+                LIMIT 1
+                """,
+                quote_id,
+                company_id,
+                _panel(panel_type),
+            )
+
         if not row:
             raise HTTPException(status_code=404, detail="Cotizacion no encontrada.")
         return {"quote": _quote_payload(row)}
     finally:
         await conn.close()
-
 
 @router.post("/companies/{company_id}", status_code=status.HTTP_201_CREATED)
 async def create_quote(
@@ -949,6 +1004,7 @@ async def update_quote(
         await conn.close()
 
 
+
 @router.post("/companies/{company_id}/{quote_id}/archive")
 async def archive_quote(
     company_id: uuid.UUID,
@@ -961,15 +1017,17 @@ async def archive_quote(
         await _ensure_storage(conn)
         await _require_access(conn, company_id, authorization)
         await _require_quotes_enabled(conn, company_id, panel_type)
+
+        panel_condition = "" if _is_cross_panel_quotes_021f(panel_type) else "AND panel_type = $3"
         row = await conn.fetchrow(
-            """
+            f"""
             UPDATE mini_panel_quotes
             SET status = 'archived',
                 archived_at = NOW(),
                 updated_at = NOW()
             WHERE id = $1::uuid
               AND company_id = $2::uuid
-              AND panel_type = $3
+              {panel_condition}
             RETURNING *
             """,
             quote_id,
@@ -995,15 +1053,17 @@ async def convert_quote(
         await _ensure_storage(conn)
         await _require_access(conn, company_id, authorization)
         await _require_quotes_enabled(conn, company_id, panel_type)
+
+        panel_condition = "" if _is_cross_panel_quotes_021f(panel_type) else "AND panel_type = $3"
         row = await conn.fetchrow(
-            """
+            f"""
             UPDATE mini_panel_quotes
             SET status = 'converted',
                 converted_at = NOW(),
                 updated_at = NOW()
             WHERE id = $1::uuid
               AND company_id = $2::uuid
-              AND panel_type = $3
+              {panel_condition}
               AND status <> 'archived'
             RETURNING *
             """,
@@ -1016,7 +1076,6 @@ async def convert_quote(
         return {"ok": True, "quote": _quote_payload(row)}
     finally:
         await conn.close()
-
 
 def _load_image_reader(source: str):
     if not source:
@@ -1350,6 +1409,7 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_ty
     return buffer.getvalue()
 
 
+
 @router.get("/companies/{company_id}/{quote_id}/pdf")
 async def quote_pdf(
     company_id: uuid.UUID,
@@ -1363,19 +1423,34 @@ async def quote_pdf(
         await _ensure_storage(conn)
         await _require_access(conn, company_id, authorization)
         await _require_quotes_enabled(conn, company_id, panel_type)
-        row = await conn.fetchrow(
-            """
-            SELECT *
-            FROM mini_panel_quotes
-            WHERE id = $1::uuid
-              AND company_id = $2::uuid
-              AND panel_type = $3
-            LIMIT 1
-            """,
-            quote_id,
-            company_id,
-            _panel(panel_type),
-        )
+
+        if _is_cross_panel_quotes_021f(panel_type):
+            row = await conn.fetchrow(
+                """
+                SELECT *
+                FROM mini_panel_quotes
+                WHERE id = $1::uuid
+                  AND company_id = $2::uuid
+                LIMIT 1
+                """,
+                quote_id,
+                company_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                SELECT *
+                FROM mini_panel_quotes
+                WHERE id = $1::uuid
+                  AND company_id = $2::uuid
+                  AND panel_type = $3
+                LIMIT 1
+                """,
+                quote_id,
+                company_id,
+                _panel(panel_type),
+            )
+
         if not row:
             raise HTTPException(status_code=404, detail="Cotizacion no encontrada.")
 
