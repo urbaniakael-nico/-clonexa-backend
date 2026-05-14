@@ -8315,6 +8315,104 @@
         object-fit: contain;
       }
 
+
+      /* CLONEXA_021E_CLIENT_QUOTES_ACTIONS_FIX_STYLES_START */
+      .cx-detail-overlay-021e {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: rgba(4, 6, 18, .74);
+        backdrop-filter: blur(16px);
+      }
+
+      .cx-detail-card-021e {
+        width: min(980px, calc(100vw - 32px));
+        max-height: calc(100vh - 48px);
+        overflow: auto;
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 28px;
+        padding: 24px;
+        color: var(--cx-text, #fff);
+        background:
+          radial-gradient(circle at 10% 8%, rgba(255,34,184,.24), transparent 32%),
+          radial-gradient(circle at 100% 0%, rgba(56,189,248,.16), transparent 34%),
+          linear-gradient(145deg, rgba(20,14,48,.98), rgba(8,13,35,.98));
+        box-shadow: 0 40px 110px rgba(0,0,0,.58);
+      }
+
+      .cx-detail-head-021e,
+      .cx-detail-grid-021e {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: start;
+      }
+
+      .cx-detail-grid-021e {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin: 18px 0;
+      }
+
+      .cx-detail-card-021e h2,
+      .cx-detail-card-021e h3 {
+        margin: 0 0 10px;
+      }
+
+      .cx-detail-card-021e p {
+        margin: 6px 0;
+        color: rgba(255,255,255,.78);
+        font-weight: 800;
+      }
+
+      .cx-detail-table-wrap-021e {
+        overflow: auto;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 18px;
+        margin: 10px 0 18px;
+      }
+
+      .cx-detail-table-021e {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 620px;
+      }
+
+      .cx-detail-table-021e th,
+      .cx-detail-table-021e td {
+        padding: 12px;
+        border-bottom: 1px solid rgba(255,255,255,.10);
+        text-align: left;
+        color: rgba(255,255,255,.82);
+      }
+
+      .cx-detail-table-021e th {
+        color: rgba(255,255,255,.62);
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        font-size: 11px;
+      }
+
+      .cx-detail-discounts-021e {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+
+      .cx-detail-pill-021e {
+        display: grid;
+        grid-template-columns: 1fr 1.4fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 12px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 16px;
+        background: rgba(255,255,255,.07);
+      }
+      /* CLONEXA_021E_CLIENT_QUOTES_ACTIONS_FIX_STYLES_END */
+
       @media (max-width: 1120px) {
         .cx-universal-grid-021d,
         .cx-field-grid-021d,
@@ -8493,16 +8591,26 @@
       error = err.message || "No se pudieron cargar cotizaciones.";
     }
 
-    const quotes = Array.isArray(payload.quotes) ? payload.quotes : [];
+    /* CLONEXA_021E_CLIENT_QUOTES_ACTIONS_FIX_START */
+    const quotes = Array.isArray(payload.quotes)
+      ? payload.quotes
+      : Array.isArray(payload.items)
+        ? payload.items
+        : Array.isArray(payload)
+          ? payload
+          : [];
+    window.__cxUniversalQuotesCache021E = quotes;
+    /* CLONEXA_021E_CLIENT_QUOTES_ACTIONS_FIX_END */
 
     const renderQuote = (quote) => {
       const isAccount = String(quote.document_type || quote.status || "").toLowerCase() === "account" || String(quote.status || "").toLowerCase() === "converted";
+      const displayNumber = quote.document_number || (isAccount ? quote.account_number : quote.quote_number) || quote.quote_number || "";
       return `
         <article class="cx-row-021d">
           <div class="cx-row-head-021d">
             <div>
               <strong>${h(quote.client_name || "Cliente")}</strong>
-              <small>${h(quote.quote_number || "")} · ${h(isAccount ? "Cuenta de cobro" : "Cotización")}</small>
+              <small>${h(displayNumber)} · ${h(isAccount ? "Cuenta de cobro" : "Cotización")}</small>
               <small>${h(quote.created_at ? String(quote.created_at).slice(0, 10) : "")}</small>
             </div>
             <div><strong>${h(cxUniversalMoney021D(quote.total || 0))}</strong></div>
@@ -8789,6 +8897,110 @@
     });
   }
 
+
+  /* CLONEXA_021E_CLIENT_QUOTES_DETAIL_MODAL_START */
+  function cxClientQuoteDetailModal021E(quoteId) {
+    const quotes = Array.isArray(window.__cxUniversalQuotesCache021E) ? window.__cxUniversalQuotesCache021E : [];
+    const quote = quotes.find((item) => String(item.id) === String(quoteId));
+    if (!quote) {
+      alert("No se encontró el detalle de la cotización en la vista actual.");
+      return;
+    }
+
+    const isAccount = String(quote.document_type || quote.status || "").toLowerCase() === "account" || String(quote.status || "").toLowerCase() === "converted";
+    const number = quote.document_number || (isAccount ? quote.account_number : quote.quote_number) || quote.quote_number || "";
+    const items = Array.isArray(quote.items) ? quote.items : [];
+    const discounts = Array.isArray(quote.discounts) ? quote.discounts : [];
+    const payment = quote.payment && typeof quote.payment === "object" ? quote.payment : {};
+
+    const itemsHtml = items.length
+      ? items.map((item) => `
+          <tr>
+            <td>${h(item.description || "")}</td>
+            <td>${h(item.quantity ?? "")}</td>
+            <td>${h(cxUniversalMoney021D(item.unit_price || 0))}</td>
+            <td>${h(cxUniversalMoney021D(item.total || (Number(item.quantity || 0) * Number(item.unit_price || 0))))}</td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="4">Sin conceptos registrados.</td></tr>`;
+
+    const discountsHtml = discounts
+      .filter((discount) => Number(discount.value || 0) > 0 || discount.name || discount.description)
+      .map((discount) => `
+        <div class="cx-detail-pill-021e">
+          <strong>${h(discount.name || "Descuento")}</strong>
+          <span>${h(discount.description || "")}</span>
+          <b>${h(cxUniversalMoney021D(discount.value || 0))}</b>
+        </div>
+      `).join("");
+
+    const existing = document.querySelector("[data-cx-quote-detail-modal-021e]");
+    existing?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.className = "cx-detail-overlay-021e";
+    overlay.setAttribute("data-cx-quote-detail-modal-021e", "1");
+    overlay.innerHTML = `
+      <section class="cx-detail-card-021e">
+        <header class="cx-detail-head-021e">
+          <div>
+            <div class="client-eyebrow">${h(isAccount ? "CUENTA DE COBRO" : "COTIZACIÓN")}</div>
+            <h2>${h(number)}</h2>
+            <p>${h(quote.client_name || "Cliente")} · ${h(quote.client_document || "Sin documento")}</p>
+          </div>
+          <button class="cx-mini-btn-021d" type="button" data-cx-close-quote-detail-021e>Cerrar</button>
+        </header>
+
+        <div class="cx-detail-grid-021e">
+          <div>
+            <h3>Cliente</h3>
+            <p><strong>Nombre:</strong> ${h(quote.client_name || "")}</p>
+            <p><strong>Documento:</strong> ${h(quote.client_document || "")}</p>
+            <p><strong>Teléfono:</strong> ${h(quote.client_phone || "")}</p>
+            <p><strong>Correo:</strong> ${h(quote.client_email || "")}</p>
+            <p><strong>Dirección:</strong> ${h(quote.client_address || "")}</p>
+          </div>
+          <div>
+            <h3>Totales</h3>
+            <p><strong>Subtotal:</strong> ${h(cxUniversalMoney021D(quote.subtotal || 0))}</p>
+            <p><strong>Descuentos:</strong> ${h(cxUniversalMoney021D(quote.discount_total || 0))}</p>
+            <p><strong>Total:</strong> ${h(cxUniversalMoney021D(quote.total || 0))}</p>
+            <p><strong>Estado:</strong> ${h(quote.document_label || (isAccount ? "Cuenta de cobro" : "Cotización"))}</p>
+          </div>
+        </div>
+
+        <h3>Conceptos</h3>
+        <div class="cx-detail-table-wrap-021e">
+          <table class="cx-detail-table-021e">
+            <thead>
+              <tr><th>Detalle</th><th>Cant.</th><th>Valor unit.</th><th>Total</th></tr>
+            </thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
+        </div>
+
+        ${discountsHtml ? `<h3>Descuentos</h3><div class="cx-detail-discounts-021e">${discountsHtml}</div>` : ""}
+
+        <h3>Pago</h3>
+        <p><strong>Detalle:</strong> ${h(payment.detail || "")}</p>
+        <p><strong>Nombre:</strong> ${h(payment.name || "")}</p>
+        <p><strong>Forma:</strong> ${h(payment.method || "")}</p>
+        <p><strong>Datos:</strong> ${h(payment.data || "")}</p>
+
+        ${quote.notes ? `<h3>Observaciones</h3><p>${h(quote.notes)}</p>` : ""}
+
+        <footer class="cx-actions-021d">
+          <button class="cx-mini-btn-021d primary" type="button" data-client-quote-pdf="${h(quote.id)}" data-document-type="${isAccount ? "account" : "quote"}">${h(isAccount ? "PDF cuenta de cobro" : "PDF cotización")}</button>
+          ${isAccount ? `<button class="cx-mini-btn-021d" type="button" data-client-quote-pdf="${h(quote.id)}" data-document-type="quote">PDF cotización</button>` : `<button class="cx-mini-btn-021d" type="button" data-client-quote-convert="${h(quote.id)}">Pasar a cuenta de cobro</button>`}
+          <button class="cx-mini-btn-021d danger" type="button" data-client-quote-archive="${h(quote.id)}">Archivar</button>
+        </footer>
+      </section>
+    `;
+
+    document.body.appendChild(overlay);
+  }
+  /* CLONEXA_021E_CLIENT_QUOTES_DETAIL_MODAL_END */
+
   document.addEventListener("click", async (event) => {
     const noteComplete = event.target.closest("[data-client-note-complete]");
     if (noteComplete) {
@@ -8829,9 +9041,15 @@
       return;
     }
 
+    const detailClose = event.target.closest("[data-cx-close-quote-detail-021e]");
+    if (detailClose) {
+      detailClose.closest("[data-cx-quote-detail-modal-021e]")?.remove();
+      return;
+    }
+
     const quoteDetail = event.target.closest("[data-client-quote-detail]");
     if (quoteDetail) {
-      alert("Detalle disponible en la tarjeta. La edición avanzada queda en la siguiente fase.");
+      cxClientQuoteDetailModal021E(quoteDetail.dataset.clientQuoteDetail);
       return;
     }
   }, true);
