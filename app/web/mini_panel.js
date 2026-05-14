@@ -17,7 +17,7 @@
     store: "Tiendas",
     stores: "Tiendas",
     inventory: "Inventarios",
-    logistics: "LogÃ­stica",
+    logistics: "Logística",
     other: "Otros"
   };
 
@@ -80,6 +80,509 @@
       return `$${Math.round(number).toLocaleString("es-CO")}`;
     }
   }
+
+
+  /* CLONEXA_020A_NOTES_CALENDAR_START */
+/* CLONEXA_020C_NOTES_AGENDA_FULL_VISUAL_REBUILD: UI/UX reconstruida sin tocar backend */
+  const NOTES_CODES_020A = new Set([
+    "notes",
+    "notas",
+    "nota",
+    "agenda",
+    "notas_o_agenda",
+    "recordatorio",
+    "recordatorios",
+    "reminder",
+    "reminders",
+    "calendar",
+    "calendario"
+  ]);
+
+  let currentNotesSummary020A = null;
+
+  function isNotesCode020A(code) {
+    const normalized = normalizeModuleCode019H(code);
+    return NOTES_CODES_020A.has(normalized);
+  }
+
+  function notesModuleEnabled020A(moduleConfig) {
+    const config = moduleConfig || currentModuleConfig || {};
+    const modules = Array.isArray(config.modules) ? config.modules : [];
+    return modules.some((code) => isNotesCode020A(code));
+  }
+
+  function pad020A(value) {
+    return String(value).padStart(2, "0");
+  }
+
+  function localDateIso020A(date = new Date()) {
+    return `${date.getFullYear()}-${pad020A(date.getMonth() + 1)}-${pad020A(date.getDate())}`;
+  }
+
+  function parseIsoDate020A(iso) {
+    const parts = String(iso || localDateIso020A()).split("-").map((part) => Number(part));
+    const year = parts[0] || new Date().getFullYear();
+    const month = Math.max(1, Math.min(12, parts[1] || 1));
+    const day = Math.max(1, Math.min(31, parts[2] || 1));
+    return new Date(year, month - 1, day);
+  }
+
+  function formatDateLabel020A(iso) {
+    const date = parseIsoDate020A(iso);
+    return `${pad020A(date.getDate())}/${pad020A(date.getMonth() + 1)}/${date.getFullYear()}`;
+  }
+
+  function formatLongDate020A(iso) {
+    try {
+      return new Intl.DateTimeFormat("es-CO", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+        year: "numeric"
+      }).format(parseIsoDate020A(iso));
+    } catch (_) {
+      return formatDateLabel020A(iso);
+    }
+  }
+
+  function formatMonthTitle020C(date) {
+    try {
+      return new Intl.DateTimeFormat("es-CO", { month: "long", year: "numeric" }).format(date);
+    } catch (_) {
+      return `${pad020A(date.getMonth() + 1)}/${date.getFullYear()}`;
+    }
+  }
+
+  function noteDateIso020C(note) {
+    const raw = note?.note_date || note?.date || note?.scheduled_date || note?.scheduled_at || "";
+    return String(raw || "").slice(0, 10);
+  }
+
+  function noteStatusLabel020C(status) {
+    const value = String(status || "active").toLowerCase();
+    if (value === "done" || value === "completed") return "Completado";
+    if (value === "archived") return "Archivado";
+    return "Pendiente";
+  }
+
+  function noteTypeLabel020C(type) {
+    const value = String(type || "reminder").toLowerCase();
+    if (value === "note" || value === "nota") return "Nota";
+    if (value === "event" || value === "evento") return "Evento";
+    return "Recordatorio";
+  }
+
+  function formatNoteTime020A(note) {
+    const raw = note?.display_time || note?.note_time || note?.time || "";
+    return String(raw || "").slice(0, 5);
+  }
+
+  function defaultNoteTime020A() {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() < 30 ? 30 : 60, 0, 0);
+    return `${pad020A(now.getHours())}:${pad020A(now.getMinutes())}`;
+  }
+
+  function defaultNotesSummary020A() {
+    const today = localDateIso020A();
+    return {
+      date: today,
+      count: 0,
+      label: `${formatDateLabel020A(today)} · 0 recordatorios`,
+      next_label: "Sin próximos recordatorios",
+      next: null,
+      upcoming: []
+    };
+  }
+
+  async function notesApi020A(path, options = {}) {
+    if (!companyId) throw new Error("Falta company_id.");
+    const headers = {
+      ...authHeaders(),
+      ...(options.headers || {})
+    };
+    return api(`/api/v1/mini-panel-notes/companies/${encodeURIComponent(companyId)}${path}`, {
+      ...options,
+      headers
+    });
+  }
+
+  async function loadNotesSummary020A(moduleConfig = null) {
+    if (!notesModuleEnabled020A(moduleConfig)) {
+      return defaultNotesSummary020A();
+    }
+    const today = localDateIso020A();
+    return notesApi020A(`/summary?panel_type=${encodeURIComponent(panelType)}&date=${encodeURIComponent(today)}`);
+  }
+
+  async function loadNotesDay020A(dateIso) {
+    const date = dateIso || localDateIso020A();
+    return notesApi020A(`?panel_type=${encodeURIComponent(panelType)}&date=${encodeURIComponent(date)}`);
+  }
+
+  async function createNote020A(payload) {
+    return notesApi020A(`?panel_type=${encodeURIComponent(panelType)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async function completeNote020A(noteId) {
+    return notesApi020A(`/${encodeURIComponent(noteId)}/complete?panel_type=${encodeURIComponent(panelType)}`, {
+      method: "POST"
+    });
+  }
+
+  async function archiveNote020A(noteId) {
+    return notesApi020A(`/${encodeURIComponent(noteId)}?panel_type=${encodeURIComponent(panelType)}`, {
+      method: "DELETE"
+    });
+  }
+
+  function updateNotesCard020A(summary) {
+    const safe = summary || defaultNotesSummary020A();
+    const count = document.querySelector("[data-notes-card-count]");
+    const next = document.querySelector("[data-notes-card-next]");
+    if (count) count.textContent = safe.label || `${formatDateLabel020A(localDateIso020A())} · 0 recordatorios`;
+    if (next) next.textContent = safe.next_label || "Sin próximos recordatorios";
+  }
+
+  function renderNotesList020A(items, emptyText = "No hay notas para mostrar.", mode = "compact") {
+    const rows = Array.isArray(items) ? items : [];
+    if (!rows.length) {
+      return `<div class="mp-notes-empty-020a">${h(emptyText)}</div>`;
+    }
+
+    return rows.map((item) => {
+      const status = String(item.status || "active").toLowerCase();
+      const dateIso = noteDateIso020C(item);
+      const showDate = mode === "upcoming" && dateIso;
+      const timeLabel = formatNoteTime020A(item) || "--:--";
+      const typeLabel = noteTypeLabel020C(item.note_type || item.type);
+      return `
+        <article class="mp-note-item-020a ${h(status)}" data-note-row="${h(item.id || "")}">
+          <div class="mp-note-time-020c">
+            <strong>${h(timeLabel)}</strong>
+            ${showDate ? `<small>${h(formatDateLabel020A(dateIso))}</small>` : `<small>${h(typeLabel)}</small>`}
+          </div>
+          <div class="mp-note-body-020c">
+            <div class="mp-note-title-line-020c">
+              <strong>${h(item.title || "Nota")}</strong>
+              <em>${h(noteStatusLabel020C(status))}</em>
+            </div>
+            <small>${h(item.description || "Sin detalle")}</small>
+          </div>
+          <div class="mp-note-actions-020a">
+            ${status === "done" ? "" : `<button class="mp-button small secondary" type="button" data-note-complete="${h(item.id)}">Completar</button>`}
+            <button class="mp-button small ghost" type="button" data-note-archive="${h(item.id)}">Archivar</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function renderCalendarGrid020A(selectedDate, viewMonthIso, eventDateSet = new Set()) {
+    const view = parseIsoDate020A(viewMonthIso || selectedDate);
+    const year = view.getFullYear();
+    const month = view.getMonth();
+    const first = new Date(year, month, 1);
+    const startOffset = (first.getDay() + 6) % 7;
+    const cursor = new Date(year, month, 1 - startOffset);
+    const todayIso = localDateIso020A();
+
+    const weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day) => `<span>${day}</span>`).join("");
+    let days = "";
+
+    for (let index = 0; index < 42; index += 1) {
+      const date = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + index);
+      const iso = localDateIso020A(date);
+      const hasEvent = eventDateSet.has(iso);
+      const classes = [
+        "mp-calendar-day-020a",
+        date.getMonth() === month ? "" : "outside",
+        iso === selectedDate ? "selected" : "",
+        iso === todayIso ? "today" : "",
+        hasEvent ? "has-event" : ""
+      ].filter(Boolean).join(" ");
+
+      days += `
+        <button class="${classes}" type="button" data-note-date="${h(iso)}" aria-label="${h(formatDateLabel020A(iso))}">
+          <span>${date.getDate()}</span>
+          ${hasEvent ? `<i></i>` : ""}
+        </button>
+      `;
+    }
+
+    return `
+      <div class="mp-calendar-head-020a">
+        <button class="mp-button small secondary" type="button" data-notes-month="-1" aria-label="Mes anterior">‹</button>
+        <strong>${h(formatMonthTitle020C(view))}</strong>
+        <button class="mp-button small secondary" type="button" data-notes-month="1" aria-label="Mes siguiente">›</button>
+      </div>
+      <div class="mp-calendar-weekdays-020a">${weekdays}</div>
+      <div class="mp-calendar-grid-020a">${days}</div>
+    `;
+  }
+
+  async function openNotesCalendar020A(session) {
+    if (!notesModuleEnabled020A(currentModuleConfig)) {
+      const msg = root.querySelector("[data-panel-message]");
+      if (msg) {
+        msg.classList.remove("ok");
+        msg.textContent = "Notas no está asignado a este mini panel.";
+      }
+      return;
+    }
+
+    let selectedDate = localDateIso020A();
+    let viewMonthIso = `${selectedDate.slice(0, 7)}-01`;
+
+    const overlay = document.createElement("div");
+    overlay.className = "mp-modal mp-notes-modal-020a";
+    overlay.innerHTML = `
+      <div class="mp-modal-backdrop" data-notes-close></div>
+      <section class="mp-modal-card mp-notes-card-020a" role="dialog" aria-modal="true" aria-label="Notas y agenda">
+        <header class="mp-notes-top-020a">
+          <div class="mp-notes-title-zone-020c">
+            <div class="mp-kicker">Notas / Recordatorios</div>
+            <h2>Calendario operativo</h2>
+            <p>${h(session?.company?.name || "Empresa")} · ${h(labelType(panelType))}</p>
+          </div>
+          <button class="mp-button small secondary mp-notes-close-020c" type="button" data-notes-close>Cerrar</button>
+        </header>
+        <div class="mp-notes-content-020a" data-notes-content>
+          <div class="mp-notes-empty-020a">Cargando calendario...</div>
+        </div>
+      </section>
+    `;
+    document.body.appendChild(overlay);
+
+    const content = overlay.querySelector("[data-notes-content]");
+
+    async function refresh() {
+      if (!content) return;
+      content.innerHTML = `
+        <div class="mp-notes-loading-020c">
+          <div></div>
+          <strong>Cargando agenda...</strong>
+          <small>Sincronizando recordatorios del mini panel.</small>
+        </div>
+      `;
+
+      try {
+        const data = await loadNotesDay020A(selectedDate);
+        const dayItems = Array.isArray(data.items) ? data.items : [];
+        const upcoming = Array.isArray(data.upcoming) ? data.upcoming : [];
+        const eventDateSet = new Set(
+          [...dayItems, ...upcoming]
+            .map((item) => noteDateIso020C(item))
+            .filter(Boolean)
+        );
+
+        const nextItem = upcoming[0] || null;
+        const todayIso = localDateIso020A();
+        const todayLabel = formatDateLabel020A(todayIso);
+
+        content.innerHTML = `
+          <div class="mp-notes-hero-020c">
+            <div>
+              <span>Agenda activa</span>
+              <strong>${h(formatLongDate020A(selectedDate))}</strong>
+              <small>Gestiona notas, llamadas, seguimientos y recordatorios del panel de ventas.</small>
+            </div>
+            <div class="mp-notes-hero-stats-020c">
+              <article>
+                <span>Día seleccionado</span>
+                <strong>${dayItems.length}</strong>
+                <small>recordatorios</small>
+              </article>
+              <article>
+                <span>Próximos</span>
+                <strong>${upcoming.length}</strong>
+                <small>eventos</small>
+              </article>
+              <article>
+                <span>Hoy</span>
+                <strong>${h(todayLabel)}</strong>
+                <small>operación</small>
+              </article>
+            </div>
+          </div>
+
+          <div class="mp-notes-board-020c">
+            <aside class="mp-notes-panel-020a mp-notes-calendar-020a">
+              <div class="mp-notes-panel-head-020c">
+                <span>Calendario</span>
+                <strong>Selecciona un día</strong>
+              </div>
+              ${renderCalendarGrid020A(selectedDate, viewMonthIso, eventDateSet)}
+            </aside>
+
+            <section class="mp-notes-panel-020a mp-notes-create-020c">
+              <div class="mp-notes-panel-head-020c">
+                <span>Nuevo recordatorio</span>
+                <strong>${h(formatLongDate020A(selectedDate))}</strong>
+              </div>
+
+              <form class="mp-notes-form-020a" data-notes-form>
+                <div class="mp-notes-form-grid-020a">
+                  <div class="mp-field">
+                    <label>Día</label>
+                    <input type="date" name="note_date" value="${h(selectedDate)}" data-note-date-input required />
+                  </div>
+                  <div class="mp-field">
+                    <label>Hora</label>
+                    <input type="time" name="note_time" value="${h(defaultNoteTime020A())}" required />
+                  </div>
+                  <div class="mp-field">
+                    <label>Tipo</label>
+                    <select name="note_type">
+                      <option value="reminder">Recordatorio</option>
+                      <option value="note">Nota</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="mp-field">
+                  <label>Título</label>
+                  <input name="title" maxlength="180" placeholder="Ej: llamar cliente, confirmar pedido..." required />
+                </div>
+
+                <div class="mp-field">
+                  <label>Detalle</label>
+                  <textarea name="description" rows="4" placeholder="Detalle interno opcional"></textarea>
+                </div>
+
+                <button class="mp-button mp-notes-save-020c" type="submit">Guardar nota</button>
+                <div class="mp-message ok" data-notes-message></div>
+              </form>
+            </section>
+
+            <aside class="mp-notes-panel-020a mp-notes-upcoming-020c">
+              <div class="mp-notes-panel-head-020c">
+                <span>Próximos 5</span>
+                <strong>Eventos y notas</strong>
+              </div>
+              ${nextItem ? `
+                <div class="mp-notes-next-020c">
+                  <span>Siguiente</span>
+                  <strong>${h(formatNoteTime020A(nextItem) || "--:--")} · ${h(nextItem.title || "Nota")}</strong>
+                  <small>${h(nextItem.description || "Sin detalle")}</small>
+                </div>
+              ` : ""}
+              <div class="mp-notes-list-020a">
+                ${renderNotesList020A(upcoming, "No hay próximos recordatorios.", "upcoming")}
+              </div>
+            </aside>
+
+            <section class="mp-notes-panel-020a mp-notes-day-020c">
+              <div class="mp-notes-panel-head-020c">
+                <span>Día seleccionado</span>
+                <strong>${h(formatDateLabel020A(selectedDate))} · ${dayItems.length} recordatorios</strong>
+              </div>
+              <div class="mp-notes-list-020a">
+                ${renderNotesList020A(dayItems, "No hay recordatorios en este día.", "day")}
+              </div>
+            </section>
+          </div>
+        `;
+      } catch (error) {
+        content.innerHTML = `<div class="mp-notes-empty-020a error">${h(error.message || "No fue posible cargar Notas.")}</div>`;
+      }
+    }
+
+    overlay.addEventListener("click", async (event) => {
+      const target = event.target;
+
+      if (target.closest("[data-notes-close]")) {
+        overlay.remove();
+        return;
+      }
+
+      const monthButton = target.closest("[data-notes-month]");
+      if (monthButton) {
+        const direction = Number(monthButton.getAttribute("data-notes-month") || 0);
+        const view = parseIsoDate020A(viewMonthIso);
+        view.setMonth(view.getMonth() + direction);
+        viewMonthIso = `${view.getFullYear()}-${pad020A(view.getMonth() + 1)}-01`;
+        await refresh();
+        return;
+      }
+
+      const dateButton = target.closest("[data-note-date]");
+      if (dateButton) {
+        selectedDate = dateButton.getAttribute("data-note-date") || selectedDate;
+        viewMonthIso = `${selectedDate.slice(0, 7)}-01`;
+        await refresh();
+        return;
+      }
+
+      const completeButton = target.closest("[data-note-complete]");
+      if (completeButton) {
+        await completeNote020A(completeButton.getAttribute("data-note-complete"));
+        currentNotesSummary020A = await loadNotesSummary020A(currentModuleConfig).catch(() => defaultNotesSummary020A());
+        updateNotesCard020A(currentNotesSummary020A);
+        await refresh();
+        return;
+      }
+
+      const archiveButton = target.closest("[data-note-archive]");
+      if (archiveButton) {
+        await archiveNote020A(archiveButton.getAttribute("data-note-archive"));
+        currentNotesSummary020A = await loadNotesSummary020A(currentModuleConfig).catch(() => defaultNotesSummary020A());
+        updateNotesCard020A(currentNotesSummary020A);
+        await refresh();
+      }
+    });
+
+    overlay.addEventListener("change", async (event) => {
+      const input = event.target.closest("[data-note-date-input]");
+      if (!input) return;
+      selectedDate = input.value || selectedDate;
+      viewMonthIso = `${selectedDate.slice(0, 7)}-01`;
+      await refresh();
+    });
+
+    overlay.addEventListener("submit", async (event) => {
+      const form = event.target.closest("[data-notes-form]");
+      if (!form) return;
+
+      event.preventDefault();
+      const formData = new FormData(form);
+      const msg = form.querySelector("[data-notes-message]");
+
+      if (msg) {
+        msg.classList.add("ok");
+        msg.textContent = "Guardando nota...";
+      }
+
+      try {
+        await createNote020A({
+          title: String(formData.get("title") || "").trim(),
+          description: String(formData.get("description") || "").trim(),
+          note_date: String(formData.get("note_date") || selectedDate),
+          note_time: String(formData.get("note_time") || defaultNoteTime020A()),
+          note_type: String(formData.get("note_type") || "reminder")
+        });
+
+        selectedDate = String(formData.get("note_date") || selectedDate);
+        viewMonthIso = `${selectedDate.slice(0, 7)}-01`;
+        currentNotesSummary020A = await loadNotesSummary020A(currentModuleConfig).catch(() => defaultNotesSummary020A());
+        updateNotesCard020A(currentNotesSummary020A);
+        await refresh();
+      } catch (error) {
+        if (msg) {
+          msg.classList.remove("ok");
+          msg.textContent = error.message || "No fue posible guardar la nota.";
+        }
+      }
+    });
+
+    await refresh();
+  }
+/* CLONEXA_020A_NOTES_CALENDAR_END */
+
 
   function clearTimer() {
     if (timerHandle) {
@@ -161,7 +664,7 @@
         window.location.href = shellUrl();
       } catch (error) {
         msg.classList.remove("ok");
-        msg.textContent = error.message || "No fue posible iniciar sesiÃ³n.";
+        msg.textContent = error.message || "No fue posible iniciar sesión.";
       }
     });
   }
@@ -283,14 +786,14 @@
 
     "kpis": { title: "KPIs", description: "Consultar indicadores asignados.", tag: "KPI" },
     "requests": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
-    "stores": { title: "Tiendas", description: "Operacion asignada a tiendas.", tag: "STR" },
+    "stores": { title: "Tiendas", description: "Operación asignada a tiendas.", tag: "STR" },
     "inventory": { title: "Inventario", description: "Consultar y registrar movimientos de inventario.", tag: "INV" },
     "materials": { title: "Materiales", description: "Gestionar materiales asignados.", tag: "MAT" },
     "reports": { title: "Reportes", description: "Consultar reportes operativos asignados.", tag: "REP" },
     "workforce": { title: "Personal", description: "Consultar personal operativo asignado.", tag: "WRK" },
-    "gps": { title: "GPS", description: "Consultar ubicacion y control operativo.", tag: "GPS" },
-    "crm": { title: "CRM Campo", description: "Consultar operacion en campo.", tag: "CRM" },
-    "field": { title: "Operacion en campo", description: "Consultar actividades en campo.", tag: "FLD" },
+    "gps": { title: "GPS", description: "Consultar ubicación y control operativo.", tag: "GPS" },
+    "crm": { title: "CRM Campo", description: "Consultar operación en campo.", tag: "CRM" },
+    "field": { title: "Operación en campo", description: "Consultar actividades en campo.", tag: "FLD" },
     "bots": { title: "Bots", description: "Consultar canales automatizados.", tag: "BOT" }
   };
 
@@ -316,7 +819,7 @@
   function titleFromCode019H(code, moduleNames = {}) {
     const normalized = normalizeModuleCode019H(code);
     const rawName = moduleNames[code] || moduleNames[normalized] || "";
-    const clean = String(rawName || normalized || "Modulo").replace(/_/g, " ").trim();
+    const clean = String(rawName || normalized || "Módulo").replace(/_/g, " ").trim();
     return clean.replace(/\w\S*/g, (part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
   }
 
@@ -329,7 +832,7 @@
     return {
       code: normalized,
       title,
-      description: "Modulo asignado desde Admin V2.",
+      description: "Módulo asignado desde Admin V2.",
       tag: normalized.slice(0, 3).toUpperCase() || "MOD"
     };
   }
@@ -412,8 +915,8 @@
     if (!dynamicModules.length) {
       return `
         <div class="mp-modules-empty-019h">
-          <strong>No hay modulos asignados a este mini panel.</strong>
-          <small>Agrega modulos desde Admin V2 - Empresa - Modulos - Modulos para Mini Panel.</small>
+          <strong>No hay módulos asignados a este mini panel.</strong>
+          <small>Agrega módulos desde Admin V2 - Empresa - Módulos - Módulos para Mini Panel.</small>
         </div>
       `;
     }
@@ -453,6 +956,16 @@ function moduleCard(title, description, tag, code = "") {
     const dynamicModules019H = buildDynamicMiniPanelModules019H(moduleConfig || currentModuleConfig);
     const modulesHtml019H = renderDynamicModulesHtml019H(dynamicModules019H);
 
+    const notesEnabled020A = notesModuleEnabled020A(moduleConfig || currentModuleConfig);
+    const notesSummary020A = currentNotesSummary020A || defaultNotesSummary020A();
+    const notesCardHtml020A = notesEnabled020A ? `
+            <article class="mp-kpi-card notes mp-notes-info-card-020a" data-notes-card role="button" tabindex="0">
+              <span>Notas</span>
+              <strong data-notes-card-count>${h(notesSummary020A.label || `${formatDateLabel020A(localDateIso020A())} · 0 recordatorios`)}</strong>
+              <small data-notes-card-next>${h(notesSummary020A.next_label || "Sin próximos recordatorios")}</small>
+            </article>
+    ` : "";
+
     root.innerHTML = `
       <section class="mp-sales-dashboard mp-sales-dashboard-r1 mp-sales-dashboard-r2 mp-sales-dashboard-r3">
         <header class="mp-sales-header mp-sales-header-r1 mp-sales-header-r2 mp-sales-header-r3">
@@ -465,8 +978,8 @@ function moduleCard(title, description, tag, code = "") {
               <span class="mp-chip">Vendedor: ${h(employeeName)}</span>
               <span class="mp-chip">Rol: ${h(employeeRole)}</span>
               <span class="mp-chip">Empresa: ${h(company.slug || companyName)}</span>
-              <span class="mp-chip">UbicaciÃ³n: ${h(locationLabel)}</span>
-              <span class="mp-chip">Usuario: ${h(mini.username || user.email || "â€”")}</span>
+              <span class="mp-chip">Ubicación: ${h(locationLabel)}</span>
+              <span class="mp-chip">Usuario: ${h(mini.username || user.email || "—")}</span>
             </div>
           </section>
 
@@ -498,7 +1011,7 @@ function moduleCard(title, description, tag, code = "") {
               <button class="mp-button small" type="button" data-action="pause" ${operational.status === "active" ? "" : "disabled"}>Pausa</button>
               <button class="mp-button small secondary" type="button" data-action="resume" ${operational.status === "break" ? "" : "disabled"}>Retomar labores</button>
               <button class="mp-button small danger" type="button" data-action="finish" ${isFinished ? "disabled" : ""}>Finalizar turno</button>
-              <button class="mp-button small ghost" type="button" data-change-password>Cambiar contraseÃ±a</button>
+              <button class="mp-button small ghost" type="button" data-change-password>Cambiar contraseña</button>
             </div>
           </section>
         </header>
@@ -524,17 +1037,11 @@ function moduleCard(title, description, tag, code = "") {
               <div class="mp-progress"><i style="width:${goalPct}%"></i></div>
               <small>${goalPct}% de cumplimiento</small>
             </article>
-
-            <article class="mp-kpi-card notes">
-              <span>Notas</span>
-              <strong>PrÃ³ximo</strong>
-              <small>Notas internas pendientes de activar.</small>
-            </article>
-
-            <article class="mp-kpi-card wide">
+            ${notesCardHtml020A}
+<article class="mp-kpi-card wide">
               <span>Promociones / mensaje</span>
               <strong>Sin promociones activas</strong>
-              <small>Este espacio recibirÃ¡ campaÃ±as enviadas desde el CRM madre Mundo Case.</small>
+              <small>Este espacio recibirá campañas enviadas desde el CRM madre Mundo Case.</small>
             </article>
           </div>
         </section>
@@ -542,7 +1049,7 @@ function moduleCard(title, description, tag, code = "") {
         <section class="mp-dashboard-section mp-modules-section-r1 mp-modules-section-r3">
           <div class="mp-section-title">
             <div>
-              <div class="mp-kicker">MÃ³dulos</div>
+              <div class="mp-kicker">Módulos</div>
               <h2>Acciones operativas</h2>
             </div>
           </div>
@@ -558,7 +1065,7 @@ function moduleCard(title, description, tag, code = "") {
           <div class="mp-modal-backdrop" data-password-close></div>
           <section class="mp-modal-card">
             <div class="mp-kicker">Seguridad</div>
-            <h2>Cambiar contraseÃ±a</h2>
+            <h2>Cambiar contraseña</h2>
             <p>Actualiza tu clave de acceso al mini panel.</p>
 
             <form class="mp-form" id="miniPanelPasswordForm">
@@ -579,7 +1086,7 @@ function moduleCard(title, description, tag, code = "") {
 
               <div class="mp-modal-actions">
                 <button class="mp-button secondary" type="button" data-password-close>Cancelar</button>
-                <button class="mp-button" type="submit">Guardar contraseÃ±a</button>
+                <button class="mp-button" type="submit">Guardar contraseña</button>
               </div>
 
               <div class="mp-message" id="miniPanelPasswordMessage"></div>
@@ -647,30 +1154,47 @@ function moduleCard(title, description, tag, code = "") {
 
       if (passwordMsg) {
         passwordMsg.classList.add("ok");
-        passwordMsg.textContent = "Actualizando contraseÃ±a...";
+        passwordMsg.textContent = "Actualizando contraseña...";
       }
 
       try {
         await changePasswordRequest(currentPassword, newPassword, confirmPassword);
         if (passwordMsg) {
           passwordMsg.classList.add("ok");
-          passwordMsg.textContent = "ContraseÃ±a actualizada.";
+          passwordMsg.textContent = "Contraseña actualizada.";
         }
         window.setTimeout(closePasswordModal, 900);
       } catch (error) {
         if (passwordMsg) {
           passwordMsg.classList.remove("ok");
-          passwordMsg.textContent = error.message || "No fue posible cambiar la contraseÃ±a.";
+          passwordMsg.textContent = error.message || "No fue posible cambiar la contraseña.";
         }
       }
     });
 
+    root.querySelector("[data-notes-card]")?.addEventListener("click", async () => {
+      await openNotesCalendar020A(session);
+    });
+
+    root.querySelector("[data-notes-card]")?.addEventListener("keydown", async (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        await openNotesCalendar020A(session);
+      }
+    });
+
     root.querySelectorAll("[data-module]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
+        const moduleCode = button.getAttribute("data-module") || "";
+        if (isNotesCode020A(moduleCode)) {
+          await openNotesCalendar020A(session);
+          return;
+        }
+
         const msg = root.querySelector("[data-panel-message]");
         if (msg) {
           msg.classList.add("ok");
-          msg.textContent = "MÃ³dulo listo para activar en la siguiente fase.";
+          msg.textContent = "Módulo listo para activar en la siguiente fase.";
         }
       });
     });
@@ -686,7 +1210,7 @@ function moduleCard(title, description, tag, code = "") {
     } catch (error) {
       if (msg) {
         msg.classList.remove("ok");
-        msg.textContent = error.message || "No fue posible actualizar la sesiÃ³n.";
+        msg.textContent = error.message || "No fue posible actualizar la sesión.";
       }
     }
   }
@@ -713,10 +1237,14 @@ function moduleCard(title, description, tag, code = "") {
         console.warn("CLONEXA 019H-R1 config fallback:", error);
         return { enabled: false, modules: [], module_names: {}, error: error?.message || String(error) };
       });
+      currentNotesSummary020A = await loadNotesSummary020A(currentModuleConfig).catch((error) => {
+        console.warn("CLONEXA 020A notes summary fallback:", error);
+        return defaultNotesSummary020A();
+      });
       renderShell(session, operational.operational_session || operational, currentModuleConfig);
     } catch (error) {
       localStorage.removeItem(storageKey);
-      renderLogin(error.message || "SesiÃ³n expirada. Ingresa de nuevo.");
+      renderLogin(error.message || "Sesión expirada. Ingresa de nuevo.");
     }
   }
 

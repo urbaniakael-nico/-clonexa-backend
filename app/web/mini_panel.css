@@ -1003,3 +1003,685 @@ p {
 /* CLONEXA_019H_R1_SAFE_DYNAMIC_MODULES_END */
 
 /* CLONEXA_FORCE_BUILD_019H_R1_20260513224440 */
+
+/* CLONEXA_020A_NOTES_CALENDAR_START */
+/* CLONEXA_020C_NOTES_AGENDA_FULL_VISUAL_REBUILD: rediseño completo Notas / Agenda */
+
+.mp-notes-info-card-020a {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  border: 1px solid rgba(255, 34, 184, .28) !important;
+  background:
+    radial-gradient(circle at 10% 15%, rgba(255,34,184,.26), transparent 34%),
+    radial-gradient(circle at 90% 12%, rgba(56,189,248,.18), transparent 34%),
+    linear-gradient(145deg, rgba(255,255,255,.095), rgba(255,255,255,.040)) !important;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.mp-notes-info-card-020a::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,.22) 42%, transparent 62%);
+  transform: translateX(-120%);
+  transition: transform .55s ease;
+}
+
+.mp-notes-info-card-020a:hover::before,
+.mp-notes-info-card-020a:focus::before {
+  transform: translateX(120%);
+}
+
+.mp-notes-info-card-020a:hover,
+.mp-notes-info-card-020a:focus {
+  transform: translateY(-6px);
+  border-color: rgba(255, 34, 184, .72) !important;
+  box-shadow:
+    0 30px 90px rgba(255,34,184,.18),
+    0 0 0 1px rgba(56,189,248,.12) inset;
+  outline: none;
+}
+
+.mp-notes-modal-020a {
+  padding: clamp(12px, 1.6vw, 26px);
+  align-items: center;
+  overflow: hidden;
+}
+
+.mp-notes-modal-020a .mp-modal-backdrop {
+  background:
+    radial-gradient(circle at 15% 12%, rgba(255,34,184,.20), transparent 30%),
+    radial-gradient(circle at 86% 18%, rgba(56,189,248,.18), transparent 34%),
+    radial-gradient(circle at 48% 100%, rgba(147,51,234,.18), transparent 40%),
+    rgba(3, 4, 15, .82);
+  backdrop-filter: blur(18px) saturate(1.22);
+}
+
+.mp-notes-card-020a {
+  width: min(1720px, calc(100vw - 28px)) !important;
+  min-height: min(905px, calc(100vh - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(20px, 1.8vw, 32px);
+  border-radius: 34px;
+  border: 1px solid rgba(255,255,255,.18);
+  background:
+    radial-gradient(circle at 4% 0%, rgba(255,34,184,.22), transparent 36%),
+    radial-gradient(circle at 100% 0%, rgba(56,189,248,.16), transparent 34%),
+    linear-gradient(145deg, rgba(24,14,51,.985), rgba(9,13,42,.985) 58%, rgba(12,11,33,.985));
+  box-shadow:
+    0 42px 130px rgba(0,0,0,.72),
+    0 0 0 1px rgba(255,255,255,.05) inset,
+    0 0 110px rgba(255,34,184,.07);
+}
+
+.mp-notes-card-020a::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: .46;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.038) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255,255,255,.026) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(circle at 50% 18%, black, transparent 74%);
+}
+
+.mp-notes-card-020a > * {
+  position: relative;
+  z-index: 1;
+}
+
+.mp-notes-top-020a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: clamp(16px, 1.5vw, 24px);
+  padding: clamp(16px, 1.45vw, 22px);
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255,34,184,.15), transparent 36%),
+    linear-gradient(135deg, rgba(255,255,255,.090), rgba(255,255,255,.034));
+  box-shadow: 0 18px 58px rgba(0,0,0,.25);
+}
+
+.mp-notes-title-zone-020c .mp-kicker,
+.mp-notes-panel-head-020c span {
+  color: #ff4fd0;
+  text-transform: uppercase;
+  letter-spacing: .24em;
+  font-size: 11px;
+  font-weight: 1000;
+  text-shadow: 0 0 18px rgba(255,34,184,.34);
+}
+
+.mp-notes-top-020a h2 {
+  margin: 8px 0 6px;
+  font-size: clamp(32px, 2.7vw, 52px);
+  line-height: .92;
+  letter-spacing: -.055em;
+}
+
+.mp-notes-top-020a p {
+  margin: 0;
+  font-size: 15px;
+  color: rgba(255,255,255,.70);
+  font-weight: 800;
+}
+
+.mp-notes-close-020c {
+  min-width: 110px;
+  min-height: 48px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: linear-gradient(145deg, rgba(255,255,255,.14), rgba(255,255,255,.07));
+}
+
+.mp-notes-content-020a {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 8px;
+}
+
+.mp-notes-content-020a::-webkit-scrollbar {
+  width: 10px;
+}
+
+.mp-notes-content-020a::-webkit-scrollbar-track {
+  background: rgba(255,255,255,.045);
+  border-radius: 999px;
+}
+
+.mp-notes-content-020a::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(255,34,184,.76), rgba(56,189,248,.46));
+  border-radius: 999px;
+}
+
+.mp-notes-hero-020c {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(440px, .9fr);
+  gap: clamp(14px, 1.4vw, 22px);
+  align-items: stretch;
+  margin-bottom: clamp(16px, 1.5vw, 24px);
+}
+
+.mp-notes-hero-020c > div:first-child,
+.mp-notes-hero-stats-020c article {
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(56,189,248,.12), transparent 34%),
+    linear-gradient(145deg, rgba(255,255,255,.076), rgba(255,255,255,.030));
+  box-shadow: 0 18px 52px rgba(0,0,0,.22);
+}
+
+.mp-notes-hero-020c > div:first-child {
+  padding: 22px;
+}
+
+.mp-notes-hero-020c > div:first-child span,
+.mp-notes-hero-stats-020c article span {
+  display: block;
+  color: rgba(255,255,255,.56);
+  text-transform: uppercase;
+  letter-spacing: .16em;
+  font-size: 11px;
+  font-weight: 1000;
+}
+
+.mp-notes-hero-020c > div:first-child strong {
+  display: block;
+  margin-top: 8px;
+  font-size: clamp(25px, 2vw, 38px);
+  letter-spacing: -.04em;
+}
+
+.mp-notes-hero-020c > div:first-child small {
+  display: block;
+  margin-top: 8px;
+  color: rgba(255,255,255,.62);
+  line-height: 1.45;
+  font-weight: 750;
+}
+
+.mp-notes-hero-stats-020c {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.mp-notes-hero-stats-020c article {
+  padding: 18px;
+}
+
+.mp-notes-hero-stats-020c article strong {
+  display: block;
+  margin-top: 10px;
+  font-size: clamp(25px, 1.9vw, 34px);
+  line-height: 1;
+  letter-spacing: -.045em;
+}
+
+.mp-notes-hero-stats-020c article small {
+  display: block;
+  margin-top: 8px;
+  color: rgba(255,255,255,.60);
+  font-weight: 800;
+}
+
+.mp-notes-board-020c {
+  display: grid;
+  grid-template-columns: minmax(360px, 430px) minmax(460px, 1fr) minmax(350px, 430px);
+  grid-template-areas:
+    "calendar create upcoming"
+    "calendar day day";
+  gap: clamp(16px, 1.45vw, 24px);
+  align-items: stretch;
+  min-height: 610px;
+}
+
+.mp-notes-panel-020a {
+  position: relative;
+  border: 1px solid rgba(255,255,255,.135);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(255,34,184,.105), transparent 34%),
+    linear-gradient(145deg, rgba(255,255,255,.078), rgba(255,255,255,.030));
+  box-shadow:
+    0 22px 64px rgba(0,0,0,.26),
+    0 0 0 1px rgba(255,255,255,.032) inset;
+  padding: clamp(18px, 1.45vw, 24px);
+}
+
+.mp-notes-calendar-020a {
+  grid-area: calendar;
+}
+
+.mp-notes-create-020c {
+  grid-area: create;
+}
+
+.mp-notes-upcoming-020c {
+  grid-area: upcoming;
+}
+
+.mp-notes-day-020c {
+  grid-area: day;
+}
+
+.mp-notes-panel-head-020c {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.mp-notes-panel-head-020c strong {
+  display: block;
+  font-size: clamp(20px, 1.45vw, 28px);
+  line-height: 1.05;
+  letter-spacing: -.035em;
+}
+
+.mp-calendar-head-020a {
+  display: grid;
+  grid-template-columns: 50px 1fr 50px;
+  gap: 12px;
+  align-items: center;
+  margin: 18px 0 16px;
+}
+
+.mp-calendar-head-020a strong {
+  text-align: center;
+  text-transform: capitalize;
+  font-size: clamp(20px, 1.3vw, 25px);
+  letter-spacing: -.035em;
+}
+
+.mp-calendar-head-020a .mp-button {
+  min-height: 50px;
+  padding: 0;
+  border-radius: 17px;
+  font-size: 24px;
+}
+
+.mp-calendar-weekdays-020a,
+.mp-calendar-grid-020a {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(34px, 1fr));
+  gap: 10px;
+}
+
+.mp-calendar-weekdays-020a {
+  margin-bottom: 10px;
+}
+
+.mp-calendar-weekdays-020a span {
+  text-align: center;
+  color: rgba(255,255,255,.52);
+  font-size: 10px;
+  font-weight: 1000;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.mp-calendar-day-020a {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: clamp(48px, 3.5vw, 60px);
+  border: 1px solid rgba(255,255,255,.105);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 35% 10%, rgba(255,255,255,.08), transparent 36%),
+    linear-gradient(145deg, rgba(255,255,255,.070), rgba(0,0,0,.18));
+  color: #fff;
+  cursor: pointer;
+  font-weight: 1000;
+  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease, background .14s ease;
+}
+
+.mp-calendar-day-020a:hover {
+  transform: translateY(-2px);
+  border-color: rgba(56,189,248,.44);
+  box-shadow: 0 16px 36px rgba(0,0,0,.23);
+}
+
+.mp-calendar-day-020a.outside {
+  opacity: .34;
+}
+
+.mp-calendar-day-020a.today {
+  border-color: rgba(56,189,248,.72);
+  box-shadow: 0 0 0 1px rgba(56,189,248,.12) inset;
+}
+
+.mp-calendar-day-020a.selected {
+  background:
+    radial-gradient(circle at 35% 20%, rgba(255,255,255,.34), transparent 30%),
+    linear-gradient(135deg, #ff22b8, #9333ea 58%, #38bdf8);
+  border-color: rgba(255,255,255,.54);
+  box-shadow:
+    0 20px 46px rgba(255,34,184,.34),
+    0 0 34px rgba(56,189,248,.16);
+}
+
+.mp-calendar-day-020a.has-event i {
+  position: absolute;
+  bottom: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #38bdf8;
+  box-shadow: 0 0 16px rgba(56,189,248,.72);
+}
+
+.mp-notes-form-020a {
+  display: grid;
+  gap: 14px;
+}
+
+.mp-notes-form-grid-020a {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(128px, .72fr) minmax(150px, .82fr);
+  gap: 12px;
+}
+
+.mp-notes-form-020a .mp-field {
+  gap: 8px;
+}
+
+.mp-notes-form-020a .mp-field label {
+  color: rgba(255,255,255,.70);
+}
+
+.mp-notes-form-020a input,
+.mp-notes-form-020a select,
+.mp-notes-form-020a textarea {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,.145);
+  border-radius: 18px;
+  padding: 15px 16px;
+  background:
+    linear-gradient(145deg, rgba(4,6,22,.76), rgba(255,255,255,.045));
+  color: #fff;
+  outline: none;
+  box-shadow: 0 1px 0 rgba(255,255,255,.05) inset;
+}
+
+.mp-notes-form-020a input:focus,
+.mp-notes-form-020a select:focus,
+.mp-notes-form-020a textarea:focus {
+  border-color: rgba(255,34,184,.68);
+  box-shadow: 0 0 0 4px rgba(255,34,184,.13);
+}
+
+.mp-notes-form-020a textarea {
+  min-height: 124px;
+  resize: vertical;
+}
+
+.mp-notes-save-020c {
+  min-height: 54px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #ff22b8 0%, #a855f7 54%, #38bdf8 132%);
+  box-shadow:
+    0 20px 58px rgba(255,34,184,.25),
+    0 0 0 1px rgba(255,255,255,.12) inset;
+}
+
+.mp-notes-next-020c {
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid rgba(56,189,248,.18);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(56,189,248,.16), transparent 36%),
+    rgba(0,0,0,.18);
+}
+
+.mp-notes-next-020c span {
+  display: block;
+  margin-bottom: 7px;
+  color: #93c5fd;
+  text-transform: uppercase;
+  letter-spacing: .15em;
+  font-size: 10px;
+  font-weight: 1000;
+}
+
+.mp-notes-next-020c strong {
+  display: block;
+  font-size: 17px;
+}
+
+.mp-notes-next-020c small {
+  display: block;
+  margin-top: 5px;
+  color: rgba(255,255,255,.60);
+}
+
+.mp-notes-list-020a {
+  display: grid;
+  gap: 12px;
+}
+
+.mp-note-item-020a {
+  display: grid;
+  grid-template-columns: minmax(68px, .18fr) minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,.115);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255,34,184,.08), transparent 34%),
+    linear-gradient(135deg, rgba(255,255,255,.064), rgba(0,0,0,.17));
+  border-radius: 22px;
+  padding: 14px;
+  box-shadow: 0 14px 36px rgba(0,0,0,.17);
+}
+
+.mp-note-item-020a.done {
+  opacity: .66;
+}
+
+.mp-note-time-020c {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  min-height: 54px;
+  padding: 8px;
+  border-radius: 17px;
+  background: rgba(56,189,248,.105);
+  border: 1px solid rgba(56,189,248,.14);
+}
+
+.mp-note-time-020c strong {
+  font-size: 14px;
+  color: #bfdbfe;
+  line-height: 1;
+}
+
+.mp-note-time-020c small {
+  color: rgba(255,255,255,.56);
+  font-size: 10px;
+  font-weight: 900;
+  margin: 0;
+}
+
+.mp-note-body-020c {
+  min-width: 0;
+}
+
+.mp-note-title-line-020c {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.mp-note-title-line-020c strong {
+  display: block;
+  min-width: 0;
+  font-size: 16px;
+  letter-spacing: -.015em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-note-title-line-020c em {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: rgba(255,255,255,.74);
+  background: rgba(255,255,255,.075);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 1000;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.mp-note-body-020c small {
+  display: block;
+  color: rgba(255,255,255,.62);
+  line-height: 1.38;
+  margin: 0;
+}
+
+.mp-note-actions-020a {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mp-note-actions-020a .mp-button {
+  min-width: 104px;
+}
+
+.mp-notes-empty-020a {
+  border: 1px dashed rgba(255,255,255,.20);
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.052), rgba(0,0,0,.16));
+  border-radius: 20px;
+  padding: 20px;
+  color: rgba(255,255,255,.70);
+  font-weight: 850;
+}
+
+.mp-notes-empty-020a.error {
+  color: #fca5a5;
+}
+
+.mp-notes-loading-020c {
+  min-height: 440px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  color: rgba(255,255,255,.72);
+}
+
+.mp-notes-loading-020c div {
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  border: 3px solid rgba(255,255,255,.16);
+  border-top-color: #ff22b8;
+  animation: mpNotesSpin020C 1s linear infinite;
+}
+
+.mp-notes-loading-020c strong {
+  font-size: 18px;
+}
+
+.mp-notes-loading-020c small {
+  color: rgba(255,255,255,.56);
+}
+
+@keyframes mpNotesSpin020C {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 1360px) {
+  .mp-notes-hero-020c,
+  .mp-notes-board-020c {
+    grid-template-columns: 1fr;
+  }
+
+  .mp-notes-board-020c {
+    grid-template-areas:
+      "calendar"
+      "create"
+      "upcoming"
+      "day";
+  }
+}
+
+@media (max-width: 760px) {
+  .mp-notes-modal-020a {
+    padding: 10px;
+    overflow: auto;
+  }
+
+  .mp-notes-card-020a {
+    width: calc(100vw - 20px) !important;
+    min-height: auto;
+    max-height: none;
+    border-radius: 24px;
+    padding: 16px;
+  }
+
+  .mp-notes-top-020a {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mp-notes-close-020c {
+    width: 100%;
+  }
+
+  .mp-notes-hero-stats-020c,
+  .mp-notes-form-grid-020a {
+    grid-template-columns: 1fr;
+  }
+
+  .mp-calendar-weekdays-020a,
+  .mp-calendar-grid-020a {
+    gap: 7px;
+  }
+
+  .mp-calendar-day-020a {
+    min-height: 42px;
+    border-radius: 14px;
+  }
+
+  .mp-note-item-020a {
+    grid-template-columns: 1fr;
+  }
+
+  .mp-note-time-020c {
+    justify-items: start;
+  }
+
+  .mp-note-actions-020a {
+    justify-content: stretch;
+  }
+
+  .mp-note-actions-020a .mp-button {
+    flex: 1;
+    min-width: 0;
+  }
+}
+/* CLONEXA_020A_NOTES_CALENDAR_END */
