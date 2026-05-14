@@ -8591,10 +8591,63 @@
   }
   /* CLONEXA_021F_R1_CLIENT_QUOTES_SCOPE_END */
 
+  /* CLONEXA_022B_CLIENT_QUOTES_CONSOLIDATION_SOURCE_START */
+  function cxClientQuotesSourceScope022B() {
+    return "mini_panel";
+  }
+
+  function cxClientQuoteIsArchived022B(quote) {
+    return String(quote?.status || "").toLowerCase() === "archived";
+  }
+
+  function cxClientQuoteDocumentType022B(quote) {
+    const explicit = String(quote?.document_type || "").toLowerCase();
+    if (explicit === "account") return "account";
+    return String(quote?.status || "").toLowerCase() === "converted" ? "account" : "quote";
+  }
+
+  function cxClientQuotePanelLabel022B(value) {
+    const raw = String(value || "").toLowerCase();
+    const map = {
+      sales: "Mini Panel Ventas",
+      venta: "Mini Panel Ventas",
+      ventas: "Mini Panel Ventas",
+      stores: "Mini Panel Tiendas",
+      store: "Mini Panel Tiendas",
+      tiendas: "Mini Panel Tiendas",
+      tienda: "Mini Panel Tiendas",
+      inventory: "Mini Panel Inventario",
+      inventario: "Mini Panel Inventario",
+      logistics: "Mini Panel Logística",
+      logistica: "Mini Panel Logística",
+      other: "Mini Panel Otro",
+      otro: "Mini Panel Otro",
+    };
+    return map[raw] || (raw ? `Mini Panel ${raw}` : "Mini Panel");
+  }
+
+  function cxClientQuoteOriginLabel022B(quote) {
+    const panel = quote?.source_panel_label || cxClientQuotePanelLabel022B(quote?.panel_type || quote?.source_panel_type);
+    const user = quote?.source_user_label || quote?.created_by_label || "Usuario mini panel";
+    return `${panel} · ${user}`;
+  }
+
+  function cxClientQuoteVisibleByFilter022B(quote, filter) {
+    const archived = cxClientQuoteIsArchived022B(quote);
+    const docType = cxClientQuoteDocumentType022B(quote);
+
+    if (filter === "archived") return archived;
+    if (archived) return false;
+    if (filter === "quotes") return docType === "quote";
+    if (filter === "accounts") return docType === "account";
+    return true;
+  }
+  /* CLONEXA_022B_CLIENT_QUOTES_CONSOLIDATION_SOURCE_END */
+
   async function renderClientUniversalQuotesModule021D(activeCode = "cotizaciones") {
     ensureUniversalModuleStyles021D();
 
-    let filter = window.__cxUniversalQuotesFilter021D || "all";
+    let filter = window.__cxUniversalQuotesFilter021D || "active";
     let query = window.__cxUniversalQuotesQuery021D || "";
     let payload = { quotes: [] };
     let summary = { active_count: 0, total_amount: 0 };
@@ -8602,20 +8655,22 @@
 
     try {
       const docFilter = filter === "quotes" ? "&document_type=quote" : filter === "accounts" ? "&document_type=account" : "";
-      payload = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxClientQuotesScope021F())}&include_archived=true&q=${encodeURIComponent(query)}${docFilter}`);
-      summary = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/summary?panel_type=${encodeURIComponent(cxClientQuotesScope021F())}`);
+      payload = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxClientQuotesScope021F())}&source_scope=${encodeURIComponent(cxClientQuotesSourceScope022B())}&include_archived=true&q=${encodeURIComponent(query)}${docFilter}`);
+      summary = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/summary?panel_type=${encodeURIComponent(cxClientQuotesScope021F())}&source_scope=${encodeURIComponent(cxClientQuotesSourceScope022B())}`);
     } catch (err) {
       error = err.message || "No se pudieron cargar cotizaciones.";
     }
 
     /* CLONEXA_021E_CLIENT_QUOTES_ACTIONS_FIX_START */
-    const quotes = Array.isArray(payload.quotes)
+    const rawQuotes = Array.isArray(payload.quotes)
       ? payload.quotes
       : Array.isArray(payload.items)
         ? payload.items
         : Array.isArray(payload)
           ? payload
           : [];
+
+    const quotes = rawQuotes.filter((quote) => cxClientQuoteVisibleByFilter022B(quote, filter));
     window.__cxUniversalQuotesCache021E = quotes;
     /* CLONEXA_021E_CLIENT_QUOTES_ACTIONS_FIX_END */
 
@@ -8627,8 +8682,9 @@
           <div class="cx-row-head-021d">
             <div>
               <strong>${h(quote.client_name || "Cliente")}</strong>
-              <small>${h(displayNumber)} · ${h(isAccount ? "Cuenta de cobro" : "Cotización")}</small>
+              <small>${h(displayNumber)} · ${h(isAccount ? "Cuenta de cobro" : "Cotización")}${cxClientQuoteIsArchived022B(quote) ? " · Archivada" : ""}</small>
               <small>${h(quote.created_at ? String(quote.created_at).slice(0, 10) : "")}</small>
+              <small>Origen: ${h(cxClientQuoteOriginLabel022B(quote))}</small>
             </div>
             <div><strong>${h(cxUniversalMoney021D(quote.total || 0))}</strong></div>
           </div>
@@ -8646,7 +8702,7 @@
       activeCode,
       "Módulo universal",
       "Cotizaciones",
-      "Genera cotizaciones, PDF corporativo, firma y cuenta de cobro desde cualquier panel.",
+      "Consolidado de cotizaciones capturadas desde mini paneles. El Panel Cliente solo visualiza, controla y archiva información de su empresa.",
       `
         <section class="cx-universal-grid-021d">
           <article class="cx-universal-card-021d">
@@ -8773,9 +8829,10 @@
               <div class="cx-field-021d"><label>Buscar</label><input data-client-quotes-search placeholder="Nombre, NIT, correo o número" value="${h(query)}"></div>
               <div class="cx-field-021d"><label>Tipo</label>
                 <select data-client-quotes-filter>
-                  <option value="all" ${filter === "all" ? "selected" : ""}>Todos</option>
+                  <option value="active" ${filter === "active" ? "selected" : ""}>Activas</option>
                   <option value="quotes" ${filter === "quotes" ? "selected" : ""}>Cotizaciones</option>
                   <option value="accounts" ${filter === "accounts" ? "selected" : ""}>Cuentas de cobro</option>
+                  <option value="archived" ${filter === "archived" ? "selected" : ""}>Archivadas</option>
                 </select>
               </div>
             </div>
@@ -8786,7 +8843,7 @@
             </div>
 
             <div class="cx-list-021d">
-              ${quotes.length ? quotes.map(renderQuote).join("") : `<div class="cx-row-021d cx-muted-021d">Sin cotizaciones registradas.</div>`}
+              ${quotes.length ? quotes.map(renderQuote).join("") : `<div class="cx-row-021d cx-muted-021d">Sin cotizaciones capturadas desde mini paneles.</div>`}
             </div>
           </article>
         </section>
@@ -8909,7 +8966,7 @@
     });
 
     document.querySelector("[data-client-quotes-filter]")?.addEventListener("change", async (event) => {
-      window.__cxUniversalQuotesFilter021D = event.target.value || "all";
+      window.__cxUniversalQuotesFilter021D = event.target.value || "active";
       await renderClientUniversalQuotesModule021D(activeCode);
     });
   }

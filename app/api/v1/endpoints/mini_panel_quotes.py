@@ -179,6 +179,43 @@ def _quote_panel_for_action_021f(panel_type: str | None) -> str:
 # CLONEXA_021F_R1_CROSS_PANEL_BACKEND_END
 
 
+# CLONEXA_022B_QUOTES_CONSOLIDATION_SOURCE_START
+CLIENT_PANEL_TYPES_022B = {"", "client", "all", "main", "principal", "universal", "global", "*"}
+
+PANEL_LABELS_022B = {
+    "sales": "Mini Panel Ventas",
+    "stores": "Mini Panel Tiendas",
+    "store": "Mini Panel Tiendas",
+    "inventory": "Mini Panel Inventario",
+    "logistics": "Mini Panel Logística",
+    "other": "Mini Panel Otro",
+}
+
+
+def _is_mini_panel_consolidation_scope_022b(source_scope: str | None) -> bool:
+    normalized = _norm(source_scope or "")
+    return normalized in {"mini_panel", "minipanel", "mini_panels", "minipanels", "paneles", "subpaneles"}
+
+
+def _is_mini_panel_record_022b(panel_type: Any) -> bool:
+    normalized = _panel(str(panel_type or ""))
+    return normalized not in CLIENT_PANEL_TYPES_022B
+
+
+def _mini_panel_source_filter_sql_022b(source_scope: str | None) -> str:
+    if not _is_mini_panel_consolidation_scope_022b(source_scope):
+        return ""
+    return """
+                  AND COALESCE(panel_type, '') NOT IN ('', 'client', 'all', 'main', 'principal', 'universal', 'global', '*')
+    """
+
+
+def _panel_label_022b(panel_type: Any) -> str:
+    normalized = _panel(str(panel_type or ""))
+    return PANEL_LABELS_022B.get(normalized, f"Mini Panel {normalized.title()}" if normalized else "Mini Panel")
+# CLONEXA_022B_QUOTES_CONSOLIDATION_SOURCE_END
+
+
 def _json(value: Any, fallback: Any = None) -> Any:
     if fallback is None:
         fallback = {}
@@ -617,6 +654,10 @@ def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
         "archived_at": row["archived_at"].isoformat() if row["archived_at"] else None,
         "created_by": str(row["created_by"]) if row["created_by"] else None,
         "created_by_label": row["created_by_label"] or "",
+        "source_user_label": row["created_by_label"] or "Usuario mini panel",
+        "source_panel_type": row["panel_type"],
+        "source_panel_label": _panel_label_022b(row["panel_type"]),
+        "source_scope": "mini_panel" if _is_mini_panel_record_022b(row["panel_type"]) else "client",
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
@@ -776,6 +817,7 @@ async def _insert_or_update_quote(
 async def get_quotes_summary(
     company_id: uuid.UUID,
     panel_type: str = Query("sales"),
+    source_scope: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     conn = await _connect()
@@ -784,24 +826,28 @@ async def get_quotes_summary(
         await _require_access(conn, company_id, authorization)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
+        source_filter = _mini_panel_source_filter_sql_022b(source_scope)
+
         if _is_cross_panel_quotes_021f(panel_type):
             row = await conn.fetchrow(
-                """
+                f"""
                 SELECT
                   COUNT(*) FILTER (WHERE status <> 'archived') AS active_count,
                   COALESCE(SUM(total) FILTER (WHERE status <> 'archived'), 0) AS total_amount,
                   MAX(created_at) AS last_created_at
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
+                  {source_filter}
                 """,
                 company_id,
             )
 
             latest = await conn.fetchrow(
-                """
+                f"""
                 SELECT *
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
+                  {source_filter}
                   AND status <> 'archived'
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -854,6 +900,7 @@ async def list_quotes(
     q: str | None = Query(default=None),
     include_archived: bool = Query(False),
     document_type: str | None = Query(default=None),
+    source_scope: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     conn = await _connect()
@@ -876,12 +923,15 @@ async def list_quotes(
         # En modo universal/cross-panel NO se puede dejar un placeholder SQL $2 sin tipo
         # y luego usar $3 para la busqueda. asyncpg rompe con:
         # "could not determine data type of parameter $2".
+        source_filter = _mini_panel_source_filter_sql_022b(source_scope)
+
         if _is_cross_panel_quotes_021f(panel_type):
             rows = await conn.fetch(
                 f"""
                 SELECT *
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
+                  {source_filter}
                   {status_filter}
                   {document_filter}
                   AND (
