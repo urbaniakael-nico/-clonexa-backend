@@ -8839,6 +8839,25 @@
 
 
   async function renderClientModulePlaceholder(code) {
+    /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
+    const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
+
+    if (
+      typeof cxIsQuotesUniversalCode021D === "function" &&
+      cxIsQuotesUniversalCode021D(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderClientUniversalQuotesModule021D === "function"
+    ) {
+      return renderClientUniversalQuotesModule021D(cxUniversalPlaceholderCode021DR1 || "cotizaciones");
+    }
+
+    if (
+      typeof cxIsNotesUniversalCode021D === "function" &&
+      cxIsNotesUniversalCode021D(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderClientUniversalNotesModule021D === "function"
+    ) {
+      return renderClientUniversalNotesModule021D(cxUniversalPlaceholderCode021DR1 || "notas");
+    }
+    /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_END */
     const company = state.company || {};
     $("app").innerHTML = `
       <main class="client-shell">
