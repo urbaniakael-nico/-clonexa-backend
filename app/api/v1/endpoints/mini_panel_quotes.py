@@ -872,34 +872,64 @@ async def list_quotes(
         elif doc in {"quote", "quotes", "cotizacion", "cotizaciones", "cotizar", "ct", "cot"}:
             document_filter = "AND status <> 'converted'"
 
-        panel_condition = "" if _is_cross_panel_quotes_021f(panel_type) else "AND panel_type = $2"
-        rows = await conn.fetch(
-            f"""
-            SELECT *
-            FROM mini_panel_quotes
-            WHERE company_id = $1::uuid
-              {panel_condition}
-              {status_filter}
-              {document_filter}
-              AND (
-                $3 = '%%'
-                OR client_name ILIKE $3
-                OR quote_number ILIKE $3
-                OR ('CB-' || regexp_replace(quote_number, '^(COT-|CT-|CB-)', '')) ILIKE $3
-                OR client_document ILIKE $3
-                OR client_email ILIKE $3
-                OR CASE WHEN status = 'converted' THEN 'cuenta de cobro' ELSE 'cotizacion' END ILIKE $3
-              )
-            ORDER BY created_at DESC
-            LIMIT 100
-            """,
-            company_id,
-            _panel(panel_type),
-            query,
-        )
+        # CLONEXA_021G_R1_CROSS_PANEL_LIST_500_FIX_START
+        # En modo universal/cross-panel NO se puede dejar un placeholder SQL $2 sin tipo
+        # y luego usar $3 para la busqueda. asyncpg rompe con:
+        # "could not determine data type of parameter $2".
+        if _is_cross_panel_quotes_021f(panel_type):
+            rows = await conn.fetch(
+                f"""
+                SELECT *
+                FROM mini_panel_quotes
+                WHERE company_id = $1::uuid
+                  {status_filter}
+                  {document_filter}
+                  AND (
+                    $2::text = '%%'
+                    OR client_name ILIKE $2::text
+                    OR quote_number ILIKE $2::text
+                    OR ('CB-' || regexp_replace(quote_number, '^(COT-|CT-|CB-)', '')) ILIKE $2::text
+                    OR client_document ILIKE $2::text
+                    OR client_email ILIKE $2::text
+                    OR CASE WHEN status = 'converted' THEN 'cuenta de cobro' ELSE 'cotizacion' END ILIKE $2::text
+                  )
+                ORDER BY created_at DESC
+                LIMIT 100
+                """,
+                company_id,
+                query,
+            )
+        else:
+            rows = await conn.fetch(
+                f"""
+                SELECT *
+                FROM mini_panel_quotes
+                WHERE company_id = $1::uuid
+                  AND panel_type = $2::text
+                  {status_filter}
+                  {document_filter}
+                  AND (
+                    $3::text = '%%'
+                    OR client_name ILIKE $3::text
+                    OR quote_number ILIKE $3::text
+                    OR ('CB-' || regexp_replace(quote_number, '^(COT-|CT-|CB-)', '')) ILIKE $3::text
+                    OR client_document ILIKE $3::text
+                    OR client_email ILIKE $3::text
+                    OR CASE WHEN status = 'converted' THEN 'cuenta de cobro' ELSE 'cotizacion' END ILIKE $3::text
+                  )
+                ORDER BY created_at DESC
+                LIMIT 100
+                """,
+                company_id,
+                _panel(panel_type),
+                query,
+            )
+        # CLONEXA_021G_R1_CROSS_PANEL_LIST_500_FIX_END
 
+        payload = [_quote_payload(row) for row in rows]
         return {
-            "items": [_quote_payload(row) for row in rows],
+            "items": payload,
+            "quotes": payload,
             "panel_scope": _quote_panel_for_action_021f(panel_type),
         }
     finally:
@@ -1018,22 +1048,39 @@ async def archive_quote(
         await _require_access(conn, company_id, authorization)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
-        panel_condition = "" if _is_cross_panel_quotes_021f(panel_type) else "AND panel_type = $3"
-        row = await conn.fetchrow(
-            f"""
-            UPDATE mini_panel_quotes
-            SET status = 'archived',
-                archived_at = NOW(),
-                updated_at = NOW()
-            WHERE id = $1::uuid
-              AND company_id = $2::uuid
-              {panel_condition}
-            RETURNING *
-            """,
-            quote_id,
-            company_id,
-            _panel(panel_type),
-        )
+        # CLONEXA_021G_R1_CROSS_PANEL_ARCHIVE_500_FIX_START
+        if _is_cross_panel_quotes_021f(panel_type):
+            row = await conn.fetchrow(
+                """
+                UPDATE mini_panel_quotes
+                SET status = 'archived',
+                    archived_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1::uuid
+                  AND company_id = $2::uuid
+                RETURNING *
+                """,
+                quote_id,
+                company_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                UPDATE mini_panel_quotes
+                SET status = 'archived',
+                    archived_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1::uuid
+                  AND company_id = $2::uuid
+                  AND panel_type = $3::text
+                RETURNING *
+                """,
+                quote_id,
+                company_id,
+                _panel(panel_type),
+            )
+        # CLONEXA_021G_R1_CROSS_PANEL_ARCHIVE_500_FIX_END
+
         if not row:
             raise HTTPException(status_code=404, detail="Cotizacion no encontrada.")
         return {"ok": True, "quote": _quote_payload(row)}
@@ -1054,28 +1101,47 @@ async def convert_quote(
         await _require_access(conn, company_id, authorization)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
-        panel_condition = "" if _is_cross_panel_quotes_021f(panel_type) else "AND panel_type = $3"
-        row = await conn.fetchrow(
-            f"""
-            UPDATE mini_panel_quotes
-            SET status = 'converted',
-                converted_at = NOW(),
-                updated_at = NOW()
-            WHERE id = $1::uuid
-              AND company_id = $2::uuid
-              {panel_condition}
-              AND status <> 'archived'
-            RETURNING *
-            """,
-            quote_id,
-            company_id,
-            _panel(panel_type),
-        )
+        # CLONEXA_021G_R1_CROSS_PANEL_CONVERT_500_FIX_START
+        if _is_cross_panel_quotes_021f(panel_type):
+            row = await conn.fetchrow(
+                """
+                UPDATE mini_panel_quotes
+                SET status = 'converted',
+                    converted_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1::uuid
+                  AND company_id = $2::uuid
+                  AND status <> 'archived'
+                RETURNING *
+                """,
+                quote_id,
+                company_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                UPDATE mini_panel_quotes
+                SET status = 'converted',
+                    converted_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1::uuid
+                  AND company_id = $2::uuid
+                  AND panel_type = $3::text
+                  AND status <> 'archived'
+                RETURNING *
+                """,
+                quote_id,
+                company_id,
+                _panel(panel_type),
+            )
+        # CLONEXA_021G_R1_CROSS_PANEL_CONVERT_500_FIX_END
+
         if not row:
             raise HTTPException(status_code=404, detail="Cotizacion no encontrada.")
         return {"ok": True, "quote": _quote_payload(row)}
     finally:
         await conn.close()
+
 
 def _load_image_reader(source: str):
     if not source:
