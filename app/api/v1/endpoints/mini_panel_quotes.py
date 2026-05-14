@@ -256,6 +256,24 @@ async def _ensure_storage(conn: asyncpg.Connection) -> None:
 
 
 async def _require_access(conn: asyncpg.Connection, company_id: uuid.UUID, authorization: str | None) -> dict[str, Any]:
+    # CLONEXA_021D_UNIVERSAL_ACCESS_START
+    # /client no maneja token de mini panel. Para módulos universales se permite
+    # acceso operativo por company_id cuando la empresa existe. La habilitación real
+    # del módulo se valida después en _require_*_enabled.
+    if not str(authorization or "").strip():
+        company_row = await conn.fetchrow(
+            "SELECT id, name, slug FROM companies WHERE id = $1::uuid LIMIT 1",
+            company_id,
+        )
+        if company_row:
+            return {
+                "company_id": str(company_row["id"]),
+                "user_id": None,
+                "full_name": "Panel principal",
+                "email": None,
+                "source": "client_universal",
+            }
+    # CLONEXA_021D_UNIVERSAL_ACCESS_END
     if decode_access_token is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Servicio de autenticacion no disponible.")
 
@@ -297,7 +315,36 @@ async def _require_access(conn: asyncpg.Connection, company_id: uuid.UUID, autho
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acceso no autorizado para esta empresa.")
 
 
+
+# CLONEXA_021D_UNIVERSAL_ACCESS_START
+async def _company_has_universal_quotes_module_021d(conn: asyncpg.Connection, company_id: uuid.UUID) -> bool:
+    rows = await conn.fetch(
+        """
+        SELECT m.code, m.name
+        FROM company_modules cm
+        JOIN modules m ON m.id = cm.module_id
+        WHERE cm.company_id = $1::uuid
+          AND cm.enabled = TRUE
+        """,
+        company_id,
+    )
+
+    for row in rows:
+        code = _norm(row["code"])
+        name = _norm(row["name"])
+        if code in QUOTE_ALIASES or name in QUOTE_ALIASES:
+            return True
+
+    return False
+# CLONEXA_021D_UNIVERSAL_ACCESS_END
+
 async def _require_quotes_enabled(conn: asyncpg.Connection, company_id: uuid.UUID, panel_type: str) -> None:
+    # CLONEXA_021D_UNIVERSAL_ACCESS_START
+    # Si el módulo está activo en el panel principal de la empresa, también queda
+    # funcional en /client y disponible para mini paneles adaptables.
+    if await _company_has_universal_quotes_module_021d(conn, company_id):
+        return
+    # CLONEXA_021D_UNIVERSAL_ACCESS_END
     row = await conn.fetchrow(
         """
         SELECT cm.settings

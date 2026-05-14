@@ -1705,6 +1705,44 @@
       .filter((code, index, arr) => arr.indexOf(code) === index);
   }
 
+
+  /* CLONEXA_021D_UNIVERSAL_MODULE_FALLBACK_START */
+  function activeUniversalModuleCodes021D(companyModules) {
+    const rows = Array.isArray(companyModules) ? companyModules : [];
+    const out = [];
+
+    rows.forEach((row) => {
+      const enabled = row?.enabled ?? row?.module?.enabled ?? row?.module?.is_active ?? true;
+      if (enabled === false) return;
+
+      const rawCode = row?.module?.code || row?.module_code || row?.code || row?.module?.name || row?.name || "";
+      const code = normalizeModuleCode019H(rawCode);
+      if (!code) return;
+
+      if (typeof isQuotesCode021A === "function" && isQuotesCode021A(code)) {
+        out.push("cotizaciones");
+        return;
+      }
+
+      if (typeof isNotesCode020A === "function" && isNotesCode020A(code)) {
+        out.push("notas");
+      }
+    });
+
+    return out.filter((code, index, arr) => code && arr.indexOf(code) === index);
+  }
+
+  function mergeUniversalMiniPanelCodes021D(panelCodes, companyModules) {
+    const base = Array.isArray(panelCodes) ? panelCodes : [];
+    const universal = activeUniversalModuleCodes021D(companyModules);
+    return [...base, ...universal]
+      .map((code) => normalizeModuleCode019H(code))
+      .filter(Boolean)
+      .filter((code, index, arr) => arr.indexOf(code) === index);
+  }
+  /* CLONEXA_021D_UNIVERSAL_MODULE_FALLBACK_END */
+
+
   async function loadMiniPanelModuleConfig019H() {
     const empty = { enabled: false, modules: [], module_names: {}, raw: null };
     try {
@@ -1720,9 +1758,9 @@
       const moduleNames = config && typeof config.module_names === "object" && config.module_names ? config.module_names : {};
 
       return {
-        enabled: config.enabled === true || panel.enabled === true || codes.length > 0,
+        enabled: config.enabled === true || panel.enabled === true || mergeUniversalMiniPanelCodes021D(codes, data).length > 0,
         selected_panel: normalizePanelType019H(panelType),
-        modules: codes,
+        modules: mergeUniversalMiniPanelCodes021D(codes, data),
         module_names: moduleNames,
         raw: config
       };

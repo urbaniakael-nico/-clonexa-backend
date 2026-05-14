@@ -779,6 +779,14 @@
     const codes = clientModuleCodes(visibleClientModules(modules));
     const actions = [];
 
+    if (typeof cxClientHasUniversalModule021D === "function" && cxClientHasUniversalModule021D(CX_UNIVERSAL_QUOTES_CODES_021D)) {
+      actions.push({ label: "Cotizaciones", action: "quotes:open" });
+    }
+
+    if (typeof cxClientHasUniversalModule021D === "function" && cxClientHasUniversalModule021D(CX_UNIVERSAL_NOTES_CODES_021D)) {
+      actions.push({ label: "Notas / Agenda", action: "notes:open" });
+    }
+
     if (hasAnyClientModule(codes, ["workforce"])) {
       actions.push({ label: "Agregar personal", action: "workforce:add" });
     }
@@ -7967,6 +7975,869 @@
   /* CLONEXA_019C_SALES_MINIPANEL_USERS_FRONTEND_END */
 
 
+
+  /* CLONEXA_021D_UNIVERSAL_MODULE_RENDER_ADAPTER_START */
+  const CX_UNIVERSAL_QUOTES_CODES_021D = new Set([
+    "cotizacion",
+    "cotizaciones",
+    "cotizar",
+    "quote",
+    "quotes",
+    "quotation",
+    "quotations",
+    "presupuesto",
+    "presupuestos"
+  ]);
+
+  const CX_UNIVERSAL_NOTES_CODES_021D = new Set([
+    "notes",
+    "notas",
+    "nota",
+    "agenda",
+    "notas_o_agenda",
+    "recordatorio",
+    "recordatorios",
+    "reminder",
+    "reminders",
+    "calendar",
+    "calendario"
+  ]);
+
+  function cxNormUniversalModule021D(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function cxIsQuotesUniversalCode021D(code) {
+    return CX_UNIVERSAL_QUOTES_CODES_021D.has(cxNormUniversalModule021D(code));
+  }
+
+  function cxIsNotesUniversalCode021D(code) {
+    return CX_UNIVERSAL_NOTES_CODES_021D.has(cxNormUniversalModule021D(code));
+  }
+
+  function cxUniversalModuleTitle021D(code) {
+    if (cxIsQuotesUniversalCode021D(code)) return "Cotizaciones";
+    if (cxIsNotesUniversalCode021D(code)) return "Notas / Agenda";
+    return moduleLabel(code);
+  }
+
+  function cxClientHasUniversalModule021D(codeSet) {
+    const modules = activeClientModules();
+    return modules.some((module) => codeSet.has(cxNormUniversalModule021D(module.code || module.title || module.name || "")));
+  }
+
+  function cxUniversalMoney021D(value) {
+    const number = Number(value || 0);
+    try {
+      return number.toLocaleString("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0,
+      });
+    } catch (_) {
+      return `$ ${Math.round(number).toLocaleString("es-CO")}`;
+    }
+  }
+
+  function cxUniversalTodayIso021D() {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function cxUniversalTimeNow021D() {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+
+  async function cxUniversalApi021D(path, options = {}) {
+    const response = await fetch(`${API}${path}`, {
+      method: options.method || "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CLONEXA-CLIENT-MODULE": "1",
+        ...(options.headers || {}),
+      },
+      body: options.body,
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`${response.status} ${response.statusText} ${detail}`);
+    }
+
+    const type = response.headers.get("content-type") || "";
+    if (type.includes("application/json")) return response.json();
+    return response.text();
+  }
+
+  function cxUniversalPanelType021D() {
+    return "client";
+  }
+
+  function cxUniversalShell021D(activeCode, eyebrow, title, subtitle, bodyHtml) {
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell cx-universal-shell-021d">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav(activeCode)}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main cx-universal-main-021d">
+            <header class="client-hero cx-universal-hero-021d">
+              <div>
+                <div class="client-eyebrow">${h(eyebrow)}</div>
+                <h1 class="client-title">${h(title)}</h1>
+                <p class="client-muted">${h(subtitle)}</p>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+              </div>
+            </header>
+
+            ${bodyHtml}
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  function ensureUniversalModuleStyles021D() {
+    let style = document.getElementById("cxUniversalModuleStyles021D");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "cxUniversalModuleStyles021D";
+      document.head.appendChild(style);
+    }
+
+    style.textContent = `
+      .cx-universal-main-021d {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .cx-universal-hero-021d {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .cx-universal-grid-021d {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(360px, .85fr);
+        gap: 18px;
+        align-items: start;
+      }
+
+      .cx-universal-card-021d {
+        border: 1px solid rgba(255,255,255,.14);
+        background:
+          radial-gradient(circle at 12% 4%, rgba(255,34,184,.18), transparent 30%),
+          linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.045));
+        border-radius: 24px;
+        padding: 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.24);
+      }
+
+      .cx-universal-card-021d h2,
+      .cx-universal-card-021d h3 {
+        margin: 0 0 12px;
+      }
+
+      .cx-universal-form-021d {
+        display: grid;
+        gap: 14px;
+      }
+
+      .cx-field-grid-021d {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .cx-field-grid-021d.three {
+        grid-template-columns: 1.4fr .55fr .75fr auto;
+        align-items: end;
+      }
+
+      .cx-field-021d {
+        display: grid;
+        gap: 6px;
+      }
+
+      .cx-field-021d label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .09em;
+        color: rgba(255,255,255,.74);
+        font-weight: 1000;
+      }
+
+      .cx-field-021d input,
+      .cx-field-021d select,
+      .cx-field-021d textarea {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.15);
+        border-radius: 15px;
+        background: rgba(5,8,24,.48);
+        color: var(--cx-text, #fff);
+        padding: 12px 13px;
+        outline: none;
+        font-weight: 800;
+      }
+
+      .cx-field-021d textarea {
+        min-height: 84px;
+        resize: vertical;
+      }
+
+      .cx-actions-021d {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: flex-end;
+        align-items: center;
+      }
+
+      .cx-mini-btn-021d {
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 14px;
+        background: rgba(255,255,255,.10);
+        color: var(--cx-text, #fff);
+        padding: 11px 14px;
+        font-weight: 1000;
+        cursor: pointer;
+      }
+
+      .cx-mini-btn-021d.primary {
+        background: linear-gradient(135deg, #ff22b8, #8b5cf6 58%, #38bdf8);
+        border-color: rgba(255,255,255,.20);
+      }
+
+      .cx-mini-btn-021d.danger {
+        border-color: rgba(244,63,94,.45);
+        background: rgba(244,63,94,.16);
+      }
+
+      .cx-summary-pills-021d {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .cx-pill-021d {
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 999px;
+        padding: 9px 12px;
+        background: rgba(255,255,255,.08);
+        font-weight: 1000;
+      }
+
+      .cx-list-021d {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .cx-row-021d {
+        border: 1px solid rgba(255,255,255,.13);
+        border-radius: 18px;
+        padding: 14px;
+        background: rgba(255,255,255,.07);
+      }
+
+      .cx-row-head-021d {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: flex-start;
+      }
+
+      .cx-row-head-021d strong {
+        display: block;
+        font-size: 18px;
+      }
+
+      .cx-row-head-021d small {
+        display: block;
+        color: rgba(255,255,255,.68);
+        margin-top: 4px;
+      }
+
+      .cx-muted-021d {
+        color: rgba(255,255,255,.68);
+        font-weight: 800;
+      }
+
+      .cx-notice-021d {
+        min-height: 22px;
+        font-weight: 900;
+        color: #86efac;
+      }
+
+      .cx-notice-021d.error {
+        color: #fca5a5;
+      }
+
+      .cx-quote-item-021d {
+        margin-bottom: 10px;
+      }
+
+      .cx-signature-preview-021d {
+        min-height: 68px;
+        border: 1px dashed rgba(255,255,255,.22);
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        background: rgba(0,0,0,.16);
+        overflow: hidden;
+      }
+
+      .cx-signature-preview-021d img {
+        max-width: 100%;
+        max-height: 92px;
+        object-fit: contain;
+      }
+
+      @media (max-width: 1120px) {
+        .cx-universal-grid-021d,
+        .cx-field-grid-021d,
+        .cx-field-grid-021d.three {
+          grid-template-columns: 1fr;
+        }
+      }
+    `;
+  }
+
+  function cxClientModuleEnabled021D(kind) {
+    return kind === "quotes"
+      ? cxClientHasUniversalModule021D(CX_UNIVERSAL_QUOTES_CODES_021D)
+      : cxClientHasUniversalModule021D(CX_UNIVERSAL_NOTES_CODES_021D);
+  }
+
+  async function renderClientUniversalNotesModule021D(activeCode = "notas") {
+    ensureUniversalModuleStyles021D();
+
+    const selectedDate = window.__cxUniversalNotesDate021D || cxUniversalTodayIso021D();
+    let payload = { day_items: [], upcoming: [] };
+    let error = "";
+
+    try {
+      payload = await cxUniversalApi021D(`/mini-panel-notes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&date=${encodeURIComponent(selectedDate)}`);
+    } catch (err) {
+      error = err.message || "No se pudo cargar Notas.";
+    }
+
+    const dayItems = Array.isArray(payload.day_items) ? payload.day_items : [];
+    const upcoming = Array.isArray(payload.upcoming) ? payload.upcoming : [];
+
+    const renderNote = (item) => `
+      <article class="cx-row-021d">
+        <div class="cx-row-head-021d">
+          <div>
+            <strong>${h(item.title || "Nota")}</strong>
+            <small>${h(item.note_date || "")} · ${h(item.display_time || item.note_time || "")} · ${h(item.note_type || "recordatorio")}</small>
+            <p class="cx-muted-021d">${h(item.description || "Sin detalle")}</p>
+          </div>
+          <div class="cx-actions-021d">
+            <button class="cx-mini-btn-021d" type="button" data-client-note-complete="${h(item.id)}">Completar</button>
+            <button class="cx-mini-btn-021d danger" type="button" data-client-note-archive="${h(item.id)}">Archivar</button>
+          </div>
+        </div>
+      </article>
+    `;
+
+    cxUniversalShell021D(
+      activeCode,
+      "Módulo universal",
+      "Notas / Agenda",
+      "Agenda operativa funcional para panel principal y mini paneles.",
+      `
+        <section class="cx-universal-grid-021d">
+          <article class="cx-universal-card-021d">
+            <h2>Nueva nota / recordatorio</h2>
+            <form class="cx-universal-form-021d" data-client-notes-form>
+              <div class="cx-field-grid-021d">
+                <div class="cx-field-021d">
+                  <label>Fecha</label>
+                  <input type="date" name="note_date" value="${h(selectedDate)}" required>
+                </div>
+                <div class="cx-field-021d">
+                  <label>Hora</label>
+                  <input type="time" name="note_time" value="${h(cxUniversalTimeNow021D())}" required>
+                </div>
+              </div>
+
+              <div class="cx-field-grid-021d">
+                <div class="cx-field-021d">
+                  <label>Tipo</label>
+                  <select name="note_type">
+                    <option value="reminder">Recordatorio</option>
+                    <option value="note">Nota</option>
+                  </select>
+                </div>
+                <div class="cx-field-021d">
+                  <label>Título</label>
+                  <input name="title" placeholder="Ej: llamar cliente, enviar propuesta..." required>
+                </div>
+              </div>
+
+              <div class="cx-field-021d">
+                <label>Detalle</label>
+                <textarea name="description" placeholder="Detalle interno opcional"></textarea>
+              </div>
+
+              <div class="cx-actions-021d">
+                <button class="cx-mini-btn-021d primary" type="submit">Guardar nota</button>
+              </div>
+              <div class="cx-notice-021d ${error ? "error" : ""}" data-client-notes-notice>${h(error)}</div>
+            </form>
+          </article>
+
+          <article class="cx-universal-card-021d">
+            <h2>Próximos 5</h2>
+            <div class="cx-list-021d">
+              ${upcoming.length ? upcoming.slice(0, 5).map(renderNote).join("") : `<div class="cx-row-021d cx-muted-021d">Sin próximos recordatorios.</div>`}
+            </div>
+          </article>
+
+          <article class="cx-universal-card-021d" style="grid-column: 1 / -1;">
+            <div class="cx-row-head-021d">
+              <div>
+                <h2>Día seleccionado</h2>
+                <p class="cx-muted-021d">${h(selectedDate)} · ${dayItems.length} recordatorios</p>
+              </div>
+              <div class="cx-field-021d" style="min-width:220px;">
+                <label>Cambiar día</label>
+                <input type="date" data-client-notes-date value="${h(selectedDate)}">
+              </div>
+            </div>
+
+            <div class="cx-list-021d">
+              ${dayItems.length ? dayItems.map(renderNote).join("") : `<div class="cx-row-021d cx-muted-021d">No hay recordatorios en este día.</div>`}
+            </div>
+          </article>
+        </section>
+      `
+    );
+
+    const dateInput = document.querySelector("[data-client-notes-date]");
+    dateInput?.addEventListener("change", async () => {
+      window.__cxUniversalNotesDate021D = dateInput.value || cxUniversalTodayIso021D();
+      await renderClientUniversalNotesModule021D(activeCode);
+    });
+
+    document.querySelector("[data-client-notes-form]")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const notice = form.querySelector("[data-client-notes-notice]");
+      const formData = new FormData(form);
+      const payload = {
+        title: String(formData.get("title") || "").trim(),
+        description: String(formData.get("description") || "").trim(),
+        note_date: String(formData.get("note_date") || selectedDate),
+        note_time: String(formData.get("note_time") || cxUniversalTimeNow021D()),
+        note_type: String(formData.get("note_type") || "reminder"),
+      };
+
+      try {
+        if (notice) {
+          notice.classList.remove("error");
+          notice.textContent = "Guardando...";
+        }
+        await cxUniversalApi021D(`/mini-panel-notes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        window.__cxUniversalNotesDate021D = payload.note_date;
+        await renderClientUniversalNotesModule021D(activeCode);
+      } catch (err) {
+        if (notice) {
+          notice.classList.add("error");
+          notice.textContent = err.message || "No se pudo guardar la nota.";
+        }
+      }
+    });
+  }
+
+  async function renderClientUniversalQuotesModule021D(activeCode = "cotizaciones") {
+    ensureUniversalModuleStyles021D();
+
+    let filter = window.__cxUniversalQuotesFilter021D || "all";
+    let query = window.__cxUniversalQuotesQuery021D || "";
+    let payload = { quotes: [] };
+    let summary = { active_count: 0, total_amount: 0 };
+    let error = "";
+
+    try {
+      const docFilter = filter === "quotes" ? "&document_type=quote" : filter === "accounts" ? "&document_type=account" : "";
+      payload = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&include_archived=true&q=${encodeURIComponent(query)}${docFilter}`);
+      summary = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/summary?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`);
+    } catch (err) {
+      error = err.message || "No se pudieron cargar cotizaciones.";
+    }
+
+    const quotes = Array.isArray(payload.quotes) ? payload.quotes : [];
+
+    const renderQuote = (quote) => {
+      const isAccount = String(quote.document_type || quote.status || "").toLowerCase() === "account" || String(quote.status || "").toLowerCase() === "converted";
+      return `
+        <article class="cx-row-021d">
+          <div class="cx-row-head-021d">
+            <div>
+              <strong>${h(quote.client_name || "Cliente")}</strong>
+              <small>${h(quote.quote_number || "")} · ${h(isAccount ? "Cuenta de cobro" : "Cotización")}</small>
+              <small>${h(quote.created_at ? String(quote.created_at).slice(0, 10) : "")}</small>
+            </div>
+            <div><strong>${h(cxUniversalMoney021D(quote.total || 0))}</strong></div>
+          </div>
+          <div class="cx-actions-021d" style="margin-top:12px;">
+            <button class="cx-mini-btn-021d" type="button" data-client-quote-detail="${h(quote.id)}">Detalle</button>
+            <button class="cx-mini-btn-021d primary" type="button" data-client-quote-pdf="${h(quote.id)}" data-document-type="${isAccount ? "account" : "quote"}">${h(isAccount ? "PDF cuenta de cobro" : "PDF cotización")}</button>
+            ${isAccount ? `<button class="cx-mini-btn-021d" type="button" data-client-quote-pdf="${h(quote.id)}" data-document-type="quote">PDF cotización</button>` : `<button class="cx-mini-btn-021d" type="button" data-client-quote-convert="${h(quote.id)}">Pasar a cuenta de cobro</button>`}
+            <button class="cx-mini-btn-021d danger" type="button" data-client-quote-archive="${h(quote.id)}">Archivar</button>
+          </div>
+        </article>
+      `;
+    };
+
+    cxUniversalShell021D(
+      activeCode,
+      "Módulo universal",
+      "Cotizaciones",
+      "Genera cotizaciones, PDF corporativo, firma y cuenta de cobro desde cualquier panel.",
+      `
+        <section class="cx-universal-grid-021d">
+          <article class="cx-universal-card-021d">
+            <div class="cx-row-head-021d">
+              <div>
+                <h2>Formulario de cotización</h2>
+                <p class="cx-muted-021d">Datos comerciales, conceptos, descuentos, pago y firma.</p>
+              </div>
+              <div class="cx-summary-pills-021d">
+                <span class="cx-pill-021d">Total: <strong data-client-quote-total>${h(cxUniversalMoney021D(0))}</strong></span>
+              </div>
+            </div>
+
+            <form class="cx-universal-form-021d" data-client-quotes-form>
+              <div class="cx-field-grid-021d">
+                <div class="cx-field-021d">
+                  <label>Nombre o razón social</label>
+                  <input name="client_name" placeholder="Cliente / empresa" required>
+                </div>
+                <div class="cx-field-021d">
+                  <label>CC / NIT</label>
+                  <input name="client_document" placeholder="Documento">
+                </div>
+                <div class="cx-field-021d">
+                  <label>Teléfono</label>
+                  <input name="client_phone" placeholder="Teléfono">
+                </div>
+                <div class="cx-field-021d">
+                  <label>Dirección</label>
+                  <input name="client_address" placeholder="Dirección">
+                </div>
+                <div class="cx-field-021d">
+                  <label>Correo</label>
+                  <input name="client_email" placeholder="correo@cliente.com">
+                </div>
+              </div>
+
+              <div class="cx-universal-card-021d" style="padding:14px;">
+                <div class="cx-row-head-021d">
+                  <h3>Conceptos</h3>
+                  <button class="cx-mini-btn-021d" type="button" data-client-quote-add-item>Agregar línea</button>
+                </div>
+                <div data-client-quote-items>
+                  <div class="cx-field-grid-021d three cx-quote-item-021d" data-client-quote-item>
+                    <div class="cx-field-021d">
+                      <label>Detalle de concepto</label>
+                      <input name="item_description" placeholder="Servicio, producto, referencia..." required>
+                    </div>
+                    <div class="cx-field-021d">
+                      <label>Cantidad</label>
+                      <input name="item_quantity" type="number" step="0.01" min="0" value="1">
+                    </div>
+                    <div class="cx-field-021d">
+                      <label>Valor unitario</label>
+                      <input name="item_unit_price" type="number" step="0.01" min="0" value="0">
+                    </div>
+                    <button class="cx-mini-btn-021d danger" type="button" data-client-quote-remove-item>Quitar</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="cx-field-grid-021d">
+                <div class="cx-universal-card-021d" style="padding:14px;">
+                  <h3>Descuento 1</h3>
+                  <div class="cx-field-021d"><label>Nombre</label><input name="discount_1_name" placeholder="Ej: pronto pago"></div>
+                  <div class="cx-field-021d"><label>Descripción</label><input name="discount_1_description" placeholder="Detalle del descuento"></div>
+                  <div class="cx-field-021d"><label>Valor</label><input name="discount_1_value" type="number" step="0.01" min="0" value="0"></div>
+                </div>
+                <div class="cx-universal-card-021d" style="padding:14px;">
+                  <h3>Descuento 2</h3>
+                  <div class="cx-field-021d"><label>Nombre</label><input name="discount_2_name" placeholder="Ej: campaña"></div>
+                  <div class="cx-field-021d"><label>Descripción</label><input name="discount_2_description" placeholder="Detalle del descuento"></div>
+                  <div class="cx-field-021d"><label>Valor</label><input name="discount_2_value" type="number" step="0.01" min="0" value="0"></div>
+                </div>
+              </div>
+
+              <div class="cx-field-grid-021d">
+                <div class="cx-field-021d">
+                  <label>Detalle pago 1</label>
+                  <input name="payment_detail" placeholder="Anticipo, saldo, contado...">
+                </div>
+                <div class="cx-field-021d">
+                  <label>Nombre</label>
+                  <input name="payment_name" placeholder="Responsable / banco / referencia">
+                </div>
+                <div class="cx-field-021d">
+                  <label>Forma</label>
+                  <select name="payment_method">
+                    <option value="efectivo">Efectivo</option>
+                    <option value="transferencia" selected>Transferencia</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                </div>
+                <div class="cx-field-021d">
+                  <label>Datos de pago</label>
+                  <input name="payment_data" placeholder="Cuenta, referencia, vencimiento...">
+                </div>
+              </div>
+
+              <div class="cx-field-021d">
+                <label>Observaciones / condiciones</label>
+                <textarea name="notes" placeholder="Validez de oferta, garantías, tiempos de entrega..."></textarea>
+              </div>
+
+              <div class="cx-field-021d">
+                <label>Adjuntar firma digital</label>
+                <input type="file" accept="image/*" data-client-quote-signature-file>
+                <input type="hidden" name="signature_data_url" data-client-quote-signature-data>
+                <div class="cx-signature-preview-021d" data-client-quote-signature-preview><span class="cx-muted-021d">Sin firma adjunta.</span></div>
+              </div>
+
+              <div class="cx-actions-021d">
+                <button class="cx-mini-btn-021d" type="reset">Nuevo</button>
+                <button class="cx-mini-btn-021d primary" type="submit">Guardar cotización</button>
+              </div>
+              <div class="cx-notice-021d ${error ? "error" : ""}" data-client-quotes-notice>${h(error)}</div>
+            </form>
+          </article>
+
+          <article class="cx-universal-card-021d">
+            <h2>Historial</h2>
+            <div class="cx-field-grid-021d" style="grid-template-columns: 1fr 170px;">
+              <div class="cx-field-021d"><label>Buscar</label><input data-client-quotes-search placeholder="Nombre, NIT, correo o número" value="${h(query)}"></div>
+              <div class="cx-field-021d"><label>Tipo</label>
+                <select data-client-quotes-filter>
+                  <option value="all" ${filter === "all" ? "selected" : ""}>Todos</option>
+                  <option value="quotes" ${filter === "quotes" ? "selected" : ""}>Cotizaciones</option>
+                  <option value="accounts" ${filter === "accounts" ? "selected" : ""}>Cuentas de cobro</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="cx-summary-pills-021d" style="margin-top:12px;">
+              <span class="cx-pill-021d">Activas: ${h(summary.active_count || 0)}</span>
+              <span class="cx-pill-021d">Monto: ${h(cxUniversalMoney021D(summary.total_amount || 0))}</span>
+            </div>
+
+            <div class="cx-list-021d">
+              ${quotes.length ? quotes.map(renderQuote).join("") : `<div class="cx-row-021d cx-muted-021d">Sin cotizaciones registradas.</div>`}
+            </div>
+          </article>
+        </section>
+      `
+    );
+
+    const form = document.querySelector("[data-client-quotes-form]");
+    const recalc = () => {
+      let subtotal = 0;
+      form?.querySelectorAll("[data-client-quote-item]").forEach((row) => {
+        const qty = Number(row.querySelector('[name="item_quantity"]')?.value || 0);
+        const price = Number(row.querySelector('[name="item_unit_price"]')?.value || 0);
+        subtotal += qty * price;
+      });
+      const d1 = Number(form?.querySelector('[name="discount_1_value"]')?.value || 0);
+      const d2 = Number(form?.querySelector('[name="discount_2_value"]')?.value || 0);
+      const total = Math.max(0, subtotal - d1 - d2);
+      const target = document.querySelector("[data-client-quote-total]");
+      if (target) target.textContent = cxUniversalMoney021D(total);
+    };
+
+    form?.addEventListener("input", recalc);
+    recalc();
+
+    document.querySelector("[data-client-quote-add-item]")?.addEventListener("click", () => {
+      const wrap = document.querySelector("[data-client-quote-items]");
+      const first = wrap?.querySelector("[data-client-quote-item]");
+      if (!wrap || !first) return;
+      const clone = first.cloneNode(true);
+      clone.querySelectorAll("input").forEach((input) => {
+        if (input.name === "item_quantity") input.value = "1";
+        else if (input.name === "item_unit_price") input.value = "0";
+        else input.value = "";
+      });
+      wrap.appendChild(clone);
+      recalc();
+    });
+
+    document.querySelector("[data-client-quote-items]")?.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-client-quote-remove-item]");
+      if (!remove) return;
+      const rows = Array.from(document.querySelectorAll("[data-client-quote-item]"));
+      if (rows.length <= 1) return;
+      remove.closest("[data-client-quote-item]")?.remove();
+      recalc();
+    });
+
+    document.querySelector("[data-client-quote-signature-file]")?.addEventListener("change", (event) => {
+      const file = event.target.files && event.target.files[0];
+      const hidden = document.querySelector("[data-client-quote-signature-data]");
+      const preview = document.querySelector("[data-client-quote-signature-preview]");
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || "");
+        if (hidden) hidden.value = dataUrl;
+        if (preview) preview.innerHTML = `<img src="${h(dataUrl)}" alt="Firma">`;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const notice = form.querySelector("[data-client-quotes-notice]");
+      const fd = new FormData(form);
+
+      const items = Array.from(form.querySelectorAll("[data-client-quote-item]"))
+        .map((row) => ({
+          description: String(row.querySelector('[name="item_description"]')?.value || "").trim(),
+          quantity: Number(row.querySelector('[name="item_quantity"]')?.value || 0),
+          unit_price: Number(row.querySelector('[name="item_unit_price"]')?.value || 0),
+        }))
+        .filter((item) => item.description);
+
+      const discounts = [1, 2].map((index) => ({
+        name: String(fd.get(`discount_${index}_name`) || "").trim(),
+        description: String(fd.get(`discount_${index}_description`) || "").trim(),
+        value: Number(fd.get(`discount_${index}_value`) || 0),
+      }));
+
+      const body = {
+        client_name: String(fd.get("client_name") || "").trim(),
+        client_document: String(fd.get("client_document") || "").trim(),
+        client_address: String(fd.get("client_address") || "").trim(),
+        client_phone: String(fd.get("client_phone") || "").trim(),
+        client_email: String(fd.get("client_email") || "").trim(),
+        items,
+        discounts,
+        payment: {
+          detail: String(fd.get("payment_detail") || "").trim(),
+          name: String(fd.get("payment_name") || "").trim(),
+          method: String(fd.get("payment_method") || "transferencia"),
+          data: String(fd.get("payment_data") || "").trim(),
+        },
+        notes: String(fd.get("notes") || "").trim(),
+        signature_data_url: String(fd.get("signature_data_url") || "").trim(),
+      };
+
+      try {
+        if (notice) {
+          notice.classList.remove("error");
+          notice.textContent = "Guardando cotización...";
+        }
+        await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        await renderClientUniversalQuotesModule021D(activeCode);
+      } catch (err) {
+        if (notice) {
+          notice.classList.add("error");
+          notice.textContent = err.message || "No se pudo guardar la cotización.";
+        }
+      }
+    });
+
+    document.querySelector("[data-client-quotes-search]")?.addEventListener("change", async (event) => {
+      window.__cxUniversalQuotesQuery021D = event.target.value || "";
+      await renderClientUniversalQuotesModule021D(activeCode);
+    });
+
+    document.querySelector("[data-client-quotes-filter]")?.addEventListener("change", async (event) => {
+      window.__cxUniversalQuotesFilter021D = event.target.value || "all";
+      await renderClientUniversalQuotesModule021D(activeCode);
+    });
+  }
+
+  document.addEventListener("click", async (event) => {
+    const noteComplete = event.target.closest("[data-client-note-complete]");
+    if (noteComplete) {
+      await cxUniversalApi021D(`/mini-panel-notes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(noteComplete.dataset.clientNoteComplete)}/complete?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, { method: "POST", body: JSON.stringify({}) });
+      await renderClientUniversalNotesModule021D("notas");
+      return;
+    }
+
+    const noteArchive = event.target.closest("[data-client-note-archive]");
+    if (noteArchive) {
+      await cxUniversalApi021D(`/mini-panel-notes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(noteArchive.dataset.clientNoteArchive)}?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, { method: "DELETE" });
+      await renderClientUniversalNotesModule021D("notas");
+      return;
+    }
+
+    const quotePdf = event.target.closest("[data-client-quote-pdf]");
+    if (quotePdf) {
+      const id = quotePdf.dataset.clientQuotePdf;
+      const docType = quotePdf.dataset.documentType || "quote";
+      window.open(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&document_type=${encodeURIComponent(docType)}`, "_blank", "noopener");
+      return;
+    }
+
+    const quoteConvert = event.target.closest("[data-client-quote-convert]");
+    if (quoteConvert) {
+      const id = quoteConvert.dataset.clientQuoteConvert;
+      await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/convert?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, { method: "POST", body: JSON.stringify({}) });
+      window.open(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&document_type=account`, "_blank", "noopener");
+      await renderClientUniversalQuotesModule021D("cotizaciones");
+      return;
+    }
+
+    const quoteArchive = event.target.closest("[data-client-quote-archive]");
+    if (quoteArchive) {
+      const id = quoteArchive.dataset.clientQuoteArchive;
+      await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/archive?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, { method: "POST", body: JSON.stringify({}) });
+      await renderClientUniversalQuotesModule021D("cotizaciones");
+      return;
+    }
+
+    const quoteDetail = event.target.closest("[data-client-quote-detail]");
+    if (quoteDetail) {
+      alert("Detalle disponible en la tarjeta. La edición avanzada queda en la siguiente fase.");
+      return;
+    }
+  }, true);
+  /* CLONEXA_021D_UNIVERSAL_MODULE_RENDER_ADAPTER_END */
+
+
   async function renderClientModulePlaceholder(code) {
     const company = state.company || {};
     $("app").innerHTML = `
@@ -8203,6 +9074,16 @@
       if (clientAction) {
         const action = String(clientAction.dataset.clientAction || "");
 
+        if (action === "quotes:open" && cxClientHasUniversalModule021D(CX_UNIVERSAL_QUOTES_CODES_021D)) {
+          await renderClientUniversalQuotesModule021D("cotizaciones");
+          return;
+        }
+
+        if (action === "notes:open" && cxClientHasUniversalModule021D(CX_UNIVERSAL_NOTES_CODES_021D)) {
+          await renderClientUniversalNotesModule021D("notas");
+          return;
+        }
+
         if (action === "workforce:add" && isClientModuleActive("workforce")) {
           await renderPersonalModule();
           setTimeout(() => document.querySelector("[data-personal-add-row]")?.click(), 60);
@@ -8260,6 +9141,16 @@
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
 
         if (!isClientModuleActive(code)) return;
+
+        if (cxIsQuotesUniversalCode021D(code)) {
+          await renderClientUniversalQuotesModule021D(code);
+          return;
+        }
+
+        if (cxIsNotesUniversalCode021D(code)) {
+          await renderClientUniversalNotesModule021D(code);
+          return;
+        }
 
         if (code === "workforce") {
           await renderPersonalModule();
