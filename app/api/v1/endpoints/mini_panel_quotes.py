@@ -344,14 +344,56 @@ async def _company_profile(conn: asyncpg.Connection, company_id: uuid.UUID) -> d
 
     profile = dict(row)
     store = _json(profile.get("settings_json"), {})
+
+    # CLONEXA_021C_COMPANY_PROFILE_LOGO_SOURCES_START
+    company_settings_json: dict[str, Any] = {}
+    company_branding_row: dict[str, Any] = {}
+
+    try:
+        settings_row = await conn.fetchrow(
+            '''
+            SELECT settings_json
+            FROM company_settings
+            WHERE company_id = $1::uuid
+            LIMIT 1
+            ''',
+            company_id,
+        )
+        if settings_row:
+            company_settings_json = _json(settings_row["settings_json"], {})
+    except Exception:
+        company_settings_json = {}
+
+    try:
+        branding_row = await conn.fetchrow(
+            '''
+            SELECT *
+            FROM company_branding
+            WHERE company_id = $1::uuid
+            LIMIT 1
+            ''',
+            company_id,
+        )
+        if branding_row:
+            company_branding_row = dict(branding_row)
+    except Exception:
+        company_branding_row = {}
+    # CLONEXA_021C_COMPANY_PROFILE_LOGO_SOURCES_END
+
     branding_candidates: list[Any] = [
         profile.get("branding"),
         profile.get("company_branding"),
         profile.get("branding_json"),
+        company_branding_row,
         store.get("branding") if isinstance(store, dict) else None,
         store.get("company_branding") if isinstance(store, dict) else None,
         (store.get("experience") or {}).get("branding")
         if isinstance(store, dict) and isinstance(store.get("experience"), dict)
+        else None,
+        company_settings_json.get("branding") if isinstance(company_settings_json, dict) else None,
+        company_settings_json.get("company_branding") if isinstance(company_settings_json, dict) else None,
+        (company_settings_json.get("experience") or {}).get("branding")
+        if isinstance(company_settings_json, dict) and isinstance(company_settings_json.get("experience"), dict)
         else None,
     ]
 
@@ -362,13 +404,23 @@ async def _company_profile(conn: asyncpg.Connection, company_id: uuid.UUID) -> d
             break
 
     logo_url = (
-        str(branding.get("logo_url") or branding.get("logo") or branding.get("brand_logo_url") or "").strip()
+        str(
+            branding.get("logo_url")
+            or branding.get("logo")
+            or branding.get("brand_logo_url")
+            or branding.get("logo_data_url")
+            or branding.get("logo_base64")
+            or branding.get("image_url")
+            or ""
+        ).strip()
         if isinstance(branding, dict)
         else ""
     )
 
     profile["branding"] = branding
     profile["company_branding"] = branding
+    profile["company_settings_json"] = company_settings_json
+    profile["company_branding_row"] = company_branding_row
     profile["logo_url"] = logo_url
     profile["brand_logo_url"] = logo_url
     return profile
@@ -937,6 +989,14 @@ def _load_image_reader(source: str):
             encoded = raw.split(",", 1)[1]
             return ImageReader(io.BytesIO(base64.b64decode(encoded)))
 
+        # CLONEXA_021C_RAW_BASE64_IMAGE_SUPPORT_START
+        if len(raw) > 300 and not raw.startswith(("http://", "https://", "/")):
+            try:
+                return ImageReader(io.BytesIO(base64.b64decode(raw)))
+            except Exception:
+                pass
+        # CLONEXA_021C_RAW_BASE64_IMAGE_SUPPORT_END
+
         if raw.startswith("/"):
             base_url = str(os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_PUBLIC_URL") or "").strip().rstrip("/")
             if base_url:
@@ -982,24 +1042,42 @@ def _document_number_for_pdf(quote: dict[str, Any], document_type: str) -> str:
 
 def _company_logo_url(company: dict[str, Any]) -> str:
     settings = _json(company.get("settings_json"), {})
+    company_settings = _json(company.get("company_settings_json"), {})
+    branding_row = _json(company.get("company_branding_row"), {})
+
+    # CLONEXA_021C_COMPANY_LOGO_URL_SOURCES_START
     branding_candidates = [
         company.get("branding"),
         company.get("company_branding"),
         company.get("branding_json"),
+        branding_row,
         settings.get("branding") if isinstance(settings, dict) else None,
         settings.get("company_branding") if isinstance(settings, dict) else None,
         (settings.get("experience") or {}).get("branding")
         if isinstance(settings, dict) and isinstance(settings.get("experience"), dict)
         else None,
+        company_settings.get("branding") if isinstance(company_settings, dict) else None,
+        company_settings.get("company_branding") if isinstance(company_settings, dict) else None,
+        (company_settings.get("experience") or {}).get("branding")
+        if isinstance(company_settings, dict) and isinstance(company_settings.get("experience"), dict)
+        else None,
     ]
 
+    logo_keys = ("logo_url", "logo", "brand_logo_url", "logo_data_url", "logo_base64", "image_url", "avatar_url")
     for candidate in branding_candidates:
         if isinstance(candidate, dict):
-            logo = str(candidate.get("logo_url") or candidate.get("logo") or candidate.get("brand_logo_url") or "").strip()
-            if logo:
-                return logo
+            for key in logo_keys:
+                logo = str(candidate.get(key) or "").strip()
+                if logo:
+                    return logo
 
-    return str(company.get("logo_url") or company.get("logo") or company.get("brand_logo_url") or "").strip()
+    for key in logo_keys:
+        logo = str(company.get(key) or "").strip()
+        if logo:
+            return logo
+
+    return ""
+    # CLONEXA_021C_COMPANY_LOGO_URL_SOURCES_END
 
 
 def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_type: str = "quote") -> bytes:
@@ -1266,3 +1344,26 @@ async def quote_pdf(
         )
     finally:
         await conn.close()
+
+# CLONEXA_021C_PDF_LEGACY_AMP_ROUTE_START
+@router.get("/companies/{company_id}/{quote_id}/pdf&document_type={document_type_value}")
+async def quote_pdf_legacy_amp_document_type(
+    company_id: uuid.UUID,
+    quote_id: uuid.UUID,
+    document_type_value: str,
+    panel_type: str = Query("sales"),
+    authorization: str | None = Header(default=None),
+) -> Response:
+    # Compatibilidad defensiva para URLs antiguas generadas como:
+    # /pdf&document_type=account?panel_type=sales
+    # La ruta correcta es:
+    # /pdf?document_type=account&panel_type=sales
+    return await quote_pdf(
+        company_id=company_id,
+        quote_id=quote_id,
+        panel_type=panel_type,
+        document_type=document_type_value,
+        authorization=authorization,
+    )
+# CLONEXA_021C_PDF_LEGACY_AMP_ROUTE_END
+

@@ -995,7 +995,7 @@
 
   async function downloadQuotePdf021A(quoteId, quoteNumber, documentType = "quote") {
     const suffix = documentType === "account" ? "account" : "quote";
-    const response = await quotesApi021A(`/${encodeURIComponent(quoteId)}/pdf&document_type=${encodeURIComponent(suffix)}`, { raw: true });
+    const response = await quotesApi021A(`/${encodeURIComponent(quoteId)}/pdf?document_type=${encodeURIComponent(suffix)}`, { raw: true });
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
