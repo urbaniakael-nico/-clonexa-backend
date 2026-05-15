@@ -43,6 +43,35 @@ def to_bool(value: Any, default: bool = True) -> bool:
     return default
 
 
+def normalize_reference_channel(value: Any, bot_active: Any = None, system_active: Any = None) -> str:
+    raw = clean(value).lower().replace("-", "_").replace(" ", "_")
+    if raw in {"bot", "bots", "telegram", "whatsapp"}:
+        return "bot"
+    if raw in {"system", "sistema", "panel", "paneles", "minipanel", "mini_panel", "mini-panel", "app"}:
+        return "system"
+    if raw in {"both", "ambos", "bot_system", "bot_sistema", "all", "todos"}:
+        return "both"
+    if bot_active is not None:
+        bot = to_bool(bot_active, False)
+        system = to_bool(system_active, False) if system_active is not None else False
+        if bot and system:
+            return "both"
+        if system and not bot:
+            return "system"
+        if bot:
+            return "bot"
+    return "bot"
+
+
+def reference_channel_flags(channel: str) -> tuple[bool, bool]:
+    normalized = normalize_reference_channel(channel)
+    if normalized == "system":
+        return False, True
+    if normalized == "both":
+        return True, True
+    return True, False
+
+
 async def table_exists(db: AsyncSession, table_name: str) -> bool:
     result = await db.execute(text("SELECT to_regclass(:table_name)"), {"table_name": table_name})
     return bool(result.scalar())
@@ -77,6 +106,40 @@ async def ensure_storage(db: AsyncSession) -> None:
     """))
 
     await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT ''
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS color text NOT NULL DEFAULT ''
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'bot'
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS system_active boolean NOT NULL DEFAULT false
+    """))
+
+    await db.execute(text("""
+        DROP INDEX IF EXISTS ux_product_references_company_name_size
+    """))
+
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_product_references_company_category
+        ON product_references (company_id, lower(category), lower(name), lower(size), lower(color))
+    """))
+
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_product_references_company_channel
+        ON product_references (company_id, channel)
+    """))
+
+    await db.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_product_references_company_created
         ON product_references (company_id, created_at DESC)
     """))
@@ -87,8 +150,14 @@ async def ensure_storage(db: AsyncSession) -> None:
     """))
 
     await db.execute(text("""
-        CREATE UNIQUE INDEX IF NOT EXISTS ux_product_references_company_name_size
-        ON product_references (company_id, lower(name), lower(size))
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_product_references_company_category_name_size_color
+        ON product_references (
+            company_id,
+            lower(COALESCE(category, '')),
+            lower(name),
+            lower(size),
+            lower(COALESCE(color, ''))
+        )
     """))
 
     await db.commit()
@@ -169,6 +238,7 @@ async def list_references(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     bot_active: str | None = Query(None),
+    channel: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_storage(db)
@@ -179,7 +249,7 @@ async def list_references(
 
     search = clean(q)
     if search:
-        where.append("(lower(name) LIKE :search OR lower(size) LIKE :search)")
+        where.append("(lower(name) LIKE :search OR lower(size) LIKE :search OR lower(COALESCE(category, '')) LIKE :search OR lower(COALESCE(color, '')) LIKE :search)")
         params["search"] = f"%{search.lower()}%"
 
     if clean(date_from):
@@ -194,16 +264,30 @@ async def list_references(
         where.append("bot_active = :bot_active")
         params["bot_active"] = to_bool(bot_active)
 
+    channel_value = clean(channel).lower()
+    if channel_value:
+        normalized_channel = normalize_reference_channel(channel_value)
+        if normalized_channel == "system":
+            where.append("system_active IS TRUE")
+        elif normalized_channel == "bot":
+            where.append("bot_active IS TRUE")
+        elif normalized_channel == "both":
+            where.append("bot_active IS TRUE AND system_active IS TRUE")
+
     result = await db.execute(
         text(f"""
             SELECT
                 id,
                 company_id,
                 name,
+                COALESCE(category, '') AS category,
                 size,
+                COALESCE(color, '') AS color,
                 initial_quantity,
                 activation_date,
                 bot_active,
+                COALESCE(system_active, false) AS system_active,
+                COALESCE(NULLIF(channel, ''), CASE WHEN bot_active IS TRUE THEN 'bot' ELSE 'system' END) AS channel,
                 created_at,
                 updated_at
             FROM product_references
@@ -233,9 +317,12 @@ async def create_reference(
     await require_references_module(db, company_id)
 
     name = clean(payload.get("name"))
+    category = clean(payload.get("category"))
     size = clean(payload.get("size"))
+    color = clean(payload.get("color"))
     initial_quantity = to_int(payload.get("initial_quantity"), 0)
-    bot_active = to_bool(payload.get("bot_active"), True)
+    channel = normalize_reference_channel(payload.get("channel"), payload.get("bot_active"), payload.get("system_active"))
+    bot_active, system_active = reference_channel_flags(channel)
 
     if not name:
         raise HTTPException(status_code=422, detail="Nombre de referencia requerido.")
@@ -249,18 +336,22 @@ async def create_reference(
             FROM product_references
             WHERE company_id = :company_id
               AND lower(name) = lower(:name)
+              AND lower(COALESCE(category, '')) = lower(:category)
               AND lower(size) = lower(:size)
+              AND lower(COALESCE(color, '')) = lower(:color)
             LIMIT 1
         """),
         {
             "company_id": company_id,
             "name": name,
+            "category": category,
             "size": size,
+            "color": color,
         },
     )
 
     if duplicate.scalar():
-        raise HTTPException(status_code=409, detail="Ya existe una referencia con ese nombre y talla.")
+        raise HTTPException(status_code=409, detail="Ya existe una referencia con ese nombre, categoría, talla y color.")
 
     reference_id = str(uuid4())
 
@@ -271,10 +362,14 @@ async def create_reference(
                     id,
                     company_id,
                     name,
+                    category,
                     size,
+                    color,
                     initial_quantity,
                     activation_date,
                     bot_active,
+                    system_active,
+                    channel,
                     created_at,
                     updated_at
                 )
@@ -282,10 +377,14 @@ async def create_reference(
                     :id,
                     :company_id,
                     :name,
+                    :category,
                     :size,
+                    :color,
                     :initial_quantity,
                     CASE WHEN :initial_quantity > 0 THEN now() ELSE NULL END,
                     :bot_active,
+                    :system_active,
+                    :channel,
                     now(),
                     now()
                 )
@@ -294,9 +393,13 @@ async def create_reference(
                 "id": reference_id,
                 "company_id": company_id,
                 "name": name,
+                "category": category,
                 "size": size,
+                "color": color,
                 "initial_quantity": initial_quantity,
                 "bot_active": bot_active,
+                "system_active": system_active,
+                "channel": channel,
             },
         )
 
@@ -310,9 +413,13 @@ async def create_reference(
         "id": reference_id,
         "company_id": company_id,
         "name": name,
+        "category": category,
         "size": size,
+        "color": color,
         "initial_quantity": initial_quantity,
         "bot_active": bot_active,
+        "system_active": system_active,
+        "channel": channel,
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
 
@@ -347,9 +454,14 @@ async def update_reference(
         raise HTTPException(status_code=404, detail="Referencia no encontrada.")
 
     name = clean(payload.get("name")) if "name" in payload else clean(current["name"])
+    category = clean(payload.get("category")) if "category" in payload else clean(current.get("category"))
     size = clean(payload.get("size")) if "size" in payload else clean(current["size"])
+    color = clean(payload.get("color")) if "color" in payload else clean(current.get("color"))
     initial_quantity = to_int(payload.get("initial_quantity"), int(current["initial_quantity"] or 0)) if "initial_quantity" in payload else int(current["initial_quantity"] or 0)
-    bot_active = to_bool(payload.get("bot_active"), bool(current["bot_active"])) if "bot_active" in payload else bool(current["bot_active"])
+
+    current_channel = current.get("channel") or ("bot" if current.get("bot_active") else "system")
+    channel = normalize_reference_channel(payload.get("channel", current_channel), payload.get("bot_active"), payload.get("system_active"))
+    bot_active, system_active = reference_channel_flags(channel)
 
     if not name:
         raise HTTPException(status_code=422, detail="Nombre de referencia requerido.")
@@ -363,7 +475,9 @@ async def update_reference(
             FROM product_references
             WHERE company_id = :company_id
               AND lower(name) = lower(:name)
+              AND lower(COALESCE(category, '')) = lower(:category)
               AND lower(size) = lower(:size)
+              AND lower(COALESCE(color, '')) = lower(:color)
               AND id <> :reference_id
             LIMIT 1
         """),
@@ -371,12 +485,14 @@ async def update_reference(
             "company_id": company_id,
             "reference_id": reference_id,
             "name": name,
+            "category": category,
             "size": size,
+            "color": color,
         },
     )
 
     if duplicate.scalar():
-        raise HTTPException(status_code=409, detail="Ya existe otra referencia con ese nombre y talla.")
+        raise HTTPException(status_code=409, detail="Ya existe otra referencia con ese nombre, categoría, talla y color.")
 
     try:
         await db.execute(
@@ -384,13 +500,17 @@ async def update_reference(
                 UPDATE product_references
                 SET
                     name = :name,
+                    category = :category,
                     size = :size,
+                    color = :color,
                     initial_quantity = :initial_quantity,
                     activation_date = CASE
                         WHEN activation_date IS NULL AND :initial_quantity > 0 THEN now()
                         ELSE activation_date
                     END,
                     bot_active = :bot_active,
+                    system_active = :system_active,
+                    channel = :channel,
                     updated_at = now()
                 WHERE company_id = :company_id
                   AND id = :reference_id
@@ -399,9 +519,13 @@ async def update_reference(
                 "company_id": company_id,
                 "reference_id": reference_id,
                 "name": name,
+                "category": category,
                 "size": size,
+                "color": color,
                 "initial_quantity": initial_quantity,
                 "bot_active": bot_active,
+                "system_active": system_active,
+                "channel": channel,
             },
         )
 
@@ -415,9 +539,13 @@ async def update_reference(
         "id": reference_id,
         "company_id": company_id,
         "name": name,
+        "category": category,
         "size": size,
+        "color": color,
         "initial_quantity": initial_quantity,
         "bot_active": bot_active,
+        "system_active": system_active,
+        "channel": channel,
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
 
@@ -524,7 +652,9 @@ async def bot_reference_sizes(
         text("""
             SELECT
                 id,
+                COALESCE(category, '') AS category,
                 size,
+                COALESCE(color, '') AS color,
                 initial_quantity,
                 bot_active
             FROM product_references
@@ -542,7 +672,9 @@ async def bot_reference_sizes(
     items = [
         {
             "id": clean(row["id"]),
+            "category": clean(row["category"]),
             "size": clean(row["size"]),
+            "color": clean(row["color"]),
             "initial_quantity": int(row["initial_quantity"] or 0),
             "bot_active": bool(row["bot_active"]),
         }
@@ -570,10 +702,14 @@ async def references_summary(
             SELECT
                 id,
                 name,
+                COALESCE(category, '') AS category,
                 size,
+                COALESCE(color, '') AS color,
                 initial_quantity,
                 activation_date,
                 bot_active,
+                COALESCE(system_active, false) AS system_active,
+                COALESCE(NULLIF(channel, ''), CASE WHEN bot_active IS TRUE THEN 'bot' ELSE 'system' END) AS channel,
                 created_at,
                 updated_at
             FROM product_references
@@ -632,12 +768,16 @@ async def references_summary(
         by_reference_size.append({
             "id": ref.get("id"),
             "name": ref.get("name"),
+            "category": ref.get("category") or "",
             "size": ref.get("size"),
+            "color": ref.get("color") or "",
             "initial_quantity": initial,
             "finished_quantity": finished,
             "pending_quantity": pending,
             "progress_percent": round((finished / initial) * 100, 2) if initial > 0 else 0,
             "bot_active": bool(ref.get("bot_active")),
+            "system_active": bool(ref.get("system_active")),
+            "channel": ref.get("channel") or ("bot" if ref.get("bot_active") else "system"),
             "activation_date": ref.get("activation_date"),
         })
 
@@ -662,6 +802,7 @@ async def export_references_csv(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     bot_active: str | None = Query(None),
+    channel: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     data = await list_references(
@@ -670,6 +811,7 @@ async def export_references_csv(
         date_from=date_from,
         date_to=date_to,
         bot_active=bot_active,
+        channel=channel,
         db=db,
     )
 
@@ -680,10 +822,14 @@ async def export_references_csv(
         "id",
         "company_id",
         "name",
+        "category",
         "size",
+        "color",
         "initial_quantity",
         "activation_date",
         "bot_active",
+        "system_active",
+        "channel",
         "created_at",
         "updated_at",
     ])
@@ -693,10 +839,14 @@ async def export_references_csv(
             item.get("id"),
             item.get("company_id"),
             item.get("name"),
+            item.get("category"),
             item.get("size"),
+            item.get("color"),
             item.get("initial_quantity"),
             item.get("activation_date"),
             item.get("bot_active"),
+            item.get("system_active"),
+            item.get("channel"),
             item.get("created_at"),
             item.get("updated_at"),
         ])

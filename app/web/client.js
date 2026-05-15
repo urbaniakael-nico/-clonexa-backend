@@ -9159,9 +9159,424 @@
   /* CLONEXA_021D_UNIVERSAL_MODULE_RENDER_ADAPTER_END */
 
 
+
+  /* CLONEXA_022E_REFERENCES_CATEGORY_COLOR_CHANNEL_START */
+  function cxIsReferencesCode022E(code) {
+    return ["references", "reference", "referencias", "referencia", "production_references"].includes(String(code || "").trim().toLowerCase());
+  }
+
+  function cxReferenceChannelLabel022E(channel, row = {}) {
+    const value = String(channel || row.channel || "").trim().toLowerCase();
+    if (value === "system" || row.system_active === true) return "Sistema";
+    if (value === "both") return "Ambos";
+    return "Bot";
+  }
+
+  function cxReferenceChannelValue022E(row = {}) {
+    const value = String(row.channel || "").trim().toLowerCase();
+    if (["system", "bot", "both"].includes(value)) return value;
+    if (row.system_active === true && row.bot_active === true) return "both";
+    if (row.system_active === true) return "system";
+    return "bot";
+  }
+
+  async function cxReferencesApi022E(path, options = {}) {
+    return api(path, options);
+  }
+
+  function cxReferencesQuery022E() {
+    const params = new URLSearchParams();
+    const q = String(document.getElementById("refSearch022E")?.value || "").trim();
+    const from = String(document.getElementById("refDateFrom022E")?.value || "").trim();
+    const to = String(document.getElementById("refDateTo022E")?.value || "").trim();
+    const channel = String(document.getElementById("refChannelFilter022E")?.value || "").trim();
+    if (q) params.set("q", q);
+    if (from) params.set("date_from", from);
+    if (to) params.set("date_to", to);
+    if (channel) params.set("channel", channel);
+    return params.toString();
+  }
+
+  async function cxLoadReferences022E() {
+    const query = cxReferencesQuery022E();
+    const suffix = query ? `?${query}` : "";
+    return cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}${suffix}`);
+  }
+
+  async function cxLoadReferencesSummary022E() {
+    return cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}/summary`);
+  }
+
+  function cxReferencesNumber022E(value) {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? Math.round(number).toLocaleString("es-CO") : "0";
+  }
+
+  function cxReferenceDate022E(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toLocaleDateString("es-CO");
+  }
+
+  function cxReferenceReadCreatePayload022E() {
+    return {
+      category: String(document.getElementById("refCreateCategory022E")?.value || "").trim(),
+      name: String(document.getElementById("refCreateName022E")?.value || "").trim(),
+      size: String(document.getElementById("refCreateSize022E")?.value || "").trim(),
+      color: String(document.getElementById("refCreateColor022E")?.value || "").trim(),
+      initial_quantity: Number(document.getElementById("refCreateQty022E")?.value || 0) || 0,
+      channel: String(document.getElementById("refCreateChannel022E")?.value || "system").trim()
+    };
+  }
+
+  function cxReferenceReadRowPayload022E(row) {
+    return {
+      category: String(row.querySelector('[data-ref-field="category"]')?.value || "").trim(),
+      name: String(row.querySelector('[data-ref-field="name"]')?.value || "").trim(),
+      size: String(row.querySelector('[data-ref-field="size"]')?.value || "").trim(),
+      color: String(row.querySelector('[data-ref-field="color"]')?.value || "").trim(),
+      initial_quantity: Number(row.querySelector('[data-ref-field="initial_quantity"]')?.value || 0) || 0,
+      channel: String(row.querySelector('[data-ref-field="channel"]')?.value || "system").trim()
+    };
+  }
+
+  function cxReferenceMergeRows022E(items = [], summary = {}) {
+    const summaryRows = Array.isArray(summary.by_reference_size) ? summary.by_reference_size : [];
+    const summaryById = new Map(summaryRows.map((row) => [String(row.id || ""), row]));
+    return (Array.isArray(items) ? items : []).map((item) => {
+      const stats = summaryById.get(String(item.id || "")) || {};
+      return {
+        ...item,
+        finished_quantity: stats.finished_quantity ?? item.finished_quantity ?? 0,
+        pending_quantity: stats.pending_quantity ?? item.pending_quantity ?? item.initial_quantity ?? 0,
+        progress_percent: stats.progress_percent ?? item.progress_percent ?? 0,
+        channel: item.channel || stats.channel || (item.bot_active ? "bot" : "system"),
+        system_active: item.system_active ?? stats.system_active ?? false
+      };
+    });
+  }
+
+  function cxReferenceRow022E(row = {}) {
+    const channel = cxReferenceChannelValue022E(row);
+    return `
+      <tr data-reference-row="${h(row.id || "")}">
+        <td><input data-ref-field="name" value="${h(row.name || "")}" placeholder="Ej: DREAMY JACKET"></td>
+        <td><input data-ref-field="category" value="${h(row.category || "")}" placeholder="Ej: chaqueta"></td>
+        <td><input data-ref-field="size" value="${h(row.size || "")}" placeholder="Ej: SM"></td>
+        <td><input data-ref-field="color" value="${h(row.color || "")}" placeholder="Ej: negro"></td>
+        <td><input data-ref-field="initial_quantity" type="number" min="0" step="1" value="${h(row.initial_quantity ?? 0)}"></td>
+        <td>${h(cxReferenceDate022E(row.activation_date || row.created_at))}</td>
+        <td>${h(cxReferencesNumber022E(row.finished_quantity || 0))}</td>
+        <td>${h(cxReferencesNumber022E(row.pending_quantity || 0))}</td>
+        <td>
+          <select data-ref-field="channel">
+            <option value="system" ${channel === "system" ? "selected" : ""}>Sistema</option>
+            <option value="bot" ${channel === "bot" ? "selected" : ""}>Bot</option>
+            <option value="both" ${channel === "both" ? "selected" : ""}>Ambos</option>
+          </select>
+        </td>
+        <td>
+          <button class="client-btn" type="button" data-reference-save="${h(row.id || "")}">Guardar</button>
+          <button class="client-btn" type="button" data-reference-delete="${h(row.id || "")}">Archivar</button>
+        </td>
+      </tr>
+    `;
+  }
+
+  function cxReferencesTable022E(rows = []) {
+    return `
+      <div class="cx-ref-table-wrap">
+        <table class="cx-ref-table">
+          <thead>
+            <tr>
+              <th>Nombre referencia</th>
+              <th>Categoría</th>
+              <th>Talla</th>
+              <th>Color</th>
+              <th>Cantidad meta</th>
+              <th>Fecha activación</th>
+              <th>Terminadas</th>
+              <th>Pendiente</th>
+              <th>Canal de uso</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length ? rows.map(cxReferenceRow022E).join("") : `<tr><td colspan="10">Sin referencias para este filtro.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function cxReferencesStyles022E() {
+    if (document.getElementById("cxReferences022EStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxReferences022EStyles";
+    style.textContent = `
+      .cx-ref-toolbar,
+      .cx-ref-create {
+        display: grid;
+        grid-template-columns: minmax(240px, 1.4fr) 150px 150px 170px auto auto;
+        gap: 12px;
+        align-items: end;
+        margin-top: 16px;
+      }
+      .cx-ref-create {
+        grid-template-columns: minmax(240px, 1.2fr) minmax(160px, .8fr) 120px 140px 140px 170px auto;
+      }
+      .cx-ref-field {
+        display: grid;
+        gap: 7px;
+      }
+      .cx-ref-field label {
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: .1em;
+        font-weight: 1000;
+        opacity: .82;
+      }
+      .cx-ref-field input,
+      .cx-ref-field select,
+      .cx-ref-table input,
+      .cx-ref-table select {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(0,0,0,.24);
+        color: inherit;
+        border-radius: 16px;
+        padding: 12px 13px;
+        font-weight: 900;
+        outline: none;
+      }
+      .cx-ref-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        margin-top: 18px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 22px;
+        background: rgba(0,0,0,.10);
+      }
+      .cx-ref-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 1180px;
+      }
+      .cx-ref-table th,
+      .cx-ref-table td {
+        padding: 13px 12px;
+        border-bottom: 1px solid rgba(255,255,255,.09);
+        text-align: left;
+        vertical-align: middle;
+      }
+      .cx-ref-table th {
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: .1em;
+        background: rgba(40,45,85,.55);
+      }
+      .cx-ref-table td { font-weight: 850; }
+      @media (max-width: 1100px) {
+        .cx-ref-toolbar,
+        .cx-ref-create {
+          grid-template-columns: 1fr;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxReferencesNotice022E(message, type = "ok") {
+    const box = document.getElementById("referencesNotice022E");
+    if (!box) return;
+    box.innerHTML = `<div class="personal-toast ${type === "error" ? "error" : "ok"}">${h(message)}</div>`;
+    window.clearTimeout(window.__cxReferencesNotice022E);
+    window.__cxReferencesNotice022E = window.setTimeout(() => {
+      if (box) box.innerHTML = "";
+    }, 3600);
+  }
+
+  async function renderReferencesModule022E() {
+    if (!isClientModuleActive("references") && !isClientModuleActive("production_references")) {
+      render();
+      return;
+    }
+    cxReferencesStyles022E();
+    const company = state.company || {};
+    let payload = { items: [] };
+    let summary = {};
+    let loadError = "";
+    try {
+      payload = await cxLoadReferences022E();
+      summary = await cxLoadReferencesSummary022E();
+    } catch (error) {
+      loadError = error.message || "No se pudieron cargar referencias.";
+    }
+    const rows = cxReferenceMergeRows022E(payload.items || [], summary);
+    const botTotal = rows.filter((row) => ["bot", "both"].includes(cxReferenceChannelValue022E(row))).length;
+    const systemTotal = rows.filter((row) => ["system", "both"].includes(cxReferenceChannelValue022E(row))).length;
+    const initialTotal = rows.reduce((sum, row) => sum + (Number(row.initial_quantity || 0) || 0), 0);
+    const pendingTotal = rows.reduce((sum, row) => sum + (Number(row.pending_quantity || 0) || 0), 0);
+    window.__cxReferencesRows022E = rows;
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("references")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Módulo Referencias</div>
+              <h1 class="client-title">Referencias</h1>
+              <p class="client-muted">Administra catálogo maestro: categoría, talla/modelo, color, cantidad meta y canal de uso.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-references-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-references-save-all>Guardar cambios</button>
+                <button class="client-btn" type="button" data-references-export>Exportar CSV</button>
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+              </div>
+              <div id="referencesNotice022E">${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}</div>
+            </header>
+            <section class="client-panel">
+              <div class="client-kpi-grid">
+                <div class="client-kpi"><span>Referencias</span><strong>${h(cxReferencesNumber022E(rows.length))}</strong></div>
+                <div class="client-kpi"><span>Bot</span><strong>${h(cxReferencesNumber022E(botTotal))}</strong></div>
+                <div class="client-kpi"><span>Sistema</span><strong>${h(cxReferencesNumber022E(systemTotal))}</strong></div>
+                <div class="client-kpi"><span>Cantidad meta</span><strong>${h(cxReferencesNumber022E(initialTotal))}</strong></div>
+                <div class="client-kpi"><span>Pendiente</span><strong>${h(cxReferencesNumber022E(pendingTotal))}</strong></div>
+              </div>
+            </section>
+            <section class="client-panel">
+              <div class="client-eyebrow">Buscar referencia o talla</div>
+              <div class="cx-ref-toolbar">
+                <div class="cx-ref-field"><label>Buscar</label><input id="refSearch022E" placeholder="Buscar referencia, categoría, talla o color..."></div>
+                <div class="cx-ref-field"><label>Desde</label><input id="refDateFrom022E" type="date"></div>
+                <div class="cx-ref-field"><label>Hasta</label><input id="refDateTo022E" type="date"></div>
+                <div class="cx-ref-field">
+                  <label>Canal de uso</label>
+                  <select id="refChannelFilter022E">
+                    <option value="">Todas</option>
+                    <option value="bot">Bot</option>
+                    <option value="system">Sistema</option>
+                    <option value="both">Ambos</option>
+                  </select>
+                </div>
+                <button class="client-btn" type="button" data-references-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-references-export>Exportar CSV</button>
+              </div>
+              <div class="cx-ref-create">
+                <div class="cx-ref-field"><label>Nombre referencia</label><input id="refCreateName022E" placeholder="Ej: DREAMY JACKET"></div>
+                <div class="cx-ref-field"><label>Categoría</label><input id="refCreateCategory022E" placeholder="Ej: chaqueta"></div>
+                <div class="cx-ref-field"><label>Talla</label><input id="refCreateSize022E" placeholder="Ej: SM"></div>
+                <div class="cx-ref-field"><label>Color</label><input id="refCreateColor022E" placeholder="Ej: negro"></div>
+                <div class="cx-ref-field"><label>Cantidad meta</label><input id="refCreateQty022E" type="number" min="0" step="1" value="0"></div>
+                <div class="cx-ref-field">
+                  <label>Canal de uso</label>
+                  <select id="refCreateChannel022E">
+                    <option value="system">Sistema</option>
+                    <option value="bot">Bot</option>
+                    <option value="both">Ambos</option>
+                  </select>
+                </div>
+                <button class="client-btn" type="button" data-reference-create>Crear</button>
+              </div>
+            </section>
+            <section class="client-panel">${cxReferencesTable022E(rows)}</section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  document.addEventListener("click", async (event) => {
+    if (event.target.closest("[data-references-refresh]")) {
+      await renderReferencesModule022E();
+      return;
+    }
+
+    if (event.target.closest("[data-reference-create]")) {
+      const payload = cxReferenceReadCreatePayload022E();
+      if (!payload.name || !payload.size) {
+        cxReferencesNotice022E("Nombre y talla son obligatorios.", "error");
+        return;
+      }
+      await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      await renderReferencesModule022E();
+      setTimeout(() => cxReferencesNotice022E("Referencia creada."), 80);
+      return;
+    }
+
+    const saveOne = event.target.closest("[data-reference-save]");
+    if (saveOne) {
+      const row = saveOne.closest("[data-reference-row]");
+      const id = saveOne.dataset.referenceSave;
+      if (!row || !id) return;
+      await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(cxReferenceReadRowPayload022E(row))
+      });
+      await renderReferencesModule022E();
+      setTimeout(() => cxReferencesNotice022E("Referencia actualizada."), 80);
+      return;
+    }
+
+    if (event.target.closest("[data-references-save-all]")) {
+      const rows = Array.from(document.querySelectorAll("[data-reference-row]"));
+      for (const row of rows) {
+        const id = row.dataset.referenceRow;
+        if (!id) continue;
+        await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(cxReferenceReadRowPayload022E(row))
+        });
+      }
+      await renderReferencesModule022E();
+      setTimeout(() => cxReferencesNotice022E("Cambios guardados."), 80);
+      return;
+    }
+
+    const archive = event.target.closest("[data-reference-delete]");
+    if (archive) {
+      const id = archive.dataset.referenceDelete;
+      if (!id || !confirm("¿Archivar esta referencia? No se borrará físicamente.")) return;
+      await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await renderReferencesModule022E();
+      setTimeout(() => cxReferencesNotice022E("Referencia archivada."), 80);
+      return;
+    }
+
+    if (event.target.closest("[data-references-export]")) {
+      const query = cxReferencesQuery022E();
+      const suffix = query ? `?${query}` : "";
+      const a = document.createElement("a");
+      a.href = `${API}/references-v1/companies/${encodeURIComponent(state.companyId)}/export.csv${suffix}`;
+      a.download = `clonexa_referencias_${state.companyId || "empresa"}_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+  }, true);
+  /* CLONEXA_022E_REFERENCES_CATEGORY_COLOR_CHANNEL_END */
+
   async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
+
+    if (
+      typeof cxIsReferencesCode022E === "function" &&
+      cxIsReferencesCode022E(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderReferencesModule022E === "function"
+    ) {
+      return renderReferencesModule022E();
+    }
 
     if (
       typeof cxIsQuotesUniversalCode021D === "function" &&
