@@ -9902,6 +9902,276 @@
       </main>
     `;
   }
+
+  /* CLONEXA_022G_CLIENT_SALES_PIPELINE_GUIDE_START */
+  function cxSalesPipelineStyles022G() {
+    cxSalesStyles022F();
+    if (document.getElementById("cxSalesPipelineStyles022G")) return;
+    const style = document.createElement("style");
+    style.id = "cxSalesPipelineStyles022G";
+    style.textContent = `
+      .cx-sales22-status{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+      .cx-sales22-pill{display:inline-flex;border-radius:999px;padding:7px 10px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.14);font-size:12px;font-weight:950;color:#fff}
+      .cx-sales22-pill.ok{background:rgba(41,255,187,.13);border-color:rgba(41,255,187,.32);color:#8fffd8}
+      .cx-sales22-pill.warn{background:rgba(255,211,77,.12);border-color:rgba(255,211,77,.32);color:#ffe08a}
+      .cx-sales22-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+      .cx-sales22-file{display:inline-flex;align-items:center;justify-content:center;border-radius:14px;padding:10px 12px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);font-weight:950;cursor:pointer;font-size:12px;color:#fff}
+      .cx-sales22-file input{display:none}
+      .cx-sales22-btn.danger{background:rgba(255,74,124,.18);border:1px solid rgba(255,74,124,.45)}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxSalesFileToDataUrl022G(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function cxSalesOpenFile022G(file) {
+    if (!file?.file_data) return;
+    const win = window.open("", "_blank");
+    if (!win) return;
+    const src = file.file_data;
+    const isPdf = String(file.file_type || "").includes("pdf");
+    win.document.write(isPdf
+      ? `<iframe src="${src}" style="width:100%;height:100vh;border:0"></iframe>`
+      : `<img src="${src}" style="max-width:100%;height:auto;display:block;margin:auto" />`);
+  }
+
+  function cxSalesDownloadFile022G(file, fallbackName = "archivo") {
+    if (!file?.file_data) return;
+    const a = document.createElement("a");
+    a.href = file.file_data;
+    a.download = file.file_name || fallbackName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function cxSalesStatusHtml022G(item) {
+    const archived = String(item?.status || "").toLowerCase() === "archived";
+    return `
+      <div class="cx-sales22-status">
+        <span class="cx-sales22-pill ok">Venta registrada</span>
+        <span class="cx-sales22-pill ${item?.is_prepared ? "ok" : "warn"}">${item?.is_prepared ? "Alistado" : "Pendiente alistar"}</span>
+        <span class="cx-sales22-pill ${item?.has_support ? "ok" : "warn"}">${item?.has_support ? "Soporte adjunto" : "Sin soporte"}</span>
+        <span class="cx-sales22-pill ${item?.has_guide ? "ok" : "warn"}">${item?.has_guide ? "Guía enviada" : "Sin guía"}</span>
+        ${archived ? `<span class="cx-sales22-pill">Archivada</span>` : ""}
+      </div>
+    `;
+  }
+
+  async function renderClientSalesRegisterModule022F(options = {}) {
+    cxSalesPipelineStyles022G();
+
+    let config = { occupation: "technology", custom_categories: [] };
+    let salesData = { items: [], active_count: 0, total_amount: 0 };
+    let categories = { items: [] };
+    let loadError = "";
+
+    try {
+      config = await cxSalesApi022F("/config");
+      salesData = await cxSalesApi022F(`/sales?panel_type=all&include_archived=${options.include_archived ? "true" : "false"}&q=${encodeURIComponent(options.q || "")}`);
+      categories = await cxSalesApi022F("/categories?panel_type=all");
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Registro Venta.";
+    }
+
+    const company = state.company || {};
+    const items = Array.isArray(salesData.items) ? salesData.items : [];
+    const itemMap = new Map(items.map((item) => [String(item.id), item]));
+    const categoriesText = (Array.isArray(categories.items) ? categories.items : [])
+      .map((item) => item.category)
+      .filter(Boolean)
+      .join(", ");
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("registro_venta")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Módulo Registro Venta</div>
+              <h1 class="client-title">Registro Venta</h1>
+              <p class="client-muted">Consolida ventas de mini paneles, valida alistamiento, revisa soportes y envía guías.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-cx-sales22-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+
+            <section class="cx-sales22-grid">
+              <article class="cx-sales22-card">
+                <div class="cx-sales22-kicker">Configuración por empresa</div>
+                <h2 class="cx-sales22-title">Ocupación comercial</h2>
+                <p class="cx-sales22-muted">Define las categorías visuales del mini panel cuando no existan categorías creadas en Referencias.</p>
+
+                <div class="cx-sales22-row" style="margin-top:16px">
+                  <div class="cx-sales22-field">
+                    <label>Ocupación</label>
+                    <select id="cxSalesOccupation022F">
+                      <option value="technology" ${config.occupation === "technology" ? "selected" : ""}>Tecnología</option>
+                      <option value="ropa" ${config.occupation === "ropa" ? "selected" : ""}>Ropa</option>
+                      <option value="accesorios" ${config.occupation === "accesorios" ? "selected" : ""}>Accesorios</option>
+                      <option value="servicios" ${config.occupation === "servicios" ? "selected" : ""}>Servicios</option>
+                      <option value="custom" ${config.occupation === "custom" ? "selected" : ""}>Otro / personalizado</option>
+                    </select>
+                  </div>
+                  <div class="cx-sales22-field">
+                    <label>Categorías personalizadas</label>
+                    <input id="cxSalesCustomCategories022F" value="${h((config.custom_categories || []).join(", "))}" placeholder="Ej: Celulares, Cables, Otros" />
+                  </div>
+                </div>
+
+                <button class="cx-sales22-btn" type="button" data-cx-sales22-save-config style="margin-top:14px">Guardar configuración</button>
+                <div class="cx-sales22-muted" style="margin-top:14px">Categorías actuales: ${h(categoriesText || "Sin categorías. Usa Referencias o configura ocupación.")}</div>
+                <div id="cxSalesMsg022F" class="cx-sales22-muted" style="margin-top:10px"></div>
+              </article>
+
+              <article class="cx-sales22-card">
+                <div class="cx-sales22-kicker">Consolidado</div>
+                <h2 class="cx-sales22-title">${h(cxSalesMoney022F(salesData.total_amount || 0))}</h2>
+                <p class="cx-sales22-muted">${Number(salesData.active_count || 0)} ventas activas capturadas desde mini paneles.</p>
+                <div class="cx-sales22-filters">
+                  <input id="cxSalesFilter022F" value="${h(options.q || "")}" placeholder="Buscar referencia, usuario o categoría..." />
+                  <select id="cxSalesArchived022F">
+                    <option value="false">Activas</option>
+                    <option value="true" ${options.include_archived ? "selected" : ""}>Incluye archivadas</option>
+                  </select>
+                  <button class="cx-sales22-btn secondary" type="button" data-cx-sales22-apply>Buscar</button>
+                </div>
+              </article>
+            </section>
+
+            <section class="cx-sales22-card" style="margin-top:18px">
+              <div class="cx-sales22-kicker">Ventas desde mini paneles</div>
+              <div class="cx-sales22-list">
+                ${items.map((item) => `
+                  <article class="cx-sales22-sale">
+                    <strong>
+                      <span>${h(item.reference_name || "Venta")}</span>
+                      <span>${h(cxSalesMoney022F(item.total || 0))}</span>
+                    </strong>
+                    <div class="cx-sales22-muted">${h(item.reference_category || "Sin categoría")} · ${h(item.reference_size || "")} ${h(item.reference_color || "")}</div>
+                    <div class="cx-sales22-muted">Origen: ${h(item.source_panel_label || item.panel_type || "Mini Panel")} · ${h(item.source_user_label || item.created_by_label || "Usuario")}</div>
+                    <div class="cx-sales22-muted">${h(item.created_at || "")} · ${h(item.payment_method || "")}</div>
+                    ${cxSalesStatusHtml022G(item)}
+                    <div class="cx-sales22-actions">
+                      ${item.has_support ? `
+                        <button class="cx-sales22-btn secondary" type="button" data-cx-sales22-open-support="${h(item.id)}">Ver soporte</button>
+                        <button class="cx-sales22-btn secondary" type="button" data-cx-sales22-download-support="${h(item.id)}">Descargar soporte</button>
+                      ` : ""}
+                      ${item.has_guide ? `
+                        <button class="cx-sales22-btn secondary" type="button" data-cx-sales22-open-guide="${h(item.id)}">Ver guía</button>
+                        <button class="cx-sales22-btn secondary" type="button" data-cx-sales22-download-guide="${h(item.id)}">Descargar guía</button>
+                      ` : ""}
+                      ${item.status !== "archived" ? `
+                        <label class="cx-sales22-file">Adjuntar guía
+                          <input type="file" accept="image/*,.pdf" data-cx-sales22-guide-file="${h(item.id)}">
+                        </label>
+                        <button class="cx-sales22-btn danger" type="button" data-cx-sales22-archive="${h(item.id)}">Archivar</button>
+                      ` : `<span class="cx-sales22-muted">Archivada</span>`}
+                    </div>
+                  </article>
+                `).join("") || `<div class="cx-sales22-muted">Sin ventas registradas desde mini paneles.</div>`}
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    document.querySelector("[data-cx-sales22-refresh]")?.addEventListener("click", () => renderClientSalesRegisterModule022F(options));
+
+    document.querySelector("[data-cx-sales22-save-config]")?.addEventListener("click", async () => {
+      const msg = document.getElementById("cxSalesMsg022F");
+      try {
+        if (msg) msg.textContent = "Guardando configuración...";
+        const occupation = document.getElementById("cxSalesOccupation022F")?.value || "technology";
+        const customCategories = String(document.getElementById("cxSalesCustomCategories022F")?.value || "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean);
+        await cxSalesApi022F("/config", {
+          method: "POST",
+          body: JSON.stringify({ occupation, custom_categories: customCategories })
+        });
+        if (msg) msg.textContent = "Configuración guardada.";
+        await renderClientSalesRegisterModule022F(options);
+      } catch (error) {
+        if (msg) msg.textContent = error.message || "No se pudo guardar.";
+      }
+    });
+
+    document.querySelector("[data-cx-sales22-apply]")?.addEventListener("click", async () => {
+      await renderClientSalesRegisterModule022F({
+        q: document.getElementById("cxSalesFilter022F")?.value || "",
+        include_archived: document.getElementById("cxSalesArchived022F")?.value === "true"
+      });
+    });
+
+    document.querySelectorAll("[data-cx-sales22-archive]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-cx-sales22-archive");
+        if (!id) return;
+        if (!confirm("Archivar esta venta? Saldrá de la vista principal y seguirá consultable con el buscador.")) return;
+        await cxSalesApi022F(`/sales/${encodeURIComponent(id)}/archive`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        await renderClientSalesRegisterModule022F(options);
+      });
+    });
+
+    document.querySelectorAll("[data-cx-sales22-guide-file]").forEach((input) => {
+      input.addEventListener("change", async () => {
+        const file = input.files && input.files[0];
+        const id = input.getAttribute("data-cx-sales22-guide-file");
+        if (!file || !id) return;
+        const dataUrl = await cxSalesFileToDataUrl022G(file);
+        await cxSalesApi022F(`/sales/${encodeURIComponent(id)}/guide`, {
+          method: "POST",
+          body: JSON.stringify({
+            file_name: file.name || "guia_envio",
+            file_type: file.type || "application/octet-stream",
+            file_data: dataUrl
+          })
+        });
+        await renderClientSalesRegisterModule022F(options);
+      });
+    });
+
+    document.querySelectorAll("[data-cx-sales22-open-support]").forEach((button) => {
+      button.addEventListener("click", () => cxSalesOpenFile022G(itemMap.get(button.getAttribute("data-cx-sales22-open-support"))?.support));
+    });
+
+    document.querySelectorAll("[data-cx-sales22-download-support]").forEach((button) => {
+      button.addEventListener("click", () => cxSalesDownloadFile022G(itemMap.get(button.getAttribute("data-cx-sales22-download-support"))?.support, "soporte"));
+    });
+
+    document.querySelectorAll("[data-cx-sales22-open-guide]").forEach((button) => {
+      button.addEventListener("click", () => cxSalesOpenFile022G(itemMap.get(button.getAttribute("data-cx-sales22-open-guide"))?.guide));
+    });
+
+    document.querySelectorAll("[data-cx-sales22-download-guide]").forEach((button) => {
+      button.addEventListener("click", () => cxSalesDownloadFile022G(itemMap.get(button.getAttribute("data-cx-sales22-download-guide"))?.guide, "guia_envio"));
+    });
+  }
+  /* CLONEXA_022G_CLIENT_SALES_PIPELINE_GUIDE_END */
+
   /* CLONEXA_022F_CLIENT_REGISTRO_VENTA_CONSOLIDADO_END */
 
 
@@ -10106,6 +10376,11 @@ document.addEventListener("click", async (event) => {
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
 
         if (!isClientModuleActive(code)) return;
+
+        if (typeof cxIsSalesRegisterCode022F === "function" && cxIsSalesRegisterCode022F(code)) {
+          await renderClientSalesRegisterModule022F();
+          return;
+        }
 
         if (cxIsQuotesUniversalCode021D(code)) {
           await renderClientUniversalQuotesModule021D(code);

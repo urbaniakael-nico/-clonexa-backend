@@ -92,6 +92,23 @@ class SaleCreateIn(BaseModel):
         return raw if raw in {"efectivo", "transferencia", "cheque", "tarjeta", "otro"} else "otro"
 
 
+
+
+class SalePreparedIn(BaseModel):
+    prepared: bool = True
+
+
+class SaleAttachmentIn(BaseModel):
+    file_name: str = Field(..., min_length=1, max_length=260)
+    file_type: str | None = Field(default="application/octet-stream", max_length=160)
+    file_data: str = Field(..., min_length=1, max_length=6000000)
+
+
+class SaleGuideIn(BaseModel):
+    file_name: str = Field(..., min_length=1, max_length=260)
+    file_type: str | None = Field(default="application/octet-stream", max_length=160)
+    file_data: str = Field(..., min_length=1, max_length=6000000)
+
 def _database_url() -> str:
     raw = (
         os.getenv("DATABASE_URL")
@@ -212,6 +229,102 @@ async def _ensure_storage(conn: asyncpg.Connection) -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS is_prepared BOOLEAN NOT NULL DEFAULT FALSE;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS prepared_at TIMESTAMPTZ NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS prepared_by UUID NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS support_file_name TEXT NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS support_file_type TEXT NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS support_file_data TEXT NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS support_uploaded_at TIMESTAMPTZ NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS support_uploaded_by UUID NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS guide_file_name TEXT NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS guide_file_type TEXT NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS guide_file_data TEXT NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS guide_uploaded_at TIMESTAMPTZ NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS guide_uploaded_by UUID NULL;
+        """
+    )
+    await conn.execute(
+        """
+        ALTER TABLE mini_panel_sales_records
+        ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ NULL;
+        """
+    )
+    await conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_mini_panel_sales_company_prepared
+        ON mini_panel_sales_records (company_id, is_prepared, created_at DESC);
+        """
+    )
+    await conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_mini_panel_sales_company_archived
+        ON mini_panel_sales_records (company_id, archived_at DESC);
         """
     )
     await conn.execute(
@@ -467,11 +580,47 @@ def _panel_label(value: Any) -> str:
     return labels.get(panel, f"Mini Panel {str(panel).title()}")
 
 
+def _iso(value: Any) -> str | None:
+    try:
+        return value.isoformat() if value else None
+    except Exception:
+        return None
+
+
+def _file_payload(row: Any, prefix: str) -> dict[str, Any] | None:
+    name = _clean(_row_value(row, f"{prefix}_file_name", ""))
+    data = _clean(_row_value(row, f"{prefix}_file_data", ""))
+    if not name and not data:
+        return None
+    return {
+        "file_name": name,
+        "file_type": _clean(_row_value(row, f"{prefix}_file_type", "")) or "application/octet-stream",
+        "file_data": data,
+        "uploaded_at": _iso(_row_value(row, f"{prefix}_uploaded_at")),
+        "uploaded_by": str(_row_value(row, f"{prefix}_uploaded_by")) if _row_value(row, f"{prefix}_uploaded_by") else None,
+    }
+
+
+def _pipeline_status(row: Any) -> str:
+    status_value = _clean(_row_value(row, "status", "active")).lower() or "active"
+    if status_value == "archived":
+        return "archived"
+    if _file_payload(row, "guide"):
+        return "guide_attached"
+    if _file_payload(row, "support"):
+        return "support_attached"
+    if bool(_row_value(row, "is_prepared", False)):
+        return "prepared"
+    return status_value
+
+
 def _sale_payload(row: asyncpg.Record) -> dict[str, Any]:
     total = _money(row["total"])
     quantity = _money(row["quantity"])
     unit_price = _money(row["unit_price"])
     created_by_label = _clean(_row_value(row, "creator_display_label", "")) or _clean(_row_value(row, "created_by_label", ""))
+    support = _file_payload(row, "support")
+    guide = _file_payload(row, "guide")
     return {
         "id": str(row["id"]),
         "company_id": str(row["company_id"]),
@@ -487,15 +636,23 @@ def _sale_payload(row: asyncpg.Record) -> dict[str, Any]:
         "payment_method": row["payment_method"],
         "notes": row["notes"] or "",
         "status": row["status"],
+        "pipeline_status": _pipeline_status(row),
+        "is_prepared": bool(_row_value(row, "is_prepared", False)),
+        "prepared_at": _iso(_row_value(row, "prepared_at")),
+        "prepared_by": str(_row_value(row, "prepared_by")) if _row_value(row, "prepared_by") else None,
+        "has_support": support is not None,
+        "support": support,
+        "has_guide": guide is not None,
+        "guide": guide,
+        "archived_at": _iso(_row_value(row, "archived_at")),
         "created_by": str(row["created_by"]) if row["created_by"] else None,
         "created_by_label": created_by_label or "Usuario mini panel",
         "source_user_label": created_by_label or "Usuario mini panel",
         "source_panel_type": row["panel_type"],
         "source_panel_label": _panel_label(row["panel_type"]),
-        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        "created_at": _iso(row["created_at"]),
+        "updated_at": _iso(row["updated_at"]),
     }
-
 
 @router.get("/companies/{company_id}/config")
 async def get_sales_config(company_id: uuid.UUID) -> dict[str, Any]:
@@ -809,7 +966,7 @@ async def archive_sale(
             row = await conn.fetchrow(
                 """
                 UPDATE mini_panel_sales_records
-                SET status = 'archived', updated_at = NOW()
+                SET status = 'archived', archived_at = NOW(), updated_at = NOW()
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
                   AND panel_type = $3
@@ -825,7 +982,7 @@ async def archive_sale(
             row = await conn.fetchrow(
                 """
                 UPDATE mini_panel_sales_records
-                SET status = 'archived', updated_at = NOW()
+                SET status = 'archived', archived_at = NOW(), updated_at = NOW()
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
                 RETURNING *
@@ -838,6 +995,156 @@ async def archive_sale(
             raise HTTPException(status_code=404, detail="Venta no encontrada.")
 
         return {"sale": _sale_payload(row), "archived": True}
+    finally:
+        await conn.close()
+
+
+
+@router.post("/companies/{company_id}/sales/{sale_id}/prepared")
+async def set_sale_prepared(
+    company_id: uuid.UUID,
+    sale_id: uuid.UUID,
+    payload: SalePreparedIn,
+    panel_type: str = Query("sales"),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        access = await _require_access(conn, company_id, authorization)
+        scope_user_id = _scope_user_id(access)
+        if not scope_user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Alistamiento requiere usuario de mini panel.")
+
+        row = await conn.fetchrow(
+            """
+            UPDATE mini_panel_sales_records
+            SET
+                is_prepared = $1,
+                prepared_at = CASE WHEN $1 THEN COALESCE(prepared_at, NOW()) ELSE NULL END,
+                prepared_by = CASE WHEN $1 THEN $5::uuid ELSE NULL END,
+                status = CASE
+                    WHEN $1 AND status = 'active' THEN 'prepared'
+                    WHEN NOT $1 AND status = 'prepared' THEN 'active'
+                    ELSE status
+                END,
+                updated_at = NOW()
+            WHERE id = $2::uuid
+              AND company_id = $3::uuid
+              AND panel_type = $4
+              AND created_by = $5::uuid
+              AND status <> 'archived'
+            RETURNING *
+            """,
+            bool(payload.prepared),
+            sale_id,
+            company_id,
+            _panel(panel_type),
+            scope_user_id,
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Venta no encontrada para este usuario.")
+
+        return {"sale": _sale_payload(row), "prepared": bool(payload.prepared)}
+    finally:
+        await conn.close()
+
+
+@router.post("/companies/{company_id}/sales/{sale_id}/support")
+async def attach_sale_support(
+    company_id: uuid.UUID,
+    sale_id: uuid.UUID,
+    payload: SaleAttachmentIn,
+    panel_type: str = Query("sales"),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        access = await _require_access(conn, company_id, authorization)
+        scope_user_id = _scope_user_id(access)
+        if not scope_user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Adjuntar soporte requiere usuario de mini panel.")
+
+        row = await conn.fetchrow(
+            """
+            UPDATE mini_panel_sales_records
+            SET
+                is_prepared = TRUE,
+                prepared_at = COALESCE(prepared_at, NOW()),
+                prepared_by = COALESCE(prepared_by, $7::uuid),
+                support_file_name = $1,
+                support_file_type = $2,
+                support_file_data = $3,
+                support_uploaded_at = NOW(),
+                support_uploaded_by = $7::uuid,
+                status = CASE WHEN status = 'archived' THEN status ELSE 'support_attached' END,
+                updated_at = NOW()
+            WHERE id = $4::uuid
+              AND company_id = $5::uuid
+              AND panel_type = $6
+              AND created_by = $7::uuid
+              AND status <> 'archived'
+            RETURNING *
+            """,
+            _clean(payload.file_name),
+            _clean(payload.file_type or "application/octet-stream"),
+            payload.file_data,
+            sale_id,
+            company_id,
+            _panel(panel_type),
+            scope_user_id,
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Venta no encontrada para este usuario.")
+
+        return {"sale": _sale_payload(row), "support_attached": True}
+    finally:
+        await conn.close()
+
+
+@router.post("/companies/{company_id}/sales/{sale_id}/guide")
+async def attach_sale_guide(
+    company_id: uuid.UUID,
+    sale_id: uuid.UUID,
+    payload: SaleGuideIn,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        access = await _require_access(conn, company_id, authorization)
+        scope_user_id = _scope_user_id(access)
+
+        row = await conn.fetchrow(
+            """
+            UPDATE mini_panel_sales_records
+            SET
+                guide_file_name = $1,
+                guide_file_type = $2,
+                guide_file_data = $3,
+                guide_uploaded_at = NOW(),
+                guide_uploaded_by = $6::uuid,
+                status = CASE WHEN status = 'archived' THEN status ELSE 'guide_attached' END,
+                updated_at = NOW()
+            WHERE id = $4::uuid
+              AND company_id = $5::uuid
+            RETURNING *
+            """,
+            _clean(payload.file_name),
+            _clean(payload.file_type or "application/octet-stream"),
+            payload.file_data,
+            sale_id,
+            company_id,
+            scope_user_id,
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Venta no encontrada.")
+
+        return {"sale": _sale_payload(row), "guide_attached": True}
     finally:
         await conn.close()
 
