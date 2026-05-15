@@ -647,6 +647,35 @@ def _quote_origin_user_fallback_022c(panel_type: Any) -> str:
     return "Usuario no identificado"
 
 
+
+# CLONEXA_022D_MINIPANEL_USER_SCOPE_START
+def _scope_user_id_022d(access: dict[str, Any] | None) -> uuid.UUID | None:
+    """Return user_id only for real Mini Panel sessions.
+
+    /client calls without Authorization and must see consolidated company data.
+    Mini Panel calls with token and must see only records created by that user.
+    """
+    if not isinstance(access, dict):
+        return None
+    if str(access.get("source") or "") == "client_universal":
+        return None
+    if access.get("mini_panel") is not True:
+        return None
+    raw_user_id = access.get("user_id") or access.get("sub") or access.get("id")
+    if not raw_user_id:
+        return None
+    try:
+        return uuid.UUID(str(raw_user_id))
+    except Exception:
+        return None
+
+
+def _scope_user_label_022d(access: dict[str, Any] | None) -> str:
+    if not isinstance(access, dict):
+        return ""
+    return str(access.get("full_name") or access.get("email") or "").strip()
+# CLONEXA_022D_MINIPANEL_USER_SCOPE_END
+
 async def _enrich_quote_access_user_022c(
     conn: asyncpg.Connection,
     company_id: uuid.UUID,
@@ -899,7 +928,8 @@ async def get_quotes_summary(
     conn = await _connect()
     try:
         await _ensure_storage(conn)
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
         source_filter = _mini_panel_source_filter_sql_022b(source_scope)
@@ -914,8 +944,10 @@ async def get_quotes_summary(
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
                   {source_filter}
+                  AND ($2::uuid IS NULL OR created_by = $2::uuid)
                 """,
                 company_id,
+                scope_user_id_022d,
             )
 
             latest = await conn.fetchrow(
@@ -944,10 +976,12 @@ async def get_quotes_summary(
                 WHERE company_id = $1::uuid
                   {source_filter}
                   AND status <> 'archived'
+                  AND ($2::uuid IS NULL OR created_by = $2::uuid)
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
                 company_id,
+                scope_user_id_022d,
             )
         else:
             row = await conn.fetchrow(
@@ -959,9 +993,11 @@ async def get_quotes_summary(
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
                   AND panel_type = $2
+                  AND ($3::uuid IS NULL OR created_by = $3::uuid)
                 """,
                 company_id,
                 _panel(panel_type),
+                scope_user_id_022d,
             )
 
             latest = await conn.fetchrow(
@@ -990,11 +1026,13 @@ async def get_quotes_summary(
                 WHERE company_id = $1::uuid
                   AND panel_type = $2
                   AND status <> 'archived'
+                  AND ($3::uuid IS NULL OR created_by = $3::uuid)
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
                 company_id,
                 _panel(panel_type),
+                scope_user_id_022d,
             )
 
         return {
@@ -1020,7 +1058,8 @@ async def list_quotes(
     conn = await _connect()
     try:
         await _ensure_storage(conn)
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
         query = f"%{_clean_text(q, 120)}%"
@@ -1067,6 +1106,7 @@ async def list_quotes(
                   {source_filter}
                   {status_filter}
                   {document_filter}
+                  AND ($3::uuid IS NULL OR created_by = $3::uuid)
                   AND (
                     $2::text = '%%'
                     OR client_name ILIKE $2::text
@@ -1081,6 +1121,7 @@ async def list_quotes(
                 """,
                 company_id,
                 query,
+                scope_user_id_022d,
             )
         else:
             rows = await conn.fetch(
@@ -1110,6 +1151,7 @@ async def list_quotes(
                   AND panel_type = $2::text
                   {status_filter}
                   {document_filter}
+                  AND ($4::uuid IS NULL OR created_by = $4::uuid)
                   AND (
                     $3::text = '%%'
                     OR client_name ILIKE $3::text
@@ -1125,6 +1167,7 @@ async def list_quotes(
                 company_id,
                 _panel(panel_type),
                 query,
+                scope_user_id_022d,
             )
         # CLONEXA_021G_R1_CROSS_PANEL_LIST_500_FIX_END
 
@@ -1148,7 +1191,8 @@ async def get_quote(
     conn = await _connect()
     try:
         await _ensure_storage(conn)
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
         if _is_cross_panel_quotes_021f(panel_type):
@@ -1177,10 +1221,12 @@ async def get_quote(
                 FROM mini_panel_quotes
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
+                  AND ($3::uuid IS NULL OR created_by = $3::uuid)
                 LIMIT 1
                 """,
                 quote_id,
                 company_id,
+                scope_user_id_022d,
             )
         else:
             row = await conn.fetchrow(
@@ -1209,11 +1255,13 @@ async def get_quote(
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
                   AND panel_type = $3
+                  AND ($4::uuid IS NULL OR created_by = $4::uuid)
                 LIMIT 1
                 """,
                 quote_id,
                 company_id,
                 _panel(panel_type),
+                scope_user_id_022d,
             )
 
         if not row:
@@ -1252,6 +1300,7 @@ async def update_quote(
     try:
         await _ensure_storage(conn)
         user = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(user)
         await _require_quotes_enabled(conn, company_id, panel_type)
         existing = await conn.fetchrow(
             """
@@ -1279,11 +1328,13 @@ async def update_quote(
             WHERE id = $1::uuid
               AND company_id = $2::uuid
               AND panel_type = $3
+              AND ($4::uuid IS NULL OR created_by = $4::uuid)
             LIMIT 1
             """,
             quote_id,
             company_id,
             _panel(panel_type),
+            scope_user_id_022d,
         )
         if not existing:
             raise HTTPException(status_code=404, detail="Cotizacion no encontrada.")
@@ -1304,7 +1355,8 @@ async def archive_quote(
     conn = await _connect()
     try:
         await _ensure_storage(conn)
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
         # CLONEXA_021G_R1_CROSS_PANEL_ARCHIVE_500_FIX_START
@@ -1317,10 +1369,12 @@ async def archive_quote(
                     updated_at = NOW()
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
+                  AND ($3::uuid IS NULL OR created_by = $3::uuid)
                 RETURNING *
                 """,
                 quote_id,
                 company_id,
+                scope_user_id_022d,
             )
         else:
             row = await conn.fetchrow(
@@ -1332,11 +1386,13 @@ async def archive_quote(
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
                   AND panel_type = $3::text
+                  AND ($4::uuid IS NULL OR created_by = $4::uuid)
                 RETURNING *
                 """,
                 quote_id,
                 company_id,
                 _panel(panel_type),
+                scope_user_id_022d,
             )
         # CLONEXA_021G_R1_CROSS_PANEL_ARCHIVE_500_FIX_END
 
@@ -1357,7 +1413,8 @@ async def convert_quote(
     conn = await _connect()
     try:
         await _ensure_storage(conn)
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
         # CLONEXA_021G_R1_CROSS_PANEL_CONVERT_500_FIX_START
@@ -1371,10 +1428,12 @@ async def convert_quote(
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
                   AND status <> 'archived'
+                  AND ($3::uuid IS NULL OR created_by = $3::uuid)
                 RETURNING *
                 """,
                 quote_id,
                 company_id,
+                scope_user_id_022d,
             )
         else:
             row = await conn.fetchrow(
@@ -1387,11 +1446,13 @@ async def convert_quote(
                   AND company_id = $2::uuid
                   AND panel_type = $3::text
                   AND status <> 'archived'
+                  AND ($4::uuid IS NULL OR created_by = $4::uuid)
                 RETURNING *
                 """,
                 quote_id,
                 company_id,
                 _panel(panel_type),
+                scope_user_id_022d,
             )
         # CLONEXA_021G_R1_CROSS_PANEL_CONVERT_500_FIX_END
 
@@ -1799,7 +1860,8 @@ async def quote_pdf(
     conn = await _connect()
     try:
         await _ensure_storage(conn)
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_quotes_enabled(conn, company_id, panel_type)
 
         if _is_cross_panel_quotes_021f(panel_type):
@@ -1828,10 +1890,12 @@ async def quote_pdf(
                 FROM mini_panel_quotes
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
+                  AND ($3::uuid IS NULL OR created_by = $3::uuid)
                 LIMIT 1
                 """,
                 quote_id,
                 company_id,
+                scope_user_id_022d,
             )
         else:
             row = await conn.fetchrow(
@@ -1860,11 +1924,13 @@ async def quote_pdf(
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
                   AND panel_type = $3
+                  AND ($4::uuid IS NULL OR created_by = $4::uuid)
                 LIMIT 1
                 """,
                 quote_id,
                 company_id,
                 _panel(panel_type),
+                scope_user_id_022d,
             )
 
         if not row:

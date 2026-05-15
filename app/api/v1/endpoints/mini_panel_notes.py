@@ -199,6 +199,29 @@ def _display_date(value: date) -> str:
     return f"{value.day:02d}/{value.month:02d}/{value.year}"
 
 
+
+# CLONEXA_022D_MINIPANEL_USER_SCOPE_START
+def _scope_user_id_022d(access: dict[str, Any] | None) -> uuid.UUID | None:
+    """Return user_id only for real Mini Panel sessions.
+
+    /client calls without Authorization and must see consolidated company data.
+    Mini Panel calls with token and must see only records created by that user.
+    """
+    if not isinstance(access, dict):
+        return None
+    if str(access.get("source") or "") == "client_universal":
+        return None
+    if access.get("mini_panel") is not True:
+        return None
+    raw_user_id = access.get("user_id") or access.get("sub") or access.get("id")
+    if not raw_user_id:
+        return None
+    try:
+        return uuid.UUID(str(raw_user_id))
+    except Exception:
+        return None
+# CLONEXA_022D_MINIPANEL_USER_SCOPE_END
+
 def _extract_token(authorization: str | None) -> str:
     raw = str(authorization or "").strip()
     if not raw:
@@ -363,7 +386,7 @@ def _note_payload(row: asyncpg.Record) -> dict[str, Any]:
     }
 
 
-async def _summary_payload(conn: asyncpg.Connection, company_id: uuid.UUID, panel_type: str, selected_date: date) -> dict[str, Any]:
+async def _summary_payload(conn: asyncpg.Connection, company_id: uuid.UUID, panel_type: str, selected_date: date, scope_user_id_022d: uuid.UUID | None = None) -> dict[str, Any]:
     start, end = _date_range(selected_date)
     count = await conn.fetchval(
         """
@@ -373,11 +396,13 @@ async def _summary_payload(conn: asyncpg.Connection, company_id: uuid.UUID, pane
           AND panel_type = $2
           AND status = 'active'
           AND scheduled_at BETWEEN $3 AND $4
+          AND ($5::uuid IS NULL OR created_by = $5::uuid)
         """,
         company_id,
         _panel(panel_type),
         start,
         end,
+        scope_user_id_022d,
     )
 
     next_rows = await conn.fetch(
@@ -388,11 +413,13 @@ async def _summary_payload(conn: asyncpg.Connection, company_id: uuid.UUID, pane
           AND panel_type = $2
           AND status = 'active'
           AND scheduled_at >= NOW()
+          AND ($3::uuid IS NULL OR created_by = $3::uuid)
         ORDER BY scheduled_at ASC
         LIMIT 5
         """,
         company_id,
         _panel(panel_type),
+        scope_user_id_022d,
     )
     upcoming = [_note_payload(row) for row in next_rows]
     next_note = upcoming[0] if upcoming else None
@@ -423,9 +450,10 @@ async def get_notes_summary(
     selected_date = date_value or datetime.now(BOGOTA).date()
     conn = await _connect()
     try:
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_notes_enabled(conn, company_id, panel_type)
-        return await _summary_payload(conn, company_id, panel_type, selected_date)
+        return await _summary_payload(conn, company_id, panel_type, selected_date, scope_user_id_022d)
     finally:
         await conn.close()
 
@@ -441,7 +469,8 @@ async def list_notes(
     start, end = _date_range(selected_date)
     conn = await _connect()
     try:
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_notes_enabled(conn, company_id, panel_type)
 
         day_rows = await conn.fetch(
@@ -452,15 +481,17 @@ async def list_notes(
               AND panel_type = $2
               AND status <> 'archived'
               AND scheduled_at BETWEEN $3 AND $4
+              AND ($5::uuid IS NULL OR created_by = $5::uuid)
             ORDER BY scheduled_at ASC, created_at ASC
             """,
             company_id,
             _panel(panel_type),
             start,
             end,
+            scope_user_id_022d,
         )
 
-        summary = await _summary_payload(conn, company_id, panel_type, selected_date)
+        summary = await _summary_payload(conn, company_id, panel_type, selected_date, scope_user_id_022d)
         return {
             **summary,
             "items": [_note_payload(row) for row in day_rows],
@@ -532,7 +563,8 @@ async def update_note(
 ) -> dict[str, Any]:
     conn = await _connect()
     try:
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_notes_enabled(conn, company_id, panel_type)
 
         current = await conn.fetchrow(
@@ -542,11 +574,13 @@ async def update_note(
             WHERE id = $1::uuid
               AND company_id = $2::uuid
               AND panel_type = $3
+              AND ($4::uuid IS NULL OR created_by = $4::uuid)
             LIMIT 1
             """,
             note_id,
             company_id,
             _panel(panel_type),
+            scope_user_id_022d,
         )
         if not current:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nota no encontrada.")
@@ -575,6 +609,7 @@ async def update_note(
             WHERE id = $1::uuid
               AND company_id = $2::uuid
               AND panel_type = $3
+              AND ($10::uuid IS NULL OR created_by = $10::uuid)
             RETURNING *
             """,
             note_id,
@@ -586,6 +621,7 @@ async def update_note(
             status_value,
             scheduled,
             completed_at,
+            scope_user_id_022d,
         )
         return {"ok": True, "note": _note_payload(row)}
     finally:
@@ -601,7 +637,8 @@ async def complete_note(
 ) -> dict[str, Any]:
     conn = await _connect()
     try:
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_notes_enabled(conn, company_id, panel_type)
         row = await conn.fetchrow(
             """
@@ -613,11 +650,13 @@ async def complete_note(
               AND company_id = $2::uuid
               AND panel_type = $3
               AND status <> 'archived'
+              AND ($4::uuid IS NULL OR created_by = $4::uuid)
             RETURNING *
             """,
             note_id,
             company_id,
             _panel(panel_type),
+            scope_user_id_022d,
         )
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nota no encontrada.")
@@ -635,7 +674,8 @@ async def archive_note(
 ) -> dict[str, Any]:
     conn = await _connect()
     try:
-        await _require_access(conn, company_id, authorization)
+        access_022d = await _require_access(conn, company_id, authorization)
+        scope_user_id_022d = _scope_user_id_022d(access_022d)
         await _require_notes_enabled(conn, company_id, panel_type)
         row = await conn.fetchrow(
             """
@@ -645,11 +685,13 @@ async def archive_note(
             WHERE id = $1::uuid
               AND company_id = $2::uuid
               AND panel_type = $3
+              AND ($4::uuid IS NULL OR created_by = $4::uuid)
             RETURNING *
             """,
             note_id,
             company_id,
             _panel(panel_type),
+            scope_user_id_022d,
         )
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nota no encontrada.")
