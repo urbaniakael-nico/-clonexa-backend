@@ -8626,11 +8626,40 @@
     return map[raw] || (raw ? `Mini Panel ${raw}` : "Mini Panel");
   }
 
+  // CLONEXA_022C_CLIENT_ORIGIN_USER_LABEL_START
+  function cxClientQuoteUserLabel022C(quote) {
+    const rawPanel = String(quote?.panel_type || quote?.source_panel_type || "").toLowerCase();
+    const rawUser = String(
+      quote?.source_user_label ||
+      quote?.created_by_label ||
+      quote?.created_by_name ||
+      quote?.mini_panel_user_name ||
+      quote?.mini_panel_username ||
+      quote?.username ||
+      ""
+    ).trim();
+
+    if (rawUser && rawUser.toLowerCase() !== "usuario mini panel") {
+      return rawUser;
+    }
+
+    if (["store", "stores", "tienda", "tiendas"].includes(rawPanel)) {
+      return "Proximamente";
+    }
+
+    if (["sales", "sale", "venta", "ventas"].includes(rawPanel)) {
+      return "Usuario de ventas no identificado";
+    }
+
+    return "Usuario no identificado";
+  }
+
   function cxClientQuoteOriginLabel022B(quote) {
     const panel = quote?.source_panel_label || cxClientQuotePanelLabel022B(quote?.panel_type || quote?.source_panel_type);
-    const user = quote?.source_user_label || quote?.created_by_label || "Usuario mini panel";
+    const user = cxClientQuoteUserLabel022C(quote);
     return `${panel} · ${user}`;
   }
+  // CLONEXA_022C_CLIENT_ORIGIN_USER_LABEL_END
 
   function cxClientQuoteVisibleByFilter022B(quote, filter) {
     const archived = cxClientQuoteIsArchived022B(quote);

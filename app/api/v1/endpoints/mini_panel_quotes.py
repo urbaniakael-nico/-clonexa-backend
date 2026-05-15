@@ -330,7 +330,7 @@ async def _require_access(conn: asyncpg.Connection, company_id: uuid.UUID, autho
 
     raw_company = payload.get("company_id") or payload.get("tenant_id") or payload.get("company")
     if raw_company and str(raw_company) == str(company_id):
-        return payload
+        return await _enrich_quote_access_user_022c(conn, company_id, payload)
 
     raw_user_id = payload.get("sub") or payload.get("user_id") or payload.get("id")
     if raw_user_id:
@@ -618,6 +618,78 @@ def _quote_number_for_account_base(value: Any) -> str:
     return raw
 
 
+
+# CLONEXA_022C_QUOTES_USER_LABEL_HELPERS_START
+def _row_value_022c(row: Any, key: str, default: Any = None) -> Any:
+    try:
+        keys = row.keys() if hasattr(row, "keys") else []
+        if key in keys:
+            return row[key]
+    except Exception:
+        pass
+    try:
+        value = row[key]
+        return value if value is not None else default
+    except Exception:
+        return default
+
+
+def _quote_origin_user_fallback_022c(panel_type: Any) -> str:
+    panel = _norm(panel_type or "")
+    if panel in {"store", "stores", "tienda", "tiendas"}:
+        return "Proximamente"
+    if panel in {"sales", "sale", "venta", "ventas"}:
+        return "Usuario de ventas no identificado"
+    if panel in {"inventory", "inventario"}:
+        return "Usuario de inventario no identificado"
+    if panel in {"logistics", "logistica"}:
+        return "Usuario de logistica no identificado"
+    return "Usuario no identificado"
+
+
+async def _enrich_quote_access_user_022c(
+    conn: asyncpg.Connection,
+    company_id: uuid.UUID,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    raw_user_id = payload.get("user_id") or payload.get("sub") or payload.get("id")
+    if not raw_user_id:
+        return payload
+
+    try:
+        user_uuid = uuid.UUID(str(raw_user_id))
+    except Exception:
+        return payload
+
+    try:
+        row = await conn.fetchrow(
+            """
+            SELECT id, company_id, status, full_name, email
+            FROM company_users
+            WHERE id = $1::uuid
+              AND company_id = $2::uuid
+            LIMIT 1
+            """,
+            user_uuid,
+            company_id,
+        )
+    except Exception:
+        row = None
+
+    if not row:
+        return payload
+
+    return {
+        **payload,
+        "company_id": str(row["company_id"]),
+        "user_id": str(row["id"]),
+        "full_name": row["full_name"] or payload.get("full_name") or "",
+        "email": row["email"] or payload.get("email") or "",
+    }
+
+
+# CLONEXA_022C_QUOTES_USER_LABEL_HELPERS_END
+
 def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
     items = _json(row["items"], [])
     discounts = _json(row["discounts"], [])
@@ -626,6 +698,10 @@ def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
     quote_number = row["quote_number"]
     is_account = str(status_value or "").lower() == "converted"
     account_number = _account_number_from_quote_number(quote_number)
+
+    stored_label = str(_row_value_022c(row, "created_by_label", "") or "").strip()
+    joined_label = str(_row_value_022c(row, "creator_display_label", "") or "").strip()
+    source_user_label = joined_label or stored_label or _quote_origin_user_fallback_022c(row["panel_type"])
 
     return {
         "id": str(row["id"]),
@@ -653,8 +729,8 @@ def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
         "converted_at": row["converted_at"].isoformat() if row["converted_at"] else None,
         "archived_at": row["archived_at"].isoformat() if row["archived_at"] else None,
         "created_by": str(row["created_by"]) if row["created_by"] else None,
-        "created_by_label": row["created_by_label"] or "",
-        "source_user_label": row["created_by_label"] or "Usuario mini panel",
+        "created_by_label": source_user_label,
+        "source_user_label": source_user_label,
         "source_panel_type": row["panel_type"],
         "source_panel_label": _panel_label_022b(row["panel_type"]),
         "source_scope": "mini_panel" if _is_mini_panel_record_022b(row["panel_type"]) else "client",
@@ -844,7 +920,26 @@ async def get_quotes_summary(
 
             latest = await conn.fetchrow(
                 f"""
-                SELECT *
+                SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
                   {source_filter}
@@ -871,7 +966,26 @@ async def get_quotes_summary(
 
             latest = await conn.fetchrow(
                 """
-                SELECT *
+                SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
                   AND panel_type = $2
@@ -928,7 +1042,26 @@ async def list_quotes(
         if _is_cross_panel_quotes_021f(panel_type):
             rows = await conn.fetch(
                 f"""
-                SELECT *
+                SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
                   {source_filter}
@@ -952,7 +1085,26 @@ async def list_quotes(
         else:
             rows = await conn.fetch(
                 f"""
-                SELECT *
+                SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
                 FROM mini_panel_quotes
                 WHERE company_id = $1::uuid
                   AND panel_type = $2::text
@@ -1002,7 +1154,26 @@ async def get_quote(
         if _is_cross_panel_quotes_021f(panel_type):
             row = await conn.fetchrow(
                 """
-                SELECT *
+                SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
                 FROM mini_panel_quotes
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
@@ -1014,7 +1185,26 @@ async def get_quote(
         else:
             row = await conn.fetchrow(
                 """
-                SELECT *
+                SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
                 FROM mini_panel_quotes
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
@@ -1065,8 +1255,27 @@ async def update_quote(
         await _require_quotes_enabled(conn, company_id, panel_type)
         existing = await conn.fetchrow(
             """
-            SELECT *
-            FROM mini_panel_quotes
+            SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
+                FROM mini_panel_quotes
             WHERE id = $1::uuid
               AND company_id = $2::uuid
               AND panel_type = $3
@@ -1596,7 +1805,26 @@ async def quote_pdf(
         if _is_cross_panel_quotes_021f(panel_type):
             row = await conn.fetchrow(
                 """
-                SELECT *
+                SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
                 FROM mini_panel_quotes
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
@@ -1608,7 +1836,26 @@ async def quote_pdf(
         else:
             row = await conn.fetchrow(
                 """
-                SELECT *
+                SELECT
+                  mini_panel_quotes.*,
+                  COALESCE(
+                    NULLIF(mini_panel_quotes.created_by_label, ''),
+                    (
+                      SELECT NULLIF(cu.full_name, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    (
+                      SELECT NULLIF(cu.email, '')
+                      FROM company_users cu
+                      WHERE cu.id = mini_panel_quotes.created_by
+                        AND cu.company_id = mini_panel_quotes.company_id
+                      LIMIT 1
+                    ),
+                    ''
+                  ) AS creator_display_label
                 FROM mini_panel_quotes
                 WHERE id = $1::uuid
                   AND company_id = $2::uuid
