@@ -2058,7 +2058,6 @@
       "gps",
       "field",
       "materials",
-      "production",
       "sales",
       "stores",
       "retail",
@@ -9175,65 +9174,25 @@
     ].includes(String(code || "").trim().toLowerCase());
   }
 
-
-  /* CLONEXA_022E_R3_REFERENCES_GLOBAL_SAFE_ROUTER */
-  function cxReferenceToken022ER3(value) {
-    return String(value || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-  }
-
-  function cxClientModuleByCode022ER3(code) {
-    const normalized = String(code || "").trim();
-    if (!normalized) return null;
-    return activeClientModules().find((module) => String(module.code || "").trim() === normalized) || null;
-  }
-
-  function cxIsReferencesModule022ER3(input) {
-    const module = input && typeof input === "object" ? input : cxClientModuleByCode022ER3(input);
-    const raw = module?.raw || {};
-    const rawModule = raw.module && typeof raw.module === "object" ? raw.module : {};
-    const tokens = [
-      module?.code,
-      module?.title,
-      module?.subtitle,
-      raw.code,
-      raw.module_code,
-      raw.name,
-      raw.title,
-      raw.description,
-      raw.category,
-      rawModule.code,
-      rawModule.module_code,
-      rawModule.name,
-      rawModule.title,
-      rawModule.description,
-      rawModule.category
-    ].map(cxReferenceToken022ER3).filter(Boolean);
-
-    if (tokens.some((token) => cxIsReferencesCode022E(token))) return true;
-
-    const hasReferenceName = tokens.some((token) =>
-      token === "referencias" ||
-      token === "referencia" ||
-      token === "references" ||
-      token === "reference" ||
-      token.includes("referencia") ||
-      token.includes("reference")
+  /* CLONEXA_022E_R6_RESTORE_PRODUCTION_KEEP_REFERENCES */
+  function cxActiveReferencesNavCode022E() {
+    const referenceCodes = [
+      "references",
+      "reference",
+      "referencias",
+      "referencia",
+      "ref",
+      "production_references",
+      "production_reference",
+      "referencias_produccion",
+      "referencias_producción"
+    ];
+    const module = activeClientModules().find((item) =>
+      referenceCodes.includes(String(item?.code || "").trim().toLowerCase())
     );
-
-    if (!hasReferenceName) return false;
-
-    return true;
-  }
-
-  function cxActiveReferencesNavCode022ER3() {
-    const module = activeClientModules().find((item) => cxIsReferencesModule022ER3(item));
     return module?.code || "";
   }
+
 
 
   function cxReferenceChannelLabel022E(channel, row = {}) {
@@ -9468,7 +9427,7 @@
   }
 
   async function renderReferencesModule022E() {
-    const activeReferencesNavCode022E = cxActiveReferencesNavCode022ER3();
+    const activeReferencesNavCode022E = cxActiveReferencesNavCode022E();
     if (!activeReferencesNavCode022E) {
       render();
       return;
@@ -9933,11 +9892,6 @@
         }
 
         if (action === "production:open" && isClientModuleActive("production")) {
-          const cxProductionModule022ER3 = cxClientModuleByCode022ER3("production");
-          if (cxIsReferencesModule022ER3(cxProductionModule022ER3)) {
-            await renderReferencesModule022E();
-            return;
-          }
           await renderProductionModule();
           return;
         }
@@ -9984,11 +9938,11 @@
           return;
         }
 
-        const cxClickedModule022ER3 = cxClientModuleByCode022ER3(code);
-        if (cxIsReferencesModule022ER3(cxClickedModule022ER3 || code)) {
+        if (typeof cxIsReferencesCode022E === "function" && cxIsReferencesCode022E(code)) {
           await renderReferencesModule022E();
           return;
         }
+
 
         if (code === "workforce") {
           await renderPersonalModule();
