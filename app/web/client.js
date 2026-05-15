@@ -9726,7 +9726,186 @@
     if (window.__clonexaPersonalModuleEventsBound) return;
     window.__clonexaPersonalModuleEventsBound = true;
 
-    document.addEventListener("click", async (event) => {
+    
+  /* CLONEXA_022F_CLIENT_REGISTRO_VENTA_CONSOLIDADO_START */
+  function cxSalesRegisterNorm022F(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function cxIsSalesRegisterCode022F(code) {
+    return new Set([
+      "registro_venta",
+      "registro_ventas",
+      "registro_de_venta",
+      "sales_register",
+      "register_sale",
+      "register_sales",
+      "venta_registro"
+    ]).has(cxSalesRegisterNorm022F(code));
+  }
+
+  function cxSalesMoney022F(value) {
+    const number = Number(value || 0);
+    try {
+      return number.toLocaleString("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0
+      });
+    } catch (_) {
+      return `$ ${Math.round(number).toLocaleString("es-CO")}`;
+    }
+  }
+
+  function cxSalesStyles022F() {
+    if (document.getElementById("cxSalesStyles022F")) return;
+    const style = document.createElement("style");
+    style.id = "cxSalesStyles022F";
+    style.textContent = `
+      .cx-sales22-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}
+      .cx-sales22-card{border:1px solid rgba(255,255,255,.12);border-radius:28px;background:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.04));box-shadow:0 20px 70px rgba(0,0,0,.25);padding:22px}
+      .cx-sales22-kicker{font-size:11px;font-weight:950;letter-spacing:.28em;text-transform:uppercase;color:#ff39d0}
+      .cx-sales22-title{font-size:38px;margin:8px 0 8px}
+      .cx-sales22-muted{color:rgba(255,255,255,.72);font-weight:750}
+      .cx-sales22-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+      .cx-sales22-field label{display:block;font-size:11px;font-weight:950;text-transform:uppercase;letter-spacing:.12em;margin:0 0 7px;color:rgba(255,255,255,.68)}
+      .cx-sales22-field input,.cx-sales22-field select,.cx-sales22-field textarea{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.16);border-radius:16px;background:rgba(3,7,22,.55);color:#fff;padding:13px 14px;font-weight:850}
+      .cx-sales22-btn{border:0;border-radius:17px;background:linear-gradient(135deg,#ff24b8,#7357ff);color:#fff;font-weight:950;padding:13px 16px;cursor:pointer}
+      .cx-sales22-btn.secondary{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.14)}
+      .cx-sales22-list{display:grid;gap:12px;margin-top:14px;max-height:560px;overflow:auto}
+      .cx-sales22-sale{border:1px solid rgba(255,255,255,.12);border-radius:20px;background:rgba(255,255,255,.06);padding:15px}
+      .cx-sales22-sale strong{display:flex;justify-content:space-between;gap:14px;font-size:16px}
+      .cx-sales22-filters{display:grid;grid-template-columns:1fr 170px 140px;gap:10px;margin-top:14px}
+      @media(max-width:1100px){.cx-sales22-grid,.cx-sales22-row,.cx-sales22-filters{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function cxSalesApi022F(path, options = {}) {
+    return api(`/mini-panel-sales/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  async function renderClientSalesRegisterModule022F(options = {}) {
+    cxSalesStyles022F();
+
+    let config = { occupation: "technology", custom_categories: [] };
+    let salesData = { items: [], active_count: 0, total_amount: 0 };
+    let categories = { items: [] };
+    let loadError = "";
+
+    try {
+      config = await cxSalesApi022F("/config");
+      salesData = await cxSalesApi022F(`/sales?panel_type=all&include_archived=${options.include_archived ? "true" : "false"}&q=${encodeURIComponent(options.q || "")}`);
+      categories = await cxSalesApi022F("/categories?panel_type=all");
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Registro Venta.";
+    }
+
+    const company = state.company || {};
+    const items = Array.isArray(salesData.items) ? salesData.items : [];
+    const categoriesText = (Array.isArray(categories.items) ? categories.items : [])
+      .map((item) => item.category)
+      .filter(Boolean)
+      .join(", ");
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("registro_venta")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Módulo Registro Venta</div>
+              <h1 class="client-title">Registro Venta</h1>
+              <p class="client-muted">Configura la ocupación comercial y revisa el consolidado de ventas capturadas desde mini paneles.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-cx-sales22-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+
+            <section class="cx-sales22-grid">
+              <article class="cx-sales22-card">
+                <div class="cx-sales22-kicker">Configuración por empresa</div>
+                <h2 class="cx-sales22-title">Ocupación comercial</h2>
+                <p class="cx-sales22-muted">Esta regla define las categorías visuales del mini panel cuando no existan categorías creadas en Referencias.</p>
+
+                <div class="cx-sales22-row" style="margin-top:16px">
+                  <div class="cx-sales22-field">
+                    <label>Ocupación</label>
+                    <select id="cxSalesOccupation022F">
+                      <option value="technology" ${config.occupation === "technology" ? "selected" : ""}>Tecnología</option>
+                      <option value="ropa" ${config.occupation === "ropa" ? "selected" : ""}>Ropa</option>
+                      <option value="accesorios" ${config.occupation === "accesorios" ? "selected" : ""}>Accesorios</option>
+                      <option value="servicios" ${config.occupation === "servicios" ? "selected" : ""}>Servicios</option>
+                      <option value="custom" ${config.occupation === "custom" ? "selected" : ""}>Otro / personalizado</option>
+                    </select>
+                  </div>
+                  <div class="cx-sales22-field">
+                    <label>Categorías personalizadas</label>
+                    <input id="cxSalesCustomCategories022F" value="${h((config.custom_categories || []).join(", "))}" placeholder="Ej: Celulares, Cables, Otros" />
+                  </div>
+                </div>
+
+                <button class="cx-sales22-btn" type="button" data-cx-sales22-save-config style="margin-top:14px">Guardar configuración</button>
+                <div class="cx-sales22-muted" style="margin-top:14px">Categorías actuales: ${h(categoriesText || "Sin categorías. Usa Referencias o configura ocupación.")}</div>
+                <div id="cxSalesMsg022F" class="cx-sales22-muted" style="margin-top:10px"></div>
+              </article>
+
+              <article class="cx-sales22-card">
+                <div class="cx-sales22-kicker">Consolidado</div>
+                <h2 class="cx-sales22-title">${h(cxSalesMoney022F(salesData.total_amount || 0))}</h2>
+                <p class="cx-sales22-muted">${Number(salesData.active_count || 0)} ventas activas capturadas desde mini paneles.</p>
+                <div class="cx-sales22-filters">
+                  <input id="cxSalesFilter022F" value="${h(options.q || "")}" placeholder="Buscar referencia, usuario o categoría..." />
+                  <select id="cxSalesArchived022F">
+                    <option value="false">Activas</option>
+                    <option value="true" ${options.include_archived ? "selected" : ""}>Incluye archivadas</option>
+                  </select>
+                  <button class="cx-sales22-btn secondary" type="button" data-cx-sales22-apply>Buscar</button>
+                </div>
+              </article>
+            </section>
+
+            <section class="cx-sales22-card" style="margin-top:18px">
+              <div class="cx-sales22-kicker">Ventas desde mini paneles</div>
+              <div class="cx-sales22-list">
+                ${items.map((item) => `
+                  <article class="cx-sales22-sale">
+                    <strong>
+                      <span>${h(item.reference_name || "Venta")}</span>
+                      <span>${h(cxSalesMoney022F(item.total || 0))}</span>
+                    </strong>
+                    <div class="cx-sales22-muted">${h(item.reference_category || "Sin categoría")} · ${h(item.reference_size || "")} ${h(item.reference_color || "")}</div>
+                    <div class="cx-sales22-muted">Origen: ${h(item.source_panel_label || item.panel_type || "Mini Panel")} · ${h(item.source_user_label || item.created_by_label || "Usuario")}</div>
+                    <div class="cx-sales22-muted">${h(item.created_at || "")} · ${h(item.payment_method || "")}</div>
+                    ${item.status !== "archived" ? `<button class="cx-sales22-btn secondary" type="button" data-cx-sales22-archive="${h(item.id)}" style="margin-top:10px">Archivar</button>` : `<span class="cx-sales22-muted">Archivada</span>`}
+                  </article>
+                `).join("") || `<div class="cx-sales22-muted">Sin ventas registradas desde mini paneles.</div>`}
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CLONEXA_022F_CLIENT_REGISTRO_VENTA_CONSOLIDADO_END */
+
+
+document.addEventListener("click", async (event) => {
       const target = event.target;
 
       const miniPanelCopyBtn = target.closest("[data-minipanel-copy-link]");

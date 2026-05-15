@@ -38,6 +38,7 @@ for _module_name, _prefix, _tags in [
     ("company_users", "/companies", ["company_users"]),
     ("mini_panel_notes", "/mini-panel-notes", ["mini_panel_notes"]),
     ("mini_panel_quotes", "/mini-panel-quotes", ["mini_panel_quotes"]),
+    ("mini_panel_sales", "/mini-panel-sales", ["mini_panel_sales"]),
     ("field", "/field", ["field"]),
 ]:
     _include(_module_name, _prefix, _tags)
