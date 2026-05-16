@@ -74,9 +74,20 @@ class SalesConfigIn(BaseModel):
     custom_categories: list[str] | None = Field(default=None)
 
 
-class SaleCreateIn(BaseModel):
-    reference_id: str | None = Field(default=None, max_length=80)
+class SaleItemIn(BaseModel):
+    reference_id: str | None = Field(default=None, max_length=120)
     reference_name: str = Field(..., min_length=1, max_length=220)
+    reference_category: str | None = Field(default=None, max_length=160)
+    reference_size: str | None = Field(default=None, max_length=120)
+    reference_color: str | None = Field(default=None, max_length=120)
+    quantity: float = Field(default=1, ge=0)
+    unit_price: float = Field(default=0, ge=0)
+    barcode: str | None = Field(default=None, max_length=180)
+
+
+class SaleCreateIn(BaseModel):
+    reference_id: str | None = Field(default=None, max_length=120)
+    reference_name: str | None = Field(default=None, max_length=220)
     reference_category: str | None = Field(default=None, max_length=160)
     reference_size: str | None = Field(default=None, max_length=120)
     reference_color: str | None = Field(default=None, max_length=120)
@@ -84,13 +95,13 @@ class SaleCreateIn(BaseModel):
     unit_price: float = Field(default=0, ge=0)
     payment_method: str | None = Field(default="efectivo", max_length=60)
     notes: str | None = Field(default=None, max_length=1000)
+    items: list[SaleItemIn] | None = Field(default=None)
 
     @field_validator("payment_method")
     @classmethod
     def clean_payment_method(cls, value: str | None) -> str:
         raw = _norm(value or "efectivo")
         return raw if raw in {"efectivo", "transferencia", "cheque", "tarjeta", "otro"} else "otro"
-
 
 
 
@@ -587,6 +598,93 @@ def _iso(value: Any) -> str | None:
         return None
 
 
+def _sale_item_payload(raw: Any, fallback_category: str = "") -> dict[str, Any] | None:
+    if raw is None:
+        return None
+
+    if hasattr(raw, "model_dump"):
+        data = raw.model_dump()
+    elif isinstance(raw, dict):
+        data = raw
+    else:
+        data = {}
+
+    name = _clean(data.get("reference_name") or data.get("name"))
+    if not name:
+        return None
+
+    quantity = max(0.0, _money(data.get("quantity", 1)))
+    unit_price = max(0.0, _money(data.get("unit_price", 0)))
+    total = round(quantity * unit_price, 2)
+
+    return {
+        "reference_id": _clean(data.get("reference_id") or data.get("id")),
+        "reference_name": name,
+        "reference_category": _clean(data.get("reference_category") or data.get("category") or fallback_category),
+        "reference_size": _clean(data.get("reference_size") or data.get("size")),
+        "reference_color": _clean(data.get("reference_color") or data.get("color")),
+        "quantity": quantity,
+        "unit_price": unit_price,
+        "total": total,
+        "barcode": _clean(data.get("barcode") or data.get("code") or data.get("sku")),
+    }
+
+
+def _sale_items_from_payload(payload: SaleCreateIn) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+
+    if payload.items:
+        for item in payload.items:
+            normalized = _sale_item_payload(item, _clean(payload.reference_category))
+            if normalized:
+                rows.append(normalized)
+
+    if rows:
+        return rows
+
+    fallback = _sale_item_payload(
+        {
+            "reference_id": payload.reference_id,
+            "reference_name": payload.reference_name,
+            "reference_category": payload.reference_category,
+            "reference_size": payload.reference_size,
+            "reference_color": payload.reference_color,
+            "quantity": payload.quantity,
+            "unit_price": payload.unit_price,
+        }
+    )
+    return [fallback] if fallback else []
+
+
+def _sale_items_from_metadata(row: Any) -> list[dict[str, Any]]:
+    metadata = _json(_row_value(row, "metadata", {}), {})
+    raw_items = metadata.get("items") if isinstance(metadata, dict) else None
+
+    if isinstance(raw_items, list) and raw_items:
+        items = []
+        for item in raw_items:
+            normalized = _sale_item_payload(item)
+            if normalized:
+                items.append(normalized)
+        if items:
+            return items
+
+    return [
+        {
+            "reference_id": _clean(_row_value(row, "reference_id", "")),
+            "reference_name": _clean(_row_value(row, "reference_name", "Venta")),
+            "reference_category": _clean(_row_value(row, "reference_category", "")),
+            "reference_size": _clean(_row_value(row, "reference_size", "")),
+            "reference_color": _clean(_row_value(row, "reference_color", "")),
+            "quantity": _money(_row_value(row, "quantity", 0)),
+            "unit_price": _money(_row_value(row, "unit_price", 0)),
+            "total": _money(_row_value(row, "total", 0)),
+            "barcode": "",
+        }
+    ]
+
+
+
 def _file_payload(row: Any, prefix: str) -> dict[str, Any] | None:
     name = _clean(_row_value(row, f"{prefix}_file_name", ""))
     data = _clean(_row_value(row, f"{prefix}_file_data", ""))
@@ -615,12 +713,22 @@ def _pipeline_status(row: Any) -> str:
 
 
 def _sale_payload(row: asyncpg.Record) -> dict[str, Any]:
-    total = _money(row["total"])
-    quantity = _money(row["quantity"])
+    metadata = _json(row["metadata"], {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    items = _sale_items_from_metadata(row)
+    total = round(sum(_money(item.get("total")) for item in items), 2)
+    quantity = round(sum(_money(item.get("quantity")) for item in items), 2)
     unit_price = _money(row["unit_price"])
     created_by_label = _clean(_row_value(row, "creator_display_label", "")) or _clean(_row_value(row, "created_by_label", ""))
     support = _file_payload(row, "support")
     guide = _file_payload(row, "guide")
+
+    invoice_number = _clean(metadata.get("invoice_number") or "")
+    if not invoice_number:
+        invoice_number = f"FV-{str(row['id'])[:8].upper()}"
+
     return {
         "id": str(row["id"]),
         "company_id": str(row["company_id"]),
@@ -637,6 +745,10 @@ def _sale_payload(row: asyncpg.Record) -> dict[str, Any]:
         "notes": row["notes"] or "",
         "status": row["status"],
         "pipeline_status": _pipeline_status(row),
+        "invoice_number": invoice_number,
+        "items": items,
+        "item_count": len(items),
+        "is_multi_item": len(items) > 1,
         "is_prepared": bool(_row_value(row, "is_prepared", False)),
         "prepared_at": _iso(_row_value(row, "prepared_at")),
         "prepared_by": str(_row_value(row, "prepared_by")) if _row_value(row, "prepared_by") else None,
@@ -653,6 +765,7 @@ def _sale_payload(row: asyncpg.Record) -> dict[str, Any]:
         "created_at": _iso(row["created_at"]),
         "updated_at": _iso(row["updated_at"]),
     }
+
 
 @router.get("/companies/{company_id}/config")
 async def get_sales_config(company_id: uuid.UUID) -> dict[str, Any]:
@@ -759,7 +872,7 @@ async def list_sales_references(
 
         search = _clean(q)
         if search:
-            where.append(f"(name ILIKE ${idx} OR size ILIKE ${idx} OR COALESCE(color, '') ILIKE ${idx} OR COALESCE(category, '') ILIKE ${idx})")
+            where.append(f"(id ILIKE ${idx} OR name ILIKE ${idx} OR size ILIKE ${idx} OR COALESCE(color, '') ILIKE ${idx} OR COALESCE(category, '') ILIKE ${idx})")
             args.append(f"%{search}%")
             idx += 1
 
@@ -839,7 +952,7 @@ async def list_sales(
 
         search = _clean(q)
         if search:
-            where.append(f"(s.reference_name ILIKE ${idx} OR s.reference_category ILIKE ${idx} OR s.created_by_label ILIKE ${idx})")
+            where.append(f"(s.reference_name ILIKE ${idx} OR s.reference_category ILIKE ${idx} OR s.created_by_label ILIKE ${idx} OR s.metadata::text ILIKE ${idx})")
             args.append(f"%{search}%")
             idx += 1
 
@@ -889,10 +1002,34 @@ async def create_sale(
         if not created_by:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Registro de venta requiere usuario de mini panel.")
 
-        quantity = max(0.0, _money(payload.quantity))
-        unit_price = max(0.0, _money(payload.unit_price))
-        total = round(quantity * unit_price, 2)
+        items = _sale_items_from_payload(payload)
+        if not items:
+            raise HTTPException(status_code=422, detail="Agrega al menos un artículo a la factura.")
+
         sale_id = uuid.uuid4()
+        invoice_number = f"FV-{datetime.now(timezone.utc).year}-{str(sale_id).split('-')[0].upper()}"
+
+        total = round(sum(_money(item.get("total")) for item in items), 2)
+        quantity = round(sum(_money(item.get("quantity")) for item in items), 2)
+        first = items[0]
+        categories = []
+        for item in items:
+            category = _clean(item.get("reference_category"))
+            if category and category not in categories:
+                categories.append(category)
+
+        reference_name = (
+            _clean(first.get("reference_name"))
+            if len(items) == 1
+            else f"Factura {len(items)} artículos"
+        )
+
+        metadata = {
+            "source": "registro_venta_multiitem_022h",
+            "invoice_number": invoice_number,
+            "item_count": len(items),
+            "items": items,
+        }
 
         row = await conn.fetchrow(
             """
@@ -922,28 +1059,29 @@ async def create_sale(
                 $4, $5, $6, $7, $8,
                 $9, $10, $11,
                 $12, $13, 'active',
-                $14::uuid, $15, '{}'::jsonb, NOW(), NOW()
+                $14::uuid, $15, $16::jsonb, NOW(), NOW()
             )
             RETURNING *
             """,
             sale_id,
             company_id,
             _panel(panel_type),
-            _clean(payload.reference_id),
-            _clean(payload.reference_name),
-            _clean(payload.reference_category),
-            _clean(payload.reference_size),
-            _clean(payload.reference_color),
+            _clean(first.get("reference_id")),
+            reference_name,
+            _clean(", ".join(categories))[:160],
+            _clean(first.get("reference_size")) if len(items) == 1 else "",
+            _clean(first.get("reference_color")) if len(items) == 1 else "",
             quantity,
-            unit_price,
+            _money(first.get("unit_price")) if len(items) == 1 else 0,
             total,
             _norm(payload.payment_method or "efectivo"),
             _clean(payload.notes),
             created_by,
             _scope_label(access),
+            json.dumps(metadata, ensure_ascii=False),
         )
 
-        return {"sale": _sale_payload(row), "created": True}
+        return {"sale": _sale_payload(row), "created": True, "invoice_number": invoice_number}
     finally:
         await conn.close()
 

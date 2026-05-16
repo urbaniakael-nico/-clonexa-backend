@@ -2940,6 +2940,614 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_022G_SALES_PIPELINE_ALISTAMIENTO_SOPORTES_GUIA_END */
 
+
+  /* CLONEXA_022H_REGISTRO_VENTA_FACTURA_MULTIITEM_SCANNER_PRINT_START */
+  let salesInvoiceCart022H = {
+    items: [],
+    payment_method: "efectivo",
+    notes: ""
+  };
+
+  function salesInvoiceTotal022H() {
+    return salesInvoiceCart022H.items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
+  }
+
+  function salesInvoiceCount022H() {
+    return salesInvoiceCart022H.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  }
+
+  function salesResetInvoice022H() {
+    salesInvoiceCart022H = { items: [], payment_method: "efectivo", notes: "" };
+  }
+
+  function salesNormalizeItem022H(item) {
+    const qty = Math.max(0, Number(item.quantity || 0));
+    const unit = Math.max(0, Number(item.unit_price || 0));
+    return {
+      reference_id: String(item.reference_id || item.id || ""),
+      reference_name: String(item.reference_name || item.name || "Referencia"),
+      reference_category: String(item.reference_category || item.category || ""),
+      reference_size: String(item.reference_size || item.size || ""),
+      reference_color: String(item.reference_color || item.color || ""),
+      quantity: qty,
+      unit_price: unit,
+      total: qty * unit,
+      barcode: String(item.barcode || item.code || item.sku || "")
+    };
+  }
+
+  function salesCartRowsHtml022H() {
+    if (!salesInvoiceCart022H.items.length) {
+      return `<div class="sr-muted-022f">Factura actual vacía. Agrega artículos desde cualquier categoría.</div>`;
+    }
+
+    return salesInvoiceCart022H.items.map((item, index) => `
+      <article class="sr-invoice-line-022h" data-sr-cart-line="${index}">
+        <div>
+          <strong>${h(item.reference_name)}</strong>
+          <small>${h([item.reference_category, item.reference_size, item.reference_color].filter(Boolean).join(" · "))}</small>
+        </div>
+        <input type="number" min="0" step="1" value="${h(item.quantity)}" data-sr-cart-qty="${index}" title="Cantidad">
+        <input type="number" min="0" step="100" value="${h(item.unit_price)}" data-sr-cart-unit="${index}" title="Valor unitario">
+        <strong data-sr-cart-total="${index}">${h(formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0)))}</strong>
+        <button type="button" data-sr-cart-remove="${index}">Quitar</button>
+      </article>
+    `).join("");
+  }
+
+  function salesRefreshCartTotals022H() {
+    salesInvoiceCart022H.items = salesInvoiceCart022H.items.map(salesNormalizeItem022H);
+    document.querySelectorAll("[data-sr-cart-total]").forEach((node) => {
+      const index = Number(node.getAttribute("data-sr-cart-total") || 0);
+      const item = salesInvoiceCart022H.items[index];
+      if (item) node.textContent = formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0));
+    });
+    const total = salesInvoiceTotal022H();
+    const count = salesInvoiceCount022H();
+    const totalNode = document.getElementById("srInvoiceTotal022H");
+    const countNode = document.getElementById("srInvoiceCount022H");
+    if (totalNode) totalNode.textContent = formatMoney(total);
+    if (countNode) countNode.textContent = String(count);
+  }
+
+  function salesPrintInvoiceDraft022H(session, sale = null) {
+    const items = sale?.items || salesInvoiceCart022H.items;
+    if (!items || !items.length) {
+      alert("No hay artículos para imprimir.");
+      return;
+    }
+
+    const total = items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
+    const invoiceNumber = sale?.invoice_number || "Factura actual";
+    const seller = sale?.source_user_label || session?.employee?.full_name || session?.user?.full_name || "Vendedor";
+    const company = session?.company?.name || "Empresa";
+    const rows = items.map((item) => `
+      <tr>
+        <td>${h(item.reference_name || "")}<br><small>${h([item.reference_category, item.reference_size, item.reference_color].filter(Boolean).join(" · "))}</small></td>
+        <td style="text-align:center">${h(item.quantity || 0)}</td>
+        <td style="text-align:right">${h(formatMoney(item.unit_price || 0))}</td>
+        <td style="text-align:right">${h(formatMoney((Number(item.quantity || 0) * Number(item.unit_price || 0))))}</td>
+      </tr>
+    `).join("");
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`
+      <html>
+        <head>
+          <title>${h(invoiceNumber)}</title>
+          <style>
+            body{font-family:Arial,sans-serif;padding:28px;color:#111}
+            h1{margin:0 0 4px;font-size:28px}
+            .muted{color:#555;margin-bottom:22px}
+            table{width:100%;border-collapse:collapse;margin-top:18px}
+            th{background:#111;color:#fff;text-align:left;padding:10px}
+            td{border-bottom:1px solid #ddd;padding:10px;vertical-align:top}
+            .total{font-size:24px;font-weight:900;text-align:right;margin-top:18px}
+            .footer{margin-top:40px;color:#555;font-size:12px;text-align:center}
+          </style>
+        </head>
+        <body>
+          <h1>${h(company)}</h1>
+          <div class="muted">${h(invoiceNumber)} · Vendedor: ${h(seller)} · ${new Date().toLocaleString()}</div>
+          <table>
+            <thead><tr><th>Artículo</th><th>Cant.</th><th>Valor unit.</th><th>Total</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div class="total">TOTAL ${h(formatMoney(total))}</div>
+          <div class="footer">Registro venta generado por CLONEXA</div>
+          <script>setTimeout(()=>print(),500)<\/script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  }
+
+  async function salesScanCode022H(searchInput, onSearch) {
+    const fallbackPrompt = async () => {
+      const code = prompt("Escanea o escribe código, SKU, nombre, talla o color:");
+      if (code && searchInput) {
+        searchInput.value = code.trim();
+        await onSearch(code.trim(), true);
+      }
+    };
+
+    if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
+      await fallbackPrompt();
+      return;
+    }
+
+    let stream = null;
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.86);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:#fff";
+    overlay.innerHTML = `
+      <video autoplay playsinline style="width:min(92vw,520px);border-radius:18px;border:1px solid rgba(255,255,255,.25)"></video>
+      <div style="font-weight:900">Apunta al código de barras o QR</div>
+      <button type="button" style="border:0;border-radius:14px;padding:12px 18px;font-weight:900">Cancelar</button>
+    `;
+    document.body.appendChild(overlay);
+
+    const video = overlay.querySelector("video");
+    const cancel = overlay.querySelector("button");
+    let stopped = false;
+    const stop = () => {
+      stopped = true;
+      try { stream?.getTracks()?.forEach((track) => track.stop()); } catch {}
+      overlay.remove();
+    };
+    cancel.addEventListener("click", stop);
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      video.srcObject = stream;
+      const detector = new BarcodeDetector({ formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e"] });
+
+      const started = Date.now();
+      const scanLoop = async () => {
+        if (stopped) return;
+        try {
+          const codes = await detector.detect(video);
+          if (codes && codes.length) {
+            const raw = String(codes[0].rawValue || "").trim();
+            stop();
+            if (raw && searchInput) {
+              searchInput.value = raw;
+              await onSearch(raw, true);
+            }
+            return;
+          }
+        } catch {}
+        if (Date.now() - started > 20000) {
+          stop();
+          await fallbackPrompt();
+          return;
+        }
+        requestAnimationFrame(scanLoop);
+      };
+      requestAnimationFrame(scanLoop);
+    } catch {
+      stop();
+      await fallbackPrompt();
+    }
+  }
+
+  function salesCardHtml022G(item) {
+    const support = item?.support || null;
+    const guide = item?.guide || null;
+    const archived = String(item?.status || "").toLowerCase() === "archived";
+    const items = Array.isArray(item?.items) ? item.items : [];
+    const itemSummary = items.length > 1
+      ? `${items.length} artículos · ${Number(item.quantity || 0)} und · ${h(item.payment_method || "")}`
+      : `${h(item.reference_category || "Sin categoria")} · ${h(item.quantity)} und · ${h(item.payment_method || "")}`;
+    return `
+      <article class="sr-sale-022f">
+        <strong><span>${h(item.invoice_number || item.reference_name || "Factura")}</span><span>${h(formatMoney(item.total || 0))}</span></strong>
+        <small>${itemSummary}</small>
+        ${items.length > 1 ? `<div class="sr-muted-022f">${items.slice(0, 4).map((line) => `${h(line.reference_name || "")} x ${h(line.quantity || 0)}`).join(" · ")}${items.length > 4 ? " · ..." : ""}</div>` : ""}
+        <div class="sr-pipeline-022g">
+          <span class="sr-pill-022g ok">Venta registrada</span>
+          <span class="sr-pill-022g ${item.is_prepared ? "ok" : "warn"}">${item.is_prepared ? "Pedido alistado" : "Pendiente alistar"}</span>
+          <span class="sr-pill-022g ${item.has_support ? "ok" : "warn"}">${item.has_support ? "Soporte adjunto" : "Sin soporte"}</span>
+          <span class="sr-pill-022g ${item.has_guide ? "ok" : "warn"}">${item.has_guide ? "Guía recibida" : "Sin guía"}</span>
+        </div>
+        <div class="sr-mini-actions-022g">
+          <button type="button" data-sr-print-invoice-022h="${h(item.id)}">Imprimir factura</button>
+          ${!item.is_prepared && !archived ? `<button class="primary" type="button" data-sr-prepare-022g="${h(item.id)}">Marcar alistado</button>` : ""}
+          ${support ? `
+            <button type="button" data-sr-open-support-022g="${h(item.id)}">Ver soporte</button>
+            <button type="button" data-sr-download-support-022g="${h(item.id)}">Descargar soporte</button>
+          ` : (!archived ? `
+            <label class="sr-file-label-022g">Adjuntar factura/comprobante
+              <input type="file" accept="image/*,.pdf" data-sr-support-file-022g="${h(item.id)}">
+            </label>
+          ` : "")}
+          ${guide ? `
+            <button class="primary" type="button" data-sr-open-guide-022g="${h(item.id)}">Ver guía</button>
+            <button type="button" data-sr-download-guide-022g="${h(item.id)}">Descargar guía</button>
+            <button type="button" data-sr-print-guide-022g="${h(item.id)}">Imprimir guía</button>
+          ` : ""}
+          ${!archived ? `<button class="danger" type="button" data-sr-archive-022g="${h(item.id)}">Guardar / archivar</button>` : `<span class="sr-pill-022g">Archivada</span>`}
+        </div>
+      </article>
+    `;
+  }
+
+  function bindSalesPipelineActions022G(session, sales, refreshFn) {
+    const salesById = new Map((sales || []).map((item) => [String(item.id), item]));
+
+    root.querySelectorAll("[data-sr-print-invoice-022h]").forEach((button) => {
+      button.addEventListener("click", () => salesPrintInvoiceDraft022H(session, salesById.get(button.getAttribute("data-sr-print-invoice-022h"))));
+    });
+
+    root.querySelectorAll("[data-sr-prepare-022g]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-sr-prepare-022g");
+        button.disabled = true;
+        await salesApi022F(`/sales/${encodeURIComponent(id)}/prepared?panel_type=${encodeURIComponent(panelType)}`, {
+          method: "POST",
+          body: JSON.stringify({ prepared: true })
+        });
+        await refreshFn();
+      });
+    });
+
+    root.querySelectorAll("[data-sr-support-file-022g]").forEach((input) => {
+      input.addEventListener("change", async () => {
+        const id = input.getAttribute("data-sr-support-file-022g");
+        const file = input.files && input.files[0];
+        if (!id || !file) return;
+        const dataUrl = await salesFileToDataUrl022G(file);
+        await salesApi022F(`/sales/${encodeURIComponent(id)}/support?panel_type=${encodeURIComponent(panelType)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            file_name: file.name || "soporte",
+            file_type: file.type || "application/octet-stream",
+            file_data: dataUrl
+          })
+        });
+        await refreshFn();
+      });
+    });
+
+    root.querySelectorAll("[data-sr-open-support-022g]").forEach((button) => {
+      button.addEventListener("click", () => salesOpenFile022G(salesById.get(button.getAttribute("data-sr-open-support-022g"))?.support));
+    });
+
+    root.querySelectorAll("[data-sr-download-support-022g]").forEach((button) => {
+      button.addEventListener("click", () => salesDownloadFile022G(salesById.get(button.getAttribute("data-sr-download-support-022g"))?.support, "soporte"));
+    });
+
+    root.querySelectorAll("[data-sr-open-guide-022g]").forEach((button) => {
+      button.addEventListener("click", () => salesOpenFile022G(salesById.get(button.getAttribute("data-sr-open-guide-022g"))?.guide));
+    });
+
+    root.querySelectorAll("[data-sr-download-guide-022g]").forEach((button) => {
+      button.addEventListener("click", () => salesDownloadFile022G(salesById.get(button.getAttribute("data-sr-download-guide-022g"))?.guide, "guia_envio"));
+    });
+
+    root.querySelectorAll("[data-sr-print-guide-022g]").forEach((button) => {
+      button.addEventListener("click", () => salesPrintFile022G(salesById.get(button.getAttribute("data-sr-print-guide-022g"))?.guide));
+    });
+
+    root.querySelectorAll("[data-sr-archive-022g]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-sr-archive-022g");
+        if (!id) return;
+        if (!confirm("Archivar esta venta? Saldrá de la vista principal y quedará consultable por búsqueda.")) return;
+        button.disabled = true;
+        await salesApi022F(`/sales/${encodeURIComponent(id)}/archive?panel_type=${encodeURIComponent(panelType)}`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        await refreshFn();
+      });
+    });
+  }
+
+  async function renderSalesRegisterCategory022F(session, category, search = "") {
+    salesPipelineStyles022G();
+    if (!document.getElementById("cxSalesInvoiceStyles022H")) {
+      const style = document.createElement("style");
+      style.id = "cxSalesInvoiceStyles022H";
+      style.textContent = `
+        .sr-invoice-layout-022h{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:18px}
+        .sr-invoice-box-022h{display:grid;gap:10px}
+        .sr-invoice-line-022h{display:grid;grid-template-columns:minmax(0,1fr) 82px 110px 110px 72px;gap:8px;align-items:center;padding:12px;border-radius:16px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}
+        .sr-invoice-line-022h small{display:block;color:rgba(255,255,255,.62);font-weight:800;margin-top:3px}
+        .sr-invoice-line-022h input{width:100%;border:1px solid rgba(255,255,255,.15);background:rgba(5,7,22,.65);color:#fff;border-radius:12px;padding:10px;font-weight:900}
+        .sr-invoice-line-022h button{border:0;border-radius:12px;background:rgba(255,74,124,.22);border:1px solid rgba(255,74,124,.42);color:#fff;padding:10px;font-weight:900;cursor:pointer}
+        .sr-toolbar-022h{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+        .sr-toolbar-022h button{border:0;border-radius:14px;padding:12px 14px;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.14);font-weight:950;cursor:pointer}
+        .sr-toolbar-022h button.primary{background:linear-gradient(135deg,#ff25bb,#6d4cff);border:0}
+        .sr-total-box-022h{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+        .sr-total-pill-022h{border-radius:16px;padding:14px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.13);font-weight:950}
+        @media(max-width:960px){.sr-invoice-layout-022h{grid-template-columns:1fr}.sr-invoice-line-022h{grid-template-columns:1fr 70px 90px}.sr-invoice-line-022h strong[data-sr-cart-total]{grid-column:1/3}.sr-invoice-line-022h button{grid-column:3/4}}
+      `;
+      document.head.appendChild(style);
+    }
+
+    let refs = [];
+    let sales = [];
+    let selected = null;
+    let loadError = "";
+
+    async function loadRefs(q = "") {
+      const params = new URLSearchParams();
+      if (category) params.set("category", category);
+      if (q) params.set("q", q);
+      const data = await salesApi022F(`/references?${params.toString()}`);
+      return Array.isArray(data.items) ? data.items : [];
+    }
+
+    function renderRefButtons(items) {
+      return (items || []).map((item) => `
+        <button class="sr-ref-022f" type="button"
+          data-sr-ref-022f="${h(item.id || "")}"
+          data-sr-ref-name="${h(item.name || "")}"
+          data-sr-ref-category="${h(item.category || category || "")}"
+          data-sr-ref-size="${h(item.size || "")}"
+          data-sr-ref-color="${h(item.color || "")}"
+          data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}">
+          <strong>${h(item.name || "Referencia")}</strong><br>
+          <small>${h([item.category, item.size, item.color].filter(Boolean).join(" · "))}</small>
+        </button>
+      `).join("") || `<div class="sr-muted-022f">Sin referencias para esta búsqueda.</div>`;
+    }
+
+    try {
+      refs = await loadRefs(search);
+      const salesData = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
+      sales = Array.isArray(salesData.items) ? salesData.items : [];
+    } catch (error) {
+      loadError = error.message || "No se pudieron cargar referencias.";
+    }
+
+    const activeSales = sales.filter((item) => item.status !== "archived");
+
+    root.innerHTML = `
+      <main class="sr-shell-022f">
+        <header class="sr-card-022f sr-hero-022f">
+          <div>
+            <div class="sr-kicker-022f">Registro venta</div>
+            <h1 class="sr-title-022f">${h(category || "Categoría")}</h1>
+            <p class="sr-muted-022f">Agrega varios artículos, cambia de categoría y guarda una sola factura.</p>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="sr-btn-022f secondary" type="button" data-sr-categories-022f>Categorías</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-new-invoice-022h>Nueva factura</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-print-draft-022h>Imprimir factura</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-back-022f>Dashboard</button>
+          </div>
+        </header>
+
+        <section class="sr-invoice-layout-022h">
+          <section class="sr-card-022f sr-panel-022f">
+            <div class="sr-kicker-022f">Referencia</div>
+            <div class="sr-field-022f">
+              <label>Filtro inteligente</label>
+              <input id="srSearch022F" value="${h(search)}" placeholder="Escribe o escanea referencia, código, talla, color..." />
+            </div>
+            <div class="sr-toolbar-022h">
+              <button class="primary" type="button" data-sr-scan-022h>Escanear código</button>
+              <button type="button" data-sr-clear-search-022h>Limpiar búsqueda</button>
+            </div>
+            <div class="sr-ref-list-022f" id="srRefList022F" style="margin-top:14px">
+              ${renderRefButtons(refs)}
+            </div>
+          </section>
+
+          <aside class="sr-card-022f sr-panel-022f">
+            <div class="sr-kicker-022f">Factura actual</div>
+            <h2>Carrito operativo</h2>
+            <div class="sr-message-022f" id="srSelected022F">Selecciona una referencia y agrégala a la factura.</div>
+
+            <div class="sr-form-grid-022f" style="margin-top:14px">
+              <div class="sr-field-022f">
+                <label>Cantidad</label>
+                <input id="srQty022F" type="number" min="0" step="1" value="1" />
+              </div>
+              <div class="sr-field-022f">
+                <label>Valor unitario</label>
+                <input id="srUnit022F" type="number" min="0" step="100" value="0" />
+              </div>
+            </div>
+
+            <div class="sr-toolbar-022h">
+              <button class="primary" type="button" data-sr-add-line-022h>Agregar a factura actual</button>
+            </div>
+
+            <div class="sr-invoice-box-022h" id="srCartRows022H" style="margin-top:14px">
+              ${salesCartRowsHtml022H()}
+            </div>
+
+            <div class="sr-total-box-022h">
+              <div class="sr-total-pill-022h">Artículos<br><span id="srInvoiceCount022H">${h(salesInvoiceCount022H())}</span></div>
+              <div class="sr-total-pill-022h">Total<br><span id="srInvoiceTotal022H">${h(formatMoney(salesInvoiceTotal022H()))}</span></div>
+            </div>
+
+            <div class="sr-form-grid-022f" style="margin-top:14px">
+              <div class="sr-field-022f">
+                <label>Forma de pago</label>
+                <select id="srPay022F">
+                  <option value="efectivo" ${salesInvoiceCart022H.payment_method === "efectivo" ? "selected" : ""}>Efectivo</option>
+                  <option value="transferencia" ${salesInvoiceCart022H.payment_method === "transferencia" ? "selected" : ""}>Transferencia</option>
+                  <option value="tarjeta" ${salesInvoiceCart022H.payment_method === "tarjeta" ? "selected" : ""}>Tarjeta</option>
+                  <option value="cheque" ${salesInvoiceCart022H.payment_method === "cheque" ? "selected" : ""}>Cheque</option>
+                  <option value="otro" ${salesInvoiceCart022H.payment_method === "otro" ? "selected" : ""}>Otro</option>
+                </select>
+              </div>
+              <div class="sr-field-022f">
+                <label>Observación factura</label>
+                <input id="srNotes022F" value="${h(salesInvoiceCart022H.notes || "")}" placeholder="Opcional" />
+              </div>
+            </div>
+
+            <button class="sr-btn-022f" type="button" data-sr-save-invoice-022h style="margin-top:14px;width:100%">Guardar factura / venta</button>
+            <div class="sr-message-022f" id="srMsg022F">${loadError ? h(loadError) : ""}</div>
+          </aside>
+        </section>
+
+        <section class="sr-card-022f sr-panel-022f" style="margin-top:18px">
+          <div class="sr-kicker-022f">Mis ventas activas</div>
+          <div class="sr-sales-list-022f">
+            ${activeSales.slice(0, 12).map(salesCardHtml022G).join("") || `<div class="sr-muted-022f">Sin ventas activas.</div>`}
+          </div>
+        </section>
+      </main>
+    `;
+
+    const searchInput = root.querySelector("#srSearch022F");
+
+    async function updateRefList(q = "", autoPick = false) {
+      const nextRefs = await loadRefs(q);
+      const list = root.querySelector("#srRefList022F");
+      if (list) list.innerHTML = renderRefButtons(nextRefs);
+      bindRefs();
+      if (autoPick && nextRefs.length) {
+        const firstBtn = root.querySelector("[data-sr-ref-022f]");
+        firstBtn?.click();
+      }
+    }
+
+    function bindRefs() {
+      root.querySelectorAll("[data-sr-ref-022f]").forEach((button) => {
+        button.addEventListener("click", () => {
+          root.querySelectorAll("[data-sr-ref-022f]").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          selected = {
+            reference_id: button.getAttribute("data-sr-ref-022f") || "",
+            reference_name: button.getAttribute("data-sr-ref-name") || "",
+            reference_category: button.getAttribute("data-sr-ref-category") || "",
+            reference_size: button.getAttribute("data-sr-ref-size") || "",
+            reference_color: button.getAttribute("data-sr-ref-color") || "",
+            barcode: button.getAttribute("data-sr-ref-barcode") || ""
+          };
+          const selectedBox = root.querySelector("#srSelected022F");
+          if (selectedBox) selectedBox.textContent = `${selected.reference_name} · ${[selected.reference_size, selected.reference_color].filter(Boolean).join(" · ")}`;
+        });
+      });
+    }
+
+    function bindCartInputs() {
+      root.querySelectorAll("[data-sr-cart-qty]").forEach((input) => {
+        input.addEventListener("input", () => {
+          const index = Number(input.getAttribute("data-sr-cart-qty") || 0);
+          if (salesInvoiceCart022H.items[index]) {
+            salesInvoiceCart022H.items[index].quantity = Number(input.value || 0);
+            salesRefreshCartTotals022H();
+          }
+        });
+      });
+
+      root.querySelectorAll("[data-sr-cart-unit]").forEach((input) => {
+        input.addEventListener("input", () => {
+          const index = Number(input.getAttribute("data-sr-cart-unit") || 0);
+          if (salesInvoiceCart022H.items[index]) {
+            salesInvoiceCart022H.items[index].unit_price = Number(input.value || 0);
+            salesRefreshCartTotals022H();
+          }
+        });
+      });
+
+      root.querySelectorAll("[data-sr-cart-remove]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const index = Number(button.getAttribute("data-sr-cart-remove") || 0);
+          salesInvoiceCart022H.items.splice(index, 1);
+          await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+        });
+      });
+    }
+
+    let searchTimer = null;
+    searchInput?.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(async () => {
+        try {
+          await updateRefList(searchInput.value || "", false);
+        } catch (error) {
+          const msg = root.querySelector("#srMsg022F");
+          if (msg) msg.textContent = error.message || "No se pudo buscar.";
+        }
+      }, 260);
+    });
+
+    root.querySelector("[data-sr-back-022f]")?.addEventListener("click", () => bootShell());
+    root.querySelector("[data-sr-categories-022f]")?.addEventListener("click", async () => openSalesRegisterModule022F(session));
+    root.querySelector("[data-sr-clear-search-022h]")?.addEventListener("click", async () => {
+      if (searchInput) searchInput.value = "";
+      await updateRefList("", false);
+    });
+    root.querySelector("[data-sr-scan-022h]")?.addEventListener("click", async () => salesScanCode022H(searchInput, updateRefList));
+    root.querySelector("[data-sr-new-invoice-022h]")?.addEventListener("click", async () => {
+      if (salesInvoiceCart022H.items.length && !confirm("Crear nueva factura y limpiar la actual?")) return;
+      salesResetInvoice022H();
+      await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+    });
+    root.querySelector("[data-sr-print-draft-022h]")?.addEventListener("click", () => salesPrintInvoiceDraft022H(session));
+
+    root.querySelector("[data-sr-add-line-022h]")?.addEventListener("click", async () => {
+      const msg = root.querySelector("#srMsg022F");
+      if (!selected?.reference_name) {
+        if (msg) msg.textContent = "Selecciona una referencia antes de agregar.";
+        return;
+      }
+      const item = salesNormalizeItem022H({
+        ...selected,
+        quantity: Number(root.querySelector("#srQty022F")?.value || 0),
+        unit_price: Number(root.querySelector("#srUnit022F")?.value || 0)
+      });
+      if (!item.quantity) {
+        if (msg) msg.textContent = "La cantidad debe ser mayor a cero.";
+        return;
+      }
+      salesInvoiceCart022H.items.push(item);
+      if (msg) msg.textContent = "Artículo agregado a la factura actual.";
+      await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+    });
+
+    root.querySelector("#srPay022F")?.addEventListener("change", (event) => {
+      salesInvoiceCart022H.payment_method = event.target.value || "efectivo";
+    });
+    root.querySelector("#srNotes022F")?.addEventListener("input", (event) => {
+      salesInvoiceCart022H.notes = event.target.value || "";
+    });
+
+    root.querySelector("[data-sr-save-invoice-022h]")?.addEventListener("click", async () => {
+      const msg = root.querySelector("#srMsg022F");
+      salesInvoiceCart022H.payment_method = root.querySelector("#srPay022F")?.value || "efectivo";
+      salesInvoiceCart022H.notes = root.querySelector("#srNotes022F")?.value || "";
+
+      if (!salesInvoiceCart022H.items.length) {
+        if (msg) msg.textContent = "Agrega al menos un artículo antes de guardar.";
+        return;
+      }
+
+      try {
+        if (msg) msg.textContent = "Guardando factura...";
+        const data = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            payment_method: salesInvoiceCart022H.payment_method,
+            notes: salesInvoiceCart022H.notes,
+            items: salesInvoiceCart022H.items
+          })
+        });
+        if (msg) msg.textContent = `Factura guardada ${data?.invoice_number || ""}.`;
+        salesResetInvoice022H();
+        await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+      } catch (error) {
+        if (msg) msg.textContent = error.message || "No se pudo guardar la factura.";
+      }
+    });
+
+    bindRefs();
+    bindCartInputs();
+    bindSalesPipelineActions022G(session, activeSales, () => renderSalesRegisterCategory022F(session, category, searchInput?.value || ""));
+  }
+  /* CLONEXA_022H_REGISTRO_VENTA_FACTURA_MULTIITEM_SCANNER_PRINT_END */
+
+
+
   /* CLONEXA_022F_REGISTRO_VENTA_DINAMICO_REFERENCIAS_END */
 
 
