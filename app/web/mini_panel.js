@@ -3547,6 +3547,576 @@ function moduleCard(title, description, tag, code = "") {
   /* CLONEXA_022H_REGISTRO_VENTA_FACTURA_MULTIITEM_SCANNER_PRINT_END */
 
 
+  /* CLONEXA_022I_MINIPANEL_SALES_SEARCH_KPI_LIMIT5_START */
+  function salesUxStyles022I() {
+    salesPipelineStyles022G();
+    if (document.getElementById("cxSalesUxStyles022I")) return;
+    const style = document.createElement("style");
+    style.id = "cxSalesUxStyles022I";
+    style.textContent = `
+      .sr-search-row-022i{display:grid;gap:8px;margin:14px 0}
+      .sr-search-row-022i input{width:100%;border:1px solid rgba(255,255,255,.15);background:rgba(5,7,22,.64);color:#fff;border-radius:16px;padding:14px 16px;font-weight:900;outline:none}
+      .sr-search-row-022i input:focus{border-color:rgba(255,37,187,.68);box-shadow:0 0 0 3px rgba(255,37,187,.12)}
+      .sr-search-meta-022i{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:rgba(255,255,255,.62);font-size:12px;font-weight:900;margin-top:8px}
+      .sr-sales-scroll-022i{max-height:610px;overflow:auto;padding-right:4px;scrollbar-width:thin}
+      .sr-sales-scroll-022i::-webkit-scrollbar{width:8px}
+      .sr-sales-scroll-022i::-webkit-scrollbar-thumb{background:linear-gradient(180deg,#ff25bb,#35a8ff);border-radius:999px}
+      .sr-empty-022i{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:16px;color:rgba(255,255,255,.64);font-weight:900}
+      .sr-category-hidden-022i{display:none!important}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function salesSearchText022I(value) {
+    return String(value ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  }
+
+  function salesMatchCategory022I(item, query) {
+    const q = salesSearchText022I(query);
+    if (!q) return true;
+    return salesSearchText022I([
+      item?.category,
+      item?.slug,
+      item?.source,
+      item?.count,
+      item?.icon
+    ].filter(Boolean).join(" ")).includes(q);
+  }
+
+  function salesMatchRecord022I(item, query) {
+    const q = salesSearchText022I(query);
+    if (!q) return true;
+    const items = Array.isArray(item?.items) ? item.items : [];
+    const itemText = items.map((line) => [
+      line?.reference_name,
+      line?.reference_category,
+      line?.reference_size,
+      line?.reference_color,
+      line?.barcode,
+      line?.quantity,
+      line?.unit_price,
+      line?.total
+    ].filter(Boolean).join(" ")).join(" ");
+    return salesSearchText022I([
+      item?.invoice_number,
+      item?.reference_name,
+      item?.reference_category,
+      item?.reference_size,
+      item?.reference_color,
+      item?.payment_method,
+      item?.status,
+      item?.pipeline_status,
+      item?.created_by_label,
+      item?.source_user_label,
+      item?.total,
+      item?.quantity,
+      itemText
+    ].filter(Boolean).join(" ")).includes(q);
+  }
+
+  function salesRenderCategories022I(categories) {
+    return (categories || []).map((item) => `
+      <button class="sr-category-022f" type="button" data-sr-category-022f="${h(item.category || "")}">
+        <div class="sr-icon-022f">${h(categoryIcon022F(item))}</div>
+        <strong>${h(item.category || "Categoria")}</strong>
+        <small>${Number(item.count || 0)} referencias</small>
+      </button>
+    `).join("") || `<div class="sr-empty-022i">No hay categorías disponibles. Crea referencias con canal Sistema o Ambos.</div>`;
+  }
+
+  function salesVisibleRecords022I(records, query = "", limitWhenEmpty = 5) {
+    const active = (records || []).filter((item) => String(item?.status || "").toLowerCase() !== "archived");
+    const filtered = active.filter((item) => salesMatchRecord022I(item, query));
+    return query ? filtered.slice(0, 60) : filtered.slice(0, limitWhenEmpty);
+  }
+
+  function salesRenderRecords022I(records, query = "", emptyText = "Aún no tienes ventas activas.") {
+    const list = salesVisibleRecords022I(records, query, 5);
+    if (!list.length) return `<div class="sr-empty-022i">${h(emptyText)}</div>`;
+    return list.map(salesCardHtml022G).join("");
+  }
+
+  function salesUpdateRecordsList022I(session, records, query, listSelector, countSelector, refreshFn) {
+    const list = root.querySelector(listSelector);
+    const count = root.querySelector(countSelector);
+    const normalizedQuery = String(query || "").trim();
+    const active = (records || []).filter((item) => String(item?.status || "").toLowerCase() !== "archived");
+    const filtered = active.filter((item) => salesMatchRecord022I(item, normalizedQuery));
+    const visible = normalizedQuery ? filtered.slice(0, 60) : filtered.slice(0, 5);
+
+    if (list) {
+      list.innerHTML = visible.length
+        ? visible.map(salesCardHtml022G).join("")
+        : `<div class="sr-empty-022i">${normalizedQuery ? "Sin ventas que coincidan con la búsqueda." : "Aún no tienes ventas activas."}</div>`;
+    }
+
+    if (count) {
+      count.textContent = normalizedQuery
+        ? `Mostrando ${visible.length} de ${filtered.length} coincidencias`
+        : `Mostrando últimas ${Math.min(5, active.length)} de ${active.length} ventas activas`;
+    }
+
+    bindSalesPipelineActions022G(session, active, refreshFn);
+  }
+
+  async function refreshMiniPanelSalesKpis022I() {
+    try {
+      if (typeof salesApi022F !== "function") return;
+      const data = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
+      const items = Array.isArray(data.items) ? data.items : [];
+      const active = items.filter((item) => String(item?.status || "").toLowerCase() !== "archived");
+      const total = active.reduce((sum, item) => sum + Number(item?.total || 0), 0);
+
+      const cards = Array.from(root.querySelectorAll(".mp-kpi-card"));
+      const totalCard = cards.find((card) => salesSearchText022I(card.querySelector("span")?.textContent || "") === "total ventas mes");
+      const goalCard = cards.find((card) => salesSearchText022I(card.querySelector("span")?.textContent || "") === "llevas vs meta");
+
+      if (totalCard) {
+        const strong = totalCard.querySelector("strong");
+        const small = totalCard.querySelector("small");
+        if (strong) strong.textContent = formatMoney(total);
+        if (small) small.textContent = `${active.length} ventas activas registradas por este usuario`;
+      }
+
+      if (goalCard) {
+        const strong = goalCard.querySelector("strong");
+        const progress = goalCard.querySelector(".mp-progress i");
+        const small = goalCard.querySelector("small");
+        if (strong) strong.textContent = `${formatMoney(total)} / ${formatMoney(0)}`;
+        if (progress) progress.style.width = "0%";
+        if (small) small.textContent = "Meta pendiente de configurar";
+      }
+    } catch (error) {
+      console.warn("CLONEXA 022I KPI ventas fallback:", error);
+    }
+  }
+
+  async function openSalesRegisterModule022F(session) {
+    salesUxStyles022I();
+    let categories = [];
+    let sales = [];
+    let loadError = "";
+
+    try {
+      const cats = await salesApi022F(`/categories?panel_type=${encodeURIComponent(panelType)}`);
+      categories = Array.isArray(cats.items) ? cats.items : [];
+      const salesData = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
+      sales = Array.isArray(salesData.items) ? salesData.items : [];
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Registro Venta.";
+    }
+
+    const activeSales = sales.filter((item) => String(item.status || "").toLowerCase() !== "archived");
+    const totalAmount = activeSales.reduce((sum, item) => sum + Number(item.total || 0), 0);
+
+    root.innerHTML = `
+      <main class="sr-shell-022f">
+        <header class="sr-card-022f sr-hero-022f">
+          <div>
+            <div class="sr-kicker-022f">Registro venta</div>
+            <h1 class="sr-title-022f">Venta operativa</h1>
+            <p class="sr-muted-022f">${h(session?.company?.name || "Empresa")} · ${h(labelType(panelType))} · ${h(session?.employee?.full_name || session?.user?.full_name || "usuario")}</p>
+          </div>
+          <button class="sr-btn-022f secondary" type="button" data-sr-back-022f>Volver</button>
+        </header>
+
+        <section class="sr-layout-022f">
+          <div class="sr-card-022f sr-panel-022f">
+            <div class="sr-kicker-022f">Categorías</div>
+            <h2>Selecciona una categoría</h2>
+            <p class="sr-muted-022f">Las referencias salen del módulo Referencias con canal Sistema o Ambos.</p>
+            ${loadError ? `<div class="sr-message-022f" style="color:#ff9aae">${h(loadError)}</div>` : ""}
+
+            <div class="sr-search-row-022i">
+              <input id="srCategorySearch022I" placeholder="Buscar categoría: funda, celulares, audífonos, ropa..." autocomplete="off" />
+              <div class="sr-search-meta-022i" id="srCategoryCount022I">Mostrando ${categories.length} categorías</div>
+            </div>
+
+            <div class="sr-grid-022f" id="srCategoryGrid022I">
+              ${salesRenderCategories022I(categories)}
+            </div>
+          </div>
+
+          <aside class="sr-card-022f sr-panel-022f">
+            <div class="sr-kicker-022f">Mis ventas</div>
+            <h2>${activeSales.length} activas</h2>
+            <p class="sr-muted-022f">${h(formatMoney(totalAmount))} registrado por este usuario.</p>
+
+            <div class="sr-search-row-022i">
+              <input id="srSalesSearch022I" placeholder="Buscar venta: factura, referencia, pago, estado, total..." autocomplete="off" />
+              <div class="sr-search-meta-022i" id="srSalesCount022I">Mostrando últimas ${Math.min(5, activeSales.length)} de ${activeSales.length} ventas activas</div>
+            </div>
+
+            <div class="sr-sales-list-022f sr-sales-scroll-022i" id="srSalesList022I">
+              ${salesRenderRecords022I(activeSales, "", "Aún no tienes ventas activas.")}
+            </div>
+          </aside>
+        </section>
+      </main>
+    `;
+
+    function bindCategoryButtons() {
+      root.querySelectorAll("[data-sr-category-022f]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await renderSalesRegisterCategory022F(session, button.getAttribute("data-sr-category-022f") || "");
+        });
+      });
+    }
+
+    root.querySelector("[data-sr-back-022f]")?.addEventListener("click", () => bootShell());
+    bindCategoryButtons();
+
+    const categorySearch = root.querySelector("#srCategorySearch022I");
+    const categoryGrid = root.querySelector("#srCategoryGrid022I");
+    const categoryCount = root.querySelector("#srCategoryCount022I");
+
+    categorySearch?.addEventListener("input", () => {
+      const q = categorySearch.value || "";
+      const filtered = categories.filter((item) => salesMatchCategory022I(item, q));
+      if (categoryGrid) categoryGrid.innerHTML = salesRenderCategories022I(filtered);
+      if (categoryCount) categoryCount.textContent = q.trim()
+        ? `Mostrando ${filtered.length} de ${categories.length} categorías`
+        : `Mostrando ${categories.length} categorías`;
+      bindCategoryButtons();
+    });
+
+    const salesSearch = root.querySelector("#srSalesSearch022I");
+    salesSearch?.addEventListener("input", () => {
+      salesUpdateRecordsList022I(
+        session,
+        activeSales,
+        salesSearch.value || "",
+        "#srSalesList022I",
+        "#srSalesCount022I",
+        () => openSalesRegisterModule022F(session)
+      );
+    });
+
+    bindSalesPipelineActions022G(session, activeSales, () => openSalesRegisterModule022F(session));
+  }
+
+  async function renderSalesRegisterCategory022F(session, category, search = "") {
+    salesUxStyles022I();
+
+    if (!document.getElementById("cxSalesInvoiceStyles022H")) {
+      const style = document.createElement("style");
+      style.id = "cxSalesInvoiceStyles022H";
+      style.textContent = `
+        .sr-invoice-layout-022h{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:18px}
+        .sr-invoice-box-022h{display:grid;gap:10px}
+        .sr-invoice-line-022h{display:grid;grid-template-columns:minmax(0,1fr) 82px 110px 110px 72px;gap:8px;align-items:center;padding:12px;border-radius:16px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}
+        .sr-invoice-line-022h small{display:block;color:rgba(255,255,255,.62);font-weight:800;margin-top:3px}
+        .sr-invoice-line-022h input{width:100%;border:1px solid rgba(255,255,255,.15);background:rgba(5,7,22,.65);color:#fff;border-radius:12px;padding:10px;font-weight:900}
+        .sr-invoice-line-022h button{border:0;border-radius:12px;background:rgba(255,74,124,.22);border:1px solid rgba(255,74,124,.42);color:#fff;padding:10px;font-weight:900;cursor:pointer}
+        .sr-toolbar-022h{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+        .sr-toolbar-022h button{border:0;border-radius:14px;padding:12px 14px;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.14);font-weight:950;cursor:pointer}
+        .sr-toolbar-022h button.primary{background:linear-gradient(135deg,#ff25bb,#6d4cff);border:0}
+        .sr-total-box-022h{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+        .sr-total-pill-022h{border-radius:16px;padding:14px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.13);font-weight:950}
+        @media(max-width:960px){.sr-invoice-layout-022h{grid-template-columns:1fr}.sr-invoice-line-022h{grid-template-columns:1fr 70px 90px}.sr-invoice-line-022h strong[data-sr-cart-total]{grid-column:1/3}.sr-invoice-line-022h button{grid-column:3/4}}
+      `;
+      document.head.appendChild(style);
+    }
+
+    let refs = [];
+    let sales = [];
+    let selected = null;
+    let loadError = "";
+
+    async function loadRefs(q = "") {
+      const params = new URLSearchParams();
+      if (category) params.set("category", category);
+      if (q) params.set("q", q);
+      const data = await salesApi022F(`/references?${params.toString()}`);
+      return Array.isArray(data.items) ? data.items : [];
+    }
+
+    function renderRefButtons(items) {
+      return (items || []).map((item) => `
+        <button class="sr-ref-022f" type="button"
+          data-sr-ref-022f="${h(item.id || "")}"
+          data-sr-ref-name="${h(item.name || "")}"
+          data-sr-ref-category="${h(item.category || category || "")}"
+          data-sr-ref-size="${h(item.size || "")}"
+          data-sr-ref-color="${h(item.color || "")}"
+          data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}">
+          <strong>${h(item.name || "Referencia")}</strong><br>
+          <small>${h([item.category, item.size, item.color].filter(Boolean).join(" · "))}</small>
+        </button>
+      `).join("") || `<div class="sr-muted-022f">Sin referencias para esta búsqueda.</div>`;
+    }
+
+    try {
+      refs = await loadRefs(search);
+      const salesData = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
+      sales = Array.isArray(salesData.items) ? salesData.items : [];
+    } catch (error) {
+      loadError = error.message || "No se pudieron cargar referencias.";
+    }
+
+    const activeSales = sales.filter((item) => String(item.status || "").toLowerCase() !== "archived");
+
+    root.innerHTML = `
+      <main class="sr-shell-022f">
+        <header class="sr-card-022f sr-hero-022f">
+          <div>
+            <div class="sr-kicker-022f">Registro venta</div>
+            <h1 class="sr-title-022f">${h(category || "Categoría")}</h1>
+            <p class="sr-muted-022f">Agrega varios artículos, cambia de categoría y guarda una sola factura.</p>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="sr-btn-022f secondary" type="button" data-sr-categories-022f>Categorías</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-new-invoice-022h>Nueva factura</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-print-draft-022h>Imprimir factura</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-back-022f>Dashboard</button>
+          </div>
+        </header>
+
+        <section class="sr-invoice-layout-022h">
+          <section class="sr-card-022f sr-panel-022f">
+            <div class="sr-kicker-022f">Referencia</div>
+            <div class="sr-field-022f">
+              <label>Filtro inteligente</label>
+              <input id="srSearch022F" value="${h(search)}" placeholder="Escribe o escanea referencia, código, talla, color..." />
+            </div>
+            <div class="sr-toolbar-022h">
+              <button class="primary" type="button" data-sr-scan-022h>Escanear código</button>
+              <button type="button" data-sr-clear-search-022h>Limpiar búsqueda</button>
+            </div>
+            <div class="sr-ref-list-022f" id="srRefList022F" style="margin-top:14px">
+              ${renderRefButtons(refs)}
+            </div>
+          </section>
+
+          <aside class="sr-card-022f sr-panel-022f">
+            <div class="sr-kicker-022f">Factura actual</div>
+            <h2>Carrito operativo</h2>
+            <div class="sr-message-022f" id="srSelected022F">Selecciona una referencia y agrégala a la factura.</div>
+
+            <div class="sr-form-grid-022f" style="margin-top:14px">
+              <div class="sr-field-022f">
+                <label>Cantidad</label>
+                <input id="srQty022F" type="number" min="0" step="1" value="1" />
+              </div>
+              <div class="sr-field-022f">
+                <label>Valor unitario</label>
+                <input id="srUnit022F" type="number" min="0" step="100" value="0" />
+              </div>
+            </div>
+
+            <div class="sr-toolbar-022h">
+              <button class="primary" type="button" data-sr-add-line-022h>Agregar a factura actual</button>
+            </div>
+
+            <div class="sr-invoice-box-022h" id="srCartRows022H" style="margin-top:14px">
+              ${salesCartRowsHtml022H()}
+            </div>
+
+            <div class="sr-total-box-022h">
+              <div class="sr-total-pill-022h">Artículos<br><span id="srInvoiceCount022H">${h(salesInvoiceCount022H())}</span></div>
+              <div class="sr-total-pill-022h">Total<br><span id="srInvoiceTotal022H">${h(formatMoney(salesInvoiceTotal022H()))}</span></div>
+            </div>
+
+            <div class="sr-form-grid-022f" style="margin-top:14px">
+              <div class="sr-field-022f">
+                <label>Forma de pago</label>
+                <select id="srPay022F">
+                  <option value="efectivo" ${salesInvoiceCart022H.payment_method === "efectivo" ? "selected" : ""}>Efectivo</option>
+                  <option value="transferencia" ${salesInvoiceCart022H.payment_method === "transferencia" ? "selected" : ""}>Transferencia</option>
+                  <option value="tarjeta" ${salesInvoiceCart022H.payment_method === "tarjeta" ? "selected" : ""}>Tarjeta</option>
+                  <option value="cheque" ${salesInvoiceCart022H.payment_method === "cheque" ? "selected" : ""}>Cheque</option>
+                  <option value="otro" ${salesInvoiceCart022H.payment_method === "otro" ? "selected" : ""}>Otro</option>
+                </select>
+              </div>
+              <div class="sr-field-022f">
+                <label>Observación factura</label>
+                <input id="srNotes022F" value="${h(salesInvoiceCart022H.notes || "")}" placeholder="Opcional" />
+              </div>
+            </div>
+
+            <button class="sr-btn-022f" type="button" data-sr-save-invoice-022h style="margin-top:14px;width:100%">Guardar factura / venta</button>
+            <div class="sr-message-022f" id="srMsg022F">${loadError ? h(loadError) : ""}</div>
+          </aside>
+        </section>
+
+        <section class="sr-card-022f sr-panel-022f" style="margin-top:18px">
+          <div class="sr-kicker-022f">Mis ventas activas</div>
+          <div class="sr-search-row-022i">
+            <input id="srCategorySalesSearch022I" placeholder="Buscar venta: factura, artículo, categoría, pago, estado..." autocomplete="off" />
+            <div class="sr-search-meta-022i" id="srCategorySalesCount022I">Mostrando últimas ${Math.min(5, activeSales.length)} de ${activeSales.length} ventas activas</div>
+          </div>
+          <div class="sr-sales-list-022f sr-sales-scroll-022i" id="srCategorySalesList022I">
+            ${salesRenderRecords022I(activeSales, "", "Sin ventas activas.")}
+          </div>
+        </section>
+      </main>
+    `;
+
+    const searchInput = root.querySelector("#srSearch022F");
+
+    async function updateRefList(q = "", autoPick = false) {
+      const nextRefs = await loadRefs(q);
+      const list = root.querySelector("#srRefList022F");
+      if (list) list.innerHTML = renderRefButtons(nextRefs);
+      bindRefs();
+      if (autoPick && nextRefs.length) {
+        const firstBtn = root.querySelector("[data-sr-ref-022f]");
+        firstBtn?.click();
+      }
+    }
+
+    function bindRefs() {
+      root.querySelectorAll("[data-sr-ref-022f]").forEach((button) => {
+        button.addEventListener("click", () => {
+          root.querySelectorAll("[data-sr-ref-022f]").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          selected = {
+            reference_id: button.getAttribute("data-sr-ref-022f") || "",
+            reference_name: button.getAttribute("data-sr-ref-name") || "",
+            reference_category: button.getAttribute("data-sr-ref-category") || "",
+            reference_size: button.getAttribute("data-sr-ref-size") || "",
+            reference_color: button.getAttribute("data-sr-ref-color") || "",
+            barcode: button.getAttribute("data-sr-ref-barcode") || ""
+          };
+          const selectedBox = root.querySelector("#srSelected022F");
+          if (selectedBox) selectedBox.textContent = `${selected.reference_name} · ${[selected.reference_size, selected.reference_color].filter(Boolean).join(" · ")}`;
+        });
+      });
+    }
+
+    function bindCartInputs() {
+      root.querySelectorAll("[data-sr-cart-qty]").forEach((input) => {
+        input.addEventListener("input", () => {
+          const index = Number(input.getAttribute("data-sr-cart-qty") || 0);
+          if (salesInvoiceCart022H.items[index]) {
+            salesInvoiceCart022H.items[index].quantity = Number(input.value || 0);
+            salesRefreshCartTotals022H();
+          }
+        });
+      });
+
+      root.querySelectorAll("[data-sr-cart-unit]").forEach((input) => {
+        input.addEventListener("input", () => {
+          const index = Number(input.getAttribute("data-sr-cart-unit") || 0);
+          if (salesInvoiceCart022H.items[index]) {
+            salesInvoiceCart022H.items[index].unit_price = Number(input.value || 0);
+            salesRefreshCartTotals022H();
+          }
+        });
+      });
+
+      root.querySelectorAll("[data-sr-cart-remove]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const index = Number(button.getAttribute("data-sr-cart-remove") || 0);
+          salesInvoiceCart022H.items.splice(index, 1);
+          await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+        });
+      });
+    }
+
+    let searchTimer = null;
+    searchInput?.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(async () => {
+        try {
+          await updateRefList(searchInput.value || "", false);
+        } catch (error) {
+          const msg = root.querySelector("#srMsg022F");
+          if (msg) msg.textContent = error.message || "No se pudo buscar.";
+        }
+      }, 260);
+    });
+
+    const categorySalesSearch = root.querySelector("#srCategorySalesSearch022I");
+    categorySalesSearch?.addEventListener("input", () => {
+      salesUpdateRecordsList022I(
+        session,
+        activeSales,
+        categorySalesSearch.value || "",
+        "#srCategorySalesList022I",
+        "#srCategorySalesCount022I",
+        () => renderSalesRegisterCategory022F(session, category, searchInput?.value || "")
+      );
+    });
+
+    root.querySelector("[data-sr-back-022f]")?.addEventListener("click", () => bootShell());
+    root.querySelector("[data-sr-categories-022f]")?.addEventListener("click", async () => openSalesRegisterModule022F(session));
+    root.querySelector("[data-sr-clear-search-022h]")?.addEventListener("click", async () => {
+      if (searchInput) searchInput.value = "";
+      await updateRefList("", false);
+    });
+    root.querySelector("[data-sr-scan-022h]")?.addEventListener("click", async () => salesScanCode022H(searchInput, updateRefList));
+    root.querySelector("[data-sr-new-invoice-022h]")?.addEventListener("click", async () => {
+      if (salesInvoiceCart022H.items.length && !confirm("Crear nueva factura y limpiar la actual?")) return;
+      salesResetInvoice022H();
+      await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+    });
+    root.querySelector("[data-sr-print-draft-022h]")?.addEventListener("click", () => salesPrintInvoiceDraft022H(session));
+
+    root.querySelector("[data-sr-add-line-022h]")?.addEventListener("click", async () => {
+      const msg = root.querySelector("#srMsg022F");
+      if (!selected?.reference_name) {
+        if (msg) msg.textContent = "Selecciona una referencia antes de agregar.";
+        return;
+      }
+      const item = salesNormalizeItem022H({
+        ...selected,
+        quantity: Number(root.querySelector("#srQty022F")?.value || 0),
+        unit_price: Number(root.querySelector("#srUnit022F")?.value || 0)
+      });
+      if (!item.quantity) {
+        if (msg) msg.textContent = "La cantidad debe ser mayor a cero.";
+        return;
+      }
+      salesInvoiceCart022H.items.push(item);
+      if (msg) msg.textContent = "Artículo agregado a la factura actual.";
+      await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+    });
+
+    root.querySelector("#srPay022F")?.addEventListener("change", (event) => {
+      salesInvoiceCart022H.payment_method = event.target.value || "efectivo";
+    });
+    root.querySelector("#srNotes022F")?.addEventListener("input", (event) => {
+      salesInvoiceCart022H.notes = event.target.value || "";
+    });
+
+    root.querySelector("[data-sr-save-invoice-022h]")?.addEventListener("click", async () => {
+      const msg = root.querySelector("#srMsg022F");
+      salesInvoiceCart022H.payment_method = root.querySelector("#srPay022F")?.value || "efectivo";
+      salesInvoiceCart022H.notes = root.querySelector("#srNotes022F")?.value || "";
+
+      if (!salesInvoiceCart022H.items.length) {
+        if (msg) msg.textContent = "Agrega al menos un artículo antes de guardar.";
+        return;
+      }
+
+      try {
+        if (msg) msg.textContent = "Guardando factura...";
+        const data = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            payment_method: salesInvoiceCart022H.payment_method,
+            notes: salesInvoiceCart022H.notes,
+            items: salesInvoiceCart022H.items
+          })
+        });
+        if (msg) msg.textContent = `Factura guardada ${data?.invoice_number || ""}.`;
+        salesResetInvoice022H();
+        await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+      } catch (error) {
+        if (msg) msg.textContent = error.message || "No se pudo guardar la factura.";
+      }
+    });
+
+    bindRefs();
+    bindCartInputs();
+    bindSalesPipelineActions022G(session, activeSales, () => renderSalesRegisterCategory022F(session, category, searchInput?.value || ""));
+  }
+  /* CLONEXA_022I_MINIPANEL_SALES_SEARCH_KPI_LIMIT5_END */
+
+
+
+
 
   /* CLONEXA_022F_REGISTRO_VENTA_DINAMICO_REFERENCIAS_END */
 
@@ -3592,6 +4162,7 @@ function moduleCard(title, description, tag, code = "") {
         return defaultNotesSummary020A();
       });
       renderShell(session, operational.operational_session || operational, currentModuleConfig);
+      refreshMiniPanelSalesKpis022I().catch((error) => console.warn("CLONEXA 022I KPI refresh boot:", error));
     } catch (error) {
       localStorage.removeItem(storageKey);
       renderLogin(error.message || "Sesión expirada. Ingresa de nuevo.");
