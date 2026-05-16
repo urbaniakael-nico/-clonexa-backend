@@ -3139,10 +3139,18 @@ function moduleCard(title, description, tag, code = "") {
     const itemSummary = items.length > 1
       ? `${items.length} artículos · ${Number(item.quantity || 0)} und · ${h(item.payment_method || "")}`
       : `${h(item.reference_category || "Sin categoria")} · ${h(item.quantity)} und · ${h(item.payment_method || "")}`;
+    // CLONEXA_022K_R2_SAVE_SALES_ADJUSTMENT_SAFE: show persisted adjustment on saved invoices without touching categories/references.
+    const adjustment = item?.adjustment || null;
+    const adjustmentType = String(adjustment?.type || "none").toLowerCase();
+    const adjustmentSign = (adjustmentType === "discount" || adjustmentType === "retention") ? "- " : "";
+    const adjustmentHtml = adjustment && adjustmentType !== "none"
+      ? `<div class="sr-muted-022f">${h(adjustment.label || "Ajuste")} ${h(adjustment.percent || 0)}% · ${adjustmentSign}${h(formatMoney(adjustment.adjustment_amount || 0))} · Total a pagar ${h(formatMoney(adjustment.total_payable ?? item.total ?? 0))}</div>`
+      : "";
     return `
       <article class="sr-sale-022f">
         <strong><span>${h(item.invoice_number || item.reference_name || "Factura")}</span><span>${h(formatMoney(item.total || 0))}</span></strong>
         <small>${itemSummary}</small>
+        ${adjustmentHtml}
         ${items.length > 1 ? `<div class="sr-muted-022f">${items.slice(0, 4).map((line) => `${h(line.reference_name || "")} x ${h(line.quantity || 0)}`).join(" · ")}${items.length > 4 ? " · ..." : ""}</div>` : ""}
         <div class="sr-pipeline-022g">
           <span class="sr-pill-022g ok">Venta registrada</span>
@@ -4779,6 +4787,13 @@ function moduleCard(title, description, tag, code = "") {
       const msg = root.querySelector("#srMsg022F");
       salesInvoiceCart022H.payment_method = root.querySelector("#srPay022F")?.value || "efectivo";
       salesInvoiceCart022H.notes = root.querySelector("#srNotes022F")?.value || "";
+      // CLONEXA_022K_R2_SAVE_SALES_ADJUSTMENT_SAFE: read current adjustment controls at save time.
+      const adjustmentTypeNode022K = root.querySelector("#srAdjustmentType022J");
+      const adjustmentPercentNode022K = root.querySelector("#srAdjustmentPercent022J");
+      salesInvoiceCart022H.adjustment_type = adjustmentTypeNode022K?.value || salesInvoiceCart022H.adjustment_type || "none";
+      salesInvoiceCart022H.adjustment_percent = salesInvoiceCart022H.adjustment_type === "none"
+        ? 0
+        : Number(adjustmentPercentNode022K?.value || salesInvoiceCart022H.adjustment_percent || 1);
       if (!salesInvoiceCart022H.items.length) { if (msg) msg.textContent = "Agrega al menos un artículo antes de guardar."; return; }
 
       try {
