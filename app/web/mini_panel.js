@@ -4314,14 +4314,191 @@ function moduleCard(title, description, tag, code = "") {
     const style = document.createElement("style");
     style.id = "clonexa-sales-022j-style";
     style.textContent = `
-      .sr-adjust-grid-022j{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:14px}
-      .sr-total-payable-022j{border-color:rgba(247,37,179,.55)!important;box-shadow:0 16px 36px rgba(247,37,179,.16)}
-      .sr-top-label-022j{margin:12px 0 8px;color:rgba(255,255,255,.72);font-size:12px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
-      .sr-ref-popular-022j{display:inline-flex;margin-left:8px;padding:3px 8px;border-radius:999px;background:rgba(54,230,170,.14);color:#7cffd9;font-size:11px;font-weight:900}
-      @media(max-width:900px){.sr-adjust-grid-022j{grid-template-columns:1fr}}
+      /* CLONEXA_022J_R1_VISUAL_RESTORE_KEEP_FUNCTIONS */
+      .sr-invoice-layout-022h{
+        display:grid;
+        grid-template-columns:minmax(0,1.08fr) minmax(390px,.92fr);
+        gap:18px;
+        align-items:start;
+      }
+      .sr-invoice-layout-022h>.sr-panel-022f{min-width:0}
+      .sr-invoice-box-022h{
+        display:grid;
+        gap:10px;
+        max-height:280px;
+        overflow:auto;
+        padding-right:3px;
+      }
+      .sr-invoice-box-022h::-webkit-scrollbar{width:8px}
+      .sr-invoice-box-022h::-webkit-scrollbar-thumb{
+        background:linear-gradient(180deg,#ff25bb,#35a8ff);
+        border-radius:999px;
+      }
+      .sr-invoice-line-022h{
+        display:grid;
+        grid-template-columns:minmax(0,1fr) 78px 108px 104px 68px;
+        gap:8px;
+        align-items:center;
+        padding:12px;
+        border-radius:16px;
+        background:rgba(255,255,255,.08);
+        border:1px solid rgba(255,255,255,.12);
+      }
+      .sr-invoice-line-022h small{
+        display:block;
+        color:rgba(255,255,255,.64);
+        font-weight:800;
+        margin-top:3px;
+      }
+      .sr-invoice-line-022h input{
+        width:100%;
+        box-sizing:border-box;
+        border:1px solid rgba(255,255,255,.15);
+        background:rgba(5,7,22,.65);
+        color:#fff;
+        border-radius:12px;
+        padding:10px;
+        font-weight:900;
+        outline:none;
+      }
+      .sr-invoice-line-022h button{
+        border:0;
+        border-radius:12px;
+        background:rgba(255,74,124,.22);
+        border:1px solid rgba(255,74,124,.42);
+        color:#fff;
+        padding:10px;
+        font-weight:900;
+        cursor:pointer;
+      }
+      .sr-toolbar-022h{
+        display:flex;
+        gap:10px;
+        flex-wrap:wrap;
+        align-items:center;
+        margin-top:12px;
+      }
+      .sr-toolbar-022h button{
+        border:0;
+        border-radius:16px;
+        padding:12px 15px;
+        color:#fff;
+        background:rgba(255,255,255,.13);
+        border:1px solid rgba(255,255,255,.15);
+        font-weight:950;
+        cursor:pointer;
+        box-shadow:0 12px 28px rgba(0,0,0,.18);
+      }
+      .sr-toolbar-022h button.primary{
+        background:linear-gradient(135deg,#ff25bb,#6d4cff);
+        border:0;
+      }
+      .sr-ref-list-022f{
+        display:grid;
+        gap:10px;
+        max-height:430px;
+        overflow:auto;
+        margin-top:14px;
+        padding-right:3px;
+      }
+      .sr-ref-list-022f::-webkit-scrollbar{width:8px}
+      .sr-ref-list-022f::-webkit-scrollbar-thumb{
+        background:linear-gradient(180deg,#ff25bb,#35a8ff);
+        border-radius:999px;
+      }
+      .sr-ref-022f{
+        width:100%;
+        text-align:left;
+        border:1px solid rgba(255,255,255,.13);
+        background:rgba(255,255,255,.07);
+        color:#fff;
+        border-radius:18px;
+        padding:14px 15px;
+        cursor:pointer;
+      }
+      .sr-ref-022f:hover{
+        border-color:rgba(255,57,208,.42);
+        background:rgba(255,255,255,.10);
+      }
+      .sr-ref-022f.active{
+        border-color:#ff39d0;
+        background:rgba(255,57,208,.16);
+      }
+      .sr-ref-popular-022j{
+        display:inline-flex;
+        align-items:center;
+        margin-left:8px;
+        padding:3px 8px;
+        border-radius:999px;
+        background:rgba(54,230,170,.14);
+        color:#7cffd9;
+        font-size:11px;
+        font-weight:900;
+      }
+      .sr-top-label-022j{
+        margin:14px 0 8px;
+        color:rgba(255,255,255,.76);
+        font-size:12px;
+        font-weight:950;
+        letter-spacing:.18em;
+        text-transform:uppercase;
+      }
+      .sr-total-box-022h{
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:10px;
+        margin-top:14px;
+      }
+      .sr-total-pill-022h{
+        border-radius:17px;
+        padding:14px;
+        background:linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.055));
+        border:1px solid rgba(255,255,255,.14);
+        font-weight:950;
+        min-height:58px;
+      }
+      .sr-total-pill-022h span{
+        display:block;
+        margin-top:4px;
+        font-size:18px;
+        color:#fff;
+      }
+      .sr-total-payable-022j{
+        border-color:rgba(247,37,179,.58)!important;
+        box-shadow:0 16px 36px rgba(247,37,179,.16);
+        background:linear-gradient(135deg,rgba(247,37,179,.20),rgba(57,148,255,.14));
+      }
+      .sr-adjust-grid-022j{
+        display:grid;
+        grid-template-columns:1.2fr .8fr;
+        gap:12px;
+        margin-top:14px;
+      }
+      .sr-adjust-grid-022j select,
+      .sr-form-grid-022f select,
+      .sr-form-grid-022f input,
+      .sr-field-022f input{
+        min-height:48px;
+      }
+      .sr-message-022f{
+        margin-top:12px;
+        font-weight:900;
+        color:#76ffd5;
+      }
+      @media(max-width:1120px){
+        .sr-invoice-layout-022h{grid-template-columns:1fr}
+        .sr-total-box-022h{grid-template-columns:repeat(2,minmax(0,1fr))}
+      }
+      @media(max-width:760px){
+        .sr-invoice-line-022h{grid-template-columns:1fr 70px 90px}
+        .sr-invoice-line-022h strong[data-sr-cart-total]{grid-column:1/3}
+        .sr-invoice-line-022h button{grid-column:3/4}
+        .sr-total-box-022h,.sr-adjust-grid-022j{grid-template-columns:1fr}
+      }
     `;
     document.head.appendChild(style);
   }
+
 
   function salesPrintInvoiceDraft022H(session, sale = null) {
     const items = sale?.items || salesInvoiceCart022H.items;
