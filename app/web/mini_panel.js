@@ -3010,17 +3010,103 @@ function moduleCard(title, description, tag, code = "") {
     if (countNode) countNode.textContent = String(count);
   }
 
-  function salesPrintInvoiceDraft022H(session, sale = null) {
-    const items = sale?.items || salesInvoiceCart022H.items;
-    if (!items || !items.length) {
-      alert("No hay artículos para imprimir.");
-      return;
+
+  /* CLONEXA_022K_SALES_ADJUSTMENT_VISIBLE_IN_INVOICE_START */
+  function salesNormalizeAdjustmentForInvoice022K(sale = null, items = null) {
+    const rows = Array.isArray(items) ? items : (Array.isArray(sale?.items) ? sale.items : []);
+    const subtotal = Math.round(rows.reduce((sum, item) => {
+      return sum + (Number(item.quantity || 0) * Number(item.unit_price || 0));
+    }, 0) * 100) / 100;
+
+    const source = (sale && typeof sale.adjustment === "object" && sale.adjustment)
+      ? sale.adjustment
+      : (sale && typeof sale.metadata === "object" && sale.metadata?.adjustment)
+        ? sale.metadata.adjustment
+        : null;
+
+    if (!sale && typeof salesAdjustmentMeta022J === "function") {
+      return salesAdjustmentMeta022J(rows);
     }
 
-    const total = items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
+    let type = String(source?.type || source?.adjustment_type || sale?.adjustment_type || "none").toLowerCase();
+    const aliases = {
+      none: "none",
+      ninguno: "none",
+      discount: "discount",
+      descuento: "discount",
+      retention: "retention",
+      retencion: "retention",
+      "retención": "retention",
+      iva: "iva",
+      tax: "tax",
+      impuesto: "tax",
+      impuesto_incluido: "tax"
+    };
+    type = aliases[type] || "none";
+
+    let percent = Number(source?.percent ?? source?.adjustment_percent ?? sale?.adjustment_percent ?? 0);
+    if (type === "none") percent = 0;
+    else percent = Math.min(20, Math.max(1, percent || 1));
+
+    let label = source?.label || (typeof salesAdjustmentLabel022J === "function" ? salesAdjustmentLabel022J(type) : "Sin ajuste");
+    let baseAmount = Number(source?.base_amount ?? subtotal);
+    let adjustmentAmount = Number(source?.adjustment_amount ?? 0);
+    let totalPayable = Number(source?.total_payable ?? sale?.total ?? subtotal);
+    let mode = source?.mode || "none";
+
+    if (!source || !Number.isFinite(adjustmentAmount) || adjustmentAmount < 0) {
+      if (type === "discount" || type === "retention") {
+        mode = "subtract";
+        adjustmentAmount = Math.round((subtotal * percent / 100) * 100) / 100;
+        baseAmount = subtotal;
+        totalPayable = Math.max(0, Math.round((subtotal - adjustmentAmount) * 100) / 100);
+      } else if (type === "iva" || type === "tax") {
+        mode = "included";
+        baseAmount = Math.round((subtotal / (1 + (percent / 100))) * 100) / 100;
+        adjustmentAmount = Math.round((subtotal - baseAmount) * 100) / 100;
+        totalPayable = subtotal;
+      } else {
+        mode = "none";
+        baseAmount = subtotal;
+        adjustmentAmount = 0;
+        totalPayable = Number(sale?.total ?? subtotal);
+      }
+    }
+
+    return {
+      type,
+      label,
+      percent,
+      subtotal,
+      base_amount: Math.round(baseAmount * 100) / 100,
+      adjustment_amount: Math.round(adjustmentAmount * 100) / 100,
+      total_payable: Math.round(totalPayable * 100) / 100,
+      mode
+    };
+  }
+
+  function salesSaleAdjustmentBadge022K(sale) {
+    const adj = salesNormalizeAdjustmentForInvoice022K(sale, sale?.items || []);
+    if (!adj || adj.type === "none") return "";
+    const sign = (adj.type === "discount" || adj.type === "retention") ? "-" : "";
+    return `
+      <div class="sr-muted-022f">
+        ${h(adj.label)} ${h(adj.percent)}% · ${sign}${h(formatMoney(adj.adjustment_amount || 0))} · Total a pagar ${h(formatMoney(adj.total_payable || sale?.total || 0))}
+      </div>
+    `;
+  }
+  /* CLONEXA_022K_SALES_ADJUSTMENT_VISIBLE_IN_INVOICE_END */
+
+  function salesPrintInvoiceDraft022H(session, sale = null) {
+    const items = sale?.items || salesInvoiceCart022H.items;
+    if (!items || !items.length) { alert("No hay artículos para imprimir."); return; }
+
     const invoiceNumber = sale?.invoice_number || "Factura actual";
     const seller = sale?.source_user_label || session?.employee?.full_name || session?.user?.full_name || "Vendedor";
     const company = session?.company?.name || "Empresa";
+    const adjustment = salesNormalizeAdjustmentForInvoice022K(sale, items);
+    const total = Number(adjustment.total_payable ?? sale?.total ?? 0);
+
     const rows = items.map((item) => `
       <tr>
         <td>${h(item.reference_name || "")}<br><small>${h([item.reference_category, item.reference_size, item.reference_color].filter(Boolean).join(" · "))}</small></td>
@@ -3030,35 +3116,46 @@ function moduleCard(title, description, tag, code = "") {
       </tr>
     `).join("");
 
+    let totalsHtml = "";
+    if (adjustment.type === "iva" || adjustment.type === "tax") {
+      totalsHtml = `
+        <div class="line"><span>Base artículos</span><strong>${h(formatMoney(adjustment.base_amount || 0))}</strong></div>
+        <div class="line"><span>${h(adjustment.label || "Impuesto incluido")} ${h(adjustment.percent || 0)}% incluido</span><strong>${h(formatMoney(adjustment.adjustment_amount || 0))}</strong></div>
+        <div class="total">TOTAL A PAGAR ${h(formatMoney(total))}</div>
+      `;
+    } else if (adjustment.type === "discount" || adjustment.type === "retention") {
+      totalsHtml = `
+        <div class="line"><span>Total artículos</span><strong>${h(formatMoney(adjustment.subtotal || 0))}</strong></div>
+        <div class="line"><span>${h(adjustment.label || "Ajuste")} ${h(adjustment.percent || 0)}%</span><strong>- ${h(formatMoney(adjustment.adjustment_amount || 0))}</strong></div>
+        <div class="total">TOTAL A PAGAR ${h(formatMoney(total))}</div>
+      `;
+    } else {
+      totalsHtml = `<div class="total">TOTAL A PAGAR ${h(formatMoney(total))}</div>`;
+    }
+
     const win = window.open("", "_blank");
     if (!win) return;
     win.document.write(`
-      <html>
-        <head>
-          <title>${h(invoiceNumber)}</title>
-          <style>
-            body{font-family:Arial,sans-serif;padding:28px;color:#111}
-            h1{margin:0 0 4px;font-size:28px}
-            .muted{color:#555;margin-bottom:22px}
-            table{width:100%;border-collapse:collapse;margin-top:18px}
-            th{background:#111;color:#fff;text-align:left;padding:10px}
-            td{border-bottom:1px solid #ddd;padding:10px;vertical-align:top}
-            .total{font-size:24px;font-weight:900;text-align:right;margin-top:18px}
-            .footer{margin-top:40px;color:#555;font-size:12px;text-align:center}
-          </style>
-        </head>
-        <body>
-          <h1>${h(company)}</h1>
-          <div class="muted">${h(invoiceNumber)} · Vendedor: ${h(seller)} · ${new Date().toLocaleString()}</div>
-          <table>
-            <thead><tr><th>Artículo</th><th>Cant.</th><th>Valor unit.</th><th>Total</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <div class="total">TOTAL ${h(formatMoney(total))}</div>
-          <div class="footer">Registro venta generado por CLONEXA</div>
-          <script>setTimeout(()=>print(),500)<\/script>
-        </body>
-      </html>
+      <html><head><title>${h(invoiceNumber)}</title>
+      <style>
+        body{font-family:Arial,sans-serif;padding:28px;color:#111}
+        h1{margin:0 0 4px;font-size:28px}
+        .muted{color:#555;margin-bottom:22px}
+        table{width:100%;border-collapse:collapse;margin-top:18px}
+        th{background:#111;color:#fff;text-align:left;padding:10px}
+        td{border-bottom:1px solid #ddd;padding:10px;vertical-align:top}
+        .line{display:flex;justify-content:flex-end;gap:28px;margin-top:10px;font-size:15px}
+        .total{font-size:24px;font-weight:900;text-align:right;margin-top:18px;color:#f725b3}
+        .footer{margin-top:40px;color:#555;font-size:12px;text-align:center}
+      </style>
+      </head><body>
+        <h1>${h(company)}</h1>
+        <div class="muted">${h(invoiceNumber)} · Vendedor: ${h(seller)} · ${new Date().toLocaleString()}</div>
+        <table><thead><tr><th>Artículo</th><th>Cant.</th><th>Valor unit.</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
+        ${totalsHtml}
+        <div class="footer">Registro venta generado por CLONEXA</div>
+        <script>setTimeout(()=>print(),500)<\/script>
+      </body></html>
     `);
     win.document.close();
   }
@@ -3143,6 +3240,7 @@ function moduleCard(title, description, tag, code = "") {
       <article class="sr-sale-022f">
         <strong><span>${h(item.invoice_number || item.reference_name || "Factura")}</span><span>${h(formatMoney(item.total || 0))}</span></strong>
         <small>${itemSummary}</small>
+        ${salesSaleAdjustmentBadge022K(item)}
         ${items.length > 1 ? `<div class="sr-muted-022f">${items.slice(0, 4).map((line) => `${h(line.reference_name || "")} x ${h(line.quantity || 0)}`).join(" · ")}${items.length > 4 ? " · ..." : ""}</div>` : ""}
         <div class="sr-pipeline-022g">
           <span class="sr-pill-022g ok">Venta registrada</span>
@@ -3524,6 +3622,7 @@ function moduleCard(title, description, tag, code = "") {
 
       try {
         if (msg) msg.textContent = "Guardando factura...";
+        const adjustmentPayload022K = salesInvoiceAdjustmentPayload022J();
         const data = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`, {
           method: "POST",
           body: JSON.stringify({
@@ -4779,6 +4878,8 @@ function moduleCard(title, description, tag, code = "") {
       const msg = root.querySelector("#srMsg022F");
       salesInvoiceCart022H.payment_method = root.querySelector("#srPay022F")?.value || "efectivo";
       salesInvoiceCart022H.notes = root.querySelector("#srNotes022F")?.value || "";
+      salesInvoiceCart022H.adjustment_type = root.querySelector("#srAdjustmentType022J")?.value || salesInvoiceCart022H.adjustment_type || "none";
+      salesInvoiceCart022H.adjustment_percent = Number(root.querySelector("#srAdjustmentPercent022J")?.value || salesInvoiceCart022H.adjustment_percent || 0);
       if (!salesInvoiceCart022H.items.length) { if (msg) msg.textContent = "Agrega al menos un artículo antes de guardar."; return; }
 
       try {
@@ -4789,7 +4890,8 @@ function moduleCard(title, description, tag, code = "") {
             payment_method: salesInvoiceCart022H.payment_method,
             notes: salesInvoiceCart022H.notes,
             items: salesInvoiceCart022H.items,
-            ...salesInvoiceAdjustmentPayload022J()
+            adjustment: adjustmentPayload022K,
+            ...adjustmentPayload022K
           })
         });
         if (msg) msg.textContent = `Factura guardada ${data?.invoice_number || ""}.`;
