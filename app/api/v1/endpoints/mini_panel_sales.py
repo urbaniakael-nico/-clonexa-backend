@@ -96,6 +96,11 @@ class SaleCreateIn(BaseModel):
     payment_method: str | None = Field(default="efectivo", max_length=60)
     notes: str | None = Field(default=None, max_length=1000)
     items: list[SaleItemIn] | None = Field(default=None)
+    adjustment_type: str | None = Field(default="none", max_length=40)
+    adjustment_percent: float = Field(default=0, ge=0, le=20)
+    subtotal: float | None = Field(default=None, ge=0)
+    adjustment_amount: float | None = Field(default=None, ge=0)
+    total_payable: float | None = Field(default=None, ge=0)
 
     @field_validator("payment_method")
     @classmethod
@@ -685,6 +690,72 @@ def _sale_items_from_metadata(row: Any) -> list[dict[str, Any]]:
 
 
 
+def _adjustment_label(adjustment_type: str) -> str:
+    labels = {
+        "none": "Sin ajuste",
+        "discount": "Descuento",
+        "retention": "Retención",
+        "iva": "IVA incluido",
+        "tax": "Impuesto incluido",
+    }
+    return labels.get(adjustment_type, "Sin ajuste")
+
+
+def _adjustment_meta_from_payload(payload: SaleCreateIn, items: list[dict[str, Any]]) -> dict[str, Any]:
+    subtotal = round(sum(_money(item.get("total")) for item in items), 2)
+    raw_type = _norm(getattr(payload, "adjustment_type", "none") or "none")
+    aliases = {
+        "ninguno": "none",
+        "none": "none",
+        "sin_ajuste": "none",
+        "descuento": "discount",
+        "discount": "discount",
+        "retencion": "retention",
+        "retention": "retention",
+        "iva": "iva",
+        "impuesto": "tax",
+        "tax": "tax",
+    }
+    adjustment_type = aliases.get(raw_type, "none")
+
+    try:
+        percent = float(getattr(payload, "adjustment_percent", 0) or 0)
+    except Exception:
+        percent = 0
+
+    if adjustment_type == "none":
+        percent = 0
+    else:
+        percent = min(20.0, max(1.0, percent))
+
+    base_amount = subtotal
+    adjustment_amount = 0.0
+    total_payable = subtotal
+    mode = "none"
+
+    if adjustment_type in {"discount", "retention"}:
+        mode = "subtract"
+        adjustment_amount = round(subtotal * percent / 100, 2)
+        total_payable = round(max(0.0, subtotal - adjustment_amount), 2)
+    elif adjustment_type in {"iva", "tax"}:
+        mode = "included"
+        divisor = 1 + (percent / 100)
+        base_amount = round(subtotal / divisor, 2) if divisor else subtotal
+        adjustment_amount = round(subtotal - base_amount, 2)
+        total_payable = subtotal
+
+    return {
+        "type": adjustment_type,
+        "label": _adjustment_label(adjustment_type),
+        "percent": percent,
+        "subtotal": subtotal,
+        "base_amount": base_amount,
+        "adjustment_amount": adjustment_amount,
+        "total_payable": total_payable,
+        "mode": mode,
+    }
+
+
 def _file_payload(row: Any, prefix: str) -> dict[str, Any] | None:
     name = _clean(_row_value(row, f"{prefix}_file_name", ""))
     data = _clean(_row_value(row, f"{prefix}_file_data", ""))
@@ -718,7 +789,19 @@ def _sale_payload(row: asyncpg.Record) -> dict[str, Any]:
         metadata = {}
 
     items = _sale_items_from_metadata(row)
-    total = round(sum(_money(item.get("total")) for item in items), 2)
+    subtotal = round(sum(_money(item.get("total")) for item in items), 2)
+    raw_adjustment = metadata.get("adjustment") if isinstance(metadata, dict) else None
+    adjustment = raw_adjustment if isinstance(raw_adjustment, dict) else {
+        "type": "none",
+        "label": "Sin ajuste",
+        "percent": 0,
+        "subtotal": subtotal,
+        "base_amount": subtotal,
+        "adjustment_amount": 0,
+        "total_payable": _money(row["total"]) or subtotal,
+        "mode": "none",
+    }
+    total = round(_money(adjustment.get("total_payable")) or _money(row["total"]) or subtotal, 2)
     quantity = round(sum(_money(item.get("quantity")) for item in items), 2)
     unit_price = _money(row["unit_price"])
     created_by_label = _clean(_row_value(row, "creator_display_label", "")) or _clean(_row_value(row, "created_by_label", ""))
@@ -1009,7 +1092,8 @@ async def create_sale(
         sale_id = uuid.uuid4()
         invoice_number = f"FV-{datetime.now(timezone.utc).year}-{str(sale_id).split('-')[0].upper()}"
 
-        total = round(sum(_money(item.get("total")) for item in items), 2)
+        adjustment = _adjustment_meta_from_payload(payload, items)
+        total = round(_money(adjustment.get("total_payable")), 2)
         quantity = round(sum(_money(item.get("quantity")) for item in items), 2)
         first = items[0]
         categories = []
@@ -1026,9 +1110,11 @@ async def create_sale(
 
         metadata = {
             "source": "registro_venta_multiitem_022h",
+            "source_patch": "022J_top10_adjustments_clean_view",
             "invoice_number": invoice_number,
             "item_count": len(items),
             "items": items,
+            "adjustment": adjustment,
         }
 
         row = await conn.fetchrow(

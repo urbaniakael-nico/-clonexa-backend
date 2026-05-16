@@ -4121,6 +4121,514 @@ function moduleCard(title, description, tag, code = "") {
   /* CLONEXA_022F_REGISTRO_VENTA_DINAMICO_REFERENCIAS_END */
 
 
+
+  /* CLONEXA_022J_SALES_TOP10_ADJUSTMENTS_CLEAN_VIEW_START */
+  function salesEnsureAdjustment022J() {
+    if (!salesInvoiceCart022H || typeof salesInvoiceCart022H !== "object") salesInvoiceCart022H = { items: [], payment_method: "efectivo", notes: "" };
+    if (!Array.isArray(salesInvoiceCart022H.items)) salesInvoiceCart022H.items = [];
+    if (!salesInvoiceCart022H.payment_method) salesInvoiceCart022H.payment_method = "efectivo";
+    if (salesInvoiceCart022H.adjustment_type == null) salesInvoiceCart022H.adjustment_type = "none";
+    if (salesInvoiceCart022H.adjustment_percent == null) salesInvoiceCart022H.adjustment_percent = 0;
+  }
+
+  function salesAdjustmentLabel022J(type) {
+    return ({ none: "Sin ajuste", discount: "Descuento", retention: "Retención", iva: "IVA incluido", tax: "Impuesto incluido" })[String(type || "none").toLowerCase()] || "Sin ajuste";
+  }
+
+  function salesSubtotal022J(items = null) {
+    const rows = Array.isArray(items) ? items : salesInvoiceCart022H.items;
+    return Math.max(0, rows.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0));
+  }
+
+  function salesAdjustmentMeta022J(items = null) {
+    salesEnsureAdjustment022J();
+    const subtotal = Math.round(salesSubtotal022J(items) * 100) / 100;
+    const type = String(salesInvoiceCart022H.adjustment_type || "none").toLowerCase();
+    const percentRaw = Number(salesInvoiceCart022H.adjustment_percent || 0);
+    const percent = type === "none" ? 0 : Math.min(20, Math.max(1, percentRaw || 1));
+
+    let baseAmount = subtotal;
+    let adjustmentAmount = 0;
+    let totalPayable = subtotal;
+    let mode = "none";
+
+    if (type === "discount" || type === "retention") {
+      mode = "subtract";
+      adjustmentAmount = Math.round((subtotal * percent / 100) * 100) / 100;
+      totalPayable = Math.max(0, Math.round((subtotal - adjustmentAmount) * 100) / 100);
+    } else if (type === "iva" || type === "tax") {
+      mode = "included";
+      baseAmount = Math.round((subtotal / (1 + (percent / 100))) * 100) / 100;
+      adjustmentAmount = Math.round((subtotal - baseAmount) * 100) / 100;
+      totalPayable = subtotal;
+    }
+
+    return {
+      type,
+      label: salesAdjustmentLabel022J(type),
+      percent,
+      subtotal,
+      base_amount: Math.round(baseAmount * 100) / 100,
+      adjustment_amount: Math.round(adjustmentAmount * 100) / 100,
+      total_payable: Math.round(totalPayable * 100) / 100,
+      mode
+    };
+  }
+
+  function salesInvoiceTotal022H() {
+    return salesAdjustmentMeta022J().total_payable;
+  }
+
+  function salesInvoiceCount022H() {
+    salesEnsureAdjustment022J();
+    return salesInvoiceCart022H.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  }
+
+  function salesResetInvoice022H() {
+    salesInvoiceCart022H = { items: [], payment_method: "efectivo", notes: "", adjustment_type: "none", adjustment_percent: 0 };
+  }
+
+  function salesAdjustmentOptions022J() {
+    salesEnsureAdjustment022J();
+    const current = String(salesInvoiceCart022H.adjustment_type || "none").toLowerCase();
+    return [
+      ["none", "Ninguno"],
+      ["discount", "Descuento"],
+      ["iva", "IVA incluido"],
+      ["retention", "Retención"],
+      ["tax", "Impuesto incluido"]
+    ].map(([value, label]) => `<option value="${value}" ${current === value ? "selected" : ""}>${label}</option>`).join("");
+  }
+
+  function salesPercentOptions022J() {
+    salesEnsureAdjustment022J();
+    const selected = Math.min(20, Math.max(1, Number(salesInvoiceCart022H.adjustment_percent || 1)));
+    return Array.from({ length: 20 }, (_, index) => {
+      const value = index + 1;
+      return `<option value="${value}" ${selected === value ? "selected" : ""}>${value}%</option>`;
+    }).join("");
+  }
+
+  function salesAdjustmentSummaryHtml022J() {
+    const meta = salesAdjustmentMeta022J();
+    if (meta.mode === "included") {
+      return `
+        <div class="sr-total-pill-022h">Base artículos<br><span>${h(formatMoney(meta.base_amount))}</span></div>
+        <div class="sr-total-pill-022h">${h(meta.label)} ${h(meta.percent)}%<br><span>${h(formatMoney(meta.adjustment_amount))}</span></div>
+        <div class="sr-total-pill-022h sr-total-payable-022j">Total a pagar<br><span id="srInvoiceTotal022H">${h(formatMoney(meta.total_payable))}</span></div>
+      `;
+    }
+    if (meta.mode === "subtract") {
+      return `
+        <div class="sr-total-pill-022h">Total artículos<br><span>${h(formatMoney(meta.subtotal))}</span></div>
+        <div class="sr-total-pill-022h">${h(meta.label)} ${h(meta.percent)}%<br><span>- ${h(formatMoney(meta.adjustment_amount))}</span></div>
+        <div class="sr-total-pill-022h sr-total-payable-022j">Total a pagar<br><span id="srInvoiceTotal022H">${h(formatMoney(meta.total_payable))}</span></div>
+      `;
+    }
+    return `
+      <div class="sr-total-pill-022h">Total artículos<br><span>${h(formatMoney(meta.subtotal))}</span></div>
+      <div class="sr-total-pill-022h">Ajuste<br><span>${h(formatMoney(0))}</span></div>
+      <div class="sr-total-pill-022h sr-total-payable-022j">Total a pagar<br><span id="srInvoiceTotal022H">${h(formatMoney(meta.total_payable))}</span></div>
+    `;
+  }
+
+  function salesInvoiceAdjustmentPayload022J() {
+    const meta = salesAdjustmentMeta022J();
+    return {
+      adjustment_type: meta.type,
+      adjustment_percent: meta.percent,
+      subtotal: meta.subtotal,
+      adjustment_amount: meta.adjustment_amount,
+      total_payable: meta.total_payable
+    };
+  }
+
+  function salesCartRowsHtml022H() {
+    salesEnsureAdjustment022J();
+    if (!salesInvoiceCart022H.items.length) return `<div class="sr-muted-022f">Factura actual vacía. Agrega artículos desde cualquier categoría.</div>`;
+    return salesInvoiceCart022H.items.map((item, index) => `
+      <article class="sr-invoice-line-022h" data-sr-cart-line="${index}">
+        <div>
+          <strong>${h(item.reference_name)}</strong>
+          <small>${h([item.reference_category, item.reference_size, item.reference_color].filter(Boolean).join(" · "))}</small>
+        </div>
+        <input type="number" min="0" step="1" value="${h(item.quantity)}" data-sr-cart-qty="${index}" title="Cantidad">
+        <input type="number" min="0" step="100" value="${h(item.unit_price)}" data-sr-cart-unit="${index}" title="Valor unitario">
+        <strong data-sr-cart-total="${index}">${h(formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0)))}</strong>
+        <button type="button" data-sr-cart-remove="${index}">Quitar</button>
+      </article>
+    `).join("");
+  }
+
+  function salesRefreshCartTotals022H() {
+    salesEnsureAdjustment022J();
+    salesInvoiceCart022H.items = salesInvoiceCart022H.items.map(salesNormalizeItem022H);
+    document.querySelectorAll("[data-sr-cart-total]").forEach((node) => {
+      const index = Number(node.getAttribute("data-sr-cart-total") || 0);
+      const item = salesInvoiceCart022H.items[index];
+      if (item) node.textContent = formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0));
+    });
+    const countNode = document.getElementById("srInvoiceCount022H");
+    if (countNode) countNode.textContent = String(salesInvoiceCount022H());
+    const totalBox = document.getElementById("srAdjustmentSummary022J");
+    if (totalBox) totalBox.innerHTML = salesAdjustmentSummaryHtml022J();
+  }
+
+  function salesPopularMap022J(sales, category) {
+    const targetCategory = salesSearchText022I(category || "");
+    const map = new Map();
+    (sales || []).forEach((sale) => {
+      const items = Array.isArray(sale?.items) && sale.items.length ? sale.items : [sale];
+      items.forEach((item) => {
+        const itemCategory = salesSearchText022I(item.reference_category || sale.reference_category || "");
+        if (targetCategory && itemCategory !== targetCategory) return;
+        const keyA = String(item.reference_id || "").toLowerCase();
+        const keyB = String(item.reference_name || item.name || "").toLowerCase();
+        const qty = Number(item.quantity || 0) || 1;
+        if (keyA) map.set(keyA, (map.get(keyA) || 0) + qty);
+        if (keyB) map.set(keyB, (map.get(keyB) || 0) + qty);
+      });
+    });
+    return map;
+  }
+
+  function salesReferencePopularity022J(item, popularMap) {
+    return Math.max(
+      Number(popularMap.get(String(item.id || "").toLowerCase()) || 0),
+      Number(popularMap.get(String(item.name || "").toLowerCase()) || 0)
+    );
+  }
+
+  function salesSortReferences022J(refs, sales, category, search) {
+    const popularMap = salesPopularMap022J(sales, category);
+    const rows = [...(refs || [])].sort((a, b) => {
+      const popDiff = salesReferencePopularity022J(b, popularMap) - salesReferencePopularity022J(a, popularMap);
+      if (popDiff) return popDiff;
+      return String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" });
+    });
+    return String(search || "").trim() ? rows : rows.slice(0, 10);
+  }
+
+  function salesAdjustmentStyles022J() {
+    if (document.getElementById("clonexa-sales-022j-style")) return;
+    const style = document.createElement("style");
+    style.id = "clonexa-sales-022j-style";
+    style.textContent = `
+      .sr-adjust-grid-022j{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:14px}
+      .sr-total-payable-022j{border-color:rgba(247,37,179,.55)!important;box-shadow:0 16px 36px rgba(247,37,179,.16)}
+      .sr-top-label-022j{margin:12px 0 8px;color:rgba(255,255,255,.72);font-size:12px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
+      .sr-ref-popular-022j{display:inline-flex;margin-left:8px;padding:3px 8px;border-radius:999px;background:rgba(54,230,170,.14);color:#7cffd9;font-size:11px;font-weight:900}
+      @media(max-width:900px){.sr-adjust-grid-022j{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function salesPrintInvoiceDraft022H(session, sale = null) {
+    const items = sale?.items || salesInvoiceCart022H.items;
+    if (!items || !items.length) { alert("No hay artículos para imprimir."); return; }
+
+    const invoiceNumber = sale?.invoice_number || "Factura actual";
+    const seller = sale?.source_user_label || session?.employee?.full_name || session?.user?.full_name || "Vendedor";
+    const company = session?.company?.name || "Empresa";
+    const adjustment = sale?.adjustment || salesAdjustmentMeta022J(items);
+    const total = Number(adjustment.total_payable ?? sale?.total ?? 0);
+    const rows = items.map((item) => `
+      <tr>
+        <td>${h(item.reference_name || "")}<br><small>${h([item.reference_category, item.reference_size, item.reference_color].filter(Boolean).join(" · "))}</small></td>
+        <td style="text-align:center">${h(item.quantity || 0)}</td>
+        <td style="text-align:right">${h(formatMoney(item.unit_price || 0))}</td>
+        <td style="text-align:right">${h(formatMoney((Number(item.quantity || 0) * Number(item.unit_price || 0))))}</td>
+      </tr>
+    `).join("");
+
+    let totalsHtml = "";
+    if (adjustment.type === "iva" || adjustment.type === "tax") {
+      totalsHtml = `<div class="line"><span>Base artículos</span><strong>${h(formatMoney(adjustment.base_amount || 0))}</strong></div><div class="line"><span>${h(adjustment.label || "Impuesto incluido")} ${h(adjustment.percent || 0)}%</span><strong>${h(formatMoney(adjustment.adjustment_amount || 0))}</strong></div><div class="total">TOTAL A PAGAR ${h(formatMoney(total))}</div>`;
+    } else if (adjustment.type === "discount" || adjustment.type === "retention") {
+      totalsHtml = `<div class="line"><span>Total artículos</span><strong>${h(formatMoney(adjustment.subtotal || 0))}</strong></div><div class="line"><span>${h(adjustment.label || "Ajuste")} ${h(adjustment.percent || 0)}%</span><strong>- ${h(formatMoney(adjustment.adjustment_amount || 0))}</strong></div><div class="total">TOTAL A PAGAR ${h(formatMoney(total))}</div>`;
+    } else {
+      totalsHtml = `<div class="total">TOTAL A PAGAR ${h(formatMoney(total))}</div>`;
+    }
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`
+      <html><head><title>${h(invoiceNumber)}</title>
+      <style>body{font-family:Arial,sans-serif;padding:28px;color:#111}h1{margin:0 0 4px;font-size:28px}.muted{color:#555;margin-bottom:22px}table{width:100%;border-collapse:collapse;margin-top:18px}th{background:#111;color:#fff;text-align:left;padding:10px}td{border-bottom:1px solid #ddd;padding:10px;vertical-align:top}.line{display:flex;justify-content:flex-end;gap:28px;margin-top:10px;font-size:15px}.total{font-size:24px;font-weight:900;text-align:right;margin-top:18px;color:#f725b3}.footer{margin-top:40px;color:#555;font-size:12px;text-align:center}</style>
+      </head><body>
+        <h1>${h(company)}</h1>
+        <div class="muted">${h(invoiceNumber)} · Vendedor: ${h(seller)} · ${new Date().toLocaleString()}</div>
+        <table><thead><tr><th>Artículo</th><th>Cant.</th><th>Valor unit.</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
+        ${totalsHtml}
+        <div class="footer">Registro venta generado por CLONEXA</div>
+        <script>setTimeout(()=>print(),500)<\/script>
+      </body></html>
+    `);
+    win.document.close();
+  }
+
+  async function renderSalesRegisterCategory022F(session, category, search = "") {
+    salesRegisterStyles022F();
+    salesUxStyles022I();
+    salesAdjustmentStyles022J();
+    salesEnsureAdjustment022J();
+
+    let refs = [];
+    let sales = [];
+    let selected = null;
+    let loadError = "";
+
+    async function loadRefs(q = "") {
+      const params = new URLSearchParams();
+      if (category) params.set("category", category);
+      if (q) params.set("q", q);
+      params.set("limit", "80");
+      const data = await salesApi022F(`/references?${params.toString()}`);
+      return Array.isArray(data.items) ? data.items : [];
+    }
+
+    function renderRefButtons(items, currentSearch = "") {
+      const displayItems = salesSortReferences022J(items, sales, category, currentSearch);
+      const popularMap = salesPopularMap022J(sales, category);
+      return (displayItems || []).map((item) => {
+        const popularity = salesReferencePopularity022J(item, popularMap);
+        return `
+          <button class="sr-ref-022f" type="button"
+            data-sr-ref-022f="${h(item.id || "")}"
+            data-sr-ref-name="${h(item.name || "")}"
+            data-sr-ref-category="${h(item.category || category || "")}"
+            data-sr-ref-size="${h(item.size || "")}"
+            data-sr-ref-color="${h(item.color || "")}"
+            data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}">
+            <strong>${h(item.name || "Referencia")}${popularity ? `<span class="sr-ref-popular-022j">${h(popularity)} ped.</span>` : ""}</strong><br>
+            <small>${h([item.category, item.size, item.color].filter(Boolean).join(" · "))}</small>
+          </button>
+        `;
+      }).join("") || `<div class="sr-muted-022f">Sin referencias para esta búsqueda.</div>`;
+    }
+
+    try {
+      refs = await loadRefs(search);
+      const salesData = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
+      sales = Array.isArray(salesData.items) ? salesData.items : [];
+    } catch (error) {
+      loadError = error.message || "No se pudieron cargar referencias.";
+    }
+
+    root.innerHTML = `
+      <main class="sr-shell-022f">
+        <header class="sr-card-022f sr-hero-022f">
+          <div>
+            <div class="sr-kicker-022f">Registro venta</div>
+            <h1 class="sr-title-022f">${h(category || "Categoría")}</h1>
+            <p class="sr-muted-022f">Top 10 más pedidos, búsqueda inteligente y factura con ajustes.</p>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="sr-btn-022f secondary" type="button" data-sr-categories-022f>Categorías</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-new-invoice-022h>Nueva factura</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-print-draft-022h>Imprimir factura</button>
+            <button class="sr-btn-022f secondary" type="button" data-sr-back-022f>Dashboard</button>
+          </div>
+        </header>
+
+        <section class="sr-invoice-layout-022h">
+          <section class="sr-card-022f sr-panel-022f">
+            <div class="sr-kicker-022f">Referencia</div>
+            <div class="sr-field-022f">
+              <label>Filtro inteligente</label>
+              <input id="srSearch022F" value="${h(search)}" placeholder="Escribe o escanea referencia, código, talla, color..." />
+            </div>
+            <div class="sr-toolbar-022h">
+              <button class="primary" type="button" data-sr-scan-022h>Escanear código</button>
+              <button type="button" data-sr-clear-search-022h>Limpiar búsqueda</button>
+            </div>
+            <div class="sr-top-label-022j" id="srTopLabel022J">${search ? "Resultados de búsqueda" : "Top 10 más pedidos"}</div>
+            <div class="sr-ref-list-022f" id="srRefList022F" style="margin-top:14px">${renderRefButtons(refs, search)}</div>
+          </section>
+
+          <aside class="sr-card-022f sr-panel-022f">
+            <div class="sr-kicker-022f">Factura actual</div>
+            <h2>Carrito operativo</h2>
+            <div class="sr-message-022f" id="srSelected022F">Selecciona una referencia y agrégala a la factura.</div>
+
+            <div class="sr-form-grid-022f" style="margin-top:14px">
+              <div class="sr-field-022f"><label>Cantidad</label><input id="srQty022F" type="number" min="0" step="1" value="1" /></div>
+              <div class="sr-field-022f"><label>Valor unitario</label><input id="srUnit022F" type="number" min="0" step="100" value="0" /></div>
+            </div>
+
+            <div class="sr-toolbar-022h"><button class="primary" type="button" data-sr-add-line-022h>Agregar a factura actual</button></div>
+
+            <div class="sr-invoice-box-022h" id="srCartRows022H" style="margin-top:14px">${salesCartRowsHtml022H()}</div>
+
+            <div class="sr-total-box-022h">
+              <div class="sr-total-pill-022h">Artículos<br><span id="srInvoiceCount022H">${h(salesInvoiceCount022H())}</span></div>
+              <div id="srAdjustmentSummary022J" style="display:contents">${salesAdjustmentSummaryHtml022J()}</div>
+            </div>
+
+            <div class="sr-adjust-grid-022j">
+              <div class="sr-field-022f"><label>Selección ajuste</label><select id="srAdjustmentType022J">${salesAdjustmentOptions022J()}</select></div>
+              <div class="sr-field-022f"><label>Porcentaje</label><select id="srAdjustmentPercent022J">${salesPercentOptions022J()}</select></div>
+            </div>
+
+            <div class="sr-form-grid-022f" style="margin-top:14px">
+              <div class="sr-field-022f">
+                <label>Forma de pago</label>
+                <select id="srPay022F">
+                  <option value="efectivo" ${salesInvoiceCart022H.payment_method === "efectivo" ? "selected" : ""}>Efectivo</option>
+                  <option value="transferencia" ${salesInvoiceCart022H.payment_method === "transferencia" ? "selected" : ""}>Transferencia</option>
+                  <option value="tarjeta" ${salesInvoiceCart022H.payment_method === "tarjeta" ? "selected" : ""}>Tarjeta</option>
+                  <option value="cheque" ${salesInvoiceCart022H.payment_method === "cheque" ? "selected" : ""}>Cheque</option>
+                  <option value="otro" ${salesInvoiceCart022H.payment_method === "otro" ? "selected" : ""}>Otro</option>
+                </select>
+              </div>
+              <div class="sr-field-022f"><label>Observación factura</label><input id="srNotes022F" value="${h(salesInvoiceCart022H.notes || "")}" placeholder="Opcional" /></div>
+            </div>
+
+            <button class="sr-btn-022f" type="button" data-sr-save-invoice-022h style="margin-top:14px;width:100%">Guardar factura / venta</button>
+            <div class="sr-message-022f" id="srMsg022F">${loadError ? h(loadError) : ""}</div>
+          </aside>
+        </section>
+      </main>
+    `;
+
+    const searchInput = root.querySelector("#srSearch022F");
+
+    async function updateRefList(q = "", autoPick = false) {
+      const nextRefs = await loadRefs(q);
+      const list = root.querySelector("#srRefList022F");
+      const topLabel = root.querySelector("#srTopLabel022J");
+      if (list) list.innerHTML = renderRefButtons(nextRefs, q);
+      if (topLabel) topLabel.textContent = String(q || "").trim() ? "Resultados de búsqueda" : "Top 10 más pedidos";
+      bindRefs();
+      if (autoPick && nextRefs.length) root.querySelector("[data-sr-ref-022f]")?.click();
+    }
+
+    function bindRefs() {
+      root.querySelectorAll("[data-sr-ref-022f]").forEach((button) => {
+        button.addEventListener("click", () => {
+          root.querySelectorAll("[data-sr-ref-022f]").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          selected = {
+            reference_id: button.getAttribute("data-sr-ref-022f") || "",
+            reference_name: button.getAttribute("data-sr-ref-name") || "",
+            reference_category: button.getAttribute("data-sr-ref-category") || "",
+            reference_size: button.getAttribute("data-sr-ref-size") || "",
+            reference_color: button.getAttribute("data-sr-ref-color") || "",
+            barcode: button.getAttribute("data-sr-ref-barcode") || ""
+          };
+          const selectedBox = root.querySelector("#srSelected022F");
+          if (selectedBox) selectedBox.textContent = `${selected.reference_name} · ${[selected.reference_size, selected.reference_color].filter(Boolean).join(" · ")}`;
+        });
+      });
+    }
+
+    function bindCartInputs() {
+      root.querySelectorAll("[data-sr-cart-qty]").forEach((input) => {
+        input.addEventListener("input", () => {
+          const index = Number(input.getAttribute("data-sr-cart-qty") || 0);
+          if (salesInvoiceCart022H.items[index]) {
+            salesInvoiceCart022H.items[index].quantity = Number(input.value || 0);
+            salesRefreshCartTotals022H();
+          }
+        });
+      });
+      root.querySelectorAll("[data-sr-cart-unit]").forEach((input) => {
+        input.addEventListener("input", () => {
+          const index = Number(input.getAttribute("data-sr-cart-unit") || 0);
+          if (salesInvoiceCart022H.items[index]) {
+            salesInvoiceCart022H.items[index].unit_price = Number(input.value || 0);
+            salesRefreshCartTotals022H();
+          }
+        });
+      });
+      root.querySelectorAll("[data-sr-cart-remove]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          salesInvoiceCart022H.items.splice(Number(button.getAttribute("data-sr-cart-remove") || 0), 1);
+          await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+        });
+      });
+    }
+
+    let searchTimer = null;
+    searchInput?.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(async () => {
+        try { await updateRefList(searchInput.value || "", false); }
+        catch (error) {
+          const msg = root.querySelector("#srMsg022F");
+          if (msg) msg.textContent = error.message || "No se pudo buscar.";
+        }
+      }, 260);
+    });
+
+    root.querySelector("[data-sr-back-022f]")?.addEventListener("click", () => bootShell());
+    root.querySelector("[data-sr-categories-022f]")?.addEventListener("click", async () => openSalesRegisterModule022F(session));
+    root.querySelector("[data-sr-clear-search-022h]")?.addEventListener("click", async () => { if (searchInput) searchInput.value = ""; await updateRefList("", false); });
+    root.querySelector("[data-sr-scan-022h]")?.addEventListener("click", async () => salesScanCode022H(searchInput, updateRefList));
+    root.querySelector("[data-sr-new-invoice-022h]")?.addEventListener("click", async () => {
+      if (salesInvoiceCart022H.items.length && !confirm("Crear nueva factura y limpiar la actual?")) return;
+      salesResetInvoice022H();
+      await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+    });
+    root.querySelector("[data-sr-print-draft-022h]")?.addEventListener("click", () => salesPrintInvoiceDraft022H(session));
+
+    root.querySelector("[data-sr-add-line-022h]")?.addEventListener("click", async () => {
+      const msg = root.querySelector("#srMsg022F");
+      if (!selected?.reference_name) { if (msg) msg.textContent = "Selecciona una referencia antes de agregar."; return; }
+      const item = salesNormalizeItem022H({
+        ...selected,
+        quantity: Number(root.querySelector("#srQty022F")?.value || 0),
+        unit_price: Number(root.querySelector("#srUnit022F")?.value || 0)
+      });
+      if (!item.quantity) { if (msg) msg.textContent = "La cantidad debe ser mayor a cero."; return; }
+      salesInvoiceCart022H.items.push(item);
+      if (msg) msg.textContent = "Artículo agregado a la factura actual.";
+      await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+    });
+
+    root.querySelector("#srAdjustmentType022J")?.addEventListener("change", (event) => {
+      salesInvoiceCart022H.adjustment_type = event.target.value || "none";
+      salesInvoiceCart022H.adjustment_percent = salesInvoiceCart022H.adjustment_type === "none" ? 0 : (salesInvoiceCart022H.adjustment_percent || 1);
+      salesRefreshCartTotals022H();
+    });
+    root.querySelector("#srAdjustmentPercent022J")?.addEventListener("change", (event) => {
+      salesInvoiceCart022H.adjustment_percent = Number(event.target.value || 0);
+      salesRefreshCartTotals022H();
+    });
+    root.querySelector("#srPay022F")?.addEventListener("change", (event) => { salesInvoiceCart022H.payment_method = event.target.value || "efectivo"; });
+    root.querySelector("#srNotes022F")?.addEventListener("input", (event) => { salesInvoiceCart022H.notes = event.target.value || ""; });
+
+    root.querySelector("[data-sr-save-invoice-022h]")?.addEventListener("click", async () => {
+      const msg = root.querySelector("#srMsg022F");
+      salesInvoiceCart022H.payment_method = root.querySelector("#srPay022F")?.value || "efectivo";
+      salesInvoiceCart022H.notes = root.querySelector("#srNotes022F")?.value || "";
+      if (!salesInvoiceCart022H.items.length) { if (msg) msg.textContent = "Agrega al menos un artículo antes de guardar."; return; }
+
+      try {
+        if (msg) msg.textContent = "Guardando factura...";
+        const data = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            payment_method: salesInvoiceCart022H.payment_method,
+            notes: salesInvoiceCart022H.notes,
+            items: salesInvoiceCart022H.items,
+            ...salesInvoiceAdjustmentPayload022J()
+          })
+        });
+        if (msg) msg.textContent = `Factura guardada ${data?.invoice_number || ""}.`;
+        salesResetInvoice022H();
+        await renderSalesRegisterCategory022F(session, category, searchInput?.value || "");
+      } catch (error) {
+        if (msg) msg.textContent = error.message || "No se pudo guardar la factura.";
+      }
+    });
+
+    bindRefs();
+    bindCartInputs();
+  }
+  /* CLONEXA_022J_SALES_TOP10_ADJUSTMENTS_CLEAN_VIEW_END */
+
+
   async function runOperationalAction(action, session) {
     const msg = root.querySelector("[data-panel-message]");
     try {
