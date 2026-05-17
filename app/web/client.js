@@ -9159,7 +9159,7 @@
 
 
 
-  /* CLONEXA_022E_REFERENCES_CATEGORY_COLOR_CHANNEL_START */
+  /* CLONEXA_022M_REFERENCES_CLEAN_CATALOG_SKU_PRICE_START */
   function cxIsReferencesCode022E(code) {
     return [
       "references",
@@ -9192,8 +9192,6 @@
     );
     return module?.code || "";
   }
-
-
 
   function cxReferenceChannelLabel022E(channel, row = {}) {
     const value = String(channel || row.channel || "").trim().toLowerCase();
@@ -9234,7 +9232,7 @@
   }
 
   async function cxLoadReferencesSummary022E() {
-    return cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}/summary`);
+    return { by_reference_size: [] };
   }
 
   function cxReferencesNumber022E(value) {
@@ -9242,10 +9240,9 @@
     return Number.isFinite(number) ? Math.round(number).toLocaleString("es-CO") : "0";
   }
 
-  function cxReferenceDate022E(value) {
-    if (!value) return "-";
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toLocaleDateString("es-CO");
+  function cxReferencesMoney022M(value) {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? number.toLocaleString("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }) : "$ 0";
   }
 
   function cxReferenceReadCreatePayload022E() {
@@ -9254,7 +9251,9 @@
       name: String(document.getElementById("refCreateName022E")?.value || "").trim(),
       size: String(document.getElementById("refCreateSize022E")?.value || "").trim(),
       color: String(document.getElementById("refCreateColor022E")?.value || "").trim(),
-      initial_quantity: Number(document.getElementById("refCreateQty022E")?.value || 0) || 0,
+      sku: String(document.getElementById("refCreateSku022M")?.value || "").trim(),
+      unit_price: Number(document.getElementById("refCreateUnitPrice022M")?.value || 0) || 0,
+      initial_quantity: Number(document.getElementById("refCreateMeta022M")?.value || 0) || 0,
       channel: String(document.getElementById("refCreateChannel022E")?.value || "system").trim()
     };
   }
@@ -9265,39 +9264,34 @@
       name: String(row.querySelector('[data-ref-field="name"]')?.value || "").trim(),
       size: String(row.querySelector('[data-ref-field="size"]')?.value || "").trim(),
       color: String(row.querySelector('[data-ref-field="color"]')?.value || "").trim(),
+      sku: String(row.querySelector('[data-ref-field="sku"]')?.value || "").trim(),
+      unit_price: Number(row.querySelector('[data-ref-field="unit_price"]')?.value || 0) || 0,
       initial_quantity: Number(row.querySelector('[data-ref-field="initial_quantity"]')?.value || 0) || 0,
       channel: String(row.querySelector('[data-ref-field="channel"]')?.value || "system").trim()
     };
   }
 
   function cxReferenceMergeRows022E(items = [], summary = {}) {
-    const summaryRows = Array.isArray(summary.by_reference_size) ? summary.by_reference_size : [];
-    const summaryById = new Map(summaryRows.map((row) => [String(row.id || ""), row]));
-    return (Array.isArray(items) ? items : []).map((item) => {
-      const stats = summaryById.get(String(item.id || "")) || {};
-      return {
-        ...item,
-        finished_quantity: stats.finished_quantity ?? item.finished_quantity ?? 0,
-        pending_quantity: stats.pending_quantity ?? item.pending_quantity ?? item.initial_quantity ?? 0,
-        progress_percent: stats.progress_percent ?? item.progress_percent ?? 0,
-        channel: item.channel || stats.channel || (item.bot_active ? "bot" : "system"),
-        system_active: item.system_active ?? stats.system_active ?? false
-      };
-    });
+    return (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      sku: item.sku || item.code || item.barcode || "",
+      unit_price: Number(item.unit_price ?? item.price ?? 0) || 0,
+      channel: item.channel || (item.bot_active ? "bot" : "system"),
+      system_active: item.system_active ?? false
+    }));
   }
 
   function cxReferenceRow022E(row = {}) {
     const channel = cxReferenceChannelValue022E(row);
     return `
       <tr data-reference-row="${h(row.id || "")}">
-        <td><input data-ref-field="name" value="${h(row.name || "")}" placeholder="Ej: DREAMY JACKET"></td>
-        <td><input data-ref-field="category" value="${h(row.category || "")}" placeholder="Ej: chaqueta"></td>
-        <td><input data-ref-field="size" value="${h(row.size || "")}" placeholder="Ej: SM"></td>
+        <td><input data-ref-field="name" value="${h(row.name || "")}" placeholder="Ej: Funda iPhone"></td>
+        <td><input data-ref-field="category" value="${h(row.category || "")}" placeholder="Ej: Funda Celular"></td>
+        <td><input data-ref-field="size" value="${h(row.size || "")}" placeholder="Ej: 14 Pro Max / SM"></td>
         <td><input data-ref-field="color" value="${h(row.color || "")}" placeholder="Ej: negro"></td>
+        <td><input data-ref-field="sku" value="${h(row.sku || row.code || row.barcode || "")}" placeholder="SKU / código"></td>
+        <td><input data-ref-field="unit_price" type="number" min="0" step="100" value="${h(row.unit_price ?? 0)}"></td>
         <td><input data-ref-field="initial_quantity" type="number" min="0" step="1" value="${h(row.initial_quantity ?? 0)}"></td>
-        <td>${h(cxReferenceDate022E(row.activation_date || row.created_at))}</td>
-        <td>${h(cxReferencesNumber022E(row.finished_quantity || 0))}</td>
-        <td>${h(cxReferencesNumber022E(row.pending_quantity || 0))}</td>
         <td>
           <select data-ref-field="channel">
             <option value="system" ${channel === "system" ? "selected" : ""}>Sistema</option>
@@ -9306,8 +9300,10 @@
           </select>
         </td>
         <td>
-          <button class="client-btn" type="button" data-reference-save="${h(row.id || "")}">Guardar</button>
-          <button class="client-btn" type="button" data-reference-delete="${h(row.id || "")}">Archivar</button>
+          <div class="cx-ref-actions-022m">
+            <button class="client-btn" type="button" data-reference-save="${h(row.id || "")}">Guardar</button>
+            <button class="client-btn" type="button" data-reference-delete="${h(row.id || "")}">Archivar</button>
+          </div>
         </td>
       </tr>
     `;
@@ -9321,18 +9317,17 @@
             <tr>
               <th>Nombre referencia</th>
               <th>Categoría</th>
-              <th>Talla</th>
+              <th>Talla / modelo</th>
               <th>Color</th>
-              <th>Cantidad meta</th>
-              <th>Fecha activación</th>
-              <th>Terminadas</th>
-              <th>Pendiente</th>
+              <th>SKU</th>
+              <th>Precio unidad</th>
+              <th>Meta operativa</th>
               <th>Canal de uso</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            ${rows.length ? rows.map(cxReferenceRow022E).join("") : `<tr><td colspan="10">Sin referencias para este filtro.</td></tr>`}
+            ${rows.length ? rows.map(cxReferenceRow022E).join("") : `<tr><td colspan="9">Sin referencias para este filtro.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -9347,13 +9342,15 @@
       .cx-ref-toolbar,
       .cx-ref-create {
         display: grid;
-        grid-template-columns: minmax(240px, 1.4fr) 150px 150px 170px auto auto;
         gap: 12px;
         align-items: end;
         margin-top: 16px;
       }
+      .cx-ref-toolbar {
+        grid-template-columns: minmax(260px,1.4fr) 150px 150px 170px auto auto;
+      }
       .cx-ref-create {
-        grid-template-columns: minmax(240px, 1.2fr) minmax(160px, .8fr) 120px 140px 140px 170px auto;
+        grid-template-columns: minmax(220px,1.2fr) minmax(160px,.8fr) 140px 130px 150px 150px 160px 150px auto;
       }
       .cx-ref-field {
         display: grid;
@@ -9390,7 +9387,7 @@
       .cx-ref-table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 1180px;
+        min-width: 1320px;
       }
       .cx-ref-table th,
       .cx-ref-table td {
@@ -9406,7 +9403,21 @@
         background: rgba(40,45,85,.55);
       }
       .cx-ref-table td { font-weight: 850; }
-      @media (max-width: 1100px) {
+      .cx-ref-actions-022m { display:flex; gap:8px; flex-wrap:wrap; }
+      .cx-ref-section-head-022m {
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-end;
+        gap:14px;
+        flex-wrap:wrap;
+      }
+      @media (max-width: 1280px) {
+        .cx-ref-toolbar,
+        .cx-ref-create {
+          grid-template-columns: repeat(2,minmax(0,1fr));
+        }
+      }
+      @media (max-width: 760px) {
         .cx-ref-toolbar,
         .cx-ref-create {
           grid-template-columns: 1fr;
@@ -9435,19 +9446,13 @@
     cxReferencesStyles022E();
     const company = state.company || {};
     let payload = { items: [] };
-    let summary = {};
     let loadError = "";
     try {
       payload = await cxLoadReferences022E();
-      summary = await cxLoadReferencesSummary022E();
     } catch (error) {
       loadError = error.message || "No se pudieron cargar referencias.";
     }
-    const rows = cxReferenceMergeRows022E(payload.items || [], summary);
-    const botTotal = rows.filter((row) => ["bot", "both"].includes(cxReferenceChannelValue022E(row))).length;
-    const systemTotal = rows.filter((row) => ["system", "both"].includes(cxReferenceChannelValue022E(row))).length;
-    const initialTotal = rows.reduce((sum, row) => sum + (Number(row.initial_quantity || 0) || 0), 0);
-    const pendingTotal = rows.reduce((sum, row) => sum + (Number(row.pending_quantity || 0) || 0), 0);
+    const rows = cxReferenceMergeRows022E(payload.items || []);
     window.__cxReferencesRows022E = rows;
     $("app").innerHTML = `
       <main class="client-shell">
@@ -9463,7 +9468,7 @@
             <header class="client-hero">
               <div class="client-eyebrow">Módulo Referencias</div>
               <h1 class="client-title">Referencias</h1>
-              <p class="client-muted">Administra catálogo maestro: categoría, talla/modelo, color, cantidad meta y canal de uso.</p>
+              <p class="client-muted">Catálogo maestro comercial para ventas, bots y mini paneles. El stock real queda para Inventario.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-references-refresh>Actualizar</button>
                 <button class="client-btn" type="button" data-references-save-all>Guardar cambios</button>
@@ -9472,39 +9477,18 @@
               </div>
               <div id="referencesNotice022E">${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}</div>
             </header>
+
             <section class="client-panel">
-              <div class="client-kpi-grid">
-                <div class="client-kpi"><span>Referencias</span><strong>${h(cxReferencesNumber022E(rows.length))}</strong></div>
-                <div class="client-kpi"><span>Bot</span><strong>${h(cxReferencesNumber022E(botTotal))}</strong></div>
-                <div class="client-kpi"><span>Sistema</span><strong>${h(cxReferencesNumber022E(systemTotal))}</strong></div>
-                <div class="client-kpi"><span>Cantidad meta</span><strong>${h(cxReferencesNumber022E(initialTotal))}</strong></div>
-                <div class="client-kpi"><span>Pendiente</span><strong>${h(cxReferencesNumber022E(pendingTotal))}</strong></div>
-              </div>
-            </section>
-            <section class="client-panel">
-              <div class="client-eyebrow">Buscar referencia o talla</div>
-              <div class="cx-ref-toolbar">
-                <div class="cx-ref-field"><label>Buscar</label><input id="refSearch022E" placeholder="Buscar referencia, categoría, talla o color..."></div>
-                <div class="cx-ref-field"><label>Desde</label><input id="refDateFrom022E" type="date"></div>
-                <div class="cx-ref-field"><label>Hasta</label><input id="refDateTo022E" type="date"></div>
-                <div class="cx-ref-field">
-                  <label>Canal de uso</label>
-                  <select id="refChannelFilter022E">
-                    <option value="">Todas</option>
-                    <option value="bot">Bot</option>
-                    <option value="system">Sistema</option>
-                    <option value="both">Ambos</option>
-                  </select>
-                </div>
-                <button class="client-btn" type="button" data-references-refresh>Actualizar</button>
-                <button class="client-btn" type="button" data-references-export>Exportar CSV</button>
-              </div>
+              <div class="client-eyebrow">Crear referencia</div>
+              <h2>Catálogo comercial</h2>
+              <p class="client-muted">Crea productos base con categoría, SKU, precio unidad, canal de uso y meta operativa.</p>
               <div class="cx-ref-create">
-                <div class="cx-ref-field"><label>Nombre referencia</label><input id="refCreateName022E" placeholder="Ej: DREAMY JACKET"></div>
-                <div class="cx-ref-field"><label>Categoría</label><input id="refCreateCategory022E" placeholder="Ej: chaqueta"></div>
-                <div class="cx-ref-field"><label>Talla</label><input id="refCreateSize022E" placeholder="Ej: SM"></div>
+                <div class="cx-ref-field"><label>Nombre referencia</label><input id="refCreateName022E" placeholder="Ej: Funda iPhone"></div>
+                <div class="cx-ref-field"><label>Categoría</label><input id="refCreateCategory022E" placeholder="Ej: Funda Celular"></div>
+                <div class="cx-ref-field"><label>Talla / modelo</label><input id="refCreateSize022E" placeholder="Ej: 14 Pro Max / SM"></div>
                 <div class="cx-ref-field"><label>Color</label><input id="refCreateColor022E" placeholder="Ej: negro"></div>
-                <div class="cx-ref-field"><label>Cantidad meta</label><input id="refCreateQty022E" type="number" min="0" step="1" value="0"></div>
+                <div class="cx-ref-field"><label>SKU</label><input id="refCreateSku022M" placeholder="Código interno / barras"></div>
+                <div class="cx-ref-field"><label>Precio unidad</label><input id="refCreateUnitPrice022M" type="number" min="0" step="100" value="0"></div>
                 <div class="cx-ref-field">
                   <label>Canal de uso</label>
                   <select id="refCreateChannel022E">
@@ -9513,10 +9497,37 @@
                     <option value="both">Ambos</option>
                   </select>
                 </div>
+                <div class="cx-ref-field"><label>Meta operativa</label><input id="refCreateMeta022M" type="number" min="0" step="1" value="0"></div>
                 <button class="client-btn" type="button" data-reference-create>Crear</button>
               </div>
             </section>
-            <section class="client-panel">${cxReferencesTable022E(rows)}</section>
+
+            <section class="client-panel">
+              <div class="cx-ref-section-head-022m">
+                <div>
+                  <div class="client-eyebrow">Referencias creadas</div>
+                  <h2>Buscar y administrar</h2>
+                  <p class="client-muted">Busca por nombre, categoría, talla/modelo, color, SKU o canal de uso.</p>
+                </div>
+              </div>
+              <div class="cx-ref-toolbar">
+                <div class="cx-ref-field"><label>Buscar</label><input id="refSearch022E" placeholder="Buscar referencia, categoría, talla, color, SKU o canal..."></div>
+                <div class="cx-ref-field"><label>Desde</label><input id="refDateFrom022E" type="date"></div>
+                <div class="cx-ref-field"><label>Hasta</label><input id="refDateTo022E" type="date"></div>
+                <div class="cx-ref-field">
+                  <label>Canal de uso</label>
+                  <select id="refChannelFilter022E">
+                    <option value="">Todas</option>
+                    <option value="system">Sistema</option>
+                    <option value="bot">Bot</option>
+                    <option value="both">Ambos</option>
+                  </select>
+                </div>
+                <button class="client-btn" type="button" data-references-refresh>Buscar</button>
+                <button class="client-btn" type="button" data-references-export>Exportar CSV</button>
+              </div>
+              ${cxReferencesTable022E(rows)}
+            </section>
           </section>
         </div>
       </main>
@@ -9532,7 +9543,7 @@
     if (event.target.closest("[data-reference-create]")) {
       const payload = cxReferenceReadCreatePayload022E();
       if (!payload.name || !payload.size) {
-        cxReferencesNotice022E("Nombre y talla son obligatorios.", "error");
+        cxReferencesNotice022E("Nombre y talla/modelo son obligatorios.", "error");
         return;
       }
       await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}`, {
@@ -9595,7 +9606,7 @@
       return;
     }
   }, true);
-  /* CLONEXA_022E_REFERENCES_CATEGORY_COLOR_CHANNEL_END */
+  /* CLONEXA_022M_REFERENCES_CLEAN_CATALOG_SKU_PRICE_END */
 
   async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */

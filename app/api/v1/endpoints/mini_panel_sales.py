@@ -243,6 +243,11 @@ def _extract_token(authorization: str | None) -> str:
 
 async def _ensure_storage(conn: asyncpg.Connection) -> None:
     await conn.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
+    ref_table = await conn.fetchval("SELECT to_regclass('public.product_references')")
+    if ref_table:
+        await conn.execute("ALTER TABLE product_references ADD COLUMN IF NOT EXISTS sku text NOT NULL DEFAULT '';")
+        await conn.execute("ALTER TABLE product_references ADD COLUMN IF NOT EXISTS unit_price numeric(14, 2) NOT NULL DEFAULT 0;")
+        await conn.execute("ALTER TABLE product_references ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false;")
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS mini_panel_sales_settings (
@@ -779,6 +784,7 @@ async def _reference_categories(conn: asyncpg.Connection, company_id: uuid.UUID)
             COUNT(*) AS total
         FROM product_references
         WHERE company_id = $1::text
+          AND COALESCE(archived, false) IS NOT TRUE
           AND (
             COALESCE(system_active, false) IS TRUE
             OR COALESCE(channel, '') IN ('system', 'both')
@@ -1211,6 +1217,7 @@ async def list_sales_references(
 
         where = [
             "company_id = $1::text",
+            "COALESCE(archived, false) IS NOT TRUE",
             "(COALESCE(system_active, false) IS TRUE OR COALESCE(channel, '') IN ('system', 'both'))",
         ]
         args: list[Any] = [str(company_id)]
@@ -1224,7 +1231,7 @@ async def list_sales_references(
 
         search = _clean(q)
         if search:
-            where.append(f"(id ILIKE ${idx} OR name ILIKE ${idx} OR size ILIKE ${idx} OR COALESCE(color, '') ILIKE ${idx} OR COALESCE(category, '') ILIKE ${idx})")
+            where.append(f"(id ILIKE ${idx} OR name ILIKE ${idx} OR size ILIKE ${idx} OR COALESCE(color, '') ILIKE ${idx} OR COALESCE(category, '') ILIKE ${idx} OR COALESCE(sku, '') ILIKE ${idx})")
             args.append(f"%{search}%")
             idx += 1
 
@@ -1238,6 +1245,8 @@ async def list_sales_references(
                 COALESCE(category, '') AS category,
                 size,
                 COALESCE(color, '') AS color,
+                COALESCE(sku, '') AS sku,
+                COALESCE(unit_price, 0)::float AS unit_price,
                 initial_quantity,
                 bot_active,
                 COALESCE(system_active, false) AS system_active,
@@ -1257,6 +1266,9 @@ async def list_sales_references(
                 "category": _clean(row["category"]),
                 "size": _clean(row["size"]),
                 "color": _clean(row["color"]),
+                "sku": _clean(row["sku"]),
+                "barcode": _clean(row["sku"]),
+                "unit_price": float(row["unit_price"] or 0),
                 "initial_quantity": int(row["initial_quantity"] or 0),
                 "channel": _clean(row["channel"]),
                 "system_active": bool(row["system_active"]),

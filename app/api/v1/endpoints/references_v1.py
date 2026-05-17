@@ -28,6 +28,14 @@ def to_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        parsed = float(value or 0)
+        return parsed if parsed >= 0 else default
+    except Exception:
+        return default
+
+
 def to_bool(value: Any, default: bool = True) -> bool:
     if isinstance(value, bool):
         return value
@@ -117,6 +125,21 @@ async def ensure_storage(db: AsyncSession) -> None:
 
     await db.execute(text("""
         ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS sku text NOT NULL DEFAULT ''
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS unit_price numeric(14, 2) NOT NULL DEFAULT 0
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
+        ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false
+    """))
+
+    await db.execute(text("""
+        ALTER TABLE product_references
         ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'bot'
     """))
 
@@ -137,6 +160,11 @@ async def ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_product_references_company_channel
         ON product_references (company_id, channel)
+    """))
+
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_product_references_company_sku
+        ON product_references (company_id, lower(COALESCE(sku, '')))
     """))
 
     await db.execute(text("""
@@ -244,12 +272,12 @@ async def list_references(
     await ensure_storage(db)
     await require_references_module(db, company_id)
 
-    where = ["company_id = :company_id"]
+    where = ["company_id = :company_id", "COALESCE(archived, false) IS NOT TRUE"]
     params: dict[str, Any] = {"company_id": company_id}
 
     search = clean(q)
     if search:
-        where.append("(lower(name) LIKE :search OR lower(size) LIKE :search OR lower(COALESCE(category, '')) LIKE :search OR lower(COALESCE(color, '')) LIKE :search)")
+        where.append("(lower(name) LIKE :search OR lower(size) LIKE :search OR lower(COALESCE(category, '')) LIKE :search OR lower(COALESCE(color, '')) LIKE :search OR lower(COALESCE(sku, '')) LIKE :search OR lower(COALESCE(channel, '')) LIKE :search)")
         params["search"] = f"%{search.lower()}%"
 
     if clean(date_from):
@@ -283,6 +311,9 @@ async def list_references(
                 COALESCE(category, '') AS category,
                 size,
                 COALESCE(color, '') AS color,
+                COALESCE(sku, '') AS sku,
+                COALESCE(unit_price, 0)::float AS unit_price,
+                COALESCE(archived, false) AS archived,
                 initial_quantity,
                 activation_date,
                 bot_active,
@@ -320,6 +351,8 @@ async def create_reference(
     category = clean(payload.get("category"))
     size = clean(payload.get("size"))
     color = clean(payload.get("color"))
+    sku = clean(payload.get("sku") or payload.get("code") or payload.get("barcode"))
+    unit_price = to_float(payload.get("unit_price") if "unit_price" in payload else payload.get("price"), 0.0)
     initial_quantity = to_int(payload.get("initial_quantity"), 0)
     channel = normalize_reference_channel(payload.get("channel"), payload.get("bot_active"), payload.get("system_active"))
     bot_active, system_active = reference_channel_flags(channel)
@@ -365,6 +398,8 @@ async def create_reference(
                     category,
                     size,
                     color,
+                    sku,
+                    unit_price,
                     initial_quantity,
                     activation_date,
                     bot_active,
@@ -380,6 +415,8 @@ async def create_reference(
                     :category,
                     :size,
                     :color,
+                    :sku,
+                    :unit_price,
                     :initial_quantity,
                     CASE WHEN :initial_quantity > 0 THEN now() ELSE NULL END,
                     :bot_active,
@@ -396,6 +433,8 @@ async def create_reference(
                 "category": category,
                 "size": size,
                 "color": color,
+                "sku": sku,
+                "unit_price": unit_price,
                 "initial_quantity": initial_quantity,
                 "bot_active": bot_active,
                 "system_active": system_active,
@@ -416,6 +455,8 @@ async def create_reference(
         "category": category,
         "size": size,
         "color": color,
+        "sku": sku,
+        "unit_price": unit_price,
         "initial_quantity": initial_quantity,
         "bot_active": bot_active,
         "system_active": system_active,
@@ -457,6 +498,8 @@ async def update_reference(
     category = clean(payload.get("category")) if "category" in payload else clean(current.get("category"))
     size = clean(payload.get("size")) if "size" in payload else clean(current["size"])
     color = clean(payload.get("color")) if "color" in payload else clean(current.get("color"))
+    sku = clean(payload.get("sku") or payload.get("code") or payload.get("barcode")) if ("sku" in payload or "code" in payload or "barcode" in payload) else clean(current.get("sku"))
+    unit_price = to_float(payload.get("unit_price") if "unit_price" in payload else payload.get("price"), float(current.get("unit_price") or 0)) if ("unit_price" in payload or "price" in payload) else float(current.get("unit_price") or 0)
     initial_quantity = to_int(payload.get("initial_quantity"), int(current["initial_quantity"] or 0)) if "initial_quantity" in payload else int(current["initial_quantity"] or 0)
 
     current_channel = current.get("channel") or ("bot" if current.get("bot_active") else "system")
@@ -503,6 +546,8 @@ async def update_reference(
                     category = :category,
                     size = :size,
                     color = :color,
+                    sku = :sku,
+                    unit_price = :unit_price,
                     initial_quantity = :initial_quantity,
                     activation_date = CASE
                         WHEN activation_date IS NULL AND :initial_quantity > 0 THEN now()
@@ -522,6 +567,8 @@ async def update_reference(
                 "category": category,
                 "size": size,
                 "color": color,
+                "sku": sku,
+                "unit_price": unit_price,
                 "initial_quantity": initial_quantity,
                 "bot_active": bot_active,
                 "system_active": system_active,
@@ -542,6 +589,8 @@ async def update_reference(
         "category": category,
         "size": size,
         "color": color,
+        "sku": sku,
+        "unit_price": unit_price,
         "initial_quantity": initial_quantity,
         "bot_active": bot_active,
         "system_active": system_active,
@@ -562,7 +611,8 @@ async def delete_reference(
     try:
         result = await db.execute(
             text("""
-                DELETE FROM product_references
+                UPDATE product_references
+                SET archived = true, updated_at = now()
                 WHERE company_id = :company_id
                   AND id = :reference_id
             """),
@@ -655,6 +705,9 @@ async def bot_reference_sizes(
                 COALESCE(category, '') AS category,
                 size,
                 COALESCE(color, '') AS color,
+                COALESCE(sku, '') AS sku,
+                COALESCE(unit_price, 0)::float AS unit_price,
+                COALESCE(archived, false) AS archived,
                 initial_quantity,
                 bot_active
             FROM product_references
@@ -705,6 +758,9 @@ async def references_summary(
                 COALESCE(category, '') AS category,
                 size,
                 COALESCE(color, '') AS color,
+                COALESCE(sku, '') AS sku,
+                COALESCE(unit_price, 0)::float AS unit_price,
+                COALESCE(archived, false) AS archived,
                 initial_quantity,
                 activation_date,
                 bot_active,
@@ -825,6 +881,8 @@ async def export_references_csv(
         "category",
         "size",
         "color",
+        "sku",
+        "unit_price",
         "initial_quantity",
         "activation_date",
         "bot_active",
@@ -842,6 +900,8 @@ async def export_references_csv(
             item.get("category"),
             item.get("size"),
             item.get("color"),
+            item.get("sku"),
+            item.get("unit_price"),
             item.get("initial_quantity"),
             item.get("activation_date"),
             item.get("bot_active"),

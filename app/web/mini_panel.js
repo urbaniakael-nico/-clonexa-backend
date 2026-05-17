@@ -3295,7 +3295,8 @@ function moduleCard(title, description, tag, code = "") {
           data-sr-ref-category="${h(item.category || category || "")}"
           data-sr-ref-size="${h(item.size || "")}"
           data-sr-ref-color="${h(item.color || "")}"
-          data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}">
+          data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}"
+          data-sr-ref-unit-price="${h(item.unit_price ?? item.price ?? 0)}">
           <strong>${h(item.name || "Referencia")}</strong><br>
           <small>${h([item.category, item.size, item.color].filter(Boolean).join(" · "))}</small>
         </button>
@@ -3428,8 +3429,11 @@ function moduleCard(title, description, tag, code = "") {
             reference_category: button.getAttribute("data-sr-ref-category") || "",
             reference_size: button.getAttribute("data-sr-ref-size") || "",
             reference_color: button.getAttribute("data-sr-ref-color") || "",
-            barcode: button.getAttribute("data-sr-ref-barcode") || ""
+            barcode: button.getAttribute("data-sr-ref-barcode") || "",
+            unit_price: Number(button.getAttribute("data-sr-ref-unit-price") || 0) || 0
           };
+          const unitInput = root.querySelector("#srUnit022F");
+          if (unitInput && selected.unit_price > 0) unitInput.value = String(selected.unit_price);
           const selectedBox = root.querySelector("#srSelected022F");
           if (selectedBox) selectedBox.textContent = `${selected.reference_name} · ${[selected.reference_size, selected.reference_color].filter(Boolean).join(" · ")}`;
         });
@@ -3847,7 +3851,8 @@ function moduleCard(title, description, tag, code = "") {
           data-sr-ref-category="${h(item.category || category || "")}"
           data-sr-ref-size="${h(item.size || "")}"
           data-sr-ref-color="${h(item.color || "")}"
-          data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}">
+          data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}"
+          data-sr-ref-unit-price="${h(item.unit_price ?? item.price ?? 0)}">
           <strong>${h(item.name || "Referencia")}</strong><br>
           <small>${h([item.category, item.size, item.color].filter(Boolean).join(" · "))}</small>
         </button>
@@ -3984,8 +3989,11 @@ function moduleCard(title, description, tag, code = "") {
             reference_category: button.getAttribute("data-sr-ref-category") || "",
             reference_size: button.getAttribute("data-sr-ref-size") || "",
             reference_color: button.getAttribute("data-sr-ref-color") || "",
-            barcode: button.getAttribute("data-sr-ref-barcode") || ""
+            barcode: button.getAttribute("data-sr-ref-barcode") || "",
+            unit_price: Number(button.getAttribute("data-sr-ref-unit-price") || 0) || 0
           };
+          const unitInput = root.querySelector("#srUnit022F");
+          if (unitInput && selected.unit_price > 0) unitInput.value = String(selected.unit_price);
           const selectedBox = root.querySelector("#srSelected022F");
           if (selectedBox) selectedBox.textContent = `${selected.reference_name} · ${[selected.reference_size, selected.reference_color].filter(Boolean).join(" · ")}`;
         });
@@ -4584,7 +4592,8 @@ function moduleCard(title, description, tag, code = "") {
             data-sr-ref-category="${h(item.category || category || "")}"
             data-sr-ref-size="${h(item.size || "")}"
             data-sr-ref-color="${h(item.color || "")}"
-            data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}">
+            data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}"
+          data-sr-ref-unit-price="${h(item.unit_price ?? item.price ?? 0)}">
             <strong>${h(item.name || "Referencia")}${popularity ? `<span class="sr-ref-popular-022j">${h(popularity)} ped.</span>` : ""}</strong><br>
             <small>${h([item.category, item.size, item.color].filter(Boolean).join(" · "))}</small>
           </button>
@@ -4699,8 +4708,11 @@ function moduleCard(title, description, tag, code = "") {
             reference_category: button.getAttribute("data-sr-ref-category") || "",
             reference_size: button.getAttribute("data-sr-ref-size") || "",
             reference_color: button.getAttribute("data-sr-ref-color") || "",
-            barcode: button.getAttribute("data-sr-ref-barcode") || ""
+            barcode: button.getAttribute("data-sr-ref-barcode") || "",
+            unit_price: Number(button.getAttribute("data-sr-ref-unit-price") || 0) || 0
           };
+          const unitInput = root.querySelector("#srUnit022F");
+          if (unitInput && selected.unit_price > 0) unitInput.value = String(selected.unit_price);
           const selectedBox = root.querySelector("#srSelected022F");
           if (selectedBox) selectedBox.textContent = `${selected.reference_name} · ${[selected.reference_size, selected.reference_color].filter(Boolean).join(" · ")}`;
         });
