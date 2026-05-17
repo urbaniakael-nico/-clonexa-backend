@@ -9781,7 +9781,16 @@
       .cx-sales22-sale{border:1px solid rgba(255,255,255,.12);border-radius:20px;background:rgba(255,255,255,.06);padding:15px}
       .cx-sales22-sale strong{display:flex;justify-content:space-between;gap:14px;font-size:16px}
       .cx-sales22-filters{display:grid;grid-template-columns:1fr 170px 140px;gap:10px;margin-top:14px}
-      @media(max-width:1100px){.cx-sales22-grid,.cx-sales22-row,.cx-sales22-filters{grid-template-columns:1fr}}
+      .cx-sales22-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+      .cx-sales22-stat{border:1px solid rgba(255,255,255,.12);border-radius:20px;background:rgba(255,255,255,.07);padding:14px;min-height:88px}
+      .cx-sales22-stat span{display:block;font-size:11px;font-weight:950;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.66);margin-bottom:7px}
+      .cx-sales22-stat strong{display:block;font-size:18px;color:#fff}
+      .cx-sales22-stat small{display:block;margin-top:7px;color:rgba(255,255,255,.68);font-weight:800}
+      .cx-sales22-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+      .cx-sales22-section-head .cx-sales22-filters{margin-top:0;min-width:min(760px,100%)}
+      .cx-sales22-invoice{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 10px;background:rgba(41,255,187,.12);border:1px solid rgba(41,255,187,.24);color:#8fffd8;font-size:12px;font-weight:950;margin-bottom:8px}
+      .cx-sales22-cut-actions{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;margin-top:14px}
+      @media(max-width:1100px){.cx-sales22-grid,.cx-sales22-row,.cx-sales22-filters,.cx-sales22-mini-grid,.cx-sales22-cut-actions{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
   }
@@ -9969,12 +9978,14 @@
     cxSalesPipelineStyles022G();
 
     let config = { occupation: "technology", custom_categories: [] };
-    let salesData = { items: [], active_count: 0, total_amount: 0 };
+    let salesData = { items: [], active_count: 0, total_amount: 0, cut: {} };
     let categories = { items: [] };
+    let cutData = { total_amount: 0, active_count: 0, period_type: "weekly", period_label: "Semanal", top_seller: {}, top_store: {} };
     let loadError = "";
 
     try {
       config = await cxSalesApi022F("/config");
+      cutData = await cxSalesApi022F("/cut?panel_type=all");
       salesData = await cxSalesApi022F(`/sales?panel_type=all&include_archived=${options.include_archived ? "true" : "false"}&q=${encodeURIComponent(options.q || "")}`);
       categories = await cxSalesApi022F("/categories?panel_type=all");
     } catch (error) {
@@ -9988,6 +9999,12 @@
       .map((item) => item.category)
       .filter(Boolean)
       .join(", ");
+    const cut = cutData && typeof cutData === "object" ? cutData : (salesData.cut || {});
+    const topSeller = cut.top_seller || {};
+    const topStore = cut.top_store || {};
+    const periodType = options.period_type || cut.period_type || "weekly";
+    const totalConsolidated = Number(cut.total_amount ?? salesData.total_amount ?? 0);
+    const activeCount = Number(cut.active_count ?? salesData.active_count ?? 0);
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -10017,7 +10034,7 @@
               <article class="cx-sales22-card">
                 <div class="cx-sales22-kicker">Configuración por empresa</div>
                 <h2 class="cx-sales22-title">Ocupación comercial</h2>
-                <p class="cx-sales22-muted">Define las categorías visuales del mini panel cuando no existan categorías creadas en Referencias.</p>
+                <p class="cx-sales22-muted">Define categorías visuales y el tipo de corte comercial activo.</p>
 
                 <div class="cx-sales22-row" style="margin-top:16px">
                   <div class="cx-sales22-field">
@@ -10038,36 +10055,73 @@
 
                 <button class="cx-sales22-btn" type="button" data-cx-sales22-save-config style="margin-top:14px">Guardar configuración</button>
                 <div class="cx-sales22-muted" style="margin-top:14px">Categorías actuales: ${h(categoriesText || "Sin categorías. Usa Referencias o configura ocupación.")}</div>
+
+                <div class="cx-sales22-cut-actions">
+                  <div class="cx-sales22-field">
+                    <label>Corte comercial</label>
+                    <select id="cxSalesCutPeriod022L">
+                      <option value="weekly" ${periodType === "weekly" ? "selected" : ""}>Semanal</option>
+                      <option value="biweekly" ${periodType === "biweekly" ? "selected" : ""}>Quincenal</option>
+                      <option value="monthly" ${periodType === "monthly" ? "selected" : ""}>Mensual</option>
+                    </select>
+                  </div>
+                  <button class="cx-sales22-btn" type="button" data-cx-sales22-generate-cut>Generar corte</button>
+                </div>
+                <div class="cx-sales22-muted" style="margin-top:10px">
+                  Corte activo: ${h(cut.period_label || "Semanal")} · Desde: ${h(cut.period_started_at || "primer registro")}
+                </div>
                 <div id="cxSalesMsg022F" class="cx-sales22-muted" style="margin-top:10px"></div>
               </article>
 
               <article class="cx-sales22-card">
-                <div class="cx-sales22-kicker">Consolidado</div>
-                <h2 class="cx-sales22-title">${h(cxSalesMoney022F(salesData.total_amount || 0))}</h2>
-                <p class="cx-sales22-muted">${Number(salesData.active_count || 0)} ventas activas capturadas desde mini paneles.</p>
+                <div class="cx-sales22-kicker">Consolidado actual</div>
+                <h2 class="cx-sales22-title">${h(cxSalesMoney022F(totalConsolidated))}</h2>
+                <p class="cx-sales22-muted">${activeCount} ventas activas en el corte actual.</p>
+                <div class="cx-sales22-mini-grid">
+                  <div class="cx-sales22-stat">
+                    <span>Top vendedor</span>
+                    <strong>${h(topSeller.label || "Sin ventas")}</strong>
+                    <small>${h(cxSalesMoney022F(topSeller.amount || 0))} · ${Number(topSeller.count || 0)} ventas</small>
+                  </div>
+                  <div class="cx-sales22-stat">
+                    <span>Top tienda</span>
+                    <strong>${h(topStore.label || "Próximamente")}</strong>
+                    <small>${h(cxSalesMoney022F(topStore.amount || 0))}${topStore.status === "pending" ? " · módulo tiendas próximo" : ""}</small>
+                  </div>
+                </div>
+              </article>
+            </section>
+
+            <section class="cx-sales22-card" style="margin-top:18px">
+              <div class="cx-sales22-section-head">
+                <div>
+                  <div class="cx-sales22-kicker">Ventas desde mini paneles</div>
+                  <p class="cx-sales22-muted">${items.length} registros visibles del corte actual. Busca por factura, usuario, referencia, categoría, pago o estado.</p>
+                </div>
                 <div class="cx-sales22-filters">
-                  <input id="cxSalesFilter022F" value="${h(options.q || "")}" placeholder="Buscar referencia, usuario o categoría..." />
+                  <input id="cxSalesFilter022F" value="${h(options.q || "")}" placeholder="Buscar factura, usuario, referencia, categoría..." />
                   <select id="cxSalesArchived022F">
                     <option value="false">Activas</option>
                     <option value="true" ${options.include_archived ? "selected" : ""}>Incluye archivadas</option>
                   </select>
                   <button class="cx-sales22-btn secondary" type="button" data-cx-sales22-apply>Buscar</button>
                 </div>
-              </article>
-            </section>
+              </div>
 
-            <section class="cx-sales22-card" style="margin-top:18px">
-              <div class="cx-sales22-kicker">Ventas desde mini paneles</div>
               <div class="cx-sales22-list">
                 ${items.map((item) => `
                   <article class="cx-sales22-sale">
+                    <div class="cx-sales22-invoice">${h(item.invoice_number || `FV-${String(item.id || "").slice(0, 8).toUpperCase()}`)}</div>
                     <strong>
                       <span>${h(item.reference_name || "Venta")}</span>
-                      <span>${h(cxSalesMoney022F(item.total || 0))}</span>
+                      <span>${h(cxSalesMoney022F(item.total_payable ?? item.total ?? 0))}</span>
                     </strong>
                     <div class="cx-sales22-muted">${h(item.reference_category || "Sin categoría")} · ${h(item.reference_size || "")} ${h(item.reference_color || "")}</div>
                     <div class="cx-sales22-muted">Origen: ${h(item.source_panel_label || item.panel_type || "Mini Panel")} · ${h(item.source_user_label || item.created_by_label || "Usuario")}</div>
                     <div class="cx-sales22-muted">${h(item.created_at || "")} · ${h(item.payment_method || "")}</div>
+                    ${item.adjustment_type && item.adjustment_type !== "none" ? `
+                      <div class="cx-sales22-muted">Ajuste: ${h(item.adjustment_label || "Ajuste")} ${Number(item.adjustment_percent || 0)}% · ${h(cxSalesMoney022F(item.adjustment_amount || 0))} · Total a pagar ${h(cxSalesMoney022F(item.total_payable ?? item.total ?? 0))}</div>
+                    ` : ""}
                     ${cxSalesStatusHtml022G(item)}
                     <div class="cx-sales22-actions">
                       ${item.has_support ? `
@@ -10086,7 +10140,7 @@
                       ` : `<span class="cx-sales22-muted">Archivada</span>`}
                     </div>
                   </article>
-                `).join("") || `<div class="cx-sales22-muted">Sin ventas registradas desde mini paneles.</div>`}
+                `).join("") || `<div class="cx-sales22-muted">Sin ventas registradas desde mini paneles en este corte.</div>`}
               </div>
             </section>
           </section>
@@ -10095,6 +10149,37 @@
     `;
 
     document.querySelector("[data-cx-sales22-refresh]")?.addEventListener("click", () => renderClientSalesRegisterModule022F(options));
+
+    document.getElementById("cxSalesCutPeriod022L")?.addEventListener("change", async () => {
+      const msg = document.getElementById("cxSalesMsg022F");
+      try {
+        const period = document.getElementById("cxSalesCutPeriod022L")?.value || "weekly";
+        if (msg) msg.textContent = "Guardando tipo de corte...";
+        await cxSalesApi022F("/cut/config", {
+          method: "POST",
+          body: JSON.stringify({ period_type: period })
+        });
+        if (msg) msg.textContent = "Tipo de corte guardado. El acumulado sigue vigente hasta generar corte.";
+      } catch (error) {
+        if (msg) msg.textContent = error.message || "No se pudo guardar el corte.";
+      }
+    });
+
+    document.querySelector("[data-cx-sales22-generate-cut]")?.addEventListener("click", async () => {
+      const period = document.getElementById("cxSalesCutPeriod022L")?.value || "weekly";
+      if (!confirm("Generar corte ahora? Se archivará el acumulado actual y el nuevo acumulado iniciará en $0. No se borrarán ventas.")) return;
+      const msg = document.getElementById("cxSalesMsg022F");
+      try {
+        if (msg) msg.textContent = "Generando corte...";
+        await cxSalesApi022F("/cut/generate?panel_type=all", {
+          method: "POST",
+          body: JSON.stringify({ period_type: period })
+        });
+        await renderClientSalesRegisterModule022F({ ...options, q: "", include_archived: false, period_type: period });
+      } catch (error) {
+        if (msg) msg.textContent = error.message || "No se pudo generar el corte.";
+      }
+    });
 
     document.querySelector("[data-cx-sales22-save-config]")?.addEventListener("click", async () => {
       const msg = document.getElementById("cxSalesMsg022F");
@@ -10119,7 +10204,8 @@
     document.querySelector("[data-cx-sales22-apply]")?.addEventListener("click", async () => {
       await renderClientSalesRegisterModule022F({
         q: document.getElementById("cxSalesFilter022F")?.value || "",
-        include_archived: document.getElementById("cxSalesArchived022F")?.value === "true"
+        include_archived: document.getElementById("cxSalesArchived022F")?.value === "true",
+        period_type: document.getElementById("cxSalesCutPeriod022L")?.value || periodType
       });
     });
 
@@ -10170,6 +10256,7 @@
       button.addEventListener("click", () => cxSalesDownloadFile022G(itemMap.get(button.getAttribute("data-cx-sales22-download-guide"))?.guide, "guia_envio"));
     });
   }
+
   /* CLONEXA_022G_CLIENT_SALES_PIPELINE_GUIDE_END */
 
   /* CLONEXA_022F_CLIENT_REGISTRO_VENTA_CONSOLIDADO_END */

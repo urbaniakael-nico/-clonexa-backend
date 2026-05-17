@@ -125,6 +125,38 @@ class SaleGuideIn(BaseModel):
     file_type: str | None = Field(default="application/octet-stream", max_length=160)
     file_data: str = Field(..., min_length=1, max_length=6000000)
 
+
+class SalesCutConfigIn(BaseModel):
+    period_type: str = Field(default="weekly", max_length=40)
+
+    @field_validator("period_type")
+    @classmethod
+    def clean_period_type(cls, value: str | None) -> str:
+        raw = _norm(value or "weekly")
+        aliases = {
+            "semanal": "weekly",
+            "week": "weekly",
+            "weekly": "weekly",
+            "quincenal": "biweekly",
+            "biweekly": "biweekly",
+            "15_dias": "biweekly",
+            "15dias": "biweekly",
+            "mensual": "monthly",
+            "month": "monthly",
+            "monthly": "monthly",
+        }
+        return aliases.get(raw, "weekly")
+
+
+class SalesCutGenerateIn(BaseModel):
+    period_type: str = Field(default="weekly", max_length=40)
+
+    @field_validator("period_type")
+    @classmethod
+    def clean_period_type(cls, value: str | None) -> str:
+        return SalesCutConfigIn.clean_period_type(value)
+
+
 def _database_url() -> str:
     raw = (
         os.getenv("DATABASE_URL")
@@ -361,6 +393,34 @@ async def _ensure_storage(conn: asyncpg.Connection) -> None:
         ON mini_panel_sales_records (company_id, status, created_at DESC);
         """
     )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mini_panel_sales_cuts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            panel_type VARCHAR(50) NOT NULL DEFAULT 'sales',
+            period_type VARCHAR(40) NOT NULL DEFAULT 'weekly',
+            period_start TIMESTAMPTZ NOT NULL,
+            period_end TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            total_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+            active_count INTEGER NOT NULL DEFAULT 0,
+            top_seller_label VARCHAR(180),
+            top_seller_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+            top_store_label VARCHAR(180),
+            top_store_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+            generated_by UUID NULL,
+            generated_by_label VARCHAR(180),
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """
+    )
+    await conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_mini_panel_sales_cuts_company_panel
+        ON mini_panel_sales_cuts (company_id, panel_type, period_end DESC);
+        """
+    )
 
 
 async def _company_exists(conn: asyncpg.Connection, company_id: uuid.UUID) -> bool:
@@ -503,8 +563,207 @@ async def _settings(conn: asyncpg.Connection, company_id: uuid.UUID) -> dict[str
     settings = _json(row["settings"], {})
     return {
         "occupation": _occupation(row["occupation"]),
+        "settings": settings if isinstance(settings, dict) else {},
+        "custom_categories": settings.get("custom_categories") if isinstance(settings, dict) and isinstance(settings.get("custom_categories"), list) else [],
+    }
+
+
+def _cut_period(value: Any) -> str:
+    raw = _norm(value or "weekly")
+    aliases = {
+        "semanal": "weekly",
+        "week": "weekly",
+        "weekly": "weekly",
+        "quincenal": "biweekly",
+        "biweekly": "biweekly",
+        "15_dias": "biweekly",
+        "15dias": "biweekly",
+        "mensual": "monthly",
+        "month": "monthly",
+        "monthly": "monthly",
+    }
+    return aliases.get(raw, "weekly")
+
+
+def _cut_period_label(value: Any) -> str:
+    labels = {"weekly": "Semanal", "biweekly": "Quincenal", "monthly": "Mensual"}
+    return labels.get(_cut_period(value), "Semanal")
+
+
+def _parse_dt(value: Any) -> datetime | None:
+    raw = _clean(value)
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        return None
+
+
+async def _sales_cut_config(conn: asyncpg.Connection, company_id: uuid.UUID) -> dict[str, Any]:
+    config = await _settings(conn, company_id)
+    settings = config.get("settings") if isinstance(config.get("settings"), dict) else {}
+    raw_cut = settings.get("sales_cut") if isinstance(settings, dict) else {}
+    cut = raw_cut if isinstance(raw_cut, dict) else {}
+    period_type = _cut_period(cut.get("period_type") or settings.get("sales_cut_period") or "weekly")
+    started_at = _clean(cut.get("started_at") or settings.get("sales_cut_started_at") or "")
+    started_dt = _parse_dt(started_at)
+    return {
+        "period_type": period_type,
+        "period_label": _cut_period_label(period_type),
+        "started_at": started_dt.isoformat() if started_dt else None,
+        "started_at_dt": started_dt,
+        "last_cut_id": _clean(cut.get("last_cut_id") or ""),
+        "last_generated_at": _clean(cut.get("last_generated_at") or ""),
         "settings": settings,
-        "custom_categories": settings.get("custom_categories") if isinstance(settings.get("custom_categories"), list) else [],
+        "occupation": config.get("occupation") or "technology",
+    }
+
+
+async def _save_sales_cut_config(
+    conn: asyncpg.Connection,
+    company_id: uuid.UUID,
+    period_type: str,
+    started_at: datetime | None = None,
+    last_cut_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    current = await _settings(conn, company_id)
+    settings = current.get("settings") if isinstance(current.get("settings"), dict) else {}
+    settings = dict(settings)
+    existing_cut = settings.get("sales_cut") if isinstance(settings.get("sales_cut"), dict) else {}
+    cut = dict(existing_cut)
+    cut["period_type"] = _cut_period(period_type)
+    if started_at is not None:
+        cut["started_at"] = started_at.isoformat()
+        cut["last_generated_at"] = started_at.isoformat()
+    if last_cut_id is not None:
+        cut["last_cut_id"] = str(last_cut_id)
+    settings["sales_cut"] = cut
+
+    await conn.execute(
+        """
+        INSERT INTO mini_panel_sales_settings (company_id, occupation, settings, created_at, updated_at)
+        VALUES ($1::uuid, $2, $3::jsonb, NOW(), NOW())
+        ON CONFLICT (company_id) DO UPDATE
+        SET settings = EXCLUDED.settings,
+            updated_at = NOW()
+        """,
+        company_id,
+        _occupation(current.get("occupation") or "technology"),
+        json.dumps(settings, ensure_ascii=False),
+    )
+    return await _sales_cut_config(conn, company_id)
+
+
+def _cut_sql_parts(cut_config: dict[str, Any], idx: int) -> tuple[list[str], list[Any], int]:
+    started = cut_config.get("started_at_dt") if isinstance(cut_config, dict) else None
+    if started:
+        return [f"s.created_at >= ${idx}::timestamptz"], [started], idx + 1
+    return [], [], idx
+
+
+async def _sales_cut_summary(
+    conn: asyncpg.Connection,
+    company_id: uuid.UUID,
+    panel_type: str = "all",
+    scope_user_id: uuid.UUID | None = None,
+    include_archived: bool = False,
+) -> dict[str, Any]:
+    panel = _panel(panel_type)
+    cut_config = await _sales_cut_config(conn, company_id)
+
+    where = ["s.company_id = $1::uuid"]
+    args: list[Any] = [company_id]
+    idx = 2
+
+    if panel not in {"all", "client"}:
+        where.append(f"s.panel_type = ${idx}")
+        args.append(panel)
+        idx += 1
+
+    if not include_archived:
+        where.append("s.status <> 'archived'")
+
+    if scope_user_id:
+        where.append(f"s.created_by = ${idx}::uuid")
+        args.append(scope_user_id)
+        idx += 1
+
+    cut_where, cut_args, idx = _cut_sql_parts(cut_config, idx)
+    where.extend(cut_where)
+    args.extend(cut_args)
+
+    where_sql = " AND ".join(where)
+
+    totals = await conn.fetchrow(
+        f"""
+        SELECT COALESCE(SUM(s.total), 0) AS total_amount,
+               COUNT(*) AS active_count,
+               MIN(s.created_at) AS first_sale_at,
+               MAX(s.created_at) AS last_sale_at
+        FROM mini_panel_sales_records s
+        WHERE {where_sql}
+        """,
+        *args,
+    )
+
+    top_seller = await conn.fetchrow(
+        f"""
+        SELECT COALESCE(NULLIF(s.created_by_label, ''), 'Usuario mini panel') AS label,
+               COALESCE(SUM(s.total), 0) AS amount,
+               COUNT(*) AS count
+        FROM mini_panel_sales_records s
+        WHERE {where_sql}
+        GROUP BY COALESCE(NULLIF(s.created_by_label, ''), 'Usuario mini panel')
+        ORDER BY amount DESC, count DESC, label ASC
+        LIMIT 1
+        """,
+        *args,
+    )
+
+    store_where = where + ["s.panel_type IN ('stores', 'store', 'tiendas')"]
+    store_sql = " AND ".join(store_where)
+    top_store = await conn.fetchrow(
+        f"""
+        SELECT COALESCE(NULLIF(s.created_by_label, ''), 'Tienda') AS label,
+               COALESCE(SUM(s.total), 0) AS amount,
+               COUNT(*) AS count
+        FROM mini_panel_sales_records s
+        WHERE {store_sql}
+        GROUP BY COALESCE(NULLIF(s.created_by_label, ''), 'Tienda')
+        ORDER BY amount DESC, count DESC, label ASC
+        LIMIT 1
+        """,
+        *args,
+    )
+
+    period_start = cut_config.get("started_at") or _iso(totals["first_sale_at"] if totals else None)
+    period_end = datetime.now(timezone.utc).isoformat()
+
+    return {
+        "company_id": str(company_id),
+        "panel_type": panel,
+        "period_type": cut_config.get("period_type") or "weekly",
+        "period_label": cut_config.get("period_label") or "Semanal",
+        "period_started_at": period_start,
+        "period_ends_at": period_end,
+        "active_count": int(totals["active_count"] or 0) if totals else 0,
+        "total_amount": round(_money(totals["total_amount"] if totals else 0), 2),
+        "top_seller": {
+            "label": _clean(top_seller["label"] if top_seller else "Sin ventas"),
+            "amount": round(_money(top_seller["amount"] if top_seller else 0), 2),
+            "count": int(top_seller["count"] or 0) if top_seller else 0,
+        },
+        "top_store": {
+            "label": _clean(top_store["label"] if top_store else "Próximamente"),
+            "amount": round(_money(top_store["amount"] if top_store else 0), 2),
+            "count": int(top_store["count"] or 0) if top_store else 0,
+            "status": "connected" if top_store else "pending",
+        },
+        "last_sale_at": _iso(totals["last_sale_at"] if totals else None),
     }
 
 
@@ -1017,6 +1276,7 @@ async def list_sales(
     panel_type: str = Query("sales"),
     q: str | None = Query(default=None),
     include_archived: bool = Query(default=False),
+    include_cut_history: bool = Query(default=False),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     conn = await _connect()
@@ -1043,6 +1303,12 @@ async def list_sales(
             args.append(scope_user_id)
             idx += 1
 
+        if not include_cut_history:
+            cut_config = await _sales_cut_config(conn, company_id)
+            cut_where, cut_args, idx = _cut_sql_parts(cut_config, idx)
+            where.extend(cut_where)
+            args.extend(cut_args)
+
         search = _clean(q)
         if search:
             where.append(f"(s.reference_name ILIKE ${idx} OR s.reference_category ILIKE ${idx} OR s.created_by_label ILIKE ${idx} OR s.metadata::text ILIKE ${idx})")
@@ -1068,12 +1334,20 @@ async def list_sales(
         )
         items = [_sale_payload(row) for row in rows]
         active_items = [item for item in items if item["status"] != "archived"]
+        cut_summary = await _sales_cut_summary(
+            conn,
+            company_id,
+            panel_type=panel,
+            scope_user_id=scope_user_id,
+            include_archived=include_archived,
+        )
         return {
             "company_id": str(company_id),
             "panel_type": panel,
             "count": len(items),
             "active_count": len(active_items),
             "total_amount": round(sum(float(item["total"] or 0) for item in active_items), 2),
+            "cut": cut_summary,
             "items": items,
         }
     finally:
@@ -1396,5 +1670,130 @@ async def sales_summary(
         "panel_type": _panel(panel_type),
         "active_count": data["active_count"],
         "total_amount": data["total_amount"],
+        "cut": data.get("cut") or {},
         "latest": latest,
     }
+
+
+@router.get("/companies/{company_id}/cut")
+async def get_sales_cut(
+    company_id: uuid.UUID,
+    panel_type: str = Query("all"),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        access = await _require_access(conn, company_id, authorization)
+        return await _sales_cut_summary(
+            conn,
+            company_id,
+            panel_type=panel_type,
+            scope_user_id=_scope_user_id(access),
+            include_archived=False,
+        )
+    finally:
+        await conn.close()
+
+
+@router.post("/companies/{company_id}/cut/config")
+async def save_sales_cut_config(
+    company_id: uuid.UUID,
+    payload: SalesCutConfigIn,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        await _require_access(conn, company_id, authorization)
+        config = await _save_sales_cut_config(conn, company_id, payload.period_type)
+        return {
+            "company_id": str(company_id),
+            "period_type": config["period_type"],
+            "period_label": config["period_label"],
+            "started_at": config["started_at"],
+            "saved": True,
+        }
+    finally:
+        await conn.close()
+
+
+@router.post("/companies/{company_id}/cut/generate")
+async def generate_sales_cut(
+    company_id: uuid.UUID,
+    payload: SalesCutGenerateIn,
+    panel_type: str = Query("all"),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        access = await _require_access(conn, company_id, authorization)
+        period_type = _cut_period(payload.period_type)
+        panel = _panel(panel_type)
+        summary = await _sales_cut_summary(conn, company_id, panel_type=panel, include_archived=False)
+        now = datetime.now(timezone.utc)
+        period_start = _parse_dt(summary.get("period_started_at")) or now
+        cut_id = uuid.uuid4()
+
+        await conn.execute(
+            """
+            INSERT INTO mini_panel_sales_cuts (
+                id,
+                company_id,
+                panel_type,
+                period_type,
+                period_start,
+                period_end,
+                total_amount,
+                active_count,
+                top_seller_label,
+                top_seller_amount,
+                top_store_label,
+                top_store_amount,
+                generated_by,
+                generated_by_label,
+                metadata,
+                created_at
+            )
+            VALUES (
+                $1::uuid, $2::uuid, $3, $4,
+                $5::timestamptz, $6::timestamptz,
+                $7, $8,
+                $9, $10,
+                $11, $12,
+                $13::uuid, $14,
+                $15::jsonb,
+                NOW()
+            )
+            """,
+            cut_id,
+            company_id,
+            panel,
+            period_type,
+            period_start,
+            now,
+            _money(summary.get("total_amount")),
+            int(summary.get("active_count") or 0),
+            _clean((summary.get("top_seller") or {}).get("label")),
+            _money((summary.get("top_seller") or {}).get("amount")),
+            _clean((summary.get("top_store") or {}).get("label")),
+            _money((summary.get("top_store") or {}).get("amount")),
+            _scope_user_id(access),
+            _scope_label(access) or "Panel Cliente",
+            json.dumps({"summary": summary, "source": "022L_panel_cliente_corte"}, ensure_ascii=False),
+        )
+
+        config = await _save_sales_cut_config(conn, company_id, period_type, started_at=now, last_cut_id=cut_id)
+        return {
+            "company_id": str(company_id),
+            "cut_id": str(cut_id),
+            "period_type": config["period_type"],
+            "period_label": config["period_label"],
+            "closed_summary": summary,
+            "new_period_started_at": config["started_at"],
+            "generated": True,
+        }
+    finally:
+        await conn.close()
+
