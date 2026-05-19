@@ -8595,9 +8595,23 @@
     return "all";
   }
 
+  function cxClientQuoteCleanText023D(value) {
+    let text = String(value ?? "");
+    for (let i = 0; i < 2 && /[ÃÂ]/.test(text); i += 1) {
+      try {
+        const repaired = decodeURIComponent(escape(text));
+        if (!repaired || repaired === text) break;
+        text = repaired;
+      } catch (_) {
+        break;
+      }
+    }
+    return text;
+  }
+
   async function cxClientQuoteReferences023C() {
     try {
-      const data = await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}?channel=system`);
+      const data = await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}`);
       const rows = Array.isArray(data?.items)
         ? data.items
         : Array.isArray(data?.references)
@@ -8609,11 +8623,11 @@
         .filter((item) => item && item.archived !== true)
         .map((item) => ({
           id: String(item.id || ""),
-          name: String(item.name || item.reference_name || ""),
-          category: String(item.category || item.reference_category || ""),
-          size: String(item.size || item.reference_size || ""),
-          color: String(item.color || item.reference_color || ""),
-          sku: String(item.sku || item.code || ""),
+          name: cxClientQuoteCleanText023D(item.name || item.reference_name || ""),
+          category: cxClientQuoteCleanText023D(item.category || item.reference_category || ""),
+          size: cxClientQuoteCleanText023D(item.size || item.reference_size || ""),
+          color: cxClientQuoteCleanText023D(item.color || item.reference_color || ""),
+          sku: cxClientQuoteCleanText023D(item.sku || item.code || ""),
           unit_price: Number(item.unit_price ?? item.price ?? 0) || 0,
         }))
         .filter((item) => item.name);
@@ -8820,7 +8834,7 @@
                 <p class="cx-muted-021d">Datos comerciales, conceptos, descuentos, pago y firma.</p>
               </div>
               <div class="cx-summary-pills-021d">
-                <span class="cx-pill-021d">RetenciÃ³n: <strong data-client-quote-retention>${h(cxUniversalMoney021D(0))}</strong></span>
+                <span class="cx-pill-021d">Retención: <strong data-client-quote-retention>${h(cxUniversalMoney021D(0))}</strong></span>
                 <span class="cx-pill-021d">Total: <strong data-client-quote-total>${h(cxUniversalMoney021D(0))}</strong></span>
               </div>
             </div>
@@ -8867,7 +8881,7 @@
                   <div class="cx-field-021d"><label>Valor</label><input name="discount_1_value" type="number" step="0.01" min="0" value="0"></div>
                 </div>
                 <div class="cx-universal-card-021d" style="padding:14px;">
-                  <h3>RetenciÃ³n</h3>
+                  <h3>Retención</h3>
                   <div class="cx-field-021d"><label>Nombre</label><input name="retention_name" value="Retención" placeholder="Ej: retefuente"></div>
                   <div class="cx-field-021d"><label>Descripción</label><input name="retention_description" placeholder="Detalle de la retención"></div>
                   <div class="cx-field-021d"><label>Porcentaje</label><input name="retention_percent" type="number" step="0.01" min="0" max="100" value="0"></div>
@@ -9043,7 +9057,7 @@
           type: "retention",
           kind: "retention",
           affects_total: false,
-          name: String(fd.get("retention_name") || "Retencion").trim(),
+          name: String(fd.get("retention_name") || "Retención").trim(),
           description: String(fd.get("retention_description") || "").trim(),
           percent: Number(fd.get("retention_percent") || 0),
           value: Number(fd.get("retention_percent") || 0),
@@ -9131,8 +9145,8 @@
         const percent = discount.percent ? ` · ${h(discount.percent)}%` : "";
         return `
           <div class="cx-detail-pill-021e">
-            <strong>${h(discount.name || (isRetention ? "Retencion" : "Descuento"))}${isRetention ? percent : ""}</strong>
-            <span>${h(discount.description || (isRetention ? "No descuenta el total de la cotizacion." : ""))}</span>
+            <strong>${h(discount.name || (isRetention ? "Retención" : "Descuento"))}${isRetention ? percent : ""}</strong>
+            <span>${h(discount.description || (isRetention ? "No descuenta el total de la cotización." : ""))}</span>
             <b>${h(cxUniversalMoney021D(discount.value || 0))}</b>
           </div>
         `;

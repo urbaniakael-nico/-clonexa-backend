@@ -727,9 +727,23 @@
     return formatMoney(Number(value || 0));
   }
 
+  function quoteCleanText021C(value) {
+    let text = String(value ?? "");
+    for (let i = 0; i < 2 && /[ÃÂ]/.test(text); i += 1) {
+      try {
+        const repaired = decodeURIComponent(escape(text));
+        if (!repaired || repaired === text) break;
+        text = repaired;
+      } catch (_) {
+        break;
+      }
+    }
+    return text;
+  }
+
   async function loadQuoteReferences021C() {
     try {
-      const response = await fetch(`/api/v1/references-v1/companies/${encodeURIComponent(companyId)}?channel=system`, {
+      const response = await fetch(`/api/v1/references-v1/companies/${encodeURIComponent(companyId)}`, {
         headers: authHeaders(),
       });
       if (!response.ok) return [];
@@ -745,11 +759,11 @@
         .filter((item) => item && item.archived !== true)
         .map((item) => ({
           id: String(item.id || ""),
-          name: String(item.name || item.reference_name || ""),
-          category: String(item.category || item.reference_category || ""),
-          size: String(item.size || item.reference_size || ""),
-          color: String(item.color || item.reference_color || ""),
-          sku: String(item.sku || item.code || ""),
+          name: quoteCleanText021C(item.name || item.reference_name || ""),
+          category: quoteCleanText021C(item.category || item.reference_category || ""),
+          size: quoteCleanText021C(item.size || item.reference_size || ""),
+          color: quoteCleanText021C(item.color || item.reference_color || ""),
+          sku: quoteCleanText021C(item.sku || item.code || ""),
           unit_price: Number(item.unit_price ?? item.price ?? 0) || 0,
         }))
         .filter((item) => item.name);
@@ -827,7 +841,7 @@
         type: kind,
         kind,
         affects_total: kind !== "retention",
-        name: row.querySelector("[name='discount_name']")?.value || (kind === "retention" ? "Retencion" : ""),
+        name: row.querySelector("[name='discount_name']")?.value || (kind === "retention" ? "Retención" : ""),
         description: row.querySelector("[name='discount_description']")?.value || "",
         value: kind === "retention" ? percent : parseQuoteMoney021A(row.querySelector("[name='discount_value']")?.value || "0"),
         percent: kind === "retention" ? percent : null
@@ -887,15 +901,15 @@
     return `
       <div class="mp-quote-discount-row-021a" data-quote-discount-row data-quote-discount-kind="${h(kind)}">
         <div class="mp-field">
-          <label>${kind === "retention" ? "Retencion" : "Descuento"} · Nombre</label>
-          <input name="discount_name" value="${h(discount.name || (kind === "retention" ? "Retencion" : ""))}" placeholder="${kind === "retention" ? "Ej: retefuente" : "Ej: pronto pago"}" />
+          <label>${kind === "retention" ? "Retención" : "Descuento"} · Nombre</label>
+          <input name="discount_name" value="${h(discount.name || (kind === "retention" ? "Retención" : ""))}" placeholder="${kind === "retention" ? "Ej: retefuente" : "Ej: pronto pago"}" />
         </div>
         <div class="mp-field">
           <label>Descripción</label>
-          <input name="discount_description" value="${h(discount.description || "")}" placeholder="${kind === "retention" ? "Detalle de la retencion" : "Detalle del descuento"}" />
+          <input name="discount_description" value="${h(discount.description || "")}" placeholder="${kind === "retention" ? "Detalle de la retención" : "Detalle del descuento"}" />
         </div>
         <div class="mp-field">
-          <label>${kind === "retention" ? "Porcentaje retencion" : "Valor descuento"}</label>
+          <label>${kind === "retention" ? "Porcentaje retención" : "Valor descuento"}</label>
           <input name="${kind === "retention" ? "discount_percent" : "discount_value"}" type="number" min="0" ${kind === "retention" ? "max=\"100\"" : ""} step="0.01" value="${h(value)}" data-quote-calc />
         </div>
       </div>
@@ -1280,7 +1294,7 @@
                 <div class="mp-quotes-totals-021a">
                   <span>Subtotal: <b data-quote-subtotal>${h(quoteMoney021A(0))}</b></span>
                   <span>Descuentos: <b data-quote-discounts>${h(quoteMoney021A(0))}</b></span>
-                  <span>Retencion: <b data-quote-retention>${h(quoteMoney021A(0))}</b></span>
+                  <span>Retención: <b data-quote-retention>${h(quoteMoney021A(0))}</b></span>
                   <span>Total: <b data-quote-total>${h(quoteMoney021A(0))}</b></span>
                 </div>
                 <div class="mp-quotes-actions-021a">
