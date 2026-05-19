@@ -4258,6 +4258,8 @@ function moduleCard(title, description, tag, code = "") {
     if (!salesInvoiceCart022H.payment_method) salesInvoiceCart022H.payment_method = "efectivo";
     if (salesInvoiceCart022H.adjustment_type == null) salesInvoiceCart022H.adjustment_type = "none";
     if (salesInvoiceCart022H.adjustment_percent == null) salesInvoiceCart022H.adjustment_percent = 0;
+    if (salesInvoiceCart022H.received_amount == null) salesInvoiceCart022H.received_amount = 0;
+    if (salesInvoiceCart022H.change_amount == null) salesInvoiceCart022H.change_amount = 0;
   }
 
   function salesAdjustmentLabel022J(type) {
@@ -4308,13 +4310,65 @@ function moduleCard(title, description, tag, code = "") {
     return salesAdjustmentMeta022J().total_payable;
   }
 
+  function salesCashNumber023D(value) {
+    const raw = String(value ?? "").replace(/[^\d.,-]/g, "").replace(",", ".");
+    const number = Number(raw);
+    return Number.isFinite(number) ? Math.max(0, number) : 0;
+  }
+
+  function salesPaymentIsCash023D() {
+    salesEnsureAdjustment022J();
+    return String(salesInvoiceCart022H.payment_method || "efectivo").toLowerCase() === "efectivo";
+  }
+
+  function salesCashChange023D() {
+    salesEnsureAdjustment022J();
+    if (!salesPaymentIsCash023D()) return 0;
+    const received = salesCashNumber023D(salesInvoiceCart022H.received_amount);
+    const total = salesInvoiceTotal022H();
+    return Math.max(0, Math.round((received - total) * 100) / 100);
+  }
+
+  function salesCashPayload023D() {
+    salesEnsureAdjustment022J();
+    const isCash = salesPaymentIsCash023D();
+    const received = isCash ? salesCashNumber023D(salesInvoiceCart022H.received_amount) : 0;
+    const change = isCash ? salesCashChange023D() : 0;
+    salesInvoiceCart022H.received_amount = received;
+    salesInvoiceCart022H.change_amount = change;
+    return {
+      received_amount: received,
+      change_amount: change,
+    };
+  }
+
+  function salesRefreshCashChange023D() {
+    salesEnsureAdjustment022J();
+    const isCash = salesPaymentIsCash023D();
+    const receivedInput = document.getElementById("srReceived023D");
+    const changeInput = document.getElementById("srChange023D");
+    if (!isCash) {
+      salesInvoiceCart022H.received_amount = 0;
+      salesInvoiceCart022H.change_amount = 0;
+    } else {
+      salesInvoiceCart022H.received_amount = salesCashNumber023D(salesInvoiceCart022H.received_amount);
+      salesInvoiceCart022H.change_amount = salesCashChange023D();
+    }
+    if (receivedInput) {
+      receivedInput.disabled = !isCash;
+      receivedInput.value = String(salesInvoiceCart022H.received_amount || 0);
+      receivedInput.placeholder = isCash ? "Dinero recibido" : "Solo efectivo";
+    }
+    if (changeInput) changeInput.value = formatMoney(salesInvoiceCart022H.change_amount || 0);
+  }
+
   function salesInvoiceCount022H() {
     salesEnsureAdjustment022J();
     return salesInvoiceCart022H.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   }
 
   function salesResetInvoice022H() {
-    salesInvoiceCart022H = { items: [], payment_method: "efectivo", notes: "", adjustment_type: "none", adjustment_percent: 0 };
+    salesInvoiceCart022H = { items: [], payment_method: "efectivo", notes: "", adjustment_type: "none", adjustment_percent: 0, received_amount: 0, change_amount: 0 };
   }
 
   function salesAdjustmentOptions022J() {
@@ -4401,6 +4455,7 @@ function moduleCard(title, description, tag, code = "") {
     if (countNode) countNode.textContent = String(salesInvoiceCount022H());
     const totalBox = document.getElementById("srAdjustmentSummary022J");
     if (totalBox) totalBox.innerHTML = salesAdjustmentSummaryHtml022J();
+    salesRefreshCashChange023D();
   }
 
   function salesPopularMap022J(sales, category) {
@@ -4603,6 +4658,22 @@ function moduleCard(title, description, tag, code = "") {
         gap:12px;
         margin-top:14px;
       }
+      .sr-cash-grid-023d{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:12px;
+        margin-top:12px;
+      }
+      .sr-field-022f input[readonly],
+      .sr-field-022f input:disabled{
+        opacity:.82;
+        cursor:not-allowed;
+      }
+      .sr-change-output-023d{
+        color:#7cffd9!important;
+        border-color:rgba(124,255,217,.24)!important;
+        background:rgba(3,18,27,.62)!important;
+      }
       .sr-adjust-grid-022j select,
       .sr-form-grid-022f select,
       .sr-form-grid-022f input,
@@ -4622,7 +4693,7 @@ function moduleCard(title, description, tag, code = "") {
         .sr-invoice-line-022h{grid-template-columns:1fr 70px 90px}
         .sr-invoice-line-022h strong[data-sr-cart-total]{grid-column:1/3}
         .sr-invoice-line-022h button{grid-column:3/4}
-        .sr-total-box-022h,.sr-adjust-grid-022j{grid-template-columns:1fr}
+        .sr-total-box-022h,.sr-adjust-grid-022j,.sr-cash-grid-023d{grid-template-columns:1fr}
       }
     `;
     document.head.appendChild(style);
@@ -4638,6 +4709,9 @@ function moduleCard(title, description, tag, code = "") {
     const company = session?.company?.name || "Empresa";
     const adjustment = sale?.adjustment || salesAdjustmentMeta022J(items);
     const total = Number(adjustment.total_payable ?? sale?.total ?? 0);
+    const paymentMethod = String(sale?.payment_method || salesInvoiceCart022H.payment_method || "efectivo").toLowerCase();
+    const receivedAmount = Number(sale?.received_amount ?? salesInvoiceCart022H.received_amount ?? 0) || 0;
+    const changeAmount = Number(sale?.change_amount ?? salesCashChange023D() ?? 0) || 0;
     const rows = items.map((item) => `
       <tr>
         <td>${h(item.reference_name || "")}<br><small>${h([item.reference_category, item.reference_size, item.reference_color].filter(Boolean).join(" · "))}</small></td>
@@ -4655,6 +4729,9 @@ function moduleCard(title, description, tag, code = "") {
     } else {
       totalsHtml = `<div class="total">TOTAL A PAGAR ${h(formatMoney(total))}</div>`;
     }
+    const cashHtml = paymentMethod === "efectivo" && receivedAmount > 0
+      ? `<div class="line"><span>Recibido</span><strong>${h(formatMoney(receivedAmount))}</strong></div><div class="line"><span>Cambio</span><strong>${h(formatMoney(changeAmount))}</strong></div>`
+      : "";
 
     const win = window.open("", "_blank");
     if (!win) return;
@@ -4666,6 +4743,7 @@ function moduleCard(title, description, tag, code = "") {
         <div class="muted">${h(invoiceNumber)} · Vendedor: ${h(seller)} · ${new Date().toLocaleString()}</div>
         <table><thead><tr><th>Artículo</th><th>Cant.</th><th>Valor unit.</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
         ${totalsHtml}
+        ${cashHtml}
         <div class="footer">Registro venta generado por CLONEXA</div>
         <script>setTimeout(()=>print(),500)<\/script>
       </body></html>
@@ -4761,6 +4839,11 @@ function moduleCard(title, description, tag, code = "") {
             <div class="sr-form-grid-022f" style="margin-top:14px">
               <div class="sr-field-022f"><label>Cantidad</label><input id="srQty022F" type="number" min="0" step="1" value="1" /></div>
               <div class="sr-field-022f"><label>Valor unitario</label><input id="srUnit022F" type="number" min="0" step="100" value="0" /></div>
+            </div>
+
+            <div class="sr-cash-grid-023d">
+              <div class="sr-field-022f"><label>Recibido</label><input id="srReceived023D" type="number" min="0" step="100" value="${h(salesInvoiceCart022H.received_amount || 0)}" /></div>
+              <div class="sr-field-022f"><label>Cambio</label><input id="srChange023D" class="sr-change-output-023d" readonly value="${h(formatMoney(salesCashChange023D()))}" /></div>
             </div>
 
             <div class="sr-toolbar-022h"><button class="primary" type="button" data-sr-add-line-022h>Agregar a factura actual</button></div>
@@ -4905,13 +4988,22 @@ function moduleCard(title, description, tag, code = "") {
       salesInvoiceCart022H.adjustment_percent = Number(event.target.value || 0);
       salesRefreshCartTotals022H();
     });
-    root.querySelector("#srPay022F")?.addEventListener("change", (event) => { salesInvoiceCart022H.payment_method = event.target.value || "efectivo"; });
+    root.querySelector("#srReceived023D")?.addEventListener("input", (event) => {
+      salesInvoiceCart022H.received_amount = salesCashNumber023D(event.target.value || 0);
+      salesRefreshCashChange023D();
+    });
+    root.querySelector("#srPay022F")?.addEventListener("change", (event) => {
+      salesInvoiceCart022H.payment_method = event.target.value || "efectivo";
+      salesRefreshCashChange023D();
+    });
     root.querySelector("#srNotes022F")?.addEventListener("input", (event) => { salesInvoiceCart022H.notes = event.target.value || ""; });
 
     root.querySelector("[data-sr-save-invoice-022h]")?.addEventListener("click", async () => {
       const msg = root.querySelector("#srMsg022F");
       salesInvoiceCart022H.payment_method = root.querySelector("#srPay022F")?.value || "efectivo";
       salesInvoiceCart022H.notes = root.querySelector("#srNotes022F")?.value || "";
+      salesInvoiceCart022H.received_amount = salesCashNumber023D(root.querySelector("#srReceived023D")?.value || 0);
+      const cashPayload023D = salesCashPayload023D();
       // CLONEXA_022K_R2_SAVE_SALES_ADJUSTMENT_SAFE: read current adjustment controls at save time.
       const adjustmentTypeNode022K = root.querySelector("#srAdjustmentType022J");
       const adjustmentPercentNode022K = root.querySelector("#srAdjustmentPercent022J");
@@ -4929,6 +5021,7 @@ function moduleCard(title, description, tag, code = "") {
             payment_method: salesInvoiceCart022H.payment_method,
             notes: salesInvoiceCart022H.notes,
             items: salesInvoiceCart022H.items,
+            ...cashPayload023D,
             ...salesInvoiceAdjustmentPayload022J()
           })
         });
@@ -4942,6 +5035,7 @@ function moduleCard(title, description, tag, code = "") {
 
     bindRefs();
     bindCartInputs();
+    salesRefreshCashChange023D();
   }
   /* CLONEXA_022J_SALES_TOP10_ADJUSTMENTS_CLEAN_VIEW_END */
 

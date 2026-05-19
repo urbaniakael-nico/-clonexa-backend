@@ -101,6 +101,8 @@ class SaleCreateIn(BaseModel):
     subtotal: float | None = Field(default=None, ge=0)
     adjustment_amount: float | None = Field(default=None, ge=0)
     total_payable: float | None = Field(default=None, ge=0)
+    received_amount: float | None = Field(default=None, ge=0)
+    change_amount: float | None = Field(default=None, ge=0)
 
     @field_validator("payment_method")
     @classmethod
@@ -1100,6 +1102,9 @@ def _sale_payload(row: asyncpg.Record) -> dict[str, Any]:
         "total_payable": total,
         "adjustment_mode": _clean(adjustment.get("mode") or "none"),
         "payment_method": row["payment_method"],
+        "received_amount": _money((metadata.get("payment") or {}).get("received_amount") if isinstance(metadata.get("payment"), dict) else metadata.get("received_amount")),
+        "change_amount": _money((metadata.get("payment") or {}).get("change_amount") if isinstance(metadata.get("payment"), dict) else metadata.get("change_amount")),
+        "payment": metadata.get("payment") if isinstance(metadata.get("payment"), dict) else {},
         "notes": row["notes"] or "",
         "status": row["status"],
         "pipeline_status": _pipeline_status(row),
@@ -1390,6 +1395,9 @@ async def create_sale(
 
         adjustment = _adjustment_meta_from_payload(payload, items)
         total = round(_money(adjustment.get("total_payable")), 2)
+        payment_method = _norm(payload.payment_method or "efectivo")
+        received_amount = round(_money(payload.received_amount), 2) if payment_method == "efectivo" else 0.0
+        change_amount = round(max(0.0, received_amount - total), 2) if payment_method == "efectivo" else 0.0
         quantity = round(sum(_money(item.get("quantity")) for item in items), 2)
         first = items[0]
         categories = []
@@ -1411,6 +1419,11 @@ async def create_sale(
             "item_count": len(items),
             "items": items,
             "adjustment": adjustment,
+            "payment": {
+                "method": payment_method,
+                "received_amount": received_amount,
+                "change_amount": change_amount,
+            },
         }
 
         row = await conn.fetchrow(
@@ -1456,7 +1469,7 @@ async def create_sale(
             quantity,
             _money(first.get("unit_price")) if len(items) == 1 else 0,
             total,
-            _norm(payload.payment_method or "efectivo"),
+            payment_method,
             _clean(payload.notes),
             created_by,
             _scope_label(access),
@@ -1808,4 +1821,3 @@ async def generate_sales_cut(
         }
     finally:
         await conn.close()
-
