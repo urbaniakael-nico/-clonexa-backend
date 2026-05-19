@@ -11,6 +11,7 @@
   let timerHandle = null;
   let currentOperational = null;
   let currentModuleConfig = null;
+  let currentQuoteReferences021C = [];
 
   const TYPE_LABELS = {
     sales: "Ventas",
@@ -726,6 +727,65 @@
     return formatMoney(Number(value || 0));
   }
 
+  async function loadQuoteReferences021C() {
+    try {
+      const response = await fetch(`/api/v1/references-v1/companies/${encodeURIComponent(companyId)}?channel=system`, {
+        headers: authHeaders(),
+      });
+      if (!response.ok) return [];
+      const data = await response.json().catch(() => ({}));
+      const rows = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.references)
+          ? data.references
+          : Array.isArray(data)
+            ? data
+            : [];
+      return rows
+        .filter((item) => item && item.archived !== true)
+        .map((item) => ({
+          id: String(item.id || ""),
+          name: String(item.name || item.reference_name || ""),
+          category: String(item.category || item.reference_category || ""),
+          size: String(item.size || item.reference_size || ""),
+          color: String(item.color || item.reference_color || ""),
+          sku: String(item.sku || item.code || ""),
+          unit_price: Number(item.unit_price ?? item.price ?? 0) || 0,
+        }))
+        .filter((item) => item.name);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function quoteReferenceLabel021C(ref = {}) {
+    return [ref.name, ref.size, ref.color, ref.sku ? `SKU ${ref.sku}` : ""].filter(Boolean).join(" · ");
+  }
+
+  function quoteReferenceOptions021C(selectedId = "") {
+    const options = currentQuoteReferences021C.map((ref) => `
+      <option
+        value="${h(ref.id)}"
+        data-ref-name="${h(ref.name)}"
+        data-ref-label="${h(quoteReferenceLabel021C(ref))}"
+        data-ref-price="${h(ref.unit_price)}"
+        data-ref-sku="${h(ref.sku)}"
+        ${String(selectedId || "") === String(ref.id || "") ? "selected" : ""}
+      >${h(quoteReferenceLabel021C(ref))}</option>
+    `).join("");
+    return `<option value="">Manual / sin referencia</option>${options}`;
+  }
+
+  function applyQuoteReference021C(select) {
+    const option = select?.selectedOptions?.[0];
+    const row = select?.closest("[data-quote-item-row]");
+    if (!option || !row || !option.value) return;
+    const description = row.querySelector("[name='item_description']");
+    const unitPrice = row.querySelector("[name='item_unit_price']");
+    if (description) description.value = option.dataset.refLabel || option.dataset.refName || option.textContent || "";
+    if (unitPrice) unitPrice.value = String(Number(option.dataset.refPrice || 0) || 0);
+  }
+
   function updateQuotesCard021A(summary) {
     const data = summary || defaultQuotesSummary021A();
     const count = document.querySelector("[data-quotes-card-count]");
@@ -746,19 +806,33 @@
   function quotePayloadFromForm021A(form, signatureData) {
     const itemRows = Array.from(form.querySelectorAll("[data-quote-item-row]"));
     const items = itemRows
-      .map((row) => ({
-        description: row.querySelector("[name='item_description']")?.value || "",
-        quantity: parseQuoteMoney021A(row.querySelector("[name='item_quantity']")?.value || "0"),
-        unit_price: parseQuoteMoney021A(row.querySelector("[name='item_unit_price']")?.value || "0")
-      }))
+      .map((row) => {
+        const refSelect = row.querySelector("[data-quote-reference-select]");
+        const refOption = refSelect?.selectedOptions?.[0];
+        return {
+          description: row.querySelector("[name='item_description']")?.value || "",
+          quantity: parseQuoteMoney021A(row.querySelector("[name='item_quantity']")?.value || "0"),
+          unit_price: parseQuoteMoney021A(row.querySelector("[name='item_unit_price']")?.value || "0"),
+          reference_id: String(refSelect?.value || ""),
+          sku: String(refOption?.dataset?.refSku || "")
+        };
+      })
       .filter((item) => item.description.trim());
 
     const discountRows = Array.from(form.querySelectorAll("[data-quote-discount-row]"));
-    const discounts = discountRows.map((row) => ({
-      name: row.querySelector("[name='discount_name']")?.value || "",
-      description: row.querySelector("[name='discount_description']")?.value || "",
-      value: parseQuoteMoney021A(row.querySelector("[name='discount_value']")?.value || "0")
-    }));
+    const discounts = discountRows.map((row) => {
+      const kind = row.getAttribute("data-quote-discount-kind") || "discount";
+      const percent = parseQuoteMoney021A(row.querySelector("[name='discount_percent']")?.value || row.querySelector("[name='discount_value']")?.value || "0");
+      return {
+        type: kind,
+        kind,
+        affects_total: kind !== "retention",
+        name: row.querySelector("[name='discount_name']")?.value || (kind === "retention" ? "Retencion" : ""),
+        description: row.querySelector("[name='discount_description']")?.value || "",
+        value: kind === "retention" ? percent : parseQuoteMoney021A(row.querySelector("[name='discount_value']")?.value || "0"),
+        percent: kind === "retention" ? percent : null
+      };
+    });
 
     return {
       client_name: form.querySelector("[name='client_name']")?.value || "",
@@ -783,7 +857,10 @@
     return `
       <div class="mp-quote-item-row-021a" data-quote-item-row>
         <div class="mp-field concept">
-          <label>Detalle de concepto</label>
+          <label>Concepto</label>
+          <select data-quote-reference-select>
+            ${quoteReferenceOptions021C(item.reference_id || item.id || "")}
+          </select>
           <input name="item_description" value="${h(item.description || "")}" placeholder="Ej: servicio, producto, referencia..." required />
         </div>
         <div class="mp-field qty">
@@ -804,19 +881,22 @@
   }
 
   function renderQuoteDiscountRow021A(index, discount = {}) {
+    const storedKind = String(discount.kind || discount.type || "").toLowerCase();
+    const kind = index === 2 || storedKind === "retention" || storedKind === "retencion" ? "retention" : "discount";
+    const value = kind === "retention" ? (discount.percent ?? discount.value ?? 0) : (discount.value || 0);
     return `
-      <div class="mp-quote-discount-row-021a" data-quote-discount-row>
+      <div class="mp-quote-discount-row-021a" data-quote-discount-row data-quote-discount-kind="${h(kind)}">
         <div class="mp-field">
-          <label>Descuento ${index} · Nombre</label>
-          <input name="discount_name" value="${h(discount.name || "")}" placeholder="Ej: pronto pago" />
+          <label>${kind === "retention" ? "Retencion" : "Descuento"} · Nombre</label>
+          <input name="discount_name" value="${h(discount.name || (kind === "retention" ? "Retencion" : ""))}" placeholder="${kind === "retention" ? "Ej: retefuente" : "Ej: pronto pago"}" />
         </div>
         <div class="mp-field">
           <label>Descripción</label>
-          <input name="discount_description" value="${h(discount.description || "")}" placeholder="Detalle del descuento" />
+          <input name="discount_description" value="${h(discount.description || "")}" placeholder="${kind === "retention" ? "Detalle de la retencion" : "Detalle del descuento"}" />
         </div>
         <div class="mp-field">
-          <label>Valor descuento</label>
-          <input name="discount_value" type="number" min="0" step="0.01" value="${h(discount.value || 0)}" data-quote-calc />
+          <label>${kind === "retention" ? "Porcentaje retencion" : "Valor descuento"}</label>
+          <input name="${kind === "retention" ? "discount_percent" : "discount_value"}" type="number" min="0" ${kind === "retention" ? "max=\"100\"" : ""} step="0.01" value="${h(value)}" data-quote-calc />
         </div>
       </div>
     `;
@@ -835,8 +915,15 @@
     });
 
     let discounts = 0;
-    container.querySelectorAll("[data-quote-discount-row] [name='discount_value']").forEach((input) => {
-      discounts += parseQuoteMoney021A(input.value || 0);
+    let retention = 0;
+    container.querySelectorAll("[data-quote-discount-row]").forEach((row) => {
+      const kind = row.getAttribute("data-quote-discount-kind") || "discount";
+      if (kind === "retention") {
+        const percent = Math.min(100, Math.max(0, parseQuoteMoney021A(row.querySelector("[name='discount_percent']")?.value || 0)));
+        retention += Math.max(0, subtotal) * percent / 100;
+      } else {
+        discounts += parseQuoteMoney021A(row.querySelector("[name='discount_value']")?.value || 0);
+      }
     });
 
     discounts = Math.min(discounts, subtotal);
@@ -844,10 +931,12 @@
 
     const subtotalNode = container.querySelector("[data-quote-subtotal]");
     const discountsNode = container.querySelector("[data-quote-discounts]");
+    const retentionNode = container.querySelector("[data-quote-retention]");
     const totalNode = container.querySelector("[data-quote-total]");
 
     if (subtotalNode) subtotalNode.textContent = quoteMoney021A(subtotal);
     if (discountsNode) discountsNode.textContent = quoteMoney021A(discounts);
+    if (retentionNode) retentionNode.textContent = quoteMoney021A(retention);
     if (totalNode) totalNode.textContent = quoteMoney021A(total);
   }
 
@@ -1072,6 +1161,7 @@
 
     const company = session.company || {};
     const state = { editingId: null, signatureData: "" };
+    currentQuoteReferences021C = await loadQuoteReferences021C();
 
     const overlay = document.createElement("div");
     overlay.className = "mp-modal mp-quotes-modal-021a";
@@ -1190,6 +1280,7 @@
                 <div class="mp-quotes-totals-021a">
                   <span>Subtotal: <b data-quote-subtotal>${h(quoteMoney021A(0))}</b></span>
                   <span>Descuentos: <b data-quote-discounts>${h(quoteMoney021A(0))}</b></span>
+                  <span>Retencion: <b data-quote-retention>${h(quoteMoney021A(0))}</b></span>
                   <span>Total: <b data-quote-total>${h(quoteMoney021A(0))}</b></span>
                 </div>
                 <div class="mp-quotes-actions-021a">
@@ -1283,6 +1374,14 @@
 
     overlay.addEventListener("input", (event) => {
       if (event.target && event.target.matches("[data-quote-calc]")) {
+        recalcQuoteTotals021A(form);
+      }
+    });
+
+    overlay.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.matches("[data-quote-reference-select]")) {
+        applyQuoteReference021C(target);
         recalcQuoteTotals021A(form);
       }
     });

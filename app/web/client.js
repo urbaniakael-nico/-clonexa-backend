@@ -8592,7 +8592,86 @@
 
   /* CLONEXA_022B_CLIENT_QUOTES_CONSOLIDATION_SOURCE_START */
   function cxClientQuotesSourceScope022B() {
-    return "mini_panel";
+    return "all";
+  }
+
+  async function cxClientQuoteReferences023C() {
+    try {
+      const data = await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}?channel=system`);
+      const rows = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.references)
+          ? data.references
+          : Array.isArray(data)
+            ? data
+            : [];
+      return rows
+        .filter((item) => item && item.archived !== true)
+        .map((item) => ({
+          id: String(item.id || ""),
+          name: String(item.name || item.reference_name || ""),
+          category: String(item.category || item.reference_category || ""),
+          size: String(item.size || item.reference_size || ""),
+          color: String(item.color || item.reference_color || ""),
+          sku: String(item.sku || item.code || ""),
+          unit_price: Number(item.unit_price ?? item.price ?? 0) || 0,
+        }))
+        .filter((item) => item.name);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function cxClientQuoteReferenceLabel023C(ref = {}) {
+    return [ref.name, ref.size, ref.color, ref.sku ? `SKU ${ref.sku}` : ""].filter(Boolean).join(" · ");
+  }
+
+  function cxClientQuoteReferenceOptions023C(references = [], selectedId = "") {
+    const options = references.map((ref) => `
+      <option
+        value="${h(ref.id)}"
+        data-ref-name="${h(ref.name)}"
+        data-ref-label="${h(cxClientQuoteReferenceLabel023C(ref))}"
+        data-ref-price="${h(ref.unit_price)}"
+        data-ref-sku="${h(ref.sku)}"
+        ${String(selectedId || "") === String(ref.id || "") ? "selected" : ""}
+      >${h(cxClientQuoteReferenceLabel023C(ref))}</option>
+    `).join("");
+    return `<option value="">Manual / sin referencia</option>${options}`;
+  }
+
+  function cxClientQuoteItemRow023C(item = {}, references = []) {
+    const selectedId = item.reference_id || item.id || "";
+    return `
+      <div class="cx-field-grid-021d three cx-quote-item-021d" data-client-quote-item>
+        <div class="cx-field-021d">
+          <label>Concepto</label>
+          <select data-client-quote-reference>
+            ${cxClientQuoteReferenceOptions023C(references, selectedId)}
+          </select>
+          <input name="item_description" value="${h(item.description || "")}" placeholder="Servicio, producto, referencia..." required>
+        </div>
+        <div class="cx-field-021d">
+          <label>Cantidad</label>
+          <input name="item_quantity" type="number" step="0.01" min="0" value="${h(item.quantity ?? 1)}">
+        </div>
+        <div class="cx-field-021d">
+          <label>Valor unitario</label>
+          <input name="item_unit_price" type="number" step="0.01" min="0" value="${h(item.unit_price ?? 0)}">
+        </div>
+        <button class="cx-mini-btn-021d danger" type="button" data-client-quote-remove-item>Quitar</button>
+      </div>
+    `;
+  }
+
+  function cxClientQuoteApplyReference023C(select) {
+    const option = select?.selectedOptions?.[0];
+    const row = select?.closest("[data-client-quote-item]");
+    if (!option || !row || !option.value) return;
+    const description = row.querySelector('[name="item_description"]');
+    const unitPrice = row.querySelector('[name="item_unit_price"]');
+    if (description) description.value = option.dataset.refLabel || option.dataset.refName || option.textContent || "";
+    if (unitPrice) unitPrice.value = String(Number(option.dataset.refPrice || 0) || 0);
   }
 
   function cxClientQuoteIsArchived022B(quote) {
@@ -8701,6 +8780,7 @@
     const quotes = rawQuotes.filter((quote) => cxClientQuoteVisibleByFilter022B(quote, filter));
     window.__cxUniversalQuotesCache021E = quotes;
     /* CLONEXA_021E_CLIENT_QUOTES_ACTIONS_FIX_END */
+    const quoteReferences = await cxClientQuoteReferences023C();
 
     const renderQuote = (quote) => {
       const isAccount = String(quote.document_type || quote.status || "").toLowerCase() === "account" || String(quote.status || "").toLowerCase() === "converted";
@@ -8740,6 +8820,7 @@
                 <p class="cx-muted-021d">Datos comerciales, conceptos, descuentos, pago y firma.</p>
               </div>
               <div class="cx-summary-pills-021d">
+                <span class="cx-pill-021d">RetenciÃ³n: <strong data-client-quote-retention>${h(cxUniversalMoney021D(0))}</strong></span>
                 <span class="cx-pill-021d">Total: <strong data-client-quote-total>${h(cxUniversalMoney021D(0))}</strong></span>
               </div>
             </div>
@@ -8774,36 +8855,22 @@
                   <button class="cx-mini-btn-021d" type="button" data-client-quote-add-item>Agregar línea</button>
                 </div>
                 <div data-client-quote-items>
-                  <div class="cx-field-grid-021d three cx-quote-item-021d" data-client-quote-item>
-                    <div class="cx-field-021d">
-                      <label>Detalle de concepto</label>
-                      <input name="item_description" placeholder="Servicio, producto, referencia..." required>
-                    </div>
-                    <div class="cx-field-021d">
-                      <label>Cantidad</label>
-                      <input name="item_quantity" type="number" step="0.01" min="0" value="1">
-                    </div>
-                    <div class="cx-field-021d">
-                      <label>Valor unitario</label>
-                      <input name="item_unit_price" type="number" step="0.01" min="0" value="0">
-                    </div>
-                    <button class="cx-mini-btn-021d danger" type="button" data-client-quote-remove-item>Quitar</button>
-                  </div>
+                  ${cxClientQuoteItemRow023C({}, quoteReferences)}
                 </div>
               </div>
 
               <div class="cx-field-grid-021d">
                 <div class="cx-universal-card-021d" style="padding:14px;">
-                  <h3>Descuento 1</h3>
+                  <h3>Descuento</h3>
                   <div class="cx-field-021d"><label>Nombre</label><input name="discount_1_name" placeholder="Ej: pronto pago"></div>
                   <div class="cx-field-021d"><label>Descripción</label><input name="discount_1_description" placeholder="Detalle del descuento"></div>
                   <div class="cx-field-021d"><label>Valor</label><input name="discount_1_value" type="number" step="0.01" min="0" value="0"></div>
                 </div>
                 <div class="cx-universal-card-021d" style="padding:14px;">
-                  <h3>Descuento 2</h3>
-                  <div class="cx-field-021d"><label>Nombre</label><input name="discount_2_name" placeholder="Ej: campaña"></div>
-                  <div class="cx-field-021d"><label>Descripción</label><input name="discount_2_description" placeholder="Detalle del descuento"></div>
-                  <div class="cx-field-021d"><label>Valor</label><input name="discount_2_value" type="number" step="0.01" min="0" value="0"></div>
+                  <h3>RetenciÃ³n</h3>
+                  <div class="cx-field-021d"><label>Nombre</label><input name="retention_name" value="Retención" placeholder="Ej: retefuente"></div>
+                  <div class="cx-field-021d"><label>Descripción</label><input name="retention_description" placeholder="Detalle de la retención"></div>
+                  <div class="cx-field-021d"><label>Porcentaje</label><input name="retention_percent" type="number" step="0.01" min="0" max="100" value="0"></div>
                 </div>
               </div>
 
@@ -8871,7 +8938,7 @@
             </div>
 
             <div class="cx-list-021d">
-              ${quotes.length ? quotes.map(renderQuote).join("") : `<div class="cx-row-021d cx-muted-021d">Sin cotizaciones capturadas desde mini paneles.</div>`}
+              ${quotes.length ? quotes.map(renderQuote).join("") : `<div class="cx-row-021d cx-muted-021d">Sin cotizaciones registradas.</div>`}
             </div>
           </article>
         </section>
@@ -8887,9 +8954,12 @@
         subtotal += qty * price;
       });
       const d1 = Number(form?.querySelector('[name="discount_1_value"]')?.value || 0);
-      const d2 = Number(form?.querySelector('[name="discount_2_value"]')?.value || 0);
-      const total = Math.max(0, subtotal - d1 - d2);
+      const retentionPercent = Math.min(100, Math.max(0, Number(form?.querySelector('[name="retention_percent"]')?.value || 0)));
+      const retentionAmount = Math.max(0, subtotal) * retentionPercent / 100;
+      const total = Math.max(0, subtotal - d1);
+      const retentionTarget = document.querySelector("[data-client-quote-retention]");
       const target = document.querySelector("[data-client-quote-total]");
+      if (retentionTarget) retentionTarget.textContent = cxUniversalMoney021D(retentionAmount);
       if (target) target.textContent = cxUniversalMoney021D(total);
     };
 
@@ -8906,7 +8976,15 @@
         else if (input.name === "item_unit_price") input.value = "0";
         else input.value = "";
       });
+      clone.querySelectorAll("select").forEach((select) => { select.value = ""; });
       wrap.appendChild(clone);
+      recalc();
+    });
+
+    document.querySelector("[data-client-quote-items]")?.addEventListener("change", (event) => {
+      const select = event.target.closest("[data-client-quote-reference]");
+      if (!select) return;
+      cxClientQuoteApplyReference023C(select);
       recalc();
     });
 
@@ -8939,18 +9017,38 @@
       const fd = new FormData(form);
 
       const items = Array.from(form.querySelectorAll("[data-client-quote-item]"))
-        .map((row) => ({
-          description: String(row.querySelector('[name="item_description"]')?.value || "").trim(),
-          quantity: Number(row.querySelector('[name="item_quantity"]')?.value || 0),
-          unit_price: Number(row.querySelector('[name="item_unit_price"]')?.value || 0),
-        }))
+        .map((row) => {
+          const refSelect = row.querySelector("[data-client-quote-reference]");
+          const refOption = refSelect?.selectedOptions?.[0];
+          return {
+            description: String(row.querySelector('[name="item_description"]')?.value || "").trim(),
+            quantity: Number(row.querySelector('[name="item_quantity"]')?.value || 0),
+            unit_price: Number(row.querySelector('[name="item_unit_price"]')?.value || 0),
+            reference_id: String(refSelect?.value || ""),
+            sku: String(refOption?.dataset?.refSku || ""),
+          };
+        })
         .filter((item) => item.description);
 
-      const discounts = [1, 2].map((index) => ({
-        name: String(fd.get(`discount_${index}_name`) || "").trim(),
-        description: String(fd.get(`discount_${index}_description`) || "").trim(),
-        value: Number(fd.get(`discount_${index}_value`) || 0),
-      }));
+      const discounts = [
+        {
+          type: "discount",
+          kind: "discount",
+          affects_total: true,
+          name: String(fd.get("discount_1_name") || "").trim(),
+          description: String(fd.get("discount_1_description") || "").trim(),
+          value: Number(fd.get("discount_1_value") || 0),
+        },
+        {
+          type: "retention",
+          kind: "retention",
+          affects_total: false,
+          name: String(fd.get("retention_name") || "Retencion").trim(),
+          description: String(fd.get("retention_description") || "").trim(),
+          percent: Number(fd.get("retention_percent") || 0),
+          value: Number(fd.get("retention_percent") || 0),
+        },
+      ];
 
       const body = {
         client_name: String(fd.get("client_name") || "").trim(),
@@ -9028,13 +9126,17 @@
 
     const discountsHtml = discounts
       .filter((discount) => Number(discount.value || 0) > 0 || discount.name || discount.description)
-      .map((discount) => `
-        <div class="cx-detail-pill-021e">
-          <strong>${h(discount.name || "Descuento")}</strong>
-          <span>${h(discount.description || "")}</span>
-          <b>${h(cxUniversalMoney021D(discount.value || 0))}</b>
-        </div>
-      `).join("");
+      .map((discount) => {
+        const isRetention = ["retention", "retencion"].includes(String(discount.type || discount.kind || "").toLowerCase());
+        const percent = discount.percent ? ` · ${h(discount.percent)}%` : "";
+        return `
+          <div class="cx-detail-pill-021e">
+            <strong>${h(discount.name || (isRetention ? "Retencion" : "Descuento"))}${isRetention ? percent : ""}</strong>
+            <span>${h(discount.description || (isRetention ? "No descuenta el total de la cotizacion." : ""))}</span>
+            <b>${h(cxUniversalMoney021D(discount.value || 0))}</b>
+          </div>
+        `;
+      }).join("");
 
     const existing = document.querySelector("[data-cx-quote-detail-modal-021e]");
     existing?.remove();
@@ -13350,5 +13452,3 @@ document.addEventListener("click", async (event) => {
   }
 })();
 /* CX_017I_PAYROLL_SETTINGS_FINAL_END */
-
-

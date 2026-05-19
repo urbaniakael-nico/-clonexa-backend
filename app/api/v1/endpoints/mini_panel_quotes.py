@@ -57,12 +57,18 @@ class QuoteItemIn(BaseModel):
     description: str = Field(..., min_length=1, max_length=600)
     quantity: float = Field(default=1, ge=0)
     unit_price: float = Field(default=0, ge=0)
+    reference_id: str | None = Field(default=None, max_length=120)
+    sku: str | None = Field(default=None, max_length=120)
 
 
 class QuoteDiscountIn(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     description: str | None = Field(default=None, max_length=500)
     value: float = Field(default=0, ge=0)
+    percent: float | None = Field(default=None, ge=0)
+    type: str | None = Field(default="discount", max_length=40)
+    kind: str | None = Field(default=None, max_length=40)
+    affects_total: bool | None = None
 
 
 class QuotePaymentIn(BaseModel):
@@ -532,15 +538,20 @@ def _sanitize_items(items: list[QuoteItemIn]) -> tuple[list[dict[str, Any]], flo
         quantity = max(0.0, _money(item.quantity))
         unit_price = max(0.0, _money(item.unit_price))
         line_total = round(quantity * unit_price, 2)
+        reference_id = _clean_text(item.reference_id, 120)
+        sku = _clean_text(item.sku, 120)
         subtotal += line_total
-        sanitized.append(
-            {
-                "description": description,
-                "quantity": quantity,
-                "unit_price": unit_price,
-                "total": line_total,
-            }
-        )
+        payload = {
+            "description": description,
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "total": line_total,
+        }
+        if reference_id:
+            payload["reference_id"] = reference_id
+        if sku:
+            payload["sku"] = sku
+        sanitized.append(payload)
 
     if not sanitized:
         raise HTTPException(status_code=400, detail="La cotizacion debe tener al menos un concepto.")
@@ -553,15 +564,42 @@ def _sanitize_discounts(discounts: list[QuoteDiscountIn], subtotal: float) -> tu
     total = 0.0
 
     for discount in (discounts or [])[:2]:
+        raw_kind = _norm(discount.kind or discount.type or "")
+        is_retention = raw_kind in {"retention", "retencion", "withholding", "retefuente", "rete_fuente"}
+        name = _clean_text(discount.name, 120)
+        description = _clean_text(discount.description, 500)
+
+        if is_retention:
+            percent_source = discount.percent if discount.percent is not None else discount.value
+            percent = min(100.0, max(0.0, _money(percent_source)))
+            value = round(max(0.0, subtotal) * percent / 100.0, 2)
+            if percent <= 0 and not name and not description:
+                continue
+            sanitized.append(
+                {
+                    "name": name or "Retencion",
+                    "description": description,
+                    "value": value,
+                    "percent": percent,
+                    "type": "retention",
+                    "kind": "retention",
+                    "affects_total": False,
+                }
+            )
+            continue
+
         value = max(0.0, _money(discount.value))
-        if value <= 0 and not _clean_text(discount.name, 120) and not _clean_text(discount.description, 500):
+        if value <= 0 and not name and not description:
             continue
         total += value
         sanitized.append(
             {
-                "name": _clean_text(discount.name, 120),
-                "description": _clean_text(discount.description, 500),
+                "name": name,
+                "description": description,
                 "value": value,
+                "type": "discount",
+                "kind": "discount",
+                "affects_total": True,
             }
         )
 
@@ -1790,9 +1828,13 @@ def _build_quote_pdf(quote: dict[str, Any], company: dict[str, Any], document_ty
     y -= 18
 
     for discount in quote.get("discounts") or []:
+        is_retention = str(discount.get("type") or discount.get("kind") or "").lower() in {"retention", "retencion"}
+        label = "Retencion" if is_retention else "Descuento"
+        percent = discount.get("percent")
+        percent_label = f" {percent}%" if is_retention and percent not in (None, "") else ""
         c.setFillColor(colors.HexColor("#7c2d12"))
-        c.drawRightString(totals_x + 120, y, f"Descuento {discount.get('name') or ''}"[:28])
-        c.drawRightString(width - margin, y, "- " + _format_cop(discount.get("value")))
+        c.drawRightString(totals_x + 120, y, f"{label} {discount.get('name') or ''}{percent_label}"[:32])
+        c.drawRightString(width - margin, y, ("" if is_retention else "- ") + _format_cop(discount.get("value")))
         y -= 16
 
     c.setFillColor(colors.HexColor("#111827"))
@@ -1970,4 +2012,3 @@ async def quote_pdf_legacy_amp_document_type(
         authorization=authorization,
     )
 # CLONEXA_021C_PDF_LEGACY_AMP_ROUTE_END
-
