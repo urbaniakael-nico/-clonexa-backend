@@ -12,6 +12,8 @@
     companyExperience: new Map(),
     companyBotConfigs: new Map(),
     companyActivity: new Map(),
+    companyResetPreviews: new Map(),
+    companyResetBusy: false,
     dashboardActivityErrors: [],
     selectedCompanyId: null,
     activeView: "dashboard",
@@ -814,6 +816,190 @@
     `;
   }
 
+  const CX_OPERATIONAL_RESET_SCOPES = [
+    { code: "commercial", label: "Comercial", detail: "Ventas, facturas, cortes, cotizaciones y notas." },
+    { code: "references", label: "Referencias", detail: "Catalogo, sesiones y cierres de produccion." },
+    { code: "workforce", label: "Personal y bot", detail: "Personal, marcaciones, sesiones GPS y datos capturados por bot." },
+    { code: "payroll", label: "Nomina", detail: "Periodos, items y resultados de nomina." },
+    { code: "inventory", label: "Inventario", detail: "Inventario, materiales, solicitudes y operacion de campo." },
+  ];
+
+  function renderCompanyOperationalResetPanel(company) {
+    const preview = state.companyResetPreviews.get(company.id);
+    const expectedText = `RESET ${company.slug}`;
+    const busy = state.companyResetBusy;
+
+    return `
+      <section class="cx-reset-panel" data-company-reset-form="${escapeHtml(company.id)}">
+        <div class="cx-reset-head">
+          <div>
+            <span class="cx-kicker">Zona critica</span>
+            <h3>Reset operativo por empresa</h3>
+            <p>Elimina datos incorporados al tenant sin borrar el software, la empresa, modulos, paquete, branding ni accesos maestros.</p>
+          </div>
+          <span class="cx-badge cx-badge-danger">Confirmacion requerida</span>
+        </div>
+
+        <div class="cx-reset-preserved">
+          <strong>Se conserva:</strong>
+          <span>empresa</span>
+          <span>modulos</span>
+          <span>paquetes</span>
+          <span>branding</span>
+          <span>CRM layout</span>
+          <span>acceso maestro</span>
+          <span>bot configurado</span>
+        </div>
+
+        <div class="cx-reset-scope-grid">
+          ${CX_OPERATIONAL_RESET_SCOPES.map((scope) => `
+            <label class="cx-reset-scope">
+              <input type="checkbox" data-reset-scope="${escapeHtml(scope.code)}" checked />
+              <span>
+                <strong>${escapeHtml(scope.label)}</strong>
+                <small>${escapeHtml(scope.detail)}</small>
+              </span>
+            </label>
+          `).join("")}
+        </div>
+
+        <div class="cx-reset-confirm-grid">
+          <label>Slug exacto
+            <input data-reset-confirm-slug type="text" autocomplete="off" placeholder="${escapeHtml(company.slug)}" />
+          </label>
+          <label>Frase exacta
+            <input data-reset-confirm-text type="text" autocomplete="off" placeholder="${escapeHtml(expectedText)}" />
+          </label>
+        </div>
+
+        <div class="cx-actions cx-reset-actions">
+          <button class="cx-btn" data-reset-dry-run="${escapeHtml(company.id)}" type="button" ${busy ? "disabled" : ""}>Simular reset</button>
+          <button class="cx-btn cx-btn-danger" data-reset-execute="${escapeHtml(company.id)}" type="button" ${busy ? "disabled" : ""}>Ejecutar reset operativo</button>
+        </div>
+        <small class="cx-reset-note">Ejecuta primero la simulacion. La ejecucion real exige slug y frase exacta: ${escapeHtml(expectedText)}</small>
+
+        <div class="cx-reset-result">
+          ${renderCompanyOperationalResetResult(preview)}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderCompanyOperationalResetResult(result) {
+    if (!result) {
+      return `
+        <div class="cx-empty-state">
+          Aun no hay simulacion. CLONEXA revisara las tablas operativas disponibles y mostrara cuantos registros se afectarian.
+        </div>
+      `;
+    }
+
+    const tables = Array.isArray(result.tables) ? result.tables : [];
+    const rows = tables
+      .filter((item) => item.available || Number(item.rows || 0) > 0)
+      .map((item) => `
+        <tr>
+          <td>${escapeHtml(item.scope_label || item.scope || "-")}</td>
+          <td>${escapeHtml(item.label || item.table || "-")}</td>
+          <td><code>${escapeHtml(item.table || "-")}</code></td>
+          <td>${item.available ? `<span class="cx-badge">Disponible</span>` : `<span class="cx-badge cx-badge-warning">No existe</span>`}</td>
+          <td><strong>${escapeHtml(item.rows ?? 0)}</strong></td>
+        </tr>
+      `).join("");
+
+    const preserved = Array.isArray(result.preserved) ? result.preserved : [];
+    return `
+      <div class="cx-reset-summary ${result.executed ? "is-executed" : ""}">
+        <div>
+          <span>${result.executed ? "Reset ejecutado" : "Simulacion lista"}</span>
+          <strong>${escapeHtml(result.total_rows ?? 0)} registros</strong>
+        </div>
+        <small>${result.executed ? "Datos operativos eliminados segun alcance." : "Nada se ha eliminado todavia."}</small>
+      </div>
+      <div class="cx-reset-table-wrap">
+        <table class="cx-table cx-reset-table">
+          <thead>
+            <tr>
+              <th>Alcance</th>
+              <th>Dato</th>
+              <th>Tabla</th>
+              <th>Estado</th>
+              <th>Registros</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || `<tr><td colspan="5">No hay registros operativos detectados para el alcance seleccionado.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+      <div class="cx-reset-preserved compact">
+        <strong>Protegido:</strong>
+        ${preserved.slice(0, 10).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
+      </div>
+    `;
+  }
+
+  function selectedOperationalResetScopes(container) {
+    return Array.from(container.querySelectorAll("[data-reset-scope]:checked"))
+      .map((input) => input.dataset.resetScope)
+      .filter(Boolean);
+  }
+
+  async function runCompanyOperationalReset(companyId, execute = false) {
+    const company = state.companies.find((item) => item.id === companyId);
+    const container = document.querySelector(`[data-company-reset-form="${companyId}"]`);
+    if (!company || !container) return;
+
+    const scopes = selectedOperationalResetScopes(container);
+    if (!scopes.length) {
+      showToast("Selecciona al menos un alcance para el reset.", "error");
+      return;
+    }
+
+    const confirmSlug = String(container.querySelector("[data-reset-confirm-slug]")?.value || "").trim();
+    const confirmText = String(container.querySelector("[data-reset-confirm-text]")?.value || "").trim();
+    const expectedText = `RESET ${company.slug}`;
+
+    if (execute) {
+      if (confirmSlug !== company.slug || confirmText !== expectedText) {
+        showToast(`Confirmacion invalida. Escribe ${expectedText}.`, "error");
+        return;
+      }
+
+      const accepted = window.confirm(`Vas a borrar datos operativos de ${company.name}. La empresa, modulos, accesos y branding se conservan. Continuar?`);
+      if (!accepted) return;
+    }
+
+    state.companyResetBusy = true;
+    renderCompanyDetailTab(company);
+
+    try {
+      const result = await apiPost(`${API}/companies/${encodeURIComponent(companyId)}/operational-reset`, {
+        dry_run: !execute,
+        scopes,
+        confirm_slug: confirmSlug,
+        confirm_text: confirmText,
+      });
+      state.companyResetPreviews.set(companyId, result);
+      showToast(execute ? "Reset operativo ejecutado." : "Simulacion de reset lista.");
+      if (execute) {
+        await loadAdminDashboard();
+        state.selectedCompanyId = companyId;
+        state.activeDetailTab = "reset";
+      } else {
+        renderCompanyDetailTab(company);
+      }
+    } catch (error) {
+      showToast(`No se pudo procesar el reset operativo: ${error.message}`, "error");
+    } finally {
+      state.companyResetBusy = false;
+      const current = state.companies.find((item) => item.id === companyId);
+      if (current && state.selectedCompanyId === companyId && state.activeDetailTab === "reset") {
+        renderCompanyDetailTab(current);
+      }
+    }
+  }
+
   async function saveTelegramBotConfig(companyId, event) {
     event.preventDefault();
     const form = event.target;
@@ -1086,23 +1272,30 @@
       const ownerInfo = ownerAccessInfo(users);
       const owner = ownerInfo.owner;
       const archived = isArchivedCompany(company);
+      const activity = state.companyActivity.get(company.id);
+      const selected = state.selectedCompanyId === company.id;
       return `
-        <tr>
-          <td><strong>${escapeHtml(company.name)}</strong><br><small>${escapeHtml(truncate(company.id, 14))}</small></td>
-          <td>${escapeHtml(company.slug)}</td>
+        <tr class="${selected ? "is-selected" : ""}">
+          <td>
+            <div class="cx-company-cell">
+              <strong>${escapeHtml(company.name)}</strong>
+              <small>${owner ? escapeHtml(owner.email) : "Sin acceso maestro"}</small>
+            </div>
+          </td>
+          <td><code>${escapeHtml(company.slug || "-")}</code></td>
           <td>${statusBadge(company.status)}<br><small>Acceso Maestro: ${ownerAccessBadge(users)}</small></td>
           <td>${escapeHtml(company.plan || "Ã¢â‚¬â€")}</td>
           <td>${escapeHtml(company.timezone || "Ã¢â‚¬â€")}</td>
           <td><span class="cx-badge cx-badge-primary">${escapeHtml(pkg)}</span></td>
-          <td>${escapeHtml(moduleCount)}</td>
           <td>
-            <div class="cx-actions">
-              <button class="cx-btn cx-btn-small" data-select-company="${escapeHtml(company.id)}" type="button">Ver detalle</button>
-              <button class="cx-btn cx-btn-small" data-copy="${escapeHtml(company.id)}" type="button">Copiar ID</button>
-              ${!archived ? `<button class="cx-btn cx-btn-small" data-open-client="${escapeHtml(company.id)}" type="button">Abrir portal</button>` : ""}
-              ${renderCompanyLifecycleActions(company, true)}
+            <strong>${escapeHtml(moduleCount)}</strong>
+            <small>${activity ? `Actividad: ${escapeHtml(activity.totalSignals || 0)}` : "Actividad: sin datos"}</small>
+          </td>
+          <td>
+            <div class="cx-company-row-actions">
+              <button class="cx-btn cx-btn-primary cx-btn-small" data-select-company="${escapeHtml(company.id)}" type="button">Gestionar</button>
+              ${archived ? `<span class="cx-badge cx-badge-danger">Archivada</span>` : `<span class="cx-badge">Command Center</span>`}
             </div>
-            ${owner ? `<small>${escapeHtml(owner.email)}</small>` : `<small>Esta empresa no tiene acceso maestro creado.</small>`}
             ${ownerInfo.status === "MÃƒÅ¡LTIPLE" ? `<br><small>Hay mÃƒÂºltiples accesos maestros.</small>` : ""}
           </td>
         </tr>
@@ -2046,21 +2239,39 @@
       ["branding", "Branding"],
       ["crm", "CRM"],
       ["accesos", "Accesos"],
+      ["reset", "Reset operativo"],
     ];
+    const users = state.companyUsers.get(company.id);
+    const ownerInfo = ownerAccessInfo(users);
+    const modulesCount = moduleCodesForCompany(company.id).length;
+    const activity = state.companyActivity.get(company.id);
+    const activityLabel = activity ? `${activity.totalSignals || 0} registros detectados` : "Sin datos";
 
     card.innerHTML = `
-      <div class="cx-card-head">
-        <div>
+      <section class="cx-company-command-hero">
+        <div class="cx-company-command-main">
+          <span class="cx-kicker">Company Command Center</span>
           <h2>${escapeHtml(company.name)}</h2>
-          <p>${escapeHtml(company.slug)} Ã‚Â· ${escapeHtml(company.id)}</p>
+          <p>${escapeHtml(company.slug)} - ${escapeHtml(company.id)}</p>
+          <div class="cx-command-pill-row">
+            ${statusBadge(company.status)}
+            <span class="cx-badge">${escapeHtml(packageForCompany(company))}</span>
+            <span class="cx-badge">${escapeHtml(modulesCount)} modulos</span>
+            <span class="cx-badge">${escapeHtml(activityLabel)}</span>
+          </div>
         </div>
-        <div class="cx-actions">
-          <button class="cx-btn cx-btn-small" data-copy="${escapeHtml(company.id)}" type="button">Copiar ID</button>
-          ${!isArchivedCompany(company) ? `<a class="cx-btn cx-btn-small" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer">Abrir /client</a>` : ""}
-          <a class="cx-btn cx-btn-small" href="/admin" target="_blank" rel="noreferrer">Configurar CRM</a>
-          ${renderCompanyLifecycleActions(company, true)}
+        <div class="cx-command-side">
+          <div class="cx-command-stat"><span>Acceso maestro</span><strong>${ownerAccessBadge(users)}</strong></div>
+          <div class="cx-command-stat"><span>Encargado</span><strong>${escapeHtml(ownerInfo.owner?.email || "No creado")}</strong></div>
+          <div class="cx-command-actions">
+            ${!isArchivedCompany(company) ? `<a class="cx-btn cx-btn-small" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer">Abrir /client</a>` : ""}
+            <button class="cx-btn cx-btn-small" data-copy="${escapeHtml(company.id)}" type="button">Copiar ID</button>
+            <a class="cx-btn cx-btn-small" href="/admin" target="_blank" rel="noreferrer">Configurar CRM</a>
+            <button class="cx-btn cx-btn-danger cx-btn-small" data-select-company="${escapeHtml(company.id)}" data-detail-tab="reset" type="button">Reset operativo</button>
+            ${renderCompanyLifecycleActions(company, true)}
+          </div>
         </div>
-      </div>
+      </section>
       <div class="cx-detail-tabs">
         ${tabs.map(([key, label]) => `<button class="cx-tab ${state.activeDetailTab === key ? "active" : ""}" data-detail-tab="${key}" type="button">${label}</button>`).join("")}
       </div>
@@ -2781,18 +2992,67 @@
     const users = state.companyUsers.get(company.id);
     const experience = state.companyExperience.get(company.id);
     const tab = state.activeDetailTab;
+    const activity = state.companyActivity.get(company.id);
 
     if (tab === "resumen") {
+      const ownerInfo = ownerAccessInfo(users);
       node.innerHTML = `
-        <div class="cx-detail-grid">
-          <div class="cx-kv"><span>Empresa</span><strong>${escapeHtml(company.name)}</strong></div>
-          <div class="cx-kv"><span>Slug</span><strong>${escapeHtml(company.slug)}</strong></div>
-          <div class="cx-kv"><span>Estado</span><strong>${escapeHtml(company.status)}</strong></div>
-          <div class="cx-kv"><span>Plan</span><strong>${escapeHtml(company.plan || "Ã¢â‚¬â€")}</strong></div>
-          <div class="cx-kv"><span>Timezone</span><strong>${escapeHtml(company.timezone)}</strong></div>
-          <div class="cx-kv"><span>Paquete detectado</span><strong>${escapeHtml(packageForCompany(company))}</strong></div>
-          <div class="cx-kv"><span>Módulos activos</span><strong>${escapeHtml(moduleCodesForCompany(company.id).length)}</strong></div>
-          <div class="cx-kv"><span>Acceso Maestro</span><strong>${ownerAccessBadge(users)}</strong></div>
+        <div class="cx-command-grid">
+          <section class="cx-panel">
+            <div class="cx-card-head">
+              <div>
+                <h3>Identidad SaaS</h3>
+                <p>Datos base del tenant y su estado de acceso.</p>
+              </div>
+              ${statusBadge(company.status)}
+            </div>
+            <div class="cx-detail-grid">
+              <div class="cx-kv"><span>Empresa</span><strong>${escapeHtml(company.name)}</strong></div>
+              <div class="cx-kv"><span>Slug</span><strong>${escapeHtml(company.slug)}</strong></div>
+              <div class="cx-kv"><span>Plan</span><strong>${escapeHtml(company.plan || "-")}</strong></div>
+              <div class="cx-kv"><span>Timezone</span><strong>${escapeHtml(company.timezone || "-")}</strong></div>
+              <div class="cx-kv"><span>Paquete</span><strong>${escapeHtml(packageForCompany(company))}</strong></div>
+              <div class="cx-kv"><span>Modulos activos</span><strong>${escapeHtml(moduleCodesForCompany(company.id).length)}</strong></div>
+            </div>
+          </section>
+
+          <section class="cx-panel">
+            <div class="cx-card-head">
+              <div>
+                <h3>Senales operativas</h3>
+                <p>Lectura defensiva desde los endpoints ya existentes.</p>
+              </div>
+              <span class="cx-badge">${activity ? "Detectado" : "Sin datos"}</span>
+            </div>
+            <div class="cx-detail-grid">
+              <div class="cx-kv"><span>Ventas</span><strong>${escapeHtml(activity?.counts?.sales ?? "Sin datos")}</strong></div>
+              <div class="cx-kv"><span>Cotizaciones</span><strong>${escapeHtml(activity?.counts?.quotes ?? "Sin datos")}</strong></div>
+              <div class="cx-kv"><span>Notas</span><strong>${escapeHtml(activity?.counts?.notes ?? "Sin datos")}</strong></div>
+              <div class="cx-kv"><span>Referencias</span><strong>${escapeHtml(activity?.counts?.references ?? "Sin datos")}</strong></div>
+              <div class="cx-kv"><span>Total senales</span><strong>${escapeHtml(activity?.totalSignals ?? "Sin datos")}</strong></div>
+              <div class="cx-kv"><span>Ultima senal</span><strong>${escapeHtml(activity?.latestLabel || "Sin datos")}</strong></div>
+            </div>
+          </section>
+
+          <section class="cx-panel">
+            <div class="cx-card-head">
+              <div>
+                <h3>Control rapido</h3>
+                <p>Acciones administrativas de esta empresa.</p>
+              </div>
+              <span class="cx-badge">Seguro</span>
+            </div>
+            <div class="cx-detail-grid">
+              <div class="cx-kv"><span>Acceso maestro</span><strong>${ownerAccessBadge(users)}</strong></div>
+              <div class="cx-kv"><span>Encargado</span><strong>${escapeHtml(ownerInfo.owner?.email || "No creado")}</strong></div>
+              <div class="cx-kv"><span>Company ID</span><code>${escapeHtml(company.id)}</code></div>
+            </div>
+            <div class="cx-actions" style="margin-top:14px">
+              <button class="cx-btn cx-btn-primary" data-select-company="${escapeHtml(company.id)}" data-detail-tab="módulos" type="button">Gestionar modulos</button>
+              <button class="cx-btn" data-select-company="${escapeHtml(company.id)}" data-detail-tab="usuarios" type="button">Acceso maestro</button>
+              <button class="cx-btn cx-btn-danger" data-select-company="${escapeHtml(company.id)}" data-detail-tab="reset" type="button">Reset operativo</button>
+            </div>
+          </section>
         </div>
       `;
       return;
@@ -2800,6 +3060,11 @@
 
     if (tab === "usuarios") {
       renderCompanyUsersPanel(node, company, users);
+      return;
+    }
+
+    if (tab === "reset") {
+      node.innerHTML = renderCompanyOperationalResetPanel(company);
       return;
     }
 
@@ -3860,6 +4125,18 @@
 
       if (event.target.closest("[data-open-client]")) {
         window.open("/client", "_blank");
+        return;
+      }
+
+      const resetDryRun = event.target.closest("[data-reset-dry-run]");
+      if (resetDryRun) {
+        await runCompanyOperationalReset(resetDryRun.dataset.resetDryRun, false);
+        return;
+      }
+
+      const resetExecute = event.target.closest("[data-reset-execute]");
+      if (resetExecute) {
+        await runCompanyOperationalReset(resetExecute.dataset.resetExecute, true);
         return;
       }
 

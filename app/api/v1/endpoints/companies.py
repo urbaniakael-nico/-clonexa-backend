@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -31,6 +32,13 @@ class CompanyCreateRequest(BaseModel):
 
 class CompanyStatusRequest(BaseModel):
     status: str
+
+
+class CompanyOperationalResetRequest(BaseModel):
+    dry_run: bool = True
+    scopes: Optional[list[str]] = None
+    confirm_slug: Optional[str] = None
+    confirm_text: Optional[str] = None
 
 
 class CompanyBrandingRequest(BaseModel):
@@ -160,6 +168,200 @@ def _apply_company_status(company: Company, status: str) -> None:
             company.archived_at = None
         if hasattr(company, "deleted_at"):
             company.deleted_at = None
+
+
+OPERATIONAL_RESET_SCOPE_LABELS: Dict[str, str] = {
+    "commercial": "Comercial",
+    "references": "Referencias y produccion",
+    "workforce": "Personal, marcaciones y bot",
+    "payroll": "Nomina",
+    "inventory": "Inventario y materiales",
+}
+
+
+OPERATIONAL_RESET_TABLES: list[dict[str, str]] = [
+    {"scope": "commercial", "table": "mini_panel_sales_records", "label": "Ventas / facturas"},
+    {"scope": "commercial", "table": "mini_panel_sales_cuts", "label": "Cortes comerciales"},
+    {"scope": "commercial", "table": "mini_panel_quotes", "label": "Cotizaciones"},
+    {"scope": "commercial", "table": "mini_panel_notes", "label": "Notas y agenda"},
+    {"scope": "references", "table": "reference_production_closures", "label": "Cierres de produccion"},
+    {"scope": "references", "table": "reference_work_sessions", "label": "Sesiones por referencia"},
+    {"scope": "references", "table": "production_archive_snapshots", "label": "Snapshots de produccion"},
+    {"scope": "references", "table": "product_references", "label": "Catalogo de referencias"},
+    {"scope": "payroll", "table": "payroll_period_items", "label": "Items de nomina"},
+    {"scope": "payroll", "table": "payroll_entries", "label": "Entradas de nomina legacy"},
+    {"scope": "payroll", "table": "payroll_periods", "label": "Periodos de nomina"},
+    {"scope": "inventory", "table": "field_material_movements", "label": "Movimientos de materiales campo"},
+    {"scope": "inventory", "table": "field_material_request_items", "label": "Items solicitudes campo"},
+    {"scope": "inventory", "table": "field_technician_material_stock", "label": "Stock por tecnico"},
+    {"scope": "inventory", "table": "field_material_requests", "label": "Solicitudes campo"},
+    {"scope": "inventory", "table": "field_materials", "label": "Materiales campo"},
+    {"scope": "inventory", "table": "field_technicians", "label": "Tecnicos campo"},
+    {"scope": "inventory", "table": "field_billing_projects", "label": "Proyectos campo"},
+    {"scope": "inventory", "table": "material_order_units", "label": "Unidades de orden de materiales"},
+    {"scope": "inventory", "table": "material_requests", "label": "Solicitudes de materiales"},
+    {"scope": "inventory", "table": "inventory_movements", "label": "Movimientos de inventario"},
+    {"scope": "inventory", "table": "inventory_items", "label": "Items de inventario"},
+    {"scope": "inventory", "table": "inventory_locations", "label": "Ubicaciones de inventario"},
+    {"scope": "workforce", "table": "mini_panel_work_sessions", "label": "Sesiones de trabajo mini panel"},
+    {"scope": "workforce", "table": "company_telegram_pending_actions", "label": "Acciones pendientes Telegram"},
+    {"scope": "workforce", "table": "company_telegram_user_preferences", "label": "Preferencias usuarios Telegram"},
+    {"scope": "workforce", "table": "velvet_bot_v1_pending_actions", "label": "Acciones pendientes bot"},
+    {"scope": "workforce", "table": "gps_tracking_sessions", "label": "Sesiones GPS"},
+    {"scope": "workforce", "table": "workforce_attendance_events", "label": "Marcaciones"},
+    {"scope": "workforce", "table": "workforce_attendance_status", "label": "Estado actual asistencia"},
+    {"scope": "workforce", "table": "workforce_personnel_history", "label": "Historial de personal"},
+    {"scope": "workforce", "table": "employee_current_status", "label": "Estado actual empleados"},
+    {"scope": "workforce", "table": "work_sessions", "label": "Sesiones de trabajo"},
+    {"scope": "workforce", "table": "work_events", "label": "Eventos de trabajo"},
+    {"scope": "workforce", "table": "bot_users", "label": "Usuarios operativos de bot"},
+    {"scope": "workforce", "table": "employee_roles", "label": "Roles asignados a empleados"},
+    {"scope": "workforce", "table": "employees", "label": "Personal"},
+]
+
+
+OPERATIONAL_RESET_PRESERVED = [
+    "companies",
+    "company_modules",
+    "company_package_assignments",
+    "packages",
+    "modules",
+    "company_users",
+    "company_branding",
+    "company_localization",
+    "company_crm_layout",
+    "company_crm_launchpad_cards",
+    "company_crm_widgets",
+    "company_crm_sections",
+    "company_crm_actions",
+    "company_crm_field_configs",
+    "company_alert_rules",
+    "company_bot_instances",
+    "company_settings",
+    "company_kpi_panel_config",
+]
+
+
+def _normalise_reset_scopes(scopes: Optional[list[str]]) -> list[str]:
+    valid = set(OPERATIONAL_RESET_SCOPE_LABELS.keys())
+    requested = [str(item or "").strip().lower() for item in (scopes or [])]
+    if not requested or "all" in requested:
+        return list(OPERATIONAL_RESET_SCOPE_LABELS.keys())
+    selected = [item for item in requested if item in valid]
+    if not selected:
+        raise HTTPException(status_code=400, detail="Selecciona al menos un alcance valido para el reset.")
+    return selected
+
+
+def _reset_plan(scopes: list[str]) -> list[dict[str, str]]:
+    selected = set(scopes)
+    seen: set[str] = set()
+    plan: list[dict[str, str]] = []
+    for item in OPERATIONAL_RESET_TABLES:
+        table = item["table"]
+        if item["scope"] in selected and table not in seen:
+            plan.append(item)
+            seen.add(table)
+    return plan
+
+
+async def _table_has_company_id(db: AsyncSession, table_name: str) -> bool:
+    result = await db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = :table_name
+              AND column_name = 'company_id'
+            LIMIT 1
+            """
+        ),
+        {"table_name": table_name},
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def _company_table_count(db: AsyncSession, table_name: str, company_id: UUID) -> int:
+    if not await _table_has_company_id(db, table_name):
+        return 0
+    result = await db.execute(
+        text(f"SELECT COUNT(*) FROM {table_name} WHERE company_id::text = :company_id"),
+        {"company_id": str(company_id)},
+    )
+    return int(result.scalar_one() or 0)
+
+
+async def _company_table_delete(db: AsyncSession, table_name: str, company_id: UUID) -> int:
+    if not await _table_has_company_id(db, table_name):
+        return 0
+    result = await db.execute(
+        text(f"DELETE FROM {table_name} WHERE company_id::text = :company_id"),
+        {"company_id": str(company_id)},
+    )
+    return int(result.rowcount or 0)
+
+
+async def _ensure_operational_reset_audit(db: AsyncSession) -> None:
+    await db.execute(text('CREATE EXTENSION IF NOT EXISTS "pgcrypto";'))
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS clonexa_company_operational_reset_audit (
+                id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                company_id text NOT NULL,
+                company_slug text NOT NULL,
+                executed boolean NOT NULL DEFAULT false,
+                scopes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+                counts_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+                total_rows integer NOT NULL DEFAULT 0,
+                requested_at timestamptz NOT NULL DEFAULT now()
+            )
+            """
+        )
+    )
+
+
+async def _write_operational_reset_audit(
+    db: AsyncSession,
+    *,
+    company: Company,
+    executed: bool,
+    scopes: list[str],
+    tables: list[dict[str, Any]],
+    total_rows: int,
+) -> None:
+    await _ensure_operational_reset_audit(db)
+    await db.execute(
+        text(
+            """
+            INSERT INTO clonexa_company_operational_reset_audit (
+                company_id,
+                company_slug,
+                executed,
+                scopes_json,
+                counts_json,
+                total_rows
+            )
+            VALUES (
+                :company_id,
+                :company_slug,
+                :executed,
+                CAST(:scopes_json AS jsonb),
+                CAST(:counts_json AS jsonb),
+                :total_rows
+            )
+            """
+        ),
+        {
+            "company_id": str(company.id),
+            "company_slug": str(company.slug),
+            "executed": executed,
+            "scopes_json": json.dumps(scopes, ensure_ascii=False),
+            "counts_json": json.dumps(tables, ensure_ascii=False),
+            "total_rows": total_rows,
+        },
+    )
 
 
 def _hex_or_default(value: Any, default: str) -> str:
@@ -532,6 +734,104 @@ async def create_company(payload: CompanyCreateRequest, db: AsyncSession = Depen
     await db.commit()
     await db.refresh(company)
     return _company_payload(company)
+
+
+@router.post("/{company_id}/operational-reset")
+async def operational_reset_company(
+    company_id: UUID,
+    payload: CompanyOperationalResetRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    scopes = _normalise_reset_scopes(payload.scopes)
+    plan = _reset_plan(scopes)
+
+    tables: list[dict[str, Any]] = []
+    for item in plan:
+        table_name = item["table"]
+        available = await _table_has_company_id(db, table_name)
+        rows = await _company_table_count(db, table_name, company_id) if available else 0
+        tables.append({
+            "scope": item["scope"],
+            "scope_label": OPERATIONAL_RESET_SCOPE_LABELS[item["scope"]],
+            "table": table_name,
+            "label": item["label"],
+            "available": available,
+            "rows": rows,
+        })
+
+    total_rows = sum(int(item["rows"] or 0) for item in tables)
+    execute = not payload.dry_run
+    expected_text = f"RESET {company.slug}"
+
+    if not execute:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "executed": False,
+            "company_id": str(company.id),
+            "company_slug": company.slug,
+            "scopes": scopes,
+            "scope_labels": [OPERATIONAL_RESET_SCOPE_LABELS[item] for item in scopes],
+            "tables": tables,
+            "total_rows": total_rows,
+            "preserved": OPERATIONAL_RESET_PRESERVED,
+            "confirmation_required": {
+                "confirm_slug": company.slug,
+                "confirm_text": expected_text,
+            },
+        }
+
+    confirm_slug = str(payload.confirm_slug or "").strip()
+    confirm_text = str(payload.confirm_text or "").strip()
+    if confirm_slug != company.slug or confirm_text != expected_text:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Confirmacion invalida. Escribe el slug y la frase exacta: {expected_text}",
+        )
+
+    deleted_tables: list[dict[str, Any]] = []
+    try:
+        for item in plan:
+            table_name = item["table"]
+            available = await _table_has_company_id(db, table_name)
+            deleted = await _company_table_delete(db, table_name, company_id) if available else 0
+            deleted_tables.append({
+                "scope": item["scope"],
+                "scope_label": OPERATIONAL_RESET_SCOPE_LABELS[item["scope"]],
+                "table": table_name,
+                "label": item["label"],
+                "available": available,
+                "rows": deleted,
+            })
+
+        deleted_total = sum(int(item["rows"] or 0) for item in deleted_tables)
+        await _write_operational_reset_audit(
+            db,
+            company=company,
+            executed=True,
+            scopes=scopes,
+            tables=deleted_tables,
+            total_rows=deleted_total,
+        )
+        _touch_company(company)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    return {
+        "ok": True,
+        "dry_run": False,
+        "executed": True,
+        "company_id": str(company.id),
+        "company_slug": company.slug,
+        "scopes": scopes,
+        "scope_labels": [OPERATIONAL_RESET_SCOPE_LABELS[item] for item in scopes],
+        "tables": deleted_tables,
+        "total_rows": sum(int(item["rows"] or 0) for item in deleted_tables),
+        "preserved": OPERATIONAL_RESET_PRESERVED,
+    }
 
 
 @router.get("/{company_id}")
