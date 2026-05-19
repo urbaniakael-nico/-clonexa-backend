@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>CLONEXA Admin Console V2</title>
-  <link rel="stylesheet" href="/admin-v2.css?v=010A_R3_BRANDING_CLEAN_FONT" />
+  <link rel="stylesheet" href="/admin-v2.css?v=023A_DASHBOARD_SAAS_OVERVIEW" />
 </head>
 <body>
   <div class="cx-bg-orbit cx-bg-orbit-one"></div>
@@ -49,7 +49,7 @@
         <div>
           <div class="cx-kicker">Sistema operativo empresarial</div>
           <h1 id="viewTitle">Dashboard</h1>
-          <p id="viewSubtitle">Control central de empresas, mÃ³dulos, paquetes, accesos y paneles cliente.</p>
+          <p id="viewSubtitle">Control SaaS de empresas, actividad, alertas y salud operativa.</p>
         </div>
         <div class="cx-topbar-actions">
           <button class="cx-btn cx-btn-ghost" id="openAdminLegacyBtn" type="button">Abrir /admin</button>
@@ -61,23 +61,23 @@
       <div class="cx-alert" id="globalAlert" hidden></div>
 
       <section class="cx-grid-metrics" id="metricsGrid">
-        <article class="cx-metric-card"><span>Empresas</span><strong id="metricCompanies">â€”</strong><small>Total registradas</small></article>
-        <article class="cx-metric-card"><span>Paquetes</span><strong id="metricPackages">â€”</strong><small>SaaS disponibles</small></article>
-        <article class="cx-metric-card"><span>MÃ³dulos</span><strong id="metricModules">â€”</strong><small>CatÃ¡logo global</small></article>
-        <article class="cx-metric-card"><span>Activas</span><strong id="metricActiveCompanies">â€”</strong><small>Tenants operativos</small></article>
-        <article class="cx-metric-card"><span>API</span><strong id="metricApi">â€”</strong><small>Health service</small></article>
-        <article class="cx-metric-card"><span>Refresh</span><strong id="metricRefresh">â€”</strong><small>Hora local</small></article>
+        <article class="cx-metric-card"><span>Empresas con actividad</span><strong id="metricActiveUse">-</strong><small id="metricActiveUseHint">Sin datos</small></article>
+        <article class="cx-metric-card"><span>Empresas sin actividad</span><strong id="metricIdleCompanies">-</strong><small>Activas en muestra</small></article>
+        <article class="cx-metric-card"><span>Eventos recientes</span><strong id="metricRecentSignals">-</strong><small>Ventas, cotizaciones, notas y referencias</small></article>
+        <article class="cx-metric-card"><span>Modulo mas usado</span><strong id="metricTopModule">-</strong><small>Por conteos disponibles</small></article>
+        <article class="cx-metric-card"><span>Alertas SaaS</span><strong id="metricSaasAlerts">-</strong><small>Riesgos detectados</small></article>
+        <article class="cx-metric-card"><span>Salud API</span><strong id="metricApi">-</strong><small id="metricApiHint">Health service</small></article>
       </section>
 
       <section class="cx-view active" data-view-panel="dashboard">
-        <div class="cx-layout-two">
+        <div class="cx-layout-two cx-dashboard-layout">
           <article class="cx-card">
             <div class="cx-card-head">
               <div>
-                <h2>Resumen operativo</h2>
-                <p>Vista ejecutiva de estado SaaS CLONEXA.</p>
+                <h2>Actividad por empresa</h2>
+                <p>Uso real detectado por tenant sin tocar datos operativos.</p>
               </div>
-              <span class="cx-badge cx-badge-live">LIVE</span>
+              <span class="cx-badge cx-badge-live">SaaS overview</span>
             </div>
             <div id="dashboardSummary" class="cx-stack"></div>
           </article>
@@ -86,13 +86,24 @@
             <div class="cx-card-head">
               <div>
                 <h2>Empresas recientes</h2>
-                <p>Tenants listos para administrar.</p>
+                <p>Tenants con senales o cambios recientes.</p>
               </div>
               <button class="cx-btn cx-btn-small" data-nav-view="companies" type="button">Ver empresas</button>
             </div>
             <div id="dashboardCompanies" class="cx-mini-list"></div>
           </article>
         </div>
+
+        <article class="cx-card cx-dashboard-alerts-card">
+          <div class="cx-card-head">
+            <div>
+              <h2>Alertas SaaS</h2>
+              <p>Accesos, modulos, actividad y salud detectada en la muestra.</p>
+            </div>
+            <span class="cx-badge">Defensivo</span>
+          </div>
+          <div id="dashboardAlerts" class="cx-dashboard-alert-list"></div>
+        </article>
       </section>
 
       <section class="cx-view" data-view-panel="companies">
@@ -252,7 +263,7 @@
     </div>
   </dialog>
 
-  <script src="/admin-v2.js?v=010A_R3_BRANDING_CLEAN_FONT"></script>
+  <script src="/admin-v2.js?v=023A_DASHBOARD_SAAS_OVERVIEW"></script>
 </body>
 </html>
 

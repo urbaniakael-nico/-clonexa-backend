@@ -11,6 +11,8 @@
     companyUsers: new Map(),
     companyExperience: new Map(),
     companyBotConfigs: new Map(),
+    companyActivity: new Map(),
+    dashboardActivityErrors: [],
     selectedCompanyId: null,
     activeView: "dashboard",
     activeDetailTab: "resumen",
@@ -321,6 +323,230 @@
     }
 
     return best ? best.code || best.name : (company.plan || "Ã¢â‚¬â€");
+  }
+
+  const CX_DASHBOARD_ACTIVITY_LIMIT_023A = 12;
+  const CX_DASHBOARD_MODULE_LABELS_023A = {
+    sales: "Registro Venta",
+    quotes: "Cotizaciones",
+    notes: "Notas",
+    references: "Referencias",
+  };
+
+  function cxDashboardNumber023A(value) {
+    const parsed = Number(value || 0);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  function cxDashboardTimestamp023A(...values) {
+    let latest = 0;
+    values.flat().forEach((value) => {
+      if (!value) return;
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) latest = Math.max(latest, date.getTime());
+    });
+    return latest;
+  }
+
+  function cxDashboardDateLabel023A(value) {
+    if (!value) return "Sin datos";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Sin datos";
+    try {
+      return new Intl.DateTimeFormat("es-CO", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(date);
+    } catch (_) {
+      return date.toISOString().slice(0, 16).replace("T", " ");
+    }
+  }
+
+  function cxDashboardClientUrl023A(company) {
+    const origin = window.location.origin || "";
+    return `${origin}/client?company_id=${encodeURIComponent(company?.id || "")}`;
+  }
+
+  function cxDashboardProbeCompanies023A() {
+    return state.companies
+      .filter((company) => !isArchivedCompany(company))
+      .sort((a, b) => cxDashboardTimestamp023A(b.updated_at, b.created_at) - cxDashboardTimestamp023A(a.updated_at, a.created_at))
+      .slice(0, CX_DASHBOARD_ACTIVITY_LIMIT_023A);
+  }
+
+  function cxDashboardExpectedUnavailable023A(message) {
+    const text = String(message || "").toLowerCase();
+    return (
+      text.includes("no esta asignado")
+      || text.includes("no está asignado")
+      || text.includes("no esta activo")
+      || text.includes("no está activo")
+      || text.includes("not assigned")
+      || text.includes("not active")
+    );
+  }
+
+  function cxDashboardProbeValue023A(result, label, errors) {
+    if (result.status === "fulfilled") return result.value || {};
+    const message = result.reason?.message || "No disponible";
+    if (!cxDashboardExpectedUnavailable023A(message)) {
+      errors.push(`${label}: ${message}`);
+    }
+    return {};
+  }
+
+  async function loadCompanyActivity023A(company) {
+    const companyId = company?.id;
+    if (!companyId) return null;
+
+    const encoded = encodeURIComponent(companyId);
+    const probes = await Promise.allSettled([
+      apiGet(`${API}/mini-panel-sales/companies/${encoded}/summary?panel_type=sales`),
+      apiGet(`${API}/mini-panel-quotes/companies/${encoded}/summary?panel_type=all`),
+      apiGet(`${API}/mini-panel-notes/companies/${encoded}/summary?panel_type=sales`),
+      apiGet(`${API}/references-v1/companies/${encoded}/summary`),
+    ]);
+
+    const errors = [];
+    const sales = cxDashboardProbeValue023A(probes[0], "Registro Venta", errors);
+    const quotes = cxDashboardProbeValue023A(probes[1], "Cotizaciones", errors);
+    const notes = cxDashboardProbeValue023A(probes[2], "Notas", errors);
+    const references = cxDashboardProbeValue023A(probes[3], "Referencias", errors);
+    const counts = {
+      sales: cxDashboardNumber023A(sales.active_count ?? sales.count),
+      quotes: cxDashboardNumber023A(quotes.active_count ?? quotes.count),
+      notes: cxDashboardNumber023A(notes.count ?? notes.active_count),
+      references: cxDashboardNumber023A(references.references_total ?? references.count),
+    };
+    const latestAt = cxDashboardTimestamp023A(
+      sales.latest?.created_at,
+      quotes.latest?.created_at,
+      notes.next?.created_at,
+      notes.next?.note_date,
+      company.updated_at,
+      company.created_at,
+    );
+    const moduleScores = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const topSignal = moduleScores[0] && moduleScores[0][1] > 0 ? moduleScores[0][0] : "";
+    const totalSignals = Object.values(counts).reduce((sum, value) => sum + value, 0);
+    const availableSignals = probes.filter((result) => result.status === "fulfilled").length;
+    const activity = {
+      company_id: companyId,
+      counts,
+      totalSignals,
+      availableSignals,
+      topSignal,
+      latestAt,
+      latestLabel: cxDashboardDateLabel023A(latestAt),
+      errors,
+    };
+
+    state.companyActivity.set(companyId, activity);
+    return activity;
+  }
+
+  async function loadDashboardActivity023A() {
+    state.dashboardActivityErrors = [];
+    state.companyActivity.clear();
+
+    const companies = cxDashboardProbeCompanies023A();
+    const results = await Promise.allSettled(companies.map(loadCompanyActivity023A));
+    results.forEach((result) => {
+      if (result.status === "rejected") {
+        state.dashboardActivityErrors.push(result.reason?.message || "Error cargando actividad");
+      }
+    });
+  }
+
+  function cxDashboardActivities023A() {
+    return [...state.companyActivity.values()];
+  }
+
+  function cxDashboardTopModule023A(activities = cxDashboardActivities023A()) {
+    const totals = { sales: 0, quotes: 0, notes: 0, references: 0 };
+    activities.forEach((activity) => {
+      Object.keys(totals).forEach((key) => {
+        totals[key] += cxDashboardNumber023A(activity.counts?.[key]);
+      });
+    });
+    const [code, value] = Object.entries(totals).sort((a, b) => b[1] - a[1])[0] || ["", 0];
+    return value > 0 ? CX_DASHBOARD_MODULE_LABELS_023A[code] || code : "Sin actividad";
+  }
+
+  function cxDashboardAlerts023A() {
+    const alerts = [];
+    const visibleCompanies = state.companies.filter((company) => !isArchivedCompany(company));
+    const activeCompanies = visibleCompanies.filter((company) => companyStatus(company) === "active");
+    const activities = cxDashboardActivities023A();
+
+    if (!state.health || state.health.ok === false) {
+      alerts.push({ level: "danger", title: "API en revision", detail: state.health?.error || "Health no disponible." });
+    }
+
+    const withoutOwner = activeCompanies.filter((company) => ownerAccessInfo(state.companyUsers.get(company.id)).level === "danger");
+    if (withoutOwner.length) {
+      alerts.push({ level: "danger", title: "Empresas sin acceso maestro", detail: `${withoutOwner.length} tenant(s) activos requieren revision de acceso.` });
+    }
+
+    const withoutModules = activeCompanies.filter((company) => moduleCodesForCompany(company.id).length === 0);
+    if (withoutModules.length) {
+      alerts.push({ level: "warn", title: "Empresas sin modulos activos", detail: `${withoutModules.length} tenant(s) activos no tienen modulos visibles.` });
+    }
+
+    const idleCompanies = activities.filter((activity) => {
+      const company = state.companies.find((item) => item.id === activity.company_id);
+      return company && companyStatus(company) === "active" && activity.availableSignals > 0 && activity.totalSignals === 0;
+    });
+    if (idleCompanies.length) {
+      alerts.push({ level: "warn", title: "Empresas activas sin actividad", detail: `${idleCompanies.length} tenant(s) muestreados no tienen registros operativos.` });
+    }
+
+    const partialData = activities.filter((activity) => activity.errors?.length).length + state.dashboardActivityErrors.length;
+    if (partialData) {
+      alerts.push({ level: "warn", title: "Datos operativos parciales", detail: `${partialData} consulta(s) no respondieron o no estan disponibles.` });
+    }
+
+    if (!alerts.length) {
+      alerts.push({ level: "ok", title: "Sin alertas criticas", detail: "No se detectaron bloqueos SaaS en la muestra actual." });
+    }
+
+    return alerts;
+  }
+
+  function cxDashboardOverview023A() {
+    const activities = cxDashboardActivities023A();
+    const activeCompanyIds = new Set(state.companies.filter((company) => companyStatus(company) === "active").map((company) => company.id));
+    const withActivity = activities.filter((activity) => activity.totalSignals > 0).length;
+    const withoutActivity = activities.filter((activity) => (
+      activeCompanyIds.has(activity.company_id)
+      && activity.availableSignals > 0
+      && activity.totalSignals === 0
+    )).length;
+    const totalSignals = activities.reduce((sum, activity) => sum + activity.totalSignals, 0);
+    const alerts = cxDashboardAlerts023A();
+
+    return {
+      activities,
+      withActivity,
+      withoutActivity,
+      totalSignals,
+      topModule: cxDashboardTopModule023A(activities),
+      alerts,
+      probed: activities.length,
+      totalVisible: state.companies.filter((company) => !isArchivedCompany(company)).length,
+    };
+  }
+
+  function cxDashboardSignalPills023A(counts = {}) {
+    return Object.entries(CX_DASHBOARD_MODULE_LABELS_023A)
+      .map(([code, label]) => `<span class="cx-signal-pill">${escapeHtml(label)} <strong>${escapeHtml(cxDashboardNumber023A(counts[code]))}</strong></span>`)
+      .join("");
+  }
+
+  function cxDashboardActivityBadge023A(activity) {
+    if (!activity || activity.availableSignals === 0) return `<span class="cx-badge cx-badge-warning">Sin datos</span>`;
+    if (activity.totalSignals > 0) return `<span class="cx-badge cx-badge-live">Con actividad</span>`;
+    return `<span class="cx-badge">Sin actividad</span>`;
   }
 
   async function loadHealth() {
@@ -680,6 +906,10 @@
       state.companies.map((company) => loadCompanyUsers(company.id).catch(() => []))
     );
 
+    await loadDashboardActivity023A().catch((error) => {
+      state.dashboardActivityErrors.push(error.message || "No se pudo cargar actividad SaaS");
+    });
+
     state.lastRefresh = localTime();
     renderAll();
     applyOwnerAccessLabels();
@@ -696,41 +926,134 @@
   }
 
   function updateMetrics() {
-    const active = state.companies.filter((c) => String(c.status || "").toLowerCase() === "active").length;
-    setText("metricCompanies", state.companies.length);
-    setText("metricPackages", state.packages.length);
-    setText("metricModules", state.modules.length);
-    setText("metricActiveCompanies", active);
+    const overview = cxDashboardOverview023A();
+    const apiOk = state.health && state.health.ok !== false;
+    setText("metricActiveUse", overview.withActivity);
+    setText("metricActiveUseHint", `Muestra ${overview.probed}/${overview.totalVisible || 0} tenants`);
+    setText("metricIdleCompanies", overview.probed ? overview.withoutActivity : "Sin datos");
+    setText("metricRecentSignals", overview.totalSignals);
+    setText("metricTopModule", overview.topModule);
+    setText("metricSaasAlerts", overview.alerts.filter((item) => item.level !== "ok").length);
     setText("metricApi", state.health && state.health.ok !== false ? "LIVE" : "OFFLINE");
-    setText("metricRefresh", state.lastRefresh || "Ã¢â‚¬â€");
-    setText("lastRefreshLabel", state.lastRefresh ? `ÃƒÅ¡ltima actualizaciÃƒÂ³n ${state.lastRefresh}` : "Sin actualizar");
+    setText("metricApiHint", apiOk ? "Health operativo" : "Revisar health");
+    setText("lastRefreshLabel", state.lastRefresh ? `Ultima actualizacion ${state.lastRefresh}` : "Sin actualizar");
   }
 
   function renderDashboard() {
+    const overview = cxDashboardOverview023A();
     const summary = el("#dashboardSummary");
     if (summary) {
-      summary.innerHTML = `
-        <div class="cx-detail-grid">
-          <div class="cx-kv"><span>Empresas activas</span><strong>${escapeHtml(state.companies.filter(c => c.status === "active").length)}</strong></div>
-          <div class="cx-kv"><span>Paquetes SaaS</span><strong>${escapeHtml(state.packages.length)}</strong></div>
-          <div class="cx-kv"><span>Módulos globales</span><strong>${escapeHtml(state.modules.length)}</strong></div>
-          <div class="cx-kv"><span>Estado</span><strong>${state.health && state.health.ok !== false ? "Operativo" : "Revisar API"}</strong></div>
-        </div>
-        ${state.errors.length ? `<div class="cx-alert">${escapeHtml(state.errors.slice(-3).join(" Ã‚Â· "))}</div>` : ""}
-      `;
+      const rows = cxDashboardProbeCompanies023A()
+        .map((company) => ({
+          company,
+          activity: state.companyActivity.get(company.id) || {
+            company_id: company.id,
+            counts: {},
+            totalSignals: 0,
+            availableSignals: 0,
+            topSignal: "",
+            latestAt: cxDashboardTimestamp023A(company.updated_at, company.created_at),
+            latestLabel: cxDashboardDateLabel023A(cxDashboardTimestamp023A(company.updated_at, company.created_at)),
+            errors: [],
+          },
+        }))
+        .sort((a, b) => (b.activity.totalSignals - a.activity.totalSignals) || (b.activity.latestAt - a.activity.latestAt));
+
+      summary.innerHTML = rows.length
+        ? `
+          <div class="cx-dashboard-table-wrap">
+            <table class="cx-table cx-dashboard-table">
+              <thead>
+                <tr>
+                  <th>Empresa</th>
+                  <th>Estado</th>
+                  <th>Ultima senal</th>
+                  <th>Modulos</th>
+                  <th>Uso detectado</th>
+                  <th>Alertas</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map(({ company, activity }) => {
+                  const moduleCount = moduleCodesForCompany(company.id).length;
+                  const ownerInfo = ownerAccessInfo(state.companyUsers.get(company.id));
+                  const rowAlerts = [];
+                  if (ownerInfo.level === "danger") rowAlerts.push("Sin acceso maestro");
+                  if (moduleCount === 0) rowAlerts.push("Sin modulos");
+                  if (activity.availableSignals > 0 && activity.totalSignals === 0) rowAlerts.push("Sin actividad");
+                  if (activity.errors?.length) rowAlerts.push("Datos parciales");
+                  const topSignal = activity.topSignal ? CX_DASHBOARD_MODULE_LABELS_023A[activity.topSignal] : "Sin actividad";
+                  return `
+                    <tr>
+                      <td><strong>${escapeHtml(company.name)}</strong><br><small>${escapeHtml(company.slug || truncate(company.id, 14))}</small></td>
+                      <td>${statusBadge(company.status)}<br><small>Acceso: ${ownerAccessBadge(state.companyUsers.get(company.id))}</small></td>
+                      <td>${escapeHtml(activity.latestLabel || "Sin datos")}</td>
+                      <td><strong>${escapeHtml(moduleCount)}</strong><br><small>${escapeHtml(packageForCompany(company))}</small></td>
+                      <td>
+                        ${cxDashboardActivityBadge023A(activity)}
+                        <div class="cx-signal-grid">${cxDashboardSignalPills023A(activity.counts)}</div>
+                        <small>Top: ${escapeHtml(topSignal)}</small>
+                      </td>
+                      <td>${rowAlerts.length ? rowAlerts.map((item) => `<span class="cx-badge cx-badge-warning">${escapeHtml(item)}</span>`).join(" ") : `<span class="cx-badge cx-badge-live">OK</span>`}</td>
+                      <td>
+                        <div class="cx-actions">
+                          <button class="cx-btn cx-btn-small" data-open-client="${escapeHtml(company.id)}" type="button">Ver panel</button>
+                          <button class="cx-btn cx-btn-small" data-select-company="${escapeHtml(company.id)}" type="button">Gestionar</button>
+                          <button class="cx-btn cx-btn-small" data-copy="${escapeHtml(cxDashboardClientUrl023A(company))}" type="button">Copiar URL</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+          <small class="cx-dashboard-note">Lectura defensiva de hasta ${escapeHtml(CX_DASHBOARD_ACTIVITY_LIMIT_023A)} empresas visibles. Si un endpoint falla, el dashboard conserva el resto de datos.</small>
+        `
+        : `<div class="cx-empty-state">No hay empresas visibles para analizar.</div>`;
     }
 
     const list = el("#dashboardCompanies");
     if (list) {
-      const rows = filteredCompanies().slice(0, 6);
+      const rows = [...filteredCompanies()]
+        .filter((company) => !isArchivedCompany(company))
+        .sort((a, b) => {
+          const activityA = state.companyActivity.get(a.id);
+          const activityB = state.companyActivity.get(b.id);
+          return cxDashboardTimestamp023A(activityB?.latestAt, b.updated_at, b.created_at) - cxDashboardTimestamp023A(activityA?.latestAt, a.updated_at, a.created_at);
+        })
+        .slice(0, 6);
       list.innerHTML = rows.length
-        ? rows.map((company) => `
-          <button class="cx-mini-card" type="button" data-select-company="${escapeHtml(company.id)}">
+        ? rows.map((company) => {
+          const activity = state.companyActivity.get(company.id);
+          const moduleCount = moduleCodesForCompany(company.id).length;
+          return `
+          <button class="cx-mini-card cx-dashboard-company-card" type="button" data-select-company="${escapeHtml(company.id)}">
             <strong>${escapeHtml(company.name)}</strong>
-            <span>${escapeHtml(company.slug)} Ã‚Â· ${escapeHtml(company.status)}</span>
+            <span>${escapeHtml(company.slug || "sin-slug")} - ${escapeHtml(company.status)}</span>
+            <small>${escapeHtml(activity?.latestLabel || cxDashboardDateLabel023A(cxDashboardTimestamp023A(company.updated_at, company.created_at)))}</small>
+            <small>${escapeHtml(moduleCount)} modulos activos - ${escapeHtml(activity?.totalSignals || 0)} senales</small>
           </button>
-        `).join("")
+        `;
+        }).join("")
         : `<div class="cx-empty-state">No hay empresas cargadas.</div>`;
+    }
+
+    const alerts = el("#dashboardAlerts");
+    if (alerts) {
+      alerts.innerHTML = overview.alerts.map((item) => {
+        const cls = item.level === "danger" ? "cx-badge-danger" : item.level === "warn" ? "cx-badge-warning" : "cx-badge-live";
+        return `
+          <div class="cx-dashboard-alert-item">
+            <span class="cx-badge ${cls}">${escapeHtml(item.level === "ok" ? "OK" : item.level === "danger" ? "Critica" : "Revision")}</span>
+            <div>
+              <strong>${escapeHtml(item.title)}</strong>
+              <small>${escapeHtml(item.detail)}</small>
+            </div>
+          </div>
+        `;
+      }).join("");
     }
   }
 
@@ -3428,7 +3751,7 @@
     });
 
     const titles = {
-      dashboard: ["Dashboard", "Control central de empresas, módulos, paquetes, accesos y paneles cliente."],
+      dashboard: ["Dashboard", "Control SaaS de empresas, actividad, alertas y salud operativa."],
       companies: ["Empresas", "GestiÃƒÂ³n de tenants, paquetes, módulos, Acceso Maestro y CRM."],
       users: ["Acceso Maestro", "Usuario dueÃƒÂ±o/encargado, regeneraciÃƒÂ³n de clave y desbloqueo."],
       packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
@@ -4551,4 +4874,3 @@
 })();
 /* CLONEXA_019G_R6B_RESTORE_FINAL_END */
 // CLONEXA_FORCE_BUILD_019G_R6B_20260513_164425
-
