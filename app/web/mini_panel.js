@@ -2236,6 +2236,11 @@ function moduleCard(title, description, tag, code = "") {
           return;
         }
 
+        if (typeof isDayClosingCode023E === "function" && isDayClosingCode023E(moduleCode)) {
+          await openDayClosingModule023E(session);
+          return;
+        }
+
         const msg = root.querySelector("[data-panel-message]");
         if (msg) {
           msg.classList.add("ok");
@@ -5038,6 +5043,331 @@ function moduleCard(title, description, tag, code = "") {
     salesRefreshCashChange023D();
   }
   /* CLONEXA_022J_SALES_TOP10_ADJUSTMENTS_CLEAN_VIEW_END */
+
+
+
+  /* CLONEXA_023E_DAY_CLOSING_MINI_PANEL_DYNAMIC_R1_START */
+  const CX_DAY_CLOSING_CODES_023E = new Set([
+    "day_closing",
+    "cierre_dia",
+    "cierre_de_dia",
+    "realizar_cierre",
+    "cierre_diario",
+    "commercial_closing"
+  ]);
+
+  function isDayClosingCode023E(code) {
+    return CX_DAY_CLOSING_CODES_023E.has(normalizeModuleCode019H(code));
+  }
+
+  function dayClosingToday023E() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  function dayClosingArea023E(value) {
+    const type = normalizePanelType019H(value || panelType);
+    if (type === "store" || type === "stores") return "tiendas";
+    if (type === "sales") return "ventas";
+    return type || "operacion";
+  }
+
+  function dayClosingNumber023E(value) {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function dayClosingQty023E(value) {
+    const number = dayClosingNumber023E(value);
+    if (Math.abs(number - Math.round(number)) < 0.001) return String(Math.round(number));
+    return number.toFixed(2);
+  }
+
+  function dayClosingDateLabel023E(value) {
+    const raw = String(value || "");
+    if (!raw) return dayClosingToday023E();
+    try {
+      const date = new Date(`${raw}T12:00:00`);
+      return date.toLocaleDateString("es-CO", { weekday: "short", year: "numeric", month: "short", day: "2-digit" });
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  function dayClosingTimeLabel023E(value) {
+    if (!value) return "—";
+    try {
+      return new Date(value).toLocaleString("es-CO", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" });
+    } catch (_) {
+      return String(value || "—");
+    }
+  }
+
+  function dayClosingApi023E(path, options = {}) {
+    const headers = {
+      ...authHeaders(),
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    };
+    return api(`/api/v1/day-closing/companies/${encodeURIComponent(companyId)}${path}`, {
+      ...options,
+      headers
+    });
+  }
+
+  function dayClosingStyles023E() {
+    if (document.getElementById("cxDayClosingStyles023E")) return;
+    const style = document.createElement("style");
+    style.id = "cxDayClosingStyles023E";
+    style.textContent = `
+      .dc-shell-023e{min-height:100vh;padding:28px;background:
+        radial-gradient(circle at 8% 8%,rgba(255,37,187,.26),transparent 30%),
+        radial-gradient(circle at 92% 12%,rgba(41,152,255,.22),transparent 28%),
+        linear-gradient(135deg,#12091f,#071328 58%,#101326);color:#fff}
+      .dc-card-023e{background:linear-gradient(145deg,rgba(255,255,255,.105),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.15);border-radius:30px;box-shadow:0 28px 90px rgba(0,0,0,.38);backdrop-filter:blur(18px)}
+      .dc-hero-023e{padding:28px;margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+      .dc-kicker-023e{font-size:11px;font-weight:950;letter-spacing:.34em;text-transform:uppercase;color:#ff39d0}
+      .dc-title-023e{font-size:44px;line-height:1;margin:10px 0 8px;font-weight:950}
+      .dc-muted-023e{color:rgba(255,255,255,.70);font-weight:800}
+      .dc-actions-023e{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+      .dc-btn-023e{border:0;border-radius:18px;padding:13px 18px;color:#fff;background:linear-gradient(135deg,#ff25bb,#6d4cff);font-weight:950;cursor:pointer;box-shadow:0 18px 42px rgba(247,37,179,.22)}
+      .dc-btn-023e.secondary{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.16);box-shadow:none}
+      .dc-btn-023e:disabled{opacity:.55;cursor:not-allowed;filter:grayscale(.25)}
+      .dc-grid-023e{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}
+      .dc-metric-023e{padding:18px;border-radius:24px;background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.13);min-height:106px}
+      .dc-metric-023e span{display:block;color:rgba(255,255,255,.64);font-size:11px;font-weight:950;letter-spacing:.18em;text-transform:uppercase}
+      .dc-metric-023e strong{display:block;font-size:26px;margin-top:8px;font-weight:950}
+      .dc-metric-023e small{display:block;color:rgba(255,255,255,.62);font-weight:800;margin-top:4px}
+      .dc-layout-023e{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(360px,.65fr);gap:18px;align-items:start}
+      .dc-panel-023e{padding:22px}
+      .dc-user-list-023e{display:grid;gap:12px;margin-top:16px}
+      .dc-user-023e{border:1px solid rgba(255,255,255,.13);border-radius:22px;background:rgba(255,255,255,.065);padding:16px}
+      .dc-user-head-023e{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}
+      .dc-user-head-023e strong{font-size:18px}
+      .dc-pill-023e{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:7px 10px;font-size:11px;font-weight:950;background:rgba(255,57,208,.18);border:1px solid rgba(255,57,208,.26);color:#ffd7f4}
+      .dc-pill-023e.ok{background:rgba(55,235,173,.14);border-color:rgba(55,235,173,.28);color:#86ffe0}
+      .dc-user-metrics-023e{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+      .dc-mini-023e{border-radius:16px;padding:12px;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.09)}
+      .dc-mini-023e span{display:block;color:rgba(255,255,255,.58);font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase}
+      .dc-mini-023e strong{display:block;margin-top:5px;font-size:15px}
+      .dc-pay-grid-023e{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+      .dc-side-stack-023e{display:grid;gap:14px}
+      .dc-field-023e label{display:block;font-size:11px;font-weight:950;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.68);margin-bottom:8px}
+      .dc-field-023e textarea{width:100%;min-height:120px;resize:vertical;box-sizing:border-box;border:1px solid rgba(255,255,255,.15);border-radius:18px;background:rgba(4,7,23,.58);color:#fff;padding:14px;font-weight:850;outline:none}
+      .dc-status-023e{border-radius:20px;padding:15px;background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.12);font-weight:850}
+      .dc-status-023e.ok{border-color:rgba(55,235,173,.30);background:rgba(55,235,173,.10);color:#8dffe0}
+      .dc-status-023e.warn{border-color:rgba(255,207,107,.34);background:rgba(255,207,107,.10);color:#ffe0a3}
+      .dc-message-023e{margin-top:12px;font-weight:900;color:#79ffe1}
+      @media(max-width:1120px){.dc-grid-023e,.dc-user-metrics-023e{grid-template-columns:repeat(2,minmax(0,1fr))}.dc-layout-023e{grid-template-columns:1fr}.dc-title-023e{font-size:36px}}
+      @media(max-width:640px){.dc-shell-023e{padding:18px}.dc-hero-023e{display:block}.dc-grid-023e,.dc-user-metrics-023e,.dc-pay-grid-023e{grid-template-columns:1fr}.dc-title-023e{font-size:32px}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function dayClosingConnectionSnapshot023E() {
+    const op = currentOperational || {};
+    return {
+      status: op.status || "",
+      status_label: operationalLabel(op.status),
+      active_seconds: liveValue("active"),
+      break_seconds: liveValue("break"),
+      active_label: formatSeconds(liveValue("active")),
+      break_label: formatSeconds(liveValue("break")),
+      started_at: op.started_at || op.startedAt || op.opened_at || op.created_at || "",
+      updated_at: op.updated_at || "",
+      captured_at: new Date().toISOString()
+    };
+  }
+
+  function dayClosingConnectionHtml023E(snapshot) {
+    const safe = snapshot || dayClosingConnectionSnapshot023E();
+    return `
+      <div class="dc-grid-023e" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:0">
+        <article class="dc-metric-023e">
+          <span>Tiempo conectado</span>
+          <strong>${h(safe.active_label || formatSeconds(safe.active_seconds || 0))}</strong>
+          <small>Activo efectivo del mini panel</small>
+        </article>
+        <article class="dc-metric-023e">
+          <span>Pausas</span>
+          <strong>${h(safe.break_label || formatSeconds(safe.break_seconds || 0))}</strong>
+          <small>${h(safe.status_label || operationalLabel(safe.status))}</small>
+        </article>
+      </div>
+      <div class="dc-status-023e" style="margin-top:12px">
+        Inicio: ${h(dayClosingTimeLabel023E(safe.started_at))}<br>
+        Captura: ${h(dayClosingTimeLabel023E(safe.captured_at))}
+      </div>
+    `;
+  }
+
+  function dayClosingUserHtml023E(user, areaLabel) {
+    const salesAmount = dayClosingNumber023E(user.total_amount);
+    const units = dayClosingQty023E(user.units_sold);
+    return `
+      <article class="dc-user-023e">
+        <div class="dc-user-head-023e">
+          <div>
+            <strong>${h(user.label || user.full_name || "Usuario")}</strong>
+            <div class="dc-muted-023e">${h(areaLabel)} · ${h(user.username || user.email || user.user_id || "panel")}</div>
+          </div>
+          <span class="dc-pill-023e ok">${h(formatMoney(salesAmount))} · ${h(units)} und</span>
+        </div>
+
+        <div class="dc-user-metrics-023e">
+          <div class="dc-mini-023e"><span>Facturas</span><strong>${h(user.invoices_count || 0)}</strong></div>
+          <div class="dc-mini-023e"><span>Cotizaciones</span><strong>${h(user.quotes_count || 0)} · ${h(formatMoney(user.quotes_amount || 0))}</strong></div>
+          <div class="dc-mini-023e"><span>Solicitudes</span><strong>${h(user.requests_count || 0)} prox.</strong></div>
+          <div class="dc-mini-023e"><span>Cantidad vendida</span><strong>${h(units)} und</strong></div>
+        </div>
+
+        <div class="dc-pay-grid-023e">
+          <div class="dc-mini-023e"><span>Efectivo</span><strong>${h(formatMoney(user.cash_amount || 0))}</strong></div>
+          <div class="dc-mini-023e"><span>Transferencias</span><strong>${h(formatMoney(user.transfer_amount || 0))}</strong></div>
+          <div class="dc-mini-023e"><span>Cheques</span><strong>${h(formatMoney(user.check_amount || 0))}</strong></div>
+          <div class="dc-mini-023e"><span>Otro</span><strong>${h(formatMoney(user.other_amount || 0))}</strong></div>
+        </div>
+      </article>
+    `;
+  }
+
+  async function openDayClosingModule023E(session) {
+    dayClosingStyles023E();
+    const closureDate = dayClosingToday023E();
+    let summary = null;
+    let loadError = "";
+
+    try {
+      const fresh = await loadOperationalSession().catch(() => null);
+      if (fresh) startTimers(fresh.operational_session || fresh);
+    } catch (_) {}
+
+    try {
+      const data = await dayClosingApi023E(`/mini-panel/summary?panel_type=${encodeURIComponent(panelType)}&closure_date=${encodeURIComponent(closureDate)}`);
+      summary = data || {};
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar el cierre diario.";
+      summary = {
+        panel_type: panelType,
+        area: dayClosingArea023E(panelType),
+        closure_date: closureDate,
+        locked: false,
+        totals: {},
+        users: []
+      };
+    }
+
+    const totals = summary.totals || {};
+    const users = Array.isArray(summary.users) ? summary.users : [];
+    const areaLabel = summary.area || dayClosingArea023E(panelType);
+    const locked = Boolean(summary.locked || summary.status === "submitted");
+    const connectionSnapshot = dayClosingConnectionSnapshot023E();
+
+    root.innerHTML = `
+      <main class="dc-shell-023e">
+        <header class="dc-card-023e dc-hero-023e">
+          <div>
+            <div class="dc-kicker-023e">Cierre diario</div>
+            <h1 class="dc-title-023e">Realizar cierre</h1>
+            <p class="dc-muted-023e">${h(session?.company?.name || "Empresa")} · Área ${h(areaLabel)} · ${h(dayClosingDateLabel023E(summary.closure_date || closureDate))}</p>
+          </div>
+          <div class="dc-actions-023e">
+            <span class="dc-pill-023e ${locked ? "ok" : ""}">${locked ? "Enviado" : "Abierto"}</span>
+            <button class="dc-btn-023e secondary" type="button" data-dc-refresh-023e>Actualizar</button>
+            <button class="dc-btn-023e secondary" type="button" data-dc-back-023e>Dashboard</button>
+          </div>
+        </header>
+
+        <section class="dc-grid-023e">
+          <article class="dc-metric-023e">
+            <span>Cantidad vendida</span>
+            <strong>${h(dayClosingQty023E(totals.units_sold || 0))} und</strong>
+            <small>${h(formatMoney(totals.total_amount || 0))} total vendido</small>
+          </article>
+          <article class="dc-metric-023e">
+            <span>Facturas generadas</span>
+            <strong>${h(totals.invoices_count || 0)}</strong>
+            <small>${h(users.length)} usuario(s) en panel</small>
+          </article>
+          <article class="dc-metric-023e">
+            <span>Cotizaciones</span>
+            <strong>${h(totals.quotes_count || 0)}</strong>
+            <small>${h(formatMoney(totals.quotes_amount || 0))} cotizado</small>
+          </article>
+          <article class="dc-metric-023e">
+            <span>Solicitudes</span>
+            <strong>${h(totals.requests_count || 0)}</strong>
+            <small>Tiendas / prox. según módulo activo</small>
+          </article>
+        </section>
+
+        <section class="dc-grid-023e">
+          <article class="dc-metric-023e"><span>Efectivo</span><strong>${h(formatMoney(totals.cash_amount || 0))}</strong><small>Ventas en efectivo</small></article>
+          <article class="dc-metric-023e"><span>Transferencias</span><strong>${h(formatMoney(totals.transfer_amount || 0))}</strong><small>Pagos transferidos</small></article>
+          <article class="dc-metric-023e"><span>Cheques</span><strong>${h(formatMoney(totals.check_amount || 0))}</strong><small>Pagos por cheque</small></article>
+          <article class="dc-metric-023e"><span>Otro</span><strong>${h(formatMoney(totals.other_amount || 0))}</strong><small>Tarjeta u otros métodos</small></article>
+        </section>
+
+        <section class="dc-layout-023e">
+          <section class="dc-card-023e dc-panel-023e">
+            <div class="dc-kicker-023e">Usuarios del panel</div>
+            <h2>Resumen discriminado</h2>
+            <p class="dc-muted-023e">El cierre consolida automáticamente todas las ventas, cotizaciones y solicitudes del panel.</p>
+            <div class="dc-user-list-023e">
+              ${users.map((user) => dayClosingUserHtml023E(user, areaLabel)).join("") || `<div class="dc-status-023e warn">Sin actividad para cerrar en este panel durante el día.</div>`}
+            </div>
+          </section>
+
+          <aside class="dc-side-stack-023e">
+            <section class="dc-card-023e dc-panel-023e">
+              <div class="dc-kicker-023e">Horario de conexión</div>
+              <h2>Sesión del mini panel</h2>
+              ${dayClosingConnectionHtml023E(connectionSnapshot)}
+            </section>
+
+            <section class="dc-card-023e dc-panel-023e">
+              <div class="dc-kicker-023e">Observaciones</div>
+              <h2>Enviar cierre</h2>
+              <div class="dc-field-023e">
+                <label>Observación del cierre</label>
+                <textarea id="dcNotes023E" ${locked ? "disabled" : ""} placeholder="Ej: caja correcta, novedad de transferencia, solicitud pendiente...">${h(summary.notes || "")}</textarea>
+              </div>
+              <button class="dc-btn-023e" type="button" data-dc-submit-023e ${locked ? "disabled" : ""} style="width:100%;margin-top:14px">${locked ? "Cierre enviado" : "Enviar cierre diario"}</button>
+              <div class="dc-message-023e" id="dcMsg023E">${loadError ? h(loadError) : (locked ? `Cierre enviado ${h(dayClosingTimeLabel023E(summary.submitted_at))}` : "")}</div>
+            </section>
+          </aside>
+        </section>
+      </main>
+    `;
+
+    root.querySelector("[data-dc-back-023e]")?.addEventListener("click", () => bootShell());
+    root.querySelector("[data-dc-refresh-023e]")?.addEventListener("click", () => openDayClosingModule023E(session));
+    root.querySelector("[data-dc-submit-023e]")?.addEventListener("click", async () => {
+      const msg = root.querySelector("#dcMsg023E");
+      const button = root.querySelector("[data-dc-submit-023e]");
+      try {
+        if (msg) msg.textContent = "Enviando cierre diario...";
+        if (button) button.disabled = true;
+        await dayClosingApi023E(`/mini-panel/submit?panel_type=${encodeURIComponent(panelType)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            closure_date: closureDate,
+            notes: root.querySelector("#dcNotes023E")?.value || "",
+            connection_snapshot: dayClosingConnectionSnapshot023E()
+          })
+        });
+        if (msg) msg.textContent = "Cierre diario enviado.";
+        await openDayClosingModule023E(session);
+      } catch (error) {
+        if (button) button.disabled = false;
+        if (msg) msg.textContent = error.message || "No fue posible enviar el cierre.";
+      }
+    });
+  }
+  /* CLONEXA_023E_DAY_CLOSING_MINI_PANEL_DYNAMIC_R1_END */
 
 
   async function runOperationalAction(action, session) {
