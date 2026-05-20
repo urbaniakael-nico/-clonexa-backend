@@ -975,6 +975,34 @@ async def _prod_closure_totals(db: AsyncSession, company_id: str, start: date, e
 
 async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: date) -> dict[str, Any]:
     now_value = datetime.now(timezone.utc)
+    session_cols = await _prod_columns(db, "reference_work_sessions")
+
+    def session_expr(column: str, default: str = "") -> str:
+        if column not in session_cols:
+            return f"'{default}' AS {column}"
+        return f"COALESCE(s.{column}::text, '{default}') AS {column}"
+
+    def session_number_expr(column: str) -> str:
+        if column not in session_cols:
+            return f"0 AS {column}"
+        return f"COALESCE(s.{column}, 0) AS {column}"
+
+    session_select = ",\n            ".join([
+        session_expr("id"),
+        session_expr("company_id"),
+        session_expr("employee_id"),
+        session_expr("employee_name"),
+        session_expr("telegram_user_id"),
+        session_expr("reference_id"),
+        session_expr("reference_name"),
+        session_expr("started_at"),
+        session_expr("ended_at"),
+        session_number_expr("duration_minutes"),
+        session_expr("status"),
+        session_expr("source_channel"),
+        session_expr("created_at"),
+        session_expr("updated_at"),
+    ])
 
     active_sessions = intval(await safe_scalar(
         db,
@@ -987,11 +1015,13 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         {"company_id": company_id},
     ))
 
-    # Lectura robusta: trae la fila completa como JSONB para no romper por columnas antiguas/nuevas.
+    # Column-based read: in some legacy/runtime paths, to_jsonb(s) does not
+    # arrive as a dict and the panel ends up showing only active sessions.
     raw_rows = await safe_rows(
         db,
-        """
-        SELECT to_jsonb(s) AS row
+        f"""
+        SELECT
+            {session_select}
         FROM reference_work_sessions s
         WHERE s.company_id::text = :company_id
           AND (
@@ -1010,15 +1040,16 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         },
     )
 
-    query_strategy = "period_or_active_jsonb"
+    query_strategy = "period_or_active_columns"
 
-    # Fallback: si hay sesiones activas pero el filtro anterior no devolvió filas,
-    # lee directo las sesiones activas. Esto protege Producción contra esquemas legacy.
+    # Fallback: if active sessions exist but the period query returned no rows,
+    # read active sessions directly to keep Production usable on legacy schemas.
     if not raw_rows and active_sessions > 0:
         raw_rows = await safe_rows(
             db,
-            """
-            SELECT to_jsonb(s) AS row
+            f"""
+            SELECT
+                {session_select}
             FROM reference_work_sessions s
             WHERE s.company_id::text = :company_id
               AND (lower(COALESCE(s.status::text, '')) = 'active' OR s.ended_at IS NULL)
@@ -1027,15 +1058,16 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             """,
             {"company_id": company_id},
         )
-        query_strategy = "active_jsonb_fallback"
+        query_strategy = "active_columns_fallback"
 
-    # Fallback final: si aun así viene vacío, trae últimas sesiones de la empresa.
-    # No se usa para inventar datos; solo para que el dashboard pueda mostrar sesiones existentes.
+    # Final fallback: if it is still empty, read latest company sessions.
+    # This does not invent data; it only exposes existing sessions.
     if not raw_rows and active_sessions > 0:
         raw_rows = await safe_rows(
             db,
-            """
-            SELECT to_jsonb(s) AS row
+            f"""
+            SELECT
+                {session_select}
             FROM reference_work_sessions s
             WHERE s.company_id::text = :company_id
             ORDER BY COALESCE(s.updated_at, s.created_at, s.started_at) DESC
@@ -1043,13 +1075,9 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             """,
             {"company_id": company_id},
         )
-        query_strategy = "company_recent_jsonb_fallback"
+        query_strategy = "company_recent_columns_fallback"
 
-    sessions = []
-    for wrapper in raw_rows:
-        row = wrapper.get("row") if isinstance(wrapper, dict) else None
-        if isinstance(row, dict):
-            sessions.append(row)
+    sessions = raw_rows
 
     closure_period, closure_all = await _prod_closure_totals(db, company_id, start, end)
 
@@ -1074,19 +1102,22 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         if not started_at:
             continue
 
-        end_for_calc = ended_at or now_value
-
-        effective_seconds = await _prod_effective_seconds(
-            db,
-            company_id,
-            employee_id,
-            telegram_user_id,
-            employee_name,
-            started_at,
-            end_for_calc,
-        )
-
         stored_seconds = intval(session.get("duration_minutes")) * 60
+
+        if not is_active and stored_seconds > 0:
+            effective_seconds = stored_seconds
+        else:
+            end_for_calc = ended_at or now_value
+            effective_seconds = await _prod_effective_seconds(
+                db,
+                company_id,
+                employee_id,
+                telegram_user_id,
+                employee_name,
+                started_at,
+                end_for_calc,
+            )
+
         if effective_seconds <= 0 and stored_seconds > 0:
             effective_seconds = stored_seconds
 
