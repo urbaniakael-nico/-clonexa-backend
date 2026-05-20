@@ -9832,6 +9832,8 @@
       .cx-closing-kpi strong{display:block;font-size:28px;line-height:1.05;color:#fff}
       .cx-closing-kpi small,.cx-closing-muted{display:block;margin-top:8px;color:rgba(255,255,255,.70);font-weight:800}
       .cx-closing-main{display:grid;grid-template-columns:minmax(360px,.92fr) minmax(420px,1.08fr);gap:18px;align-items:start}
+      .cx-closing-report-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+      .cx-closing-rank-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
       .cx-closing-list{display:grid;gap:12px;max-height:680px;overflow:auto;padding-right:4px}
       .cx-closing-item{border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.065);padding:16px;display:grid;gap:12px}
       .cx-closing-item.active{border-color:rgba(255,52,210,.68);box-shadow:0 0 0 1px rgba(255,52,210,.15),0 20px 55px rgba(182,47,255,.18)}
@@ -9854,7 +9856,12 @@
       .cx-closing-stores{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
       .cx-closing-store-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}
       .cx-closing-empty{border:1px dashed rgba(255,255,255,.18);border-radius:20px;padding:22px;color:rgba(255,255,255,.70);font-weight:850;text-align:center}
-      @media(max-width:1200px){.cx-closing-toolbar,.cx-closing-main,.cx-closing-kpis,.cx-closing-stores{grid-template-columns:1fr}.cx-closing-mini,.cx-closing-detail-grid{grid-template-columns:1fr}}
+      .cx-closing-modal-backdrop{position:fixed;inset:0;z-index:9999;background:rgba(2,4,14,.76);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:22px}
+      .cx-closing-modal{width:min(1080px,96vw);max-height:88vh;overflow:auto;border:1px solid rgba(255,255,255,.16);border-radius:28px;background:linear-gradient(145deg,rgba(26,20,43,.98),rgba(8,12,28,.98));box-shadow:0 35px 120px rgba(0,0,0,.55);padding:24px}
+      .cx-closing-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:16px}
+      .cx-closing-modal-close{min-width:48px;height:48px;border-radius:16px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.10);color:#fff;font-size:22px;font-weight:950;cursor:pointer}
+      .cx-closing-json{white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(0,0,0,.26);padding:14px;color:rgba(255,255,255,.78);font-size:12px}
+      @media(max-width:1200px){.cx-closing-toolbar,.cx-closing-main,.cx-closing-kpis,.cx-closing-stores,.cx-closing-report-grid,.cx-closing-rank-grid{grid-template-columns:1fr}.cx-closing-mini,.cx-closing-detail-grid{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
   }
@@ -9906,6 +9913,85 @@
     `).join("");
   }
 
+  function cxClosingIsPanel023M(item, panel) {
+    return cxClosingNorm023K(item?.panel_type || "") === panel;
+  }
+
+  function cxClosingPanelItems023M(items = [], panel) {
+    const rows = Array.isArray(items) ? items : [];
+    return rows.filter((item) => cxClosingIsPanel023M(item, panel));
+  }
+
+  function cxClosingAggregateUsers023M(items = []) {
+    const rows = Array.isArray(items) ? items : [];
+    const users = new Map();
+    rows.forEach((item) => {
+      const itemUsers = Array.isArray(item?.users) ? item.users : [];
+      itemUsers.forEach((user) => {
+        if (!user || typeof user !== "object") return;
+        const label = user.label || user.full_name || user.email || "Sin usuario";
+        const key = String(user.user_id || user.id || label).toLowerCase();
+        const current = users.get(key) || {
+          label,
+          sales_count: 0,
+          quotes_count: 0,
+          requests_count: 0,
+          total_amount: 0,
+          cash_amount: 0,
+          transfer_amount: 0
+        };
+        current.sales_count += Number(user.sales_count || 0);
+        current.quotes_count += Number(user.quotes_count || 0);
+        current.requests_count += Number(user.requests_count || 0);
+        current.total_amount += Number(user.total_amount || 0);
+        current.cash_amount += Number(user.cash_amount || 0);
+        current.transfer_amount += Number(user.transfer_amount || 0);
+        users.set(key, current);
+      });
+    });
+    return Array.from(users.values()).sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0));
+  }
+
+  function cxClosingStoreRows023M(stores = [], empty = "Aun no hay cierres enviados desde paneles de tienda.") {
+    const rows = Array.isArray(stores) ? stores : [];
+    if (!rows.length) return `<div class="cx-closing-empty">${h(empty)}</div>`;
+    return rows.slice(0, 12).map((store) => `
+      <div class="cx-closing-user">
+        <div>
+          <strong>${h(store.label || "Tienda")}</strong>
+          <small>${Number(store.closures_count || 0)} cierres · ${Number(store.sales_count || 0)} ventas · ${Number((store.users || []).length)} colaboradores</small>
+        </div>
+        <strong>${h(cxClosingMoney023K(store.total_amount || 0))}</strong>
+      </div>
+    `).join("");
+  }
+
+  function cxClosingRankingRows023M(groups = [], empty = "Sin datos consolidados para comparar ventas y tiendas.") {
+    const rows = Array.isArray(groups) ? groups : [];
+    if (!rows.length) return `<div class="cx-closing-empty">${h(empty)}</div>`;
+    return rows.slice(0, 10).map((group, index) => `
+      <div class="cx-closing-user">
+        <div>
+          <strong>#${index + 1} ${h(group.label || cxClosingPanelLabel023K(group.panel_type))}</strong>
+          <small>${Number(group.closures_count || 0)} cierres · ${Number(group.sales_count || 0)} ventas · ${Number(group.quotes_count || 0)} cotizaciones</small>
+        </div>
+        <strong>${h(cxClosingMoney023K(group.total_amount || 0))}</strong>
+      </div>
+    `).join("");
+  }
+
+  function cxClosingReportColumn023M(title, kicker, items, selectedId, empty) {
+    return `
+      <article class="cx-closing-card">
+        <div class="cx-closing-kicker">${h(kicker)}</div>
+        <h2>${h(title)}</h2>
+        <div class="cx-closing-list">
+          ${(items || []).map((item) => cxClosingItemCard023K(item, selectedId)).join("") || `<div class="cx-closing-empty">${h(empty)}</div>`}
+        </div>
+      </article>
+    `;
+  }
+
   function cxClosingItemCard023K(item, selectedId) {
     const totals = item?.totals || {};
     const isSelected = String(item?.id || "") === String(selectedId || "");
@@ -9925,10 +10011,47 @@
         </div>
         <div class="cx-closing-actions">
           <button class="cx-closing-btn secondary" type="button" data-cx-closing-open="${h(item.id)}">Abrir</button>
-          ${cxClosingNorm023K(item.status) !== "archived" ? `<button class="cx-closing-btn secondary" type="button" data-cx-closing-review="${h(item.id)}">Guardar</button>` : ""}
-          ${cxClosingNorm023K(item.status) !== "archived" ? `<button class="cx-closing-btn danger" type="button" data-cx-closing-archive="${h(item.id)}">Archivar</button>` : ""}
+          ${cxClosingNorm023K(item.status) !== "archived" ? `<button class="cx-closing-btn danger" type="button" data-cx-closing-save-archive="${h(item.id)}">Guardar y archivar</button>` : ""}
         </div>
       </article>
+    `;
+  }
+
+  function cxClosingModal023M(item) {
+    if (!item) return "";
+    const totals = item.totals || {};
+    const snapshot = {
+      totals,
+      users: item.users || [],
+      connection_snapshot: item.connection_snapshot || {},
+      snapshot: item.snapshot || {}
+    };
+    return `
+      <div class="cx-closing-modal-backdrop" data-cx-closing-close>
+        <article class="cx-closing-modal" role="dialog" aria-modal="true" aria-label="Detalle del cierre" onclick="event.stopPropagation()">
+          <div class="cx-closing-modal-head">
+            <div>
+              <div class="cx-closing-kicker">Detalle completo enviado</div>
+              <h2>${h(cxClosingPanelLabel023K(item.panel_type))} · ${h(cxClosingDateLabel023K(item.closure_date))}</h2>
+              <p class="cx-closing-muted">Responsable: ${h(item.submitted_by_label || "Panel principal")} · Estado: ${h(cxClosingStatusLabel023K(item.status))} · Enviado ${h(cxClosingDateTimeLabel023K(item.submitted_at))}</p>
+            </div>
+            <button class="cx-closing-modal-close" type="button" data-cx-closing-close>×</button>
+          </div>
+          <div class="cx-closing-detail-grid">
+            <div class="cx-closing-kpi"><span>Total recaudado</span><strong>${h(cxClosingMoney023K(totals.total_amount || 0))}</strong><small>${Number(totals.sales_count || 0)} ventas · ${Number(totals.invoices_count || 0)} facturas</small></div>
+            <div class="cx-closing-kpi"><span>Efectivo</span><strong>${h(cxClosingMoney023K(totals.cash_amount || 0))}</strong><small>Transferencias ${h(cxClosingMoney023K(totals.transfer_amount || 0))}</small></div>
+            <div class="cx-closing-kpi"><span>Cotizaciones</span><strong>${Number(totals.quotes_count || 0)}</strong><small>${h(cxClosingMoney023K(totals.quotes_amount || 0))}</small></div>
+            <div class="cx-closing-kpi"><span>Solicitudes</span><strong>${Number(totals.requests_count || 0)}</strong><small>Cheque ${h(cxClosingMoney023K(totals.check_amount || 0))} · Otro ${h(cxClosingMoney023K(totals.other_amount || 0))}</small></div>
+          </div>
+          ${item.notes ? `<p class="cx-closing-muted" style="margin-top:14px">${h(item.notes)}</p>` : ""}
+          <div class="cx-closing-kicker" style="margin-top:18px">Vendedores / colaboradores</div>
+          <div class="cx-closing-users">${cxClosingUserList023K(item.users || [])}</div>
+          <details style="margin-top:18px">
+            <summary class="cx-closing-muted" style="cursor:pointer">Ver paquete tecnico del cierre</summary>
+            <pre class="cx-closing-json">${h(JSON.stringify(snapshot, null, 2))}</pre>
+          </details>
+        </article>
+      </div>
     `;
   }
 
@@ -9995,12 +10118,16 @@
 
     const items = Array.isArray(data.items) ? data.items : [];
     const summary = data.summary || {};
-    const selected = items.find((item) => String(item.id || "") === String(filters.selected_id || "")) || items[0] || null;
+    const selected = items.find((item) => String(item.id || "") === String(filters.selected_id || "")) || null;
     const selectedId = selected?.id || "";
     const bestSeller = summary.best_seller || {};
     const bestStore = summary.best_store || {};
     const stores = Array.isArray(data.stores) ? data.stores : [];
     const sellers = Array.isArray(data.sellers) ? data.sellers : [];
+    const groups = Array.isArray(data.groups) ? data.groups : [];
+    const salesItems = cxClosingPanelItems023M(items, "sales");
+    const storeItems = cxClosingPanelItems023M(items, "stores");
+    const salesSellers = cxClosingAggregateUsers023M(salesItems);
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -10061,33 +10188,33 @@
                 <article class="cx-closing-kpi"><span>Mejor tienda</span><strong>${h(bestStore.label || "Sin cierres")}</strong><small>${h(cxClosingMoney023K(bestStore.total_amount || 0))} · ${Number(bestStore.closures_count || 0)} cierres</small></article>
               </section>
 
-              <section class="cx-closing-main">
+              <section class="cx-closing-report-grid">
+                ${cxClosingReportColumn023M("Reportes de ventas", "Cierres recibidos", salesItems, selectedId, "No hay cierres de ventas para este filtro.")}
+                ${cxClosingReportColumn023M("Reportes de tiendas", "Cierres por tienda", storeItems, selectedId, "Aun no hay cierres enviados desde paneles de tienda.")}
+              </section>
+
+              <section class="cx-closing-rank-grid">
                 <article class="cx-closing-card">
-                  <div class="cx-closing-kicker">Cierres reportados</div>
-                  <h2>Consolas y mini paneles</h2>
-                  <div class="cx-closing-list">
-                    ${items.map((item) => cxClosingItemCard023K(item, selectedId)).join("") || `<div class="cx-closing-empty">No hay cierres reportados para este filtro.</div>`}
-                  </div>
+                  <div class="cx-closing-kicker">Ventas</div>
+                  <h2>Recaudo por vendedor</h2>
+                  <div class="cx-closing-users">${cxClosingUserList023K(salesSellers, "Sin recaudos de vendedores en los cierres de ventas.")}</div>
                 </article>
-                ${cxClosingDetail023K(selected)}
+                <article class="cx-closing-card">
+                  <div class="cx-closing-kicker">Tiendas</div>
+                  <h2>Recaudo por tienda</h2>
+                  <div class="cx-closing-users">${cxClosingStoreRows023M(stores)}</div>
+                </article>
               </section>
 
               <section class="cx-closing-card">
-                <div class="cx-closing-kicker">Tiendas</div>
-                <h2>Recaudo por tienda</h2>
-                <div class="cx-closing-stores" style="margin-top:14px">
-                  ${stores.map(cxClosingStoreCard023K).join("") || `<div class="cx-closing-empty">Aun no hay cierres enviados desde paneles de tienda.</div>`}
-                </div>
-              </section>
-
-              <section class="cx-closing-card">
-                <div class="cx-closing-kicker">Ranking</div>
-                <h2>Vendedores consolidados</h2>
-                <div class="cx-closing-users">${cxClosingUserList023K(sellers, "Sin vendedores en los cierres del filtro actual.")}</div>
+                <div class="cx-closing-kicker">Ranking total</div>
+                <h2>Consolidado ventas / tiendas</h2>
+                <div class="cx-closing-users">${cxClosingRankingRows023M(groups)}</div>
               </section>
             </section>
           </section>
         </div>
+        ${cxClosingModal023M(selected)}
       </main>
     `;
 
@@ -10103,27 +10230,26 @@
       });
     });
 
-    document.querySelectorAll("[data-cx-closing-review]").forEach((button) => {
+    document.querySelectorAll("[data-cx-closing-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        renderCommercialClosingModule023K({ ...cxClosingReadFilters023K(filters), selected_id: "" });
+      });
+    });
+
+    document.querySelectorAll("[data-cx-closing-save-archive]").forEach((button) => {
       button.addEventListener("click", async () => {
-        const id = button.getAttribute("data-cx-closing-review");
+        const id = button.getAttribute("data-cx-closing-save-archive");
         if (!id) return;
+        if (!confirm("Guardar y archivar este cierre? No se borrara; quedara disponible en archivados.")) return;
         await cxClosingApi023K(`/client-console/${encodeURIComponent(id)}/review`, {
           method: "POST",
           body: JSON.stringify({})
         });
-        await renderCommercialClosingModule023K({ ...cxClosingReadFilters023K(filters), selected_id: id });
-      });
-    });
-
-    document.querySelectorAll("[data-cx-closing-archive]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const id = button.getAttribute("data-cx-closing-archive");
-        if (!id || !confirm("Archivar este cierre? No se borrara; saldra de la vista activa.")) return;
         await cxClosingApi023K(`/client-console/${encodeURIComponent(id)}/archive`, {
           method: "POST",
           body: JSON.stringify({})
         });
-        await renderCommercialClosingModule023K(cxClosingReadFilters023K(filters));
+        await renderCommercialClosingModule023K({ ...cxClosingReadFilters023K(filters), selected_id: "" });
       });
     });
 
