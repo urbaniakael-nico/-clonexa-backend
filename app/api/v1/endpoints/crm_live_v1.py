@@ -108,27 +108,91 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
     if "status" in employee_cols:
         status_filter = "AND lower(COALESCE(e.status, 'active')) IN ('active', 'activo')"
 
-    status_join = ""
+    mini_join = ""
+    mini_status_expr = "NULL::text"
+    mini_started_expr = "NULL::text"
+    mini_shift_expr = "NULL::text"
+    mini_event_expr = "NULL::text"
+    mini_panel_type_expr = "''"
+
+    if await table_exists(db, "mini_panel_work_sessions"):
+        mini_cols = await table_columns(db, "mini_panel_work_sessions")
+        if {"company_id", "employee_id", "status", "started_at"}.issubset(mini_cols):
+            mini_updated_expr = "mp.updated_at::text" if "updated_at" in mini_cols else "mp.started_at::text"
+            mini_break_expr = "mp.current_break_started_at::text" if "current_break_started_at" in mini_cols else "NULL::text"
+            mini_panel_type_expr = "COALESCE(mp.panel_type, '')" if "panel_type" in mini_cols else "''"
+            mini_shift_expr = "mp.started_at::text"
+            mini_join = """
+                LEFT JOIN LATERAL (
+                    SELECT *
+                    FROM mini_panel_work_sessions mp
+                    WHERE mp.company_id = e.company_id
+                      AND mp.employee_id = e.id
+                      AND lower(COALESCE(mp.status, '')) IN ('active', 'break')
+                    ORDER BY mp.started_at DESC
+                    LIMIT 1
+                ) mp ON true
+            """
+            mini_status_expr = """
+                CASE
+                    WHEN lower(COALESCE(mp.status, '')) = 'active' THEN 'working'
+                    WHEN lower(COALESCE(mp.status, '')) = 'break' THEN 'on_break'
+                    ELSE NULL
+                END
+            """
+            mini_started_expr = f"""
+                CASE
+                    WHEN lower(COALESCE(mp.status, '')) = 'break'
+                        THEN COALESCE({mini_break_expr}, {mini_updated_expr}, mp.started_at::text)
+                    WHEN lower(COALESCE(mp.status, '')) = 'active'
+                        THEN COALESCE(mp.started_at::text, {mini_updated_expr})
+                    ELSE NULL::text
+                END
+            """
+            mini_event_expr = """
+                CASE
+                    WHEN lower(COALESCE(mp.status, '')) = 'active' THEN 'mini_panel_active'
+                    WHEN lower(COALESCE(mp.status, '')) = 'break' THEN 'mini_panel_break'
+                    ELSE NULL
+                END
+            """
+
+    status_join = mini_join
     status_fields = """
         'sin_turno' AS work_status,
         NULL::text AS status_started_at,
-        '' AS last_event_type
+        NULL::text AS shift_started_hint,
+        '' AS last_event_type,
+        '' AS mini_panel_type
     """
+
+    if mini_join:
+        status_fields = f"""
+            COALESCE({mini_status_expr}, 'sin_turno') AS work_status,
+            {mini_started_expr} AS status_started_at,
+            {mini_shift_expr} AS shift_started_hint,
+            COALESCE({mini_event_expr}, '') AS last_event_type,
+            {mini_panel_type_expr} AS mini_panel_type
+        """
 
     if await table_exists(db, "workforce_attendance_status"):
         status_cols = await table_columns(db, "workforce_attendance_status")
         if {"company_id", "employee_id", "status"}.issubset(status_cols):
             last_event_at_expr = "s.last_event_at::text" if "last_event_at" in status_cols else "NULL::text"
+            check_in_at_expr = "s.check_in_at::text" if "check_in_at" in status_cols else "NULL::text"
             last_event_type_expr = "COALESCE(s.last_event_type, '')" if "last_event_type" in status_cols else "''"
-            status_join = """
+            status_join = f"""
                 LEFT JOIN workforce_attendance_status s
                   ON s.company_id = e.company_id
                  AND s.employee_id = e.id
+                {mini_join}
             """
             status_fields = f"""
-                COALESCE(s.status, 'sin_turno') AS work_status,
-                {last_event_at_expr} AS status_started_at,
-                {last_event_type_expr} AS last_event_type
+                COALESCE({mini_status_expr}, s.status, 'sin_turno') AS work_status,
+                COALESCE({mini_started_expr}, {last_event_at_expr}) AS status_started_at,
+                COALESCE({mini_shift_expr}, {check_in_at_expr}) AS shift_started_hint,
+                COALESCE({mini_event_expr}, NULLIF({last_event_type_expr}, ''), '') AS last_event_type,
+                {mini_panel_type_expr} AS mini_panel_type
             """
 
     return await safe_rows(
@@ -153,7 +217,7 @@ async def employees_snapshot(db: AsyncSession, company_id: str) -> list[dict[str
 def normalize_status(status: Any) -> str:
     value = clean(status).lower()
 
-    if value in {"working", "trabajando", "activo"}:
+    if value in {"working", "trabajando", "activo", "active"}:
         return "working"
 
     if value in {"on_break", "break", "pause", "pausa", "en_pausa"}:
@@ -454,7 +518,11 @@ async def crm_live_snapshot(
         pause_started_at = None
 
         if work_status in {"working", "on_break"}:
-            shift_started_at = await latest_shift_start(db, company_id, employee_id) or status_started_at
+            shift_started_at = (
+                await latest_shift_start(db, company_id, employee_id)
+                or clean(employee.get("shift_started_hint"))
+                or status_started_at
+            )
             if not status_started_at:
                 status_started_at = shift_started_at
 
@@ -514,6 +582,7 @@ async def crm_live_snapshot(
             "employee_name": employee_name or "Empleado",
             "employee_role": clean(employee.get("employee_role")),
             "telegram_user_id": telegram_user_id,
+            "mini_panel_type": clean(employee.get("mini_panel_type")),
             "work_status": work_status,
             "work_status_label": status_label(work_status),
             "status_started_at": status_started_at,

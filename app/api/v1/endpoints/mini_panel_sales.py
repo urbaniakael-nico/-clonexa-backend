@@ -708,7 +708,10 @@ async def _sales_cut_summary(
     totals = await conn.fetchrow(
         f"""
         SELECT COALESCE(SUM(s.total), 0) AS total_amount,
-               COUNT(*) AS active_count,
+               COALESCE(SUM(CASE WHEN s.status <> 'archived' THEN s.total ELSE 0 END), 0) AS active_total_amount,
+               COUNT(*) AS period_count,
+               COUNT(*) FILTER (WHERE s.status <> 'archived') AS active_count,
+               COUNT(*) FILTER (WHERE s.status = 'archived') AS archived_count,
                MIN(s.created_at) AS first_sale_at,
                MAX(s.created_at) AS last_sale_at
         FROM mini_panel_sales_records s
@@ -758,6 +761,9 @@ async def _sales_cut_summary(
         "period_started_at": period_start,
         "period_ends_at": period_end,
         "active_count": int(totals["active_count"] or 0) if totals else 0,
+        "period_count": int(totals["period_count"] or 0) if totals else 0,
+        "archived_count": int(totals["archived_count"] or 0) if totals else 0,
+        "active_total_amount": round(_money(totals["active_total_amount"] if totals else 0), 2),
         "total_amount": round(_money(totals["total_amount"] if totals else 0), 2),
         "top_seller": {
             "label": _clean(top_seller["label"] if top_seller else "Sin ventas"),
@@ -1356,14 +1362,17 @@ async def list_sales(
             company_id,
             panel_type=panel,
             scope_user_id=scope_user_id,
-            include_archived=include_archived,
+            include_archived=True,
         )
+        active_total_amount = round(sum(float(item["total"] or 0) for item in active_items), 2)
         return {
             "company_id": str(company_id),
             "panel_type": panel,
             "count": len(items),
             "active_count": len(active_items),
-            "total_amount": round(sum(float(item["total"] or 0) for item in active_items), 2),
+            "period_count": int(cut_summary.get("period_count") or 0),
+            "active_total_amount": active_total_amount,
+            "total_amount": round(_money(cut_summary.get("total_amount")), 2),
             "cut": cut_summary,
             "items": items,
         }
@@ -1694,6 +1703,8 @@ async def sales_summary(
         "company_id": str(company_id),
         "panel_type": _panel(panel_type),
         "active_count": data["active_count"],
+        "period_count": data.get("period_count", data["active_count"]),
+        "active_total_amount": data.get("active_total_amount", data["total_amount"]),
         "total_amount": data["total_amount"],
         "cut": data.get("cut") or {},
         "latest": latest,
@@ -1715,7 +1726,7 @@ async def get_sales_cut(
             company_id,
             panel_type=panel_type,
             scope_user_id=_scope_user_id(access),
-            include_archived=False,
+            include_archived=True,
         )
     finally:
         await conn.close()
@@ -1756,7 +1767,7 @@ async def generate_sales_cut(
         access = await _require_access(conn, company_id, authorization)
         period_type = _cut_period(payload.period_type)
         panel = _panel(panel_type)
-        summary = await _sales_cut_summary(conn, company_id, panel_type=panel, include_archived=False)
+        summary = await _sales_cut_summary(conn, company_id, panel_type=panel, include_archived=True)
         now = datetime.now(timezone.utc)
         period_start = _parse_dt(summary.get("period_started_at")) or now
         cut_id = uuid.uuid4()
@@ -1799,7 +1810,7 @@ async def generate_sales_cut(
             period_start,
             now,
             _money(summary.get("total_amount")),
-            int(summary.get("active_count") or 0),
+            int(summary.get("period_count") or summary.get("active_count") or 0),
             _clean((summary.get("top_seller") or {}).get("label")),
             _money((summary.get("top_seller") or {}).get("amount")),
             _clean((summary.get("top_store") or {}).get("label")),

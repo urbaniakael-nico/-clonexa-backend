@@ -3789,13 +3789,42 @@ function moduleCard(title, description, tag, code = "") {
     bindSalesPipelineActions022G(session, active, refreshFn);
   }
 
+  function salesPeriodTotal023J(data, fallbackItems = []) {
+    const candidates = [
+      data?.cut?.total_amount,
+      data?.total_amount
+    ];
+    for (const value of candidates) {
+      const amount = Number(value);
+      if (Number.isFinite(amount)) return amount;
+    }
+    return (fallbackItems || [])
+      .filter((item) => String(item?.status || "").toLowerCase() !== "archived")
+      .reduce((sum, item) => sum + Number(item?.total || 0), 0);
+  }
+
+  function salesPeriodCount023J(data, fallbackItems = []) {
+    const candidates = [
+      data?.cut?.period_count,
+      data?.period_count,
+      data?.cut?.active_count,
+      data?.active_count
+    ];
+    for (const value of candidates) {
+      const count = Number(value);
+      if (Number.isFinite(count)) return count;
+    }
+    return (fallbackItems || []).filter((item) => String(item?.status || "").toLowerCase() !== "archived").length;
+  }
+
   async function refreshMiniPanelSalesKpis022I() {
     try {
       if (typeof salesApi022F !== "function") return;
       const data = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
       const items = Array.isArray(data.items) ? data.items : [];
       const active = items.filter((item) => String(item?.status || "").toLowerCase() !== "archived");
-      const total = active.reduce((sum, item) => sum + Number(item?.total || 0), 0);
+      const total = salesPeriodTotal023J(data, items);
+      const periodCount = salesPeriodCount023J(data, items);
 
       const cards = Array.from(root.querySelectorAll(".mp-kpi-card"));
       const totalCard = cards.find((card) => salesSearchText022I(card.querySelector("span")?.textContent || "") === "total ventas mes");
@@ -3805,7 +3834,7 @@ function moduleCard(title, description, tag, code = "") {
         const strong = totalCard.querySelector("strong");
         const small = totalCard.querySelector("small");
         if (strong) strong.textContent = formatMoney(total);
-        if (small) small.textContent = `${active.length} ventas activas registradas por este usuario`;
+        if (small) small.textContent = `${periodCount} ventas del corte actual · ${active.length} visibles`;
       }
 
       if (goalCard) {
@@ -3825,19 +3854,20 @@ function moduleCard(title, description, tag, code = "") {
     salesUxStyles022I();
     let categories = [];
     let sales = [];
+    let salesData = {};
     let loadError = "";
 
     try {
       const cats = await salesApi022F(`/categories?panel_type=${encodeURIComponent(panelType)}`);
       categories = Array.isArray(cats.items) ? cats.items : [];
-      const salesData = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
+      salesData = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
       sales = Array.isArray(salesData.items) ? salesData.items : [];
     } catch (error) {
       loadError = error.message || "No se pudo cargar Registro Venta.";
     }
 
     const activeSales = sales.filter((item) => String(item.status || "").toLowerCase() !== "archived");
-    const totalAmount = activeSales.reduce((sum, item) => sum + Number(item.total || 0), 0);
+    const totalAmount = salesPeriodTotal023J(salesData, sales);
 
     root.innerHTML = `
       <main class="sr-shell-022f">
@@ -3870,7 +3900,7 @@ function moduleCard(title, description, tag, code = "") {
           <aside class="sr-card-022f sr-panel-022f">
             <div class="sr-kicker-022f">Mis ventas</div>
             <h2>${activeSales.length} activas</h2>
-            <p class="sr-muted-022f">${h(formatMoney(totalAmount))} registrado por este usuario.</p>
+            <p class="sr-muted-022f">${h(formatMoney(totalAmount))} en el corte actual.</p>
 
             <div class="sr-search-row-022i">
               <input id="srSalesSearch022I" placeholder="Buscar venta: factura, referencia, pago, estado, total..." autocomplete="off" />

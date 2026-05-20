@@ -11,6 +11,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.employees import (
+    add_attendance_event,
+    ensure_attendance_storage,
+    upsert_attendance_status,
+)
 from app.models.auth import CompanyUser
 from app.models.core import Company, Employee
 from app.schemas.auth import (
@@ -556,6 +561,131 @@ def _cx_mp_label_019f(value: Any) -> str | None:
     return dt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
 
 
+def _cx_mp_workforce_status_023j(value: Any) -> str:
+    status_value = str(value or "active").strip().lower()
+    if status_value == "break":
+        return "on_break"
+    if status_value == "finished":
+        return "checked_out"
+    return "working"
+
+
+def _cx_mp_event_label_023j(event_type: str, panel_type: str) -> str:
+    panel_label = _cx_minipanel_type_label_019d(panel_type)
+    return {
+        "start_shift": f"Inicio mini panel {panel_label}",
+        "break_start": f"Pausa mini panel {panel_label}",
+        "break_end": f"Retorno mini panel {panel_label}",
+        "check_out": f"Cierre mini panel {panel_label}",
+    }.get(event_type, f"Mini panel {panel_label}")
+
+
+async def _cx_mp_employee_for_attendance_023j(
+    db: AsyncSession,
+    company_id: UUID,
+    employee_id: Any,
+) -> Employee | None:
+    if not employee_id:
+        return None
+    try:
+        employee_uuid = UUID(str(employee_id))
+    except Exception:
+        return None
+    result = await db.execute(
+        select(Employee).where(
+            Employee.id == employee_uuid,
+            Employee.company_id == company_id,
+        )
+    )
+    employee = result.scalar_one_or_none()
+    if not employee or str(getattr(employee, "status", "") or "").lower() == "archived":
+        return None
+    return employee
+
+
+async def _cx_mp_sync_attendance_023j(
+    db: AsyncSession,
+    company_id: UUID,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+    session_row: Dict[str, Any],
+    *,
+    event_type: str | None = None,
+    event_at: datetime | None = None,
+) -> None:
+    employee = await _cx_mp_employee_for_attendance_023j(
+        db,
+        company_id,
+        session_row.get("employee_id") or mini_panel.get("employee_id"),
+    )
+    if not employee:
+        return
+
+    await ensure_attendance_storage(db)
+
+    payload = _cx_mp_operational_payload_019f(session_row)
+    status_after = _cx_mp_workforce_status_023j(session_row.get("status"))
+    started_at = _cx_mp_dt_019f(session_row.get("started_at")) or datetime.now(timezone.utc)
+    ended_at = _cx_mp_dt_019f(session_row.get("ended_at"))
+    break_started_at = _cx_mp_dt_019f(session_row.get("current_break_started_at")) if status_after == "on_break" else None
+
+    if not event_type:
+        event_type = {
+            "working": "start_shift",
+            "on_break": "break_start",
+            "checked_out": "check_out",
+        }.get(status_after, "start_shift")
+
+    event_time = event_at
+    if not event_time:
+        if status_after == "on_break":
+            event_time = break_started_at or _cx_mp_dt_019f(session_row.get("updated_at")) or datetime.now(timezone.utc)
+        elif status_after == "checked_out":
+            event_time = ended_at or _cx_mp_dt_019f(session_row.get("updated_at")) or datetime.now(timezone.utc)
+        else:
+            event_time = started_at
+
+    await upsert_attendance_status(
+        db,
+        employee,
+        status_after,
+        event_type,
+        event_time,
+        check_in_at=started_at,
+        break_started_at=break_started_at,
+        check_out_at=ended_at if status_after == "checked_out" else None,
+        worked_minutes=int((payload.get("active_seconds") or 0) // 60),
+        break_minutes=int((payload.get("break_seconds") or 0) // 60),
+    )
+
+    if event_at:
+        source_ref = f"mini_panel:{payload.get('panel_type') or mini_panel.get('type') or ''}"
+        event_payload = {
+            "mini_panel_session_id": payload.get("id"),
+            "mini_panel_type": payload.get("panel_type") or mini_panel.get("type"),
+            "mini_panel_label": _cx_minipanel_type_label_019d(payload.get("panel_type") or mini_panel.get("type") or "other"),
+            "company_user_id": str(getattr(user, "id", "")),
+            "company_user_email": str(getattr(user, "email", "") or ""),
+            "location_label": payload.get("location_label"),
+            "active_seconds": payload.get("active_seconds"),
+            "break_seconds": payload.get("break_seconds"),
+        }
+        await add_attendance_event(
+            db,
+            employee,
+            event_type,
+            status_after,
+            source="mini_panel",
+            notes=_cx_mp_event_label_023j(event_type, payload.get("panel_type") or mini_panel.get("type") or "other"),
+            now=event_time,
+            module_code="workforce",
+            event_label=_cx_mp_event_label_023j(event_type, payload.get("panel_type") or mini_panel.get("type") or "other"),
+            source_ref=source_ref,
+            payload_json=event_payload,
+            metadata_json={"source_patch": "023J_minipanel_crm_sync"},
+        )
+
+
 async def _cx_mp_auth_context_019f(
     db: AsyncSession,
     company_id: UUID,
@@ -715,6 +845,29 @@ async def _cx_mp_create_session_019f(
             "now": now,
         },
     )
+    await _cx_mp_sync_attendance_023j(
+        db,
+        company_id,
+        user,
+        mini_panel,
+        {
+            "id": session_id,
+            "company_id": str(company_id),
+            "user_id": str(user.id),
+            "employee_id": str(employee_id) if employee_id else None,
+            "panel_type": panel_type,
+            "status": "active",
+            "location_label": "Trabajo",
+            "started_at": now,
+            "active_started_at": now,
+            "active_seconds": 0,
+            "break_seconds": 0,
+            "created_at": now,
+            "updated_at": now,
+        },
+        event_type="start_shift",
+        event_at=now,
+    )
     await db.commit()
     return await _cx_mp_fetch_session_by_id_019f(db, session_id)
 
@@ -742,6 +895,8 @@ async def mini_panel_operational_session_019f(
     _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_get_or_create_session_019f(db, company_id, user, mini_panel, clean_type)
+    await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, row)
+    await db.commit()
     return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(row)}
 
 
@@ -752,7 +907,7 @@ async def mini_panel_operational_pause_019f(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    _, user, _ = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
@@ -776,6 +931,8 @@ async def mini_panel_operational_pause_019f(
     )
     await db.commit()
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
+    await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, updated, event_type="break_start", event_at=now)
+    await db.commit()
     return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
 
 
@@ -786,7 +943,7 @@ async def mini_panel_operational_resume_019f(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    _, user, _ = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
@@ -810,6 +967,8 @@ async def mini_panel_operational_resume_019f(
     )
     await db.commit()
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
+    await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, updated, event_type="break_end", event_at=now)
+    await db.commit()
     return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
 
 
@@ -820,7 +979,7 @@ async def mini_panel_operational_finish_019f(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    _, user, _ = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
@@ -856,6 +1015,8 @@ async def mini_panel_operational_finish_019f(
     )
     await db.commit()
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
+    await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, updated, event_type="check_out", event_at=now)
+    await db.commit()
     return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
 
 
