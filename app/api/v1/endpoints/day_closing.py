@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timezone, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Any
@@ -41,6 +41,10 @@ class DayClosingSubmitIn(BaseModel):
     closure_date: str | None = Field(default=None, max_length=20)
     notes: str | None = Field(default=None, max_length=3000)
     connection_snapshot: dict[str, Any] | None = Field(default=None)
+
+
+class DayClosingReviewIn(BaseModel):
+    notes: str | None = Field(default=None, max_length=3000)
 
 
 def _database_url() -> str:
@@ -299,6 +303,12 @@ async def _ensure_storage(conn: asyncpg.Connection) -> None:
             connection_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
             users_summary JSONB NOT NULL DEFAULT '[]'::jsonb,
             snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+            reviewed_at TIMESTAMPTZ NULL,
+            reviewed_by UUID NULL,
+            reviewed_by_label VARCHAR(180) NULL,
+            archived_at TIMESTAMPTZ NULL,
+            archived_by UUID NULL,
+            archived_by_label VARCHAR(180) NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE (company_id, panel_type, closure_date)
@@ -323,6 +333,12 @@ async def _ensure_storage(conn: asyncpg.Connection) -> None:
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS connection_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS users_summary JSONB NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS reviewed_by UUID NULL;",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS reviewed_by_label VARCHAR(180) NULL;",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ NULL;",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS archived_by UUID NULL;",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS archived_by_label VARCHAR(180) NULL;",
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();",
     ]:
         await conn.execute(ddl)
@@ -565,6 +581,12 @@ def _closure_payload(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, A
         "submitted_by": str(data.get("submitted_by") or "") if data.get("submitted_by") else "",
         "submitted_by_label": _clean(data.get("submitted_by_label")),
         "submitted_at": data.get("submitted_at").isoformat() if hasattr(data.get("submitted_at"), "isoformat") else _clean(data.get("submitted_at")),
+        "reviewed_at": data.get("reviewed_at").isoformat() if hasattr(data.get("reviewed_at"), "isoformat") else _clean(data.get("reviewed_at")),
+        "reviewed_by": str(data.get("reviewed_by") or "") if data.get("reviewed_by") else "",
+        "reviewed_by_label": _clean(data.get("reviewed_by_label")),
+        "archived_at": data.get("archived_at").isoformat() if hasattr(data.get("archived_at"), "isoformat") else _clean(data.get("archived_at")),
+        "archived_by": str(data.get("archived_by") or "") if data.get("archived_by") else "",
+        "archived_by_label": _clean(data.get("archived_by_label")),
         "notes": _clean(data.get("notes")),
         "totals": {
             "sales_count": int(data.get("sales_count") or 0),
@@ -582,6 +604,250 @@ def _closure_payload(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, A
         "connection_snapshot": _json(data.get("connection_snapshot"), {}),
         "users": _json(data.get("users_summary"), []),
         "snapshot": _json(data.get("snapshot_json"), {}),
+    }
+
+
+def _parse_console_date(value: Any, fallback: date) -> date:
+    raw = _clean(value)
+    if not raw:
+        return fallback
+    try:
+        return date.fromisoformat(raw[:10])
+    except Exception:
+        raise HTTPException(status_code=422, detail="La fecha debe tener formato YYYY-MM-DD.")
+
+
+def _panel_label(panel_type: Any) -> str:
+    panel = _panel(panel_type)
+    labels = {
+        "sales": "Ventas",
+        "stores": "Tiendas",
+        "inventory": "Inventario",
+        "logistics": "Logistica",
+        "other": "Operativo",
+    }
+    return labels.get(panel, (_clean(panel_type) or "Operativo").replace("_", " ").title())
+
+
+def _is_store_panel(panel_type: Any) -> bool:
+    return _panel(panel_type) == "stores"
+
+
+def _closure_total(item: dict[str, Any], key: str) -> float:
+    totals = item.get("totals") if isinstance(item.get("totals"), dict) else {}
+    return _money(totals.get(key))
+
+
+def _closure_count(item: dict[str, Any], key: str) -> int:
+    totals = item.get("totals") if isinstance(item.get("totals"), dict) else {}
+    try:
+        return int(totals.get(key) or 0)
+    except Exception:
+        return 0
+
+
+def _merge_console_totals(target: dict[str, Any], item: dict[str, Any]) -> None:
+    for key in ["sales_count", "invoices_count", "quotes_count", "requests_count"]:
+        target[key] = int(target.get(key) or 0) + _closure_count(item, key)
+    for key in [
+        "units_sold",
+        "total_amount",
+        "cash_amount",
+        "transfer_amount",
+        "check_amount",
+        "other_amount",
+        "quotes_amount",
+    ]:
+        target[key] = round(_money(target.get(key)) + _closure_total(item, key), 2)
+
+
+def _empty_console_rollup(key: str, label: str, panel_type: str = "", is_store: bool = False) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label or "Sin nombre",
+        "panel_type": panel_type,
+        "is_store": is_store,
+        "closures_count": 0,
+        "sales_count": 0,
+        "invoices_count": 0,
+        "units_sold": 0.0,
+        "total_amount": 0.0,
+        "cash_amount": 0.0,
+        "transfer_amount": 0.0,
+        "check_amount": 0.0,
+        "other_amount": 0.0,
+        "quotes_count": 0,
+        "quotes_amount": 0.0,
+        "requests_count": 0,
+        "last_closure_date": "",
+        "last_submitted_at": "",
+        "users": [],
+        "closures": [],
+    }
+
+
+def _empty_console_user(key: str, label: str, user_id: str = "") -> dict[str, Any]:
+    item = _empty_console_rollup(key, label)
+    item["user_id"] = user_id
+    item.pop("users", None)
+    return item
+
+
+def _merge_console_user(target: dict[str, Any], user: dict[str, Any], item: dict[str, Any]) -> None:
+    target["closures_count"] = int(target.get("closures_count") or 0) + 1
+    for key in ["sales_count", "invoices_count", "quotes_count", "requests_count"]:
+        try:
+            target[key] = int(target.get(key) or 0) + int(user.get(key) or 0)
+        except Exception:
+            target[key] = int(target.get(key) or 0)
+    for key in [
+        "units_sold",
+        "total_amount",
+        "cash_amount",
+        "transfer_amount",
+        "check_amount",
+        "other_amount",
+        "quotes_amount",
+    ]:
+        target[key] = round(_money(target.get(key)) + _money(user.get(key)), 2)
+
+    closure_date = _clean(item.get("closure_date"))
+    submitted_at = _clean(item.get("submitted_at"))
+    if closure_date and closure_date >= _clean(target.get("last_closure_date")):
+        target["last_closure_date"] = closure_date
+    if submitted_at and submitted_at >= _clean(target.get("last_submitted_at")):
+        target["last_submitted_at"] = submitted_at
+
+
+def _closure_search_text(item: dict[str, Any]) -> str:
+    parts = [
+        item.get("id"),
+        item.get("panel_type"),
+        _panel_label(item.get("panel_type")),
+        item.get("area"),
+        item.get("closure_date"),
+        item.get("status"),
+        item.get("submitted_by_label"),
+        item.get("notes"),
+    ]
+    users = item.get("users") if isinstance(item.get("users"), list) else []
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        parts.extend([user.get("label"), user.get("username"), user.get("email")])
+    return _norm(" ".join(_clean(part) for part in parts))
+
+
+def _aggregate_console(items: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = _empty_console_rollup("summary", "Resumen")
+    summary.pop("users", None)
+    summary.pop("closures", None)
+    groups: dict[str, dict[str, Any]] = {}
+    stores: dict[str, dict[str, Any]] = {}
+    sellers: dict[str, dict[str, Any]] = {}
+
+    for item in items:
+        panel = _panel(item.get("panel_type"))
+        group_key = panel or "operativo"
+        group = groups.setdefault(
+            group_key,
+            _empty_console_rollup(group_key, _panel_label(panel), panel, _is_store_panel(panel)),
+        )
+
+        group["closures_count"] = int(group.get("closures_count") or 0) + 1
+        summary["closures_count"] = int(summary.get("closures_count") or 0) + 1
+        _merge_console_totals(group, item)
+        _merge_console_totals(summary, item)
+
+        closure_brief = {
+            "id": item.get("id"),
+            "closure_date": item.get("closure_date"),
+            "submitted_by_label": item.get("submitted_by_label"),
+            "submitted_at": item.get("submitted_at"),
+            "status": item.get("status"),
+            "total_amount": _closure_total(item, "total_amount"),
+        }
+        group["closures"].append(closure_brief)
+
+        closure_date = _clean(item.get("closure_date"))
+        submitted_at = _clean(item.get("submitted_at"))
+        if closure_date and closure_date >= _clean(group.get("last_closure_date")):
+            group["last_closure_date"] = closure_date
+        if submitted_at and submitted_at >= _clean(group.get("last_submitted_at")):
+            group["last_submitted_at"] = submitted_at
+
+        if _is_store_panel(panel):
+            store = stores.setdefault(
+                group_key,
+                _empty_console_rollup(group_key, _panel_label(panel), panel, True),
+            )
+            store["closures_count"] = int(store.get("closures_count") or 0) + 1
+            _merge_console_totals(store, item)
+            store["closures"].append(closure_brief)
+            store["last_closure_date"] = group.get("last_closure_date") or store.get("last_closure_date")
+            store["last_submitted_at"] = group.get("last_submitted_at") or store.get("last_submitted_at")
+
+        raw_users = item.get("users") if isinstance(item.get("users"), list) else []
+        users = [user for user in raw_users if isinstance(user, dict)]
+        if not users and _closure_total(item, "total_amount") > 0:
+            users = [
+                {
+                    "user_id": item.get("submitted_by"),
+                    "label": item.get("submitted_by_label") or "Sin usuario",
+                    **(item.get("totals") if isinstance(item.get("totals"), dict) else {}),
+                }
+            ]
+
+        group_user_map = {user.get("key"): user for user in group.get("users", []) if isinstance(user, dict)}
+        store_user_map: dict[str, dict[str, Any]] = {}
+        if _is_store_panel(panel):
+            store_user_map = {user.get("key"): user for user in stores[group_key].get("users", []) if isinstance(user, dict)}
+
+        for user in users:
+            label = _clean(user.get("label") or user.get("full_name") or user.get("email") or "Sin usuario")
+            user_id = _clean(user.get("user_id") or user.get("id"))
+            key = _user_key(user_id, label)
+
+            seller = sellers.setdefault(key, _empty_console_user(key, label, user_id))
+            _merge_console_user(seller, user, item)
+
+            group_user = group_user_map.setdefault(key, _empty_console_user(key, label, user_id))
+            _merge_console_user(group_user, user, item)
+            if group_user not in group["users"]:
+                group["users"].append(group_user)
+
+            if _is_store_panel(panel):
+                store_user = store_user_map.setdefault(key, _empty_console_user(key, label, user_id))
+                _merge_console_user(store_user, user, item)
+                if store_user not in stores[group_key]["users"]:
+                    stores[group_key]["users"].append(store_user)
+
+    seller_rows = sorted(
+        sellers.values(),
+        key=lambda item: (_money(item.get("total_amount")), int(item.get("sales_count") or 0), _clean(item.get("label"))),
+        reverse=True,
+    )
+    group_rows = sorted(groups.values(), key=lambda item: (_money(item.get("total_amount")), int(item.get("closures_count") or 0)), reverse=True)
+    store_rows = sorted(stores.values(), key=lambda item: (_money(item.get("total_amount")), int(item.get("closures_count") or 0)), reverse=True)
+
+    for row in group_rows + store_rows:
+        row["users"] = sorted(
+            [user for user in row.get("users", []) if isinstance(user, dict)],
+            key=lambda user: (_money(user.get("total_amount")), int(user.get("sales_count") or 0), _clean(user.get("label"))),
+            reverse=True,
+        )
+        row["closures"] = row.get("closures", [])[:10]
+
+    summary["submitted_count"] = sum(1 for item in items if _clean(item.get("status")).lower() == "submitted")
+    summary["reviewed_count"] = sum(1 for item in items if _clean(item.get("status")).lower() == "reviewed")
+    summary["archived_count"] = sum(1 for item in items if _clean(item.get("status")).lower() == "archived")
+    summary["best_seller"] = seller_rows[0] if seller_rows else None
+    summary["best_store"] = store_rows[0] if store_rows else None
+    return {
+        "summary": summary,
+        "groups": group_rows,
+        "stores": store_rows,
+        "sellers": seller_rows,
     }
 
 
@@ -863,5 +1129,170 @@ async def mini_panel_day_closing_history(
             "count": len(items),
             "items": items,
         }
+    finally:
+        await conn.close()
+
+
+@router.get("/companies/{company_id}/client-console")
+async def client_day_closing_console(
+    company_id: uuid.UUID,
+    date_from: str | None = Query(default=None, alias="from"),
+    date_to: str | None = Query(default=None, alias="to"),
+    panel_type: str = Query(default="all"),
+    status_filter: str = Query(default="active", alias="status"),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=120, ge=1, le=500),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        await _require_access(conn, company_id, authorization)
+
+        timezone_name = await _company_timezone(conn, company_id)
+        try:
+            today = datetime.now(ZoneInfo(timezone_name or "America/Bogota")).date()
+        except Exception:
+            today = datetime.now(timezone.utc).date()
+        end_date = _parse_console_date(date_to, today)
+        start_date = _parse_console_date(date_from, end_date - timedelta(days=30))
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+
+        normalized_panel = _norm(panel_type or "all")
+        panel = "all" if normalized_panel in {"all", "todos", "todas", ""} else _panel(normalized_panel)
+        normalized_status = _norm(status_filter or "active")
+
+        params: list[Any] = [company_id, start_date, end_date]
+        where = [
+            "company_id = $1::uuid",
+            "closure_date >= $2",
+            "closure_date <= $3",
+        ]
+
+        if panel != "all":
+            params.append(panel)
+            where.append(f"panel_type = ${len(params)}")
+
+        if normalized_status in {"active", "activos", "activas", ""}:
+            where.append("COALESCE(status, 'submitted') <> 'archived'")
+        elif normalized_status in {"archived", "archivados", "archivadas"}:
+            where.append("COALESCE(status, '') = 'archived'")
+        elif normalized_status in {"all", "todos", "todas"}:
+            pass
+        else:
+            params.append(normalized_status)
+            where.append(f"COALESCE(status, '') = ${len(params)}")
+
+        params.append(limit)
+        rows = await conn.fetch(
+            f"""
+            SELECT *
+            FROM daily_closures
+            WHERE {" AND ".join(where)}
+            ORDER BY closure_date DESC, submitted_at DESC
+            LIMIT ${len(params)}
+            """,
+            *params,
+        )
+
+        items = [item for item in (_closure_payload(row) for row in rows) if item]
+        q_norm = _norm(q)
+        if q_norm:
+            items = [item for item in items if q_norm in _closure_search_text(item)]
+
+        aggregated = _aggregate_console(items)
+        return {
+            "company_id": str(company_id),
+            "filters": {
+                "from": start_date.isoformat(),
+                "to": end_date.isoformat(),
+                "panel_type": panel,
+                "status": normalized_status or "active",
+                "q": _clean(q),
+                "limit": limit,
+            },
+            "count": len(items),
+            "items": items,
+            "summary": aggregated["summary"],
+            "groups": aggregated["groups"],
+            "stores": aggregated["stores"],
+            "sellers": aggregated["sellers"],
+        }
+    finally:
+        await conn.close()
+
+
+@router.post("/companies/{company_id}/client-console/{closure_id}/review")
+async def review_client_day_closure(
+    company_id: uuid.UUID,
+    closure_id: uuid.UUID,
+    payload: DayClosingReviewIn,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        access = await _require_access(conn, company_id, authorization)
+        reviewed_by = _access_user_id(access)
+        reviewed_by_label = _access_label(access) or "Panel principal"
+        row = await conn.fetchrow(
+            """
+            UPDATE daily_closures
+            SET status = CASE WHEN COALESCE(status, '') = 'archived' THEN status ELSE 'reviewed' END,
+                reviewed_at = NOW(),
+                reviewed_by = $3::uuid,
+                reviewed_by_label = $4,
+                notes = COALESCE(NULLIF($5, ''), notes),
+                updated_at = NOW()
+            WHERE id = $1::uuid
+              AND company_id = $2::uuid
+            RETURNING *
+            """,
+            closure_id,
+            company_id,
+            reviewed_by,
+            reviewed_by_label,
+            _clean(payload.notes),
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Cierre no encontrado.")
+        return {"ok": True, "closure": _closure_payload(row)}
+    finally:
+        await conn.close()
+
+
+@router.post("/companies/{company_id}/client-console/{closure_id}/archive")
+async def archive_client_day_closure(
+    company_id: uuid.UUID,
+    closure_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    conn = await _connect()
+    try:
+        await _ensure_storage(conn)
+        access = await _require_access(conn, company_id, authorization)
+        archived_by = _access_user_id(access)
+        archived_by_label = _access_label(access) or "Panel principal"
+        row = await conn.fetchrow(
+            """
+            UPDATE daily_closures
+            SET status = 'archived',
+                archived_at = NOW(),
+                archived_by = $3::uuid,
+                archived_by_label = $4,
+                updated_at = NOW()
+            WHERE id = $1::uuid
+              AND company_id = $2::uuid
+            RETURNING *
+            """,
+            closure_id,
+            company_id,
+            archived_by,
+            archived_by_label,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Cierre no encontrado.")
+        return {"ok": True, "closure": _closure_payload(row)}
     finally:
         await conn.close()

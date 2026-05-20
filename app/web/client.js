@@ -9724,6 +9724,417 @@
   }, true);
   /* CLONEXA_022M_REFERENCES_CLEAN_CATALOG_SKU_PRICE_END */
 
+  /* CLONEXA_023K_CLIENT_COMMERCIAL_CLOSING_CONSOLE_START */
+  const CX_COMMERCIAL_CLOSING_CODES_023K = new Set([
+    "commercial_closing",
+    "cierre_comercial",
+    "cierres_comerciales",
+    "cierre",
+    "cierres",
+    "day_closing",
+    "daily_closing",
+    "closing"
+  ]);
+
+  function cxClosingNorm023K(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function cxIsCommercialClosingCode023K(code) {
+    return CX_COMMERCIAL_CLOSING_CODES_023K.has(cxClosingNorm023K(code));
+  }
+
+  function cxClosingMoney023K(value) {
+    if (typeof cxSalesMoney022F === "function") return cxSalesMoney022F(value);
+    const number = Number(value || 0);
+    return `$ ${Math.round(number).toLocaleString("es-CO")}`;
+  }
+
+  function cxClosingDateInput023K(daysAgo = 0) {
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+
+  function cxClosingDateLabel023K(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "Sin fecha";
+    return raw.slice(0, 10);
+  }
+
+  function cxClosingDateTimeLabel023K(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "Sin registro";
+    return raw.replace("T", " ").slice(0, 16);
+  }
+
+  function cxClosingPanelLabel023K(value) {
+    const panel = cxClosingNorm023K(value || "sales");
+    const labels = {
+      sales: "Ventas",
+      venta: "Ventas",
+      ventas: "Ventas",
+      stores: "Tiendas",
+      store: "Tiendas",
+      tienda: "Tiendas",
+      tiendas: "Tiendas",
+      inventory: "Inventario",
+      logistics: "Logistica",
+      other: "Operativo"
+    };
+    return labels[panel] || String(value || "Operativo").replace(/_/g, " ");
+  }
+
+  function cxClosingStatusLabel023K(value) {
+    const status = cxClosingNorm023K(value || "submitted");
+    const labels = {
+      submitted: "Enviado",
+      reviewed: "Guardado",
+      archived: "Archivado",
+      open: "Abierto"
+    };
+    return labels[status] || String(value || "Enviado");
+  }
+
+  function cxClosingStatusClass023K(value) {
+    const status = cxClosingNorm023K(value || "submitted");
+    if (status === "archived") return "muted";
+    if (status === "reviewed") return "ok";
+    return "live";
+  }
+
+  async function cxClosingApi023K(path, options = {}) {
+    return api(`/day-closing/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxClosingStyles023K() {
+    if (document.getElementById("cxClosingStyles023K")) return;
+    const style = document.createElement("style");
+    style.id = "cxClosingStyles023K";
+    style.textContent = `
+      .cx-closing-shell{display:grid;gap:18px}
+      .cx-closing-toolbar{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr)) auto;gap:12px;align-items:end}
+      .cx-closing-field label{display:block;margin:0 0 7px;font-size:11px;font-weight:950;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.66)}
+      .cx-closing-field input,.cx-closing-field select,.cx-closing-field textarea{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.16);border-radius:16px;background:rgba(4,8,22,.62);color:#fff;padding:13px 14px;font-weight:850;outline:none}
+      .cx-closing-field textarea{min-height:90px;resize:vertical}
+      .cx-closing-btn{border:0;border-radius:17px;background:linear-gradient(135deg,#ff24b8,#7552ff);color:#fff;font-weight:950;padding:13px 16px;cursor:pointer;box-shadow:0 16px 38px rgba(189,44,255,.22)}
+      .cx-closing-btn.secondary{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.14);box-shadow:none}
+      .cx-closing-btn.danger{background:rgba(255,70,118,.16);border:1px solid rgba(255,70,118,.42);box-shadow:none}
+      .cx-closing-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+      .cx-closing-kpi,.cx-closing-card{border:1px solid rgba(255,255,255,.13);border-radius:26px;background:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.045));box-shadow:0 22px 70px rgba(0,0,0,.26);padding:20px}
+      .cx-closing-kpi span,.cx-closing-kicker{display:block;font-size:11px;font-weight:950;letter-spacing:.20em;text-transform:uppercase;color:#ff45d2;margin-bottom:10px}
+      .cx-closing-kpi strong{display:block;font-size:28px;line-height:1.05;color:#fff}
+      .cx-closing-kpi small,.cx-closing-muted{display:block;margin-top:8px;color:rgba(255,255,255,.70);font-weight:800}
+      .cx-closing-main{display:grid;grid-template-columns:minmax(360px,.92fr) minmax(420px,1.08fr);gap:18px;align-items:start}
+      .cx-closing-list{display:grid;gap:12px;max-height:680px;overflow:auto;padding-right:4px}
+      .cx-closing-item{border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.065);padding:16px;display:grid;gap:12px}
+      .cx-closing-item.active{border-color:rgba(255,52,210,.68);box-shadow:0 0 0 1px rgba(255,52,210,.15),0 20px 55px rgba(182,47,255,.18)}
+      .cx-closing-item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+      .cx-closing-item-title{font-size:17px;font-weight:950;color:#fff}
+      .cx-closing-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:7px 10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.09);font-size:12px;font-weight:950;color:#fff}
+      .cx-closing-pill.live{border-color:rgba(41,255,187,.34);background:rgba(41,255,187,.12);color:#8fffd8}
+      .cx-closing-pill.ok{border-color:rgba(126,255,85,.34);background:rgba(126,255,85,.11);color:#c8ff9e}
+      .cx-closing-pill.muted{color:rgba(255,255,255,.62)}
+      .cx-closing-mini{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+      .cx-closing-mini div{border:1px solid rgba(255,255,255,.10);border-radius:16px;background:rgba(6,9,24,.35);padding:11px}
+      .cx-closing-mini span{display:block;font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58);margin-bottom:5px}
+      .cx-closing-mini strong{display:block;color:#fff;font-size:15px}
+      .cx-closing-actions{display:flex;gap:8px;flex-wrap:wrap}
+      .cx-closing-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+      .cx-closing-users{display:grid;gap:10px;margin-top:14px}
+      .cx-closing-user{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;border:1px solid rgba(255,255,255,.10);border-radius:16px;background:rgba(4,8,22,.38);padding:12px}
+      .cx-closing-user strong{color:#fff}
+      .cx-closing-user small{color:rgba(255,255,255,.66);font-weight:800}
+      .cx-closing-stores{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+      .cx-closing-store-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}
+      .cx-closing-empty{border:1px dashed rgba(255,255,255,.18);border-radius:20px;padding:22px;color:rgba(255,255,255,.70);font-weight:850;text-align:center}
+      @media(max-width:1200px){.cx-closing-toolbar,.cx-closing-main,.cx-closing-kpis,.cx-closing-stores{grid-template-columns:1fr}.cx-closing-mini,.cx-closing-detail-grid{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxClosingFilters023K(options = {}) {
+    return {
+      from: options.from || cxClosingDateInput023K(30),
+      to: options.to || cxClosingDateInput023K(0),
+      panel_type: options.panel_type || "all",
+      status: options.status || "active",
+      q: options.q || "",
+      selected_id: options.selected_id || ""
+    };
+  }
+
+  function cxClosingReadFilters023K(current = {}) {
+    return {
+      from: document.getElementById("cxClosingFrom023K")?.value || current.from || cxClosingDateInput023K(30),
+      to: document.getElementById("cxClosingTo023K")?.value || current.to || cxClosingDateInput023K(0),
+      panel_type: document.getElementById("cxClosingPanel023K")?.value || current.panel_type || "all",
+      status: document.getElementById("cxClosingStatus023K")?.value || current.status || "active",
+      q: document.getElementById("cxClosingSearch023K")?.value || "",
+      selected_id: current.selected_id || ""
+    };
+  }
+
+  function cxClosingQuery023K(filters) {
+    const params = new URLSearchParams();
+    params.set("from", filters.from || cxClosingDateInput023K(30));
+    params.set("to", filters.to || cxClosingDateInput023K(0));
+    params.set("panel_type", filters.panel_type || "all");
+    params.set("status", filters.status || "active");
+    if (String(filters.q || "").trim()) params.set("q", filters.q.trim());
+    params.set("limit", "180");
+    return params.toString();
+  }
+
+  function cxClosingUserList023K(users = [], empty = "Sin vendedores reportados en este cierre.") {
+    const rows = Array.isArray(users) ? users : [];
+    if (!rows.length) return `<div class="cx-closing-empty">${h(empty)}</div>`;
+    return rows.slice(0, 12).map((user) => `
+      <div class="cx-closing-user">
+        <div>
+          <strong>${h(user.label || user.full_name || user.email || "Sin usuario")}</strong>
+          <small>${Number(user.sales_count || 0)} ventas · ${Number(user.quotes_count || 0)} cotizaciones · ${Number(user.requests_count || 0)} solicitudes</small>
+        </div>
+        <strong>${h(cxClosingMoney023K(user.total_amount || 0))}</strong>
+      </div>
+    `).join("");
+  }
+
+  function cxClosingItemCard023K(item, selectedId) {
+    const totals = item?.totals || {};
+    const isSelected = String(item?.id || "") === String(selectedId || "");
+    return `
+      <article class="cx-closing-item ${isSelected ? "active" : ""}">
+        <div class="cx-closing-item-head">
+          <div>
+            <div class="cx-closing-item-title">${h(cxClosingPanelLabel023K(item.panel_type))} · ${h(cxClosingDateLabel023K(item.closure_date))}</div>
+            <div class="cx-closing-muted">Enviado por ${h(item.submitted_by_label || "Panel principal")} · ${h(cxClosingDateTimeLabel023K(item.submitted_at))}</div>
+          </div>
+          <span class="cx-closing-pill ${h(cxClosingStatusClass023K(item.status))}">${h(cxClosingStatusLabel023K(item.status))}</span>
+        </div>
+        <div class="cx-closing-mini">
+          <div><span>Recaudo</span><strong>${h(cxClosingMoney023K(totals.total_amount || 0))}</strong></div>
+          <div><span>Efectivo</span><strong>${h(cxClosingMoney023K(totals.cash_amount || 0))}</strong></div>
+          <div><span>Registros</span><strong>${Number(totals.sales_count || totals.quotes_count || totals.requests_count || 0)}</strong></div>
+        </div>
+        <div class="cx-closing-actions">
+          <button class="cx-closing-btn secondary" type="button" data-cx-closing-open="${h(item.id)}">Abrir</button>
+          ${cxClosingNorm023K(item.status) !== "archived" ? `<button class="cx-closing-btn secondary" type="button" data-cx-closing-review="${h(item.id)}">Guardar</button>` : ""}
+          ${cxClosingNorm023K(item.status) !== "archived" ? `<button class="cx-closing-btn danger" type="button" data-cx-closing-archive="${h(item.id)}">Archivar</button>` : ""}
+        </div>
+      </article>
+    `;
+  }
+
+  function cxClosingDetail023K(item) {
+    if (!item) {
+      return `
+        <article class="cx-closing-card">
+          <div class="cx-closing-kicker">Detalle</div>
+          <h2>Selecciona un cierre</h2>
+          <p class="cx-closing-muted">Cuando un vendedor o tienda envie cierre desde el mini panel, podras abrirlo aqui.</p>
+        </article>
+      `;
+    }
+    const totals = item.totals || {};
+    return `
+      <article class="cx-closing-card">
+        <div class="cx-closing-kicker">Detalle del cierre</div>
+        <h2>${h(cxClosingPanelLabel023K(item.panel_type))} · ${h(cxClosingDateLabel023K(item.closure_date))}</h2>
+        <p class="cx-closing-muted">Responsable: ${h(item.submitted_by_label || "Panel principal")} · Estado: ${h(cxClosingStatusLabel023K(item.status))}</p>
+        <div class="cx-closing-detail-grid">
+          <div class="cx-closing-kpi"><span>Total recaudado</span><strong>${h(cxClosingMoney023K(totals.total_amount || 0))}</strong><small>${Number(totals.sales_count || 0)} ventas</small></div>
+          <div class="cx-closing-kpi"><span>Efectivo</span><strong>${h(cxClosingMoney023K(totals.cash_amount || 0))}</strong><small>Transferencia ${h(cxClosingMoney023K(totals.transfer_amount || 0))}</small></div>
+          <div class="cx-closing-kpi"><span>Cotizaciones</span><strong>${Number(totals.quotes_count || 0)}</strong><small>${h(cxClosingMoney023K(totals.quotes_amount || 0))}</small></div>
+          <div class="cx-closing-kpi"><span>Solicitudes</span><strong>${Number(totals.requests_count || 0)}</strong><small>${Number(totals.invoices_count || 0)} facturas</small></div>
+        </div>
+        ${item.notes ? `<p class="cx-closing-muted" style="margin-top:14px">${h(item.notes)}</p>` : ""}
+        <div class="cx-closing-kicker" style="margin-top:18px">Vendedores del cierre</div>
+        <div class="cx-closing-users">${cxClosingUserList023K(item.users || [])}</div>
+      </article>
+    `;
+  }
+
+  function cxClosingStoreCard023K(store) {
+    return `
+      <article class="cx-closing-card">
+        <div class="cx-closing-store-head">
+          <div>
+            <div class="cx-closing-kicker">Tienda / panel</div>
+            <h3>${h(store.label || "Tienda")}</h3>
+            <p class="cx-closing-muted">${Number(store.closures_count || 0)} cierres · ultimo ${h(cxClosingDateLabel023K(store.last_closure_date))}</p>
+          </div>
+          <strong>${h(cxClosingMoney023K(store.total_amount || 0))}</strong>
+        </div>
+        <div class="cx-closing-users">${cxClosingUserList023K(store.users || [], "Sin colaboradores reportados para esta tienda.")}</div>
+        <div class="cx-closing-actions" style="margin-top:12px">
+          <button class="cx-closing-btn secondary" type="button" data-cx-closing-store="${h(store.panel_type || "stores")}">Ver tienda</button>
+        </div>
+      </article>
+    `;
+  }
+
+  async function renderCommercialClosingModule023K(options = {}) {
+    cxClosingStyles023K();
+    const filters = cxClosingFilters023K(options);
+    const company = state.company || {};
+    let data = { items: [], summary: {}, stores: [], sellers: [], groups: [] };
+    let loadError = "";
+
+    try {
+      data = await cxClosingApi023K(`/client-console?${cxClosingQuery023K(filters)}`);
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar cierre comercial.";
+    }
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    const summary = data.summary || {};
+    const selected = items.find((item) => String(item.id || "") === String(filters.selected_id || "")) || items[0] || null;
+    const selectedId = selected?.id || "";
+    const bestSeller = summary.best_seller || {};
+    const bestStore = summary.best_store || {};
+    const stores = Array.isArray(data.stores) ? data.stores : [];
+    const sellers = Array.isArray(data.sellers) ? data.sellers : [];
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("commercial_closing")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Cierre Comercial</div>
+              <h1 class="client-title">Cierre comercial</h1>
+              <p class="client-muted">Consolidado de cierres diarios reportados desde mini paneles asociados a esta empresa.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-cx-closing-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            <section class="cx-closing-shell">
+              ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+
+              <article class="cx-closing-card">
+                <div class="cx-closing-toolbar">
+                  <div class="cx-closing-field"><label>Desde</label><input id="cxClosingFrom023K" type="date" value="${h(filters.from)}"></div>
+                  <div class="cx-closing-field"><label>Hasta</label><input id="cxClosingTo023K" type="date" value="${h(filters.to)}"></div>
+                  <div class="cx-closing-field">
+                    <label>Panel</label>
+                    <select id="cxClosingPanel023K">
+                      <option value="all" ${filters.panel_type === "all" ? "selected" : ""}>Todos</option>
+                      <option value="sales" ${filters.panel_type === "sales" ? "selected" : ""}>Ventas</option>
+                      <option value="stores" ${filters.panel_type === "stores" ? "selected" : ""}>Tiendas</option>
+                    </select>
+                  </div>
+                  <div class="cx-closing-field">
+                    <label>Estado</label>
+                    <select id="cxClosingStatus023K">
+                      <option value="active" ${filters.status === "active" ? "selected" : ""}>Activos</option>
+                      <option value="all" ${filters.status === "all" ? "selected" : ""}>Todos</option>
+                      <option value="submitted" ${filters.status === "submitted" ? "selected" : ""}>Enviados</option>
+                      <option value="reviewed" ${filters.status === "reviewed" ? "selected" : ""}>Guardados</option>
+                      <option value="archived" ${filters.status === "archived" ? "selected" : ""}>Archivados</option>
+                    </select>
+                  </div>
+                  <div class="cx-closing-field"><label>Buscar</label><input id="cxClosingSearch023K" value="${h(filters.q)}" placeholder="Vendedor, tienda, fecha o estado"></div>
+                  <button class="cx-closing-btn" type="button" data-cx-closing-apply>Buscar</button>
+                </div>
+              </article>
+
+              <section class="cx-closing-kpis">
+                <article class="cx-closing-kpi"><span>Cierres recibidos</span><strong>${Number(summary.closures_count || 0)}</strong><small>${Number(summary.submitted_count || 0)} enviados · ${Number(summary.reviewed_count || 0)} guardados</small></article>
+                <article class="cx-closing-kpi"><span>Dinero recolectado</span><strong>${h(cxClosingMoney023K(summary.total_amount || 0))}</strong><small>Efectivo ${h(cxClosingMoney023K(summary.cash_amount || 0))}</small></article>
+                <article class="cx-closing-kpi"><span>Mejor vendedor</span><strong>${h(bestSeller.label || "Sin datos")}</strong><small>${h(cxClosingMoney023K(bestSeller.total_amount || 0))} · ${Number(bestSeller.sales_count || 0)} ventas</small></article>
+                <article class="cx-closing-kpi"><span>Mejor tienda</span><strong>${h(bestStore.label || "Sin cierres")}</strong><small>${h(cxClosingMoney023K(bestStore.total_amount || 0))} · ${Number(bestStore.closures_count || 0)} cierres</small></article>
+              </section>
+
+              <section class="cx-closing-main">
+                <article class="cx-closing-card">
+                  <div class="cx-closing-kicker">Cierres reportados</div>
+                  <h2>Consolas y mini paneles</h2>
+                  <div class="cx-closing-list">
+                    ${items.map((item) => cxClosingItemCard023K(item, selectedId)).join("") || `<div class="cx-closing-empty">No hay cierres reportados para este filtro.</div>`}
+                  </div>
+                </article>
+                ${cxClosingDetail023K(selected)}
+              </section>
+
+              <section class="cx-closing-card">
+                <div class="cx-closing-kicker">Tiendas</div>
+                <h2>Recaudo por tienda</h2>
+                <div class="cx-closing-stores" style="margin-top:14px">
+                  ${stores.map(cxClosingStoreCard023K).join("") || `<div class="cx-closing-empty">Aun no hay cierres enviados desde paneles de tienda.</div>`}
+                </div>
+              </section>
+
+              <section class="cx-closing-card">
+                <div class="cx-closing-kicker">Ranking</div>
+                <h2>Vendedores consolidados</h2>
+                <div class="cx-closing-users">${cxClosingUserList023K(sellers, "Sin vendedores en los cierres del filtro actual.")}</div>
+              </section>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    document.querySelector("[data-cx-closing-refresh]")?.addEventListener("click", () => renderCommercialClosingModule023K({ ...filters, selected_id: selectedId }));
+    document.querySelector("[data-cx-closing-apply]")?.addEventListener("click", () => renderCommercialClosingModule023K(cxClosingReadFilters023K(filters)));
+    document.getElementById("cxClosingSearch023K")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") renderCommercialClosingModule023K(cxClosingReadFilters023K(filters));
+    });
+
+    document.querySelectorAll("[data-cx-closing-open]").forEach((button) => {
+      button.addEventListener("click", () => {
+        renderCommercialClosingModule023K({ ...cxClosingReadFilters023K(filters), selected_id: button.getAttribute("data-cx-closing-open") || "" });
+      });
+    });
+
+    document.querySelectorAll("[data-cx-closing-review]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-cx-closing-review");
+        if (!id) return;
+        await cxClosingApi023K(`/client-console/${encodeURIComponent(id)}/review`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        await renderCommercialClosingModule023K({ ...cxClosingReadFilters023K(filters), selected_id: id });
+      });
+    });
+
+    document.querySelectorAll("[data-cx-closing-archive]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-cx-closing-archive");
+        if (!id || !confirm("Archivar este cierre? No se borrara; saldra de la vista activa.")) return;
+        await cxClosingApi023K(`/client-console/${encodeURIComponent(id)}/archive`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        await renderCommercialClosingModule023K(cxClosingReadFilters023K(filters));
+      });
+    });
+
+    document.querySelectorAll("[data-cx-closing-store]").forEach((button) => {
+      button.addEventListener("click", () => {
+        renderCommercialClosingModule023K({ ...cxClosingReadFilters023K(filters), panel_type: button.getAttribute("data-cx-closing-store") || "stores" });
+      });
+    });
+  }
+  /* CLONEXA_023K_CLIENT_COMMERCIAL_CLOSING_CONSOLE_END */
+
   async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -9750,6 +10161,14 @@
       typeof renderClientUniversalNotesModule021D === "function"
     ) {
       return renderClientUniversalNotesModule021D(cxUniversalPlaceholderCode021DR1 || "notas");
+    }
+
+    if (
+      typeof cxIsCommercialClosingCode023K === "function" &&
+      cxIsCommercialClosingCode023K(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderCommercialClosingModule023K === "function"
+    ) {
+      return renderCommercialClosingModule023K();
     }
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_END */
     const company = state.company || {};
@@ -10593,6 +11012,11 @@ document.addEventListener("click", async (event) => {
 
         if (typeof cxIsSalesRegisterCode022F === "function" && cxIsSalesRegisterCode022F(code)) {
           await renderClientSalesRegisterModule022F();
+          return;
+        }
+
+        if (typeof cxIsCommercialClosingCode023K === "function" && cxIsCommercialClosingCode023K(code)) {
+          await renderCommercialClosingModule023K();
           return;
         }
 
