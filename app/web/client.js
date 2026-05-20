@@ -9966,13 +9966,24 @@
     `).join("");
   }
 
+  function cxClosingTopCollaborator023N(group) {
+    const users = Array.isArray(group?.users) ? group.users : [];
+    const ranked = users
+      .filter((user) => user && typeof user === "object")
+      .slice()
+      .sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0));
+    const top = ranked[0];
+    return top?.label || top?.full_name || top?.email || top?.username || "";
+  }
+
   function cxClosingRankingRows023M(groups = [], empty = "Sin datos consolidados para comparar ventas y tiendas.") {
     const rows = Array.isArray(groups) ? groups : [];
     if (!rows.length) return `<div class="cx-closing-empty">${h(empty)}</div>`;
     return rows.slice(0, 10).map((group, index) => `
       <div class="cx-closing-user">
         <div>
-          <strong>#${index + 1} ${h(group.label || cxClosingPanelLabel023K(group.panel_type))}</strong>
+          <strong>#${index + 1} ${h(group.label || cxClosingPanelLabel023K(group.panel_type))}${cxClosingTopCollaborator023N(group) ? ` - ${h(cxClosingTopCollaborator023N(group))}` : ""}</strong>
+          ${cxClosingTopCollaborator023N(group) ? `<small>Colaborador: ${h(cxClosingTopCollaborator023N(group))}</small>` : ""}
           <small>${Number(group.closures_count || 0)} cierres · ${Number(group.sales_count || 0)} ventas · ${Number(group.quotes_count || 0)} cotizaciones</small>
         </div>
         <strong>${h(cxClosingMoney023K(group.total_amount || 0))}</strong>
