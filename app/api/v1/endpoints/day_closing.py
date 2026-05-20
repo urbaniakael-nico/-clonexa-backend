@@ -426,7 +426,8 @@ async def _sales_rows(
           AND s.panel_type = $2
           AND s.created_at >= $3
           AND s.created_at <= $4
-          AND COALESCE(s.status, '') <> 'archived'
+          -- Business rule 023L: archiving a sale only cleans the operative view.
+          -- It must still count in the active closing period for cash/transfer audit.
         GROUP BY s.created_by, s.created_by_label, cu.full_name, cu.email
         ORDER BY total_amount DESC, label ASC
         """,
