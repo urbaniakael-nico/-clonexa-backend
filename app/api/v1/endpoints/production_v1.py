@@ -1042,8 +1042,26 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
 
     query_strategy = "period_or_active_columns"
 
-    # Fallback: if active sessions exist but the period query returned no rows,
-    # read active sessions directly to keep Production usable on legacy schemas.
+    # If date casting/filtering fails on legacy rows, prefer the complete
+    # company session history over active-only data so the accumulated summary
+    # does not collapse to "current" production.
+    if not raw_rows:
+        raw_rows = await safe_rows(
+            db,
+            f"""
+            SELECT
+                {session_select}
+            FROM reference_work_sessions s
+            WHERE s.company_id::text = :company_id
+            ORDER BY COALESCE(s.started_at, s.created_at, s.updated_at) ASC
+            LIMIT 2000
+            """,
+            {"company_id": company_id},
+        )
+        query_strategy = "company_all_columns_fallback"
+
+    # Final fallback: if it is still empty but active sessions are known to
+    # exist, read active sessions directly to keep Production usable.
     if not raw_rows and active_sessions > 0:
         raw_rows = await safe_rows(
             db,
@@ -1059,23 +1077,6 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             {"company_id": company_id},
         )
         query_strategy = "active_columns_fallback"
-
-    # Final fallback: if it is still empty, read latest company sessions.
-    # This does not invent data; it only exposes existing sessions.
-    if not raw_rows and active_sessions > 0:
-        raw_rows = await safe_rows(
-            db,
-            f"""
-            SELECT
-                {session_select}
-            FROM reference_work_sessions s
-            WHERE s.company_id::text = :company_id
-            ORDER BY COALESCE(s.updated_at, s.created_at, s.started_at) DESC
-            LIMIT 2000
-            """,
-            {"company_id": company_id},
-        )
-        query_strategy = "company_recent_columns_fallback"
 
     sessions = raw_rows
 
