@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone
+import json
 import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -48,6 +49,15 @@ router = APIRouter()
 class SalesMiniPanelUserCreateRequest(BaseModel):
     employee_id: UUID
     link: Optional[str] = None
+
+
+class SalesMiniPanelGoalUpdateRequest(BaseModel):
+    monthly_goal: float = 0
+    goal_currency: str | None = "COP"
+
+
+class SalesMiniPanelMessageUpdateRequest(BaseModel):
+    message: str | None = ""
 
 
 # CLONEXA_019D_MINIPANEL_LOGIN_BACKEND_START
@@ -327,6 +337,60 @@ def _cx_user_settings_019c(user: CompanyUser) -> Dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def _cx_money_023p(value: Any) -> float:
+    try:
+        amount = float(value or 0)
+    except Exception:
+        return 0.0
+    if amount < 0:
+        return 0.0
+    return round(amount, 2)
+
+
+def _cx_goal_currency_023p(value: Any) -> str:
+    raw = str(value or "COP").strip().upper()
+    clean = re.sub(r"[^A-Z]", "", raw)[:3]
+    return clean or "COP"
+
+
+def _cx_minipanel_goal_023p(mini_panel: Dict[str, Any]) -> Dict[str, Any]:
+    goal = _cx_money_023p(
+        mini_panel.get("monthly_goal")
+        or mini_panel.get("sales_goal")
+        or mini_panel.get("goal")
+        or 0
+    )
+    return {
+        "monthly_goal": goal,
+        "goal_currency": _cx_goal_currency_023p(mini_panel.get("goal_currency")),
+    }
+
+
+def _cx_company_settings_023p(company: Company | None) -> Dict[str, Any]:
+    raw = getattr(company, "settings_json", None) if company is not None else None
+    return raw if isinstance(raw, dict) else {}
+
+
+def _cx_sales_promotions_023p(company: Company | None) -> list[Dict[str, Any]]:
+    store = _cx_company_settings_023p(company)
+    client_sales = store.get("client_sales") if isinstance(store.get("client_sales"), dict) else {}
+    raw_promotions = client_sales.get("promotions")
+    if isinstance(raw_promotions, list):
+        items = [item for item in raw_promotions if isinstance(item, dict) and str(item.get("message") or item.get("title") or "").strip()]
+        if items:
+            return items[:3]
+
+    message = str(client_sales.get("promotion_message") or "").strip()
+    if not message:
+        return []
+    return [{
+        "title": client_sales.get("promotion_title") or "Mensaje de ventas",
+        "message": message,
+        "status": "active",
+        "updated_at": client_sales.get("promotion_updated_at"),
+    }]
+
+
 def _cx_is_minipanel_user_019c(user: CompanyUser, panel_type: Optional[str] = None) -> bool:
     settings = _cx_user_settings_019c(user)
     mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
@@ -373,6 +437,7 @@ async def _cx_find_minipanel_user_019c(
 def _cx_minipanel_user_payload_019c(user: CompanyUser, temporary_password: Optional[str] = None) -> Dict[str, Any]:
     settings = _cx_user_settings_019c(user)
     mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    goal = _cx_minipanel_goal_023p(mini_panel)
     return {
         "id": str(user.id),
         "company_id": str(user.company_id),
@@ -384,6 +449,8 @@ def _cx_minipanel_user_payload_019c(user: CompanyUser, temporary_password: Optio
         "panel_type": mini_panel.get("type"),
         "employee_id": mini_panel.get("employee_id"),
         "link": mini_panel.get("link"),
+        "monthly_goal": goal["monthly_goal"],
+        "goal_currency": goal["goal_currency"],
         "created_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
         "updated_at": user.updated_at.isoformat() if getattr(user, "updated_at", None) else None,
         "temporary_password": temporary_password,
@@ -451,6 +518,8 @@ async def create_sales_mini_panel_user(
                 "username": username,
                 "link": str(payload.link or ""),
                 "source": "client_sales_module",
+                "monthly_goal": 0,
+                "goal_currency": "COP",
             }
         },
     )
@@ -503,6 +572,93 @@ async def reset_mini_panel_user_password_019d_r2(
 
     return _cx_minipanel_user_payload_019c(user, temporary_password=temp_password)
 # CLONEXA_019D_R2_MINIPANEL_PASSWORD_RESET_END
+
+
+# CLONEXA_023P_SALES_GOALS_MESSAGES_START
+@router.put("/{company_id}/mini-panel-users/{user_id}/sales-goal")
+async def update_sales_mini_panel_goal_023p(
+    company_id: UUID,
+    user_id: UUID,
+    payload: SalesMiniPanelGoalUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    result = await db.execute(
+        select(CompanyUser).where(
+            CompanyUser.company_id == company_id,
+            CompanyUser.id == user_id,
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario mini panel no encontrado.")
+
+    settings = dict(_cx_user_settings_019c(user))
+    mini_panel = dict(settings.get("mini_panel") or {})
+    if mini_panel.get("enabled") is not True or str(mini_panel.get("type") or "").strip().lower() != "sales":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El usuario no pertenece al mini panel de ventas.")
+
+    mini_panel["monthly_goal"] = _cx_money_023p(payload.monthly_goal)
+    mini_panel["goal_currency"] = _cx_goal_currency_023p(payload.goal_currency)
+    mini_panel["goal_updated_at"] = datetime.now(timezone.utc).isoformat()
+    settings["mini_panel"] = mini_panel
+    user.settings_json = settings
+    user.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(user)
+    return _cx_minipanel_user_payload_019c(user)
+
+
+@router.get("/{company_id}/mini-panel-sales-message")
+async def get_sales_mini_panel_message_023p(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _cx_company_or_404_019d(db, company_id)
+    promotions = _cx_sales_promotions_023p(company)
+    first = promotions[0] if promotions else {}
+    return {
+        "company_id": str(company_id),
+        "message": first.get("message") or "",
+        "promotions": promotions,
+    }
+
+
+@router.put("/{company_id}/mini-panel-sales-message")
+async def update_sales_mini_panel_message_023p(
+    company_id: UUID,
+    payload: SalesMiniPanelMessageUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _cx_company_or_404_019d(db, company_id)
+    message = str(payload.message or "").strip()[:280]
+    now = datetime.now(timezone.utc).isoformat()
+
+    store = dict(_cx_company_settings_023p(company))
+    client_sales = dict(store.get("client_sales") or {})
+    client_sales["promotion_message"] = message
+    client_sales["promotion_title"] = "Mensaje de ventas"
+    client_sales["promotion_updated_at"] = now if message else None
+    client_sales["promotions"] = ([{
+        "title": "Mensaje de ventas",
+        "message": message,
+        "status": "active",
+        "updated_at": now,
+    }] if message else [])
+    store["client_sales"] = client_sales
+    company.settings_json = store
+    if hasattr(company, "updated_at"):
+        company.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(company)
+    promotions = _cx_sales_promotions_023p(company)
+    return {
+        "company_id": str(company_id),
+        "message": message,
+        "promotions": promotions,
+    }
+# CLONEXA_023P_SALES_GOALS_MESSAGES_END
 
 # CLONEXA_019F_MINI_PANEL_SALES_OPERATIVE_START
 
@@ -559,6 +715,107 @@ def _cx_mp_label_019f(value: Any) -> str | None:
     if not dt:
         return None
     return dt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+
+
+async def _cx_table_exists_023p(db: AsyncSession, table_name: str) -> bool:
+    result = await db.execute(
+        text("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = :table_name
+            ) AS exists
+        """),
+        {"table_name": table_name},
+    )
+    row = result.mappings().first()
+    return bool(row and row.get("exists"))
+
+
+def _cx_json_dict_023p(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+async def _cx_sales_cut_started_at_023p(db: AsyncSession, company_id: UUID) -> datetime | None:
+    if not await _cx_table_exists_023p(db, "mini_panel_sales_settings"):
+        return None
+    result = await db.execute(
+        text("""
+            SELECT settings
+            FROM mini_panel_sales_settings
+            WHERE company_id = CAST(:company_id AS uuid)
+            LIMIT 1
+        """),
+        {"company_id": str(company_id)},
+    )
+    row = result.mappings().first()
+    settings = _cx_json_dict_023p(row.get("settings") if row else None)
+    sales_cut = settings.get("sales_cut") if isinstance(settings.get("sales_cut"), dict) else {}
+    started = sales_cut.get("started_at") or settings.get("sales_cut_started_at")
+    return _cx_mp_dt_019f(started)
+
+
+async def _cx_mp_sales_kpis_023p(
+    db: AsyncSession,
+    company: Company,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+) -> Dict[str, Any]:
+    goal = _cx_minipanel_goal_023p(mini_panel)
+    kpis: Dict[str, Any] = {
+        "monthly_sales_total": 0,
+        "monthly_sales_count": 0,
+        "visible_sales_count": 0,
+        "monthly_goal": goal["monthly_goal"],
+        "goal_currency": goal["goal_currency"],
+        "promotions": _cx_sales_promotions_023p(company),
+    }
+
+    if str(mini_panel.get("type") or "").strip().lower() != "sales":
+        return kpis
+    if not await _cx_table_exists_023p(db, "mini_panel_sales_records"):
+        return kpis
+
+    params: Dict[str, Any] = {
+        "company_id": str(company.id),
+        "user_id": str(user.id),
+    }
+    where = [
+        "company_id = CAST(:company_id AS uuid)",
+        "created_by = CAST(:user_id AS uuid)",
+        "panel_type = 'sales'",
+    ]
+    started_at = await _cx_sales_cut_started_at_023p(db, company.id)
+    if started_at:
+        where.append("created_at >= :started_at")
+        params["started_at"] = started_at
+
+    result = await db.execute(
+        text(f"""
+            SELECT
+                COALESCE(SUM(total), 0)::float AS total_amount,
+                COUNT(*)::int AS period_count,
+                COUNT(*) FILTER (WHERE status <> 'archived')::int AS visible_count
+            FROM mini_panel_sales_records
+            WHERE {" AND ".join(where)}
+        """),
+        params,
+    )
+    row = result.mappings().first()
+    if row:
+        kpis["monthly_sales_total"] = _cx_money_023p(row.get("total_amount"))
+        kpis["monthly_sales_count"] = int(row.get("period_count") or 0)
+        kpis["visible_sales_count"] = int(row.get("visible_count") or 0)
+    return kpis
 
 
 def _cx_mp_workforce_status_023j(value: Any) -> str:
@@ -708,7 +965,7 @@ async def _cx_mp_auth_context_019f(
     return company, user, mini_panel
 
 
-def _cx_mp_operational_payload_019f(row: Any) -> Dict[str, Any]:
+def _cx_mp_operational_payload_019f(row: Any, kpis: Dict[str, Any] | None = None) -> Dict[str, Any]:
     data = dict(row or {})
     now = datetime.now(timezone.utc)
 
@@ -743,13 +1000,24 @@ def _cx_mp_operational_payload_019f(row: Any) -> Dict[str, Any]:
         "break_seconds": break_seconds,
         "paid_seconds": active_seconds,
         "server_time": now.isoformat(),
-        "kpis": {
+        "kpis": kpis or {
             "monthly_sales_total": 0,
             "monthly_goal": 0,
             "goal_currency": "COP",
             "promotions": [],
         },
     }
+
+
+async def _cx_mp_operational_response_023p(
+    db: AsyncSession,
+    company: Company,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+    row: Dict[str, Any],
+) -> Dict[str, Any]:
+    kpis = await _cx_mp_sales_kpis_023p(db, company, user, mini_panel)
+    return _cx_mp_operational_payload_019f(row, kpis)
 
 
 async def _cx_mp_fetch_open_session_019f(
@@ -892,12 +1160,12 @@ async def mini_panel_operational_session_019f(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    company, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_get_or_create_session_019f(db, company_id, user, mini_panel, clean_type)
     await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, row)
     await db.commit()
-    return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(row)}
+    return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)}
 
 
 @router.post("/{company_id}/mini-panel-operational-session/pause")
@@ -907,13 +1175,13 @@ async def mini_panel_operational_pause_019f(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    company, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesiÃ³n operativa activa.")
     if str(row.get("status") or "") == "break":
-        return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(row)}
+        return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)}
 
     now = datetime.now(timezone.utc)
     active_delta = _cx_mp_seconds_between_019f(row.get("active_started_at"), now)
@@ -933,7 +1201,7 @@ async def mini_panel_operational_pause_019f(
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
     await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, updated, event_type="break_start", event_at=now)
     await db.commit()
-    return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
+    return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, updated)}
 
 
 @router.post("/{company_id}/mini-panel-operational-session/resume")
@@ -943,13 +1211,13 @@ async def mini_panel_operational_resume_019f(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    company, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesiÃ³n operativa activa.")
     if str(row.get("status") or "") == "active":
-        return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(row)}
+        return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)}
 
     now = datetime.now(timezone.utc)
     break_delta = _cx_mp_seconds_between_019f(row.get("current_break_started_at"), now)
@@ -969,7 +1237,7 @@ async def mini_panel_operational_resume_019f(
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
     await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, updated, event_type="break_end", event_at=now)
     await db.commit()
-    return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
+    return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, updated)}
 
 
 @router.post("/{company_id}/mini-panel-operational-session/finish")
@@ -979,7 +1247,7 @@ async def mini_panel_operational_finish_019f(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    _, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    company, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
@@ -1017,7 +1285,7 @@ async def mini_panel_operational_finish_019f(
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
     await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, updated, event_type="check_out", event_at=now)
     await db.commit()
-    return {"ok": True, "operational_session": _cx_mp_operational_payload_019f(updated)}
+    return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, updated)}
 
 
 

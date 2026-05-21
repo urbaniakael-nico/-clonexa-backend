@@ -7592,7 +7592,7 @@
       }
       .cx-sales-access-row {
         display: grid;
-        grid-template-columns: minmax(190px, 1.4fr) minmax(130px, .8fr) minmax(180px, 1fr) minmax(220px, 1.2fr) auto;
+        grid-template-columns: minmax(190px, 1.2fr) minmax(130px, .7fr) minmax(180px, 1fr) minmax(220px, 1fr) minmax(240px, 1fr);
         gap: 10px;
         align-items: center;
         padding: 14px;
@@ -7635,8 +7635,44 @@
       .cx-sales-password strong {
         user-select: all;
       }
+      .cx-sales-command-grid {
+        display: grid;
+        grid-template-columns: minmax(220px, .7fr) minmax(260px, 1.3fr);
+        gap: 12px;
+        margin: 16px 0;
+      }
+      .cx-sales-command-card {
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.06);
+      }
+      .cx-sales-command-card strong {
+        font-size: 28px;
+        line-height: 1;
+      }
+      .cx-sales-input,
+      .cx-sales-textarea {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 14px;
+        background: rgba(5,8,18,.72);
+        color: inherit;
+        font-weight: 800;
+        padding: 12px 14px;
+        outline: none;
+      }
+      .cx-sales-textarea {
+        min-height: 78px;
+        resize: vertical;
+      }
+      .cx-sales-goal-box {
+        display: grid;
+        gap: 8px;
+      }
       @media (max-width: 1100px) {
         .cx-sales-access-row { grid-template-columns: 1fr; }
+        .cx-sales-command-grid { grid-template-columns: 1fr; }
       }
     `;
     document.head.appendChild(style);
@@ -7699,6 +7735,45 @@
     });
   }
 
+  async function cxSaveSalesMiniPanelGoal023P(userId, monthlyGoal, currency = "COP") {
+    return api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users/${encodeURIComponent(userId)}/sales-goal`, {
+      method: "PUT",
+      body: JSON.stringify({
+        monthly_goal: Number(monthlyGoal || 0),
+        goal_currency: currency || "COP"
+      })
+    });
+  }
+
+  async function cxLoadSalesMiniPanelMessage023P() {
+    if (!state.companyId) return { message: "", promotions: [] };
+    try {
+      return await api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-sales-message`);
+    } catch (error) {
+      return { message: "", promotions: [], error: error.message || "No se pudo cargar el mensaje." };
+    }
+  }
+
+  async function cxSaveSalesMiniPanelMessage023P(message) {
+    return api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-sales-message`, {
+      method: "PUT",
+      body: JSON.stringify({ message: message || "" })
+    });
+  }
+
+  function cxSalesMoney023P(value) {
+    const number = Number(value || 0);
+    try {
+      return new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0
+      }).format(number);
+    } catch (_) {
+      return `$ ${Math.round(number).toLocaleString("es-CO")}`;
+    }
+  }
+
   async function cxCopyText019DR2(value, label = "Texto") {
     const text = String(value || "");
     if (!text) return false;
@@ -7745,6 +7820,7 @@
     const assignedId = assigned ? String(assigned.id || "") : "";
     const statusText = assigned ? (assigned.status || "active") : "pendiente";
     const link = assigned && assigned.link ? assigned.link : (salesLink ? salesLink.link : "");
+    const monthlyGoal = assigned ? Number(assigned.monthly_goal || 0) : 0;
 
     return `
       <div class="cx-sales-access-row" data-sales-employee-id="${h(employeeId)}">
@@ -7770,10 +7846,16 @@
               ? `<div class="cx-sales-actions">
                   <span class="cx-sales-chip">Activo</span>
                   <button class="client-btn" type="button" data-sales-minipanel-reset="${h(assignedId)}" data-sales-minipanel-username="${h(assignedUser)}">Regenerar clave</button>
-                  <button class="client-btn" type="button" data-sales-copy="${h(assignedUser)}">Copiar usuario</button>
                 </div>`
               : `<button class="client-btn" type="button" data-sales-minipanel-create="${h(employeeId)}" data-sales-minipanel-link="${h(link || "")}" ${!salesLink ? "disabled" : ""}>Generar usuario</button>`
           }
+          ${assigned ? `
+            <div class="cx-sales-goal-box" style="margin-top:10px">
+              <div class="cx-sales-muted">Asignar meta</div>
+              <input class="cx-sales-input" type="number" min="0" step="1000" value="${h(monthlyGoal)}" data-sales-goal-input="${h(assignedId)}" placeholder="Meta de ventas">
+              <button class="client-btn" type="button" data-sales-goal-save="${h(assignedId)}">Guardar meta</button>
+            </div>
+          ` : ""}
         </div>
       </div>
     `;
@@ -7785,12 +7867,14 @@
     const company = state.company || {};
     let employees = [];
     let users = [];
+    let salesMessage = { message: "", promotions: [] };
     let loadError = "";
     let lastCreated = window.__cxSalesMiniPanelLastCreated019C || null;
 
     try {
       employees = await loadPersonalEmployees();
       users = await cxLoadSalesMiniPanelUsers019C();
+      salesMessage = await cxLoadSalesMiniPanelMessage023P();
     } catch (error) {
       loadError = error.message || "No se pudo cargar ventas.";
     }
@@ -7800,6 +7884,10 @@
       String(employee.status || "active") !== "archived" && cxIsSalesEmployee019C(employee)
     );
     const assignedByEmployee = cxSalesUsersByEmployee019C(users);
+    const totalSalesGoal = (Array.isArray(users) ? users : [])
+      .filter((user) => String(user.panel_type || "") === "sales")
+      .reduce((sum, user) => sum + Number(user.monthly_goal || 0), 0);
+    const sellersWithGoal = (Array.isArray(users) ? users : []).filter((user) => Number(user.monthly_goal || 0) > 0).length;
 
     const rows = sellers.length
       ? sellers.map((employee) => cxSalesAccessRow019C(employee, assignedByEmployee.get(cxSalesEmployeeKey019C(employee)), salesLink)).join("")
@@ -7831,6 +7919,22 @@
               <div class="client-eyebrow">Accesos de vendedores</div>
               <h2>Usuarios mini panel ventas</h2>
               <p class="client-muted">Fuente: Workforce. Rol requerido: vendedor, ventas, comercial o asesor comercial.</p>
+
+              <div class="cx-sales-command-grid">
+                <article class="cx-sales-command-card">
+                  <div class="client-eyebrow">Meta total ventas</div>
+                  <strong>${h(cxSalesMoney023P(totalSalesGoal))}</strong>
+                  <p class="cx-sales-muted">${h(sellersWithGoal)} vendedor(es) con meta asignada.</p>
+                </article>
+                <article class="cx-sales-command-card">
+                  <div class="client-eyebrow">Mensaje a mini paneles</div>
+                  <textarea class="cx-sales-textarea" data-sales-message-input maxlength="280" placeholder="Promocion, campana o instruccion para vendedores...">${h(salesMessage.message || "")}</textarea>
+                  <div class="cx-sales-actions" style="margin-top:10px">
+                    <button class="client-btn" type="button" data-sales-message-save>Enviar mensaje</button>
+                    <span class="cx-sales-muted">${h((salesMessage.message || "").length)}/280</span>
+                  </div>
+                </article>
+              </div>
 
               ${loadError ? `<div class="personal-toast error" style="margin-top:14px">${h(loadError)}</div>` : ""}
               ${!salesLink ? `<div class="personal-toast error" style="margin-top:14px">El paquete no tiene link de Ventas habilitado desde Admin V2.</div>` : `
@@ -7887,11 +7991,48 @@
       return;
     }
 
-    const copyButton = event.target.closest("[data-sales-copy]");
-    if (copyButton) {
+    const messageButton = event.target.closest("[data-sales-message-save]");
+    if (messageButton) {
       event.preventDefault();
       event.stopPropagation();
-      await cxCopyText019DR2(copyButton.getAttribute("data-sales-copy") || "", "Usuario");
+      const input = document.querySelector("[data-sales-message-input]");
+      const originalText = messageButton.textContent || "Enviar mensaje";
+      try {
+        messageButton.disabled = true;
+        messageButton.textContent = "Enviando...";
+        await cxSaveSalesMiniPanelMessage023P(input?.value || "");
+        await renderSalesModule019C();
+        cxSalesNotice019DR1("Mensaje enviado a los mini paneles de ventas.");
+      } catch (error) {
+        messageButton.disabled = false;
+        messageButton.textContent = originalText;
+        cxSalesNotice019DR1(error.message || "No se pudo enviar el mensaje.", true);
+      }
+      return;
+    }
+
+    const goalButton = event.target.closest("[data-sales-goal-save]");
+    if (goalButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const userId = goalButton.getAttribute("data-sales-goal-save") || "";
+      const input = document.querySelector(`[data-sales-goal-input="${userId}"]`);
+      const originalText = goalButton.textContent || "Guardar meta";
+      if (!userId) {
+        cxSalesNotice019DR1("No se encontro el usuario para asignar meta.", true);
+        return;
+      }
+      try {
+        goalButton.disabled = true;
+        goalButton.textContent = "Guardando...";
+        await cxSaveSalesMiniPanelGoal023P(userId, input?.value || 0);
+        await renderSalesModule019C();
+        cxSalesNotice019DR1("Meta asignada. El mini panel la vera en Ventas vs meta.");
+      } catch (error) {
+        goalButton.disabled = false;
+        goalButton.textContent = originalText;
+        cxSalesNotice019DR1(error.message || "No se pudo guardar la meta.", true);
+      }
       return;
     }
 

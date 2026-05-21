@@ -1964,6 +1964,8 @@ function moduleCard(title, description, tag, code = "") {
     const salesTotal = Number(kpis.monthly_sales_total || 0);
     const goal = Number(kpis.monthly_goal || 0);
     const goalPct = goal > 0 ? Math.min(100, Math.round((salesTotal / goal) * 100)) : 0;
+    const promotions = Array.isArray(kpis.promotions) ? kpis.promotions.filter((item) => item && (item.message || item.title)) : [];
+    const activePromotion = promotions[0] || null;
     const isFinished = operational.status === "finished";
     const dynamicModules019H = buildDynamicMiniPanelModules019H(moduleConfig || currentModuleConfig);
     const modulesHtml019H = renderDynamicModulesHtml019H(dynamicModules019H);
@@ -2064,8 +2066,8 @@ function moduleCard(title, description, tag, code = "") {
             ${notesCardHtml020A}
 <article class="mp-kpi-card wide">
               <span>Promociones / mensaje</span>
-              <strong>Sin promociones activas</strong>
-              <small>Este espacio recibirá campañas enviadas desde el CRM madre Mundo Case.</small>
+              <strong>${h(activePromotion ? (activePromotion.title || "Mensaje de ventas") : "Sin promociones activas")}</strong>
+              <small>${h(activePromotion ? (activePromotion.message || "") : "Este espacio recibira campanas enviadas desde la consola de ventas.")}</small>
             </article>
           </div>
         </section>
@@ -3825,6 +3827,8 @@ function moduleCard(title, description, tag, code = "") {
       const active = items.filter((item) => String(item?.status || "").toLowerCase() !== "archived");
       const total = salesPeriodTotal023J(data, items);
       const periodCount = salesPeriodCount023J(data, items);
+      const goal = Number(currentOperational?.kpis?.monthly_goal || 0);
+      const goalPct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
 
       const cards = Array.from(root.querySelectorAll(".mp-kpi-card"));
       const totalCard = cards.find((card) => salesSearchText022I(card.querySelector("span")?.textContent || "") === "total ventas mes");
@@ -3841,9 +3845,9 @@ function moduleCard(title, description, tag, code = "") {
         const strong = goalCard.querySelector("strong");
         const progress = goalCard.querySelector(".mp-progress i");
         const small = goalCard.querySelector("small");
-        if (strong) strong.textContent = `${formatMoney(total)} / ${formatMoney(0)}`;
-        if (progress) progress.style.width = "0%";
-        if (small) small.textContent = "Meta pendiente de configurar";
+        if (strong) strong.textContent = `${formatMoney(total)} / ${formatMoney(goal)}`;
+        if (progress) progress.style.width = `${goalPct}%`;
+        if (small) small.textContent = goal > 0 ? `${goalPct}% de cumplimiento` : "Meta pendiente de configurar";
       }
     } catch (error) {
       console.warn("CLONEXA 022I KPI ventas fallback:", error);
