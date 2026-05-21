@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.payroll import calculate_period_snapshot
 
 router = APIRouter()
 
@@ -1152,11 +1153,81 @@ def _prod_matching_work_intervals_023r(
     return _prod_merge_intervals_023r(intervals)
 
 
+async def _prod_payroll_caps_023r(
+    db: AsyncSession,
+    company_id: str,
+    start: date,
+    end: date,
+) -> dict[str, Any]:
+    try:
+        snapshot = await calculate_period_snapshot(db, uuid.UUID(str(company_id)), start, end)
+    except Exception:
+        await db.rollback()
+        return {"caps": {}, "total_seconds": 0, "source": "unavailable"}
+
+    caps: dict[str, int] = {}
+    total_seconds = 0
+    for row in snapshot.get("rows") or []:
+        seconds = max(0, (intval(row.get("regular_minutes")) + intval(row.get("extra_minutes"))) * 60)
+        if seconds <= 0:
+            continue
+        total_seconds += seconds
+        for key in _prod_identity_keys_023r(
+            clean(row.get("employee_id")),
+            "",
+            clean(row.get("employee_name")),
+        ):
+            caps[key] = max(caps.get(key, 0), seconds)
+
+    return {"caps": caps, "total_seconds": total_seconds, "source": "payroll_calculate_period"}
+
+
+def _prod_cap_operator_reference_seconds_023r(
+    by_operator_reference: dict[str, dict[str, Any]],
+    payroll_caps: dict[str, int],
+) -> tuple[bool, int]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in by_operator_reference.values():
+        keys = _prod_identity_keys_023r(
+            clean(item.get("employee_id")),
+            clean(item.get("telegram_user_id")),
+            clean(item.get("employee_name")),
+        )
+        cap_key = next((key for key in keys if key in payroll_caps), keys[0] if keys else "")
+        if cap_key:
+            grouped.setdefault(cap_key, []).append(item)
+
+    applied = False
+    capped_total = 0
+    for key, rows in grouped.items():
+        raw_total = sum(int(row.get("effective_seconds") or 0) for row in rows)
+        cap = int(payroll_caps.get(key) or 0)
+        if raw_total <= 0:
+            continue
+        if cap > 0 and raw_total > cap:
+            ratio = cap / raw_total
+            applied = True
+            remaining = cap
+            for index, row in enumerate(sorted(rows, key=lambda item: int(item.get("effective_seconds") or 0), reverse=True)):
+                if index == len(rows) - 1:
+                    new_seconds = max(0, remaining)
+                else:
+                    new_seconds = max(0, int(round(int(row.get("effective_seconds") or 0) * ratio)))
+                    remaining -= new_seconds
+                row["raw_effective_seconds"] = int(row.get("effective_seconds") or 0)
+                row["effective_seconds"] = new_seconds
+                row["payroll_cap_applied"] = True
+        capped_total += sum(int(row.get("effective_seconds") or 0) for row in rows)
+
+    return applied, capped_total
+
+
 async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: date) -> dict[str, Any]:
     now_value = datetime.now(timezone.utc)
     period_start_dt, period_end_dt = _prod_period_bounds_023r(start, end)
     as_of = min(now_value, period_end_dt)
     work_intervals = await _prod_work_intervals_023r(db, company_id, period_start_dt, period_end_dt, as_of)
+    payroll_cap_data = await _prod_payroll_caps_023r(db, company_id, start, end)
     session_cols = await _prod_columns(db, "reference_work_sessions")
 
     def session_expr(column: str, default: str = "") -> str:
@@ -1379,6 +1450,21 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         op_item["effective_seconds"] += effective_seconds
         op_item["is_active"] = bool(op_item["is_active"] or is_active)
 
+    raw_effective_seconds = total_effective_seconds
+    payroll_cap_applied, capped_total = _prod_cap_operator_reference_seconds_023r(
+        by_operator_reference,
+        payroll_cap_data.get("caps") if isinstance(payroll_cap_data.get("caps"), dict) else {},
+    )
+    if payroll_cap_applied:
+        total_effective_seconds = capped_total
+        for item in by_reference.values():
+            item["raw_total_effective_seconds"] = item["total_effective_seconds"]
+            item["total_effective_seconds"] = 0
+        for op_item in by_operator_reference.values():
+            ref_item = by_reference.get(op_item.get("reference_key"))
+            if ref_item:
+                ref_item["total_effective_seconds"] += int(op_item.get("effective_seconds") or 0)
+
     for item in by_reference.values():
         item["operators_count"] = len(item.pop("operators", set()))
         item["total_effective_minutes"] = round(item["total_effective_seconds"] / 60, 2)
@@ -1420,7 +1506,12 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         "total_effective_seconds_period": total_effective_seconds,
         "total_effective_label_period": _prod_format_seconds(total_effective_seconds),
         "total_minutes_period": round(total_effective_seconds / 60, 2),
-        "time_rule": "pause_excluded_from_shift_and_reference",
+        "raw_effective_seconds_period": raw_effective_seconds,
+        "raw_effective_label_period": _prod_format_seconds(raw_effective_seconds),
+        "payroll_cap_applied": payroll_cap_applied,
+        "payroll_cap_seconds_period": int(payroll_cap_data.get("total_seconds") or 0),
+        "payroll_cap_label_period": _prod_format_seconds(int(payroll_cap_data.get("total_seconds") or 0)),
+        "time_rule": "023R_reference_time_clipped_to_worked_sessions_and_payroll_cap",
         "by_reference": [
             {
                 "reference_name": item["reference_name"],
