@@ -1742,6 +1742,10 @@
     "gps": { title: "GPS", description: "Consultar ubicación y control operativo.", tag: "GPS" },
     "crm": { title: "CRM Campo", description: "Consultar operación en campo.", tag: "CRM" },
     "field": { title: "Operación en campo", description: "Consultar actividades en campo.", tag: "FLD" },
+    "login": { title: "Control de turno", description: "Inicio, pausas y cierre para nomina.", tag: "LOG" },
+    "shift_control": { title: "Control de turno", description: "Inicio, pausas y cierre para nomina.", tag: "LOG" },
+    "turno": { title: "Control de turno", description: "Inicio, pausas y cierre para nomina.", tag: "LOG" },
+    "turnos": { title: "Control de turno", description: "Inicio, pausas y cierre para nomina.", tag: "LOG" },
     "bots": { title: "Bots", description: "Consultar canales automatizados.", tag: "BOT" }
   };
 
@@ -1801,7 +1805,21 @@
     "solicitud": "requests",
     "solicitudes": "requests",
     "stock_request": "requests",
-    "stock_requests": "requests"
+    "stock_requests": "requests",
+
+    "field": "shift_control",
+    "login": "shift_control",
+    "store_login": "shift_control",
+    "tienda_login": "shift_control",
+    "tiendas_login": "shift_control",
+    "turno": "shift_control",
+    "turnos": "shift_control",
+    "control_turno": "shift_control",
+    "control_de_turno": "shift_control",
+    "shift": "shift_control",
+    "shifts": "shift_control",
+    "shift_control": "shift_control",
+    "operacion_en_campo": "shift_control"
   };
 
   function canonicalModuleCode022A(value) {
@@ -1958,6 +1976,180 @@ function moduleCard(title, description, tag, code = "") {
       </button>
     `;
   }
+
+  /* CLONEXA_023U_STORE_LOGIN_SHIFT_MODULE_START */
+  const CX_SHIFT_CONTROL_CODES_023U = new Set([
+    "shift_control",
+    "login",
+    "store_login",
+    "tienda_login",
+    "tiendas_login",
+    "turno",
+    "turnos",
+    "control_turno",
+    "control_de_turno",
+    "field",
+    "operacion_en_campo",
+    "shift",
+    "shifts"
+  ]);
+
+  function isShiftControlCode023U(code) {
+    return CX_SHIFT_CONTROL_CODES_023U.has(normalizeModuleCode019H(code));
+  }
+
+  function shiftControlStyles023U() {
+    if (document.getElementById("cxShiftControlStyles023U")) return;
+    const style = document.createElement("style");
+    style.id = "cxShiftControlStyles023U";
+    style.textContent = `
+      .shift-shell-023u{min-height:100vh;padding:28px;background:radial-gradient(circle at 0 0,rgba(255,36,188,.25),transparent 34%),linear-gradient(135deg,#14081f,#07162d);color:#fff}
+      .shift-card-023u{border:1px solid rgba(255,255,255,.16);background:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.05));border-radius:28px;box-shadow:0 24px 80px rgba(0,0,0,.34);backdrop-filter:blur(18px)}
+      .shift-hero-023u{padding:28px;margin-bottom:18px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:start}
+      .shift-title-023u{font-size:clamp(38px,5vw,72px);line-height:.95;margin:10px 0 6px;font-weight:950}
+      .shift-grid-023u{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}
+      .shift-tile-023u{padding:18px;border-radius:22px;border:1px solid rgba(255,255,255,.14);background:rgba(5,9,28,.38)}
+      .shift-tile-023u span{display:block;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.65);font-weight:950;margin-bottom:8px}
+      .shift-tile-023u strong{font-size:28px;font-weight:950}
+      .shift-actions-023u{display:flex;flex-wrap:wrap;gap:12px}
+      .shift-panel-023u{padding:24px}
+      .shift-row-023u{display:flex;justify-content:space-between;gap:14px;align-items:center;border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(4,7,23,.42);padding:14px 16px;margin-top:12px}
+      .shift-row-023u small{display:block;color:rgba(255,255,255,.68);font-weight:800;margin-top:4px}
+      @media(max-width:920px){.shift-hero-023u,.shift-grid-023u{grid-template-columns:1fr}.shift-actions-023u{display:grid}.shift-actions-023u .mp-button{width:100%}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function openShiftControlModule023U(session) {
+    shiftControlStyles023U();
+    setShellMode(true);
+
+    let operational = currentOperational || {};
+    let loadError = "";
+    try {
+      const response = await loadOperationalSession();
+      operational = response.operational_session || response || operational;
+    } catch (error) {
+      loadError = error.message || "No fue posible cargar el turno.";
+    }
+
+    const company = session.company || {};
+    const user = session.user || {};
+    const employee = session.employee || {};
+    const mini = session.mini_panel || {};
+    const employeeName = employee.full_name || user.full_name || "Usuario";
+    const employeeRole = employee.role || user.role || "operador";
+    const statusValue = operational.status || "active";
+    const isFinished = statusValue === "finished";
+
+    root.innerHTML = `
+      <section class="shift-shell-023u">
+        <header class="shift-card-023u shift-hero-023u">
+          <div>
+            <div class="mp-kicker">Login operativo</div>
+            <h1 class="shift-title-023u">Control de turno</h1>
+            <p class="mp-message ok">${loadError ? h(loadError) : "Sesion conectada a Workforce, CRM Campo y Nomina."}</p>
+            <div class="mp-meta compact">
+              <span class="mp-chip">Colaborador: ${h(employeeName)}</span>
+              <span class="mp-chip">Rol: ${h(employeeRole)}</span>
+              <span class="mp-chip">Panel: ${h(mini.type_label || labelType(panelType))}</span>
+              <span class="mp-chip">Usuario: ${h(mini.username || user.email || "")}</span>
+            </div>
+          </div>
+          <div class="shift-actions-023u">
+            <button class="mp-button secondary" type="button" data-shift-dashboard>Dashboard</button>
+            <button class="mp-button ghost" type="button" data-shift-refresh>Actualizar</button>
+          </div>
+        </header>
+
+        <section class="shift-card-023u shift-panel-023u">
+          <div class="mp-section-title">
+            <div>
+              <div class="mp-kicker">Turno actual</div>
+              <h2>Sesion del mini panel</h2>
+            </div>
+            <strong data-operational-status class="mp-status-pill ${h(statusValue)}">${h(operationalLabel(statusValue))}</strong>
+          </div>
+
+          <div class="shift-grid-023u">
+            <article class="shift-tile-023u">
+              <span>Activo</span>
+              <strong data-active-timer>${h(formatSeconds(operational.active_seconds || 0))}</strong>
+            </article>
+            <article class="shift-tile-023u">
+              <span>Pausa</span>
+              <strong data-break-timer>${h(formatSeconds(operational.break_seconds || 0))}</strong>
+            </article>
+            <article class="shift-tile-023u">
+              <span>Pagable</span>
+              <strong data-paid-timer>${h(formatSeconds(operational.paid_seconds || operational.active_seconds || 0))}</strong>
+            </article>
+            <article class="shift-tile-023u">
+              <span>Inicio</span>
+              <strong>${h(operational.started_label || "--:--")}</strong>
+            </article>
+          </div>
+
+          <div class="shift-actions-023u">
+            <button class="mp-button" type="button" data-shift-action="pause" ${statusValue === "active" ? "" : "disabled"}>Pausa</button>
+            <button class="mp-button secondary" type="button" data-shift-action="resume" ${statusValue === "break" ? "" : "disabled"}>Retomar labores</button>
+            <button class="mp-button danger" type="button" data-shift-action="finish" ${isFinished ? "disabled" : ""}>Finalizar turno</button>
+          </div>
+
+          <div class="shift-row-023u">
+            <div>
+              <strong>Registro para nomina</strong>
+              <small>El tiempo activo se guarda como pagable; la pausa queda separada.</small>
+            </div>
+            <span class="mp-chip">${h(labelType(panelType))}</span>
+          </div>
+
+          <div class="mp-message ok" data-shift-message></div>
+        </section>
+      </section>
+    `;
+
+    startTimers(operational);
+
+    root.querySelector("[data-shift-dashboard]")?.addEventListener("click", () => {
+      renderShell(session, currentOperational || operational, currentModuleConfig);
+    });
+
+    root.querySelector("[data-shift-refresh]")?.addEventListener("click", async () => {
+      await openShiftControlModule023U(session);
+    });
+
+    root.querySelectorAll("[data-shift-action]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const action = button.getAttribute("data-shift-action") || "";
+        const msg = root.querySelector("[data-shift-message]");
+        try {
+          button.disabled = true;
+          const updated = await operationalAction(action);
+          const op = updated.operational_session || updated;
+          startTimers(op);
+          if (action === "finish") {
+            if (msg) msg.textContent = "Turno finalizado y enviado a nomina.";
+            window.setTimeout(() => {
+              clearTimer();
+              localStorage.removeItem(storageKey);
+              window.location.href = loginUrl();
+            }, 900);
+            return;
+          }
+          if (msg) msg.textContent = action === "pause" ? "Pausa registrada." : "Retorno registrado.";
+          await openShiftControlModule023U(session);
+        } catch (error) {
+          button.disabled = false;
+          if (msg) {
+            msg.classList.remove("ok");
+            msg.textContent = error.message || "No fue posible actualizar el turno.";
+          }
+        }
+      });
+    });
+  }
+  /* CLONEXA_023U_STORE_LOGIN_SHIFT_MODULE_END */
 
   function renderShell(session, operational, moduleConfig = null) {
     setShellMode(true);
@@ -2255,6 +2447,11 @@ function moduleCard(title, description, tag, code = "") {
 
         if (typeof isRequestsCode023T === "function" && isRequestsCode023T(moduleCode)) {
           await openRequestsModule023T(session);
+          return;
+        }
+
+        if (typeof isShiftControlCode023U === "function" && isShiftControlCode023U(moduleCode)) {
+          await openShiftControlModule023U(session);
           return;
         }
 

@@ -545,6 +545,9 @@
     core: ["Core", "base operativa", "COR"],
     workforce: ["Workforce", "personal operativo", "WRK"],
     field: ["Field Ops", "operacion en campo", "FLD"],
+    login: ["Login tiendas", "turnos y accesos", "LOG"],
+    store_login: ["Login tiendas", "turnos y accesos", "LOG"],
+    shift_control: ["Control de turno", "tiempos operativos", "LOG"],
     technicians: ["Tecnicos", "inicio turno y estados", "TEC"],
     gps: ["GPS", "ubicacion y rutas", "GPS"],
     tasks: ["Tareas / Solicitudes", "solicitudes operativas", "TSK"],
@@ -8285,6 +8288,28 @@
     panel.insertAdjacentElement("beforebegin", notice);
   }
 
+  const CX_STORE_LOGIN_CLIENT_CODES_023U = new Set([
+    "login",
+    "store_login",
+    "tienda_login",
+    "tiendas_login",
+    "shift_control",
+    "control_turno",
+    "control_de_turno",
+    "field",
+    "operacion_en_campo"
+  ]);
+
+  function cxIsStoreLoginClientCode023U(code) {
+    const normalized = String(code || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return CX_STORE_LOGIN_CLIENT_CODES_023U.has(normalized);
+  }
+
   function cxStoreAccessRow023S(employee, assigned, storeLink) {
     const employeeId = cxSalesEmployeeKey019C(employee);
     const assignedUser = assigned ? (assigned.username || assigned.email || "") : "";
@@ -12117,6 +12142,11 @@ document.addEventListener("click", async (event) => {
 
         if (typeof cxIsRequestsCode023T === "function" && cxIsRequestsCode023T(code)) {
           await renderRequestsModule023T();
+          return;
+        }
+
+        if (typeof cxIsStoreLoginClientCode023U === "function" && cxIsStoreLoginClientCode023U(code)) {
+          await renderStoresModule023S();
           return;
         }
 
