@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 MONEY = Decimal("0.01")
-GLOBAL_PAYROLL_ORDINARY_HOURS = Decimal("48")
+DEFAULT_COMPANY_PAYROLL_ORDINARY_HOURS = Decimal("48")
 
 
 def utcnow() -> datetime:
@@ -576,15 +576,15 @@ async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
                 source = "company_settings.settings_json"
 
     if hours_limit is None or hours_limit == "":
-        minutes = int(GLOBAL_PAYROLL_ORDINARY_HOURS * Decimal(60))
+        minutes = int(DEFAULT_COMPANY_PAYROLL_ORDINARY_HOURS * Decimal(60))
         return {
             "enabled": True,
-            "source": "global_clonexa_payroll_rule",
-            "label": f"Regla global CLONEXA: hasta {GLOBAL_PAYROLL_ORDINARY_HOURS:g}h ordinarias; después extra. Pausas excluidas.",
-            "ordinary_hours_limit": float(GLOBAL_PAYROLL_ORDINARY_HOURS),
+            "source": "company_default_payroll_rule",
+            "label": f"Valor base de empresa: hasta {DEFAULT_COMPANY_PAYROLL_ORDINARY_HOURS:g}h ordinarias; después extra. Pausas excluidas.",
+            "ordinary_hours_limit": float(DEFAULT_COMPANY_PAYROLL_ORDINARY_HOURS),
             "ordinary_minutes_limit": minutes,
             "pause_policy": "exclude",
-            "scope": "all_companies_with_workforce_and_payroll",
+            "scope": "company_default_when_missing_settings",
         }
 
     hours = _cx_payroll_number(hours_limit, 0.0)
