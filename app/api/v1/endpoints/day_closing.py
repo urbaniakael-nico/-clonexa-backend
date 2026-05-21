@@ -507,7 +507,7 @@ async def _request_rows(
     end_at: datetime,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     # Requests todavía puede no existir. Se detecta de forma defensiva para no romper cierre diario.
-    candidate_tables = ["mini_panel_requests", "store_requests", "requests", "company_requests"]
+    candidate_tables = ["mini_panel_requests_records", "mini_panel_requests", "store_requests", "requests", "company_requests"]
     for table in candidate_tables:
         if not await _table_exists(conn, table):
             continue
@@ -519,10 +519,16 @@ async def _request_rows(
 
         has_panel = await _column_exists(conn, table, "panel_type")
         has_created_by = await _column_exists(conn, table, "created_by")
+        has_requested_by = await _column_exists(conn, table, "requested_by")
         has_label = await _column_exists(conn, table, "created_by_label")
+        has_requested_label = await _column_exists(conn, table, "requested_by_label")
 
-        user_expr = "COALESCE(created_by::text, '')" if has_created_by else "''"
-        label_expr = "COALESCE(NULLIF(created_by_label, ''), 'Sin usuario')" if has_label else "'Sin usuario'"
+        user_expr = "COALESCE(created_by::text, '')" if has_created_by else ("COALESCE(requested_by::text, '')" if has_requested_by else "''")
+        label_expr = (
+            "COALESCE(NULLIF(created_by_label, ''), 'Sin usuario')"
+            if has_label
+            else ("COALESCE(NULLIF(requested_by_label, ''), 'Sin usuario')" if has_requested_label else "'Sin usuario'")
+        )
 
         if has_panel:
             rows = await conn.fetch(

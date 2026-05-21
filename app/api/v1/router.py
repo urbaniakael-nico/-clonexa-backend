@@ -39,6 +39,7 @@ for _module_name, _prefix, _tags in [
     ("mini_panel_notes", "/mini-panel-notes", ["mini_panel_notes"]),
     ("mini_panel_quotes", "/mini-panel-quotes", ["mini_panel_quotes"]),
     ("mini_panel_sales", "/mini-panel-sales", ["mini_panel_sales"]),
+    ("mini_panel_requests", "/mini-panel-requests", ["mini_panel_requests"]),
     ("day_closing", "/day-closing", ["day_closing"]),
     ("field", "/field", ["field"]),
 ]:

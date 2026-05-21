@@ -10872,6 +10872,356 @@
   }
   /* CLONEXA_023K_CLIENT_COMMERCIAL_CLOSING_CONSOLE_END */
 
+  /* CLONEXA_023T_CLIENT_REQUESTS_CONSOLE_START */
+  const CX_REQUESTS_CODES_023T = new Set([
+    "requests",
+    "request",
+    "solicitud",
+    "solicitudes",
+    "stock_request",
+    "stock_requests"
+  ]);
+
+  function cxRequestsNorm023T(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function cxIsRequestsCode023T(code) {
+    return CX_REQUESTS_CODES_023T.has(cxRequestsNorm023T(code));
+  }
+
+  async function cxRequestsApi023T(path, options = {}) {
+    return api(`/mini-panel-requests/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxRequestsStatusLabel023T(value) {
+    const status = cxRequestsNorm023T(value || "sent");
+    const labels = {
+      sent: "Enviada",
+      preparing: "Alistando",
+      ready: "Lista",
+      received: "Recibida",
+      archived: "Archivada"
+    };
+    return labels[status] || "Enviada";
+  }
+
+  function cxRequestsStatusClass023T(value) {
+    const status = cxRequestsNorm023T(value || "sent");
+    if (status === "received") return "ok";
+    if (status === "ready") return "ready";
+    if (status === "preparing") return "work";
+    if (status === "archived") return "muted";
+    return "live";
+  }
+
+  function cxRequestsDate023T(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "Sin fecha";
+    try {
+      return new Date(raw).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    } catch (_) {
+      return raw.slice(0, 16);
+    }
+  }
+
+  function cxRequestsItemLabel023T(item) {
+    const parts = [item?.name, item?.size, item?.color].map((part) => String(part || "").trim()).filter(Boolean);
+    return parts.join(" / ") || "Articulo";
+  }
+
+  function cxRequestsStyles023T() {
+    if (document.getElementById("cxRequestsStyles023T")) return;
+    const style = document.createElement("style");
+    style.id = "cxRequestsStyles023T";
+    style.textContent = `
+      .cx-req-shell{display:grid;gap:18px}
+      .cx-req-toolbar{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr)) minmax(220px,1.4fr) auto;gap:12px;align-items:end}
+      .cx-req-field label{display:block;margin:0 0 7px;font-size:11px;font-weight:950;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.66)}
+      .cx-req-field input,.cx-req-field select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.16);border-radius:16px;background:rgba(4,8,22,.62);color:#fff;padding:13px 14px;font-weight:850;outline:none}
+      .cx-req-btn{border:0;border-radius:17px;background:linear-gradient(135deg,#ff24b8,#7552ff);color:#fff;font-weight:950;padding:13px 16px;cursor:pointer;box-shadow:0 16px 38px rgba(189,44,255,.22)}
+      .cx-req-btn.secondary{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.14);box-shadow:none}
+      .cx-req-btn.danger{background:rgba(255,70,118,.16);border:1px solid rgba(255,70,118,.42);box-shadow:none}
+      .cx-req-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+      .cx-req-kpi,.cx-req-card{border:1px solid rgba(255,255,255,.13);border-radius:26px;background:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.045));box-shadow:0 22px 70px rgba(0,0,0,.26);padding:20px}
+      .cx-req-kpi span,.cx-req-kicker{display:block;font-size:11px;font-weight:950;letter-spacing:.20em;text-transform:uppercase;color:#ff45d2;margin-bottom:10px}
+      .cx-req-kpi strong{display:block;font-size:28px;line-height:1.05;color:#fff}
+      .cx-req-kpi small,.cx-req-muted{display:block;margin-top:8px;color:rgba(255,255,255,.70);font-weight:800}
+      .cx-req-main{display:grid;grid-template-columns:minmax(420px,.9fr) minmax(420px,1.1fr);gap:18px;align-items:start}
+      .cx-req-list{display:grid;gap:12px;max-height:720px;overflow:auto;padding-right:4px}
+      .cx-req-item{border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.065);padding:16px;display:grid;gap:12px}
+      .cx-req-item.active{border-color:rgba(255,52,210,.68);box-shadow:0 0 0 1px rgba(255,52,210,.15),0 20px 55px rgba(182,47,255,.18)}
+      .cx-req-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+      .cx-req-title{font-size:17px;font-weight:950;color:#fff}
+      .cx-req-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:7px 10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.09);font-size:12px;font-weight:950;color:#fff}
+      .cx-req-pill.live{border-color:rgba(41,255,187,.34);background:rgba(41,255,187,.12);color:#8fffd8}
+      .cx-req-pill.work{border-color:rgba(255,190,80,.34);background:rgba(255,190,80,.12);color:#ffe2a0}
+      .cx-req-pill.ready{border-color:rgba(148,105,255,.35);background:rgba(148,105,255,.12);color:#cfc2ff}
+      .cx-req-pill.ok{border-color:rgba(126,255,85,.34);background:rgba(126,255,85,.11);color:#c8ff9e}
+      .cx-req-pill.muted{color:rgba(255,255,255,.62)}
+      .cx-req-mini{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+      .cx-req-mini div{border:1px solid rgba(255,255,255,.10);border-radius:16px;background:rgba(6,9,24,.35);padding:11px}
+      .cx-req-mini span{display:block;font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58);margin-bottom:5px}
+      .cx-req-mini strong{display:block;color:#fff;font-size:15px}
+      .cx-req-actions{display:flex;gap:8px;flex-wrap:wrap}
+      .cx-req-preparer{min-width:190px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(4,8,22,.58);color:#fff;padding:11px;font-weight:850;outline:none}
+      .cx-req-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+      .cx-req-row{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;border:1px solid rgba(255,255,255,.10);border-radius:16px;background:rgba(4,8,22,.38);padding:12px}
+      .cx-req-row strong{color:#fff}
+      .cx-req-row small{color:rgba(255,255,255,.66);font-weight:800}
+      .cx-req-timeline{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+      .cx-req-empty{border:1px dashed rgba(255,255,255,.18);border-radius:20px;padding:22px;color:rgba(255,255,255,.70);font-weight:850;text-align:center}
+      @media(max-width:1200px){.cx-req-toolbar,.cx-req-main,.cx-req-kpis,.cx-req-detail-grid{grid-template-columns:1fr}.cx-req-mini{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxRequestsFilters023T(options = {}) {
+    return {
+      panel_type: options.panel_type || "all",
+      status: options.status || "active",
+      q: options.q || "",
+      selected_id: options.selected_id || ""
+    };
+  }
+
+  function cxRequestsReadFilters023T(current = {}) {
+    return {
+      panel_type: document.getElementById("cxRequestsPanel023T")?.value || current.panel_type || "all",
+      status: document.getElementById("cxRequestsStatus023T")?.value || current.status || "active",
+      q: document.getElementById("cxRequestsSearch023T")?.value || "",
+      selected_id: current.selected_id || ""
+    };
+  }
+
+  function cxRequestsQuery023T(filters) {
+    const params = new URLSearchParams();
+    params.set("panel_type", filters.panel_type || "all");
+    params.set("status", filters.status || "active");
+    params.set("limit", "180");
+    if (String(filters.q || "").trim()) params.set("q", filters.q.trim());
+    return params.toString();
+  }
+
+  function cxRequestsTimeline023T(request) {
+    const rows = Array.isArray(request?.timeline) ? request.timeline : [];
+    if (!rows.length) return `<span class="cx-req-pill ${h(cxRequestsStatusClass023T(request?.status))}">${h(cxRequestsStatusLabel023T(request?.status))}</span>`;
+    return rows.map((row) => `
+      <span class="cx-req-pill ${h(cxRequestsStatusClass023T(row.status))}" title="${h(cxRequestsDate023T(row.at))}">
+        ${h(row.label || cxRequestsStatusLabel023T(row.status))}
+      </span>
+    `).join("");
+  }
+
+  function cxRequestsItemCard023T(request, selectedId) {
+    const statusValue = cxRequestsNorm023T(request.status || "sent");
+    const isSelected = String(request.id || "") === String(selectedId || "");
+    return `
+      <article class="cx-req-item ${isSelected ? "active" : ""}">
+        <div class="cx-req-head">
+          <div>
+            <div class="cx-req-title">${h(request.request_number || "Solicitud")}</div>
+            <div class="cx-req-muted">Pide: ${h(request.store_label || request.requested_by_label || "Tienda")} - ${h(cxRequestsDate023T(request.created_at))}</div>
+          </div>
+          <span class="cx-req-pill ${h(cxRequestsStatusClass023T(statusValue))}">${h(cxRequestsStatusLabel023T(statusValue))}</span>
+        </div>
+        <div class="cx-req-mini">
+          <div><span>Articulos</span><strong>${Number(request.items_count || 0)}</strong></div>
+          <div><span>Cantidad</span><strong>${Number(request.requested_units || 0)}</strong></div>
+          <div><span>Alista</span><strong>${h(request.prepared_by || "Pendiente")}</strong></div>
+        </div>
+        <div class="cx-req-actions">
+          <button class="cx-req-btn secondary" type="button" data-cx-req-open="${h(request.id)}">Abrir</button>
+          ${statusValue === "sent" ? `<input class="cx-req-preparer" data-cx-req-preparer="${h(request.id)}" placeholder="Nombre de quien alista"><button class="cx-req-btn" type="button" data-cx-req-preparing="${h(request.id)}">Alistando</button>` : ""}
+          ${statusValue === "preparing" ? `<button class="cx-req-btn" type="button" data-cx-req-ready="${h(request.id)}">Marcar lista</button>` : ""}
+          ${statusValue !== "archived" ? `<button class="cx-req-btn danger" type="button" data-cx-req-archive="${h(request.id)}">Guardar / archivar</button>` : ""}
+        </div>
+      </article>
+    `;
+  }
+
+  function cxRequestsDetail023T(request) {
+    if (!request) {
+      return `
+        <article class="cx-req-card">
+          <div class="cx-req-kicker">Detalle</div>
+          <h2>Selecciona una solicitud</h2>
+          <p class="cx-req-muted">Cuando una tienda envie solicitud desde el mini panel, podras abrirla y avanzar su estado aqui.</p>
+        </article>
+      `;
+    }
+    const rows = Array.isArray(request.items) ? request.items : [];
+    return `
+      <article class="cx-req-card">
+        <div class="cx-req-kicker">Detalle de solicitud</div>
+        <h2>${h(request.request_number || "Solicitud")}</h2>
+        <p class="cx-req-muted">Solicita: ${h(request.store_label || request.requested_by_label || "Tienda")} - Estado: ${h(cxRequestsStatusLabel023T(request.status))} - ${h(cxRequestsDate023T(request.created_at))}</p>
+        <div class="cx-req-detail-grid">
+          <div class="cx-req-kpi"><span>Articulos</span><strong>${Number(request.items_count || rows.length || 0)}</strong><small>Total de lineas pedidas</small></div>
+          <div class="cx-req-kpi"><span>Unidades</span><strong>${Number(request.requested_units || 0)}</strong><small>Cantidad solicitada</small></div>
+        </div>
+        ${request.notes ? `<p class="cx-req-muted">${h(request.notes)}</p>` : ""}
+        <div class="cx-req-kicker" style="margin-top:18px">Articulos solicitados</div>
+        <div style="display:grid;gap:10px">
+          ${rows.map((item) => `
+            <div class="cx-req-row">
+              <div>
+                <strong>${h(cxRequestsItemLabel023T(item))}</strong>
+                <small>${h(item.sku || item.category || "Sin SKU")} ${item.note ? `- ${h(item.note)}` : ""}</small>
+              </div>
+              <strong>${h(item.quantity || 0)}</strong>
+            </div>
+          `).join("") || `<div class="cx-req-empty">Sin articulos en esta solicitud.</div>`}
+        </div>
+        <div class="cx-req-kicker" style="margin-top:18px">Linea de tiempo</div>
+        <div class="cx-req-timeline">${cxRequestsTimeline023T(request)}</div>
+      </article>
+    `;
+  }
+
+  async function renderRequestsModule023T(options = {}) {
+    cxRequestsStyles023T();
+    const filters = cxRequestsFilters023T(options);
+    const company = state.company || {};
+    let data = { items: [], summary: {} };
+    let loadError = "";
+
+    try {
+      data = await cxRequestsApi023T(`?${cxRequestsQuery023T(filters)}`);
+    } catch (error) {
+      loadError = error.message || "No se pudieron cargar solicitudes.";
+    }
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    const summary = data.summary || {};
+    const selected = items.find((item) => String(item.id || "") === String(filters.selected_id || "")) || null;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("requests")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Solicitudes</div>
+              <h1 class="client-title">Solicitudes</h1>
+              <p class="client-muted">Recepcion, alistamiento, confirmacion y archivo de solicitudes enviadas desde mini paneles.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-cx-req-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            <section class="cx-req-shell">
+              ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+              <article class="cx-req-card">
+                <div class="cx-req-toolbar">
+                  <div class="cx-req-field">
+                    <label>Panel</label>
+                    <select id="cxRequestsPanel023T">
+                      <option value="all" ${filters.panel_type === "all" ? "selected" : ""}>Todos</option>
+                      <option value="store" ${filters.panel_type === "store" ? "selected" : ""}>Tiendas</option>
+                      <option value="sales" ${filters.panel_type === "sales" ? "selected" : ""}>Ventas</option>
+                    </select>
+                  </div>
+                  <div class="cx-req-field">
+                    <label>Estado</label>
+                    <select id="cxRequestsStatus023T">
+                      <option value="active" ${filters.status === "active" ? "selected" : ""}>Activas</option>
+                      <option value="all" ${filters.status === "all" ? "selected" : ""}>Todas</option>
+                      <option value="sent" ${filters.status === "sent" ? "selected" : ""}>Enviadas</option>
+                      <option value="preparing" ${filters.status === "preparing" ? "selected" : ""}>Alistando</option>
+                      <option value="ready" ${filters.status === "ready" ? "selected" : ""}>Listas</option>
+                      <option value="received" ${filters.status === "received" ? "selected" : ""}>Recibidas</option>
+                      <option value="archived" ${filters.status === "archived" ? "selected" : ""}>Archivadas</option>
+                    </select>
+                  </div>
+                  <div class="cx-req-field"><label>Buscar</label><input id="cxRequestsSearch023T" value="${h(filters.q)}" placeholder="Tienda, usuario, articulo o estado"></div>
+                  <button class="cx-req-btn" type="button" data-cx-req-apply>Buscar</button>
+                </div>
+              </article>
+
+              <section class="cx-req-kpis">
+                <article class="cx-req-kpi"><span>Solicitudes</span><strong>${Number(summary.total || 0)}</strong><small>${Number(summary.active || 0)} activas</small></article>
+                <article class="cx-req-kpi"><span>Alistando</span><strong>${Number(summary.preparing || 0)}</strong><small>${Number(summary.ready || 0)} listas</small></article>
+                <article class="cx-req-kpi"><span>Recibidas</span><strong>${Number(summary.received || 0)}</strong><small>Confirmadas por tienda</small></article>
+                <article class="cx-req-kpi"><span>Unidades pedidas</span><strong>${Number(summary.requested_units || 0)}</strong><small>No mueve inventario automaticamente</small></article>
+              </section>
+
+              <section class="cx-req-main">
+                <article class="cx-req-card">
+                  <div class="cx-req-kicker">Bandeja</div>
+                  <h2>Solicitudes recibidas</h2>
+                  <div class="cx-req-list">
+                    ${items.map((item) => cxRequestsItemCard023T(item, filters.selected_id)).join("") || `<div class="cx-req-empty">No hay solicitudes para este filtro.</div>`}
+                  </div>
+                </article>
+                ${cxRequestsDetail023T(selected)}
+              </section>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    document.querySelector("[data-cx-req-refresh]")?.addEventListener("click", () => renderRequestsModule023T({ ...filters, selected_id: filters.selected_id }));
+    document.querySelector("[data-cx-req-apply]")?.addEventListener("click", () => renderRequestsModule023T(cxRequestsReadFilters023T(filters)));
+    document.getElementById("cxRequestsSearch023T")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") renderRequestsModule023T(cxRequestsReadFilters023T(filters));
+    });
+    document.querySelectorAll("[data-cx-req-open]").forEach((button) => {
+      button.addEventListener("click", () => renderRequestsModule023T({ ...cxRequestsReadFilters023T(filters), selected_id: button.getAttribute("data-cx-req-open") || "" }));
+    });
+    document.querySelectorAll("[data-cx-req-preparing]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-cx-req-preparing");
+        const preparedBy = document.querySelector(`[data-cx-req-preparer="${CSS.escape(id || "")}"]`)?.value || "";
+        if (!id) return;
+        if (!preparedBy.trim()) {
+          alert("Indica quien esta alistando.");
+          return;
+        }
+        await cxRequestsApi023T(`/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "preparing", prepared_by: preparedBy })
+        });
+        await renderRequestsModule023T(cxRequestsReadFilters023T(filters));
+      });
+    });
+    document.querySelectorAll("[data-cx-req-ready]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-cx-req-ready");
+        if (!id) return;
+        await cxRequestsApi023T(`/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "ready" })
+        });
+        await renderRequestsModule023T(cxRequestsReadFilters023T(filters));
+      });
+    });
+    document.querySelectorAll("[data-cx-req-archive]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-cx-req-archive");
+        if (!id) return;
+        if (!confirm("Guardar y archivar esta solicitud? No se borra; quedara disponible en archivadas.")) return;
+        await cxRequestsApi023T(`/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({}) });
+        await renderRequestsModule023T({ ...cxRequestsReadFilters023T(filters), selected_id: "" });
+      });
+    });
+  }
+  /* CLONEXA_023T_CLIENT_REQUESTS_CONSOLE_END */
+
   async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -10906,6 +11256,14 @@
       typeof renderCommercialClosingModule023K === "function"
     ) {
       return renderCommercialClosingModule023K();
+    }
+
+    if (
+      typeof cxIsRequestsCode023T === "function" &&
+      cxIsRequestsCode023T(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderRequestsModule023T === "function"
+    ) {
+      return renderRequestsModule023T();
     }
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_END */
     const company = state.company || {};
@@ -11754,6 +12112,11 @@ document.addEventListener("click", async (event) => {
 
         if (typeof cxIsCommercialClosingCode023K === "function" && cxIsCommercialClosingCode023K(code)) {
           await renderCommercialClosingModule023K();
+          return;
+        }
+
+        if (typeof cxIsRequestsCode023T === "function" && cxIsRequestsCode023T(code)) {
+          await renderRequestsModule023T();
           return;
         }
 

@@ -1731,6 +1731,9 @@
 
     "kpis": { title: "KPIs", description: "Consultar indicadores asignados.", tag: "KPI" },
     "requests": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
+    "request": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
+    "solicitudes": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
+    "solicitud": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
     "stores": { title: "Tiendas", description: "Operación asignada a tiendas.", tag: "STR" },
     "inventory": { title: "Inventario", description: "Consultar y registrar movimientos de inventario.", tag: "INV" },
     "materials": { title: "Materiales", description: "Gestionar materiales asignados.", tag: "MAT" },
@@ -1791,7 +1794,14 @@
     "cierre_dia": "day_closing",
     "cierre_de_dia": "day_closing",
     "day_closing": "day_closing",
-    "commercial_closing": "day_closing"
+    "commercial_closing": "day_closing",
+
+    "request": "requests",
+    "requests": "requests",
+    "solicitud": "requests",
+    "solicitudes": "requests",
+    "stock_request": "requests",
+    "stock_requests": "requests"
   };
 
   function canonicalModuleCode022A(value) {
@@ -2240,6 +2250,11 @@ function moduleCard(title, description, tag, code = "") {
 
         if (typeof isDayClosingCode023E === "function" && isDayClosingCode023E(moduleCode)) {
           await openDayClosingModule023E(session);
+          return;
+        }
+
+        if (typeof isRequestsCode023T === "function" && isRequestsCode023T(moduleCode)) {
+          await openRequestsModule023T(session);
           return;
         }
 
@@ -5078,6 +5093,339 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_022J_SALES_TOP10_ADJUSTMENTS_CLEAN_VIEW_END */
 
+
+  /* CLONEXA_023T_REQUESTS_MINI_PANEL_FLOW_START */
+  const CX_REQUEST_CODES_023T = new Set([
+    "requests",
+    "request",
+    "solicitud",
+    "solicitudes",
+    "stock_request",
+    "stock_requests"
+  ]);
+
+  function isRequestsCode023T(code) {
+    return CX_REQUEST_CODES_023T.has(normalizeModuleCode019H(code));
+  }
+
+  function requestApi023T(path, options = {}) {
+    return api(`/api/v1/mini-panel-requests/companies/${encodeURIComponent(companyId)}${path}`, {
+      ...options,
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      }
+    });
+  }
+
+  function requestStatusClass023T(status) {
+    const value = normalizeModuleCode019H(status || "sent");
+    if (value === "received") return "ok";
+    if (value === "ready") return "ready";
+    if (value === "preparing") return "work";
+    if (value === "archived") return "muted";
+    return "live";
+  }
+
+  function requestDateLabel023T(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "Sin fecha";
+    try {
+      return new Date(raw).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    } catch (_) {
+      return raw.slice(0, 16);
+    }
+  }
+
+  function requestItemLabel023T(item) {
+    const parts = [item?.name, item?.size, item?.color].map((part) => String(part || "").trim()).filter(Boolean);
+    return parts.join(" / ") || "Articulo";
+  }
+
+  function requestOptionKey023T(item) {
+    return [
+      item?.reference_id || "",
+      item?.name || "",
+      item?.sku || "",
+      item?.size || "",
+      item?.color || ""
+    ].join("|").toLowerCase();
+  }
+
+  function requestMergeSuggestions023T(suggestions = {}) {
+    const map = new Map();
+    const sold = Array.isArray(suggestions.sold_items) ? suggestions.sold_items : [];
+    const refs = Array.isArray(suggestions.references) ? suggestions.references : [];
+    sold.forEach((item) => {
+      const clean = { ...item, source: "sold" };
+      map.set(requestOptionKey023T(clean), clean);
+    });
+    refs.forEach((item) => {
+      const clean = { ...item, source: "reference" };
+      const key = requestOptionKey023T(clean);
+      const current = map.get(key) || {};
+      map.set(key, { ...clean, sold_quantity: current.sold_quantity || clean.sold_quantity || 0, source: current.source === "sold" ? "sold_reference" : "reference" });
+    });
+    return Array.from(map.values());
+  }
+
+  function requestStyles023T() {
+    if (document.getElementById("cxRequestsStyles023T")) return;
+    const style = document.createElement("style");
+    style.id = "cxRequestsStyles023T";
+    style.textContent = `
+      .rq-shell-023t{min-height:100vh;padding:28px;background:radial-gradient(circle at 10% 12%,rgba(255,43,214,.25),transparent 28%),radial-gradient(circle at 90% 10%,rgba(0,210,255,.20),transparent 32%),linear-gradient(135deg,#12091f,#071329 60%,#101326);color:#fff}
+      .rq-card-023t{border:1px solid rgba(255,255,255,.15);border-radius:28px;background:linear-gradient(145deg,rgba(255,255,255,.11),rgba(255,255,255,.045));box-shadow:0 26px 86px rgba(0,0,0,.34);backdrop-filter:blur(16px)}
+      .rq-hero-023t{padding:28px;margin-bottom:18px;display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
+      .rq-kicker-023t{font-size:11px;font-weight:950;letter-spacing:.32em;text-transform:uppercase;color:#ff42d4}
+      .rq-title-023t{font-size:44px;line-height:1;margin:9px 0 8px;font-weight:950}
+      .rq-muted-023t{color:rgba(255,255,255,.70);font-weight:800}
+      .rq-btn-023t{border:0;border-radius:17px;padding:13px 16px;background:linear-gradient(135deg,#ff25bb,#7154ff);color:#fff;font-weight:950;cursor:pointer;box-shadow:0 16px 42px rgba(255,37,187,.22)}
+      .rq-btn-023t.secondary{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.16);box-shadow:none}
+      .rq-btn-023t.danger{background:rgba(255,80,130,.16);border:1px solid rgba(255,80,130,.38);box-shadow:none}
+      .rq-layout-023t{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);gap:18px;align-items:start}
+      .rq-panel-023t{padding:22px}
+      .rq-actions-023t{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+      .rq-items-023t{display:grid;gap:10px;margin-top:16px}
+      .rq-line-023t{display:grid;grid-template-columns:minmax(220px,1.5fr) 100px 1fr auto;gap:10px;align-items:end;border:1px solid rgba(255,255,255,.11);border-radius:20px;background:rgba(5,8,24,.28);padding:12px}
+      .rq-field-023t label{display:block;margin:0 0 7px;font-size:11px;font-weight:950;text-transform:uppercase;letter-spacing:.14em;color:rgba(255,255,255,.66)}
+      .rq-field-023t input,.rq-field-023t textarea,.rq-field-023t select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.15);border-radius:15px;background:rgba(4,7,23,.62);color:#fff;padding:12px 13px;font-weight:850;outline:none}
+      .rq-field-023t textarea{min-height:88px;resize:vertical}
+      .rq-list-023t{display:grid;gap:12px;max-height:760px;overflow:auto;padding-right:4px}
+      .rq-request-023t{display:grid;gap:12px;border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.065);padding:16px}
+      .rq-head-023t{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+      .rq-pill-023t{display:inline-flex;border-radius:999px;padding:7px 10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.09);font-size:12px;font-weight:950}
+      .rq-pill-023t.live{color:#8fffd8;border-color:rgba(41,255,187,.34);background:rgba(41,255,187,.12)}
+      .rq-pill-023t.work{color:#ffe2a0;border-color:rgba(255,190,80,.34);background:rgba(255,190,80,.12)}
+      .rq-pill-023t.ready{color:#bba7ff;border-color:rgba(148,105,255,.35);background:rgba(148,105,255,.12)}
+      .rq-pill-023t.ok{color:#c7ff9e;border-color:rgba(121,255,85,.34);background:rgba(121,255,85,.12)}
+      .rq-pill-023t.muted{color:rgba(255,255,255,.62)}
+      .rq-mini-023t{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+      .rq-mini-023t div{border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(0,0,0,.16);padding:10px}
+      .rq-mini-023t span{display:block;font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58)}
+      .rq-mini-023t strong{display:block;margin-top:5px}
+      .rq-timeline-023t{display:flex;flex-wrap:wrap;gap:7px}
+      .rq-empty-023t{border:1px dashed rgba(255,255,255,.20);border-radius:20px;padding:22px;text-align:center;color:rgba(255,255,255,.70);font-weight:850}
+      .rq-msg-023t{margin-top:12px;font-weight:900;color:#8fffd8}
+      @media(max-width:1100px){.rq-layout-023t,.rq-line-023t{grid-template-columns:1fr}.rq-mini-023t{grid-template-columns:1fr}.rq-title-023t{font-size:36px}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function requestLineHtml023T(index, item = {}) {
+    return `
+      <div class="rq-line-023t" data-rq-line-023t>
+        <div class="rq-field-023t">
+          <label>Articulo</label>
+          <input data-rq-name-023t list="requestSuggestions023T" value="${h(requestItemLabel023T(item) === "Articulo" ? "" : requestItemLabel023T(item))}" placeholder="Producto, referencia o articulo manual">
+        </div>
+        <div class="rq-field-023t">
+          <label>Cantidad</label>
+          <input data-rq-qty-023t type="number" min="0" step="1" value="${h(item.quantity || "")}" placeholder="0">
+        </div>
+        <div class="rq-field-023t">
+          <label>Nota</label>
+          <input data-rq-note-023t value="${h(item.note || "")}" placeholder="Talla, color, urgencia...">
+        </div>
+        <button class="rq-btn-023t secondary" type="button" data-rq-remove-023t="${index}">Quitar</button>
+      </div>
+    `;
+  }
+
+  function requestReadItems023T(suggestions = []) {
+    const byLabel = new Map();
+    suggestions.forEach((item) => byLabel.set(requestItemLabel023T(item).toLowerCase(), item));
+    return Array.from(root.querySelectorAll("[data-rq-line-023t]")).map((row) => {
+      const nameValue = String(row.querySelector("[data-rq-name-023t]")?.value || "").trim();
+      const match = byLabel.get(nameValue.toLowerCase()) || {};
+      return {
+        reference_id: match.reference_id || "",
+        name: nameValue || match.name || "",
+        sku: match.sku || "",
+        category: match.category || "",
+        size: match.size || "",
+        color: match.color || "",
+        quantity: Number(row.querySelector("[data-rq-qty-023t]")?.value || 0),
+        sold_quantity: Number(match.sold_quantity || 0),
+        note: row.querySelector("[data-rq-note-023t]")?.value || ""
+      };
+    }).filter((item) => item.name && item.quantity > 0);
+  }
+
+  function requestTimelineHtml023T(request) {
+    const rows = Array.isArray(request.timeline) ? request.timeline : [];
+    if (!rows.length) return `<span class="rq-pill-023t ${h(requestStatusClass023T(request.status))}">${h(request.status_label || "Enviada")}</span>`;
+    return rows.slice(-5).map((row) => `
+      <span class="rq-pill-023t ${h(requestStatusClass023T(row.status))}" title="${h(requestDateLabel023T(row.at))}">
+        ${h(row.label || row.status || "Estado")}
+      </span>
+    `).join("");
+  }
+
+  function requestCardHtml023T(request) {
+    const items = Array.isArray(request.items) ? request.items : [];
+    const canReceive = ["sent", "preparing", "ready"].includes(normalizeModuleCode019H(request.status));
+    const canArchive = normalizeModuleCode019H(request.status) === "received";
+    return `
+      <article class="rq-request-023t">
+        <div class="rq-head-023t">
+          <div>
+            <strong>${h(request.request_number || "Solicitud")}</strong>
+            <div class="rq-muted-023t">${h(request.store_label || request.requested_by_label || "Tienda")} - ${h(requestDateLabel023T(request.created_at))}</div>
+          </div>
+          <span class="rq-pill-023t ${h(requestStatusClass023T(request.status))}">${h(request.status_label || "Enviada")}</span>
+        </div>
+        <div class="rq-mini-023t">
+          <div><span>Articulos</span><strong>${h(request.items_count || items.length || 0)}</strong></div>
+          <div><span>Cantidad</span><strong>${h(request.requested_units || 0)}</strong></div>
+          <div><span>Alista</span><strong>${h(request.prepared_by || "Pendiente")}</strong></div>
+        </div>
+        <div class="rq-muted-023t">
+          ${items.slice(0, 4).map((item) => `${h(requestItemLabel023T(item))} x ${h(item.quantity || 0)}`).join("<br>") || "Sin articulos"}
+        </div>
+        <div class="rq-timeline-023t">${requestTimelineHtml023T(request)}</div>
+        <div class="rq-actions-023t">
+          ${canReceive ? `<button class="rq-btn-023t" type="button" data-rq-received-023t="${h(request.id)}">Confirmar recibido</button>` : ""}
+          ${canArchive ? `<button class="rq-btn-023t secondary" type="button" data-rq-archive-023t="${h(request.id)}">Guardar / archivar</button>` : ""}
+        </div>
+      </article>
+    `;
+  }
+
+  async function openRequestsModule023T(session) {
+    requestStyles023T();
+    let suggestions = { references: [], sold_items: [] };
+    let data = { items: [], summary: {} };
+    let loadError = "";
+
+    try {
+      suggestions = await requestApi023T(`/suggestions?panel_type=${encodeURIComponent(panelType)}&limit=100`);
+    } catch (error) {
+      loadError = error.message || "No se pudieron cargar sugerencias.";
+    }
+
+    try {
+      data = await requestApi023T(`?panel_type=${encodeURIComponent(panelType)}&status=active&limit=80`);
+    } catch (error) {
+      loadError = error.message || loadError || "No se pudieron cargar solicitudes.";
+    }
+
+    const merged = requestMergeSuggestions023T(suggestions);
+    const sold = Array.isArray(suggestions.sold_items) ? suggestions.sold_items : [];
+    const items = Array.isArray(data.items) ? data.items : [];
+    const company = session?.company || {};
+    const employee = session?.employee || session?.user || {};
+
+    root.innerHTML = `
+      <main class="rq-shell-023t">
+        <header class="rq-card-023t rq-hero-023t">
+          <div>
+            <div class="rq-kicker-023t">Solicitudes</div>
+            <h1 class="rq-title-023t">Solicitar productos</h1>
+            <p class="rq-muted-023t">${h(company.name || "Empresa")} - ${h(employee.full_name || "Mini panel")}. Crea solicitudes, consulta estados y confirma recibido.</p>
+          </div>
+          <div class="rq-actions-023t">
+            <button class="rq-btn-023t secondary" type="button" data-rq-refresh-023t>Actualizar</button>
+            <button class="rq-btn-023t secondary" type="button" data-rq-back-023t>Dashboard</button>
+          </div>
+        </header>
+
+        <section class="rq-layout-023t">
+          <section class="rq-card-023t rq-panel-023t">
+            <div class="rq-kicker-023t">Nueva solicitud</div>
+            <h2>Lista editable</h2>
+            <p class="rq-muted-023t">Puedes traer vendidos recientes, elegir referencias activas o escribir articulos manualmente.</p>
+            <datalist id="requestSuggestions023T">
+              ${merged.map((item) => `<option value="${h(requestItemLabel023T(item))}">${h(item.sku || item.category || "")}</option>`).join("")}
+            </datalist>
+            <div class="rq-actions-023t" style="margin-top:14px">
+              <button class="rq-btn-023t secondary" type="button" data-rq-prefill-sold-023t>Traer vendidos</button>
+              <button class="rq-btn-023t secondary" type="button" data-rq-add-line-023t>Agregar articulo</button>
+            </div>
+            <div class="rq-items-023t" data-rq-lines-023t>
+              ${requestLineHtml023T(0, sold[0] ? { ...sold[0], quantity: "" } : {})}
+            </div>
+            <div class="rq-field-023t" style="margin-top:14px">
+              <label>Observacion</label>
+              <textarea id="requestNotes023T" placeholder="Ej: se agoto en vitrina, enviar prioridad, surtido para fin de semana..."></textarea>
+            </div>
+            <button class="rq-btn-023t" type="button" data-rq-submit-023t style="width:100%;margin-top:14px">Enviar solicitud</button>
+            <div class="rq-msg-023t" id="requestMsg023T">${h(loadError)}</div>
+          </section>
+
+          <aside class="rq-card-023t rq-panel-023t">
+            <div class="rq-kicker-023t">Seguimiento</div>
+            <h2>Solicitudes enviadas</h2>
+            <div class="rq-list-023t">
+              ${items.map(requestCardHtml023T).join("") || `<div class="rq-empty-023t">Aun no hay solicitudes activas para este mini panel.</div>`}
+            </div>
+          </aside>
+        </section>
+      </main>
+    `;
+
+    const lines = root.querySelector("[data-rq-lines-023t]");
+    root.querySelector("[data-rq-back-023t]")?.addEventListener("click", () => bootShell());
+    root.querySelector("[data-rq-refresh-023t]")?.addEventListener("click", () => openRequestsModule023T(session));
+    root.querySelector("[data-rq-add-line-023t]")?.addEventListener("click", () => {
+      if (!lines) return;
+      lines.insertAdjacentHTML("beforeend", requestLineHtml023T(lines.querySelectorAll("[data-rq-line-023t]").length, {}));
+    });
+    root.querySelector("[data-rq-prefill-sold-023t]")?.addEventListener("click", () => {
+      if (!lines) return;
+      const base = sold.length ? sold.slice(0, 12) : merged.slice(0, 8);
+      lines.innerHTML = base.map((item, index) => requestLineHtml023T(index, { ...item, quantity: "" })).join("") || requestLineHtml023T(0, {});
+    });
+    lines?.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-rq-remove-023t]");
+      if (remove) {
+        const row = remove.closest("[data-rq-line-023t]");
+        if (row && root.querySelectorAll("[data-rq-line-023t]").length > 1) row.remove();
+      }
+    });
+
+    root.querySelector("[data-rq-submit-023t]")?.addEventListener("click", async () => {
+      const msg = root.querySelector("#requestMsg023T");
+      const button = root.querySelector("[data-rq-submit-023t]");
+      try {
+        const payload = {
+          panel_type: panelType,
+          store_label: employee.full_name || employee.email || "",
+          notes: root.querySelector("#requestNotes023T")?.value || "",
+          items: requestReadItems023T(merged)
+        };
+        if (!payload.items.length) throw new Error("Agrega al menos un articulo con cantidad.");
+        if (msg) msg.textContent = "Enviando solicitud...";
+        if (button) button.disabled = true;
+        await requestApi023T("", { method: "POST", body: JSON.stringify(payload) });
+        if (msg) msg.textContent = "Solicitud enviada.";
+        await openRequestsModule023T(session);
+      } catch (error) {
+        if (button) button.disabled = false;
+        if (msg) msg.textContent = error.message || "No fue posible enviar la solicitud.";
+      }
+    });
+
+    root.querySelectorAll("[data-rq-received-023t]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-rq-received-023t");
+        if (!id) return;
+        await requestApi023T(`/${encodeURIComponent(id)}/received`, { method: "POST", body: JSON.stringify({}) });
+        await openRequestsModule023T(session);
+      });
+    });
+
+    root.querySelectorAll("[data-rq-archive-023t]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-rq-archive-023t");
+        if (!id) return;
+        await requestApi023T(`/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({}) });
+        await openRequestsModule023T(session);
+      });
+    });
+  }
+  /* CLONEXA_023T_REQUESTS_MINI_PANEL_FLOW_END */
 
 
   /* CLONEXA_023E_DAY_CLOSING_MINI_PANEL_DYNAMIC_R1_START */
