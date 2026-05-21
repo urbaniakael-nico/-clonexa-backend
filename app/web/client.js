@@ -5382,7 +5382,7 @@
     return `
       <div class="client-kpi-grid">
         <div class="client-kpi">
-          <span>Colaboradores con cierre</span>
+          <span>Colaboradores con tiempo</span>
           <strong>${h(totals.people || 0)}</strong>
         </div>
         <div class="client-kpi">
@@ -5412,7 +5412,7 @@
 
   function payrollRowsTable(rows = []) {
     if (!rows.length) {
-      return `<div class="cx-payroll-empty">No hay turnos cerrados para el periodo seleccionado.</div>`;
+      return `<div class="cx-payroll-empty">No hay tiempos de nómina para el periodo seleccionado.</div>`;
     }
 
     return `
@@ -5421,7 +5421,7 @@
           <thead>
             <tr>
               <th>Colaborador</th>
-              <th>Turnos cerrados</th>
+              <th>Turnos / sesiones</th>
               <th>Ordinarias</th>
               <th>Extras</th>
               <th>Bruto</th>

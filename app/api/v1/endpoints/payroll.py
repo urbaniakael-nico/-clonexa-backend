@@ -16,6 +16,7 @@ router = APIRouter()
 
 
 MONEY = Decimal("0.01")
+GLOBAL_PAYROLL_ORDINARY_HOURS = Decimal("48")
 
 
 def utcnow() -> datetime:
@@ -317,6 +318,129 @@ def build_closed_shifts(events: list[dict]) -> list[dict]:
     return closed
 
 
+async def _cx_payroll_table_exists_023o(db: AsyncSession, table_name: str) -> bool:
+    result = await db.execute(
+        text("SELECT to_regclass(:table_name) IS NOT NULL AS exists"),
+        {"table_name": f"public.{table_name}"},
+    )
+    row = result.mappings().first()
+    return bool(row and row.get("exists"))
+
+
+def _cx_payroll_dt_023o(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _cx_payroll_int_023o(value: Any) -> int:
+    try:
+        return max(0, int(Decimal(str(value or 0))))
+    except Exception:
+        return 0
+
+
+def _cx_payroll_seconds_between_023o(start: Any, end: datetime) -> int:
+    started = _cx_payroll_dt_023o(start)
+    if not started:
+        return 0
+    return max(0, int((end - started).total_seconds()))
+
+
+def _cx_payroll_session_payable_seconds_023o(session: dict, as_of: datetime) -> int:
+    status_value = str(session.get("status") or "").strip().lower()
+    active_seconds = _cx_payroll_int_023o(session.get("active_seconds"))
+    break_seconds = _cx_payroll_int_023o(session.get("break_seconds"))
+
+    if status_value == "active":
+        active_seconds += _cx_payroll_seconds_between_023o(session.get("active_started_at"), as_of)
+
+    if active_seconds <= 0:
+        started_at = _cx_payroll_dt_023o(session.get("started_at"))
+        ended_at = _cx_payroll_dt_023o(session.get("ended_at")) or as_of
+        if started_at and ended_at:
+            active_seconds = max(0, int((ended_at - started_at).total_seconds()) - break_seconds)
+
+    return max(0, active_seconds)
+
+
+def _cx_payroll_event_session_id_023o(event: dict) -> str | None:
+    payload = parse_payload(event.get("payload_json")) or parse_payload(event.get("metadata_json"))
+    if not isinstance(payload, dict):
+        return None
+    raw = (
+        payload.get("mini_panel_session_id")
+        or payload.get("session_id")
+        or payload.get("operational_session_id")
+    )
+    return str(raw) if raw else None
+
+
+async def _cx_payroll_mini_panel_sessions_023o(
+    db: AsyncSession,
+    company_id: UUID,
+    start_dt: datetime,
+    end_dt: datetime,
+    as_of: datetime,
+) -> list[dict]:
+    if not await _cx_payroll_table_exists_023o(db, "mini_panel_work_sessions"):
+        return []
+
+    result = await db.execute(
+        text("""
+            SELECT
+                s.id,
+                s.company_id,
+                s.user_id,
+                s.employee_id,
+                s.panel_type,
+                s.status,
+                s.location_label,
+                s.started_at,
+                s.ended_at,
+                s.active_seconds,
+                s.break_seconds,
+                s.active_started_at,
+                s.current_break_started_at,
+                s.created_at,
+                s.updated_at,
+                e.full_name AS employee_name,
+                e.role AS employee_role,
+                e.hourly_rate_regular,
+                e.hourly_rate_extra,
+                e.deduction_1,
+                e.deduction_2
+            FROM mini_panel_work_sessions s
+            JOIN employees e
+              ON e.id = s.employee_id
+             AND e.company_id = s.company_id
+            WHERE s.company_id = CAST(:company_id AS uuid)
+              AND s.employee_id IS NOT NULL
+              AND COALESCE(e.status, 'active') != 'archived'
+              AND s.started_at <= :end_dt
+              AND COALESCE(s.ended_at, :as_of) >= :start_dt
+              AND COALESCE(s.status, 'active') IN ('active', 'break', 'finished')
+            ORDER BY s.started_at ASC
+        """),
+        {
+            "company_id": str(company_id),
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+            "as_of": as_of,
+        },
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
 
 
 # CLONEXA CORE_PAYROLL_CONFIG_01
@@ -452,13 +576,15 @@ async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
                 source = "company_settings.settings_json"
 
     if hours_limit is None or hours_limit == "":
+        minutes = int(GLOBAL_PAYROLL_ORDINARY_HOURS * Decimal(60))
         return {
-            "enabled": False,
-            "source": "legacy_payroll_calculation",
-            "label": "Regla actual del sistema",
-            "ordinary_hours_limit": None,
-            "ordinary_minutes_limit": None,
+            "enabled": True,
+            "source": "global_clonexa_payroll_rule",
+            "label": f"Regla global CLONEXA: hasta {GLOBAL_PAYROLL_ORDINARY_HOURS:g}h ordinarias; después extra. Pausas excluidas.",
+            "ordinary_hours_limit": float(GLOBAL_PAYROLL_ORDINARY_HOURS),
+            "ordinary_minutes_limit": minutes,
             "pause_policy": "exclude",
+            "scope": "all_companies_with_workforce_and_payroll",
         }
 
     hours = _cx_payroll_number(hours_limit, 0.0)
@@ -482,6 +608,7 @@ async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
         "ordinary_hours_limit": hours,
         "ordinary_minutes_limit": minutes,
         "pause_policy": "exclude",
+        "scope": "company_override",
     }
 
 
@@ -559,6 +686,7 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
     start_dt = datetime.combine(period_start, time.min).replace(tzinfo=timezone.utc)
     end_dt = datetime.combine(period_end, time.max).replace(tzinfo=timezone.utc)
     lookback_dt = start_dt - timedelta(days=2)
+    as_of = min(utcnow(), end_dt)
 
     employees_result = await db.execute(
         text("""
@@ -610,7 +738,12 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             WHERE ev.company_id = :company_id
               AND COALESCE(ev.occurred_at, ev.created_at) >= :lookback_dt
               AND COALESCE(ev.occurred_at, ev.created_at) <= :end_dt
-              AND ev.event_type IN ('check_in', 'break_start', 'break_end', 'check_out')
+              AND ev.event_type IN (
+                  'check_in', 'entrada', 'start_shift', 'shift_start',
+                  'break_start', 'pausa', 'pause', 'on_break',
+                  'break_end', 'reanudar', 'resume', 'retomar',
+                  'check_out', 'salida', 'end_shift', 'shift_end'
+              )
             ORDER BY COALESCE(ev.occurred_at, ev.created_at) ASC
         """),
         {
@@ -620,8 +753,43 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         },
     )
     events = [dict(row) for row in events_result.mappings().all()]
+    mini_panel_sessions = await _cx_payroll_mini_panel_sessions_023o(db, company_id, start_dt, end_dt, as_of)
+    mini_panel_session_ids = {str(row.get("id")) for row in mini_panel_sessions if row.get("id")}
 
     rows_by_employee: dict[str, dict] = {}
+
+    def ensure_employee_row(employee_id: str, employee: dict | None = None, fallback: dict | None = None) -> dict:
+        employee = employee or {}
+        fallback = fallback or {}
+        row = rows_by_employee.get(employee_id)
+        if row:
+            return row
+
+        row = {
+            "employee_id": employee_id,
+            "employee_name": employee.get("full_name") or employee.get("employee_name") or fallback.get("employee_name") or "Colaborador",
+            "employee_role": employee.get("role") or employee.get("employee_role") or fallback.get("employee_role") or "",
+            "closed_shifts": 0,
+            "regular_minutes": 0,
+            "extra_minutes": 0,
+            "hourly_rate_regular": money(employee.get("hourly_rate_regular")),
+            "hourly_rate_extra": money(employee.get("hourly_rate_extra")),
+            "deduction_1": money(employee.get("deduction_1")),
+            "deduction_2": money(employee.get("deduction_2")),
+            "gross_amount": Decimal("0"),
+            "discount_amount": Decimal("0"),
+            "net_amount": Decimal("0"),
+            "shifts": [],
+        }
+        rows_by_employee[employee_id] = row
+        return row
+
+    def add_payroll_shift(row: dict, regular_minutes: int, extra_minutes: int, gross: Decimal, shift_payload: dict) -> None:
+        row["closed_shifts"] += 1
+        row["regular_minutes"] += max(0, int(regular_minutes))
+        row["extra_minutes"] += max(0, int(extra_minutes))
+        row["gross_amount"] += money(gross)
+        row["shifts"].append(shift_payload)
 
     for shift in build_closed_shifts(events):
         if not shift.get("end") or shift["end"] < start_dt or shift["end"] > end_dt:
@@ -630,6 +798,10 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         employee_id = str(shift["employee_id"])
         employee = employee_map.get(employee_id, {})
         check_out_event = shift.get("check_out_event") or {}
+        event_session_id = _cx_payroll_event_session_id_023o(check_out_event)
+        if event_session_id and event_session_id in mini_panel_session_ids:
+            continue
+
         projection = payroll_projection_from_event(check_out_event)
 
         if projection:
@@ -643,29 +815,7 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             extra_minutes = max(0, payable_minutes - 480)
             projected_pay = Decimal("0")
 
-        row = rows_by_employee.get(employee_id)
-        if not row:
-            regular_rate = money(employee.get("hourly_rate_regular"))
-            extra_rate = money(employee.get("hourly_rate_extra"))
-            deduction_1 = money(employee.get("deduction_1"))
-            deduction_2 = money(employee.get("deduction_2"))
-            row = {
-                "employee_id": employee_id,
-                "employee_name": employee.get("full_name") or check_out_event.get("employee_name") or "Colaborador",
-                "employee_role": employee.get("role") or check_out_event.get("employee_role") or "",
-                "closed_shifts": 0,
-                "regular_minutes": 0,
-                "extra_minutes": 0,
-                "hourly_rate_regular": regular_rate,
-                "hourly_rate_extra": extra_rate,
-                "deduction_1": deduction_1,
-                "deduction_2": deduction_2,
-                "gross_amount": Decimal("0"),
-                "discount_amount": Decimal("0"),
-                "net_amount": Decimal("0"),
-                "shifts": [],
-            }
-            rows_by_employee[employee_id] = row
+        row = ensure_employee_row(employee_id, employee, check_out_event)
 
         if projected_pay:
             gross = projected_pay
@@ -674,16 +824,56 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             gross += ((Decimal(extra_minutes) / Decimal(60)) * row["hourly_rate_extra"])
             gross = gross.quantize(MONEY, rounding=ROUND_HALF_UP)
 
-        row["closed_shifts"] += 1
-        row["regular_minutes"] += regular_minutes
-        row["extra_minutes"] += extra_minutes
-        row["gross_amount"] += gross
-        row["shifts"].append({
+        add_payroll_shift(row, regular_minutes, extra_minutes, gross, {
             "start": shift["start"].isoformat(),
             "end": shift["end"].isoformat(),
             "regular_minutes": regular_minutes,
             "extra_minutes": extra_minutes,
             "gross_amount": str(gross),
+            "source": "attendance",
+            "mini_panel_session_id": event_session_id,
+        })
+
+    for session in mini_panel_sessions:
+        employee_id = str(session.get("employee_id") or "")
+        if not employee_id:
+            continue
+
+        status_value = str(session.get("status") or "active").strip().lower()
+        session_start = _cx_payroll_dt_023o(session.get("started_at"))
+        session_end = _cx_payroll_dt_023o(session.get("ended_at"))
+        if status_value == "finished":
+            if not session_end or session_end < start_dt or session_end > end_dt:
+                continue
+            session_as_of = session_end
+        else:
+            if not session_start or session_start > end_dt or as_of < start_dt:
+                continue
+            session_as_of = as_of
+
+        payable_seconds = _cx_payroll_session_payable_seconds_023o(session, session_as_of)
+        payable_minutes = max(0, round(payable_seconds / 60))
+        if payable_minutes <= 0:
+            continue
+
+        employee = employee_map.get(employee_id, session)
+        row = ensure_employee_row(employee_id, employee, session)
+        regular_minutes = min(payable_minutes, 480)
+        extra_minutes = max(0, payable_minutes - 480)
+        gross = ((Decimal(regular_minutes) / Decimal(60)) * row["hourly_rate_regular"])
+        gross += ((Decimal(extra_minutes) / Decimal(60)) * row["hourly_rate_extra"])
+        gross = gross.quantize(MONEY, rounding=ROUND_HALF_UP)
+
+        add_payroll_shift(row, regular_minutes, extra_minutes, gross, {
+            "start": session_start.isoformat() if session_start else None,
+            "end": session_end.isoformat() if session_end else session_as_of.isoformat(),
+            "regular_minutes": regular_minutes,
+            "extra_minutes": extra_minutes,
+            "gross_amount": str(gross),
+            "source": "mini_panel_work_sessions",
+            "status": status_value,
+            "panel_type": session.get("panel_type"),
+            "mini_panel_session_id": str(session.get("id")) if session.get("id") else None,
         })
 
     rows = []
