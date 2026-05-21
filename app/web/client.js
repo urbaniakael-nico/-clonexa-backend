@@ -7670,6 +7670,39 @@
         display: grid;
         gap: 8px;
       }
+      .cx-sales-progress {
+        margin-top: 10px;
+        display: grid;
+        gap: 7px;
+      }
+      .cx-sales-progress-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: rgba(255,255,255,.82);
+        font-size: 12px;
+        font-weight: 900;
+      }
+      .cx-sales-progress-track {
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255,255,255,.12);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+      }
+      .cx-sales-progress-track i {
+        display: block;
+        width: var(--cx-sales-progress, 0%);
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #22c55e, #d9f99d, #f72585);
+        box-shadow: 0 0 18px rgba(247,37,133,.28);
+      }
+      .cx-sales-progress-card {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(255,255,255,.1);
+      }
       @media (max-width: 1100px) {
         .cx-sales-access-row { grid-template-columns: 1fr; }
         .cx-sales-command-grid { grid-template-columns: 1fr; }
@@ -7774,6 +7807,28 @@
     }
   }
 
+  function cxSalesGoalPercent023Q(salesTotal, goalTotal) {
+    const sales = Number(salesTotal || 0);
+    const goal = Number(goalTotal || 0);
+    if (!goal || goal <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((sales / goal) * 100)));
+  }
+
+  function cxSalesProgressHtml023Q(salesTotal, goalTotal, label = "Ventas vs meta") {
+    const pct = cxSalesGoalPercent023Q(salesTotal, goalTotal);
+    const hasGoal = Number(goalTotal || 0) > 0;
+    return `
+      <div class="cx-sales-progress">
+        <div class="cx-sales-progress-head">
+          <span>${h(label)}</span>
+          <span>${h(hasGoal ? `${pct}%` : "Sin meta")}</span>
+        </div>
+        <div class="cx-sales-progress-track"><i style="--cx-sales-progress:${h(pct)}%"></i></div>
+        <div class="cx-sales-muted">${h(cxSalesMoney023P(salesTotal))} / ${h(cxSalesMoney023P(goalTotal))}</div>
+      </div>
+    `;
+  }
+
   async function cxCopyText019DR2(value, label = "Texto") {
     const text = String(value || "");
     if (!text) return false;
@@ -7821,6 +7876,8 @@
     const statusText = assigned ? (assigned.status || "active") : "pendiente";
     const link = assigned && assigned.link ? assigned.link : (salesLink ? salesLink.link : "");
     const monthlyGoal = assigned ? Number(assigned.monthly_goal || 0) : 0;
+    const monthlySales = assigned ? Number(assigned.monthly_sales_total || assigned.sales_total || 0) : 0;
+    const monthlySalesCount = assigned ? Number(assigned.monthly_sales_count || assigned.sales_count || 0) : 0;
 
     return `
       <div class="cx-sales-access-row" data-sales-employee-id="${h(employeeId)}">
@@ -7839,6 +7896,8 @@
           <div class="cx-sales-muted">Usuario mini panel</div>
           <strong>${h(assignedUser || "Sin usuario")}</strong>
           <div class="cx-sales-muted">Estado: ${h(statusText)}</div>
+          ${assigned ? cxSalesProgressHtml023Q(monthlySales, monthlyGoal, "Ventas vs meta") : ""}
+          ${assigned ? `<div class="cx-sales-muted">${h(monthlySalesCount)} venta(s) reportada(s) en el corte activo.</div>` : ""}
         </div>
         <div>
           ${
@@ -7884,10 +7943,11 @@
       String(employee.status || "active") !== "archived" && cxIsSalesEmployee019C(employee)
     );
     const assignedByEmployee = cxSalesUsersByEmployee019C(users);
-    const totalSalesGoal = (Array.isArray(users) ? users : [])
-      .filter((user) => String(user.panel_type || "") === "sales")
-      .reduce((sum, user) => sum + Number(user.monthly_goal || 0), 0);
-    const sellersWithGoal = (Array.isArray(users) ? users : []).filter((user) => Number(user.monthly_goal || 0) > 0).length;
+    const salesUsers = (Array.isArray(users) ? users : []).filter((user) => String(user.panel_type || "") === "sales");
+    const totalSalesGoal = salesUsers.reduce((sum, user) => sum + Number(user.monthly_goal || 0), 0);
+    const totalSalesArea = salesUsers.reduce((sum, user) => sum + Number(user.monthly_sales_total || user.sales_total || 0), 0);
+    const totalSalesCount = salesUsers.reduce((sum, user) => sum + Number(user.monthly_sales_count || user.sales_count || 0), 0);
+    const sellersWithGoal = salesUsers.filter((user) => Number(user.monthly_goal || 0) > 0).length;
 
     const rows = sellers.length
       ? sellers.map((employee) => cxSalesAccessRow019C(employee, assignedByEmployee.get(cxSalesEmployeeKey019C(employee)), salesLink)).join("")
@@ -7925,6 +7985,10 @@
                   <div class="client-eyebrow">Meta total ventas</div>
                   <strong>${h(cxSalesMoney023P(totalSalesGoal))}</strong>
                   <p class="cx-sales-muted">${h(sellersWithGoal)} vendedor(es) con meta asignada.</p>
+                  <div class="cx-sales-progress-card">
+                    ${cxSalesProgressHtml023Q(totalSalesArea, totalSalesGoal, "Area ventas vs meta")}
+                    <p class="cx-sales-muted">${h(totalSalesCount)} venta(s) reportada(s) en el corte activo.</p>
+                  </div>
                 </article>
                 <article class="cx-sales-command-card">
                   <div class="client-eyebrow">Mensaje a mini paneles</div>

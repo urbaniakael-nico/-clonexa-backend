@@ -414,6 +414,59 @@ async def _cx_employee_or_404_019c(db: AsyncSession, company_id: UUID, employee_
     return employee
 
 
+async def _cx_sales_user_stats_023q(
+    db: AsyncSession,
+    company_id: UUID,
+    users: list[CompanyUser],
+) -> Dict[str, Dict[str, Any]]:
+    sales_users = [user for user in users if _cx_is_minipanel_user_019c(user, "sales")]
+    if not sales_users:
+        return {}
+    if not await _cx_table_exists_023p(db, "mini_panel_sales_records"):
+        return {}
+
+    params: Dict[str, Any] = {"company_id": str(company_id)}
+    placeholders: list[str] = []
+    for index, user in enumerate(sales_users):
+        key = f"user_{index}"
+        params[key] = str(user.id)
+        placeholders.append(f"CAST(:{key} AS uuid)")
+
+    where = [
+        "company_id = CAST(:company_id AS uuid)",
+        "panel_type = 'sales'",
+        f"created_by IN ({', '.join(placeholders)})",
+    ]
+
+    started_at = await _cx_sales_cut_started_at_023p(db, company_id)
+    if started_at:
+        where.append("created_at >= :started_at")
+        params["started_at"] = started_at
+
+    result = await db.execute(
+        text(f"""
+            SELECT
+                created_by::text AS user_id,
+                COALESCE(SUM(total), 0)::float AS sales_total,
+                COUNT(*)::int AS sales_count,
+                COUNT(*) FILTER (WHERE status <> 'archived')::int AS visible_sales_count
+            FROM mini_panel_sales_records
+            WHERE {" AND ".join(where)}
+            GROUP BY created_by
+        """),
+        params,
+    )
+
+    stats: Dict[str, Dict[str, Any]] = {}
+    for row in result.mappings().all():
+        stats[str(row.get("user_id") or "")] = {
+            "sales_total": _cx_money_023p(row.get("sales_total")),
+            "sales_count": int(row.get("sales_count") or 0),
+            "visible_sales_count": int(row.get("visible_sales_count") or 0),
+        }
+    return stats
+
+
 async def _cx_find_minipanel_user_019c(
     db: AsyncSession,
     company_id: UUID,
@@ -434,10 +487,25 @@ async def _cx_find_minipanel_user_019c(
     return None
 
 
-def _cx_minipanel_user_payload_019c(user: CompanyUser, temporary_password: Optional[str] = None) -> Dict[str, Any]:
+def _cx_goal_percent_023q(total: Any, goal: Any) -> int:
+    goal_amount = _cx_money_023p(goal)
+    if goal_amount <= 0:
+        return 0
+    return max(0, min(100, round((_cx_money_023p(total) / goal_amount) * 100)))
+
+
+def _cx_minipanel_user_payload_019c(
+    user: CompanyUser,
+    temporary_password: Optional[str] = None,
+    sales_stats: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     settings = _cx_user_settings_019c(user)
     mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
     goal = _cx_minipanel_goal_023p(mini_panel)
+    stats = sales_stats if isinstance(sales_stats, dict) else {}
+    sales_total = _cx_money_023p(stats.get("sales_total") or stats.get("monthly_sales_total") or 0)
+    sales_count = int(stats.get("sales_count") or stats.get("monthly_sales_count") or 0)
+    visible_count = int(stats.get("visible_sales_count") or 0)
     return {
         "id": str(user.id),
         "company_id": str(user.company_id),
@@ -451,6 +519,10 @@ def _cx_minipanel_user_payload_019c(user: CompanyUser, temporary_password: Optio
         "link": mini_panel.get("link"),
         "monthly_goal": goal["monthly_goal"],
         "goal_currency": goal["goal_currency"],
+        "monthly_sales_total": sales_total,
+        "monthly_sales_count": sales_count,
+        "visible_sales_count": visible_count,
+        "goal_progress_percent": _cx_goal_percent_023q(sales_total, goal["monthly_goal"]),
         "created_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
         "updated_at": user.updated_at.isoformat() if getattr(user, "updated_at", None) else None,
         "temporary_password": temporary_password,
@@ -471,7 +543,11 @@ async def list_mini_panel_users(
     result = await db.execute(select(CompanyUser).where(CompanyUser.company_id == company_id))
     users = result.scalars().all()
     filtered = [user for user in users if _cx_is_minipanel_user_019c(user, clean_type)]
-    return [_cx_minipanel_user_payload_019c(user) for user in filtered]
+    sales_stats = await _cx_sales_user_stats_023q(db, company_id, filtered) if clean_type in {None, "sales"} else {}
+    return [
+        _cx_minipanel_user_payload_019c(user, sales_stats=sales_stats.get(str(user.id)))
+        for user in filtered
+    ]
 
 
 @router.post("/{company_id}/mini-panel-users/sales/from-employee")
