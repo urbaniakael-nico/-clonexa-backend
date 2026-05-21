@@ -436,6 +436,52 @@ def _prod_format_seconds(seconds: int) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
+def _prod_period_bounds_023r(start: date, end: date) -> tuple[datetime, datetime]:
+    return (
+        datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc),
+        datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
+    )
+
+
+def _prod_identity_keys_023r(employee_id: str, telegram_user_id: str = "", employee_name: str = "") -> list[str]:
+    keys: list[str] = []
+    employee = clean(employee_id)
+    telegram = clean(telegram_user_id)
+    name = clean(employee_name).lower()
+
+    if employee:
+        keys.append(f"employee:{employee}")
+    if telegram:
+        keys.append(f"telegram:{telegram}")
+    if name:
+        keys.append(f"name:{name}")
+    return keys
+
+
+def _prod_primary_session_key_023r(session: dict[str, Any]) -> str:
+    keys = _prod_identity_keys_023r(
+        clean(session.get("employee_id")),
+        clean(session.get("telegram_user_id")),
+        clean(session.get("employee_name")),
+    )
+    return keys[0] if keys else "operator:unknown"
+
+
+def _prod_attach_next_reference_start_023r(sessions: list[dict[str, Any]]) -> None:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for session in sessions:
+        started_at = _prod_parse_dt(session.get("started_at"))
+        if not started_at:
+            continue
+        session["_started_at_023r"] = started_at
+        grouped.setdefault(_prod_primary_session_key_023r(session), []).append(session)
+
+    for rows in grouped.values():
+        rows.sort(key=lambda item: item.get("_started_at_023r") or datetime.min.replace(tzinfo=timezone.utc))
+        for index, session in enumerate(rows[:-1]):
+            session["_next_started_at_023r"] = rows[index + 1].get("_started_at_023r")
+
+
 def _prod_ref_key(reference_id: str, reference_name: str, size: str) -> str:
     rid = clean(reference_id)
 
@@ -973,8 +1019,144 @@ async def _prod_closure_totals(db: AsyncSession, company_id: str, start: date, e
     return build(period_rows), build(all_rows)
 
 
+def _prod_merge_intervals_023r(intervals: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    cleaned = sorted((start, end) for start, end in intervals if start and end and end > start)
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in cleaned:
+        if not merged or start > merged[-1][1]:
+            merged.append((start, end))
+            continue
+        merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+    return merged
+
+
+async def _prod_work_intervals_023r(
+    db: AsyncSession,
+    company_id: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    as_of: datetime,
+) -> dict[str, list[tuple[datetime, datetime]]]:
+    intervals_by_key: dict[str, list[tuple[datetime, datetime]]] = {}
+
+    def add_interval(employee_id: Any, employee_name: Any, telegram_user_id: Any, raw_start: Any, raw_end: Any) -> None:
+        started = _prod_parse_dt(raw_start)
+        ended = _prod_parse_dt(raw_end) or as_of
+        if not started or not ended:
+            return
+        clipped_start = max(started, start_dt)
+        clipped_end = min(ended, end_dt, as_of)
+        if clipped_end <= clipped_start:
+            return
+        for key in _prod_identity_keys_023r(clean(employee_id), clean(telegram_user_id), clean(employee_name)):
+            intervals_by_key.setdefault(key, []).append((clipped_start, clipped_end))
+
+    if await table_exists(db, "mini_panel_work_sessions"):
+        rows = await safe_rows(
+            db,
+            """
+            SELECT
+                s.employee_id::text AS employee_id,
+                COALESCE(e.full_name, '') AS employee_name,
+                s.started_at::text AS started_at,
+                COALESCE(s.ended_at, CAST(:as_of AS timestamptz))::text AS ended_at
+            FROM mini_panel_work_sessions s
+            LEFT JOIN employees e
+              ON e.id = s.employee_id
+             AND e.company_id = s.company_id
+            WHERE s.company_id::text = :company_id
+              AND s.employee_id IS NOT NULL
+              AND s.started_at < CAST(:end_dt AS timestamptz)
+              AND COALESCE(s.ended_at, CAST(:as_of AS timestamptz)) > CAST(:start_dt AS timestamptz)
+            ORDER BY s.started_at ASC
+            LIMIT 2000
+            """,
+            {
+                "company_id": company_id,
+                "start_dt": _prod_dt_text(start_dt),
+                "end_dt": _prod_dt_text(end_dt),
+                "as_of": _prod_dt_text(as_of),
+            },
+        )
+        for row in rows:
+            add_interval(row.get("employee_id"), row.get("employee_name"), "", row.get("started_at"), row.get("ended_at"))
+
+    if await table_exists(db, "workforce_attendance_events"):
+        rows = await safe_rows(
+            db,
+            """
+            SELECT
+                ev.employee_id::text AS employee_id,
+                COALESCE(ev.employee_name, e.full_name, '') AS employee_name,
+                lower(COALESCE(ev.event_type, '')) AS event_type,
+                COALESCE(ev.occurred_at, ev.created_at)::text AS event_at
+            FROM workforce_attendance_events ev
+            LEFT JOIN employees e
+              ON e.id = ev.employee_id
+             AND e.company_id = ev.company_id
+            WHERE ev.company_id::text = :company_id
+              AND ev.employee_id IS NOT NULL
+              AND COALESCE(ev.occurred_at, ev.created_at) >= CAST(:lookback_dt AS timestamptz)
+              AND COALESCE(ev.occurred_at, ev.created_at) <= CAST(:as_of AS timestamptz)
+              AND lower(COALESCE(ev.event_type, '')) IN (
+                  'check_in', 'entrada', 'start_shift', 'shift_start',
+                  'check_out', 'salida', 'end_shift', 'shift_end'
+              )
+            ORDER BY COALESCE(ev.occurred_at, ev.created_at) ASC
+            LIMIT 3000
+            """,
+            {
+                "company_id": company_id,
+                "lookback_dt": _prod_dt_text(start_dt - timedelta(days=2)),
+                "as_of": _prod_dt_text(as_of),
+            },
+        )
+
+        starts = {"check_in", "entrada", "start_shift", "shift_start"}
+        ends = {"check_out", "salida", "end_shift", "shift_end"}
+        open_shifts: dict[str, dict[str, Any]] = {}
+
+        for row in rows:
+            employee_id = clean(row.get("employee_id"))
+            event_at = _prod_parse_dt(row.get("event_at"))
+            event_type = clean(row.get("event_type")).lower()
+            if not employee_id or not event_at:
+                continue
+            if event_type in starts:
+                open_shifts[employee_id] = {
+                    "employee_id": employee_id,
+                    "employee_name": row.get("employee_name"),
+                    "started_at": event_at,
+                }
+                continue
+            if event_type in ends:
+                opened = open_shifts.pop(employee_id, None)
+                if opened:
+                    add_interval(employee_id, opened.get("employee_name"), "", opened.get("started_at"), event_at)
+
+        for opened in open_shifts.values():
+            add_interval(opened.get("employee_id"), opened.get("employee_name"), "", opened.get("started_at"), as_of)
+
+    return {key: _prod_merge_intervals_023r(value) for key, value in intervals_by_key.items()}
+
+
+def _prod_matching_work_intervals_023r(
+    intervals_by_key: dict[str, list[tuple[datetime, datetime]]],
+    employee_id: str,
+    telegram_user_id: str,
+    employee_name: str,
+) -> list[tuple[datetime, datetime]]:
+    intervals: list[tuple[datetime, datetime]] = []
+    for key in _prod_identity_keys_023r(employee_id, telegram_user_id, employee_name):
+        intervals.extend(intervals_by_key.get(key, []))
+    return _prod_merge_intervals_023r(intervals)
+
+
 async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: date) -> dict[str, Any]:
     now_value = datetime.now(timezone.utc)
+    period_start_dt, period_end_dt = _prod_period_bounds_023r(start, end)
+    as_of = min(now_value, period_end_dt)
+    work_intervals = await _prod_work_intervals_023r(db, company_id, period_start_dt, period_end_dt, as_of)
     session_cols = await _prod_columns(db, "reference_work_sessions")
 
     def session_expr(column: str, default: str = "") -> str:
@@ -1025,8 +1207,8 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         FROM reference_work_sessions s
         WHERE s.company_id::text = :company_id
           AND (
-                s.started_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
-                OR (s.ended_at IS NOT NULL AND s.ended_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date))
+                s.started_at < CAST(:period_end AS timestamptz)
+                AND COALESCE(s.ended_at, CAST(:as_of AS timestamptz)) > CAST(:period_start AS timestamptz)
                 OR lower(COALESCE(s.status::text, '')) = 'active'
                 OR s.ended_at IS NULL
           )
@@ -1037,6 +1219,9 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             "company_id": company_id,
             "date_from": start.isoformat(),
             "date_to": end.isoformat(),
+            "period_start": _prod_dt_text(period_start_dt),
+            "period_end": _prod_dt_text(period_end_dt),
+            "as_of": _prod_dt_text(as_of),
         },
     )
 
@@ -1079,6 +1264,7 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         query_strategy = "active_columns_fallback"
 
     sessions = raw_rows
+    _prod_attach_next_reference_start_023r(sessions)
 
     closure_period, closure_all = await _prod_closure_totals(db, company_id, start, end)
 
@@ -1104,23 +1290,36 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             continue
 
         stored_seconds = intval(session.get("duration_minutes")) * 60
+        next_started_at = session.get("_next_started_at_023r")
+        end_for_calc = ended_at or next_started_at or now_value
+        if stored_seconds > 0 and not ended_at and not next_started_at and not is_active:
+            end_for_calc = started_at + timedelta(seconds=stored_seconds)
 
-        if not is_active and stored_seconds > 0:
-            effective_seconds = stored_seconds
-        else:
-            end_for_calc = ended_at or now_value
-            effective_seconds = await _prod_effective_seconds(
+        base_start = max(started_at, period_start_dt)
+        base_end = min(end_for_calc, period_end_dt, now_value)
+        if base_end <= base_start:
+            continue
+
+        matching_work = _prod_matching_work_intervals_023r(work_intervals, employee_id, telegram_user_id, employee_name)
+        segments = [
+            (max(base_start, work_start), min(base_end, work_end))
+            for work_start, work_end in matching_work
+            if min(base_end, work_end) > max(base_start, work_start)
+        ]
+        if not segments and not matching_work:
+            segments = [(base_start, base_end)]
+
+        effective_seconds = 0
+        for segment_start, segment_end in segments:
+            effective_seconds += await _prod_effective_seconds(
                 db,
                 company_id,
                 employee_id,
                 telegram_user_id,
                 employee_name,
-                started_at,
-                end_for_calc,
+                segment_start,
+                segment_end,
             )
-
-        if effective_seconds <= 0 and stored_seconds > 0:
-            effective_seconds = stored_seconds
 
         if effective_seconds <= 0:
             continue
