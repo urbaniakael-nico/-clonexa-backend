@@ -296,6 +296,20 @@ async def mini_panel_session(
 
 MINI_PANEL_ALLOWED_TYPES_019C = {"sales", "store", "inventory", "logistics", "other"}
 SALES_ROLE_TOKENS_019C = {"vendedor", "ventas", "sales", "comercial", "asesor_comercial", "asesor comercial"}
+STORE_ROLE_TOKENS_023S = {
+    "cajero",
+    "cajera",
+    "caja",
+    "cashier",
+    "tienda",
+    "tiendas",
+    "store",
+    "stores",
+    "retail",
+    "punto_venta",
+    "punto de venta",
+    "punto_de_venta",
+}
 
 
 def _cx_slug_019c(value: Any) -> str:
@@ -321,6 +335,27 @@ def _cx_employee_is_sales_019c(employee: Employee) -> bool:
         employee_type.replace(" ", "_"),
     }
     return bool(normalized.intersection(SALES_ROLE_TOKENS_019C))
+
+
+def _cx_employee_is_store_023s(employee: Employee) -> bool:
+    role_value = str(getattr(employee, "role", "") or "").strip().lower()
+    employee_type = str(getattr(employee, "employee_type", "") or "").strip().lower()
+    normalized = {
+        role_value,
+        employee_type,
+        role_value.replace("_", " "),
+        role_value.replace(" ", "_"),
+        employee_type.replace("_", " "),
+        employee_type.replace(" ", "_"),
+    }
+    return bool(normalized.intersection(STORE_ROLE_TOKENS_023S)) or any(
+        "cajer" in token
+        or "caja" in token
+        or "tienda" in token
+        or "store" in token
+        or "retail" in token
+        for token in normalized
+    )
 
 
 def _cx_operational_email_019c(company_id: UUID, panel_type: str, employee_id: UUID) -> str:
@@ -371,24 +406,50 @@ def _cx_company_settings_023p(company: Company | None) -> Dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def _cx_sales_promotions_023p(company: Company | None) -> list[Dict[str, Any]]:
+def _cx_panel_settings_key_023s(panel_type: Any) -> str:
+    raw = str(panel_type or "sales").strip().lower()
+    if raw in {"store", "stores", "tienda", "tiendas"}:
+        return "client_stores"
+    return "client_sales"
+
+
+def _cx_panel_message_title_023s(panel_type: Any) -> str:
+    raw = str(panel_type or "sales").strip().lower()
+    if raw in {"store", "stores", "tienda", "tiendas"}:
+        return "Mensaje de tiendas"
+    return "Mensaje de ventas"
+
+
+def _cx_panel_record_types_023s(panel_type: Any) -> list[str]:
+    raw = str(panel_type or "sales").strip().lower()
+    if raw in {"store", "stores", "tienda", "tiendas"}:
+        return ["store", "stores", "tienda", "tiendas"]
+    return ["sales", "venta", "ventas"]
+
+
+def _cx_panel_promotions_023s(company: Company | None, panel_type: Any = "sales") -> list[Dict[str, Any]]:
     store = _cx_company_settings_023p(company)
-    client_sales = store.get("client_sales") if isinstance(store.get("client_sales"), dict) else {}
-    raw_promotions = client_sales.get("promotions")
+    key = _cx_panel_settings_key_023s(panel_type)
+    client_panel = store.get(key) if isinstance(store.get(key), dict) else {}
+    raw_promotions = client_panel.get("promotions")
     if isinstance(raw_promotions, list):
         items = [item for item in raw_promotions if isinstance(item, dict) and str(item.get("message") or item.get("title") or "").strip()]
         if items:
             return items[:3]
 
-    message = str(client_sales.get("promotion_message") or "").strip()
+    message = str(client_panel.get("promotion_message") or "").strip()
     if not message:
         return []
     return [{
-        "title": client_sales.get("promotion_title") or "Mensaje de ventas",
+        "title": client_panel.get("promotion_title") or _cx_panel_message_title_023s(panel_type),
         "message": message,
         "status": "active",
-        "updated_at": client_sales.get("promotion_updated_at"),
+        "updated_at": client_panel.get("promotion_updated_at"),
     }]
+
+
+def _cx_sales_promotions_023p(company: Company | None) -> list[Dict[str, Any]]:
+    return _cx_panel_promotions_023s(company, "sales")
 
 
 def _cx_is_minipanel_user_019c(user: CompanyUser, panel_type: Optional[str] = None) -> bool:
@@ -418,8 +479,10 @@ async def _cx_sales_user_stats_023q(
     db: AsyncSession,
     company_id: UUID,
     users: list[CompanyUser],
+    panel_type: str = "sales",
 ) -> Dict[str, Dict[str, Any]]:
-    sales_users = [user for user in users if _cx_is_minipanel_user_019c(user, "sales")]
+    clean_panel = "store" if str(panel_type or "").strip().lower() in {"store", "stores", "tienda", "tiendas"} else "sales"
+    sales_users = [user for user in users if _cx_is_minipanel_user_019c(user, clean_panel)]
     if not sales_users:
         return {}
     if not await _cx_table_exists_023p(db, "mini_panel_sales_records"):
@@ -432,9 +495,16 @@ async def _cx_sales_user_stats_023q(
         params[key] = str(user.id)
         placeholders.append(f"CAST(:{key} AS uuid)")
 
+    panel_types = _cx_panel_record_types_023s(clean_panel)
+    panel_placeholders: list[str] = []
+    for index, panel_alias in enumerate(panel_types):
+        key = f"panel_{index}"
+        params[key] = panel_alias
+        panel_placeholders.append(f":{key}")
+
     where = [
         "company_id = CAST(:company_id AS uuid)",
-        "panel_type = 'sales'",
+        f"panel_type IN ({', '.join(panel_placeholders)})",
         f"created_by IN ({', '.join(placeholders)})",
     ]
 
@@ -543,7 +613,8 @@ async def list_mini_panel_users(
     result = await db.execute(select(CompanyUser).where(CompanyUser.company_id == company_id))
     users = result.scalars().all()
     filtered = [user for user in users if _cx_is_minipanel_user_019c(user, clean_type)]
-    sales_stats = await _cx_sales_user_stats_023q(db, company_id, filtered) if clean_type in {None, "sales"} else {}
+    stats_panel = clean_type or "sales"
+    sales_stats = await _cx_sales_user_stats_023q(db, company_id, filtered, stats_panel) if stats_panel in {"sales", "store"} else {}
     return [
         _cx_minipanel_user_payload_019c(user, sales_stats=sales_stats.get(str(user.id)))
         for user in filtered
@@ -594,6 +665,63 @@ async def create_sales_mini_panel_user(
                 "username": username,
                 "link": str(payload.link or ""),
                 "source": "client_sales_module",
+                "monthly_goal": 0,
+                "goal_currency": "COP",
+            }
+        },
+    )
+
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    return _cx_minipanel_user_payload_019c(user, temporary_password=temp_password)
+
+
+@router.post("/{company_id}/mini-panel-users/store/from-employee")
+async def create_store_mini_panel_user_023s(
+    company_id: UUID,
+    payload: SalesMiniPanelUserCreateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    employee = await _cx_employee_or_404_019c(db, company_id, payload.employee_id)
+
+    if not _cx_employee_is_store_023s(employee):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El empleado debe tener rol cajero, tienda, punto de venta o retail.",
+        )
+
+    existing = await _cx_find_minipanel_user_019c(db, company_id, payload.employee_id, "store")
+    if existing:
+        return _cx_minipanel_user_payload_019c(existing)
+
+    temp_password = generate_temporary_password()
+    now = datetime.now(timezone.utc)
+    username = _cx_operational_username_019c(employee, "store")
+    email = _cx_operational_email_019c(company_id, "store", payload.employee_id)
+
+    user = CompanyUser(
+        company_id=company_id,
+        email=email,
+        password_hash=hash_password(temp_password),
+        full_name=str(getattr(employee, "full_name", "") or username),
+        role="operator",
+        status="active",
+        must_change_password=True,
+        failed_login_attempts=0,
+        locked_until=None,
+        last_password_reset_at=now,
+        created_at=now,
+        updated_at=now,
+        settings_json={
+            "mini_panel": {
+                "enabled": True,
+                "type": "store",
+                "employee_id": str(payload.employee_id),
+                "username": username,
+                "link": str(payload.link or ""),
+                "source": "client_stores_module",
                 "monthly_goal": 0,
                 "goal_currency": "COP",
             }
@@ -670,8 +798,9 @@ async def update_sales_mini_panel_goal_023p(
 
     settings = dict(_cx_user_settings_019c(user))
     mini_panel = dict(settings.get("mini_panel") or {})
-    if mini_panel.get("enabled") is not True or str(mini_panel.get("type") or "").strip().lower() != "sales":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El usuario no pertenece al mini panel de ventas.")
+    panel_type = str(mini_panel.get("type") or "").strip().lower()
+    if mini_panel.get("enabled") is not True or panel_type not in {"sales", "store"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El usuario no pertenece a mini panel de ventas o tiendas.")
 
     mini_panel["monthly_goal"] = _cx_money_023p(payload.monthly_goal)
     mini_panel["goal_currency"] = _cx_goal_currency_023p(payload.goal_currency)
@@ -729,6 +858,57 @@ async def update_sales_mini_panel_message_023p(
     await db.commit()
     await db.refresh(company)
     promotions = _cx_sales_promotions_023p(company)
+    return {
+        "company_id": str(company_id),
+        "message": message,
+        "promotions": promotions,
+    }
+
+
+@router.get("/{company_id}/mini-panel-stores-message")
+async def get_stores_mini_panel_message_023s(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _cx_company_or_404_019d(db, company_id)
+    promotions = _cx_panel_promotions_023s(company, "store")
+    first = promotions[0] if promotions else {}
+    return {
+        "company_id": str(company_id),
+        "message": first.get("message") or "",
+        "promotions": promotions,
+    }
+
+
+@router.put("/{company_id}/mini-panel-stores-message")
+async def update_stores_mini_panel_message_023s(
+    company_id: UUID,
+    payload: SalesMiniPanelMessageUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _cx_company_or_404_019d(db, company_id)
+    message = str(payload.message or "").strip()[:280]
+    now = datetime.now(timezone.utc).isoformat()
+
+    store = dict(_cx_company_settings_023p(company))
+    client_stores = dict(store.get("client_stores") or {})
+    client_stores["promotion_message"] = message
+    client_stores["promotion_title"] = "Mensaje de tiendas"
+    client_stores["promotion_updated_at"] = now if message else None
+    client_stores["promotions"] = ([{
+        "title": "Mensaje de tiendas",
+        "message": message,
+        "status": "active",
+        "updated_at": now,
+    }] if message else [])
+    store["client_stores"] = client_stores
+    company.settings_json = store
+    if hasattr(company, "updated_at"):
+        company.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(company)
+    promotions = _cx_panel_promotions_023s(company, "store")
     return {
         "company_id": str(company_id),
         "message": message,
@@ -847,16 +1027,17 @@ async def _cx_mp_sales_kpis_023p(
     mini_panel: Dict[str, Any],
 ) -> Dict[str, Any]:
     goal = _cx_minipanel_goal_023p(mini_panel)
+    panel_type = str(mini_panel.get("type") or "").strip().lower()
     kpis: Dict[str, Any] = {
         "monthly_sales_total": 0,
         "monthly_sales_count": 0,
         "visible_sales_count": 0,
         "monthly_goal": goal["monthly_goal"],
         "goal_currency": goal["goal_currency"],
-        "promotions": _cx_sales_promotions_023p(company),
+        "promotions": _cx_panel_promotions_023s(company, panel_type),
     }
 
-    if str(mini_panel.get("type") or "").strip().lower() != "sales":
+    if panel_type not in {"sales", "store"}:
         return kpis
     if not await _cx_table_exists_023p(db, "mini_panel_sales_records"):
         return kpis
@@ -865,10 +1046,17 @@ async def _cx_mp_sales_kpis_023p(
         "company_id": str(company.id),
         "user_id": str(user.id),
     }
+    panel_types = _cx_panel_record_types_023s(panel_type)
+    panel_placeholders: list[str] = []
+    for index, panel_alias in enumerate(panel_types):
+        key = f"panel_{index}"
+        params[key] = panel_alias
+        panel_placeholders.append(f":{key}")
+
     where = [
         "company_id = CAST(:company_id AS uuid)",
         "created_by = CAST(:user_id AS uuid)",
-        "panel_type = 'sales'",
+        f"panel_type IN ({', '.join(panel_placeholders)})",
     ]
     started_at = await _cx_sales_cut_started_at_023p(db, company.id)
     if started_at:

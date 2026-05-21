@@ -8179,6 +8179,401 @@
   /* CLONEXA_019C_SALES_MINIPANEL_USERS_FRONTEND_END */
 
 
+  /* CLONEXA_023S_STORES_MINIPANEL_USERS_FRONTEND_START */
+  const CX_STORE_ROLE_TOKENS_023S = new Set([
+    "cajero",
+    "cajera",
+    "caja",
+    "cashier",
+    "tienda",
+    "tiendas",
+    "store",
+    "stores",
+    "retail",
+    "punto_venta",
+    "punto_de_venta",
+    "punto venta"
+  ]);
+
+  function cxIsStoreEmployee023S(employee = {}) {
+    const tokens = [
+      employee.role,
+      employee.employee_type,
+      employee.position,
+      employee.job_title
+    ].map(cxNormalizeRole019C).filter(Boolean);
+
+    return tokens.some((token) =>
+      CX_STORE_ROLE_TOKENS_023S.has(token) ||
+      token.includes("cajero") ||
+      token.includes("cajera") ||
+      token.includes("caja") ||
+      token.includes("tienda") ||
+      token.includes("store") ||
+      token.includes("retail")
+    );
+  }
+
+  async function cxLoadStoreMiniPanelUsers023S() {
+    if (!state.companyId) return [];
+    try {
+      const rows = await api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users?panel_type=store`);
+      return Array.isArray(rows) ? rows : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  async function cxCreateStoreMiniPanelUser023S(employeeId, link) {
+    return api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users/store/from-employee`, {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: employeeId,
+        link: link || ""
+      })
+    });
+  }
+
+  async function cxLoadStoreMiniPanelMessage023S() {
+    if (!state.companyId) return { message: "", promotions: [] };
+    try {
+      return await api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-stores-message`);
+    } catch (error) {
+      return { message: "", promotions: [], error: error.message || "No se pudo cargar el mensaje." };
+    }
+  }
+
+  async function cxSaveStoreMiniPanelMessage023S(message) {
+    return api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-stores-message`, {
+      method: "PUT",
+      body: JSON.stringify({ message: message || "" })
+    });
+  }
+
+  async function cxGetStoreMiniPanelLink023S() {
+    try {
+      const data = await cxLoadMiniPanelPackage019B(false);
+      const settings = data.packageSettings || {};
+      const types = cxMiniPanelEnabledTypes019B(settings);
+      const storePanel = types.find((item) => ["store", "stores"].includes(String(item.code || "")));
+      if (!storePanel) return null;
+      return {
+        link: cxMiniPanelLink019B(storePanel.code || "store", storePanel),
+        users_allowed: Number(storePanel.users_allowed || 0),
+        label: cxMiniPanelTypeLabel019B(storePanel.code || "store", storePanel, data.settings || {}),
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function cxStoreNotice023S(message, isError = false) {
+    const panel = document.querySelector(".cx-sales-access-grid") || document.querySelector(".client-panel");
+    if (!panel) {
+      if (message) window.alert(message);
+      return;
+    }
+
+    const existing = document.getElementById("cxStoreMiniPanelNotice023S");
+    if (existing) existing.remove();
+
+    const notice = document.createElement("div");
+    notice.id = "cxStoreMiniPanelNotice023S";
+    notice.className = `personal-toast ${isError ? "error" : ""}`;
+    notice.style.margin = "14px 0";
+    notice.textContent = message || "";
+    panel.insertAdjacentElement("beforebegin", notice);
+  }
+
+  function cxStoreAccessRow023S(employee, assigned, storeLink) {
+    const employeeId = cxSalesEmployeeKey019C(employee);
+    const assignedUser = assigned ? (assigned.username || assigned.email || "") : "";
+    const assignedId = assigned ? String(assigned.id || "") : "";
+    const statusText = assigned ? (assigned.status || "active") : "pendiente";
+    const link = assigned && assigned.link ? assigned.link : (storeLink ? storeLink.link : "");
+    const monthlyGoal = assigned ? Number(assigned.monthly_goal || 0) : 0;
+    const monthlySales = assigned ? Number(assigned.monthly_sales_total || assigned.sales_total || 0) : 0;
+    const monthlySalesCount = assigned ? Number(assigned.monthly_sales_count || assigned.sales_count || 0) : 0;
+
+    return `
+      <div class="cx-sales-access-row" data-store-employee-id="${h(employeeId)}">
+        <div>
+          <strong>${h(employee.full_name || employee.name || "Sin nombre")}</strong>
+          <div class="cx-sales-muted">${h(employee.phone || "Sin telefono")}</div>
+        </div>
+        <div>
+          <span class="cx-sales-chip">${h(employee.role || employee.employee_type || "cajero")}</span>
+        </div>
+        <div>
+          <div class="cx-sales-muted">Link tiendas</div>
+          <div class="cx-sales-code">${h(link || "No disponible")}</div>
+        </div>
+        <div>
+          <div class="cx-sales-muted">Usuario mini panel</div>
+          <strong>${h(assignedUser || "Sin usuario")}</strong>
+          <div class="cx-sales-muted">Estado: ${h(statusText)}</div>
+          ${assigned ? cxSalesProgressHtml023Q(monthlySales, monthlyGoal, "Tienda vs meta") : ""}
+          ${assigned ? `<div class="cx-sales-muted">${h(monthlySalesCount)} venta(s) reportada(s) en el corte activo.</div>` : ""}
+        </div>
+        <div>
+          ${
+            assigned
+              ? `<div class="cx-sales-actions">
+                  <span class="cx-sales-chip">Activo</span>
+                  <button class="client-btn" type="button" data-store-minipanel-reset="${h(assignedId)}" data-store-minipanel-username="${h(assignedUser)}">Regenerar clave</button>
+                </div>`
+              : `<button class="client-btn" type="button" data-store-minipanel-create="${h(employeeId)}" data-store-minipanel-link="${h(link || "")}" ${!storeLink ? "disabled" : ""}>Generar usuario</button>`
+          }
+          ${assigned ? `
+            <div class="cx-sales-goal-box" style="margin-top:10px">
+              <div class="cx-sales-muted">Asignar meta</div>
+              <input class="cx-sales-input" type="number" min="0" step="1000" value="${h(monthlyGoal)}" data-store-goal-input="${h(assignedId)}" placeholder="Meta de tienda">
+              <button class="client-btn" type="button" data-store-goal-save="${h(assignedId)}">Guardar meta</button>
+            </div>
+          ` : ""}
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderStoresModule023S() {
+    cxSalesEnsureStyles019C();
+
+    const company = state.company || {};
+    let employees = [];
+    let users = [];
+    let storeMessage = { message: "", promotions: [] };
+    let loadError = "";
+    let lastCreated = window.__cxStoreMiniPanelLastCreated023S || null;
+
+    try {
+      employees = await loadPersonalEmployees();
+      users = await cxLoadStoreMiniPanelUsers023S();
+      storeMessage = await cxLoadStoreMiniPanelMessage023S();
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar tiendas.";
+    }
+
+    const storeLink = await cxGetStoreMiniPanelLink023S();
+    const cashiers = (Array.isArray(employees) ? employees : []).filter((employee) =>
+      String(employee.status || "active") !== "archived" && cxIsStoreEmployee023S(employee)
+    );
+    const assignedByEmployee = cxSalesUsersByEmployee019C(users);
+    const storeUsers = (Array.isArray(users) ? users : []).filter((user) => String(user.panel_type || "") === "store");
+    const totalStoreGoal = storeUsers.reduce((sum, user) => sum + Number(user.monthly_goal || 0), 0);
+    const totalStoreArea = storeUsers.reduce((sum, user) => sum + Number(user.monthly_sales_total || user.sales_total || 0), 0);
+    const totalStoreCount = storeUsers.reduce((sum, user) => sum + Number(user.monthly_sales_count || user.sales_count || 0), 0);
+    const cashiersWithGoal = storeUsers.filter((user) => Number(user.monthly_goal || 0) > 0).length;
+
+    const rows = cashiers.length
+      ? cashiers.map((employee) => cxStoreAccessRow023S(employee, assignedByEmployee.get(cxSalesEmployeeKey019C(employee)), storeLink)).join("")
+      : `<div class="cx-mini-empty">No hay cajeros en Workforce. Crea personal con rol Cajero para asignar acceso a tiendas.</div>`;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("stores")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Tiendas</div>
+              <h1 class="client-title">Tiendas</h1>
+              <p class="client-muted">Asigna accesos de mini panel a cajeros creados en Workforce.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-stores-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Accesos de tiendas</div>
+              <h2>Usuarios mini panel tiendas</h2>
+              <p class="client-muted">Fuente: Workforce. Rol requerido: cajero, tienda, punto de venta o retail.</p>
+
+              <div class="cx-sales-command-grid">
+                <article class="cx-sales-command-card">
+                  <div class="client-eyebrow">Meta total tiendas</div>
+                  <strong>${h(cxSalesMoney023P(totalStoreGoal))}</strong>
+                  <p class="cx-sales-muted">${h(cashiersWithGoal)} cajero(s) con meta asignada.</p>
+                  <div class="cx-sales-progress-card">
+                    ${cxSalesProgressHtml023Q(totalStoreArea, totalStoreGoal, "Area tiendas vs meta")}
+                    <p class="cx-sales-muted">${h(totalStoreCount)} venta(s) reportada(s) en el corte activo.</p>
+                  </div>
+                </article>
+                <article class="cx-sales-command-card">
+                  <div class="client-eyebrow">Mensaje a mini paneles</div>
+                  <textarea class="cx-sales-textarea" data-store-message-input maxlength="280" placeholder="Promocion, campana o instruccion para tiendas...">${h(storeMessage.message || "")}</textarea>
+                  <div class="cx-sales-actions" style="margin-top:10px">
+                    <button class="client-btn" type="button" data-store-message-save>Enviar mensaje</button>
+                    <span class="cx-sales-muted">${h((storeMessage.message || "").length)}/280</span>
+                  </div>
+                </article>
+              </div>
+
+              ${loadError ? `<div class="personal-toast error" style="margin-top:14px">${h(loadError)}</div>` : ""}
+              ${!storeLink ? `<div class="personal-toast error" style="margin-top:14px">El paquete no tiene link de Tiendas habilitado desde Admin V2.</div>` : `
+                <div class="cx-mini-empty" style="margin-top:14px">
+                  Link tiendas: <strong>${h(storeLink.link)}</strong><br>
+                  Usuarios permitidos por paquete: <strong>${h(storeLink.users_allowed)}</strong>
+                </div>
+              `}
+              ${lastCreated ? `
+                <div class="cx-sales-password">
+                  Usuario: <strong>${h(lastCreated.username || lastCreated.email)}</strong><br>
+                  ${lastCreated.temporary_password
+                    ? `Clave temporal: <strong>${h(lastCreated.temporary_password)}</strong><br><span class="cx-sales-muted">Guarda esta clave. Solo se muestra una vez.</span>`
+                    : `<span class="cx-sales-muted">Usuario activo. Para entregar una clave nueva usa Regenerar clave.</span>`
+                  }
+                </div>
+              ` : ""}
+
+              <div class="cx-sales-access-grid">
+                ${rows}
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  document.addEventListener("click", async (event) => {
+    const refreshButton = event.target.closest("[data-stores-refresh]");
+    if (refreshButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      await renderStoresModule023S();
+      return;
+    }
+
+    const messageButton = event.target.closest("[data-store-message-save]");
+    if (messageButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const input = document.querySelector("[data-store-message-input]");
+      const originalText = messageButton.textContent || "Enviar mensaje";
+      try {
+        messageButton.disabled = true;
+        messageButton.textContent = "Enviando...";
+        await cxSaveStoreMiniPanelMessage023S(input?.value || "");
+        await renderStoresModule023S();
+        cxStoreNotice023S("Mensaje enviado a los mini paneles de tiendas.");
+      } catch (error) {
+        messageButton.disabled = false;
+        messageButton.textContent = originalText;
+        cxStoreNotice023S(error.message || "No se pudo enviar el mensaje.", true);
+      }
+      return;
+    }
+
+    const goalButton = event.target.closest("[data-store-goal-save]");
+    if (goalButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const userId = goalButton.getAttribute("data-store-goal-save") || "";
+      const input = document.querySelector(`[data-store-goal-input="${userId}"]`);
+      const originalText = goalButton.textContent || "Guardar meta";
+      if (!userId) {
+        cxStoreNotice023S("No se encontro el usuario para asignar meta.", true);
+        return;
+      }
+      try {
+        goalButton.disabled = true;
+        goalButton.textContent = "Guardando...";
+        await cxSaveSalesMiniPanelGoal023P(userId, input?.value || 0);
+        await renderStoresModule023S();
+        cxStoreNotice023S("Meta asignada. El mini panel la vera en Tienda vs meta.");
+      } catch (error) {
+        goalButton.disabled = false;
+        goalButton.textContent = originalText;
+        cxStoreNotice023S(error.message || "No se pudo guardar la meta.", true);
+      }
+      return;
+    }
+
+    const resetButton = event.target.closest("[data-store-minipanel-reset]");
+    if (resetButton) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const userId = resetButton.getAttribute("data-store-minipanel-reset") || "";
+      const originalText = resetButton.textContent || "Regenerar clave";
+
+      if (!userId) {
+        cxStoreNotice023S("No se encontro el usuario mini panel para regenerar clave.", true);
+        return;
+      }
+
+      try {
+        resetButton.disabled = true;
+        resetButton.textContent = "Regenerando...";
+
+        const updated = await cxResetSalesMiniPanelPassword019DR2(userId);
+        window.__cxStoreMiniPanelLastCreated023S = updated || null;
+
+        await renderStoresModule023S();
+
+        const username = updated?.username || updated?.email || "usuario";
+        const tempPassword = updated?.temporary_password || "";
+        cxStoreNotice023S(
+          tempPassword
+            ? `Clave regenerada para ${username}: ${tempPassword}`
+            : `Clave regenerada para ${username}.`
+        );
+      } catch (error) {
+        resetButton.disabled = false;
+        resetButton.textContent = originalText;
+        cxStoreNotice023S(error.message || "No se pudo regenerar la clave.", true);
+      }
+      return;
+    }
+
+    const button = event.target.closest("[data-store-minipanel-create]");
+    if (!button) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const employeeId = button.getAttribute("data-store-minipanel-create") || "";
+    const link = button.getAttribute("data-store-minipanel-link") || "";
+    const originalText = button.textContent || "Generar usuario";
+
+    if (!employeeId) {
+      cxStoreNotice023S("No se encontro el empleado de Workforce para generar el usuario.", true);
+      return;
+    }
+
+    try {
+      button.disabled = true;
+      button.textContent = "Generando...";
+
+      const created = await cxCreateStoreMiniPanelUser023S(employeeId, link);
+      window.__cxStoreMiniPanelLastCreated023S = created || null;
+
+      await renderStoresModule023S();
+
+      const username = created?.username || created?.email || "usuario generado";
+      const tempPassword = created?.temporary_password || "";
+      cxStoreNotice023S(
+        tempPassword
+          ? `Usuario generado: ${username}. Clave temporal: ${tempPassword}`
+          : `Usuario ya existente: ${username}. Usa Regenerar clave para crear una clave nueva.`
+      );
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = originalText;
+      cxStoreNotice023S(error.message || "No se pudo generar el usuario mini panel.", true);
+    }
+  }, true);
+  /* CLONEXA_023S_STORES_MINIPANEL_USERS_FRONTEND_END */
+
+
 
   /* CLONEXA_021D_UNIVERSAL_MODULE_RENDER_ADAPTER_START */
   const CX_UNIVERSAL_QUOTES_CODES_021D = new Set([
@@ -11425,6 +11820,11 @@ document.addEventListener("click", async (event) => {
 
         if (code === "sales") {
           await renderSalesModule019C();
+          return;
+        }
+
+        if (code === "stores" || code === "store") {
+          await renderStoresModule023S();
           return;
         }
 
