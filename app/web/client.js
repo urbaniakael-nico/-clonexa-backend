@@ -547,7 +547,7 @@
     field: ["Field Ops", "operacion en campo", "FLD"],
     login: ["Login tiendas", "turnos y accesos", "LOG"],
     store_login: ["Login tiendas", "turnos y accesos", "LOG"],
-    shift_control: ["Control de turno", "tiempos operativos", "LOG"],
+    shift_control: ["Login tiendas", "turnos y accesos", "LOG"],
     technicians: ["Tecnicos", "inicio turno y estados", "TEC"],
     gps: ["GPS", "ubicacion y rutas", "GPS"],
     tasks: ["Tareas / Solicitudes", "solicitudes operativas", "TSK"],
@@ -8288,28 +8288,6 @@
     panel.insertAdjacentElement("beforebegin", notice);
   }
 
-  const CX_STORE_LOGIN_CLIENT_CODES_023U = new Set([
-    "login",
-    "store_login",
-    "tienda_login",
-    "tiendas_login",
-    "shift_control",
-    "control_turno",
-    "control_de_turno",
-    "field",
-    "operacion_en_campo"
-  ]);
-
-  function cxIsStoreLoginClientCode023U(code) {
-    const normalized = String(code || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-    return CX_STORE_LOGIN_CLIENT_CODES_023U.has(normalized);
-  }
-
   function cxStoreAccessRow023S(employee, assigned, storeLink) {
     const employeeId = cxSalesEmployeeKey019C(employee);
     const assignedUser = assigned ? (assigned.username || assigned.email || "") : "";
@@ -8597,6 +8575,635 @@
     }
   }, true);
   /* CLONEXA_023S_STORES_MINIPANEL_USERS_FRONTEND_END */
+
+
+  /* CLONEXA_023V_CLIENT_STORE_LOGIN_ASSIGNMENT_START */
+  const CX_STORE_LOGIN_CLIENT_CODES_023V = new Set([
+    "login",
+    "store_login",
+    "tienda_login",
+    "tiendas_login",
+    "login_tiendas",
+    "turnos_tiendas",
+    "shift_control",
+    "control_turno",
+    "control_de_turno"
+  ]);
+
+  function cxIsStoreLoginClientCode023V(code) {
+    const normalized = String(code || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return CX_STORE_LOGIN_CLIENT_CODES_023V.has(normalized);
+  }
+
+  function cxStoreLoginEnsureStyles023V() {
+    if (document.getElementById("cxStoreLoginStyles023V")) return;
+
+    const style = document.createElement("style");
+    style.id = "cxStoreLoginStyles023V";
+    style.textContent = `
+      .cx-store-login-kpis {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(160px, 1fr));
+        gap: 12px;
+        margin: 16px 0;
+      }
+      .cx-store-login-kpi,
+      .cx-store-login-card,
+      .cx-store-login-row {
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.06);
+        border-radius: 18px;
+      }
+      .cx-store-login-kpi {
+        padding: 14px;
+      }
+      .cx-store-login-kpi strong {
+        display: block;
+        font-size: 24px;
+        line-height: 1.1;
+      }
+      .cx-store-login-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(190px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .cx-store-login-card {
+        padding: 14px;
+        display: grid;
+        gap: 12px;
+        min-height: 230px;
+      }
+      .cx-store-login-card.admin-ready {
+        border-color: rgba(247,37,133,.5);
+        box-shadow: 0 0 20px rgba(247,37,133,.12);
+      }
+      .cx-store-login-name {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 14px;
+        background: rgba(5,8,18,.72);
+        color: inherit;
+        font-weight: 900;
+        padding: 10px 12px;
+        outline: none;
+      }
+      .cx-store-login-members {
+        display: grid;
+        gap: 8px;
+      }
+      .cx-store-login-member {
+        padding: 10px;
+        border-radius: 14px;
+        background: rgba(5,8,18,.42);
+        border: 1px solid rgba(255,255,255,.1);
+        display: grid;
+        gap: 8px;
+      }
+      .cx-store-login-member-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: flex-start;
+      }
+      .cx-store-login-member-actions {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+      }
+      .cx-store-login-mini-btn {
+        min-height: 32px;
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 12px;
+        background: rgba(255,255,255,.08);
+        color: inherit;
+        font-weight: 900;
+        cursor: pointer;
+      }
+      .cx-store-login-mini-btn.warn {
+        border-color: rgba(248,113,113,.35);
+        color: #fecdd3;
+      }
+      .cx-store-login-empty {
+        min-height: 88px;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        color: rgba(255,255,255,.62);
+        border: 1px dashed rgba(255,255,255,.16);
+        border-radius: 14px;
+        padding: 12px;
+      }
+      .cx-store-login-row {
+        display: grid;
+        grid-template-columns: minmax(200px, 1.2fr) minmax(130px,.7fr) minmax(190px,1fr) minmax(220px,1fr) minmax(230px,1fr);
+        gap: 12px;
+        align-items: center;
+        padding: 14px;
+      }
+      .cx-store-login-select {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 14px;
+        background: rgba(5,8,18,.72);
+        color: inherit;
+        font-weight: 900;
+        padding: 11px 12px;
+        outline: none;
+      }
+      .cx-store-login-savebar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-top: 16px;
+      }
+      @media (max-width: 1450px) {
+        .cx-store-login-grid { grid-template-columns: repeat(2, minmax(190px, 1fr)); }
+      }
+      @media (max-width: 1100px) {
+        .cx-store-login-kpis,
+        .cx-store-login-grid,
+        .cx-store-login-row { grid-template-columns: 1fr; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxStoreLoginDefaultSlots023V() {
+    return Array.from({ length: 5 }, (_, index) => ({
+      id: `store_${index + 1}`,
+      name: `Tienda ${index + 1}`,
+      employee_ids: []
+    }));
+  }
+
+  function cxStoreLoginNormalizeSlots023V(stores = [], validIds = null) {
+    const byId = new Map();
+    (Array.isArray(stores) ? stores : []).forEach((slot) => {
+      const id = String(slot?.id || "").trim();
+      if (/^store_[1-5]$/.test(id)) byId.set(id, slot);
+    });
+
+    const used = new Set();
+    return cxStoreLoginDefaultSlots023V().map((fallback) => {
+      const slot = byId.get(fallback.id) || {};
+      const name = String(slot.name || fallback.name || "").trim() || fallback.name;
+      const employeeIds = [];
+      const sourceIds = Array.isArray(slot.employee_ids) ? slot.employee_ids : [];
+      sourceIds.forEach((rawId) => {
+        const employeeId = String(rawId || "").trim();
+        if (!employeeId || used.has(employeeId)) return;
+        if (validIds && !validIds.has(employeeId)) return;
+        used.add(employeeId);
+        employeeIds.push(employeeId);
+      });
+      return {
+        id: fallback.id,
+        name,
+        employee_ids: employeeIds
+      };
+    });
+  }
+
+  async function cxLoadStoreLoginConfig023V() {
+    if (!state.companyId) return { stores: cxStoreLoginDefaultSlots023V() };
+    try {
+      const data = await api(`/companies/${encodeURIComponent(state.companyId)}/store-login-config`);
+      return {
+        stores: cxStoreLoginNormalizeSlots023V(data?.stores || []),
+        updated_at: data?.updated_at || null
+      };
+    } catch (error) {
+      return {
+        stores: cxStoreLoginDefaultSlots023V(),
+        error: error.message || "No se pudo cargar la configuracion de tiendas."
+      };
+    }
+  }
+
+  async function cxSaveStoreLoginConfig023V(stores) {
+    return api(`/companies/${encodeURIComponent(state.companyId)}/store-login-config`, {
+      method: "PUT",
+      body: JSON.stringify({
+        stores: cxStoreLoginNormalizeSlots023V(stores)
+      })
+    });
+  }
+
+  function cxStoreLoginAssignedSlotId023V(slots, employeeId) {
+    const id = String(employeeId || "");
+    const slot = (Array.isArray(slots) ? slots : []).find((item) =>
+      Array.isArray(item.employee_ids) && item.employee_ids.includes(id)
+    );
+    return slot ? slot.id : "";
+  }
+
+  function cxStoreLoginReadSlots023V() {
+    const slots = cxStoreLoginNormalizeSlots023V(window.__cxStoreLoginSlots023V || []);
+    return slots.map((slot) => {
+      const input = document.querySelector(`[data-store-login-name="${slot.id}"]`);
+      const name = String(input?.value || slot.name || "").trim() || slot.name;
+      return { ...slot, name };
+    });
+  }
+
+  function cxStoreLoginSetAssignment023V(slots, employeeId, targetSlotId) {
+    const cleanEmployeeId = String(employeeId || "").trim();
+    const cleanTarget = String(targetSlotId || "").trim();
+    const next = cxStoreLoginNormalizeSlots023V(slots).map((slot) => ({
+      ...slot,
+      employee_ids: slot.employee_ids.filter((id) => id !== cleanEmployeeId)
+    }));
+    if (!cleanEmployeeId || !/^store_[1-5]$/.test(cleanTarget)) return next;
+    return next.map((slot) => (
+      slot.id === cleanTarget
+        ? { ...slot, employee_ids: [...slot.employee_ids, cleanEmployeeId] }
+        : slot
+    ));
+  }
+
+  function cxStoreLoginMoveEmployee023V(slots, slotId, employeeId, direction) {
+    const cleanSlot = String(slotId || "");
+    const cleanEmployee = String(employeeId || "");
+    const step = Number(direction || 0);
+    return cxStoreLoginNormalizeSlots023V(slots).map((slot) => {
+      if (slot.id !== cleanSlot) return slot;
+      const ids = [...slot.employee_ids];
+      const currentIndex = ids.indexOf(cleanEmployee);
+      const nextIndex = Math.max(0, Math.min(ids.length - 1, currentIndex + step));
+      if (currentIndex < 0 || currentIndex === nextIndex) return slot;
+      ids.splice(currentIndex, 1);
+      ids.splice(nextIndex, 0, cleanEmployee);
+      return { ...slot, employee_ids: ids };
+    });
+  }
+
+  function cxStoreLoginNotice023V(message, isError = false) {
+    const panel = document.querySelector(".cx-store-login-workforce") || document.querySelector(".client-panel");
+    if (!panel) {
+      if (message) window.alert(message);
+      return;
+    }
+
+    const existing = document.getElementById("cxStoreLoginNotice023V");
+    if (existing) existing.remove();
+
+    const notice = document.createElement("div");
+    notice.id = "cxStoreLoginNotice023V";
+    notice.className = `personal-toast ${isError ? "error" : ""}`;
+    notice.style.margin = "14px 0";
+    notice.textContent = message || "";
+    panel.insertAdjacentElement("beforebegin", notice);
+  }
+
+  function cxStoreLoginStoreCard023V(slot, employeeById) {
+    const members = (slot.employee_ids || [])
+      .map((employeeId) => employeeById.get(String(employeeId)))
+      .filter(Boolean);
+    const admin = members[0] || null;
+    const memberHtml = members.length
+      ? members.map((employee, index) => {
+          const employeeId = cxSalesEmployeeKey019C(employee);
+          return `
+            <div class="cx-store-login-member">
+              <div class="cx-store-login-member-head">
+                <div>
+                  <strong>${h(employee.full_name || employee.name || "Sin nombre")}</strong>
+                  <div class="cx-sales-muted">${h(employee.phone || "Sin telefono")}</div>
+                </div>
+                <span class="cx-sales-chip">${h(index === 0 ? "Admin" : "Equipo")}</span>
+              </div>
+              <div class="cx-store-login-member-actions">
+                <button class="cx-store-login-mini-btn" type="button" data-store-login-move="${h(slot.id)}" data-store-login-employee="${h(employeeId)}" data-store-login-dir="-1" ${index === 0 ? "disabled" : ""}>Subir</button>
+                <button class="cx-store-login-mini-btn" type="button" data-store-login-move="${h(slot.id)}" data-store-login-employee="${h(employeeId)}" data-store-login-dir="1" ${index === members.length - 1 ? "disabled" : ""}>Bajar</button>
+                <button class="cx-store-login-mini-btn warn" type="button" data-store-login-remove="${h(slot.id)}" data-store-login-employee="${h(employeeId)}">Quitar</button>
+              </div>
+            </div>
+          `;
+        }).join("")
+      : `<div class="cx-store-login-empty">Asigna cajeros desde la lista inferior.</div>`;
+
+    return `
+      <article class="cx-store-login-card ${admin ? "admin-ready" : ""}">
+        <div>
+          <div class="client-eyebrow">${h(slot.id.replace("_", " "))}</div>
+          <input class="cx-store-login-name" value="${h(slot.name)}" data-store-login-name="${h(slot.id)}" maxlength="60" aria-label="Nombre de tienda">
+        </div>
+        <div class="cx-sales-muted">
+          Admin: <strong>${h(admin ? (admin.full_name || admin.name || "Sin nombre") : "Sin asignar")}</strong>
+        </div>
+        <div class="cx-store-login-members">${memberHtml}</div>
+      </article>
+    `;
+  }
+
+  function cxStoreLoginCashierRow023V(employee, slots, assigned, storeLink) {
+    const employeeId = cxSalesEmployeeKey019C(employee);
+    const assignedUser = assigned ? (assigned.username || assigned.email || "") : "";
+    const assignedId = assigned ? String(assigned.id || "") : "";
+    const statusText = assigned ? (assigned.status || "active") : "pendiente";
+    const selectedSlotId = cxStoreLoginAssignedSlotId023V(slots, employeeId);
+    const link = assigned && assigned.link ? assigned.link : (storeLink ? storeLink.link : "");
+    const options = [
+      `<option value="" ${!selectedSlotId ? "selected" : ""}>Sin tienda</option>`,
+      ...slots.map((slot) => `<option value="${h(slot.id)}" ${selectedSlotId === slot.id ? "selected" : ""}>${h(slot.name)}</option>`)
+    ].join("");
+
+    return `
+      <div class="cx-store-login-row" data-store-login-employee-row="${h(employeeId)}">
+        <div>
+          <strong>${h(employee.full_name || employee.name || "Sin nombre")}</strong>
+          <div class="cx-sales-muted">${h(employee.phone || "Sin telefono")}</div>
+        </div>
+        <div>
+          <span class="cx-sales-chip">${h(employee.role || employee.employee_type || "cajero")}</span>
+        </div>
+        <div>
+          <div class="cx-sales-muted">Asignar a tienda</div>
+          <select class="cx-store-login-select" data-store-login-assign="${h(employeeId)}">${options}</select>
+        </div>
+        <div>
+          <div class="cx-sales-muted">Usuario mini panel</div>
+          <strong>${h(assignedUser || "Sin usuario")}</strong>
+          <div class="cx-sales-muted">Estado: ${h(statusText)}</div>
+          <div class="cx-sales-code">${h(link || "Link no disponible")}</div>
+        </div>
+        <div class="cx-sales-actions">
+          ${
+            assigned
+              ? `<span class="cx-sales-chip">Clave activa</span>
+                 <button class="client-btn" type="button" data-store-login-reset="${h(assignedId)}">Regenerar clave</button>`
+              : `<button class="client-btn" type="button" data-store-login-generate="${h(employeeId)}" data-store-login-link="${h(link || "")}" ${!storeLink ? "disabled" : ""}>Generar clave</button>`
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderStoreLoginModule023V() {
+    cxSalesEnsureStyles019C();
+    cxStoreLoginEnsureStyles023V();
+
+    const company = state.company || {};
+    let employees = [];
+    let users = [];
+    let config = { stores: cxStoreLoginDefaultSlots023V() };
+    let loadError = "";
+    let lastCredential = window.__cxStoreLoginLastCredential023V || null;
+
+    try {
+      employees = await loadPersonalEmployees();
+      users = await cxLoadStoreMiniPanelUsers023S();
+      config = await cxLoadStoreLoginConfig023V();
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Login tiendas.";
+    }
+
+    const storeLink = await cxGetStoreMiniPanelLink023S();
+    const cashiers = (Array.isArray(employees) ? employees : []).filter((employee) =>
+      String(employee.status || "active") !== "archived" && cxIsStoreEmployee023S(employee)
+    );
+    const cashierIds = new Set(cashiers.map((employee) => cxSalesEmployeeKey019C(employee)).filter(Boolean));
+    const employeeById = new Map(cashiers.map((employee) => [cxSalesEmployeeKey019C(employee), employee]));
+    const slots = cxStoreLoginNormalizeSlots023V(config.stores || [], cashierIds);
+    const assignedEmployeeIds = new Set(slots.flatMap((slot) => slot.employee_ids || []));
+    const assignedByEmployee = cxSalesUsersByEmployee019C(users);
+    const usersWithLogin = (Array.isArray(users) ? users : []).filter((user) => String(user.panel_type || "") === "store").length;
+    window.__cxStoreLoginSlots023V = slots;
+
+    const storeCards = slots.map((slot) => cxStoreLoginStoreCard023V(slot, employeeById)).join("");
+    const cashierRows = cashiers.length
+      ? cashiers.map((employee) => cxStoreLoginCashierRow023V(employee, slots, assignedByEmployee.get(cxSalesEmployeeKey019C(employee)), storeLink)).join("")
+      : `<div class="cx-mini-empty">No hay cajeros en Workforce. Crea personal con rol Cajero para que aparezca aqui.</div>`;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("login")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Login tiendas</div>
+              <h1 class="client-title">Login tiendas</h1>
+              <p class="client-muted">Configura tiendas, cajeros, administradores y claves del mini panel de tienda.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-store-login-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Configuracion por tienda</div>
+              <h2>Tiendas y administradores</h2>
+              <p class="client-muted">El primer cajero asignado a cada tarjeta queda como admin de esa tienda. Su usuario y clave seran el acceso principal del mini panel.</p>
+
+              <div class="cx-store-login-kpis">
+                <article class="cx-store-login-kpi">
+                  <div class="client-eyebrow">Tiendas</div>
+                  <strong>5</strong>
+                  <div class="cx-sales-muted">Tarjetas configurables</div>
+                </article>
+                <article class="cx-store-login-kpi">
+                  <div class="client-eyebrow">Cajeros Workforce</div>
+                  <strong>${h(cashiers.length)}</strong>
+                  <div class="cx-sales-muted">Rol cajero / tienda</div>
+                </article>
+                <article class="cx-store-login-kpi">
+                  <div class="client-eyebrow">Asignados</div>
+                  <strong>${h(assignedEmployeeIds.size)}</strong>
+                  <div class="cx-sales-muted">Con tienda definida</div>
+                </article>
+                <article class="cx-store-login-kpi">
+                  <div class="client-eyebrow">Usuarios mini panel</div>
+                  <strong>${h(usersWithLogin)}</strong>
+                  <div class="cx-sales-muted">Con clave generada</div>
+                </article>
+              </div>
+
+              ${loadError || config.error ? `<div class="personal-toast error" style="margin-top:14px">${h(loadError || config.error)}</div>` : ""}
+              ${!storeLink ? `<div class="personal-toast error" style="margin-top:14px">El paquete no tiene link de Tiendas habilitado desde Admin V2.</div>` : `
+                <div class="cx-mini-empty" style="margin-top:14px">
+                  Link tiendas: <strong>${h(storeLink.link)}</strong><br>
+                  Usuarios permitidos por paquete: <strong>${h(storeLink.users_allowed)}</strong>
+                </div>
+              `}
+              ${lastCredential ? `
+                <div class="cx-sales-password">
+                  Usuario: <strong>${h(lastCredential.username || lastCredential.email)}</strong><br>
+                  ${lastCredential.temporary_password
+                    ? `Clave temporal: <strong>${h(lastCredential.temporary_password)}</strong><br><span class="cx-sales-muted">Guarda esta clave. Solo se muestra una vez.</span>`
+                    : `<span class="cx-sales-muted">Usuario activo. Para entregar una clave nueva usa Regenerar clave.</span>`
+                  }
+                </div>
+              ` : ""}
+
+              <div class="cx-store-login-grid">${storeCards}</div>
+              <div class="cx-store-login-savebar">
+                <button class="client-btn" type="button" data-store-login-save>Guardar configuracion</button>
+                <span class="cx-sales-muted">Cambiar nombres o posiciones no borra usuarios ni datos operativos.</span>
+              </div>
+            </section>
+
+            <section class="client-panel cx-store-login-workforce">
+              <div class="client-eyebrow">Cajeros de Workforce</div>
+              <h2>Asignar personas a tiendas</h2>
+              <p class="client-muted">Solo aparecen colaboradores con rol cajero, tienda, punto de venta o retail.</p>
+              <div class="cx-sales-access-grid">${cashierRows}</div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  document.addEventListener("click", async (event) => {
+    const refreshButton = event.target.closest("[data-store-login-refresh]");
+    if (refreshButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      await renderStoreLoginModule023V();
+      return;
+    }
+
+    const saveButton = event.target.closest("[data-store-login-save]");
+    if (saveButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const originalText = saveButton.textContent || "Guardar configuracion";
+      try {
+        saveButton.disabled = true;
+        saveButton.textContent = "Guardando...";
+        const saved = await cxSaveStoreLoginConfig023V(cxStoreLoginReadSlots023V());
+        window.__cxStoreLoginSlots023V = cxStoreLoginNormalizeSlots023V(saved?.stores || []);
+        await renderStoreLoginModule023V();
+        cxStoreLoginNotice023V("Configuracion de tiendas guardada.");
+      } catch (error) {
+        saveButton.disabled = false;
+        saveButton.textContent = originalText;
+        cxStoreLoginNotice023V(error.message || "No se pudo guardar la configuracion.", true);
+      }
+      return;
+    }
+
+    const moveButton = event.target.closest("[data-store-login-move]");
+    if (moveButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const slotId = moveButton.getAttribute("data-store-login-move") || "";
+      const employeeId = moveButton.getAttribute("data-store-login-employee") || "";
+      const direction = Number(moveButton.getAttribute("data-store-login-dir") || 0);
+      try {
+        const next = cxStoreLoginMoveEmployee023V(cxStoreLoginReadSlots023V(), slotId, employeeId, direction);
+        const saved = await cxSaveStoreLoginConfig023V(next);
+        window.__cxStoreLoginSlots023V = cxStoreLoginNormalizeSlots023V(saved?.stores || next);
+        await renderStoreLoginModule023V();
+        cxStoreLoginNotice023V("Orden actualizado. El primero queda como admin.");
+      } catch (error) {
+        cxStoreLoginNotice023V(error.message || "No se pudo actualizar el orden.", true);
+      }
+      return;
+    }
+
+    const removeButton = event.target.closest("[data-store-login-remove]");
+    if (removeButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const employeeId = removeButton.getAttribute("data-store-login-employee") || "";
+      try {
+        const next = cxStoreLoginSetAssignment023V(cxStoreLoginReadSlots023V(), employeeId, "");
+        const saved = await cxSaveStoreLoginConfig023V(next);
+        window.__cxStoreLoginSlots023V = cxStoreLoginNormalizeSlots023V(saved?.stores || next);
+        await renderStoreLoginModule023V();
+        cxStoreLoginNotice023V("Cajero quitado de la tienda. El usuario no fue eliminado.");
+      } catch (error) {
+        cxStoreLoginNotice023V(error.message || "No se pudo quitar el cajero.", true);
+      }
+      return;
+    }
+
+    const resetButton = event.target.closest("[data-store-login-reset]");
+    if (resetButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const userId = resetButton.getAttribute("data-store-login-reset") || "";
+      const originalText = resetButton.textContent || "Regenerar clave";
+      try {
+        resetButton.disabled = true;
+        resetButton.textContent = "Regenerando...";
+        const updated = await cxResetSalesMiniPanelPassword019DR2(userId);
+        window.__cxStoreLoginLastCredential023V = updated || null;
+        await renderStoreLoginModule023V();
+        const username = updated?.username || updated?.email || "usuario";
+        const tempPassword = updated?.temporary_password || "";
+        cxStoreLoginNotice023V(tempPassword ? `Clave regenerada para ${username}: ${tempPassword}` : `Clave regenerada para ${username}.`);
+      } catch (error) {
+        resetButton.disabled = false;
+        resetButton.textContent = originalText;
+        cxStoreLoginNotice023V(error.message || "No se pudo regenerar la clave.", true);
+      }
+      return;
+    }
+
+    const generateButton = event.target.closest("[data-store-login-generate]");
+    if (generateButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const employeeId = generateButton.getAttribute("data-store-login-generate") || "";
+      const link = generateButton.getAttribute("data-store-login-link") || "";
+      const originalText = generateButton.textContent || "Generar clave";
+      try {
+        generateButton.disabled = true;
+        generateButton.textContent = "Generando...";
+        const created = await cxCreateStoreMiniPanelUser023S(employeeId, link);
+        window.__cxStoreLoginLastCredential023V = created || null;
+        await renderStoreLoginModule023V();
+        const username = created?.username || created?.email || "usuario generado";
+        const tempPassword = created?.temporary_password || "";
+        cxStoreLoginNotice023V(
+          tempPassword
+            ? `Usuario generado: ${username}. Clave temporal: ${tempPassword}`
+            : `Usuario ya existente: ${username}. Usa Regenerar clave para crear una clave nueva.`
+        );
+      } catch (error) {
+        generateButton.disabled = false;
+        generateButton.textContent = originalText;
+        cxStoreLoginNotice023V(error.message || "No se pudo generar la clave.", true);
+      }
+    }
+  }, true);
+
+  document.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-store-login-assign]");
+    if (!select) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const employeeId = select.getAttribute("data-store-login-assign") || "";
+    const targetSlotId = select.value || "";
+    try {
+      const next = cxStoreLoginSetAssignment023V(cxStoreLoginReadSlots023V(), employeeId, targetSlotId);
+      const saved = await cxSaveStoreLoginConfig023V(next);
+      window.__cxStoreLoginSlots023V = cxStoreLoginNormalizeSlots023V(saved?.stores || next);
+      await renderStoreLoginModule023V();
+      cxStoreLoginNotice023V(targetSlotId ? "Cajero asignado a tienda." : "Cajero sin tienda asignada.");
+    } catch (error) {
+      await renderStoreLoginModule023V();
+      cxStoreLoginNotice023V(error.message || "No se pudo asignar el cajero.", true);
+    }
+  }, true);
+  /* CLONEXA_023V_CLIENT_STORE_LOGIN_ASSIGNMENT_END */
 
 
 
@@ -12145,8 +12752,8 @@ document.addEventListener("click", async (event) => {
           return;
         }
 
-        if (typeof cxIsStoreLoginClientCode023U === "function" && cxIsStoreLoginClientCode023U(code)) {
-          await renderStoresModule023S();
+        if (typeof cxIsStoreLoginClientCode023V === "function" && cxIsStoreLoginClientCode023V(code)) {
+          await renderStoreLoginModule023V();
           return;
         }
 

@@ -60,6 +60,16 @@ class SalesMiniPanelMessageUpdateRequest(BaseModel):
     message: str | None = ""
 
 
+class StoreLoginSlot023V(BaseModel):
+    id: str
+    name: str
+    employee_ids: list[str] = []
+
+
+class StoreLoginConfigUpdateRequest023V(BaseModel):
+    stores: list[StoreLoginSlot023V] = []
+
+
 # CLONEXA_019D_MINIPANEL_LOGIN_BACKEND_START
 
 class MiniPanelLoginRequest(BaseModel):
@@ -404,6 +414,65 @@ def _cx_minipanel_goal_023p(mini_panel: Dict[str, Any]) -> Dict[str, Any]:
 def _cx_company_settings_023p(company: Company | None) -> Dict[str, Any]:
     raw = getattr(company, "settings_json", None) if company is not None else None
     return raw if isinstance(raw, dict) else {}
+
+
+def _cx_store_login_default_slots_023v() -> list[Dict[str, Any]]:
+    return [
+        {
+            "id": f"store_{index}",
+            "name": f"Tienda {index}",
+            "employee_ids": [],
+        }
+        for index in range(1, 6)
+    ]
+
+
+def _cx_store_login_sanitize_023v(raw_stores: Any) -> list[Dict[str, Any]]:
+    source = raw_stores if isinstance(raw_stores, list) else []
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for item in source:
+        if not isinstance(item, dict):
+            continue
+        raw_id = str(item.get("id") or "").strip().lower()
+        slot_id = raw_id if raw_id in {f"store_{index}" for index in range(1, 6)} else ""
+        if not slot_id:
+            continue
+        by_id[slot_id] = item
+
+    assigned: set[str] = set()
+    clean_slots: list[Dict[str, Any]] = []
+    for index in range(1, 6):
+        slot_id = f"store_{index}"
+        item = by_id.get(slot_id, {})
+        name = str(item.get("name") or f"Tienda {index}").strip()[:60] or f"Tienda {index}"
+        employee_ids: list[str] = []
+        raw_employee_ids = item.get("employee_ids") if isinstance(item.get("employee_ids"), list) else []
+        for employee_id in raw_employee_ids:
+            clean_id = str(employee_id or "").strip()
+            if not clean_id or clean_id in assigned:
+                continue
+            assigned.add(clean_id)
+            employee_ids.append(clean_id)
+            if len(employee_ids) >= 12:
+                break
+        clean_slots.append({
+            "id": slot_id,
+            "name": name,
+            "employee_ids": employee_ids,
+        })
+    return clean_slots
+
+
+def _cx_store_login_config_023v(company: Company | None) -> Dict[str, Any]:
+    store = _cx_company_settings_023p(company)
+    config = store.get("client_store_login") if isinstance(store.get("client_store_login"), dict) else {}
+    stores = _cx_store_login_sanitize_023v(config.get("stores"))
+    if not stores:
+        stores = _cx_store_login_default_slots_023v()
+    return {
+        "stores": stores,
+        "updated_at": config.get("updated_at"),
+    }
 
 
 def _cx_panel_settings_key_023s(panel_type: Any) -> str:
@@ -913,6 +982,46 @@ async def update_stores_mini_panel_message_023s(
         "company_id": str(company_id),
         "message": message,
         "promotions": promotions,
+    }
+
+
+@router.get("/{company_id}/store-login-config")
+async def get_store_login_config_023v(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _cx_company_or_404_019d(db, company_id)
+    config = _cx_store_login_config_023v(company)
+    return {
+        "company_id": str(company_id),
+        **config,
+    }
+
+
+@router.put("/{company_id}/store-login-config")
+async def update_store_login_config_023v(
+    company_id: UUID,
+    payload: StoreLoginConfigUpdateRequest023V,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _cx_company_or_404_019d(db, company_id)
+    now = datetime.now(timezone.utc).isoformat()
+    store = dict(_cx_company_settings_023p(company))
+    clean_stores = _cx_store_login_sanitize_023v([slot.model_dump() for slot in payload.stores])
+    store["client_store_login"] = {
+        "stores": clean_stores,
+        "updated_at": now,
+    }
+    company.settings_json = store
+    if hasattr(company, "updated_at"):
+        company.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(company)
+    config = _cx_store_login_config_023v(company)
+    return {
+        "company_id": str(company_id),
+        **config,
     }
 # CLONEXA_023P_SALES_GOALS_MESSAGES_END
 
