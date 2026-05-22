@@ -12057,9 +12057,633 @@ function inventoryCreatePayload() {
   }
   /* CLONEXA_023T_CLIENT_REQUESTS_CONSOLE_END */
 
+  /* CLONEXA_024A_FIELD_STORE_TEAM_SHIFT_GOALS_START */
+  function cxFieldOpsNorm024A(value = "") {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+  }
+
+  function cxFieldOpsIs024A(code = "") {
+    const clean = cxFieldOpsNorm024A(code);
+    return [
+      "field",
+      "field_ops",
+      "fieldops",
+      "campo",
+      "operacion_campo",
+      "operacion_en_campo",
+      "operaciones_en_campo",
+      "crm_campo"
+    ].includes(clean);
+  }
+
+  function cxFieldOpsMoney024A(value) {
+    const n = Number(value || 0);
+    try {
+      return new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0
+      }).format(Number.isFinite(n) ? n : 0);
+    } catch (_) {
+      return `$ ${Math.round(Number.isFinite(n) ? n : 0).toLocaleString("es-CO")}`;
+    }
+  }
+
+  function cxFieldOpsPercent024A(sales, goal) {
+    const total = Number(sales || 0);
+    const target = Number(goal || 0);
+    if (!target) return 0;
+    return Math.max(0, Math.min(999, Math.round((total / target) * 100)));
+  }
+
+  function cxFieldOpsStatusLabel024A(status = "") {
+    const clean = String(status || "not_started").toLowerCase();
+    if (clean === "working") return "Activo";
+    if (clean === "on_break") return "En pausa";
+    if (clean === "checked_out") return "Finalizado";
+    return "Fuera";
+  }
+
+  function cxFieldOpsStatusClass024A(status = "") {
+    const clean = String(status || "not_started").toLowerCase();
+    if (clean === "working") return "is-working";
+    if (clean === "on_break") return "is-break";
+    if (clean === "checked_out") return "is-done";
+    return "is-off";
+  }
+
+  function cxFieldOpsMinutes024A(value) {
+    const n = Math.max(0, Number(value || 0));
+    if (!n) return "0 min";
+    const h = Math.floor(n / 60);
+    const m = Math.round(n % 60);
+    if (h <= 0) return `${m} min`;
+    return `${h}h ${m}m`;
+  }
+
+  function cxFieldOpsEnsureStyles024A() {
+    if (document.getElementById("cxFieldOps024AStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "cxFieldOps024AStyles";
+    style.textContent = `
+      .cx-field-024a-toolbar {
+        display:flex;
+        flex-wrap:wrap;
+        gap:12px;
+        align-items:end;
+        margin-top:18px;
+      }
+
+      .cx-field-024a-selectbox {
+        display:grid;
+        gap:7px;
+        min-width:260px;
+      }
+
+      .cx-field-024a-selectbox label {
+        font-size:11px;
+        text-transform:uppercase;
+        letter-spacing:.12em;
+        color:rgba(255,255,255,.72);
+        font-weight:900;
+      }
+
+      .cx-field-024a-selectbox select {
+        min-height:46px;
+        border-radius:16px;
+        border:1px solid rgba(255,255,255,.18);
+        background:rgba(0,0,0,.22);
+        color:#fff;
+        padding:0 14px;
+        font-weight:900;
+      }
+
+      .cx-field-024a-grid {
+        display:grid;
+        grid-template-columns:repeat(4,minmax(180px,1fr));
+        gap:14px;
+        margin-bottom:18px;
+      }
+
+      .cx-field-024a-kpi {
+        border-radius:22px;
+        border:1px solid rgba(255,255,255,.16);
+        background:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.04));
+        padding:18px;
+        box-shadow:0 18px 40px rgba(0,0,0,.22);
+      }
+
+      .cx-field-024a-kpi small {
+        display:block;
+        color:rgba(255,255,255,.66);
+        text-transform:uppercase;
+        letter-spacing:.12em;
+        font-weight:1000;
+        margin-bottom:10px;
+      }
+
+      .cx-field-024a-kpi strong {
+        display:block;
+        font-size:26px;
+        color:#fff;
+      }
+
+      .cx-field-024a-table {
+        display:grid;
+        gap:12px;
+      }
+
+      .cx-field-024a-row {
+        display:grid;
+        grid-template-columns:minmax(220px,1.2fr) 140px 170px 170px minmax(280px,1.5fr);
+        gap:12px;
+        align-items:center;
+        border-radius:22px;
+        border:1px solid rgba(255,255,255,.12);
+        background:rgba(4,10,38,.42);
+        padding:14px;
+      }
+
+      .cx-field-024a-person strong {
+        display:block;
+        font-size:16px;
+        color:#fff;
+      }
+
+      .cx-field-024a-person small,
+      .cx-field-024a-muted {
+        color:rgba(255,255,255,.66);
+        font-weight:800;
+      }
+
+      .cx-field-024a-chip {
+        display:inline-flex;
+        width:max-content;
+        align-items:center;
+        justify-content:center;
+        border-radius:999px;
+        padding:8px 12px;
+        font-weight:1000;
+        font-size:12px;
+        border:1px solid rgba(255,255,255,.14);
+      }
+
+      .cx-field-024a-chip.is-working {
+        background:rgba(34,197,94,.18);
+        color:#86efac;
+        border-color:rgba(34,197,94,.35);
+      }
+
+      .cx-field-024a-chip.is-break {
+        background:rgba(250,204,21,.16);
+        color:#fde68a;
+        border-color:rgba(250,204,21,.35);
+      }
+
+      .cx-field-024a-chip.is-done {
+        background:rgba(148,163,184,.16);
+        color:#cbd5e1;
+        border-color:rgba(148,163,184,.25);
+      }
+
+      .cx-field-024a-chip.is-off {
+        background:rgba(239,68,68,.12);
+        color:#fecaca;
+        border-color:rgba(239,68,68,.25);
+      }
+
+      .cx-field-024a-progress {
+        height:8px;
+        border-radius:999px;
+        background:rgba(255,255,255,.12);
+        overflow:hidden;
+        margin-top:8px;
+      }
+
+      .cx-field-024a-progress span {
+        display:block;
+        height:100%;
+        width:var(--cx-field-progress,0%);
+        max-width:100%;
+        border-radius:999px;
+        background:linear-gradient(90deg,#ec4899,#38bdf8);
+      }
+
+      .cx-field-024a-actions {
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px;
+      }
+
+      .cx-field-024a-btn {
+        border:0;
+        border-radius:14px;
+        padding:10px 12px;
+        font-weight:1000;
+        cursor:pointer;
+        color:#061126;
+        background:#38bdf8;
+      }
+
+      .cx-field-024a-btn.secondary {
+        background:rgba(255,255,255,.14);
+        color:#fff;
+        border:1px solid rgba(255,255,255,.16);
+      }
+
+      .cx-field-024a-btn.warning {
+        background:#facc15;
+        color:#1f2937;
+      }
+
+      .cx-field-024a-btn.danger {
+        background:#fb7185;
+        color:#fff;
+      }
+
+      .cx-field-024a-btn:disabled {
+        opacity:.42;
+        cursor:not-allowed;
+      }
+
+      .cx-field-024a-notice {
+        min-height:22px;
+        margin-top:10px;
+        font-weight:900;
+        color:#bae6fd;
+      }
+
+      .cx-field-024a-empty {
+        border-radius:22px;
+        border:1px dashed rgba(255,255,255,.22);
+        padding:22px;
+        color:rgba(255,255,255,.72);
+        font-weight:900;
+      }
+
+      @media (max-width:1100px) {
+        .cx-field-024a-grid {
+          grid-template-columns:1fr 1fr;
+        }
+
+        .cx-field-024a-row {
+          grid-template-columns:1fr;
+        }
+      }
+
+      @media (max-width:700px) {
+        .cx-field-024a-grid {
+          grid-template-columns:1fr;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function cxFieldOpsLoad024A() {
+    const companyId = state.companyId || state.company?.id || "";
+    const encodedCompany = encodeURIComponent(companyId);
+
+    const safe = async (promise, fallback) => {
+      try { return await promise; } catch (_) { return fallback; }
+    };
+
+    const [storeConfig, miniUsers, employees, attendanceRows, salesPayload] = await Promise.all([
+      safe(api(`/companies/${encodedCompany}/store-login-config`), { stores: [] }),
+      safe(api(`/companies/${encodedCompany}/mini-panel-users?panel_type=store`), []),
+      safe(api(`/employees?company_id=${encodedCompany}&include_archived=true`), []),
+      safe(api(`/employees/attendance/today?company_id=${encodedCompany}`), []),
+      safe(api(`/mini-panel-sales/companies/${encodedCompany}/sales?panel_type=store&include_archived=false`), { items: [] }),
+    ]);
+
+    const users = Array.isArray(miniUsers) ? miniUsers : [];
+    const employeeList = Array.isArray(employees) ? employees : [];
+    const attendance = Array.isArray(attendanceRows) ? attendanceRows : [];
+    const salesItems = Array.isArray(salesPayload?.items) ? salesPayload.items : [];
+
+    let stores = Array.isArray(storeConfig?.stores) ? storeConfig.stores : [];
+    stores = stores
+      .map((store, index) => ({
+        id: String(store.id || `store_${index + 1}`).trim(),
+        name: String(store.name || `Tienda ${index + 1}`).trim(),
+        employee_ids: Array.isArray(store.employee_ids)
+          ? store.employee_ids.map((id) => String(id || "").trim()).filter(Boolean)
+          : [],
+      }))
+      .filter((store) => store.id);
+
+    if (!stores.length) {
+      const allIds = users
+        .map((user) => String(user.employee_id || "").trim())
+        .filter(Boolean);
+      stores = [{
+        id: "all",
+        name: "Tienda / equipo actual",
+        employee_ids: allIds,
+      }];
+    }
+
+    return { stores, users, employees: employeeList, attendance, salesItems };
+  }
+
+  function cxFieldOpsSalesByEmployee024A(salesItems = [], users = [], selectedStore = {}) {
+    const userToEmployee = new Map(
+      users
+        .filter((user) => user.id && user.employee_id)
+        .map((user) => [String(user.id), String(user.employee_id)])
+    );
+
+    const out = new Map();
+    const selectedStoreId = String(selectedStore?.id || "");
+    const team = new Set((selectedStore?.employee_ids || []).map((id) => String(id)));
+
+    salesItems.forEach((sale) => {
+      if (String(sale.status || "").toLowerCase() === "archived") return;
+
+      const actor = sale.store_actor && typeof sale.store_actor === "object" ? sale.store_actor : {};
+      const actorStore = String(actor.store_id || actor.store_slot_id || "");
+      const actorEmployee = String(actor.employee_id || "");
+      const createdBy = String(sale.created_by || "");
+      const employeeId = actorEmployee || userToEmployee.get(createdBy) || "";
+
+      if (!employeeId) return;
+      if (team.size && !team.has(employeeId)) return;
+      if (selectedStoreId && selectedStoreId !== "all" && actorStore && actorStore !== selectedStoreId) return;
+
+      const total = Number(sale.total_payable ?? sale.total ?? 0) || 0;
+      out.set(employeeId, (out.get(employeeId) || 0) + total);
+    });
+
+    return out;
+  }
+
+  function cxFieldOpsTeamRows024A(payload, selectedStore) {
+    const usersByEmployee = new Map(
+      payload.users
+        .filter((user) => user.employee_id)
+        .map((user) => [String(user.employee_id), user])
+    );
+
+    const employeeById = new Map(
+      payload.employees
+        .filter((employee) => employee.id)
+        .map((employee) => [String(employee.id), employee])
+    );
+
+    const attendanceByEmployee = new Map(
+      payload.attendance
+        .filter((row) => row.employee_id)
+        .map((row) => [String(row.employee_id), row])
+    );
+
+    const salesByEmployee = cxFieldOpsSalesByEmployee024A(payload.salesItems, payload.users, selectedStore);
+    const ids = (selectedStore.employee_ids || []).map((id) => String(id)).filter(Boolean);
+
+    return ids.map((employeeId) => {
+      const user = usersByEmployee.get(employeeId) || {};
+      const employee = employeeById.get(employeeId) || {};
+      const attendance = attendanceByEmployee.get(employeeId) || {};
+      const fallbackSales = Number(user.monthly_sales_total || 0);
+      const computedSales = salesByEmployee.has(employeeId) ? Number(salesByEmployee.get(employeeId) || 0) : fallbackSales;
+      const goal = Number(user.monthly_goal || 0);
+      return {
+        employee_id: employeeId,
+        user_id: user.id || "",
+        name: employee.full_name || user.full_name || "Colaborador",
+        role: employee.role || employee.employee_type || user.role || "Tienda",
+        status: attendance.status || "not_started",
+        check_in_at: attendance.check_in_at || "",
+        worked_minutes: Number(attendance.worked_minutes || 0),
+        break_minutes: Number(attendance.break_minutes || 0),
+        monthly_goal: goal,
+        sales_total: computedSales,
+        percent: cxFieldOpsPercent024A(computedSales, goal),
+      };
+    });
+  }
+
+  function cxFieldOpsActionEndpoint024A(action = "") {
+    const clean = String(action || "").trim().toLowerCase();
+    return {
+      start: "check-in",
+      pause: "break-start",
+      resume: "break-end",
+      finish: "check-out",
+    }[clean] || "";
+  }
+
+  async function cxFieldOpsRunShift024A(employeeId, action, storeName) {
+    const endpoint = cxFieldOpsActionEndpoint024A(action);
+    if (!employeeId || !endpoint) throw new Error("Acción de jornada inválida.");
+
+    await api(`/employees/attendance/${encodeURIComponent(employeeId)}/${endpoint}?company_id=${encodeURIComponent(state.companyId)}`, {
+      method: "POST",
+      body: JSON.stringify({
+        source: "field_ops_024A",
+        notes: `Operación de campo · ${storeName || "Tienda"} · ${action}`,
+      }),
+    });
+  }
+
+  function cxFieldOpsRow024A(row) {
+    const status = String(row.status || "not_started").toLowerCase();
+    const canStart = !["working", "on_break"].includes(status);
+    const canPause = status === "working";
+    const canResume = status === "on_break";
+    const canFinish = ["working", "on_break"].includes(status);
+
+    return `
+      <article class="cx-field-024a-row" data-cx-field-employee="${h(row.employee_id)}">
+        <div class="cx-field-024a-person">
+          <strong>${h(row.name)}</strong>
+          <small>${h(row.role)} · ${h(row.employee_id)}</small>
+        </div>
+
+        <div>
+          <span class="cx-field-024a-chip ${h(cxFieldOpsStatusClass024A(row.status))}">
+            ${h(cxFieldOpsStatusLabel024A(row.status))}
+          </span>
+          <div class="cx-field-024a-muted" style="margin-top:6px">
+            Activo: ${h(cxFieldOpsMinutes024A(row.worked_minutes))}
+          </div>
+          <div class="cx-field-024a-muted">
+            Pausa: ${h(cxFieldOpsMinutes024A(row.break_minutes))}
+          </div>
+        </div>
+
+        <div>
+          <div class="cx-field-024a-muted">Meta asignada</div>
+          <strong>${h(cxFieldOpsMoney024A(row.monthly_goal))}</strong>
+        </div>
+
+        <div>
+          <div class="cx-field-024a-muted">Ventas realizadas</div>
+          <strong>${h(cxFieldOpsMoney024A(row.sales_total))}</strong>
+          <div class="cx-field-024a-progress" style="--cx-field-progress:${Math.min(100, row.percent)}%">
+            <span></span>
+          </div>
+          <div class="cx-field-024a-muted">${h(row.percent)}% cumplimiento</div>
+        </div>
+
+        <div class="cx-field-024a-actions">
+          <button class="cx-field-024a-btn" type="button" data-cx-field-shift="start" data-employee-id="${h(row.employee_id)}" ${canStart ? "" : "disabled"}>Inicio jornada</button>
+          <button class="cx-field-024a-btn warning" type="button" data-cx-field-shift="pause" data-employee-id="${h(row.employee_id)}" ${canPause ? "" : "disabled"}>Pausa jornada</button>
+          <button class="cx-field-024a-btn secondary" type="button" data-cx-field-shift="resume" data-employee-id="${h(row.employee_id)}" ${canResume ? "" : "disabled"}>Retomar labores</button>
+          <button class="cx-field-024a-btn danger" type="button" data-cx-field-shift="finish" data-employee-id="${h(row.employee_id)}" ${canFinish ? "" : "disabled"}>Finalizar turno</button>
+        </div>
+      </article>
+    `;
+  }
+
+  async function renderFieldOpsStoreModule024A() {
+    cxFieldOpsEnsureStyles024A();
+
+    const company = state.company || {};
+    let payload = { stores: [], users: [], employees: [], attendance: [], salesItems: [] };
+    let error = "";
+
+    try {
+      payload = await cxFieldOpsLoad024A();
+    } catch (err) {
+      error = err.message || "No se pudo cargar Operación de campo.";
+    }
+
+    const storeKey = `cx_field_ops_store_${state.companyId || "tenant"}`;
+    const savedStoreId = sessionStorage.getItem(storeKey) || "";
+    const selectedStore =
+      payload.stores.find((store) => store.id === savedStoreId) ||
+      payload.stores[0] ||
+      { id: "all", name: "Tienda / equipo actual", employee_ids: [] };
+
+    const rows = cxFieldOpsTeamRows024A(payload, selectedStore);
+    const totalGoal = rows.reduce((sum, row) => sum + Number(row.monthly_goal || 0), 0);
+    const totalSales = rows.reduce((sum, row) => sum + Number(row.sales_total || 0), 0);
+    const working = rows.filter((row) => String(row.status).toLowerCase() === "working").length;
+    const onBreak = rows.filter((row) => String(row.status).toLowerCase() === "on_break").length;
+    const progress = cxFieldOpsPercent024A(totalSales, totalGoal);
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("field")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Módulo Operación de campo</div>
+              <h1 class="client-title">Operación en campo</h1>
+              <p class="client-muted">Control de colaboradores asociados a tienda, jornada, pausas no computables y meta vs ventas.</p>
+
+              <div class="cx-field-024a-toolbar">
+                <div class="cx-field-024a-selectbox">
+                  <label>Tienda</label>
+                  <select data-cx-field-store-select>
+                    ${payload.stores.map((store) => `
+                      <option value="${h(store.id)}" ${store.id === selectedStore.id ? "selected" : ""}>${h(store.name)}</option>
+                    `).join("")}
+                  </select>
+                </div>
+                <button class="client-btn" type="button" data-cx-field-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+              </div>
+
+              <div class="cx-field-024a-notice" data-cx-field-notice>${h(error)}</div>
+            </header>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Resumen tienda</div>
+              <h2>${h(selectedStore.name)}</h2>
+
+              <div class="cx-field-024a-grid">
+                <article class="cx-field-024a-kpi">
+                  <small>Colaboradores</small>
+                  <strong>${h(rows.length)}</strong>
+                </article>
+                <article class="cx-field-024a-kpi">
+                  <small>Conectados</small>
+                  <strong>${h(working)}</strong>
+                </article>
+                <article class="cx-field-024a-kpi">
+                  <small>En pausa</small>
+                  <strong>${h(onBreak)}</strong>
+                </article>
+                <article class="cx-field-024a-kpi">
+                  <small>Ventas vs meta</small>
+                  <strong>${h(cxFieldOpsMoney024A(totalSales))} / ${h(cxFieldOpsMoney024A(totalGoal))}</strong>
+                  <div class="cx-field-024a-progress" style="--cx-field-progress:${Math.min(100, progress)}%">
+                    <span></span>
+                  </div>
+                  <div class="cx-field-024a-muted">${h(progress)}% cumplimiento</div>
+                </article>
+              </div>
+
+              <div class="client-eyebrow">Detalle por colaborador</div>
+              <div class="cx-field-024a-table">
+                ${rows.length ? rows.map(cxFieldOpsRow024A).join("") : `
+                  <div class="cx-field-024a-empty">
+                    No hay colaboradores asociados a esta tienda. Configúralos en Login tiendas / asignaciones de tienda.
+                  </div>
+                `}
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    document.querySelector("[data-cx-field-store-select]")?.addEventListener("change", async (event) => {
+      sessionStorage.setItem(storeKey, event.target.value || "");
+      await renderFieldOpsStoreModule024A();
+    });
+
+    document.querySelector("[data-cx-field-refresh]")?.addEventListener("click", async () => {
+      await renderFieldOpsStoreModule024A();
+    });
+
+    document.querySelectorAll("[data-cx-field-shift]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const action = button.getAttribute("data-cx-field-shift") || "";
+        const employeeId = button.getAttribute("data-employee-id") || "";
+        const notice = document.querySelector("[data-cx-field-notice]");
+
+        try {
+          button.disabled = true;
+          if (notice) notice.textContent = "Registrando jornada...";
+          await cxFieldOpsRunShift024A(employeeId, action, selectedStore.name);
+          await renderFieldOpsStoreModule024A();
+        } catch (err) {
+          if (notice) notice.textContent = err.message || "No se pudo registrar la jornada.";
+          button.disabled = false;
+        }
+      });
+    });
+  }
+  /* CLONEXA_024A_FIELD_STORE_TEAM_SHIFT_GOALS_END */
+
+
   async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
+
+    if (
+      typeof cxFieldOpsIs024A === "function" &&
+      cxFieldOpsIs024A(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderFieldOpsStoreModule024A === "function"
+    ) {
+      return renderFieldOpsStoreModule024A();
+    }
+
 
     if (
       typeof cxIsReferencesCode022E === "function" &&
