@@ -12672,6 +12672,77 @@ function inventoryCreatePayload() {
       });
     });
   }
+
+  /* 024A_R3_FIELD_CARD_ENTRY_START */
+  function cxFieldOpsCardText024A(el) {
+    return String(el?.textContent || el?.innerText || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+  }
+
+  function cxFieldOpsCardCode024A(el) {
+    const values = [];
+
+    for (let node = el; node && values.length < 80; node = node.parentElement) {
+      if (node.dataset) {
+        Object.keys(node.dataset).forEach((key) => values.push(node.dataset[key]));
+      }
+
+      ["href", "title", "aria-label", "data-code", "data-module", "data-module-code", "data-client-module"].forEach((attr) => {
+        const value = node.getAttribute?.(attr);
+        if (value) values.push(value);
+      });
+
+      values.push(cxFieldOpsCardText024A(node));
+    }
+
+    return values.join(" ");
+  }
+
+  function cxFieldOpsLooksLikeFieldCard024A(el) {
+    const raw = cxFieldOpsCardCode024A(el);
+    const clean = cxFieldOpsNorm024A(raw);
+
+    return (
+      clean.includes("fld") ||
+      clean.includes("field") ||
+      clean.includes("operacion_en_campo") ||
+      clean.includes("operacion_campo") ||
+      clean.includes("operaciones_en_campo") ||
+      clean.includes("campo")
+    );
+  }
+
+  function cxFieldOpsWireCardEntry024A() {
+    if (window.__cxFieldOpsWireCardEntry024A) return;
+    window.__cxFieldOpsWireCardEntry024A = true;
+
+    document.addEventListener("click", async (event) => {
+      if (typeof renderFieldOpsStoreModule024A !== "function") return;
+
+      const target = event.target;
+      const card = target?.closest?.(
+        "[data-client-module], [data-module], [data-module-code], [data-code], [data-action], article, button, a, .client-card, .client-module-card, .module-card, .action-card"
+      );
+
+      if (!card) return;
+
+      if (!cxFieldOpsLooksLikeFieldCard024A(card)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      await renderFieldOpsStoreModule024A();
+    }, true);
+  }
+
+  cxFieldOpsWireCardEntry024A();
+  /* 024A_R3_FIELD_CARD_ENTRY_END */
+
+
   /* CLONEXA_024A_FIELD_STORE_TEAM_SHIFT_GOALS_END */
 
 
