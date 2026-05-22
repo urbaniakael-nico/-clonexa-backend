@@ -3879,27 +3879,44 @@ function inventoryCreatePayload() {
     };
   }
 
-  /* CX_023R_R9_CREATE_INVOICE_CREATE_HANDLER_START */
+  /* CX_023R_R10_FINAL_CREATE_INVOICE_API_FIX_START */
   async function createInventoryItem() {
     const payload = inventoryCreatePayload();
     if (!payload) return;
 
+    const materialName = payload.name_reference || payload.name || payload.reference || "";
+    if (!String(materialName).trim()) {
+      showInventoryNotice("Nombre / referencia es obligatorio.", "error");
+      return;
+    }
+
+    const companyId =
+      (typeof state !== "undefined" && state?.companyId)
+      || window.CX?.companyId
+      || new URLSearchParams(window.location.search).get("company_id")
+      || "";
+
+    if (!companyId) {
+      showInventoryNotice("No se pudo identificar la empresa.", "error");
+      return;
+    }
+
     const createInvoiceInput = document.querySelector("[data-inventory-create-invoice]");
     const createInvoiceFile = createInvoiceInput?.files && createInvoiceInput.files.length ? createInvoiceInput.files[0] : null;
-    const initialQuantity = inventoryNumber(payload.quantity || payload.current_stock || payload.initial_quantity || 0);
+    const initialQuantity = inventoryNumber(payload.initial_quantity || payload.quantity || payload.current_stock || 0);
     const shouldCreateInitialEntryWithInvoice = !!(createInvoiceFile && initialQuantity > 0);
 
     const createPayload = shouldCreateInitialEntryWithInvoice
       ? {
           ...payload,
+          initial_quantity: 0,
           quantity: 0,
           current_stock: 0,
-          initial_quantity: 0,
         }
       : payload;
 
     try {
-      const created = await apiFetch(`/api/v1/inventory/companies/${encodeURIComponent(CX.companyId)}/items`, {
+      const created = await api(`/inventory/companies/${encodeURIComponent(companyId)}/items`, {
         method: "POST",
         body: JSON.stringify(createPayload),
       });
@@ -3909,21 +3926,33 @@ function inventoryCreatePayload() {
 
       if (shouldCreateInitialEntryWithInvoice) {
         if (!createdItemId) {
-          showInventoryNotice("Material creado, pero no pude registrar factura inicial porque la API no devolvió ID.", "error");
+          showInventoryNotice("Material creado, pero no pude registrar la factura inicial porque la API no devolvió ID.", "error");
         } else {
           const form = new FormData();
           form.append("quantity", String(initialQuantity));
           form.append("notes", "Cantidad inicial");
           form.append("invoice", createInvoiceFile);
 
-          await apiFetch(`/api/v1/inventory/companies/${encodeURIComponent(CX.companyId)}/items/${encodeURIComponent(createdItemId)}/entry-with-invoice`, {
-            method: "POST",
-            body: form,
-          });
+          await apiForm(`/inventory/items/${encodeURIComponent(createdItemId)}/entry-with-invoice`, form);
         }
       }
 
-      clearInventoryCreateForm?.();
+      const fieldsToClear = [
+        "inventoryCreateName",
+        "inventoryCreateSize",
+        "inventoryCreateColor",
+      ];
+
+      fieldsToClear.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+      });
+
+      const qty = document.getElementById("inventoryCreateQty");
+      if (qty) qty.value = "0";
+
+      const min = document.getElementById("inventoryCreateMin");
+      if (min) min.value = "0";
 
       if (createInvoiceInput) {
         createInvoiceInput.value = "";
@@ -3934,12 +3963,21 @@ function inventoryCreatePayload() {
         if (label) label.title = "";
       }
 
+      setInventoryMode("modify");
       await renderInventoryModule();
-      setTimeout(() => showInventoryNotice(shouldCreateInitialEntryWithInvoice ? "Material creado con factura inicial." : "Material creado."), 80);
+
+      setTimeout(() => {
+        showInventoryNotice(
+          shouldCreateInitialEntryWithInvoice
+            ? "Material creado con factura inicial."
+            : "Material creado en inventario."
+        );
+      }, 80);
     } catch (error) {
       showInventoryNotice(error?.message || "No se pudo crear el material.", "error");
     }
   }
+  /* CX_023R_R10_FINAL_CREATE_INVOICE_API_FIX_END */
   /* CX_023R_R9_CREATE_INVOICE_CREATE_HANDLER_END */
 
   function inventoryRowPayload(row) {
