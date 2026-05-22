@@ -3785,6 +3785,48 @@
     }, 3000);
   }
 
+  /* CX_023R_R8_INVENTORY_PENDING_INVOICE_START */
+  function inventoryPendingInvoicesStore() {
+    if (!window.__cxInventoryPendingInvoices || !(window.__cxInventoryPendingInvoices instanceof Map)) {
+      window.__cxInventoryPendingInvoices = new Map();
+    }
+    return window.__cxInventoryPendingInvoices;
+  }
+
+  function getInventoryPendingInvoice(itemId) {
+    const key = String(itemId || "").trim();
+    if (!key) return null;
+    return inventoryPendingInvoicesStore().get(key) || null;
+  }
+
+  function setInventoryPendingInvoice(itemId, file) {
+    const key = String(itemId || "").trim();
+    if (!key) return null;
+
+    if (!file) {
+      inventoryPendingInvoicesStore().delete(key);
+      return null;
+    }
+
+    const pending = {
+      file,
+      name: String(file.name || "Factura adjunta").trim(),
+      size: file.size || 0,
+      type: file.type || "",
+      selectedAt: new Date().toISOString(),
+    };
+
+    inventoryPendingInvoicesStore().set(key, pending);
+    return pending;
+  }
+
+  function clearInventoryPendingInvoice(itemId) {
+    const key = String(itemId || "").trim();
+    if (!key) return;
+    inventoryPendingInvoicesStore().delete(key);
+  }
+  /* CX_023R_R8_INVENTORY_PENDING_INVOICE_END */
+
   /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_HELPER_START */
   function updateInventoryInvoicePickerState(input) {
     if (!input) return;
@@ -3792,18 +3834,23 @@
     const label = input.closest(".cx-inv-invoice-picker");
     if (!label) return;
 
+    const itemId = input.dataset.inventoryEntryInvoice || "";
     const text = label.querySelector("span");
-    const file = input.files && input.files.length ? input.files[0] : null;
-    const hasFile = !!file;
+    const selectedFile = input.files && input.files.length ? input.files[0] : null;
+
+    const pending = selectedFile
+      ? setInventoryPendingInvoice(itemId, selectedFile)
+      : getInventoryPendingInvoice(itemId);
+
+    const hasFile = !!(pending && pending.file);
 
     label.classList.toggle("has-file", hasFile);
     label.setAttribute("aria-live", "polite");
 
     if (hasFile) {
-      const fileName = String(file.name || "Factura adjunta").trim();
-      label.title = fileName;
+      label.title = pending.name || "Factura adjunta";
       label.dataset.invoiceAttached = "true";
-      label.dataset.invoiceFileName = fileName;
+      label.dataset.invoiceFileName = pending.name || "Factura adjunta";
       if (text) text.textContent = "Factura adjunta";
       return;
     }
@@ -3814,7 +3861,8 @@
     if (text) text.textContent = "Adjuntar factura";
   }
   /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_HELPER_END */
-  function inventoryCreatePayload() {
+
+function inventoryCreatePayload() {
     return {
       name_reference: String(document.getElementById("inventoryCreateName")?.value || "").trim(),
       size: String(document.getElementById("inventoryCreateSize")?.value || "").trim(),
@@ -3874,7 +3922,8 @@
       return false;
     }
 
-    const invoiceFile = invoiceInput?.files && invoiceInput.files.length ? invoiceInput.files[0] : null;
+    const pendingInvoice = getInventoryPendingInvoice(itemId);
+    const invoiceFile = invoiceInput?.files && invoiceInput.files.length ? invoiceInput.files[0] : pendingInvoice?.file || null;
 
     if (invoiceFile) {
       const form = new FormData();
@@ -3887,6 +3936,10 @@
         method: "POST",
         body: JSON.stringify({ quantity, notes: "Entrada desde Inventario" }),
       });
+    }
+
+    if (invoiceFile) {
+      clearInventoryPendingInvoice(itemId);
     }
 
     if (!options.noRender) {
@@ -3981,6 +4034,10 @@
   }
 
   function renderInventoryRow(row = {}) {
+    const pendingInvoice = getInventoryPendingInvoice(row?.id);
+    const invoicePickerClass = pendingInvoice ? "cx-inv-invoice-picker has-file" : "cx-inv-invoice-picker";
+    const invoicePickerText = pendingInvoice ? "Factura adjunta" : "Adjuntar factura";
+    const invoicePickerTitle = pendingInvoice?.name ? ` title="${h(pendingInvoice.name)}"` : "";
     const status = String(row.status || "active").toLowerCase();
     const low = !!row.alert_low;
     return `
@@ -4001,9 +4058,9 @@
           <input data-inventory-entry-qty="${h(row.id)}" type="number" min="0" step="0.01" placeholder="Cantidad">
         </td>
         <td>
-          <label class="cx-inv-invoice-picker">
+          <label class="${invoicePickerClass}"${invoicePickerTitle}>
             <input data-inventory-entry-invoice="${h(row.id)}" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
-            <span>Adjuntar factura</span>
+            <span>${invoicePickerText}</span>
           </label>
         </td>
         <td>
