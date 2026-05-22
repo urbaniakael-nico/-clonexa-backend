@@ -50,6 +50,11 @@ class RequestCreateIn(BaseModel):
     store_label: str | None = Field(default="", max_length=180)
     notes: str | None = Field(default="", max_length=900)
     items: list[RequestItemIn] = Field(default_factory=list)
+    store_employee_id: str | None = Field(default=None, max_length=120)
+    store_employee_name: str | None = Field(default=None, max_length=180)
+    store_user_id: str | None = Field(default=None, max_length=120)
+    store_slot_id: str | None = Field(default=None, max_length=40)
+    store_slot_name: str | None = Field(default=None, max_length=120)
 
     @field_validator("items")
     @classmethod
@@ -544,14 +549,24 @@ async def create_request(
 
         panel = _panel(payload.panel_type or access.get("panel_type") or "store")
         requester = _scope_label(access) or "Usuario mini panel"
-        store_label = _clean(payload.store_label) or requester
+        actor_name = _clean(payload.store_employee_name)
+        store_label = _clean(payload.store_label) or _clean(payload.store_slot_name) or requester
         items = _items_payload(payload.items)
         request_number = await _next_number(conn, company_id)
-        timeline = _timeline("sent", by=requester, note="Solicitud enviada desde mini panel.")
+        timeline = _timeline("sent", by=actor_name or requester, note="Solicitud enviada desde mini panel.")
+        actor = {
+            "employee_id": _clean(payload.store_employee_id),
+            "name": actor_name,
+            "user_id": _clean(payload.store_user_id),
+            "store_id": _clean(payload.store_slot_id),
+            "store_name": _clean(payload.store_slot_name),
+        }
+        actor = {key: value for key, value in actor.items() if value}
         metadata = {
             "source": "mini_panel",
             "created_by_panel_type": panel,
             "items_count": len(items),
+            "store_actor": actor,
         }
 
         row = await conn.fetchrow(
@@ -567,7 +582,7 @@ async def create_request(
             panel,
             request_number,
             requested_by,
-            requester,
+            actor_name or requester,
             store_label,
             json.dumps(items, ensure_ascii=False),
             _clean(payload.notes),

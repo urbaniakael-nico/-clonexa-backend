@@ -95,6 +95,11 @@ class MiniPanelQuoteCreate(BaseModel):
     payment: QuotePaymentIn | None = None
     notes: str | None = Field(default=None, max_length=2500)
     signature_data_url: str | None = Field(default=None, max_length=2_500_000)
+    store_employee_id: str | None = Field(default=None, max_length=80)
+    store_employee_name: str | None = Field(default=None, max_length=180)
+    store_user_id: str | None = Field(default=None, max_length=80)
+    store_slot_id: str | None = Field(default=None, max_length=80)
+    store_slot_name: str | None = Field(default=None, max_length=120)
 
     @field_validator("client_name")
     @classmethod
@@ -250,6 +255,22 @@ def _money(value: Any) -> float:
 
 def _clean_text(value: Any, limit: int = 500) -> str:
     return str(value or "").strip()[:limit]
+
+
+def _store_actor_payload_023w(payload: Any) -> dict[str, str]:
+    actor = {
+        "employee_id": _clean_text(getattr(payload, "store_employee_id", ""), 80),
+        "name": _clean_text(getattr(payload, "store_employee_name", ""), 180),
+        "user_id": _clean_text(getattr(payload, "store_user_id", ""), 80),
+        "store_id": _clean_text(getattr(payload, "store_slot_id", ""), 80),
+        "store_name": _clean_text(getattr(payload, "store_slot_name", ""), 120),
+    }
+    return {key: value for key, value in actor.items() if value}
+
+
+def _quote_metadata_payload_023w(payload: Any) -> dict[str, Any]:
+    actor = _store_actor_payload_023w(payload)
+    return {"store_actor": actor} if actor else {}
 
 
 def _extract_token(authorization: str | None) -> str:
@@ -761,6 +782,8 @@ def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
     items = _json(row["items"], [])
     discounts = _json(row["discounts"], [])
     payment = _json(row["payment"], {})
+    metadata = _json(_row_value_022c(row, "metadata", {}), {})
+    store_actor = metadata.get("store_actor") if isinstance(metadata.get("store_actor"), dict) else {}
     status_value = row["status"]
     quote_number = row["quote_number"]
     is_account = str(status_value or "").lower() == "converted"
@@ -768,7 +791,8 @@ def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
 
     stored_label = str(_row_value_022c(row, "created_by_label", "") or "").strip()
     joined_label = str(_row_value_022c(row, "creator_display_label", "") or "").strip()
-    source_user_label = joined_label or stored_label or _quote_origin_user_fallback_022c(row["panel_type"])
+    actor_label = str(store_actor.get("name") or "").strip()
+    source_user_label = actor_label or joined_label or stored_label or _quote_origin_user_fallback_022c(row["panel_type"])
 
     return {
         "id": str(row["id"]),
@@ -789,6 +813,8 @@ def _quote_payload(row: asyncpg.Record) -> dict[str, Any]:
         "payment": payment if isinstance(payment, dict) else {},
         "notes": row["notes"] or "",
         "signature_data_url": row["signature_data_url"] or "",
+        "metadata": metadata if isinstance(metadata, dict) else {},
+        "store_actor": store_actor,
         "subtotal": _money(row["subtotal"]),
         "discount_total": _money(row["discount_total"]),
         "total": _money(row["total"]),
@@ -844,6 +870,9 @@ async def _insert_or_update_quote(
     total = round(max(0.0, subtotal - discount_total), 2)
     payment = _payment_payload(payload.payment)
     signature = _signature(payload.signature_data_url)
+    metadata = _quote_metadata_payload_023w(payload)
+    actor = metadata.get("store_actor") if isinstance(metadata.get("store_actor"), dict) else {}
+    creator_label = str(actor.get("name") or user.get("full_name") or user.get("email") or "").strip()
 
     raw_user_id = user.get("user_id") or user.get("sub") or user.get("id")
     created_by = None
@@ -884,7 +913,7 @@ async def _insert_or_update_quote(
                 $1::uuid, $2, $3, $4, $5, $6, $7, $8,
                 $9::jsonb, $10::jsonb, $11::jsonb, $12, $13,
                 $14, $15, $16, 'issued',
-                $17::uuid, $18, '{}'::jsonb, NOW(), NOW()
+                $17::uuid, $18, $19::jsonb, NOW(), NOW()
             )
             RETURNING *
             """,
@@ -905,7 +934,8 @@ async def _insert_or_update_quote(
             discount_total,
             total,
             created_by,
-            user.get("full_name") or user.get("email") or "",
+            creator_label,
+            json.dumps(metadata, ensure_ascii=False),
         )
 
     status_value = getattr(payload, "status", None) or "issued"
@@ -929,6 +959,8 @@ async def _insert_or_update_quote(
             discount_total = $15,
             total = $16,
             status = $17,
+            created_by_label = $18,
+            metadata = COALESCE(metadata, '{}'::jsonb) || $19::jsonb,
             updated_at = NOW()
         WHERE id = $1::uuid
           AND company_id = $2::uuid
@@ -952,6 +984,8 @@ async def _insert_or_update_quote(
         discount_total,
         total,
         status_value,
+        creator_label,
+        json.dumps(metadata, ensure_ascii=False),
     )
 
 

@@ -9,9 +9,12 @@
   const storageKey = `clonexa_mini_panel_token_${companyId}_${panelType}`;
 
   let timerHandle = null;
+  let storeTeamTimer023W = null;
   let currentOperational = null;
   let currentModuleConfig = null;
   let currentQuoteReferences021C = [];
+  let currentStoreTeam023W = null;
+  let selectedStoreEmployee023W = "";
 
   const TYPE_LABELS = {
     sales: "Ventas",
@@ -352,12 +355,14 @@
           </div>
           <button class="mp-button small secondary mp-notes-close-020c" type="button" data-notes-close>Cerrar</button>
         </header>
+        ${storeActorStripHtml023W("notas")}
         <div class="mp-notes-content-020a" data-notes-content>
           <div class="mp-notes-empty-020a">Cargando calendario...</div>
         </div>
       </section>
     `;
     document.body.appendChild(overlay);
+    bindStoreActorSelector023W(overlay);
 
     const content = overlay.querySelector("[data-notes-content]");
 
@@ -564,7 +569,8 @@
           description: String(formData.get("description") || "").trim(),
           note_date: String(formData.get("note_date") || selectedDate),
           note_time: String(formData.get("note_time") || defaultNoteTime020A()),
-          note_type: String(formData.get("note_type") || "reminder")
+          note_type: String(formData.get("note_type") || "reminder"),
+          ...storeActorPayload023W()
         });
 
         selectedDate = String(formData.get("note_date") || selectedDate);
@@ -1191,6 +1197,8 @@
           <button class="mp-button secondary" type="button" data-quotes-close>Cerrar</button>
         </header>
 
+        ${storeActorStripHtml023W("cotizaciones")}
+
         <div class="mp-quotes-content-021a">
           <section class="mp-quotes-form-panel-021a">
             <div class="mp-quotes-section-head-021a">
@@ -1342,6 +1350,7 @@
     `;
 
     document.body.appendChild(overlay);
+    bindStoreActorSelector023W(overlay);
     initQuoteSignature021A(overlay, state);
 
     const form = overlay.querySelector("[data-quotes-form]");
@@ -1502,7 +1511,10 @@
       setMsg("Guardando cotización...", true);
 
       try {
-        const payload = quotePayloadFromForm021A(form, state.signatureData);
+        const payload = {
+          ...quotePayloadFromForm021A(form, state.signatureData),
+          ...storeActorPayload023W()
+        };
         const method = state.editingId ? "PATCH" : "POST";
         const path = state.editingId ? `/${encodeURIComponent(state.editingId)}` : "";
         const data = await quotesApi021A(path, {
@@ -1533,6 +1545,10 @@
     if (timerHandle) {
       window.clearInterval(timerHandle);
       timerHandle = null;
+    }
+    if (storeTeamTimer023W) {
+      window.clearInterval(storeTeamTimer023W);
+      storeTeamTimer023W = null;
     }
   }
 
@@ -1734,6 +1750,10 @@
     "request": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
     "solicitudes": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
     "solicitud": { title: "Solicitudes", description: "Crear y consultar solicitudes operativas.", tag: "REQ" },
+    "store_shift_control": { title: "Control de turno", description: "Inicio, pausas y cierre para nomina.", tag: "LOG" },
+    "login": { title: "Control de turno", description: "Inicio, pausas y cierre para nomina.", tag: "LOG" },
+    "control_turno": { title: "Control de turno", description: "Inicio, pausas y cierre para nomina.", tag: "LOG" },
+    "turnos": { title: "Control de turno", description: "Inicio, pausas y cierre para nomina.", tag: "LOG" },
     "stores": { title: "Tiendas", description: "Operación asignada a tiendas.", tag: "STR" },
     "inventory": { title: "Inventario", description: "Consultar y registrar movimientos de inventario.", tag: "INV" },
     "materials": { title: "Materiales", description: "Gestionar materiales asignados.", tag: "MAT" },
@@ -1801,7 +1821,17 @@
     "solicitud": "requests",
     "solicitudes": "requests",
     "stock_request": "requests",
-    "stock_requests": "requests"
+    "stock_requests": "requests",
+
+    "login": "store_shift_control",
+    "control_turno": "store_shift_control",
+    "control_de_turno": "store_shift_control",
+    "turno": "store_shift_control",
+    "turnos": "store_shift_control",
+    "shift": "store_shift_control",
+    "shift_control": "store_shift_control",
+    "store_shift": "store_shift_control",
+    "store_shift_control": "store_shift_control"
   };
 
   function canonicalModuleCode022A(value) {
@@ -1945,6 +1975,338 @@
 
     return dynamicModules.map((item) => moduleCard(item.title, item.description, item.tag, item.code)).join("");
   }
+  /* CLONEXA_023W_STORE_TEAM_MINI_PANEL_START */
+  const CX_STORE_SHIFT_CONTROL_CODES_023W = new Set([
+    "store_shift_control",
+    "login",
+    "control_turno",
+    "control_de_turno",
+    "turno",
+    "turnos",
+    "shift",
+    "shift_control",
+    "store_shift"
+  ]);
+
+  function isStorePanel023W() {
+    return normalizePanelType019H(panelType) === "store";
+  }
+
+  function isStoreShiftControlCode023W(code) {
+    return CX_STORE_SHIFT_CONTROL_CODES_023W.has(canonicalModuleCode022A(code));
+  }
+
+  function storeActorKey023W() {
+    return `clonexa_store_actor_${companyId}_${panelType}`;
+  }
+
+  function storeTeamAuthKey023W(employeeId) {
+    return `clonexa_store_member_auth_${companyId}_${panelType}_${employeeId}`;
+  }
+
+  function storeTeamStyles023W() {
+    if (document.getElementById("cxStoreTeamStyles023W")) return;
+    const style = document.createElement("style");
+    style.id = "cxStoreTeamStyles023W";
+    style.textContent = `
+      .st-actor-023w{margin:16px 0;padding:16px;border:1px solid rgba(255,255,255,.14);border-radius:22px;background:rgba(255,255,255,.075);display:grid;grid-template-columns:minmax(220px,.55fr) minmax(260px,1fr);gap:12px;align-items:end}
+      .st-actor-023w label{display:block;font-size:11px;font-weight:950;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.68);margin-bottom:7px}
+      .st-actor-023w select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.16);border-radius:16px;background:rgba(4,7,23,.72);color:#fff;padding:13px 14px;font-weight:900}
+      .st-actor-023w small{display:block;color:rgba(255,255,255,.65);font-weight:800}
+      .st-shell-023w{min-height:100vh;padding:28px;background:radial-gradient(circle at 8% 8%,rgba(255,35,187,.24),transparent 28%),radial-gradient(circle at 90% 12%,rgba(55,170,255,.20),transparent 30%),linear-gradient(135deg,#12091f,#071329 58%,#101326);color:#fff}
+      .st-card-023w{border:1px solid rgba(255,255,255,.15);border-radius:28px;background:linear-gradient(145deg,rgba(255,255,255,.105),rgba(255,255,255,.045));box-shadow:0 28px 88px rgba(0,0,0,.36);backdrop-filter:blur(18px)}
+      .st-hero-023w{padding:28px;margin-bottom:18px;display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
+      .st-kicker-023w{font-size:11px;font-weight:950;letter-spacing:.32em;text-transform:uppercase;color:#ff42d4}
+      .st-title-023w{font-size:44px;line-height:1;margin:9px 0 8px;font-weight:950}
+      .st-muted-023w{color:rgba(255,255,255,.70);font-weight:800}
+      .st-btn-023w{border:0;border-radius:17px;padding:12px 16px;background:linear-gradient(135deg,#ff25bb,#7154ff);color:#fff;font-weight:950;cursor:pointer}
+      .st-btn-023w.secondary{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.16)}
+      .st-btn-023w.danger{background:rgba(255,70,125,.18);border:1px solid rgba(255,70,125,.38)}
+      .st-grid-023w{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+      .st-member-023w{padding:20px;display:grid;gap:14px}
+      .st-member-head-023w{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+      .st-member-head-023w strong{font-size:22px}
+      .st-pill-023w{display:inline-flex;border-radius:999px;padding:7px 10px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.10);font-size:12px;font-weight:950}
+      .st-pill-023w.admin{border-color:rgba(255,66,212,.36);background:rgba(255,66,212,.16)}
+      .st-pill-023w.live{border-color:rgba(62,255,193,.35);background:rgba(62,255,193,.13);color:#9bffe4}
+      .st-pill-023w.break{border-color:rgba(255,207,107,.35);background:rgba(255,207,107,.12);color:#ffe3a7}
+      .st-metrics-023w{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+      .st-mini-023w{border:1px solid rgba(255,255,255,.10);border-radius:16px;background:rgba(0,0,0,.18);padding:12px}
+      .st-mini-023w span{display:block;font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58)}
+      .st-mini-023w strong{display:block;margin-top:5px}
+      .st-progress-023w{height:9px;border-radius:999px;background:rgba(0,0,0,.28);overflow:hidden}
+      .st-progress-023w i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff25bb,#55e6ff)}
+      .st-login-023w{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:end}
+      .st-field-023w label{display:block;font-size:11px;font-weight:950;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.62);margin-bottom:7px}
+      .st-field-023w input{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.15);border-radius:15px;background:rgba(4,7,23,.66);color:#fff;padding:12px 13px;font-weight:850}
+      .st-actions-023w{display:flex;gap:10px;flex-wrap:wrap}
+      .st-msg-023w{font-weight:900;color:#8fffd8}
+      @media(max-width:980px){.st-grid-023w,.st-actor-023w,.st-login-023w{grid-template-columns:1fr}.st-title-023w{font-size:36px}.st-metrics-023w{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function normalizeStoreTeam023W(data) {
+    const team = data && data.team ? data.team : data;
+    const members = Array.isArray(team?.members) ? team.members : [];
+    return {
+      ...(team || {}),
+      members: members.map((member) => ({
+        ...member,
+        session: member.session ? { ...member.session, _synced_at: Date.now() } : null
+      }))
+    };
+  }
+
+  async function loadStoreTeam023W(force = false) {
+    if (!isStorePanel023W()) return null;
+    if (currentStoreTeam023W && !force) return currentStoreTeam023W;
+    const data = await api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-store-team?panel_type=${encodeURIComponent(panelType)}`, {
+      headers: authHeaders()
+    });
+    currentStoreTeam023W = normalizeStoreTeam023W(data);
+    const members = Array.isArray(currentStoreTeam023W.members) ? currentStoreTeam023W.members : [];
+    const saved = localStorage.getItem(storeActorKey023W()) || "";
+    const fallback = members.find((item) => item.is_current)?.employee_id || members[0]?.employee_id || "";
+    selectedStoreEmployee023W = members.some((item) => item.employee_id === saved) ? saved : fallback;
+    if (selectedStoreEmployee023W) localStorage.setItem(storeActorKey023W(), selectedStoreEmployee023W);
+    return currentStoreTeam023W;
+  }
+
+  function selectedStoreMember023W() {
+    const members = Array.isArray(currentStoreTeam023W?.members) ? currentStoreTeam023W.members : [];
+    return members.find((item) => item.employee_id === selectedStoreEmployee023W) || members.find((item) => item.is_current) || members[0] || null;
+  }
+
+  function storeActorPayload023W() {
+    if (!isStorePanel023W()) return {};
+    const member = selectedStoreMember023W();
+    if (!member) return {};
+    const store = currentStoreTeam023W?.store || {};
+    return {
+      store_employee_id: member.employee_id || "",
+      store_employee_name: member.full_name || "",
+      store_user_id: member.user_id || "",
+      store_slot_id: store.id || "",
+      store_slot_name: store.name || ""
+    };
+  }
+
+  function storeActorStripHtml023W(context = "module") {
+    if (!isStorePanel023W()) return "";
+    storeTeamStyles023W();
+    const team = currentStoreTeam023W || {};
+    const members = Array.isArray(team.members) ? team.members : [];
+    if (!members.length) return "";
+    const selectedId = selectedStoreEmployee023W || members.find((item) => item.is_current)?.employee_id || members[0]?.employee_id || "";
+    const selected = members.find((item) => item.employee_id === selectedId) || members[0];
+    const store = team.store || {};
+    return `
+      <section class="st-actor-023w" data-store-actor-shell-023w="${h(context)}">
+        <div>
+          <label>Colaborador del registro</label>
+          <select data-store-actor-023w>
+            ${members.map((member) => `<option value="${h(member.employee_id)}" ${member.employee_id === selectedId ? "selected" : ""}>${h(member.full_name || "Colaborador")}${member.is_admin ? " - admin tienda" : ""}</option>`).join("")}
+          </select>
+        </div>
+        <small>
+          Tienda: ${h(store.name || "Tienda actual")}<br>
+          Los registros de este modulo quedaran asignados a ${h(selected?.full_name || "el colaborador seleccionado")}.
+        </small>
+      </section>
+    `;
+  }
+
+  function bindStoreActorSelector023W(scope = root) {
+    const host = scope || root || document;
+    host.querySelectorAll("[data-store-actor-023w]").forEach((select) => {
+      if (select.dataset.storeActorBound023w === "1") return;
+      select.dataset.storeActorBound023w = "1";
+      select.addEventListener("change", () => {
+        selectedStoreEmployee023W = select.value || "";
+        if (selectedStoreEmployee023W) localStorage.setItem(storeActorKey023W(), selectedStoreEmployee023W);
+      });
+    });
+  }
+
+  function storeMemberAuthenticated023W(member) {
+    return Boolean(member?.is_current || sessionStorage.getItem(storeTeamAuthKey023W(member?.employee_id || "")) === "1");
+  }
+
+  function storeTeamLiveValue023W(member, kind) {
+    const session = member?.session || {};
+    const base = Number(session[`${kind}_seconds`] || 0);
+    const syncedAt = Number(session._synced_at || Date.now());
+    const elapsed = Math.max(0, Math.floor((Date.now() - syncedAt) / 1000));
+    if (kind === "active" && session.status === "active") return base + elapsed;
+    if (kind === "break" && session.status === "break") return base + elapsed;
+    return base;
+  }
+
+  function updateStoreTeamTimers023W() {
+    root.querySelectorAll("[data-store-member-card-023w]").forEach((card) => {
+      const employeeId = card.getAttribute("data-store-member-card-023w") || "";
+      const member = (currentStoreTeam023W?.members || []).find((item) => item.employee_id === employeeId);
+      const active = card.querySelector("[data-store-active-023w]");
+      const pause = card.querySelector("[data-store-break-023w]");
+      if (active) active.textContent = formatSeconds(storeTeamLiveValue023W(member, "active"));
+      if (pause) pause.textContent = formatSeconds(storeTeamLiveValue023W(member, "break"));
+    });
+  }
+
+  function startStoreTeamTimers023W() {
+    if (storeTeamTimer023W) window.clearInterval(storeTeamTimer023W);
+    updateStoreTeamTimers023W();
+    storeTeamTimer023W = window.setInterval(updateStoreTeamTimers023W, 1000);
+  }
+
+  function storeMemberCard023W(member) {
+    const session = member.session || {};
+    const status = session.status || "closed";
+    const authenticated = storeMemberAuthenticated023W(member);
+    const goal = Number(member.monthly_goal || 0);
+    const sales = Number(member.sales_total || 0);
+    const pct = goal > 0 ? Math.min(100, Math.round((sales / goal) * 100)) : 0;
+    const statusLabel = status === "break" ? "En pausa" : (status === "active" ? "Activo" : "Sin turno");
+    const canStart = authenticated && status !== "active" && status !== "break";
+    const canPause = authenticated && status === "active";
+    const canResume = authenticated && status === "break";
+    const canFinish = authenticated && (status === "active" || status === "break");
+    return `
+      <article class="st-card-023w st-member-023w" data-store-member-card-023w="${h(member.employee_id)}">
+        <div class="st-member-head-023w">
+          <div>
+            <strong>${h(member.full_name || "Colaborador")}</strong>
+            <div class="st-muted-023w">${h(member.role || "cajero")} ${member.phone ? `- ${h(member.phone)}` : ""}</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            ${member.is_admin ? `<span class="st-pill-023w admin">Admin tienda</span>` : ""}
+            <span class="st-pill-023w ${status === "break" ? "break" : (status === "active" ? "live" : "")}">${h(statusLabel)}</span>
+          </div>
+        </div>
+
+        <div class="st-metrics-023w">
+          <div class="st-mini-023w"><span>Activo</span><strong data-store-active-023w>${h(formatSeconds(session.active_seconds || 0))}</strong></div>
+          <div class="st-mini-023w"><span>Pausa</span><strong data-store-break-023w>${h(formatSeconds(session.break_seconds || 0))}</strong></div>
+          <div class="st-mini-023w"><span>Ventas/meta</span><strong>${h(formatMoney(sales))} / ${h(formatMoney(goal))}</strong></div>
+        </div>
+        <div class="st-progress-023w"><i style="width:${pct}%"></i></div>
+        <div class="st-muted-023w">${h(pct)}% de cumplimiento - ${h(member.sales_count || 0)} venta(s)</div>
+
+        ${member.has_login ? (authenticated ? `
+          <div class="st-actions-023w">
+            <button class="st-btn-023w" type="button" data-store-action-023w="start" data-store-employee-023w="${h(member.employee_id)}" ${canStart ? "" : "disabled"}>Inicio de turno</button>
+            <button class="st-btn-023w secondary" type="button" data-store-action-023w="pause" data-store-employee-023w="${h(member.employee_id)}" ${canPause ? "" : "disabled"}>Pausa</button>
+            <button class="st-btn-023w secondary" type="button" data-store-action-023w="resume" data-store-employee-023w="${h(member.employee_id)}" ${canResume ? "" : "disabled"}>Retorno</button>
+            <button class="st-btn-023w danger" type="button" data-store-action-023w="finish" data-store-employee-023w="${h(member.employee_id)}" ${canFinish ? "" : "disabled"}>Finalizar turno</button>
+          </div>
+        ` : `
+          <div class="st-login-023w">
+            <div class="st-field-023w"><label>Usuario</label><input data-store-login-user-023w value="${h(member.username || "")}" placeholder="usuario tienda"></div>
+            <div class="st-field-023w"><label>Clave</label><input data-store-login-pass-023w type="password" placeholder="Clave del colaborador"></div>
+            <button class="st-btn-023w" type="button" data-store-login-023w="${h(member.employee_id)}">Ingresar login</button>
+          </div>
+        `) : `<div class="st-msg-023w">Genera la clave de este colaborador desde el modulo Login tiendas.</div>`}
+      </article>
+    `;
+  }
+
+  async function storeTeamLogin023W(employeeId, username, password) {
+    const data = await api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-store-team/${encodeURIComponent(employeeId)}/login?panel_type=${encodeURIComponent(panelType)}`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    sessionStorage.setItem(storeTeamAuthKey023W(employeeId), "1");
+    currentStoreTeam023W = normalizeStoreTeam023W(data.team || data);
+    return currentStoreTeam023W;
+  }
+
+  async function storeTeamAction023W(employeeId, action) {
+    const data = await api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-store-team/${encodeURIComponent(employeeId)}/session/${encodeURIComponent(action)}?panel_type=${encodeURIComponent(panelType)}`, {
+      method: "POST",
+      headers: authHeaders()
+    });
+    currentStoreTeam023W = normalizeStoreTeam023W(data.team || data);
+    return data;
+  }
+
+  async function openStoreShiftControlModule023W(session) {
+    storeTeamStyles023W();
+    const msgId = "storeTeamMsg023W";
+    let loadError = "";
+    try {
+      await loadStoreTeam023W(true);
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar el equipo de tienda.";
+      currentStoreTeam023W = { store: {}, members: [] };
+    }
+    const store = currentStoreTeam023W?.store || {};
+    const members = Array.isArray(currentStoreTeam023W?.members) ? currentStoreTeam023W.members : [];
+    root.innerHTML = `
+      <main class="st-shell-023w">
+        <header class="st-card-023w st-hero-023w">
+          <div>
+            <div class="st-kicker-023w">Control de turno</div>
+            <h1 class="st-title-023w">${h(store.name || "Tienda")}</h1>
+            <p class="st-muted-023w">Loguea colaboradores, controla pausas y envia tiempos a CRM Campo y Nomina.</p>
+          </div>
+          <div class="st-actions-023w">
+            <button class="st-btn-023w secondary" type="button" data-store-refresh-023w>Actualizar</button>
+            <button class="st-btn-023w secondary" type="button" data-store-back-023w>Dashboard</button>
+          </div>
+        </header>
+        ${storeActorStripHtml023W("turnos")}
+        <section class="st-grid-023w">
+          ${members.map(storeMemberCard023W).join("") || `<div class="st-card-023w st-member-023w">No hay colaboradores asignados a esta tienda desde Login tiendas.</div>`}
+        </section>
+        <div class="st-msg-023w" id="${msgId}">${h(loadError)}</div>
+      </main>
+    `;
+    bindStoreActorSelector023W();
+    startStoreTeamTimers023W();
+
+    root.querySelector("[data-store-back-023w]")?.addEventListener("click", () => bootShell());
+    root.querySelector("[data-store-refresh-023w]")?.addEventListener("click", () => openStoreShiftControlModule023W(session));
+    root.querySelectorAll("[data-store-login-023w]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const employeeId = button.getAttribute("data-store-login-023w") || "";
+        const card = button.closest("[data-store-member-card-023w]");
+        const username = card?.querySelector("[data-store-login-user-023w]")?.value || "";
+        const password = card?.querySelector("[data-store-login-pass-023w]")?.value || "";
+        const msg = root.querySelector(`#${msgId}`);
+        try {
+          if (msg) msg.textContent = "Validando login...";
+          await storeTeamLogin023W(employeeId, username, password);
+          await openStoreShiftControlModule023W(session);
+        } catch (error) {
+          if (msg) msg.textContent = error.message || "Login invalido.";
+        }
+      });
+    });
+    root.querySelectorAll("[data-store-action-023w]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const employeeId = button.getAttribute("data-store-employee-023w") || "";
+        const action = button.getAttribute("data-store-action-023w") || "";
+        const member = members.find((item) => item.employee_id === employeeId) || {};
+        const msg = root.querySelector(`#${msgId}`);
+        try {
+          if (msg) msg.textContent = "Actualizando turno...";
+          await storeTeamAction023W(employeeId, action);
+          if (action === "finish" && member.is_admin) {
+            localStorage.removeItem(storageKey);
+            window.location.href = loginUrl();
+            return;
+          }
+          await openStoreShiftControlModule023W(session);
+        } catch (error) {
+          if (msg) msg.textContent = error.message || "No se pudo actualizar el turno.";
+        }
+      });
+    });
+  }
+  /* CLONEXA_023W_STORE_TEAM_MINI_PANEL_END */
+
   /* CLONEXA_019H_R1_SAFE_DYNAMIC_MODULES_END */
 
 
@@ -2051,6 +2413,8 @@ function moduleCard(title, description, tag, code = "") {
           </section>
         </header>
 
+        ${storeActorStripHtml023W("dashboard")}
+
         <section class="mp-dashboard-section">
           <div class="mp-section-title">
             <div>
@@ -2133,6 +2497,7 @@ function moduleCard(title, description, tag, code = "") {
     `;
 
     startTimers(operational);
+    bindStoreActorSelector023W();
 
     root.querySelector("[data-action='pause']")?.addEventListener("click", async () => {
       await runOperationalAction("pause", session);
@@ -2258,6 +2623,11 @@ function moduleCard(title, description, tag, code = "") {
           return;
         }
 
+        if (typeof isStoreShiftControlCode023W === "function" && isStoreShiftControlCode023W(moduleCode)) {
+          await openStoreShiftControlModule023W(session);
+          return;
+        }
+
         const msg = root.querySelector("[data-panel-message]");
         if (msg) {
           msg.classList.add("ok");
@@ -2369,6 +2739,8 @@ function moduleCard(title, description, tag, code = "") {
           <button class="sr-btn-022f secondary" type="button" data-sr-back-022f>Volver</button>
         </header>
 
+        ${storeActorStripHtml023W("ventas")}
+
         <section class="sr-layout-022f">
           <div class="sr-card-022f sr-panel-022f">
             <div class="sr-kicker-022f">Categorías</div>
@@ -2402,6 +2774,8 @@ function moduleCard(title, description, tag, code = "") {
         </section>
       </main>
     `;
+
+    bindStoreActorSelector023W();
 
     root.querySelector("[data-sr-back-022f]")?.addEventListener("click", () => bootShell());
     root.querySelectorAll("[data-sr-category-022f]").forEach((button) => {
@@ -3464,6 +3838,8 @@ function moduleCard(title, description, tag, code = "") {
           </div>
         </header>
 
+        ${storeActorStripHtml023W("ventas")}
+
         <section class="sr-invoice-layout-022h">
           <section class="sr-card-022f sr-panel-022f">
             <div class="sr-kicker-022f">Referencia</div>
@@ -3541,6 +3917,7 @@ function moduleCard(title, description, tag, code = "") {
     `;
 
     const searchInput = root.querySelector("#srSearch022F");
+    bindStoreActorSelector023W();
 
     async function updateRefList(q = "", autoPick = false) {
       const nextRefs = await loadRefs(q);
@@ -4052,6 +4429,8 @@ function moduleCard(title, description, tag, code = "") {
           </div>
         </header>
 
+        ${storeActorStripHtml023W("ventas")}
+
         <section class="sr-invoice-layout-022h">
           <section class="sr-card-022f sr-panel-022f">
             <div class="sr-kicker-022f">Referencia</div>
@@ -4133,6 +4512,7 @@ function moduleCard(title, description, tag, code = "") {
     `;
 
     const searchInput = root.querySelector("#srSearch022F");
+    bindStoreActorSelector023W();
 
     async function updateRefList(q = "", autoPick = false) {
       const nextRefs = await loadRefs(q);
@@ -4870,6 +5250,8 @@ function moduleCard(title, description, tag, code = "") {
           </div>
         </header>
 
+        ${storeActorStripHtml023W("ventas")}
+
         <section class="sr-invoice-layout-022h">
           <section class="sr-card-022f sr-panel-022f">
             <div class="sr-kicker-022f">Referencia</div>
@@ -5076,7 +5458,8 @@ function moduleCard(title, description, tag, code = "") {
             notes: salesInvoiceCart022H.notes,
             items: salesInvoiceCart022H.items,
             ...cashPayload023D,
-            ...salesInvoiceAdjustmentPayload022J()
+            ...salesInvoiceAdjustmentPayload022J(),
+            ...storeActorPayload023W()
           })
         });
         if (msg) msg.textContent = `Factura guardada ${data?.invoice_number || ""}.`;
@@ -5087,6 +5470,7 @@ function moduleCard(title, description, tag, code = "") {
       }
     });
 
+    bindStoreActorSelector023W();
     bindRefs();
     bindCartInputs();
     salesRefreshCashChange023D();
@@ -5331,6 +5715,8 @@ function moduleCard(title, description, tag, code = "") {
           </div>
         </header>
 
+        ${storeActorStripHtml023W("solicitudes")}
+
         <section class="rq-layout-023t">
           <section class="rq-card-023t rq-panel-023t">
             <div class="rq-kicker-023t">Nueva solicitud</div>
@@ -5366,6 +5752,7 @@ function moduleCard(title, description, tag, code = "") {
     `;
 
     const lines = root.querySelector("[data-rq-lines-023t]");
+    bindStoreActorSelector023W();
     root.querySelector("[data-rq-back-023t]")?.addEventListener("click", () => bootShell());
     root.querySelector("[data-rq-refresh-023t]")?.addEventListener("click", () => openRequestsModule023T(session));
     root.querySelector("[data-rq-add-line-023t]")?.addEventListener("click", () => {
@@ -5391,9 +5778,10 @@ function moduleCard(title, description, tag, code = "") {
       try {
         const payload = {
           panel_type: panelType,
-          store_label: employee.full_name || employee.email || "",
+          store_label: storeActorPayload023W().store_slot_name || employee.full_name || employee.email || "",
           notes: root.querySelector("#requestNotes023T")?.value || "",
-          items: requestReadItems023T(merged)
+          items: requestReadItems023T(merged),
+          ...storeActorPayload023W()
         };
         if (!payload.items.length) throw new Error("Agrega al menos un articulo con cantidad.");
         if (msg) msg.textContent = "Enviando solicitud...";
@@ -5788,6 +6176,12 @@ function moduleCard(title, description, tag, code = "") {
         console.warn("CLONEXA 019H-R1 config fallback:", error);
         return { enabled: false, modules: [], module_names: {}, error: error?.message || String(error) };
       });
+      if (isStorePanel023W()) {
+        await loadStoreTeam023W(true).catch((error) => {
+          console.warn("CLONEXA 023W store team fallback:", error);
+          currentStoreTeam023W = null;
+        });
+      }
       currentNotesSummary020A = await loadNotesSummary020A(currentModuleConfig).catch((error) => {
         console.warn("CLONEXA 020A notes summary fallback:", error);
         return defaultNotesSummary020A();

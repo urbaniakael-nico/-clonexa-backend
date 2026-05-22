@@ -403,8 +403,9 @@ async def _sales_rows(
     rows = await conn.fetch(
         """
         SELECT
-            COALESCE(s.created_by::text, '') AS user_id,
+            COALESCE(NULLIF(s.metadata->'store_actor'->>'user_id', ''), s.created_by::text, '') AS user_id,
             COALESCE(
+                NULLIF(s.metadata->'store_actor'->>'name', ''),
                 NULLIF(s.created_by_label, ''),
                 NULLIF(cu.full_name, ''),
                 NULLIF(cu.email, ''),
@@ -428,7 +429,14 @@ async def _sales_rows(
           AND s.created_at <= $4
           -- Business rule 023L: archiving a sale only cleans the operative view.
           -- It must still count in the active closing period for cash/transfer audit.
-        GROUP BY s.created_by, s.created_by_label, cu.full_name, cu.email
+        GROUP BY COALESCE(NULLIF(s.metadata->'store_actor'->>'user_id', ''), s.created_by::text, ''),
+                 COALESCE(
+                    NULLIF(s.metadata->'store_actor'->>'name', ''),
+                    NULLIF(s.created_by_label, ''),
+                    NULLIF(cu.full_name, ''),
+                    NULLIF(cu.email, ''),
+                    'Sin usuario'
+                 )
         ORDER BY total_amount DESC, label ASC
         """,
         company_id,
@@ -464,8 +472,9 @@ async def _quote_rows(
     rows = await conn.fetch(
         """
         SELECT
-            COALESCE(q.created_by::text, '') AS user_id,
+            COALESCE(NULLIF(q.metadata->'store_actor'->>'user_id', ''), q.created_by::text, '') AS user_id,
             COALESCE(
+                NULLIF(q.metadata->'store_actor'->>'name', ''),
                 NULLIF(q.created_by_label, ''),
                 NULLIF(cu.full_name, ''),
                 NULLIF(cu.email, ''),
@@ -482,7 +491,14 @@ async def _quote_rows(
           AND q.created_at >= $3
           AND q.created_at <= $4
           AND COALESCE(q.status, '') <> 'archived'
-        GROUP BY q.created_by, q.created_by_label, cu.full_name, cu.email
+        GROUP BY COALESCE(NULLIF(q.metadata->'store_actor'->>'user_id', ''), q.created_by::text, ''),
+                 COALESCE(
+                    NULLIF(q.metadata->'store_actor'->>'name', ''),
+                    NULLIF(q.created_by_label, ''),
+                    NULLIF(cu.full_name, ''),
+                    NULLIF(cu.email, ''),
+                    'Sin usuario'
+                 )
         ORDER BY quotes_amount DESC, label ASC
         """,
         company_id,

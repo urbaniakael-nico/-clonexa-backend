@@ -59,6 +59,11 @@ class MiniPanelNoteCreate(BaseModel):
     note_date: date
     note_time: time
     note_type: str = "reminder"
+    store_employee_id: str | None = Field(default=None, max_length=80)
+    store_employee_name: str | None = Field(default=None, max_length=180)
+    store_user_id: str | None = Field(default=None, max_length=80)
+    store_slot_id: str | None = Field(default=None, max_length=80)
+    store_slot_name: str | None = Field(default=None, max_length=120)
 
     @field_validator("title")
     @classmethod
@@ -197,6 +202,22 @@ def _date_range(value: date) -> tuple[datetime, datetime]:
 
 def _display_date(value: date) -> str:
     return f"{value.day:02d}/{value.month:02d}/{value.year}"
+
+
+def _clean_text_023w(value: Any, limit: int = 500) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def _note_metadata_payload_023w(payload: Any) -> dict[str, Any]:
+    actor = {
+        "employee_id": _clean_text_023w(getattr(payload, "store_employee_id", ""), 80),
+        "name": _clean_text_023w(getattr(payload, "store_employee_name", ""), 180),
+        "user_id": _clean_text_023w(getattr(payload, "store_user_id", ""), 80),
+        "store_id": _clean_text_023w(getattr(payload, "store_slot_id", ""), 80),
+        "store_name": _clean_text_023w(getattr(payload, "store_slot_name", ""), 120),
+    }
+    actor = {key: value for key, value in actor.items() if value}
+    return {"store_actor": actor} if actor else {}
 
 
 
@@ -365,6 +386,9 @@ def _note_payload(row: asyncpg.Record) -> dict[str, Any]:
     if scheduled.tzinfo is None:
         scheduled = scheduled.replace(tzinfo=timezone.utc)
     local = scheduled.astimezone(BOGOTA)
+    metadata = _json(row["metadata"])
+    store_actor = metadata.get("store_actor") if isinstance(metadata.get("store_actor"), dict) else {}
+    actor_label = str(store_actor.get("name") or "").strip()
 
     return {
         "id": str(row["id"]),
@@ -380,7 +404,9 @@ def _note_payload(row: asyncpg.Record) -> dict[str, Any]:
         "display_time": local.strftime("%H:%M"),
         "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
         "created_by": str(row["created_by"]) if row["created_by"] else None,
-        "created_by_label": row["created_by_label"] or "",
+        "created_by_label": actor_label or row["created_by_label"] or "",
+        "metadata": metadata,
+        "store_actor": store_actor,
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
@@ -519,6 +545,9 @@ async def create_note(
             created_by = uuid.UUID(str(raw_user_id)) if raw_user_id else None
         except Exception:
             created_by = None
+        metadata = _note_metadata_payload_023w(payload)
+        actor = metadata.get("store_actor") if isinstance(metadata.get("store_actor"), dict) else {}
+        creator_label = str(actor.get("name") or user.get("full_name") or user.get("email") or "").strip()
 
         row = await conn.fetchrow(
             """
@@ -536,7 +565,7 @@ async def create_note(
                 created_at,
                 updated_at
             )
-            VALUES ($1::uuid, $2, $3, $4, $5, 'active', $6, $7::uuid, $8, '{}'::jsonb, NOW(), NOW())
+            VALUES ($1::uuid, $2, $3, $4, $5, 'active', $6, $7::uuid, $8, $9::jsonb, NOW(), NOW())
             RETURNING *
             """,
             company_id,
@@ -546,7 +575,8 @@ async def create_note(
             payload.note_type,
             scheduled,
             created_by,
-            user.get("full_name") or user.get("email") or "",
+            creator_label,
+            json.dumps(metadata, ensure_ascii=False),
         )
         return {"ok": True, "note": _note_payload(row)}
     finally:

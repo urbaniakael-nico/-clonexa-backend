@@ -70,6 +70,11 @@ class StoreLoginConfigUpdateRequest023V(BaseModel):
     stores: list[StoreLoginSlot023V] = []
 
 
+class StoreTeamMemberLoginRequest023W(BaseModel):
+    username: str = ""
+    password: str = ""
+
+
 # CLONEXA_019D_MINIPANEL_LOGIN_BACKEND_START
 
 class MiniPanelLoginRequest(BaseModel):
@@ -1526,6 +1531,515 @@ async def _cx_mp_get_or_create_session_019f(
     return await _cx_mp_create_session_019f(db, company_id, user, mini_panel, panel_type)
 
 
+# CLONEXA_023W_STORE_TEAM_MINI_PANEL_START
+def _cx_store_team_slot_023w(company: Company, employee_id: Any) -> Dict[str, Any] | None:
+    clean_employee_id = str(employee_id or "").strip()
+    if not clean_employee_id:
+        return None
+    config = _cx_store_login_config_023v(company)
+    for raw_slot in config.get("stores") or []:
+        ids = [str(item or "").strip() for item in (raw_slot.get("employee_ids") or []) if str(item or "").strip()]
+        if clean_employee_id in ids:
+            slot = dict(raw_slot)
+            slot["employee_ids"] = ids
+            return slot
+    return None
+
+
+def _cx_store_team_ids_023w(company: Company, employee_id: Any) -> tuple[Dict[str, Any], list[str]]:
+    clean_employee_id = str(employee_id or "").strip()
+    slot = _cx_store_team_slot_023w(company, clean_employee_id)
+    if slot:
+        return slot, [str(item or "").strip() for item in (slot.get("employee_ids") or []) if str(item or "").strip()]
+    fallback_ids = [clean_employee_id] if clean_employee_id else []
+    return {
+        "id": "store_current",
+        "name": "Tienda actual",
+        "employee_ids": fallback_ids,
+    }, fallback_ids
+
+
+def _cx_uuid_list_023w(values: list[str]) -> list[UUID]:
+    clean_values: list[UUID] = []
+    for value in values:
+        try:
+            clean_values.append(UUID(str(value)))
+        except Exception:
+            continue
+    return clean_values
+
+
+async def _cx_store_team_employee_map_023w(
+    db: AsyncSession,
+    company_id: UUID,
+    employee_ids: list[str],
+) -> Dict[str, Employee]:
+    uuids = _cx_uuid_list_023w(employee_ids)
+    if not uuids:
+        return {}
+    result = await db.execute(
+        select(Employee).where(
+            Employee.company_id == company_id,
+            Employee.id.in_(uuids),
+        )
+    )
+    return {str(employee.id): employee for employee in result.scalars().all()}
+
+
+async def _cx_store_team_users_by_employee_023w(
+    db: AsyncSession,
+    company_id: UUID,
+    employee_ids: list[str],
+) -> Dict[str, CompanyUser]:
+    wanted = {str(item or "").strip() for item in employee_ids if str(item or "").strip()}
+    if not wanted:
+        return {}
+    result = await db.execute(select(CompanyUser).where(CompanyUser.company_id == company_id))
+    users: Dict[str, CompanyUser] = {}
+    for user in result.scalars().all():
+        settings = _cx_user_settings_019c(user)
+        mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+        employee_id = str(mini_panel.get("employee_id") or "").strip()
+        if (
+            mini_panel.get("enabled") is True
+            and str(mini_panel.get("type") or "") == "store"
+            and employee_id in wanted
+        ):
+            users[employee_id] = user
+    return users
+
+
+def _cx_store_member_mini_panel_023w(user: CompanyUser | None) -> Dict[str, Any]:
+    if not user:
+        return {}
+    settings = _cx_user_settings_019c(user)
+    mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    return mini_panel if isinstance(mini_panel, dict) else {}
+
+
+async def _cx_store_team_open_sessions_023w(
+    db: AsyncSession,
+    company_id: UUID,
+    users_by_employee: Dict[str, CompanyUser],
+) -> Dict[str, Dict[str, Any]]:
+    await _cx_mp_work_ensure_019f(db)
+    user_to_employee = {str(user.id): employee_id for employee_id, user in users_by_employee.items()}
+    if not user_to_employee:
+        return {}
+
+    params: Dict[str, Any] = {"company_id": str(company_id)}
+    placeholders: list[str] = []
+    for index, user_id in enumerate(user_to_employee):
+        key = f"user_{index}"
+        params[key] = user_id
+        placeholders.append(f"CAST(:{key} AS uuid)")
+
+    result = await db.execute(
+        text(f"""
+            SELECT DISTINCT ON (user_id) *
+            FROM mini_panel_work_sessions
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND user_id IN ({', '.join(placeholders)})
+              AND panel_type = 'store'
+              AND status IN ('active', 'break')
+            ORDER BY user_id, started_at DESC
+        """),
+        params,
+    )
+    sessions: Dict[str, Dict[str, Any]] = {}
+    for row in result.mappings().all():
+        employee_id = user_to_employee.get(str(row.get("user_id")))
+        if employee_id:
+            sessions[employee_id] = dict(row)
+    return sessions
+
+
+async def _cx_store_team_sales_stats_023w(
+    db: AsyncSession,
+    company_id: UUID,
+    users_by_employee: Dict[str, CompanyUser],
+) -> Dict[str, Dict[str, Any]]:
+    if not await _cx_table_exists_023p(db, "mini_panel_sales_records"):
+        return {}
+
+    employee_ids = set(users_by_employee.keys())
+    user_to_employee = {str(user.id): employee_id for employee_id, user in users_by_employee.items()}
+    if not employee_ids:
+        return {}
+
+    params: Dict[str, Any] = {"company_id": str(company_id)}
+    panel_placeholders: list[str] = []
+    for index, panel_alias in enumerate(_cx_panel_record_types_023s("store")):
+        key = f"panel_{index}"
+        params[key] = panel_alias
+        panel_placeholders.append(f":{key}")
+
+    where = [
+        "company_id = CAST(:company_id AS uuid)",
+        f"panel_type IN ({', '.join(panel_placeholders)})",
+    ]
+    started_at = await _cx_sales_cut_started_at_023p(db, company_id)
+    if started_at:
+        where.append("created_at >= :started_at")
+        params["started_at"] = started_at
+
+    result = await db.execute(
+        text(f"""
+            SELECT
+                created_by::text AS user_id,
+                COALESCE(metadata, '{{}}'::jsonb) AS metadata,
+                COALESCE(total, 0)::float AS total,
+                status
+            FROM mini_panel_sales_records
+            WHERE {" AND ".join(where)}
+        """),
+        params,
+    )
+
+    stats: Dict[str, Dict[str, Any]] = {}
+    for row in result.mappings().all():
+        metadata = _cx_json_dict_023p(row.get("metadata"))
+        actor = metadata.get("store_actor") if isinstance(metadata.get("store_actor"), dict) else {}
+        employee_id = str(actor.get("employee_id") or "").strip() or user_to_employee.get(str(row.get("user_id") or ""), "")
+        if employee_id not in employee_ids:
+            continue
+        target = stats.setdefault(employee_id, {
+            "sales_total": 0.0,
+            "sales_count": 0,
+            "visible_sales_count": 0,
+        })
+        target["sales_total"] = round(_cx_money_023p(target.get("sales_total")) + _cx_money_023p(row.get("total")), 2)
+        target["sales_count"] = int(target.get("sales_count") or 0) + 1
+        if str(row.get("status") or "").lower() != "archived":
+            target["visible_sales_count"] = int(target.get("visible_sales_count") or 0) + 1
+    return stats
+
+
+def _cx_store_member_payload_023w(
+    employee_id: str,
+    *,
+    employee: Employee | None,
+    user: CompanyUser | None,
+    session_row: Dict[str, Any] | None,
+    sales_stats: Dict[str, Any] | None,
+    is_admin: bool,
+    is_current: bool,
+) -> Dict[str, Any]:
+    mini_panel = _cx_store_member_mini_panel_023w(user)
+    goal = _cx_minipanel_goal_023p(mini_panel)
+    stats = sales_stats if isinstance(sales_stats, dict) else {}
+    sales_total = _cx_money_023p(stats.get("sales_total") or 0)
+    session_payload = None
+    if session_row:
+        session_payload = _cx_mp_operational_payload_019f(session_row, {
+            "monthly_sales_total": sales_total,
+            "monthly_sales_count": int(stats.get("sales_count") or 0),
+            "visible_sales_count": int(stats.get("visible_sales_count") or 0),
+            "monthly_goal": goal["monthly_goal"],
+            "goal_currency": goal["goal_currency"],
+            "promotions": [],
+        })
+    return {
+        "employee_id": employee_id,
+        "full_name": str(getattr(employee, "full_name", "") or getattr(user, "full_name", "") or "Colaborador"),
+        "phone": str(getattr(employee, "phone", "") or ""),
+        "role": str(getattr(employee, "role", "") or getattr(employee, "employee_type", "") or "cajero"),
+        "status": str(getattr(employee, "status", "") or getattr(user, "status", "") or "active"),
+        "user_id": str(user.id) if user else "",
+        "username": str(mini_panel.get("username") or getattr(user, "email", "") or ""),
+        "has_login": bool(user),
+        "is_admin": is_admin,
+        "is_current": is_current,
+        "monthly_goal": goal["monthly_goal"],
+        "goal_currency": goal["goal_currency"],
+        "sales_total": sales_total,
+        "sales_count": int(stats.get("sales_count") or 0),
+        "visible_sales_count": int(stats.get("visible_sales_count") or 0),
+        "goal_progress_percent": _cx_goal_percent_023q(sales_total, goal["monthly_goal"]),
+        "session": session_payload,
+    }
+
+
+async def _cx_store_team_payload_023w(
+    db: AsyncSession,
+    company: Company,
+    current_user: CompanyUser,
+    current_mini_panel: Dict[str, Any],
+) -> Dict[str, Any]:
+    current_employee_id = str(current_mini_panel.get("employee_id") or "").strip()
+    slot, team_ids = _cx_store_team_ids_023w(company, current_employee_id)
+    if current_employee_id and current_employee_id not in team_ids:
+        team_ids.insert(0, current_employee_id)
+
+    employees = await _cx_store_team_employee_map_023w(db, company.id, team_ids)
+    users_by_employee = await _cx_store_team_users_by_employee_023w(db, company.id, team_ids)
+    sessions = await _cx_store_team_open_sessions_023w(db, company.id, users_by_employee)
+    sales_stats = await _cx_store_team_sales_stats_023w(db, company.id, users_by_employee)
+    admin_employee_id = team_ids[0] if team_ids else current_employee_id
+
+    members = [
+        _cx_store_member_payload_023w(
+            employee_id,
+            employee=employees.get(employee_id),
+            user=users_by_employee.get(employee_id),
+            session_row=sessions.get(employee_id),
+            sales_stats=sales_stats.get(employee_id),
+            is_admin=(employee_id == admin_employee_id),
+            is_current=(employee_id == current_employee_id),
+        )
+        for employee_id in team_ids
+    ]
+
+    return {
+        "store": {
+            "id": str(slot.get("id") or "store_current"),
+            "name": str(slot.get("name") or "Tienda actual"),
+            "admin_employee_id": admin_employee_id,
+            "current_employee_id": current_employee_id,
+            "is_current_admin": current_employee_id == admin_employee_id,
+        },
+        "members": members,
+    }
+
+
+async def _cx_store_team_target_023w(
+    db: AsyncSession,
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str],
+    employee_id: str,
+) -> tuple[Company, CompanyUser, Dict[str, Any], Dict[str, Any], CompanyUser, Dict[str, Any]]:
+    company, current_user, current_mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    clean_type = _cx_panel_type_019d(panel_type)
+    if clean_type != "store":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Control de turno disponible solo para mini panel tienda.")
+
+    current_employee_id = str(current_mini_panel.get("employee_id") or "").strip()
+    target_employee_id = str(employee_id or "").strip()
+    slot, team_ids = _cx_store_team_ids_023w(company, current_employee_id)
+    if target_employee_id not in team_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Colaborador fuera de la tienda asignada.")
+
+    users_by_employee = await _cx_store_team_users_by_employee_023w(db, company_id, team_ids)
+    target_user = users_by_employee.get(target_employee_id)
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Este colaborador no tiene clave de mini panel tienda.")
+
+    target_mini_panel = _cx_store_member_mini_panel_023w(target_user)
+    return company, current_user, current_mini_panel, slot, target_user, target_mini_panel
+
+
+async def _cx_mp_apply_operational_action_023w(
+    db: AsyncSession,
+    company: Company,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+    panel_type: str,
+    action: str,
+    *,
+    allow_missing: bool = False,
+) -> Dict[str, Any] | None:
+    clean_action = str(action or "").strip().lower()
+    clean_type = _cx_panel_type_019d(panel_type)
+
+    if clean_action == "start":
+        row = await _cx_mp_get_or_create_session_019f(db, company.id, user, mini_panel, clean_type)
+        await _cx_mp_sync_attendance_023j(db, company.id, user, mini_panel, row)
+        await db.commit()
+        return await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)
+
+    if clean_action not in {"pause", "resume", "finish"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Accion de turno invalida.")
+
+    row = await _cx_mp_fetch_open_session_019f(db, company.id, user.id, clean_type)
+    if not row:
+        if allow_missing:
+            return None
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesion operativa activa.")
+
+    current_status = str(row.get("status") or "").lower()
+    now = datetime.now(timezone.utc)
+
+    if clean_action == "pause":
+        if current_status == "break":
+            return await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)
+        active_delta = _cx_mp_seconds_between_019f(row.get("active_started_at"), now)
+        await db.execute(
+            text("""
+                UPDATE mini_panel_work_sessions
+                SET status = 'break',
+                    active_seconds = COALESCE(active_seconds, 0) + :active_delta,
+                    active_started_at = NULL,
+                    current_break_started_at = :now,
+                    updated_at = :now
+                WHERE id = CAST(:id AS uuid)
+            """),
+            {"id": str(row["id"]), "active_delta": active_delta, "now": now},
+        )
+        event_type = "break_start"
+    elif clean_action == "resume":
+        if current_status == "active":
+            return await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)
+        break_delta = _cx_mp_seconds_between_019f(row.get("current_break_started_at"), now)
+        await db.execute(
+            text("""
+                UPDATE mini_panel_work_sessions
+                SET status = 'active',
+                    break_seconds = COALESCE(break_seconds, 0) + :break_delta,
+                    current_break_started_at = NULL,
+                    active_started_at = :now,
+                    updated_at = :now
+                WHERE id = CAST(:id AS uuid)
+            """),
+            {"id": str(row["id"]), "break_delta": break_delta, "now": now},
+        )
+        event_type = "break_end"
+    else:
+        active_delta = _cx_mp_seconds_between_019f(row.get("active_started_at"), now) if current_status == "active" else 0
+        break_delta = _cx_mp_seconds_between_019f(row.get("current_break_started_at"), now) if current_status == "break" else 0
+        await db.execute(
+            text("""
+                UPDATE mini_panel_work_sessions
+                SET status = 'finished',
+                    ended_at = :now,
+                    active_seconds = COALESCE(active_seconds, 0) + :active_delta,
+                    break_seconds = COALESCE(break_seconds, 0) + :break_delta,
+                    active_started_at = NULL,
+                    current_break_started_at = NULL,
+                    updated_at = :now
+                WHERE id = CAST(:id AS uuid)
+            """),
+            {
+                "id": str(row["id"]),
+                "active_delta": active_delta,
+                "break_delta": break_delta,
+                "now": now,
+            },
+        )
+        event_type = "check_out"
+
+    await db.commit()
+    updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
+    await _cx_mp_sync_attendance_023j(db, company.id, user, mini_panel, updated, event_type=event_type, event_at=now)
+    await db.commit()
+    return await _cx_mp_operational_response_023p(db, company, user, mini_panel, updated)
+
+
+async def _cx_store_finish_other_team_sessions_023w(
+    db: AsyncSession,
+    company: Company,
+    slot: Dict[str, Any],
+    exclude_user_id: UUID,
+) -> None:
+    team_ids = [str(item or "").strip() for item in (slot.get("employee_ids") or []) if str(item or "").strip()]
+    users_by_employee = await _cx_store_team_users_by_employee_023w(db, company.id, team_ids)
+    for user in users_by_employee.values():
+        if str(user.id) == str(exclude_user_id):
+            continue
+        mini_panel = _cx_store_member_mini_panel_023w(user)
+        await _cx_mp_apply_operational_action_023w(
+            db,
+            company,
+            user,
+            mini_panel,
+            "store",
+            "finish",
+            allow_missing=True,
+        )
+
+
+async def _cx_store_finish_team_if_admin_023w(
+    db: AsyncSession,
+    company: Company,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+) -> None:
+    employee_id = str(mini_panel.get("employee_id") or "").strip()
+    slot, team_ids = _cx_store_team_ids_023w(company, employee_id)
+    if not team_ids or team_ids[0] != employee_id:
+        return
+    await _cx_store_finish_other_team_sessions_023w(db, company, slot, user.id)
+
+
+@router.get("/{company_id}/mini-panel-store-team")
+async def mini_panel_store_team_023w(
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    if _cx_panel_type_019d(panel_type) != "store":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Equipo disponible solo para mini panel tienda.")
+    payload = await _cx_store_team_payload_023w(db, company, user, mini_panel)
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        **payload,
+    }
+
+
+@router.post("/{company_id}/mini-panel-store-team/{employee_id}/login")
+async def mini_panel_store_team_login_023w(
+    company_id: UUID,
+    employee_id: str,
+    panel_type: str,
+    payload: StoreTeamMemberLoginRequest023W,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company, current_user, current_mini_panel, _, target_user, _ = await _cx_store_team_target_023w(
+        db,
+        company_id,
+        panel_type,
+        authorization,
+        employee_id,
+    )
+    if not _cx_minipanel_user_matches_login_019d(target_user, payload.username, "store"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario de tienda invalido.")
+    if not verify_password(str(payload.password or ""), target_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Clave de tienda invalida.")
+    team = await _cx_store_team_payload_023w(db, company, current_user, current_mini_panel)
+    return {"ok": True, "authenticated": True, "team": team}
+
+
+@router.post("/{company_id}/mini-panel-store-team/{employee_id}/session/{action}")
+async def mini_panel_store_team_session_action_023w(
+    company_id: UUID,
+    employee_id: str,
+    action: str,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company, current_user, current_mini_panel, slot, target_user, target_mini_panel = await _cx_store_team_target_023w(
+        db,
+        company_id,
+        panel_type,
+        authorization,
+        employee_id,
+    )
+    operational = await _cx_mp_apply_operational_action_023w(
+        db,
+        company,
+        target_user,
+        target_mini_panel,
+        "store",
+        action,
+    )
+    admin_employee_id = str((slot.get("employee_ids") or [""])[0] or "")
+    if str(action or "").strip().lower() == "finish" and str(employee_id) == admin_employee_id:
+        await _cx_store_finish_other_team_sessions_023w(db, company, slot, target_user.id)
+
+    team = await _cx_store_team_payload_023w(db, company, current_user, current_mini_panel)
+    return {
+        "ok": True,
+        "operational_session": operational,
+        "team": team,
+    }
+# CLONEXA_023W_STORE_TEAM_MINI_PANEL_END
+
+
 @router.get("/{company_id}/mini-panel-operational-session")
 async def mini_panel_operational_session_019f(
     company_id: UUID,
@@ -1658,6 +2172,8 @@ async def mini_panel_operational_finish_019f(
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
     await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, updated, event_type="check_out", event_at=now)
     await db.commit()
+    if clean_type == "store":
+        await _cx_store_finish_team_if_admin_023w(db, company, user, mini_panel)
     return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, updated)}
 
 

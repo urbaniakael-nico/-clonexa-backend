@@ -103,6 +103,11 @@ class SaleCreateIn(BaseModel):
     total_payable: float | None = Field(default=None, ge=0)
     received_amount: float | None = Field(default=None, ge=0)
     change_amount: float | None = Field(default=None, ge=0)
+    store_employee_id: str | None = Field(default=None, max_length=120)
+    store_employee_name: str | None = Field(default=None, max_length=180)
+    store_user_id: str | None = Field(default=None, max_length=120)
+    store_slot_id: str | None = Field(default=None, max_length=40)
+    store_slot_name: str | None = Field(default=None, max_length=120)
 
     @field_validator("payment_method")
     @classmethod
@@ -1129,6 +1134,7 @@ def _sale_payload(row: asyncpg.Record) -> dict[str, Any]:
         "created_by": str(row["created_by"]) if row["created_by"] else None,
         "created_by_label": created_by_label or "Usuario mini panel",
         "source_user_label": created_by_label or "Usuario mini panel",
+        "store_actor": metadata.get("store_actor") if isinstance(metadata.get("store_actor"), dict) else {},
         "source_panel_type": row["panel_type"],
         "source_panel_label": _panel_label(row["panel_type"]),
         "created_at": _iso(row["created_at"]),
@@ -1407,6 +1413,15 @@ async def create_sale(
         payment_method = _norm(payload.payment_method or "efectivo")
         received_amount = round(_money(payload.received_amount), 2) if payment_method == "efectivo" else 0.0
         change_amount = round(max(0.0, received_amount - total), 2) if payment_method == "efectivo" else 0.0
+        actor_name = _clean(payload.store_employee_name)
+        actor = {
+            "employee_id": _clean(payload.store_employee_id),
+            "name": actor_name,
+            "user_id": _clean(payload.store_user_id),
+            "store_id": _clean(payload.store_slot_id),
+            "store_name": _clean(payload.store_slot_name),
+        }
+        actor = {key: value for key, value in actor.items() if value}
         quantity = round(sum(_money(item.get("quantity")) for item in items), 2)
         first = items[0]
         categories = []
@@ -1433,6 +1448,7 @@ async def create_sale(
                 "received_amount": received_amount,
                 "change_amount": change_amount,
             },
+            "store_actor": actor,
         }
 
         row = await conn.fetchrow(
@@ -1481,7 +1497,7 @@ async def create_sale(
             payment_method,
             _clean(payload.notes),
             created_by,
-            _scope_label(access),
+            actor_name or _scope_label(access),
             json.dumps(metadata, ensure_ascii=False),
         )
 
