@@ -1,4 +1,4 @@
-
+﻿
 (() => {
   "use strict";
 
@@ -3668,6 +3668,23 @@
         border-color: rgba(255,255,255,.48);
         background: rgba(255,255,255,.11);
       }
+      /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_START */
+      .cx-inv-invoice-picker.has-file {
+        border-color: rgba(34, 197, 94, .85);
+        background: linear-gradient(135deg, rgba(34, 197, 94, .24), rgba(22, 163, 74, .16));
+        color: #bbf7d0;
+        box-shadow: 0 0 0 1px rgba(34, 197, 94, .18), 0 12px 26px rgba(34, 197, 94, .10);
+      }
+
+      .cx-inv-invoice-picker.has-file:hover {
+        border-color: rgba(34, 197, 94, 1);
+        background: linear-gradient(135deg, rgba(34, 197, 94, .32), rgba(22, 163, 74, .22));
+      }
+
+      .cx-inv-invoice-picker.has-file span::before {
+        content: "✓ ";
+      }
+      /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_END */
       .cx-inv-history {
         margin-top: 22px;
         border: 1px solid rgba(255,255,255,.12);
@@ -3768,6 +3785,35 @@
     }, 3000);
   }
 
+  /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_HELPER_START */
+  function updateInventoryInvoicePickerState(input) {
+    if (!input) return;
+
+    const label = input.closest(".cx-inv-invoice-picker");
+    if (!label) return;
+
+    const text = label.querySelector("span");
+    const file = input.files && input.files.length ? input.files[0] : null;
+    const hasFile = !!file;
+
+    label.classList.toggle("has-file", hasFile);
+    label.setAttribute("aria-live", "polite");
+
+    if (hasFile) {
+      const fileName = String(file.name || "Factura adjunta").trim();
+      label.title = fileName;
+      label.dataset.invoiceAttached = "true";
+      label.dataset.invoiceFileName = fileName;
+      if (text) text.textContent = "Factura adjunta";
+      return;
+    }
+
+    label.title = "";
+    delete label.dataset.invoiceAttached;
+    delete label.dataset.invoiceFileName;
+    if (text) text.textContent = "Adjuntar factura";
+  }
+  /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_HELPER_END */
   function inventoryCreatePayload() {
     return {
       name_reference: String(document.getElementById("inventoryCreateName")?.value || "").trim(),
@@ -13275,6 +13321,17 @@ document.addEventListener("click", async (event) => {
   }
 
 
+  /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_LISTENER_START */
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!target || !target.closest) return;
+
+    const invoiceInput = target.closest("[data-inventory-entry-invoice]");
+    if (!invoiceInput) return;
+
+    updateInventoryInvoicePickerState(invoiceInput);
+  });
+  /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_LISTENER_END */
   async function init() {
     try {
       const companyId = companyIdFromUrl();
@@ -15632,3 +15689,4 @@ document.addEventListener("click", async (event) => {
   }
 })();
 /* CX_017I_PAYROLL_SETTINGS_FINAL_END */
+
