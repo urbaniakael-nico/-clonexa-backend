@@ -6201,3 +6201,491 @@ function moduleCard(title, description, tag, code = "") {
   }
 })();
 // CLONEXA_FORCE_BUILD_019H_R1_20260513224440
+
+
+/* CLONEXA_024A_CLEAN_R1_MINI_PANEL_FIELD_OPS_START */
+(function () {
+  function cxMoney(value) {
+    const n = Number(value || 0);
+    try {
+      return new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0
+      }).format(Number.isFinite(n) ? n : 0);
+    } catch (_) {
+      return "$ " + Math.round(Number.isFinite(n) ? n : 0).toLocaleString("es-CO");
+    }
+  }
+
+  function cxEsc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[ch]));
+  }
+
+  function cxPercent(sales, goal) {
+    const s = Number(sales || 0);
+    const g = Number(goal || 0);
+    if (!g) return 0;
+    return Math.max(0, Math.min(999, Math.round((s / g) * 100)));
+  }
+
+  function cxApiBase() {
+    return "/api/v1";
+  }
+
+  async function cxJson(path, options = {}) {
+    const response = await fetch(`${cxApiBase()}${path}`, {
+      ...options,
+      headers: {
+        ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...(options.headers || {})
+      }
+    });
+
+    const text = await response.text();
+    let data = null;
+
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (_) {
+      data = text;
+    }
+
+    if (!response.ok) {
+      throw new Error(data?.detail || data?.message || `HTTP ${response.status}`);
+    }
+
+    return data;
+  }
+
+  function cxFindCompanyId() {
+    const params = new URLSearchParams(window.location.search);
+
+    const candidates = [
+      params.get("company_id"),
+      params.get("company"),
+      window.CLONEXA_COMPANY_ID,
+      window.companyId,
+      window.__companyId,
+      window.__MP_COMPANY_ID,
+      window.__miniPanelState?.company_id,
+      window.__miniPanelState?.companyId,
+      window.miniPanelState?.company_id,
+      window.miniPanelState?.companyId,
+      window.state?.companyId,
+      window.state?.company_id,
+      document.body?.dataset?.companyId,
+      document.documentElement?.dataset?.companyId
+    ].filter(Boolean);
+
+    if (candidates.length) return String(candidates[0]).trim();
+
+    try {
+      const urls = performance.getEntriesByType("resource")
+        .map((entry) => entry.name || "")
+        .join(" ");
+
+      const hit = urls.match(/companies\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+      if (hit) return hit[1];
+    } catch (_) {}
+
+    const html = document.documentElement.innerHTML || "";
+    const uuid = html.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    return uuid ? uuid[0] : "";
+  }
+
+  function cxFindToken() {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get("token") ||
+      params.get("access_token") ||
+      window.CLONEXA_MINI_PANEL_TOKEN ||
+      window.miniPanelToken ||
+      window.__miniPanelState?.token ||
+      ""
+    );
+  }
+
+  function cxStatusLabel(status) {
+    const s = String(status || "not_started").toLowerCase();
+    if (s === "working") return "Activo";
+    if (s === "on_break") return "En pausa";
+    if (s === "checked_out") return "Finalizado";
+    return "Fuera";
+  }
+
+  function cxStatusClass(status) {
+    const s = String(status || "not_started").toLowerCase();
+    if (s === "working") return "ok";
+    if (s === "on_break") return "warn";
+    if (s === "checked_out") return "done";
+    return "off";
+  }
+
+  function cxMinutes(value) {
+    const n = Math.max(0, Number(value || 0));
+    const h = Math.floor(n / 60);
+    const m = Math.round(n % 60);
+    if (!h) return `${m} min`;
+    return `${h}h ${m}m`;
+  }
+
+  function cxEnsureStyles() {
+    if (document.getElementById("cx024aCleanR1Styles")) return;
+
+    const style = document.createElement("style");
+    style.id = "cx024aCleanR1Styles";
+    style.textContent = `
+      .cx024a-field-shell{display:grid;gap:18px;margin-top:18px}
+      .cx024a-field-toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+      .cx024a-field-select{min-height:46px;border-radius:16px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.22);color:white;padding:0 14px;font-weight:900;min-width:260px}
+      .cx024a-field-kpis{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:14px}
+      .cx024a-field-kpi{border-radius:22px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);padding:18px}
+      .cx024a-field-kpi small{display:block;text-transform:uppercase;letter-spacing:.12em;font-weight:1000;color:rgba(255,255,255,.65);margin-bottom:8px}
+      .cx024a-field-kpi strong{display:block;color:white;font-size:24px}
+      .cx024a-field-list{display:grid;gap:12px}
+      .cx024a-field-row{display:grid;grid-template-columns:minmax(220px,1.2fr) 130px 160px 160px minmax(280px,1.4fr);gap:12px;align-items:center;padding:16px;border-radius:22px;border:1px solid rgba(255,255,255,.13);background:rgba(9,12,35,.45)}
+      .cx024a-person strong{display:block;color:white;font-size:16px}
+      .cx024a-muted{color:rgba(255,255,255,.65);font-weight:800}
+      .cx024a-chip{display:inline-flex;width:max-content;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:1000;border:1px solid rgba(255,255,255,.14)}
+      .cx024a-chip.ok{color:#86efac;background:rgba(34,197,94,.18)}
+      .cx024a-chip.warn{color:#fde68a;background:rgba(250,204,21,.16)}
+      .cx024a-chip.done{color:#cbd5e1;background:rgba(148,163,184,.16)}
+      .cx024a-chip.off{color:#fecaca;background:rgba(239,68,68,.12)}
+      .cx024a-progress{height:8px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.12);margin-top:8px}
+      .cx024a-progress span{display:block;height:100%;width:var(--p,0%);max-width:100%;background:linear-gradient(90deg,#ec4899,#38bdf8)}
+      .cx024a-actions{display:flex;flex-wrap:wrap;gap:8px}
+      .cx024a-btn{border:0;border-radius:14px;padding:10px 12px;cursor:pointer;font-weight:1000;color:#061126;background:#38bdf8}
+      .cx024a-btn.warning{background:#facc15;color:#1f2937}
+      .cx024a-btn.secondary{background:rgba(255,255,255,.14);color:white;border:1px solid rgba(255,255,255,.16)}
+      .cx024a-btn.danger{background:#fb7185;color:white}
+      .cx024a-btn:disabled{opacity:.45;cursor:not-allowed}
+      .cx024a-empty{padding:22px;border-radius:22px;border:1px dashed rgba(255,255,255,.25);color:rgba(255,255,255,.72);font-weight:900}
+      .cx024a-notice{min-height:22px;color:#bae6fd;font-weight:900}
+      @media(max-width:1100px){.cx024a-field-kpis{grid-template-columns:1fr 1fr}.cx024a-field-row{grid-template-columns:1fr}}
+      @media(max-width:700px){.cx024a-field-kpis{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function cxLoadData() {
+    const companyId = cxFindCompanyId();
+    const token = cxFindToken();
+
+    if (!companyId) {
+      throw new Error("No se pudo identificar company_id del mini panel.");
+    }
+
+    const encodedCompany = encodeURIComponent(companyId);
+
+    const safe = async (promise, fallback) => {
+      try { return await promise; } catch (_) { return fallback; }
+    };
+
+    const [storeConfig, miniUsers, employees, attendanceRows, salesPayload] = await Promise.all([
+      safe(cxJson(`/companies/${encodedCompany}/store-login-config`), { stores: [] }),
+      safe(cxJson(`/companies/${encodedCompany}/mini-panel-users?panel_type=store`), []),
+      safe(cxJson(`/employees?company_id=${encodedCompany}&include_archived=true`), []),
+      safe(cxJson(`/employees/attendance/today?company_id=${encodedCompany}`), []),
+      safe(cxJson(`/mini-panel-sales/companies/${encodedCompany}/sales?panel_type=store&include_archived=false${token ? `&token=${encodeURIComponent(token)}` : ""}`), { items: [] })
+    ]);
+
+    const users = Array.isArray(miniUsers) ? miniUsers : [];
+    const employeeList = Array.isArray(employees) ? employees : [];
+    const attendance = Array.isArray(attendanceRows) ? attendanceRows : [];
+    const salesItems = Array.isArray(salesPayload?.items) ? salesPayload.items : [];
+
+    let stores = Array.isArray(storeConfig?.stores) ? storeConfig.stores : [];
+
+    stores = stores.map((store, index) => ({
+      id: String(store.id || `store_${index + 1}`).trim(),
+      name: String(store.name || `Tienda ${index + 1}`).trim(),
+      employee_ids: Array.isArray(store.employee_ids)
+        ? store.employee_ids.map((id) => String(id || "").trim()).filter(Boolean)
+        : []
+    })).filter((store) => store.id);
+
+    if (!stores.length) {
+      const allIds = users.map((user) => String(user.employee_id || "").trim()).filter(Boolean);
+      stores = [{ id: "all", name: "Tienda / equipo actual", employee_ids: allIds }];
+    }
+
+    return { companyId, stores, users, employees: employeeList, attendance, salesItems };
+  }
+
+  function cxSalesByEmployee(salesItems, users, selectedStore) {
+    const userToEmployee = new Map(
+      users
+        .filter((user) => user.id && user.employee_id)
+        .map((user) => [String(user.id), String(user.employee_id)])
+    );
+
+    const out = new Map();
+    const team = new Set((selectedStore.employee_ids || []).map(String));
+    const selectedStoreId = String(selectedStore.id || "");
+
+    salesItems.forEach((sale) => {
+      if (String(sale.status || "").toLowerCase() === "archived") return;
+
+      const actor = sale.store_actor && typeof sale.store_actor === "object" ? sale.store_actor : {};
+      const employeeId = String(actor.employee_id || userToEmployee.get(String(sale.created_by || "")) || "");
+      const actorStore = String(actor.store_id || actor.store_slot_id || "");
+
+      if (!employeeId) return;
+      if (team.size && !team.has(employeeId)) return;
+      if (selectedStoreId !== "all" && actorStore && actorStore !== selectedStoreId) return;
+
+      const total = Number(sale.total_payable ?? sale.total ?? 0) || 0;
+      out.set(employeeId, (out.get(employeeId) || 0) + total);
+    });
+
+    return out;
+  }
+
+  function cxBuildRows(payload, selectedStore) {
+    const usersByEmployee = new Map(
+      payload.users
+        .filter((user) => user.employee_id)
+        .map((user) => [String(user.employee_id), user])
+    );
+
+    const employeesById = new Map(
+      payload.employees
+        .filter((employee) => employee.id)
+        .map((employee) => [String(employee.id), employee])
+    );
+
+    const attendanceByEmployee = new Map(
+      payload.attendance
+        .filter((row) => row.employee_id)
+        .map((row) => [String(row.employee_id), row])
+    );
+
+    const salesMap = cxSalesByEmployee(payload.salesItems, payload.users, selectedStore);
+
+    return (selectedStore.employee_ids || []).map((employeeId) => {
+      const id = String(employeeId);
+      const user = usersByEmployee.get(id) || {};
+      const employee = employeesById.get(id) || {};
+      const attendance = attendanceByEmployee.get(id) || {};
+      const goal = Number(user.monthly_goal || 0);
+      const sales = salesMap.has(id) ? Number(salesMap.get(id) || 0) : Number(user.monthly_sales_total || 0);
+
+      return {
+        employee_id: id,
+        name: employee.full_name || user.full_name || "Colaborador",
+        role: employee.role || employee.employee_type || user.role || "Tienda",
+        status: attendance.status || "not_started",
+        worked_minutes: Number(attendance.worked_minutes || 0),
+        break_minutes: Number(attendance.break_minutes || 0),
+        monthly_goal: goal,
+        sales_total: sales,
+        percent: cxPercent(sales, goal)
+      };
+    });
+  }
+
+  function cxShiftEndpoint(action) {
+    return {
+      start: "check-in",
+      pause: "break-start",
+      resume: "break-end",
+      finish: "check-out"
+    }[String(action || "").toLowerCase()] || "";
+  }
+
+  async function cxRunShift(employeeId, action, companyId, storeName) {
+    const endpoint = cxShiftEndpoint(action);
+    if (!employeeId || !endpoint) throw new Error("Acción inválida.");
+
+    await cxJson(`/employees/attendance/${encodeURIComponent(employeeId)}/${endpoint}?company_id=${encodeURIComponent(companyId)}`, {
+      method: "POST",
+      body: JSON.stringify({
+        source: "mini_panel_field_024A_CLEAN_R1",
+        notes: `Mini panel tienda · ${storeName || "Tienda"} · ${action}`
+      })
+    });
+  }
+
+  function cxRow(row) {
+    const status = String(row.status || "not_started").toLowerCase();
+    const canStart = !["working", "on_break"].includes(status);
+    const canPause = status === "working";
+    const canResume = status === "on_break";
+    const canFinish = ["working", "on_break"].includes(status);
+
+    return `
+      <article class="cx024a-field-row">
+        <div class="cx024a-person">
+          <strong>${cxEsc(row.name)}</strong>
+          <div class="cx024a-muted">${cxEsc(row.role)} · ${cxEsc(row.employee_id)}</div>
+        </div>
+
+        <div>
+          <span class="cx024a-chip ${cxStatusClass(row.status)}">${cxStatusLabel(row.status)}</span>
+          <div class="cx024a-muted" style="margin-top:6px">Activo: ${cxEsc(cxMinutes(row.worked_minutes))}</div>
+          <div class="cx024a-muted">Pausa: ${cxEsc(cxMinutes(row.break_minutes))}</div>
+        </div>
+
+        <div>
+          <div class="cx024a-muted">Meta asignada</div>
+          <strong>${cxEsc(cxMoney(row.monthly_goal))}</strong>
+        </div>
+
+        <div>
+          <div class="cx024a-muted">Ventas realizadas</div>
+          <strong>${cxEsc(cxMoney(row.sales_total))}</strong>
+          <div class="cx024a-progress" style="--p:${Math.min(100, row.percent)}%"><span></span></div>
+          <div class="cx024a-muted">${cxEsc(row.percent)}% cumplimiento</div>
+        </div>
+
+        <div class="cx024a-actions">
+          <button class="cx024a-btn" data-cx024a-shift="start" data-employee-id="${cxEsc(row.employee_id)}" ${canStart ? "" : "disabled"}>Inicio jornada</button>
+          <button class="cx024a-btn warning" data-cx024a-shift="pause" data-employee-id="${cxEsc(row.employee_id)}" ${canPause ? "" : "disabled"}>Pausa jornada</button>
+          <button class="cx024a-btn secondary" data-cx024a-shift="resume" data-employee-id="${cxEsc(row.employee_id)}" ${canResume ? "" : "disabled"}>Retomar labores</button>
+          <button class="cx024a-btn danger" data-cx024a-shift="finish" data-employee-id="${cxEsc(row.employee_id)}" ${canFinish ? "" : "disabled"}>Finalizar turno</button>
+        </div>
+      </article>
+    `;
+  }
+
+  async function renderMiniPanelFieldOps024A() {
+    cxEnsureStyles();
+
+    const root =
+      document.querySelector("[data-mini-panel-content]") ||
+      document.querySelector(".mp-main") ||
+      document.querySelector("main") ||
+      document.body;
+
+    root.innerHTML = `
+      <section class="mp-section cx024a-field-shell">
+        <div>
+          <div class="mp-section-title">OPERACIÓN DE CAMPO</div>
+          <h2>Equipo por tienda</h2>
+          <p class="mp-muted">Colaboradores asociados a tienda, jornada, pausas no computables y meta vs ventas.</p>
+        </div>
+        <div class="cx024a-notice" data-cx024a-notice>Cargando...</div>
+      </section>
+    `;
+
+    let payload;
+
+    try {
+      payload = await cxLoadData();
+    } catch (error) {
+      root.querySelector("[data-cx024a-notice]").textContent = error.message || "No se pudo cargar Operación de campo.";
+      return;
+    }
+
+    const key = `cx024a_store_${payload.companyId || "tenant"}`;
+    const selectedId = sessionStorage.getItem(key) || "";
+    const selectedStore =
+      payload.stores.find((store) => store.id === selectedId) ||
+      payload.stores[0] ||
+      { id: "all", name: "Tienda / equipo actual", employee_ids: [] };
+
+    const rows = cxBuildRows(payload, selectedStore);
+    const totalGoal = rows.reduce((sum, row) => sum + Number(row.monthly_goal || 0), 0);
+    const totalSales = rows.reduce((sum, row) => sum + Number(row.sales_total || 0), 0);
+    const working = rows.filter((row) => String(row.status).toLowerCase() === "working").length;
+    const onBreak = rows.filter((row) => String(row.status).toLowerCase() === "on_break").length;
+    const totalPercent = cxPercent(totalSales, totalGoal);
+
+    root.innerHTML = `
+      <section class="mp-section cx024a-field-shell">
+        <div>
+          <div class="mp-section-title">OPERACIÓN DE CAMPO</div>
+          <h2>Equipo por tienda</h2>
+          <p class="mp-muted">Colaboradores asociados a tienda, jornada, pausas no computables y meta vs ventas.</p>
+        </div>
+
+        <div class="cx024a-field-toolbar">
+          <select class="cx024a-field-select" data-cx024a-store>
+            ${payload.stores.map((store) => `
+              <option value="${cxEsc(store.id)}" ${store.id === selectedStore.id ? "selected" : ""}>${cxEsc(store.name)}</option>
+            `).join("")}
+          </select>
+          <button class="cx024a-btn secondary" data-cx024a-refresh>Actualizar</button>
+          <button class="cx024a-btn secondary" data-cx024a-back>Volver</button>
+        </div>
+
+        <div class="cx024a-notice" data-cx024a-notice></div>
+
+        <div class="cx024a-field-kpis">
+          <article class="cx024a-field-kpi"><small>Colaboradores</small><strong>${cxEsc(rows.length)}</strong></article>
+          <article class="cx024a-field-kpi"><small>Conectados</small><strong>${cxEsc(working)}</strong></article>
+          <article class="cx024a-field-kpi"><small>En pausa</small><strong>${cxEsc(onBreak)}</strong></article>
+          <article class="cx024a-field-kpi">
+            <small>Ventas vs meta</small>
+            <strong>${cxEsc(cxMoney(totalSales))} / ${cxEsc(cxMoney(totalGoal))}</strong>
+            <div class="cx024a-progress" style="--p:${Math.min(100, totalPercent)}%"><span></span></div>
+            <div class="cx024a-muted">${cxEsc(totalPercent)}% cumplimiento</div>
+          </article>
+        </div>
+
+        <div>
+          <div class="mp-section-title">DETALLE POR COLABORADOR</div>
+          <div class="cx024a-field-list">
+            ${rows.length ? rows.map(cxRow).join("") : `
+              <div class="cx024a-empty">No hay colaboradores asociados a esta tienda.</div>
+            `}
+          </div>
+        </div>
+      </section>
+    `;
+
+    root.querySelector("[data-cx024a-store]")?.addEventListener("change", async (event) => {
+      sessionStorage.setItem(key, event.target.value || "");
+      await renderMiniPanelFieldOps024A();
+    });
+
+    root.querySelector("[data-cx024a-refresh]")?.addEventListener("click", async () => {
+      await renderMiniPanelFieldOps024A();
+    });
+
+    root.querySelector("[data-cx024a-back]")?.addEventListener("click", () => {
+      window.location.reload();
+    });
+
+    root.querySelectorAll("[data-cx024a-shift]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const action = button.getAttribute("data-cx024a-shift") || "";
+        const employeeId = button.getAttribute("data-employee-id") || "";
+        const notice = root.querySelector("[data-cx024a-notice]");
+
+        try {
+          button.disabled = true;
+          if (notice) notice.textContent = "Registrando jornada...";
+          await cxRunShift(employeeId, action, payload.companyId, selectedStore.name);
+          await renderMiniPanelFieldOps024A();
+        } catch (error) {
+          if (notice) notice.textContent = error.message || "No se pudo registrar jornada.";
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  document.addEventListener("click", async (event) => {
+    const card = event.target?.closest?.('.mp-module-card[data-module="field"], .mp-module-card[data-module="FLD"], .mp-module-card[data-module="fld"]');
+
+    if (!card) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    event.stopPropagation();
+
+    await renderMiniPanelFieldOps024A();
+  }, true);
+
+  window.renderMiniPanelFieldOps024A = renderMiniPanelFieldOps024A;
+})();
+/* CLONEXA_024A_CLEAN_R1_MINI_PANEL_FIELD_OPS_END */
+
