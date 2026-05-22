@@ -12058,6 +12058,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_023T_CLIENT_REQUESTS_CONSOLE_END */
 
   /* CLONEXA_024A_FIELD_STORE_TEAM_SHIFT_GOALS_START */
+  /* 024A_R2_FIELD_OPS_FLD_DETECTOR */
   function cxFieldOpsNorm024A(value = "") {
     return String(value || "")
       .normalize("NFD")
@@ -12070,6 +12071,8 @@ function inventoryCreatePayload() {
   function cxFieldOpsIs024A(code = "") {
     const clean = cxFieldOpsNorm024A(code);
     return [
+      "fld",
+      "FLD",
       "field",
       "field_ops",
       "fieldops",
