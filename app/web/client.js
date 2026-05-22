@@ -3685,6 +3685,13 @@
         content: "✓ ";
       }
       /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_END */
+      /* CX_023R_R9_CREATE_INVOICE_START */
+      .cx-inv-create-invoice-wrap {
+        display: flex;
+        align-items: flex-end;
+      }
+      /* CX_023R_R9_CREATE_INVOICE_END */
+
       .cx-inv-history {
         margin-top: 22px;
         border: 1px solid rgba(255,255,255,.12);
@@ -3872,20 +3879,68 @@ function inventoryCreatePayload() {
     };
   }
 
+  /* CX_023R_R9_CREATE_INVOICE_CREATE_HANDLER_START */
   async function createInventoryItem() {
     const payload = inventoryCreatePayload();
-    if (!payload.name_reference) {
-      showInventoryNotice("Nombre / referencia es obligatorio.", "error");
-      return;
+    if (!payload) return;
+
+    const createInvoiceInput = document.querySelector("[data-inventory-create-invoice]");
+    const createInvoiceFile = createInvoiceInput?.files && createInvoiceInput.files.length ? createInvoiceInput.files[0] : null;
+    const initialQuantity = inventoryNumber(payload.quantity || payload.current_stock || payload.initial_quantity || 0);
+    const shouldCreateInitialEntryWithInvoice = !!(createInvoiceFile && initialQuantity > 0);
+
+    const createPayload = shouldCreateInitialEntryWithInvoice
+      ? {
+          ...payload,
+          quantity: 0,
+          current_stock: 0,
+          initial_quantity: 0,
+        }
+      : payload;
+
+    try {
+      const created = await apiFetch(`/api/v1/inventory/companies/${encodeURIComponent(CX.companyId)}/items`, {
+        method: "POST",
+        body: JSON.stringify(createPayload),
+      });
+
+      const createdItem = created?.item || created?.data || created;
+      const createdItemId = createdItem?.id || created?.id || created?.item_id;
+
+      if (shouldCreateInitialEntryWithInvoice) {
+        if (!createdItemId) {
+          showInventoryNotice("Material creado, pero no pude registrar factura inicial porque la API no devolvió ID.", "error");
+        } else {
+          const form = new FormData();
+          form.append("quantity", String(initialQuantity));
+          form.append("notes", "Cantidad inicial");
+          form.append("invoice", createInvoiceFile);
+
+          await apiFetch(`/api/v1/inventory/companies/${encodeURIComponent(CX.companyId)}/items/${encodeURIComponent(createdItemId)}/entry-with-invoice`, {
+            method: "POST",
+            body: form,
+          });
+        }
+      }
+
+      clearInventoryCreateForm?.();
+
+      if (createInvoiceInput) {
+        createInvoiceInput.value = "";
+        const label = createInvoiceInput.closest(".cx-inv-invoice-picker");
+        const text = label?.querySelector("span");
+        label?.classList.remove("has-file");
+        if (text) text.textContent = "Adjuntar factura";
+        if (label) label.title = "";
+      }
+
+      await renderInventoryModule();
+      setTimeout(() => showInventoryNotice(shouldCreateInitialEntryWithInvoice ? "Material creado con factura inicial." : "Material creado."), 80);
+    } catch (error) {
+      showInventoryNotice(error?.message || "No se pudo crear el material.", "error");
     }
-    await api(`/inventory/companies/${encodeURIComponent(state.companyId)}/items`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    setInventoryMode("modify");
-    await renderInventoryModule();
-    setTimeout(() => showInventoryNotice("Material creado en inventario."), 80);
   }
+  /* CX_023R_R9_CREATE_INVOICE_CREATE_HANDLER_END */
 
   function inventoryRowPayload(row) {
     return {
@@ -4027,6 +4082,13 @@ function inventoryCreatePayload() {
             <label>Mínimo alerta</label>
             <input id="inventoryCreateMin" type="number" min="0" step="0.01" value="0">
           </div>
+        <div class="cx-inv-create-invoice-wrap">
+          <label class="cx-inv-invoice-picker" data-inventory-create-invoice-label>
+            <input data-inventory-create-invoice type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
+            <span>Adjuntar factura</span>
+          </label>
+        </div>
+
           <button class="client-btn" type="button" data-inventory-create>Crear</button>
         </div>
       </section>
@@ -13377,6 +13439,32 @@ document.addEventListener("click", async (event) => {
     return state;
   }
 
+
+
+  /* CX_023R_R9_CREATE_INVOICE_LISTENER_START */
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!target || !target.closest) return;
+
+    const createInvoiceInput = target.closest("[data-inventory-create-invoice]");
+    if (!createInvoiceInput) return;
+
+    const label = createInvoiceInput.closest(".cx-inv-invoice-picker");
+    const text = label?.querySelector("span");
+    const file = createInvoiceInput.files && createInvoiceInput.files.length ? createInvoiceInput.files[0] : null;
+
+    label?.classList.toggle("has-file", !!file);
+
+    if (file) {
+      if (text) text.textContent = "Factura adjunta";
+      if (label) label.title = file.name || "Factura adjunta";
+      return;
+    }
+
+    if (text) text.textContent = "Adjuntar factura";
+    if (label) label.title = "";
+  });
+  /* CX_023R_R9_CREATE_INVOICE_LISTENER_END */
 
   /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_LISTENER_START */
   document.addEventListener("change", (event) => {
