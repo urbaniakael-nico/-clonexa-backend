@@ -2085,6 +2085,8 @@
 
   function crmModuleDisplay(code) {
     const labels = {
+      sales_redes_connected: "Total ventas/redes",
+      stores_connected: "Tiendas",
       gps: "GPS",
       field: "Campo",
       materials: "Materiales",
@@ -2413,6 +2415,9 @@
   function crmTopCardValue018B(code, crm = {}) {
     const summary = crm.summary || crm.snapshot?.summary || {};
 
+    if (code === "sales_redes_connected") return String(crm.areaTotals024C?.salesRedesConnected || 0);
+    if (code === "stores_connected") return String(crm.areaTotals024C?.storesConnected || 0);
+
     if (code === "modules") return `${visibleClientModules(activeClientModules()).length}`;
     if (code === "channels") return isClientModuleActive("bots") && crm.bot?.configured ? "ON" : "OFF";
     if (code === "production") return summary.with_reference !== undefined ? String(summary.with_reference) : crmTopCardValue(code, crm);
@@ -2621,6 +2626,18 @@
   }
 
   function crmContextMarkup018B(person = {}, moduleCodes = []) {
+    const areaCtx024C = typeof crmAreaContext024C === "function" ? crmAreaContext024C(person) : null;
+
+    if (areaCtx024C) {
+      return `
+      <div class="cx-crm-context-card ${h(areaCtx024C.code)} ${h(areaCtx024C.tone)}">
+        <span>${h(areaCtx024C.label)}</span>
+        <strong>${h(areaCtx024C.value || "-")}</strong>
+        ${areaCtx024C.meta ? `<small>${h(areaCtx024C.meta)}</small>` : ""}
+      </div>
+    `;
+    }
+
     const ctx = crmEmployeeContext018B(person, moduleCodes);
     if (!ctx) return "";
 
@@ -3020,6 +3037,168 @@
   }
 
 
+
+  /* CLONEXA_024C_CRM_LIVE_MODULAR_AREA_START */
+  function crmHasProductionActive024C() {
+    const active = cxCrmActiveModuleSet018B();
+    return active.has("production") || active.has("references");
+  }
+
+  function crmRetailActive024C() {
+    const active = cxCrmActiveModuleSet018B();
+    return active.has("retail") || active.has("sales") || active.has("stores") || active.has("crm");
+  }
+
+  function crmPersonEmployeeId024C(person = {}) {
+    return String(
+      person.employeeId ||
+      person.employee?.id ||
+      person.employee?.employee_id ||
+      person.snapshotRow?.employee_id ||
+      ""
+    ).trim();
+  }
+
+  function crmPersonRole024C(person = {}) {
+    return String(
+      person.role ||
+      person.employee?.role ||
+      person.employee?.employee_type ||
+      person.snapshotRow?.employee_role ||
+      person.snapshotRow?.role ||
+      ""
+    ).trim();
+  }
+
+  function crmIsConnected024C(person = {}) {
+    const status = crmNormalizeStatus018B(person.status || person.metrics?.status);
+    return status === "working" || status === "on_break";
+  }
+
+  function crmAreaFallback024C(person = {}) {
+    const role = crmPersonRole024C(person).toLowerCase();
+
+    if (
+      role.includes("vendedor") ||
+      role.includes("venta") ||
+      role.includes("sales") ||
+      role.includes("redes") ||
+      role.includes("social") ||
+      role.includes("comercial")
+    ) {
+      return {
+        type: "sales_redes",
+        label: "Ventas / Redes",
+        meta: "Área comercial",
+      };
+    }
+
+    if (
+      role.includes("cajero") ||
+      role.includes("tienda") ||
+      role.includes("store") ||
+      role.includes("retail") ||
+      role.includes("punto")
+    ) {
+      return {
+        type: "store",
+        label: "Tienda",
+        meta: "Área tienda",
+      };
+    }
+
+    return {
+      type: "unknown",
+      label: "Sin área",
+      meta: "",
+    };
+  }
+
+  async function crmLoadStoreAreaMap024C() {
+    const map = new Map();
+
+    try {
+      const config = await api(`/companies/${encodeURIComponent(state.companyId)}/store-login-config`);
+      const stores = Array.isArray(config?.stores) ? config.stores : [];
+
+      stores.forEach((store, index) => {
+        const storeName = String(store.name || `Tienda ${index + 1}`).trim();
+        const employeeIds = Array.isArray(store.employee_ids) ? store.employee_ids : [];
+
+        employeeIds.forEach((employeeId) => {
+          const id = String(employeeId || "").trim();
+          if (!id) return;
+
+          map.set(id, {
+            type: "store",
+            label: storeName,
+            meta: "Área tienda",
+            store_id: store.id || `store_${index + 1}`,
+          });
+        });
+      });
+    } catch (error) {
+      // No rompe CRM si el módulo tiendas no responde.
+    }
+
+    return map;
+  }
+
+  async function crmApplyAreaMapping024C(crm = {}) {
+    const people = Array.isArray(crm.people) ? crm.people : [];
+    const storeMap = await crmLoadStoreAreaMap024C();
+
+    const totals = {
+      salesRedesConnected: 0,
+      storesConnected: 0,
+      unknownConnected: 0,
+    };
+
+    people.forEach((person) => {
+      const employeeId = crmPersonEmployeeId024C(person);
+      const area = storeMap.get(employeeId) || crmAreaFallback024C(person);
+
+      person.crmArea024C = area;
+
+      if (!crmIsConnected024C(person)) return;
+
+      if (area.type === "store") {
+        totals.storesConnected += 1;
+      } else if (area.type === "sales_redes") {
+        totals.salesRedesConnected += 1;
+      } else {
+        totals.unknownConnected += 1;
+      }
+    });
+
+    crm.areaTotals024C = totals;
+    return crm;
+  }
+
+  function crmPickSummaryModules024C(crm = {}) {
+    if (crmRetailActive024C() && !crmHasProductionActive024C()) {
+      return ["sales_redes_connected", "stores_connected"];
+    }
+
+    return crmPickSummaryModules018B(crm)
+      .filter((code) => crmHasProductionActive024C() || !["production", "references"].includes(String(code || "")))
+      .slice(0, 2);
+  }
+
+  function crmAreaContext024C(person = {}) {
+    const area = person.crmArea024C || crmAreaFallback024C(person);
+
+    return {
+      code: "area",
+      label: "Área",
+      value: area.label || "Sin área",
+      meta: area.meta || "",
+      tone: area.type === "store" || area.type === "sales_redes" ? "ok" : "idle",
+    };
+  }
+  /* CLONEXA_024C_CRM_LIVE_MODULAR_AREA_END */
+
+
   async function renderCrmModule() {
     if (!isClientModuleActive("crm")) {
       render();
@@ -3030,7 +3209,8 @@
 
     const company = state.company || {};
     const crm = await loadClientCrmData();
-    const moduleCards = crmPickSummaryModules018B(crm);
+    await crmApplyAreaMapping024C(crm);
+    const moduleCards = crmPickSummaryModules024C(crm);
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -3087,7 +3267,7 @@
 
               <div class="client-eyebrow" style="margin-top:28px">Colaboradores</div>
               <h2>Estado por colaborador</h2>
-              ${renderCrmCollaboratorCards(crm.people, moduleCards)}
+              ${renderCrmCollaboratorCards(crm.people, ["area"])}
             </section>
           </section>
         </div>
