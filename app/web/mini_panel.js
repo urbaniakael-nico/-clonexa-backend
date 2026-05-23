@@ -6544,275 +6544,8 @@ function moduleCard(title, description, tag, code = "") {
 
 
 
-  /* CLONEXA_024A_R3_VISUAL_FIT_DESKTOP_START */
-  function ensureMiniPanelVisualFit024A_R3() {
-    if (document.getElementById("miniPanelVisualFit024AR3")) return;
-
-    const style = document.createElement("style");
-    style.id = "miniPanelVisualFit024AR3";
-    style.textContent = `
-      /* ===== LAYOUT GENERAL MINI PANEL ===== */
-      body {
-        overflow-x: hidden;
-      }
-
-      main,
-      .mp-shell,
-      .mp-root,
-      .mini-panel-root,
-      .mini-panel-shell {
-        width: 100%;
-      }
-
-      .st-shell-023w,
-      .mp-shell,
-      .mini-panel-shell,
-      .mini-panel-root {
-        width: min(100%, 1480px);
-        margin: 0 auto;
-        padding: 18px clamp(16px, 2vw, 26px) 28px;
-        box-sizing: border-box;
-      }
-
-      .mp-hero,
-      .st-hero-023w,
-      .mini-panel-hero {
-        min-height: 0 !important;
-      }
-
-      /* ===== HERO / CABECERA ===== */
-      .st-hero-023w {
-        padding: 20px 24px !important;
-        border-radius: 24px !important;
-        gap: 18px !important;
-      }
-
-      .st-title-023w {
-        font-size: clamp(34px, 4.2vw, 56px) !important;
-        line-height: .96 !important;
-        margin: 4px 0 8px !important;
-      }
-
-      .st-kicker-023w {
-        font-size: 11px !important;
-        letter-spacing: .24em !important;
-      }
-
-      .st-muted-023w {
-        font-size: 13px !important;
-        line-height: 1.35 !important;
-      }
-
-      .st-pill-023w {
-        min-height: 34px !important;
-        padding: 7px 12px !important;
-        font-size: 12px !important;
-      }
-
-      /* ===== GRID KPI ===== */
-      .st-grid-023w {
-        display: grid !important;
-        grid-template-columns: repeat(4, minmax(160px, 1fr)) !important;
-        gap: 14px !important;
-      }
-
-      .st-card-023w {
-        border-radius: 22px !important;
-        padding: 18px 18px !important;
-      }
-
-      .st-grid-023w > .st-card-023w h2,
-      .st-grid-023w > .st-card-023w strong {
-        font-size: clamp(20px, 2vw, 28px) !important;
-        line-height: 1.1 !important;
-      }
-
-      /* ===== FIELD OPS CARDS ===== */
-      .st-grid-023w:has(.st-member-023w) {
-        grid-template-columns: repeat(2, minmax(320px, 1fr)) !important;
-      }
-
-      .st-member-023w {
-        padding: 20px !important;
-        gap: 14px !important;
-      }
-
-      .st-member-head-023w strong {
-        font-size: 18px !important;
-      }
-
-      .st-metrics-023w {
-        grid-template-columns: repeat(4, minmax(110px, 1fr)) !important;
-        gap: 10px !important;
-      }
-
-      .st-mini-023w {
-        padding: 12px !important;
-        border-radius: 16px !important;
-      }
-
-      .st-mini-023w span {
-        font-size: 10px !important;
-        margin-bottom: 6px !important;
-      }
-
-      .st-mini-023w strong {
-        font-size: 17px !important;
-      }
-
-      .st-actions-023w {
-        gap: 8px !important;
-      }
-
-      .st-actions-023w .st-btn-023w {
-        min-height: 42px !important;
-        padding: 10px 14px !important;
-        font-size: 13px !important;
-        border-radius: 14px !important;
-      }
-
-      .st-progress-023w {
-        height: 8px !important;
-      }
-
-      /* ===== DASHBOARD MINI PANEL ===== */
-      .mp-card,
-      .mp-kpi-card,
-      .mp-panel-card,
-      .mini-panel-card {
-        border-radius: 22px !important;
-        padding: 18px !important;
-      }
-
-      .mp-section-title {
-        font-size: 12px !important;
-        letter-spacing: .22em !important;
-      }
-
-      .mp-kpi-value,
-      .mp-value,
-      .kpi-value {
-        font-size: clamp(22px, 2.4vw, 34px) !important;
-        line-height: 1.08 !important;
-      }
-
-      .mp-kpi-sub,
-      .mp-caption,
-      .mp-help {
-        font-size: 13px !important;
-        line-height: 1.35 !important;
-      }
-
-      .mp-modules-grid,
-      .mp-modules-grid-r3 {
-        display: grid !important;
-        grid-template-columns: repeat(5, minmax(180px, 1fr)) !important;
-        gap: 14px !important;
-      }
-
-      .mp-module-card {
-        min-height: 146px !important;
-        padding: 18px !important;
-        border-radius: 22px !important;
-      }
-
-      .mp-module-card strong,
-      .mp-module-card h3 {
-        font-size: 16px !important;
-        line-height: 1.15 !important;
-      }
-
-      .mp-module-card p,
-      .mp-module-card .mp-muted {
-        font-size: 12px !important;
-        line-height: 1.35 !important;
-      }
-
-      /* ===== BLOQUES SUPERIORES DEL DASHBOARD ===== */
-      .mp-top-grid,
-      .mp-dashboard-top,
-      .mini-panel-top {
-        display: grid !important;
-        grid-template-columns: minmax(420px, 1.5fr) minmax(220px, .58fr) minmax(250px, .62fr) !important;
-        gap: 14px !important;
-        align-items: stretch !important;
-      }
-
-      /* ===== TIEMPOS / ACCIONES ===== */
-      .mp-action-stack-r3,
-      .mp-times-card,
-      .mp-actions-card {
-        gap: 10px !important;
-      }
-
-      .mp-button,
-      .mp-btn,
-      button.mp-button {
-        min-height: 42px !important;
-        border-radius: 14px !important;
-        padding: 10px 14px !important;
-        font-size: 13px !important;
-      }
-
-      /* ===== SELECTOR COLABORADOR ===== */
-      select[data-store-actor-023w],
-      select[data-storeActor-023w],
-      [data-storeactor-023w] {
-        min-height: 48px !important;
-        border-radius: 16px !important;
-        font-size: 14px !important;
-        padding: 0 14px !important;
-      }
-
-      /* ===== RESPONSIVE ===== */
-      @media (max-width: 1380px) {
-        .mp-modules-grid,
-        .mp-modules-grid-r3 {
-          grid-template-columns: repeat(3, minmax(180px, 1fr)) !important;
-        }
-
-        .mp-top-grid,
-        .mp-dashboard-top,
-        .mini-panel-top {
-          grid-template-columns: 1fr !important;
-        }
-
-        .st-grid-023w {
-          grid-template-columns: repeat(2, minmax(180px, 1fr)) !important;
-        }
-      }
-
-      @media (max-width: 1100px) {
-        .st-grid-023w:has(.st-member-023w) {
-          grid-template-columns: 1fr !important;
-        }
-
-        .st-metrics-023w {
-          grid-template-columns: repeat(2, minmax(110px, 1fr)) !important;
-        }
-      }
-
-      @media (max-width: 760px) {
-        .mp-modules-grid,
-        .mp-modules-grid-r3,
-        .st-grid-023w {
-          grid-template-columns: 1fr !important;
-        }
-
-        .st-hero-023w {
-          padding: 18px !important;
-        }
-
-        .st-title-023w {
-          font-size: clamp(28px, 9vw, 42px) !important;
-        }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-  /* CLONEXA_024A_R3_VISUAL_FIT_DESKTOP_END */
-
-  async function bootShell() {
+  
+async function bootShell() {
     ensureMiniPanelVisualFit024A_R3();
     if (!companyId) {
       renderError("El enlace no contiene company_id.");
@@ -6862,18 +6595,18 @@ function moduleCard(title, description, tag, code = "") {
 // CLONEXA_FORCE_BUILD_019H_R1_20260513224440
 
 
-/* CLONEXA_024A_R4_TRUE_100_FIT_START */
+/* CLONEXA_024A_R5_MINI_PANEL_DENSITY_REAL_START */
 (function () {
-  function injectMiniPanelTrue100Fit024AR4() {
-    if (document.getElementById("miniPanelTrue100Fit024AR4")) return;
+  function injectMiniPanelDensity024AR5() {
+    if (document.getElementById("miniPanelDensity024AR5")) return;
 
     const style = document.createElement("style");
-    style.id = "miniPanelTrue100Fit024AR4";
+    style.id = "miniPanelDensity024AR5";
     style.textContent = `
       /*
-        CLONEXA 024A R4
-        Fit real para Chrome 100%.
-        No cambia lógica. Solo escala visual interna del mini panel.
+        CLONEXA 024A R5
+        Densidad real para mini panel a Chrome 100%.
+        Sin zoom. Sin tocar lógica.
       */
 
       html,
@@ -6882,140 +6615,136 @@ function moduleCard(title, description, tag, code = "") {
       }
 
       body {
-        font-size: 14px !important;
+        font-size: 13px !important;
       }
 
       #app {
-        box-sizing: border-box !important;
-        transform-origin: top left !important;
-      }
-
-      /* Escala interna controlada: permite ver el panel completo en 100% sin bajar Chrome a 50%. */
-      @media (min-width: 1200px) and (max-height: 950px) {
-        #app {
-          zoom: .82 !important;
-          width: 121.9513% !important;
-          max-width: 121.9513% !important;
-        }
-      }
-
-      @media (min-width: 1500px) and (max-height: 1000px) {
-        #app {
-          zoom: .86 !important;
-          width: 116.2791% !important;
-          max-width: 116.2791% !important;
-        }
-      }
-
-      @media (min-width: 1800px) and (max-height: 1100px) {
-        #app {
-          zoom: .90 !important;
-          width: 111.1111% !important;
-          max-width: 111.1111% !important;
-        }
-      }
-
-      @media (min-width: 2100px) {
-        #app {
-          zoom: .96 !important;
-          width: 104.1667% !important;
-          max-width: 104.1667% !important;
-        }
-      }
-
-      /* Shell general */
-      .mp-shell,
-      .mp-root,
-      .mini-panel-shell,
-      .mini-panel-root,
-      .st-shell-023w,
-      main {
         width: 100% !important;
         max-width: 100vw !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
-        padding: 14px 18px 22px !important;
+        overflow-x: hidden !important;
+      }
+
+      main,
+      .mp-shell,
+      .mp-root,
+      .mini-panel-root,
+      .mini-panel-shell,
+      .st-shell-023w {
+        width: 100% !important;
+        max-width: 100vw !important;
+        padding: 10px 14px 18px !important;
+        margin: 0 auto !important;
         box-sizing: border-box !important;
       }
 
-      /* Cards generales */
-      .mp-card,
-      .mp-panel,
-      .mp-panel-card,
-      .mp-kpi-card,
-      .mini-panel-card,
-      .st-card-023w {
-        border-radius: 22px !important;
-        padding: 16px !important;
-        box-sizing: border-box !important;
-      }
-
-      /* Header principal */
+      /* HERO: debe ser una franja, no media pantalla */
       .mp-hero,
       .mp-hero-r3,
       .mini-panel-hero,
-      .st-hero-023w {
-        min-height: 0 !important;
-        padding: 18px 20px !important;
-        border-radius: 24px !important;
+      .st-hero-023w,
+      header[class*="mp"],
+      section:first-of-type {
+        min-height: unset !important;
+        max-height: none !important;
+        padding: 14px 18px !important;
+        border-radius: 20px !important;
+        box-sizing: border-box !important;
       }
 
-      .mp-hero h1,
-      .mp-hero-r3 h1,
-      .mini-panel-hero h1,
-      .st-title-023w {
-        font-size: clamp(34px, 4.6vw, 58px) !important;
-        line-height: .95 !important;
-        margin: 4px 0 8px !important;
-        letter-spacing: -0.045em !important;
-      }
-
-      .mp-hero p,
-      .mp-muted,
-      .st-muted-023w {
-        font-size: 13px !important;
-        line-height: 1.35 !important;
-      }
-
-      .mp-chip,
-      .mp-pill,
-      .st-pill-023w {
-        min-height: 28px !important;
-        padding: 6px 10px !important;
-        font-size: 11px !important;
-        line-height: 1 !important;
-      }
-
-      /* Top grid: hero / tiempos / acciones */
-      .mp-top-grid,
-      .mp-dashboard-top,
-      .mp-dashboard-grid,
-      .mp-dashboard-grid-r3,
-      .mini-panel-top {
+      .mp-hero,
+      .mp-hero-r3,
+      .mini-panel-hero {
         display: grid !important;
-        grid-template-columns: minmax(0, 1.65fr) minmax(220px, .48fr) minmax(250px, .56fr) !important;
+        grid-template-columns: minmax(0, 1.7fr) minmax(210px, .45fr) minmax(230px, .55fr) !important;
         gap: 12px !important;
         align-items: stretch !important;
       }
 
-      /* Bloques de tiempo y acciones */
-      .mp-action-stack-r3,
-      .mp-times-card,
-      .mp-actions-card {
-        gap: 8px !important;
+      /* Título grande controlado */
+      h1,
+      .mp-hero h1,
+      .mp-hero-r3 h1,
+      .mini-panel-hero h1,
+      .st-title-023w {
+        font-size: clamp(32px, 4.2vw, 50px) !important;
+        line-height: .92 !important;
+        margin: 2px 0 6px !important;
+        letter-spacing: -0.055em !important;
       }
 
-      .mp-action-stack-r3 .mp-button,
-      .mp-times-card .mp-button,
-      .mp-actions-card .mp-button,
-      button.mp-button,
+      h2 {
+        font-size: clamp(20px, 2.1vw, 28px) !important;
+        line-height: 1.05 !important;
+        margin: 4px 0 8px !important;
+      }
+
+      p,
+      .mp-muted,
+      .st-muted-023w {
+        font-size: 12px !important;
+        line-height: 1.28 !important;
+        margin: 3px 0 !important;
+      }
+
+      .mp-section,
+      section {
+        margin-top: 10px !important;
+      }
+
+      .mp-section-title,
+      .st-kicker-023w,
+      [class*="kicker"] {
+        font-size: 9px !important;
+        letter-spacing: .22em !important;
+        line-height: 1.05 !important;
+        margin-bottom: 7px !important;
+      }
+
+      /* Chips del encabezado */
+      .mp-chip,
+      .mp-pill,
+      .st-pill-023w,
+      [class*="pill"],
+      [class*="chip"] {
+        min-height: 24px !important;
+        padding: 5px 9px !important;
+        font-size: 10px !important;
+        line-height: 1 !important;
+        border-radius: 999px !important;
+      }
+
+      /* Cards */
+      .mp-card,
+      .mp-panel,
+      .mp-panel-card,
+      .mp-kpi-card,
+      .mp-sales-card,
+      .mini-panel-card,
+      .st-card-023w,
+      article {
+        border-radius: 18px !important;
+        padding: 13px !important;
+        box-sizing: border-box !important;
+      }
+
+      /* Tiempo / acciones */
+      .mp-action-stack-r3,
+      .mp-times-card,
+      .mp-actions-card,
+      [class*="action-stack"],
+      [class*="times"] {
+        gap: 7px !important;
+      }
+
+      button,
+      .mp-button,
       .mp-btn,
       .st-btn-023w {
-        min-height: 38px !important;
-        border-radius: 13px !important;
-        padding: 9px 12px !important;
-        font-size: 12px !important;
-        line-height: 1.1 !important;
+        min-height: 34px !important;
+        padding: 8px 11px !important;
+        border-radius: 12px !important;
+        font-size: 11px !important;
+        line-height: 1.05 !important;
       }
 
       /* Selector colaborador */
@@ -7023,42 +6752,28 @@ function moduleCard(title, description, tag, code = "") {
       select[data-store-actor-023w],
       [data-store-actor-023w],
       [data-storeactor-023w] {
-        min-height: 42px !important;
-        border-radius: 14px !important;
-        padding: 0 12px !important;
-        font-size: 13px !important;
+        min-height: 38px !important;
+        border-radius: 12px !important;
+        padding: 0 11px !important;
+        font-size: 12px !important;
       }
 
-      /* Secciones */
-      .mp-section,
-      section {
-        margin-top: 12px !important;
-      }
-
-      .mp-section-title,
-      .st-kicker-023w {
-        font-size: 10px !important;
-        letter-spacing: .22em !important;
-        line-height: 1.1 !important;
-        margin-bottom: 8px !important;
-      }
-
-      /* KPI dashboard */
+      /* KPIs */
       .mp-kpis-grid,
       .mp-kpi-grid,
       .mp-sales-grid,
       .mp-dashboard-kpis,
       .st-grid-023w {
         display: grid !important;
-        grid-template-columns: repeat(4, minmax(180px, 1fr)) !important;
-        gap: 12px !important;
+        grid-template-columns: repeat(4, minmax(170px, 1fr)) !important;
+        gap: 10px !important;
       }
 
       .mp-kpi-card,
       .mp-sales-card,
       .mp-dashboard-kpis > *,
       .st-grid-023w > .st-card-023w {
-        min-height: 110px !important;
+        min-height: 96px !important;
       }
 
       .mp-kpi-value,
@@ -7066,127 +6781,164 @@ function moduleCard(title, description, tag, code = "") {
       .kpi-value,
       .mp-kpi-card h2,
       .mp-sales-card h2,
-      .st-grid-023w h2 {
-        font-size: clamp(22px, 2.5vw, 34px) !important;
-        line-height: 1.02 !important;
-        margin: 6px 0 !important;
+      .st-grid-023w h2,
+      strong {
+        font-size: clamp(18px, 2vw, 28px) !important;
+        line-height: 1 !important;
       }
 
-      .mp-kpi-card small,
-      .mp-sales-card small,
+      small,
       .mp-kpi-sub,
       .mp-caption,
       .mp-help {
-        font-size: 11px !important;
-        line-height: 1.28 !important;
+        font-size: 10px !important;
+        line-height: 1.18 !important;
       }
 
-      /* Barras */
       .mp-progress,
       .st-progress-023w {
-        height: 7px !important;
+        height: 6px !important;
         border-radius: 999px !important;
         overflow: hidden !important;
       }
 
-      /* Promo / mensajes */
-      .mp-promo-card,
-      .mp-message-card {
-        max-width: 360px !important;
-        min-height: 100px !important;
-      }
-
-      /* Módulos: que entren en una grilla real */
+      /* Módulos */
       .mp-modules-grid,
       .mp-modules-grid-r3 {
         display: grid !important;
-        grid-template-columns: repeat(5, minmax(160px, 1fr)) !important;
-        gap: 12px !important;
+        grid-template-columns: repeat(5, minmax(145px, 1fr)) !important;
+        gap: 10px !important;
       }
 
       .mp-module-card {
-        min-height: 118px !important;
-        padding: 14px !important;
-        border-radius: 18px !important;
+        min-height: 96px !important;
+        padding: 12px !important;
+        border-radius: 16px !important;
       }
 
       .mp-module-card h3,
       .mp-module-card strong,
-      .mp-module-card .mp-module-title {
-        font-size: 14px !important;
-        line-height: 1.12 !important;
-        margin: 6px 0 !important;
+      .mp-module-title {
+        font-size: 13px !important;
+        line-height: 1.05 !important;
+        margin: 4px 0 !important;
       }
 
       .mp-module-card p,
       .mp-module-card .mp-muted {
-        font-size: 11px !important;
-        line-height: 1.25 !important;
-      }
-
-      .mp-module-card .mp-module-code,
-      .mp-module-card .mp-badge {
-        width: 28px !important;
-        height: 28px !important;
-        min-width: 28px !important;
-        min-height: 28px !important;
         font-size: 10px !important;
+        line-height: 1.2 !important;
       }
 
-      /* Operación de campo */
+      .mp-module-code,
+      .mp-badge,
+      .mp-module-card [class*="badge"] {
+        width: 24px !important;
+        height: 24px !important;
+        min-width: 24px !important;
+        min-height: 24px !important;
+        font-size: 9px !important;
+      }
+
+      /* Operación campo */
       .st-shell-023w {
-        padding: 14px 18px 22px !important;
-        gap: 14px !important;
+        gap: 12px !important;
       }
 
       .st-hero-023w {
         display: flex !important;
         justify-content: space-between !important;
         align-items: center !important;
-        gap: 14px !important;
+        gap: 12px !important;
       }
 
       .st-grid-023w:has(.st-member-023w) {
-        grid-template-columns: repeat(2, minmax(330px, 1fr)) !important;
+        grid-template-columns: repeat(2, minmax(300px, 1fr)) !important;
       }
 
       .st-member-023w {
-        padding: 16px !important;
-        gap: 12px !important;
+        padding: 13px !important;
+        gap: 10px !important;
         min-height: 0 !important;
       }
 
       .st-member-head-023w strong {
-        font-size: 18px !important;
-        line-height: 1.1 !important;
+        font-size: 16px !important;
       }
 
       .st-metrics-023w {
         display: grid !important;
-        grid-template-columns: repeat(4, minmax(110px, 1fr)) !important;
-        gap: 8px !important;
+        grid-template-columns: repeat(4, minmax(90px, 1fr)) !important;
+        gap: 7px !important;
       }
 
       .st-mini-023w {
-        padding: 10px !important;
-        border-radius: 14px !important;
+        padding: 9px !important;
+        border-radius: 12px !important;
       }
 
       .st-mini-023w span {
-        font-size: 9px !important;
-        margin-bottom: 5px !important;
+        font-size: 8px !important;
+        margin-bottom: 4px !important;
       }
 
       .st-mini-023w strong {
-        font-size: 16px !important;
-        line-height: 1.05 !important;
+        font-size: 14px !important;
       }
 
-      /* Responsive real */
-      @media (max-width: 1450px) {
-        .mp-modules-grid,
-        .mp-modules-grid-r3 {
-          grid-template-columns: repeat(4, minmax(160px, 1fr)) !important;
+      /* Altura de pantalla tipo laptop */
+      @media (max-height: 820px) and (min-width: 1200px) {
+        main,
+        .mp-shell,
+        .mp-root,
+        .mini-panel-root,
+        .mini-panel-shell,
+        .st-shell-023w {
+          padding-top: 8px !important;
+        }
+
+        .mp-hero,
+        .mp-hero-r3,
+        .mini-panel-hero,
+        .st-hero-023w,
+        section:first-of-type {
+          padding: 12px 16px !important;
+        }
+
+        h1,
+        .mp-hero h1,
+        .mp-hero-r3 h1,
+        .mini-panel-hero h1,
+        .st-title-023w {
+          font-size: clamp(30px, 3.8vw, 46px) !important;
+        }
+
+        .mp-section,
+        section {
+          margin-top: 8px !important;
+        }
+
+        .mp-card,
+        .mp-panel,
+        .mp-panel-card,
+        .mp-kpi-card,
+        .mp-sales-card,
+        .mini-panel-card,
+        .st-card-023w,
+        article {
+          padding: 11px !important;
+        }
+
+        .mp-module-card {
+          min-height: 86px !important;
+        }
+      }
+
+      @media (max-width: 1300px) {
+        .mp-hero,
+        .mp-hero-r3,
+        .mini-panel-hero {
+          grid-template-columns: 1fr !important;
         }
 
         .mp-kpis-grid,
@@ -7194,59 +6946,26 @@ function moduleCard(title, description, tag, code = "") {
         .mp-sales-grid,
         .mp-dashboard-kpis,
         .st-grid-023w {
-          grid-template-columns: repeat(4, minmax(160px, 1fr)) !important;
-        }
-      }
-
-      @media (max-width: 1200px) {
-        #app {
-          zoom: 1 !important;
-          width: 100% !important;
-          max-width: 100% !important;
-        }
-
-        .mp-top-grid,
-        .mp-dashboard-top,
-        .mp-dashboard-grid,
-        .mp-dashboard-grid-r3,
-        .mini-panel-top {
-          grid-template-columns: 1fr !important;
+          grid-template-columns: repeat(2, minmax(170px, 1fr)) !important;
         }
 
         .mp-modules-grid,
-        .mp-modules-grid-r3,
-        .mp-kpis-grid,
-        .mp-kpi-grid,
-        .mp-sales-grid,
-        .mp-dashboard-kpis,
-        .st-grid-023w,
-        .st-grid-023w:has(.st-member-023w) {
-          grid-template-columns: repeat(2, minmax(180px, 1fr)) !important;
-        }
-
-        .st-metrics-023w {
-          grid-template-columns: repeat(2, minmax(110px, 1fr)) !important;
+        .mp-modules-grid-r3 {
+          grid-template-columns: repeat(3, minmax(145px, 1fr)) !important;
         }
       }
 
       @media (max-width: 760px) {
-        .mp-modules-grid,
-        .mp-modules-grid-r3,
         .mp-kpis-grid,
         .mp-kpi-grid,
         .mp-sales-grid,
         .mp-dashboard-kpis,
         .st-grid-023w,
         .st-grid-023w:has(.st-member-023w),
-        .st-metrics-023w {
+        .st-metrics-023w,
+        .mp-modules-grid,
+        .mp-modules-grid-r3 {
           grid-template-columns: 1fr !important;
-        }
-
-        .mp-hero h1,
-        .mp-hero-r3 h1,
-        .mini-panel-hero h1,
-        .st-title-023w {
-          font-size: 34px !important;
         }
       }
     `;
@@ -7254,13 +6973,18 @@ function moduleCard(title, description, tag, code = "") {
     document.head.appendChild(style);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", injectMiniPanelTrue100Fit024AR4);
-  } else {
-    injectMiniPanelTrue100Fit024AR4();
+  function runMiniPanelDensity024AR5() {
+    injectMiniPanelDensity024AR5();
+    document.body?.classList?.add("cx-mini-panel-density-r5");
   }
 
-  window.injectMiniPanelTrue100Fit024AR4 = injectMiniPanelTrue100Fit024AR4;
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", runMiniPanelDensity024AR5);
+  } else {
+    runMiniPanelDensity024AR5();
+  }
+
+  window.injectMiniPanelDensity024AR5 = injectMiniPanelDensity024AR5;
 })();
-/* CLONEXA_024A_R4_TRUE_100_FIT_END */
+/* CLONEXA_024A_R5_MINI_PANEL_DENSITY_REAL_END */
 
