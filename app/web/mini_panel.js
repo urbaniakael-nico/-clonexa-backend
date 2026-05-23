@@ -4230,7 +4230,19 @@ function moduleCard(title, description, tag, code = "") {
       const active = items.filter((item) => String(item?.status || "").toLowerCase() !== "archived");
       const total = salesPeriodTotal023J(data, items);
       const periodCount = salesPeriodCount023J(data, items);
-      const goal = Number(currentOperational?.kpis?.monthly_goal || 0);
+      const teamTotals024A_R2 = (
+        typeof isStorePanel023W === "function" &&
+        isStorePanel023W() &&
+        typeof storeTeamTotals024A_R1 === "function" &&
+        typeof storeTeamMembers024A_R1 === "function" &&
+        storeTeamMembers024A_R1().length
+      )
+        ? storeTeamTotals024A_R1()
+        : null;
+
+      const goal = teamTotals024A_R2
+        ? Number(teamTotals024A_R2.goal || 0)
+        : Number(currentOperational?.kpis?.monthly_goal || 0);
       const goalPct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
 
       const cards = Array.from(root.querySelectorAll(".mp-kpi-card"));
@@ -6265,8 +6277,154 @@ function moduleCard(title, description, tag, code = "") {
     });
   }
 
+
+  /* CLONEXA_024A_PERFECT_R2_VISUAL_FIELD_OPS_START */
+  function ensureFieldOpsVisual024A_R2() {
+    if (document.getElementById("fieldOpsVisual024AR2")) return;
+
+    const style = document.createElement("style");
+    style.id = "fieldOpsVisual024AR2";
+    style.textContent = `
+      .st-shell-023w {
+        width: min(100%, 1540px);
+        margin: 0 auto;
+        padding: 26px clamp(18px, 3vw, 34px);
+        display: grid;
+        gap: 20px;
+      }
+
+      .st-hero-023w {
+        min-height: 150px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+
+      .st-title-023w {
+        font-size: clamp(38px, 5vw, 64px);
+        line-height: 1;
+        margin: 8px 0 10px;
+      }
+
+      .st-grid-023w {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(190px, 1fr));
+        gap: 16px;
+      }
+
+      .st-grid-023w:has(.st-member-023w) {
+        grid-template-columns: repeat(2, minmax(360px, 1fr));
+      }
+
+      .st-card-023w {
+        border-radius: 26px;
+      }
+
+      .st-member-023w {
+        padding: 24px;
+        display: grid;
+        gap: 18px;
+        min-height: auto;
+      }
+
+      .st-member-head-023w {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .st-member-head-023w strong {
+        font-size: 24px;
+        line-height: 1.1;
+      }
+
+      .st-metrics-023w {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(130px, 1fr));
+        gap: 12px;
+      }
+
+      .st-mini-023w {
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(7, 12, 32, .52);
+        border: 1px solid rgba(255,255,255,.10);
+      }
+
+      .st-mini-023w span {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .12em;
+        font-weight: 1000;
+        color: rgba(255,255,255,.62);
+        margin-bottom: 8px;
+      }
+
+      .st-mini-023w strong {
+        display: block;
+        font-size: 20px;
+        color: #fff;
+      }
+
+      .st-actions-023w {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .st-actions-023w .st-btn-023w {
+        min-height: 46px;
+        border-radius: 16px;
+        padding-inline: 18px;
+      }
+
+      .st-progress-023w {
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255,255,255,.08);
+      }
+
+      .st-progress-023w i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+      }
+
+      @media (max-width: 1200px) {
+        .st-grid-023w,
+        .st-grid-023w:has(.st-member-023w) {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .st-metrics-023w {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .st-grid-023w,
+        .st-grid-023w:has(.st-member-023w) {
+          grid-template-columns: 1fr;
+        }
+
+        .st-hero-023w,
+        .st-member-head-023w {
+          flex-direction: column;
+        }
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+  /* CLONEXA_024A_PERFECT_R2_VISUAL_FIELD_OPS_END */
+
   async function openFieldOpsMiniPanel024A_R1(session) {
     storeTeamStyles023W();
+    ensureFieldOpsVisual024A_R2();
 
     const msgId = "fieldOpsMsg024AR1";
     let loadError = "";

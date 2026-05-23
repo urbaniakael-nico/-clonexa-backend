@@ -8420,15 +8420,96 @@ function inventoryCreatePayload() {
     );
   }
 
+  /* CLONEXA_024A_PERFECT_R2_STORE_USERS_SALES_START */
   async function cxLoadStoreMiniPanelUsers023S() {
     if (!state.companyId) return [];
+
     try {
       const rows = await api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users?panel_type=store`);
-      return Array.isArray(rows) ? rows : [];
+      const users = Array.isArray(rows) ? rows : [];
+
+      let salesItems = [];
+      try {
+        const salesPayload = await api(`/mini-panel-sales/companies/${encodeURIComponent(state.companyId)}/sales?panel_type=store&include_archived=true`);
+        salesItems = Array.isArray(salesPayload?.items) ? salesPayload.items : [];
+      } catch (error) {
+        salesItems = [];
+      }
+
+      if (!users.length || !salesItems.length) return users;
+
+      const userToEmployee = new Map(
+        users
+          .filter((user) => user && user.id && user.employee_id)
+          .map((user) => [String(user.id), String(user.employee_id)])
+      );
+
+      const statsByEmployee = new Map();
+
+      salesItems.forEach((sale) => {
+        if (!sale || typeof sale !== "object") return;
+
+        const actor = sale.store_actor && typeof sale.store_actor === "object" ? sale.store_actor : {};
+        const createdBy = String(sale.created_by || "");
+        const employeeId = String(
+          actor.employee_id ||
+          sale.employee_id ||
+          sale.seller_id ||
+          userToEmployee.get(createdBy) ||
+          ""
+        ).trim();
+
+        if (!employeeId) return;
+
+        const total = Number(
+          sale.total_payable ??
+          sale.total ??
+          sale.amount ??
+          0
+        ) || 0;
+
+        const target = statsByEmployee.get(employeeId) || {
+          monthly_sales_total: 0,
+          monthly_sales_count: 0,
+          visible_sales_count: 0,
+        };
+
+        target.monthly_sales_total = Math.round((Number(target.monthly_sales_total || 0) + total) * 100) / 100;
+        target.monthly_sales_count = Number(target.monthly_sales_count || 0) + 1;
+
+        if (String(sale.status || "").toLowerCase() !== "archived") {
+          target.visible_sales_count = Number(target.visible_sales_count || 0) + 1;
+        }
+
+        statsByEmployee.set(employeeId, target);
+      });
+
+      return users.map((user) => {
+        const employeeId = String(user.employee_id || "");
+        const stats = statsByEmployee.get(employeeId) || {
+          monthly_sales_total: 0,
+          monthly_sales_count: 0,
+          visible_sales_count: 0,
+        };
+
+        const goal = Number(user.monthly_goal || 0);
+        const total = Number(stats.monthly_sales_total || 0);
+
+        return {
+          ...user,
+          monthly_sales_total: total,
+          sales_total: total,
+          monthly_sales_count: Number(stats.monthly_sales_count || 0),
+          sales_count: Number(stats.monthly_sales_count || 0),
+          visible_sales_count: Number(stats.visible_sales_count || 0),
+          goal_progress_percent: goal > 0 ? Math.max(0, Math.min(100, Math.round((total / goal) * 100))) : 0,
+        };
+      });
     } catch (error) {
       return [];
     }
   }
+  /* CLONEXA_024A_PERFECT_R2_STORE_USERS_SALES_END */
 
   async function cxCreateStoreMiniPanelUser023S(employeeId, link) {
     return api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users/store/from-employee`, {
