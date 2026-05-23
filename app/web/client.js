@@ -2626,7 +2626,7 @@
   }
 
   function crmContextMarkup018B(person = {}, moduleCodes = []) {
-    const areaCtx024C = typeof crmAreaContext024C === "function" ? crmAreaContext024C(person) : null;
+    const areaCtx024C = (typeof crmUseMundoCaseAreaMode024C === "function" && crmUseMundoCaseAreaMode024C() && typeof crmAreaContext024C === "function") ? crmAreaContext024C(person) : null;
 
     if (areaCtx024C) {
       return `
@@ -3039,6 +3039,26 @@
 
 
   /* CLONEXA_024C_CRM_LIVE_MODULAR_AREA_START */
+
+  /* CLONEXA_024C_R6_UNIVERSAL_COMPANY_SCOPE_START */
+  function crmUseMundoCaseAreaMode024C() {
+    const id = String(state.companyId || state.company?.id || state.company?.company_id || "").toLowerCase();
+    const slug = String(state.company?.slug || state.companySlug || "").toLowerCase();
+    const name = String(state.company?.name || "").toLowerCase();
+
+    return (
+      id === "a811fc23-f12e-4fc3-afeb-ecba789d1708" ||
+      slug === "mundo-case" ||
+      slug === "mundo_case" ||
+      name.includes("mundo case")
+    );
+  }
+
+  function crmUseDefaultCompanyMode024C() {
+    return !crmUseMundoCaseAreaMode024C();
+  }
+  /* CLONEXA_024C_R6_UNIVERSAL_COMPANY_SCOPE_END */
+
   function crmHasProductionActive024C() {
     const active = cxCrmActiveModuleSet018B();
     return active.has("production") || active.has("references");
@@ -3209,8 +3229,14 @@
 
     const company = state.company || {};
     const crm = await loadClientCrmData();
-    await crmApplyAreaMapping024C(crm);
-    const moduleCards = crmPickSummaryModules024C(crm);
+
+    if (crmUseMundoCaseAreaMode024C()) {
+      await crmApplyAreaMapping024C(crm);
+    }
+
+    const moduleCards = crmUseMundoCaseAreaMode024C()
+      ? crmPickSummaryModules024C(crm)
+      : crmPickSummaryModules018B(crm);
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -3267,7 +3293,7 @@
 
               <div class="client-eyebrow" style="margin-top:28px">Colaboradores</div>
               <h2>Estado por colaborador</h2>
-              ${renderCrmCollaboratorCards(crm.people, ["area"])}
+              ${renderCrmCollaboratorCards(crm.people, crmUseMundoCaseAreaMode024C() ? ["area"] : moduleCards)}
             </section>
           </section>
         </div>
@@ -16132,3 +16158,4 @@ document.addEventListener("click", async (event) => {
 })();
 /* CX_017I_PAYROLL_SETTINGS_FINAL_END */
 
+/* CLONEXA_024C_R6_UNIVERSAL_SCOPE_MUNDO_CASE_ONLY_ALL_OTHERS_DEFAULT_OK */
