@@ -371,27 +371,74 @@ async def _sold_items(
     idx = 2
     panel = _panel(panel_type)
     if panel not in {"all", "client"}:
-        where.append(f"panel_type = ${idx}")
-        args.append(panel)
+        panel_aliases = [panel]
+        if panel == "stores":
+            panel_aliases = ["stores", "store", "tienda", "tiendas"]
+        elif panel == "sales":
+            panel_aliases = ["sales", "venta", "ventas"]
+        where.append(f"panel_type = ANY(${idx}::text[])")
+        args.append(panel_aliases)
         idx += 1
     if scope_user:
-        where.append(f"created_by = ${idx}::uuid")
-        args.append(scope_user)
+        where.append(f"(created_by = ${idx}::uuid OR metadata->'store_actor'->>'user_id' = ${idx}::text)")
+        args.append(str(scope_user))
         idx += 1
     where_sql = " AND ".join(where)
     rows = await conn.fetch(
         f"""
-        SELECT COALESCE(NULLIF(reference_id, ''), lower(reference_name || '|' || COALESCE(reference_size, '') || '|' || COALESCE(reference_color, ''))) AS key,
+        WITH sales_scope AS (
+            SELECT *
+            FROM mini_panel_sales_records
+            WHERE {where_sql}
+        ),
+        expanded AS (
+            SELECT
+                COALESCE(NULLIF(item.value->>'reference_id', ''), NULLIF(s.reference_id, ''), '') AS reference_id,
+                COALESCE(NULLIF(item.value->>'reference_name', ''), NULLIF(item.value->>'name', ''), NULLIF(s.reference_name, ''), 'Articulo vendido') AS reference_name,
+                COALESCE(NULLIF(item.value->>'reference_category', ''), NULLIF(item.value->>'category', ''), COALESCE(s.reference_category, '')) AS category,
+                COALESCE(NULLIF(item.value->>'reference_size', ''), NULLIF(item.value->>'size', ''), COALESCE(s.reference_size, '')) AS size,
+                COALESCE(NULLIF(item.value->>'reference_color', ''), NULLIF(item.value->>'color', ''), COALESCE(s.reference_color, '')) AS color,
+                COALESCE(NULLIF(item.value->>'sku', ''), NULLIF(item.value->>'barcode', ''), '') AS sku,
+                CASE
+                    WHEN COALESCE(item.value->>'quantity', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+                        THEN GREATEST((item.value->>'quantity')::numeric, 0)
+                    ELSE COALESCE(s.quantity, 0)
+                END AS quantity,
+                s.created_at
+            FROM sales_scope s
+            LEFT JOIN LATERAL jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(s.metadata->'items') = 'array'
+                        THEN s.metadata->'items'
+                    ELSE '[]'::jsonb
+                END
+            ) AS item(value) ON TRUE
+        ),
+        normalized AS (
+            SELECT
+                COALESCE(NULLIF(reference_id, ''), lower(reference_name || '|' || category || '|' || size || '|' || color)) AS key,
+                reference_id,
+                reference_name,
+                category,
+                size,
+                color,
+                sku,
+                quantity,
+                created_at
+            FROM expanded
+            WHERE NULLIF(reference_name, '') IS NOT NULL
+        )
+        SELECT key,
                MAX(reference_id) AS reference_id,
                reference_name,
-               COALESCE(reference_category, '') AS category,
-               COALESCE(reference_size, '') AS size,
-               COALESCE(reference_color, '') AS color,
+               category,
+               size,
+               color,
+               MAX(sku) AS sku,
                COALESCE(SUM(quantity), 0) AS sold_quantity,
                MAX(created_at) AS last_sold_at
-        FROM mini_panel_sales_records
-        WHERE {where_sql}
-        GROUP BY key, reference_name, reference_category, reference_size, reference_color
+        FROM normalized
+        GROUP BY key, reference_name, category, size, color
         ORDER BY sold_quantity DESC, last_sold_at DESC, reference_name ASC
         LIMIT {max(5, min(int(limit or 50), 100))}
         """,
@@ -404,6 +451,7 @@ async def _sold_items(
             "category": _clean(row["category"]),
             "size": _clean(row["size"]),
             "color": _clean(row["color"]),
+            "sku": _clean(row["sku"]),
             "sold_quantity": round(_num(row["sold_quantity"]), 2),
             "last_sold_at": _iso(row["last_sold_at"]),
         }

@@ -5617,6 +5617,9 @@ function moduleCard(title, description, tag, code = "") {
   }
 
   function requestLineHtml023T(index, item = {}) {
+    const quantity = item.quantity !== undefined && item.quantity !== null && item.quantity !== ""
+      ? item.quantity
+      : "";
     return `
       <div class="rq-line-023t" data-rq-line-023t>
         <div class="rq-field-023t">
@@ -5625,7 +5628,7 @@ function moduleCard(title, description, tag, code = "") {
         </div>
         <div class="rq-field-023t">
           <label>Cantidad</label>
-          <input data-rq-qty-023t type="number" min="0" step="1" value="${h(item.quantity || "")}" placeholder="0">
+          <input data-rq-qty-023t type="number" min="0" step="1" value="${h(quantity)}" placeholder="0">
         </div>
         <div class="rq-field-023t">
           <label>Nota</label>
@@ -5634,6 +5637,14 @@ function moduleCard(title, description, tag, code = "") {
         <button class="rq-btn-023t secondary" type="button" data-rq-remove-023t="${index}">Quitar</button>
       </div>
     `;
+  }
+
+  function requestSoldLineItem023U(item = {}) {
+    const soldQuantity = Number(item.sold_quantity || item.quantity || 0);
+    return {
+      ...item,
+      quantity: soldQuantity > 0 ? soldQuantity : 1,
+    };
   }
 
   function requestReadItems023T(suggestions = []) {
@@ -5749,7 +5760,7 @@ function moduleCard(title, description, tag, code = "") {
               <button class="rq-btn-023t secondary" type="button" data-rq-add-line-023t>Agregar articulo</button>
             </div>
             <div class="rq-items-023t" data-rq-lines-023t>
-              ${requestLineHtml023T(0, sold[0] ? { ...sold[0], quantity: "" } : {})}
+              ${requestLineHtml023T(0, {})}
             </div>
             <div class="rq-field-023t" style="margin-top:14px">
               <label>Observacion</label>
@@ -5780,8 +5791,15 @@ function moduleCard(title, description, tag, code = "") {
     });
     root.querySelector("[data-rq-prefill-sold-023t]")?.addEventListener("click", () => {
       if (!lines) return;
-      const base = sold.length ? sold.slice(0, 12) : merged.slice(0, 8);
-      lines.innerHTML = base.map((item, index) => requestLineHtml023T(index, { ...item, quantity: "" })).join("") || requestLineHtml023T(0, {});
+      const msg = root.querySelector("#requestMsg023T");
+      const base = sold.slice(0, 12);
+      if (!base.length) {
+        lines.innerHTML = requestLineHtml023T(0, {});
+        if (msg) msg.textContent = "No hay vendidos recientes para cargar.";
+        return;
+      }
+      lines.innerHTML = base.map((item, index) => requestLineHtml023T(index, requestSoldLineItem023U(item))).join("");
+      if (msg) msg.textContent = "Vendidos cargados. Puedes editar cantidades o quitar articulos.";
     });
     lines?.addEventListener("click", (event) => {
       const remove = event.target.closest("[data-rq-remove-023t]");
@@ -6587,3 +6605,4 @@ async function bootShell() {
 /* CLONEXA_024A_FORCE_FIX_R5_CANCELLED_MINI_PANEL_RUNTIME_OK */
 
 /* CLONEXA_024B_R2_STORE_ADMIN_SESSION_ISOLATION_OK */
+/* CLONEXA_024E_REQUESTS_SOLD_PREFILL_EDITABLE_OK */
