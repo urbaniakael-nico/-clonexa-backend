@@ -85,7 +85,6 @@
     }
   }
 
-
   /* CLONEXA_020A_NOTES_CALENDAR_START */
 /* CLONEXA_020C_NOTES_AGENDA_FULL_VISUAL_REBUILD: UI/UX reconstruida sin tocar backend */
   const NOTES_CODES_020A = new Set([
@@ -590,7 +589,6 @@
   }
 /* CLONEXA_020A_NOTES_CALENDAR_END */
 
-
   /* CLONEXA_021A_QUOTES_MODULE_START */
   const QUOTE_CODES_021A = new Set([
     "cotizacion",
@@ -709,7 +707,6 @@
     }
     preview.innerHTML = `<img src="${h(dataUrl)}" alt="Firma adjunta" />`;
   }
-
 
   function formatQuoteDate021A(value) {
     const raw = String(value || "");
@@ -993,7 +990,6 @@
     }).join("");
   }
 
-
   function initQuoteSignature021A(overlay, state) {
     const canvas = overlay.querySelector("[data-quote-signature]");
     const clear = overlay.querySelector("[data-clear-signature]");
@@ -1101,7 +1097,6 @@
     window.setTimeout(resize, 60);
   }
 
-
   async function downloadQuotePdf021A(quoteId, quoteNumber, documentType = "quote") {
     const suffix = documentType === "account" ? "account" : "quote";
     const response = await quotesApi021A(`/${encodeURIComponent(quoteId)}/pdf?document_type=${encodeURIComponent(suffix)}`, { raw: true });
@@ -1115,7 +1110,6 @@
     a.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
-
 
   function fillQuoteForm021A(form, quote, state) {
     if (!form || !quote) return;
@@ -1539,8 +1533,6 @@
   }
   /* CLONEXA_021A_QUOTES_MODULE_END */
 
-
-
   function clearTimer() {
     if (timerHandle) {
       window.clearInterval(timerHandle);
@@ -1689,7 +1681,6 @@
     });
   }
 
-
   // CLONEXA_019F_R1_PASSWORD_HELPERS_START
   async function changePasswordRequest(currentPassword, newPassword, confirmPassword) {
     return api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-change-password?panel_type=${encodeURIComponent(panelType)}`, {
@@ -1706,7 +1697,6 @@
     });
   }
   // CLONEXA_019F_R1_PASSWORD_HELPERS_END
-
 
   /* CLONEXA_019H_R1_SAFE_DYNAMIC_MODULES_START */
   const PANEL_TYPE_ALIASES_019H = {
@@ -1897,7 +1887,6 @@
       .filter((code, index, arr) => arr.indexOf(code) === index);
   }
 
-
   /* CLONEXA_022A_MINIPANEL_STRICT_ASSIGNMENT_START */
   function activeUniversalModuleCodes021D(_companyModules) {
     // 022A: módulo activo en empresa = capacidad disponible, NO asignación automática al mini panel.
@@ -1913,7 +1902,6 @@
       .filter((code, index, arr) => arr.indexOf(code) === index);
   }
   /* CLONEXA_022A_MINIPANEL_STRICT_ASSIGNMENT_END */
-
 
   async function loadMiniPanelModuleConfig019H() {
     const empty = { enabled: false, modules: [], module_names: {}, raw: null };
@@ -2309,8 +2297,6 @@
 
   /* CLONEXA_019H_R1_SAFE_DYNAMIC_MODULES_END */
 
-
-
 function moduleCard(title, description, tag, code = "") {
     return `
       <button class="mp-module-card" type="button" data-module="${h(code || tag)}" data-module-title="${h(title)}">
@@ -2647,8 +2633,6 @@ function moduleCard(title, description, tag, code = "") {
       });
     });
   }
-
-
 
   /* CLONEXA_022F_REGISTRO_VENTA_DINAMICO_REFERENCIAS_START */
   const CX_SALES_REGISTER_CODES_022F = new Set([
@@ -3460,7 +3444,6 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_022G_SALES_PIPELINE_ALISTAMIENTO_SOPORTES_GUIA_END */
 
-
   /* CLONEXA_022H_REGISTRO_VENTA_FACTURA_MULTIITEM_SCANNER_PRINT_START */
   let salesInvoiceCart022H = {
     items: [],
@@ -4081,7 +4064,6 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_022H_REGISTRO_VENTA_FACTURA_MULTIITEM_SCANNER_PRINT_END */
 
-
   /* CLONEXA_022I_MINIPANEL_SALES_SEARCH_KPI_LIMIT5_START */
   function salesUxStyles022I() {
     salesPipelineStyles022G();
@@ -4700,13 +4682,7 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_022I_MINIPANEL_SALES_SEARCH_KPI_LIMIT5_END */
 
-
-
-
-
   /* CLONEXA_022F_REGISTRO_VENTA_DINAMICO_REFERENCIAS_END */
-
-
 
   /* CLONEXA_022J_SALES_TOP10_ADJUSTMENTS_CLEAN_VIEW_START */
   function salesEnsureAdjustment022J() {
@@ -5156,7 +5132,6 @@ function moduleCard(title, description, tag, code = "") {
     document.head.appendChild(style);
   }
 
-
   function salesPrintInvoiceDraft022H(session, sale = null) {
     const items = sale?.items || salesInvoiceCart022H.items;
     if (!items || !items.length) { alert("No hay artículos para imprimir."); return; }
@@ -5500,7 +5475,6 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_022J_SALES_TOP10_ADJUSTMENTS_CLEAN_VIEW_END */
 
-
   /* CLONEXA_023T_REQUESTS_MINI_PANEL_FLOW_START */
   const CX_REQUEST_CODES_023T = new Set([
     "requests",
@@ -5838,7 +5812,6 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_023T_REQUESTS_MINI_PANEL_FLOW_END */
 
-
   /* CLONEXA_023E_DAY_CLOSING_MINI_PANEL_DYNAMIC_R1_START */
   const CX_DAY_CLOSING_CODES_023E = new Set([
     "day_closing",
@@ -6162,7 +6135,6 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_023E_DAY_CLOSING_MINI_PANEL_DYNAMIC_R1_END */
 
-
   async function runOperationalAction(action, session) {
     const msg = root.querySelector("[data-panel-message]");
     try {
@@ -6176,7 +6148,6 @@ function moduleCard(title, description, tag, code = "") {
       }
     }
   }
-
 
   /* CLONEXA_024A_PERFECT_R1_FIELD_OPS_MINIPANEL_START */
   const CX_FIELD_OPS_CODES_024A_R1 = new Set([
@@ -6276,7 +6247,6 @@ function moduleCard(title, description, tag, code = "") {
       if (pause) pause.textContent = formatSeconds(storeTeamLiveValue023W(member, "break"));
     });
   }
-
 
   /* CLONEXA_024A_PERFECT_R2_VISUAL_FIELD_OPS_START */
   function ensureFieldOpsVisual024A_R2() {
@@ -6425,7 +6395,7 @@ function moduleCard(title, description, tag, code = "") {
   async function openFieldOpsMiniPanel024A_R1(session) {
     storeTeamStyles023W();
     ensureFieldOpsVisual024A_R2();
-    ensureMiniPanelVisualFit024A_R3();
+    
 
     const msgId = "fieldOpsMsg024AR1";
     let loadError = "";
@@ -6542,11 +6512,9 @@ function moduleCard(title, description, tag, code = "") {
   }
   /* CLONEXA_024A_PERFECT_R1_FIELD_OPS_MINIPANEL_END */
 
-
-
   
 async function bootShell() {
-    ensureMiniPanelVisualFit024A_R3();
+    
     if (!companyId) {
       renderError("El enlace no contiene company_id.");
       return;
@@ -6594,397 +6562,4 @@ async function bootShell() {
 })();
 // CLONEXA_FORCE_BUILD_019H_R1_20260513224440
 
-
-/* CLONEXA_024A_R5_MINI_PANEL_DENSITY_REAL_START */
-(function () {
-  function injectMiniPanelDensity024AR5() {
-    if (document.getElementById("miniPanelDensity024AR5")) return;
-
-    const style = document.createElement("style");
-    style.id = "miniPanelDensity024AR5";
-    style.textContent = `
-      /*
-        CLONEXA 024A R5
-        Densidad real para mini panel a Chrome 100%.
-        Sin zoom. Sin tocar lógica.
-      */
-
-      html,
-      body {
-        overflow-x: hidden !important;
-      }
-
-      body {
-        font-size: 13px !important;
-      }
-
-      #app {
-        width: 100% !important;
-        max-width: 100vw !important;
-        overflow-x: hidden !important;
-      }
-
-      main,
-      .mp-shell,
-      .mp-root,
-      .mini-panel-root,
-      .mini-panel-shell,
-      .st-shell-023w {
-        width: 100% !important;
-        max-width: 100vw !important;
-        padding: 10px 14px 18px !important;
-        margin: 0 auto !important;
-        box-sizing: border-box !important;
-      }
-
-      /* HERO: debe ser una franja, no media pantalla */
-      .mp-hero,
-      .mp-hero-r3,
-      .mini-panel-hero,
-      .st-hero-023w,
-      header[class*="mp"],
-      section:first-of-type {
-        min-height: unset !important;
-        max-height: none !important;
-        padding: 14px 18px !important;
-        border-radius: 20px !important;
-        box-sizing: border-box !important;
-      }
-
-      .mp-hero,
-      .mp-hero-r3,
-      .mini-panel-hero {
-        display: grid !important;
-        grid-template-columns: minmax(0, 1.7fr) minmax(210px, .45fr) minmax(230px, .55fr) !important;
-        gap: 12px !important;
-        align-items: stretch !important;
-      }
-
-      /* Título grande controlado */
-      h1,
-      .mp-hero h1,
-      .mp-hero-r3 h1,
-      .mini-panel-hero h1,
-      .st-title-023w {
-        font-size: clamp(32px, 4.2vw, 50px) !important;
-        line-height: .92 !important;
-        margin: 2px 0 6px !important;
-        letter-spacing: -0.055em !important;
-      }
-
-      h2 {
-        font-size: clamp(20px, 2.1vw, 28px) !important;
-        line-height: 1.05 !important;
-        margin: 4px 0 8px !important;
-      }
-
-      p,
-      .mp-muted,
-      .st-muted-023w {
-        font-size: 12px !important;
-        line-height: 1.28 !important;
-        margin: 3px 0 !important;
-      }
-
-      .mp-section,
-      section {
-        margin-top: 10px !important;
-      }
-
-      .mp-section-title,
-      .st-kicker-023w,
-      [class*="kicker"] {
-        font-size: 9px !important;
-        letter-spacing: .22em !important;
-        line-height: 1.05 !important;
-        margin-bottom: 7px !important;
-      }
-
-      /* Chips del encabezado */
-      .mp-chip,
-      .mp-pill,
-      .st-pill-023w,
-      [class*="pill"],
-      [class*="chip"] {
-        min-height: 24px !important;
-        padding: 5px 9px !important;
-        font-size: 10px !important;
-        line-height: 1 !important;
-        border-radius: 999px !important;
-      }
-
-      /* Cards */
-      .mp-card,
-      .mp-panel,
-      .mp-panel-card,
-      .mp-kpi-card,
-      .mp-sales-card,
-      .mini-panel-card,
-      .st-card-023w,
-      article {
-        border-radius: 18px !important;
-        padding: 13px !important;
-        box-sizing: border-box !important;
-      }
-
-      /* Tiempo / acciones */
-      .mp-action-stack-r3,
-      .mp-times-card,
-      .mp-actions-card,
-      [class*="action-stack"],
-      [class*="times"] {
-        gap: 7px !important;
-      }
-
-      button,
-      .mp-button,
-      .mp-btn,
-      .st-btn-023w {
-        min-height: 34px !important;
-        padding: 8px 11px !important;
-        border-radius: 12px !important;
-        font-size: 11px !important;
-        line-height: 1.05 !important;
-      }
-
-      /* Selector colaborador */
-      select,
-      select[data-store-actor-023w],
-      [data-store-actor-023w],
-      [data-storeactor-023w] {
-        min-height: 38px !important;
-        border-radius: 12px !important;
-        padding: 0 11px !important;
-        font-size: 12px !important;
-      }
-
-      /* KPIs */
-      .mp-kpis-grid,
-      .mp-kpi-grid,
-      .mp-sales-grid,
-      .mp-dashboard-kpis,
-      .st-grid-023w {
-        display: grid !important;
-        grid-template-columns: repeat(4, minmax(170px, 1fr)) !important;
-        gap: 10px !important;
-      }
-
-      .mp-kpi-card,
-      .mp-sales-card,
-      .mp-dashboard-kpis > *,
-      .st-grid-023w > .st-card-023w {
-        min-height: 96px !important;
-      }
-
-      .mp-kpi-value,
-      .mp-value,
-      .kpi-value,
-      .mp-kpi-card h2,
-      .mp-sales-card h2,
-      .st-grid-023w h2,
-      strong {
-        font-size: clamp(18px, 2vw, 28px) !important;
-        line-height: 1 !important;
-      }
-
-      small,
-      .mp-kpi-sub,
-      .mp-caption,
-      .mp-help {
-        font-size: 10px !important;
-        line-height: 1.18 !important;
-      }
-
-      .mp-progress,
-      .st-progress-023w {
-        height: 6px !important;
-        border-radius: 999px !important;
-        overflow: hidden !important;
-      }
-
-      /* Módulos */
-      .mp-modules-grid,
-      .mp-modules-grid-r3 {
-        display: grid !important;
-        grid-template-columns: repeat(5, minmax(145px, 1fr)) !important;
-        gap: 10px !important;
-      }
-
-      .mp-module-card {
-        min-height: 96px !important;
-        padding: 12px !important;
-        border-radius: 16px !important;
-      }
-
-      .mp-module-card h3,
-      .mp-module-card strong,
-      .mp-module-title {
-        font-size: 13px !important;
-        line-height: 1.05 !important;
-        margin: 4px 0 !important;
-      }
-
-      .mp-module-card p,
-      .mp-module-card .mp-muted {
-        font-size: 10px !important;
-        line-height: 1.2 !important;
-      }
-
-      .mp-module-code,
-      .mp-badge,
-      .mp-module-card [class*="badge"] {
-        width: 24px !important;
-        height: 24px !important;
-        min-width: 24px !important;
-        min-height: 24px !important;
-        font-size: 9px !important;
-      }
-
-      /* Operación campo */
-      .st-shell-023w {
-        gap: 12px !important;
-      }
-
-      .st-hero-023w {
-        display: flex !important;
-        justify-content: space-between !important;
-        align-items: center !important;
-        gap: 12px !important;
-      }
-
-      .st-grid-023w:has(.st-member-023w) {
-        grid-template-columns: repeat(2, minmax(300px, 1fr)) !important;
-      }
-
-      .st-member-023w {
-        padding: 13px !important;
-        gap: 10px !important;
-        min-height: 0 !important;
-      }
-
-      .st-member-head-023w strong {
-        font-size: 16px !important;
-      }
-
-      .st-metrics-023w {
-        display: grid !important;
-        grid-template-columns: repeat(4, minmax(90px, 1fr)) !important;
-        gap: 7px !important;
-      }
-
-      .st-mini-023w {
-        padding: 9px !important;
-        border-radius: 12px !important;
-      }
-
-      .st-mini-023w span {
-        font-size: 8px !important;
-        margin-bottom: 4px !important;
-      }
-
-      .st-mini-023w strong {
-        font-size: 14px !important;
-      }
-
-      /* Altura de pantalla tipo laptop */
-      @media (max-height: 820px) and (min-width: 1200px) {
-        main,
-        .mp-shell,
-        .mp-root,
-        .mini-panel-root,
-        .mini-panel-shell,
-        .st-shell-023w {
-          padding-top: 8px !important;
-        }
-
-        .mp-hero,
-        .mp-hero-r3,
-        .mini-panel-hero,
-        .st-hero-023w,
-        section:first-of-type {
-          padding: 12px 16px !important;
-        }
-
-        h1,
-        .mp-hero h1,
-        .mp-hero-r3 h1,
-        .mini-panel-hero h1,
-        .st-title-023w {
-          font-size: clamp(30px, 3.8vw, 46px) !important;
-        }
-
-        .mp-section,
-        section {
-          margin-top: 8px !important;
-        }
-
-        .mp-card,
-        .mp-panel,
-        .mp-panel-card,
-        .mp-kpi-card,
-        .mp-sales-card,
-        .mini-panel-card,
-        .st-card-023w,
-        article {
-          padding: 11px !important;
-        }
-
-        .mp-module-card {
-          min-height: 86px !important;
-        }
-      }
-
-      @media (max-width: 1300px) {
-        .mp-hero,
-        .mp-hero-r3,
-        .mini-panel-hero {
-          grid-template-columns: 1fr !important;
-        }
-
-        .mp-kpis-grid,
-        .mp-kpi-grid,
-        .mp-sales-grid,
-        .mp-dashboard-kpis,
-        .st-grid-023w {
-          grid-template-columns: repeat(2, minmax(170px, 1fr)) !important;
-        }
-
-        .mp-modules-grid,
-        .mp-modules-grid-r3 {
-          grid-template-columns: repeat(3, minmax(145px, 1fr)) !important;
-        }
-      }
-
-      @media (max-width: 760px) {
-        .mp-kpis-grid,
-        .mp-kpi-grid,
-        .mp-sales-grid,
-        .mp-dashboard-kpis,
-        .st-grid-023w,
-        .st-grid-023w:has(.st-member-023w),
-        .st-metrics-023w,
-        .mp-modules-grid,
-        .mp-modules-grid-r3 {
-          grid-template-columns: 1fr !important;
-        }
-      }
-    `;
-
-    document.head.appendChild(style);
-  }
-
-  function runMiniPanelDensity024AR5() {
-    injectMiniPanelDensity024AR5();
-    document.body?.classList?.add("cx-mini-panel-density-r5");
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", runMiniPanelDensity024AR5);
-  } else {
-    runMiniPanelDensity024AR5();
-  }
-
-  window.injectMiniPanelDensity024AR5 = injectMiniPanelDensity024AR5;
-})();
-/* CLONEXA_024A_R5_MINI_PANEL_DENSITY_REAL_END */
-
+/* CLONEXA_024A_FORCE_FIX_R5_CANCELLED_MINI_PANEL_RUNTIME_OK */
