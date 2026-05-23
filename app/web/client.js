@@ -2085,8 +2085,9 @@
 
   function crmModuleDisplay(code) {
     const labels = {
-      sales_redes_connected: "Total ventas/redes",
+      sales_redes_connected: "Total conectados ventas / redes",
       stores_connected: "Tiendas",
+      store_openings: "Apertura de tienda",
       gps: "GPS",
       field: "Campo",
       materials: "Materiales",
@@ -2417,6 +2418,7 @@
 
     if (code === "sales_redes_connected") return String(crm.areaTotals024C?.salesRedesConnected || 0);
     if (code === "stores_connected") return String(crm.areaTotals024C?.storesConnected || 0);
+    if (code === "store_openings") return "L1-L5";
 
     if (code === "modules") return `${visibleClientModules(activeClientModules()).length}`;
     if (code === "channels") return isClientModuleActive("bots") && crm.bot?.configured ? "ON" : "OFF";
@@ -3134,39 +3136,62 @@
     };
   }
 
-  async function crmLoadStoreAreaMap024C() {
-    const map = new Map();
+  function crmDefaultStoreSlots024D() {
+    return [1, 2, 3, 4, 5].map((index) => ({
+      id: `store_${index}`,
+      index,
+      label: `L${index}`,
+      name: `Tienda ${index}`,
+      employee_ids: [],
+    }));
+  }
+
+  async function crmLoadStoreAreaScope024D() {
+    const employeeMap = new Map();
+    let storeSlots = crmDefaultStoreSlots024D();
 
     try {
       const config = await api(`/companies/${encodeURIComponent(state.companyId)}/store-login-config`);
       const stores = Array.isArray(config?.stores) ? config.stores : [];
 
-      stores.forEach((store, index) => {
-        const storeName = String(store.name || `Tienda ${index + 1}`).trim();
+      storeSlots = crmDefaultStoreSlots024D().map((fallback, index) => {
+        const store = stores[index] || {};
+        const storeName = String(store.name || fallback.name).trim();
+        const storeId = String(store.id || fallback.id).trim() || fallback.id;
         const employeeIds = Array.isArray(store.employee_ids) ? store.employee_ids : [];
+        const cleanEmployeeIds = employeeIds
+          .map((employeeId) => String(employeeId || "").trim())
+          .filter(Boolean);
 
-        employeeIds.forEach((employeeId) => {
-          const id = String(employeeId || "").trim();
-          if (!id) return;
-
-          map.set(id, {
+        cleanEmployeeIds.forEach((id) => {
+          employeeMap.set(id, {
             type: "store",
             label: storeName,
-            meta: "Área tienda",
-            store_id: store.id || `store_${index + 1}`,
+            meta: `${fallback.label} - Area tienda`,
+            store_id: storeId,
+            store_index: fallback.index,
+            store_label: fallback.label,
           });
         });
+
+        return {
+          ...fallback,
+          id: storeId,
+          name: storeName,
+          employee_ids: cleanEmployeeIds,
+        };
       });
     } catch (error) {
       // No rompe CRM si el módulo tiendas no responde.
     }
 
-    return map;
+    return { employeeMap, storeSlots };
   }
 
   async function crmApplyAreaMapping024C(crm = {}) {
     const people = Array.isArray(crm.people) ? crm.people : [];
-    const storeMap = await crmLoadStoreAreaMap024C();
+    const storeScope = await crmLoadStoreAreaScope024D();
+    const storeMap = storeScope.employeeMap;
 
     const totals = {
       salesRedesConnected: 0,
@@ -3192,17 +3217,12 @@
     });
 
     crm.areaTotals024C = totals;
+    crm.storeSlots024D = storeScope.storeSlots;
     return crm;
   }
 
   function crmPickSummaryModules024C(crm = {}) {
-    if (crmRetailActive024C() && !crmHasProductionActive024C()) {
-      return ["sales_redes_connected", "stores_connected"];
-    }
-
-    return crmPickSummaryModules018B(crm)
-      .filter((code) => crmHasProductionActive024C() || !["production", "references"].includes(String(code || "")))
-      .slice(0, 2);
+    return ["sales_redes_connected", "store_openings"];
   }
 
   function crmAreaContext024C(person = {}) {
@@ -3215,6 +3235,146 @@
       meta: area.meta || "",
       tone: area.type === "store" || area.type === "sales_redes" ? "ok" : "idle",
     };
+  }
+
+  function crmPersonConnectionStartedAt024D(person = {}) {
+    const core = person.metrics?.snapshotCore || person.snapshotRow?.core || {};
+    const row = person.snapshotRow || {};
+    return (
+      core.shift_started_at ||
+      core.status_started_at ||
+      row.shift_started_at ||
+      row.status_started_at ||
+      person.metrics?.startedAt ||
+      person.latest?.started_at ||
+      person.latest?.event_at ||
+      ""
+    );
+  }
+
+  function crmStoreOpeningHour024D(value) {
+    const ms = crmDateToMs018B(value);
+    if (!ms) return "Sin apertura";
+
+    return new Date(ms).toLocaleTimeString("es-CO", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  }
+
+  function crmStoreOpeningRows024D(crm = {}) {
+    const slots = Array.isArray(crm.storeSlots024D) && crm.storeSlots024D.length
+      ? crm.storeSlots024D
+      : crmDefaultStoreSlots024D();
+    const byStore = new Map(slots.map((slot) => [String(slot.id || ""), null]));
+
+    (Array.isArray(crm.people) ? crm.people : []).forEach((person) => {
+      const area = person.crmArea024C || {};
+      const storeId = String(area.store_id || "").trim();
+      if (area.type !== "store" || !storeId || !crmIsConnected024C(person)) return;
+
+      const startedAt = crmPersonConnectionStartedAt024D(person);
+      const ms = crmDateToMs018B(startedAt);
+      if (!ms) return;
+
+      const current = byStore.get(storeId);
+      if (!current || ms < current.ms) {
+        byStore.set(storeId, {
+          ms,
+          startedAt,
+          personName: person.name || person.employee?.full_name || "",
+        });
+      }
+    });
+
+    return slots.map((slot, index) => {
+      const opening = byStore.get(String(slot.id || "")) || null;
+      return {
+        id: slot.id || `store_${index + 1}`,
+        label: slot.label || `L${index + 1}`,
+        name: slot.name || `Tienda ${index + 1}`,
+        opening,
+        openingLabel: opening ? crmStoreOpeningHour024D(opening.startedAt) : "Sin apertura",
+      };
+    });
+  }
+
+  function crmMundoCaseKpiStyles024D() {
+    return `
+      <style>
+        .cx-crm-store-openings-card {
+          min-height: 138px;
+        }
+        .cx-crm-store-openings-grid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 7px;
+          margin-top: 8px;
+        }
+        .cx-crm-store-opening {
+          min-width: 0;
+          border: 1px solid rgba(255,255,255,.13);
+          border-radius: 12px;
+          padding: 8px 4px;
+          text-align: center;
+          background: rgba(255,255,255,.055);
+        }
+        .cx-crm-store-opening.open {
+          border-color: rgba(92,255,164,.42);
+          background: rgba(92,255,164,.10);
+        }
+        .cx-crm-store-opening strong {
+          display: block;
+          font-size: 12px !important;
+          line-height: 1;
+          letter-spacing: 0;
+          text-transform: uppercase;
+          transform: none;
+          -webkit-text-stroke: 0 transparent;
+          text-shadow: none;
+        }
+        .cx-crm-store-opening small {
+          display: block;
+          margin-top: 7px;
+          color: rgba(255,255,255,.78);
+          font-size: 10px;
+          line-height: 1.1;
+          font-weight: 950;
+          white-space: normal;
+          overflow-wrap: anywhere;
+        }
+      </style>
+    `;
+  }
+
+  function crmRenderStoreOpeningsKpi024D(crm = {}) {
+    const rows = crmStoreOpeningRows024D(crm);
+
+    return `
+      <div class="client-kpi cx-crm-store-openings-card">
+        <span>Apertura de tienda</span>
+        <div class="cx-crm-store-openings-grid">
+          ${rows.map((row) => `
+            <div class="cx-crm-store-opening ${row.opening ? "open" : ""}" title="${h(row.name)}">
+              <strong>${h(row.label)}</strong>
+              <small>${h(row.openingLabel)}</small>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function crmRenderTopKpiCard024D(code, crm = {}) {
+    if (code === "store_openings") return crmRenderStoreOpeningsKpi024D(crm);
+
+    return `
+      <div class="client-kpi">
+        <span>${h(crmModuleDisplay(code))}</span>
+        <strong>${h(crmTopCardValue018B(code, crm))}</strong>
+      </div>
+    `;
   }
   /* CLONEXA_024C_CRM_LIVE_MODULAR_AREA_END */
 
@@ -3269,6 +3429,7 @@
             </header>
 
             <section class="client-panel">
+              ${crmUseMundoCaseAreaMode024C() ? crmMundoCaseKpiStyles024D() : ""}
               <div class="client-eyebrow">Estado operativo actual</div>
               <h2>Operacion en vivo</h2>
 
@@ -3281,14 +3442,8 @@
                   <span>En pausa</span>
                   <strong>${h(crm.onBreak.length)}</strong>
                 </div>
-                <div class="client-kpi">
-                  <span>${h(crmModuleDisplay(moduleCards[0]))}</span>
-                  <strong>${h(crmTopCardValue018B(moduleCards[0], crm))}</strong>
-                </div>
-                <div class="client-kpi">
-                  <span>${h(crmModuleDisplay(moduleCards[1]))}</span>
-                  <strong>${h(crmTopCardValue018B(moduleCards[1], crm))}</strong>
-                </div>
+                ${crmRenderTopKpiCard024D(moduleCards[0], crm)}
+                ${crmRenderTopKpiCard024D(moduleCards[1], crm)}
               </div>
 
               <div class="client-eyebrow" style="margin-top:28px">Colaboradores</div>
@@ -16159,3 +16314,4 @@ document.addEventListener("click", async (event) => {
 /* CX_017I_PAYROLL_SETTINGS_FINAL_END */
 
 /* CLONEXA_024C_R6_UNIVERSAL_SCOPE_MUNDO_CASE_ONLY_ALL_OTHERS_DEFAULT_OK */
+/* CLONEXA_024D_MUNDO_CASE_CRM_TOP_KPIS_STORE_OPENINGS_OK */
