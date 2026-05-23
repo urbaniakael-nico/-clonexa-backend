@@ -6860,3 +6860,407 @@ function moduleCard(title, description, tag, code = "") {
   }
 })();
 // CLONEXA_FORCE_BUILD_019H_R1_20260513224440
+
+
+/* CLONEXA_024A_R4_TRUE_100_FIT_START */
+(function () {
+  function injectMiniPanelTrue100Fit024AR4() {
+    if (document.getElementById("miniPanelTrue100Fit024AR4")) return;
+
+    const style = document.createElement("style");
+    style.id = "miniPanelTrue100Fit024AR4";
+    style.textContent = `
+      /*
+        CLONEXA 024A R4
+        Fit real para Chrome 100%.
+        No cambia lógica. Solo escala visual interna del mini panel.
+      */
+
+      html,
+      body {
+        overflow-x: hidden !important;
+      }
+
+      body {
+        font-size: 14px !important;
+      }
+
+      #app {
+        box-sizing: border-box !important;
+        transform-origin: top left !important;
+      }
+
+      /* Escala interna controlada: permite ver el panel completo en 100% sin bajar Chrome a 50%. */
+      @media (min-width: 1200px) and (max-height: 950px) {
+        #app {
+          zoom: .82 !important;
+          width: 121.9513% !important;
+          max-width: 121.9513% !important;
+        }
+      }
+
+      @media (min-width: 1500px) and (max-height: 1000px) {
+        #app {
+          zoom: .86 !important;
+          width: 116.2791% !important;
+          max-width: 116.2791% !important;
+        }
+      }
+
+      @media (min-width: 1800px) and (max-height: 1100px) {
+        #app {
+          zoom: .90 !important;
+          width: 111.1111% !important;
+          max-width: 111.1111% !important;
+        }
+      }
+
+      @media (min-width: 2100px) {
+        #app {
+          zoom: .96 !important;
+          width: 104.1667% !important;
+          max-width: 104.1667% !important;
+        }
+      }
+
+      /* Shell general */
+      .mp-shell,
+      .mp-root,
+      .mini-panel-shell,
+      .mini-panel-root,
+      .st-shell-023w,
+      main {
+        width: 100% !important;
+        max-width: 100vw !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        padding: 14px 18px 22px !important;
+        box-sizing: border-box !important;
+      }
+
+      /* Cards generales */
+      .mp-card,
+      .mp-panel,
+      .mp-panel-card,
+      .mp-kpi-card,
+      .mini-panel-card,
+      .st-card-023w {
+        border-radius: 22px !important;
+        padding: 16px !important;
+        box-sizing: border-box !important;
+      }
+
+      /* Header principal */
+      .mp-hero,
+      .mp-hero-r3,
+      .mini-panel-hero,
+      .st-hero-023w {
+        min-height: 0 !important;
+        padding: 18px 20px !important;
+        border-radius: 24px !important;
+      }
+
+      .mp-hero h1,
+      .mp-hero-r3 h1,
+      .mini-panel-hero h1,
+      .st-title-023w {
+        font-size: clamp(34px, 4.6vw, 58px) !important;
+        line-height: .95 !important;
+        margin: 4px 0 8px !important;
+        letter-spacing: -0.045em !important;
+      }
+
+      .mp-hero p,
+      .mp-muted,
+      .st-muted-023w {
+        font-size: 13px !important;
+        line-height: 1.35 !important;
+      }
+
+      .mp-chip,
+      .mp-pill,
+      .st-pill-023w {
+        min-height: 28px !important;
+        padding: 6px 10px !important;
+        font-size: 11px !important;
+        line-height: 1 !important;
+      }
+
+      /* Top grid: hero / tiempos / acciones */
+      .mp-top-grid,
+      .mp-dashboard-top,
+      .mp-dashboard-grid,
+      .mp-dashboard-grid-r3,
+      .mini-panel-top {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1.65fr) minmax(220px, .48fr) minmax(250px, .56fr) !important;
+        gap: 12px !important;
+        align-items: stretch !important;
+      }
+
+      /* Bloques de tiempo y acciones */
+      .mp-action-stack-r3,
+      .mp-times-card,
+      .mp-actions-card {
+        gap: 8px !important;
+      }
+
+      .mp-action-stack-r3 .mp-button,
+      .mp-times-card .mp-button,
+      .mp-actions-card .mp-button,
+      button.mp-button,
+      .mp-btn,
+      .st-btn-023w {
+        min-height: 38px !important;
+        border-radius: 13px !important;
+        padding: 9px 12px !important;
+        font-size: 12px !important;
+        line-height: 1.1 !important;
+      }
+
+      /* Selector colaborador */
+      select,
+      select[data-store-actor-023w],
+      [data-store-actor-023w],
+      [data-storeactor-023w] {
+        min-height: 42px !important;
+        border-radius: 14px !important;
+        padding: 0 12px !important;
+        font-size: 13px !important;
+      }
+
+      /* Secciones */
+      .mp-section,
+      section {
+        margin-top: 12px !important;
+      }
+
+      .mp-section-title,
+      .st-kicker-023w {
+        font-size: 10px !important;
+        letter-spacing: .22em !important;
+        line-height: 1.1 !important;
+        margin-bottom: 8px !important;
+      }
+
+      /* KPI dashboard */
+      .mp-kpis-grid,
+      .mp-kpi-grid,
+      .mp-sales-grid,
+      .mp-dashboard-kpis,
+      .st-grid-023w {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(180px, 1fr)) !important;
+        gap: 12px !important;
+      }
+
+      .mp-kpi-card,
+      .mp-sales-card,
+      .mp-dashboard-kpis > *,
+      .st-grid-023w > .st-card-023w {
+        min-height: 110px !important;
+      }
+
+      .mp-kpi-value,
+      .mp-value,
+      .kpi-value,
+      .mp-kpi-card h2,
+      .mp-sales-card h2,
+      .st-grid-023w h2 {
+        font-size: clamp(22px, 2.5vw, 34px) !important;
+        line-height: 1.02 !important;
+        margin: 6px 0 !important;
+      }
+
+      .mp-kpi-card small,
+      .mp-sales-card small,
+      .mp-kpi-sub,
+      .mp-caption,
+      .mp-help {
+        font-size: 11px !important;
+        line-height: 1.28 !important;
+      }
+
+      /* Barras */
+      .mp-progress,
+      .st-progress-023w {
+        height: 7px !important;
+        border-radius: 999px !important;
+        overflow: hidden !important;
+      }
+
+      /* Promo / mensajes */
+      .mp-promo-card,
+      .mp-message-card {
+        max-width: 360px !important;
+        min-height: 100px !important;
+      }
+
+      /* Módulos: que entren en una grilla real */
+      .mp-modules-grid,
+      .mp-modules-grid-r3 {
+        display: grid !important;
+        grid-template-columns: repeat(5, minmax(160px, 1fr)) !important;
+        gap: 12px !important;
+      }
+
+      .mp-module-card {
+        min-height: 118px !important;
+        padding: 14px !important;
+        border-radius: 18px !important;
+      }
+
+      .mp-module-card h3,
+      .mp-module-card strong,
+      .mp-module-card .mp-module-title {
+        font-size: 14px !important;
+        line-height: 1.12 !important;
+        margin: 6px 0 !important;
+      }
+
+      .mp-module-card p,
+      .mp-module-card .mp-muted {
+        font-size: 11px !important;
+        line-height: 1.25 !important;
+      }
+
+      .mp-module-card .mp-module-code,
+      .mp-module-card .mp-badge {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        font-size: 10px !important;
+      }
+
+      /* Operación de campo */
+      .st-shell-023w {
+        padding: 14px 18px 22px !important;
+        gap: 14px !important;
+      }
+
+      .st-hero-023w {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        gap: 14px !important;
+      }
+
+      .st-grid-023w:has(.st-member-023w) {
+        grid-template-columns: repeat(2, minmax(330px, 1fr)) !important;
+      }
+
+      .st-member-023w {
+        padding: 16px !important;
+        gap: 12px !important;
+        min-height: 0 !important;
+      }
+
+      .st-member-head-023w strong {
+        font-size: 18px !important;
+        line-height: 1.1 !important;
+      }
+
+      .st-metrics-023w {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(110px, 1fr)) !important;
+        gap: 8px !important;
+      }
+
+      .st-mini-023w {
+        padding: 10px !important;
+        border-radius: 14px !important;
+      }
+
+      .st-mini-023w span {
+        font-size: 9px !important;
+        margin-bottom: 5px !important;
+      }
+
+      .st-mini-023w strong {
+        font-size: 16px !important;
+        line-height: 1.05 !important;
+      }
+
+      /* Responsive real */
+      @media (max-width: 1450px) {
+        .mp-modules-grid,
+        .mp-modules-grid-r3 {
+          grid-template-columns: repeat(4, minmax(160px, 1fr)) !important;
+        }
+
+        .mp-kpis-grid,
+        .mp-kpi-grid,
+        .mp-sales-grid,
+        .mp-dashboard-kpis,
+        .st-grid-023w {
+          grid-template-columns: repeat(4, minmax(160px, 1fr)) !important;
+        }
+      }
+
+      @media (max-width: 1200px) {
+        #app {
+          zoom: 1 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+
+        .mp-top-grid,
+        .mp-dashboard-top,
+        .mp-dashboard-grid,
+        .mp-dashboard-grid-r3,
+        .mini-panel-top {
+          grid-template-columns: 1fr !important;
+        }
+
+        .mp-modules-grid,
+        .mp-modules-grid-r3,
+        .mp-kpis-grid,
+        .mp-kpi-grid,
+        .mp-sales-grid,
+        .mp-dashboard-kpis,
+        .st-grid-023w,
+        .st-grid-023w:has(.st-member-023w) {
+          grid-template-columns: repeat(2, minmax(180px, 1fr)) !important;
+        }
+
+        .st-metrics-023w {
+          grid-template-columns: repeat(2, minmax(110px, 1fr)) !important;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .mp-modules-grid,
+        .mp-modules-grid-r3,
+        .mp-kpis-grid,
+        .mp-kpi-grid,
+        .mp-sales-grid,
+        .mp-dashboard-kpis,
+        .st-grid-023w,
+        .st-grid-023w:has(.st-member-023w),
+        .st-metrics-023w {
+          grid-template-columns: 1fr !important;
+        }
+
+        .mp-hero h1,
+        .mp-hero-r3 h1,
+        .mini-panel-hero h1,
+        .st-title-023w {
+          font-size: 34px !important;
+        }
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", injectMiniPanelTrue100Fit024AR4);
+  } else {
+    injectMiniPanelTrue100Fit024AR4();
+  }
+
+  window.injectMiniPanelTrue100Fit024AR4 = injectMiniPanelTrue100Fit024AR4;
+})();
+/* CLONEXA_024A_R4_TRUE_100_FIT_END */
+
