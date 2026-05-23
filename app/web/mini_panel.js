@@ -6425,6 +6425,7 @@ function moduleCard(title, description, tag, code = "") {
   async function openFieldOpsMiniPanel024A_R1(session) {
     storeTeamStyles023W();
     ensureFieldOpsVisual024A_R2();
+    ensureMiniPanelVisualFit024A_R3();
 
     const msgId = "fieldOpsMsg024AR1";
     let loadError = "";
@@ -6542,7 +6543,277 @@ function moduleCard(title, description, tag, code = "") {
   /* CLONEXA_024A_PERFECT_R1_FIELD_OPS_MINIPANEL_END */
 
 
+
+  /* CLONEXA_024A_R3_VISUAL_FIT_DESKTOP_START */
+  function ensureMiniPanelVisualFit024A_R3() {
+    if (document.getElementById("miniPanelVisualFit024AR3")) return;
+
+    const style = document.createElement("style");
+    style.id = "miniPanelVisualFit024AR3";
+    style.textContent = `
+      /* ===== LAYOUT GENERAL MINI PANEL ===== */
+      body {
+        overflow-x: hidden;
+      }
+
+      main,
+      .mp-shell,
+      .mp-root,
+      .mini-panel-root,
+      .mini-panel-shell {
+        width: 100%;
+      }
+
+      .st-shell-023w,
+      .mp-shell,
+      .mini-panel-shell,
+      .mini-panel-root {
+        width: min(100%, 1480px);
+        margin: 0 auto;
+        padding: 18px clamp(16px, 2vw, 26px) 28px;
+        box-sizing: border-box;
+      }
+
+      .mp-hero,
+      .st-hero-023w,
+      .mini-panel-hero {
+        min-height: 0 !important;
+      }
+
+      /* ===== HERO / CABECERA ===== */
+      .st-hero-023w {
+        padding: 20px 24px !important;
+        border-radius: 24px !important;
+        gap: 18px !important;
+      }
+
+      .st-title-023w {
+        font-size: clamp(34px, 4.2vw, 56px) !important;
+        line-height: .96 !important;
+        margin: 4px 0 8px !important;
+      }
+
+      .st-kicker-023w {
+        font-size: 11px !important;
+        letter-spacing: .24em !important;
+      }
+
+      .st-muted-023w {
+        font-size: 13px !important;
+        line-height: 1.35 !important;
+      }
+
+      .st-pill-023w {
+        min-height: 34px !important;
+        padding: 7px 12px !important;
+        font-size: 12px !important;
+      }
+
+      /* ===== GRID KPI ===== */
+      .st-grid-023w {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(160px, 1fr)) !important;
+        gap: 14px !important;
+      }
+
+      .st-card-023w {
+        border-radius: 22px !important;
+        padding: 18px 18px !important;
+      }
+
+      .st-grid-023w > .st-card-023w h2,
+      .st-grid-023w > .st-card-023w strong {
+        font-size: clamp(20px, 2vw, 28px) !important;
+        line-height: 1.1 !important;
+      }
+
+      /* ===== FIELD OPS CARDS ===== */
+      .st-grid-023w:has(.st-member-023w) {
+        grid-template-columns: repeat(2, minmax(320px, 1fr)) !important;
+      }
+
+      .st-member-023w {
+        padding: 20px !important;
+        gap: 14px !important;
+      }
+
+      .st-member-head-023w strong {
+        font-size: 18px !important;
+      }
+
+      .st-metrics-023w {
+        grid-template-columns: repeat(4, minmax(110px, 1fr)) !important;
+        gap: 10px !important;
+      }
+
+      .st-mini-023w {
+        padding: 12px !important;
+        border-radius: 16px !important;
+      }
+
+      .st-mini-023w span {
+        font-size: 10px !important;
+        margin-bottom: 6px !important;
+      }
+
+      .st-mini-023w strong {
+        font-size: 17px !important;
+      }
+
+      .st-actions-023w {
+        gap: 8px !important;
+      }
+
+      .st-actions-023w .st-btn-023w {
+        min-height: 42px !important;
+        padding: 10px 14px !important;
+        font-size: 13px !important;
+        border-radius: 14px !important;
+      }
+
+      .st-progress-023w {
+        height: 8px !important;
+      }
+
+      /* ===== DASHBOARD MINI PANEL ===== */
+      .mp-card,
+      .mp-kpi-card,
+      .mp-panel-card,
+      .mini-panel-card {
+        border-radius: 22px !important;
+        padding: 18px !important;
+      }
+
+      .mp-section-title {
+        font-size: 12px !important;
+        letter-spacing: .22em !important;
+      }
+
+      .mp-kpi-value,
+      .mp-value,
+      .kpi-value {
+        font-size: clamp(22px, 2.4vw, 34px) !important;
+        line-height: 1.08 !important;
+      }
+
+      .mp-kpi-sub,
+      .mp-caption,
+      .mp-help {
+        font-size: 13px !important;
+        line-height: 1.35 !important;
+      }
+
+      .mp-modules-grid,
+      .mp-modules-grid-r3 {
+        display: grid !important;
+        grid-template-columns: repeat(5, minmax(180px, 1fr)) !important;
+        gap: 14px !important;
+      }
+
+      .mp-module-card {
+        min-height: 146px !important;
+        padding: 18px !important;
+        border-radius: 22px !important;
+      }
+
+      .mp-module-card strong,
+      .mp-module-card h3 {
+        font-size: 16px !important;
+        line-height: 1.15 !important;
+      }
+
+      .mp-module-card p,
+      .mp-module-card .mp-muted {
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+      }
+
+      /* ===== BLOQUES SUPERIORES DEL DASHBOARD ===== */
+      .mp-top-grid,
+      .mp-dashboard-top,
+      .mini-panel-top {
+        display: grid !important;
+        grid-template-columns: minmax(420px, 1.5fr) minmax(220px, .58fr) minmax(250px, .62fr) !important;
+        gap: 14px !important;
+        align-items: stretch !important;
+      }
+
+      /* ===== TIEMPOS / ACCIONES ===== */
+      .mp-action-stack-r3,
+      .mp-times-card,
+      .mp-actions-card {
+        gap: 10px !important;
+      }
+
+      .mp-button,
+      .mp-btn,
+      button.mp-button {
+        min-height: 42px !important;
+        border-radius: 14px !important;
+        padding: 10px 14px !important;
+        font-size: 13px !important;
+      }
+
+      /* ===== SELECTOR COLABORADOR ===== */
+      select[data-store-actor-023w],
+      select[data-storeActor-023w],
+      [data-storeactor-023w] {
+        min-height: 48px !important;
+        border-radius: 16px !important;
+        font-size: 14px !important;
+        padding: 0 14px !important;
+      }
+
+      /* ===== RESPONSIVE ===== */
+      @media (max-width: 1380px) {
+        .mp-modules-grid,
+        .mp-modules-grid-r3 {
+          grid-template-columns: repeat(3, minmax(180px, 1fr)) !important;
+        }
+
+        .mp-top-grid,
+        .mp-dashboard-top,
+        .mini-panel-top {
+          grid-template-columns: 1fr !important;
+        }
+
+        .st-grid-023w {
+          grid-template-columns: repeat(2, minmax(180px, 1fr)) !important;
+        }
+      }
+
+      @media (max-width: 1100px) {
+        .st-grid-023w:has(.st-member-023w) {
+          grid-template-columns: 1fr !important;
+        }
+
+        .st-metrics-023w {
+          grid-template-columns: repeat(2, minmax(110px, 1fr)) !important;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .mp-modules-grid,
+        .mp-modules-grid-r3,
+        .st-grid-023w {
+          grid-template-columns: 1fr !important;
+        }
+
+        .st-hero-023w {
+          padding: 18px !important;
+        }
+
+        .st-title-023w {
+          font-size: clamp(28px, 9vw, 42px) !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  /* CLONEXA_024A_R3_VISUAL_FIT_DESKTOP_END */
+
   async function bootShell() {
+    ensureMiniPanelVisualFit024A_R3();
     if (!companyId) {
       renderError("El enlace no contiene company_id.");
       return;
