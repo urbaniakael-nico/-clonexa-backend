@@ -7,6 +7,7 @@
   const panelType = (params.get("type") || params.get("panel_type") || "sales").toLowerCase();
   const isLogin = window.location.pathname.includes("/login");
   const storageKey = `clonexa_mini_panel_token_${companyId}_${panelType}`;
+  const legacyStorageKey024B = storageKey;
 
   let timerHandle = null;
   let storeTeamTimer023W = null;
@@ -38,9 +39,16 @@
     return TYPE_LABELS[value] || value || "Mini Panel";
   }
 
+  /* CLONEXA_024B_STORE_ADMIN_SESSION_ISOLATION_TOKEN_START */
   function token() {
-    return localStorage.getItem(storageKey) || "";
+    return sessionStorage.getItem(storageKey) || "";
   }
+
+  function clearMiniPanelToken024B() {
+    sessionStorage.removeItem(storageKey);
+    localStorage.removeItem(legacyStorageKey024B);
+  }
+  /* CLONEXA_024B_STORE_ADMIN_SESSION_ISOLATION_TOKEN_END */
 
   function authHeaders() {
     const value = token();
@@ -1607,7 +1615,16 @@
           body: JSON.stringify({ username, password, panel_type: panelType })
         });
 
-        localStorage.setItem(storageKey, data.access_token);
+        sessionStorage.setItem(storageKey, data.access_token);
+        localStorage.removeItem(legacyStorageKey024B);
+        sessionStorage.setItem("clonexa_mini_panel_current_session_024B", JSON.stringify({
+          company_id: companyId,
+          type: panelType,
+          user_id: data?.user?.id || data?.mini_panel_user?.id || "",
+          employee_id: data?.mini_panel?.employee_id || data?.employee?.id || data?.mini_panel_user?.employee_id || "",
+          username: data?.mini_panel?.username || data?.mini_panel_user?.username || "",
+          at: new Date().toISOString()
+        }));
         localStorage.setItem("clonexa_mini_panel_last_session", JSON.stringify({
           company_id: companyId,
           type: panelType,
@@ -1984,9 +2001,14 @@
     return CX_STORE_SHIFT_CONTROL_CODES_023W.has(canonicalModuleCode022A(code));
   }
 
+  /* CLONEXA_024B_STORE_ADMIN_SESSION_ISOLATION_ACTOR_START */
   function storeActorKey023W() {
-    return `clonexa_store_actor_${companyId}_${panelType}`;
+    const store = currentStoreTeam023W?.store || {};
+    const slotId = String(store.id || store.store_id || store.store_slot_id || "store_current").trim() || "store_current";
+    const adminId = String(store.admin_employee_id || store.current_employee_id || store.leader_employee_id || "current").trim() || "current";
+    return `clonexa_store_actor_${companyId}_${panelType}_${slotId}_${adminId}`;
   }
+  /* CLONEXA_024B_STORE_ADMIN_SESSION_ISOLATION_ACTOR_END */
 
   function storeTeamAuthKey023W(employeeId) {
     return `clonexa_store_member_auth_${companyId}_${panelType}_${employeeId}`;
@@ -2054,10 +2076,10 @@
     });
     currentStoreTeam023W = normalizeStoreTeam023W(data);
     const members = Array.isArray(currentStoreTeam023W.members) ? currentStoreTeam023W.members : [];
-    const saved = localStorage.getItem(storeActorKey023W()) || "";
+    const saved = sessionStorage.getItem(storeActorKey023W()) || "";
     const fallback = members.find((item) => item.is_current)?.employee_id || members[0]?.employee_id || "";
     selectedStoreEmployee023W = members.some((item) => item.employee_id === saved) ? saved : fallback;
-    if (selectedStoreEmployee023W) localStorage.setItem(storeActorKey023W(), selectedStoreEmployee023W);
+    if (selectedStoreEmployee023W) sessionStorage.setItem(storeActorKey023W(), selectedStoreEmployee023W);
     return currentStoreTeam023W;
   }
 
@@ -2112,7 +2134,7 @@
       select.dataset.storeActorBound023w = "1";
       select.addEventListener("change", () => {
         selectedStoreEmployee023W = select.value || "";
-        if (selectedStoreEmployee023W) localStorage.setItem(storeActorKey023W(), selectedStoreEmployee023W);
+        if (selectedStoreEmployee023W) sessionStorage.setItem(storeActorKey023W(), selectedStoreEmployee023W);
       });
     });
   }
@@ -2282,7 +2304,7 @@
           if (msg) msg.textContent = "Actualizando turno...";
           await storeTeamAction023W(employeeId, action);
           if (action === "finish" && member.is_admin) {
-            localStorage.removeItem(storageKey);
+            clearMiniPanelToken024B();
             window.location.href = loginUrl();
             return;
           }
@@ -2507,7 +2529,7 @@ function moduleCard(title, description, tag, code = "") {
         if (msg) msg.textContent = "Turno finalizado.";
         window.setTimeout(() => {
           clearTimer();
-          localStorage.removeItem(storageKey);
+          clearMiniPanelToken024B();
           window.location.href = loginUrl();
         }, 900);
       } catch (error) {
@@ -6549,7 +6571,7 @@ async function bootShell() {
       renderShell(session, operational.operational_session || operational, currentModuleConfig);
       refreshMiniPanelSalesKpis022I().catch((error) => console.warn("CLONEXA 022I KPI refresh boot:", error));
     } catch (error) {
-      localStorage.removeItem(storageKey);
+      clearMiniPanelToken024B();
       renderLogin(error.message || "Sesión expirada. Ingresa de nuevo.");
     }
   }
@@ -6563,3 +6585,5 @@ async function bootShell() {
 // CLONEXA_FORCE_BUILD_019H_R1_20260513224440
 
 /* CLONEXA_024A_FORCE_FIX_R5_CANCELLED_MINI_PANEL_RUNTIME_OK */
+
+/* CLONEXA_024B_R2_STORE_ADMIN_SESSION_ISOLATION_OK */
