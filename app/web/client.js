@@ -615,6 +615,12 @@
     retail: ["Retail", "tiendas y ventas", "RTL"],
     sales: ["Ventas", "actividad comercial", "SAL"],
     stores: ["Tiendas", "puntos de venta", "STR"],
+    orders: ["Pedidos", "creacion, seguimiento y estados", "ORD"],
+    tables: ["Mesas", "cuentas y sesiones QR", "TAB"],
+    qr: ["QR", "accesos por mesa", "QR"],
+    loyalty: ["Fidelizacion", "clientes recurrentes y puntos", "LOY"],
+    day_closing: ["Cierre de dia", "resumen diario operativo", "DAY"],
+    stock: ["Stock", "existencias y alertas", "STO"],
     hospitality: ["Hospitality", "pedidos e inventario", "HSP"],
     bots: ["Bots", "Telegram / WhatsApp", "BOT"],
     mini_panel: ["Mini Paneles", "links operativos", "MIN"],
@@ -12979,6 +12985,398 @@ function inventoryCreatePayload() {
     });
   }
   /* CLONEXA_023T_CLIENT_REQUESTS_CONSOLE_END */
+  /* CLONEXA_024R_HOSPITALITY_ORDERS_START */
+  let cxHspInventory024R = [];
+  let cxHspOrders024R = [];
+
+  function cxIsHospitalityOrdersCode024R(code = "") {
+    const normalized = String(code || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return ["orders", "pedidos", "hospitality_orders", "bar_orders"].includes(normalized);
+  }
+
+  function cxHspMoney024R(value) {
+    try {
+      return new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0,
+      }).format(Number(value || 0));
+    } catch (_) {
+      return `$ ${Number(value || 0).toLocaleString("es-CO")}`;
+    }
+  }
+
+  function cxHspApi024R(path, options = {}) {
+    return api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxHspStatusClass024R(status) {
+    const raw = String(status || "").toLowerCase();
+    if (raw === "pendiente") return "pending";
+    if (raw === "alistando") return "preparing";
+    if (raw === "entregado") return "served";
+    if (raw === "cerrado") return "closed";
+    return "pending";
+  }
+
+  function cxHspStyles024R() {
+    if (document.getElementById("cxHspStyles024R")) return;
+    const style = document.createElement("style");
+    style.id = "cxHspStyles024R";
+    style.textContent = `
+      .hsp-shell-024r{display:grid;gap:18px;color:#e5e7eb}
+      .hsp-grid-024r{display:grid;grid-template-columns:430px 1fr;gap:18px;align-items:start}
+      .hsp-box-024r{background:rgba(15,23,42,.86);border:1px solid rgba(148,163,184,.22);border-radius:18px;padding:18px;box-shadow:0 18px 45px rgba(0,0,0,.28)}
+      .hsp-box-024r h2{font-size:16px;margin:0 0 5px;color:#fff}
+      .hsp-note-024r{color:#94a3b8;font-size:13px;margin-bottom:14px;line-height:1.4;font-weight:800}
+      .hsp-field-024r label{display:block;color:#94a3b8;font-size:12px;font-weight:900;margin:10px 0 6px;text-transform:uppercase;letter-spacing:.06em}
+      .hsp-field-024r input,.hsp-field-024r select,.hsp-field-024r textarea{width:100%;background:#0b1220;color:#e5e7eb;border:1px solid rgba(148,163,184,.23);border-radius:12px;padding:12px;outline:none;font-weight:850}
+      .hsp-field-024r textarea{min-height:74px;resize:vertical}
+      .hsp-field-024r input:focus,.hsp-field-024r select:focus,.hsp-field-024r textarea:focus{border-color:#38bdf8}
+      .hsp-row-024r{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+      .hsp-line-024r{display:grid;grid-template-columns:1.2fr 1fr 76px 110px 44px;gap:8px;margin-bottom:8px;align-items:center}
+      .hsp-actions-024r{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+      .hsp-btn-024r{border:0;border-radius:12px;padding:11px 14px;color:#06111f;background:#38bdf8;font-weight:950;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+      .hsp-btn-024r:hover{filter:brightness(1.07)}
+      .hsp-btn-024r.secondary{background:#1f2937;color:#e5e7eb;border:1px solid rgba(148,163,184,.25)}
+      .hsp-btn-024r.green{background:#22c55e;color:#052e16}
+      .hsp-btn-024r.yellow{background:#f59e0b;color:#2b1700}
+      .hsp-btn-024r.red{background:#ef4444;color:#fff}
+      .hsp-btn-024r.purple{background:#a78bfa;color:#130b2e}
+      .hsp-stats-024r{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:12px}
+      .hsp-stat-024r{background:rgba(17,24,39,.9);border:1px solid rgba(148,163,184,.22);border-radius:16px;padding:14px}
+      .hsp-stat-024r span{color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:900}
+      .hsp-stat-024r b{font-size:24px;display:block;margin-top:4px;color:#fff}
+      .hsp-kanban-024r{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+      .hsp-col-024r{background:rgba(15,23,42,.62);border:1px solid rgba(148,163,184,.22);border-radius:18px;padding:14px;min-height:300px}
+      .hsp-col-title-024r{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-weight:1000;color:#fff}
+      .hsp-pill-024r{display:inline-flex;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:1000;color:#07111f;background:#38bdf8;white-space:nowrap}
+      .hsp-pill-024r.pending{background:#f59e0b}
+      .hsp-pill-024r.preparing{background:#38bdf8}
+      .hsp-pill-024r.served{background:#22c55e}
+      .hsp-pill-024r.closed{background:#64748b;color:#fff}
+      .hsp-pill-024r.bar{background:#a78bfa;color:#130b2e}
+      .hsp-card-024r{background:linear-gradient(180deg,rgba(17,28,50,.98),rgba(11,18,32,.98));border:1px solid rgba(148,163,184,.23);border-radius:18px;padding:14px;margin-bottom:12px;box-shadow:0 12px 30px rgba(0,0,0,.20)}
+      .hsp-card-head-024r{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:10px}
+      .hsp-mesa-024r{font-size:20px;font-weight:1000;color:#fff}
+      .hsp-muted-024r{color:#94a3b8;font-size:13px;margin-top:2px;font-weight:800}
+      .hsp-num-024r{color:#cbd5e1;font-size:12px;margin-top:6px;font-weight:800}
+      .hsp-total-024r{margin:12px 0;padding:12px;border-radius:14px;background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.25);display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:18px;font-weight:1000;color:#fff}
+      .hsp-people-024r{display:grid;gap:10px;margin-top:10px}
+      .hsp-person-024r{border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.78);border-radius:14px;overflow:hidden}
+      .hsp-person-head-024r{display:flex;justify-content:space-between;gap:10px;padding:11px 12px;border-bottom:1px solid rgba(148,163,184,.18);font-weight:1000;color:#fff}
+      .hsp-items-024r{display:grid;gap:0}
+      .hsp-item-024r{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-top:1px solid rgba(148,163,184,.12);font-weight:850}
+      .hsp-item-024r small{color:#94a3b8;font-weight:800}
+      .hsp-songs-024r,.hsp-notes-024r{background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.22);color:#fde68a;border-radius:14px;padding:10px 12px;margin:10px 0;white-space:pre-wrap;font-weight:850}
+      .hsp-empty-024r{color:#94a3b8;border:1px dashed rgba(148,163,184,.28);padding:22px;border-radius:14px;text-align:center;font-size:14px;font-weight:850}
+      .hsp-msg-024r{display:none;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;white-space:pre-wrap;font-weight:850}
+      .hsp-msg-024r.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3);color:#fecaca}
+      @media(max-width:1300px){.hsp-kanban-024r{grid-template-columns:repeat(2,1fr)}.hsp-stats-024r{grid-template-columns:repeat(2,1fr)}}
+      @media(max-width:1100px){.hsp-grid-024r{grid-template-columns:1fr}.hsp-line-024r{grid-template-columns:1fr 1fr}.hsp-kanban-024r{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxHspProductOptions024R(selected = "") {
+    const rows = [`<option value="">Manual / sin inventario</option>`].concat(
+      cxHspInventory024R.map((item) => `
+        <option value="${h(item.id)}" ${String(selected) === String(item.id) ? "selected" : ""}>
+          ${h(item.name)} - Stock ${h(item.stock ?? 0)}
+        </option>
+      `)
+    );
+    return rows.join("");
+  }
+
+  function cxHspAddLine024R(productId = "", quantity = 1, name = "", price = 0) {
+    const wrap = document.getElementById("hspProductLines024R");
+    if (!wrap) return;
+    const div = document.createElement("div");
+    div.className = "hsp-line-024r";
+    div.innerHTML = `
+      <select class="hsp-item-select-024r">${cxHspProductOptions024R(productId)}</select>
+      <input class="hsp-item-name-024r" placeholder="Producto manual" value="${h(name)}" />
+      <input class="hsp-item-qty-024r" type="number" min="1" step="1" value="${h(quantity)}" />
+      <input class="hsp-item-price-024r" type="number" min="0" step="100" value="${h(price)}" />
+      <button class="hsp-btn-024r red" type="button" data-hsp-remove-line>×</button>
+    `;
+    wrap.appendChild(div);
+  }
+
+  function cxHspReadItems024R() {
+    return Array.from(document.querySelectorAll(".hsp-line-024r")).map((line) => {
+      const productId = line.querySelector(".hsp-item-select-024r")?.value || "";
+      const inventory = cxHspInventory024R.find((item) => String(item.id) === String(productId)) || {};
+      const name = line.querySelector(".hsp-item-name-024r")?.value || inventory.name || "";
+      const quantity = Number(line.querySelector(".hsp-item-qty-024r")?.value || 0);
+      const unitPrice = Number(line.querySelector(".hsp-item-price-024r")?.value || 0);
+      return {
+        inventory_item_id: productId || null,
+        product_id: productId || null,
+        sku: inventory.sku || "",
+        name,
+        quantity,
+        unit_price: unitPrice,
+      };
+    }).filter((item) => String(item.name || "").trim() && Number(item.quantity || 0) > 0);
+  }
+
+  function cxHspShowMsg024R(id, text, err = false) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = `hsp-msg-024r${err ? " err" : ""}`;
+    el.style.display = "block";
+    setTimeout(() => { el.style.display = "none"; }, 6500);
+  }
+
+  async function cxHspLoadInventory024R() {
+    const data = await cxHspApi024R("/inventory-lite?limit=300");
+    cxHspInventory024R = Array.isArray(data.inventory) ? data.inventory : [];
+  }
+
+  async function cxHspLoadOrders024R() {
+    const data = await cxHspApi024R("/orders?status=all&limit=220");
+    cxHspOrders024R = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
+    cxHspRenderOrdersBoard024R(data.summary || {});
+  }
+
+  function cxHspGroup024R(status) {
+    return cxHspOrders024R.filter((order) => String(order.status || "") === status);
+  }
+
+  function cxHspRenderOrdersBoard024R(summary = {}) {
+    const groups = {
+      pendiente: cxHspGroup024R("pendiente"),
+      alistando: cxHspGroup024R("alistando"),
+      entregado: cxHspGroup024R("entregado"),
+      cerrado: cxHspGroup024R("cerrado"),
+    };
+
+    const fill = (id, html) => {
+      const node = document.getElementById(id);
+      if (node) node.innerHTML = html;
+    };
+    const text = (id, value) => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = String(value);
+    };
+
+    fill("hspPending024R", cxHspRenderGroup024R(groups.pendiente));
+    fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando));
+    fill("hspServed024R", cxHspRenderGroup024R(groups.entregado));
+    fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado));
+
+    text("hspSPending024R", summary.pending ?? groups.pendiente.length);
+    text("hspSPreparing024R", summary.preparing ?? groups.alistando.length);
+    text("hspSServed024R", summary.served ?? groups.entregado.length);
+    text("hspSClosed024R", summary.closed ?? groups.cerrado.length);
+    text("hspSTotal024R", cxHspMoney024R(summary.open_total ?? cxHspOrders024R.filter((order) => ["pendiente", "alistando", "entregado"].includes(order.status)).reduce((sum, order) => sum + Number(order.total || 0), 0)));
+
+    text("hspCPending024R", groups.pendiente.length);
+    text("hspCPreparing024R", groups.alistando.length);
+    text("hspCServed024R", groups.entregado.length);
+    text("hspCClosed024R", groups.cerrado.length);
+  }
+
+  function cxHspRenderGroup024R(list = []) {
+    if (!list.length) return `<div class="hsp-empty-024r">Sin pedidos</div>`;
+    return list.map(cxHspOrderCard024R).join("");
+  }
+
+  function cxHspOrderCard024R(order = {}) {
+    const people = (Array.isArray(order.people) ? order.people : []).map((person) => {
+      const items = (Array.isArray(person.items) ? person.items : []).map((item) => `
+        <div class="hsp-item-024r">
+          <span>${h(item.name)}<br><small>${h(item.quantity)} x ${h(cxHspMoney024R(item.unit_price))}</small></span>
+          <strong>${h(cxHspMoney024R(item.subtotal))}</strong>
+        </div>
+      `).join("");
+
+      return `
+        <div class="hsp-person-024r">
+          <div class="hsp-person-head-024r">
+            <span>${h(person.name || "Cliente")}</span>
+            <span>${h(cxHspMoney024R(person.total))}</span>
+          </div>
+          <div class="hsp-items-024r">${items}</div>
+        </div>
+      `;
+    }).join("");
+
+    let actions = "";
+    if (order.status === "pendiente") {
+      actions = `<button class="hsp-btn-024r yellow" type="button" data-hsp-status="${h(order.id)}" data-hsp-next="alistando">Alistando</button>`;
+    } else if (order.status === "alistando") {
+      actions = `<button class="hsp-btn-024r green" type="button" data-hsp-status="${h(order.id)}" data-hsp-next="entregado">Entregado</button>`;
+    } else if (order.status === "entregado") {
+      actions = `<button class="hsp-btn-024r red" type="button" data-hsp-close="${h(order.id)}">Cerrar mesa</button>`;
+    }
+
+    const showSongs = ["pendiente", "alistando"].includes(order.status);
+    const songs = Array.isArray(order.songs) ? order.songs.filter(Boolean) : [];
+    const typeLabel = order.type === "bar_sale"
+      ? `<span class="hsp-pill-024r bar">Barra manual</span>`
+      : `<span class="hsp-pill-024r ${h(cxHspStatusClass024R(order.status))}">Mesa QR</span>`;
+
+    return `
+      <article class="hsp-card-024r">
+        <div class="hsp-card-head-024r">
+          <div>
+            <div class="hsp-mesa-024r">${h(order.table_number || "Mesa")}</div>
+            <div class="hsp-muted-024r">${h((order.people || []).length)} persona(s) - ${h(order.status || "pendiente")}</div>
+            <div class="hsp-num-024r">${h(order.order_number || "")}</div>
+          </div>
+          <div style="text-align:right;display:grid;gap:8px;justify-items:end">
+            <span class="hsp-pill-024r ${h(cxHspStatusClass024R(order.status))}">${h(order.status || "pendiente")}</span>
+            ${typeLabel}
+          </div>
+        </div>
+        <div class="hsp-total-024r"><span>Total mesa</span><span>${h(cxHspMoney024R(order.total))}</span></div>
+        <div class="hsp-people-024r">${people || `<div class="hsp-empty-024r">Sin detalle</div>`}</div>
+        ${showSongs ? `<div class="hsp-songs-024r"><b>Canciones:</b><br>${songs.length ? songs.map(h).join("<br>") : "Sin canciones solicitadas"}</div>` : ""}
+        ${order.notes ? `<div class="hsp-notes-024r"><b>Notas:</b><br>${h(order.notes)}</div>` : ""}
+        <div class="hsp-actions-024r">${actions}</div>
+      </article>
+    `;
+  }
+
+  async function renderHospitalityOrdersModule024R() {
+    cxHspStyles024R();
+    const company = state.company || {};
+    let loadError = "";
+    let summary = {};
+
+    try {
+      await cxHspLoadInventory024R();
+      const data = await cxHspApi024R("/orders?status=all&limit=220");
+      cxHspOrders024R = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
+      summary = data.summary || {};
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Hospitality Pedidos.";
+      cxHspOrders024R = [];
+      cxHspInventory024R = [];
+    }
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("orders")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Pedidos</div>
+              <h1 class="client-title">Panel Barman</h1>
+              <p class="client-muted">Mesas agrupadas por QR, barra manual separada y flujo pendiente -> alistando -> entregado -> cerrado.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                ${isClientModuleActive("inventory") ? `<button class="client-btn" type="button" data-hsp-open-inventory>Inventario</button>` : ""}
+                <button class="client-btn" type="button" data-hsp-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            <section id="hspOrdersRoot024R" class="hsp-shell-024r">
+              ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+              <div class="hsp-grid-024r">
+                <section class="hsp-box-024r">
+                  <h2>Crear venta directa de barra</h2>
+                  <div class="hsp-note-024r">Registro manual del barman. No representa el flujo QR/mesa principal.</div>
+
+                  <div class="hsp-row-024r">
+                    <div class="hsp-field-024r">
+                      <label>Referencia</label>
+                      <input id="hspTable024R" placeholder="Ej: Barra / Mesa 1" value="Barra" />
+                    </div>
+                    <div class="hsp-field-024r">
+                      <label>Cliente</label>
+                      <input id="hspCustomer024R" placeholder="Ej: Cliente barra" />
+                    </div>
+                  </div>
+
+                  <div class="hsp-field-024r"><label>Productos</label></div>
+                  <div id="hspProductLines024R"></div>
+                  <button class="hsp-btn-024r secondary" type="button" data-hsp-add-line>+ Producto</button>
+
+                  <div class="hsp-field-024r">
+                    <label>Canciones solicitadas</label>
+                    <input id="hspSongs024R" placeholder="Ej: Salsa choque, Provenza, La rebelion" />
+                  </div>
+                  <div class="hsp-field-024r">
+                    <label>Notas</label>
+                    <textarea id="hspNotes024R" placeholder="Sin hielo, poco dulce, etc."></textarea>
+                  </div>
+
+                  <div class="hsp-actions-024r">
+                    <button class="hsp-btn-024r green" type="button" data-hsp-create>Crear venta barra</button>
+                  </div>
+                  <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
+                </section>
+
+                <section class="hsp-box-024r">
+                  <h2>Resumen operativo</h2>
+                  <div class="hsp-stats-024r">
+                    <div class="hsp-stat-024r"><span>Pendientes</span><b id="hspSPending024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Alistando</span><b id="hspSPreparing024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Entregados</span><b id="hspSServed024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Cerrados</span><b id="hspSClosed024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Total abierto</span><b id="hspSTotal024R">$0</b></div>
+                  </div>
+                  <div id="hspGlobalMsg024R" class="hsp-msg-024r"></div>
+                </section>
+              </div>
+
+              <section class="hsp-kanban-024r">
+                <div class="hsp-col-024r">
+                  <div class="hsp-col-title-024r">Pendiente <span class="hsp-pill-024r pending" id="hspCPending024R">0</span></div>
+                  <div id="hspPending024R"></div>
+                </div>
+                <div class="hsp-col-024r">
+                  <div class="hsp-col-title-024r">Alistando <span class="hsp-pill-024r preparing" id="hspCPreparing024R">0</span></div>
+                  <div id="hspPreparing024R"></div>
+                </div>
+                <div class="hsp-col-024r">
+                  <div class="hsp-col-title-024r">Entregado <span class="hsp-pill-024r served" id="hspCServed024R">0</span></div>
+                  <div id="hspServed024R"></div>
+                </div>
+                <div class="hsp-col-024r">
+                  <div class="hsp-col-title-024r">Cerrado <span class="hsp-pill-024r closed" id="hspCClosed024R">0</span></div>
+                  <div id="hspClosed024R"></div>
+                </div>
+              </section>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    cxHspAddLine024R();
+    cxHspRenderOrdersBoard024R(summary);
+
+    if (window.__cxHspOrdersTimer024R) window.clearInterval(window.__cxHspOrdersTimer024R);
+    window.__cxHspOrdersTimer024R = window.setInterval(async () => {
+      if (!document.getElementById("hspOrdersRoot024R")) {
+        window.clearInterval(window.__cxHspOrdersTimer024R);
+        window.__cxHspOrdersTimer024R = null;
+        return;
+      }
+      try {
+        await cxHspLoadOrders024R();
+      } catch (_) {}
+    }, 5500);
+  }
+  /* CLONEXA_024R_HOSPITALITY_ORDERS_END */
 async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -13020,6 +13418,14 @@ async function renderClientModulePlaceholder(code) {
       typeof renderRequestsModule023T === "function"
     ) {
       return renderRequestsModule023T();
+    }
+
+    if (
+      typeof cxIsHospitalityOrdersCode024R === "function" &&
+      cxIsHospitalityOrdersCode024R(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderHospitalityOrdersModule024R === "function"
+    ) {
+      return renderHospitalityOrdersModule024R();
     }
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_END */
     const company = state.company || {};
@@ -13789,6 +14195,99 @@ document.addEventListener("click", async (event) => {
         return;
       }
 
+      if (target.closest("[data-hsp-open-inventory]")) {
+        await renderInventoryModule();
+        return;
+      }
+
+      if (target.closest("[data-hsp-refresh]")) {
+        try {
+          await cxHspLoadInventory024R();
+          await cxHspLoadOrders024R();
+          cxHspShowMsg024R("hspGlobalMsg024R", "Pedidos actualizados.");
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo actualizar.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-add-line]")) {
+        cxHspAddLine024R();
+        return;
+      }
+
+      const hspRemoveLine = target.closest("[data-hsp-remove-line]");
+      if (hspRemoveLine) {
+        hspRemoveLine.closest(".hsp-line-024r")?.remove();
+        return;
+      }
+
+      if (target.closest("[data-hsp-create]")) {
+        try {
+          const items = cxHspReadItems024R();
+          if (!items.length) {
+            cxHspShowMsg024R("hspFormMsg024R", "Agrega al menos un producto.", true);
+            return;
+          }
+          const data = await cxHspApi024R("/orders", {
+            method: "POST",
+            body: JSON.stringify({
+              source: "bar_manual",
+              table: document.getElementById("hspTable024R")?.value || "Barra",
+              customer: document.getElementById("hspCustomer024R")?.value || "Cliente barra",
+              songs: document.getElementById("hspSongs024R")?.value || "",
+              notes: document.getElementById("hspNotes024R")?.value || "",
+              items,
+            }),
+          });
+
+          const lines = document.getElementById("hspProductLines024R");
+          if (lines) lines.innerHTML = "";
+          cxHspAddLine024R();
+          const table = document.getElementById("hspTable024R");
+          const customer = document.getElementById("hspCustomer024R");
+          const songs = document.getElementById("hspSongs024R");
+          const notes = document.getElementById("hspNotes024R");
+          if (table) table.value = "Barra";
+          if (customer) customer.value = "";
+          if (songs) songs.value = "";
+          if (notes) notes.value = "";
+          cxHspShowMsg024R("hspFormMsg024R", `Venta barra creada: ${data.order?.order_number || "OK"}`);
+          await cxHspLoadOrders024R();
+        } catch (error) {
+          cxHspShowMsg024R("hspFormMsg024R", error.message || "No se pudo crear el pedido.", true);
+        }
+        return;
+      }
+
+      const hspStatus = target.closest("[data-hsp-status]");
+      if (hspStatus) {
+        try {
+          const id = hspStatus.getAttribute("data-hsp-status");
+          const next = hspStatus.getAttribute("data-hsp-next");
+          await cxHspApi024R(`/orders/${encodeURIComponent(id)}/status`, {
+            method: "PATCH",
+            body: JSON.stringify({ status: next }),
+          });
+          await cxHspLoadOrders024R();
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cambiar el estado.", true);
+        }
+        return;
+      }
+
+      const hspClose = target.closest("[data-hsp-close]");
+      if (hspClose) {
+        try {
+          const id = hspClose.getAttribute("data-hsp-close");
+          await cxHspApi024R(`/orders/${encodeURIComponent(id)}/close-table`, { method: "POST", body: JSON.stringify({}) });
+          await cxHspLoadOrders024R();
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cerrar la mesa.", true);
+        }
+        return;
+      }
+
       const clientAction = target.closest("[data-client-action]");
       if (clientAction) {
         const action = String(clientAction.dataset.clientAction || "");
@@ -13873,6 +14372,11 @@ document.addEventListener("click", async (event) => {
 
         if (typeof cxIsRequestsCode023T === "function" && cxIsRequestsCode023T(code)) {
           await renderRequestsModule023T();
+          return;
+        }
+
+        if (typeof cxIsHospitalityOrdersCode024R === "function" && cxIsHospitalityOrdersCode024R(code)) {
+          await renderHospitalityOrdersModule024R();
           return;
         }
 

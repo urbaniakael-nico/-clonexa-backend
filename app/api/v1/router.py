@@ -41,6 +41,7 @@ for _module_name, _prefix, _tags in [
     ("mini_panel_sales", "/mini-panel-sales", ["mini_panel_sales"]),
     ("mini_panel_requests", "/mini-panel-requests", ["mini_panel_requests"]),
     ("day_closing", "/day-closing", ["day_closing"]),
+    ("hospitality", "/hospitality", ["hospitality"]),
     ("field", "/field", ["field"]),
 ]:
     _include(_module_name, _prefix, _tags)
