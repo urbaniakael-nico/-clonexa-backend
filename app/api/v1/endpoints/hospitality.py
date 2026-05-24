@@ -603,26 +603,50 @@ async def update_hospitality_order_status(
     if next_status == STATUS_SERVED:
         await _deduct_inventory(db, company_id, order)
 
-    timestamp_column = {
-        STATUS_PREPARING: "preparing_at",
-        STATUS_SERVED: "served_at",
-        STATUS_CLOSED: "closed_at",
-    }.get(next_status)
-
-    await db.execute(
-        text(
-            f"""
-            UPDATE hospitality_orders
-            SET status = :status,
-                inventory_deducted = CASE WHEN :status = 'entregado' THEN TRUE ELSE inventory_deducted END,
-                {timestamp_column} = COALESCE({timestamp_column}, NOW()),
-                updated_at = NOW()
-            WHERE id = :order_id
-              AND company_id = :company_id
-            """
-        ),
-        {"status": next_status, "order_id": str(order_id), "company_id": str(company_id)},
-    )
+    params = {"order_id": str(order_id), "company_id": str(company_id)}
+    if next_status == STATUS_PREPARING:
+        await db.execute(
+            text(
+                """
+                UPDATE hospitality_orders
+                SET status = 'alistando',
+                    preparing_at = COALESCE(preparing_at, NOW()),
+                    updated_at = NOW()
+                WHERE id = :order_id
+                  AND company_id = :company_id
+                """
+            ),
+            params,
+        )
+    elif next_status == STATUS_SERVED:
+        await db.execute(
+            text(
+                """
+                UPDATE hospitality_orders
+                SET status = 'entregado',
+                    inventory_deducted = TRUE,
+                    served_at = COALESCE(served_at, NOW()),
+                    updated_at = NOW()
+                WHERE id = :order_id
+                  AND company_id = :company_id
+                """
+            ),
+            params,
+        )
+    elif next_status == STATUS_CLOSED:
+        await db.execute(
+            text(
+                """
+                UPDATE hospitality_orders
+                SET status = 'cerrado',
+                    closed_at = COALESCE(closed_at, NOW()),
+                    updated_at = NOW()
+                WHERE id = :order_id
+                  AND company_id = :company_id
+                """
+            ),
+            params,
+        )
     await db.commit()
     saved = await _fetch_order(db, company_id, order_id)
     return {"ok": True, "order": saved, "table": saved}
