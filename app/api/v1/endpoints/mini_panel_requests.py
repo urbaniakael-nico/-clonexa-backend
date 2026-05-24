@@ -267,7 +267,7 @@ async def _fetch_request(conn: asyncpg.Connection, company_id: uuid.UUID, reques
           AND id = $2::uuid
         LIMIT 1
         """,
-        company_id,
+        str(company_id),
         request_id,
     )
     if not row:
@@ -282,7 +282,7 @@ async def _next_number(conn: asyncpg.Connection, company_id: uuid.UUID) -> str:
         FROM mini_panel_requests_records
         WHERE company_id::text = $1::text
         """,
-        company_id,
+        str(company_id),
     )
     return f"SOL-{_now().strftime('%Y%m')}-{int(count or 1):04d}"
 
@@ -336,7 +336,7 @@ async def _references(conn: asyncpg.Connection, company_id: uuid.UUID, limit: in
         ORDER BY created_at DESC, name ASC
         LIMIT $2
         """,
-        company_id,
+        str(company_id),
         max(10, min(int(limit or 80), 200)),
     )
     return [
