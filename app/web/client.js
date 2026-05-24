@@ -13074,20 +13074,37 @@ function inventoryCreatePayload() {
       .hsp-note-024r{color:var(--hsp-muted);font-size:13px;margin-bottom:12px;line-height:1.35;font-weight:800}
       .hsp-form-box-024r{
         display:grid;
-        grid-template-columns:minmax(200px,.70fr) minmax(300px,.95fr) minmax(420px,1.35fr) minmax(260px,.85fr) minmax(145px,.35fr);
+        grid-template-columns:minmax(210px,.70fr) minmax(450px,1.25fr) minmax(430px,1.15fr) minmax(300px,.86fr);
         gap:12px;
-        align-items:end;
+        align-items:stretch;
       }
+      .hsp-intro-wrap-024r{display:grid;gap:10px;align-content:start}
       .hsp-form-head-024r{align-self:start}
       .hsp-form-head-024r .hsp-note-024r{margin-bottom:0}
-      .hsp-form-main-024r{align-self:end}
-      .hsp-products-wrap-024r{display:grid;gap:8px}
+      .hsp-form-main-024r{grid-template-columns:1fr;align-self:start}
+      .hsp-products-wrap-024r{display:grid;gap:8px;align-content:start}
       .hsp-products-wrap-024r .hsp-field-024r label{margin-top:0}
-      .hsp-extra-wrap-024r{display:grid;gap:8px}
+      .hsp-extra-wrap-024r{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:10px;align-items:end}
       .hsp-extra-wrap-024r .hsp-field-024r label{margin-top:0}
       .hsp-extra-wrap-024r .hsp-field-024r textarea{min-height:48px}
-      .hsp-submit-wrap-024r{align-self:end;margin-top:0}
+      .hsp-song-field-024r{grid-column:1 / -1}
+      .hsp-note-field-024r{grid-column:1}
+      .hsp-submit-wrap-024r{grid-column:2;align-self:end;margin-top:0}
       .hsp-submit-wrap-024r .hsp-btn-024r{width:100%;min-height:46px}
+      .hsp-calculator-024r{display:grid;gap:10px;align-content:start;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:12px}
+      .hsp-calculator-024r h3{margin:0;color:var(--cx-text,#fff);font-size:16px;line-height:1.1}
+      .hsp-calc-screen-024r{background:rgba(3,7,18,.68);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;display:grid;gap:7px}
+      .hsp-calculator-024r .hsp-field-024r span{display:block;color:var(--hsp-muted);font-size:10px;text-transform:uppercase;font-weight:950;letter-spacing:.08em;margin-bottom:5px}
+      .hsp-calc-line-024r{display:flex;justify-content:space-between;gap:12px;align-items:center;color:var(--hsp-muted);font-size:12px;font-weight:950;text-transform:uppercase;letter-spacing:.06em}
+      .hsp-calc-line-024r strong{color:var(--cx-text,#fff);font-size:18px;letter-spacing:0;text-transform:none}
+      .hsp-calc-line-024r.return strong{color:#86efac}
+      .hsp-calc-line-024r.missing strong{color:#fcd34d}
+      .hsp-calculator-024r input{width:100%;box-sizing:border-box;background:rgba(255,255,255,.08);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:12px;padding:11px 12px;font-size:18px;font-weight:950;outline:none}
+      .hsp-calculator-024r input:focus{border-color:color-mix(in srgb,var(--hsp-primary) 72%,#fff 10%);box-shadow:0 0 0 3px color-mix(in srgb,var(--hsp-primary) 20%,transparent)}
+      .hsp-calc-pad-024r{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+      .hsp-calc-pad-024r button{border:1px solid rgba(255,255,255,.12);border-radius:12px;min-height:36px;background:rgba(255,255,255,.08);color:var(--cx-text,#fff);font-weight:950;cursor:pointer}
+      .hsp-calc-pad-024r button:hover{background:rgba(255,255,255,.14)}
+      .hsp-calc-pad-024r button[data-hsp-calc-clear]{grid-column:span 2;background:rgba(239,68,68,.22)}
       .hsp-form-box-024r .hsp-msg-024r{grid-column:1 / -1;margin-top:0}
       .hsp-field-024r label{display:block;color:var(--hsp-muted);font-size:11px;font-weight:950;margin:9px 0 6px;text-transform:uppercase;letter-spacing:.10em}
       .hsp-field-024r input,.hsp-field-024r select,.hsp-field-024r textarea,
@@ -13109,7 +13126,7 @@ function inventoryCreatePayload() {
       .hsp-row-024r{display:grid;grid-template-columns:1fr 1fr;gap:10px}
       .hsp-line-024r{
         display:grid;
-        grid-template-columns:minmax(0,1fr) 68px 92px 38px;
+        grid-template-columns:minmax(0,1fr) 82px 120px 38px;
         gap:8px;
         padding:10px;
         margin-bottom:8px;
@@ -13118,8 +13135,9 @@ function inventoryCreatePayload() {
         border:1px solid rgba(255,255,255,.09);
         border-radius:16px;
       }
-      .hsp-item-select-024r{grid-column:1 / -1}
-      .hsp-item-name-024r{grid-column:1 / 2}
+      .hsp-line-field-024r{display:grid;gap:5px}
+      .hsp-line-field-024r label{font-size:10px;color:var(--hsp-muted);font-weight:950;text-transform:uppercase;letter-spacing:.08em}
+      .hsp-item-select-024r{grid-column:auto}
       .hsp-actions-024r{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
       .hsp-btn-024r{
         border:0;
@@ -13172,16 +13190,16 @@ function inventoryCreatePayload() {
       .hsp-empty-024r{color:var(--hsp-muted);border:1px dashed rgba(255,255,255,.18);padding:22px;border-radius:14px;text-align:center;font-size:14px;font-weight:850}
       .hsp-msg-024r{display:none;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;white-space:pre-wrap;font-weight:850}
       .hsp-msg-024r.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3);color:#fecaca}
-      @media(max-width:1650px){.hsp-form-box-024r{grid-template-columns:minmax(220px,.8fr) minmax(320px,1fr) minmax(420px,1.25fr);align-items:start}.hsp-extra-wrap-024r{grid-column:1 / 3}.hsp-submit-wrap-024r{grid-column:3}.hsp-stats-024r{grid-template-columns:repeat(5,minmax(90px,1fr))}}
-      @media(max-width:1300px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:1}.hsp-submit-wrap-024r{grid-column:2}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(3,minmax(110px,1fr))}}
-      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r,.hsp-item-name-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
+      @media(max-width:1650px){.hsp-form-box-024r{grid-template-columns:minmax(220px,.72fr) minmax(430px,1.2fr) minmax(430px,1.1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(220px,.7fr) minmax(220px,.8fr) minmax(280px,1fr);align-items:end}.hsp-calc-pad-024r{grid-template-columns:repeat(6,1fr)}.hsp-calc-pad-024r button[data-hsp-calc-clear]{grid-column:span 2}.hsp-stats-024r{grid-template-columns:repeat(5,minmax(90px,1fr))}}
+      @media(max-width:1300px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(3,minmax(110px,1fr))}}
+      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}.hsp-calc-pad-024r{grid-template-columns:repeat(3,1fr)}}
       @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}}
     `;
     document.head.appendChild(style);
   }
 
   function cxHspProductOptions024R(selected = "") {
-    const rows = [`<option value="">Manual / sin inventario</option>`].concat(
+    const rows = [`<option value="">Seleccionar producto</option>`].concat(
       cxHspInventory024R.map((item) => `
         <option value="${h(item.id)}" ${String(selected) === String(item.id) ? "selected" : ""}>
           ${h(item.name)} - Stock ${h(item.stock ?? 0)}
@@ -13198,19 +13216,25 @@ function inventoryCreatePayload() {
     div.className = "hsp-line-024r";
     div.innerHTML = `
       <select class="hsp-item-select-024r">${cxHspProductOptions024R(productId)}</select>
-      <input class="hsp-item-name-024r" placeholder="Producto manual" value="${h(name)}" />
-      <input class="hsp-item-qty-024r" type="number" min="1" step="1" value="${h(quantity)}" />
-      <input class="hsp-item-price-024r" type="number" min="0" step="100" value="${h(price)}" />
+      <div class="hsp-line-field-024r">
+        <label>Cantidad</label>
+        <input class="hsp-item-qty-024r" type="number" min="1" step="1" value="${h(quantity)}" />
+      </div>
+      <div class="hsp-line-field-024r">
+        <label>Valor inv.</label>
+        <input class="hsp-item-price-024r" type="number" min="0" step="100" value="${h(price)}" />
+      </div>
       <button class="hsp-btn-024r red" type="button" data-hsp-remove-line>×</button>
     `;
     wrap.appendChild(div);
+    cxHspUpdateCalculator024R();
   }
 
   function cxHspReadItems024R() {
     return Array.from(document.querySelectorAll(".hsp-line-024r")).map((line) => {
       const productId = line.querySelector(".hsp-item-select-024r")?.value || "";
       const inventory = cxHspInventory024R.find((item) => String(item.id) === String(productId)) || {};
-      const name = line.querySelector(".hsp-item-name-024r")?.value || inventory.name || "";
+      const name = inventory.name || "";
       const quantity = Number(line.querySelector(".hsp-item-qty-024r")?.value || 0);
       const unitPrice = Number(line.querySelector(".hsp-item-price-024r")?.value || 0);
       return {
@@ -13222,6 +13246,42 @@ function inventoryCreatePayload() {
         unit_price: unitPrice,
       };
     }).filter((item) => String(item.name || "").trim() && Number(item.quantity || 0) > 0);
+  }
+
+  function cxHspLineInventory024R(line) {
+    const productId = line?.querySelector(".hsp-item-select-024r")?.value || "";
+    return cxHspInventory024R.find((item) => String(item.id) === String(productId)) || {};
+  }
+
+  function cxHspSyncLinePrice024R(line) {
+    const inventory = cxHspLineInventory024R(line);
+    const priceInput = line?.querySelector(".hsp-item-price-024r");
+    if (!priceInput) return;
+    const nextPrice = Number(inventory.unit_price ?? inventory.sale_price ?? inventory.price ?? 0) || 0;
+    priceInput.value = String(nextPrice);
+    cxHspUpdateCalculator024R();
+  }
+
+  function cxHspFormTotal024R() {
+    return Array.from(document.querySelectorAll(".hsp-line-024r")).reduce((sum, line) => {
+      const quantity = Number(line.querySelector(".hsp-item-qty-024r")?.value || 0) || 0;
+      const price = Number(line.querySelector(".hsp-item-price-024r")?.value || 0) || 0;
+      return sum + (quantity * price);
+    }, 0);
+  }
+
+  function cxHspUpdateCalculator024R() {
+    const total = cxHspFormTotal024R();
+    const paidInput = document.getElementById("hspPaymentReceived024R");
+    const paid = Number(paidInput?.value || 0) || 0;
+    const change = Math.max(paid - total, 0);
+    const missing = Math.max(total - paid, 0);
+    const totalEl = document.getElementById("hspCalcTotal024R");
+    const changeEl = document.getElementById("hspCalcChange024R");
+    const missingEl = document.getElementById("hspCalcMissing024R");
+    if (totalEl) totalEl.textContent = cxHspMoney024R(total);
+    if (changeEl) changeEl.textContent = cxHspMoney024R(change);
+    if (missingEl) missingEl.textContent = cxHspMoney024R(missing);
   }
 
   function cxHspShowMsg024R(id, text, err = false) {
@@ -13400,19 +13460,21 @@ function inventoryCreatePayload() {
                 </section>
 
                 <section class="hsp-box-024r hsp-form-box-024r">
-                  <div class="hsp-form-head-024r">
-                    <h2>Crear venta directa de barra</h2>
-                    <div class="hsp-note-024r">Registro manual del barman. No representa el flujo QR/mesa principal.</div>
-                  </div>
-
-                  <div class="hsp-row-024r hsp-form-main-024r">
-                    <div class="hsp-field-024r">
-                      <label>Referencia</label>
-                      <input id="hspTable024R" placeholder="Ej: Barra / Mesa 1" value="Barra" />
+                  <div class="hsp-intro-wrap-024r">
+                    <div class="hsp-form-head-024r">
+                      <h2>Crear venta directa de barra</h2>
+                      <div class="hsp-note-024r">Registro manual del barman. No representa el flujo QR/mesa principal.</div>
                     </div>
-                    <div class="hsp-field-024r">
-                      <label>Cliente</label>
-                      <input id="hspCustomer024R" placeholder="Ej: Cliente barra" />
+
+                    <div class="hsp-row-024r hsp-form-main-024r">
+                      <div class="hsp-field-024r">
+                        <label>Referencia</label>
+                        <input id="hspTable024R" placeholder="Ej: Barra / Mesa 1" value="Barra" />
+                      </div>
+                      <div class="hsp-field-024r">
+                        <label>Cliente</label>
+                        <input id="hspCustomer024R" placeholder="Ej: Cliente barra" />
+                      </div>
                     </div>
                   </div>
 
@@ -13423,19 +13485,36 @@ function inventoryCreatePayload() {
                   </div>
 
                   <div class="hsp-extra-wrap-024r">
-                    <div class="hsp-field-024r">
+                    <div class="hsp-field-024r hsp-song-field-024r">
                       <label>Canciones solicitadas</label>
                       <input id="hspSongs024R" placeholder="Ej: Salsa choque, Provenza, La rebelion" />
                     </div>
-                    <div class="hsp-field-024r">
+                    <div class="hsp-field-024r hsp-note-field-024r">
                       <label>Notas</label>
                       <textarea id="hspNotes024R" placeholder="Sin hielo, poco dulce, etc."></textarea>
                     </div>
+                    <div class="hsp-actions-024r hsp-submit-wrap-024r">
+                      <button class="hsp-btn-024r green" type="button" data-hsp-create>Crear venta barra</button>
+                    </div>
                   </div>
 
-                  <div class="hsp-actions-024r hsp-submit-wrap-024r">
-                    <button class="hsp-btn-024r green" type="button" data-hsp-create>Crear venta barra</button>
+                  <div class="hsp-calculator-024r">
+                    <h3>Devolucion de pago</h3>
+                    <div class="hsp-calc-screen-024r">
+                      <div class="hsp-calc-line-024r"><span>Total venta</span><strong id="hspCalcTotal024R">$0</strong></div>
+                      <label class="hsp-field-024r">
+                        <span>Recibido</span>
+                        <input id="hspPaymentReceived024R" type="number" min="0" step="100" placeholder="0" />
+                      </label>
+                      <div class="hsp-calc-line-024r return"><span>Devolver</span><strong id="hspCalcChange024R">$0</strong></div>
+                      <div class="hsp-calc-line-024r missing"><span>Faltante</span><strong id="hspCalcMissing024R">$0</strong></div>
+                    </div>
+                    <div class="hsp-calc-pad-024r">
+                      ${["1","2","3","4","5","6","7","8","9","0","00","000"].map((value) => `<button type="button" data-hsp-calc-key="${value}">${value}</button>`).join("")}
+                      <button type="button" data-hsp-calc-clear>Limpiar</button>
+                    </div>
                   </div>
+
                   <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
                 </section>
               </div>
@@ -14322,6 +14401,24 @@ document.addEventListener("click", async (event) => {
       const hspRemoveLine = target.closest("[data-hsp-remove-line]");
       if (hspRemoveLine) {
         hspRemoveLine.closest(".hsp-line-024r")?.remove();
+        cxHspUpdateCalculator024R();
+        return;
+      }
+
+      const hspCalcKey = target.closest("[data-hsp-calc-key]");
+      if (hspCalcKey) {
+        const input = document.getElementById("hspPaymentReceived024R");
+        if (input) {
+          input.value = `${input.value || ""}${hspCalcKey.getAttribute("data-hsp-calc-key") || ""}`;
+          cxHspUpdateCalculator024R();
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-calc-clear]")) {
+        const input = document.getElementById("hspPaymentReceived024R");
+        if (input) input.value = "";
+        cxHspUpdateCalculator024R();
         return;
       }
 
@@ -14355,6 +14452,9 @@ document.addEventListener("click", async (event) => {
           if (customer) customer.value = "";
           if (songs) songs.value = "";
           if (notes) notes.value = "";
+          const paid = document.getElementById("hspPaymentReceived024R");
+          if (paid) paid.value = "";
+          cxHspUpdateCalculator024R();
           cxHspShowMsg024R("hspFormMsg024R", `Venta barra creada: ${data.order?.order_number || "OK"}`);
           await cxHspLoadOrders024R();
         } catch (error) {
@@ -15118,6 +15218,27 @@ document.addEventListener("click", async (event) => {
     updateInventoryInvoicePickerState(invoiceInput);
   });
   /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_LISTENER_END */
+
+  /* CLONEXA_024R_R4_HOSPITALITY_PAYMENT_CALC_LISTENERS_START */
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target || !target.closest || !target.closest("#hspOrdersRoot024R")) return;
+    if (
+      target.matches(".hsp-item-qty-024r") ||
+      target.matches(".hsp-item-price-024r") ||
+      target.matches("#hspPaymentReceived024R")
+    ) {
+      cxHspUpdateCalculator024R();
+    }
+  }, true);
+
+  document.addEventListener("change", (event) => {
+    const select = event.target?.closest?.(".hsp-item-select-024r");
+    if (!select || !select.closest("#hspOrdersRoot024R")) return;
+    cxHspSyncLinePrice024R(select.closest(".hsp-line-024r"));
+  }, true);
+  /* CLONEXA_024R_R4_HOSPITALITY_PAYMENT_CALC_LISTENERS_END */
+
   async function init() {
     try {
       const companyId = companyIdFromUrl();
