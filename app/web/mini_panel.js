@@ -5647,6 +5647,12 @@ function moduleCard(title, description, tag, code = "") {
     };
   }
 
+  function requestSuggestionOptions023U(items = []) {
+    return (Array.isArray(items) ? items : [])
+      .map((item) => `<option value="${h(requestItemLabel023T(item))}">${h(item.sku || item.category || "")}</option>`)
+      .join("");
+  }
+
   function requestReadItems023T(suggestions = []) {
     const byLabel = new Map();
     suggestions.forEach((item) => byLabel.set(requestItemLabel023T(item).toLowerCase(), item));
@@ -5725,8 +5731,8 @@ function moduleCard(title, description, tag, code = "") {
       loadError = error.message || loadError || "No se pudieron cargar solicitudes.";
     }
 
-    const merged = requestMergeSuggestions023T(suggestions);
-    const sold = Array.isArray(suggestions.sold_items) ? suggestions.sold_items : [];
+    let merged = requestMergeSuggestions023T(suggestions);
+    let sold = Array.isArray(suggestions.sold_items) ? suggestions.sold_items : [];
     const items = Array.isArray(data.items) ? data.items : [];
     const company = session?.company || {};
     const employee = session?.employee || session?.user || {};
@@ -5753,7 +5759,7 @@ function moduleCard(title, description, tag, code = "") {
             <h2>Lista editable</h2>
             <p class="rq-muted-023t">Puedes traer vendidos recientes, elegir referencias activas o escribir articulos manualmente.</p>
             <datalist id="requestSuggestions023T">
-              ${merged.map((item) => `<option value="${h(requestItemLabel023T(item))}">${h(item.sku || item.category || "")}</option>`).join("")}
+              ${requestSuggestionOptions023U(merged)}
             </datalist>
             <div class="rq-actions-023t" style="margin-top:14px">
               <button class="rq-btn-023t secondary" type="button" data-rq-prefill-sold-023t>Traer vendidos</button>
@@ -5789,9 +5795,22 @@ function moduleCard(title, description, tag, code = "") {
       if (!lines) return;
       lines.insertAdjacentHTML("beforeend", requestLineHtml023T(lines.querySelectorAll("[data-rq-line-023t]").length, {}));
     });
-    root.querySelector("[data-rq-prefill-sold-023t]")?.addEventListener("click", () => {
+    root.querySelector("[data-rq-prefill-sold-023t]")?.addEventListener("click", async () => {
       if (!lines) return;
       const msg = root.querySelector("#requestMsg023T");
+      if (msg) msg.textContent = "Cargando vendidos recientes...";
+
+      try {
+        suggestions = await requestApi023T(`/suggestions?panel_type=${encodeURIComponent(panelType)}&limit=100`);
+        merged = requestMergeSuggestions023T(suggestions);
+        sold = Array.isArray(suggestions.sold_items) ? suggestions.sold_items : [];
+        const list = root.querySelector("#requestSuggestions023T");
+        if (list) list.innerHTML = requestSuggestionOptions023U(merged);
+      } catch (error) {
+        if (msg) msg.textContent = error.message || "No se pudieron cargar vendidos recientes.";
+        return;
+      }
+
       const base = sold.slice(0, 12);
       if (!base.length) {
         lines.innerHTML = requestLineHtml023T(0, {});
@@ -6606,3 +6625,4 @@ async function bootShell() {
 
 /* CLONEXA_024B_R2_STORE_ADMIN_SESSION_ISOLATION_OK */
 /* CLONEXA_024E_REQUESTS_SOLD_PREFILL_EDITABLE_OK */
+/* CLONEXA_024F_STORE_REQUESTS_TEAM_SOLD_PREFILL_OK */

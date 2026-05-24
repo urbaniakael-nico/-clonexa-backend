@@ -379,7 +379,7 @@ async def _sold_items(
         where.append(f"panel_type = ANY(${idx}::text[])")
         args.append(panel_aliases)
         idx += 1
-    if scope_user:
+    if scope_user and panel != "stores":
         where.append(f"(created_by = ${idx}::uuid OR metadata->'store_actor'->>'user_id' = ${idx}::text)")
         args.append(str(scope_user))
         idx += 1
