@@ -2009,6 +2009,7 @@ async def mini_panel_store_team_session_action_023w(
     employee_id: str,
     action: str,
     panel_type: str,
+    cascade_team: bool = Query(default=False),
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
@@ -2028,7 +2029,7 @@ async def mini_panel_store_team_session_action_023w(
         action,
     )
     admin_employee_id = str((slot.get("employee_ids") or [""])[0] or "")
-    if str(action or "").strip().lower() == "finish" and str(employee_id) == admin_employee_id:
+    if cascade_team and str(action or "").strip().lower() == "finish" and str(employee_id) == admin_employee_id:
         await _cx_store_finish_other_team_sessions_023w(db, company, slot, target_user.id)
 
     team = await _cx_store_team_payload_023w(db, company, current_user, current_mini_panel)

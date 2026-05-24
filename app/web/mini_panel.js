@@ -2232,8 +2232,10 @@
     return currentStoreTeam023W;
   }
 
-  async function storeTeamAction023W(employeeId, action) {
-    const data = await api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-store-team/${encodeURIComponent(employeeId)}/session/${encodeURIComponent(action)}?panel_type=${encodeURIComponent(panelType)}`, {
+  async function storeTeamAction023W(employeeId, action, options = {}) {
+    const params = new URLSearchParams({ panel_type: panelType });
+    if (options.cascadeTeam) params.set("cascade_team", "1");
+    const data = await api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-store-team/${encodeURIComponent(employeeId)}/session/${encodeURIComponent(action)}?${params.toString()}`, {
       method: "POST",
       headers: authHeaders()
     });
@@ -6563,7 +6565,7 @@ function moduleCard(title, description, tag, code = "") {
     }
 
     try {
-      return await storeTeamAction023W(targetId, "finish");
+      return await storeTeamAction023W(targetId, "finish", { cascadeTeam: true });
     } catch (error) {
       console.warn("CLONEXA 024A finish team fallback:", error);
       return operationalAction("finish");
