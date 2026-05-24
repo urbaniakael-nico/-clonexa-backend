@@ -844,13 +844,31 @@
     return Math.max(0, Math.min(100, Math.round((Number(total || 0) / safeGoal) * 100)));
   }
 
+  function mundoCaseCompactMoney024L(value) {
+    const number = Number(value || 0);
+    try {
+      return new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0,
+        notation: Math.abs(number) >= 1000000 ? "compact" : "standard",
+        compactDisplay: "short",
+      }).format(number);
+    } catch (_) {
+      return cxSalesMoney023P(number);
+    }
+  }
+
   function mundoCaseDashboardGoalCard024K(label, total, goal, count) {
     const pct = mundoCaseDashboardPercent024K(total, goal);
     const hasGoal = Number(goal || 0) > 0;
     return `
       <article class="client-kpi cx-mundo-dashboard-kpi cx-mundo-dashboard-goal">
         <span>${h(label)}</span>
-        <strong>${h(cxSalesMoney023P(total))} / ${h(cxSalesMoney023P(goal))}</strong>
+        <div class="cx-mundo-dashboard-amount">
+          <b>${h(mundoCaseCompactMoney024L(total))}</b>
+          <em>Meta ${h(mundoCaseCompactMoney024L(goal))}</em>
+        </div>
         <div class="cx-mundo-dashboard-progress">
           <i style="--cx-mundo-progress:${h(pct)}%"></i>
         </div>
@@ -877,7 +895,7 @@
           ${safeRows.map((row) => `
             <div class="cx-crm-store-opening ${row.opening ? "open" : ""}" title="${h(row.name || row.label || "")}">
               <strong>${h(row.label || "")}</strong>
-              <small>${h(row.openingLabel || "Sin apertura")}</small>
+              <small>${h(row.opening ? (row.openingLabel || "--:--") : "Sin abrir")}</small>
             </div>
           `).join("")}
         </div>
@@ -889,9 +907,17 @@
     return `
       ${crmMundoCaseKpiStyles024D()}
       <style>
+        .client-hero .client-kpi-grid {
+          grid-template-columns: .92fr 1.04fr 1.04fr 1fr;
+          gap: 14px;
+          margin-top: 18px;
+        }
         .cx-mundo-dashboard-kpi {
-          min-height: 130px;
+          min-height: 96px;
+          padding: 16px 18px;
           overflow: hidden;
+          background: linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.055));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.12),0 18px 46px rgba(50,8,70,.20);
         }
         .cx-mundo-dashboard-kpi strong,
         .cx-mundo-dashboard-kpi b {
@@ -901,26 +927,35 @@
           -webkit-text-stroke: 0 transparent;
           text-shadow: none;
         }
+        .cx-mundo-dashboard-kpi > span {
+          margin-bottom: 10px;
+          font-size: 12px;
+          line-height: 1.15;
+          opacity: .78;
+          letter-spacing: .02em;
+          text-transform: none;
+        }
         .cx-mundo-dashboard-people {
           display: grid;
           grid-template-columns: auto 1fr 1fr;
-          gap: 12px;
-          align-items: end;
+          gap: 9px;
+          align-items: stretch;
         }
         .cx-mundo-dashboard-people strong {
-          font-size: 40px;
+          font-size: 34px;
           line-height: 1;
+          align-self: center;
         }
         .cx-mundo-dashboard-people div {
           min-width: 0;
-          border-radius: 14px;
-          padding: 10px;
+          border-radius: 13px;
+          padding: 9px 10px;
           background: rgba(255,255,255,.07);
           border: 1px solid rgba(255,255,255,.11);
         }
         .cx-mundo-dashboard-people b {
           display: block;
-          font-size: 20px;
+          font-size: 18px;
           line-height: 1;
         }
         .cx-mundo-dashboard-people small,
@@ -931,18 +966,33 @@
           font-weight: 900;
           line-height: 1.15;
         }
-        .cx-mundo-dashboard-goal strong {
-          font-size: clamp(20px, 1.7vw, 28px);
+        .cx-mundo-dashboard-amount {
+          display: grid;
+          grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+          gap: 8px;
+          align-items: baseline;
+        }
+        .cx-mundo-dashboard-amount b {
+          min-width: 0;
+          font-size: clamp(21px, 1.35vw, 25px);
           line-height: 1.05;
           white-space: normal;
           overflow-wrap: anywhere;
         }
+        .cx-mundo-dashboard-amount em {
+          min-width: 0;
+          color: rgba(255,255,255,.68);
+          font-size: 12px;
+          font-style: normal;
+          font-weight: 950;
+          white-space: normal;
+        }
         .cx-mundo-dashboard-progress {
-          height: 10px;
+          height: 7px;
           border-radius: 999px;
           overflow: hidden;
           background: rgba(255,255,255,.13);
-          margin-top: 12px;
+          margin-top: 10px;
         }
         .cx-mundo-dashboard-progress i {
           display: block;
@@ -952,7 +1002,34 @@
           background: linear-gradient(90deg,#ff27bc,#56dcf4);
         }
         .client-kpi-grid .cx-crm-store-openings-card {
-          min-height: 130px;
+          min-height: 96px;
+        }
+        .client-hero .cx-crm-store-openings-grid {
+          gap: 6px;
+          margin-top: 7px;
+        }
+        .client-hero .cx-crm-store-opening {
+          min-height: 45px;
+          padding: 7px 3px;
+          border-radius: 11px;
+        }
+        .client-hero .cx-crm-store-opening strong {
+          font-size: 11px !important;
+        }
+        .client-hero .cx-crm-store-opening small {
+          margin-top: 5px;
+          font-size: 9px;
+          line-height: 1.05;
+        }
+        @media (max-width: 1180px) {
+          .client-hero .client-kpi-grid {
+            grid-template-columns: repeat(2,minmax(0,1fr));
+          }
+        }
+        @media (max-width: 640px) {
+          .client-hero .client-kpi-grid {
+            grid-template-columns: 1fr;
+          }
         }
       </style>
     `;
