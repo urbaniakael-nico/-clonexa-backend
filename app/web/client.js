@@ -298,17 +298,17 @@
 
       .client-shell {
         min-height: 100vh;
-        padding: 24px;
+        padding: 18px;
         background:
-          radial-gradient(circle at 10% 0%, ${b.primary_color}22, transparent 30%),
-          radial-gradient(circle at 90% 0%, ${b.secondary_color}18, transparent 30%);
+          radial-gradient(circle at 10% 0%, ${b.primary_color}18, transparent 28%),
+          radial-gradient(circle at 90% 0%, ${b.secondary_color}12, transparent 28%);
       }
 
       .client-layout {
         display: grid;
-        grid-template-columns: 260px 1fr;
-        gap: 20px;
-        max-width: 1760px;
+        grid-template-columns: 232px 1fr;
+        gap: 18px;
+        max-width: 1660px;
         margin: 0 auto;
       }
 
@@ -324,24 +324,24 @@
       }
 
       .client-sidebar {
-        min-height: calc(100vh - 48px);
-        border-radius: 28px;
-        padding: 22px;
+        min-height: calc(100vh - 36px);
+        border-radius: 22px;
+        padding: 18px;
         position: sticky;
-        top: 24px;
+        top: 18px;
       }
 
       .client-logo {
-        width: 74px;
-        height: 74px;
-        border-radius: 22px;
+        width: 62px;
+        height: 62px;
+        border-radius: 18px;
         display: grid;
         place-items: center;
         overflow: hidden;
         background: linear-gradient(145deg, ${b.primary_color}, ${b.secondary_color});
         color: #020617;
         font-weight: 1000;
-        box-shadow: 0 0 34px ${b.primary_color}66;
+        box-shadow: 0 16px 34px ${b.primary_color}3d;
       }
 
       .client-company-name,
@@ -349,144 +349,190 @@
       .client-panel h2,
       .client-kpi strong,
       .client-module-card strong {
-        letter-spacing: ${fp.spacing};
-        font-weight: ${fp.weight};
+        letter-spacing: -.02em;
+        font-weight: 900;
         text-transform: ${fp.transform};
-        text-shadow: ${fp.shadow};
-        -webkit-text-stroke: ${fp.stroke} ${b.secondary_color}99;
-        transform: skewX(${fp.skew});
+        text-shadow: 0 12px 32px rgba(0,0,0,.16);
+        -webkit-text-stroke: 0 transparent;
+        transform: none;
       }
 
       .client-company-name {
-        margin: 18px 0 4px;
-        font-size: 26px;
+        margin: 14px 0 4px;
+        font-size: 22px;
+        line-height: 1.05;
       }
 
       .client-muted {
         color: rgba(255,255,255,.68);
+        font-size: 14px;
+        line-height: 1.45;
       }
 
       .client-nav {
         display: grid;
-        gap: 10px;
-        margin-top: 28px;
+        gap: 9px;
+        margin-top: 22px;
       }
 
       .client-nav button {
         border: 1px solid rgba(255,255,255,.16);
         background: rgba(255,255,255,.075);
         color: ${b.text_color};
-        border-radius: 16px;
-        padding: 14px 14px;
+        border-radius: 14px;
+        padding: 12px 13px;
         text-align: left;
         cursor: pointer;
-        font-weight: 900;
+        font-size: 14px;
+        font-weight: 850;
       }
 
       .client-nav button.active {
         border-color: ${b.secondary_color};
-        box-shadow: 0 0 28px ${b.secondary_color}44;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 12px 30px ${b.secondary_color}24;
       }
 
       .client-main {
         display: grid;
-        gap: 20px;
+        gap: 16px;
       }
 
       .client-hero {
-        border-radius: 30px;
-        padding: 28px;
+        border-radius: 24px;
+        padding: 22px 26px;
         background:
-          radial-gradient(circle at 0% 0%, ${b.primary_color}44, transparent 32%),
-          radial-gradient(circle at 100% 0%, ${b.secondary_color}33, transparent 32%),
-          rgba(255,255,255,.065);
-        border: 1px solid rgba(255,255,255,.16);
-        box-shadow: 0 28px 100px rgba(0,0,0,.34);
+          radial-gradient(circle at 0% 0%, ${b.primary_color}32, transparent 30%),
+          radial-gradient(circle at 100% 0%, ${b.secondary_color}22, transparent 30%),
+          rgba(255,255,255,.052);
+        border: 1px solid rgba(255,255,255,.14);
+        box-shadow: 0 18px 54px rgba(0,0,0,.24);
       }
 
       .client-eyebrow,
       .client-label,
       .client-module-card small {
-        letter-spacing: ${fp.label};
+        letter-spacing: .18em;
         text-transform: uppercase;
         font-weight: 1000;
         color: ${b.secondary_color};
       }
 
+      .client-eyebrow,
+      .client-label {
+        font-size: 11px;
+        line-height: 1.2;
+      }
+
       .client-title {
-        font-size: clamp(40px, 5vw, 76px);
-        line-height: .92;
-        margin: 12px 0;
+        font-size: clamp(34px, 4vw, 62px);
+        line-height: .96;
+        margin: 8px 0;
       }
 
       .client-kpi-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(180px, 1fr));
-        gap: 16px;
-        margin-top: 22px;
+        grid-template-columns: repeat(4, minmax(150px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
       }
 
       .client-kpi {
-        border-radius: 22px;
-        padding: 20px;
+        border-radius: 18px;
+        padding: 15px 16px;
+        min-height: 96px;
+        overflow: hidden;
       }
 
       .client-kpi span {
         display: block;
-        opacity: .72;
-        margin-bottom: 10px;
+        opacity: .74;
+        margin-bottom: 8px;
+        font-size: 13px;
+        line-height: 1.2;
       }
 
       .client-kpi strong {
-        font-size: 34px;
+        font-size: clamp(25px, 2.15vw, 33px);
+        line-height: 1.02;
         display: block;
       }
 
       .client-actions {
         display: flex;
-        gap: 12px;
+        gap: 10px;
         flex-wrap: wrap;
-        margin-top: 24px;
+        margin-top: 18px;
       }
 
       .client-btn {
-        border: 0;
-        border-radius: 18px;
-        padding: 15px 20px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 14px;
+        padding: 12px 16px;
         color: #020617;
         background: linear-gradient(135deg, ${b.secondary_color}, ${b.primary_color});
-        box-shadow: 0 0 36px ${b.primary_color}55;
-        font-weight: 1000;
+        box-shadow: 0 14px 34px ${b.primary_color}35;
+        font-size: 14px;
+        font-weight: 950;
         cursor: pointer;
       }
 
       .client-panel {
-        border-radius: 28px;
-        padding: 24px;
+        border-radius: 22px;
+        padding: 20px;
+      }
+
+      .client-panel h2 {
+        margin: 10px 0 16px;
+        font-size: clamp(23px, 2vw, 32px);
+        line-height: 1.05;
       }
 
       .client-module-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+        gap: 12px;
       }
 
       .client-module-card {
-        min-height: 132px;
-        border-radius: 22px;
-        padding: 20px;
+        min-height: 110px;
+        border-radius: 18px;
+        padding: 15px 16px;
         width: 100%;
         color: inherit;
         text-align: left;
         cursor: pointer;
-        border: 0;
+        border: 1px solid rgba(255,255,255,.12);
         font: inherit;
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        align-content: start;
+        gap: 10px;
+        background: linear-gradient(145deg, rgba(255,255,255,.105), rgba(255,255,255,.045));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 14px 34px rgba(0,0,0,.16);
+        transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
       }
 
       .client-module-card strong {
         display: block;
-        margin-top: 22px;
-        font-size: 19px;
+        margin-top: 4px;
+        font-size: 16px;
+        line-height: 1.08;
+      }
+
+      .client-module-card small {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        max-width: 20ch;
+        font-size: 10px;
+        line-height: 1.34;
+      }
+
+      .client-module-card:hover {
+        transform: translateY(-1px);
+        border-color: rgba(255,255,255,.22);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.13), 0 18px 42px rgba(0,0,0,.22);
       }
 
       .client-status-list {
@@ -498,25 +544,29 @@
         display: flex;
         justify-content: space-between;
         gap: 16px;
-        padding: 14px 0;
+        padding: 12px 0;
         border-bottom: 1px solid rgba(255,255,255,.1);
       }
 
       .client-badge {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         border-radius: 999px;
-        padding: 10px 14px;
+        padding: 8px 11px;
+        min-width: 44px;
         background: ${b.secondary_color};
         color: #020617;
+        font-size: 12px;
+        line-height: 1;
         font-weight: 1000;
-        box-shadow: 0 0 26px ${b.secondary_color}66;
+        box-shadow: 0 12px 26px ${b.secondary_color}35;
       }
 
       .client-footer-id {
         margin-top: auto;
-        padding: 14px;
-        border-radius: 18px;
+        padding: 12px;
+        border-radius: 14px;
         background: rgba(0,0,0,.2);
         border: 1px solid rgba(255,255,255,.1);
         word-break: break-all;
@@ -3223,28 +3273,34 @@
       <style>
         .cx-crm-people-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-          gap: 16px;
-          margin-top: 18px;
+          grid-template-columns: repeat(auto-fit, minmax(225px, 1fr));
+          gap: 12px;
+          margin-top: 14px;
         }
         .cx-crm-person-card {
-          padding: 20px;
-          min-height: 198px;
+          padding: 15px 16px;
+          min-height: 162px;
           display: flex;
           flex-direction: column;
-          gap: 16px;
+          gap: 12px;
         }
         .cx-crm-person-head {
           display: flex;
           justify-content: space-between;
-          gap: 12px;
+          gap: 10px;
           align-items: flex-start;
+        }
+        .cx-crm-person-head strong {
+          font-size: 18px !important;
+          line-height: 1.08;
+          letter-spacing: -.015em;
+          overflow-wrap: anywhere;
         }
         .cx-crm-timer-wrap span,
         .cx-crm-context-card span {
           display: block;
-          margin-bottom: 6px;
-          font-size: 12px;
+          margin-bottom: 5px;
+          font-size: 10px;
           letter-spacing: .08em;
           text-transform: uppercase;
           opacity: .76;
@@ -3252,7 +3308,7 @@
         }
         .cx-crm-timer {
           display: block;
-          font-size: 30px;
+          font-size: 25px;
           line-height: 1;
           letter-spacing: .02em;
         }
@@ -3262,20 +3318,21 @@
         }
         .cx-crm-context-card {
           border: 1px solid rgba(255,255,255,.12);
-          border-radius: 16px;
-          padding: 13px 14px;
+          border-radius: 13px;
+          padding: 11px 12px;
           background: rgba(255,255,255,.045);
         }
         .cx-crm-context-card strong {
           display: block;
-          font-size: 17px;
+          font-size: 15px;
           line-height: 1.12;
           overflow-wrap: anywhere;
         }
         .cx-crm-context-card small {
           display: block;
-          margin-top: 8px;
+          margin-top: 6px;
           font-weight: 950;
+          font-size: 12px;
           opacity: .88;
         }
         .cx-crm-context-card.ok {
@@ -3584,19 +3641,19 @@
     return `
       <style>
         .cx-crm-store-openings-card {
-          min-height: 138px;
+          min-height: 108px;
         }
         .cx-crm-store-openings-grid {
           display: grid;
           grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 7px;
-          margin-top: 8px;
+          gap: 6px;
+          margin-top: 7px;
         }
         .cx-crm-store-opening {
           min-width: 0;
           border: 1px solid rgba(255,255,255,.13);
-          border-radius: 12px;
-          padding: 8px 4px;
+          border-radius: 11px;
+          padding: 7px 4px;
           text-align: center;
           background: rgba(255,255,255,.055);
         }
@@ -3616,10 +3673,10 @@
         }
         .cx-crm-store-opening small {
           display: block;
-          margin-top: 7px;
+          margin-top: 5px;
           color: rgba(255,255,255,.78);
-          font-size: 10px;
-          line-height: 1.1;
+          font-size: 9px;
+          line-height: 1.05;
           font-weight: 950;
           white-space: normal;
           overflow-wrap: anywhere;
