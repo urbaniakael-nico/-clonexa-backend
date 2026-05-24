@@ -590,11 +590,60 @@ async def _request_rows(
     return [], {"requests_count": 0}
 
 
+def _has_closure_activity(totals: dict[str, Any]) -> bool:
+    count_keys = ["sales_count", "invoices_count", "quotes_count", "requests_count"]
+    money_keys = ["units_sold", "total_amount", "cash_amount", "transfer_amount", "check_amount", "other_amount", "quotes_amount"]
+    return any(int(totals.get(key) or 0) > 0 for key in count_keys) or any(_money(totals.get(key)) > 0 for key in money_keys)
+
+
+def _single_user_matches_closure_totals(user: dict[str, Any], totals: dict[str, Any]) -> bool:
+    if not _has_closure_activity(totals):
+        return False
+
+    for key in ["sales_count", "invoices_count", "quotes_count", "requests_count"]:
+        expected = int(totals.get(key) or 0)
+        if expected and int(user.get(key) or 0) != expected:
+            return False
+
+    for key in ["units_sold", "total_amount", "cash_amount", "transfer_amount", "check_amount", "other_amount", "quotes_amount"]:
+        expected = _money(totals.get(key))
+        if expected and abs(_money(user.get(key)) - expected) > 0.01:
+            return False
+
+    return True
+
+
+def _closure_users_for_display(item: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_users = item.get("users") if isinstance(item.get("users"), list) else []
+    users = [dict(user) for user in raw_users if isinstance(user, dict)]
+    if _panel(item.get("panel_type")) != "sales" or len(users) != 1:
+        return users
+
+    responsible_label = _clean(item.get("submitted_by_label"))
+    if not responsible_label or _norm(responsible_label) in {"panel_principal", "usuario_mini_panel", "sin_usuario"}:
+        return users
+
+    user = users[0]
+    current_label = _clean(user.get("label") or user.get("full_name") or user.get("email") or "")
+    if not current_label or _norm(current_label) == _norm(responsible_label):
+        return users
+
+    totals = item.get("totals") if isinstance(item.get("totals"), dict) else {}
+    if not _single_user_matches_closure_totals(user, totals):
+        return users
+
+    corrected = dict(user)
+    corrected["label"] = responsible_label
+    corrected["user_id"] = _clean(item.get("submitted_by")) or _clean(corrected.get("user_id") or corrected.get("id"))
+    corrected["original_label"] = current_label
+    return [corrected]
+
+
 def _closure_payload(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, Any] | None:
     if not row:
         return None
     data = dict(row)
-    return {
+    payload = {
         "id": str(data.get("id") or ""),
         "company_id": str(data.get("company_id") or ""),
         "panel_type": _clean(data.get("panel_type")),
@@ -628,6 +677,8 @@ def _closure_payload(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, A
         "users": _json(data.get("users_summary"), []),
         "snapshot": _json(data.get("snapshot_json"), {}),
     }
+    payload["users"] = _closure_users_for_display(payload)
+    return payload
 
 
 def _parse_console_date(value: Any, fallback: date) -> date:
@@ -810,8 +861,7 @@ def _aggregate_console(items: list[dict[str, Any]]) -> dict[str, Any]:
             store["last_closure_date"] = group.get("last_closure_date") or store.get("last_closure_date")
             store["last_submitted_at"] = group.get("last_submitted_at") or store.get("last_submitted_at")
 
-        raw_users = item.get("users") if isinstance(item.get("users"), list) else []
-        users = [user for user in raw_users if isinstance(user, dict)]
+        users = _closure_users_for_display(item)
         if not users and _closure_total(item, "total_amount") > 0:
             users = [
                 {
