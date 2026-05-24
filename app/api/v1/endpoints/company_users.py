@@ -2009,7 +2009,7 @@ async def mini_panel_store_team_session_action_023w(
     employee_id: str,
     action: str,
     panel_type: str,
-    cascade_team: bool = Query(default=False),
+    cascade_team: bool = False,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
