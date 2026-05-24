@@ -12549,6 +12549,139 @@ function inventoryCreatePayload() {
     return parts.join(" / ") || "Articulo";
   }
 
+  function cxRequestsQty023Q(value) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return h(value || 0);
+    return number.toLocaleString("es-CO", { maximumFractionDigits: 2 });
+  }
+
+  function cxRequestsPrintSheet023Q(request) {
+    if (!request) return;
+    const rows = Array.isArray(request.items) ? request.items : [];
+    const blankRows = Array.from({ length: Math.max(3, 10 - rows.length) });
+    const requestedAt = cxRequestsDate023T(request.created_at);
+    const printedAt = new Date().toLocaleString("es-CO", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+    const html = `
+      <!doctype html>
+      <html lang="es">
+      <head>
+        <meta charset="utf-8">
+        <title>${h(request.request_number || "Solicitud")} - Alistamiento</title>
+        <style>
+          *{box-sizing:border-box}
+          body{margin:0;background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:12px}
+          .sheet{padding:18px}
+          .top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:12px}
+          h1{margin:0;font-size:22px;letter-spacing:.02em;text-transform:uppercase}
+          .muted{color:#444;font-weight:700}
+          .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid #111;border-bottom:0;margin:10px 0 14px}
+          .cell{border-right:1px solid #111;border-bottom:1px solid #111;padding:7px;min-height:43px}
+          .cell:nth-child(4n){border-right:0}
+          .label{display:block;font-size:9px;text-transform:uppercase;font-weight:800;color:#333;margin-bottom:4px;letter-spacing:.08em}
+          .value{display:block;font-size:13px;font-weight:800}
+          table{width:100%;border-collapse:collapse;table-layout:fixed}
+          th,td{border:1px solid #111;padding:7px;vertical-align:middle}
+          th{background:#ededed;text-transform:uppercase;font-size:10px;letter-spacing:.08em;text-align:left}
+          td{height:34px}
+          .n{width:34px;text-align:center}
+          .check{width:58px;text-align:center}
+          .qty{width:78px;text-align:right;font-weight:800}
+          .sku{width:160px}
+          .variant{width:145px}
+          .obs{width:230px}
+          .box{display:inline-block;width:18px;height:18px;border:2px solid #111}
+          .notes{border:1px solid #111;margin-top:12px;padding:9px;min-height:64px}
+          .sign{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:24px}
+          .line{border-top:1px solid #111;padding-top:7px;font-weight:800;text-align:center}
+          @page{size:letter landscape;margin:10mm}
+          @media print{.sheet{padding:0}.no-print{display:none}}
+        </style>
+      </head>
+      <body>
+        <main class="sheet">
+          <section class="top">
+            <div>
+              <h1>Lista de alistamiento</h1>
+              <div class="muted">${h(request.request_number || "Solicitud")} - ${h(request.store_label || request.requested_by_label || "Tienda")}</div>
+            </div>
+            <div class="muted">Impreso: ${h(printedAt)}</div>
+          </section>
+          <section class="meta">
+            <div class="cell"><span class="label">Solicitud</span><span class="value">${h(request.request_number || "")}</span></div>
+            <div class="cell"><span class="label">Tienda / panel</span><span class="value">${h(request.store_label || request.requested_by_label || "")}</span></div>
+            <div class="cell"><span class="label">Fecha solicitud</span><span class="value">${h(requestedAt)}</span></div>
+            <div class="cell"><span class="label">Estado</span><span class="value">${h(cxRequestsStatusLabel023T(request.status))}</span></div>
+            <div class="cell"><span class="label">Alista</span><span class="value">${h(request.prepared_by || "")}</span></div>
+            <div class="cell"><span class="label">Lineas</span><span class="value">${Number(request.items_count || rows.length || 0)}</span></div>
+            <div class="cell"><span class="label">Unidades</span><span class="value">${h(cxRequestsQty023Q(request.requested_units || 0))}</span></div>
+            <div class="cell"><span class="label">Recibe</span><span class="value"></span></div>
+          </section>
+          <table>
+            <thead>
+              <tr>
+                <th class="n">#</th>
+                <th class="check">Check</th>
+                <th>Articulo</th>
+                <th class="sku">SKU / Categoria</th>
+                <th class="variant">Talla / Color</th>
+                <th class="qty">Cant.</th>
+                <th class="obs">Observaciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((item, index) => `
+                <tr>
+                  <td class="n">${index + 1}</td>
+                  <td class="check"><span class="box"></span></td>
+                  <td><strong>${h(item.name || "Articulo")}</strong>${item.note ? `<br><span class="muted">${h(item.note)}</span>` : ""}</td>
+                  <td>${h(item.sku || item.category || "")}</td>
+                  <td>${h([item.size, item.color].filter(Boolean).join(" / "))}</td>
+                  <td class="qty">${h(cxRequestsQty023Q(item.quantity || 0))}</td>
+                  <td></td>
+                </tr>
+              `).join("")}
+              ${blankRows.map((_, index) => `
+                <tr>
+                  <td class="n">${rows.length + index + 1}</td>
+                  <td class="check"><span class="box"></span></td>
+                  <td></td><td></td><td></td><td class="qty"></td><td></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+          <section class="notes">
+            <span class="label">Observacion de la solicitud</span>
+            ${h(request.notes || "")}
+          </section>
+          <section class="notes">
+            <span class="label">Observaciones del alistador</span>
+          </section>
+          <section class="sign">
+            <div class="line">Firma alistador</div>
+            <div class="line">Firma recibe</div>
+          </section>
+        </main>
+      </body>
+      </html>
+    `;
+    const printWindow = window.open("", "_blank", "width=1120,height=780");
+    if (!printWindow) {
+      alert("No se pudo abrir la ventana de impresion. Permite ventanas emergentes para imprimir la solicitud.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 250);
+  }
+
   function cxRequestsStyles023T() {
     if (document.getElementById("cxRequestsStyles023T")) return;
     const style = document.createElement("style");
@@ -12651,6 +12784,7 @@ function inventoryCreatePayload() {
         </div>
         <div class="cx-req-actions">
           <button class="cx-req-btn secondary" type="button" data-cx-req-open="${h(request.id)}">Abrir</button>
+          <button class="cx-req-btn secondary" type="button" data-cx-req-print="${h(request.id)}">Imprimir</button>
           ${statusValue === "sent" ? `<input class="cx-req-preparer" data-cx-req-preparer="${h(request.id)}" placeholder="Nombre de quien alista"><button class="cx-req-btn" type="button" data-cx-req-preparing="${h(request.id)}">Alistando</button>` : ""}
           ${statusValue === "preparing" ? `<button class="cx-req-btn" type="button" data-cx-req-ready="${h(request.id)}">Marcar lista</button>` : ""}
           ${statusValue !== "archived" ? `<button class="cx-req-btn danger" type="button" data-cx-req-archive="${h(request.id)}">Guardar / archivar</button>` : ""}
@@ -12675,6 +12809,9 @@ function inventoryCreatePayload() {
         <div class="cx-req-kicker">Detalle de solicitud</div>
         <h2>${h(request.request_number || "Solicitud")}</h2>
         <p class="cx-req-muted">Solicita: ${h(request.store_label || request.requested_by_label || "Tienda")} - Estado: ${h(cxRequestsStatusLabel023T(request.status))} - ${h(cxRequestsDate023T(request.created_at))}</p>
+        <div class="cx-req-actions" style="margin-top:12px">
+          <button class="cx-req-btn secondary" type="button" data-cx-req-print="${h(request.id)}">Imprimir lista</button>
+        </div>
         <div class="cx-req-detail-grid">
           <div class="cx-req-kpi"><span>Articulos</span><strong>${Number(request.items_count || rows.length || 0)}</strong><small>Total de lineas pedidas</small></div>
           <div class="cx-req-kpi"><span>Unidades</span><strong>${Number(request.requested_units || 0)}</strong><small>Cantidad solicitada</small></div>
@@ -12796,6 +12933,13 @@ function inventoryCreatePayload() {
     });
     document.querySelectorAll("[data-cx-req-open]").forEach((button) => {
       button.addEventListener("click", () => renderRequestsModule023T({ ...cxRequestsReadFilters023T(filters), selected_id: button.getAttribute("data-cx-req-open") || "" }));
+    });
+    document.querySelectorAll("[data-cx-req-print]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.getAttribute("data-cx-req-print") || "";
+        const request = items.find((item) => String(item.id || "") === String(id));
+        cxRequestsPrintSheet023Q(request);
+      });
     });
     document.querySelectorAll("[data-cx-req-preparing]").forEach((button) => {
       button.addEventListener("click", async () => {
