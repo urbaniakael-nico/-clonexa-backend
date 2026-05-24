@@ -41,6 +41,10 @@ class DayClosingSubmitIn(BaseModel):
     closure_date: str | None = Field(default=None, max_length=20)
     notes: str | None = Field(default=None, max_length=3000)
     connection_snapshot: dict[str, Any] | None = Field(default=None)
+    store_slot_id: str | None = Field(default=None, max_length=120)
+    store_slot_name: str | None = Field(default=None, max_length=180)
+    store_employee_ids: list[str] | None = Field(default=None)
+    store_user_ids: list[str] | None = Field(default=None)
 
 
 class DayClosingReviewIn(BaseModel):
@@ -113,6 +117,86 @@ def _area(panel_type: Any) -> str:
     if panel == "stores":
         return "tiendas"
     return panel or "operacion"
+
+
+def _scope_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_items = value
+    else:
+        raw_items = str(value or "").replace(";", ",").split(",")
+    clean_items: list[str] = []
+    for item in raw_items:
+        clean = _clean(item)
+        if clean and clean not in clean_items:
+            clean_items.append(clean)
+    return clean_items
+
+
+def _store_scope(
+    panel_type: Any,
+    store_slot_id: Any = "",
+    store_slot_name: Any = "",
+    store_employee_ids: Any = None,
+    store_user_ids: Any = None,
+) -> dict[str, Any]:
+    if _panel(panel_type) != "stores":
+        return {"key": "", "label": "", "store_id": "", "store_name": "", "employee_ids": [], "user_ids": []}
+
+    store_id = _clean(store_slot_id)
+    store_name = _clean(store_slot_name)
+    employee_ids = _scope_values(store_employee_ids)
+    user_ids = _scope_values(store_user_ids)
+
+    if store_id:
+        key = f"store:{store_id}"
+    elif employee_ids:
+        key = "store_employees:" + "|".join(sorted(employee_ids))
+    elif user_ids:
+        key = "store_users:" + "|".join(sorted(user_ids))
+    else:
+        key = ""
+
+    return {
+        "key": key,
+        "label": store_name or store_id or "Tienda actual",
+        "store_id": store_id,
+        "store_name": store_name,
+        "employee_ids": employee_ids,
+        "user_ids": user_ids,
+    }
+
+
+def _metadata_scope_clause(metadata_expr: str, start_index: int, scope: dict[str, Any] | None) -> tuple[str, list[Any]]:
+    if not scope or not _clean(scope.get("key")):
+        return "", []
+
+    parts: list[str] = []
+    params: list[Any] = []
+    idx = start_index
+
+    store_id = _clean(scope.get("store_id"))
+    if store_id:
+        parts.append(f"{metadata_expr}->'store_actor'->>'store_id' = ${idx}")
+        params.append(store_id)
+        idx += 1
+
+    employee_ids = _scope_values(scope.get("employee_ids"))
+    if employee_ids:
+        parts.append(f"{metadata_expr}->'store_actor'->>'employee_id' = ANY(${idx}::text[])")
+        params.append(employee_ids)
+        idx += 1
+
+    user_ids = _scope_values(scope.get("user_ids"))
+    if user_ids:
+        parts.append(f"{metadata_expr}->'store_actor'->>'user_id' = ANY(${idx}::text[])")
+        params.append(user_ids)
+        idx += 1
+
+    if not parts:
+        return "", []
+    return f" AND ({' OR '.join(parts)})", params
 
 
 def _money(value: Any) -> float:
@@ -283,6 +367,9 @@ async def _ensure_storage(conn: asyncpg.Connection) -> None:
             company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
             panel_type VARCHAR(50) NOT NULL DEFAULT 'sales',
             area VARCHAR(80) NOT NULL DEFAULT 'ventas',
+            scope_key VARCHAR(220) NOT NULL DEFAULT '',
+            scope_label VARCHAR(180) NOT NULL DEFAULT '',
+            scope_json JSONB NOT NULL DEFAULT '{}'::jsonb,
             closure_date DATE NOT NULL,
             status VARCHAR(30) NOT NULL DEFAULT 'submitted',
             submitted_by UUID NULL,
@@ -311,13 +398,16 @@ async def _ensure_storage(conn: asyncpg.Connection) -> None:
             archived_by_label VARCHAR(180) NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            UNIQUE (company_id, panel_type, closure_date)
+            UNIQUE (company_id, panel_type, closure_date, scope_key)
         );
         """
     )
     # Column-safe evolution if a previous table existed with fewer fields.
     for ddl in [
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS area VARCHAR(80) NOT NULL DEFAULT 'ventas';",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS scope_key VARCHAR(220) NOT NULL DEFAULT '';",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS scope_label VARCHAR(180) NOT NULL DEFAULT '';",
+        "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS scope_json JSONB NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW();",
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS sales_count INTEGER NOT NULL DEFAULT 0;",
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS invoices_count INTEGER NOT NULL DEFAULT 0;",
@@ -342,10 +432,16 @@ async def _ensure_storage(conn: asyncpg.Connection) -> None:
         "ALTER TABLE daily_closures ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();",
     ]:
         await conn.execute(ddl)
+    await conn.execute("ALTER TABLE daily_closures DROP CONSTRAINT IF EXISTS daily_closures_company_id_panel_type_closure_date_key;")
     await conn.execute(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_closures_company_panel_date
-        ON daily_closures (company_id, panel_type, closure_date);
+        DROP INDEX IF EXISTS ux_daily_closures_company_panel_date;
+        """
+    )
+    await conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_closures_company_panel_date_scope
+        ON daily_closures (company_id, panel_type, closure_date, scope_key);
         """
     )
     await conn.execute(
@@ -396,12 +492,14 @@ async def _sales_rows(
     panel_type: str,
     start_at: datetime,
     end_at: datetime,
+    scope: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not await _table_exists(conn, "mini_panel_sales_records"):
         return [], {}
 
+    scope_clause, scope_params = _metadata_scope_clause("s.metadata", 5, scope)
     rows = await conn.fetch(
-        """
+        f"""
         SELECT
             COALESCE(NULLIF(s.metadata->'store_actor'->>'user_id', ''), s.created_by::text, '') AS user_id,
             COALESCE(
@@ -427,6 +525,7 @@ async def _sales_rows(
           AND s.panel_type = $2
           AND s.created_at >= $3
           AND s.created_at <= $4
+          {scope_clause}
           -- Business rule 023L: archiving a sale only cleans the operative view.
           -- It must still count in the active closing period for cash/transfer audit.
         GROUP BY COALESCE(NULLIF(s.metadata->'store_actor'->>'user_id', ''), s.created_by::text, ''),
@@ -443,6 +542,7 @@ async def _sales_rows(
         panel_type,
         start_at,
         end_at,
+        *scope_params,
     )
 
     items = [dict(row) for row in rows]
@@ -465,12 +565,14 @@ async def _quote_rows(
     panel_type: str,
     start_at: datetime,
     end_at: datetime,
+    scope: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not await _table_exists(conn, "mini_panel_quotes"):
         return [], {}
 
+    scope_clause, scope_params = _metadata_scope_clause("q.metadata", 5, scope)
     rows = await conn.fetch(
-        """
+        f"""
         SELECT
             COALESCE(NULLIF(q.metadata->'store_actor'->>'user_id', ''), q.created_by::text, '') AS user_id,
             COALESCE(
@@ -491,6 +593,7 @@ async def _quote_rows(
           AND q.created_at >= $3
           AND q.created_at <= $4
           AND COALESCE(q.status, '') <> 'archived'
+          {scope_clause}
         GROUP BY COALESCE(NULLIF(q.metadata->'store_actor'->>'user_id', ''), q.created_by::text, ''),
                  COALESCE(
                     NULLIF(q.metadata->'store_actor'->>'name', ''),
@@ -505,6 +608,7 @@ async def _quote_rows(
         panel_type,
         start_at,
         end_at,
+        *scope_params,
     )
 
     items = [dict(row) for row in rows]
@@ -521,6 +625,7 @@ async def _request_rows(
     panel_type: str,
     start_at: datetime,
     end_at: datetime,
+    scope: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     # Requests todavía puede no existir. Se detecta de forma defensiva para no romper cierre diario.
     candidate_tables = ["mini_panel_requests_records", "mini_panel_requests", "store_requests", "requests", "company_requests"]
@@ -538,6 +643,7 @@ async def _request_rows(
         has_requested_by = await _column_exists(conn, table, "requested_by")
         has_label = await _column_exists(conn, table, "created_by_label")
         has_requested_label = await _column_exists(conn, table, "requested_by_label")
+        has_metadata = await _column_exists(conn, table, "metadata")
 
         user_expr = "COALESCE(created_by::text, '')" if has_created_by else ("COALESCE(requested_by::text, '')" if has_requested_by else "''")
         label_expr = (
@@ -545,6 +651,14 @@ async def _request_rows(
             if has_label
             else ("COALESCE(NULLIF(requested_by_label, ''), 'Sin usuario')" if has_requested_label else "'Sin usuario'")
         )
+        scope_clause = ""
+        scope_params: list[Any] = []
+        if has_metadata:
+            scope_clause, scope_params = _metadata_scope_clause("metadata", 5 if has_panel else 4, scope)
+        elif scope and _scope_values(scope.get("user_ids")):
+            index = 5 if has_panel else 4
+            scope_clause = f" AND {user_expr} = ANY(${index}::text[])"
+            scope_params = [_scope_values(scope.get("user_ids"))]
 
         if has_panel:
             rows = await conn.fetch(
@@ -558,6 +672,7 @@ async def _request_rows(
                   AND panel_type = $2
                   AND created_at >= $3
                   AND created_at <= $4
+                  {scope_clause}
                 GROUP BY user_id, label
                 ORDER BY requests_count DESC, label ASC
                 """,
@@ -565,6 +680,7 @@ async def _request_rows(
                 panel_type,
                 start_at,
                 end_at,
+                *scope_params,
             )
         else:
             rows = await conn.fetch(
@@ -577,12 +693,14 @@ async def _request_rows(
                 WHERE company_id = $1::uuid
                   AND created_at >= $2
                   AND created_at <= $3
+                  {scope_clause}
                 GROUP BY user_id, label
                 ORDER BY requests_count DESC, label ASC
                 """,
                 company_id,
                 start_at,
                 end_at,
+                *scope_params,
             )
         items = [dict(row) for row in rows]
         return items, {"requests_count": sum(int(row.get("requests_count") or 0) for row in items)}
@@ -648,6 +766,9 @@ def _closure_payload(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, A
         "company_id": str(data.get("company_id") or ""),
         "panel_type": _clean(data.get("panel_type")),
         "area": _clean(data.get("area")),
+        "scope_key": _clean(data.get("scope_key")),
+        "scope_label": _clean(data.get("scope_label")),
+        "scope": _json(data.get("scope_json"), {}),
         "closure_date": data.get("closure_date").isoformat() if hasattr(data.get("closure_date"), "isoformat") else _clean(data.get("closure_date")),
         "status": _clean(data.get("status") or "submitted"),
         "submitted_by": str(data.get("submitted_by") or "") if data.get("submitted_by") else "",
@@ -929,10 +1050,14 @@ async def _build_summary(
     company_id: uuid.UUID,
     panel_type: str,
     closure_date_value: date,
+    scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     await _ensure_storage(conn)
     panel = _panel(panel_type)
     area = _area(panel)
+    scope_data = scope if isinstance(scope, dict) else {}
+    scope_key = _clean(scope_data.get("key"))
+    scope_label = _clean(scope_data.get("label"))
     timezone_name = await _company_timezone(conn, company_id)
     start_at, end_at = _date_bounds(closure_date_value, timezone_name)
 
@@ -943,11 +1068,13 @@ async def _build_summary(
         WHERE company_id = $1::uuid
           AND panel_type = $2
           AND closure_date = $3
+          AND COALESCE(scope_key, '') = $4
         LIMIT 1
         """,
         company_id,
         panel,
         closure_date_value,
+        scope_key,
     )
 
     if existing:
@@ -956,6 +1083,9 @@ async def _build_summary(
             "company_id": str(company_id),
             "panel_type": panel,
             "area": area,
+            "scope_key": scope_key,
+            "scope_label": scope_label,
+            "scope": payload.get("scope") or scope_data,
             "closure_date": closure_date_value.isoformat(),
             "status": payload.get("status") or "submitted",
             "locked": True,
@@ -971,7 +1101,7 @@ async def _build_summary(
 
     users: dict[str, dict[str, Any]] = {}
 
-    sales_rows, sales_totals = await _sales_rows(conn, company_id, panel, start_at, end_at)
+    sales_rows, sales_totals = await _sales_rows(conn, company_id, panel, start_at, end_at, scope_data)
     for row in sales_rows:
         user = _merge_user(users, row.get("user_id"), row.get("label"))
         for key in ["sales_count", "invoices_count"]:
@@ -979,13 +1109,13 @@ async def _build_summary(
         for key in ["units_sold", "total_amount", "cash_amount", "transfer_amount", "check_amount", "other_amount"]:
             user[key] = round(_money(user.get(key)) + _money(row.get(key)), 2)
 
-    quote_rows, quote_totals = await _quote_rows(conn, company_id, panel, start_at, end_at)
+    quote_rows, quote_totals = await _quote_rows(conn, company_id, panel, start_at, end_at, scope_data)
     for row in quote_rows:
         user = _merge_user(users, row.get("user_id"), row.get("label"))
         user["quotes_count"] += int(row.get("quotes_count") or 0)
         user["quotes_amount"] = round(_money(user.get("quotes_amount")) + _money(row.get("quotes_amount")), 2)
 
-    request_rows, request_totals = await _request_rows(conn, company_id, panel, start_at, end_at)
+    request_rows, request_totals = await _request_rows(conn, company_id, panel, start_at, end_at, scope_data)
     for row in request_rows:
         user = _merge_user(users, row.get("user_id"), row.get("label"))
         user["requests_count"] += int(row.get("requests_count") or 0)
@@ -1014,6 +1144,9 @@ async def _build_summary(
         "company_id": str(company_id),
         "panel_type": panel,
         "area": area,
+        "scope_key": scope_key,
+        "scope_label": scope_label,
+        "scope": scope_data,
         "closure_date": closure_date_value.isoformat(),
         "status": "open",
         "locked": False,
@@ -1030,6 +1163,10 @@ async def mini_panel_day_closing_summary(
     company_id: uuid.UUID,
     panel_type: str = Query("sales"),
     closure_date: str | None = Query(default=None),
+    store_slot_id: str | None = Query(default=None),
+    store_slot_name: str | None = Query(default=None),
+    store_employee_ids: str | None = Query(default=None),
+    store_user_ids: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     conn = await _connect()
@@ -1037,7 +1174,8 @@ async def mini_panel_day_closing_summary(
         await _ensure_storage(conn)
         await _require_access(conn, company_id, authorization)
         target_date = _parse_closure_date(closure_date)
-        return await _build_summary(conn, company_id, panel_type, target_date)
+        scope = _store_scope(panel_type, store_slot_id, store_slot_name, store_employee_ids, store_user_ids)
+        return await _build_summary(conn, company_id, panel_type, target_date, scope)
     finally:
         await conn.close()
 
@@ -1047,6 +1185,10 @@ async def submit_mini_panel_day_closing(
     company_id: uuid.UUID,
     payload: DayClosingSubmitIn,
     panel_type: str = Query("sales"),
+    store_slot_id: str | None = Query(default=None),
+    store_slot_name: str | None = Query(default=None),
+    store_employee_ids: str | None = Query(default=None),
+    store_user_ids: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     conn = await _connect()
@@ -1056,6 +1198,15 @@ async def submit_mini_panel_day_closing(
         target_date = _parse_closure_date(payload.closure_date)
         panel = _panel(panel_type)
         area = _area(panel)
+        scope = _store_scope(
+            panel,
+            store_slot_id or payload.store_slot_id,
+            store_slot_name or payload.store_slot_name,
+            store_employee_ids or payload.store_employee_ids,
+            store_user_ids or payload.store_user_ids,
+        )
+        scope_key = _clean(scope.get("key"))
+        scope_label = _clean(scope.get("label"))
 
         existing = await conn.fetchrow(
             """
@@ -1064,16 +1215,18 @@ async def submit_mini_panel_day_closing(
             WHERE company_id = $1::uuid
               AND panel_type = $2
               AND closure_date = $3
+              AND COALESCE(scope_key, '') = $4
             LIMIT 1
             """,
             company_id,
             panel,
             target_date,
+            scope_key,
         )
         if existing:
             raise HTTPException(status_code=409, detail="El cierre diario de este panel ya fue enviado.")
 
-        summary = await _build_summary(conn, company_id, panel, target_date)
+        summary = await _build_summary(conn, company_id, panel, target_date, scope)
         totals = summary.get("totals") if isinstance(summary.get("totals"), dict) else {}
         users_summary = summary.get("users") if isinstance(summary.get("users"), list) else []
         submitted_by = _access_user_id(access)
@@ -1085,6 +1238,9 @@ async def submit_mini_panel_day_closing(
             "company_id": str(company_id),
             "panel_type": panel,
             "area": area,
+            "scope_key": scope_key,
+            "scope_label": scope_label,
+            "scope": scope,
             "closure_date": target_date.isoformat(),
             "totals": totals,
             "users": users_summary,
@@ -1098,6 +1254,9 @@ async def submit_mini_panel_day_closing(
                 company_id,
                 panel_type,
                 area,
+                scope_key,
+                scope_label,
+                scope_json,
                 closure_date,
                 status,
                 submitted_by,
@@ -1122,11 +1281,11 @@ async def submit_mini_panel_day_closing(
                 updated_at
             )
             VALUES (
-                $1::uuid, $2, $3, $4, 'submitted',
-                $5::uuid, $6, NOW(),
-                $7, $8, $9, $10, $11, $12, $13, $14,
-                $15, $16, $17, $18,
-                $19::jsonb, $20::jsonb, $21::jsonb,
+                $1::uuid, $2, $3, $4, $5, $6::jsonb, $7, 'submitted',
+                $8::uuid, $9, NOW(),
+                $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19, $20, $21,
+                $22::jsonb, $23::jsonb, $24::jsonb,
                 NOW(), NOW()
             )
             RETURNING *
@@ -1134,6 +1293,9 @@ async def submit_mini_panel_day_closing(
             company_id,
             panel,
             area,
+            scope_key,
+            scope_label,
+            json.dumps(scope, ensure_ascii=False),
             target_date,
             submitted_by,
             submitted_by_label,
@@ -1159,6 +1321,9 @@ async def submit_mini_panel_day_closing(
             "company_id": str(company_id),
             "panel_type": panel,
             "area": area,
+            "scope_key": scope_key,
+            "scope_label": scope_label,
+            "scope": scope,
             "closure_date": target_date.isoformat(),
             "status": "submitted",
             "locked": True,

@@ -5945,6 +5945,32 @@ function moduleCard(title, description, tag, code = "") {
     });
   }
 
+  function dayClosingStoreScope023P(forBody = false) {
+    if (!isStorePanel023W()) return {};
+    const store = currentStoreTeam023W?.store || {};
+    const members = Array.isArray(currentStoreTeam023W?.members) ? currentStoreTeam023W.members : [];
+    const employeeIds = members.map((member) => String(member.employee_id || "").trim()).filter(Boolean);
+    const userIds = members.map((member) => String(member.user_id || "").trim()).filter(Boolean);
+    return {
+      store_slot_id: store.id || "",
+      store_slot_name: store.name || "",
+      store_employee_ids: forBody ? employeeIds : employeeIds.join(","),
+      store_user_ids: forBody ? userIds : userIds.join(",")
+    };
+  }
+
+  function dayClosingQuery023P(closureDate) {
+    const params = new URLSearchParams({
+      panel_type: panelType,
+      closure_date: closureDate
+    });
+    const scope = dayClosingStoreScope023P(false);
+    Object.entries(scope).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    return params.toString();
+  }
+
   function dayClosingStyles023E() {
     if (document.getElementById("cxDayClosingStyles023E")) return;
     const style = document.createElement("style");
@@ -6072,8 +6098,16 @@ function moduleCard(title, description, tag, code = "") {
       if (fresh) startTimers(fresh.operational_session || fresh);
     } catch (_) {}
 
+    if (isStorePanel023W()) {
+      try {
+        await loadStoreTeam023W(true);
+      } catch (error) {
+        console.warn("CLONEXA 024P day closing store scope fallback:", error);
+      }
+    }
+
     try {
-      const data = await dayClosingApi023E(`/mini-panel/summary?panel_type=${encodeURIComponent(panelType)}&closure_date=${encodeURIComponent(closureDate)}`);
+      const data = await dayClosingApi023E(`/mini-panel/summary?${dayClosingQuery023P(closureDate)}`);
       summary = data || {};
     } catch (error) {
       loadError = error.message || "No se pudo cargar el cierre diario.";
@@ -6178,12 +6212,13 @@ function moduleCard(title, description, tag, code = "") {
       try {
         if (msg) msg.textContent = "Enviando cierre diario...";
         if (button) button.disabled = true;
-        await dayClosingApi023E(`/mini-panel/submit?panel_type=${encodeURIComponent(panelType)}`, {
+        await dayClosingApi023E(`/mini-panel/submit?${dayClosingQuery023P(closureDate)}`, {
           method: "POST",
           body: JSON.stringify({
             closure_date: closureDate,
             notes: root.querySelector("#dcNotes023E")?.value || "",
-            connection_snapshot: dayClosingConnectionSnapshot023E()
+            connection_snapshot: dayClosingConnectionSnapshot023E(),
+            ...dayClosingStoreScope023P(true)
           })
         });
         if (msg) msg.textContent = "Cierre diario enviado.";
