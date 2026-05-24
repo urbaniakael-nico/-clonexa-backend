@@ -13037,8 +13037,8 @@ function inventoryCreatePayload() {
         --hsp-line:rgba(255,255,255,.14);
         --hsp-muted:rgba(255,255,255,.64);
         display:grid;
-        grid-template-columns:minmax(320px,410px) minmax(0,1fr);
-        gap:16px;
+        grid-template-columns:1fr;
+        gap:14px;
         align-items:start;
         color:var(--cx-text,#f8fafc);
       }
@@ -13062,9 +13062,7 @@ function inventoryCreatePayload() {
         color:#08111f;
         box-shadow:0 12px 28px rgba(0,0,0,.16);
       }
-      .hsp-grid-024r{display:contents}
-      .hsp-grid-024r>.hsp-box-024r:first-child{grid-column:1;grid-row:1 / span 2;position:sticky;top:16px}
-      .hsp-grid-024r>.hsp-box-024r:nth-child(2){grid-column:2;grid-row:1}
+      .hsp-grid-024r{display:grid;grid-template-columns:1fr;gap:14px}
       .hsp-box-024r{
         background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035)),var(--hsp-card);
         border:1px solid var(--hsp-line);
@@ -13074,6 +13072,23 @@ function inventoryCreatePayload() {
       }
       .hsp-box-024r h2{font-size:18px;line-height:1.15;margin:0 0 5px;color:var(--cx-text,#fff)}
       .hsp-note-024r{color:var(--hsp-muted);font-size:13px;margin-bottom:12px;line-height:1.35;font-weight:800}
+      .hsp-form-box-024r{
+        display:grid;
+        grid-template-columns:minmax(200px,.70fr) minmax(300px,.95fr) minmax(420px,1.35fr) minmax(260px,.85fr) minmax(145px,.35fr);
+        gap:12px;
+        align-items:end;
+      }
+      .hsp-form-head-024r{align-self:start}
+      .hsp-form-head-024r .hsp-note-024r{margin-bottom:0}
+      .hsp-form-main-024r{align-self:end}
+      .hsp-products-wrap-024r{display:grid;gap:8px}
+      .hsp-products-wrap-024r .hsp-field-024r label{margin-top:0}
+      .hsp-extra-wrap-024r{display:grid;gap:8px}
+      .hsp-extra-wrap-024r .hsp-field-024r label{margin-top:0}
+      .hsp-extra-wrap-024r .hsp-field-024r textarea{min-height:48px}
+      .hsp-submit-wrap-024r{align-self:end;margin-top:0}
+      .hsp-submit-wrap-024r .hsp-btn-024r{width:100%;min-height:46px}
+      .hsp-form-box-024r .hsp-msg-024r{grid-column:1 / -1;margin-top:0}
       .hsp-field-024r label{display:block;color:var(--hsp-muted);font-size:11px;font-weight:950;margin:9px 0 6px;text-transform:uppercase;letter-spacing:.10em}
       .hsp-field-024r input,.hsp-field-024r select,.hsp-field-024r textarea,
       .hsp-line-024r input,.hsp-line-024r select{
@@ -13132,7 +13147,7 @@ function inventoryCreatePayload() {
       .hsp-stat-024r{background:rgba(3,7,18,.34);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:13px}
       .hsp-stat-024r span{color:var(--hsp-muted);font-size:10px;text-transform:uppercase;font-weight:950;letter-spacing:.08em}
       .hsp-stat-024r b{font-size:24px;line-height:1.05;display:block;margin-top:7px;color:var(--cx-text,#fff)}
-      .hsp-kanban-024r{grid-column:2;grid-row:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
+      .hsp-kanban-024r{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
       .hsp-col-024r{background:rgba(3,7,18,.28);border:1px solid rgba(255,255,255,.11);border-radius:18px;padding:12px;min-height:360px}
       .hsp-col-title-024r{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:16px;font-weight:1000;color:var(--cx-text,#fff)}
       .hsp-pill-024r{display:inline-flex;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:1000;color:#07111f;background:var(--hsp-secondary);white-space:nowrap}
@@ -13157,9 +13172,10 @@ function inventoryCreatePayload() {
       .hsp-empty-024r{color:var(--hsp-muted);border:1px dashed rgba(255,255,255,.18);padding:22px;border-radius:14px;text-align:center;font-size:14px;font-weight:850}
       .hsp-msg-024r{display:none;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;white-space:pre-wrap;font-weight:850}
       .hsp-msg-024r.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3);color:#fecaca}
-      @media(max-width:1500px){.hsp-stats-024r{grid-template-columns:repeat(3,minmax(110px,1fr))}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      @media(max-width:1100px){.hsp-shell-024r{grid-template-columns:1fr}.hsp-grid-024r{display:grid;grid-template-columns:1fr;gap:14px}.hsp-grid-024r>.hsp-box-024r:first-child,.hsp-grid-024r>.hsp-box-024r:nth-child(2),.hsp-kanban-024r{grid-column:auto;grid-row:auto;position:static}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-stats-024r{grid-template-columns:repeat(2,minmax(110px,1fr))}}
-      @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r{grid-template-columns:1fr}.hsp-item-select-024r,.hsp-item-name-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
+      @media(max-width:1650px){.hsp-form-box-024r{grid-template-columns:minmax(220px,.8fr) minmax(320px,1fr) minmax(420px,1.25fr);align-items:start}.hsp-extra-wrap-024r{grid-column:1 / 3}.hsp-submit-wrap-024r{grid-column:3}.hsp-stats-024r{grid-template-columns:repeat(5,minmax(90px,1fr))}}
+      @media(max-width:1300px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:1}.hsp-submit-wrap-024r{grid-column:2}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(3,minmax(110px,1fr))}}
+      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r,.hsp-item-name-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
+      @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}}
     `;
     document.head.appendChild(style);
   }
@@ -13372,10 +13388,24 @@ function inventoryCreatePayload() {
               ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
               <div class="hsp-grid-024r">
                 <section class="hsp-box-024r">
-                  <h2>Crear venta directa de barra</h2>
-                  <div class="hsp-note-024r">Registro manual del barman. No representa el flujo QR/mesa principal.</div>
+                  <h2>Resumen operativo</h2>
+                  <div class="hsp-stats-024r">
+                    <div class="hsp-stat-024r"><span>Pendientes</span><b id="hspSPending024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Alistando</span><b id="hspSPreparing024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Entregados</span><b id="hspSServed024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Cerrados</span><b id="hspSClosed024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Total abierto</span><b id="hspSTotal024R">$0</b></div>
+                  </div>
+                  <div id="hspGlobalMsg024R" class="hsp-msg-024r"></div>
+                </section>
 
-                  <div class="hsp-row-024r">
+                <section class="hsp-box-024r hsp-form-box-024r">
+                  <div class="hsp-form-head-024r">
+                    <h2>Crear venta directa de barra</h2>
+                    <div class="hsp-note-024r">Registro manual del barman. No representa el flujo QR/mesa principal.</div>
+                  </div>
+
+                  <div class="hsp-row-024r hsp-form-main-024r">
                     <div class="hsp-field-024r">
                       <label>Referencia</label>
                       <input id="hspTable024R" placeholder="Ej: Barra / Mesa 1" value="Barra" />
@@ -13386,35 +13416,27 @@ function inventoryCreatePayload() {
                     </div>
                   </div>
 
-                  <div class="hsp-field-024r"><label>Productos</label></div>
-                  <div id="hspProductLines024R"></div>
-                  <button class="hsp-btn-024r secondary" type="button" data-hsp-add-line>+ Producto</button>
-
-                  <div class="hsp-field-024r">
-                    <label>Canciones solicitadas</label>
-                    <input id="hspSongs024R" placeholder="Ej: Salsa choque, Provenza, La rebelion" />
-                  </div>
-                  <div class="hsp-field-024r">
-                    <label>Notas</label>
-                    <textarea id="hspNotes024R" placeholder="Sin hielo, poco dulce, etc."></textarea>
+                  <div class="hsp-products-wrap-024r">
+                    <div class="hsp-field-024r"><label>Productos</label></div>
+                    <div id="hspProductLines024R"></div>
+                    <button class="hsp-btn-024r secondary" type="button" data-hsp-add-line>+ Producto</button>
                   </div>
 
-                  <div class="hsp-actions-024r">
+                  <div class="hsp-extra-wrap-024r">
+                    <div class="hsp-field-024r">
+                      <label>Canciones solicitadas</label>
+                      <input id="hspSongs024R" placeholder="Ej: Salsa choque, Provenza, La rebelion" />
+                    </div>
+                    <div class="hsp-field-024r">
+                      <label>Notas</label>
+                      <textarea id="hspNotes024R" placeholder="Sin hielo, poco dulce, etc."></textarea>
+                    </div>
+                  </div>
+
+                  <div class="hsp-actions-024r hsp-submit-wrap-024r">
                     <button class="hsp-btn-024r green" type="button" data-hsp-create>Crear venta barra</button>
                   </div>
                   <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
-                </section>
-
-                <section class="hsp-box-024r">
-                  <h2>Resumen operativo</h2>
-                  <div class="hsp-stats-024r">
-                    <div class="hsp-stat-024r"><span>Pendientes</span><b id="hspSPending024R">0</b></div>
-                    <div class="hsp-stat-024r"><span>Alistando</span><b id="hspSPreparing024R">0</b></div>
-                    <div class="hsp-stat-024r"><span>Entregados</span><b id="hspSServed024R">0</b></div>
-                    <div class="hsp-stat-024r"><span>Cerrados</span><b id="hspSClosed024R">0</b></div>
-                    <div class="hsp-stat-024r"><span>Total abierto</span><b id="hspSTotal024R">$0</b></div>
-                  </div>
-                  <div id="hspGlobalMsg024R" class="hsp-msg-024r"></div>
                 </section>
               </div>
 
