@@ -824,6 +824,10 @@
   }
 
   function renderClientHeroKpis(modules = [], company = {}) {
+    if (crmUseMundoCaseAreaMode024C()) {
+      return renderMundoCaseDashboardKpis024K(state.dashboardMetrics?.mundoCaseDashboard024K || {});
+    }
+
     return buildClientHeroKpis(modules, company)
       .map(([label, value]) => `
         <div class="client-kpi">
@@ -832,6 +836,153 @@
         </div>
       `)
       .join("");
+  }
+
+  function mundoCaseDashboardPercent024K(total, goal) {
+    const safeGoal = Number(goal || 0);
+    if (!safeGoal || safeGoal <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((Number(total || 0) / safeGoal) * 100)));
+  }
+
+  function mundoCaseDashboardGoalCard024K(label, total, goal, count) {
+    const pct = mundoCaseDashboardPercent024K(total, goal);
+    const hasGoal = Number(goal || 0) > 0;
+    return `
+      <article class="client-kpi cx-mundo-dashboard-kpi cx-mundo-dashboard-goal">
+        <span>${h(label)}</span>
+        <strong>${h(cxSalesMoney023P(total))} / ${h(cxSalesMoney023P(goal))}</strong>
+        <div class="cx-mundo-dashboard-progress">
+          <i style="--cx-mundo-progress:${h(pct)}%"></i>
+        </div>
+        <small>${h(hasGoal ? `${pct}% cumplimiento` : "Sin meta")} - ${h(Number(count || 0))} venta(s)</small>
+      </article>
+    `;
+  }
+
+  function mundoCaseDashboardStoreOpenings024K(rows = []) {
+    const safeRows = Array.isArray(rows) && rows.length
+      ? rows
+      : crmDefaultStoreSlots024D().map((slot) => ({
+          id: slot.id,
+          label: slot.label,
+          name: slot.name,
+          opening: null,
+          openingLabel: "Sin apertura",
+        }));
+
+    return `
+      <article class="client-kpi cx-mundo-dashboard-kpi cx-crm-store-openings-card">
+        <span>Apertura de tienda</span>
+        <div class="cx-crm-store-openings-grid">
+          ${safeRows.map((row) => `
+            <div class="cx-crm-store-opening ${row.opening ? "open" : ""}" title="${h(row.name || row.label || "")}">
+              <strong>${h(row.label || "")}</strong>
+              <small>${h(row.openingLabel || "Sin apertura")}</small>
+            </div>
+          `).join("")}
+        </div>
+      </article>
+    `;
+  }
+
+  function mundoCaseDashboardStyles024K() {
+    return `
+      ${crmMundoCaseKpiStyles024D()}
+      <style>
+        .cx-mundo-dashboard-kpi {
+          min-height: 130px;
+          overflow: hidden;
+        }
+        .cx-mundo-dashboard-kpi strong,
+        .cx-mundo-dashboard-kpi b {
+          letter-spacing: 0;
+          text-transform: none;
+          transform: none;
+          -webkit-text-stroke: 0 transparent;
+          text-shadow: none;
+        }
+        .cx-mundo-dashboard-people {
+          display: grid;
+          grid-template-columns: auto 1fr 1fr;
+          gap: 12px;
+          align-items: end;
+        }
+        .cx-mundo-dashboard-people strong {
+          font-size: 40px;
+          line-height: 1;
+        }
+        .cx-mundo-dashboard-people div {
+          min-width: 0;
+          border-radius: 14px;
+          padding: 10px;
+          background: rgba(255,255,255,.07);
+          border: 1px solid rgba(255,255,255,.11);
+        }
+        .cx-mundo-dashboard-people b {
+          display: block;
+          font-size: 20px;
+          line-height: 1;
+        }
+        .cx-mundo-dashboard-people small,
+        .cx-mundo-dashboard-goal small {
+          display: block;
+          margin-top: 6px;
+          color: rgba(255,255,255,.72);
+          font-weight: 900;
+          line-height: 1.15;
+        }
+        .cx-mundo-dashboard-goal strong {
+          font-size: clamp(20px, 1.7vw, 28px);
+          line-height: 1.05;
+          white-space: normal;
+          overflow-wrap: anywhere;
+        }
+        .cx-mundo-dashboard-progress {
+          height: 10px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: rgba(255,255,255,.13);
+          margin-top: 12px;
+        }
+        .cx-mundo-dashboard-progress i {
+          display: block;
+          width: var(--cx-mundo-progress, 0%);
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(90deg,#ff27bc,#56dcf4);
+        }
+        .client-kpi-grid .cx-crm-store-openings-card {
+          min-height: 130px;
+        }
+      </style>
+    `;
+  }
+
+  function renderMundoCaseDashboardKpis024K(data = {}) {
+    const people = data.people || {};
+    const sales = data.sales || {};
+    const stores = data.stores || {};
+
+    return `
+      ${mundoCaseDashboardStyles024K()}
+      <article class="client-kpi cx-mundo-dashboard-kpi">
+        <span>Personal activo</span>
+        <div class="cx-mundo-dashboard-people">
+          <strong>${h(Number(people.total || 0))}</strong>
+          <div>
+            <b>${h(Number(people.salesRedes || 0))}</b>
+            <small>Ventas / redes</small>
+          </div>
+          <div>
+            <b>${h(Number(people.stores || 0))}</b>
+            <small>Tiendas</small>
+          </div>
+        </div>
+      </article>
+      ${mundoCaseDashboardGoalCard024K("Total venta vs meta ventas / redes", sales.total, sales.goal, sales.count)}
+      ${mundoCaseDashboardGoalCard024K("Total venta vs meta tiendas", stores.total, stores.goal, stores.count)}
+      ${mundoCaseDashboardStoreOpenings024K(data.storeOpenings)}
+    `;
   }
 
   function renderClientHeroActions(modules = []) {
@@ -13837,13 +13988,79 @@ document.addEventListener("click", async (event) => {
   }
 
 
+  function mundoCaseActiveEmployee024K(employee = {}) {
+    const status = String(employee.status || "active").trim().toLowerCase();
+    return !["archived", "archivado", "inactive", "inactivo", "deleted", "eliminado"].includes(status);
+  }
+
+  function mundoCaseMiniPanelUserActive024K(user = {}) {
+    const status = String(user.status || "active").trim().toLowerCase();
+    return !["archived", "archivado", "inactive", "inactivo", "deleted", "eliminado"].includes(status);
+  }
+
+  function mundoCaseGoalSummary024K(users = []) {
+    const rows = (Array.isArray(users) ? users : []).filter(mundoCaseMiniPanelUserActive024K);
+    return rows.reduce(
+      (summary, user) => {
+        summary.goal += Number(user.monthly_goal || 0);
+        summary.total += Number(user.monthly_sales_total || user.sales_total || 0);
+        summary.count += Number(user.monthly_sales_count || user.sales_count || 0);
+        return summary;
+      },
+      { goal: 0, total: 0, count: 0 }
+    );
+  }
+
+  async function loadMundoCaseDashboardMetrics024K(seedEmployees = []) {
+    const employeesPromise = Array.isArray(seedEmployees) && seedEmployees.length
+      ? Promise.resolve(seedEmployees)
+      : loadPersonalEmployees().catch(() => []);
+
+    const [employees, salesUsers, storeUsers] = await Promise.all([
+      employeesPromise,
+      cxLoadSalesMiniPanelUsers019C().catch(() => []),
+      cxLoadStoreMiniPanelUsers023S().catch(() => []),
+    ]);
+
+    let crm = null;
+    try {
+      crm = await loadClientCrmData();
+      await crmApplyAreaMapping024C(crm);
+    } catch (error) {
+      crm = null;
+    }
+
+    const activeEmployees = (Array.isArray(employees) ? employees : []).filter(mundoCaseActiveEmployee024K);
+    const salesEmployees = activeEmployees.filter(cxIsSalesEmployee019C);
+    const storeEmployees = activeEmployees.filter(cxIsStoreEmployee023S);
+    const salesSummary = mundoCaseGoalSummary024K(
+      (Array.isArray(salesUsers) ? salesUsers : []).filter((user) => String(user.panel_type || "") === "sales")
+    );
+    const storeSummary = mundoCaseGoalSummary024K(
+      (Array.isArray(storeUsers) ? storeUsers : []).filter((user) => String(user.panel_type || "") === "store")
+    );
+
+    return {
+      people: {
+        total: activeEmployees.length,
+        salesRedes: salesEmployees.length,
+        stores: storeEmployees.length,
+      },
+      sales: salesSummary,
+      stores: storeSummary,
+      storeOpenings: crm ? crmStoreOpeningRows024D(crm) : [],
+    };
+  }
+
   async function loadClientDashboardMetrics(companyId, modules = []) {
     const codes = clientModuleCodes(visibleClientModules(modules));
     const metrics = {};
+    let employeesCache = [];
 
     if (codes.has("workforce")) {
       try {
         const employees = await api(`/employees?company_id=${encodeURIComponent(companyId)}&include_archived=true`);
+        employeesCache = Array.isArray(employees) ? employees : [];
         metrics.activeEmployees = Array.isArray(employees)
           ? employees.filter((employee) => String(employee.status || "").toLowerCase() === "active").length
           : 0;
@@ -13872,6 +14089,15 @@ document.addEventListener("click", async (event) => {
       } catch (error) {
         metrics.kpiDashboardCards = [];
       }
+    }
+
+    if (crmUseMundoCaseAreaMode024C()) {
+      metrics.mundoCaseDashboard024K = await loadMundoCaseDashboardMetrics024K(employeesCache).catch(() => ({
+        people: { total: Number(metrics.activeEmployees || 0), salesRedes: 0, stores: 0 },
+        sales: { goal: 0, total: 0, count: 0 },
+        stores: { goal: 0, total: 0, count: 0 },
+        storeOpenings: [],
+      }));
     }
 
     return metrics;
