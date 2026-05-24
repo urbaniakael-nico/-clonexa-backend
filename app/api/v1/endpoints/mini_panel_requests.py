@@ -263,7 +263,7 @@ async def _fetch_request(conn: asyncpg.Connection, company_id: uuid.UUID, reques
         """
         SELECT *
         FROM mini_panel_requests_records
-        WHERE company_id = $1::uuid
+        WHERE company_id::text = $1::text
           AND id = $2::uuid
         LIMIT 1
         """,
@@ -280,7 +280,7 @@ async def _next_number(conn: asyncpg.Connection, company_id: uuid.UUID) -> str:
         """
         SELECT COUNT(*) + 1
         FROM mini_panel_requests_records
-        WHERE company_id = $1::uuid
+        WHERE company_id::text = $1::text
         """,
         company_id,
     )
@@ -330,7 +330,7 @@ async def _references(conn: asyncpg.Connection, company_id: uuid.UUID, limit: in
                {select_bot} AS bot_active,
                {select_system} AS system_active
         FROM product_references
-        WHERE company_id = $1::uuid
+        WHERE company_id::text = $1::text
           {archived_filter}
           {channel_filter}
         ORDER BY created_at DESC, name ASC
@@ -490,9 +490,17 @@ async def request_suggestions(
         await _ensure_storage(conn)
         access = await _require_access(conn, company_id, authorization)
         scope_user = _scope_user_id(access)
+        try:
+            references = await _references(conn, company_id, limit=limit)
+        except Exception:
+            references = []
+        try:
+            sold_items = await _sold_items(conn, company_id, panel_type, scope_user, limit=limit)
+        except Exception:
+            sold_items = []
         return {
-            "references": await _references(conn, company_id, limit=limit),
-            "sold_items": await _sold_items(conn, company_id, panel_type, scope_user, limit=limit),
+            "references": references,
+            "sold_items": sold_items,
         }
     finally:
         await conn.close()
