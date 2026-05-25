@@ -148,6 +148,7 @@
       }
       button,input,textarea{font:inherit}
       .qr-shell{min-height:100vh;padding:16px;display:grid;gap:14px;max-width:1180px;margin:0 auto}
+      .qr-shell-locked{align-content:start;max-width:980px}
       .qr-hero,.qr-card,.qr-cart{
         background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035)),var(--qr-card);
         border:1px solid var(--qr-line);
@@ -156,6 +157,8 @@
         backdrop-filter:blur(20px) saturate(1.2);
       }
       .qr-hero{padding:22px;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}
+      .qr-hero-locked{padding:18px 20px}
+      .qr-hero-locked h1{font-size:clamp(32px,7vw,54px)}
       .qr-logo{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;overflow:hidden;background:linear-gradient(135deg,var(--qr-primary),var(--qr-secondary));color:#111827;font-weight:1000}
       .qr-logo img{width:100%;height:100%;object-fit:contain}
       .qr-eyebrow{margin:0 0 6px;color:var(--qr-primary);font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:1000}
@@ -236,28 +239,39 @@
       .qr-msg.err{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.30);color:#fecaca}
       .qr-empty{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:18px;text-align:center;color:var(--qr-muted);font-weight:850}
       .qr-access-gate{
-        background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.04)),var(--qr-card);
-        border:1px solid var(--qr-line);
+        background:
+          linear-gradient(145deg,rgba(255,255,255,.14),rgba(255,255,255,.045)),
+          radial-gradient(circle at 8% 0%, color-mix(in srgb,var(--qr-primary) 25%, transparent), transparent 34%),
+          var(--qr-card);
+        border:1px solid color-mix(in srgb,var(--qr-secondary) 34%, var(--qr-line));
         border-radius:22px;
         padding:18px;
         display:grid;
-        gap:12px;
+        gap:14px;
+        align-content:start;
         box-shadow:0 18px 54px rgba(0,0,0,.24);
       }
-      .qr-access-gate h2{margin:0;font-size:24px;line-height:1.05;color:var(--qr-secondary)}
+      .qr-access-top{display:grid;gap:7px}
+      .qr-access-gate h2{margin:0;font-size:clamp(26px,5.5vw,42px);line-height:1.02;color:var(--qr-secondary)}
+      .qr-access-gate .qr-muted{margin:0;max-width:720px}
       .qr-access-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}
       .qr-access-form input{
         width:100%;
         border:1px solid var(--qr-line);
-        border-radius:15px;
+        border-radius:16px;
         background:rgba(2,6,23,.58);
         color:var(--qr-text);
-        padding:14px;
+        min-height:58px;
+        padding:15px 16px;
         outline:none;
         font-weight:1000;
+        font-size:22px;
         letter-spacing:.12em;
         text-transform:uppercase;
       }
+      .qr-access-form input::placeholder{color:rgba(255,255,255,.44)}
+      .qr-access-form .qr-btn{min-height:58px;padding-inline:22px}
+      .qr-access-note{border:1px solid rgba(255,255,255,.11);border-radius:16px;background:rgba(3,7,18,.30);padding:12px;color:var(--qr-muted);font-weight:850;line-height:1.32}
       .qr-campaign{
         display:grid;
         grid-template-columns:minmax(0,1fr) minmax(240px,360px);
@@ -311,14 +325,17 @@
     const active = state.access?.active === true;
     return `
       <section class="qr-access-gate">
-        <p class="qr-eyebrow">Acceso de mesa</p>
-        <h2>${active ? "Ingresa la clave de tu mesa" : "Mesa sin activar"}</h2>
-        <p class="qr-muted">${active ? "El personal del bar te entrega una clave corta. Solo se solicita una vez en este dispositivo." : "Pide al personal que active esta mesa para poder enviar pedidos."}</p>
+        <div class="qr-access-top">
+          <p class="qr-eyebrow">Acceso de mesa</p>
+          <h2>${active ? "Ingresa clave de activacion" : "Mesa sin activar"}</h2>
+          <p class="qr-muted">${active ? "Escribe la clave que te entrego el personal del bar para abrir el menu de pedidos." : "Pide al personal que active esta mesa para poder enviar pedidos."}</p>
+        </div>
         ${active ? `
           <div class="qr-access-form">
-            <input id="qrAccessCode025B" maxlength="12" autocomplete="one-time-code" placeholder="Clave de mesa">
+            <input id="qrAccessCode025B" maxlength="12" autocomplete="one-time-code" placeholder="CLAVE" autofocus>
             <button class="qr-btn" type="button" data-access-verify>Activar pedido</button>
           </div>
+          <div class="qr-access-note">Solo se solicita una vez en este dispositivo. Si la jornada cambia, el bar genera una nueva clave.</div>
         ` : ""}
       </section>
     `;
@@ -425,12 +442,12 @@
 
     if (!state.access?.unlocked) {
       app.innerHTML = `
-        <main class="qr-shell">
-          <section class="qr-hero">
+        <main class="qr-shell qr-shell-locked">
+          <section class="qr-hero qr-hero-locked">
             <div>
               <p class="qr-eyebrow">Mesa QR</p>
               <h1>${h(state.table)}</h1>
-              <p class="qr-muted">${h(companyName)} - activa la mesa para poder enviar pedidos.</p>
+              <p class="qr-muted">${h(companyName)} - acceso protegido para ordenar desde esta mesa.</p>
             </div>
             <div class="qr-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName)}">` : h(companyName.slice(0, 1).toUpperCase())}</div>
           </section>
@@ -439,6 +456,7 @@
           ${accessGateHtml()}
         </main>
       `;
+      setTimeout(() => document.getElementById("qrAccessCode025B")?.focus(), 0);
       return;
     }
 
