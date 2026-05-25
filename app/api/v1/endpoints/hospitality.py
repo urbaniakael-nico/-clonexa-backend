@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
@@ -51,6 +52,7 @@ class HospitalityOrderCreateIn(BaseModel):
     customer: str | None = Field(default="Cliente barra", max_length=180)
     source: str | None = Field(default="client", max_length=60)
     payment_method: str | None = Field(default="other", max_length=40)
+    access_code: str | None = Field(default="", max_length=12)
     notes: str | None = Field(default="", max_length=900)
     songs: str | list[str] | None = Field(default=None)
     items: list[HospitalityOrderItemIn] = Field(default_factory=list)
@@ -94,6 +96,16 @@ class HospitalityLoyaltyParticipantIn(BaseModel):
     table: str | None = Field(default="Mesa", max_length=120)
     team_name: str | None = Field(default="", max_length=160)
     accepted: bool = Field(default=True)
+
+
+class HospitalityTableAccessIn(BaseModel):
+    table: str | None = Field(default="Mesa", max_length=120)
+    duration_hours: int = Field(default=12, ge=1, le=24)
+
+
+class HospitalityTableAccessVerifyIn(BaseModel):
+    table: str | None = Field(default="Mesa", max_length=120)
+    access_code: str | None = Field(default="", max_length=12)
 
 
 def _now() -> datetime:
@@ -166,6 +178,15 @@ def _payment_method(value: Any) -> str:
 
 def _table_key(value: Any) -> str:
     return " ".join(_norm(value or "mesa").split())
+
+
+def _access_code(value: Any) -> str:
+    return "".join(ch for ch in _clean(value).upper() if ch.isalnum())[:12]
+
+
+def _new_access_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(5))
 
 
 def _customer_key(value: Any) -> str:
@@ -363,6 +384,33 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_loyalty_participants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_hospitality_loyalty_participants_campaign_table ON hospitality_loyalty_participants(campaign_id, table_key);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_participants_company ON hospitality_loyalty_participants(company_id, campaign_id);"))
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS hospitality_table_access (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                table_key VARCHAR(120) NOT NULL,
+                table_number VARCHAR(120) NOT NULL,
+                access_code VARCHAR(12) NOT NULL,
+                status VARCHAR(40) NOT NULL DEFAULT 'active',
+                activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+    )
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS table_key VARCHAR(120) NOT NULL DEFAULT 'mesa';"))
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS table_number VARCHAR(120) NOT NULL DEFAULT 'Mesa';"))
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS access_code VARCHAR(12) NOT NULL DEFAULT '00000';"))
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS status VARCHAR(40) NOT NULL DEFAULT 'active';"))
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_table_access_company_table ON hospitality_table_access(company_id, table_key, status, expires_at DESC);"))
 
 
 async def _company_exists(db: AsyncSession, company_id: uuid.UUID) -> bool:
@@ -584,6 +632,26 @@ def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None)
         "created_at": _iso(data.get("created_at")),
         "updated_at": _iso(data.get("updated_at")),
     }
+
+
+def _table_access_payload(row: Any | None, include_code: bool = False) -> dict[str, Any]:
+    if not row:
+        return {"active": False, "access_code": "" if include_code else None, "expires_at": ""}
+    data = dict(row)
+    expires_at = data.get("expires_at")
+    if isinstance(expires_at, datetime):
+        expires_at = _aware(expires_at)
+    active = (data.get("status") or "active") == "active" and isinstance(expires_at, datetime) and expires_at > _now()
+    payload = {
+        "active": active,
+        "table_key": data.get("table_key") or "",
+        "table_number": data.get("table_number") or "",
+        "expires_at": _iso(data.get("expires_at")),
+        "activated_at": _iso(data.get("activated_at")),
+    }
+    if include_code:
+        payload["access_code"] = data.get("access_code") or ""
+    return payload
 
 
 async def _fetch_order(db: AsyncSession, company_id: uuid.UUID, order_id: uuid.UUID) -> dict[str, Any]:
@@ -862,6 +930,18 @@ async def _create_day_closure(
             ),
         },
     )
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_table_access
+            SET status = 'closed',
+                updated_at = NOW()
+            WHERE company_id = :company_id
+              AND status = 'active'
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
     return closure
 
 
@@ -976,6 +1056,66 @@ async def _loyalty_response(db: AsyncSession, campaign: dict[str, Any] | None, t
     table_key = _table_key(table) if _clean(table) else ""
     participant = next((row for row in leaderboard if row["table_key"] == table_key), None) if table_key else None
     return {"ok": True, "campaign": _campaign_payload(campaign, leaderboard), "participant": participant}
+
+
+async def _fetch_active_table_access(db: AsyncSession, company_id: uuid.UUID, table: str) -> dict[str, Any] | None:
+    result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_table_access
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND status = 'active'
+              AND expires_at > NOW()
+            ORDER BY activated_at DESC
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id), "table_key": _table_key(table)},
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def _require_table_access(db: AsyncSession, company_id: uuid.UUID, table: str, code: str | None) -> None:
+    access = await _fetch_active_table_access(db, company_id, table)
+    if not access:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mesa_no_activada")
+    if _access_code(access.get("access_code")) != _access_code(code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="clave_de_mesa_invalida")
+
+
+async def _close_table_access_if_idle(db: AsyncSession, company_id: uuid.UUID, table_key: str) -> None:
+    result = await db.execute(
+        text(
+            """
+            SELECT COUNT(*) AS active_count
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND archived_at IS NULL
+              AND status IN ('pendiente', 'alistando', 'entregado')
+            """
+        ),
+        {"company_id": str(company_id), "table_key": _table_key(table_key)},
+    )
+    active_count = int(result.scalar() or 0)
+    if active_count > 0:
+        return
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_table_access
+            SET status = 'closed',
+                updated_at = NOW()
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND status = 'active'
+            """
+        ),
+        {"company_id": str(company_id), "table_key": _table_key(table_key)},
+    )
 
 
 @router.get("/companies/{company_id}/health")
@@ -1120,6 +1260,86 @@ async def join_loyalty_campaign(
     return await _loyalty_response(db, campaign_data, table_number)
 
 
+@router.get("/companies/{company_id}/qr-tables/access")
+async def get_hospitality_table_access(
+    company_id: uuid.UUID,
+    table: str = Query(default="Mesa", max_length=120),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    access = await _fetch_active_table_access(db, company_id, table)
+    return {"ok": True, "company_id": str(company_id), "table": _clean(table), "access": _table_access_payload(access, include_code=False)}
+
+
+@router.post("/companies/{company_id}/qr-tables/access", status_code=status.HTTP_201_CREATED)
+async def activate_hospitality_table_access(
+    company_id: uuid.UUID,
+    payload: HospitalityTableAccessIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    table_number = _clean(payload.table) or "Mesa"
+    table_key = _table_key(table_number)
+    expires_at = _now() + timedelta(hours=int(payload.duration_hours or 12))
+    code = _new_access_code()
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_table_access
+            SET status = 'closed',
+                updated_at = NOW()
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND status = 'active'
+            """
+        ),
+        {"company_id": str(company_id), "table_key": table_key},
+    )
+    result = await db.execute(
+        text(
+            """
+            INSERT INTO hospitality_table_access (
+                company_id, table_key, table_number, access_code, status, activated_at, expires_at, created_at, updated_at
+            )
+            VALUES (
+                :company_id, :table_key, :table_number, :access_code, 'active', NOW(), :expires_at, NOW(), NOW()
+            )
+            RETURNING *
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "table_key": table_key,
+            "table_number": table_number,
+            "access_code": code,
+            "expires_at": expires_at,
+        },
+    )
+    await db.commit()
+    access = result.mappings().first()
+    return {"ok": True, "company_id": str(company_id), "table": table_number, "access": _table_access_payload(access, include_code=True)}
+
+
+@router.post("/companies/{company_id}/qr-tables/access/verify")
+async def verify_hospitality_table_access(
+    company_id: uuid.UUID,
+    payload: HospitalityTableAccessVerifyIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    table_number = _clean(payload.table) or "Mesa"
+    await _require_table_access(db, company_id, table_number, payload.access_code)
+    access = await _fetch_active_table_access(db, company_id, table_number)
+    return {"ok": True, "company_id": str(company_id), "table": table_number, "access": _table_access_payload(access, include_code=False)}
+
+
 @router.get("/companies/{company_id}/qr-tables")
 async def hospitality_qr_tables(
     company_id: uuid.UUID,
@@ -1160,6 +1380,24 @@ async def hospitality_qr_tables(
         for row in rows.mappings().all()
     }
 
+    access_rows = await db.execute(
+        text(
+            """
+            SELECT DISTINCT ON (table_key) *
+            FROM hospitality_table_access
+            WHERE company_id = :company_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            ORDER BY table_key, activated_at DESC
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    access_by_table = {
+        _table_key(row["table_key"]): _table_access_payload(row, include_code=True)
+        for row in access_rows.mappings().all()
+    }
+
     base = _public_base_url(request, base_url)
     labels = (["Barra"] if include_bar else []) + [f"Mesa {index}" for index in range(1, count + 1)]
     tables: list[dict[str, Any]] = []
@@ -1167,6 +1405,7 @@ async def hospitality_qr_tables(
         key = _table_key(label)
         order_url = f"{base}/ordenar?company_id={company_id}&mesa={quote(label)}"
         stats = activity.get(key, {})
+        access = access_by_table.get(key) or _table_access_payload(None, include_code=True)
         tables.append(
             {
                 "position": position,
@@ -1177,6 +1416,9 @@ async def hospitality_qr_tables(
                 "active_orders": int(stats.get("active_orders") or 0),
                 "open_total": _money(stats.get("open_total")),
                 "last_activity": stats.get("last_activity") or "",
+                "access_active": bool(access.get("active")),
+                "access_code": access.get("access_code") or "",
+                "access_expires_at": access.get("expires_at") or "",
             }
         )
 
@@ -1359,11 +1601,14 @@ async def create_hospitality_order(
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
 
-    items = await _build_order_items(db, company_id, payload.items)
-    total = _money(sum(_num(item.get("subtotal")) for item in items))
     table_number = _clean(payload.table) or "Barra"
     customer_name = _clean(payload.customer) or "Cliente barra"
     source = _clean(payload.source) or "client"
+    if _norm(source) == "qr":
+        await _require_table_access(db, company_id, table_number, payload.access_code)
+
+    items = await _build_order_items(db, company_id, payload.items)
+    total = _money(sum(_num(item.get("subtotal")) for item in items))
     payment_method = _payment_method(payload.payment_method)
     order_type = "bar_sale" if _table_key(table_number) == "barra" or source in {"bar_manual", "barra"} else "table"
     order_number = await _next_order_number(db, company_id)
@@ -1480,6 +1725,8 @@ async def update_hospitality_order_status(
             ),
             params,
         )
+    if next_status == STATUS_CLOSED:
+        await _close_table_access_if_idle(db, company_id, order.get("table_key") or order.get("table_number") or "")
     await db.commit()
     saved = await _fetch_order(db, company_id, order_id)
     return {"ok": True, "order": saved, "table": saved}
@@ -1513,6 +1760,7 @@ async def close_hospitality_order(
         ),
         {"order_id": str(order_id), "company_id": str(company_id), "payment_method": payment_method},
     )
+    await _close_table_access_if_idle(db, company_id, order.get("table_key") or order.get("table_number") or "")
     await db.commit()
     saved = await _fetch_order(db, company_id, order_id)
     return {"ok": True, "order": saved, "table": saved}

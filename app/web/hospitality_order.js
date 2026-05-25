@@ -16,6 +16,7 @@
     campaign: null,
     participant: null,
     campaignDismissed: false,
+    access: { active: false, unlocked: false, code: "", expires_at: "" },
     loading: true,
     message: "",
     error: "",
@@ -234,6 +235,29 @@
       .qr-msg{padding:12px;border-radius:14px;background:rgba(34,197,94,.13);border:1px solid rgba(34,197,94,.28);color:#bbf7d0;font-weight:900}
       .qr-msg.err{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.30);color:#fecaca}
       .qr-empty{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:18px;text-align:center;color:var(--qr-muted);font-weight:850}
+      .qr-access-gate{
+        background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.04)),var(--qr-card);
+        border:1px solid var(--qr-line);
+        border-radius:22px;
+        padding:18px;
+        display:grid;
+        gap:12px;
+        box-shadow:0 18px 54px rgba(0,0,0,.24);
+      }
+      .qr-access-gate h2{margin:0;font-size:24px;line-height:1.05;color:var(--qr-secondary)}
+      .qr-access-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}
+      .qr-access-form input{
+        width:100%;
+        border:1px solid var(--qr-line);
+        border-radius:15px;
+        background:rgba(2,6,23,.58);
+        color:var(--qr-text);
+        padding:14px;
+        outline:none;
+        font-weight:1000;
+        letter-spacing:.12em;
+        text-transform:uppercase;
+      }
       .qr-campaign{
         display:grid;
         grid-template-columns:minmax(0,1fr) minmax(240px,360px);
@@ -273,9 +297,30 @@
         .qr-hero{grid-template-columns:1fr}
         .qr-layout{grid-template-columns:1fr}
         .qr-menu-head{grid-template-columns:1fr}
-        .qr-campaign,.qr-campaign-join{grid-template-columns:1fr}
+        .qr-campaign,.qr-campaign-join,.qr-access-form{grid-template-columns:1fr}
         .qr-cart{position:static}
       }
+    `;
+  }
+
+  function accessStorageKey() {
+    return `clonexa_hsp_table_access_${state.companyId}_${normalizeText(state.table).replace(/[^a-z0-9]+/g, "_")}`;
+  }
+
+  function accessGateHtml() {
+    const active = state.access?.active === true;
+    return `
+      <section class="qr-access-gate">
+        <p class="qr-eyebrow">Acceso de mesa</p>
+        <h2>${active ? "Ingresa la clave de tu mesa" : "Mesa sin activar"}</h2>
+        <p class="qr-muted">${active ? "El personal del bar te entrega una clave corta. Solo se solicita una vez en este dispositivo." : "Pide al personal que active esta mesa para poder enviar pedidos."}</p>
+        ${active ? `
+          <div class="qr-access-form">
+            <input id="qrAccessCode025B" maxlength="12" autocomplete="one-time-code" placeholder="Clave de mesa">
+            <button class="qr-btn" type="button" data-access-verify>Activar pedido</button>
+          </div>
+        ` : ""}
+      </section>
     `;
   }
 
@@ -307,16 +352,6 @@
     const minutes = Math.floor((total % 3600) / 60);
     const seconds = Math.floor(total % 60);
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-
-  function campaignProducts(row = {}) {
-    const products = Array.isArray(row.products) ? row.products : [];
-    if (!products.length) return "";
-    return products.slice(0, 2).map((item) => {
-      const qty = Number(item.quantity || 0);
-      const qtyLabel = Number.isInteger(qty) ? String(qty) : qty.toFixed(1);
-      return `${item.name || "Producto"} x ${qtyLabel}`;
-    }).join(" · ");
   }
 
   function campaignHtml() {
@@ -363,7 +398,6 @@
               <div>
                 <strong>${h(row.team_name)}</strong>
                 <small>${h(row.table_number)} - ${h(money(row.total || 0))}</small>
-                ${campaignProducts(row) ? `<small>${h(campaignProducts(row))}</small>` : ""}
                 <i><b style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></b></i>
               </div>
             </div>
@@ -386,6 +420,25 @@
 
     if (state.loading) {
       app.innerHTML = `<main class="qr-shell"><section class="qr-hero"><div><p class="qr-eyebrow">Mesa QR</p><h1>${h(state.table)}</h1><p class="qr-muted">Cargando menu...</p></div></section></main>`;
+      return;
+    }
+
+    if (!state.access?.unlocked) {
+      app.innerHTML = `
+        <main class="qr-shell">
+          <section class="qr-hero">
+            <div>
+              <p class="qr-eyebrow">Mesa QR</p>
+              <h1>${h(state.table)}</h1>
+              <p class="qr-muted">${h(companyName)} - activa la mesa para poder enviar pedidos.</p>
+            </div>
+            <div class="qr-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName)}">` : h(companyName.slice(0, 1).toUpperCase())}</div>
+          </section>
+          ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
+          ${state.error ? `<div class="qr-msg err">${h(state.error)}</div>` : ""}
+          ${accessGateHtml()}
+        </main>
+      `;
       return;
     }
 
@@ -489,6 +542,12 @@
   }
 
   async function submitOrder() {
+    if (!state.access?.unlocked) {
+      state.error = "Activa la mesa con la clave antes de enviar pedidos.";
+      state.message = "";
+      render();
+      return;
+    }
     const items = [...state.cart.values()].filter((item) => Number(item.quantity || 0) > 0);
     if (!items.length) {
       state.error = "Agrega al menos un producto.";
@@ -508,6 +567,7 @@
         table: state.table,
         customer,
         source: "qr",
+        access_code: state.access.code || sessionStorage.getItem(accessStorageKey()) || "",
         songs,
         notes,
         items: items.map((item) => ({
@@ -529,6 +589,11 @@
       state.error = "";
       render();
     } catch (error) {
+      if (String(error.message || "").includes("403")) {
+        sessionStorage.removeItem(accessStorageKey());
+        state.access.unlocked = false;
+        state.access.code = "";
+      }
       state.error = error.message || "No se pudo enviar el pedido.";
       state.message = "";
       render();
@@ -544,17 +609,32 @@
 
   async function load() {
     try {
-      const [company, branding, inventory, campaign] = await Promise.all([
+      const [company, branding, inventory, campaign, access] = await Promise.all([
         api(`/companies/${encodeURIComponent(state.companyId)}`),
         api(`/companies/${encodeURIComponent(state.companyId)}/branding`).catch(() => ({})),
         api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`),
         api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`).catch(() => ({})),
+        api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/access?table=${encodeURIComponent(state.table)}`).catch(() => ({})),
       ]);
       state.company = company || {};
       state.branding = branding.branding || branding || {};
       state.inventory = Array.isArray(inventory.inventory) ? inventory.inventory : [];
       state.campaign = campaign.campaign || null;
       state.participant = campaign.participant || null;
+      state.access = {
+        active: access.access?.active === true,
+        unlocked: false,
+        code: "",
+        expires_at: access.access?.expires_at || "",
+      };
+      const storedCode = sessionStorage.getItem(accessStorageKey()) || "";
+      if (state.access.active && storedCode) {
+        try {
+          await verifyTableAccess(storedCode, { silent: true });
+        } catch (_) {
+          sessionStorage.removeItem(accessStorageKey());
+        }
+      }
       state.loading = false;
       state.error = "";
     } catch (error) {
@@ -575,6 +655,14 @@
     }
     if (target.closest("[data-campaign-join]")) {
       joinCampaign();
+      return;
+    }
+    if (target.closest("[data-access-verify]")) {
+      verifyTableAccess(document.getElementById("qrAccessCode025B")?.value || "").catch((error) => {
+        state.error = error.message || "Clave de mesa invalida.";
+        state.message = "";
+        render();
+      });
       return;
     }
     const category = target.closest("[data-category]");
@@ -627,6 +715,44 @@
       search.setSelectionRange(end, end);
     }
   });
+
+  document.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.id === "qrAccessCode025B" && event.key === "Enter") {
+      event.preventDefault();
+      verifyTableAccess(target.value || "").catch((error) => {
+        state.error = error.message || "Clave de mesa invalida.";
+        state.message = "";
+        render();
+      });
+    }
+  });
+
+  async function verifyTableAccess(code, options = {}) {
+    const cleanCode = String(code || "").trim().toUpperCase();
+    if (!cleanCode) {
+      state.error = "Ingresa la clave de la mesa.";
+      state.message = "";
+      if (!options.silent) render();
+      throw new Error(state.error);
+    }
+    const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/access/verify`, {
+      method: "POST",
+      body: JSON.stringify({ table: state.table, access_code: cleanCode }),
+    });
+    state.access = {
+      active: data.access?.active === true,
+      unlocked: true,
+      code: cleanCode,
+      expires_at: data.access?.expires_at || "",
+    };
+    sessionStorage.setItem(accessStorageKey(), cleanCode);
+    state.error = "";
+    if (!options.silent) state.message = "Mesa activada. Ya puedes realizar tu pedido.";
+    if (!options.silent) render();
+    return data;
+  }
 
   async function joinCampaign() {
     if (!state.campaign?.id) return;

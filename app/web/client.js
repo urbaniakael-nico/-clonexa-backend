@@ -14299,6 +14299,10 @@ function inventoryCreatePayload() {
       .hsp-qr-stat-024s{background:rgba(3,7,18,.36);border:1px solid rgba(255,255,255,.10);border-radius:15px;padding:12px}
       .hsp-qr-stat-024s span{display:block;color:var(--qr-muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:1000}
       .hsp-qr-stat-024s b{display:block;margin-top:6px;font-size:22px;color:var(--cx-text,#fff)}
+      .hsp-qr-access-024s{display:flex;justify-content:space-between;gap:10px;align-items:center;background:rgba(3,7,18,.34);border:1px solid rgba(255,255,255,.12);border-radius:15px;padding:11px 12px}
+      .hsp-qr-access-024s span{color:var(--qr-muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:1000}
+      .hsp-qr-access-024s strong{font-size:21px;letter-spacing:.14em;color:var(--qr-secondary)}
+      .hsp-qr-access-024s.off strong{letter-spacing:0;color:var(--qr-muted);font-size:13px}
       .hsp-qr-grid-024s{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
       .hsp-qr-card-024s{
         background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.035));
@@ -14365,6 +14369,7 @@ function inventoryCreatePayload() {
 
   function cxHspQrCard024S(row = {}) {
     const live = Number(row.active_orders || 0) > 0;
+    const accessActive = row.access_active === true;
     return `
       <article class="hsp-qr-card-024s">
         <div class="hsp-qr-card-head-024s">
@@ -14381,9 +14386,14 @@ function inventoryCreatePayload() {
           <div class="hsp-qr-stat-024s"><span>Cuentas</span><b>${h(row.active_orders || 0)}</b></div>
           <div class="hsp-qr-stat-024s"><span>Abierto</span><b>${h(cxHspMoney024R(row.open_total || 0))}</b></div>
         </div>
+        <div class="hsp-qr-access-024s ${accessActive ? "" : "off"}">
+          <span>Clave mesa</span>
+          <strong>${accessActive ? h(row.access_code || "") : "Sin activar"}</strong>
+        </div>
         <div class="hsp-qr-actions-024s">
           <a class="hsp-qr-btn-024s" href="${h(row.order_url || "#")}" target="_blank" rel="noopener">Abrir</a>
           <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-copy="${h(row.order_url || "")}">Copiar</button>
+          <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-activate="${h(row.label || "Mesa")}">${accessActive ? "Nueva clave" : "Activar mesa"}</button>
         </div>
       </article>
     `;
@@ -16194,6 +16204,23 @@ document.addEventListener("click", async (event) => {
           cxHspQrShowMsg024S("Link copiado.");
         } catch (_) {
           cxHspQrShowMsg024S(link || "No se pudo copiar el link.", Boolean(!link));
+        }
+        return;
+      }
+
+      const qrActivate = target.closest("[data-hsp-qr-activate]");
+      if (qrActivate) {
+        const table = qrActivate.getAttribute("data-hsp-qr-activate") || "Mesa";
+        try {
+          const data = await cxHspQrApi024S("/qr-tables/access", {
+            method: "POST",
+            body: JSON.stringify({ table, duration_hours: 12 }),
+          });
+          await cxHspQrLoad024S(cxHspQrCount024S);
+          cxHspQrPaint024S();
+          cxHspQrShowMsg024S(`Mesa activada. Clave ${data.access?.access_code || ""}`);
+        } catch (error) {
+          cxHspQrShowMsg024S(error.message || "No se pudo activar la mesa.", true);
         }
         return;
       }
