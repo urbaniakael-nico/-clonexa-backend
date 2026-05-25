@@ -14884,7 +14884,18 @@ function inventoryCreatePayload() {
     const seconds = Math.max(0, Number(value || 0));
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    const secs = Math.floor(seconds % 60);
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+
+  function cxHspLoyaltyProducts024Z(row = {}) {
+    const products = Array.isArray(row.products) ? row.products : [];
+    if (!products.length) return "Sin consumo registrado en el torneo";
+    return products.slice(0, 3).map((item) => {
+      const qty = Number(item.quantity || 0);
+      const qtyLabel = Number.isInteger(qty) ? String(qty) : qty.toFixed(1);
+      return `${item.name || "Producto"} x ${qtyLabel}`;
+    }).join(" · ");
   }
 
   function cxHspLoyaltyStyles024Z() {
@@ -14905,11 +14916,14 @@ function inventoryCreatePayload() {
       .hsp-loy-active-024z{display:grid;gap:12px}
       .hsp-loy-prize-024z{display:flex;justify-content:space-between;gap:12px;align-items:center;background:rgba(3,7,18,.38);border:1px solid rgba(255,255,255,.11);border-radius:15px;padding:12px;font-weight:1000}
       .hsp-loy-prize-024z strong{color:var(--cx-secondary,#f4c7b6);font-size:20px}
+      .hsp-loy-winner-024z{background:linear-gradient(135deg,rgba(34,197,94,.20),rgba(255,255,255,.04));border-color:rgba(110,231,183,.42)}
+      .hsp-loy-winner-024z strong{color:#bbf7d0}
       .hsp-loy-timer-024z{font-size:28px;line-height:1;font-weight:1000;color:var(--cx-secondary,#f4c7b6)}
       .hsp-loy-rank-024z{display:grid;gap:8px}
       .hsp-loy-rank-row-024z{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px}
       .hsp-loy-rank-name-024z{font-weight:1000;color:var(--cx-text,#fff)}
       .hsp-loy-rank-name-024z small{display:block;color:rgba(255,255,255,.62);font-size:11px;font-weight:850;margin-top:3px}
+      .hsp-loy-products-024z{display:block;color:rgba(255,255,255,.58);font-size:11px;font-weight:850;margin-top:5px;line-height:1.25}
       .hsp-loy-bar-024z{height:8px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:7px}
       .hsp-loy-bar-024z i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--cx-primary,#ff8a1c),var(--cx-secondary,#f4c7b6))}
       @media(max-width:980px){.hsp-loy-grid-024z,.hsp-loy-row-024z{grid-template-columns:1fr}}
@@ -14932,6 +14946,9 @@ function inventoryCreatePayload() {
       return;
     }
     const rows = Array.isArray(campaign.leaderboard) ? campaign.leaderboard : [];
+    const tournamentPhase = campaign.tournament_phase || "open";
+    const tournamentLabel = tournamentPhase === "closed" ? "Torneo finalizado" : tournamentPhase === "scheduled" ? "Torneo programado" : "Torneo en curso";
+    const winner = campaign.winner || null;
     root.innerHTML = `
       <div class="hsp-loy-active-024z">
         <div class="hsp-loy-card-024z">
@@ -14939,10 +14956,14 @@ function inventoryCreatePayload() {
           <p class="hsp-loy-muted-024z">${h(campaign.description || "La mesa con mas consumo dentro de la ventana gana el premio.")}</p>
           <div class="hsp-loy-prize-024z"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
           <div class="hsp-loy-row-024z">
-            <div class="hsp-loy-prize-024z"><span>Inicio</span><b>${h(cxHspLoyaltyDate024Z(campaign.starts_at))}</b></div>
-            <div class="hsp-loy-prize-024z"><span>Cierre</span><b>${h(cxHspLoyaltyDate024Z(campaign.ends_at))}</b></div>
+            <div class="hsp-loy-prize-024z"><span>Inscripcion hasta</span><b>${h(cxHspLoyaltyDate024Z(campaign.registration_ends_at))}</b></div>
+            <div class="hsp-loy-prize-024z"><span>${h(tournamentLabel)}</span><b>${h(cxHspLoyaltyDate024Z(campaign.starts_at))} - ${h(cxHspLoyaltyDate024Z(campaign.ends_at))}</b></div>
           </div>
-          <div class="hsp-loy-prize-024z"><span>Tiempo restante</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(campaign.seconds_left))}</strong></div>
+          <div class="hsp-loy-row-024z">
+            <div class="hsp-loy-prize-024z"><span>Tiempo inscripcion</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(campaign.signup_seconds_left))}</strong></div>
+            <div class="hsp-loy-prize-024z"><span>Tiempo torneo</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(campaign.tournament_seconds_left))}</strong></div>
+          </div>
+          ${winner ? `<div class="hsp-loy-prize-024z hsp-loy-winner-024z"><span>Equipo ganador</span><strong>${h(winner.team_name)} · ${h(winner.table_number)} · ${h(cxHspMoney024R(winner.total || 0))}</strong></div>` : ""}
         </div>
         <div class="hsp-loy-card-024z">
           <h2>Ranking por consumo</h2>
@@ -14952,6 +14973,7 @@ function inventoryCreatePayload() {
                 <strong>${h(row.rank)}</strong>
                 <div>
                   <div class="hsp-loy-rank-name-024z">${h(row.team_name)}<small>${h(row.table_number)} · ${h(row.orders_count)} pedido(s)</small></div>
+                  <small class="hsp-loy-products-024z">${h(cxHspLoyaltyProducts024Z(row))}</small>
                   <div class="hsp-loy-bar-024z"><i style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></i></div>
                 </div>
                 <strong>${h(cxHspMoney024R(row.total || 0))}</strong>
@@ -14967,7 +14989,8 @@ function inventoryCreatePayload() {
     cxHspLoyaltyStyles024Z();
     const company = state.company || {};
     const now = new Date();
-    const later = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const registrationEnd = new Date(now.getTime() + 20 * 60 * 1000);
+    const tournamentEnd = new Date(registrationEnd.getTime() + 3 * 60 * 60 * 1000);
     let loadError = "";
     try {
       await cxHspLoyaltyLoad024Z();
@@ -14990,7 +15013,7 @@ function inventoryCreatePayload() {
             <header class="client-hero">
               <div class="client-eyebrow">Modulo Fidelizacion</div>
               <h1 class="client-title">Sorteos de consumo</h1>
-              <p class="client-muted">Publica retos por ventana horaria. El ranking suma solo pedidos creados entre inicio y cierre.</p>
+              <p class="client-muted">Publica retos con cierre de inscripcion y tiempo real de torneo. El ranking suma solo pedidos creados durante el torneo.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 <button class="client-btn" type="button" data-hsp-loyalty-refresh>Actualizar</button>
@@ -15001,14 +15024,15 @@ function inventoryCreatePayload() {
               <div class="hsp-loy-grid-024z">
                 <section class="hsp-loy-card-024z">
                   <h2>Publicar sorteo</h2>
-                  <p class="hsp-loy-muted-024z">Define premio y rango exacto. Ejemplo: inicia 11:00 p. m. y cierra 2:00 a. m.</p>
+                  <p class="hsp-loy-muted-024z">La inscripcion cierra la ronda de mesas. El torneo define el rango exacto de consumo.</p>
                   <div class="hsp-loy-form-024z">
                     <label>Titulo<input id="hspLoyTitle024Z" value="Reto de consumo"></label>
                     <label>Premio<input id="hspLoyPrize024Z" placeholder="Ej: 1/4 de ron"></label>
                     <div class="hsp-loy-row-024z">
-                      <label>Inicio<input id="hspLoyStart024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(now))}"></label>
-                      <label>Cierre<input id="hspLoyEnd024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(later))}"></label>
+                      <label>Cierre inscripcion<input id="hspLoyRegistrationEnd025A" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(registrationEnd))}"></label>
+                      <label>Inicio torneo<input id="hspLoyStart024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(registrationEnd))}"></label>
                     </div>
+                    <label>Cierre torneo<input id="hspLoyEnd024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(tournamentEnd))}"></label>
                     <label>Publicacion<textarea id="hspLoyDesc024Z">Te animas a participar? La mesa con mas consumo registrado dentro del tiempo gana el premio.</textarea></label>
                     <button class="client-btn" type="button" data-hsp-loyalty-create>Publicar sorteo</button>
                     <div id="hspLoyMsg024Z" class="hsp-msg-024r"></div>
@@ -16130,10 +16154,11 @@ document.addEventListener("click", async (event) => {
 
       if (target.closest("[data-hsp-loyalty-create]")) {
         try {
+          const registrationEnd = document.getElementById("hspLoyRegistrationEnd025A")?.value || "";
           const starts = document.getElementById("hspLoyStart024Z")?.value || "";
           const ends = document.getElementById("hspLoyEnd024Z")?.value || "";
-          if (!starts || !ends) {
-            cxHspShowMsg024R("hspLoyMsg024Z", "Define inicio y cierre del sorteo.", true);
+          if (!registrationEnd || !starts || !ends) {
+            cxHspShowMsg024R("hspLoyMsg024Z", "Define cierre de inscripcion, inicio y cierre del torneo.", true);
             return;
           }
           await cxHspLoyaltyApi024Z("/loyalty-campaigns", {
@@ -16142,6 +16167,7 @@ document.addEventListener("click", async (event) => {
               title: document.getElementById("hspLoyTitle024Z")?.value || "Reto de consumo",
               prize: document.getElementById("hspLoyPrize024Z")?.value || "",
               description: document.getElementById("hspLoyDesc024Z")?.value || "",
+              registration_ends_at: new Date(registrationEnd).toISOString(),
               starts_at: new Date(starts).toISOString(),
               ends_at: new Date(ends).toISOString(),
             }),

@@ -85,6 +85,7 @@ class HospitalityLoyaltyCampaignIn(BaseModel):
     title: str | None = Field(default="Reto de consumo", max_length=160)
     prize: str | None = Field(default="", max_length=220)
     description: str | None = Field(default="", max_length=700)
+    registration_ends_at: datetime | None = Field(default=None)
     starts_at: datetime
     ends_at: datetime
 
@@ -317,6 +318,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
                 title VARCHAR(160) NOT NULL DEFAULT 'Reto de consumo',
                 prize VARCHAR(220) NOT NULL DEFAULT '',
                 description TEXT,
+                registration_ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 starts_at TIMESTAMPTZ NOT NULL,
                 ends_at TIMESTAMPTZ NOT NULL,
                 status VARCHAR(40) NOT NULL DEFAULT 'active',
@@ -329,6 +331,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS title VARCHAR(160) NOT NULL DEFAULT 'Reto de consumo';"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS prize VARCHAR(220) NOT NULL DEFAULT '';"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS description TEXT;"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS registration_ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS status VARCHAR(40) NOT NULL DEFAULT 'active';"))
@@ -539,30 +542,45 @@ def _closure_payload(row: Any) -> dict[str, Any]:
 def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     data = dict(row)
     now = _now()
+    registration_ends = data.get("registration_ends_at") or data.get("starts_at")
     starts = data.get("starts_at")
     ends = data.get("ends_at")
+    if isinstance(registration_ends, datetime):
+        registration_ends = _aware(registration_ends)
     if isinstance(starts, datetime):
         starts = _aware(starts)
     if isinstance(ends, datetime):
         ends = _aware(ends)
-    phase = "open"
+    status_value = str(data.get("status") or "active")
+    registration_open = status_value == "active" and isinstance(registration_ends, datetime) and now < registration_ends
+    tournament_phase = "open"
     if isinstance(starts, datetime) and now < starts:
-        phase = "scheduled"
-    if str(data.get("status") or "active") != "active" or (isinstance(ends, datetime) and now >= ends):
-        phase = "closed"
-    seconds_left = max(int(((ends if isinstance(ends, datetime) else now) - now).total_seconds()), 0)
+        tournament_phase = "scheduled"
+    if status_value != "active" or (isinstance(ends, datetime) and now >= ends):
+        tournament_phase = "closed"
+    phase = "registration_open" if registration_open else tournament_phase
+    signup_seconds_left = max(int(((registration_ends if isinstance(registration_ends, datetime) else now) - now).total_seconds()), 0)
+    tournament_seconds_left = max(int(((ends if isinstance(ends, datetime) else now) - now).total_seconds()), 0)
+    rows = leaderboard or []
+    winner = rows[0] if tournament_phase == "closed" and rows and _money(rows[0].get("total")) > 0 else None
     return {
         "id": str(data.get("id")),
         "company_id": str(data.get("company_id")),
         "title": data.get("title") or "Reto de consumo",
         "prize": data.get("prize") or "",
         "description": data.get("description") or "",
+        "registration_ends_at": _iso(data.get("registration_ends_at") or data.get("starts_at")),
         "starts_at": _iso(data.get("starts_at")),
         "ends_at": _iso(data.get("ends_at")),
         "status": data.get("status") or "active",
         "phase": phase,
-        "seconds_left": seconds_left,
-        "leaderboard": leaderboard or [],
+        "registration_open": registration_open,
+        "tournament_phase": tournament_phase,
+        "signup_seconds_left": signup_seconds_left,
+        "tournament_seconds_left": tournament_seconds_left,
+        "seconds_left": tournament_seconds_left,
+        "winner": winner,
+        "leaderboard": rows,
         "created_at": _iso(data.get("created_at")),
         "updated_at": _iso(data.get("updated_at")),
     }
@@ -855,7 +873,6 @@ async def _active_loyalty_campaign(db: AsyncSession, company_id: uuid.UUID) -> d
             FROM hospitality_loyalty_campaigns
             WHERE company_id = :company_id
               AND status = 'active'
-              AND ends_at > NOW()
             ORDER BY starts_at DESC, created_at DESC
             LIMIT 1
             """
@@ -875,9 +892,11 @@ async def _loyalty_leaderboard(db: AsyncSession, campaign: dict[str, Any]) -> li
                    p.table_number,
                    p.team_name,
                    p.accepted,
-                   COALESCE(SUM(o.total), 0) AS total,
-                   COUNT(o.id) AS orders_count,
-                   MAX(o.created_at) AS last_order_at
+                   p.created_at AS participant_created_at,
+                   o.id AS order_id,
+                   o.total AS order_total,
+                   o.items AS order_items,
+                   o.created_at AS order_created_at
             FROM hospitality_loyalty_participants p
             LEFT JOIN hospitality_orders o
               ON o.company_id = p.company_id
@@ -887,8 +906,7 @@ async def _loyalty_leaderboard(db: AsyncSession, campaign: dict[str, Any]) -> li
             WHERE p.company_id = :company_id
               AND p.campaign_id = :campaign_id
               AND p.accepted = TRUE
-            GROUP BY p.id, p.table_key, p.table_number, p.team_name, p.accepted
-            ORDER BY total DESC, orders_count DESC, p.created_at ASC
+            ORDER BY p.created_at ASC, o.created_at ASC
             """
         ),
         {
@@ -899,23 +917,55 @@ async def _loyalty_leaderboard(db: AsyncSession, campaign: dict[str, Any]) -> li
         },
     )
     rows = result.mappings().all()
-    max_total = max((_money(row["total"]) for row in rows), default=0.0)
-    leaderboard: list[dict[str, Any]] = []
-    for index, row in enumerate(rows, start=1):
-        total = _money(row["total"])
-        leaderboard.append(
-            {
-                "rank": index,
-                "participant_id": str(row["id"]),
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        participant_id = str(row["id"])
+        if participant_id not in grouped:
+            grouped[participant_id] = {
+                "rank": 0,
+                "participant_id": participant_id,
                 "table_key": row["table_key"] or "",
                 "table_number": row["table_number"] or "",
                 "team_name": row["team_name"] or "Equipo",
-                "total": total,
-                "orders_count": int(row["orders_count"] or 0),
-                "percent": round((total / max_total) * 100, 1) if max_total > 0 else 0,
-                "last_order_at": _iso(row["last_order_at"]),
+                "total": 0.0,
+                "orders_count": 0,
+                "products_map": {},
+                "products": [],
+                "percent": 0,
+                "last_order_at": "",
+                "joined_at": _iso(row["participant_created_at"]),
+                "_joined_sort": row["participant_created_at"],
             }
-        )
+        target = grouped[participant_id]
+        if not row["order_id"]:
+            continue
+        target["total"] += _money(row["order_total"])
+        target["orders_count"] += 1
+        target["last_order_at"] = _iso(row["order_created_at"])
+        products_map = target["products_map"]
+        for item in _json(row["order_items"], []):
+            if not isinstance(item, dict):
+                continue
+            key = _clean(item.get("product_id") or item.get("inventory_item_id") or item.get("sku") or item.get("name") or "producto").lower()
+            if key not in products_map:
+                products_map[key] = {
+                    "name": item.get("name") or item.get("sku") or "Producto",
+                    "quantity": 0.0,
+                    "total": 0.0,
+                }
+            product = products_map[key]
+            product["quantity"] += _money(item.get("quantity"))
+            product["total"] += _money(item.get("subtotal") or (_num(item.get("quantity")) * _num(item.get("unit_price"))))
+
+    leaderboard = list(grouped.values())
+    max_total = max((_money(row["total"]) for row in leaderboard), default=0.0)
+    leaderboard.sort(key=lambda row: (-_money(row["total"]), -int(row["orders_count"]), row.get("_joined_sort") or _now()))
+    for index, row in enumerate(leaderboard, start=1):
+        row["rank"] = index
+        row["total"] = _money(row["total"])
+        row["percent"] = round((row["total"] / max_total) * 100, 1) if max_total > 0 else 0
+        row["products"] = sorted(row.pop("products_map", {}).values(), key=lambda item: _money(item["total"]), reverse=True)
+        row.pop("_joined_sort", None)
     return leaderboard
 
 
@@ -961,8 +1011,11 @@ async def create_loyalty_campaign(
 
     starts_at = _aware(payload.starts_at)
     ends_at = _aware(payload.ends_at)
+    registration_ends_at = _aware(payload.registration_ends_at or payload.starts_at)
     if ends_at <= starts_at:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El cierre debe ser posterior al inicio.")
+    if registration_ends_at >= ends_at:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="La inscripcion debe cerrar antes de finalizar el torneo.")
 
     await db.execute(
         text(
@@ -979,10 +1032,10 @@ async def create_loyalty_campaign(
         text(
             """
             INSERT INTO hospitality_loyalty_campaigns (
-                company_id, title, prize, description, starts_at, ends_at, status, created_at, updated_at
+                company_id, title, prize, description, registration_ends_at, starts_at, ends_at, status, created_at, updated_at
             )
             VALUES (
-                :company_id, :title, :prize, :description, :starts_at, :ends_at, 'active', NOW(), NOW()
+                :company_id, :title, :prize, :description, :registration_ends_at, :starts_at, :ends_at, 'active', NOW(), NOW()
             )
             RETURNING *
             """
@@ -992,6 +1045,7 @@ async def create_loyalty_campaign(
             "title": (_clean(payload.title) or "Reto de consumo")[:160],
             "prize": _clean(payload.prize)[:220],
             "description": _clean(payload.description)[:700],
+            "registration_ends_at": registration_ends_at,
             "starts_at": starts_at,
             "ends_at": ends_at,
         },
@@ -1028,8 +1082,11 @@ async def join_loyalty_campaign(
 
     campaign_data = dict(campaign)
     now = _now()
-    if now < _aware(campaign_data["starts_at"]) or now >= _aware(campaign_data["ends_at"]):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="inscripcion_fuera_de_tiempo")
+    registration_ends_at = _aware(campaign_data.get("registration_ends_at") or campaign_data["starts_at"])
+    if now >= _aware(campaign_data["ends_at"]):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="torneo_finalizado")
+    if now >= registration_ends_at:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="inscripcion_cerrada")
 
     table_number = _clean(payload.table) or "Mesa"
     team_name = _clean(payload.team_name) or table_number

@@ -309,12 +309,25 @@
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
 
+  function campaignProducts(row = {}) {
+    const products = Array.isArray(row.products) ? row.products : [];
+    if (!products.length) return "";
+    return products.slice(0, 2).map((item) => {
+      const qty = Number(item.quantity || 0);
+      const qtyLabel = Number.isInteger(qty) ? String(qty) : qty.toFixed(1);
+      return `${item.name || "Producto"} x ${qtyLabel}`;
+    }).join(" · ");
+  }
+
   function campaignHtml() {
     const campaign = state.campaign;
     if (!campaign) return "";
     const rows = Array.isArray(campaign.leaderboard) ? campaign.leaderboard : [];
-    const open = campaign.phase === "open";
+    const open = campaign.registration_open === true;
     const participant = state.participant;
+    const winner = campaign.winner || null;
+    const tournamentPhase = campaign.tournament_phase || "open";
+    const tournamentLabel = tournamentPhase === "closed" ? "Torneo finalizado" : tournamentPhase === "scheduled" ? "Torneo inicia en" : "Torneo cierra en";
     const form = open && !participant && !state.campaignDismissed ? `
       <div class="qr-campaign-join">
         <div>
@@ -327,6 +340,8 @@
       </div>
     ` : "";
     const joined = participant ? `<div class="qr-campaign-ok">Participando como <strong>${h(participant.team_name)}</strong></div>` : "";
+    const closedSignup = !open && !participant && !winner ? `<div class="qr-campaign-ok">Inscripcion cerrada para esta ronda.</div>` : "";
+    const winnerHtml = winner ? `<div class="qr-campaign-ok">Equipo ganador: <strong>${h(winner.team_name)}</strong> · ${h(winner.table_number)} · ${h(money(winner.total || 0))}</div>` : "";
     return `
       <section class="qr-campaign">
         <div class="qr-campaign-main">
@@ -334,8 +349,11 @@
           <h2>${h(campaign.title || "Reto de consumo")}</h2>
           <p class="qr-muted">${h(campaign.description || "La mesa con mas consumo dentro del tiempo gana el premio.")}</p>
           <div class="qr-campaign-prize"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
-          <div class="qr-campaign-clock"><span>Cierra en</span><strong id="qrCampaignClock024Z">${h(countdown(campaign.seconds_left))}</strong></div>
+          <div class="qr-campaign-clock"><span>Inscripcion cierra en</span><strong id="qrSignupClock025A">${h(countdown(campaign.signup_seconds_left))}</strong></div>
+          <div class="qr-campaign-clock"><span>${h(tournamentLabel)}</span><strong id="qrTournamentClock025A">${h(countdown(campaign.tournament_seconds_left))}</strong></div>
           ${joined}
+          ${closedSignup}
+          ${winnerHtml}
           ${form}
         </div>
         <div class="qr-campaign-rank">
@@ -344,7 +362,8 @@
               <span>${h(row.rank)}</span>
               <div>
                 <strong>${h(row.team_name)}</strong>
-                <small>${h(row.table_number)} - indicador de consumo</small>
+                <small>${h(row.table_number)} - ${h(money(row.total || 0))}</small>
+                ${campaignProducts(row) ? `<small>${h(campaignProducts(row))}</small>` : ""}
                 <i><b style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></b></i>
               </div>
             </div>
@@ -629,10 +648,25 @@
   }
 
   setInterval(() => {
-    if (!state.campaign || !Number.isFinite(Number(state.campaign.seconds_left))) return;
-    state.campaign.seconds_left = Math.max(0, Number(state.campaign.seconds_left || 0) - 1);
-    const clock = document.getElementById("qrCampaignClock024Z");
-    if (clock) clock.textContent = countdown(state.campaign.seconds_left);
+    if (!state.campaign) return;
+    if (Number.isFinite(Number(state.campaign.signup_seconds_left))) {
+      state.campaign.signup_seconds_left = Math.max(0, Number(state.campaign.signup_seconds_left || 0) - 1);
+      const signupClock = document.getElementById("qrSignupClock025A");
+      if (signupClock) signupClock.textContent = countdown(state.campaign.signup_seconds_left);
+      if (state.campaign.signup_seconds_left === 0 && state.campaign.registration_open) {
+        state.campaign.registration_open = false;
+        render();
+      }
+    }
+    if (Number.isFinite(Number(state.campaign.tournament_seconds_left))) {
+      state.campaign.tournament_seconds_left = Math.max(0, Number(state.campaign.tournament_seconds_left || 0) - 1);
+      const tournamentClock = document.getElementById("qrTournamentClock025A");
+      if (tournamentClock) tournamentClock.textContent = countdown(state.campaign.tournament_seconds_left);
+      if (state.campaign.tournament_seconds_left === 0 && !state.campaign._endRefreshDone) {
+        state.campaign._endRefreshDone = true;
+        refreshCampaign().then(() => render()).catch(() => {});
+      }
+    }
   }, 1000);
 
   render();
