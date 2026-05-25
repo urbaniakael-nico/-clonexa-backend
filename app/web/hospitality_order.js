@@ -11,6 +11,8 @@
     branding: {},
     inventory: [],
     cart: new Map(),
+    category: "Todos",
+    search: "",
     loading: true,
     message: "",
     error: "",
@@ -48,6 +50,58 @@
     }
   }
 
+  function normalizeText(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  }
+
+  function prettyLabel(value) {
+    const clean = String(value || "Otros")
+      .replace(/[^\w\s\u00c0-\u017f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!clean) return "Otros";
+    return clean
+      .split(" ")
+      .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1).toLowerCase())
+      .join(" ");
+  }
+
+  function productCategory(item) {
+    const explicit = item.category || item.category_name || item.group || item.family;
+    if (explicit) return prettyLabel(explicit);
+    const firstWord = String(item.name || "").trim().split(/\s+/)[0] || "Otros";
+    return prettyLabel(firstWord);
+  }
+
+  function productCategories() {
+    const counts = new Map();
+    state.inventory.forEach((item) => {
+      const category = productCategory(item);
+      counts.set(category, (counts.get(category) || 0) + 1);
+    });
+    const grouped = [...counts.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], "es"))
+      .map(([name, count]) => ({ name, count }));
+    return [{ name: "Todos", count: state.inventory.length }, ...grouped];
+  }
+
+  function visibleProducts() {
+    const validCategories = new Set(productCategories().map((item) => item.name));
+    if (!validCategories.has(state.category)) state.category = "Todos";
+    const query = normalizeText(state.search);
+    return state.inventory.filter((item) => {
+      const category = productCategory(item);
+      const inCategory = state.category === "Todos" || category === state.category;
+      if (!inCategory) return false;
+      if (!query) return true;
+      return normalizeText(`${item.name || ""} ${item.sku || ""} ${category}`).includes(query);
+    });
+  }
+
   function brand() {
     const b = state.branding || {};
     return {
@@ -61,10 +115,10 @@
 
   function injectStyles() {
     const b = brand();
-    let style = document.getElementById("hspPublicQrStyles024S");
+    let style = document.getElementById("hspPublicQrStyles024X");
     if (!style) {
       style = document.createElement("style");
-      style.id = "hspPublicQrStyles024S";
+      style.id = "hspPublicQrStyles024X";
       document.head.appendChild(style);
     }
     style.textContent = `
@@ -104,6 +158,39 @@
       h1{margin:0;font-size:clamp(30px,8vw,58px);line-height:.95;letter-spacing:-.03em}
       .qr-muted{color:var(--qr-muted);font-weight:750;line-height:1.35}
       .qr-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
+      .qr-menu{display:grid;gap:12px}
+      .qr-menu-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,320px);gap:12px;align-items:end}
+      .qr-menu-title{margin:0;font-size:22px;line-height:1.05}
+      .qr-search{
+        width:100%;
+        border:1px solid var(--qr-line);
+        border-radius:16px;
+        background:rgba(2,6,23,.58);
+        color:var(--qr-text);
+        padding:13px 14px;
+        outline:none;
+        font-weight:900;
+      }
+      .qr-search::placeholder{color:rgba(255,255,255,.42)}
+      .qr-categories{display:flex;gap:8px;overflow:auto;padding:2px 2px 6px;scrollbar-width:thin}
+      .qr-category{
+        border:1px solid var(--qr-line);
+        border-radius:999px;
+        padding:10px 13px;
+        min-height:40px;
+        white-space:nowrap;
+        color:var(--qr-text);
+        background:rgba(255,255,255,.075);
+        font-weight:1000;
+        cursor:pointer;
+      }
+      .qr-category.active{
+        color:#101827;
+        border-color:transparent;
+        background:linear-gradient(135deg,var(--qr-primary),var(--qr-secondary));
+      }
+      .qr-category small{opacity:.7;font-size:11px}
+      .qr-menu-meta{color:var(--qr-muted);font-size:12px;font-weight:900}
       .qr-products{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
       .qr-card{padding:14px;display:grid;gap:12px;min-height:176px}
       .qr-product-name{font-size:17px;font-weight:950;line-height:1.1;word-break:break-word}
@@ -147,6 +234,7 @@
       @media(max-width:860px){
         .qr-hero{grid-template-columns:1fr}
         .qr-layout{grid-template-columns:1fr}
+        .qr-menu-head{grid-template-columns:1fr}
         .qr-cart{position:static}
       }
     `;
@@ -190,18 +278,26 @@
       return;
     }
 
-    const productCards = state.inventory.length
-      ? state.inventory.map((item) => `
+    const categories = productCategories();
+    const products = visibleProducts();
+    const categoryButtons = categories.map((item) => `
+      <button class="qr-category ${item.name === state.category ? "active" : ""}" type="button" data-category="${h(item.name)}">
+        ${h(item.name)} <small>${h(item.count)}</small>
+      </button>
+    `).join("");
+    const productCards = products.length
+      ? products.map((item) => `
           <article class="qr-card">
             <div>
               <div class="qr-product-name">${h(item.name)}</div>
+              <div class="qr-stock">${h(productCategory(item))}</div>
               <div class="qr-stock">Stock ${h(item.stock ?? 0)}</div>
             </div>
             <div class="qr-price">${Number(item.price || 0) > 0 ? h(money(item.price)) : "Por confirmar"}</div>
             <button class="qr-btn" type="button" data-add="${h(item.id)}">Agregar</button>
           </article>
         `).join("")
-      : `<div class="qr-empty">No hay productos activos para esta mesa.</div>`;
+      : `<div class="qr-empty">${state.inventory.length ? "No encontramos productos con ese filtro." : "No hay productos activos para esta mesa."}</div>`;
 
     app.innerHTML = `
       <main class="qr-shell">
@@ -218,7 +314,18 @@
         ${state.error ? `<div class="qr-msg err">${h(state.error)}</div>` : ""}
 
         <section class="qr-layout">
-          <div class="qr-products">${productCards}</div>
+          <div class="qr-menu">
+            <div class="qr-menu-head">
+              <div>
+                <p class="qr-eyebrow">Menu</p>
+                <h2 class="qr-menu-title">Elige por categoria</h2>
+              </div>
+              <input id="qrSearch024X" class="qr-search" placeholder="Buscar producto" value="${h(state.search)}" autocomplete="off">
+            </div>
+            <div class="qr-categories">${categoryButtons}</div>
+            <div class="qr-menu-meta">${h(products.length)} de ${h(state.inventory.length)} productos visibles</div>
+            <div class="qr-products">${productCards}</div>
+          </div>
           <aside class="qr-cart">
             <h2>Tu pedido</h2>
             <label class="qr-field">
@@ -338,6 +445,14 @@
     const target = event.target;
     if (!(target instanceof Element)) return;
 
+    const category = target.closest("[data-category]");
+    if (category) {
+      state.category = category.getAttribute("data-category") || "Todos";
+      state.error = "";
+      state.message = "";
+      render();
+      return;
+    }
     const add = target.closest("[data-add]");
     if (add) {
       addItem(add.getAttribute("data-add"));
@@ -362,6 +477,22 @@
     }
     if (target.closest("[data-submit-order]")) {
       submitOrder();
+    }
+  });
+
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.id !== "qrSearch024X") return;
+    state.search = target.value;
+    state.error = "";
+    state.message = "";
+    render();
+    const search = document.getElementById("qrSearch024X");
+    if (search instanceof HTMLInputElement) {
+      search.focus();
+      const end = search.value.length;
+      search.setSelectionRange(end, end);
     }
   });
 
