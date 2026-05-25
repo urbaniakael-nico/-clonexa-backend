@@ -16,6 +16,7 @@
     campaign: null,
     participant: null,
     campaignDismissed: false,
+    campaignEndRefreshKey: "",
     access: { active: false, unlocked: false, code: "", expires_at: "" },
     loading: true,
     message: "",
@@ -805,16 +806,21 @@
       if (signupClock) signupClock.textContent = countdown(state.campaign.signup_seconds_left);
       if (state.campaign.signup_seconds_left === 0 && state.campaign.registration_open) {
         state.campaign.registration_open = false;
-        render();
+        if (state.access?.unlocked) render();
       }
     }
     if (Number.isFinite(Number(state.campaign.tournament_seconds_left))) {
       state.campaign.tournament_seconds_left = Math.max(0, Number(state.campaign.tournament_seconds_left || 0) - 1);
       const tournamentClock = document.getElementById("qrTournamentClock025A");
       if (tournamentClock) tournamentClock.textContent = countdown(state.campaign.tournament_seconds_left);
-      if (state.campaign.tournament_seconds_left === 0 && !state.campaign._endRefreshDone) {
+      const campaignKey = String(state.campaign.id || "sin-campana");
+      if (state.campaign.tournament_seconds_left === 0 && state.campaignEndRefreshKey !== campaignKey) {
+        state.campaignEndRefreshKey = campaignKey;
         state.campaign._endRefreshDone = true;
-        refreshCampaign().then(() => render()).catch(() => {});
+        refreshCampaign().then(() => {
+          if (state.campaign) state.campaign._endRefreshDone = true;
+          if (state.access?.unlocked) render();
+        }).catch(() => {});
       }
     }
   }, 1000);
