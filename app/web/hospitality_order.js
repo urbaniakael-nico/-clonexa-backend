@@ -327,16 +327,14 @@
       <section class="qr-access-gate">
         <div class="qr-access-top">
           <p class="qr-eyebrow">Acceso de mesa</p>
-          <h2>${active ? "Ingresa clave de activacion" : "Mesa sin activar"}</h2>
-          <p class="qr-muted">${active ? "Escribe la clave que te entrego el personal del bar para abrir el menu de pedidos." : "Pide al personal que active esta mesa para poder enviar pedidos."}</p>
+          <h2>Ingresa clave de activacion</h2>
+          <p class="qr-muted">${active ? "Escribe la clave que te entrego el personal del bar para abrir el menu de pedidos." : "Si aun no tienes clave, pide al personal del bar activar esta mesa."}</p>
         </div>
-        ${active ? `
-          <div class="qr-access-form">
-            <input id="qrAccessCode025B" maxlength="12" autocomplete="one-time-code" placeholder="CLAVE" autofocus>
-            <button class="qr-btn" type="button" data-access-verify>Activar pedido</button>
-          </div>
-          <div class="qr-access-note">Solo se solicita una vez en este dispositivo. Si la jornada cambia, el bar genera una nueva clave.</div>
-        ` : ""}
+        <div class="qr-access-form">
+          <input id="qrAccessCode025B" maxlength="12" autocomplete="one-time-code" placeholder="CLAVE" autofocus>
+          <button class="qr-btn" type="button" data-access-verify>Activar pedido</button>
+        </div>
+        <div class="qr-access-note">${active ? "Solo se solicita una vez en este dispositivo. Si la jornada cambia, el bar genera una nueva clave." : "La clave se genera desde el panel Mesa QR con el boton Activar mesa."}</div>
       </section>
     `;
   }
@@ -755,10 +753,18 @@
       if (!options.silent) render();
       throw new Error(state.error);
     }
-    const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/access/verify`, {
-      method: "POST",
-      body: JSON.stringify({ table: state.table, access_code: cleanCode }),
-    });
+    let data;
+    try {
+      data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/access/verify`, {
+        method: "POST",
+        body: JSON.stringify({ table: state.table, access_code: cleanCode }),
+      });
+    } catch (error) {
+      const raw = String(error.message || "");
+      if (raw.includes("mesa_no_activada")) throw new Error("Esta mesa aun no tiene clave activa. Pide al bar activar mesa.");
+      if (raw.includes("clave_de_mesa_invalida")) throw new Error("Clave incorrecta. Revisa el codigo entregado por el bar.");
+      throw error;
+    }
     state.access = {
       active: data.access?.active === true,
       unlocked: true,
