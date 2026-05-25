@@ -14852,6 +14852,178 @@ function inventoryCreatePayload() {
     cxHspDashPaint024W();
   }
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_END */
+  /* CLONEXA_024Z_HOSPITALITY_LOYALTY_START */
+  let cxHspLoyaltyCampaign024Z = null;
+
+  function cxIsHospitalityLoyaltyCode024Z(code = "") {
+    const normalized = String(code || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return ["loyalty", "fidelizacion", "fidelizacion_hospitality", "hospitality_loyalty"].includes(normalized);
+  }
+
+  function cxHspLoyaltyApi024Z(path, options = {}) {
+    return api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxHspLoyaltyLocalValue024Z(date = new Date()) {
+    const copy = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return copy.toISOString().slice(0, 16);
+  }
+
+  function cxHspLoyaltyDate024Z(value = "") {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" });
+  }
+
+  function cxHspLoyaltyCountdown024Z(value = 0) {
+    const seconds = Math.max(0, Number(value || 0));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }
+
+  function cxHspLoyaltyStyles024Z() {
+    if (document.getElementById("cxHspLoyaltyStyles024Z")) return;
+    const style = document.createElement("style");
+    style.id = "cxHspLoyaltyStyles024Z";
+    style.textContent = `
+      .hsp-loy-shell-024z{display:grid;gap:14px}
+      .hsp-loy-grid-024z{display:grid;grid-template-columns:minmax(280px,.78fr) minmax(320px,1fr);gap:14px;align-items:start}
+      .hsp-loy-card-024z{background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035)),rgba(15,23,42,.72);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:16px;box-shadow:0 18px 46px rgba(0,0,0,.22)}
+      .hsp-loy-card-024z h2{margin:0 0 8px;font-size:22px;line-height:1.08}
+      .hsp-loy-muted-024z{color:rgba(255,255,255,.66);font-weight:850;line-height:1.35}
+      .hsp-loy-form-024z{display:grid;gap:10px;margin-top:12px}
+      .hsp-loy-form-024z label{display:grid;gap:6px;color:rgba(255,255,255,.68);font-size:11px;font-weight:1000;text-transform:uppercase;letter-spacing:.10em}
+      .hsp-loy-form-024z input,.hsp-loy-form-024z textarea{width:100%;border:1px solid rgba(255,255,255,.14);border-radius:13px;background:rgba(3,7,18,.58);color:var(--cx-text,#fff);padding:11px 12px;font-weight:900;outline:none}
+      .hsp-loy-form-024z textarea{min-height:72px;resize:vertical}
+      .hsp-loy-row-024z{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .hsp-loy-active-024z{display:grid;gap:12px}
+      .hsp-loy-prize-024z{display:flex;justify-content:space-between;gap:12px;align-items:center;background:rgba(3,7,18,.38);border:1px solid rgba(255,255,255,.11);border-radius:15px;padding:12px;font-weight:1000}
+      .hsp-loy-prize-024z strong{color:var(--cx-secondary,#f4c7b6);font-size:20px}
+      .hsp-loy-timer-024z{font-size:28px;line-height:1;font-weight:1000;color:var(--cx-secondary,#f4c7b6)}
+      .hsp-loy-rank-024z{display:grid;gap:8px}
+      .hsp-loy-rank-row-024z{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px}
+      .hsp-loy-rank-name-024z{font-weight:1000;color:var(--cx-text,#fff)}
+      .hsp-loy-rank-name-024z small{display:block;color:rgba(255,255,255,.62);font-size:11px;font-weight:850;margin-top:3px}
+      .hsp-loy-bar-024z{height:8px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:7px}
+      .hsp-loy-bar-024z i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--cx-primary,#ff8a1c),var(--cx-secondary,#f4c7b6))}
+      @media(max-width:980px){.hsp-loy-grid-024z,.hsp-loy-row-024z{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function cxHspLoyaltyLoad024Z() {
+    const data = await cxHspLoyaltyApi024Z("/loyalty-campaigns/active");
+    cxHspLoyaltyCampaign024Z = data.campaign || null;
+    return cxHspLoyaltyCampaign024Z;
+  }
+
+  function cxHspLoyaltyPaint024Z() {
+    const root = document.getElementById("hspLoyaltyRoot024Z");
+    if (!root) return;
+    const campaign = cxHspLoyaltyCampaign024Z;
+    if (!campaign) {
+      root.innerHTML = `<div class="hsp-loy-card-024z"><h2>Sin sorteo activo</h2><p class="hsp-loy-muted-024z">Publica un reto de consumo con hora de inicio y cierre para que aparezca en las mesas QR.</p></div>`;
+      return;
+    }
+    const rows = Array.isArray(campaign.leaderboard) ? campaign.leaderboard : [];
+    root.innerHTML = `
+      <div class="hsp-loy-active-024z">
+        <div class="hsp-loy-card-024z">
+          <h2>${h(campaign.title || "Reto de consumo")}</h2>
+          <p class="hsp-loy-muted-024z">${h(campaign.description || "La mesa con mas consumo dentro de la ventana gana el premio.")}</p>
+          <div class="hsp-loy-prize-024z"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
+          <div class="hsp-loy-row-024z">
+            <div class="hsp-loy-prize-024z"><span>Inicio</span><b>${h(cxHspLoyaltyDate024Z(campaign.starts_at))}</b></div>
+            <div class="hsp-loy-prize-024z"><span>Cierre</span><b>${h(cxHspLoyaltyDate024Z(campaign.ends_at))}</b></div>
+          </div>
+          <div class="hsp-loy-prize-024z"><span>Tiempo restante</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(campaign.seconds_left))}</strong></div>
+        </div>
+        <div class="hsp-loy-card-024z">
+          <h2>Ranking por consumo</h2>
+          <div class="hsp-loy-rank-024z">
+            ${rows.length ? rows.map((row) => `
+              <div class="hsp-loy-rank-row-024z">
+                <strong>${h(row.rank)}</strong>
+                <div>
+                  <div class="hsp-loy-rank-name-024z">${h(row.team_name)}<small>${h(row.table_number)} · ${h(row.orders_count)} pedido(s)</small></div>
+                  <div class="hsp-loy-bar-024z"><i style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></i></div>
+                </div>
+                <strong>${h(cxHspMoney024R(row.total || 0))}</strong>
+              </div>
+            `).join("") : `<div class="hsp-empty-024r">Aun no hay mesas inscritas.</div>`}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderHospitalityLoyaltyModule024Z() {
+    cxHspLoyaltyStyles024Z();
+    const company = state.company || {};
+    const now = new Date();
+    const later = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    let loadError = "";
+    try {
+      await cxHspLoyaltyLoad024Z();
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Fidelizacion.";
+      cxHspLoyaltyCampaign024Z = null;
+    }
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("loyalty")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo Fidelizacion</div>
+              <h1 class="client-title">Sorteos de consumo</h1>
+              <p class="client-muted">Publica retos por ventana horaria. El ranking suma solo pedidos creados entre inicio y cierre.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                <button class="client-btn" type="button" data-hsp-loyalty-refresh>Actualizar</button>
+              </div>
+            </header>
+            <section class="hsp-loy-shell-024z">
+              ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+              <div class="hsp-loy-grid-024z">
+                <section class="hsp-loy-card-024z">
+                  <h2>Publicar sorteo</h2>
+                  <p class="hsp-loy-muted-024z">Define premio y rango exacto. Ejemplo: inicia 11:00 p. m. y cierra 2:00 a. m.</p>
+                  <div class="hsp-loy-form-024z">
+                    <label>Titulo<input id="hspLoyTitle024Z" value="Reto de consumo"></label>
+                    <label>Premio<input id="hspLoyPrize024Z" placeholder="Ej: 1/4 de ron"></label>
+                    <div class="hsp-loy-row-024z">
+                      <label>Inicio<input id="hspLoyStart024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(now))}"></label>
+                      <label>Cierre<input id="hspLoyEnd024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(later))}"></label>
+                    </div>
+                    <label>Publicacion<textarea id="hspLoyDesc024Z">Te animas a participar? La mesa con mas consumo registrado dentro del tiempo gana el premio.</textarea></label>
+                    <button class="client-btn" type="button" data-hsp-loyalty-create>Publicar sorteo</button>
+                    <div id="hspLoyMsg024Z" class="hsp-msg-024r"></div>
+                  </div>
+                </section>
+                <section id="hspLoyaltyRoot024Z"></section>
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+    cxHspLoyaltyPaint024Z();
+  }
+  /* CLONEXA_024Z_HOSPITALITY_LOYALTY_END */
 async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -14901,6 +15073,14 @@ async function renderClientModulePlaceholder(code) {
       typeof renderHospitalityDashboardModule024W === "function"
     ) {
       return renderHospitalityDashboardModule024W();
+    }
+
+    if (
+      typeof cxIsHospitalityLoyaltyCode024Z === "function" &&
+      cxIsHospitalityLoyaltyCode024Z(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderHospitalityLoyaltyModule024Z === "function"
+    ) {
+      return renderHospitalityLoyaltyModule024Z();
     }
 
     if (
@@ -15938,6 +16118,43 @@ document.addEventListener("click", async (event) => {
         return;
       }
 
+      if (target.closest("[data-hsp-loyalty-refresh]")) {
+        try {
+          await cxHspLoyaltyLoad024Z();
+          cxHspLoyaltyPaint024Z();
+        } catch (error) {
+          cxHspShowMsg024R("hspLoyMsg024Z", error.message || "No se pudo actualizar Fidelizacion.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-loyalty-create]")) {
+        try {
+          const starts = document.getElementById("hspLoyStart024Z")?.value || "";
+          const ends = document.getElementById("hspLoyEnd024Z")?.value || "";
+          if (!starts || !ends) {
+            cxHspShowMsg024R("hspLoyMsg024Z", "Define inicio y cierre del sorteo.", true);
+            return;
+          }
+          await cxHspLoyaltyApi024Z("/loyalty-campaigns", {
+            method: "POST",
+            body: JSON.stringify({
+              title: document.getElementById("hspLoyTitle024Z")?.value || "Reto de consumo",
+              prize: document.getElementById("hspLoyPrize024Z")?.value || "",
+              description: document.getElementById("hspLoyDesc024Z")?.value || "",
+              starts_at: new Date(starts).toISOString(),
+              ends_at: new Date(ends).toISOString(),
+            }),
+          });
+          await cxHspLoyaltyLoad024Z();
+          cxHspLoyaltyPaint024Z();
+          cxHspShowMsg024R("hspLoyMsg024Z", "Sorteo publicado en las mesas QR.");
+        } catch (error) {
+          cxHspShowMsg024R("hspLoyMsg024Z", error.message || "No se pudo publicar el sorteo.", true);
+        }
+        return;
+      }
+
       if (target.closest("[data-hsp-qr-print]")) {
         window.print();
         return;
@@ -15978,6 +16195,11 @@ document.addEventListener("click", async (event) => {
 
         if (typeof cxIsHospitalityDashboardCode024W === "function" && cxIsHospitalityDashboardCode024W(code)) {
           await renderHospitalityDashboardModule024W();
+          return;
+        }
+
+        if (typeof cxIsHospitalityLoyaltyCode024Z === "function" && cxIsHospitalityLoyaltyCode024Z(code)) {
+          await renderHospitalityLoyaltyModule024Z();
           return;
         }
 

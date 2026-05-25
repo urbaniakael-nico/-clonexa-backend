@@ -13,6 +13,9 @@
     cart: new Map(),
     category: "Todos",
     search: "",
+    campaign: null,
+    participant: null,
+    campaignDismissed: false,
     loading: true,
     message: "",
     error: "",
@@ -231,10 +234,46 @@
       .qr-msg{padding:12px;border-radius:14px;background:rgba(34,197,94,.13);border:1px solid rgba(34,197,94,.28);color:#bbf7d0;font-weight:900}
       .qr-msg.err{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.30);color:#fecaca}
       .qr-empty{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:18px;text-align:center;color:var(--qr-muted);font-weight:850}
+      .qr-campaign{
+        display:grid;
+        grid-template-columns:minmax(0,1fr) minmax(240px,360px);
+        gap:12px;
+        background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.04)),var(--qr-card);
+        border:1px solid var(--qr-line);
+        border-radius:22px;
+        padding:16px;
+        box-shadow:0 18px 54px rgba(0,0,0,.24);
+      }
+      .qr-campaign h2{margin:0 0 8px;font-size:26px;line-height:1.05}
+      .qr-campaign-main{display:grid;gap:10px}
+      .qr-campaign-prize,.qr-campaign-clock,.qr-campaign-ok{
+        display:flex;
+        justify-content:space-between;
+        gap:12px;
+        align-items:center;
+        padding:10px 12px;
+        border-radius:15px;
+        background:rgba(3,7,18,.34);
+        border:1px solid rgba(255,255,255,.10);
+        font-weight:1000;
+      }
+      .qr-campaign-prize strong,.qr-campaign-clock strong{color:var(--qr-secondary);font-size:20px}
+      .qr-campaign-join{display:grid;grid-template-columns:1fr minmax(150px,1fr) auto auto;gap:8px;align-items:end}
+      .qr-campaign-join strong{display:block}
+      .qr-campaign-join span{display:block;color:var(--qr-muted);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+      .qr-campaign-join input{width:100%;border:1px solid var(--qr-line);border-radius:14px;background:rgba(2,6,23,.58);color:var(--qr-text);padding:12px;font-weight:900;outline:none}
+      .qr-campaign-rank{display:grid;gap:8px;align-content:start}
+      .qr-rank-row{display:grid;grid-template-columns:28px 1fr;gap:9px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:9px}
+      .qr-rank-row span{font-weight:1000;color:var(--qr-secondary)}
+      .qr-rank-row strong{display:block}
+      .qr-rank-row small{display:block;color:var(--qr-muted);font-size:11px;font-weight:850}
+      .qr-rank-row i{display:block;height:7px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:6px}
+      .qr-rank-row b{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--qr-primary),var(--qr-secondary))}
       @media(max-width:860px){
         .qr-hero{grid-template-columns:1fr}
         .qr-layout{grid-template-columns:1fr}
         .qr-menu-head{grid-template-columns:1fr}
+        .qr-campaign,.qr-campaign-join{grid-template-columns:1fr}
         .qr-cart{position:static}
       }
     `;
@@ -260,6 +299,59 @@
 
   function cartTotal() {
     return [...state.cart.values()].reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
+  }
+
+  function countdown(value = 0) {
+    const total = Math.max(0, Number(value || 0));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = Math.floor(total % 60);
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function campaignHtml() {
+    const campaign = state.campaign;
+    if (!campaign) return "";
+    const rows = Array.isArray(campaign.leaderboard) ? campaign.leaderboard : [];
+    const open = campaign.phase === "open";
+    const participant = state.participant;
+    const form = open && !participant && !state.campaignDismissed ? `
+      <div class="qr-campaign-join">
+        <div>
+          <strong>Te animas a participar?</strong>
+          <span>Nombre del equipo</span>
+        </div>
+        <input id="qrTeam024Z" placeholder="Ej: Equipo Mesa 1" value="${h(document.getElementById("qrTeam024Z")?.value || "")}">
+        <button class="qr-btn" type="button" data-campaign-join>Si, participar</button>
+        <button class="qr-btn secondary" type="button" data-campaign-dismiss>No participar</button>
+      </div>
+    ` : "";
+    const joined = participant ? `<div class="qr-campaign-ok">Participando como <strong>${h(participant.team_name)}</strong></div>` : "";
+    return `
+      <section class="qr-campaign">
+        <div class="qr-campaign-main">
+          <p class="qr-eyebrow">Sorteo activo</p>
+          <h2>${h(campaign.title || "Reto de consumo")}</h2>
+          <p class="qr-muted">${h(campaign.description || "La mesa con mas consumo dentro del tiempo gana el premio.")}</p>
+          <div class="qr-campaign-prize"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
+          <div class="qr-campaign-clock"><span>Cierra en</span><strong id="qrCampaignClock024Z">${h(countdown(campaign.seconds_left))}</strong></div>
+          ${joined}
+          ${form}
+        </div>
+        <div class="qr-campaign-rank">
+          ${rows.length ? rows.slice(0, 5).map((row) => `
+            <div class="qr-rank-row">
+              <span>${h(row.rank)}</span>
+              <div>
+                <strong>${h(row.team_name)}</strong>
+                <small>${h(row.table_number)} - indicador de consumo</small>
+                <i><b style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></b></i>
+              </div>
+            </div>
+          `).join("") : `<div class="qr-empty">Se el primero en participar.</div>`}
+        </div>
+      </section>
+    `;
   }
 
   function render() {
@@ -312,6 +404,7 @@
 
         ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
         ${state.error ? `<div class="qr-msg err">${h(state.error)}</div>` : ""}
+        ${campaignHtml()}
 
         <section class="qr-layout">
           <div class="qr-menu">
@@ -412,7 +505,8 @@
         body: JSON.stringify(payload),
       });
       state.cart.clear();
-      state.message = `Pedido enviado: ${response.order?.order_number || "recibido"}.`;
+      await refreshCampaign().catch(() => {});
+      state.message = `Tu pedido fue recibido. El barman ya lo tiene en pantalla: ${response.order?.order_number || "OK"}.`;
       state.error = "";
       render();
     } catch (error) {
@@ -422,16 +516,26 @@
     }
   }
 
+  async function refreshCampaign() {
+    const campaign = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`);
+    state.campaign = campaign.campaign || null;
+    state.participant = campaign.participant || null;
+    return campaign;
+  }
+
   async function load() {
     try {
-      const [company, branding, inventory] = await Promise.all([
+      const [company, branding, inventory, campaign] = await Promise.all([
         api(`/companies/${encodeURIComponent(state.companyId)}`),
         api(`/companies/${encodeURIComponent(state.companyId)}/branding`).catch(() => ({})),
         api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`),
+        api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`).catch(() => ({})),
       ]);
       state.company = company || {};
       state.branding = branding.branding || branding || {};
       state.inventory = Array.isArray(inventory.inventory) ? inventory.inventory : [];
+      state.campaign = campaign.campaign || null;
+      state.participant = campaign.participant || null;
       state.loading = false;
       state.error = "";
     } catch (error) {
@@ -445,6 +549,15 @@
     const target = event.target;
     if (!(target instanceof Element)) return;
 
+    if (target.closest("[data-campaign-dismiss]")) {
+      state.campaignDismissed = true;
+      render();
+      return;
+    }
+    if (target.closest("[data-campaign-join]")) {
+      joinCampaign();
+      return;
+    }
     const category = target.closest("[data-category]");
     if (category) {
       state.category = category.getAttribute("data-category") || "Todos";
@@ -495,6 +608,32 @@
       search.setSelectionRange(end, end);
     }
   });
+
+  async function joinCampaign() {
+    if (!state.campaign?.id) return;
+    try {
+      state.error = "";
+      const teamName = document.getElementById("qrTeam024Z")?.value || `Equipo ${state.table}`;
+      const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/${encodeURIComponent(state.campaign.id)}/participants`, {
+        method: "POST",
+        body: JSON.stringify({ table: state.table, team_name: teamName, accepted: true }),
+      });
+      state.campaign = data.campaign || state.campaign;
+      state.participant = data.participant || null;
+      state.message = "Inscripcion recibida. Tu mesa ya participa en el sorteo.";
+      render();
+    } catch (error) {
+      state.error = error.message || "No se pudo inscribir la mesa.";
+      render();
+    }
+  }
+
+  setInterval(() => {
+    if (!state.campaign || !Number.isFinite(Number(state.campaign.seconds_left))) return;
+    state.campaign.seconds_left = Math.max(0, Number(state.campaign.seconds_left || 0) - 1);
+    const clock = document.getElementById("qrCampaignClock024Z");
+    if (clock) clock.textContent = countdown(state.campaign.seconds_left);
+  }, 1000);
 
   render();
   load();
