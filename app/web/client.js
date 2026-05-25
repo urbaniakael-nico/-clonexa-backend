@@ -13581,6 +13581,272 @@ function inventoryCreatePayload() {
     }, 5500);
   }
   /* CLONEXA_024R_HOSPITALITY_ORDERS_END */
+  /* CLONEXA_024S_HOSPITALITY_QR_START */
+  let cxHspQrTables024S = [];
+  let cxHspQrSummary024S = {};
+  let cxHspQrCount024S = 12;
+
+  function cxIsHospitalityQrCode024S(code = "") {
+    const normalized = String(code || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return ["qr", "mesa_qr", "mesas_qr", "qr_mesas", "hospitality_qr"].includes(normalized);
+  }
+
+  function cxHspQrApi024S(path, options = {}) {
+    return api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxHspQrStyles024S() {
+    if (document.getElementById("cxHspQrStyles024S")) return;
+    const style = document.createElement("style");
+    style.id = "cxHspQrStyles024S";
+    style.textContent = `
+      .hsp-qr-shell-024s{
+        --qr-primary:var(--cx-primary,#ff8a1c);
+        --qr-secondary:var(--cx-secondary,#f6cf98);
+        --qr-card:rgba(15,23,42,.70);
+        --qr-line:rgba(255,255,255,.14);
+        --qr-muted:rgba(255,255,255,.66);
+        display:grid;
+        gap:14px;
+      }
+      .hsp-qr-hero-024s{
+        min-height:auto;
+        padding:22px 24px;
+        border-radius:22px;
+        margin-bottom:14px;
+      }
+      .hsp-qr-hero-024s .client-title{font-size:42px;line-height:1;margin:0 0 8px}
+      .hsp-qr-panel-024s{
+        background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035)),var(--qr-card);
+        border:1px solid var(--qr-line);
+        border-radius:20px;
+        box-shadow:0 18px 54px rgba(0,0,0,.22);
+        padding:16px;
+      }
+      .hsp-qr-toolbar-024s{display:grid;grid-template-columns:minmax(220px,.45fr) 1fr auto;gap:12px;align-items:end}
+      .hsp-qr-field-024s{display:grid;gap:6px}
+      .hsp-qr-field-024s span{color:var(--qr-muted);font-size:11px;font-weight:1000;letter-spacing:.10em;text-transform:uppercase}
+      .hsp-qr-field-024s input{
+        width:100%;
+        min-height:42px;
+        border:1px solid var(--qr-line);
+        border-radius:13px;
+        background:rgba(3,7,18,.58);
+        color:var(--cx-text,#fff);
+        padding:10px 12px;
+        font-weight:900;
+        outline:none;
+      }
+      .hsp-qr-linkbox-024s{
+        min-height:42px;
+        display:flex;
+        align-items:center;
+        overflow:hidden;
+        white-space:nowrap;
+        text-overflow:ellipsis;
+        border:1px solid var(--qr-line);
+        border-radius:13px;
+        background:rgba(3,7,18,.36);
+        color:var(--qr-muted);
+        padding:10px 12px;
+        font-weight:850;
+      }
+      .hsp-qr-stats-024s{display:grid;grid-template-columns:repeat(3,minmax(140px,1fr));gap:10px}
+      .hsp-qr-stat-024s{background:rgba(3,7,18,.36);border:1px solid rgba(255,255,255,.10);border-radius:15px;padding:12px}
+      .hsp-qr-stat-024s span{display:block;color:var(--qr-muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:1000}
+      .hsp-qr-stat-024s b{display:block;margin-top:6px;font-size:22px;color:var(--cx-text,#fff)}
+      .hsp-qr-grid-024s{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+      .hsp-qr-card-024s{
+        background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.035));
+        border:1px solid rgba(255,255,255,.12);
+        border-radius:18px;
+        padding:14px;
+        display:grid;
+        gap:12px;
+        min-height:300px;
+      }
+      .hsp-qr-card-head-024s{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+      .hsp-qr-card-head-024s strong{font-size:20px;line-height:1.1;color:var(--cx-text,#fff)}
+      .hsp-qr-pill-024s{border-radius:999px;padding:7px 10px;font-size:11px;font-weight:1000;background:rgba(255,255,255,.10);border:1px solid var(--qr-line);color:var(--cx-text,#fff);white-space:nowrap}
+      .hsp-qr-pill-024s.live{background:rgba(34,197,94,.17);border-color:rgba(34,197,94,.35);color:#bbf7d0}
+      .hsp-qr-image-024s{background:#fff;border-radius:16px;padding:10px;display:grid;place-items:center;min-height:178px}
+      .hsp-qr-image-024s img{width:156px;height:156px;display:block}
+      .hsp-qr-url-024s{font-size:11px;line-height:1.35;color:var(--qr-muted);word-break:break-all;min-height:30px}
+      .hsp-qr-actions-024s{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .hsp-qr-btn-024s{
+        border:0;
+        border-radius:13px;
+        min-height:40px;
+        padding:9px 12px;
+        color:#101827;
+        background:linear-gradient(135deg,var(--qr-primary),var(--qr-secondary));
+        font-weight:1000;
+        cursor:pointer;
+        text-decoration:none;
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+      }
+      .hsp-qr-btn-024s.secondary{background:rgba(255,255,255,.09);color:var(--cx-text,#fff);border:1px solid var(--qr-line)}
+      .hsp-qr-empty-024s{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:22px;text-align:center;color:var(--qr-muted);font-weight:850}
+      .hsp-qr-msg-024s{display:none;padding:11px 13px;border-radius:13px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:900}
+      .hsp-qr-msg-024s.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.30);color:#fecaca}
+      @media(max-width:980px){.hsp-qr-toolbar-024s{grid-template-columns:1fr}.hsp-qr-stats-024s{grid-template-columns:1fr 1fr}.hsp-qr-hero-024s .client-title{font-size:34px}}
+      @media print{
+        body{background:#fff!important;color:#111!important}
+        .client-sidebar,.hsp-qr-hero-024s,.hsp-qr-toolbar-024s,.hsp-qr-msg-024s{display:none!important}
+        .client-layout{display:block!important;max-width:none!important}
+        .client-main{display:block!important}
+        .hsp-qr-panel-024s{box-shadow:none!important;border:0!important;background:#fff!important;padding:0!important}
+        .hsp-qr-grid-024s{grid-template-columns:repeat(3,1fr)!important;gap:12px!important}
+        .hsp-qr-card-024s{break-inside:avoid;border:1px solid #bbb!important;background:#fff!important;color:#111!important;min-height:auto!important}
+        .hsp-qr-card-head-024s strong,.hsp-qr-pill-024s,.hsp-qr-url-024s{color:#111!important}
+        .hsp-qr-actions-024s{display:none!important}
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function cxHspQrLoad024S(count = cxHspQrCount024S) {
+    const base = window.location.origin;
+    const data = await cxHspQrApi024S(`/qr-tables?count=${encodeURIComponent(count)}&include_bar=true&base_url=${encodeURIComponent(base)}`);
+    cxHspQrTables024S = Array.isArray(data.tables) ? data.tables : [];
+    cxHspQrSummary024S = data.summary || {};
+    return data;
+  }
+
+  function cxHspQrImage024S(url = "") {
+    return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=${encodeURIComponent(url)}`;
+  }
+
+  function cxHspQrCard024S(row = {}) {
+    const live = Number(row.active_orders || 0) > 0;
+    return `
+      <article class="hsp-qr-card-024s">
+        <div class="hsp-qr-card-head-024s">
+          <div>
+            <strong>${h(row.label || "Mesa")}</strong>
+            <div class="hsp-qr-url-024s">${h(row.order_url || "")}</div>
+          </div>
+          <span class="hsp-qr-pill-024s ${live ? "live" : ""}">${live ? `${h(row.active_orders)} abierta(s)` : "Libre"}</span>
+        </div>
+        <div class="hsp-qr-image-024s">
+          <img src="${h(cxHspQrImage024S(row.order_url || ""))}" alt="QR ${h(row.label || "Mesa")}" loading="lazy">
+        </div>
+        <div class="hsp-qr-stats-024s" style="grid-template-columns:1fr 1fr">
+          <div class="hsp-qr-stat-024s"><span>Cuentas</span><b>${h(row.active_orders || 0)}</b></div>
+          <div class="hsp-qr-stat-024s"><span>Abierto</span><b>${h(cxHspMoney024R(row.open_total || 0))}</b></div>
+        </div>
+        <div class="hsp-qr-actions-024s">
+          <a class="hsp-qr-btn-024s" href="${h(row.order_url || "#")}" target="_blank" rel="noopener">Abrir</a>
+          <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-copy="${h(row.order_url || "")}">Copiar</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function cxHspQrPaint024S() {
+    const grid = document.getElementById("hspQrGrid024S");
+    if (!grid) return;
+    grid.innerHTML = cxHspQrTables024S.length
+      ? cxHspQrTables024S.map(cxHspQrCard024S).join("")
+      : `<div class="hsp-qr-empty-024s">No se pudieron generar mesas QR.</div>`;
+    const setText = (id, value) => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = String(value);
+    };
+    setText("hspQrCount024S", cxHspQrSummary024S.qr_count ?? cxHspQrTables024S.length);
+    setText("hspQrOpen024S", cxHspQrSummary024S.open_accounts ?? 0);
+    setText("hspQrTotal024S", cxHspMoney024R(cxHspQrSummary024S.open_total || 0));
+  }
+
+  function cxHspQrShowMsg024S(message = "", isError = false) {
+    const node = document.getElementById("hspQrMsg024S");
+    if (!node) return;
+    node.textContent = message;
+    node.classList.toggle("err", Boolean(isError));
+    node.style.display = message ? "block" : "none";
+  }
+
+  async function renderHospitalityQrModule024S() {
+    cxHspQrStyles024S();
+    const company = state.company || {};
+    let loadError = "";
+    try {
+      await cxHspQrLoad024S(cxHspQrCount024S);
+    } catch (error) {
+      loadError = error.message || "No se pudieron cargar las mesas QR.";
+      cxHspQrTables024S = [];
+      cxHspQrSummary024S = {};
+    }
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("qr")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero hsp-qr-hero-024s">
+              <div class="client-eyebrow">Modulo Mesa QR</div>
+              <h1 class="client-title">Mesa QR</h1>
+              <p class="client-muted">Genera accesos por mesa. Cada QR abre /ordenar y envia el pedido al flujo de Pedidos.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                <button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
+                <button class="client-btn" type="button" data-hsp-qr-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-hsp-qr-print>Imprimir QR</button>
+              </div>
+            </header>
+
+            <section class="hsp-qr-shell-024s">
+              ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+              <section class="hsp-qr-panel-024s">
+                <div class="hsp-qr-toolbar-024s">
+                  <label class="hsp-qr-field-024s">
+                    <span>Cantidad de mesas</span>
+                    <input id="hspQrTableCount024S" type="number" min="1" max="80" step="1" value="${h(cxHspQrCount024S)}">
+                  </label>
+                  <div class="hsp-qr-field-024s">
+                    <span>Base publica</span>
+                    <div class="hsp-qr-linkbox-024s">${h(window.location.origin)}/ordenar</div>
+                  </div>
+                  <button class="hsp-qr-btn-024s" type="button" data-hsp-qr-apply>Generar</button>
+                </div>
+              </section>
+
+              <section class="hsp-qr-panel-024s">
+                <div class="hsp-qr-stats-024s">
+                  <div class="hsp-qr-stat-024s"><span>QR activos</span><b id="hspQrCount024S">0</b></div>
+                  <div class="hsp-qr-stat-024s"><span>Cuentas abiertas</span><b id="hspQrOpen024S">0</b></div>
+                  <div class="hsp-qr-stat-024s"><span>Total abierto</span><b id="hspQrTotal024S">$0</b></div>
+                </div>
+              </section>
+
+              <div id="hspQrMsg024S" class="hsp-qr-msg-024s"></div>
+
+              <section class="hsp-qr-panel-024s">
+                <div id="hspQrGrid024S" class="hsp-qr-grid-024s"></div>
+              </section>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    cxHspQrPaint024S();
+  }
+  /* CLONEXA_024S_HOSPITALITY_QR_END */
 async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -13630,6 +13896,14 @@ async function renderClientModulePlaceholder(code) {
       typeof renderHospitalityOrdersModule024R === "function"
     ) {
       return renderHospitalityOrdersModule024R();
+    }
+
+    if (
+      typeof cxIsHospitalityQrCode024S === "function" &&
+      cxIsHospitalityQrCode024S(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderHospitalityQrModule024S === "function"
+    ) {
+      return renderHospitalityQrModule024S();
     }
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_END */
     const company = state.company || {};
@@ -14561,6 +14835,38 @@ document.addEventListener("click", async (event) => {
         }
       }
 
+      if (target.closest("[data-hsp-qr-apply]") || target.closest("[data-hsp-qr-refresh]")) {
+        const input = document.getElementById("hspQrTableCount024S");
+        const nextCount = Math.max(1, Math.min(80, Number(input?.value || cxHspQrCount024S || 12)));
+        cxHspQrCount024S = nextCount;
+        try {
+          cxHspQrShowMsg024S("Actualizando mesas QR...");
+          await cxHspQrLoad024S(cxHspQrCount024S);
+          cxHspQrPaint024S();
+          cxHspQrShowMsg024S("Mesas QR actualizadas.");
+        } catch (error) {
+          cxHspQrShowMsg024S(error.message || "No se pudieron actualizar las mesas QR.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-qr-print]")) {
+        window.print();
+        return;
+      }
+
+      const qrCopy = target.closest("[data-hsp-qr-copy]");
+      if (qrCopy) {
+        const link = qrCopy.getAttribute("data-hsp-qr-copy") || "";
+        try {
+          await navigator.clipboard.writeText(link);
+          cxHspQrShowMsg024S("Link copiado.");
+        } catch (_) {
+          cxHspQrShowMsg024S(link || "No se pudo copiar el link.", Boolean(!link));
+        }
+        return;
+      }
+
       const moduleTrigger = target.closest("[data-client-module]");
       if (moduleTrigger) {
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
@@ -14584,6 +14890,11 @@ document.addEventListener("click", async (event) => {
 
         if (typeof cxIsHospitalityOrdersCode024R === "function" && cxIsHospitalityOrdersCode024R(code)) {
           await renderHospitalityOrdersModule024R();
+          return;
+        }
+
+        if (typeof cxIsHospitalityQrCode024S === "function" && cxIsHospitalityQrCode024S(code)) {
+          await renderHospitalityQrModule024S();
           return;
         }
 

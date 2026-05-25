@@ -5,8 +5,9 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -112,6 +113,15 @@ def _table_key(value: Any) -> str:
 
 def _customer_key(value: Any) -> str:
     return " ".join(_norm(value or "cliente").split())
+
+
+def _public_base_url(request: Request, fallback: str | None = None) -> str:
+    raw = _clean(fallback).rstrip("/")
+    if raw.startswith(("http://", "https://")):
+        return raw
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}".rstrip("/")
 
 
 def _json(value: Any, fallback: Any) -> Any:
@@ -419,7 +429,79 @@ async def hospitality_health(company_id: uuid.UUID, db: AsyncSession = Depends(g
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
-    return {"ok": True, "company_id": str(company_id), "service": "clonexa-hospitality", "modules": ["orders"]}
+    return {"ok": True, "company_id": str(company_id), "service": "clonexa-hospitality", "modules": ["orders", "qr"]}
+
+
+@router.get("/companies/{company_id}/qr-tables")
+async def hospitality_qr_tables(
+    company_id: uuid.UUID,
+    request: Request,
+    count: int = Query(default=12, ge=1, le=80),
+    include_bar: bool = Query(default=True),
+    base_url: str | None = Query(default=None, max_length=260),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    rows = await db.execute(
+        text(
+            """
+            SELECT table_key,
+                   MIN(table_number) AS table_number,
+                   COUNT(*) AS active_orders,
+                   COALESCE(SUM(total), 0) AS open_total,
+                   MAX(updated_at) AS last_activity
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND status IN ('pendiente', 'alistando', 'entregado')
+            GROUP BY table_key
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    activity = {
+        _table_key(row["table_key"]): {
+            "table_number": row["table_number"] or "",
+            "active_orders": int(row["active_orders"] or 0),
+            "open_total": _money(row["open_total"]),
+            "last_activity": _iso(row["last_activity"]),
+        }
+        for row in rows.mappings().all()
+    }
+
+    base = _public_base_url(request, base_url)
+    labels = (["Barra"] if include_bar else []) + [f"Mesa {index}" for index in range(1, count + 1)]
+    tables: list[dict[str, Any]] = []
+    for position, label in enumerate(labels, start=1):
+        key = _table_key(label)
+        order_url = f"{base}/ordenar?company_id={company_id}&mesa={quote(label)}"
+        stats = activity.get(key, {})
+        tables.append(
+            {
+                "position": position,
+                "label": label,
+                "table_key": key,
+                "order_url": order_url,
+                "admin_url": f"{base}/client?company_id={company_id}",
+                "active_orders": int(stats.get("active_orders") or 0),
+                "open_total": _money(stats.get("open_total")),
+                "last_activity": stats.get("last_activity") or "",
+            }
+        )
+
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "base_url": base,
+        "tables": tables,
+        "summary": {
+            "qr_count": len(tables),
+            "open_accounts": sum(int(row["active_orders"] or 0) for row in tables),
+            "open_total": _money(sum(_num(row["open_total"]) for row in tables)),
+        },
+    }
 
 
 @router.get("/companies/{company_id}/inventory-lite")
@@ -435,10 +517,25 @@ async def hospitality_inventory_lite(
     if not exists.scalar():
         return {"ok": True, "company_id": str(company_id), "inventory": []}
 
-    result = await db.execute(
+    columns_result = await db.execute(
         text(
             """
-            SELECT id, sku, name, reference, name_reference, current_stock, status
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'inventory_items'
+            """
+        )
+    )
+    columns = {str(row["column_name"]) for row in columns_result.mappings().all()}
+    price_columns = [name for name in ("unit_price", "sale_price", "price", "valor_unitario") if name in columns]
+    price_expr = "COALESCE(" + ", ".join(price_columns + ["0"]) + ")" if price_columns else "0"
+
+    result = await db.execute(
+        text(
+            f"""
+            SELECT id, sku, name, reference, name_reference, current_stock, status,
+                   {price_expr} AS unit_price
             FROM inventory_items
             WHERE company_id = :company_id
               AND COALESCE(status, 'active') = 'active'
@@ -453,7 +550,8 @@ async def hospitality_inventory_lite(
             "id": str(row["id"]),
             "sku": row["sku"] or "",
             "name": row["name_reference"] or row["name"] or row["reference"] or row["sku"] or str(row["id"]),
-            "price": 0,
+            "price": _money(row["unit_price"]),
+            "unit_price": _money(row["unit_price"]),
             "stock": _money(row["current_stock"]),
             "active": (row["status"] or "active") == "active",
         }
