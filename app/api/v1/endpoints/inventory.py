@@ -209,6 +209,11 @@ class InventoryItemCreate(BaseModel):
     size: str | None = None
     item_size: str | None = None
     color: str | None = None
+    unit_value: float | int | str | None = None
+    unit_price: float | int | str | None = None
+    price: float | int | str | None = None
+    sale_price: float | int | str | None = None
+    value: float | int | str | None = None
     initial_quantity: float | int | str | None = 0
     min_stock: float | int | str | None = None
     minimum_stock: float | int | str | None = None
@@ -223,6 +228,11 @@ class InventoryItemUpdate(BaseModel):
     size: str | None = None
     item_size: str | None = None
     color: str | None = None
+    unit_value: float | int | str | None = None
+    unit_price: float | int | str | None = None
+    price: float | int | str | None = None
+    sale_price: float | int | str | None = None
+    value: float | int | str | None = None
     min_stock: float | int | str | None = None
     minimum_stock: float | int | str | None = None
     status: str | None = None
@@ -246,6 +256,13 @@ def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
         raise HTTPException(status_code=422, detail="Cantidad inválida.")
 
 
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _float(value: Any) -> float:
     try:
         return float(Decimal(str(value or 0)))
@@ -264,6 +281,7 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
             name_reference text NOT NULL DEFAULT '',
             item_size varchar(120) NULL,
             color varchar(120) NULL,
+            unit_value numeric(14, 2) NOT NULL DEFAULT 0,
             min_stock numeric(14, 2) NOT NULL DEFAULT 0,
             current_stock numeric(14, 2) NOT NULL DEFAULT 0,
             status varchar(40) NOT NULL DEFAULT 'active',
@@ -300,6 +318,7 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS name_reference text NOT NULL DEFAULT ''",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS item_size varchar(120) NULL",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS color varchar(120) NULL",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS unit_value numeric(14, 2) NOT NULL DEFAULT 0",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS min_stock numeric(14, 2) NOT NULL DEFAULT 0",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS current_stock numeric(14, 2) NOT NULL DEFAULT 0",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS status varchar(40) NOT NULL DEFAULT 'active'",
@@ -389,16 +408,25 @@ def inventory_item_out(row: dict[str, Any]) -> dict[str, Any]:
 
     current_stock = _float(row.get("current_stock"))
     min_stock = _float(row.get("min_stock"))
+    unit_value = _float(row.get("unit_value") or row.get("unit_price") or row.get("sale_price") or row.get("price") or 0)
+    status = row.get("status") or "active"
+    alert_low = status == "active" and current_stock <= min_stock
+    stock_value = round(current_stock * unit_value, 2)
     return {
         "id": str(row.get("id")),
         "company_id": str(row.get("company_id")),
         "name_reference": row.get("name_reference") or "",
         "size": row.get("item_size") or "",
         "color": row.get("color") or "",
+        "unit_value": unit_value,
+        "unit_price": unit_value,
+        "price": unit_value,
+        "stock_value": stock_value,
         "min_stock": min_stock,
         "current_stock": current_stock,
-        "status": row.get("status") or "active",
-        "alert_low": (row.get("status") or "active") == "active" and current_stock <= min_stock,
+        "status": status,
+        "alert_low": alert_low,
+        "alert_status": "inactive" if status != "active" else "out" if current_stock <= 0 else "low" if alert_low else "ok",
         "created_at": iso("created_at"),
         "updated_at": iso("updated_at"),
     }
@@ -408,13 +436,17 @@ def inventory_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     active = [row for row in rows if str(row.get("status") or "").lower() == "active"]
     inactive = [row for row in rows if str(row.get("status") or "").lower() == "inactive"]
     low_stock = [row for row in active if bool(row.get("alert_low"))]
+    zero_stock = [row for row in active if _float(row.get("current_stock")) <= 0]
     total_stock = sum(_float(row.get("current_stock")) for row in rows)
+    total_value = sum(_float(row.get("stock_value")) for row in rows)
     return {
         "total": len(rows),
         "active": len(active),
         "inactive": len(inactive),
         "low_stock": len(low_stock),
+        "zero_stock": len(zero_stock),
         "total_stock_units": total_stock,
+        "total_stock_value": round(total_value, 2),
     }
 
 
@@ -478,18 +510,22 @@ async def create_inventory_item(
     initial_qty = _to_decimal(payload.initial_quantity)
     min_stock_source = payload.min_stock if payload.min_stock is not None else payload.minimum_stock
     min_stock = _to_decimal(min_stock_source)
+    unit_value = _to_decimal(_first_present(payload.unit_value, payload.unit_price, payload.price, payload.sale_price, payload.value))
     if initial_qty < 0:
         raise HTTPException(status_code=422, detail="La cantidad inicial no puede ser negativa.")
     if min_stock < 0:
         raise HTTPException(status_code=422, detail="El mínimo no puede ser negativo.")
 
+    if unit_value < 0:
+        raise HTTPException(status_code=422, detail="El valor no puede ser negativo.")
+
     result = await db.execute(
         text("""
             INSERT INTO inventory_items (
-                id, company_id, sku, name, reference, name_reference, item_size, color, min_stock, current_stock, status, created_at, updated_at
+                id, company_id, sku, name, reference, name_reference, item_size, color, unit_value, min_stock, current_stock, status, created_at, updated_at
             )
             VALUES (
-                :id, :company_id, :sku, :name, :reference, :name_reference, :item_size, :color, :min_stock, :current_stock, 'active', now(), now()
+                :id, :company_id, :sku, :name, :reference, :name_reference, :item_size, :color, :unit_value, :min_stock, :current_stock, 'active', now(), now()
             )
             RETURNING *
         """),
@@ -502,6 +538,7 @@ async def create_inventory_item(
             "name_reference": name,
             "item_size": (payload.size or payload.item_size or "").strip() or None,
             "color": (payload.color or "").strip() or None,
+            "unit_value": unit_value,
             "min_stock": min_stock,
             "current_stock": initial_qty,
         },
@@ -542,6 +579,13 @@ async def update_inventory_item(
     if status and status not in VALID_ITEM_STATUSES:
         raise HTTPException(status_code=422, detail="Estado inválido.")
 
+    unit_value = None
+    unit_value_source = _first_present(payload.unit_value, payload.unit_price, payload.price, payload.sale_price, payload.value)
+    if unit_value_source is not None:
+        unit_value = _to_decimal(unit_value_source)
+        if unit_value < 0:
+            raise HTTPException(status_code=422, detail="El valor no puede ser negativo.")
+
     min_stock = None
     min_stock_source = payload.min_stock if payload.min_stock is not None else payload.minimum_stock
     if min_stock_source is not None:
@@ -559,6 +603,7 @@ async def update_inventory_item(
               name_reference = COALESCE(NULLIF(:name_reference, ''), name_reference),
               item_size = :item_size,
               color = :color,
+              unit_value = COALESCE(:unit_value, unit_value),
               min_stock = COALESCE(:min_stock, min_stock),
               status = COALESCE(:status, status),
               updated_at = now()
@@ -570,6 +615,7 @@ async def update_inventory_item(
             "name_reference": (payload.name_reference or payload.name or payload.reference or "").strip() if (payload.name_reference is not None or payload.name is not None or payload.reference is not None) else "",
             "item_size": (payload.size or payload.item_size or "").strip() if (payload.size is not None or payload.item_size is not None) else None,
             "color": (payload.color or "").strip() if payload.color is not None else None,
+            "unit_value": unit_value,
             "min_stock": min_stock,
             "status": status,
         },

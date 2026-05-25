@@ -528,7 +528,7 @@ async def hospitality_inventory_lite(
         )
     )
     columns = {str(row["column_name"]) for row in columns_result.mappings().all()}
-    price_columns = [name for name in ("unit_price", "sale_price", "price", "valor_unitario") if name in columns]
+    price_columns = [name for name in ("unit_value", "unit_price", "sale_price", "price", "valor_unitario") if name in columns]
     price_expr = "COALESCE(" + ", ".join(price_columns + ["0"]) + ")" if price_columns else "0"
 
     result = await db.execute(

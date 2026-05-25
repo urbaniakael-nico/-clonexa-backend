@@ -5041,6 +5041,324 @@ function inventoryCreatePayload() {
   /* CX_019E_R1_INVENTORY_HISTORY_ARCHIVE_CLIENT */
   /* CX_INVENTORY_BASE_015B_END */
 
+  /* CLONEXA_024T_STOCK_PANEL_START */
+  function cxIsStockCode024T(code = "") {
+    const normalized = String(code || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return ["stock", "stocks", "existencias", "inventario_stock"].includes(normalized);
+  }
+
+  function cxStockMoney024T(value) {
+    try {
+      return new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0,
+      }).format(Number(value || 0));
+    } catch (_) {
+      return `$ ${Number(value || 0).toLocaleString("es-CO")}`;
+    }
+  }
+
+  function cxStockStyles024T() {
+    if (document.getElementById("cxStockStyles024T")) return;
+    const style = document.createElement("style");
+    style.id = "cxStockStyles024T";
+    style.textContent = `
+      .cx-stock-shell-024t{display:grid;gap:14px}
+      .cx-stock-hero-024t{min-height:auto;padding:22px 24px;border-radius:22px}
+      .cx-stock-hero-024t .client-title{font-size:42px;line-height:1;margin:0 0 8px}
+      .cx-stock-panel-024t{
+        background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035));
+        border:1px solid rgba(255,255,255,.14);
+        border-radius:20px;
+        padding:16px;
+        box-shadow:0 18px 54px rgba(0,0,0,.22);
+      }
+      .cx-stock-toolbar-024t{display:grid;grid-template-columns:minmax(240px,1fr) 180px 180px auto;gap:10px;align-items:end}
+      .cx-stock-field-024t{display:grid;gap:6px}
+      .cx-stock-field-024t span{font-size:11px;letter-spacing:.10em;text-transform:uppercase;font-weight:1000;color:rgba(255,255,255,.66)}
+      .cx-stock-field-024t input,.cx-stock-field-024t select{
+        width:100%;
+        min-height:42px;
+        border:1px solid rgba(255,255,255,.14);
+        border-radius:13px;
+        background:rgba(3,7,18,.58);
+        color:var(--cx-text,#fff);
+        padding:10px 12px;
+        font-weight:900;
+        outline:none;
+      }
+      .cx-stock-btn-024t{
+        border:0;
+        border-radius:13px;
+        min-height:42px;
+        padding:10px 14px;
+        background:linear-gradient(135deg,var(--cx-secondary,#22d3ee),var(--cx-primary,#ff2bd6));
+        color:#08111f;
+        font-weight:1000;
+        cursor:pointer;
+      }
+      .cx-stock-btn-024t.secondary{background:rgba(255,255,255,.09);color:var(--cx-text,#fff);border:1px solid rgba(255,255,255,.14)}
+      .cx-stock-kpis-024t{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:10px}
+      .cx-stock-kpi-024t{background:rgba(3,7,18,.34);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:13px}
+      .cx-stock-kpi-024t span{display:block;color:rgba(255,255,255,.66);font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:1000}
+      .cx-stock-kpi-024t b{display:block;margin-top:6px;color:var(--cx-text,#fff);font-size:22px;line-height:1.05}
+      .cx-stock-table-wrap-024t{overflow:auto;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:rgba(3,7,18,.26)}
+      .cx-stock-table-024t{width:100%;border-collapse:collapse;min-width:980px}
+      .cx-stock-table-024t th,.cx-stock-table-024t td{padding:12px 11px;border-bottom:1px solid rgba(255,255,255,.09);text-align:left;vertical-align:middle}
+      .cx-stock-table-024t th{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:rgba(255,255,255,.62);font-weight:1000;background:rgba(255,255,255,.04)}
+      .cx-stock-product-024t strong{display:block;font-size:15px;line-height:1.12;color:var(--cx-text,#fff)}
+      .cx-stock-product-024t small{display:block;margin-top:4px;color:rgba(255,255,255,.62);font-weight:800}
+      .cx-stock-table-024t input,.cx-stock-table-024t select{
+        width:100%;
+        min-width:90px;
+        border:1px solid rgba(255,255,255,.13);
+        border-radius:11px;
+        background:rgba(3,7,18,.52);
+        color:var(--cx-text,#fff);
+        padding:9px 10px;
+        font-weight:900;
+      }
+      .cx-stock-qty-024t{font-size:18px;font-weight:1000;color:var(--cx-text,#fff)}
+      .cx-stock-chip-024t{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:7px 10px;font-size:11px;font-weight:1000;border:1px solid rgba(255,255,255,.12);white-space:nowrap}
+      .cx-stock-chip-024t.ok{background:rgba(34,197,94,.16);color:#bbf7d0;border-color:rgba(34,197,94,.30)}
+      .cx-stock-chip-024t.low{background:rgba(245,158,11,.17);color:#fde68a;border-color:rgba(245,158,11,.32)}
+      .cx-stock-chip-024t.out{background:rgba(239,68,68,.17);color:#fecaca;border-color:rgba(239,68,68,.34)}
+      .cx-stock-chip-024t.inactive{background:rgba(148,163,184,.16);color:#cbd5e1;border-color:rgba(148,163,184,.30)}
+      .cx-stock-value-024t{font-weight:1000;color:var(--cx-secondary,#22d3ee);white-space:nowrap}
+      .cx-stock-empty-024t{padding:22px;text-align:center;color:rgba(255,255,255,.66);font-weight:850}
+      .cx-stock-msg-024t{display:none;padding:11px 13px;border-radius:13px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:900}
+      .cx-stock-msg-024t.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.30);color:#fecaca}
+      @media(max-width:1180px){.cx-stock-toolbar-024t{grid-template-columns:1fr 1fr}.cx-stock-kpis-024t{grid-template-columns:repeat(3,minmax(130px,1fr))}}
+      @media(max-width:720px){.cx-stock-toolbar-024t,.cx-stock-kpis-024t{grid-template-columns:1fr}.cx-stock-hero-024t .client-title{font-size:34px}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxStockFilters024T(overrides = {}) {
+    window.__cxStockFilters024T = {
+      query: "",
+      status: "all",
+      alert: "all",
+      ...(window.__cxStockFilters024T || {}),
+      ...(overrides || {}),
+    };
+    return window.__cxStockFilters024T;
+  }
+
+  function cxStockReadFilters024T() {
+    return cxStockFilters024T({
+      query: String(document.getElementById("cxStockSearch024T")?.value || "").trim(),
+      status: String(document.getElementById("cxStockStatus024T")?.value || "all"),
+      alert: String(document.getElementById("cxStockAlert024T")?.value || "all"),
+    });
+  }
+
+  function cxStockAlertClass024T(row = {}) {
+    const status = String(row.status || "active").toLowerCase();
+    const qty = inventoryNumber(row.current_stock);
+    if (status !== "active") return "inactive";
+    if (qty <= 0) return "out";
+    if (row.alert_low) return "low";
+    return "ok";
+  }
+
+  function cxStockAlertLabel024T(row = {}) {
+    const klass = cxStockAlertClass024T(row);
+    if (klass === "inactive") return "Inactivo";
+    if (klass === "out") return "Sin stock";
+    if (klass === "low") return "Bajo minimo";
+    return "OK";
+  }
+
+  function cxStockApplyFilters024T(rows = [], filters = cxStockFilters024T()) {
+    return rows.filter((row) => {
+      const status = String(row.status || "active").toLowerCase();
+      const alert = cxStockAlertClass024T(row);
+      if (filters.status !== "all" && status !== filters.status) return false;
+      if (filters.alert !== "all" && alert !== filters.alert) return false;
+      return true;
+    });
+  }
+
+  function cxStockSummary024T(rows = []) {
+    const active = rows.filter((row) => String(row.status || "active").toLowerCase() === "active");
+    const inactive = rows.filter((row) => String(row.status || "active").toLowerCase() === "inactive");
+    const low = active.filter((row) => cxStockAlertClass024T(row) === "low");
+    const out = active.filter((row) => cxStockAlertClass024T(row) === "out");
+    const value = rows.reduce((sum, row) => sum + inventoryNumber(row.stock_value || (inventoryNumber(row.current_stock) * inventoryNumber(row.unit_value || row.price))), 0);
+    return { active: active.length, inactive: inactive.length, low: low.length, out: out.length, value };
+  }
+
+  function cxStockRow024T(row = {}) {
+    const alertClass = cxStockAlertClass024T(row);
+    const status = String(row.status || "active").toLowerCase();
+    const unitValue = inventoryNumber(row.unit_value ?? row.unit_price ?? row.price ?? 0);
+    const stockValue = inventoryNumber(row.stock_value || (inventoryNumber(row.current_stock) * unitValue));
+    return `
+      <tr data-stock-row="${h(row.id)}">
+        <td class="cx-stock-product-024t">
+          <strong>${h(row.name_reference || "Producto")}</strong>
+          <small>${h([row.size, row.color].filter(Boolean).join(" / ") || "Sin tamano/color")}</small>
+        </td>
+        <td><span class="cx-stock-qty-024t">${h(inventoryQtyLabel(row.current_stock))}</span></td>
+        <td><input data-stock-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
+        <td><input data-stock-field="unit_value" type="number" min="0" step="100" value="${h(unitValue)}"></td>
+        <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(stockValue))}</span></td>
+        <td><span class="cx-stock-chip-024t ${h(alertClass)}">${h(cxStockAlertLabel024T(row))}</span></td>
+        <td>
+          <select data-stock-field="status">
+            <option value="active" ${status !== "inactive" ? "selected" : ""}>Activo</option>
+            <option value="inactive" ${status === "inactive" ? "selected" : ""}>Inactivo</option>
+          </select>
+        </td>
+        <td><button class="cx-stock-btn-024t secondary" type="button" data-stock-save="${h(row.id)}">Guardar</button></td>
+      </tr>
+    `;
+  }
+
+  async function cxStockSave024T(itemId) {
+    const row = document.querySelector(`[data-stock-row="${CSS.escape(String(itemId))}"]`);
+    if (!row) return;
+    await api(`/inventory/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        unit_value: inventoryNumber(row.querySelector('[data-stock-field="unit_value"]')?.value || 0),
+        min_stock: inventoryNumber(row.querySelector('[data-stock-field="min_stock"]')?.value || 0),
+        status: String(row.querySelector('[data-stock-field="status"]')?.value || "active"),
+      }),
+    });
+  }
+
+  function cxStockShowMsg024T(message = "", isError = false) {
+    const node = document.getElementById("cxStockMsg024T");
+    if (!node) return;
+    node.textContent = message;
+    node.classList.toggle("err", Boolean(isError));
+    node.style.display = message ? "block" : "none";
+  }
+
+  async function renderStockModule024T(filters = cxStockFilters024T()) {
+    if (!isClientModuleActive("stock")) {
+      render();
+      return;
+    }
+
+    cxStockStyles024T();
+    const company = state.company || {};
+    let data = { summary: {}, items: [] };
+    let loadError = "";
+    try {
+      data = await loadInventoryItems(filters.query || "");
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Stock.";
+    }
+
+    const allRows = Array.isArray(data.items) ? data.items : [];
+    const rows = cxStockApplyFilters024T(allRows, filters);
+    const summary = cxStockSummary024T(allRows);
+    window.__cxStockRows024T = allRows;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("stock")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+
+          <section class="client-main">
+            <header class="client-hero cx-stock-hero-024t">
+              <div class="client-eyebrow">Modulo Stock</div>
+              <h1 class="client-title">Stock</h1>
+              <p class="client-muted">Vista operativa del inventario: cantidades, valor, alertas y estado del producto.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                ${isClientModuleActive("inventory") ? `<button class="client-btn" type="button" data-stock-open-inventory>Inventario</button>` : ""}
+                <button class="client-btn" type="button" data-stock-refresh>Actualizar</button>
+              </div>
+            </header>
+
+            <section class="cx-stock-shell-024t">
+              ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+
+              <section class="cx-stock-panel-024t">
+                <div class="cx-stock-kpis-024t">
+                  <div class="cx-stock-kpi-024t"><span>Activos</span><b>${h(summary.active)}</b></div>
+                  <div class="cx-stock-kpi-024t"><span>Bajo minimo</span><b>${h(summary.low)}</b></div>
+                  <div class="cx-stock-kpi-024t"><span>Sin stock</span><b>${h(summary.out)}</b></div>
+                  <div class="cx-stock-kpi-024t"><span>Inactivos</span><b>${h(summary.inactive)}</b></div>
+                  <div class="cx-stock-kpi-024t"><span>Valor stock</span><b>${h(cxStockMoney024T(summary.value))}</b></div>
+                </div>
+              </section>
+
+              <section class="cx-stock-panel-024t">
+                <div class="cx-stock-toolbar-024t">
+                  <label class="cx-stock-field-024t">
+                    <span>Buscar</span>
+                    <input id="cxStockSearch024T" value="${h(filters.query || "")}" placeholder="Producto, tamano o color">
+                  </label>
+                  <label class="cx-stock-field-024t">
+                    <span>Estado</span>
+                    <select id="cxStockStatus024T">
+                      <option value="all" ${filters.status === "all" ? "selected" : ""}>Todos</option>
+                      <option value="active" ${filters.status === "active" ? "selected" : ""}>Activos</option>
+                      <option value="inactive" ${filters.status === "inactive" ? "selected" : ""}>Inactivos</option>
+                    </select>
+                  </label>
+                  <label class="cx-stock-field-024t">
+                    <span>Alerta</span>
+                    <select id="cxStockAlert024T">
+                      <option value="all" ${filters.alert === "all" ? "selected" : ""}>Todas</option>
+                      <option value="ok" ${filters.alert === "ok" ? "selected" : ""}>OK</option>
+                      <option value="low" ${filters.alert === "low" ? "selected" : ""}>Bajo minimo</option>
+                      <option value="out" ${filters.alert === "out" ? "selected" : ""}>Sin stock</option>
+                      <option value="inactive" ${filters.alert === "inactive" ? "selected" : ""}>Inactivo</option>
+                    </select>
+                  </label>
+                  <button class="cx-stock-btn-024t" type="button" data-stock-apply>Filtrar</button>
+                </div>
+              </section>
+
+              <div id="cxStockMsg024T" class="cx-stock-msg-024t"></div>
+
+              <section class="cx-stock-panel-024t">
+                <div class="cx-stock-table-wrap-024t">
+                  <table class="cx-stock-table-024t">
+                    <thead>
+                      <tr>
+                        <th>Producto</th>
+                        <th>Cantidad</th>
+                        <th>Minimo</th>
+                        <th>Valor</th>
+                        <th>Valor stock</th>
+                        <th>Alerta</th>
+                        <th>Estado</th>
+                        <th>Accion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${rows.length ? rows.map(cxStockRow024T).join("") : `<tr><td colspan="8"><div class="cx-stock-empty-024t">No hay productos con este filtro.</div></td></tr>`}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CLONEXA_024T_STOCK_PANEL_END */
+
 
   /* CX_MATERIALS_INVENTORY_ORDERS_015C_START */
   function ensureMaterialsStyles() {
@@ -13905,6 +14223,14 @@ async function renderClientModulePlaceholder(code) {
     ) {
       return renderHospitalityQrModule024S();
     }
+
+    if (
+      typeof cxIsStockCode024T === "function" &&
+      cxIsStockCode024T(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderStockModule024T === "function"
+    ) {
+      return renderStockModule024T();
+    }
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_END */
     const company = state.company || {};
     $("app").innerHTML = `
@@ -14949,6 +15275,11 @@ document.addEventListener("click", async (event) => {
           return;
         }
 
+        if (typeof cxIsStockCode024T === "function" && cxIsStockCode024T(code)) {
+          await renderStockModule024T();
+          return;
+        }
+
         if (code === "materials") {
           await renderMaterialsModule();
           return;
@@ -15049,6 +15380,28 @@ document.addEventListener("click", async (event) => {
           await saveGpsPerimeters();
         } catch (error) {
           showGpsNotice(error.message || "No se pudo guardar GPS.", "error");
+        }
+        return;
+      }
+
+      if (target.closest("[data-stock-open-inventory]")) {
+        await renderInventoryModule();
+        return;
+      }
+
+      if (target.closest("[data-stock-refresh]") || target.closest("[data-stock-apply]")) {
+        await renderStockModule024T(cxStockReadFilters024T());
+        return;
+      }
+
+      const stockSaveBtn = target.closest("[data-stock-save]");
+      if (stockSaveBtn) {
+        try {
+          await cxStockSave024T(stockSaveBtn.dataset.stockSave);
+          await renderStockModule024T(cxStockReadFilters024T());
+          setTimeout(() => cxStockShowMsg024T("Stock actualizado."), 80);
+        } catch (error) {
+          cxStockShowMsg024T(error.message || "No se pudo actualizar Stock.", true);
         }
         return;
       }
