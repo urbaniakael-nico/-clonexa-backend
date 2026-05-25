@@ -60,6 +60,14 @@ class HospitalityStatusIn(BaseModel):
     status: str = Field(..., max_length=40)
 
 
+class HospitalityClosureCreateIn(BaseModel):
+    cash_total: float = Field(default=0, ge=0)
+    transfer_total: float = Field(default=0, ge=0)
+    other_total: float = Field(default=0, ge=0)
+    closed_by: str | None = Field(default="", max_length=180)
+    notes: str | None = Field(default="", max_length=900)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -197,6 +205,51 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_orders_company_status ON hospitality_orders(company_id, status, created_at DESC);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_orders_company_table ON hospitality_orders(company_id, table_key, created_at DESC);"))
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS hospitality_day_closures (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                closure_number VARCHAR(80) NOT NULL,
+                opened_at TIMESTAMPTZ NULL,
+                closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                closed_by VARCHAR(180),
+                orders_count INTEGER NOT NULL DEFAULT 0,
+                total_sold NUMERIC(14,2) NOT NULL DEFAULT 0,
+                cash_total NUMERIC(14,2) NOT NULL DEFAULT 0,
+                transfer_total NUMERIC(14,2) NOT NULL DEFAULT 0,
+                other_total NUMERIC(14,2) NOT NULL DEFAULT 0,
+                products JSONB NOT NULL DEFAULT '[]'::jsonb,
+                tables JSONB NOT NULL DEFAULT '[]'::jsonb,
+                songs JSONB NOT NULL DEFAULT '[]'::jsonb,
+                summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+                order_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+                notes TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+    )
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS closure_number VARCHAR(80) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS opened_at TIMESTAMPTZ NULL;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS closed_by VARCHAR(180);"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS orders_count INTEGER NOT NULL DEFAULT 0;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS total_sold NUMERIC(14,2) NOT NULL DEFAULT 0;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS cash_total NUMERIC(14,2) NOT NULL DEFAULT 0;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS transfer_total NUMERIC(14,2) NOT NULL DEFAULT 0;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS other_total NUMERIC(14,2) NOT NULL DEFAULT 0;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS products JSONB NOT NULL DEFAULT '[]'::jsonb;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS tables JSONB NOT NULL DEFAULT '[]'::jsonb;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS songs JSONB NOT NULL DEFAULT '[]'::jsonb;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS summary JSONB NOT NULL DEFAULT '{}'::jsonb;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS order_ids JSONB NOT NULL DEFAULT '[]'::jsonb;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS notes TEXT;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_closures_company_closed ON hospitality_day_closures(company_id, closed_at DESC);"))
 
 
 async def _company_exists(db: AsyncSession, company_id: uuid.UUID) -> bool:
@@ -219,6 +272,23 @@ async def _next_order_number(db: AsyncSession, company_id: uuid.UUID) -> str:
     )
     number = int(row.scalar() or 1)
     return f"QR-{today}-{number:05d}"
+
+
+async def _next_closure_number(db: AsyncSession, company_id: uuid.UUID) -> str:
+    today = _now().strftime("%Y%m%d")
+    row = await db.execute(
+        text(
+            """
+            SELECT COUNT(*) + 1
+            FROM hospitality_day_closures
+            WHERE company_id = :company_id
+              AND closure_number LIKE :prefix
+            """
+        ),
+        {"company_id": str(company_id), "prefix": f"ARQ-{today}-%"},
+    )
+    number = int(row.scalar() or 1)
+    return f"ARQ-{today}-{number:04d}"
 
 
 async def _inventory_lookup(db: AsyncSession, company_id: uuid.UUID, raw_id: str | None) -> dict[str, Any] | None:
@@ -319,6 +389,37 @@ def _payload(row: Any) -> dict[str, Any]:
         "preparing_at": _iso(data.get("preparing_at")),
         "served_at": _iso(data.get("served_at")),
         "closed_at": _iso(data.get("closed_at")),
+        "archived_at": _iso(data.get("archived_at")),
+    }
+
+
+def _closure_payload(row: Any) -> dict[str, Any]:
+    data = dict(row)
+    products = _json(data.get("products"), [])
+    tables = _json(data.get("tables"), [])
+    songs = _json(data.get("songs"), [])
+    summary = _json(data.get("summary"), {})
+    order_ids = _json(data.get("order_ids"), [])
+    return {
+        "id": str(data.get("id")),
+        "company_id": str(data.get("company_id")),
+        "closure_number": data.get("closure_number") or "",
+        "opened_at": _iso(data.get("opened_at")),
+        "closed_at": _iso(data.get("closed_at")),
+        "closed_by": data.get("closed_by") or "",
+        "orders_count": int(data.get("orders_count") or 0),
+        "total_sold": _money(data.get("total_sold")),
+        "cash_total": _money(data.get("cash_total")),
+        "transfer_total": _money(data.get("transfer_total")),
+        "other_total": _money(data.get("other_total")),
+        "products": products if isinstance(products, list) else [],
+        "tables": tables if isinstance(tables, list) else [],
+        "songs": songs if isinstance(songs, list) else [],
+        "summary": summary if isinstance(summary, dict) else {},
+        "order_ids": order_ids if isinstance(order_ids, list) else [],
+        "notes": data.get("notes") or "",
+        "created_at": _iso(data.get("created_at")),
+        "updated_at": _iso(data.get("updated_at")),
     }
 
 
@@ -424,12 +525,172 @@ async def _deduct_inventory(db: AsyncSession, company_id: uuid.UUID, order: dict
             )
 
 
+async def _create_day_closure(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    payload: HospitalityClosureCreateIn,
+) -> dict[str, Any]:
+    result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND archived_at IS NULL
+            ORDER BY created_at ASC
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    raw_rows = result.mappings().all()
+    if not raw_rows:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="no_hay_pedidos_para_cerrar")
+
+    orders = [_payload(row) for row in raw_rows]
+    total_sold = _money(sum(_num(order.get("total")) for order in orders))
+    cash_total = _money(payload.cash_total)
+    transfer_total = _money(payload.transfer_total)
+    other_total = _money(payload.other_total)
+    if _money(cash_total + transfer_total + other_total) <= 0 and total_sold > 0:
+        other_total = total_sold
+
+    product_map: dict[str, dict[str, Any]] = {}
+    table_map: dict[str, dict[str, Any]] = {}
+    song_map: dict[str, dict[str, Any]] = {}
+    opened_at: datetime | None = None
+    closed_at = _now()
+
+    for raw, order in zip(raw_rows, orders):
+        created_at = raw.get("created_at")
+        if isinstance(created_at, datetime):
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            opened_at = created_at if opened_at is None or created_at < opened_at else opened_at
+
+        table_name = _clean(order.get("table_number")) or "Barra"
+        table_key = _table_key(table_name)
+        table_row = table_map.setdefault(
+            table_key,
+            {"table": table_name, "orders": 0, "items_quantity": 0.0, "total": 0.0},
+        )
+        table_row["orders"] += 1
+        table_row["total"] = _money(table_row["total"] + _num(order.get("total")))
+
+        for item in order.get("items") or []:
+            qty = _money(item.get("quantity"))
+            subtotal = _money(item.get("subtotal") or qty * _num(item.get("unit_price")))
+            table_row["items_quantity"] = _money(table_row["items_quantity"] + qty)
+            product_key = _clean(item.get("inventory_item_id") or item.get("product_id") or item.get("sku") or item.get("name")).lower()
+            if not product_key:
+                continue
+            product_row = product_map.setdefault(
+                product_key,
+                {
+                    "name": _clean(item.get("name")) or "Producto",
+                    "sku": _clean(item.get("sku")),
+                    "quantity": 0.0,
+                    "unit_price": _money(item.get("unit_price")),
+                    "total": 0.0,
+                },
+            )
+            product_row["quantity"] = _money(product_row["quantity"] + qty)
+            product_row["total"] = _money(product_row["total"] + subtotal)
+            if not product_row.get("unit_price") and qty:
+                product_row["unit_price"] = _money(subtotal / qty)
+
+        for song in order.get("songs") or []:
+            clean_song = _clean(song)
+            if not clean_song:
+                continue
+            song_key = clean_song.lower()
+            song_row = song_map.setdefault(song_key, {"song": clean_song, "count": 0})
+            song_row["count"] += 1
+
+    products = sorted(product_map.values(), key=lambda row: (_num(row.get("total")), _num(row.get("quantity"))), reverse=True)
+    tables = sorted(table_map.values(), key=lambda row: _num(row.get("total")), reverse=True)
+    songs = sorted(song_map.values(), key=lambda row: int(row.get("count") or 0), reverse=True)
+    worked_minutes = 0
+    if opened_at:
+        worked_minutes = max(int((closed_at - opened_at.astimezone(timezone.utc)).total_seconds() // 60), 0)
+
+    closure_number = await _next_closure_number(db, company_id)
+    order_ids = [order["id"] for order in orders if order.get("id")]
+    summary = {
+        "total_sold": total_sold,
+        "payment_total": _money(cash_total + transfer_total + other_total),
+        "payment_difference": _money((cash_total + transfer_total + other_total) - total_sold),
+        "top_product": products[0] if products else None,
+        "top_table": tables[0] if tables else None,
+        "top_song": songs[0] if songs else None,
+        "worked_minutes": worked_minutes,
+        "worked_hours": round(worked_minutes / 60, 2) if worked_minutes else 0,
+    }
+
+    inserted = await db.execute(
+        text(
+            """
+            INSERT INTO hospitality_day_closures (
+                company_id, closure_number, opened_at, closed_at, closed_by,
+                orders_count, total_sold, cash_total, transfer_total, other_total,
+                products, tables, songs, summary, order_ids, notes, created_at, updated_at
+            )
+            VALUES (
+                :company_id, :closure_number, :opened_at, NOW(), :closed_by,
+                :orders_count, :total_sold, :cash_total, :transfer_total, :other_total,
+                CAST(:products AS jsonb), CAST(:tables AS jsonb), CAST(:songs AS jsonb),
+                CAST(:summary AS jsonb), CAST(:order_ids AS jsonb), :notes, NOW(), NOW()
+            )
+            RETURNING *
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "closure_number": closure_number,
+            "opened_at": opened_at,
+            "closed_by": _clean(payload.closed_by)[:180],
+            "orders_count": len(orders),
+            "total_sold": total_sold,
+            "cash_total": cash_total,
+            "transfer_total": transfer_total,
+            "other_total": other_total,
+            "products": json.dumps(products, ensure_ascii=False),
+            "tables": json.dumps(tables, ensure_ascii=False),
+            "songs": json.dumps(songs, ensure_ascii=False),
+            "summary": json.dumps(summary, ensure_ascii=False),
+            "order_ids": json.dumps(order_ids, ensure_ascii=False),
+            "notes": _clean(payload.notes),
+        },
+    )
+    closure = _closure_payload(inserted.mappings().first())
+
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_orders
+            SET archived_at = COALESCE(archived_at, NOW()),
+                metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb),
+                updated_at = NOW()
+            WHERE company_id = :company_id
+              AND archived_at IS NULL
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "metadata": json.dumps(
+                {"closure_id": closure["id"], "closure_number": closure["closure_number"]},
+                ensure_ascii=False,
+            ),
+        },
+    )
+    return closure
+
+
 @router.get("/companies/{company_id}/health")
 async def hospitality_health(company_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
-    return {"ok": True, "company_id": str(company_id), "service": "clonexa-hospitality", "modules": ["orders", "qr"]}
+    return {"ok": True, "company_id": str(company_id), "service": "clonexa-hospitality", "modules": ["orders", "qr", "day_closures"]}
 
 
 @router.get("/companies/{company_id}/qr-tables")
@@ -455,6 +716,7 @@ async def hospitality_qr_tables(
                    MAX(updated_at) AS last_activity
             FROM hospitality_orders
             WHERE company_id = :company_id
+              AND archived_at IS NULL
               AND status IN ('pendiente', 'alistando', 'entregado')
             GROUP BY table_key
             """
@@ -564,6 +826,7 @@ async def hospitality_inventory_lite(
 async def list_hospitality_orders(
     company_id: uuid.UUID,
     status_filter: str = Query(default="active", alias="status"),
+    include_archived: bool = Query(default=False),
     limit: int = Query(default=180, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -573,6 +836,8 @@ async def list_hospitality_orders(
 
     where = ["company_id = :company_id"]
     params: dict[str, Any] = {"company_id": str(company_id), "limit": limit}
+    if not include_archived:
+        where.append("archived_at IS NULL")
     clean_status = _status(status_filter)
     if _norm(status_filter) == "active":
         where.append("status IN ('pendiente', 'alistando', 'entregado')")
@@ -603,6 +868,7 @@ async def list_hospitality_orders(
     return {
         "ok": True,
         "company_id": str(company_id),
+        "include_archived": include_archived,
         "orders": orders,
         "tables": orders,
         "summary": {
@@ -614,6 +880,46 @@ async def list_hospitality_orders(
             "total": len(orders),
         },
     }
+
+
+@router.get("/companies/{company_id}/day-closures")
+async def list_hospitality_day_closures(
+    company_id: uuid.UUID,
+    limit: int = Query(default=40, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_day_closures
+            WHERE company_id = :company_id
+            ORDER BY closed_at DESC
+            LIMIT :limit
+            """
+        ),
+        {"company_id": str(company_id), "limit": limit},
+    )
+    closures = [_closure_payload(row) for row in result.mappings().all()]
+    return {"ok": True, "company_id": str(company_id), "closures": closures}
+
+
+@router.post("/companies/{company_id}/day-closures", status_code=status.HTTP_201_CREATED)
+async def create_hospitality_day_closure(
+    company_id: uuid.UUID,
+    payload: HospitalityClosureCreateIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    closure = await _create_day_closure(db, company_id, payload)
+    await db.commit()
+    return {"ok": True, "company_id": str(company_id), "closure": closure}
 
 
 @router.post("/companies/{company_id}/orders", status_code=status.HTTP_201_CREATED)

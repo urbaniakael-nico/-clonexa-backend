@@ -13392,7 +13392,7 @@ function inventoryCreatePayload() {
       .hsp-note-024r{color:var(--hsp-muted);font-size:13px;margin-bottom:12px;line-height:1.35;font-weight:800}
       .hsp-form-box-024r{
         display:grid;
-        grid-template-columns:minmax(180px,.55fr) minmax(520px,1.35fr) minmax(330px,.95fr) minmax(290px,.72fr);
+        grid-template-columns:minmax(180px,.58fr) minmax(540px,1.55fr) minmax(300px,.8fr);
         gap:10px;
         align-items:start;
         padding:14px;
@@ -13404,6 +13404,8 @@ function inventoryCreatePayload() {
       .hsp-form-main-024r{grid-template-columns:1fr;align-self:start}
       .hsp-products-wrap-024r{display:grid;gap:7px;align-content:start}
       .hsp-products-wrap-024r .hsp-field-024r label{margin-top:0}
+      .hsp-product-actions-024u{margin-top:0}
+      .hsp-product-actions-024u .hsp-btn-024r{flex:1 1 160px}
       .hsp-extra-wrap-024r{display:grid;grid-template-columns:minmax(0,1fr) 136px;gap:8px;align-items:end}
       .hsp-extra-wrap-024r .hsp-field-024r label{margin-top:0}
       .hsp-extra-wrap-024r .hsp-field-024r textarea{min-height:46px}
@@ -13506,9 +13508,24 @@ function inventoryCreatePayload() {
       .hsp-empty-024r{color:var(--hsp-muted);border:1px dashed rgba(255,255,255,.18);padding:22px;border-radius:14px;text-align:center;font-size:14px;font-weight:850}
       .hsp-msg-024r{display:none;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;white-space:pre-wrap;font-weight:850}
       .hsp-msg-024r.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3);color:#fecaca}
+      .hsp-closure-modal-024u{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:22px;background:rgba(3,7,18,.70);backdrop-filter:blur(10px)}
+      .hsp-closure-card-024u{width:min(860px,100%);max-height:calc(100vh - 44px);overflow:auto;background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.04)),#111827;border:1px solid rgba(255,255,255,.16);border-radius:20px;box-shadow:0 28px 90px rgba(0,0,0,.46);padding:18px;color:var(--cx-text,#fff)}
+      .hsp-closure-head-024u{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}
+      .hsp-closure-head-024u h2{font-size:24px;margin:0 0 4px;color:var(--cx-text,#fff)}
+      .hsp-closure-head-024u p{margin:0;color:var(--hsp-muted);font-weight:850}
+      .hsp-closure-grid-024u{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+      .hsp-closure-field-024u{display:grid;gap:6px}
+      .hsp-closure-field-024u span{color:var(--hsp-muted);font-size:10px;font-weight:950;letter-spacing:.08em;text-transform:uppercase}
+      .hsp-closure-field-024u input,.hsp-closure-field-024u textarea{width:100%;box-sizing:border-box;background:rgba(3,7,18,.58);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:12px;padding:11px 12px;outline:none;font-weight:900}
+      .hsp-closure-field-024u textarea{min-height:72px;resize:vertical}
+      .hsp-closure-summary-024u{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:12px 0}
+      .hsp-closure-chip-024u{background:rgba(3,7,18,.38);border:1px solid rgba(255,255,255,.11);border-radius:14px;padding:11px}
+      .hsp-closure-chip-024u span{display:block;color:var(--hsp-muted);font-size:10px;text-transform:uppercase;font-weight:950;letter-spacing:.08em}
+      .hsp-closure-chip-024u b{display:block;margin-top:6px;font-size:18px;color:var(--cx-text,#fff)}
+      .hsp-closure-actions-024u{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px}
       @media(max-width:1420px){.hsp-form-box-024r{grid-template-columns:minmax(190px,.72fr) minmax(500px,1.35fr) minmax(330px,1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(300px,.9fr) minmax(300px,1fr);align-items:end}.hsp-calc-screen-024r{grid-template-columns:1fr 1fr}.hsp-stats-024r{grid-template-columns:repeat(5,minmax(90px,1fr))}}
       @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(3,minmax(110px,1fr))}}
-      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
+      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
       @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}}
     `;
     document.head.appendChild(style);
@@ -13617,6 +13634,89 @@ function inventoryCreatePayload() {
     if (totalEl) totalEl.textContent = cxHspMoney024R(total);
     if (changeEl) changeEl.textContent = cxHspMoney024R(change);
     if (missingEl) missingEl.textContent = cxHspMoney024R(missing);
+  }
+
+  function cxHspClosureStats024U() {
+    const orders = Array.isArray(cxHspOrders024R) ? cxHspOrders024R : [];
+    const total = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+    const tableMap = {};
+    const productMap = {};
+    orders.forEach((order) => {
+      const table = order.table_number || "Barra";
+      tableMap[table] = (tableMap[table] || 0) + Number(order.total || 0);
+      (order.items || []).forEach((item) => {
+        const key = item.name || item.sku || "Producto";
+        productMap[key] = (productMap[key] || 0) + Number(item.quantity || 0);
+      });
+    });
+    const topTable = Object.entries(tableMap).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+    return {
+      orders: orders.length,
+      total,
+      products: Object.keys(productMap).length,
+      topTable: topTable ? `${topTable[0]} · ${cxHspMoney024R(topTable[1])}` : "Sin consumo",
+    };
+  }
+
+  function cxHspOpenClosureModal024U() {
+    document.getElementById("hspClosureModal024U")?.remove();
+    const stats = cxHspClosureStats024U();
+    document.body.insertAdjacentHTML("beforeend", `
+      <div id="hspClosureModal024U" class="hsp-closure-modal-024u">
+        <section class="hsp-closure-card-024u" role="dialog" aria-modal="true" aria-label="Generar cierre de jornada">
+          <div class="hsp-closure-head-024u">
+            <div>
+              <h2>Generar cierre / arqueo</h2>
+              <p>Guarda el resumen de la jornada y limpia el tablero de Pedidos.</p>
+            </div>
+            <button class="hsp-btn-024r secondary" type="button" data-hsp-close-closure-modal>Cerrar</button>
+          </div>
+          <div class="hsp-closure-summary-024u">
+            <div class="hsp-closure-chip-024u"><span>Pedidos</span><b>${h(stats.orders)}</b></div>
+            <div class="hsp-closure-chip-024u"><span>Total vendido</span><b>${h(cxHspMoney024R(stats.total))}</b></div>
+            <div class="hsp-closure-chip-024u"><span>Productos</span><b>${h(stats.products)}</b></div>
+            <div class="hsp-closure-chip-024u"><span>Mayor consumo</span><b>${h(stats.topTable)}</b></div>
+          </div>
+          <div class="hsp-closure-grid-024u">
+            <label class="hsp-closure-field-024u">
+              <span>Efectivo</span>
+              <input id="hspClosureCash024U" type="number" min="0" step="100" value="0" />
+            </label>
+            <label class="hsp-closure-field-024u">
+              <span>Transferencias</span>
+              <input id="hspClosureTransfer024U" type="number" min="0" step="100" value="0" />
+            </label>
+            <label class="hsp-closure-field-024u">
+              <span>Otros</span>
+              <input id="hspClosureOther024U" type="number" min="0" step="100" value="${h(Math.round(stats.total))}" />
+            </label>
+            <label class="hsp-closure-field-024u">
+              <span>Responsable</span>
+              <input id="hspClosureBy024U" placeholder="Nombre del barman / administrador" />
+            </label>
+            <label class="hsp-closure-field-024u" style="grid-column:span 2">
+              <span>Observacion de cierre</span>
+              <textarea id="hspClosureNotes024U" placeholder="Novedades de caja, faltantes, pagos pendientes..."></textarea>
+            </label>
+          </div>
+          <div id="hspClosureMsg024U" class="hsp-msg-024r"></div>
+          <div class="hsp-closure-actions-024u">
+            <button class="hsp-btn-024r secondary" type="button" data-hsp-close-closure-modal>Cancelar</button>
+            <button class="hsp-btn-024r purple" type="button" data-hsp-generate-closure>Guardar cierre y limpiar jornada</button>
+          </div>
+        </section>
+      </div>
+    `);
+  }
+
+  function cxHspReadClosurePayload024U() {
+    return {
+      cash_total: Number(document.getElementById("hspClosureCash024U")?.value || 0) || 0,
+      transfer_total: Number(document.getElementById("hspClosureTransfer024U")?.value || 0) || 0,
+      other_total: Number(document.getElementById("hspClosureOther024U")?.value || 0) || 0,
+      closed_by: document.getElementById("hspClosureBy024U")?.value || "",
+      notes: document.getElementById("hspClosureNotes024U")?.value || "",
+    };
   }
 
   function cxHspShowMsg024R(id, text, err = false) {
@@ -13778,6 +13878,7 @@ function inventoryCreatePayload() {
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 ${isClientModuleActive("inventory") ? `<button class="client-btn" type="button" data-hsp-open-inventory>Inventario</button>` : ""}
                 <button class="client-btn" type="button" data-hsp-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-hsp-open-closure>Generar cierre</button>
               </div>
             </header>
 
@@ -13818,19 +13919,8 @@ function inventoryCreatePayload() {
                   <div class="hsp-products-wrap-024r">
                     <div class="hsp-field-024r"><label>Productos</label></div>
                     <div id="hspProductLines024R"></div>
-                    <button class="hsp-btn-024r secondary" type="button" data-hsp-add-line>+ Producto</button>
-                  </div>
-
-                  <div class="hsp-extra-wrap-024r">
-                    <div class="hsp-field-024r hsp-song-field-024r">
-                      <label>Canciones solicitadas</label>
-                      <input id="hspSongs024R" placeholder="Ej: Salsa choque, Provenza, La rebelion" />
-                    </div>
-                    <div class="hsp-field-024r hsp-note-field-024r">
-                      <label>Notas</label>
-                      <textarea id="hspNotes024R" placeholder="Sin hielo, poco dulce, etc."></textarea>
-                    </div>
-                    <div class="hsp-actions-024r hsp-submit-wrap-024r">
+                    <div class="hsp-actions-024r hsp-product-actions-024u">
+                      <button class="hsp-btn-024r secondary" type="button" data-hsp-add-line>+ Producto</button>
                       <button class="hsp-btn-024r green" type="button" data-hsp-create>Crear venta barra</button>
                     </div>
                   </div>
@@ -15020,6 +15110,32 @@ document.addEventListener("click", async (event) => {
         return;
       }
 
+      if (target.closest("[data-hsp-open-closure]")) {
+        cxHspOpenClosureModal024U();
+        return;
+      }
+
+      if (target.closest("[data-hsp-close-closure-modal]")) {
+        document.getElementById("hspClosureModal024U")?.remove();
+        return;
+      }
+
+      if (target.closest("[data-hsp-generate-closure]")) {
+        if (!confirm("Generar cierre y limpiar la jornada actual de Pedidos?")) return;
+        try {
+          const data = await cxHspApi024R("/day-closures", {
+            method: "POST",
+            body: JSON.stringify(cxHspReadClosurePayload024U()),
+          });
+          document.getElementById("hspClosureModal024U")?.remove();
+          await cxHspLoadOrders024R();
+          cxHspShowMsg024R("hspGlobalMsg024R", `Cierre guardado: ${data.closure?.closure_number || "OK"}. Jornada lista para empezar de nuevo.`);
+        } catch (error) {
+          cxHspShowMsg024R("hspClosureMsg024U", error.message || "No se pudo generar el cierre.", true);
+        }
+        return;
+      }
+
       const hspRemoveLine = target.closest("[data-hsp-remove-line]");
       if (hspRemoveLine) {
         hspRemoveLine.closest(".hsp-line-024r")?.remove();
@@ -15039,8 +15155,6 @@ document.addEventListener("click", async (event) => {
               source: "bar_manual",
               table: document.getElementById("hspTable024R")?.value || "Barra",
               customer: document.getElementById("hspCustomer024R")?.value || "Cliente barra",
-              songs: document.getElementById("hspSongs024R")?.value || "",
-              notes: document.getElementById("hspNotes024R")?.value || "",
               items,
             }),
           });
@@ -15050,12 +15164,8 @@ document.addEventListener("click", async (event) => {
           cxHspAddLine024R();
           const table = document.getElementById("hspTable024R");
           const customer = document.getElementById("hspCustomer024R");
-          const songs = document.getElementById("hspSongs024R");
-          const notes = document.getElementById("hspNotes024R");
           if (table) table.value = "Barra";
           if (customer) customer.value = "";
-          if (songs) songs.value = "";
-          if (notes) notes.value = "";
           const paid = document.getElementById("hspPaymentReceived024R");
           if (paid) paid.value = "";
           cxHspUpdateCalculator024R();
