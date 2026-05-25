@@ -21,6 +21,13 @@ STATUS_PREPARING = "alistando"
 STATUS_SERVED = "entregado"
 STATUS_CLOSED = "cerrado"
 ACTIVE_STATUSES = {STATUS_PENDING, STATUS_PREPARING, STATUS_SERVED}
+PAYMENT_METHODS = {"cash", "transfer", "card", "other"}
+PAYMENT_LABELS = {
+    "cash": "Efectivo",
+    "transfer": "Transferencia",
+    "card": "Tarjeta",
+    "other": "Otro",
+}
 
 
 class HospitalityOrderItemIn(BaseModel):
@@ -43,6 +50,7 @@ class HospitalityOrderCreateIn(BaseModel):
     table: str | None = Field(default="Barra", max_length=120)
     customer: str | None = Field(default="Cliente barra", max_length=180)
     source: str | None = Field(default="client", max_length=60)
+    payment_method: str | None = Field(default="other", max_length=40)
     notes: str | None = Field(default="", max_length=900)
     songs: str | list[str] | None = Field(default=None)
     items: list[HospitalityOrderItemIn] = Field(default_factory=list)
@@ -60,9 +68,14 @@ class HospitalityStatusIn(BaseModel):
     status: str = Field(..., max_length=40)
 
 
+class HospitalityCloseIn(BaseModel):
+    payment_method: str | None = Field(default=None, max_length=40)
+
+
 class HospitalityClosureCreateIn(BaseModel):
     cash_total: float = Field(default=0, ge=0)
     transfer_total: float = Field(default=0, ge=0)
+    card_total: float = Field(default=0, ge=0)
     other_total: float = Field(default=0, ge=0)
     closed_by: str | None = Field(default="", max_length=180)
     notes: str | None = Field(default="", max_length=900)
@@ -115,6 +128,27 @@ def _status(value: Any) -> str:
     return aliases.get(raw, STATUS_PENDING)
 
 
+def _payment_method(value: Any) -> str:
+    raw = _norm(value or "other")
+    aliases = {
+        "cash": "cash",
+        "efectivo": "cash",
+        "efec": "cash",
+        "transfer": "transfer",
+        "transferencia": "transfer",
+        "transf": "transfer",
+        "bank": "transfer",
+        "card": "card",
+        "tarjeta": "card",
+        "credito": "card",
+        "debito": "card",
+        "other": "other",
+        "otro": "other",
+        "otros": "other",
+    }
+    return aliases.get(raw, "other")
+
+
 def _table_key(value: Any) -> str:
     return " ".join(_norm(value or "mesa").split())
 
@@ -164,6 +198,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
                 table_key VARCHAR(120) NOT NULL,
                 order_type VARCHAR(40) NOT NULL DEFAULT 'table',
                 source VARCHAR(60) NOT NULL DEFAULT 'client',
+                payment_method VARCHAR(40) NOT NULL DEFAULT 'other',
                 status VARCHAR(40) NOT NULL DEFAULT 'pendiente',
                 customer_name VARCHAR(180),
                 people JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -188,6 +223,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS table_key VARCHAR(120) NOT NULL DEFAULT 'mesa';"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS order_type VARCHAR(40) NOT NULL DEFAULT 'table';"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS source VARCHAR(60) NOT NULL DEFAULT 'client';"))
+    await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(40) NOT NULL DEFAULT 'other';"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS status VARCHAR(40) NOT NULL DEFAULT 'pendiente';"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS customer_name VARCHAR(180);"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS people JSONB NOT NULL DEFAULT '[]'::jsonb;"))
@@ -219,6 +255,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
                 total_sold NUMERIC(14,2) NOT NULL DEFAULT 0,
                 cash_total NUMERIC(14,2) NOT NULL DEFAULT 0,
                 transfer_total NUMERIC(14,2) NOT NULL DEFAULT 0,
+                card_total NUMERIC(14,2) NOT NULL DEFAULT 0,
                 other_total NUMERIC(14,2) NOT NULL DEFAULT 0,
                 products JSONB NOT NULL DEFAULT '[]'::jsonb,
                 tables JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -240,6 +277,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS total_sold NUMERIC(14,2) NOT NULL DEFAULT 0;"))
     await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS cash_total NUMERIC(14,2) NOT NULL DEFAULT 0;"))
     await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS transfer_total NUMERIC(14,2) NOT NULL DEFAULT 0;"))
+    await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS card_total NUMERIC(14,2) NOT NULL DEFAULT 0;"))
     await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS other_total NUMERIC(14,2) NOT NULL DEFAULT 0;"))
     await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS products JSONB NOT NULL DEFAULT '[]'::jsonb;"))
     await db.execute(text("ALTER TABLE hospitality_day_closures ADD COLUMN IF NOT EXISTS tables JSONB NOT NULL DEFAULT '[]'::jsonb;"))
@@ -375,6 +413,8 @@ def _payload(row: Any) -> dict[str, Any]:
         "table_key": data.get("table_key") or "",
         "type": data.get("order_type") or "table",
         "source": data.get("source") or "client",
+        "payment_method": _payment_method(data.get("payment_method")),
+        "payment_label": PAYMENT_LABELS.get(_payment_method(data.get("payment_method")), "Otro"),
         "status": _status(data.get("status")),
         "customer_name": data.get("customer_name") or "",
         "people": people if isinstance(people, list) else [],
@@ -411,6 +451,7 @@ def _closure_payload(row: Any) -> dict[str, Any]:
         "total_sold": _money(data.get("total_sold")),
         "cash_total": _money(data.get("cash_total")),
         "transfer_total": _money(data.get("transfer_total")),
+        "card_total": _money(data.get("card_total")),
         "other_total": _money(data.get("other_total")),
         "products": products if isinstance(products, list) else [],
         "tables": tables if isinstance(tables, list) else [],
@@ -548,12 +589,7 @@ async def _create_day_closure(
 
     orders = [_payload(row) for row in raw_rows]
     total_sold = _money(sum(_num(order.get("total")) for order in orders))
-    cash_total = _money(payload.cash_total)
-    transfer_total = _money(payload.transfer_total)
-    other_total = _money(payload.other_total)
-    if _money(cash_total + transfer_total + other_total) <= 0 and total_sold > 0:
-        other_total = total_sold
-
+    method_totals = {method: 0.0 for method in PAYMENT_METHODS}
     product_map: dict[str, dict[str, Any]] = {}
     table_map: dict[str, dict[str, Any]] = {}
     song_map: dict[str, dict[str, Any]] = {}
@@ -561,6 +597,9 @@ async def _create_day_closure(
     closed_at = _now()
 
     for raw, order in zip(raw_rows, orders):
+        method = _payment_method(order.get("payment_method"))
+        method_totals[method] = _money(method_totals.get(method, 0) + _num(order.get("total")))
+
         created_at = raw.get("created_at")
         if isinstance(created_at, datetime):
             if created_at.tzinfo is None:
@@ -606,6 +645,18 @@ async def _create_day_closure(
             song_row = song_map.setdefault(song_key, {"song": clean_song, "count": 0})
             song_row["count"] += 1
 
+    cash_total = _money(payload.cash_total)
+    transfer_total = _money(payload.transfer_total)
+    card_total = _money(payload.card_total)
+    other_total = _money(payload.other_total)
+    if _money(cash_total + transfer_total + card_total + other_total) <= 0 and total_sold > 0:
+        cash_total = _money(method_totals.get("cash"))
+        transfer_total = _money(method_totals.get("transfer"))
+        card_total = _money(method_totals.get("card"))
+        other_total = _money(method_totals.get("other"))
+        if _money(cash_total + transfer_total + card_total + other_total) <= 0:
+            other_total = total_sold
+
     products = sorted(product_map.values(), key=lambda row: (_num(row.get("total")), _num(row.get("quantity"))), reverse=True)
     tables = sorted(table_map.values(), key=lambda row: _num(row.get("total")), reverse=True)
     songs = sorted(song_map.values(), key=lambda row: int(row.get("count") or 0), reverse=True)
@@ -617,8 +668,14 @@ async def _create_day_closure(
     order_ids = [order["id"] for order in orders if order.get("id")]
     summary = {
         "total_sold": total_sold,
-        "payment_total": _money(cash_total + transfer_total + other_total),
-        "payment_difference": _money((cash_total + transfer_total + other_total) - total_sold),
+        "payment_total": _money(cash_total + transfer_total + card_total + other_total),
+        "payment_difference": _money((cash_total + transfer_total + card_total + other_total) - total_sold),
+        "payment_breakdown": {
+            "cash": cash_total,
+            "transfer": transfer_total,
+            "card": card_total,
+            "other": other_total,
+        },
         "top_product": products[0] if products else None,
         "top_table": tables[0] if tables else None,
         "top_song": songs[0] if songs else None,
@@ -631,12 +688,12 @@ async def _create_day_closure(
             """
             INSERT INTO hospitality_day_closures (
                 company_id, closure_number, opened_at, closed_at, closed_by,
-                orders_count, total_sold, cash_total, transfer_total, other_total,
+                orders_count, total_sold, cash_total, transfer_total, card_total, other_total,
                 products, tables, songs, summary, order_ids, notes, created_at, updated_at
             )
             VALUES (
                 :company_id, :closure_number, :opened_at, NOW(), :closed_by,
-                :orders_count, :total_sold, :cash_total, :transfer_total, :other_total,
+                :orders_count, :total_sold, :cash_total, :transfer_total, :card_total, :other_total,
                 CAST(:products AS jsonb), CAST(:tables AS jsonb), CAST(:songs AS jsonb),
                 CAST(:summary AS jsonb), CAST(:order_ids AS jsonb), :notes, NOW(), NOW()
             )
@@ -652,6 +709,7 @@ async def _create_day_closure(
             "total_sold": total_sold,
             "cash_total": cash_total,
             "transfer_total": transfer_total,
+            "card_total": card_total,
             "other_total": other_total,
             "products": json.dumps(products, ensure_ascii=False),
             "tables": json.dumps(tables, ensure_ascii=False),
@@ -937,6 +995,7 @@ async def create_hospitality_order(
     table_number = _clean(payload.table) or "Barra"
     customer_name = _clean(payload.customer) or "Cliente barra"
     source = _clean(payload.source) or "client"
+    payment_method = _payment_method(payload.payment_method)
     order_type = "bar_sale" if _table_key(table_number) == "barra" or source in {"bar_manual", "barra"} else "table"
     order_number = await _next_order_number(db, company_id)
     person = {
@@ -951,12 +1010,12 @@ async def create_hospitality_order(
         text(
             """
             INSERT INTO hospitality_orders (
-                company_id, order_number, table_number, table_key, order_type, source,
+                company_id, order_number, table_number, table_key, order_type, source, payment_method,
                 status, customer_name, people, items, songs, notes, total, metadata,
                 created_at, updated_at
             )
             VALUES (
-                :company_id, :order_number, :table_number, :table_key, :order_type, :source,
+                :company_id, :order_number, :table_number, :table_key, :order_type, :source, :payment_method,
                 'pendiente', :customer_name, CAST(:people AS jsonb), CAST(:items AS jsonb),
                 CAST(:songs AS jsonb), :notes, :total, CAST(:metadata AS jsonb), NOW(), NOW()
             )
@@ -970,13 +1029,14 @@ async def create_hospitality_order(
             "table_key": _table_key(table_number),
             "order_type": order_type,
             "source": source,
+            "payment_method": payment_method,
             "customer_name": customer_name,
             "people": json.dumps([person], ensure_ascii=False),
             "items": json.dumps(items, ensure_ascii=False),
             "songs": json.dumps(_songs(payload.songs), ensure_ascii=False),
             "notes": _clean(payload.notes),
             "total": total,
-            "metadata": json.dumps({"source_product": "bar-bot-completo.zip"}, ensure_ascii=False),
+            "metadata": json.dumps({"source_product": "bar-bot-completo.zip", "payment_label": PAYMENT_LABELS.get(payment_method, "Otro")}, ensure_ascii=False),
         },
     )
     await db.commit()
@@ -1060,6 +1120,7 @@ async def update_hospitality_order_status(
 async def close_hospitality_order(
     company_id: uuid.UUID,
     order_id: uuid.UUID,
+    payload: HospitalityCloseIn | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _ensure_storage(db)
@@ -1067,18 +1128,21 @@ async def close_hospitality_order(
     if _status(order.get("status")) != STATUS_SERVED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="solo_se_puede_cerrar_mesa_entregada")
 
+    raw_payment_method = payload.payment_method if payload and _clean(payload.payment_method) else order.get("payment_method")
+    payment_method = _payment_method(raw_payment_method)
     await db.execute(
         text(
             """
             UPDATE hospitality_orders
             SET status = 'cerrado',
+                payment_method = :payment_method,
                 closed_at = COALESCE(closed_at, NOW()),
                 updated_at = NOW()
             WHERE id = :order_id
               AND company_id = :company_id
             """
         ),
-        {"order_id": str(order_id), "company_id": str(company_id)},
+        {"order_id": str(order_id), "company_id": str(company_id), "payment_method": payment_method},
     )
     await db.commit()
     saved = await _fetch_order(db, company_id, order_id)

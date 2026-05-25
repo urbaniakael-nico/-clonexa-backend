@@ -13329,6 +13329,31 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxHspPaymentLabel024V(value = "") {
+    const key = String(value || "other").toLowerCase();
+    const labels = {
+      cash: "Efectivo",
+      efectivo: "Efectivo",
+      efec: "Efectivo",
+      transfer: "Transferencia",
+      transferencia: "Transferencia",
+      transf: "Transferencia",
+      card: "Tarjeta",
+      tarjeta: "Tarjeta",
+      other: "Otro",
+      otro: "Otro",
+    };
+    return labels[key] || "Otro";
+  }
+
+  function cxHspPaymentMethod024V(value = "") {
+    const key = String(value || "other").toLowerCase();
+    if (["cash", "efectivo", "efec"].includes(key)) return "cash";
+    if (["transfer", "transferencia", "transf"].includes(key)) return "transfer";
+    if (["card", "tarjeta"].includes(key)) return "card";
+    return "other";
+  }
+
   function cxHspApi024R(path, options = {}) {
     return api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, options);
   }
@@ -13641,9 +13666,12 @@ function inventoryCreatePayload() {
     const total = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
     const tableMap = {};
     const productMap = {};
+    const paymentTotals = { cash: 0, transfer: 0, card: 0, other: 0 };
     orders.forEach((order) => {
       const table = order.table_number || "Barra";
       tableMap[table] = (tableMap[table] || 0) + Number(order.total || 0);
+      const method = cxHspPaymentMethod024V(order.payment_method);
+      paymentTotals[method] = (paymentTotals[method] || 0) + Number(order.total || 0);
       (order.items || []).forEach((item) => {
         const key = item.name || item.sku || "Producto";
         productMap[key] = (productMap[key] || 0) + Number(item.quantity || 0);
@@ -13655,6 +13683,7 @@ function inventoryCreatePayload() {
       total,
       products: Object.keys(productMap).length,
       topTable: topTable ? `${topTable[0]} · ${cxHspMoney024R(topTable[1])}` : "Sin consumo",
+      paymentTotals,
     };
   }
 
@@ -13680,15 +13709,19 @@ function inventoryCreatePayload() {
           <div class="hsp-closure-grid-024u">
             <label class="hsp-closure-field-024u">
               <span>Efectivo</span>
-              <input id="hspClosureCash024U" type="number" min="0" step="100" value="0" />
+              <input id="hspClosureCash024U" type="number" min="0" step="100" value="${h(Math.round(stats.paymentTotals.cash || 0))}" />
             </label>
             <label class="hsp-closure-field-024u">
               <span>Transferencias</span>
-              <input id="hspClosureTransfer024U" type="number" min="0" step="100" value="0" />
+              <input id="hspClosureTransfer024U" type="number" min="0" step="100" value="${h(Math.round(stats.paymentTotals.transfer || 0))}" />
+            </label>
+            <label class="hsp-closure-field-024u">
+              <span>Tarjeta</span>
+              <input id="hspClosureCard024V" type="number" min="0" step="100" value="${h(Math.round(stats.paymentTotals.card || 0))}" />
             </label>
             <label class="hsp-closure-field-024u">
               <span>Otros</span>
-              <input id="hspClosureOther024U" type="number" min="0" step="100" value="${h(Math.round(stats.total))}" />
+              <input id="hspClosureOther024U" type="number" min="0" step="100" value="${h(Math.round(stats.paymentTotals.other || 0))}" />
             </label>
             <label class="hsp-closure-field-024u">
               <span>Responsable</span>
@@ -13713,6 +13746,7 @@ function inventoryCreatePayload() {
     return {
       cash_total: Number(document.getElementById("hspClosureCash024U")?.value || 0) || 0,
       transfer_total: Number(document.getElementById("hspClosureTransfer024U")?.value || 0) || 0,
+      card_total: Number(document.getElementById("hspClosureCard024V")?.value || 0) || 0,
       other_total: Number(document.getElementById("hspClosureOther024U")?.value || 0) || 0,
       closed_by: document.getElementById("hspClosureBy024U")?.value || "",
       notes: document.getElementById("hspClosureNotes024U")?.value || "",
@@ -13826,6 +13860,7 @@ function inventoryCreatePayload() {
             <div class="hsp-mesa-024r">${h(order.table_number || "Mesa")}</div>
             <div class="hsp-muted-024r">${h((order.people || []).length)} persona(s) - ${h(order.status || "pendiente")}</div>
             <div class="hsp-num-024r">${h(order.order_number || "")}</div>
+            <div class="hsp-num-024r">Pago: ${h(order.payment_label || cxHspPaymentLabel024V(order.payment_method))}</div>
           </div>
           <div style="text-align:right;display:grid;gap:8px;justify-items:end">
             <span class="hsp-pill-024r ${h(cxHspStatusClass024R(order.status))}">${h(order.status || "pendiente")}</span>
@@ -13914,6 +13949,15 @@ function inventoryCreatePayload() {
                         <input id="hspCustomer024R" placeholder="Ej: Cliente barra" />
                       </div>
                     </div>
+                    <div class="hsp-field-024r">
+                      <label>Modo de pago</label>
+                      <select id="hspPaymentMethod024V">
+                        <option value="cash">Efectivo</option>
+                        <option value="transfer">Transferencia</option>
+                        <option value="card">Tarjeta</option>
+                        <option value="other">Otro</option>
+                      </select>
+                    </div>
                   </div>
 
                   <div class="hsp-products-wrap-024r">
@@ -13932,6 +13976,15 @@ function inventoryCreatePayload() {
                       <select id="hspPaymentOrder024R">
                         <option value="">Escoger cuenta / punto</option>
                         ${cxHspOpenOrdersForCalc024R().map((order) => `<option value="${h(order.id)}">${h(cxHspCalcOrderLabel024R(order))}</option>`).join("")}
+                      </select>
+                    </label>
+                    <label class="hsp-field-024r">
+                      <span>Modo de pago</span>
+                      <select id="hspPaymentMethodForAccount024V">
+                        <option value="cash">Efectivo</option>
+                        <option value="transfer">Transferencia</option>
+                        <option value="card">Tarjeta</option>
+                        <option value="other">Otro</option>
                       </select>
                     </label>
                     <div class="hsp-calc-screen-024r">
@@ -14219,20 +14272,6 @@ function inventoryCreatePayload() {
 
             <section class="hsp-qr-shell-024s">
               ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
-              <section class="hsp-qr-panel-024s">
-                <div class="hsp-qr-toolbar-024s">
-                  <label class="hsp-qr-field-024s">
-                    <span>Cantidad de mesas</span>
-                    <input id="hspQrTableCount024S" type="number" min="1" max="80" step="1" value="${h(cxHspQrCount024S)}">
-                  </label>
-                  <div class="hsp-qr-field-024s">
-                    <span>Base publica</span>
-                    <div class="hsp-qr-linkbox-024s">${h(window.location.origin)}/ordenar</div>
-                  </div>
-                  <button class="hsp-qr-btn-024s" type="button" data-hsp-qr-apply>Generar</button>
-                </div>
-              </section>
-
               <section class="hsp-qr-panel-024s">
                 <div class="hsp-qr-stats-024s">
                   <div class="hsp-qr-stat-024s"><span>QR activos</span><b id="hspQrCount024S">0</b></div>
@@ -15155,6 +15194,7 @@ document.addEventListener("click", async (event) => {
               source: "bar_manual",
               table: document.getElementById("hspTable024R")?.value || "Barra",
               customer: document.getElementById("hspCustomer024R")?.value || "Cliente barra",
+              payment_method: document.getElementById("hspPaymentMethod024V")?.value || "cash",
               items,
             }),
           });
@@ -15164,8 +15204,10 @@ document.addEventListener("click", async (event) => {
           cxHspAddLine024R();
           const table = document.getElementById("hspTable024R");
           const customer = document.getElementById("hspCustomer024R");
+          const paymentMethod = document.getElementById("hspPaymentMethod024V");
           if (table) table.value = "Barra";
           if (customer) customer.value = "";
+          if (paymentMethod) paymentMethod.value = "cash";
           const paid = document.getElementById("hspPaymentReceived024R");
           if (paid) paid.value = "";
           cxHspUpdateCalculator024R();
@@ -15197,7 +15239,13 @@ document.addEventListener("click", async (event) => {
       if (hspClose) {
         try {
           const id = hspClose.getAttribute("data-hsp-close");
-          await cxHspApi024R(`/orders/${encodeURIComponent(id)}/close-table`, { method: "POST", body: JSON.stringify({}) });
+          const selectedPaymentOrder = document.getElementById("hspPaymentOrder024R")?.value || "";
+          const selectedPaymentMethod = document.getElementById("hspPaymentMethodForAccount024V")?.value || "";
+          const payment_method = String(selectedPaymentOrder) === String(id) ? selectedPaymentMethod : "";
+          await cxHspApi024R(`/orders/${encodeURIComponent(id)}/close-table`, {
+            method: "POST",
+            body: JSON.stringify({ payment_method }),
+          });
           await cxHspLoadOrders024R();
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cerrar la mesa.", true);
@@ -15271,10 +15319,7 @@ document.addEventListener("click", async (event) => {
         }
       }
 
-      if (target.closest("[data-hsp-qr-apply]") || target.closest("[data-hsp-qr-refresh]")) {
-        const input = document.getElementById("hspQrTableCount024S");
-        const nextCount = Math.max(1, Math.min(80, Number(input?.value || cxHspQrCount024S || 12)));
-        cxHspQrCount024S = nextCount;
+      if (target.closest("[data-hsp-qr-refresh]")) {
         try {
           cxHspQrShowMsg024S("Actualizando mesas QR...");
           await cxHspQrLoad024S(cxHspQrCount024S);
@@ -16017,6 +16062,9 @@ document.addEventListener("click", async (event) => {
     if (target.matches("#hspPaymentOrder024R")) {
       const paid = document.getElementById("hspPaymentReceived024R");
       if (paid) paid.value = "";
+      const order = cxHspOpenOrdersForCalc024R().find((item) => String(item.id || "") === String(target.value || ""));
+      const methodSelect = document.getElementById("hspPaymentMethodForAccount024V");
+      if (methodSelect) methodSelect.value = cxHspPaymentMethod024V(order?.payment_method || "cash");
       cxHspUpdateCalculator024R();
     }
   }, true);
