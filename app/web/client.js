@@ -13529,6 +13529,10 @@ function inventoryCreatePayload() {
       .hsp-items-024r{display:grid;gap:0}
       .hsp-item-024r{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:850}
       .hsp-item-024r small{color:var(--hsp-muted);font-weight:800}
+      .hsp-merged-note-024y{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;color:var(--hsp-muted);font-size:11px;font-weight:900}
+      .hsp-section-title-024y{margin:10px 0 6px;color:var(--hsp-muted);font-size:10px;text-transform:uppercase;font-weight:1000;letter-spacing:.10em}
+      .hsp-account-row-024y{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:950;color:var(--cx-text,#fff)}
+      .hsp-account-row-024y small{display:block;color:var(--hsp-muted);font-size:10px;font-weight:850;margin-top:2px}
       .hsp-songs-024r,.hsp-notes-024r{background:color-mix(in srgb,var(--hsp-primary) 14%,transparent);border:1px solid color-mix(in srgb,var(--hsp-primary) 34%,transparent);color:var(--cx-text,#fff);border-radius:14px;padding:10px 12px;margin:10px 0;white-space:pre-wrap;font-weight:850}
       .hsp-empty-024r{color:var(--hsp-muted);border:1px dashed rgba(255,255,255,.18);padding:22px;border-radius:14px;text-align:center;font-size:14px;font-weight:850}
       .hsp-msg-024r{display:none;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;white-space:pre-wrap;font-weight:850}
@@ -13618,14 +13622,135 @@ function inventoryCreatePayload() {
     priceInput.value = String(nextPrice);
   }
 
+  function cxHspNormKey024Y(value = "") {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "cuenta";
+  }
+
+  function cxHspTableKey024Y(order = {}) {
+    return cxHspNormKey024Y(order.table_key || order.table_number || order.table || "Mesa");
+  }
+
+  function cxHspItemKey024Y(item = {}) {
+    return cxHspNormKey024Y(item.product_id || item.inventory_item_id || item.sku || item.name || "Producto");
+  }
+
+  function cxHspItemSubtotal024Y(item = {}) {
+    const explicit = Number(item.subtotal || 0);
+    if (explicit) return explicit;
+    return (Number(item.quantity || 0) || 0) * (Number(item.unit_price || 0) || 0);
+  }
+
+  function cxHspGroupAccounts024Y(list = []) {
+    const map = new Map();
+    list.forEach((order) => {
+      const key = cxHspTableKey024Y(order);
+      if (!map.has(key)) {
+        map.set(key, {
+          id: `table:${key}`,
+          table_key: key,
+          table_number: order.table_number || order.table || "Mesa",
+          order_ids: [],
+          order_numbers: [],
+          payment_methods: new Set(),
+          total: 0,
+          orders: [],
+        });
+      }
+      const group = map.get(key);
+      group.order_ids.push(order.id);
+      if (order.order_number) group.order_numbers.push(order.order_number);
+      group.payment_methods.add(cxHspPaymentMethod024V(order.payment_method));
+      group.total += Number(order.total || 0) || 0;
+      group.orders.push(order);
+    });
+    return [...map.values()].map((group) => {
+      const methods = [...group.payment_methods];
+      return {
+        ...group,
+        total: Number(group.total || 0),
+        count: group.orders.length,
+        payment_method: methods.length === 1 ? methods[0] : "other",
+        payment_label: methods.length === 1 ? cxHspPaymentLabel024V(methods[0]) : "Varios",
+      };
+    });
+  }
+
+  function cxHspMergedTableCards024Y(list = []) {
+    return cxHspGroupAccounts024Y(list).map((group) => {
+      const productMap = new Map();
+      const peopleMap = new Map();
+
+      group.orders.forEach((order) => {
+        const orderPeople = Array.isArray(order.people) && order.people.length
+          ? order.people
+          : [{ name: order.customer_name || "Cliente", total: order.total, items: order.items || [] }];
+
+        orderPeople.forEach((person) => {
+          const personName = person.name || "Cliente";
+          const personKey = cxHspNormKey024Y(person.customer_key || personName);
+          if (!peopleMap.has(personKey)) {
+            peopleMap.set(personKey, { name: personName, total: 0, orders: 0 });
+          }
+          const personRow = peopleMap.get(personKey);
+          const personItems = Array.isArray(person.items) ? person.items : [];
+          const personTotal = Number(person.total || 0) || personItems.reduce((sum, item) => sum + cxHspItemSubtotal024Y(item), 0);
+          personRow.total += personTotal;
+          personRow.orders += 1;
+        });
+
+        (Array.isArray(order.items) ? order.items : []).forEach((item) => {
+          const key = cxHspItemKey024Y(item);
+          if (!productMap.has(key)) {
+            productMap.set(key, {
+              name: item.name || item.sku || "Producto",
+              quantity: 0,
+              total: 0,
+              unit_price: Number(item.unit_price || 0) || 0,
+              mixed_price: false,
+            });
+          }
+          const product = productMap.get(key);
+          const qty = Number(item.quantity || 0) || 0;
+          const unit = Number(item.unit_price || 0) || 0;
+          if (product.unit_price && unit && Number(product.unit_price) !== unit) product.mixed_price = true;
+          if (!product.unit_price && unit) product.unit_price = unit;
+          product.quantity += qty;
+          product.total += cxHspItemSubtotal024Y(item);
+        });
+      });
+
+      return {
+        __merged_table: true,
+        id: group.id,
+        table_key: group.table_key,
+        table_number: group.table_number,
+        status: "entregado",
+        payment_method: group.payment_method,
+        payment_label: group.payment_label,
+        order_ids: group.order_ids,
+        order_numbers: group.order_numbers,
+        orders_count: group.count,
+        total: group.total,
+        product_summary: [...productMap.values()].sort((a, b) => Number(b.total || 0) - Number(a.total || 0)),
+        people_summary: [...peopleMap.values()].sort((a, b) => Number(b.total || 0) - Number(a.total || 0)),
+      };
+    });
+  }
+
   function cxHspOpenOrdersForCalc024R() {
-    return cxHspOrders024R.filter((order) => ["pendiente", "alistando", "entregado"].includes(String(order.status || "")));
+    return cxHspGroupAccounts024Y(cxHspOrders024R.filter((order) => ["pendiente", "alistando", "entregado"].includes(String(order.status || ""))));
   }
 
   function cxHspCalcOrderLabel024R(order = {}) {
     const table = order.table_number || order.table || "Cuenta";
-    const number = order.order_number ? ` - ${order.order_number}` : "";
-    return `${table}${number} · ${cxHspMoney024R(order.total || 0)}`;
+    const count = Number(order.count || order.orders_count || 0);
+    const detail = count > 1 ? ` · ${count} pedidos` : "";
+    return `${table}${detail} · ${cxHspMoney024R(order.total || 0)}`;
   }
 
   function cxHspRenderCalculatorOptions024R() {
@@ -13794,10 +13919,10 @@ function inventoryCreatePayload() {
       if (node) node.textContent = String(value);
     };
 
-    fill("hspPending024R", cxHspRenderGroup024R(groups.pendiente));
-    fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando));
-    fill("hspServed024R", cxHspRenderGroup024R(groups.entregado));
-    fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado));
+    fill("hspPending024R", cxHspRenderGroup024R(groups.pendiente, "pendiente"));
+    fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando, "alistando"));
+    fill("hspServed024R", cxHspRenderGroup024R(groups.entregado, "entregado"));
+    fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado, "cerrado"));
 
     text("hspSPending024R", summary.pending ?? groups.pendiente.length);
     text("hspSPreparing024R", summary.preparing ?? groups.alistando.length);
@@ -13807,18 +13932,71 @@ function inventoryCreatePayload() {
 
     text("hspCPending024R", groups.pendiente.length);
     text("hspCPreparing024R", groups.alistando.length);
-    text("hspCServed024R", groups.entregado.length);
+    text("hspCServed024R", cxHspMergedTableCards024Y(groups.entregado).length);
     text("hspCClosed024R", groups.cerrado.length);
     cxHspRenderCalculatorOptions024R();
     cxHspUpdateCalculator024R();
   }
 
-  function cxHspRenderGroup024R(list = []) {
-    if (!list.length) return `<div class="hsp-empty-024r">Sin pedidos</div>`;
-    return list.map(cxHspOrderCard024R).join("");
+  function cxHspRenderGroup024R(list = [], status = "") {
+    const renderList = status === "entregado" ? cxHspMergedTableCards024Y(list) : list;
+    if (!renderList.length) return `<div class="hsp-empty-024r">Sin pedidos</div>`;
+    return renderList.map(cxHspOrderCard024R).join("");
+  }
+
+  function cxHspMergedOrderCard024Y(order = {}) {
+    const products = (Array.isArray(order.product_summary) ? order.product_summary : []).map((item) => {
+      const qty = Number(item.quantity || 0);
+      const priceLabel = item.mixed_price ? `${h(qty)} und` : `${h(qty)} x ${h(cxHspMoney024R(item.unit_price || 0))}`;
+      return `
+        <div class="hsp-item-024r">
+          <span>${h(item.name)}<br><small>${priceLabel}</small></span>
+          <strong>${h(cxHspMoney024R(item.total || 0))}</strong>
+        </div>
+      `;
+    }).join("");
+
+    const people = (Array.isArray(order.people_summary) ? order.people_summary : []).map((person) => `
+      <div class="hsp-account-row-024y">
+        <span>${h(person.name || "Cliente")}<small>${h(person.orders || 1)} pedido(s)</small></span>
+        <strong>${h(cxHspMoney024R(person.total || 0))}</strong>
+      </div>
+    `).join("");
+
+    return `
+      <article class="hsp-card-024r">
+        <div class="hsp-card-head-024r">
+          <div>
+            <div class="hsp-mesa-024r">${h(order.table_number || "Mesa")}</div>
+            <div class="hsp-muted-024r">${h((order.people_summary || []).length)} persona(s) - cuenta fusionada</div>
+            <div class="hsp-merged-note-024y">
+              <span>${h(order.orders_count || 0)} pedido(s) QR</span>
+              ${order.order_numbers?.length ? `<span>${h(order.order_numbers.slice(0, 3).join(" · "))}${order.order_numbers.length > 3 ? "..." : ""}</span>` : ""}
+              <span>Pago: ${h(order.payment_label || cxHspPaymentLabel024V(order.payment_method))}</span>
+            </div>
+          </div>
+          <div style="text-align:right;display:grid;gap:8px;justify-items:end">
+            <span class="hsp-pill-024r served">entregado</span>
+            <span class="hsp-pill-024r served">Mesa QR</span>
+          </div>
+        </div>
+        <div class="hsp-total-024r"><span>Total mesa</span><span>${h(cxHspMoney024R(order.total))}</span></div>
+        <div class="hsp-section-title-024y">Productos de la mesa</div>
+        <div class="hsp-person-024r">
+          <div class="hsp-items-024r">${products || `<div class="hsp-empty-024r">Sin productos</div>`}</div>
+        </div>
+        <div class="hsp-section-title-024y">Cuentas por persona</div>
+        <div class="hsp-person-024r">${people || `<div class="hsp-empty-024r">Sin personas</div>`}</div>
+        <div class="hsp-actions-024r">
+          <button class="hsp-btn-024r red" type="button" data-hsp-close-ids="${h((order.order_ids || []).join("|"))}" data-hsp-account="${h(order.id)}">Cerrar mesa</button>
+        </div>
+      </article>
+    `;
   }
 
   function cxHspOrderCard024R(order = {}) {
+    if (order.__merged_table) return cxHspMergedOrderCard024Y(order);
+
     const people = (Array.isArray(order.people) ? order.people : []).map((person) => {
       const items = (Array.isArray(person.items) ? person.items : []).map((item) => `
         <div class="hsp-item-024r">
@@ -15619,6 +15797,29 @@ document.addEventListener("click", async (event) => {
           await cxHspLoadOrders024R();
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cambiar el estado.", true);
+        }
+        return;
+      }
+
+      const hspCloseBulk = target.closest("[data-hsp-close-ids]");
+      if (hspCloseBulk) {
+        try {
+          const ids = String(hspCloseBulk.getAttribute("data-hsp-close-ids") || "")
+            .split("|")
+            .map((id) => id.trim())
+            .filter(Boolean);
+          if (!ids.length) return;
+          const account = hspCloseBulk.getAttribute("data-hsp-account") || "";
+          const selectedPaymentAccount = document.getElementById("hspPaymentOrder024R")?.value || "";
+          const selectedPaymentMethod = document.getElementById("hspPaymentMethodForAccount024V")?.value || "";
+          const payment_method = String(selectedPaymentAccount) === String(account) ? selectedPaymentMethod : "";
+          await Promise.all(ids.map((id) => cxHspApi024R(`/orders/${encodeURIComponent(id)}/close-table`, {
+            method: "POST",
+            body: JSON.stringify({ payment_method }),
+          })));
+          await cxHspLoadOrders024R();
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cerrar la mesa fusionada.", true);
         }
         return;
       }
