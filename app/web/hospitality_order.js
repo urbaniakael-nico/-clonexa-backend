@@ -15,6 +15,8 @@
     search: "",
     campaign: null,
     participant: null,
+    scoreCampaign: null,
+    scorePrediction: null,
     campaignDismissed: false,
     campaignEndRefreshKey: "",
     access: { active: false, unlocked: false, code: "", expires_at: "" },
@@ -308,11 +310,25 @@
       .qr-rank-row small{display:block;color:var(--qr-muted);font-size:11px;font-weight:850}
       .qr-rank-row i{display:block;height:7px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:6px}
       .qr-rank-row b{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--qr-primary),var(--qr-secondary))}
+      .qr-score-form{display:grid;gap:10px}
+      .qr-score-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-items:end}
+      .qr-score-grid label{display:grid;gap:5px;color:var(--qr-muted);font-size:11px;font-weight:1000;letter-spacing:.08em;text-transform:uppercase}
+      .qr-score-grid input,.qr-score-name{
+        width:100%;
+        border:1px solid var(--qr-line);
+        border-radius:14px;
+        background:rgba(2,6,23,.58);
+        color:var(--qr-text);
+        padding:12px;
+        outline:none;
+        font-weight:950;
+      }
+      .qr-score-grid input{text-align:center;font-size:20px}
       @media(max-width:860px){
         .qr-hero{grid-template-columns:1fr}
         .qr-layout{grid-template-columns:1fr}
         .qr-menu-head{grid-template-columns:1fr}
-        .qr-campaign,.qr-campaign-join,.qr-access-form{grid-template-columns:1fr}
+        .qr-campaign,.qr-campaign-join,.qr-access-form,.qr-score-grid{grid-template-columns:1fr}
         .qr-cart{position:static}
       }
     `;
@@ -392,7 +408,7 @@
     ` : "";
     const joined = participant ? `<div class="qr-campaign-ok">Participando como <strong>${h(participant.team_name)}</strong></div>` : "";
     const closedSignup = !open && !participant && !winner ? `<div class="qr-campaign-ok">Inscripcion cerrada para esta ronda.</div>` : "";
-    const winnerHtml = winner ? `<div class="qr-campaign-ok">Equipo ganador: <strong>${h(winner.team_name)}</strong> · ${h(winner.table_number)} · ${h(money(winner.total || 0))}</div>` : "";
+    const winnerHtml = winner ? `<div class="qr-campaign-ok">Equipo ganador: <strong>${h(winner.team_name)}</strong> - ${h(winner.table_number)}</div>` : "";
     return `
       <section class="qr-campaign">
         <div class="qr-campaign-main">
@@ -413,7 +429,7 @@
               <span>${h(row.rank)}</span>
               <div>
                 <strong>${h(row.team_name)}</strong>
-                <small>${h(row.table_number)} - ${h(money(row.total || 0))}</small>
+                <small>${h(row.table_number)} - ${h(row.orders_count)} pedido(s)</small>
                 <i><b style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></b></i>
               </div>
             </div>
@@ -423,9 +439,102 @@
     `;
   }
 
+  function campaignHtml025G() {
+    const campaign = state.campaign;
+    if (!campaign) return "";
+    const rows = Array.isArray(campaign.leaderboard) ? campaign.leaderboard : [];
+    const open = campaign.registration_open === true;
+    const participant = state.participant;
+    const winner = campaign.winner || null;
+    const tournamentPhase = campaign.tournament_phase || "open";
+    const tournamentLabel = tournamentPhase === "closed" ? "Torneo finalizado" : tournamentPhase === "scheduled" ? "Torneo inicia en" : "Torneo cierra en";
+    const form = open && !participant && !state.campaignDismissed ? `
+      <div class="qr-campaign-join">
+        <div>
+          <strong>Te animas a participar?</strong>
+          <span>Nombre del equipo</span>
+        </div>
+        <input id="qrTeam024Z" placeholder="Ej: Equipo Mesa 1" value="${h(document.getElementById("qrTeam024Z")?.value || "")}">
+        <button class="qr-btn" type="button" data-campaign-join>Si, participar</button>
+        <button class="qr-btn secondary" type="button" data-campaign-dismiss>No participar</button>
+      </div>
+    ` : "";
+    const joined = participant ? `<div class="qr-campaign-ok">Participando como <strong>${h(participant.team_name)}</strong></div>` : "";
+    const closedSignup = !open && !participant && !winner ? `<div class="qr-campaign-ok">Inscripcion cerrada para esta ronda.</div>` : "";
+    const winnerHtml = winner ? `<div class="qr-campaign-ok">Equipo ganador: <strong>${h(winner.team_name)}</strong> - ${h(winner.table_number)}</div>` : "";
+    return `
+      <section class="qr-campaign">
+        <div class="qr-campaign-main">
+          <p class="qr-eyebrow">Sorteo activo</p>
+          <h2>${h(campaign.title || "Reto de consumo")}</h2>
+          <p class="qr-muted">${h(campaign.description || "La mesa con mas consumo dentro del tiempo gana el premio.")}</p>
+          <div class="qr-campaign-prize"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
+          <div class="qr-campaign-clock"><span>Inscripcion cierra en</span><strong id="qrSignupClock025A">${h(countdown(campaign.signup_seconds_left))}</strong></div>
+          <div class="qr-campaign-clock"><span>${h(tournamentLabel)}</span><strong id="qrTournamentClock025A">${h(countdown(campaign.tournament_seconds_left))}</strong></div>
+          ${joined}
+          ${closedSignup}
+          ${winnerHtml}
+          ${form}
+        </div>
+        <div class="qr-campaign-rank">
+          ${rows.length ? rows.slice(0, 5).map((row) => `
+            <div class="qr-rank-row">
+              <span>${h(row.rank)}</span>
+              <div>
+                <strong>${h(row.team_name)}</strong>
+                <small>${h(row.table_number)} - ${h(row.orders_count)} pedido(s)</small>
+                <i><b style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></b></i>
+              </div>
+            </div>
+          `).join("") : `<div class="qr-empty">Se el primero en participar.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  function scorePoolHtml025G() {
+    const campaign = state.scoreCampaign;
+    if (!campaign) return "";
+    const prediction = state.scorePrediction || {};
+    const rows = Array.isArray(campaign.predictions) ? campaign.predictions : [];
+    const currentName = document.getElementById("qrScoreName025G")?.value || prediction.team_name || "";
+    const scoreA = document.getElementById("qrScoreA025G")?.value ?? (prediction.score_a ?? "");
+    const scoreB = document.getElementById("qrScoreB025G")?.value ?? (prediction.score_b ?? "");
+    return `
+      <section class="qr-campaign">
+        <div class="qr-campaign-main">
+          <p class="qr-eyebrow">Polla activa</p>
+          <h2>${h(campaign.title || "Polla de marcador")}</h2>
+          <p class="qr-muted">${h(campaign.description || "Coloca tu marcador y participa por el premio.")}</p>
+          <div class="qr-campaign-prize"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
+          <div class="qr-score-form">
+            <input id="qrScoreName025G" class="qr-score-name" placeholder="Nombre o equipo" value="${h(currentName)}">
+            <div class="qr-score-grid">
+              <label>${h(campaign.team_a || "Equipo A")}<input id="qrScoreA025G" type="number" min="0" max="99" inputmode="numeric" value="${h(scoreA)}"></label>
+              <label>${h(campaign.team_b || "Equipo B")}<input id="qrScoreB025G" type="number" min="0" max="99" inputmode="numeric" value="${h(scoreB)}"></label>
+            </div>
+            <button class="qr-btn" type="button" data-score-submit>Enviar marcador</button>
+          </div>
+          ${prediction.id ? `<div class="qr-campaign-ok">Marcador registrado: <strong>${h(prediction.score_a)} - ${h(prediction.score_b)}</strong></div>` : ""}
+        </div>
+        <div class="qr-campaign-rank">
+          ${rows.length ? rows.slice(0, 6).map((row) => `
+            <div class="qr-rank-row">
+              <span>${h(row.table_number || "")}</span>
+              <div>
+                <strong>${h(row.team_name || row.table_number || "Mesa")}</strong>
+                <small>${h(campaign.team_a || "Equipo A")} ${h(row.score_a)} - ${h(row.score_b)} ${h(campaign.team_b || "Equipo B")}</small>
+              </div>
+            </div>
+          `).join("") : `<div class="qr-empty">Aun no hay marcadores.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
   function paintCampaignHost() {
     const host = document.getElementById("qrCampaignHost025F");
-    if (host) host.innerHTML = campaignHtml();
+    if (host) host.innerHTML = `${campaignHtml025G()}${scorePoolHtml025G()}`;
   }
 
   function render() {
@@ -498,7 +607,7 @@
 
         ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
         ${state.error ? `<div class="qr-msg err">${h(state.error)}</div>` : ""}
-        <div id="qrCampaignHost025F">${campaignHtml()}</div>
+        <div id="qrCampaignHost025F">${campaignHtml025G()}${scorePoolHtml025G()}</div>
 
         <section class="qr-layout">
           <div class="qr-menu">
@@ -626,6 +735,8 @@
     const campaign = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`);
     state.campaign = campaign.campaign || null;
     state.participant = campaign.participant || null;
+    state.scoreCampaign = campaign.score_campaign || null;
+    state.scorePrediction = campaign.score_prediction || null;
     return campaign;
   }
 
@@ -650,6 +761,8 @@
       state.inventory = Array.isArray(inventory.inventory) ? inventory.inventory : [];
       state.campaign = campaign.campaign || null;
       state.participant = campaign.participant || null;
+      state.scoreCampaign = campaign.score_campaign || null;
+      state.scorePrediction = campaign.score_prediction || null;
       state.access = {
         active: access.access?.active === true,
         unlocked: false,
@@ -684,6 +797,10 @@
     }
     if (target.closest("[data-campaign-join]")) {
       joinCampaign();
+      return;
+    }
+    if (target.closest("[data-score-submit]")) {
+      submitScorePrediction();
       return;
     }
     if (target.closest("[data-access-verify]")) {
@@ -810,6 +927,42 @@
     }
   }
 
+  async function submitScorePrediction() {
+    if (!state.scoreCampaign?.id) return;
+    if (!state.access?.unlocked) {
+      state.error = "Activa la mesa con la clave antes de enviar marcador.";
+      state.message = "";
+      render();
+      return;
+    }
+    try {
+      const scoreA = Number(document.getElementById("qrScoreA025G")?.value || 0);
+      const scoreB = Number(document.getElementById("qrScoreB025G")?.value || 0);
+      const teamName = document.getElementById("qrScoreName025G")?.value || state.table;
+      const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-score-pools/${encodeURIComponent(state.scoreCampaign.id)}/predictions`, {
+        method: "POST",
+        body: JSON.stringify({
+          table: state.table,
+          team_name: teamName,
+          score_a: Number.isFinite(scoreA) ? scoreA : 0,
+          score_b: Number.isFinite(scoreB) ? scoreB : 0,
+          access_code: state.access.code || sessionStorage.getItem(accessStorageKey()) || "",
+        }),
+      });
+      state.campaign = data.campaign || state.campaign;
+      state.participant = data.participant || state.participant;
+      state.scoreCampaign = data.score_campaign || state.scoreCampaign;
+      state.scorePrediction = data.score_prediction || null;
+      state.message = "Marcador registrado para la polla.";
+      state.error = "";
+      render();
+    } catch (error) {
+      state.error = error.message || "No se pudo enviar el marcador.";
+      state.message = "";
+      render();
+    }
+  }
+
   setInterval(() => {
     if (!state.campaign) return;
     if (Number.isFinite(Number(state.campaign.signup_seconds_left))) {
@@ -838,7 +991,7 @@
   }, 1000);
 
   setInterval(() => {
-    if (!state.campaign || !state.access?.unlocked) return;
+    if ((!state.campaign && !state.scoreCampaign) || !state.access?.unlocked) return;
     refreshCampaignView().catch(() => {});
   }, 6000);
 

@@ -98,6 +98,22 @@ class HospitalityLoyaltyParticipantIn(BaseModel):
     accepted: bool = Field(default=True)
 
 
+class HospitalityScorePoolCampaignIn(BaseModel):
+    title: str | None = Field(default="Polla de marcador", max_length=160)
+    prize: str | None = Field(default="", max_length=220)
+    description: str | None = Field(default="", max_length=700)
+    team_a: str = Field(min_length=1, max_length=120)
+    team_b: str = Field(min_length=1, max_length=120)
+
+
+class HospitalityScorePredictionIn(BaseModel):
+    table: str | None = Field(default="Mesa", max_length=120)
+    team_name: str | None = Field(default="", max_length=160)
+    score_a: int = Field(default=0, ge=0, le=99)
+    score_b: int = Field(default=0, ge=0, le=99)
+    access_code: str | None = Field(default="", max_length=12)
+
+
 class HospitalityTableAccessIn(BaseModel):
     table: str | None = Field(default="Mesa", max_length=120)
     duration_hours: int = Field(default=12, ge=1, le=24)
@@ -352,6 +368,9 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS title VARCHAR(160) NOT NULL DEFAULT 'Reto de consumo';"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS prize VARCHAR(220) NOT NULL DEFAULT '';"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS description TEXT;"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS campaign_type VARCHAR(40) NOT NULL DEFAULT 'consumption';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS team_a VARCHAR(120) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS team_b VARCHAR(120) NOT NULL DEFAULT '';"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS registration_ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
@@ -359,6 +378,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_campaigns_company_status ON hospitality_loyalty_campaigns(company_id, status, starts_at DESC);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_campaigns_company_type ON hospitality_loyalty_campaigns(company_id, campaign_type, status, starts_at DESC);"))
     await db.execute(
         text(
             """
@@ -384,6 +404,33 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_loyalty_participants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_hospitality_loyalty_participants_campaign_table ON hospitality_loyalty_participants(campaign_id, table_key);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_participants_company ON hospitality_loyalty_participants(company_id, campaign_id);"))
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS hospitality_loyalty_predictions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                campaign_id UUID NOT NULL REFERENCES hospitality_loyalty_campaigns(id) ON DELETE CASCADE,
+                table_key VARCHAR(120) NOT NULL,
+                table_number VARCHAR(120) NOT NULL,
+                team_name VARCHAR(160) NOT NULL DEFAULT '',
+                score_a INTEGER NOT NULL DEFAULT 0,
+                score_b INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+    )
+    await db.execute(text("ALTER TABLE hospitality_loyalty_predictions ADD COLUMN IF NOT EXISTS table_key VARCHAR(120) NOT NULL DEFAULT 'mesa';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_predictions ADD COLUMN IF NOT EXISTS table_number VARCHAR(120) NOT NULL DEFAULT 'Mesa';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_predictions ADD COLUMN IF NOT EXISTS team_name VARCHAR(160) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_predictions ADD COLUMN IF NOT EXISTS score_a INTEGER NOT NULL DEFAULT 0;"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_predictions ADD COLUMN IF NOT EXISTS score_b INTEGER NOT NULL DEFAULT 0;"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_predictions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_predictions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_hospitality_loyalty_predictions_campaign_table ON hospitality_loyalty_predictions(campaign_id, table_key);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_predictions_company ON hospitality_loyalty_predictions(company_id, campaign_id);"))
     await db.execute(
         text(
             """
@@ -617,6 +664,9 @@ def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None)
         "title": data.get("title") or "Reto de consumo",
         "prize": data.get("prize") or "",
         "description": data.get("description") or "",
+        "campaign_type": data.get("campaign_type") or "consumption",
+        "team_a": data.get("team_a") or "",
+        "team_b": data.get("team_b") or "",
         "registration_ends_at": _iso(data.get("registration_ends_at") or data.get("starts_at")),
         "starts_at": _iso(data.get("starts_at")),
         "ends_at": _iso(data.get("ends_at")),
@@ -945,7 +995,11 @@ async def _create_day_closure(
     return closure
 
 
-async def _active_loyalty_campaign(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any] | None:
+async def _active_loyalty_campaign(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    campaign_type: str = "consumption",
+) -> dict[str, Any] | None:
     result = await db.execute(
         text(
             """
@@ -953,11 +1007,12 @@ async def _active_loyalty_campaign(db: AsyncSession, company_id: uuid.UUID) -> d
             FROM hospitality_loyalty_campaigns
             WHERE company_id = :company_id
               AND status = 'active'
+              AND campaign_type = :campaign_type
             ORDER BY starts_at DESC, created_at DESC
             LIMIT 1
             """
         ),
-        {"company_id": str(company_id)},
+        {"company_id": str(company_id), "campaign_type": _clean(campaign_type) or "consumption"},
     )
     row = result.mappings().first()
     return dict(row) if row else None
@@ -1049,13 +1104,80 @@ async def _loyalty_leaderboard(db: AsyncSession, campaign: dict[str, Any]) -> li
     return leaderboard
 
 
-async def _loyalty_response(db: AsyncSession, campaign: dict[str, Any] | None, table: str | None = None) -> dict[str, Any]:
-    if not campaign:
-        return {"ok": True, "campaign": None, "participant": None}
-    leaderboard = await _loyalty_leaderboard(db, campaign)
+async def _score_pool_predictions(db: AsyncSession, campaign: dict[str, Any]) -> list[dict[str, Any]]:
+    result = await db.execute(
+        text(
+            """
+            SELECT id,
+                   table_key,
+                   table_number,
+                   team_name,
+                   score_a,
+                   score_b,
+                   created_at,
+                   updated_at
+            FROM hospitality_loyalty_predictions
+            WHERE company_id = :company_id
+              AND campaign_id = :campaign_id
+            ORDER BY updated_at DESC, created_at DESC
+            """
+        ),
+        {"company_id": str(campaign["company_id"]), "campaign_id": str(campaign["id"])},
+    )
+    rows = []
+    for row in result.mappings().all():
+        rows.append(
+            {
+                "id": str(row["id"]),
+                "table_key": row["table_key"] or "",
+                "table_number": row["table_number"] or "",
+                "team_name": row["team_name"] or "",
+                "score_a": int(row["score_a"] or 0),
+                "score_b": int(row["score_b"] or 0),
+                "created_at": _iso(row["created_at"]),
+                "updated_at": _iso(row["updated_at"]),
+            }
+        )
+    return rows
+
+
+def _score_pool_payload(row: dict[str, Any], predictions: list[dict[str, Any]]) -> dict[str, Any]:
+    payload = _campaign_payload(row, [])
+    payload["predictions"] = predictions
+    return payload
+
+
+async def _loyalty_response(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    campaign: dict[str, Any] | None = None,
+    table: str | None = None,
+) -> dict[str, Any]:
+    if campaign is None:
+        campaign = await _active_loyalty_campaign(db, company_id, "consumption")
+    score_campaign = await _active_loyalty_campaign(db, company_id, "score_pool")
     table_key = _table_key(table) if _clean(table) else ""
-    participant = next((row for row in leaderboard if row["table_key"] == table_key), None) if table_key else None
-    return {"ok": True, "campaign": _campaign_payload(campaign, leaderboard), "participant": participant}
+    campaign_payload = None
+    participant = None
+    if campaign:
+        leaderboard = await _loyalty_leaderboard(db, campaign)
+        participant = next((row for row in leaderboard if row["table_key"] == table_key), None) if table_key else None
+        campaign_payload = _campaign_payload(campaign, leaderboard)
+
+    score_payload = None
+    score_prediction = None
+    if score_campaign:
+        predictions = await _score_pool_predictions(db, score_campaign)
+        score_prediction = next((row for row in predictions if row["table_key"] == table_key), None) if table_key else None
+        score_payload = _score_pool_payload(score_campaign, predictions)
+
+    return {
+        "ok": True,
+        "campaign": campaign_payload,
+        "participant": participant,
+        "score_campaign": score_payload,
+        "score_prediction": score_prediction,
+    }
 
 
 async def _fetch_active_table_access(db: AsyncSession, company_id: uuid.UUID, table: str) -> dict[str, Any] | None:
@@ -1135,8 +1257,8 @@ async def get_active_loyalty_campaign(
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
-    campaign = await _active_loyalty_campaign(db, company_id)
-    return await _loyalty_response(db, campaign, table)
+    campaign = await _active_loyalty_campaign(db, company_id, "consumption")
+    return await _loyalty_response(db, company_id, campaign, table)
 
 
 @router.post("/companies/{company_id}/loyalty-campaigns", status_code=status.HTTP_201_CREATED)
@@ -1163,6 +1285,7 @@ async def create_loyalty_campaign(
             UPDATE hospitality_loyalty_campaigns
             SET status = 'closed', updated_at = NOW()
             WHERE company_id = :company_id
+              AND campaign_type = 'consumption'
               AND status = 'active'
             """
         ),
@@ -1172,10 +1295,10 @@ async def create_loyalty_campaign(
         text(
             """
             INSERT INTO hospitality_loyalty_campaigns (
-                company_id, title, prize, description, registration_ends_at, starts_at, ends_at, status, created_at, updated_at
+                company_id, title, prize, description, campaign_type, registration_ends_at, starts_at, ends_at, status, created_at, updated_at
             )
             VALUES (
-                :company_id, :title, :prize, :description, :registration_ends_at, :starts_at, :ends_at, 'active', NOW(), NOW()
+                :company_id, :title, :prize, :description, 'consumption', :registration_ends_at, :starts_at, :ends_at, 'active', NOW(), NOW()
             )
             RETURNING *
             """
@@ -1192,7 +1315,147 @@ async def create_loyalty_campaign(
     )
     await db.commit()
     campaign = dict(result.mappings().first())
-    return await _loyalty_response(db, campaign)
+    return await _loyalty_response(db, company_id, campaign)
+
+
+@router.delete("/companies/{company_id}/loyalty-campaigns/{campaign_id}")
+async def delete_loyalty_campaign(
+    company_id: uuid.UUID,
+    campaign_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_loyalty_campaigns
+            SET status = 'closed',
+                updated_at = NOW()
+            WHERE id = :campaign_id
+              AND company_id = :company_id
+              AND status = 'active'
+            """
+        ),
+        {"campaign_id": str(campaign_id), "company_id": str(company_id)},
+    )
+    await db.commit()
+    return await _loyalty_response(db, company_id, None)
+
+
+@router.post("/companies/{company_id}/loyalty-score-pools", status_code=status.HTTP_201_CREATED)
+async def create_loyalty_score_pool(
+    company_id: uuid.UUID,
+    payload: HospitalityScorePoolCampaignIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    now = _now()
+    ends_at = now + timedelta(days=30)
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_loyalty_campaigns
+            SET status = 'closed', updated_at = NOW()
+            WHERE company_id = :company_id
+              AND campaign_type = 'score_pool'
+              AND status = 'active'
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    result = await db.execute(
+        text(
+            """
+            INSERT INTO hospitality_loyalty_campaigns (
+                company_id, title, prize, description, campaign_type, team_a, team_b,
+                registration_ends_at, starts_at, ends_at, status, created_at, updated_at
+            )
+            VALUES (
+                :company_id, :title, :prize, :description, 'score_pool', :team_a, :team_b,
+                :starts_at, :starts_at, :ends_at, 'active', NOW(), NOW()
+            )
+            RETURNING *
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "title": (_clean(payload.title) or "Polla de marcador")[:160],
+            "prize": _clean(payload.prize)[:220],
+            "description": _clean(payload.description)[:700],
+            "team_a": _clean(payload.team_a)[:120],
+            "team_b": _clean(payload.team_b)[:120],
+            "starts_at": now,
+            "ends_at": ends_at,
+        },
+    )
+    await db.commit()
+    return await _loyalty_response(db, company_id, None)
+
+
+@router.post("/companies/{company_id}/loyalty-score-pools/{campaign_id}/predictions", status_code=status.HTTP_201_CREATED)
+async def submit_loyalty_score_prediction(
+    company_id: uuid.UUID,
+    campaign_id: uuid.UUID,
+    payload: HospitalityScorePredictionIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    campaign_result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_loyalty_campaigns
+            WHERE id = :campaign_id
+              AND company_id = :company_id
+              AND campaign_type = 'score_pool'
+              AND status = 'active'
+            LIMIT 1
+            """
+        ),
+        {"campaign_id": str(campaign_id), "company_id": str(company_id)},
+    )
+    campaign = campaign_result.mappings().first()
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="polla_no_encontrada")
+
+    table_number = _clean(payload.table) or "Mesa"
+    await _require_table_access(db, company_id, table_number, payload.access_code)
+    await db.execute(
+        text(
+            """
+            INSERT INTO hospitality_loyalty_predictions (
+                company_id, campaign_id, table_key, table_number, team_name, score_a, score_b, created_at, updated_at
+            )
+            VALUES (
+                :company_id, :campaign_id, :table_key, :table_number, :team_name, :score_a, :score_b, NOW(), NOW()
+            )
+            ON CONFLICT (campaign_id, table_key)
+            DO UPDATE SET
+                table_number = EXCLUDED.table_number,
+                team_name = EXCLUDED.team_name,
+                score_a = EXCLUDED.score_a,
+                score_b = EXCLUDED.score_b,
+                updated_at = NOW()
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "campaign_id": str(campaign_id),
+            "table_key": _table_key(table_number),
+            "table_number": table_number,
+            "team_name": (_clean(payload.team_name) or table_number)[:160],
+            "score_a": int(payload.score_a),
+            "score_b": int(payload.score_b),
+        },
+    )
+    await db.commit()
+    active_campaign = await _active_loyalty_campaign(db, company_id, "consumption")
+    return await _loyalty_response(db, company_id, active_campaign, table_number)
 
 
 @router.post("/companies/{company_id}/loyalty-campaigns/{campaign_id}/participants", status_code=status.HTTP_201_CREATED)
@@ -1210,6 +1473,7 @@ async def join_loyalty_campaign(
             FROM hospitality_loyalty_campaigns
             WHERE id = :campaign_id
               AND company_id = :company_id
+              AND campaign_type = 'consumption'
               AND status = 'active'
             LIMIT 1
             """
@@ -1257,7 +1521,7 @@ async def join_loyalty_campaign(
         },
     )
     await db.commit()
-    return await _loyalty_response(db, campaign_data, table_number)
+    return await _loyalty_response(db, company_id, campaign_data, table_number)
 
 
 @router.get("/companies/{company_id}/qr-tables/access")

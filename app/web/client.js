@@ -14864,6 +14864,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_END */
   /* CLONEXA_024Z_HOSPITALITY_LOYALTY_START */
   let cxHspLoyaltyCampaign024Z = null;
+  let cxHspScoreCampaign025G = null;
   let cxHspLoyaltyPolling024Z = false;
 
   function cxIsHospitalityLoyaltyCode024Z(code = "") {
@@ -14916,8 +14917,11 @@ function inventoryCreatePayload() {
     style.textContent = `
       .hsp-loy-shell-024z{display:grid;gap:14px}
       .hsp-loy-grid-024z{display:grid;grid-template-columns:minmax(280px,.78fr) minmax(320px,1fr);gap:14px;align-items:start}
+      .hsp-loy-left-025g{display:grid;gap:14px}
       .hsp-loy-card-024z{background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035)),rgba(15,23,42,.72);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:16px;box-shadow:0 18px 46px rgba(0,0,0,.22)}
+      .hsp-loy-card-head-025g{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px}
       .hsp-loy-card-024z h2{margin:0 0 8px;font-size:22px;line-height:1.08}
+      .hsp-loy-card-head-025g h2{margin:0}
       .hsp-loy-muted-024z{color:rgba(255,255,255,.66);font-weight:850;line-height:1.35}
       .hsp-loy-form-024z{display:grid;gap:10px;margin-top:12px}
       .hsp-loy-form-024z label{display:grid;gap:6px;color:rgba(255,255,255,.68);font-size:11px;font-weight:1000;text-transform:uppercase;letter-spacing:.10em}
@@ -14931,13 +14935,20 @@ function inventoryCreatePayload() {
       .hsp-loy-winner-024z strong{color:#bbf7d0}
       .hsp-loy-timer-024z{font-size:28px;line-height:1;font-weight:1000;color:var(--cx-secondary,#f4c7b6)}
       .hsp-loy-rank-024z{display:grid;gap:8px}
-      .hsp-loy-rank-row-024z{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px}
+      .hsp-loy-rank-row-024z{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px}
       .hsp-loy-rank-name-024z{font-weight:1000;color:var(--cx-text,#fff)}
       .hsp-loy-rank-name-024z small{display:block;color:rgba(255,255,255,.62);font-size:11px;font-weight:850;margin-top:3px}
       .hsp-loy-products-024z{display:block;color:rgba(255,255,255,.58);font-size:11px;font-weight:850;margin-top:5px;line-height:1.25}
       .hsp-loy-bar-024z{height:8px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:7px}
       .hsp-loy-bar-024z i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--cx-primary,#ff8a1c),var(--cx-secondary,#f4c7b6))}
+      .hsp-loy-mini-btn-025g{border:1px solid rgba(255,255,255,.16);border-radius:12px;background:rgba(239,68,68,.16);color:#fecaca;padding:9px 11px;font-weight:1000;cursor:pointer}
+      .hsp-score-match-025g{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center}
+      .hsp-score-team-025g{background:rgba(3,7,18,.34);border:1px solid rgba(255,255,255,.11);border-radius:15px;padding:12px;font-weight:1000}
+      .hsp-score-vs-025g{color:var(--cx-primary,#ff8a1c);font-weight:1000}
+      .hsp-score-pred-025g{display:flex;justify-content:space-between;gap:12px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px;font-weight:950}
+      .hsp-score-pred-025g small{display:block;color:rgba(255,255,255,.62);font-size:11px;font-weight:850;margin-top:3px}
       @media(max-width:980px){.hsp-loy-grid-024z,.hsp-loy-row-024z{grid-template-columns:1fr}}
+      @media(max-width:640px){.hsp-score-match-025g{grid-template-columns:1fr}.hsp-score-vs-025g{display:none}}
     `;
     document.head.appendChild(style);
   }
@@ -14945,6 +14956,7 @@ function inventoryCreatePayload() {
   async function cxHspLoyaltyLoad024Z() {
     const data = await cxHspLoyaltyApi024Z("/loyalty-campaigns/active");
     cxHspLoyaltyCampaign024Z = data.campaign || null;
+    cxHspScoreCampaign025G = data.score_campaign || null;
     return cxHspLoyaltyCampaign024Z;
   }
 
@@ -14972,46 +14984,76 @@ function inventoryCreatePayload() {
     const root = document.getElementById("hspLoyaltyRoot024Z");
     if (!root) return;
     const campaign = cxHspLoyaltyCampaign024Z;
-    if (!campaign) {
-      root.innerHTML = `<div class="hsp-loy-card-024z"><h2>Sin sorteo activo</h2><p class="hsp-loy-muted-024z">Publica un reto de consumo con hora de inicio y cierre para que aparezca en las mesas QR.</p></div>`;
-      return;
-    }
-    const rows = Array.isArray(campaign.leaderboard) ? campaign.leaderboard : [];
-    const tournamentPhase = campaign.tournament_phase || "open";
+    const scoreCampaign = cxHspScoreCampaign025G;
+    const rows = Array.isArray(campaign?.leaderboard) ? campaign.leaderboard : [];
+    const scoreRows = Array.isArray(scoreCampaign?.predictions) ? scoreCampaign.predictions : [];
+    const tournamentPhase = campaign?.tournament_phase || "open";
     const tournamentLabel = tournamentPhase === "closed" ? "Torneo finalizado" : tournamentPhase === "scheduled" ? "Torneo programado" : "Torneo en curso";
-    const winner = campaign.winner || null;
+    const winner = campaign?.winner || null;
+    const campaignHtml = campaign ? `
+      <div class="hsp-loy-card-024z">
+        <div class="hsp-loy-card-head-025g">
+          <div>
+            <h2>${h(campaign.title || "Reto de consumo")}</h2>
+            <p class="hsp-loy-muted-024z">${h(campaign.description || "La mesa con mas consumo dentro de la ventana gana el premio.")}</p>
+          </div>
+          <button class="hsp-loy-mini-btn-025g" type="button" data-hsp-loyalty-delete="${h(campaign.id)}">Eliminar sorteo</button>
+        </div>
+        <div class="hsp-loy-prize-024z"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
+        <div class="hsp-loy-row-024z">
+          <div class="hsp-loy-prize-024z"><span>Inscripcion hasta</span><b>${h(cxHspLoyaltyDate024Z(campaign.registration_ends_at))}</b></div>
+          <div class="hsp-loy-prize-024z"><span>${h(tournamentLabel)}</span><b>${h(cxHspLoyaltyDate024Z(campaign.starts_at))} - ${h(cxHspLoyaltyDate024Z(campaign.ends_at))}</b></div>
+        </div>
+        <div class="hsp-loy-row-024z">
+          <div class="hsp-loy-prize-024z"><span>Tiempo inscripcion</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(campaign.signup_seconds_left))}</strong></div>
+          <div class="hsp-loy-prize-024z"><span>Tiempo torneo</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(campaign.tournament_seconds_left))}</strong></div>
+        </div>
+        ${winner ? `<div class="hsp-loy-prize-024z hsp-loy-winner-024z"><span>Equipo ganador</span><strong>${h(winner.team_name)} · ${h(winner.table_number)}</strong></div>` : ""}
+      </div>
+      <div class="hsp-loy-card-024z">
+        <h2>Ranking por consumo</h2>
+        <div class="hsp-loy-rank-024z">
+          ${rows.length ? rows.map((row) => `
+            <div class="hsp-loy-rank-row-024z">
+              <strong>${h(row.rank)}</strong>
+              <div>
+                <div class="hsp-loy-rank-name-024z">${h(row.team_name)}<small>${h(row.table_number)} · ${h(row.orders_count)} pedido(s)</small></div>
+                <div class="hsp-loy-bar-024z"><i style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></i></div>
+              </div>
+            </div>
+          `).join("") : `<div class="hsp-empty-024r">Aun no hay mesas inscritas.</div>`}
+        </div>
+      </div>
+    ` : `<div class="hsp-loy-card-024z"><h2>Sin sorteo activo</h2><p class="hsp-loy-muted-024z">Publica un reto de consumo con hora de inicio y cierre para que aparezca en las mesas QR.</p></div>`;
+    const scoreHtml = scoreCampaign ? `
+      <div class="hsp-loy-card-024z">
+        <div class="hsp-loy-card-head-025g">
+          <div>
+            <h2>${h(scoreCampaign.title || "Polla de marcador")}</h2>
+            <p class="hsp-loy-muted-024z">${h(scoreCampaign.description || "Cada mesa pronostica el marcador.")}</p>
+          </div>
+          <button class="hsp-loy-mini-btn-025g" type="button" data-hsp-score-delete="${h(scoreCampaign.id)}">Eliminar polla</button>
+        </div>
+        <div class="hsp-loy-prize-024z"><span>Premio</span><strong>${h(scoreCampaign.prize || "Por definir")}</strong></div>
+        <div class="hsp-score-match-025g">
+          <div class="hsp-score-team-025g">${h(scoreCampaign.team_a || "Equipo A")}</div>
+          <span class="hsp-score-vs-025g">VS</span>
+          <div class="hsp-score-team-025g">${h(scoreCampaign.team_b || "Equipo B")}</div>
+        </div>
+        <div class="hsp-loy-rank-024z" style="margin-top:10px">
+          ${scoreRows.length ? scoreRows.map((row) => `
+            <div class="hsp-score-pred-025g">
+              <div>${h(row.team_name || row.table_number)}<small>${h(row.table_number)}</small></div>
+              <strong>${h(row.score_a)} - ${h(row.score_b)}</strong>
+            </div>
+          `).join("") : `<div class="hsp-empty-024r">Aun no hay marcadores enviados.</div>`}
+        </div>
+      </div>
+    ` : `<div class="hsp-loy-card-024z"><h2>Sin polla activa</h2><p class="hsp-loy-muted-024z">Publica equipos y premio para que cada mesa envie su marcador desde el QR.</p></div>`;
     root.innerHTML = `
       <div class="hsp-loy-active-024z">
-        <div class="hsp-loy-card-024z">
-          <h2>${h(campaign.title || "Reto de consumo")}</h2>
-          <p class="hsp-loy-muted-024z">${h(campaign.description || "La mesa con mas consumo dentro de la ventana gana el premio.")}</p>
-          <div class="hsp-loy-prize-024z"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
-          <div class="hsp-loy-row-024z">
-            <div class="hsp-loy-prize-024z"><span>Inscripcion hasta</span><b>${h(cxHspLoyaltyDate024Z(campaign.registration_ends_at))}</b></div>
-            <div class="hsp-loy-prize-024z"><span>${h(tournamentLabel)}</span><b>${h(cxHspLoyaltyDate024Z(campaign.starts_at))} - ${h(cxHspLoyaltyDate024Z(campaign.ends_at))}</b></div>
-          </div>
-          <div class="hsp-loy-row-024z">
-            <div class="hsp-loy-prize-024z"><span>Tiempo inscripcion</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(campaign.signup_seconds_left))}</strong></div>
-            <div class="hsp-loy-prize-024z"><span>Tiempo torneo</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(campaign.tournament_seconds_left))}</strong></div>
-          </div>
-          ${winner ? `<div class="hsp-loy-prize-024z hsp-loy-winner-024z"><span>Equipo ganador</span><strong>${h(winner.team_name)} · ${h(winner.table_number)} · ${h(cxHspMoney024R(winner.total || 0))}</strong></div>` : ""}
-        </div>
-        <div class="hsp-loy-card-024z">
-          <h2>Ranking por consumo</h2>
-          <div class="hsp-loy-rank-024z">
-            ${rows.length ? rows.map((row) => `
-              <div class="hsp-loy-rank-row-024z">
-                <strong>${h(row.rank)}</strong>
-                <div>
-                  <div class="hsp-loy-rank-name-024z">${h(row.team_name)}<small>${h(row.table_number)} · ${h(row.orders_count)} pedido(s)</small></div>
-                  <small class="hsp-loy-products-024z">${h(cxHspLoyaltyProducts024Z(row))}</small>
-                  <div class="hsp-loy-bar-024z"><i style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></i></div>
-                </div>
-                <strong>${h(cxHspMoney024R(row.total || 0))}</strong>
-              </div>
-            `).join("") : `<div class="hsp-empty-024r">Aun no hay mesas inscritas.</div>`}
-          </div>
-        </div>
+        ${campaignHtml}
+        ${scoreHtml}
       </div>
     `;
   }
@@ -15028,6 +15070,7 @@ function inventoryCreatePayload() {
     } catch (error) {
       loadError = error.message || "No se pudo cargar Fidelizacion.";
       cxHspLoyaltyCampaign024Z = null;
+      cxHspScoreCampaign025G = null;
     }
 
     $("app").innerHTML = `
@@ -15053,22 +15096,39 @@ function inventoryCreatePayload() {
             <section class="hsp-loy-shell-024z">
               ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
               <div class="hsp-loy-grid-024z">
-                <section class="hsp-loy-card-024z">
-                  <h2>Publicar sorteo</h2>
-                  <p class="hsp-loy-muted-024z">La inscripcion cierra la ronda de mesas. El torneo define el rango exacto de consumo.</p>
-                  <div class="hsp-loy-form-024z">
-                    <label>Titulo<input id="hspLoyTitle024Z" value="Reto de consumo"></label>
-                    <label>Premio<input id="hspLoyPrize024Z" placeholder="Ej: 1/4 de ron"></label>
-                    <div class="hsp-loy-row-024z">
-                      <label>Cierre inscripcion<input id="hspLoyRegistrationEnd025A" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(registrationEnd))}"></label>
-                      <label>Inicio torneo<input id="hspLoyStart024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(registrationEnd))}"></label>
+                <div class="hsp-loy-left-025g">
+                  <section class="hsp-loy-card-024z">
+                    <h2>Publicar sorteo</h2>
+                    <p class="hsp-loy-muted-024z">La inscripcion cierra la ronda de mesas. El torneo define el rango exacto de consumo.</p>
+                    <div class="hsp-loy-form-024z">
+                      <label>Titulo<input id="hspLoyTitle024Z" value="Reto de consumo"></label>
+                      <label>Premio<input id="hspLoyPrize024Z" placeholder="Ej: 1/4 de ron"></label>
+                      <div class="hsp-loy-row-024z">
+                        <label>Cierre inscripcion<input id="hspLoyRegistrationEnd025A" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(registrationEnd))}"></label>
+                        <label>Inicio torneo<input id="hspLoyStart024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(registrationEnd))}"></label>
+                      </div>
+                      <label>Cierre torneo<input id="hspLoyEnd024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(tournamentEnd))}"></label>
+                      <label>Publicacion<textarea id="hspLoyDesc024Z">Te animas a participar? La mesa con mas consumo registrado dentro del tiempo gana el premio.</textarea></label>
+                      <button class="client-btn" type="button" data-hsp-loyalty-create>Publicar sorteo</button>
+                      <div id="hspLoyMsg024Z" class="hsp-msg-024r"></div>
                     </div>
-                    <label>Cierre torneo<input id="hspLoyEnd024Z" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(tournamentEnd))}"></label>
-                    <label>Publicacion<textarea id="hspLoyDesc024Z">Te animas a participar? La mesa con mas consumo registrado dentro del tiempo gana el premio.</textarea></label>
-                    <button class="client-btn" type="button" data-hsp-loyalty-create>Publicar sorteo</button>
-                    <div id="hspLoyMsg024Z" class="hsp-msg-024r"></div>
-                  </div>
-                </section>
+                  </section>
+                  <section class="hsp-loy-card-024z">
+                    <h2>Publicar polla</h2>
+                    <p class="hsp-loy-muted-024z">Define equipos y premio. Cada mesa envia su marcador desde el QR activado.</p>
+                    <div class="hsp-loy-form-024z">
+                      <label>Titulo<input id="hspScoreTitle025G" value="Polla de marcador"></label>
+                      <label>Premio<input id="hspScorePrize025G" placeholder="Ej: botella, consumo, entrada"></label>
+                      <div class="hsp-loy-row-024z">
+                        <label>Equipo 1<input id="hspScoreTeamA025G" placeholder="Ej: Colombia"></label>
+                        <label>Equipo 2<input id="hspScoreTeamB025G" placeholder="Ej: Argentina"></label>
+                      </div>
+                      <label>Publicacion<textarea id="hspScoreDesc025G">Adivina el marcador y participa por el premio.</textarea></label>
+                      <button class="client-btn" type="button" data-hsp-score-create>Publicar polla</button>
+                      <div id="hspScoreMsg025G" class="hsp-msg-024r"></div>
+                    </div>
+                  </section>
+                </div>
                 <section id="hspLoyaltyRoot024Z"></section>
               </div>
             </section>
@@ -16209,6 +16269,61 @@ document.addEventListener("click", async (event) => {
           cxHspShowMsg024R("hspLoyMsg024Z", "Sorteo publicado en las mesas QR.");
         } catch (error) {
           cxHspShowMsg024R("hspLoyMsg024Z", error.message || "No se pudo publicar el sorteo.", true);
+        }
+        return;
+      }
+
+      const loyaltyDelete = target.closest("[data-hsp-loyalty-delete]");
+      if (loyaltyDelete) {
+        try {
+          const id = loyaltyDelete.getAttribute("data-hsp-loyalty-delete") || "";
+          await cxHspLoyaltyApi024Z(`/loyalty-campaigns/${encodeURIComponent(id)}`, { method: "DELETE" });
+          await cxHspLoyaltyLoad024Z();
+          cxHspLoyaltyPaint024Z();
+          cxHspShowMsg024R("hspLoyMsg024Z", "Sorteo eliminado de las mesas QR.");
+        } catch (error) {
+          cxHspShowMsg024R("hspLoyMsg024Z", error.message || "No se pudo eliminar el sorteo.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-score-create]")) {
+        try {
+          const teamA = document.getElementById("hspScoreTeamA025G")?.value || "";
+          const teamB = document.getElementById("hspScoreTeamB025G")?.value || "";
+          if (!teamA.trim() || !teamB.trim()) {
+            cxHspShowMsg024R("hspScoreMsg025G", "Define los dos equipos de la polla.", true);
+            return;
+          }
+          await cxHspLoyaltyApi024Z("/loyalty-score-pools", {
+            method: "POST",
+            body: JSON.stringify({
+              title: document.getElementById("hspScoreTitle025G")?.value || "Polla de marcador",
+              prize: document.getElementById("hspScorePrize025G")?.value || "",
+              description: document.getElementById("hspScoreDesc025G")?.value || "",
+              team_a: teamA,
+              team_b: teamB,
+            }),
+          });
+          await cxHspLoyaltyLoad024Z();
+          cxHspLoyaltyPaint024Z();
+          cxHspShowMsg024R("hspScoreMsg025G", "Polla publicada en las mesas QR.");
+        } catch (error) {
+          cxHspShowMsg024R("hspScoreMsg025G", error.message || "No se pudo publicar la polla.", true);
+        }
+        return;
+      }
+
+      const scoreDelete = target.closest("[data-hsp-score-delete]");
+      if (scoreDelete) {
+        try {
+          const id = scoreDelete.getAttribute("data-hsp-score-delete") || "";
+          await cxHspLoyaltyApi024Z(`/loyalty-campaigns/${encodeURIComponent(id)}`, { method: "DELETE" });
+          await cxHspLoyaltyLoad024Z();
+          cxHspLoyaltyPaint024Z();
+          cxHspShowMsg024R("hspScoreMsg025G", "Polla eliminada de las mesas QR.");
+        } catch (error) {
+          cxHspShowMsg024R("hspScoreMsg025G", error.message || "No se pudo eliminar la polla.", true);
         }
         return;
       }
