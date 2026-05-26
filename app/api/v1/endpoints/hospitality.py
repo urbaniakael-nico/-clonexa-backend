@@ -1608,7 +1608,7 @@ async def verify_hospitality_table_access(
 async def hospitality_qr_tables(
     company_id: uuid.UUID,
     request: Request,
-    count: int = Query(default=12, ge=1, le=80),
+    count: int = Query(default=12, ge=1, le=500),
     include_bar: bool = Query(default=True),
     base_url: str | None = Query(default=None, max_length=260),
     db: AsyncSession = Depends(get_db),

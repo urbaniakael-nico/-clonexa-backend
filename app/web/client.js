@@ -14420,8 +14420,51 @@ function inventoryCreatePayload() {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
-    return ["qr", "mesa_qr", "mesas_qr", "qr_mesas", "hospitality_qr"].includes(normalized);
+    return ["qr", "mesa_qr", "mesas_qr", "qr_mesas", "hospitality_qr", "voting_qr"].includes(normalized);
   }
+
+  /* CLONEXA_025N_QR_CONFIG_V2_START */
+  function cxHspQrCleanBase025N(value = "") {
+    let text = String(value || "").trim();
+    if (!text) return window.location.origin || "";
+    text = text.replace(/\/+$/, "");
+    text = text.replace(/\/ordenar$/i, "");
+    return text || window.location.origin || "";
+  }
+
+  function cxHspQrClamp025N(value, fallback = 12) {
+    const number = Math.round(Number(value || fallback));
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(500, Math.max(1, number));
+  }
+
+  function cxHspQrConfigFromModules025N(modules = activeClientModules()) {
+    const qrModule = (Array.isArray(modules) ? modules : [])
+      .find((module) => cxIsHospitalityQrCode024S(module.code || module.module_code || module.raw?.module_code));
+    const settings = qrModule?.raw?.settings || qrModule?.settings || qrModule?.raw?.module?.settings || {};
+    const raw = settings.qr_config && typeof settings.qr_config === "object"
+      ? settings.qr_config
+      : (settings.hospitality_qr && typeof settings.hospitality_qr === "object" ? settings.hospitality_qr : settings);
+    const maxCapacity = cxHspQrClamp025N(raw.max_capacity || raw.capacity || raw.limit || raw.table_count || raw.count || 12, 12);
+    const count = Math.min(maxCapacity, cxHspQrClamp025N(raw.table_count || raw.count || raw.visible_count || maxCapacity, maxCapacity));
+    const mode = String(raw.mode || "hospitality");
+    const includeBar = typeof raw.include_bar === "boolean" ? raw.include_bar : mode === "hospitality";
+
+    return {
+      mode,
+      count,
+      maxCapacity,
+      includeBar,
+      baseUrl: cxHspQrCleanBase025N(raw.base_url || raw.public_base_url || window.location.origin || ""),
+    };
+  }
+
+  function cxHspQrApplyConfig025N() {
+    const config = cxHspQrConfigFromModules025N(activeClientModules());
+    cxHspQrCount024S = config.count;
+    return config;
+  }
+  /* CLONEXA_025N_QR_CONFIG_V2_END */
 
   function cxHspQrApi024S(path, options = {}) {
     return api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, options);
@@ -14594,8 +14637,11 @@ function inventoryCreatePayload() {
   }
 
   async function cxHspQrLoad024S(count = cxHspQrCount024S) {
-    const base = window.location.origin;
-    const data = await cxHspQrApi024S(`/qr-tables?count=${encodeURIComponent(count)}&include_bar=true&base_url=${encodeURIComponent(base)}`);
+    const config = cxHspQrConfigFromModules025N(activeClientModules());
+    const safeCount = cxHspQrClamp025N(count || config.count, config.count);
+    const base = config.baseUrl || window.location.origin;
+    const includeBar = config.includeBar ? "true" : "false";
+    const data = await cxHspQrApi024S(`/qr-tables?count=${encodeURIComponent(safeCount)}&include_bar=${includeBar}&base_url=${encodeURIComponent(base)}`);
     cxHspQrTables024S = Array.isArray(data.tables) ? data.tables : [];
     cxHspQrSummary024S = data.summary || {};
     return data;
@@ -14738,6 +14784,7 @@ function inventoryCreatePayload() {
   async function renderHospitalityQrModule024S() {
     cxHspQrStyles024S();
     const company = state.company || {};
+    cxHspQrApplyConfig025N();
     let loadError = "";
     try {
       await cxHspQrLoad024S(cxHspQrCount024S);
@@ -17304,9 +17351,11 @@ document.addEventListener("click", async (event) => {
 
   async function loadHospitalityDashboardMetrics025I(companyId) {
     const encodedCompanyId = encodeURIComponent(companyId);
-    const baseUrl = encodeURIComponent(window.location.origin);
+    const qrConfig = cxHspQrConfigFromModules025N(activeClientModules());
+    const baseUrl = encodeURIComponent(qrConfig.baseUrl || window.location.origin);
+    const includeBar = qrConfig.includeBar ? "true" : "false";
     const [qrData, ordersData, inventoryData] = await Promise.all([
-      api(`/hospitality/companies/${encodedCompanyId}/qr-tables?count=80&include_bar=true&base_url=${baseUrl}`).catch(() => ({})),
+      api(`/hospitality/companies/${encodedCompanyId}/qr-tables?count=${encodeURIComponent(qrConfig.count)}&include_bar=${includeBar}&base_url=${baseUrl}`).catch(() => ({})),
       api(`/hospitality/companies/${encodedCompanyId}/orders?status=all&limit=220`).catch(() => ({})),
       api(`/inventory/companies/${encodedCompanyId}/items?include_inactive=false&limit=1000`).catch(() => ({})),
     ]);

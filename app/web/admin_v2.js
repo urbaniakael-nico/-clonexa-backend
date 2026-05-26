@@ -1678,6 +1678,203 @@
     `;
   }
 
+  /* CLONEXA_025N_QR_CONFIG_V2_START */
+  const CX_COMPANY_QR_COUNT_OPTIONS_025N = [10, 15, 20, 30, 40, 50, 70, 100, 120, 150, 200, 300, 500];
+  const CX_COMPANY_QR_MODES_025N = [
+    { code: "hospitality", label: "Mesas / bar", includeBar: true },
+    { code: "voting", label: "Votacion / participantes", includeBar: false },
+    { code: "generic", label: "Generico", includeBar: false },
+  ];
+
+  function cxQrNorm025N(value = "") {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function cxIsQrModuleCode025N(code = "") {
+    return ["qr", "mesa_qr", "mesas_qr", "qr_mesas", "hospitality_qr", "voting_qr"].includes(cxQrNorm025N(code));
+  }
+
+  function cxFindCompanyQrModule025N(companyId, enabledOnly = true) {
+    const rows = safeArray(state.companyModules.get(companyId)).map(normalizeModule);
+    return rows.find((row) => cxIsQrModuleCode025N(row.code) && (!enabledOnly || row.enabled !== false)) || null;
+  }
+
+  function cxCleanQrBaseUrl025N(value = "") {
+    let text = String(value || "").trim();
+    if (!text) return window.location.origin || "";
+    text = text.replace(/\/+$/, "");
+    text = text.replace(/\/ordenar$/i, "");
+    return text || window.location.origin || "";
+  }
+
+  function cxClampQrOption025N(value, fallback = 10) {
+    const number = Math.round(Number(value || fallback));
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(500, Math.max(1, number));
+  }
+
+  function cxNormalizeCompanyQrSettings025N(moduleRow = {}) {
+    const source = moduleRow?.settings && typeof moduleRow.settings === "object" ? moduleRow.settings : {};
+    const raw = source.qr_config && typeof source.qr_config === "object"
+      ? source.qr_config
+      : (source.hospitality_qr && typeof source.hospitality_qr === "object" ? source.hospitality_qr : source);
+    const mode = CX_COMPANY_QR_MODES_025N.some((item) => item.code === raw.mode) ? raw.mode : "hospitality";
+    const modeDef = CX_COMPANY_QR_MODES_025N.find((item) => item.code === mode) || CX_COMPANY_QR_MODES_025N[0];
+    const maxCapacity = cxClampQrOption025N(raw.max_capacity || raw.capacity || raw.limit || raw.table_count || raw.count || 12, 12);
+    const count = Math.min(
+      maxCapacity,
+      cxClampQrOption025N(raw.table_count || raw.count || raw.visible_count || maxCapacity, maxCapacity)
+    );
+    const includeBar = typeof raw.include_bar === "boolean" ? raw.include_bar : modeDef.includeBar;
+
+    return {
+      mode,
+      max_capacity: maxCapacity,
+      table_count: count,
+      include_bar: includeBar,
+      base_url: cxCleanQrBaseUrl025N(raw.base_url || raw.public_base_url || window.location.origin || ""),
+      updated_at: raw.updated_at || "",
+    };
+  }
+
+  function cxQrSelectOptions025N(value, options = CX_COMPANY_QR_COUNT_OPTIONS_025N) {
+    const current = Number(value);
+    const merged = Array.from(new Set([...options, current].filter((item) => Number.isFinite(Number(item)))))
+      .map(Number)
+      .filter((item) => item > 0 && item <= 500)
+      .sort((a, b) => a - b);
+    return merged.map((item) => `<option value="${item}" ${item === current ? "selected" : ""}>${item}</option>`).join("");
+  }
+
+  function cxRenderCompanyQrConfig025N(company) {
+    const activeQr = cxFindCompanyQrModule025N(company.id, true);
+    const anyQr = activeQr || cxFindCompanyQrModule025N(company.id, false);
+
+    if (!activeQr) {
+      return `
+        <section class="cx-mini-card cx-qr-config-025n" style="margin-top:12px">
+          <div class="cx-card-head">
+            <div>
+              <strong>Configuracion QR por empresa</strong>
+              <p>Activa el modulo QR para definir cantidad, capacidad maxima y enlace publico.</p>
+            </div>
+            <span class="cx-badge ${anyQr ? "cx-badge-warning" : "cx-badge-danger"}">${anyQr ? "QR inactivo" : "Sin QR"}</span>
+          </div>
+          <div class="cx-empty-state">Esta configuracion solo se desbloquea cuando la empresa tiene el modulo QR activo.</div>
+        </section>
+      `;
+    }
+
+    const settings = cxNormalizeCompanyQrSettings025N(activeQr);
+    const modeOptions = CX_COMPANY_QR_MODES_025N.map((mode) => `
+      <option value="${escapeHtml(mode.code)}" ${settings.mode === mode.code ? "selected" : ""}>${escapeHtml(mode.label)}</option>
+    `).join("");
+    const estimatedTotal = settings.table_count + (settings.include_bar ? 1 : 0);
+    const capacityText = settings.max_capacity >= 300
+      ? "Capacidad alta: el backend lo soporta; para imprimir o revisar muchos QR conviene trabajar por bloques."
+      : "Capacidad operativa normal para panel y plantilla de impresion.";
+
+    return `
+      <section class="cx-mini-card cx-qr-config-025n" style="margin-top:12px">
+        <div class="cx-card-head">
+          <div>
+            <strong>Configuracion QR por empresa</strong>
+            <p>V2 define cuantos QR puede generar/imprimir esta empresa y a que dominio conectan.</p>
+          </div>
+          <span class="cx-badge cx-badge-live">QR activo</span>
+        </div>
+
+        <form class="cx-form cx-qr-form-025n" id="companyQrConfigForm025N" data-module-code="${escapeHtml(activeQr.code)}">
+          <div class="cx-qr-grid-025n">
+            <label>Uso del QR
+              <select name="mode">
+                ${modeOptions}
+              </select>
+            </label>
+            <label>Capacidad maxima
+              <select name="max_capacity">
+                ${cxQrSelectOptions025N(settings.max_capacity)}
+              </select>
+            </label>
+            <label>QR / mesas a generar
+              <select name="table_count">
+                ${cxQrSelectOptions025N(settings.table_count)}
+              </select>
+            </label>
+            <label>URL publica base
+              <input name="base_url" type="url" value="${escapeHtml(settings.base_url)}" placeholder="https://clonexa-backend-production.up.railway.app">
+            </label>
+          </div>
+
+          <label class="cx-qr-check-025n">
+            <input name="include_bar" type="checkbox" ${settings.include_bar ? "checked" : ""}>
+            Incluir QR adicional de Barra
+          </label>
+
+          <div class="cx-qr-summary-025n">
+            <div><span>Se veran en cliente</span><strong>${escapeHtml(estimatedTotal)} QR</strong></div>
+            <div><span>Tope tecnico configurado</span><strong>${escapeHtml(settings.max_capacity)}</strong></div>
+            <div><span>Lectura publica</span><strong>${escapeHtml(settings.base_url)}/ordenar</strong></div>
+          </div>
+          <p class="cx-qr-note-025n">${escapeHtml(capacityText)}</p>
+          <button class="cx-btn cx-btn-primary" type="submit">Guardar configuracion QR</button>
+        </form>
+      </section>
+    `;
+  }
+
+  async function cxSaveCompanyQrConfig025N(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const moduleCode = form.dataset.moduleCode || "qr";
+    const raw = Object.fromEntries(new FormData(form).entries());
+    const modeDef = CX_COMPANY_QR_MODES_025N.find((item) => item.code === raw.mode) || CX_COMPANY_QR_MODES_025N[0];
+    const maxCapacity = cxClampQrOption025N(raw.max_capacity, 10);
+    const tableCount = Math.min(maxCapacity, cxClampQrOption025N(raw.table_count, maxCapacity));
+    const includeBar = raw.include_bar === "on";
+    const payload = {
+      mode: modeDef.code,
+      max_capacity: maxCapacity,
+      table_count: tableCount,
+      include_bar: includeBar,
+      base_url: cxCleanQrBaseUrl025N(raw.base_url || window.location.origin || ""),
+      updated_at: new Date().toISOString(),
+    };
+
+    const button = form.querySelector("button[type='submit']");
+    const original = button ? button.textContent : "";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Guardando...";
+    }
+
+    try {
+      await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/modules/${encodeURIComponent(moduleCode)}/activate`, {
+        method: "POST",
+        body: JSON.stringify({ settings: { qr_config: payload } }),
+      });
+      await loadCompanyModules(companyId);
+      const company = state.companies.find((item) => String(item.id) === String(companyId));
+      if (company && state.selectedCompanyId === companyId && state.activeDetailTab === "paquete") {
+        renderCompanyDetailTab(company);
+      }
+      showToast("Configuracion QR guardada.");
+    } catch (error) {
+      showToast(`No se pudo guardar QR: ${error.message}`, "error");
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = original || "Guardar configuracion QR";
+      }
+    }
+  }
+  /* CLONEXA_025N_QR_CONFIG_V2_END */
+
   function cxFindPackageByCodeOrName(value) {
     const target = String(value || "").trim().toLowerCase();
     if (!target) return null;
@@ -1690,12 +1887,18 @@
   function cxRenderCompanyPackageInheritedCapabilities(company) {
     const current = packageForCompany(company);
     const pkg = cxFindPackageByCodeOrName(current);
+    const qrConfig = cxRenderCompanyQrConfig025N(company);
     if (!pkg) {
-      return `<div class="cx-empty-state" style="margin-top:12px">Selecciona y activa un paquete para ver sus capacidades heredadas.</div>`;
+      return `
+        <div style="margin-top:12px">
+          <div class="cx-empty-state">Selecciona y activa un paquete para ver sus capacidades heredadas.</div>
+          ${qrConfig}
+        </div>
+      `;
     }
 
     const settings = state.packageMiniPanelSettings.get(pkg.id) || cxPackageMiniPanelDefaultSettings();
-    return `<div style="margin-top:12px">${cxRenderPackageCapabilitiesSummary(pkg, settings)}</div>`;
+    return `<div style="margin-top:12px">${cxRenderPackageCapabilitiesSummary(pkg, settings)}${qrConfig}</div>`;
   }
 
   function cxBindPackageBuilderEvents() {
@@ -4368,6 +4571,10 @@
         event.preventDefault();
         const body = Object.fromEntries(new FormData(event.target).entries());
         await activateCompanyPackage(state.selectedCompanyId, body.package_code);
+      }
+
+      if (event.target.matches("#companyQrConfigForm025N") && state.selectedCompanyId) {
+        await cxSaveCompanyQrConfig025N(state.selectedCompanyId, event);
       }
 
       if (event.target.matches("#createUserForm") && state.selectedCompanyId) {
