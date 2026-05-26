@@ -12688,15 +12688,38 @@ function inventoryCreatePayload() {
     `;
   }
 
+  function cxClosingSalesCutKpis025J(summary = {}, salesCut = {}) {
+    const cut = salesCut && typeof salesCut === "object" ? salesCut : {};
+    const topSeller = cut.top_seller || summary.best_seller || {};
+    const topStore = cut.top_store || summary.best_store || {};
+    const totalAmount = cut.total_amount ?? summary.total_amount ?? 0;
+    const periodCount = cut.period_count ?? cut.active_count ?? summary.sales_count ?? 0;
+    const activeCount = cut.active_count ?? 0;
+    const archivedCount = cut.archived_count ?? 0;
+
+    return `
+      <article class="cx-closing-kpi"><span>Cierres recibidos</span><strong>${Number(summary.closures_count || 0)}</strong><small>${Number(summary.submitted_count || 0)} enviados · ${Number(summary.reviewed_count || 0)} guardados</small></article>
+      <article class="cx-closing-kpi"><span>Consolidado actual</span><strong>${h(cxClosingMoney023K(totalAmount || 0))}</strong><small>${Number(periodCount || 0)} ventas del corte · ${Number(activeCount || 0)} visibles · ${Number(archivedCount || 0)} archivadas</small></article>
+      <article class="cx-closing-kpi"><span>Top vendedor</span><strong>${h(topSeller.label || "Sin ventas")}</strong><small>${h(cxClosingMoney023K(topSeller.amount ?? topSeller.total_amount ?? 0))} · ${Number(topSeller.count ?? topSeller.sales_count ?? 0)} ventas</small></article>
+      <article class="cx-closing-kpi"><span>Top tienda</span><strong>${h(topStore.label || "Sin tienda")}</strong><small>${h(cxClosingMoney023K(topStore.amount ?? topStore.total_amount ?? 0))} · ${Number(topStore.count ?? topStore.sales_count ?? 0)} ventas</small></article>
+    `;
+  }
+
   async function renderCommercialClosingModule023K(options = {}) {
     cxClosingStyles023K();
     const filters = cxClosingFilters023K(options);
     const company = state.company || {};
     let data = { items: [], summary: {}, stores: [], sellers: [], groups: [] };
+    let salesCut = {};
     let loadError = "";
 
     try {
-      data = await cxClosingApi023K(`/client-console?${cxClosingQuery023K(filters)}`);
+      const [closingData, cutData] = await Promise.all([
+        cxClosingApi023K(`/client-console?${cxClosingQuery023K(filters)}`),
+        cxSalesApi022F("/cut?panel_type=all").catch(() => ({})),
+      ]);
+      data = closingData;
+      salesCut = cutData || {};
     } catch (error) {
       loadError = error.message || "No se pudo cargar cierre comercial.";
     }
@@ -12705,8 +12728,6 @@ function inventoryCreatePayload() {
     const summary = data.summary || {};
     const selected = items.find((item) => String(item.id || "") === String(filters.selected_id || "")) || null;
     const selectedId = selected?.id || "";
-    const bestSeller = summary.best_seller || {};
-    const bestStore = summary.best_store || {};
     const stores = Array.isArray(data.stores) ? data.stores : [];
     const sellers = Array.isArray(data.sellers) ? data.sellers : [];
     const groups = Array.isArray(data.groups) ? data.groups : [];
@@ -12767,10 +12788,7 @@ function inventoryCreatePayload() {
               </article>
 
               <section class="cx-closing-kpis">
-                <article class="cx-closing-kpi"><span>Cierres recibidos</span><strong>${Number(summary.closures_count || 0)}</strong><small>${Number(summary.submitted_count || 0)} enviados · ${Number(summary.reviewed_count || 0)} guardados</small></article>
-                <article class="cx-closing-kpi"><span>Dinero recolectado</span><strong>${h(cxClosingMoney023K(summary.total_amount || 0))}</strong><small>Efectivo ${h(cxClosingMoney023K(summary.cash_amount || 0))}</small></article>
-                <article class="cx-closing-kpi"><span>Mejor vendedor</span><strong>${h(bestSeller.label || "Sin datos")}</strong><small>${h(cxClosingMoney023K(bestSeller.total_amount || 0))} · ${Number(bestSeller.sales_count || 0)} ventas</small></article>
-                <article class="cx-closing-kpi"><span>Mejor tienda</span><strong>${h(bestStore.label || "Sin cierres")}</strong><small>${h(cxClosingMoney023K(bestStore.total_amount || 0))} · ${Number(bestStore.closures_count || 0)} cierres</small></article>
+                ${cxClosingSalesCutKpis025J(summary, salesCut)}
               </section>
 
               <section class="cx-closing-report-grid">
