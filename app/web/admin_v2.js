@@ -1881,10 +1881,15 @@
 
   const CX_MODULE_META = {
     core: ["Nucleo", "Base operativa del tenant. Habilita estructura principal, estado de empresa y servicios base.", "Core", "COR"],
+    core_settings: ["Ajustes", "Idioma, moneda, branding, claves y preferencias generales por empresa.", "Core", "SET"],
+    mini_panel: ["Mini Paneles", "Links operativos, usuarios de panel y accesos por rol.", "Core", "MIN"],
     workforce: ["Personal", "Gestion de personal operativo, roles internos y disponibilidad por empresa.", "Core", "WRK"],
     field: ["Operación en campo", "Control para equipos externos, rutas, evidencias y actividad operativa.", "Campo", "FLD"],
     gps: ["GPS", "Ubicacion, rutas y control de equipos en campo.", "Campo", "GPS"],
+    login: ["Login tiendas", "Acceso de tienda, turnos y sesiones de colaboradores.", "Campo", "LOG"],
+    cotizacion: ["Cotizaciones", "Captura y seguimiento de cotizaciones del tenant.", "Retail", "COT"],
     payroll: ["Nómina", "Calculo de horas, cortes y pagos operativos.", "Finanzas", "PAY"],
+    registro_venta: ["Registro Venta", "Captura directa de ventas, facturas y medios de pago.", "Retail", "REG"],
     day_closing: ["Cierre de dia", "Resumen diario de ventas, pedidos, inventario y operacion.", "Hospitality", "DAY"],
     hospitality: ["Hospitality", "Motor para bares, restaurantes, mesas, pedidos y atencion comercial.", "Hospitality", "HSP"],
     loyalty: ["Fidelización", "Clientes recurrentes, beneficios y seguimiento comercial.", "Hospitality", "LOY"],
@@ -1901,11 +1906,63 @@
     crm: ["CRM Campo", "Vista operativa para seguimiento, control y acciones por empresa.", "Reportes", "CRM"],
     kpis: ["KPIs", "Indicadores ejecutivos y metricas por módulo.", "Reportes", "KPI"],
     reports: ["Reportes", "Reportes operativos, historicos y auditoria.", "Reportes", "REP"],
+    notas___agenda: ["Notas / Agenda", "Notas internas, recordatorios y seguimiento operativo.", "Reportes", "NOT"],
     commercial_closing: ["Cierre comercial", "Seguimiento de ventas, cierres y resultados comerciales.", "Retail", "COM"],
     requests: ["Solicitudes", "Solicitudes internas, aprobaciones y estados.", "Retail", "REQ"],
     retail: ["Retail", "Control de tiendas, ventas, solicitudes e inventario.", "Retail", "RTL"],
     sales: ["Ventas", "Actividad comercial, ventas y conversion.", "Retail", "SAL"],
     stores: ["Tiendas", "Sucursales, puntos de venta y operacion retail.", "Retail", "STR"],
+    creacion_usuarios: ["Creacion usuarios", "Alta de usuarios operativos y accesos internos.", "Core", "USR"],
+  };
+
+  const CX_MODULE_STATUS_025M = {
+    core: ["base", "Base", "Infraestructura del tenant; no es pantalla diaria."],
+    core_settings: ["functional", "Funcional", "Pantalla y configuracion por empresa."],
+    mini_panel: ["functional", "Funcional", "Crea y administra links de mini panel."],
+    workforce: ["functional", "Funcional", "Pantalla Workforce operativa."],
+    gps: ["functional", "Funcional", "Pantalla GPS operativa."],
+    login: ["functional", "Funcional", "Login de tiendas y control de turno."],
+    cotizacion: ["functional", "Funcional", "Modulo universal de cotizaciones."],
+    payroll: ["functional", "Funcional", "Nomina conectada a tiempos y configuracion."],
+    registro_venta: ["functional", "Funcional", "Registro de venta operativo."],
+    crm: ["functional", "Funcional", "CRM Campo con datos vivos por area."],
+    kpis: ["functional", "Funcional", "KPIs dinamicos del panel cliente."],
+    reports: ["functional", "Funcional", "Reportes/lecturas operativas disponibles."],
+    hospitality: ["functional", "Funcional", "Dashboard Hospitality operativo."],
+    orders: ["functional", "Funcional", "Pedidos/barra/flujo de estados operativo."],
+    bots: ["functional", "Funcional", "Configuracion y canales de captura."],
+    qr: ["functional", "Funcional", "Mesas QR, claves e impresion."],
+    inventory: ["functional", "Funcional", "Inventario y existencias operativo."],
+    materials: ["functional", "Funcional", "Materiales y devoluciones operativo."],
+    stock: ["functional", "Funcional", "Stock desde inventario con alertas."],
+    production: ["functional", "Funcional", "Produccion y tiempos operativos."],
+    references: ["functional", "Funcional", "Catalogo maestro operativo."],
+    commercial_closing: ["functional", "Funcional", "Cierre comercial con consolidados reales."],
+    loyalty: ["functional", "Funcional", "Sorteos y fidelizacion Hospitality."],
+    sales: ["functional", "Funcional", "Mini panel y modulo de ventas."],
+    stores: ["functional", "Funcional", "Tiendas, metas y login tienda."],
+    requests: ["functional", "Funcional", "Solicitudes con seguimiento e impresion."],
+    notas___agenda: ["functional", "Funcional", "Modulo universal de notas y agenda."],
+    day_closing: ["integrated", "Integrado", "Funciona como consolidado/flujo dentro de cierres."],
+    tables: ["integrated", "Integrado", "Las mesas viven dentro de QR y Pedidos."],
+    retail: ["integrated", "Integrado", "Vertical agrupadora de ventas, tiendas y solicitudes."],
+    field: ["pending", "Pendiente", "Catalogo existe, falta pantalla independiente estable."],
+    costs: ["pending", "Pendiente", "Catalogo existe, falta pantalla operativa."],
+    creacion_usuarios: ["pending", "Pendiente", "Catalogo existe, falta flujo independiente."],
+  };
+
+  const CX_MODULE_STATUS_LABEL_025M = {
+    functional: "Funcionales",
+    integrated: "Integrados",
+    base: "Base",
+    pending: "Sin funcionamiento",
+  };
+
+  const CX_MODULE_STATUS_ORDER_025M = {
+    functional: 0,
+    integrated: 1,
+    base: 2,
+    pending: 3,
   };
 
   function cxModuleMeta(module) {
@@ -2043,95 +2100,189 @@
 
 
 
+  function cxModuleStatus025M(module = {}) {
+    const code = String(module.code || module.module_code || "").trim();
+    const row = CX_MODULE_STATUS_025M[code] || ["pending", "Pendiente", "No tiene pantalla o flujo confirmado en el cliente."];
+    return { key: row[0], label: row[1], detail: row[2] };
+  }
+
+  function cxModuleAssignments025M(code = "") {
+    const active = [];
+    const inactive = [];
+    const archived = [];
+
+    state.companies.forEach((company) => {
+      const rows = safeArray(state.companyModules.get(company.id)).map(normalizeModule);
+      const row = rows.find((item) => item.code === code);
+      if (!row) return;
+
+      const label = company.name || company.slug || "Empresa";
+      if (isArchivedCompany(company)) {
+        archived.push(label);
+      } else if (row.enabled === false) {
+        inactive.push(label);
+      } else {
+        active.push(label);
+      }
+    });
+
+    return { active, inactive, archived };
+  }
+
+  function cxModuleAssignmentChips025M(assignments) {
+    if (!assignments.active.length && !assignments.inactive.length && !assignments.archived.length) {
+      return `<span class="cx-badge">Sin asignacion</span>`;
+    }
+
+    const active = assignments.active.length
+      ? assignments.active.map((name) => `<span class="cx-badge cx-badge-live">${escapeHtml(name)}</span>`).join("")
+      : `<span class="cx-badge">Sin empresas activas</span>`;
+    const inactive = assignments.inactive.length
+      ? `<span class="cx-badge">${escapeHtml(assignments.inactive.length)} apagada(s)</span>`
+      : "";
+    const archived = assignments.archived.length
+      ? `<span class="cx-badge cx-badge-warning">${escapeHtml(assignments.archived.length)} archivada(s)</span>`
+      : "";
+
+    return `${active}${inactive}${archived}`;
+  }
+
+  function cxModuleStatusBadge025M(status) {
+    const cls = status.key === "functional"
+      ? "cx-badge-live"
+      : status.key === "pending"
+        ? "cx-badge-danger"
+        : status.key === "integrated"
+          ? "cx-badge-warning"
+          : "cx-badge-primary";
+    return `<span class="cx-badge ${cls}">${escapeHtml(status.label)}</span>`;
+  }
+
+  function cxModuleCreateForm025M() {
+    return `
+      <details class="cx-module-create-025m">
+        <summary>Crear modulo global</summary>
+        <form class="cx-form" id="createModuleForm">
+          <div class="cx-module-create-grid-025m">
+            <label>Codigo
+              <input name="code" placeholder="tecnicos_field" required />
+            </label>
+            <label>Nombre
+              <input name="name" placeholder="Tecnicos Field" required />
+            </label>
+            <label>Categoria
+              <select name="category">
+                <option value="core">Core</option>
+                <option value="field">Campo</option>
+                <option value="inventory">Inventario</option>
+                <option value="production">Produccion</option>
+                <option value="finance">Finanzas</option>
+                <option value="hospitality">Hospitality</option>
+                <option value="retail">Retail</option>
+                <option value="read_model">Reportes</option>
+                <option value="input">Input</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <button class="cx-btn cx-btn-primary" type="submit">Crear modulo</button>
+          </div>
+          <label>Descripcion
+            <input name="description" placeholder="Que ejecuta este modulo dentro de CLONEXA" />
+          </label>
+        </form>
+      </details>
+    `;
+  }
+
   function renderModules() {
     const grid = el("#modulesGrid");
     if (!grid) return;
 
     if (!state.modules.length) {
-      grid.innerHTML = `<div class="cx-empty-state">No se pudieron cargar módulos.</div>`;
+      grid.innerHTML = `<div class="cx-empty-state">No se pudieron cargar modulos.</div>`;
       return;
     }
 
-    const selectedCodes = new Set(state.selectedCompanyId ? moduleCodesForCompany(state.selectedCompanyId) : []);
-    const categories = new Map();
+    const modules = state.modules
+      .map((module) => {
+        const normalized = normalizeModule(module);
+        const meta = cxModuleMeta(normalized);
+        const status = cxModuleStatus025M(normalized);
+        const assignments = cxModuleAssignments025M(normalized.code);
+        return { ...normalized, meta, status, assignments };
+      })
+      .sort((a, b) => {
+        const statusDiff = (CX_MODULE_STATUS_ORDER_025M[a.status.key] ?? 9) - (CX_MODULE_STATUS_ORDER_025M[b.status.key] ?? 9);
+        if (statusDiff) return statusDiff;
+        return String(a.meta.name || a.code).localeCompare(String(b.meta.name || b.code), "es");
+      });
 
-    state.modules.forEach((module) => {
-      const normalized = normalizeModule(module);
-      const meta = cxModuleMeta(normalized);
-      const group = meta.categoryLabel || normalized.category || "General";
-      if (!categories.has(group)) categories.set(group, []);
-      categories.get(group).push({ ...normalized, meta });
+    const activeCompanyCount = state.companies.filter((company) => !isArchivedCompany(company)).length;
+    const counts = modules.reduce((acc, module) => {
+      acc[module.status.key] = (acc[module.status.key] || 0) + 1;
+      acc.activeAssignments += module.assignments.active.length;
+      return acc;
+    }, { functional: 0, integrated: 0, base: 0, pending: 0, activeAssignments: 0 });
+
+    const grouped = new Map();
+    modules.forEach((module) => {
+      const label = CX_MODULE_STATUS_LABEL_025M[module.status.key] || "Otros";
+      if (!grouped.has(label)) grouped.set(label, []);
+      grouped.get(label).push(module);
     });
 
     grid.innerHTML = `
-      <section class="cx-panel" style="grid-column:1/-1;margin-bottom:18px">
+      <section class="cx-module-command-025m">
         <div class="cx-card-head">
           <div>
-            <h3>Crear módulo</h3>
-            <p>Agrega un módulo global reutilizable para paquetes y empresas.</p>
+            <h2>Mapa funcional de modulos</h2>
+            <p>Lectura real del catalogo global, estado funcional y empresas asignadas. No modifica datos.</p>
           </div>
-          <span class="cx-badge cx-badge-primary">${escapeHtml(state.modules.length)} módulos</span>
+          <span class="cx-badge cx-badge-primary">${escapeHtml(modules.length)} modulos globales</span>
         </div>
 
-        <form class="cx-form" id="createModuleForm" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end">
-          <label>Código
-            <input name="code" placeholder="tecnicos_field" required />
-          </label>
-          <label>Nombre
-            <input name="name" placeholder="Tecnicos Field" required />
-          </label>
-          <label>Categoría
-            <select name="category">
-              <option value="core">Core</option>
-              <option value="field">Campo</option>
-              <option value="inventory">Inventario</option>
-              <option value="production">Producción</option>
-              <option value="finance">Finanzas</option>
-              <option value="hospitality">Hospitality</option>
-              <option value="retail">Retail</option>
-              <option value="read_model">Reportes</option>
-              <option value="input">Input</option>
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          <button class="cx-btn cx-btn-primary" type="submit">Crear módulo</button>
-          <label style="grid-column:1/-1">Descripción
-            <input name="description" placeholder="Que ejecuta este módulo dentro de CLONEXA" />
-          </label>
-        </form>
+        <div class="cx-module-summary-025m">
+          <div><span>Funcionales</span><strong>${escapeHtml(counts.functional || 0)}</strong><small>Con pantalla o flujo operativo</small></div>
+          <div><span>Integrados</span><strong>${escapeHtml(counts.integrated || 0)}</strong><small>Viven dentro de otro modulo</small></div>
+          <div><span>Sin funcionamiento</span><strong>${escapeHtml(counts.pending || 0)}</strong><small>Catalogo sin pantalla estable</small></div>
+          <div><span>Empresas activas</span><strong>${escapeHtml(activeCompanyCount)}</strong><small>${escapeHtml(counts.activeAssignments)} asignaciones activas</small></div>
+        </div>
       </section>
 
-      ${Array.from(categories.entries()).map(([category, modules]) => `
-        <section style="grid-column:1/-1">
+      ${Array.from(grouped.entries()).map(([group, rows]) => `
+        <section class="cx-module-section-025m">
           <div class="cx-section-title">
-            <h3>${escapeHtml(category)}</h3>
-            <p>${escapeHtml(modules.length)} módulos disponibles</p>
+            <h3>${escapeHtml(group)}</h3>
+            <p>${escapeHtml(rows.length)} modulo(s)</p>
           </div>
-
-          <div class="cx-module-grid">
-            ${modules.map(({ meta, ...module }) => {
-              const activeForCompany = selectedCodes.has(module.code);
-              return `
-                <article class="cx-module-chip">
-                  <div class="cx-card-head">
-                    <div>
-                      <strong>${escapeHtml(meta.name)}</strong>
-                      <p>${escapeHtml(module.code)}</p>
-                    </div>
-                    <span class="cx-badge">${escapeHtml(meta.badge)}</span>
+          <div class="cx-module-map-025m">
+            ${rows.map((module) => `
+              <article class="cx-module-row-025m cx-module-status-${escapeHtml(module.status.key)}">
+                <div class="cx-module-main-025m">
+                  <span class="cx-badge">${escapeHtml(module.meta.badge)}</span>
+                  <div>
+                    <strong>${escapeHtml(module.meta.name)}</strong>
+                    <small>${escapeHtml(module.code)} · ${escapeHtml(module.meta.categoryLabel || module.category || "General")}</small>
                   </div>
-                  <p>${escapeHtml(meta.description)}</p>
-                  <div class="cx-actions">
-                    <span class="cx-badge">${escapeHtml(meta.categoryLabel)}</span>
-                    ${activeForCompany ? `<span class="cx-badge cx-badge-live">Activo tenant</span>` : ""}
-                    <button class="cx-btn" type="button" data-cx-module-info data-module-code="${escapeHtml(module.code)}">Info</button>
-                  </div>
-                </article>
-              `;
-            }).join("")}
+                </div>
+                <div class="cx-module-state-025m">
+                  ${cxModuleStatusBadge025M(module.status)}
+                  <small>${escapeHtml(module.status.detail)}</small>
+                </div>
+                <div class="cx-module-companies-025m">
+                  <span>Asignado a</span>
+                  <div>${cxModuleAssignmentChips025M(module.assignments)}</div>
+                </div>
+                <button class="cx-btn cx-btn-small" type="button" data-cx-module-info data-module-code="${escapeHtml(module.code)}">Info</button>
+              </article>
+            `).join("")}
           </div>
         </section>
       `).join("")}
+
+      <section class="cx-module-section-025m">
+        ${cxModuleCreateForm025M()}
+      </section>
     `;
   }
 
@@ -4020,7 +4171,7 @@
       companies: ["Empresas", "GestiÃƒÂ³n de tenants, paquetes, módulos, Acceso Maestro y CRM."],
       users: ["Acceso Maestro", "Usuario dueÃƒÂ±o/encargado, regeneraciÃƒÂ³n de clave y desbloqueo."],
       packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
-      modules: ["Módulos", "CatÃƒÂ¡logo global y módulos activos por tenant."],
+      modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
       access: ["Accesos", "Rutas operativas rápidas del ecosistema."],
       crm: ["CRM / Panel Empresa", "Estado resumido de branding, experiencia y panel cliente."],
       health: ["Health / Estado del sistema", "Estado de API y conteos principales."]
