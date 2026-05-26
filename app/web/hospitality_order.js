@@ -423,6 +423,11 @@
     `;
   }
 
+  function paintCampaignHost() {
+    const host = document.getElementById("qrCampaignHost025F");
+    if (host) host.innerHTML = campaignHtml();
+  }
+
   function render() {
     injectStyles();
     const b = brand();
@@ -493,7 +498,7 @@
 
         ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
         ${state.error ? `<div class="qr-msg err">${h(state.error)}</div>` : ""}
-        ${campaignHtml()}
+        <div id="qrCampaignHost025F">${campaignHtml()}</div>
 
         <section class="qr-layout">
           <div class="qr-menu">
@@ -622,6 +627,13 @@
     state.campaign = campaign.campaign || null;
     state.participant = campaign.participant || null;
     return campaign;
+  }
+
+  async function refreshCampaignView() {
+    await refreshCampaign();
+    const host = document.getElementById("qrCampaignHost025F");
+    if (host && host.contains(document.activeElement)) return;
+    paintCampaignHost();
   }
 
   async function load() {
@@ -819,11 +831,16 @@
         state.campaign._endRefreshDone = true;
         refreshCampaign().then(() => {
           if (state.campaign) state.campaign._endRefreshDone = true;
-          if (state.access?.unlocked) render();
+          if (state.access?.unlocked) paintCampaignHost();
         }).catch(() => {});
       }
     }
   }, 1000);
+
+  setInterval(() => {
+    if (!state.campaign || !state.access?.unlocked) return;
+    refreshCampaignView().catch(() => {});
+  }, 6000);
 
   render();
   load();

@@ -14864,6 +14864,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_END */
   /* CLONEXA_024Z_HOSPITALITY_LOYALTY_START */
   let cxHspLoyaltyCampaign024Z = null;
+  let cxHspLoyaltyPolling024Z = false;
 
   function cxIsHospitalityLoyaltyCode024Z(code = "") {
     const normalized = String(code || "")
@@ -14945,6 +14946,26 @@ function inventoryCreatePayload() {
     const data = await cxHspLoyaltyApi024Z("/loyalty-campaigns/active");
     cxHspLoyaltyCampaign024Z = data.campaign || null;
     return cxHspLoyaltyCampaign024Z;
+  }
+
+  function cxHspLoyaltyStartPolling025F() {
+    if (window.__cxHspLoyaltyTimer025F) return;
+    window.__cxHspLoyaltyTimer025F = window.setInterval(async () => {
+      if (!document.getElementById("hspLoyaltyRoot024Z")) {
+        window.clearInterval(window.__cxHspLoyaltyTimer025F);
+        window.__cxHspLoyaltyTimer025F = null;
+        return;
+      }
+      if (cxHspLoyaltyPolling024Z) return;
+      cxHspLoyaltyPolling024Z = true;
+      try {
+        await cxHspLoyaltyLoad024Z();
+        cxHspLoyaltyPaint024Z();
+      } catch (_) {
+      } finally {
+        cxHspLoyaltyPolling024Z = false;
+      }
+    }, 6000);
   }
 
   function cxHspLoyaltyPaint024Z() {
@@ -15056,6 +15077,7 @@ function inventoryCreatePayload() {
       </main>
     `;
     cxHspLoyaltyPaint024Z();
+    cxHspLoyaltyStartPolling025F();
   }
   /* CLONEXA_024Z_HOSPITALITY_LOYALTY_END */
 async function renderClientModulePlaceholder(code) {
