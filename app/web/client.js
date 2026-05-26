@@ -788,11 +788,47 @@
     return options.some((code) => codes.has(code));
   }
 
+  function clientHasHospitalityDashboard025I(codes) {
+    const normalized = new Set(
+      Array.from(codes || [])
+        .map((code) => cxNormalizeModuleToken017H(code))
+        .filter(Boolean)
+    );
+    return [
+      "orders",
+      "pedidos",
+      "hospitality_orders",
+      "bar_orders",
+      "qr",
+      "mesa_qr",
+      "mesas_qr",
+      "qr_mesas",
+      "hospitality_qr",
+      "loyalty",
+      "fidelizacion",
+      "hospitality",
+      "tables",
+      "mesas",
+      "day_closing",
+      "cierre_de_dia",
+    ].some((code) => normalized.has(code));
+  }
+
   function buildClientHeroKpis(modules = [], company = {}) {
     const visible = visibleClientModules(modules);
     const codes = clientModuleCodes(visible);
     const total = Array.isArray(visible) ? visible.length : 0;
     const metrics = state.dashboardMetrics || {};
+
+    if (clientHasHospitalityDashboard025I(codes)) {
+      const hospitality = metrics.hospitalityDashboard025I || {};
+      return [
+        ["Mesas activas", String(Number(hospitality.activeTables || 0))],
+        ["Stock bajo", String(Number(hospitality.lowStock || 0))],
+        ["Pedido pendiente", String(Number(hospitality.pendingOrders || 0))],
+        ["Total abierto", cxHspMoney024R(hospitality.openTotal || 0)],
+      ];
+    }
 
     if (Array.isArray(metrics.kpiDashboardCards) && metrics.kpiDashboardCards.length) {
       return metrics.kpiDashboardCards.slice(0, 4).map((card) => [
@@ -17115,6 +17151,27 @@ document.addEventListener("click", async (event) => {
     };
   }
 
+  async function loadHospitalityDashboardMetrics025I(companyId) {
+    const encodedCompanyId = encodeURIComponent(companyId);
+    const baseUrl = encodeURIComponent(window.location.origin);
+    const [qrData, ordersData, inventoryData] = await Promise.all([
+      api(`/hospitality/companies/${encodedCompanyId}/qr-tables?count=80&include_bar=true&base_url=${baseUrl}`).catch(() => ({})),
+      api(`/hospitality/companies/${encodedCompanyId}/orders?status=all&limit=220`).catch(() => ({})),
+      api(`/inventory/companies/${encodedCompanyId}/items?include_inactive=false&limit=1000`).catch(() => ({})),
+    ]);
+
+    const tables = Array.isArray(qrData.tables) ? qrData.tables : [];
+    const activeTables = tables.filter((table) => Number(table.active_orders || 0) > 0).length;
+    const openTotal = Number(qrData?.summary?.open_total ?? ordersData?.summary?.open_total ?? 0) || 0;
+
+    return {
+      activeTables,
+      lowStock: Number(inventoryData?.summary?.low_stock || 0),
+      pendingOrders: Number(ordersData?.summary?.pending || 0),
+      openTotal,
+    };
+  }
+
   async function loadClientDashboardMetrics(companyId, modules = []) {
     const codes = clientModuleCodes(visibleClientModules(modules));
     const metrics = {};
@@ -17152,6 +17209,15 @@ document.addEventListener("click", async (event) => {
       } catch (error) {
         metrics.kpiDashboardCards = [];
       }
+    }
+
+    if (clientHasHospitalityDashboard025I(codes)) {
+      metrics.hospitalityDashboard025I = await loadHospitalityDashboardMetrics025I(companyId).catch(() => ({
+        activeTables: 0,
+        lowStock: 0,
+        pendingOrders: 0,
+        openTotal: 0,
+      }));
     }
 
     if (crmUseMundoCaseAreaMode024C()) {
