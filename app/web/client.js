@@ -12705,6 +12705,10 @@ function inventoryCreatePayload() {
     `;
   }
 
+  async function cxClosingSalesCutApi025K() {
+    return api(`/mini-panel-sales/companies/${encodeURIComponent(state.companyId)}/cut?panel_type=all`);
+  }
+
   async function renderCommercialClosingModule023K(options = {}) {
     cxClosingStyles023K();
     const filters = cxClosingFilters023K(options);
@@ -12714,14 +12718,15 @@ function inventoryCreatePayload() {
     let loadError = "";
 
     try {
-      const [closingData, cutData] = await Promise.all([
-        cxClosingApi023K(`/client-console?${cxClosingQuery023K(filters)}`),
-        cxSalesApi022F("/cut?panel_type=all").catch(() => ({})),
-      ]);
-      data = closingData;
-      salesCut = cutData || {};
+      data = await cxClosingApi023K(`/client-console?${cxClosingQuery023K(filters)}`);
     } catch (error) {
       loadError = error.message || "No se pudo cargar cierre comercial.";
+    }
+
+    try {
+      salesCut = await cxClosingSalesCutApi025K();
+    } catch (error) {
+      salesCut = {};
     }
 
     const items = Array.isArray(data.items) ? data.items : [];
