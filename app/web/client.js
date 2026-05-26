@@ -14224,6 +14224,7 @@ function inventoryCreatePayload() {
   let cxHspQrTables024S = [];
   let cxHspQrSummary024S = {};
   let cxHspQrCount024S = 12;
+  let cxHspQrPrintSelection025H = "";
 
   function cxIsHospitalityQrCode024S(code = "") {
     const normalized = String(code || "")
@@ -14339,7 +14340,48 @@ function inventoryCreatePayload() {
       .hsp-qr-empty-024s{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:22px;text-align:center;color:var(--qr-muted);font-weight:850}
       .hsp-qr-msg-024s{display:none;padding:11px 13px;border-radius:13px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:900}
       .hsp-qr-msg-024s.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.30);color:#fecaca}
+      .hsp-qr-print-panel-025h{display:none;gap:14px}
+      .hsp-qr-print-panel-025h.open{display:grid}
+      .hsp-qr-print-controls-025h{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:10px;align-items:end}
+      .hsp-qr-print-select-025h{
+        width:100%;
+        min-height:44px;
+        border:1px solid var(--qr-line);
+        border-radius:13px;
+        background:rgba(3,7,18,.58);
+        color:var(--cx-text,#fff);
+        padding:10px 12px;
+        font-weight:950;
+        outline:none;
+      }
+      .hsp-qr-print-sheet-025h{
+        max-width:760px;
+        margin:0 auto;
+        background:#fff;
+        color:#111827;
+        border-radius:22px;
+        padding:28px;
+        box-shadow:0 18px 54px rgba(0,0,0,.24);
+        display:grid;
+        gap:18px;
+      }
+      .hsp-qr-print-head-025h{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;border-bottom:2px solid #111827;padding-bottom:16px}
+      .hsp-qr-print-brand-025h{font-size:14px;font-weight:1000;letter-spacing:.12em;text-transform:uppercase;color:#475569}
+      .hsp-qr-print-title-025h{margin:4px 0 0;font-size:46px;line-height:.95;color:#111827}
+      .hsp-qr-print-code-025h{display:grid;gap:6px;text-align:right}
+      .hsp-qr-print-code-025h span{font-size:12px;font-weight:1000;text-transform:uppercase;color:#64748b;letter-spacing:.10em}
+      .hsp-qr-print-code-025h strong{font-size:34px;letter-spacing:.15em;color:#0f172a}
+      .hsp-qr-print-main-025h{display:grid;grid-template-columns:260px minmax(0,1fr);gap:22px;align-items:center}
+      .hsp-qr-print-qr-025h{border:2px solid #111827;border-radius:22px;padding:16px;display:grid;place-items:center;background:#fff}
+      .hsp-qr-print-qr-025h img{width:220px;height:220px;display:block}
+      .hsp-qr-print-steps-025h{display:grid;gap:12px}
+      .hsp-qr-print-step-025h{display:grid;grid-template-columns:38px 1fr;gap:12px;align-items:start;padding:12px;border:1px solid #d1d5db;border-radius:16px}
+      .hsp-qr-print-step-025h b{width:34px;height:34px;border-radius:999px;display:grid;place-items:center;background:#111827;color:#fff;font-weight:1000}
+      .hsp-qr-print-step-025h strong{display:block;font-size:18px;color:#111827}
+      .hsp-qr-print-step-025h span{display:block;margin-top:3px;color:#475569;font-weight:800;line-height:1.25}
+      .hsp-qr-print-url-025h{font-size:11px;color:#64748b;word-break:break-all;border-top:1px solid #e5e7eb;padding-top:10px}
       @media(max-width:980px){.hsp-qr-toolbar-024s{grid-template-columns:1fr}.hsp-qr-stats-024s{grid-template-columns:1fr 1fr}.hsp-qr-hero-024s .client-title{font-size:34px}}
+      @media(max-width:760px){.hsp-qr-print-controls-025h{grid-template-columns:1fr}.hsp-qr-print-main-025h{grid-template-columns:1fr}.hsp-qr-print-head-025h{display:grid}.hsp-qr-print-code-025h{text-align:left}}
       @media print{
         body{background:#fff!important;color:#111!important}
         .client-sidebar,.hsp-qr-hero-024s,.hsp-qr-toolbar-024s,.hsp-qr-msg-024s{display:none!important}
@@ -14350,6 +14392,15 @@ function inventoryCreatePayload() {
         .hsp-qr-card-024s{break-inside:avoid;border:1px solid #bbb!important;background:#fff!important;color:#111!important;min-height:auto!important}
         .hsp-qr-card-head-024s strong,.hsp-qr-pill-024s,.hsp-qr-url-024s{color:#111!important}
         .hsp-qr-actions-024s{display:none!important}
+        body.hsp-qr-print-mode-025h *{visibility:hidden!important}
+        body.hsp-qr-print-mode-025h .hsp-qr-print-panel-025h,
+        body.hsp-qr-print-mode-025h .hsp-qr-print-panel-025h *,
+        body.hsp-qr-print-mode-025h .hsp-qr-print-sheet-025h,
+        body.hsp-qr-print-mode-025h .hsp-qr-print-sheet-025h *{visibility:visible!important}
+        body.hsp-qr-print-mode-025h .hsp-qr-print-panel-025h{display:block!important;position:absolute!important;inset:0!important;padding:0!important;background:#fff!important;border:0!important;box-shadow:none!important}
+        body.hsp-qr-print-mode-025h .hsp-qr-print-controls-025h,
+        body.hsp-qr-print-mode-025h .hsp-qr-print-actions-025h{display:none!important}
+        body.hsp-qr-print-mode-025h .hsp-qr-print-sheet-025h{box-shadow:none!important;border-radius:0!important;max-width:none!important;min-height:100vh!important;padding:24mm!important}
       }
     `;
     document.head.appendChild(style);
@@ -14365,6 +14416,80 @@ function inventoryCreatePayload() {
 
   function cxHspQrImage024S(url = "") {
     return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=${encodeURIComponent(url)}`;
+  }
+
+  function cxHspQrPrintRow025H(label = "") {
+    const key = String(label || cxHspQrPrintSelection025H || "").trim();
+    return cxHspQrTables024S.find((row) => String(row.label || "") === key) || cxHspQrTables024S[0] || {};
+  }
+
+  function cxHspQrPrintTemplate025H(row = {}) {
+    const company = state.company || {};
+    const companyName = company.name || company.company_name || "CLONEXA";
+    const label = row.label || "Mesa";
+    const code = row.access_active ? row.access_code || "" : "";
+    return `
+      <article class="hsp-qr-print-sheet-025h">
+        <header class="hsp-qr-print-head-025h">
+          <div>
+            <div class="hsp-qr-print-brand-025h">${h(companyName)}</div>
+            <h2 class="hsp-qr-print-title-025h">${h(label)}</h2>
+          </div>
+          <div class="hsp-qr-print-code-025h">
+            <span>Clave de activacion</span>
+            <strong>${code ? h(code) : "SIN CLAVE"}</strong>
+          </div>
+        </header>
+        <div class="hsp-qr-print-main-025h">
+          <div class="hsp-qr-print-qr-025h">
+            <img src="${h(cxHspQrImage024S(row.order_url || ""))}" alt="QR ${h(label)}">
+          </div>
+          <div class="hsp-qr-print-steps-025h">
+            <div class="hsp-qr-print-step-025h">
+              <b>1</b>
+              <div><strong>Escanea el QR</strong><span>Introduce la contrasena de activacion de esta mesa.</span></div>
+            </div>
+            <div class="hsp-qr-print-step-025h">
+              <b>2</b>
+              <div><strong>Arma tu pedido</strong><span>Coloca tu nombre, selecciona articulo, cantidad y si deseas canciones.</span></div>
+            </div>
+            <div class="hsp-qr-print-step-025h">
+              <b>3</b>
+              <div><strong>Participa por premios</strong><span>Compite en premios de consumo desde el panel por equipo.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="hsp-qr-print-url-025h">${h(row.order_url || "")}</div>
+      </article>
+    `;
+  }
+
+  function cxHspQrPaintPrintPanel025H(open = false) {
+    const panel = document.getElementById("hspQrPrintPanel025H");
+    if (!panel) return;
+    if (!cxHspQrPrintSelection025H && cxHspQrTables024S[0]) {
+      cxHspQrPrintSelection025H = cxHspQrTables024S[0].label || "";
+    }
+    const currentOpen = open || panel.classList.contains("open");
+    const row = cxHspQrPrintRow025H(cxHspQrPrintSelection025H);
+    panel.className = `hsp-qr-print-panel-025h ${currentOpen ? "open" : ""}`;
+    const options = cxHspQrTables024S.map((item) => `
+      <option value="${h(item.label || "")}" ${String(item.label || "") === String(row.label || "") ? "selected" : ""}>
+        ${h(item.label || "Mesa")} ${item.access_active ? "- clave activa" : "- sin clave"}
+      </option>
+    `).join("");
+    panel.innerHTML = `
+      <div class="hsp-qr-print-controls-025h">
+        <label class="hsp-qr-field-024s">
+          <span>Mesa o QR a imprimir</span>
+          <select id="hspQrPrintSelect025H" class="hsp-qr-print-select-025h" data-hsp-qr-print-select>${options}</select>
+        </label>
+        <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-activate>${row.access_active ? "Nueva clave" : "Generar clave"}</button>
+        <button class="hsp-qr-btn-024s" type="button" data-hsp-qr-print-template>Imprimir plantilla</button>
+        <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-close>Cerrar</button>
+      </div>
+      ${cxHspQrPrintTemplate025H(row)}
+    `;
   }
 
   function cxHspQrCard024S(row = {}) {
@@ -14412,6 +14537,7 @@ function inventoryCreatePayload() {
     setText("hspQrCount024S", cxHspQrSummary024S.qr_count ?? cxHspQrTables024S.length);
     setText("hspQrOpen024S", cxHspQrSummary024S.open_accounts ?? 0);
     setText("hspQrTotal024S", cxHspMoney024R(cxHspQrSummary024S.open_total || 0));
+    cxHspQrPaintPrintPanel025H();
   }
 
   function cxHspQrShowMsg024S(message = "", isError = false) {
@@ -14469,6 +14595,7 @@ function inventoryCreatePayload() {
               </section>
 
               <div id="hspQrMsg024S" class="hsp-qr-msg-024s"></div>
+              <section id="hspQrPrintPanel025H" class="hsp-qr-print-panel-025h"></section>
 
               <section class="hsp-qr-panel-024s">
                 <div id="hspQrGrid024S" class="hsp-qr-grid-024s"></div>
@@ -16329,7 +16456,59 @@ document.addEventListener("click", async (event) => {
       }
 
       if (target.closest("[data-hsp-qr-print]")) {
-        window.print();
+        if (!cxHspQrTables024S.length) {
+          cxHspQrShowMsg024S("Primero carga o actualiza los QR.", true);
+          return;
+        }
+        cxHspQrPaintPrintPanel025H(true);
+        document.getElementById("hspQrPrintPanel025H")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
+      if (target.closest("[data-hsp-qr-print-close]")) {
+        const panel = document.getElementById("hspQrPrintPanel025H");
+        panel?.classList.remove("open");
+        return;
+      }
+
+      if (target.closest("[data-hsp-qr-print-activate]")) {
+        const table = cxHspQrPrintSelection025H || cxHspQrPrintRow025H().label || "Mesa";
+        try {
+          const data = await cxHspQrApi024S("/qr-tables/access", {
+            method: "POST",
+            body: JSON.stringify({ table, duration_hours: 12 }),
+          });
+          await cxHspQrLoad024S(cxHspQrCount024S);
+          cxHspQrPaint024S();
+          cxHspQrPaintPrintPanel025H(true);
+          cxHspQrShowMsg024S(`Clave generada para ${table}: ${data.access?.access_code || ""}`);
+        } catch (error) {
+          cxHspQrShowMsg024S(error.message || "No se pudo generar la clave.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-qr-print-template]")) {
+        try {
+          let row = cxHspQrPrintRow025H(cxHspQrPrintSelection025H);
+          if (!row.access_active || !row.access_code) {
+            await cxHspQrApi024S("/qr-tables/access", {
+              method: "POST",
+              body: JSON.stringify({ table: row.label || "Mesa", duration_hours: 12 }),
+            });
+            await cxHspQrLoad024S(cxHspQrCount024S);
+            row = cxHspQrPrintRow025H(cxHspQrPrintSelection025H);
+            cxHspQrPaint024S();
+            cxHspQrPaintPrintPanel025H(true);
+          }
+          document.body.classList.add("hsp-qr-print-mode-025h");
+          const cleanup = () => document.body.classList.remove("hsp-qr-print-mode-025h");
+          window.addEventListener("afterprint", cleanup, { once: true });
+          window.setTimeout(() => window.print(), 80);
+          window.setTimeout(cleanup, 5000);
+        } catch (error) {
+          cxHspQrShowMsg024S(error.message || "No se pudo imprimir la plantilla.", true);
+        }
         return;
       }
 
@@ -17093,6 +17272,17 @@ document.addEventListener("click", async (event) => {
     }
   }, true);
   /* CLONEXA_024R_R4_HOSPITALITY_PAYMENT_CALC_LISTENERS_END */
+
+  /* CLONEXA_025H_QR_PRINT_TEMPLATE_LISTENER_START */
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!target || !target.closest) return;
+    const select = target.closest("[data-hsp-qr-print-select]");
+    if (!select) return;
+    cxHspQrPrintSelection025H = select.value || "";
+    cxHspQrPaintPrintPanel025H(true);
+  });
+  /* CLONEXA_025H_QR_PRINT_TEMPLATE_LISTENER_END */
 
   async function init() {
     try {
