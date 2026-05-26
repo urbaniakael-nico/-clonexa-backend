@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -613,6 +613,19 @@ def _parse_dt(value: Any) -> datetime | None:
         return parsed
     except Exception:
         return None
+
+
+def _parse_sales_filter_dt(value: Any, end_of_day: bool = False) -> datetime | None:
+    raw = _clean(value)
+    if not raw:
+        return None
+    try:
+        if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-" and "T" not in raw:
+            parsed_date = date.fromisoformat(raw[:10])
+            return datetime.combine(parsed_date, time.max if end_of_day else time.min, tzinfo=timezone.utc)
+        return _parse_dt(raw)
+    except Exception:
+        raise HTTPException(status_code=422, detail="La fecha debe tener formato YYYY-MM-DD.")
 
 
 async def _sales_cut_config(conn: asyncpg.Connection, company_id: uuid.UUID) -> dict[str, Any]:
@@ -1306,6 +1319,8 @@ async def list_sales(
     q: str | None = Query(default=None),
     include_archived: bool = Query(default=False),
     include_cut_history: bool = Query(default=False),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     conn = await _connect()
@@ -1337,6 +1352,19 @@ async def list_sales(
             cut_where, cut_args, idx = _cut_sql_parts(cut_config, idx)
             where.extend(cut_where)
             args.extend(cut_args)
+
+        from_dt = _parse_sales_filter_dt(date_from, end_of_day=False)
+        to_dt = _parse_sales_filter_dt(date_to, end_of_day=True)
+        if from_dt and to_dt and from_dt > to_dt:
+            from_dt, to_dt = to_dt, from_dt
+        if from_dt:
+            where.append(f"s.created_at >= ${idx}::timestamptz")
+            args.append(from_dt)
+            idx += 1
+        if to_dt:
+            where.append(f"s.created_at <= ${idx}::timestamptz")
+            args.append(to_dt)
+            idx += 1
 
         search = _clean(q)
         if search:

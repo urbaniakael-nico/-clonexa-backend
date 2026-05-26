@@ -12690,8 +12690,9 @@ function inventoryCreatePayload() {
 
   function cxClosingSalesCutKpis025J(summary = {}, salesCut = {}) {
     const cut = salesCut && typeof salesCut === "object" ? salesCut : {};
-    const topSeller = cut.top_seller || summary.best_seller || {};
-    const topStore = cut.top_store || summary.best_store || {};
+    const isSalesRollup = Object.prototype.hasOwnProperty.call(cut, "period_count") || Array.isArray(cut.sellers);
+    const topSeller = isSalesRollup ? (cut.top_seller || {}) : (cut.top_seller || summary.best_seller || {});
+    const topStore = isSalesRollup ? (cut.top_store || {}) : (cut.top_store || summary.best_store || {});
     const totalAmount = cut.total_amount ?? summary.total_amount ?? 0;
     const periodCount = cut.period_count ?? cut.active_count ?? summary.sales_count ?? 0;
     const activeCount = cut.active_count ?? 0;
@@ -12705,8 +12706,138 @@ function inventoryCreatePayload() {
     `;
   }
 
-  async function cxClosingSalesCutApi025K() {
-    return api(`/mini-panel-sales/companies/${encodeURIComponent(state.companyId)}/cut?panel_type=all`);
+  function cxClosingSalesQuery025L(filters = {}) {
+    const params = new URLSearchParams();
+    const panel = cxClosingNorm023K(filters.panel_type || "all");
+    params.set("panel_type", panel === "sales" || panel === "stores" ? panel : "all");
+    params.set("include_archived", cxClosingNorm023K(filters.status || "active") === "active" ? "false" : "true");
+    if (filters.from) params.set("date_from", filters.from);
+    if (filters.to) params.set("date_to", filters.to);
+    if (String(filters.q || "").trim()) params.set("q", filters.q.trim());
+    return params.toString();
+  }
+
+  async function cxClosingSalesDataApi025L(filters = {}) {
+    return api(`/mini-panel-sales/companies/${encodeURIComponent(state.companyId)}/sales?${cxClosingSalesQuery025L(filters)}`);
+  }
+
+  function cxClosingSalePanel025L(item = {}) {
+    return cxClosingNorm023K(item.panel_type || item.source_panel_type || "");
+  }
+
+  function cxClosingSaleIsArchived025L(item = {}) {
+    return cxClosingNorm023K(item.status || "") === "archived";
+  }
+
+  function cxClosingSaleMatchesStatus025L(item = {}, status = "active") {
+    const normalized = cxClosingNorm023K(status || "active");
+    if (normalized === "archived") return cxClosingSaleIsArchived025L(item);
+    if (normalized === "active") return !cxClosingSaleIsArchived025L(item);
+    return true;
+  }
+
+  function cxClosingSaleActor025L(item = {}, kind = "sales") {
+    const actor = item.store_actor && typeof item.store_actor === "object" ? item.store_actor : {};
+    if (kind === "stores") {
+      return actor.name || actor.label || item.source_user_label || item.created_by_label || "Tienda";
+    }
+    return item.source_user_label || item.created_by_label || actor.name || "Vendedor";
+  }
+
+  function cxClosingAddSalesRollup025L(map, key, label, item, kind) {
+    const current = map.get(key) || {
+      key,
+      label: label || (kind === "stores" ? "Tienda" : "Vendedor"),
+      panel_type: kind,
+      sales_count: 0,
+      active_count: 0,
+      archived_count: 0,
+      total_amount: 0,
+      cash_amount: 0,
+      transfer_amount: 0,
+      other_amount: 0,
+    };
+    const total = Number(item.total || item.total_payable || 0);
+    const payment = cxClosingNorm023K(item.payment_method || "");
+    current.sales_count += 1;
+    current.total_amount = Math.round((Number(current.total_amount || 0) + total) * 100) / 100;
+    if (cxClosingSaleIsArchived025L(item)) current.archived_count += 1;
+    else current.active_count += 1;
+    if (["efectivo", "cash"].includes(payment)) current.cash_amount = Math.round((Number(current.cash_amount || 0) + total) * 100) / 100;
+    else if (["transferencia", "transfer", "bank_transfer"].includes(payment)) current.transfer_amount = Math.round((Number(current.transfer_amount || 0) + total) * 100) / 100;
+    else current.other_amount = Math.round((Number(current.other_amount || 0) + total) * 100) / 100;
+    map.set(key, current);
+  }
+
+  function cxClosingBuildSalesRollups025L(salesData = {}, filters = {}) {
+    const rawRows = Array.isArray(salesData.items) ? salesData.items : [];
+    const rows = rawRows.filter((item) => cxClosingSaleMatchesStatus025L(item, filters.status));
+    const sellersMap = new Map();
+    const storesMap = new Map();
+
+    rows.forEach((item) => {
+      const panel = cxClosingSalePanel025L(item);
+      if (panel === "stores" || panel === "store" || panel === "tiendas") {
+        const label = cxClosingSaleActor025L(item, "stores");
+        const key = `store::${cxClosingNorm023K(label) || item.created_by || item.id}`;
+        cxClosingAddSalesRollup025L(storesMap, key, label, item, "stores");
+        return;
+      }
+      if (panel === "sales" || panel === "venta" || panel === "ventas") {
+        const label = cxClosingSaleActor025L(item, "sales");
+        const key = `seller::${cxClosingNorm023K(label) || item.created_by || item.id}`;
+        cxClosingAddSalesRollup025L(sellersMap, key, label, item, "sales");
+      }
+    });
+
+    const sortRows = (items) => Array.from(items.values())
+      .sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0) || Number(b.sales_count || 0) - Number(a.sales_count || 0));
+    const sellers = sortRows(sellersMap);
+    const stores = sortRows(storesMap);
+    const ranking = [...stores, ...sellers].sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0));
+    const totalAmount = rows.reduce((sum, item) => sum + Number(item.total || item.total_payable || 0), 0);
+    const activeCount = rows.filter((item) => !cxClosingSaleIsArchived025L(item)).length;
+    const archivedCount = rows.filter(cxClosingSaleIsArchived025L).length;
+
+    return {
+      total_amount: Math.round(totalAmount * 100) / 100,
+      period_count: rows.length,
+      active_count: activeCount,
+      archived_count: archivedCount,
+      top_seller: sellers[0] || null,
+      top_store: stores[0] || null,
+      sellers,
+      stores,
+      ranking,
+    };
+  }
+
+  function cxClosingSalesRollupRows025L(rows = [], empty = "Sin ventas para este filtro.") {
+    const items = Array.isArray(rows) ? rows : [];
+    if (!items.length) return `<div class="cx-closing-empty">${h(empty)}</div>`;
+    return items.slice(0, 12).map((row) => `
+      <div class="cx-closing-user">
+        <div>
+          <strong>${h(row.label || "Sin nombre")}</strong>
+          <small>${Number(row.sales_count || 0)} ventas · ${Number(row.active_count || 0)} visibles · ${Number(row.archived_count || 0)} archivadas</small>
+        </div>
+        <strong>${h(cxClosingMoney023K(row.total_amount || 0))}</strong>
+      </div>
+    `).join("");
+  }
+
+  function cxClosingSalesRankingRows025L(rows = [], empty = "Sin consolidado para este filtro.") {
+    const items = Array.isArray(rows) ? rows : [];
+    if (!items.length) return `<div class="cx-closing-empty">${h(empty)}</div>`;
+    return items.slice(0, 12).map((row, index) => `
+      <div class="cx-closing-user">
+        <div>
+          <strong>#${index + 1} ${h(row.panel_type === "stores" ? "Tienda" : "Ventas")} - ${h(row.label || "Sin nombre")}</strong>
+          <small>${Number(row.sales_count || 0)} ventas · ${Number(row.active_count || 0)} visibles · ${Number(row.archived_count || 0)} archivadas</small>
+        </div>
+        <strong>${h(cxClosingMoney023K(row.total_amount || 0))}</strong>
+      </div>
+    `).join("");
   }
 
   async function renderCommercialClosingModule023K(options = {}) {
@@ -12714,7 +12845,7 @@ function inventoryCreatePayload() {
     const filters = cxClosingFilters023K(options);
     const company = state.company || {};
     let data = { items: [], summary: {}, stores: [], sellers: [], groups: [] };
-    let salesCut = {};
+    let salesData = { items: [] };
     let loadError = "";
 
     try {
@@ -12724,21 +12855,18 @@ function inventoryCreatePayload() {
     }
 
     try {
-      salesCut = await cxClosingSalesCutApi025K();
+      salesData = await cxClosingSalesDataApi025L(filters);
     } catch (error) {
-      salesCut = {};
+      salesData = { items: [] };
     }
 
     const items = Array.isArray(data.items) ? data.items : [];
     const summary = data.summary || {};
+    const salesRollup = cxClosingBuildSalesRollups025L(salesData, filters);
     const selected = items.find((item) => String(item.id || "") === String(filters.selected_id || "")) || null;
     const selectedId = selected?.id || "";
-    const stores = Array.isArray(data.stores) ? data.stores : [];
-    const sellers = Array.isArray(data.sellers) ? data.sellers : [];
-    const groups = Array.isArray(data.groups) ? data.groups : [];
     const salesItems = cxClosingPanelItems023M(items, "sales");
     const storeItems = cxClosingPanelItems023M(items, "stores");
-    const salesSellers = cxClosingAggregateUsers023M(salesItems);
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -12793,7 +12921,7 @@ function inventoryCreatePayload() {
               </article>
 
               <section class="cx-closing-kpis">
-                ${cxClosingSalesCutKpis025J(summary, salesCut)}
+                ${cxClosingSalesCutKpis025J(summary, salesRollup)}
               </section>
 
               <section class="cx-closing-report-grid">
@@ -12805,19 +12933,19 @@ function inventoryCreatePayload() {
                 <article class="cx-closing-card">
                   <div class="cx-closing-kicker">Ventas</div>
                   <h2>Recaudo por vendedor</h2>
-                  <div class="cx-closing-users">${cxClosingUserList023K(salesSellers, "Sin recaudos de vendedores en los cierres de ventas.")}</div>
+                  <div class="cx-closing-users">${cxClosingSalesRollupRows025L(salesRollup.sellers, "Sin recaudos de vendedores para este filtro.")}</div>
                 </article>
                 <article class="cx-closing-card">
                   <div class="cx-closing-kicker">Tiendas</div>
                   <h2>Recaudo por tienda</h2>
-                  <div class="cx-closing-users">${cxClosingStoreRows023M(stores)}</div>
+                  <div class="cx-closing-users">${cxClosingSalesRollupRows025L(salesRollup.stores, "Sin recaudos de tiendas para este filtro.")}</div>
                 </article>
               </section>
 
               <section class="cx-closing-card">
                 <div class="cx-closing-kicker">Ranking total</div>
                 <h2>Consolidado ventas / tiendas</h2>
-                <div class="cx-closing-users">${cxClosingRankingRows023M(groups)}</div>
+                <div class="cx-closing-users">${cxClosingSalesRankingRows025L(salesRollup.ranking)}</div>
               </section>
             </section>
           </section>
