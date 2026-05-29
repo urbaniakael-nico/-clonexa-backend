@@ -35,7 +35,7 @@
 
   const truncate = (value, size = 10) => {
     const text = String(value || "");
-    return text.length > size ? `${text.slice(0, size)}Ã¢â‚¬Â¦` : text;
+    return text.length > size ? `${text.slice(0, size)}ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦` : text;
   };
 
   const localTime = () => new Date().toLocaleTimeString("es-CO", {
@@ -95,7 +95,7 @@
     const node = idOrSelector.startsWith("#") || idOrSelector.startsWith(".")
       ? el(idOrSelector)
       : document.getElementById(idOrSelector);
-    if (node) node.textContent = value ?? "Ã¢â‚¬â€";
+    if (node) node.textContent = value ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â";
   }
 
   function showToast(message, type = "ok") {
@@ -131,7 +131,7 @@
       name: raw.name || raw.company_name || raw.nombre || "Empresa sin nombre",
       slug: raw.slug || raw.company_slug || raw.code || "",
       status: raw.status || raw.estado || "active",
-      plan: raw.plan || raw.package_code || raw.package || raw.subscription_plan || "Ã¢â‚¬â€",
+      plan: raw.plan || raw.package_code || raw.package || raw.subscription_plan || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â",
       timezone: raw.timezone || raw.tz || "America/Bogota",
     };
   }
@@ -206,7 +206,7 @@
       id: raw.id || raw.package_id || raw.uuid,
       code: raw.code || raw.package_code || "",
       name: raw.name || raw.package_name || raw.nombre || raw.code || "Paquete",
-      description: raw.description || raw.descripción || "",
+      description: raw.description || raw.descripciÃ³n || "",
       is_active: raw.is_active !== false && raw.status !== "inactive",
       modules: safeArray(raw.modules || raw.package_modules || raw.packageModules),
     };
@@ -219,14 +219,14 @@
 
     const meta = typeof cxModuleMeta === "function"
       ? cxModuleMeta({ ...source, code })
-      : { name: source.name || code || "Módulo", description: source.description || "", category: source.category || "general" };
+      : { name: source.name || code || "MÃ³dulo", description: source.description || "", category: source.category || "general" };
 
     return {
       id: source.id || input.module_id || input.id || code,
       company_module_id: input.module ? input.id : null,
       module_id: input.module_id || source.id || input.id || null,
       code,
-      name: meta.name || source.name || code || "Módulo",
+      name: meta.name || source.name || code || "MÃ³dulo",
       description: source.description || input.description || meta.description || "",
       category: source.category || input.category || meta.category || "general",
       is_active: source.is_active !== false,
@@ -281,7 +281,7 @@
 
     const status = String(owner.status || "active").toLowerCase();
     const locked = isFutureDate(owner.locked_until);
-    if (companyAdmins.length > 1) return { owner, companyAdmins, status: "MÃƒÅ¡LTIPLE", level: "warn" };
+    if (companyAdmins.length > 1) return { owner, companyAdmins, status: "MÃƒÆ’Ã…Â¡LTIPLE", level: "warn" };
     if (locked || status === "blocked") return { owner, companyAdmins, status: "BLOQUEADO", level: "danger" };
     if (status === "inactive") return { owner, companyAdmins, status: "INACTIVO", level: "danger" };
     return { owner, companyAdmins, status: "OK", level: "ok" };
@@ -299,13 +299,13 @@
   }
 
   function packageForCompany(company) {
-    if (!company) return "Ã¢â‚¬â€";
+    if (!company) return "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â";
 
     const direct = company.package_code || company.package_name || company.package || company.plan_name;
-    if (direct && direct !== "Ã¢â‚¬â€") return direct;
+    if (direct && direct !== "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â") return direct;
 
     const activeCodes = new Set(moduleCodesForCompany(company.id));
-    if (!activeCodes.size) return company.plan || "Ã¢â‚¬â€";
+    if (!activeCodes.size) return company.plan || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â";
 
     let best = null;
     let bestScore = 0;
@@ -324,7 +324,7 @@
       }
     }
 
-    return best ? best.code || best.name : (company.plan || "Ã¢â‚¬â€");
+    return best ? best.code || best.name : (company.plan || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â");
   }
 
   const CX_DASHBOARD_ACTIVITY_LIMIT_023A = 12;
@@ -380,9 +380,9 @@
     const text = String(message || "").toLowerCase();
     return (
       text.includes("no esta asignado")
-      || text.includes("no está asignado")
+      || text.includes("no estÃ¡ asignado")
       || text.includes("no esta activo")
-      || text.includes("no está activo")
+      || text.includes("no estÃ¡ activo")
       || text.includes("not assigned")
       || text.includes("not active")
     );
@@ -685,7 +685,7 @@
 
     const labels = {
       base: "Base / Workforce",
-      velvet_references: "Velvet / Referencias producción",
+      velvet_references: "Velvet / Referencias producciÃ³n",
       field_operations: "Campo / GPS / Materiales",
       retail_sales: "Retail / Ventas",
       hospitality_orders: "Hospitality / Pedidos",
@@ -712,7 +712,7 @@
     ];
 
     if (codes.includes("references") && codes.includes("workforce")) {
-      options.push(["velvet_references", "Velvet / Referencias producción"]);
+      options.push(["velvet_references", "Velvet / Referencias producciÃ³n"]);
     }
 
     if (codes.includes("gps") || codes.includes("materials") || codes.includes("field")) {
@@ -760,7 +760,7 @@
       <div class="cx-cards-grid" style="margin-bottom:18px">
         <a class="cx-package-card" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer"><h3>Portal cliente</h3><p>Vista del tenant.</p></a>
         <a class="cx-package-card" href="/admin" target="_blank" rel="noreferrer"><h3>Admin actual</h3><p>Configurador especializado.</p></a>
-        <a class="cx-package-card" href="/docs" target="_blank" rel="noreferrer"><h3>Swagger</h3><p>Documentación API.</p></a>
+        <a class="cx-package-card" href="/docs" target="_blank" rel="noreferrer"><h3>Swagger</h3><p>DocumentaciÃ³n API.</p></a>
         <button class="cx-package-card" data-copy="${escapeHtml(company.id)}" type="button"><h3>Copiar Company ID</h3><p>${escapeHtml(company.id)}</p></button>
       </div>
 
@@ -775,7 +775,7 @@
 
         ${!botsEnabled ? `
           <div class="cx-alert" style="display:block;margin:12px 0">
-            El módulo Bots no esta activo para esta empresa. Puedes guardar el token, pero activa Bots para usar captura operativa.
+            El mÃ³dulo Bots no esta activo para esta empresa. Puedes guardar el token, pero activa Bots para usar captura operativa.
           </div>
         ` : ""}
 
@@ -786,7 +786,7 @@
           <div class="cx-kv"><span>Usuario bot</span><strong>${escapeHtml(config?.bot_username ? `@${config.bot_username}` : "Sin validar")}</strong></div>
           <div class="cx-kv"><span>Flujo</span><strong>${escapeHtml(botFlowLabel(botFlowCode))}</strong></div>
           <div class="cx-kv"><span>Webhook</span><strong>${escapeHtml(botWebhookMode)}</strong></div>
-          <div class="cx-kv"><span>Última validación</span><strong>${escapeHtml(config?.last_validated_at || "Sin validar")}</strong></div>
+          <div class="cx-kv"><span>Ãšltima validaciÃ³n</span><strong>${escapeHtml(config?.last_validated_at || "Sin validar")}</strong></div>
           <div class="cx-kv"><span>Error</span><strong>${escapeHtml(config?.last_error || "Sin error")}</strong></div>
         </div>
 
@@ -795,18 +795,18 @@
             <input name="name" type="text" value="${escapeHtml(config?.name || `${company.name} Telegram Bot`)}" placeholder="Bot ${escapeHtml(company.name)}" />
           </label>
           <label>Token Telegram BotFather
-            <input name="token" type="password" autocomplete="off" placeholder="${config?.configured ? "Pega un token nuevo solo si quieres reemplazarlo" : "Pega aquí el token de BotFather"}" />
+            <input name="token" type="password" autocomplete="off" placeholder="${config?.configured ? "Pega un token nuevo solo si quieres reemplazarlo" : "Pega aquÃ­ el token de BotFather"}" />
           </label>
           <label>Flujo del bot
             <select name="flow_code" data-bot-flow-company="${escapeHtml(company.id)}">
               ${botFlowOptions(company, botFlowCode)}
             </select>
-            <small>El flujo se sugiere según los módulos activos de esta empresa.</small>
+            <small>El flujo se sugiere segÃºn los mÃ³dulos activos de esta empresa.</small>
           </label>
           ${botWebhookUrl ? `<div class="cx-alert" style="display:block;margin:10px 0"><strong>Webhook dedicado:</strong><br>${escapeHtml(botWebhookUrl)}</div>` : ""}
           <div class="cx-actions" style="margin-top:10px;gap:10px;flex-wrap:wrap">
             <button class="cx-btn cx-btn-primary" type="submit">Guardar token</button>
-            <button class="cx-btn" type="button" data-test-telegram-bot="${escapeHtml(company.id)}">Probar conexión</button>
+            <button class="cx-btn" type="button" data-test-telegram-bot="${escapeHtml(company.id)}">Probar conexiÃ³n</button>
             ${config?.configured ? `<button class="cx-btn cx-btn-primary" type="button" data-start-telegram-listener="${escapeHtml(company.id)}">${config?.webhook_mode === "dedicated" ? "Reinstalar webhook dedicado" : "Activar webhook dedicado"}</button>` : ""}
             ${config?.configured ? `<button class="cx-btn" type="button" data-deactivate-telegram-bot="${escapeHtml(company.id)}">Desactivar bot</button>` : ""}
           </div>
@@ -1078,7 +1078,7 @@
         state.errors.push(`Paquetes: ${error.message}`);
       }),
       loadModules().catch((error) => {
-        state.errors.push(`Módulos: ${error.message}`);
+        state.errors.push(`MÃ³dulos: ${error.message}`);
       }),
     ];
 
@@ -1284,8 +1284,8 @@
           </td>
           <td><code>${escapeHtml(company.slug || "-")}</code></td>
           <td>${statusBadge(company.status)}<br><small>Acceso Maestro: ${ownerAccessBadge(users)}</small></td>
-          <td>${escapeHtml(company.plan || "Ã¢â‚¬â€")}</td>
-          <td>${escapeHtml(company.timezone || "Ã¢â‚¬â€")}</td>
+          <td>${escapeHtml(company.plan || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</td>
+          <td>${escapeHtml(company.timezone || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</td>
           <td><span class="cx-badge cx-badge-primary">${escapeHtml(pkg)}</span></td>
           <td>
             <strong>${escapeHtml(moduleCount)}</strong>
@@ -1296,7 +1296,7 @@
               <button class="cx-btn cx-btn-primary cx-btn-small" data-select-company="${escapeHtml(company.id)}" type="button">Gestionar</button>
               ${archived ? `<span class="cx-badge cx-badge-danger">Archivada</span>` : `<span class="cx-badge">Command Center</span>`}
             </div>
-            ${ownerInfo.status === "MÃƒÅ¡LTIPLE" ? `<br><small>Hay mÃƒÂºltiples accesos maestros.</small>` : ""}
+            ${ownerInfo.status === "MÃƒÆ’Ã…Â¡LTIPLE" ? `<br><small>Hay mÃƒÆ’Ã‚Âºltiples accesos maestros.</small>` : ""}
           </td>
         </tr>
       `;
@@ -1321,7 +1321,7 @@
   const CX_PACKAGE_MINI_PANEL_TYPES = [
     { code: "store", label: "Tiendas" },
     { code: "sales", label: "Ventas" },
-    { code: "logistics", label: "Logística" },
+    { code: "logistics", label: "LogÃ­stica" },
     { code: "inventory", label: "Inventarios" },
     { code: "other", label: "Otros" },
   ];
@@ -1356,7 +1356,7 @@
     const config = cxPackageMiniPanelDefaultSettings(settings || {});
     const enabledTypes = CX_PACKAGE_MINI_PANEL_TYPES.filter((def) => config.types[def.code]?.enabled);
     if (!config.enabled || !enabledTypes.length) return "Mini panel deshabilitado";
-    return enabledTypes.map((def) => `${def.label}: ${config.types[def.code].users_allowed || 0}`).join(" · ");
+    return enabledTypes.map((def) => `${def.label}: ${config.types[def.code].users_allowed || 0}`).join(" Â· ");
   }
 
   function cxPackageHasMiniPanelModule(pkg) {
@@ -1448,7 +1448,7 @@
     const { package_payload, mini_panel } = cxReadPackageBuilderForm(form);
 
     if (!package_payload.name || !package_payload.code) {
-      throw new Error("Nombre y código del paquete son obligatorios.");
+      throw new Error("Nombre y cÃ³digo del paquete son obligatorios.");
     }
 
     let saved;
@@ -1485,7 +1485,7 @@
     });
 
     if (!modules.length) {
-      return `<div class="cx-empty-state">No hay módulos cargados para armar paquetes.</div>`;
+      return `<div class="cx-empty-state">No hay mÃ³dulos cargados para armar paquetes.</div>`;
     }
 
     return `
@@ -1498,7 +1498,7 @@
               <input type="checkbox" name="module_codes" value="${escapeHtml(module.code)}" ${checked ? "checked" : ""} data-builder-module-code="${escapeHtml(module.code)}">
               <span>
                 <strong>${escapeHtml(meta.name || module.name || module.code)}</strong>
-                <small>${escapeHtml(module.code)} · ${escapeHtml(meta.categoryLabel || module.category || "General")}</small>
+                <small>${escapeHtml(module.code)} Â· ${escapeHtml(meta.categoryLabel || module.category || "General")}</small>
               </span>
             </label>
           `;
@@ -1519,8 +1519,8 @@
       <section class="cx-mini-card" data-builder-mini-panel-section ${miniPanelSelected ? "" : "hidden"} style="margin-top:14px">
         <div class="cx-card-head">
           <div>
-            <strong>Configuración mini_panel</strong>
-            <p>Solo aparece cuando el paquete incluye el módulo CREACION MINI_PANEL.</p>
+            <strong>ConfiguraciÃ³n mini_panel</strong>
+            <p>Solo aparece cuando el paquete incluye el mÃ³dulo CREACION MINI_PANEL.</p>
           </div>
           <span class="cx-badge ${isEnabled ? "cx-badge-live" : ""}">${isEnabled ? "Habilitado" : "Pendiente"}</span>
         </div>
@@ -1589,7 +1589,7 @@
         <div class="cx-card-head">
           <div>
             <h3>ARMAR PAQUETES</h3>
-            <p>Crea paquetes SaaS seleccionando módulos a gusto. Si incluyes CREACION MINI_PANEL, se habilita su configuracion.</p>
+            <p>Crea paquetes SaaS seleccionando mÃ³dulos a gusto. Si incluyes CREACION MINI_PANEL, se habilita su configuracion.</p>
           </div>
           ${editing ? `<span class="cx-badge cx-badge-live">Editando</span>` : `<span class="cx-badge">Nuevo</span>`}
         </div>
@@ -1598,11 +1598,11 @@
           <input name="name" type="text" required value="${escapeHtml(editing?.name || "")}" placeholder="Retail Mundo Case">
         </label>
 
-        <label>Código del paquete
+        <label>CÃ³digo del paquete
           <input name="code" type="text" required value="${escapeHtml(editing?.code || "")}" placeholder="retail_mundo_case">
         </label>
 
-        <label>Descripción
+        <label>DescripciÃ³n
           <textarea name="description" rows="3" placeholder="Paquete SaaS para tiendas, ventas y mini paneles.">${escapeHtml(editing?.description || "")}</textarea>
         </label>
 
@@ -1614,8 +1614,8 @@
         <div class="cx-mini-card">
           <div class="cx-card-head">
             <div>
-              <strong>Módulos incluidos</strong>
-              <p>Selecciona los módulos que tendrá este paquete.</p>
+              <strong>MÃ³dulos incluidos</strong>
+              <p>Selecciona los mÃ³dulos que tendrÃ¡ este paquete.</p>
             </div>
             <span class="cx-badge">${escapeHtml(selectedCodes.length)} seleccionados</span>
           </div>
@@ -1658,7 +1658,7 @@
     const modules = cxPackageModuleCodes(pkg);
     const moduleChips = modules.length
       ? modules.map((code) => `<span class="cx-badge">${escapeHtml(code)}</span>`).join("")
-      : `<span class="cx-badge">Sin módulos</span>`;
+      : `<span class="cx-badge">Sin mÃ³dulos</span>`;
 
     const miniRows = config.enabled
       ? CX_PACKAGE_MINI_PANEL_TYPES.filter((def) => config.types[def.code]?.enabled).map((def) => `
@@ -2027,7 +2027,7 @@
       const modules = cxPackageModuleCodes(normalized);
       const modulePreview = modules.length
         ? modules.slice(0, 7).map((code) => `<span class="cx-badge">${escapeHtml(code)}</span>`).join("")
-        : `<span class="cx-badge">Sin módulos</span>`;
+        : `<span class="cx-badge">Sin mÃ³dulos</span>`;
 
       return `
         <article class="cx-package-card">
@@ -2087,27 +2087,27 @@
     core_settings: ["Ajustes", "Idioma, moneda, branding, claves y preferencias generales por empresa.", "Core", "SET"],
     mini_panel: ["Mini Paneles", "Links operativos, usuarios de panel y accesos por rol.", "Core", "MIN"],
     workforce: ["Personal", "Gestion de personal operativo, roles internos y disponibilidad por empresa.", "Core", "WRK"],
-    field: ["Operación en campo", "Control para equipos externos, rutas, evidencias y actividad operativa.", "Campo", "FLD"],
+    field: ["OperaciÃ³n en campo", "Control para equipos externos, rutas, evidencias y actividad operativa.", "Campo", "FLD"],
     gps: ["GPS", "Ubicacion, rutas y control de equipos en campo.", "Campo", "GPS"],
     login: ["Login tiendas", "Acceso de tienda, turnos y sesiones de colaboradores.", "Campo", "LOG"],
     cotizacion: ["Cotizaciones", "Captura y seguimiento de cotizaciones del tenant.", "Retail", "COT"],
-    payroll: ["Nómina", "Calculo de horas, cortes y pagos operativos.", "Finanzas", "PAY"],
+    payroll: ["NÃ³mina", "Calculo de horas, cortes y pagos operativos.", "Finanzas", "PAY"],
     registro_venta: ["Registro Venta", "Captura directa de ventas, facturas y medios de pago.", "Retail", "REG"],
     day_closing: ["Cierre de dia", "Resumen diario de ventas, pedidos, inventario y operacion.", "Hospitality", "DAY"],
     hospitality: ["Hospitality", "Motor para bares, restaurantes, mesas, pedidos y atencion comercial.", "Hospitality", "HSP"],
-    loyalty: ["Fidelización", "Clientes recurrentes, beneficios y seguimiento comercial.", "Hospitality", "LOY"],
-    orders: ["Pedidos", "Creación, seguimiento y estados de pedidos.", "Hospitality", "ORD"],
+    loyalty: ["FidelizaciÃ³n", "Clientes recurrentes, beneficios y seguimiento comercial.", "Hospitality", "LOY"],
+    orders: ["Pedidos", "CreaciÃ³n, seguimiento y estados de pedidos.", "Hospitality", "ORD"],
     tables: ["Mesas", "Gestion de mesas, cuentas y sesiones por QR.", "Hospitality", "TBL"],
     bots: ["Bots", "Entrada por Telegram, WhatsApp y automatizaciones.", "Input", "BOT"],
     qr: ["QR", "Accesos por QR para mesas, operaciones o formularios.", "Input", "QR"],
     inventory: ["Inventario", "Stock, existencias y control operativo de productos o materiales.", "Inventario", "INV"],
     materials: ["Materiales", "Solicitud, entrega, devolucion y control de materiales.", "Inventario", "MAT"],
     stock: ["Stock", "Existencias, minimos y alertas de disponibilidad.", "Inventario", "STK"],
-    costs: ["Costos", "Costeo por referencia, produccion, servicio o pedido.", "Producción", "CST"],
-    production: ["Producción", "Control de tiempos, referencias, productividad y costos.", "Producción", "PRD"],
-    references: ["Referencias", "Catálogo de referencias, productos o servicios medibles.", "Producción", "REF"],
+    costs: ["Costos", "Costeo por referencia, produccion, servicio o pedido.", "ProducciÃ³n", "CST"],
+    production: ["ProducciÃ³n", "Control de tiempos, referencias, productividad y costos.", "ProducciÃ³n", "PRD"],
+    references: ["Referencias", "CatÃ¡logo de referencias, productos o servicios medibles.", "ProducciÃ³n", "REF"],
     crm: ["CRM Campo", "Vista operativa para seguimiento, control y acciones por empresa.", "Reportes", "CRM"],
-    kpis: ["KPIs", "Indicadores ejecutivos y metricas por módulo.", "Reportes", "KPI"],
+    kpis: ["KPIs", "Indicadores ejecutivos y metricas por mÃ³dulo.", "Reportes", "KPI"],
     reports: ["Reportes", "Reportes operativos, historicos y auditoria.", "Reportes", "REP"],
     notas___agenda: ["Notas / Agenda", "Notas internas, recordatorios y seguimiento operativo.", "Reportes", "NOT"],
     commercial_closing: ["Cierre comercial", "Seguimiento de ventas, cierres y resultados comerciales.", "Retail", "COM"],
@@ -2170,9 +2170,9 @@
 
   function cxModuleMeta(module) {
     const code = String(module?.code || module?.module_code || "").trim();
-    const fallbackName = module?.name || code || "Módulo";
+    const fallbackName = module?.name || code || "MÃ³dulo";
     const fallbackCategory = module?.category || "general";
-    const meta = CX_MODULE_META[code] || [fallbackName, module?.description || "Módulo operativo disponible para asignar por empresa.", fallbackCategory, code.slice(0, 3).toUpperCase() || "MOD"];
+    const meta = CX_MODULE_META[code] || [fallbackName, module?.description || "MÃ³dulo operativo disponible para asignar por empresa.", fallbackCategory, code.slice(0, 3).toUpperCase() || "MOD"];
 
     return {
       code,
@@ -2220,7 +2220,7 @@
         const code = infoButton.dataset.moduleCode;
         const module = state.modules.find((item) => item.code === code) || { code };
         const meta = cxModuleMeta(module);
-        alert(`${meta.name}\n\n${meta.description}\n\nCategoría: ${meta.categoryLabel}\nCódigo: ${meta.code}`);
+        alert(`${meta.name}\n\n${meta.description}\n\nCategorÃ­a: ${meta.categoryLabel}\nCÃ³digo: ${meta.code}`);
         return;
       }
 
@@ -2247,7 +2247,7 @@
         if (typeof renderCompanies === "function") renderCompanies();
         if (typeof renderModules === "function") renderModules();
       } catch (error) {
-        alert(`No se pudo ${action === "activate" ? "activar" : "desactivar"} el módulo: ${error.message}`);
+        alert(`No se pudo ${action === "activate" ? "activar" : "desactivar"} el mÃ³dulo: ${error.message}`);
       } finally {
         toggleButton.disabled = false;
       }
@@ -2269,7 +2269,7 @@
       };
 
       if (!payload.code || !payload.name) {
-        alert("Código y nombre son obligatorios.");
+        alert("CÃ³digo y nombre son obligatorios.");
         return;
       }
 
@@ -2289,11 +2289,11 @@
         renderModules();
         form.reset();
       } catch (error) {
-        alert(`No se pudo crear el módulo: ${error.message}`);
+        alert(`No se pudo crear el mÃ³dulo: ${error.message}`);
       } finally {
         if (button) {
           button.disabled = false;
-          button.textContent = "Crear módulo";
+          button.textContent = "Crear mÃ³dulo";
         }
       }
     });
@@ -2465,7 +2465,7 @@
                   <span class="cx-badge">${escapeHtml(module.meta.badge)}</span>
                   <div>
                     <strong>${escapeHtml(module.meta.name)}</strong>
-                    <small>${escapeHtml(module.code)} · ${escapeHtml(module.meta.categoryLabel || module.category || "General")}</small>
+                    <small>${escapeHtml(module.code)} Â· ${escapeHtml(module.meta.categoryLabel || module.category || "General")}</small>
                   </div>
                 </div>
                 <div class="cx-module-state-025m">
@@ -2519,8 +2519,8 @@
         <div class="cx-kv"><span>API</span><strong>${state.health && state.health.ok !== false ? "LIVE" : "OFFLINE"}</strong></div>
         <div class="cx-kv"><span>Empresas</span><strong>${escapeHtml(state.companies.length)}</strong></div>
         <div class="cx-kv"><span>Paquetes</span><strong>${escapeHtml(state.packages.length)}</strong></div>
-        <div class="cx-kv"><span>Módulos</span><strong>${escapeHtml(state.modules.length)}</strong></div>
-        <div class="cx-kv"><span>ÃƒÅ¡ltimo refresh</span><strong>${escapeHtml(state.lastRefresh || "Ã¢â‚¬â€")}</strong></div>
+        <div class="cx-kv"><span>MÃ³dulos</span><strong>${escapeHtml(state.modules.length)}</strong></div>
+        <div class="cx-kv"><span>ÃƒÆ’Ã…Â¡ltimo refresh</span><strong>${escapeHtml(state.lastRefresh || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</strong></div>
         <div class="cx-kv"><span>PostgreSQL</span><strong>${state.health && state.health.ok !== false ? "Derivado OK" : "No verificado"}</strong></div>
       </div>
       <pre class="cx-secret">${escapeHtml(JSON.stringify(state.health || {}, null, 2))}</pre>
@@ -2544,14 +2544,14 @@
           <div class="cx-card-head">
             <div>
               <strong>${escapeHtml(company.name)}</strong>
-              <p>${escapeHtml(company.slug)} Ã‚Â· ${escapeHtml(packageForCompany(company))}</p>
+              <p>${escapeHtml(company.slug)} Ãƒâ€šÃ‚Â· ${escapeHtml(packageForCompany(company))}</p>
             </div>
             <button class="cx-btn cx-btn-small" data-select-company="${escapeHtml(company.id)}" data-detail-tab="crm" type="button">Ver CRM</button>
           </div>
           <div class="cx-actions">
-            <span class="cx-badge">Preset: ${escapeHtml(branding.visual_preset || "Ã¢â‚¬â€")}</span>
-            <span class="cx-badge">Tema: ${escapeHtml(branding.industry_theme || "Ã¢â‚¬â€")}</span>
-            <span class="cx-badge">Color: ${escapeHtml(branding.primary_color || "Ã¢â‚¬â€")}</span>
+            <span class="cx-badge">Preset: ${escapeHtml(branding.visual_preset || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</span>
+            <span class="cx-badge">Tema: ${escapeHtml(branding.industry_theme || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</span>
+            <span class="cx-badge">Color: ${escapeHtml(branding.primary_color || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</span>
           </div>
         </div>
       `;
@@ -2588,7 +2588,7 @@
     const tabs = [
       ["resumen", "Resumen"],
       ["usuarios", "Acceso Maestro"],
-      ["módulos", "Módulos"],
+      ["mÃ³dulos", "MÃ³dulos"],
       ["paquete", "Paquete"],
       ["branding", "Branding"],
       ["crm", "CRM"],
@@ -2848,7 +2848,7 @@
 
   function cxResizeLogoToDataUrl(file, maxSize = 512, quality = 0.86) {
     return new Promise((resolve, reject) => {
-      if (!file) return reject(new Error("No se seleccionó archivo."));
+      if (!file) return reject(new Error("No se seleccionÃ³ archivo."));
       if (!/^image\/(png|jpeg|jpg|webp|svg\+xml)$/.test(file.type)) {
         return reject(new Error("Formato no soportado. Usa PNG, JPG, WEBP o SVG."));
       }
@@ -2947,7 +2947,7 @@
             <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px">
               <div>
                 <div style="letter-spacing:.16em;text-transform:uppercase;color:${escapeHtml(b.secondary_color)};font-weight:900;font-size:12px">Panel cliente</div>
-                <h2 style="margin:8px 0 0;font-size:${large ? "36px" : "28px"}">Operación en tiempo real</h2>
+                <h2 style="margin:8px 0 0;font-size:${large ? "36px" : "28px"}">OperaciÃ³n en tiempo real</h2>
               </div>
               <span style="
                 display:inline-flex;
@@ -2987,7 +2987,7 @@
               ${[
                 ["Supervisor asignado", "Activo"],
                 ["Material pendiente", "3 solicitudes"],
-                ["Último check-in", "Hace 8 min"],
+                ["Ãšltimo check-in", "Hace 8 min"],
               ].map(([left, right]) => `
                 <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08)">
                   <span>${escapeHtml(left)}</span>
@@ -3222,7 +3222,7 @@
       ">
         <div class="cx-card-head">
           <div>
-            <h2>Así se verá el panel cliente</h2>
+            <h2>AsÃ­ se verÃ¡ el panel cliente</h2>
             <p>Preview CRM aplicada con el branding guardado por empresa.</p>
           </div>
           <a class="cx-btn cx-btn-primary" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer">Abrir /client</a>
@@ -3234,7 +3234,7 @@
           <div class="cx-kv"><span>Empresa</span><strong>${escapeHtml(company.name)}</strong></div>
           <div class="cx-kv"><span>Slug</span><strong>${escapeHtml(company.slug)}</strong></div>
           <div class="cx-kv"><span>Paquete</span><strong>${escapeHtml(packageForCompany(company))}</strong></div>
-          <div class="cx-kv"><span>Módulos activos</span><strong>${escapeHtml(modulesCount)}</strong></div>
+          <div class="cx-kv"><span>MÃ³dulos activos</span><strong>${escapeHtml(modulesCount)}</strong></div>
           <div class="cx-kv"><span>Fuente</span><strong>${escapeHtml(b.font_family)}</strong></div>
           <div class="cx-kv"><span>Tarjetas</span><strong>${escapeHtml(b.card_style)}</strong></div>
           <div class="cx-kv"><span>URL cliente</span><strong>/client</strong></div>
@@ -3402,7 +3402,7 @@
               <div class="cx-kv"><span>Company ID</span><code>${escapeHtml(company.id)}</code></div>
             </div>
             <div class="cx-actions" style="margin-top:14px">
-              <button class="cx-btn cx-btn-primary" data-select-company="${escapeHtml(company.id)}" data-detail-tab="módulos" type="button">Gestionar modulos</button>
+              <button class="cx-btn cx-btn-primary" data-select-company="${escapeHtml(company.id)}" data-detail-tab="mÃ³dulos" type="button">Gestionar modulos</button>
               <button class="cx-btn" data-select-company="${escapeHtml(company.id)}" data-detail-tab="usuarios" type="button">Acceso maestro</button>
               <button class="cx-btn cx-btn-danger" data-select-company="${escapeHtml(company.id)}" data-detail-tab="reset" type="button">Reset operativo</button>
             </div>
@@ -3445,13 +3445,13 @@
     orders: "pedidos ordenes comandas compra solicitud cliente mesa",
     tables: "mesas mesa cuenta qr restaurante bar",
     bots: "bot bots telegram whatsapp automatizacion mensajes entrada",
-    qr: "qr código mesa escanear acceso link",
+    qr: "qr cÃ³digo mesa escanear acceso link",
     inventory: "inventario stock existencias productos materiales almacen",
     materials: "materiales material solicitud entregar devolver herramientas stock tecnico",
     stock: "stock inventario minimo existencias alerta",
     costs: "costos costo produccion gasto margen referencia",
     production: "produccion fabricar referencias tiempos productividad costos",
-    references: "referencias productos servicios catálogo sku",
+    references: "referencias productos servicios catÃ¡logo sku",
     crm: "crm panel cliente seguimiento gestion comercial campo",
     kpis: "kpi kpis indicadores metricas rendimiento tablero",
     reports: "reportes informes historicos auditoria exportar",
@@ -3523,7 +3523,7 @@
 
 
     
-    if (tab === "módulos") {
+    if (tab === "mÃ³dulos") {
       const companyRows = cxCompanyModuleRowMap(company.id);
       const allModules = state.modules.length ? state.modules.map(normalizeModule) : modules.map(normalizeModule);
       const activeModules = allModules.filter((module) => {
@@ -3551,7 +3551,7 @@
       node.innerHTML = `
         <div class="cx-card-head" style="margin-bottom:16px">
           <div>
-            <h3>Módulos de ${escapeHtml(company.name)}</h3>
+            <h3>MÃ³dulos de ${escapeHtml(company.name)}</h3>
             <p>Activa o desactiva servicios para esta empresa. Los cambios afectan el CRM y el portal cliente.</p>
           </div>
           <span class="cx-badge cx-badge-primary">${escapeHtml(activeModules.length)} activos</span>
@@ -3560,7 +3560,7 @@
         <section class="cx-panel" style="margin-bottom:18px">
           <div class="cx-card-head">
             <div>
-              <h3>Módulos activos</h3>
+              <h3>MÃ³dulos activos</h3>
               <p>Servicios prendidos actualmente para ${escapeHtml(company.name)}.</p>
             </div>
             <span class="cx-badge cx-badge-live">${escapeHtml(activeModules.length)} activos</span>
@@ -3583,7 +3583,7 @@
                 </button>
               `;
             }).join("") : `
-              <span class="cx-empty-state">No hay módulos activos. Activa servicios desde el catálogo inferior.</span>
+              <span class="cx-empty-state">No hay mÃ³dulos activos. Activa servicios desde el catÃ¡logo inferior.</span>
             `}
           </div>
         </section>
@@ -3591,8 +3591,8 @@
         <section class="cx-panel" style="margin-bottom:18px">
           <div class="cx-card-head">
             <div>
-              <h3>Buscar módulo</h3>
-              <p>Busca por nombre, categoría o necesidad operativa.</p>
+              <h3>Buscar mÃ³dulo</h3>
+              <p>Busca por nombre, categorÃ­a o necesidad operativa.</p>
             </div>
           </div>
 
@@ -3628,7 +3628,7 @@
           </div>
 
           <p style="margin-top:12px;opacity:.72">
-            Mostrando ${escapeHtml(visibleModules.length)} de ${escapeHtml(allModules.length)} módulos.
+            Mostrando ${escapeHtml(visibleModules.length)} de ${escapeHtml(allModules.length)} mÃ³dulos.
           </p>
         </section>
 
@@ -3774,13 +3774,13 @@
     const info = ownerAccessInfo(users);
     const owner = info.owner;
     const warning = info.companyAdmins && info.companyAdmins.length > 1
-      ? `<div class="cx-alert" style="display:block;margin-bottom:14px">Hay mÃƒÂ¡s de un acceso maestro. Se recomienda dejar solo uno.</div>`
+      ? `<div class="cx-alert" style="display:block;margin-bottom:14px">Hay mÃƒÆ’Ã‚Â¡s de un acceso maestro. Se recomienda dejar solo uno.</div>`
       : "";
 
     const explanation = `
       <div class="cx-empty-state" style="text-align:left;margin-bottom:14px">
-        <strong>Usuario dueÃƒÂ±o / encargado</strong><br>
-        Este acceso pertenece al dueÃƒÂ±o o encargado de la empresa.
+        <strong>Usuario dueÃƒÆ’Ã‚Â±o / encargado</strong><br>
+        Este acceso pertenece al dueÃƒÆ’Ã‚Â±o o encargado de la empresa.
         El personal operativo se gestiona desde el panel de la empresa.
       </div>
     `;
@@ -3803,7 +3803,7 @@
               <label>Email
                 <input name="email" type="email" required placeholder="admin@empresa.com" />
               </label>
-              <label>ContraseÃƒÂ±a temporal
+              <label>ContraseÃƒÆ’Ã‚Â±a temporal
                 <div style="display:flex;gap:8px;align-items:center">
                   <input name="password" type="text" required value="${escapeHtml(generateTempPassword(company.slug))}" />
                   <button class="cx-btn cx-btn-small" data-generate-password-for-form="#createUserForm" type="button">Generar clave</button>
@@ -3828,18 +3828,18 @@
           <div class="cx-card-head">
             <div>
               <strong>${escapeHtml(owner.email)}</strong>
-              <p>${escapeHtml(owner.full_name || "Encargado")} Ã‚Â· dueÃƒÂ±o / encargado</p>
+              <p>${escapeHtml(owner.full_name || "Encargado")} Ãƒâ€šÃ‚Â· dueÃƒÆ’Ã‚Â±o / encargado</p>
             </div>
             ${ownerAccessBadge(users)}
           </div>
           <div class="cx-detail-grid">
             <div class="cx-kv"><span>Rol</span><strong>${escapeHtml(owner.role || "company_admin")}</strong></div>
             <div class="cx-kv"><span>Estado</span><strong>${escapeHtml(owner.status || "active")}</strong></div>
-            <div class="cx-kv"><span>Cambio de clave requerido</span><strong>${owner.must_change_password ? "SÃƒÂ­" : "No"}</strong></div>
+            <div class="cx-kv"><span>Cambio de clave requerido</span><strong>${owner.must_change_password ? "SÃƒÆ’Ã‚Â­" : "No"}</strong></div>
             <div class="cx-kv"><span>Intentos fallidos</span><strong>${escapeHtml(owner.failed_login_attempts || 0)}</strong></div>
-            <div class="cx-kv"><span>Bloqueado hasta</span><strong>${escapeHtml(owner.locked_until || "Ã¢â‚¬â€")}</strong></div>
-            <div class="cx-kv"><span>ÃƒÅ¡ltimo login</span><strong>${escapeHtml(owner.last_login_at || "Ã¢â‚¬â€")}</strong></div>
-            <div class="cx-kv"><span>ÃƒÅ¡ltimo reset</span><strong>${escapeHtml(owner.last_password_reset_at || "Ã¢â‚¬â€")}</strong></div>
+            <div class="cx-kv"><span>Bloqueado hasta</span><strong>${escapeHtml(owner.locked_until || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</strong></div>
+            <div class="cx-kv"><span>ÃƒÆ’Ã…Â¡ltimo login</span><strong>${escapeHtml(owner.last_login_at || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</strong></div>
+            <div class="cx-kv"><span>ÃƒÆ’Ã…Â¡ltimo reset</span><strong>${escapeHtml(owner.last_password_reset_at || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</strong></div>
             <div class="cx-kv"><span>Empresa</span><strong>${escapeHtml(company.name)}</strong></div>
           </div>
           <div class="cx-actions" style="margin-top:12px">
@@ -3852,7 +3852,7 @@
         <aside>
           <form class="cx-form" data-owner-reset-form="${escapeHtml(owner.id)}">
             <h3>Clave temporal</h3>
-            <p>Entrega esta clave al dueÃƒÂ±o/encargado. Al ingresar podrÃƒÂ¡ cambiarla.</p>
+            <p>Entrega esta clave al dueÃƒÆ’Ã‚Â±o/encargado. Al ingresar podrÃƒÆ’Ã‚Â¡ cambiarla.</p>
             <label>Clave temporal
               <input data-owner-reset-input="${escapeHtml(owner.id)}" type="text" value="${escapeHtml(generateTempPassword(company.slug))}" />
             </label>
@@ -3868,7 +3868,7 @@
     if (!node) return;
 
     if (!state.selectedCompanyId) {
-      node.innerHTML = `<div class="cx-empty-state">Selecciona una empresa en la secciÃƒÂ³n Empresas para gestionar el Acceso Maestro.</div>`;
+      node.innerHTML = `<div class="cx-empty-state">Selecciona una empresa en la secciÃƒÆ’Ã‚Â³n Empresas para gestionar el Acceso Maestro.</div>`;
       return;
     }
 
@@ -3904,7 +3904,7 @@
     section.innerHTML = `
       <div class="cx-empty-state" style="text-align:left;margin:14px 0">
         <strong>Acceso Maestro</strong><br>
-        Este serÃƒÂ¡ el usuario dueÃƒÂ±o o encargado que entrarÃƒÂ¡ al panel de la empresa.
+        Este serÃƒÆ’Ã‚Â¡ el usuario dueÃƒÆ’Ã‚Â±o o encargado que entrarÃƒÆ’Ã‚Â¡ al panel de la empresa.
         El personal operativo se gestiona desde el panel de la empresa.
       </div>
       <label>Nombre del encargado
@@ -3913,7 +3913,7 @@
       <label>Email del encargado
         <input name="owner_email" type="email" placeholder="admin@empresa.com" autocomplete="off" />
       </label>
-      <label>ContraseÃƒÂ±a temporal
+      <label>ContraseÃƒÆ’Ã‚Â±a temporal
         <div style="display:flex;gap:8px;align-items:center">
           <input name="owner_password" type="text" placeholder="Clonexa-empresa-a7k2!" autocomplete="off" />
           <button class="cx-btn cx-btn-small" data-generate-create-owner-password type="button">Generar clave</button>
@@ -3944,10 +3944,10 @@
     box.hidden = false;
     box.innerHTML = `
       <strong>Empresa creada correctamente.</strong><br>
-      <span>Empresa: ${escapeHtml(company?.name || "Ã¢â‚¬â€")}</span><br>
-      <span>Slug: ${escapeHtml(company?.slug || "Ã¢â‚¬â€")}</span><br>
-      <span>Email acceso maestro: ${escapeHtml(ownerEmail || "Ã¢â‚¬â€")}</span><br>
-      <span>Clave temporal: <strong>${escapeHtml(temporaryPassword || "Ã¢â‚¬â€")}</strong></span>
+      <span>Empresa: ${escapeHtml(company?.name || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</span><br>
+      <span>Slug: ${escapeHtml(company?.slug || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</span><br>
+      <span>Email acceso maestro: ${escapeHtml(ownerEmail || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</span><br>
+      <span>Clave temporal: <strong>${escapeHtml(temporaryPassword || "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â")}</strong></span>
       ${packageWarning ? `<br><span class="cx-badge cx-badge-danger">${escapeHtml(packageWarning)}</span>` : ""}
       ${ownerWarning ? `<br><span class="cx-badge cx-badge-danger">${escapeHtml(ownerWarning)}</span>` : ""}
       <div class="cx-actions" style="margin-top:10px">
@@ -4075,14 +4075,14 @@
       : document.getElementById("createUserForm");
 
     if (!form) {
-      showToast("No se encontrÃ³ el formulario de acceso maestro.", "error");
+      showToast("No se encontrÃƒÂ³ el formulario de acceso maestro.", "error");
       console.error("[CLONEXA Admin V2] createUserForm not found");
       return;
     }
 
     const effectiveCompanyId = companyId || state.selectedCompanyId;
     if (!effectiveCompanyId) {
-      showToast("No se encontrÃ³ la empresa seleccionada.", "error");
+      showToast("No se encontrÃƒÂ³ la empresa seleccionada.", "error");
       return;
     }
 
@@ -4102,7 +4102,7 @@
     }
 
     if (!password) {
-      showToast("ContraseÃ±a temporal requerida.", "error");
+      showToast("ContraseÃƒÂ±a temporal requerida.", "error");
       return;
     }
 
@@ -4176,7 +4176,7 @@
       renderUsersGlobalView();
       showToast("Estado de acceso actualizado.");
     } catch (error) {
-      showToast(`Activar/desactivar acceso no estÃƒÂ¡ disponible todavÃƒÂ­a: ${error.message}`, "error");
+      showToast(`Activar/desactivar acceso no estÃƒÆ’Ã‚Â¡ disponible todavÃƒÆ’Ã‚Â­a: ${error.message}`, "error");
     }
   }
 
@@ -4188,7 +4188,7 @@
       : el("#brandingForm");
 
     if (!form) {
-      showToast("No se encontró el formulario de branding.", "error");
+      showToast("No se encontrÃ³ el formulario de branding.", "error");
       return;
     }
 
@@ -4287,7 +4287,7 @@
       <form method="dialog" class="cx-form" style="min-width:min(560px,92vw)">
         <h2>Eliminar / archivar empresa</h2>
         <div class="cx-empty-state" style="text-align:left">
-          Esta acciÃƒÂ³n archivarÃƒÂ¡ la empresa y bloquearÃƒÂ¡ su acceso. No se eliminarÃƒÂ¡n datos fÃƒÂ­sicos.
+          Esta acciÃƒÆ’Ã‚Â³n archivarÃƒÆ’Ã‚Â¡ la empresa y bloquearÃƒÆ’Ã‚Â¡ su acceso. No se eliminarÃƒÆ’Ã‚Â¡n datos fÃƒÆ’Ã‚Â­sicos.
         </div>
         <div class="cx-detail-grid">
           <div class="cx-kv"><span>Empresa</span><strong>${escapeHtml(company.name)}</strong></div>
@@ -4342,16 +4342,16 @@
 
     const usersPanelText = document.querySelector('[data-view-panel="users"] p');
     if (usersPanelText) {
-      usersPanelText.textContent = "Usuario dueÃƒÂ±o/encargado de cada empresa. El personal operativo se gestiona desde el panel de la empresa.";
+      usersPanelText.textContent = "Usuario dueÃƒÆ’Ã‚Â±o/encargado de cada empresa. El personal operativo se gestiona desde el panel de la empresa.";
     }
 
     document.querySelectorAll("th, h2, h3, p, button, span, small, label").forEach((node) => {
       const text = node.textContent ? node.textContent.trim() : "";
       if (text === "Usuarios") node.textContent = "Acceso Maestro";
-      if (text === "Usuarios de acceso") node.textContent = "Usuario dueÃƒÂ±o / encargado";
+      if (text === "Usuarios de acceso") node.textContent = "Usuario dueÃƒÆ’Ã‚Â±o / encargado";
       if (text === "Crear usuario") node.textContent = "Crear acceso maestro";
       if (text === "Reset password") node.textContent = "Regenerar clave";
-      if (text === "ContraseÃƒÂ±a temporal generada") node.textContent = "Clave temporal generada";
+      if (text === "ContraseÃƒÆ’Ã‚Â±a temporal generada") node.textContent = "Clave temporal generada";
       if (text === "Desbloquear usuario") node.textContent = "Desbloquear acceso";
       if (text === "Desactivar usuario") node.textContent = "Desactivar acceso";
       if (text === "Activar usuario") node.textContent = "Activar acceso";
@@ -4371,11 +4371,11 @@
 
     const titles = {
       dashboard: ["Dashboard", "Control SaaS de empresas, actividad, alertas y salud operativa."],
-      companies: ["Empresas", "GestiÃƒÂ³n de tenants, paquetes, módulos, Acceso Maestro y CRM."],
-      users: ["Acceso Maestro", "Usuario dueÃƒÂ±o/encargado, regeneraciÃƒÂ³n de clave y desbloqueo."],
-      packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
+      companies: ["Empresas", "GestiÃƒÆ’Ã‚Â³n de tenants, paquetes, mÃ³dulos, Acceso Maestro y CRM."],
+      users: ["Acceso Maestro", "Usuario dueÃƒÆ’Ã‚Â±o/encargado, regeneraciÃƒÆ’Ã‚Â³n de clave y desbloqueo."],
+      packages: ["Paquetes", "CatÃƒÆ’Ã‚Â¡logo de paquetes SaaS listos para activar."],
       modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
-      access: ["Accesos", "Rutas operativas rápidas del ecosistema."],
+      access: ["Accesos", "Rutas operativas rÃ¡pidas del ecosistema."],
       crm: ["CRM / Panel Empresa", "Estado resumido de branding, experiencia y panel cliente."],
       health: ["Health / Estado del sistema", "Estado de API y conteos principales."]
     };
@@ -4607,7 +4607,7 @@
     try {
       await loadAdminDashboard();
     } catch (error) {
-      showAdminError(`Admin V2 cargÃƒÂ³ con errores parciales: ${error.message}`);
+      showAdminError(`Admin V2 cargÃƒÆ’Ã‚Â³ con errores parciales: ${error.message}`);
     }
   }
 
@@ -4636,7 +4636,7 @@
    - No rompe render.
    - No toca backend.
    - No oculta por busqueda.
-   - Ordena los módulos por relevancia y pone primero el mas parecido.
+   - Ordena los mÃ³dulos por relevancia y pone primero el mas parecido.
 */
 ;(() => {
   if (window.__cxCompanyModuleSmartSearchR4) return;
@@ -4657,7 +4657,7 @@
     pedidos: "pedidos pedido orden ordenes comandas compra solicitud cliente mesa",
     tables: "mesas mesa cuenta qr restaurante bar",
     bots: "bot bots telegram whatsapp automatizacion mensajes entrada",
-    qr: "qr código mesa escanear acceso link",
+    qr: "qr cÃ³digo mesa escanear acceso link",
     inventory: "inventario stock existencias productos materiales almacen",
     inventario: "inventario stock existencias productos materiales almacen",
     materials: "materiales material solicitud entregar devolver herramientas stock tecnico pedir material",
@@ -4665,7 +4665,7 @@
     stock: "stock inventario minimo existencias alerta",
     costs: "costos costo produccion gasto margen referencia",
     production: "produccion fabricar referencias tiempos productividad costos",
-    references: "referencias productos servicios catálogo sku",
+    references: "referencias productos servicios catÃ¡logo sku",
     crm: "crm panel cliente seguimiento gestion comercial campo",
     kpis: "kpi kpis indicadores metricas rendimiento tablero",
     reports: "reportes informes historicos auditoria exportar",
@@ -4828,7 +4828,7 @@
     const visibleCount = ranked.filter((item) => !item.hidden).length;
     const info = searchPanel.querySelector("p[style*='margin-top']");
     if (info) {
-      info.textContent = `Mostrando ${visibleCount} de ${cards.length} módulos. ${query ? "Resultados ordenados por relevancia." : ""}`;
+      info.textContent = `Mostrando ${visibleCount} de ${cards.length} mÃ³dulos. ${query ? "Resultados ordenados por relevancia." : ""}`;
     }
   }
 
@@ -4877,7 +4877,7 @@
     { type: "sales", label: "Ventas", keys: ["ventas", "sales", "sal"] },
     { type: "store", label: "Tiendas", keys: ["tiendas", "stores", "store", "str"] },
     { type: "inventory", label: "Inventario", keys: ["inventario", "inventory", "inv"] },
-    { type: "logistics", label: "Logística", keys: ["logistica", "logística", "field", "gps", "fld"] },
+    { type: "logistics", label: "LogÃ­stica", keys: ["logistica", "logÃ­stica", "field", "gps", "fld"] },
     { type: "other", label: "Otro", keys: ["otro", "other"] }
   ];
 
@@ -4893,7 +4893,7 @@
     "workforce": "workforce",
     "gps": "gps",
     "nomina": "payroll",
-    "nómina": "payroll",
+    "nÃ³mina": "payroll",
     "payroll": "payroll",
     "crm campo": "crm",
     "crm": "crm",
@@ -4915,14 +4915,14 @@
     "reports": "reports",
     "cotizaciones": "cotizacion",
     "cotizacion": "cotizacion",
-    "cotización": "cotizacion",
+    "cotizaciÃ³n": "cotizacion",
     "registro venta": "registro_venta",
     "registro de venta": "registro_venta",
     "cierre de dia": "day_closing",
-    "cierre día": "day_closing",
+    "cierre dÃ­a": "day_closing",
     "day_closing": "day_closing",
     "operacion en campo": "field",
-    "operación en campo": "field",
+    "operaciÃ³n en campo": "field",
     "field": "field"
   };
 
@@ -4945,7 +4945,7 @@
   const MODULE_ALIAS_CANONICAL_022A = {
     "cotizacion": "cotizacion",
     "cotizaciones": "cotizacion",
-    "cotización": "cotizacion",
+    "cotizaciÃ³n": "cotizacion",
     "quote": "cotizacion",
     "quotes": "cotizacion",
     "quotation": "cotizacion",
@@ -5209,7 +5209,7 @@
     return String(card.innerText || "")
       .split("\n")
       .map((x) => x.trim())
-      .filter(Boolean)[0] || "Módulo";
+      .filter(Boolean)[0] || "MÃ³dulo";
   }
 
   function extractModuleCode(card) {
@@ -5255,7 +5255,7 @@
     const label = panelLabel(config.selected_panel);
 
     if (!config.enabled) {
-      return `<div class="cx-mp-r6b-empty">Activa módulos para minipanel para comenzar.</div>`;
+      return `<div class="cx-mp-r6b-empty">Activa mÃ³dulos para minipanel para comenzar.</div>`;
     }
 
     if (!config.selected_panel) {
@@ -5263,7 +5263,7 @@
     }
 
     if (!modules.length) {
-      return `<div class="cx-mp-r6b-empty">Sin módulos asignados a ${label}.</div>`;
+      return `<div class="cx-mp-r6b-empty">Sin mÃ³dulos asignados a ${label}.</div>`;
     }
 
     return `
@@ -5288,13 +5288,13 @@
       <section id="${SECTION_ID}" class="cx-mp-r6b-section">
         <div class="cx-mp-r6b-head">
           <div>
-            <div class="cx-mp-r6b-kicker">CONFIGURACIÓN POR EMPRESA</div>
-            <h3>Módulos para Mini Panel</h3>
-            <p>Activa esta opción, selecciona el panel destino y agrega módulos existentes de esta empresa.</p>
+            <div class="cx-mp-r6b-kicker">CONFIGURACIÃ“N POR EMPRESA</div>
+            <h3>MÃ³dulos para Mini Panel</h3>
+            <p>Activa esta opciÃ³n, selecciona el panel destino y agrega mÃ³dulos existentes de esta empresa.</p>
           </div>
 
           <button class="cx-mp-r6b-toggle ${config.enabled ? "is-on" : ""}" type="button" data-cx-mp-r6b-toggle>
-            ${config.enabled ? "Módulos para minipanel activos" : "Activar módulos para minipanel"}
+            ${config.enabled ? "MÃ³dulos para minipanel activos" : "Activar mÃ³dulos para minipanel"}
           </button>
         </div>
 
@@ -5312,7 +5312,7 @@
               return `
                 <button type="button" class="cx-mp-r6b-panel ${selected ? "is-selected" : ""}" data-cx-mp-r6b-panel="${panel.type}">
                   <span>${panel.label}</span>
-                  <small>${count} módulos asignados</small>
+                  <small>${count} mÃ³dulos asignados</small>
                   <code>${row.link}</code>
                 </button>
               `;
@@ -5327,7 +5327,7 @@
           </div>
 
           <div class="cx-mp-r6b-assigned">
-            <strong>Módulos asignados a ${panelLabel(config.selected_panel)}</strong>
+            <strong>MÃ³dulos asignados a ${panelLabel(config.selected_panel)}</strong>
             ${assignedListHtml(config)}
           </div>
         </div>
@@ -5336,8 +5336,8 @@
   }
 
   function summaryHtml(config) {
-    if (!config.enabled) return "Desactivado. Activa el botón para asignar módulos existentes.";
-    return `Panel destino: <strong>${panelLabel(config.selected_panel)}</strong> · Módulos asignados: <strong>${selectedModules(config).length}</strong>`;
+    if (!config.enabled) return "Desactivado. Activa el botÃ³n para asignar mÃ³dulos existentes.";
+    return `Panel destino: <strong>${panelLabel(config.selected_panel)}</strong> Â· MÃ³dulos asignados: <strong>${selectedModules(config).length}</strong>`;
   }
 
   function renderSection(companyId, config) {
@@ -5420,7 +5420,7 @@
     config = saveLocal(companyId, config);
 
     if (!document.getElementById(SECTION_ID)) {
-      const anchor = findHeading("Buscar módulo");
+      const anchor = findHeading("Buscar mÃ³dulo");
       if (!anchor || !anchor.parentNode) return;
 
       const wrapper = document.createElement("div");
@@ -5512,12 +5512,12 @@
 
 /* CLONEXA_026_LANDING_ANALYTICS_ADMIN_V2_START */
 ;(() => {
-  if (window.__CLONEXA_LANDING_ANALYTICS_V026__) return;
-  window.__CLONEXA_LANDING_ANALYTICS_V026__ = true;
+  if (window.__CLONEXA_LANDING_ANALYTICS_V026B__) return;
+  window.__CLONEXA_LANDING_ANALYTICS_V026B__ = true;
 
   const API_BASE = "/api/v1";
-  const PANEL_ID = "cxLandingAnalyticsPanel026";
   const VIEW = "landing-analytics";
+  const PANEL_ID = "cxLandingAnalyticsPanel026";
 
   const escapeHtml = (value) => String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -5533,6 +5533,7 @@
 
   const dateText = (value) => {
     if (!value) return "—";
+
     try {
       return new Date(value).toLocaleString("es-CO", {
         dateStyle: "short",
@@ -5557,38 +5558,94 @@
     return payload;
   }
 
-  function ensureNav() {
-    const nav = document.querySelector(".cx-nav");
-    if (!nav || nav.querySelector(`[data-view="${VIEW}"]`)) return;
+  function findSidebar() {
+    const candidates = [
+      document.querySelector(".cx-sidebar"),
+      document.querySelector(".sidebar"),
+      document.querySelector("aside"),
+      document.querySelector("nav"),
+      document.querySelector('[class*="sidebar"]'),
+      document.querySelector('[class*="Sidebar"]'),
+      document.querySelector('[class*="nav"]'),
+    ].filter(Boolean);
+
+    return candidates[0] || document.body;
+  }
+
+  function findHealthItem() {
+    const allItems = Array.from(document.querySelectorAll("button, a, div, li"));
+
+    return allItems.find((node) => {
+      const text = String(node.textContent || "").trim().toLowerCase();
+      return (
+        text === "health / estado" ||
+        text === "health" ||
+        text === "estado" ||
+        text.includes("health / estado")
+      );
+    });
+  }
+
+  function ensureNavButton() {
+    const existing =
+      document.querySelector(`[data-view="${VIEW}"]`) ||
+      Array.from(document.querySelectorAll("button, a, div, li")).find((node) => {
+        return String(node.textContent || "").trim().toLowerCase() === "landing analytics";
+      });
+
+    if (existing) {
+      existing.setAttribute("data-view", VIEW);
+      existing.classList.add("cx-nav-item");
+      return existing;
+    }
+
+    const sidebar = findSidebar();
+    const healthItem = findHealthItem();
 
     const button = document.createElement("button");
-    button.className = "cx-nav-item";
-    button.dataset.view = VIEW;
     button.type = "button";
+    button.dataset.view = VIEW;
     button.textContent = "Landing Analytics";
 
-    const health = nav.querySelector('[data-view="health"]');
-    if (health) nav.insertBefore(button, health);
-    else nav.appendChild(button);
+    if (healthItem) {
+      button.className = healthItem.className || "cx-nav-item";
+      button.classList.add("cx-nav-item", "cx-landing-nav-item-026");
+
+      healthItem.insertAdjacentElement("afterend", button);
+    } else {
+      button.className = "cx-nav-item cx-landing-nav-item-026";
+      sidebar.appendChild(button);
+    }
+
+    return button;
   }
 
   function ensurePanel() {
-    if (document.getElementById(PANEL_ID)) return;
+    let panel = document.getElementById(PANEL_ID);
 
-    const main = document.querySelector(".cx-main") || document.querySelector("main") || document.body;
-    const section = document.createElement("section");
+    if (panel) return panel;
 
-    section.className = "cx-view";
-    section.dataset.viewPanel = VIEW;
-    section.id = PANEL_ID;
+    const main =
+      document.querySelector(".cx-main") ||
+      document.querySelector('[class*="main"]') ||
+      document.querySelector("main") ||
+      document.body;
 
-    section.innerHTML = `
+    panel = document.createElement("section");
+    panel.className = "cx-view cx-landing-analytics-view-026";
+    panel.dataset.viewPanel = VIEW;
+    panel.id = PANEL_ID;
+    panel.style.display = "none";
+
+    panel.innerHTML = `
       <article class="cx-card cx-landing-analytics-card">
         <div class="cx-card-head">
           <div>
+            <p class="cx-kicker">ANALÍTICA COMERCIAL</p>
             <h2>Landing Analytics</h2>
-            <p>Visitas, video, CTA, correo y Asambleas de la landing pública.</p>
+            <p>Medición pública de visitas, video, CTA, correo y Asambleas.</p>
           </div>
+
           <div class="cx-actions">
             <select class="cx-input" id="landingAnalyticsDays026">
               <option value="7">7 días</option>
@@ -5596,17 +5653,49 @@
               <option value="30" selected>30 días</option>
               <option value="90">90 días</option>
             </select>
-            <button class="cx-btn cx-btn-primary" id="landingAnalyticsRefresh026" type="button">Actualizar</button>
+
+            <button class="cx-btn cx-btn-primary" id="landingAnalyticsRefresh026" type="button">
+              Actualizar
+            </button>
           </div>
         </div>
 
         <div class="cx-grid-metrics cx-landing-metrics-026">
-          <article class="cx-metric-card"><span>Page views</span><strong id="laPageViews026">—</strong><small>Entradas a landing</small></article>
-          <article class="cx-metric-card"><span>Visitantes únicos</span><strong id="laVisitors026">—</strong><small>visitor_id anónimo</small></article>
-          <article class="cx-metric-card"><span>CTA demo</span><strong id="laCta026">—</strong><small>Solicitar demo</small></article>
-          <article class="cx-metric-card"><span>Video plays</span><strong id="laVideo026">—</strong><small>Reproducciones</small></article>
-          <article class="cx-metric-card"><span>Asambleas</span><strong id="laAssembly026">—</strong><small>Vistas Assembly</small></article>
-          <article class="cx-metric-card"><span>Conversión</span><strong id="laConversion026">—</strong><small>CTA / visitante</small></article>
+          <article class="cx-metric-card">
+            <span>Page views</span>
+            <strong id="laPageViews026">—</strong>
+            <small>Entradas a landing</small>
+          </article>
+
+          <article class="cx-metric-card">
+            <span>Visitantes únicos</span>
+            <strong id="laVisitors026">—</strong>
+            <small>visitor_id anónimo</small>
+          </article>
+
+          <article class="cx-metric-card">
+            <span>CTA demo</span>
+            <strong id="laCta026">—</strong>
+            <small>Solicitar demo</small>
+          </article>
+
+          <article class="cx-metric-card">
+            <span>Video plays</span>
+            <strong id="laVideo026">—</strong>
+            <small>Reproducciones</small>
+          </article>
+
+          <article class="cx-metric-card">
+            <span>Asambleas</span>
+            <strong id="laAssembly026">—</strong>
+            <small>Vistas Assembly</small>
+          </article>
+
+          <article class="cx-metric-card">
+            <span>Conversión</span>
+            <strong id="laConversion026">—</strong>
+            <small>CTA / visitante</small>
+          </article>
         </div>
 
         <div class="cx-layout-two cx-landing-layout-026">
@@ -5617,6 +5706,7 @@
                 <p>Visitas, CTA, video y asambleas por día.</p>
               </div>
             </div>
+
             <div id="laDaily026" class="cx-stack"></div>
           </section>
 
@@ -5627,6 +5717,7 @@
                 <p>Origen del tráfico y zonas más vistas.</p>
               </div>
             </div>
+
             <div id="laSources026" class="cx-stack"></div>
           </section>
         </div>
@@ -5638,12 +5729,15 @@
               <p>Registro operativo de la landing pública.</p>
             </div>
           </div>
+
           <div id="laEvents026" class="cx-table-wrap"></div>
         </section>
       </article>
     `;
 
-    main.appendChild(section);
+    main.appendChild(panel);
+
+    return panel;
   }
 
   function setText(id, value) {
@@ -5672,9 +5766,17 @@
         <div class="cx-landing-day-026">
           <div>
             <strong>${escapeHtml(item.day)}</strong>
-            <small>${number(item.unique_visitors)} visitantes · ${number(item.cta_clicks)} CTA · ${number(item.assembly_views)} Assembly</small>
+            <small>
+              ${number(item.unique_visitors)} visitantes ·
+              ${number(item.cta_clicks)} CTA ·
+              ${number(item.assembly_views)} Assembly
+            </small>
           </div>
-          <div class="cx-landing-bar-026"><span style="width:${width}%"></span></div>
+
+          <div class="cx-landing-bar-026">
+            <span style="width:${width}%"></span>
+          </div>
+
           <b>${number(views)}</b>
         </div>
       `;
@@ -5731,6 +5833,7 @@
             <th>Path</th>
           </tr>
         </thead>
+
         <tbody>
           ${items.map((item) => `
             <tr>
@@ -5748,9 +5851,6 @@
   }
 
   async function loadAnalytics() {
-    ensureNav();
-    ensurePanel();
-
     const days = document.getElementById("landingAnalyticsDays026")?.value || "30";
 
     try {
@@ -5771,49 +5871,73 @@
       renderSources(summary);
       renderEvents(events);
     } catch (error) {
-      const panel = document.getElementById(PANEL_ID);
-      if (panel) {
-        panel.querySelector(".cx-landing-analytics-card").insertAdjacentHTML(
-          "afterbegin",
-          `<div class="cx-alert">No se pudo cargar Landing Analytics: ${escapeHtml(error.message)}</div>`
-        );
+      const eventsNode = document.getElementById("laEvents026");
+      if (eventsNode) {
+        eventsNode.innerHTML = `
+          <div class="cx-alert">
+            No se pudo cargar Landing Analytics: ${escapeHtml(error.message)}
+          </div>
+        `;
       }
     }
   }
 
-  function updateTitleIfActive() {
-    const active = document.querySelector(`.cx-nav-item[data-view="${VIEW}"].active`);
-    if (!active) return;
+  function activateLandingAnalytics() {
+    const panel = ensurePanel();
+    const button = ensureNavButton();
+
+    document.querySelectorAll("[data-view-panel]").forEach((view) => {
+      view.style.display = view === panel ? "" : "none";
+      view.classList.toggle("active", view === panel);
+    });
+
+    document.querySelectorAll("[data-view]").forEach((item) => {
+      item.classList.toggle("active", item === button || item.dataset.view === VIEW);
+    });
 
     const title = document.getElementById("viewTitle");
     const subtitle = document.getElementById("viewSubtitle");
 
     if (title) title.textContent = "Landing Analytics";
-    if (subtitle) subtitle.textContent = "Visitas, conversiones, video, secciones y Asambleas.";
+    if (subtitle) subtitle.textContent = "Visitas, conversiones, video, secciones y Asambleas de la landing.";
+
+    panel.style.display = "";
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
 
     loadAnalytics();
   }
 
-  document.addEventListener("click", (event) => {
-    if (event.target.closest(`[data-view="${VIEW}"]`)) {
-      window.setTimeout(updateTitleIfActive, 0);
-    }
-
-    if (event.target.closest("#landingAnalyticsRefresh026")) {
-      loadAnalytics();
-    }
-  });
-
-  document.addEventListener("change", (event) => {
-    if (event.target.closest("#landingAnalyticsDays026")) {
-      loadAnalytics();
-    }
-  });
-
-  document.addEventListener("DOMContentLoaded", () => {
-    ensureNav();
+  function boot() {
+    ensureNavButton();
     ensurePanel();
+
+    document.addEventListener("click", (event) => {
+      const navItem = event.target.closest(`[data-view="${VIEW}"]`);
+
+      if (navItem) {
+        event.preventDefault();
+        activateLandingAnalytics();
+        return;
+      }
+
+      if (event.target.closest("#landingAnalyticsRefresh026")) {
+        loadAnalytics();
+      }
+    }, true);
+
+    document.addEventListener("change", (event) => {
+      if (event.target.closest("#landingAnalyticsDays026")) {
+        loadAnalytics();
+      }
+    });
+
     loadAnalytics();
-  });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
 })();
 /* CLONEXA_026_LANDING_ANALYTICS_ADMIN_V2_END */

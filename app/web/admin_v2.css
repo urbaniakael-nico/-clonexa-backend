@@ -1536,8 +1536,13 @@ p {
 /* CLONEXA_FORCE_BUILD_019G_R6B_20260513_164425 */
 
 /* CLONEXA_026_LANDING_ANALYTICS_ADMIN_V2_CSS_START */
+.cx-landing-nav-item-026 {
+  width: 100%;
+  cursor: pointer;
+}
+
 .cx-landing-analytics-card {
-  border-color: rgba(255, 43, 214, .28);
+  border-color: rgba(255, 43, 214, .32) !important;
 }
 
 .cx-landing-metrics-026 {
