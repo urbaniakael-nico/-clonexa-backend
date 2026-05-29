@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-  <title>CLONEXA Â· Materiales</title>
+  <title>CLONEXA · Materiales</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
@@ -90,8 +90,8 @@
   <div class="wrap">
     <div class="head">
       <div>
-        <h1 class="title">ðŸ“¦ Solicitud de material</h1>
-        <div class="sub">Busca por referencia, nombre o tamaÃ±o. Agrega al carrito y confirma.</div>
+        <h1 class="title">📦 Solicitud de material</h1>
+        <div class="sub">Busca por referencia, nombre o tamaño. Agrega al carrito y confirma.</div>
       </div>
       <div class="pill">CLONEXA</div>
     </div>
@@ -104,14 +104,14 @@
     <div id="items" class="grid">
       <div class="msg">Cargando inventario...</div>
     </div>
-    <button id="more" class="secondary more" style="display:none">Ver mÃ¡s</button>
+    <button id="more" class="secondary more" style="display:none">Ver más</button>
 
     <div class="cart">
       <div class="cartTitle">
-        <strong>ðŸ›’ Carrito</strong>
+        <strong>🛒 Carrito</strong>
         <button id="clear" class="danger">Vaciar</button>
       </div>
-      <div id="cartLines" class="msg">Carrito vacÃ­o</div>
+      <div id="cartLines" class="msg">Carrito vacío</div>
       <button id="confirm" class="ok" disabled>Confirmar solicitud</button>
     </div>
   </div>
@@ -198,7 +198,7 @@
   }
 
   function itemLabel(item) {
-    return item.item_size ? `${item.name_reference} Â· ${item.item_size}` : item.name_reference;
+    return item.item_size ? `${item.name_reference} · ${item.item_size}` : item.name_reference;
   }
 
   function renderItems(append = false) {
@@ -229,7 +229,7 @@
         const index = Number(btn.getAttribute("data-add"));
         const input = el(`qty_${index}`);
         const qty = Number(input.value || 0);
-        if (!qty || qty <= 0) return showError("Cantidad invÃ¡lida.");
+        if (!qty || qty <= 0) return showError("Cantidad inválida.");
         addToCart(items[index], qty);
       });
     });
@@ -251,7 +251,7 @@
   function renderCart() {
     if (!cart.length) {
       cartNode.className = "msg";
-      cartNode.innerHTML = "Carrito vacÃ­o";
+      cartNode.innerHTML = "Carrito vacío";
       confirmBtn.disabled = true;
       return;
     }

@@ -99,4 +99,3 @@ except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2").warning("Admin Console V2 no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2_ROUTE
-
