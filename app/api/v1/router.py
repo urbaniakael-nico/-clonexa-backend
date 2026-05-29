@@ -132,10 +132,3 @@ api_router.include_router(crm_core_v1_router.router, prefix="/crm-core-v1", tags
 from app.api.v1.endpoints import company_settings_v1 as company_settings_v1_router
 api_router.include_router(company_settings_v1_router.router, prefix="/company-settings-v1", tags=["company_settings_v1"])
 
-# CLONEXA_026_LANDING_ANALYTICS_ROUTER
-try:
-    from app.api.v1.endpoints.landing_analytics import router as landing_analytics_router
-    api_router.include_router(landing_analytics_router, tags=["landing_analytics"])
-except Exception as exc:
-    print(f"CLONEXA landing analytics router disabled: {exc}")
-# END_CLONEXA_026_LANDING_ANALYTICS_ROUTER

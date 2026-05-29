@@ -36,7 +36,7 @@
     <nav class="nav panel">
       <button class="navBtn active" data-target="#companies">Empresas</button>
       <button class="navBtn" data-target="#packages">Paquetes</button>
-      <button class="navBtn" data-target="#modules">Módulos</button>
+      <button class="navBtn" data-target="#modules">MÃ³dulos</button>
       <button class="navBtn" data-target="#future">Bots</button>
       <button class="navBtn" data-target="#health">Health</button>
       <button class="navBtn" data-target="#future">Eventos</button>
@@ -44,24 +44,24 @@
     </nav>
 
     <section class="metrics">
-      <article><span>Total empresas</span><strong id="mCompanies">—</strong><small>Tenants registrados</small></article>
-      <article><span>Total paquetes</span><strong id="mPackages">—</strong><small>Planes SaaS</small></article>
-      <article><span>Total módulos</span><strong id="mModules">—</strong><small>Capacidades globales</small></article>
-      <article><span>Empresas activas</span><strong id="mActiveCompanies">—</strong><small>Operativas</small></article>
-      <article><span>Estado API</span><strong id="mApi">—</strong><small>Backend local</small></article>
-      <article><span>Última actualización</span><strong id="mRefresh">—</strong><small>Frontend</small></article>
+      <article><span>Total empresas</span><strong id="mCompanies">â€”</strong><small>Tenants registrados</small></article>
+      <article><span>Total paquetes</span><strong id="mPackages">â€”</strong><small>Planes SaaS</small></article>
+      <article><span>Total mÃ³dulos</span><strong id="mModules">â€”</strong><small>Capacidades globales</small></article>
+      <article><span>Empresas activas</span><strong id="mActiveCompanies">â€”</strong><small>Operativas</small></article>
+      <article><span>Estado API</span><strong id="mApi">â€”</strong><small>Backend local</small></article>
+      <article><span>Ãšltima actualizaciÃ³n</span><strong id="mRefresh">â€”</strong><small>Frontend</small></article>
     </section>
 
     <section id="health" class="topGrid">
       <article class="panel card">
         <div class="titleRow"><div><span class="eyebrow">HEALTH CENTER</span><h2>Estado operativo</h2></div><span class="mini ok">READY</span></div>
         <div class="healthGrid">
-          <div><span>API status</span><b id="hApi">—</b></div>
-          <div><span>PostgreSQL</span><b id="hDb">Indirecto vía API</b></div>
-          <div><span>Total companies</span><b id="hCompanies">—</b></div>
-          <div><span>Total packages</span><b id="hPackages">—</b></div>
-          <div><span>Total modules</span><b id="hModules">—</b></div>
-          <div><span>Último refresh</span><b id="hRefresh">—</b></div>
+          <div><span>API status</span><b id="hApi">â€”</b></div>
+          <div><span>PostgreSQL</span><b id="hDb">Indirecto vÃ­a API</b></div>
+          <div><span>Total companies</span><b id="hCompanies">â€”</b></div>
+          <div><span>Total packages</span><b id="hPackages">â€”</b></div>
+          <div><span>Total modules</span><b id="hModules">â€”</b></div>
+          <div><span>Ãšltimo refresh</span><b id="hRefresh">â€”</b></div>
         </div>
         <div id="frontendErrors" class="errors hidden"></div>
       </article>
@@ -85,7 +85,7 @@
           <table>
             <thead>
               <tr>
-                <th>Nombre</th><th>Slug</th><th>Estado</th><th>Plan</th><th>Timezone</th><th>Company ID</th><th>Paquete</th><th>Módulos</th><th>Acciones</th>
+                <th>Nombre</th><th>Slug</th><th>Estado</th><th>Plan</th><th>Timezone</th><th>Company ID</th><th>Paquete</th><th>MÃ³dulos</th><th>Acciones</th>
               </tr>
             </thead>
             <tbody id="companiesBody"></tbody>
@@ -95,7 +95,7 @@
 
       <aside class="panel card detail">
         <div class="titleRow"><div><span class="eyebrow">DETALLE EMPRESA</span><h2 id="detailName">Selecciona una empresa</h2></div><span id="detailStatus" class="mini">IDLE</span></div>
-        <div id="detailContent" class="detailContent mutedBlock">El detalle mostrará módulos activos, paquete detectado y accesos rápidos de configuración.</div>
+        <div id="detailContent" class="detailContent mutedBlock">El detalle mostrarÃ¡ mÃ³dulos activos, paquete detectado y accesos rÃ¡pidos de configuraciÃ³n.</div>
       </aside>
     </section>
 
@@ -105,17 +105,17 @@
     </section>
 
     <section id="modules" class="panel card">
-      <div class="titleRow"><div><span class="eyebrow">GLOBAL MODULES</span><h2>Módulos</h2></div><span class="counter" id="modulesCount">0</span></div>
+      <div class="titleRow"><div><span class="eyebrow">GLOBAL MODULES</span><h2>MÃ³dulos</h2></div><span class="counter" id="modulesCount">0</span></div>
       <div id="modulesGroups" class="moduleGroups"></div>
     </section>
 
     <section id="future" class="futureGrid">
-      <article><span>Próximamente</span><b>CRM Builder</b><small>Constructor operativo por empresa</small></article>
-      <article><span>Próximamente</span><b>Branding / Colores</b><small>Identidad visual por cliente</small></article>
-      <article><span>Próximamente</span><b>Idiomas</b><small>Español, Inglés, Francés</small></article>
-      <article><span>Próximamente</span><b>Bots</b><small>Telegram / WhatsApp</small></article>
-      <article><span>Próximamente</span><b>Eventos</b><small>Event stream operativo</small></article>
-      <article><span>Próximamente</span><b>Deploy Cloud</b><small>SaaS multiempresa</small></article>
+      <article><span>PrÃ³ximamente</span><b>CRM Builder</b><small>Constructor operativo por empresa</small></article>
+      <article><span>PrÃ³ximamente</span><b>Branding / Colores</b><small>Identidad visual por cliente</small></article>
+      <article><span>PrÃ³ximamente</span><b>Idiomas</b><small>EspaÃ±ol, InglÃ©s, FrancÃ©s</small></article>
+      <article><span>PrÃ³ximamente</span><b>Bots</b><small>Telegram / WhatsApp</small></article>
+      <article><span>PrÃ³ximamente</span><b>Eventos</b><small>Event stream operativo</small></article>
+      <article><span>PrÃ³ximamente</span><b>Deploy Cloud</b><small>SaaS multiempresa</small></article>
     </section>
   </main>
 
@@ -125,7 +125,7 @@
         <div>
           <span class="eyebrow">CRM BUILDER / PANEL EMPRESA</span>
           <h2 id="crmTitle">Configurar CRM</h2>
-          <p>Define lo que verá el cliente al entrar a su panel con usuario y contraseña.</p>
+          <p>Define lo que verÃ¡ el cliente al entrar a su panel con usuario y contraseÃ±a.</p>
         </div>
         <div class="modalActions">
           <button id="crmRefreshBtn" class="btn ghost" type="button">Recargar</button>
@@ -139,7 +139,7 @@
         <button class="tab" data-tab="launchpadTab">Launchpad</button>
         <button class="tab" data-tab="widgetsTab">Widgets</button>
         <button class="tab" data-tab="sectionsTab">Secciones</button>
-        <button class="tab" data-tab="actionsTab">Acciones rápidas</button>
+        <button class="tab" data-tab="actionsTab">Acciones rÃ¡pidas</button>
         <button class="tab" data-tab="fieldsTab">Campos configurables</button>
         <button class="tab" data-tab="alertsTab">Alertas</button>
         <button class="tab" data-tab="previewTab">Vista previa Panel Empresa</button>
@@ -160,53 +160,53 @@
           <label><span>Industry theme</span><select id="bTheme"><option value="default">default</option><option value="field">field</option><option value="hospitality">hospitality</option><option value="retail">retail</option><option value="production">production</option></select></label>
           <label><span>Visual preset</span><select id="bPreset"><option value="clonexa_default">clonexa_default</option><option value="field_ops_dark">field_ops_dark</option><option value="hospitality_night_ops">hospitality_night_ops</option><option value="retail_pastel_performance">retail_pastel_performance</option><option value="production_neon">production_neon</option></select></label>
           <label class="wide"><span>Logo palette JSON</span><textarea id="bPalette" placeholder='{"primary":"#ef233c","accent":"#ff2bd6"}'></textarea></label>
-          <div class="builderNote wide">Estos colores definirán cómo se verá el Panel Empresa del cliente sin romper la base premium futurista de Clonexa.</div>
+          <div class="builderNote wide">Estos colores definirÃ¡n cÃ³mo se verÃ¡ el Panel Empresa del cliente sin romper la base premium futurista de Clonexa.</div>
           <div class="formActions wide"><button class="btn primary" type="submit">Guardar branding</button><button id="applyThemeDefaults" class="btn ghost" type="button">Aplicar preset visual</button></div>
         </form>
       </section>
 
       <section id="localizationTab" class="tabPanel">
         <form id="localizationForm" class="builderGrid compact">
-          <label><span>Idioma principal</span><select id="lDefault"><option value="es">Español</option><option value="en">English</option><option value="fr">Français</option></select></label>
-          <label class="check"><input id="lEs" type="checkbox" /> Español</label>
+          <label><span>Idioma principal</span><select id="lDefault"><option value="es">EspaÃ±ol</option><option value="en">English</option><option value="fr">FranÃ§ais</option></select></label>
+          <label class="check"><input id="lEs" type="checkbox" /> EspaÃ±ol</label>
           <label class="check"><input id="lEn" type="checkbox" /> English</label>
-          <label class="check"><input id="lFr" type="checkbox" /> Français</label>
+          <label class="check"><input id="lFr" type="checkbox" /> FranÃ§ais</label>
           <div class="formActions wide"><button class="btn primary" type="submit">Guardar idiomas</button></div>
         </form>
       </section>
 
       <section id="launchpadTab" class="tabPanel">
         <div class="titleRow small"><div><span class="eyebrow">PANEL EMPRESA HOME</span><h3>Tarjetas principales</h3></div><button id="saveLaunchpadBtn" class="btn primary">Guardar launchpad</button></div>
-        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>Módulo</th><th>Card</th><th>Título</th><th>Orden</th><th>Tamaño</th><th>Ruta</th></tr></thead><tbody id="launchpadBody"></tbody></table></div>
+        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>MÃ³dulo</th><th>Card</th><th>TÃ­tulo</th><th>Orden</th><th>TamaÃ±o</th><th>Ruta</th></tr></thead><tbody id="launchpadBody"></tbody></table></div>
       </section>
 
       <section id="widgetsTab" class="tabPanel">
-        <div class="titleRow small"><div><span class="eyebrow">DASHBOARD</span><h3>Widgets métricos</h3></div><button id="saveWidgetsBtn" class="btn primary">Guardar widgets</button></div>
-        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>Módulo</th><th>Widget</th><th>Título</th><th>Fuente</th><th>Orden</th><th>Tamaño</th></tr></thead><tbody id="widgetsBody"></tbody></table></div>
+        <div class="titleRow small"><div><span class="eyebrow">DASHBOARD</span><h3>Widgets mÃ©tricos</h3></div><button id="saveWidgetsBtn" class="btn primary">Guardar widgets</button></div>
+        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>MÃ³dulo</th><th>Widget</th><th>TÃ­tulo</th><th>Fuente</th><th>Orden</th><th>TamaÃ±o</th></tr></thead><tbody id="widgetsBody"></tbody></table></div>
       </section>
 
       <section id="sectionsTab" class="tabPanel">
-        <div class="titleRow small"><div><span class="eyebrow">CLIENT CRM</span><h3>Secciones / páginas</h3></div><button id="saveSectionsBtn" class="btn primary">Guardar secciones</button></div>
-        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>Módulo</th><th>Sección</th><th>Título</th><th>Tipo</th><th>Orden</th><th>Ruta</th></tr></thead><tbody id="sectionsBody"></tbody></table></div>
+        <div class="titleRow small"><div><span class="eyebrow">CLIENT CRM</span><h3>Secciones / pÃ¡ginas</h3></div><button id="saveSectionsBtn" class="btn primary">Guardar secciones</button></div>
+        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>MÃ³dulo</th><th>SecciÃ³n</th><th>TÃ­tulo</th><th>Tipo</th><th>Orden</th><th>Ruta</th></tr></thead><tbody id="sectionsBody"></tbody></table></div>
       </section>
 
       <section id="actionsTab" class="tabPanel">
-        <div class="titleRow small"><div><span class="eyebrow">OPERACIÓN</span><h3>Acciones rápidas</h3></div><button id="saveActionsBtn" class="btn primary">Guardar acciones</button></div>
-        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>Módulo</th><th>Acción</th><th>Título</th><th>Tipo</th><th>Orden</th><th>Target</th></tr></thead><tbody id="actionsBody"></tbody></table></div>
+        <div class="titleRow small"><div><span class="eyebrow">OPERACIÃ“N</span><h3>Acciones rÃ¡pidas</h3></div><button id="saveActionsBtn" class="btn primary">Guardar acciones</button></div>
+        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>MÃ³dulo</th><th>AcciÃ³n</th><th>TÃ­tulo</th><th>Tipo</th><th>Orden</th><th>Target</th></tr></thead><tbody id="actionsBody"></tbody></table></div>
       </section>
 
       <section id="fieldsTab" class="tabPanel">
         <div class="titleRow small"><div><span class="eyebrow">ENTIDADES</span><h3>Campos configurables</h3></div><button id="saveFieldsBtn" class="btn primary">Guardar campos</button></div>
-        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>Req</th><th>Módulo</th><th>Entidad</th><th>Campo</th><th>Label</th><th>Tipo</th><th>Orden</th></tr></thead><tbody id="fieldsBody"></tbody></table></div>
+        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>Req</th><th>MÃ³dulo</th><th>Entidad</th><th>Campo</th><th>Label</th><th>Tipo</th><th>Orden</th></tr></thead><tbody id="fieldsBody"></tbody></table></div>
       </section>
 
       <section id="alertsTab" class="tabPanel">
         <div class="titleRow small"><div><span class="eyebrow">REAL TIME</span><h3>Alertas</h3></div><button id="saveAlertsBtn" class="btn primary">Guardar alertas</button></div>
-        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>Módulo</th><th>Regla</th><th>Mensaje</th><th>Severity</th><th>Display</th></tr></thead><tbody id="alertsBody"></tbody></table></div>
+        <div class="tableWrap builderTable"><table><thead><tr><th>On</th><th>MÃ³dulo</th><th>Regla</th><th>Mensaje</th><th>Severity</th><th>Display</th></tr></thead><tbody id="alertsBody"></tbody></table></div>
       </section>
 
       <section id="previewTab" class="tabPanel">
-        <div class="titleRow small"><div><span class="eyebrow">CLIENT CRM PREVIEW</span><h3>Así verá el panel esta empresa</h3></div><span class="mini live">LIVE PREVIEW</span></div>
+        <div class="titleRow small"><div><span class="eyebrow">CLIENT CRM PREVIEW</span><h3>AsÃ­ verÃ¡ el panel esta empresa</h3></div><span class="mini live">LIVE PREVIEW</span></div>
         <div id="crmPreviewHost"></div>
       </section>
     </div>
