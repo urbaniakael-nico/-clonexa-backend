@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const API = "/api/v1";
 
   const state = {
@@ -5509,3 +5509,311 @@
 })();
 /* CLONEXA_019G_R6B_RESTORE_FINAL_END */
 // CLONEXA_FORCE_BUILD_019G_R6B_20260513_164425
+
+/* CLONEXA_026_LANDING_ANALYTICS_ADMIN_V2_START */
+;(() => {
+  if (window.__CLONEXA_LANDING_ANALYTICS_V026__) return;
+  window.__CLONEXA_LANDING_ANALYTICS_V026__ = true;
+
+  const API_BASE = "/api/v1";
+  const PANEL_ID = "cxLandingAnalyticsPanel026";
+  const VIEW = "landing-analytics";
+
+  const escapeHtml = (value) => String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+
+  const number = (value) => {
+    const n = Number(value || 0);
+    return Number.isFinite(n) ? n.toLocaleString("es-CO") : "0";
+  };
+
+  const dateText = (value) => {
+    if (!value) return "—";
+    try {
+      return new Date(value).toLocaleString("es-CO", {
+        dateStyle: "short",
+        timeStyle: "short",
+      });
+    } catch {
+      return String(value);
+    }
+  };
+
+  async function apiGet(path) {
+    const response = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
+    }
+
+    return payload;
+  }
+
+  function ensureNav() {
+    const nav = document.querySelector(".cx-nav");
+    if (!nav || nav.querySelector(`[data-view="${VIEW}"]`)) return;
+
+    const button = document.createElement("button");
+    button.className = "cx-nav-item";
+    button.dataset.view = VIEW;
+    button.type = "button";
+    button.textContent = "Landing Analytics";
+
+    const health = nav.querySelector('[data-view="health"]');
+    if (health) nav.insertBefore(button, health);
+    else nav.appendChild(button);
+  }
+
+  function ensurePanel() {
+    if (document.getElementById(PANEL_ID)) return;
+
+    const main = document.querySelector(".cx-main") || document.querySelector("main") || document.body;
+    const section = document.createElement("section");
+
+    section.className = "cx-view";
+    section.dataset.viewPanel = VIEW;
+    section.id = PANEL_ID;
+
+    section.innerHTML = `
+      <article class="cx-card cx-landing-analytics-card">
+        <div class="cx-card-head">
+          <div>
+            <h2>Landing Analytics</h2>
+            <p>Visitas, video, CTA, correo y Asambleas de la landing pública.</p>
+          </div>
+          <div class="cx-actions">
+            <select class="cx-input" id="landingAnalyticsDays026">
+              <option value="7">7 días</option>
+              <option value="14">14 días</option>
+              <option value="30" selected>30 días</option>
+              <option value="90">90 días</option>
+            </select>
+            <button class="cx-btn cx-btn-primary" id="landingAnalyticsRefresh026" type="button">Actualizar</button>
+          </div>
+        </div>
+
+        <div class="cx-grid-metrics cx-landing-metrics-026">
+          <article class="cx-metric-card"><span>Page views</span><strong id="laPageViews026">—</strong><small>Entradas a landing</small></article>
+          <article class="cx-metric-card"><span>Visitantes únicos</span><strong id="laVisitors026">—</strong><small>visitor_id anónimo</small></article>
+          <article class="cx-metric-card"><span>CTA demo</span><strong id="laCta026">—</strong><small>Solicitar demo</small></article>
+          <article class="cx-metric-card"><span>Video plays</span><strong id="laVideo026">—</strong><small>Reproducciones</small></article>
+          <article class="cx-metric-card"><span>Asambleas</span><strong id="laAssembly026">—</strong><small>Vistas Assembly</small></article>
+          <article class="cx-metric-card"><span>Conversión</span><strong id="laConversion026">—</strong><small>CTA / visitante</small></article>
+        </div>
+
+        <div class="cx-layout-two cx-landing-layout-026">
+          <section class="cx-mini-card">
+            <div class="cx-card-head">
+              <div>
+                <h3>Actividad diaria</h3>
+                <p>Visitas, CTA, video y asambleas por día.</p>
+              </div>
+            </div>
+            <div id="laDaily026" class="cx-stack"></div>
+          </section>
+
+          <section class="cx-mini-card">
+            <div class="cx-card-head">
+              <div>
+                <h3>Fuentes y secciones</h3>
+                <p>Origen del tráfico y zonas más vistas.</p>
+              </div>
+            </div>
+            <div id="laSources026" class="cx-stack"></div>
+          </section>
+        </div>
+
+        <section class="cx-mini-card cx-landing-events-026">
+          <div class="cx-card-head">
+            <div>
+              <h3>Últimos eventos</h3>
+              <p>Registro operativo de la landing pública.</p>
+            </div>
+          </div>
+          <div id="laEvents026" class="cx-table-wrap"></div>
+        </section>
+      </article>
+    `;
+
+    main.appendChild(section);
+  }
+
+  function setText(id, value) {
+    const node = document.getElementById(id);
+    if (node) node.textContent = value;
+  }
+
+  function renderDaily(daily) {
+    const node = document.getElementById("laDaily026");
+    if (!node) return;
+
+    const items = Array.isArray(daily.items) ? daily.items : [];
+
+    if (!items.length) {
+      node.innerHTML = `<div class="cx-empty-state">Aún no hay eventos diarios.</div>`;
+      return;
+    }
+
+    const max = Math.max(...items.map((item) => Number(item.page_views || 0)), 1);
+
+    node.innerHTML = items.map((item) => {
+      const views = Number(item.page_views || 0);
+      const width = Math.max(4, Math.round((views / max) * 100));
+
+      return `
+        <div class="cx-landing-day-026">
+          <div>
+            <strong>${escapeHtml(item.day)}</strong>
+            <small>${number(item.unique_visitors)} visitantes · ${number(item.cta_clicks)} CTA · ${number(item.assembly_views)} Assembly</small>
+          </div>
+          <div class="cx-landing-bar-026"><span style="width:${width}%"></span></div>
+          <b>${number(views)}</b>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderSources(summary) {
+    const node = document.getElementById("laSources026");
+    if (!node) return;
+
+    const block = (title, rows, key) => `
+      <div class="cx-landing-list-026">
+        <strong>${escapeHtml(title)}</strong>
+        ${
+          rows.length
+            ? rows.map((row) => `
+              <div class="cx-landing-row-026">
+                <span>${escapeHtml(row[key] || "—")}</span>
+                <b>${number(row.count)}</b>
+              </div>
+            `).join("")
+            : `<div class="cx-empty-state">Sin datos.</div>`
+        }
+      </div>
+    `;
+
+    node.innerHTML = `
+      ${block("Fuentes", summary.top_sources || [], "source")}
+      ${block("Secciones", summary.top_sections || [], "section")}
+      ${block("Dispositivos", summary.devices || [], "device_type")}
+    `;
+  }
+
+  function renderEvents(events) {
+    const node = document.getElementById("laEvents026");
+    if (!node) return;
+
+    const items = Array.isArray(events.items) ? events.items : [];
+
+    if (!items.length) {
+      node.innerHTML = `<div class="cx-empty-state">Sin eventos recientes.</div>`;
+      return;
+    }
+
+    node.innerHTML = `
+      <table class="cx-table cx-landing-events-table-026">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Evento</th>
+            <th>Sección</th>
+            <th>Fuente</th>
+            <th>Dispositivo</th>
+            <th>Path</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map((item) => `
+            <tr>
+              <td>${escapeHtml(dateText(item.created_at))}</td>
+              <td><span class="cx-badge cx-badge-primary">${escapeHtml(item.event_type)}</span></td>
+              <td>${escapeHtml(item.section || "—")}</td>
+              <td>${escapeHtml(item.source || item.utm_source || "direct")}</td>
+              <td>${escapeHtml(item.device_type || "—")}</td>
+              <td><small>${escapeHtml(item.path || "—")}</small></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  async function loadAnalytics() {
+    ensureNav();
+    ensurePanel();
+
+    const days = document.getElementById("landingAnalyticsDays026")?.value || "30";
+
+    try {
+      const [summary, daily, events] = await Promise.all([
+        apiGet(`${API_BASE}/admin/analytics/landing/summary?days=${encodeURIComponent(days)}`),
+        apiGet(`${API_BASE}/admin/analytics/landing/daily?days=${encodeURIComponent(days)}`),
+        apiGet(`${API_BASE}/admin/analytics/landing/events?limit=80`),
+      ]);
+
+      setText("laPageViews026", number(summary.page_views));
+      setText("laVisitors026", number(summary.unique_visitors));
+      setText("laCta026", number(summary.cta_clicks));
+      setText("laVideo026", number(summary.video_plays));
+      setText("laAssembly026", number(summary.assembly_views));
+      setText("laConversion026", `${number(summary.conversion_rate)}%`);
+
+      renderDaily(daily);
+      renderSources(summary);
+      renderEvents(events);
+    } catch (error) {
+      const panel = document.getElementById(PANEL_ID);
+      if (panel) {
+        panel.querySelector(".cx-landing-analytics-card").insertAdjacentHTML(
+          "afterbegin",
+          `<div class="cx-alert">No se pudo cargar Landing Analytics: ${escapeHtml(error.message)}</div>`
+        );
+      }
+    }
+  }
+
+  function updateTitleIfActive() {
+    const active = document.querySelector(`.cx-nav-item[data-view="${VIEW}"].active`);
+    if (!active) return;
+
+    const title = document.getElementById("viewTitle");
+    const subtitle = document.getElementById("viewSubtitle");
+
+    if (title) title.textContent = "Landing Analytics";
+    if (subtitle) subtitle.textContent = "Visitas, conversiones, video, secciones y Asambleas.";
+
+    loadAnalytics();
+  }
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(`[data-view="${VIEW}"]`)) {
+      window.setTimeout(updateTitleIfActive, 0);
+    }
+
+    if (event.target.closest("#landingAnalyticsRefresh026")) {
+      loadAnalytics();
+    }
+  });
+
+  document.addEventListener("change", (event) => {
+    if (event.target.closest("#landingAnalyticsDays026")) {
+      loadAnalytics();
+    }
+  });
+
+  document.addEventListener("DOMContentLoaded", () => {
+    ensureNav();
+    ensurePanel();
+    loadAnalytics();
+  });
+})();
+/* CLONEXA_026_LANDING_ANALYTICS_ADMIN_V2_END */

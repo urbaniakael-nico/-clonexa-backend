@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --cx-bg: #050509;
   --cx-bg-soft: #09090f;
   --cx-panel: rgba(17, 17, 27, 0.78);
@@ -1535,3 +1535,73 @@ p {
 /* CLONEXA_019G_R6B_RESTORE_FINAL_END */
 /* CLONEXA_FORCE_BUILD_019G_R6B_20260513_164425 */
 
+/* CLONEXA_026_LANDING_ANALYTICS_ADMIN_V2_CSS_START */
+.cx-landing-analytics-card {
+  border-color: rgba(255, 43, 214, .28);
+}
+
+.cx-landing-metrics-026 {
+  margin: 18px 0 22px;
+}
+
+.cx-landing-list-026 {
+  display: grid;
+  gap: 9px;
+}
+
+.cx-landing-list-026 + .cx-landing-list-026 {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--cx-border, rgba(255,255,255,.12));
+}
+
+.cx-landing-row-026,
+.cx-landing-day-026 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--cx-border, rgba(255,255,255,.12));
+  border-radius: 14px;
+  background: rgba(255,255,255,.035);
+}
+
+.cx-landing-day-026 {
+  grid-template-columns: minmax(0, 1.2fr) minmax(160px, 1fr) auto;
+}
+
+.cx-landing-day-026 small {
+  display: block;
+  color: var(--cx-muted, #9ca3af);
+  margin-top: 4px;
+}
+
+.cx-landing-bar-026 {
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255,255,255,.09);
+}
+
+.cx-landing-bar-026 span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8fff7a, #ff2d69, #b61cff);
+}
+
+.cx-landing-events-026 {
+  margin-top: 18px;
+}
+
+.cx-landing-events-table-026 small {
+  color: var(--cx-muted, #9ca3af);
+}
+
+@media (max-width: 760px) {
+  .cx-landing-day-026 {
+    grid-template-columns: 1fr;
+  }
+}
+/* CLONEXA_026_LANDING_ANALYTICS_ADMIN_V2_CSS_END */

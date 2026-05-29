@@ -99,3 +99,22 @@ except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2").warning("Admin Console V2 no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2_ROUTE
+
+# CLONEXA_026_LANDING_ANALYTICS_CORS
+try:
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "https://clonexa-landing-production.up.railway.app",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
+except Exception as exc:
+    print(f"CLONEXA landing analytics CORS disabled: {exc}")
+# END_CLONEXA_026_LANDING_ANALYTICS_CORS
