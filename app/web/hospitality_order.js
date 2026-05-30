@@ -17,6 +17,8 @@
     participant: null,
     scoreCampaign: null,
     scorePrediction: null,
+    voteCampaign: null,
+    voteResponse: null,
     campaignDismissed: false,
     campaignEndRefreshKey: "",
     access: { active: false, unlocked: false, code: "", expires_at: "" },
@@ -324,6 +326,15 @@
         font-weight:950;
       }
       .qr-score-grid input{text-align:center;font-size:20px}
+      .qr-vote-options{display:grid;gap:8px}
+      .qr-vote-choice{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--qr-line);border-radius:14px;background:rgba(2,6,23,.42);padding:12px;color:var(--qr-text);font-weight:1000;cursor:pointer}
+      .qr-vote-choice input{width:18px;height:18px;accent-color:var(--qr-secondary)}
+      .qr-vote-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:9px}
+      .qr-vote-row strong{display:block}
+      .qr-vote-row small{display:block;color:var(--qr-muted);font-size:11px;font-weight:850}
+      .qr-vote-row em{font-style:normal;color:var(--qr-secondary);font-weight:1000}
+      .qr-vote-row i{display:block;height:7px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:6px}
+      .qr-vote-row b{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--qr-primary),var(--qr-secondary))}
       @media(max-width:860px){
         .qr-hero{grid-template-columns:1fr}
         .qr-layout{grid-template-columns:1fr}
@@ -532,9 +543,74 @@
     `;
   }
 
+  function voteModeLabel025O(mode = "") {
+    const labels = {
+      registration: "Inscripcion",
+      true_false: "Verdadero / Falso",
+      yes_no: "Si / No",
+      participants: "Participantes",
+    };
+    return labels[String(mode || "").trim()] || "Concurso";
+  }
+
+  function votePollHtml025O() {
+    const campaign = state.voteCampaign;
+    if (!campaign) return "";
+    const response = state.voteResponse || {};
+    const results = Array.isArray(campaign.results) ? campaign.results : [];
+    const options = Array.isArray(campaign.options) ? campaign.options : [];
+    const isClosed = campaign.phase === "closed" || Number(campaign.seconds_left || 0) <= 0;
+    const currentName = document.getElementById("qrVoteName025O")?.value || response.voter_name || "";
+    const currentAnswer = document.querySelector("input[name='qrVoteOption025O']:checked")?.value || response.answer_key || "";
+    const form = !isClosed && !response.id ? `
+      <div class="qr-score-form">
+        <input id="qrVoteName025O" class="qr-score-name" placeholder="Nombre o equipo" value="${h(currentName)}">
+        ${campaign.vote_mode === "registration" ? "" : `
+          <div class="qr-vote-options">
+            ${options.map((option) => `
+              <label class="qr-vote-choice">
+                <span>${h(option.label)}</span>
+                <input type="radio" name="qrVoteOption025O" value="${h(option.key)}" ${option.key === currentAnswer ? "checked" : ""}>
+              </label>
+            `).join("")}
+          </div>
+        `}
+        <button class="qr-btn" type="button" data-vote-submit>${campaign.vote_mode === "registration" ? "Inscribirme" : "Enviar respuesta"}</button>
+      </div>
+    ` : "";
+    const already = response.id ? `<div class="qr-campaign-ok">Respuesta registrada: <strong>${h(response.answer_label || "Inscrito")}</strong></div>` : "";
+    const closed = isClosed && !response.id ? `<div class="qr-campaign-ok">Concurso cerrado.</div>` : "";
+    return `
+      <section class="qr-campaign">
+        <div class="qr-campaign-main">
+          <p class="qr-eyebrow">${h(voteModeLabel025O(campaign.vote_mode))}</p>
+          <h2>${h(campaign.title || "Concurso")}</h2>
+          <p class="qr-muted">${h(campaign.description || "Participa desde esta mesa.")}</p>
+          <div class="qr-campaign-prize"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
+          <div class="qr-campaign-clock"><span>Cierra en</span><strong id="qrVoteClock025O">${h(countdown(campaign.seconds_left))}</strong></div>
+          ${already}
+          ${closed}
+          ${form}
+        </div>
+        <div class="qr-campaign-rank">
+          ${results.length ? results.map((row) => `
+            <div class="qr-vote-row">
+              <div>
+                <strong>${h(row.label)}</strong>
+                <small>${h(row.count)} respuesta(s)</small>
+                <i><b style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></b></i>
+              </div>
+              <em>${h(row.percent || 0)}%</em>
+            </div>
+          `).join("") : `<div class="qr-empty">Aun no hay respuestas.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
   function paintCampaignHost() {
     const host = document.getElementById("qrCampaignHost025F");
-    if (host) host.innerHTML = `${campaignHtml025G()}${scorePoolHtml025G()}`;
+    if (host) host.innerHTML = `${campaignHtml025G()}${scorePoolHtml025G()}${votePollHtml025O()}`;
   }
 
   function render() {
@@ -607,7 +683,7 @@
 
         ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
         ${state.error ? `<div class="qr-msg err">${h(state.error)}</div>` : ""}
-        <div id="qrCampaignHost025F">${campaignHtml025G()}${scorePoolHtml025G()}</div>
+        <div id="qrCampaignHost025F">${campaignHtml025G()}${scorePoolHtml025G()}${votePollHtml025O()}</div>
 
         <section class="qr-layout">
           <div class="qr-menu">
@@ -737,6 +813,8 @@
     state.participant = campaign.participant || null;
     state.scoreCampaign = campaign.score_campaign || null;
     state.scorePrediction = campaign.score_prediction || null;
+    state.voteCampaign = campaign.vote_campaign || null;
+    state.voteResponse = campaign.vote_response || null;
     return campaign;
   }
 
@@ -763,6 +841,8 @@
       state.participant = campaign.participant || null;
       state.scoreCampaign = campaign.score_campaign || null;
       state.scorePrediction = campaign.score_prediction || null;
+      state.voteCampaign = campaign.vote_campaign || null;
+      state.voteResponse = campaign.vote_response || null;
       state.access = {
         active: access.access?.active === true,
         unlocked: false,
@@ -801,6 +881,10 @@
     }
     if (target.closest("[data-score-submit]")) {
       submitScorePrediction();
+      return;
+    }
+    if (target.closest("[data-vote-submit]")) {
+      submitVotePoll025O();
       return;
     }
     if (target.closest("[data-access-verify]")) {
@@ -963,9 +1047,53 @@
     }
   }
 
+  async function submitVotePoll025O() {
+    if (!state.voteCampaign?.id) return;
+    if (!state.access?.unlocked) {
+      state.error = "Activa la mesa con la clave antes de participar.";
+      state.message = "";
+      render();
+      return;
+    }
+    try {
+      const mode = state.voteCampaign.vote_mode || "registration";
+      const selected = mode === "registration"
+        ? "registered"
+        : document.querySelector("input[name='qrVoteOption025O']:checked")?.value || "";
+      if (!selected) {
+        state.error = "Selecciona una respuesta.";
+        state.message = "";
+        render();
+        return;
+      }
+      const voterName = document.getElementById("qrVoteName025O")?.value || state.table;
+      const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-vote-polls/${encodeURIComponent(state.voteCampaign.id)}/votes`, {
+        method: "POST",
+        body: JSON.stringify({
+          table: state.table,
+          voter_name: voterName,
+          answer_key: selected,
+          access_code: state.access.code || sessionStorage.getItem(accessStorageKey()) || "",
+        }),
+      });
+      state.campaign = data.campaign || state.campaign;
+      state.participant = data.participant || state.participant;
+      state.scoreCampaign = data.score_campaign || state.scoreCampaign;
+      state.scorePrediction = data.score_prediction || state.scorePrediction;
+      state.voteCampaign = data.vote_campaign || state.voteCampaign;
+      state.voteResponse = data.vote_response || null;
+      state.message = mode === "registration" ? "Inscripcion recibida." : "Respuesta registrada.";
+      state.error = "";
+      render();
+    } catch (error) {
+      state.error = error.message || "No se pudo enviar el concurso.";
+      state.message = "";
+      render();
+    }
+  }
+
   setInterval(() => {
-    if (!state.campaign) return;
-    if (Number.isFinite(Number(state.campaign.signup_seconds_left))) {
+    if (state.campaign && Number.isFinite(Number(state.campaign.signup_seconds_left))) {
       state.campaign.signup_seconds_left = Math.max(0, Number(state.campaign.signup_seconds_left || 0) - 1);
       const signupClock = document.getElementById("qrSignupClock025A");
       if (signupClock) signupClock.textContent = countdown(state.campaign.signup_seconds_left);
@@ -974,7 +1102,7 @@
         if (state.access?.unlocked) render();
       }
     }
-    if (Number.isFinite(Number(state.campaign.tournament_seconds_left))) {
+    if (state.campaign && Number.isFinite(Number(state.campaign.tournament_seconds_left))) {
       state.campaign.tournament_seconds_left = Math.max(0, Number(state.campaign.tournament_seconds_left || 0) - 1);
       const tournamentClock = document.getElementById("qrTournamentClock025A");
       if (tournamentClock) tournamentClock.textContent = countdown(state.campaign.tournament_seconds_left);
@@ -988,10 +1116,21 @@
         }).catch(() => {});
       }
     }
+    if (state.voteCampaign && Number.isFinite(Number(state.voteCampaign.seconds_left))) {
+      state.voteCampaign.seconds_left = Math.max(0, Number(state.voteCampaign.seconds_left || 0) - 1);
+      const voteClock = document.getElementById("qrVoteClock025O");
+      if (voteClock) voteClock.textContent = countdown(state.voteCampaign.seconds_left);
+      if (state.voteCampaign.seconds_left === 0 && state.voteCampaign.phase !== "closed") {
+        state.voteCampaign.phase = "closed";
+        if (state.access?.unlocked && !document.getElementById("qrCampaignHost025F")?.contains(document.activeElement)) {
+          paintCampaignHost();
+        }
+      }
+    }
   }, 1000);
 
   setInterval(() => {
-    if ((!state.campaign && !state.scoreCampaign) || !state.access?.unlocked) return;
+    if ((!state.campaign && !state.scoreCampaign && !state.voteCampaign) || !state.access?.unlocked) return;
     refreshCampaignView().catch(() => {});
   }, 6000);
 

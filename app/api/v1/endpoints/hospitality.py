@@ -114,6 +114,22 @@ class HospitalityScorePredictionIn(BaseModel):
     access_code: str | None = Field(default="", max_length=12)
 
 
+class HospitalityVotePollCampaignIn(BaseModel):
+    title: str | None = Field(default="Concurso", max_length=160)
+    prize: str | None = Field(default="", max_length=220)
+    description: str | None = Field(default="", max_length=700)
+    vote_mode: str | None = Field(default="registration", max_length=40)
+    options: list[str] = Field(default_factory=list, max_length=5)
+    registration_ends_at: datetime
+
+
+class HospitalityVoteSubmissionIn(BaseModel):
+    table: str | None = Field(default="Mesa", max_length=120)
+    voter_name: str | None = Field(default="", max_length=160)
+    answer_key: str | None = Field(default="", max_length=120)
+    access_code: str | None = Field(default="", max_length=12)
+
+
 class HospitalityTableAccessIn(BaseModel):
     table: str | None = Field(default="Mesa", max_length=120)
     duration_hours: int = Field(default=12, ge=1, le=24)
@@ -371,6 +387,8 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS campaign_type VARCHAR(40) NOT NULL DEFAULT 'consumption';"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS team_a VARCHAR(120) NOT NULL DEFAULT '';"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS team_b VARCHAR(120) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS vote_mode VARCHAR(40) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS options JSONB NOT NULL DEFAULT '[]'::jsonb;"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS registration_ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
@@ -431,6 +449,33 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_loyalty_predictions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_hospitality_loyalty_predictions_campaign_table ON hospitality_loyalty_predictions(campaign_id, table_key);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_predictions_company ON hospitality_loyalty_predictions(company_id, campaign_id);"))
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS hospitality_loyalty_votes (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                campaign_id UUID NOT NULL REFERENCES hospitality_loyalty_campaigns(id) ON DELETE CASCADE,
+                table_key VARCHAR(120) NOT NULL,
+                table_number VARCHAR(120) NOT NULL,
+                voter_name VARCHAR(160) NOT NULL DEFAULT '',
+                answer_key VARCHAR(120) NOT NULL DEFAULT '',
+                answer_label VARCHAR(180) NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+    )
+    await db.execute(text("ALTER TABLE hospitality_loyalty_votes ADD COLUMN IF NOT EXISTS table_key VARCHAR(120) NOT NULL DEFAULT 'mesa';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_votes ADD COLUMN IF NOT EXISTS table_number VARCHAR(120) NOT NULL DEFAULT 'Mesa';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_votes ADD COLUMN IF NOT EXISTS voter_name VARCHAR(160) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_votes ADD COLUMN IF NOT EXISTS answer_key VARCHAR(120) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_votes ADD COLUMN IF NOT EXISTS answer_label VARCHAR(180) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_votes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("ALTER TABLE hospitality_loyalty_votes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_hospitality_loyalty_votes_campaign_table ON hospitality_loyalty_votes(campaign_id, table_key);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_votes_company ON hospitality_loyalty_votes(company_id, campaign_id);"))
     await db.execute(
         text(
             """
@@ -667,6 +712,8 @@ def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None)
         "campaign_type": data.get("campaign_type") or "consumption",
         "team_a": data.get("team_a") or "",
         "team_b": data.get("team_b") or "",
+        "vote_mode": data.get("vote_mode") or "",
+        "options": _json(data.get("options"), []),
         "registration_ends_at": _iso(data.get("registration_ends_at") or data.get("starts_at")),
         "starts_at": _iso(data.get("starts_at")),
         "ends_at": _iso(data.get("ends_at")),
@@ -1147,6 +1194,110 @@ def _score_pool_payload(row: dict[str, Any], predictions: list[dict[str, Any]]) 
     return payload
 
 
+def _vote_poll_mode(value: Any) -> str:
+    raw = _norm(value or "registration").replace(" ", "_")
+    aliases = {
+        "register": "registration",
+        "inscripcion": "registration",
+        "registration": "registration",
+        "true_false": "true_false",
+        "verdadero_falso": "true_false",
+        "si_no": "yes_no",
+        "yes_no": "yes_no",
+        "participants": "participants",
+        "participantes": "participants",
+        "participant": "participants",
+    }
+    return aliases.get(raw, "registration")
+
+
+def _vote_poll_options(mode: str, options: list[Any] | None = None) -> list[dict[str, str]]:
+    if mode == "true_false":
+        return [{"key": "true", "label": "Verdadero"}, {"key": "false", "label": "Falso"}]
+    if mode == "yes_no":
+        return [{"key": "yes", "label": "Si"}, {"key": "no", "label": "No"}]
+    if mode == "participants":
+        rows: list[dict[str, str]] = []
+        for index, value in enumerate(options or [], start=1):
+            label = _clean(value.get("label") if isinstance(value, dict) else value)[:120]
+            if label:
+                rows.append({"key": f"option_{index}", "label": label})
+            if len(rows) >= 5:
+                break
+        if not rows:
+            rows = [{"key": f"option_{index}", "label": f"Participante {index}"} for index in range(1, 3)]
+        return rows[:5]
+    return [{"key": "registered", "label": "Inscrito"}]
+
+
+async def _vote_poll_votes(db: AsyncSession, campaign: dict[str, Any]) -> list[dict[str, Any]]:
+    result = await db.execute(
+        text(
+            """
+            SELECT id,
+                   table_key,
+                   table_number,
+                   voter_name,
+                   answer_key,
+                   answer_label,
+                   created_at,
+                   updated_at
+            FROM hospitality_loyalty_votes
+            WHERE company_id = :company_id
+              AND campaign_id = :campaign_id
+            ORDER BY updated_at DESC, created_at DESC
+            """
+        ),
+        {"company_id": str(campaign["company_id"]), "campaign_id": str(campaign["id"])},
+    )
+    rows = []
+    for row in result.mappings().all():
+        rows.append(
+            {
+                "id": str(row["id"]),
+                "table_key": row["table_key"] or "",
+                "table_number": row["table_number"] or "",
+                "voter_name": row["voter_name"] or "",
+                "answer_key": row["answer_key"] or "",
+                "answer_label": row["answer_label"] or "",
+                "created_at": _iso(row["created_at"]),
+                "updated_at": _iso(row["updated_at"]),
+            }
+        )
+    return rows
+
+
+def _vote_poll_payload(row: dict[str, Any], votes: list[dict[str, Any]]) -> dict[str, Any]:
+    payload = _campaign_payload(row, [])
+    mode = _vote_poll_mode(payload.get("vote_mode") or row.get("vote_mode"))
+    options = _vote_poll_options(mode, _json(row.get("options"), []))
+    counts = {option["key"]: 0 for option in options}
+    for vote in votes:
+        key = vote.get("answer_key") or ""
+        if key not in counts:
+            counts[key] = 0
+            options.append({"key": key, "label": vote.get("answer_label") or key})
+        counts[key] += 1
+    total = sum(counts.values())
+    results = []
+    for option in options:
+        count = int(counts.get(option["key"], 0))
+        results.append(
+            {
+                "key": option["key"],
+                "label": option["label"],
+                "count": count,
+                "percent": round((count / total) * 100, 1) if total else 0,
+            }
+        )
+    payload["vote_mode"] = mode
+    payload["options"] = options
+    payload["results"] = results
+    payload["votes_count"] = total
+    payload["votes"] = votes
+    return payload
+
+
 async def _loyalty_response(
     db: AsyncSession,
     company_id: uuid.UUID,
@@ -1156,6 +1307,7 @@ async def _loyalty_response(
     if campaign is None:
         campaign = await _active_loyalty_campaign(db, company_id, "consumption")
     score_campaign = await _active_loyalty_campaign(db, company_id, "score_pool")
+    vote_campaign = await _active_loyalty_campaign(db, company_id, "vote_poll")
     table_key = _table_key(table) if _clean(table) else ""
     campaign_payload = None
     participant = None
@@ -1171,12 +1323,21 @@ async def _loyalty_response(
         score_prediction = next((row for row in predictions if row["table_key"] == table_key), None) if table_key else None
         score_payload = _score_pool_payload(score_campaign, predictions)
 
+    vote_payload = None
+    vote_response = None
+    if vote_campaign:
+        votes = await _vote_poll_votes(db, vote_campaign)
+        vote_response = next((row for row in votes if row["table_key"] == table_key), None) if table_key else None
+        vote_payload = _vote_poll_payload(vote_campaign, votes)
+
     return {
         "ok": True,
         "campaign": campaign_payload,
         "participant": participant,
         "score_campaign": score_payload,
         "score_prediction": score_prediction,
+        "vote_campaign": vote_payload,
+        "vote_response": vote_response,
     }
 
 
@@ -1451,6 +1612,138 @@ async def submit_loyalty_score_prediction(
             "team_name": (_clean(payload.team_name) or table_number)[:160],
             "score_a": int(payload.score_a),
             "score_b": int(payload.score_b),
+        },
+    )
+    await db.commit()
+    active_campaign = await _active_loyalty_campaign(db, company_id, "consumption")
+    return await _loyalty_response(db, company_id, active_campaign, table_number)
+
+
+@router.post("/companies/{company_id}/loyalty-vote-polls", status_code=status.HTTP_201_CREATED)
+async def create_loyalty_vote_poll(
+    company_id: uuid.UUID,
+    payload: HospitalityVotePollCampaignIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    now = _now()
+    ends_at = _aware(payload.registration_ends_at)
+    if ends_at <= now:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El cierre debe ser posterior al momento actual.")
+
+    mode = _vote_poll_mode(payload.vote_mode)
+    options = _vote_poll_options(mode, list(payload.options or []))
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_loyalty_campaigns
+            SET status = 'closed', updated_at = NOW()
+            WHERE company_id = :company_id
+              AND campaign_type = 'vote_poll'
+              AND status = 'active'
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    result = await db.execute(
+        text(
+            """
+            INSERT INTO hospitality_loyalty_campaigns (
+                company_id, title, prize, description, campaign_type, vote_mode, options,
+                registration_ends_at, starts_at, ends_at, status, created_at, updated_at
+            )
+            VALUES (
+                :company_id, :title, :prize, :description, 'vote_poll', :vote_mode, CAST(:options AS jsonb),
+                :ends_at, :starts_at, :ends_at, 'active', NOW(), NOW()
+            )
+            RETURNING *
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "title": (_clean(payload.title) or "Concurso")[:160],
+            "prize": _clean(payload.prize)[:220],
+            "description": _clean(payload.description)[:700],
+            "vote_mode": mode,
+            "options": json.dumps(options, ensure_ascii=False),
+            "starts_at": now,
+            "ends_at": ends_at,
+        },
+    )
+    await db.commit()
+    return await _loyalty_response(db, company_id, None)
+
+
+@router.post("/companies/{company_id}/loyalty-vote-polls/{campaign_id}/votes", status_code=status.HTTP_201_CREATED)
+async def submit_loyalty_vote_poll(
+    company_id: uuid.UUID,
+    campaign_id: uuid.UUID,
+    payload: HospitalityVoteSubmissionIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    campaign_result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_loyalty_campaigns
+            WHERE id = :campaign_id
+              AND company_id = :company_id
+              AND campaign_type = 'vote_poll'
+              AND status = 'active'
+            LIMIT 1
+            """
+        ),
+        {"campaign_id": str(campaign_id), "company_id": str(company_id)},
+    )
+    campaign = campaign_result.mappings().first()
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="concurso_no_encontrado")
+
+    campaign_data = dict(campaign)
+    if _now() >= _aware(campaign_data["ends_at"]):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="concurso_cerrado")
+
+    table_number = _clean(payload.table) or "Mesa"
+    await _require_table_access(db, company_id, table_number, payload.access_code)
+
+    mode = _vote_poll_mode(campaign_data.get("vote_mode"))
+    options = _vote_poll_options(mode, _json(campaign_data.get("options"), []))
+    selected_key = _clean(payload.answer_key) or ("registered" if mode == "registration" else "")
+    selected = next((option for option in options if option["key"] == selected_key), None)
+    if not selected:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="respuesta_invalida")
+
+    voter_name = _clean(payload.voter_name) or table_number
+    await db.execute(
+        text(
+            """
+            INSERT INTO hospitality_loyalty_votes (
+                company_id, campaign_id, table_key, table_number, voter_name, answer_key, answer_label, created_at, updated_at
+            )
+            VALUES (
+                :company_id, :campaign_id, :table_key, :table_number, :voter_name, :answer_key, :answer_label, NOW(), NOW()
+            )
+            ON CONFLICT (campaign_id, table_key)
+            DO UPDATE SET
+                table_number = EXCLUDED.table_number,
+                voter_name = EXCLUDED.voter_name,
+                answer_key = EXCLUDED.answer_key,
+                answer_label = EXCLUDED.answer_label,
+                updated_at = NOW()
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "campaign_id": str(campaign_id),
+            "table_key": _table_key(table_number),
+            "table_number": table_number,
+            "voter_name": voter_name[:160],
+            "answer_key": selected["key"][:120],
+            "answer_label": selected["label"][:180],
         },
     )
     await db.commit()

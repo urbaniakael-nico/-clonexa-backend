@@ -15226,6 +15226,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_024Z_HOSPITALITY_LOYALTY_START */
   let cxHspLoyaltyCampaign024Z = null;
   let cxHspScoreCampaign025G = null;
+  let cxHspVoteCampaign025O = null;
   let cxHspLoyaltyPolling024Z = false;
 
   function cxIsHospitalityLoyaltyCode024Z(code = "") {
@@ -15271,6 +15272,16 @@ function inventoryCreatePayload() {
     }).join(" · ");
   }
 
+  function cxHspVoteModeLabel025O(mode = "") {
+    const labels = {
+      registration: "Inscripcion",
+      true_false: "Verdadero / Falso",
+      yes_no: "Si / No",
+      participants: "Participantes",
+    };
+    return labels[String(mode || "").trim()] || "Concurso";
+  }
+
   function cxHspLoyaltyStyles024Z() {
     if (document.getElementById("cxHspLoyaltyStyles024Z")) return;
     const style = document.createElement("style");
@@ -15308,6 +15319,11 @@ function inventoryCreatePayload() {
       .hsp-score-vs-025g{color:var(--cx-primary,#ff8a1c);font-weight:1000}
       .hsp-score-pred-025g{display:flex;justify-content:space-between;gap:12px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px;font-weight:950}
       .hsp-score-pred-025g small{display:block;color:rgba(255,255,255,.62);font-size:11px;font-weight:850;margin-top:3px}
+      .hsp-vote-row-025o{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px;font-weight:950}
+      .hsp-vote-row-025o small{display:block;color:rgba(255,255,255,.62);font-size:11px;font-weight:850;margin-top:3px}
+      .hsp-vote-pct-025o{color:var(--cx-secondary,#f4c7b6);font-weight:1000}
+      .hsp-vote-options-note-025o{font-size:12px;color:rgba(255,255,255,.60);font-weight:850;line-height:1.35}
+      .hsp-loy-form-024z select{width:100%;border:1px solid rgba(255,255,255,.14);border-radius:13px;background:rgba(3,7,18,.58);color:var(--cx-text,#fff);padding:11px 12px;font-weight:900;outline:none}
       @media(max-width:980px){.hsp-loy-grid-024z,.hsp-loy-row-024z{grid-template-columns:1fr}}
       @media(max-width:640px){.hsp-score-match-025g{grid-template-columns:1fr}.hsp-score-vs-025g{display:none}}
     `;
@@ -15318,6 +15334,7 @@ function inventoryCreatePayload() {
     const data = await cxHspLoyaltyApi024Z("/loyalty-campaigns/active");
     cxHspLoyaltyCampaign024Z = data.campaign || null;
     cxHspScoreCampaign025G = data.score_campaign || null;
+    cxHspVoteCampaign025O = data.vote_campaign || null;
     return cxHspLoyaltyCampaign024Z;
   }
 
@@ -15346,8 +15363,10 @@ function inventoryCreatePayload() {
     if (!root) return;
     const campaign = cxHspLoyaltyCampaign024Z;
     const scoreCampaign = cxHspScoreCampaign025G;
+    const voteCampaign = cxHspVoteCampaign025O;
     const rows = Array.isArray(campaign?.leaderboard) ? campaign.leaderboard : [];
     const scoreRows = Array.isArray(scoreCampaign?.predictions) ? scoreCampaign.predictions : [];
+    const voteRows = Array.isArray(voteCampaign?.results) ? voteCampaign.results : [];
     const tournamentPhase = campaign?.tournament_phase || "open";
     const tournamentLabel = tournamentPhase === "closed" ? "Torneo finalizado" : tournamentPhase === "scheduled" ? "Torneo programado" : "Torneo en curso";
     const winner = campaign?.winner || null;
@@ -15411,10 +15430,38 @@ function inventoryCreatePayload() {
         </div>
       </div>
     ` : `<div class="hsp-loy-card-024z"><h2>Sin polla activa</h2><p class="hsp-loy-muted-024z">Publica equipos y premio para que cada mesa envie su marcador desde el QR.</p></div>`;
+    const voteHtml = voteCampaign ? `
+      <div class="hsp-loy-card-024z">
+        <div class="hsp-loy-card-head-025g">
+          <div>
+            <h2>${h(voteCampaign.title || "Concurso")}</h2>
+            <p class="hsp-loy-muted-024z">${h(voteCampaign.description || "Cada mesa participa desde el QR activado.")}</p>
+          </div>
+          <button class="hsp-loy-mini-btn-025g" type="button" data-hsp-vote-delete="${h(voteCampaign.id)}">Eliminar concurso</button>
+        </div>
+        <div class="hsp-loy-prize-024z"><span>Premio</span><strong>${h(voteCampaign.prize || "Por definir")}</strong></div>
+        <div class="hsp-loy-row-024z">
+          <div class="hsp-loy-prize-024z"><span>Tipo</span><b>${h(cxHspVoteModeLabel025O(voteCampaign.vote_mode))}</b></div>
+          <div class="hsp-loy-prize-024z"><span>Cierra en</span><strong class="hsp-loy-timer-024z">${h(cxHspLoyaltyCountdown024Z(voteCampaign.seconds_left))}</strong></div>
+        </div>
+        <div class="hsp-loy-rank-024z" style="margin-top:10px">
+          ${voteRows.length ? voteRows.map((row) => `
+            <div class="hsp-vote-row-025o">
+              <div>
+                <div class="hsp-loy-rank-name-024z">${h(row.label)}<small>${h(row.count)} respuesta(s)</small></div>
+                <div class="hsp-loy-bar-024z"><i style="width:${Math.min(100, Math.max(0, Number(row.percent || 0)))}%"></i></div>
+              </div>
+              <span class="hsp-vote-pct-025o">${h(row.percent || 0)}%</span>
+            </div>
+          `).join("") : `<div class="hsp-empty-024r">Aun no hay respuestas.</div>`}
+        </div>
+      </div>
+    ` : `<div class="hsp-loy-card-024z"><h2>Sin concurso activo</h2><p class="hsp-loy-muted-024z">Publica una inscripcion, pregunta o votacion para que aparezca en los QR.</p></div>`;
     root.innerHTML = `
       <div class="hsp-loy-active-024z">
         ${campaignHtml}
         ${scoreHtml}
+        ${voteHtml}
       </div>
     `;
   }
@@ -15432,6 +15479,7 @@ function inventoryCreatePayload() {
       loadError = error.message || "No se pudo cargar Fidelizacion.";
       cxHspLoyaltyCampaign024Z = null;
       cxHspScoreCampaign025G = null;
+      cxHspVoteCampaign025O = null;
     }
 
     $("app").innerHTML = `
@@ -15487,6 +15535,28 @@ function inventoryCreatePayload() {
                       <label>Publicacion<textarea id="hspScoreDesc025G">Adivina el marcador y participa por el premio.</textarea></label>
                       <button class="client-btn" type="button" data-hsp-score-create>Publicar polla</button>
                       <div id="hspScoreMsg025G" class="hsp-msg-024r"></div>
+                    </div>
+                  </section>
+                  <section class="hsp-loy-card-024z">
+                    <h2>Publicar concurso</h2>
+                    <p class="hsp-loy-muted-024z">Configura inscripcion simple, pregunta de Si/No, Verdadero/Falso o seleccion entre hasta 5 participantes.</p>
+                    <div class="hsp-loy-form-024z">
+                      <label>Titulo<input id="hspVoteTitle025O" value="Concurso de karaoke"></label>
+                      <label>Premio<input id="hspVotePrize025O" placeholder="Ej: botella, consumo, entrada"></label>
+                      <label>Tipo
+                        <select id="hspVoteMode025O">
+                          <option value="registration">Inscripcion simple</option>
+                          <option value="true_false">Pregunta verdadero / falso</option>
+                          <option value="yes_no">Pregunta si / no</option>
+                          <option value="participants">Votacion participantes 1-5</option>
+                        </select>
+                      </label>
+                      <label>Cierre concurso<input id="hspVoteEnd025O" type="datetime-local" value="${h(cxHspLoyaltyLocalValue024Z(new Date(now.getTime() + 60 * 60 * 1000)))}"></label>
+                      <label>Opciones o participantes<textarea id="hspVoteOptions025O" placeholder="Solo para participantes: escribe un nombre por linea, maximo 5"></textarea></label>
+                      <div class="hsp-vote-options-note-025o">Para Verdadero/Falso y Si/No las opciones se generan solas. Para inscripcion simple el QR muestra boton de inscribirse.</div>
+                      <label>Publicacion<textarea id="hspVoteDesc025O">Participa desde tu mesa escaneando el QR activado.</textarea></label>
+                      <button class="client-btn" type="button" data-hsp-vote-create>Publicar concurso</button>
+                      <div id="hspVoteMsg025O" class="hsp-msg-024r"></div>
                     </div>
                   </section>
                 </div>
@@ -16685,6 +16755,52 @@ document.addEventListener("click", async (event) => {
           cxHspShowMsg024R("hspScoreMsg025G", "Polla eliminada de las mesas QR.");
         } catch (error) {
           cxHspShowMsg024R("hspScoreMsg025G", error.message || "No se pudo eliminar la polla.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-vote-create]")) {
+        try {
+          const ends = document.getElementById("hspVoteEnd025O")?.value || "";
+          if (!ends) {
+            cxHspShowMsg024R("hspVoteMsg025O", "Define el cierre del concurso.", true);
+            return;
+          }
+          const options = String(document.getElementById("hspVoteOptions025O")?.value || "")
+            .split(/\r?\n/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .slice(0, 5);
+          await cxHspLoyaltyApi024Z("/loyalty-vote-polls", {
+            method: "POST",
+            body: JSON.stringify({
+              title: document.getElementById("hspVoteTitle025O")?.value || "Concurso",
+              prize: document.getElementById("hspVotePrize025O")?.value || "",
+              description: document.getElementById("hspVoteDesc025O")?.value || "",
+              vote_mode: document.getElementById("hspVoteMode025O")?.value || "registration",
+              options,
+              registration_ends_at: new Date(ends).toISOString(),
+            }),
+          });
+          await cxHspLoyaltyLoad024Z();
+          cxHspLoyaltyPaint024Z();
+          cxHspShowMsg024R("hspVoteMsg025O", "Concurso publicado en las mesas QR.");
+        } catch (error) {
+          cxHspShowMsg024R("hspVoteMsg025O", error.message || "No se pudo publicar el concurso.", true);
+        }
+        return;
+      }
+
+      const voteDelete = target.closest("[data-hsp-vote-delete]");
+      if (voteDelete) {
+        try {
+          const id = voteDelete.getAttribute("data-hsp-vote-delete") || "";
+          await cxHspLoyaltyApi024Z(`/loyalty-campaigns/${encodeURIComponent(id)}`, { method: "DELETE" });
+          await cxHspLoyaltyLoad024Z();
+          cxHspLoyaltyPaint024Z();
+          cxHspShowMsg024R("hspVoteMsg025O", "Concurso eliminado de las mesas QR.");
+        } catch (error) {
+          cxHspShowMsg024R("hspVoteMsg025O", error.message || "No se pudo eliminar el concurso.", true);
         }
         return;
       }
