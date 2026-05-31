@@ -439,6 +439,82 @@ p {
   border: 1px solid var(--cx-border);
 }
 
+.cx-landing-hero-025S {
+  margin-bottom: 18px;
+}
+
+.cx-landing-filters-025S {
+  display: grid;
+  grid-template-columns: .8fr 1fr 1fr 1fr auto auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+.cx-landing-filters-025S label {
+  display: grid;
+  gap: 7px;
+  color: var(--cx-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.cx-landing-filters-025S select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--cx-border);
+  background: rgba(5,5,9,.72);
+  color: var(--cx-text);
+  border-radius: 14px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.cx-landing-metrics-025S {
+  margin-bottom: 0;
+}
+
+.cx-landing-grid-025S {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.cx-landing-wide-025S {
+  grid-column: 1 / -1;
+}
+
+.cx-landing-bars-025S {
+  display: grid;
+  gap: 10px;
+}
+
+.cx-landing-bar-row-025S {
+  display: grid;
+  grid-template-columns: minmax(180px, .42fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 16px;
+  background: rgba(0,0,0,.18);
+}
+
+.cx-landing-bar-row-025S strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.cx-landing-bar-row-025S small {
+  color: var(--cx-muted);
+}
+
+.cx-landing-table-025S {
+  min-width: 1040px;
+}
+
 .cx-table {
   width: 100%;
   border-collapse: collapse;
@@ -1216,6 +1292,11 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .cx-landing-filters-025S,
+  .cx-landing-grid-025S {
+    grid-template-columns: 1fr;
+  }
+
   .cx-company-command-hero {
     grid-template-columns: 1fr;
   }
@@ -1258,6 +1339,14 @@ p {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .cx-landing-filters-025S {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cx-landing-filters-025S .cx-btn {
+    width: 100%;
+  }
+
   .cx-main {
     padding: 18px;
   }
@@ -1270,6 +1359,11 @@ p {
 
 @media (max-width: 540px) {
   .cx-grid-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .cx-landing-filters-025S,
+  .cx-landing-bar-row-025S {
     grid-template-columns: 1fr;
   }
 

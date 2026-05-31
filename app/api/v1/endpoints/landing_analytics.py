@@ -229,11 +229,34 @@ async def landing_analytics_summary(
     request: Request,
     days: int = Query(default=30, ge=1, le=365),
     limit: int = Query(default=20, ge=1, le=80),
+    source: str = Query(default="", max_length=220),
+    campaign: str = Query(default="", max_length=260),
+    device: str = Query(default="", max_length=80),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     _admin_required(request)
     await _ensure_storage(db)
     day_window = int(days)
+    row_limit = int(limit)
+    filters = {
+        "source": _clean(source, 220),
+        "campaign": _clean(campaign, 260),
+        "device": _clean(device, 80),
+    }
+    where_parts = [f"created_at >= NOW() - INTERVAL '{day_window} days'"]
+    params: dict[str, Any] = {}
+    if filters["source"]:
+        where_parts.append("source = :source")
+        params["source"] = filters["source"]
+    if filters["campaign"]:
+        where_parts.append("COALESCE(NULLIF(campaign, ''), 'sin campana') = :campaign")
+        params["campaign"] = filters["campaign"]
+    if filters["device"]:
+        where_parts.append("COALESCE(NULLIF(device, ''), 'sin dato') = :device")
+        params["device"] = filters["device"]
+    where_sql = " AND ".join(where_parts)
+    option_where_sql = f"created_at >= NOW() - INTERVAL '{day_window} days'"
+
     row = (await db.execute(text(f"""
         SELECT
             COUNT(*)::int AS total_visits,
@@ -243,45 +266,54 @@ async def landing_analytics_summary(
             MIN(created_at)::text AS first_visit_at,
             MAX(created_at)::text AS last_visit_at
         FROM landing_visit_events
-        WHERE created_at >= NOW() - INTERVAL '{day_window} days'
-    """))).mappings().first() or {}
+        WHERE {where_sql}
+    """), params)).mappings().first() or {}
 
-    async def group(sql: str) -> list[dict[str, Any]]:
-        result = await db.execute(text(sql))
+    async def group(sql: str, bind_params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        result = await db.execute(text(sql), bind_params or {})
         return [dict(item) for item in result.mappings().all()]
 
     sources = await group(f"""
         SELECT source AS label, COUNT(*)::int AS total
         FROM landing_visit_events
-        WHERE created_at >= NOW() - INTERVAL '{day_window} days'
+        WHERE {where_sql}
         GROUP BY source
         ORDER BY total DESC, label ASC
-        LIMIT {int(limit)}
-    """)
+        LIMIT {row_limit}
+    """, params)
     campaigns = await group(f"""
         SELECT COALESCE(NULLIF(campaign, ''), 'sin campana') AS label, COUNT(*)::int AS total
         FROM landing_visit_events
-        WHERE created_at >= NOW() - INTERVAL '{day_window} days'
+        WHERE {where_sql}
         GROUP BY COALESCE(NULLIF(campaign, ''), 'sin campana')
         ORDER BY total DESC, label ASC
-        LIMIT {int(limit)}
-    """)
+        LIMIT {row_limit}
+    """, params)
     paths = await group(f"""
         SELECT path AS label, COUNT(*)::int AS total
         FROM landing_visit_events
-        WHERE created_at >= NOW() - INTERVAL '{day_window} days'
+        WHERE {where_sql}
         GROUP BY path
         ORDER BY total DESC, label ASC
-        LIMIT {int(limit)}
-    """)
+        LIMIT {row_limit}
+    """, params)
     devices = await group(f"""
         SELECT COALESCE(NULLIF(device, ''), 'sin dato') AS label, COUNT(*)::int AS total
         FROM landing_visit_events
-        WHERE created_at >= NOW() - INTERVAL '{day_window} days'
+        WHERE {where_sql}
         GROUP BY COALESCE(NULLIF(device, ''), 'sin dato')
         ORDER BY total DESC, label ASC
-        LIMIT {int(limit)}
-    """)
+        LIMIT {row_limit}
+    """, params)
+    daily = await group(f"""
+        SELECT
+            TO_CHAR(created_at AT TIME ZONE 'America/Bogota', 'YYYY-MM-DD') AS label,
+            COUNT(*)::int AS total
+        FROM landing_visit_events
+        WHERE {where_sql}
+        GROUP BY TO_CHAR(created_at AT TIME ZONE 'America/Bogota', 'YYYY-MM-DD')
+        ORDER BY label ASC
+    """, params)
     recent = await group(f"""
         SELECT
             created_at::text AS created_at,
@@ -296,20 +328,51 @@ async def landing_analytics_summary(
             device,
             viewport
         FROM landing_visit_events
-        WHERE created_at >= NOW() - INTERVAL '{day_window} days'
+        WHERE {where_sql}
         ORDER BY created_at DESC
-        LIMIT {int(limit)}
+        LIMIT {row_limit}
+    """, params)
+    option_sources = await group(f"""
+        SELECT source AS label, COUNT(*)::int AS total
+        FROM landing_visit_events
+        WHERE {option_where_sql}
+        GROUP BY source
+        ORDER BY total DESC, label ASC
+        LIMIT 80
+    """)
+    option_campaigns = await group(f"""
+        SELECT COALESCE(NULLIF(campaign, ''), 'sin campana') AS label, COUNT(*)::int AS total
+        FROM landing_visit_events
+        WHERE {option_where_sql}
+        GROUP BY COALESCE(NULLIF(campaign, ''), 'sin campana')
+        ORDER BY total DESC, label ASC
+        LIMIT 80
+    """)
+    option_devices = await group(f"""
+        SELECT COALESCE(NULLIF(device, ''), 'sin dato') AS label, COUNT(*)::int AS total
+        FROM landing_visit_events
+        WHERE {option_where_sql}
+        GROUP BY COALESCE(NULLIF(device, ''), 'sin dato')
+        ORDER BY total DESC, label ASC
+        LIMIT 80
     """)
 
     return {
         "ok": True,
         "days": day_window,
+        "filters": filters,
         "totals": dict(row),
         "sources": sources,
         "campaigns": campaigns,
         "paths": paths,
         "devices": devices,
+        "daily": daily,
         "recent": recent,
+        "options": {
+            "sources": option_sources,
+            "campaigns": option_campaigns,
+            "devices": option_devices,
+        },
         "tracking_endpoint": LANDING_TRACKING_ENDPOINT,
         "snippet": landing_tracking_snippet(),
     }

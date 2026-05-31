@@ -20,6 +20,12 @@
     activeDetailTab: "resumen",
     companyFilter: "visible",
     landingAnalytics: null,
+    landingFilters: {
+      days: "30",
+      source: "",
+      campaign: "",
+      device: "",
+    },
     lastRefresh: null,
     errors: [],
   };
@@ -153,33 +159,67 @@
       section.className = "cx-view";
       section.dataset.viewPanel = "landing";
       section.innerHTML = `
-        <div class="cx-layout-two cx-layout-wide-left">
+        <article class="cx-card cx-landing-hero-025S">
+          <div class="cx-card-head">
+            <div>
+              <h2>Analitica landing</h2>
+              <p>Visitas reales, fuentes, campanas y comportamiento de la landing publica.</p>
+            </div>
+            <button class="cx-btn cx-btn-small" data-refresh-landing-analytics type="button">Actualizar</button>
+          </div>
+          <form class="cx-landing-filters-025S" id="landingFilters025S">
+            <label>Periodo
+              <select id="landingDays025S" name="days">
+                <option value="7">7 dias</option>
+                <option value="30" selected>30 dias</option>
+                <option value="90">90 dias</option>
+                <option value="365">365 dias</option>
+              </select>
+            </label>
+            <label>Fuente
+              <select id="landingSource025S" name="source"></select>
+            </label>
+            <label>Campana
+              <select id="landingCampaign025S" name="campaign"></select>
+            </label>
+            <label>Dispositivo
+              <select id="landingDevice025S" name="device"></select>
+            </label>
+            <button class="cx-btn cx-btn-primary" type="submit">Aplicar</button>
+            <button class="cx-btn cx-btn-ghost" data-reset-landing-filters type="button">Limpiar</button>
+          </form>
+          <div class="cx-grid-metrics cx-landing-metrics-025S" id="landingMetrics025R"></div>
+        </article>
+        <div class="cx-landing-grid-025S">
           <article class="cx-card">
-            <div class="cx-card-head">
-              <div>
-                <h2>Analitica landing</h2>
-                <p>Visitas capturadas desde la landing publica de CLONEXA.</p>
-              </div>
-              <button class="cx-btn cx-btn-small" data-refresh-landing-analytics type="button">Actualizar</button>
-            </div>
-            <div class="cx-grid-metrics" id="landingMetrics025R"></div>
-            <div class="cx-layout-two">
-              <div>
-                <h3>Fuentes</h3>
-                <div class="cx-mini-list" id="landingSources025R"></div>
-              </div>
-              <div>
-                <h3>Campanas</h3>
-                <div class="cx-mini-list" id="landingCampaigns025R"></div>
-              </div>
-            </div>
-            <h3 style="margin-top:18px">Ultimas visitas</h3>
+            <h3>Visitas por dia</h3>
+            <div class="cx-landing-bars-025S" id="landingDaily025S"></div>
+          </article>
+          <article class="cx-card">
+            <h3>Fuentes</h3>
+            <div class="cx-landing-bars-025S" id="landingSources025R"></div>
+          </article>
+          <article class="cx-card">
+            <h3>Campanas</h3>
+            <div class="cx-landing-bars-025S" id="landingCampaigns025R"></div>
+          </article>
+          <article class="cx-card">
+            <h3>Dispositivos</h3>
+            <div class="cx-landing-bars-025S" id="landingDevices025S"></div>
+          </article>
+          <article class="cx-card cx-landing-wide-025S">
+            <h3>Rutas visitadas</h3>
+            <div class="cx-landing-bars-025S" id="landingPaths025S"></div>
+          </article>
+          <article class="cx-card cx-landing-wide-025S">
+            <h3>Ultimas visitas</h3>
             <div class="cx-table-wrap">
-              <table class="cx-table">
+              <table class="cx-table cx-landing-table-025S">
                 <thead>
                   <tr>
                     <th>Fecha</th>
                     <th>Fuente</th>
+                    <th>Campana</th>
                     <th>Ruta</th>
                     <th>Dispositivo</th>
                     <th>Idioma / zona</th>
@@ -187,23 +227,6 @@
                 </thead>
                 <tbody id="landingRecent025R"></tbody>
               </table>
-            </div>
-          </article>
-          <article class="cx-card">
-            <div class="cx-card-head">
-              <div>
-                <h2>Codigo de captura</h2>
-                <p>Pegar este bloque antes de cerrar body en la landing.</p>
-              </div>
-              <button class="cx-btn cx-btn-small" data-copy-landing-snippet type="button">Copiar script</button>
-            </div>
-            <div class="cx-form">
-              <label>Endpoint
-                <input id="landingEndpoint025R" readonly value="" />
-              </label>
-              <label>Snippet
-                <textarea id="landingSnippet025R" rows="18" readonly></textarea>
-              </label>
             </div>
           </article>
         </div>
@@ -654,7 +677,15 @@
 
   async function loadLandingAnalytics025R() {
     try {
-      state.landingAnalytics = await apiGet(`${API}/landing-analytics/summary?days=30&limit=25`);
+      const filters = state.landingFilters || {};
+      const params = new URLSearchParams({
+        days: filters.days || "30",
+        limit: "40",
+      });
+      if (filters.source) params.set("source", filters.source);
+      if (filters.campaign) params.set("campaign", filters.campaign);
+      if (filters.device) params.set("device", filters.device);
+      state.landingAnalytics = await apiGet(`${API}/landing-analytics/summary?${params.toString()}`);
     } catch (error) {
       state.landingAnalytics = { ok: false, error: error.message };
       state.errors.push(`Landing: ${error.message}`);
@@ -1223,16 +1254,57 @@
     setText("lastRefreshLabel", state.lastRefresh ? `Ultima actualizacion ${state.lastRefresh}` : "Sin actualizar");
   }
 
-  function cxLandingGroup025R(rows = []) {
+  function cxLandingNumber025S(value) {
+    const parsed = Number(value || 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function cxLandingTopLabel025S(rows = [], emptyLabel = "Sin datos") {
+    const first = rows[0] || {};
+    return first.label || emptyLabel;
+  }
+
+  function cxLandingSelectOptions025S(selector, rows = [], selectedValue = "", emptyLabel = "Todos") {
+    const select = el(selector);
+    if (!select) return;
+    const values = new Set();
+    const options = [`<option value="">${escapeHtml(emptyLabel)}</option>`];
+    rows.forEach((item) => {
+      const label = String(item.label || "");
+      if (!label || values.has(label)) return;
+      values.add(label);
+      options.push(`<option value="${escapeHtml(label)}">${escapeHtml(label)} (${escapeHtml(item.total || 0)})</option>`);
+    });
+    if (selectedValue && !values.has(selectedValue)) {
+      options.push(`<option value="${escapeHtml(selectedValue)}">${escapeHtml(selectedValue)}</option>`);
+    }
+    select.innerHTML = options.join("");
+    select.value = selectedValue || "";
+  }
+
+  function cxLandingSyncFilters025S(analytics = {}) {
+    const filters = state.landingFilters || {};
+    const days = el("#landingDays025S");
+    if (days) days.value = filters.days || String(analytics.days || 30);
+    const options = analytics.options || {};
+    cxLandingSelectOptions025S("#landingSource025S", options.sources || analytics.sources || [], filters.source || "", "Todas");
+    cxLandingSelectOptions025S("#landingCampaign025S", options.campaigns || analytics.campaigns || [], filters.campaign || "", "Todas");
+    cxLandingSelectOptions025S("#landingDevice025S", options.devices || analytics.devices || [], filters.device || "", "Todos");
+  }
+
+  function cxLandingGroup025R(rows = [], config = {}) {
     const max = Math.max(1, ...rows.map((item) => Number(item.total || 0)));
     return rows.length
       ? rows.map((item) => {
         const total = Number(item.total || 0);
         const width = Math.max(4, Math.round((total / max) * 100));
+        const share = config.base ? Math.round((total / Math.max(1, config.base)) * 100) : 0;
         return `
-          <div class="cx-mini-card">
-            <strong>${escapeHtml(item.label || "sin dato")}</strong>
-            <span>${escapeHtml(total)} visita(s)</span>
+          <div class="cx-landing-bar-row-025S">
+            <div>
+              <strong>${escapeHtml(item.label || "sin dato")}</strong>
+              <small>${escapeHtml(total)} visita(s)${share ? ` - ${escapeHtml(share)}%` : ""}</small>
+            </div>
             <div class="cx-progress"><span style="width:${escapeHtml(width)}%"></span></div>
           </div>
         `;
@@ -1243,23 +1315,39 @@
   function renderLandingAnalytics025R() {
     const analytics = state.landingAnalytics || {};
     const totals = analytics.totals || {};
+    const totalVisits = cxLandingNumber025S(totals.total_visits);
+    const sourcesRows = analytics.sources || [];
+    const campaignsRows = analytics.campaigns || [];
+    const devicesRows = analytics.devices || [];
+    cxLandingSyncFilters025S(analytics);
     const metrics = el("#landingMetrics025R");
     if (metrics) {
       metrics.innerHTML = analytics.ok === false
         ? `<article class="cx-metric-card"><span>Estado</span><strong>Error</strong><small>${escapeHtml(analytics.error || "No disponible")}</small></article>`
         : `
-          <article class="cx-metric-card"><span>Visitas</span><strong>${escapeHtml(totals.total_visits || 0)}</strong><small>Ultimos ${escapeHtml(analytics.days || 30)} dias</small></article>
+          <article class="cx-metric-card"><span>Visitas</span><strong>${escapeHtml(totalVisits)}</strong><small>Ultimos ${escapeHtml(analytics.days || 30)} dias</small></article>
           <article class="cx-metric-card"><span>Visitantes</span><strong>${escapeHtml(totals.unique_visitors || 0)}</strong><small>IDs unicos</small></article>
           <article class="cx-metric-card"><span>Sesiones</span><strong>${escapeHtml(totals.sessions || 0)}</strong><small>Sesiones detectadas</small></article>
           <article class="cx-metric-card"><span>Ultimas 24h</span><strong>${escapeHtml(totals.last_24h || 0)}</strong><small>Actividad reciente</small></article>
+          <article class="cx-metric-card"><span>Fuente top</span><strong>${escapeHtml(cxLandingTopLabel025S(sourcesRows))}</strong><small>${escapeHtml(sourcesRows[0]?.total || 0)} visita(s)</small></article>
+          <article class="cx-metric-card"><span>Dispositivo top</span><strong>${escapeHtml(cxLandingTopLabel025S(devicesRows))}</strong><small>${escapeHtml(devicesRows[0]?.total || 0)} visita(s)</small></article>
         `;
     }
 
+    const daily = el("#landingDaily025S");
+    if (daily) daily.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(analytics.daily || [], { base: totalVisits });
+
     const sources = el("#landingSources025R");
-    if (sources) sources.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(analytics.sources || []);
+    if (sources) sources.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(sourcesRows, { base: totalVisits });
 
     const campaigns = el("#landingCampaigns025R");
-    if (campaigns) campaigns.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(analytics.campaigns || []);
+    if (campaigns) campaigns.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(campaignsRows, { base: totalVisits });
+
+    const devices = el("#landingDevices025S");
+    if (devices) devices.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(devicesRows, { base: totalVisits });
+
+    const paths = el("#landingPaths025S");
+    if (paths) paths.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(analytics.paths || [], { base: totalVisits });
 
     const recent = el("#landingRecent025R");
     if (recent) {
@@ -1269,18 +1357,14 @@
           <tr>
             <td>${escapeHtml(item.created_at || "")}</td>
             <td><strong>${escapeHtml(item.source || "directo")}</strong><br><small>${escapeHtml(item.referrer_domain || item.medium || "")}</small></td>
+            <td>${escapeHtml(item.campaign || "sin campana")}</td>
             <td>${escapeHtml(item.path || "/")}</td>
             <td>${escapeHtml(item.device || "sin dato")}<br><small>${escapeHtml(item.viewport || "")}</small></td>
             <td>${escapeHtml(item.language || "sin dato")}<br><small>${escapeHtml(item.timezone || "")}</small></td>
           </tr>
         `).join("")
-        : `<tr><td colspan="5">Aun no hay visitas capturadas.</td></tr>`;
+        : `<tr><td colspan="6">Aun no hay visitas capturadas.</td></tr>`;
     }
-
-    const endpoint = el("#landingEndpoint025R");
-    if (endpoint) endpoint.value = analytics.tracking_endpoint || "";
-    const snippet = el("#landingSnippet025R");
-    if (snippet) snippet.value = analytics.snippet || "";
   }
 
   function renderDashboard() {
@@ -4535,7 +4619,7 @@
       modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
       access: ["Accesos", "Rutas operativas rápidas del ecosistema."],
       crm: ["CRM / Panel Empresa", "Estado resumido de branding, experiencia y panel cliente."],
-      landing: ["Landing", "Visitas, fuentes, campanas y codigo de captura de la landing publica."],
+      landing: ["Landing", "Analitica comercial de visitas, fuentes, campanas y dispositivos."],
       health: ["Health / Estado del sistema", "Estado de API y conteos principales."]
     };
 
@@ -4704,10 +4788,17 @@
         return;
       }
 
-      const copyLandingSnippet = event.target.closest("[data-copy-landing-snippet]");
-      if (copyLandingSnippet) {
-        await navigator.clipboard.writeText(state.landingAnalytics?.snippet || "");
-        showToast("Script de landing copiado.");
+      const resetLandingFilters = event.target.closest("[data-reset-landing-filters]");
+      if (resetLandingFilters) {
+        state.landingFilters = {
+          days: "30",
+          source: "",
+          campaign: "",
+          device: "",
+        };
+        await loadLandingAnalytics025R();
+        renderLandingAnalytics025R();
+        showToast("Filtros de landing limpiados.");
         return;
       }
 
@@ -4717,6 +4808,22 @@
         window.location.href = "/admin-v2/login";
         return;
       }
+    });
+
+    document.addEventListener("submit", async (event) => {
+      const form = event.target.closest("#landingFilters025S");
+      if (!form) return;
+      event.preventDefault();
+      const data = new FormData(form);
+      state.landingFilters = {
+        days: String(data.get("days") || "30"),
+        source: String(data.get("source") || ""),
+        campaign: String(data.get("campaign") || ""),
+        device: String(data.get("device") || ""),
+      };
+      await loadLandingAnalytics025R();
+      renderLandingAnalytics025R();
+      showToast("Landing filtrada.");
     });
 
     el("#refreshBtn")?.addEventListener("click", async () => {
