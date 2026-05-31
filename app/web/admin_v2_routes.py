@@ -78,6 +78,12 @@ def _require_admin_v2_session(request: Request) -> None:
         raise HTTPException(status_code=303, headers={"Location": "/admin-v2/login"})
 
 
+def _no_store(response: Response) -> Response:
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 async def _read_login_payload(request: Request) -> dict[str, str]:
     content_type = request.headers.get("content-type", "").lower()
     if "application/json" in content_type:
@@ -237,7 +243,7 @@ def _login_html(error: str = "") -> str:
 async def admin_v2_login_page(request: Request):
     if _valid_session(request):
         return RedirectResponse(url="/admin-v2", status_code=303)
-    return HTMLResponse(_login_html())
+    return _no_store(HTMLResponse(_login_html()))
 
 
 @router.post("/admin-v2/login", include_in_schema=False)
@@ -249,7 +255,7 @@ async def admin_v2_login(request: Request):
     valid_email = hmac.compare_digest(email, ADMIN_V2_EMAIL)
     valid_password = hmac.compare_digest(_password_hash(password), ADMIN_V2_PASSWORD_HASH)
     if not (valid_email and valid_password):
-        return HTMLResponse(_login_html("Credenciales invalidas."), status_code=401)
+        return _no_store(HTMLResponse(_login_html("Credenciales invalidas."), status_code=401))
 
     response = RedirectResponse(url="/admin-v2", status_code=303)
     response.set_cookie(
@@ -278,7 +284,7 @@ async def admin_v2_page(request: Request):
     html_path = WEB_DIR / "admin_v2.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="Admin Console V2 no encontrada")
-    return FileResponse(html_path)
+    return _no_store(FileResponse(html_path))
 
 
 @router.get("/admin-v2.css", include_in_schema=False)
@@ -287,7 +293,7 @@ async def admin_v2_css(request: Request):
     css_path = WEB_DIR / "admin_v2.css"
     if not css_path.exists():
         raise HTTPException(status_code=404, detail="CSS Admin V2 no encontrado")
-    return FileResponse(css_path, media_type="text/css")
+    return _no_store(FileResponse(css_path, media_type="text/css"))
 
 
 @router.get("/admin-v2.js", include_in_schema=False)
@@ -296,7 +302,7 @@ async def admin_v2_js(request: Request):
     js_path = WEB_DIR / "admin_v2.js"
     if not js_path.exists():
         raise HTTPException(status_code=404, detail="JS Admin V2 no encontrado")
-    return FileResponse(js_path, media_type="application/javascript")
+    return _no_store(FileResponse(js_path, media_type="application/javascript"))
 
 
 @router.get("/admin-v2-assets/{asset_path:path}", include_in_schema=False)
@@ -311,10 +317,10 @@ async def admin_v2_assets(request: Request, asset_path: str):
     if not safe_path.exists() or not safe_path.is_file():
         raise HTTPException(status_code=404, detail="Asset no encontrado")
 
-    return FileResponse(safe_path)
+    return _no_store(FileResponse(safe_path))
 
 
 @router.get("/admin-v2/ping", include_in_schema=False)
 async def admin_v2_ping(request: Request):
     _require_admin_v2_session(request)
-    return Response("OK", media_type="text/plain")
+    return _no_store(Response("OK", media_type="text/plain"))

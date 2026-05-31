@@ -43,6 +43,7 @@ for _module_name, _prefix, _tags in [
     ("day_closing", "/day-closing", ["day_closing"]),
     ("hospitality", "/hospitality", ["hospitality"]),
     ("field", "/field", ["field"]),
+    ("landing_analytics", "/landing-analytics", ["landing_analytics"]),
 ]:
     _include(_module_name, _prefix, _tags)
 

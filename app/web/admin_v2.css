@@ -416,6 +416,22 @@ p {
   margin-bottom: 3px;
 }
 
+.cx-progress {
+  width: 100%;
+  height: 8px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.1);
+  overflow: hidden;
+}
+
+.cx-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cx-primary), var(--cx-success));
+}
+
 .cx-table-wrap {
   width: 100%;
   overflow-x: auto;

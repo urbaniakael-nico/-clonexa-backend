@@ -19,6 +19,7 @@
     activeView: "dashboard",
     activeDetailTab: "resumen",
     companyFilter: "visible",
+    landingAnalytics: null,
     lastRefresh: null,
     errors: [],
   };
@@ -122,6 +123,93 @@
     if (!node) return;
     node.hidden = true;
     node.textContent = "";
+  }
+
+  function ensureAdminV2SecurityControls025R() {
+    const actions = el(".cx-topbar-actions");
+    if (actions && !el("#adminV2LogoutBtn025R")) {
+      const button = document.createElement("button");
+      button.id = "adminV2LogoutBtn025R";
+      button.type = "button";
+      button.className = "cx-btn cx-btn-danger";
+      button.dataset.adminV2Logout = "true";
+      button.textContent = "Cerrar sesion";
+      actions.appendChild(button);
+    }
+
+    const nav = el(".cx-nav");
+    if (nav && !nav.querySelector('[data-view="landing"]')) {
+      const button = document.createElement("button");
+      button.className = "cx-nav-item";
+      button.type = "button";
+      button.dataset.view = "landing";
+      button.textContent = "Landing";
+      nav.appendChild(button);
+    }
+
+    const main = el(".cx-main");
+    if (main && !main.querySelector('[data-view-panel="landing"]')) {
+      const section = document.createElement("section");
+      section.className = "cx-view";
+      section.dataset.viewPanel = "landing";
+      section.innerHTML = `
+        <div class="cx-layout-two cx-layout-wide-left">
+          <article class="cx-card">
+            <div class="cx-card-head">
+              <div>
+                <h2>Analitica landing</h2>
+                <p>Visitas capturadas desde la landing publica de CLONEXA.</p>
+              </div>
+              <button class="cx-btn cx-btn-small" data-refresh-landing-analytics type="button">Actualizar</button>
+            </div>
+            <div class="cx-grid-metrics" id="landingMetrics025R"></div>
+            <div class="cx-layout-two">
+              <div>
+                <h3>Fuentes</h3>
+                <div class="cx-mini-list" id="landingSources025R"></div>
+              </div>
+              <div>
+                <h3>Campanas</h3>
+                <div class="cx-mini-list" id="landingCampaigns025R"></div>
+              </div>
+            </div>
+            <h3 style="margin-top:18px">Ultimas visitas</h3>
+            <div class="cx-table-wrap">
+              <table class="cx-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Fuente</th>
+                    <th>Ruta</th>
+                    <th>Dispositivo</th>
+                    <th>Idioma / zona</th>
+                  </tr>
+                </thead>
+                <tbody id="landingRecent025R"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="cx-card">
+            <div class="cx-card-head">
+              <div>
+                <h2>Codigo de captura</h2>
+                <p>Pegar este bloque antes de cerrar body en la landing.</p>
+              </div>
+              <button class="cx-btn cx-btn-small" data-copy-landing-snippet type="button">Copiar script</button>
+            </div>
+            <div class="cx-form">
+              <label>Endpoint
+                <input id="landingEndpoint025R" readonly value="" />
+              </label>
+              <label>Snippet
+                <textarea id="landingSnippet025R" rows="18" readonly></textarea>
+              </label>
+            </div>
+          </article>
+        </div>
+      `;
+      main.appendChild(section);
+    }
   }
 
   function normalizeCompany(raw) {
@@ -561,6 +649,15 @@
       state.health = { ok: false, error: error.message };
       setApiStatus(false);
       throw error;
+    }
+  }
+
+  async function loadLandingAnalytics025R() {
+    try {
+      state.landingAnalytics = await apiGet(`${API}/landing-analytics/summary?days=30&limit=25`);
+    } catch (error) {
+      state.landingAnalytics = { ok: false, error: error.message };
+      state.errors.push(`Landing: ${error.message}`);
     }
   }
 
@@ -1080,6 +1177,7 @@
       loadModules().catch((error) => {
         state.errors.push(`Módulos: ${error.message}`);
       }),
+      loadLandingAnalytics025R(),
     ];
 
     await Promise.all(tasks);
@@ -1123,6 +1221,66 @@
     setText("metricApi", state.health && state.health.ok !== false ? "LIVE" : "OFFLINE");
     setText("metricApiHint", apiOk ? "Health operativo" : "Revisar health");
     setText("lastRefreshLabel", state.lastRefresh ? `Ultima actualizacion ${state.lastRefresh}` : "Sin actualizar");
+  }
+
+  function cxLandingGroup025R(rows = []) {
+    const max = Math.max(1, ...rows.map((item) => Number(item.total || 0)));
+    return rows.length
+      ? rows.map((item) => {
+        const total = Number(item.total || 0);
+        const width = Math.max(4, Math.round((total / max) * 100));
+        return `
+          <div class="cx-mini-card">
+            <strong>${escapeHtml(item.label || "sin dato")}</strong>
+            <span>${escapeHtml(total)} visita(s)</span>
+            <div class="cx-progress"><span style="width:${escapeHtml(width)}%"></span></div>
+          </div>
+        `;
+      }).join("")
+      : `<div class="cx-empty-state">Aun no hay datos capturados.</div>`;
+  }
+
+  function renderLandingAnalytics025R() {
+    const analytics = state.landingAnalytics || {};
+    const totals = analytics.totals || {};
+    const metrics = el("#landingMetrics025R");
+    if (metrics) {
+      metrics.innerHTML = analytics.ok === false
+        ? `<article class="cx-metric-card"><span>Estado</span><strong>Error</strong><small>${escapeHtml(analytics.error || "No disponible")}</small></article>`
+        : `
+          <article class="cx-metric-card"><span>Visitas</span><strong>${escapeHtml(totals.total_visits || 0)}</strong><small>Ultimos ${escapeHtml(analytics.days || 30)} dias</small></article>
+          <article class="cx-metric-card"><span>Visitantes</span><strong>${escapeHtml(totals.unique_visitors || 0)}</strong><small>IDs unicos</small></article>
+          <article class="cx-metric-card"><span>Sesiones</span><strong>${escapeHtml(totals.sessions || 0)}</strong><small>Sesiones detectadas</small></article>
+          <article class="cx-metric-card"><span>Ultimas 24h</span><strong>${escapeHtml(totals.last_24h || 0)}</strong><small>Actividad reciente</small></article>
+        `;
+    }
+
+    const sources = el("#landingSources025R");
+    if (sources) sources.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(analytics.sources || []);
+
+    const campaigns = el("#landingCampaigns025R");
+    if (campaigns) campaigns.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(analytics.campaigns || []);
+
+    const recent = el("#landingRecent025R");
+    if (recent) {
+      const rows = analytics.recent || [];
+      recent.innerHTML = rows.length
+        ? rows.map((item) => `
+          <tr>
+            <td>${escapeHtml(item.created_at || "")}</td>
+            <td><strong>${escapeHtml(item.source || "directo")}</strong><br><small>${escapeHtml(item.referrer_domain || item.medium || "")}</small></td>
+            <td>${escapeHtml(item.path || "/")}</td>
+            <td>${escapeHtml(item.device || "sin dato")}<br><small>${escapeHtml(item.viewport || "")}</small></td>
+            <td>${escapeHtml(item.language || "sin dato")}<br><small>${escapeHtml(item.timezone || "")}</small></td>
+          </tr>
+        `).join("")
+        : `<tr><td colspan="5">Aun no hay visitas capturadas.</td></tr>`;
+    }
+
+    const endpoint = el("#landingEndpoint025R");
+    if (endpoint) endpoint.value = analytics.tracking_endpoint || "";
+    const snippet = el("#landingSnippet025R");
+    if (snippet) snippet.value = analytics.snippet || "";
   }
 
   function renderDashboard() {
@@ -4377,6 +4535,7 @@
       modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
       access: ["Accesos", "Rutas operativas rápidas del ecosistema."],
       crm: ["CRM / Panel Empresa", "Estado resumido de branding, experiencia y panel cliente."],
+      landing: ["Landing", "Visitas, fuentes, campanas y codigo de captura de la landing publica."],
       health: ["Health / Estado del sistema", "Estado de API y conteos principales."]
     };
 
@@ -4392,6 +4551,7 @@
     renderPackages();
     renderModules();
     renderAccess();
+    renderLandingAnalytics025R();
     renderHealth();
     renderCrmView();
     renderUsersGlobalView();
@@ -4535,6 +4695,28 @@
         await ensureDefaults(ensure.dataset.ensureDefaults);
         return;
       }
+
+      const refreshLanding = event.target.closest("[data-refresh-landing-analytics]");
+      if (refreshLanding) {
+        await loadLandingAnalytics025R();
+        renderLandingAnalytics025R();
+        showToast("Analitica de landing actualizada.");
+        return;
+      }
+
+      const copyLandingSnippet = event.target.closest("[data-copy-landing-snippet]");
+      if (copyLandingSnippet) {
+        await navigator.clipboard.writeText(state.landingAnalytics?.snippet || "");
+        showToast("Script de landing copiado.");
+        return;
+      }
+
+      const logout = event.target.closest("[data-admin-v2-logout]");
+      if (logout) {
+        await fetch("/admin-v2/logout", { method: "POST" }).catch(() => null);
+        window.location.href = "/admin-v2/login";
+        return;
+      }
     });
 
     el("#refreshBtn")?.addEventListener("click", async () => {
@@ -4599,6 +4781,7 @@
   }
 
   async function bootstrap() {
+    ensureAdminV2SecurityControls025R();
     ensureCreateCompanyOwnerFields();
     bindEvents();
     applyOwnerAccessLabels();
