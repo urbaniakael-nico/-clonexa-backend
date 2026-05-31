@@ -1224,8 +1224,9 @@ def _vote_poll_options(mode: str, options: list[Any] | None = None) -> list[dict
                 rows.append({"key": f"option_{index}", "label": label})
             if len(rows) >= 5:
                 break
-        if not rows:
-            rows = [{"key": f"option_{index}", "label": f"Participante {index}"} for index in range(1, 3)]
+        while len(rows) < 5:
+            index = len(rows) + 1
+            rows.append({"key": f"option_{index}", "label": f"Participante {index}"})
         return rows[:5]
     return [{"key": "registered", "label": "Inscrito"}]
 
