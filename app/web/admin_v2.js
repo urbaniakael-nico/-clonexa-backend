@@ -19,6 +19,13 @@
     activeView: "dashboard",
     activeDetailTab: "resumen",
     companyFilter: "visible",
+    moduleFilters: {
+      search: "",
+      status: "all",
+      category: "all",
+      assignment: "all",
+      company: "all",
+    },
     landingAnalytics: null,
     landingFilters: {
       days: "30",
@@ -2466,6 +2473,59 @@
         return;
       }
 
+      const deleteButton = event.target.closest("[data-cx-module-delete]");
+      if (deleteButton) {
+        const code = deleteButton.dataset.moduleCode;
+        const module = state.modules.find((item) => item.code === code) || { code };
+        const normalized = normalizeModule(module);
+        const candidate = {
+          ...normalized,
+          assignments: cxModuleAssignments025M(code),
+          packageAssignments: cxModulePackageAssignments025T(code),
+        };
+
+        if (!cxModuleCanDelete025T(candidate)) {
+          alert(`No se puede eliminar este modulo porque esta en uso: ${cxModuleDeleteHint025T(candidate)}.`);
+          return;
+        }
+
+        const confirmation = prompt(`Para eliminar el modulo global "${code}", escribe exactamente el codigo:`);
+        if (confirmation !== code) return;
+
+        deleteButton.disabled = true;
+        deleteButton.textContent = "Eliminando...";
+        try {
+          await cxJsonRequest(`/modules/${encodeURIComponent(code)}?confirm=${encodeURIComponent(code)}`, {
+            method: "DELETE",
+          });
+          await loadModules();
+          await loadPackages();
+          await Promise.all(state.companies.map((company) => loadCompanyModules(company.id).catch(() => [])));
+          renderModules();
+          renderPackages();
+          showToast("Modulo eliminado.");
+        } catch (error) {
+          alert(`No se pudo eliminar el modulo: ${error.message}`);
+        } finally {
+          deleteButton.disabled = false;
+          deleteButton.textContent = "Eliminar";
+        }
+        return;
+      }
+
+      const resetModuleFilters = event.target.closest("[data-reset-module-filters]");
+      if (resetModuleFilters) {
+        state.moduleFilters = {
+          search: "",
+          status: "all",
+          category: "all",
+          assignment: "all",
+          company: "all",
+        };
+        renderModules();
+        return;
+      }
+
       const toggleButton = event.target.closest("[data-cx-company-module-toggle]");
       if (!toggleButton) return;
 
@@ -2496,6 +2556,21 @@
     });
 
     document.addEventListener("submit", async (event) => {
+      const filterForm = event.target.closest("#moduleFilters025T");
+      if (filterForm) {
+        event.preventDefault();
+        const data = new FormData(filterForm);
+        state.moduleFilters = {
+          search: String(data.get("search") || "").trim(),
+          status: String(data.get("status") || "all"),
+          category: String(data.get("category") || "all"),
+          assignment: String(data.get("assignment") || "all"),
+          company: String(data.get("company") || "all"),
+        };
+        renderModules();
+        return;
+      }
+
       const form = event.target.closest("#createModuleForm");
       if (!form) return;
 
@@ -2592,6 +2667,155 @@
     return `${active}${inactive}${archived}`;
   }
 
+  function cxModulePackageAssignments025T(code = "") {
+    const normalizedCode = String(code || "").trim();
+    if (!normalizedCode) return [];
+    return state.packages
+      .filter((pkg) => safeArray(pkg.modules).some((module) => {
+        const moduleCode = String(typeof module === "string" ? module : (module.code || module.module_code || "")).trim();
+        return moduleCode === normalizedCode;
+      }))
+      .map((pkg) => pkg.name || pkg.code || "Paquete");
+  }
+
+  function cxModuleAssignmentTotal025T(assignments) {
+    return safeArray(assignments?.active).length + safeArray(assignments?.inactive).length + safeArray(assignments?.archived).length;
+  }
+
+  function cxModuleCanDelete025T(module) {
+    const assignmentCount = cxModuleAssignmentTotal025T(module.assignments || {});
+    const packageCount = safeArray(module.packageAssignments).length;
+    return assignmentCount === 0 && packageCount === 0;
+  }
+
+  function cxModuleDeleteHint025T(module) {
+    const assignmentCount = cxModuleAssignmentTotal025T(module.assignments || {});
+    const packageCount = safeArray(module.packageAssignments).length;
+    if (assignmentCount || packageCount) {
+      return `${assignmentCount} empresa(s) / ${packageCount} paquete(s)`;
+    }
+    return "Libre para limpiar";
+  }
+
+  function cxModuleMatchesFilters025T(module) {
+    const filters = state.moduleFilters || {};
+    const search = String(filters.search || "").trim().toLowerCase();
+    const category = String(filters.category || "all");
+    const status = String(filters.status || "all");
+    const assignment = String(filters.assignment || "all");
+    const companyId = String(filters.company || "all");
+    const meta = module.meta || {};
+    const assignments = module.assignments || { active: [], inactive: [], archived: [] };
+    const packageAssignments = safeArray(module.packageAssignments);
+    const assignedTotal = cxModuleAssignmentTotal025T(assignments);
+
+    if (search) {
+      const haystack = [
+        module.code,
+        meta.name,
+        meta.description,
+        meta.categoryLabel,
+        module.status?.label,
+        module.status?.detail,
+        ...assignments.active,
+        ...assignments.inactive,
+        ...assignments.archived,
+        ...packageAssignments,
+      ].join(" ").toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+
+    if (status !== "all" && module.status.key !== status) return false;
+    if (category !== "all" && String(meta.categoryLabel || module.category || "General") !== category) return false;
+
+    if (assignment === "assigned" && assignedTotal === 0) return false;
+    if (assignment === "unassigned" && assignedTotal > 0) return false;
+    if (assignment === "inactive" && !assignments.inactive.length) return false;
+    if (assignment === "archived" && !assignments.archived.length) return false;
+    if (assignment === "package" && !packageAssignments.length) return false;
+
+    if (companyId !== "all") {
+      const company = state.companies.find((item) => String(item.id) === companyId);
+      const label = company?.name || company?.slug || "";
+      if (!label) return false;
+      const names = [...assignments.active, ...assignments.inactive, ...assignments.archived];
+      if (!names.includes(label)) return false;
+    }
+
+    return true;
+  }
+
+  function cxModuleFilterOptions025T(modules = []) {
+    const categories = Array.from(new Set(modules.map((module) => module.meta?.categoryLabel || module.category || "General"))).sort((a, b) => a.localeCompare(b, "es"));
+    const categoryOptions = categories.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
+    const companyOptions = state.companies
+      .filter((company) => !isArchivedCompany(company))
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"))
+      .map((company) => `<option value="${escapeHtml(company.id)}">${escapeHtml(company.name || company.slug || "Empresa")}</option>`)
+      .join("");
+    const filters = state.moduleFilters || {};
+    return `
+      <form class="cx-module-filters-025t" id="moduleFilters025T">
+        <label>Buscar
+          <input name="search" value="${escapeHtml(filters.search || "")}" placeholder="Modulo, codigo, empresa..." />
+        </label>
+        <label>Estado
+          <select name="status">
+            <option value="all">Todos</option>
+            <option value="functional">Funcionales</option>
+            <option value="integrated">Integrados</option>
+            <option value="base">Base</option>
+            <option value="pending">Sin funcionamiento</option>
+          </select>
+        </label>
+        <label>Vertical
+          <select name="category">
+            <option value="all">Todas</option>
+            ${categoryOptions}
+          </select>
+        </label>
+        <label>Uso
+          <select name="assignment">
+            <option value="all">Todos</option>
+            <option value="assigned">Asignados</option>
+            <option value="unassigned">Sin asignar</option>
+            <option value="inactive">Apagados</option>
+            <option value="archived">Archivados</option>
+            <option value="package">En paquetes</option>
+          </select>
+        </label>
+        <label>Empresa
+          <select name="company">
+            <option value="all">Todas</option>
+            ${companyOptions}
+          </select>
+        </label>
+        <button class="cx-btn cx-btn-primary" type="submit">Filtrar</button>
+        <button class="cx-btn cx-btn-ghost" data-reset-module-filters type="button">Limpiar</button>
+      </form>
+    `;
+  }
+
+  function cxModuleApplyFilterValues025T() {
+    const filters = state.moduleFilters || {};
+    const form = el("#moduleFilters025T");
+    if (!form) return;
+    ["status", "category", "assignment", "company"].forEach((name) => {
+      const node = form.querySelector(`[name='${name}']`);
+      if (node) node.value = filters[name] || "all";
+    });
+  }
+
+  function cxModuleMiniBar025T(label, value, max, cls = "") {
+    const percent = Math.max(4, Math.round((Number(value || 0) / Math.max(1, Number(max || 1))) * 100));
+    return `
+      <div class="cx-module-statbar-025t ${cls}">
+        <div><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value || 0)}</span></div>
+        <div class="cx-progress"><span style="width:${escapeHtml(percent)}%"></span></div>
+      </div>
+    `;
+  }
+
   function cxModuleStatusBadge025M(status) {
     const cls = status.key === "functional"
       ? "cx-badge-live"
@@ -2654,7 +2878,8 @@
         const meta = cxModuleMeta(normalized);
         const status = cxModuleStatus025M(normalized);
         const assignments = cxModuleAssignments025M(normalized.code);
-        return { ...normalized, meta, status, assignments };
+        const packageAssignments = cxModulePackageAssignments025T(normalized.code);
+        return { ...normalized, meta, status, assignments, packageAssignments };
       })
       .sort((a, b) => {
         const statusDiff = (CX_MODULE_STATUS_ORDER_025M[a.status.key] ?? 9) - (CX_MODULE_STATUS_ORDER_025M[b.status.key] ?? 9);
@@ -2666,69 +2891,153 @@
     const counts = modules.reduce((acc, module) => {
       acc[module.status.key] = (acc[module.status.key] || 0) + 1;
       acc.activeAssignments += module.assignments.active.length;
+      acc.inactiveAssignments += module.assignments.inactive.length;
+      acc.archivedAssignments += module.assignments.archived.length;
+      acc.packageLinks += module.packageAssignments.length;
+      if (cxModuleAssignmentTotal025T(module.assignments) === 0) acc.unassigned += 1;
+      if (cxModuleCanDelete025T(module)) acc.cleanup += 1;
       return acc;
-    }, { functional: 0, integrated: 0, base: 0, pending: 0, activeAssignments: 0 });
+    }, { functional: 0, integrated: 0, base: 0, pending: 0, activeAssignments: 0, inactiveAssignments: 0, archivedAssignments: 0, packageLinks: 0, unassigned: 0, cleanup: 0 });
+
+    const filteredModules = modules.filter(cxModuleMatchesFilters025T);
+    const maxStatus = Math.max(1, counts.functional || 0, counts.integrated || 0, counts.base || 0, counts.pending || 0);
+    const categoryCounts = modules.reduce((acc, module) => {
+      const label = module.meta.categoryLabel || module.category || "General";
+      acc[label] = (acc[label] || 0) + 1;
+      return acc;
+    }, {});
+    const topCompanies = state.companies
+      .filter((company) => !isArchivedCompany(company))
+      .map((company) => {
+        const rows = safeArray(state.companyModules.get(company.id)).map(normalizeModule);
+        return {
+          name: company.name || company.slug || "Empresa",
+          total: rows.filter((row) => row.enabled !== false).length,
+        };
+      })
+      .filter((item) => item.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+    const cleanupCandidates = modules.filter(cxModuleCanDelete025T).slice(0, 8);
 
     const grouped = new Map();
-    modules.forEach((module) => {
+    filteredModules.forEach((module) => {
       const label = CX_MODULE_STATUS_LABEL_025M[module.status.key] || "Otros";
       if (!grouped.has(label)) grouped.set(label, []);
       grouped.get(label).push(module);
     });
 
     grid.innerHTML = `
-      <section class="cx-module-command-025m">
+      <section class="cx-module-command-025m cx-module-command-025t">
         <div class="cx-card-head">
           <div>
-            <h2>Mapa funcional de modulos</h2>
-            <p>Lectura real del catalogo global, estado funcional y empresas asignadas. No modifica datos.</p>
+            <h2>Centro de mando modular</h2>
+            <p>Estado funcional, asignaciones, paquetes y limpieza controlada del catalogo global.</p>
           </div>
-          <span class="cx-badge cx-badge-primary">${escapeHtml(modules.length)} modulos globales</span>
+          <div class="cx-actions">
+            <span class="cx-badge cx-badge-primary">${escapeHtml(modules.length)} modulos globales</span>
+            <span class="cx-badge">${escapeHtml(filteredModules.length)} visibles</span>
+          </div>
         </div>
 
         <div class="cx-module-summary-025m">
-          <div><span>Funcionales</span><strong>${escapeHtml(counts.functional || 0)}</strong><small>Con pantalla o flujo operativo</small></div>
-          <div><span>Integrados</span><strong>${escapeHtml(counts.integrated || 0)}</strong><small>Viven dentro de otro modulo</small></div>
-          <div><span>Sin funcionamiento</span><strong>${escapeHtml(counts.pending || 0)}</strong><small>Catalogo sin pantalla estable</small></div>
-          <div><span>Empresas activas</span><strong>${escapeHtml(activeCompanyCount)}</strong><small>${escapeHtml(counts.activeAssignments)} asignaciones activas</small></div>
+          <div><span>Total catalogo</span><strong>${escapeHtml(modules.length)}</strong><small>${escapeHtml(activeCompanyCount)} empresas activas</small></div>
+          <div><span>Funcionales</span><strong>${escapeHtml(counts.functional || 0)}</strong><small>Listos para operar</small></div>
+          <div><span>Asignaciones</span><strong>${escapeHtml(counts.activeAssignments || 0)}</strong><small>${escapeHtml(counts.inactiveAssignments || 0)} apagadas - ${escapeHtml(counts.archivedAssignments || 0)} archivadas</small></div>
+          <div><span>Limpieza segura</span><strong>${escapeHtml(counts.cleanup || 0)}</strong><small>Sin empresa ni paquete</small></div>
+        </div>
+        ${cxModuleFilterOptions025T(modules)}
+      </section>
+
+      <section class="cx-module-layout-025t">
+        <aside class="cx-module-side-025t">
+          <article class="cx-panel">
+            <span class="cx-kicker">Estado del mapa</span>
+            ${cxModuleMiniBar025T("Funcionales", counts.functional || 0, maxStatus, "is-live")}
+            ${cxModuleMiniBar025T("Integrados", counts.integrated || 0, maxStatus, "is-warning")}
+            ${cxModuleMiniBar025T("Base", counts.base || 0, maxStatus, "is-base")}
+            ${cxModuleMiniBar025T("Sin funcionamiento", counts.pending || 0, maxStatus, "is-danger")}
+          </article>
+          <article class="cx-panel">
+            <span class="cx-kicker">Verticales</span>
+            ${Object.entries(categoryCounts).sort((a, b) => b[1] - a[1]).map(([label, total]) => cxModuleMiniBar025T(label, total, modules.length)).join("")}
+          </article>
+          <article class="cx-panel">
+            <span class="cx-kicker">Empresas con mas modulos</span>
+            ${topCompanies.length ? topCompanies.map((item) => cxModuleMiniBar025T(item.name, item.total, modules.length, "is-live")).join("") : `<div class="cx-empty-state">Sin empresas con modulos activos.</div>`}
+          </article>
+          <article class="cx-panel">
+            <span class="cx-kicker">Se puede eliminar</span>
+            ${cleanupCandidates.length
+              ? cleanupCandidates.map((module) => `<button class="cx-module-clean-line-025t" type="button" data-cx-module-delete data-module-code="${escapeHtml(module.code)}"><strong>${escapeHtml(module.meta.name)}</strong><span>${escapeHtml(module.code)}</span></button>`).join("")
+              : `<div class="cx-empty-state">No hay modulos libres para limpiar.</div>`}
+          </article>
+        </aside>
+
+        <div class="cx-module-catalog-025t">
+          ${filteredModules.length ? Array.from(grouped.entries()).map(([group, rows]) => `
+            <section class="cx-module-section-025m">
+              <div class="cx-section-title">
+                <h3>${escapeHtml(group)}</h3>
+                <p>${escapeHtml(rows.length)} modulo(s)</p>
+              </div>
+              <div class="cx-module-card-grid-025t">
+                ${rows.map((module) => {
+                  const canDelete = cxModuleCanDelete025T(module);
+                  const packageChips = module.packageAssignments.length
+                    ? module.packageAssignments.slice(0, 4).map((name) => `<span class="cx-badge cx-badge-primary">${escapeHtml(name)}</span>`).join("")
+                    : `<span class="cx-badge">Sin paquete</span>`;
+                  return `
+                    <article class="cx-module-card-025t cx-module-status-${escapeHtml(module.status.key)}">
+                      <div class="cx-module-card-top-025t">
+                        <span class="cx-module-mark-025t">${escapeHtml(module.meta.badge)}</span>
+                        <div>
+                          <strong>${escapeHtml(module.meta.name)}</strong>
+                          <small>${escapeHtml(module.code)} - ${escapeHtml(module.meta.categoryLabel || module.category || "General")}</small>
+                        </div>
+                        ${cxModuleStatusBadge025M(module.status)}
+                      </div>
+                      <p>${escapeHtml(module.status.detail)}</p>
+                      <div class="cx-module-card-meta-025t">
+                        <div><span>Empresas</span><strong>${escapeHtml(cxModuleAssignmentTotal025T(module.assignments))}</strong></div>
+                        <div><span>Paquetes</span><strong>${escapeHtml(module.packageAssignments.length)}</strong></div>
+                        <div><span>Estado</span><strong>${escapeHtml(module.is_active ? "Activo" : "Inactivo")}</strong></div>
+                      </div>
+                      <div class="cx-module-card-block-025t">
+                        <span>Asignado a</span>
+                        <div>${cxModuleAssignmentChips025M(module.assignments)}</div>
+                      </div>
+                      <div class="cx-module-card-block-025t">
+                        <span>Paquetes</span>
+                        <div>${packageChips}</div>
+                      </div>
+                      <div class="cx-module-card-actions-025t">
+                        <button class="cx-btn cx-btn-small" type="button" data-cx-module-info data-module-code="${escapeHtml(module.code)}">Info</button>
+                        ${canDelete
+                          ? `<button class="cx-btn cx-btn-danger cx-btn-small" type="button" data-cx-module-delete data-module-code="${escapeHtml(module.code)}">Eliminar</button>`
+                          : `<button class="cx-btn cx-btn-small" type="button" disabled title="${escapeHtml(cxModuleDeleteHint025T(module))}">En uso</button>`}
+                      </div>
+                    </article>
+                  `;
+                }).join("")}
+              </div>
+            </section>
+          `).join("") : `<div class="cx-empty-state">No hay modulos para este filtro.</div>`}
         </div>
       </section>
 
-      ${Array.from(grouped.entries()).map(([group, rows]) => `
-        <section class="cx-module-section-025m">
-          <div class="cx-section-title">
-            <h3>${escapeHtml(group)}</h3>
-            <p>${escapeHtml(rows.length)} modulo(s)</p>
-          </div>
-          <div class="cx-module-map-025m">
-            ${rows.map((module) => `
-              <article class="cx-module-row-025m cx-module-status-${escapeHtml(module.status.key)}">
-                <div class="cx-module-main-025m">
-                  <span class="cx-badge">${escapeHtml(module.meta.badge)}</span>
-                  <div>
-                    <strong>${escapeHtml(module.meta.name)}</strong>
-                    <small>${escapeHtml(module.code)} · ${escapeHtml(module.meta.categoryLabel || module.category || "General")}</small>
-                  </div>
-                </div>
-                <div class="cx-module-state-025m">
-                  ${cxModuleStatusBadge025M(module.status)}
-                  <small>${escapeHtml(module.status.detail)}</small>
-                </div>
-                <div class="cx-module-companies-025m">
-                  <span>Asignado a</span>
-                  <div>${cxModuleAssignmentChips025M(module.assignments)}</div>
-                </div>
-                <button class="cx-btn cx-btn-small" type="button" data-cx-module-info data-module-code="${escapeHtml(module.code)}">Info</button>
-              </article>
-            `).join("")}
-          </div>
-        </section>
-      `).join("")}
-
       <section class="cx-module-section-025m">
-        ${cxModuleCreateForm025M()}
+        <div class="cx-module-create-shell-025t">
+          <div>
+            <span class="cx-kicker">Administracion del catalogo</span>
+            <h3>Crear modulo global</h3>
+            <p>Usalo solo para nuevos modulos reales. Para pruebas o duplicados, elimina los libres desde limpieza segura.</p>
+          </div>
+          ${cxModuleCreateForm025M()}
+        </div>
       </section>
     `;
+    cxModuleApplyFilterValues025T();
   }
 
   function renderAccess() {
