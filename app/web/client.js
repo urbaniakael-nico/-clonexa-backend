@@ -618,6 +618,11 @@
     orders: ["Pedidos", "creacion, seguimiento y estados", "ORD"],
     tables: ["Mesas", "cuentas y sesiones QR", "TAB"],
     qr: ["QR", "accesos por mesa", "QR"],
+    asamblea: ["Asambleas / votaciones", "quorum, agenda y votacion", "ASA"],
+    asambleas: ["Asambleas / votaciones", "quorum, agenda y votacion", "ASA"],
+    asambleas_votaciones: ["Asambleas / votaciones", "quorum, agenda y votacion", "ASA"],
+    assembly: ["Asambleas / votaciones", "quorum, agenda y votacion", "ASA"],
+    voting: ["Asambleas / votaciones", "quorum, agenda y votacion", "ASA"],
     loyalty: ["Fidelizacion", "clientes recurrentes y puntos", "LOY"],
     day_closing: ["Cierre de dia", "resumen diario operativo", "DAY"],
     stock: ["Stock", "existencias y alertas", "STO"],
@@ -14641,7 +14646,8 @@ function inventoryCreatePayload() {
     const safeCount = cxHspQrClamp025N(count || config.count, config.count);
     const base = config.baseUrl || window.location.origin;
     const includeBar = config.includeBar ? "true" : "false";
-    const data = await cxHspQrApi024S(`/qr-tables?count=${encodeURIComponent(safeCount)}&include_bar=${includeBar}&base_url=${encodeURIComponent(base)}`);
+    const mode = encodeURIComponent(config.mode || "hospitality");
+    const data = await cxHspQrApi024S(`/qr-tables?count=${encodeURIComponent(safeCount)}&include_bar=${includeBar}&base_url=${encodeURIComponent(base)}&mode=${mode}`);
     cxHspQrTables024S = Array.isArray(data.tables) ? data.tables : [];
     cxHspQrSummary024S = data.summary || {};
     return data;
@@ -14661,6 +14667,8 @@ function inventoryCreatePayload() {
     const companyName = company.name || company.company_name || "CLONEXA";
     const label = row.label || "Mesa";
     const code = row.access_active ? row.access_code || "" : "";
+    const config = cxHspQrConfigFromModules025N(activeClientModules());
+    const isVotingMode = ["voting", "vote", "votacion", "participantes", "assembly", "asamblea"].includes(String(config.mode || "").toLowerCase());
     return `
       <article class="hsp-qr-print-sheet-025h">
         <header class="hsp-qr-print-head-025h">
@@ -14680,11 +14688,11 @@ function inventoryCreatePayload() {
           <div class="hsp-qr-print-steps-025h">
             <div class="hsp-qr-print-step-025h">
               <b>1</b>
-              <div><strong>Escanea el QR</strong><span>Introduce la contrasena de activacion de esta mesa.</span></div>
+              <div><strong>Escanea el QR</strong><span>Introduce la contrasena de activacion de ${isVotingMode ? "este participante" : "esta mesa"}.</span></div>
             </div>
             <div class="hsp-qr-print-step-025h">
               <b>2</b>
-              <div><strong>Arma tu pedido</strong><span>Coloca tu nombre, selecciona articulo, cantidad y si deseas canciones.</span></div>
+              <div><strong>${isVotingMode ? "Participa" : "Arma tu pedido"}</strong><span>${isVotingMode ? "Coloca tus datos y responde las votaciones activas." : "Coloca tu nombre, selecciona articulo, cantidad y si deseas canciones."}</span></div>
             </div>
             <div class="hsp-qr-print-step-025h">
               <b>3</b>
@@ -15571,6 +15579,408 @@ function inventoryCreatePayload() {
     cxHspLoyaltyStartPolling025F();
   }
   /* CLONEXA_024Z_HOSPITALITY_LOYALTY_END */
+
+  /* CLONEXA_025U_ASSEMBLY_MODULE_START */
+  let cxAssemblyData025U = null;
+  let cxAssemblyActiveCode025U = "asamblea";
+
+  function cxIsAssemblyCode025U(code = "") {
+    const normalized = String(code || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return ["asamblea", "asambleas", "asambleas_votaciones", "assembly", "assemblies", "assembly_voting", "voting", "votacion", "votaciones"].includes(normalized);
+  }
+
+  function cxAssemblyApi025U(path, options = {}) {
+    return api(`/assemblies/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxAssemblyLocalValue025U(value, fallbackMinutes = 0) {
+    const date = value ? new Date(value) : new Date(Date.now() + fallbackMinutes * 60000);
+    if (Number.isNaN(date.getTime())) return "";
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+
+  function cxAssemblyStatusLabel025U(status = "") {
+    const map = { draft: "Borrador", active: "Activa", closed: "Cerrada", archived: "Archivada", pending: "Pendiente", open: "Abierta", done: "Completada", answered: "Respondida" };
+    return map[String(status || "").toLowerCase()] || status || "Activo";
+  }
+
+  function cxAssemblyStyles025U() {
+    if (document.getElementById("cxAssemblyStyles025U")) return;
+    const style = document.createElement("style");
+    style.id = "cxAssemblyStyles025U";
+    style.textContent = `
+      .asm-shell-025u{display:grid;gap:14px}
+      .asm-hero-025u{min-height:auto;padding:24px;border-radius:22px;margin-bottom:14px}
+      .asm-hero-025u .client-title{font-size:clamp(38px,5vw,64px);line-height:.95;margin:0 0 8px}
+      .asm-grid-025u{display:grid;grid-template-columns:minmax(320px,.82fr) minmax(0,1.18fr);gap:14px;align-items:start}
+      .asm-card-025u{background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035));border:1px solid rgba(255,255,255,.13);border-radius:20px;box-shadow:0 18px 54px rgba(0,0,0,.24);padding:16px}
+      .asm-card-025u h2,.asm-card-025u h3{margin:0 0 8px;color:var(--cx-secondary,#c6f6d5)}
+      .asm-muted-025u{color:rgba(255,255,255,.68);font-weight:800;line-height:1.35}
+      .asm-kpis-025u{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px}
+      .asm-kpi-025u{background:rgba(3,7,18,.42);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:13px}
+      .asm-kpi-025u span{display:block;color:rgba(255,255,255,.60);font-size:10px;font-weight:1000;letter-spacing:.10em;text-transform:uppercase}
+      .asm-kpi-025u strong{display:block;margin-top:6px;font-size:26px;color:var(--cx-text,#fff)}
+      .asm-form-025u{display:grid;gap:10px}
+      .asm-form-025u label{display:grid;gap:6px;color:rgba(255,255,255,.65);font-size:11px;font-weight:1000;letter-spacing:.10em;text-transform:uppercase}
+      .asm-form-025u input,.asm-form-025u select,.asm-form-025u textarea{width:100%;border:1px solid rgba(255,255,255,.12);background:rgba(2,6,23,.58);color:var(--cx-text,#fff);border-radius:14px;padding:12px 13px;font-weight:900;outline:none}
+      .asm-form-025u textarea{min-height:82px;resize:vertical;text-transform:none;letter-spacing:0}
+      .asm-form-row-025u{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .asm-list-025u{display:grid;gap:9px}
+      .asm-row-025u{display:grid;gap:7px;background:rgba(3,7,18,.36);border:1px solid rgba(255,255,255,.10);border-radius:15px;padding:12px}
+      .asm-row-head-025u{display:flex;align-items:center;justify-content:space-between;gap:10px}
+      .asm-pill-025u{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.12);font-size:11px;font-weight:1000;color:var(--cx-secondary,#c6f6d5)}
+      .asm-qr-025u{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px}
+      .asm-qr-025u div{background:rgba(3,7,18,.36);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:11px}
+      .asm-qr-025u span{display:block;color:rgba(255,255,255,.56);font-size:10px;font-weight:1000;letter-spacing:.10em;text-transform:uppercase}
+      .asm-qr-025u b{display:block;margin-top:5px;color:var(--cx-text,#fff);font-size:16px}
+      .asm-progress-025u{height:9px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden}
+      .asm-progress-025u i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--cx-primary,#ff2bd6),var(--cx-secondary,#00ff88));width:0}
+      .asm-actions-025u{display:flex;flex-wrap:wrap;gap:9px}
+      .asm-msg-025u{display:none;border-radius:14px;padding:12px 14px;background:rgba(34,197,94,.13);border:1px solid rgba(34,197,94,.24);color:#bbf7d0;font-weight:900}
+      .asm-msg-025u.err{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.28);color:#fecaca}
+      .asm-empty-025u{border:1px dashed rgba(255,255,255,.18);border-radius:14px;padding:18px;text-align:center;color:rgba(255,255,255,.62);font-weight:900}
+      @media(max-width:1120px){.asm-grid-025u{grid-template-columns:1fr}.asm-kpis-025u,.asm-qr-025u{grid-template-columns:1fr 1fr}}
+      @media(max-width:720px){.asm-kpis-025u,.asm-qr-025u,.asm-form-row-025u{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxAssemblyMsg025U(message = "", isError = false) {
+    const box = $("asmMsg025U");
+    if (!box) return;
+    box.textContent = message;
+    box.className = `asm-msg-025u ${isError ? "err" : ""}`;
+    box.style.display = message ? "block" : "none";
+  }
+
+  function cxAssemblyEventSettings025U() {
+    const existing = cxAssemblyData025U?.event?.settings || {};
+    return {
+      ...existing,
+      minutes: String($("asmMinutes025U")?.value || existing.minutes || "").trim(),
+      public_note: String($("asmPublicNote025U")?.value || existing.public_note || "").trim(),
+    };
+  }
+
+  function cxAssemblyEventPayload025U(statusOverride = "") {
+    return {
+      title: String($("asmTitle025U")?.value || "Asamblea").trim(),
+      description: String($("asmDesc025U")?.value || "").trim(),
+      status: statusOverride || String($("asmStatus025U")?.value || "active"),
+      starts_at: $("asmStart025U")?.value ? new Date($("asmStart025U").value).toISOString() : null,
+      ends_at: $("asmEnd025U")?.value ? new Date($("asmEnd025U").value).toISOString() : null,
+      quorum_total: Number($("asmQuorumTotal025U")?.value || 0),
+      quorum_required_percent: Number($("asmQuorumRequired025U")?.value || 50),
+      identity_mode: String($("asmIdentity025U")?.value || "qr"),
+      settings: cxAssemblyEventSettings025U(),
+    };
+  }
+
+  async function cxAssemblySaveEvent025U(statusOverride = "") {
+    const event = cxAssemblyData025U?.event || null;
+    const method = event?.id ? "PATCH" : "POST";
+    const path = event?.id ? `/events/${encodeURIComponent(event.id)}` : "/events";
+    const data = await cxAssemblyApi025U(path, {
+      method,
+      body: JSON.stringify(cxAssemblyEventPayload025U(statusOverride)),
+    });
+    cxAssemblyData025U = data;
+    await renderAssemblyModule025U(cxAssemblyActiveCode025U);
+    cxAssemblyMsg025U(statusOverride === "closed" ? "Asamblea cerrada." : "Asamblea guardada.");
+  }
+
+  function cxAssemblyRequireEvent025U() {
+    const eventId = cxAssemblyData025U?.event?.id || "";
+    if (!eventId) throw new Error("Primero crea o guarda la asamblea.");
+    return eventId;
+  }
+
+  async function cxAssemblyAddAgenda025U() {
+    const eventId = cxAssemblyRequireEvent025U();
+    const title = String($("asmAgendaTitle025U")?.value || "").trim();
+    const notes = String($("asmAgendaNotes025U")?.value || "").trim();
+    const position = Number($("asmAgendaPosition025U")?.value || 0);
+    await cxAssemblyApi025U(`/events/${encodeURIComponent(eventId)}/agenda`, {
+      method: "POST",
+      body: JSON.stringify({ title, notes, position, status: "pending" }),
+    });
+    await renderAssemblyModule025U(cxAssemblyActiveCode025U);
+    cxAssemblyMsg025U("Punto de agenda agregado.");
+  }
+
+  async function cxAssemblyAddAttendee025U() {
+    const eventId = cxAssemblyRequireEvent025U();
+    await cxAssemblyApi025U(`/events/${encodeURIComponent(eventId)}/attendees`, {
+      method: "POST",
+      body: JSON.stringify({
+        attendee_name: String($("asmAttendeeName025U")?.value || "").trim(),
+        document_ref: String($("asmAttendeeDoc025U")?.value || "").trim(),
+        qr_key: String($("asmAttendeeQr025U")?.value || "").trim(),
+        present: true,
+      }),
+    });
+    await renderAssemblyModule025U(cxAssemblyActiveCode025U);
+    cxAssemblyMsg025U("Asistente registrado.");
+  }
+
+  async function cxAssemblyAddVote025U() {
+    const eventId = cxAssemblyRequireEvent025U();
+    const options = String($("asmVoteOptions025U")?.value || "")
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    await cxAssemblyApi025U(`/events/${encodeURIComponent(eventId)}/votes`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: String($("asmVoteTitle025U")?.value || "").trim(),
+        vote_type: String($("asmVoteType025U")?.value || "yes_no"),
+        options,
+        status: "open",
+      }),
+    });
+    await renderAssemblyModule025U(cxAssemblyActiveCode025U);
+    cxAssemblyMsg025U("Votacion creada.");
+  }
+
+  async function cxAssemblyAddQuestion025U() {
+    const eventId = cxAssemblyRequireEvent025U();
+    await cxAssemblyApi025U(`/events/${encodeURIComponent(eventId)}/questions`, {
+      method: "POST",
+      body: JSON.stringify({
+        participant_name: String($("asmQuestionName025U")?.value || "").trim(),
+        qr_key: String($("asmQuestionQr025U")?.value || "").trim(),
+        question: String($("asmQuestionText025U")?.value || "").trim(),
+        status: "pending",
+      }),
+    });
+    await renderAssemblyModule025U(cxAssemblyActiveCode025U);
+    cxAssemblyMsg025U("Pregunta registrada.");
+  }
+
+  function cxAssemblyVoteRows025U(votes = []) {
+    if (!votes.length) return `<div class="asm-empty-025u">Aun no hay votaciones configuradas.</div>`;
+    return votes.map((vote) => {
+      const options = Array.isArray(vote.options) ? vote.options : [];
+      return `
+        <article class="asm-row-025u">
+          <div class="asm-row-head-025u">
+            <strong>${h(vote.title || "Votacion")}</strong>
+            <span class="asm-pill-025u">${h(cxAssemblyStatusLabel025U(vote.status))} · ${h(vote.responses || 0)} respuesta(s)</span>
+          </div>
+          <div class="asm-list-025u">
+            ${options.map((option) => `
+              <div>
+                <div class="asm-row-head-025u"><span>${h(option.label)}</span><b>${h(option.count || 0)} · ${h(option.percent || 0)}%</b></div>
+                <div class="asm-progress-025u"><i style="width:${Math.min(100, Math.max(0, Number(option.percent || 0)))}%"></i></div>
+              </div>
+            `).join("")}
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function cxAssemblySimpleRows025U(rows = [], empty = "Sin registros", renderer) {
+    if (!Array.isArray(rows) || !rows.length) return `<div class="asm-empty-025u">${h(empty)}</div>`;
+    return rows.map(renderer).join("");
+  }
+
+  async function renderAssemblyModule025U(code = "asamblea") {
+    cxAssemblyActiveCode025U = code || "asamblea";
+    cxAssemblyStyles025U();
+    const company = state.company || {};
+    let data = null;
+    let loadError = "";
+    try {
+      data = await cxAssemblyApi025U("/summary");
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Asambleas.";
+      data = { event: null, summary: {}, agenda: [], attendees: [], votes: [], questions: [], qr: {} };
+    }
+    cxAssemblyData025U = data;
+    const event = data.event || {};
+    const summary = data.summary || {};
+    const settings = event.settings || {};
+    const qr = data.qr || {};
+    const qrActive = !!qr.active;
+    const qrMode = qr.mode || "sin configurar";
+    const quorumTotal = Number(event.quorum_total || 0);
+    const quorumRequired = Number(event.quorum_required_percent || 50);
+    const quorumNow = Number(summary.quorum_percent || 0);
+    const quorumOk = quorumTotal > 0 && quorumNow >= quorumRequired;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav(cxAssemblyActiveCode025U)}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero asm-hero-025u">
+              <div class="client-eyebrow">Modulo Asamblea</div>
+              <h1 class="client-title">Asambleas / votaciones</h1>
+              <p class="client-muted">Configura agenda, quorum, asistentes, preguntas, votaciones y acta. El modulo QR solo define cantidad, capacidad y acceso.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                <button class="client-btn" type="button" data-asm-refresh>Actualizar</button>
+                ${qrActive ? `<button class="client-btn" type="button" data-client-module="qr">Abrir QR</button>` : ""}
+              </div>
+            </header>
+
+            <section class="asm-shell-025u">
+              ${loadError ? `<div class="asm-msg-025u err" style="display:block">${h(loadError)}</div>` : ""}
+              <div id="asmMsg025U" class="asm-msg-025u"></div>
+
+              <section class="asm-card-025u">
+                <div class="asm-kpis-025u">
+                  <div class="asm-kpi-025u"><span>Asistentes</span><strong>${h(summary.present || 0)} / ${h(quorumTotal || 0)}</strong></div>
+                  <div class="asm-kpi-025u"><span>Quorum</span><strong>${h(quorumNow)}%</strong><small class="asm-muted-025u">${quorumOk ? "Cumplido" : "En seguimiento"}</small></div>
+                  <div class="asm-kpi-025u"><span>Agenda</span><strong>${h(summary.agenda || 0)}</strong></div>
+                  <div class="asm-kpi-025u"><span>Votaciones</span><strong>${h(summary.votes || 0)}</strong><small class="asm-muted-025u">${h(summary.responses || 0)} respuesta(s)</small></div>
+                </div>
+              </section>
+
+              <section class="asm-card-025u">
+                <h2>QR asociado</h2>
+                <p class="asm-muted-025u">La cantidad de QR se administra en V2, seccion Paquete de la empresa. Aqui solo se consume esa infraestructura.</p>
+                <div class="asm-qr-025u">
+                  <div><span>Estado QR</span><b>${qrActive ? "Activo" : "Inactivo"}</b></div>
+                  <div><span>Uso configurado</span><b>${h(qrMode)}</b></div>
+                  <div><span>QR generables</span><b>${h(qr.count || 0)}</b></div>
+                  <div><span>Tope V2</span><b>${h(qr.max_capacity || 0)}</b></div>
+                </div>
+              </section>
+
+              <div class="asm-grid-025u">
+                <section class="asm-card-025u">
+                  <h2>Configurar asamblea</h2>
+                  <div class="asm-form-025u">
+                    <label>Titulo<input id="asmTitle025U" value="${h(event.title || "Asamblea general")}"></label>
+                    <label>Descripcion<textarea id="asmDesc025U" placeholder="Tema central, alcance o notas para la jornada">${h(event.description || "")}</textarea></label>
+                    <div class="asm-form-row-025u">
+                      <label>Estado
+                        <select id="asmStatus025U">
+                          ${["draft", "active", "closed", "archived"].map((status) => `<option value="${status}" ${String(event.status || "active") === status ? "selected" : ""}>${h(cxAssemblyStatusLabel025U(status))}</option>`).join("")}
+                        </select>
+                      </label>
+                      <label>Identidad
+                        <select id="asmIdentity025U">
+                          ${["qr", "manual", "document"].map((mode) => `<option value="${mode}" ${String(event.identity_mode || "qr") === mode ? "selected" : ""}>${mode === "qr" ? "QR / participante" : mode === "document" ? "Documento" : "Manual"}</option>`).join("")}
+                        </select>
+                      </label>
+                    </div>
+                    <div class="asm-form-row-025u">
+                      <label>Inicio<input id="asmStart025U" type="datetime-local" value="${h(cxAssemblyLocalValue025U(event.starts_at, 0))}"></label>
+                      <label>Cierre<input id="asmEnd025U" type="datetime-local" value="${h(cxAssemblyLocalValue025U(event.ends_at, 120))}"></label>
+                    </div>
+                    <div class="asm-form-row-025u">
+                      <label>Total habilitado<input id="asmQuorumTotal025U" type="number" min="0" value="${h(quorumTotal || 0)}"></label>
+                      <label>Quorum requerido %<input id="asmQuorumRequired025U" type="number" min="0" max="100" value="${h(quorumRequired)}"></label>
+                    </div>
+                    <label>Texto publico QR<textarea id="asmPublicNote025U" placeholder="Mensaje visible para participantes">${h(settings.public_note || "")}</textarea></label>
+                    <label>Acta / observaciones<textarea id="asmMinutes025U" placeholder="Resumen, decisiones, pendientes y cierre">${h(settings.minutes || "")}</textarea></label>
+                    <div class="asm-actions-025u">
+                      <button class="client-btn" type="button" data-asm-save>${event.id ? "Guardar cambios" : "Crear asamblea"}</button>
+                      ${event.id ? `<button class="client-btn" type="button" data-asm-close>Cerrar asamblea</button>` : ""}
+                    </div>
+                  </div>
+                </section>
+
+                <section class="asm-card-025u">
+                  <h2>Asistentes y preguntas</h2>
+                  <div class="asm-form-025u">
+                    <div class="asm-form-row-025u">
+                      <label>Asistente<input id="asmAttendeeName025U" placeholder="Nombre asistente"></label>
+                      <label>Documento / QR<input id="asmAttendeeDoc025U" placeholder="Cedula, apto, accion..."></label>
+                    </div>
+                    <label>Clave QR opcional<input id="asmAttendeeQr025U" placeholder="Participante 12, Mesa 8, QR..."></label>
+                    <button class="client-btn" type="button" data-asm-add-attendee>Registrar asistencia</button>
+                    <div class="asm-list-025u">
+                      ${cxAssemblySimpleRows025U(data.attendees, "Sin asistentes registrados.", (row) => `
+                        <article class="asm-row-025u">
+                          <div class="asm-row-head-025u"><strong>${h(row.attendee_name)}</strong><span class="asm-pill-025u">${row.present ? "Presente" : "Ausente"}</span></div>
+                          <small class="asm-muted-025u">${h(row.document_ref || row.qr_key || "Sin identificador")}</small>
+                        </article>
+                      `)}
+                    </div>
+                    <label>Pregunta / intervencion<textarea id="asmQuestionText025U" placeholder="Pregunta del participante"></textarea></label>
+                    <div class="asm-form-row-025u">
+                      <input id="asmQuestionName025U" placeholder="Nombre">
+                      <input id="asmQuestionQr025U" placeholder="QR / mesa / puesto">
+                    </div>
+                    <button class="client-btn" type="button" data-asm-add-question>Agregar pregunta</button>
+                    <div class="asm-list-025u">
+                      ${cxAssemblySimpleRows025U(data.questions, "Sin preguntas registradas.", (row) => `
+                        <article class="asm-row-025u">
+                          <div class="asm-row-head-025u"><strong>${h(row.participant_name || row.qr_key || "Participante")}</strong><span class="asm-pill-025u">${h(cxAssemblyStatusLabel025U(row.status))}</span></div>
+                          <small class="asm-muted-025u">${h(row.question)}</small>
+                        </article>
+                      `)}
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="asm-grid-025u">
+                <section class="asm-card-025u">
+                  <h2>Agenda</h2>
+                  <div class="asm-form-025u">
+                    <div class="asm-form-row-025u">
+                      <label>Orden<input id="asmAgendaPosition025U" type="number" min="0" value="${h((data.agenda || []).length + 1)}"></label>
+                      <label>Punto<input id="asmAgendaTitle025U" placeholder="Ej: aprobacion de presupuesto"></label>
+                    </div>
+                    <label>Notas<textarea id="asmAgendaNotes025U" placeholder="Detalle del punto"></textarea></label>
+                    <button class="client-btn" type="button" data-asm-add-agenda>Agregar punto</button>
+                    <div class="asm-list-025u">
+                      ${cxAssemblySimpleRows025U(data.agenda, "Sin agenda configurada.", (row) => `
+                        <article class="asm-row-025u">
+                          <div class="asm-row-head-025u"><strong>${h(row.position || "")}. ${h(row.title)}</strong><span class="asm-pill-025u">${h(cxAssemblyStatusLabel025U(row.status))}</span></div>
+                          ${row.notes ? `<small class="asm-muted-025u">${h(row.notes)}</small>` : ""}
+                        </article>
+                      `)}
+                    </div>
+                  </div>
+                </section>
+
+                <section class="asm-card-025u">
+                  <h2>Votaciones</h2>
+                  <div class="asm-form-025u">
+                    <label>Pregunta / decision<input id="asmVoteTitle025U" placeholder="Ej: Aprueba el punto 1?"></label>
+                    <div class="asm-form-row-025u">
+                      <label>Tipo
+                        <select id="asmVoteType025U">
+                          <option value="yes_no">Si / No</option>
+                          <option value="true_false">Verdadero / Falso</option>
+                          <option value="multiple">Multiple</option>
+                          <option value="participants">Participantes 1-5</option>
+                        </select>
+                      </label>
+                      <label>Opciones<textarea id="asmVoteOptions025U" placeholder="Para multiple o participantes: una opcion por linea, maximo 5"></textarea></label>
+                    </div>
+                    <button class="client-btn" type="button" data-asm-add-vote>Crear votacion</button>
+                    <div class="asm-list-025u">${cxAssemblyVoteRows025U(data.votes || [])}</div>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+  /* CLONEXA_025U_ASSEMBLY_MODULE_END */
+
 async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -15620,6 +16030,14 @@ async function renderClientModulePlaceholder(code) {
       typeof renderHospitalityDashboardModule024W === "function"
     ) {
       return renderHospitalityDashboardModule024W();
+    }
+
+    if (
+      typeof cxIsAssemblyCode025U === "function" &&
+      cxIsAssemblyCode025U(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderAssemblyModule025U === "function"
+    ) {
+      return renderAssemblyModule025U(cxUniversalPlaceholderCode021DR1 || "asamblea");
     }
 
     if (
@@ -16891,6 +17309,65 @@ document.addEventListener("click", async (event) => {
         return;
       }
 
+      if (target.closest("[data-asm-refresh]")) {
+        await renderAssemblyModule025U(cxAssemblyActiveCode025U);
+        return;
+      }
+
+      if (target.closest("[data-asm-save]")) {
+        try {
+          await cxAssemblySaveEvent025U();
+        } catch (error) {
+          cxAssemblyMsg025U(error.message || "No se pudo guardar la asamblea.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-asm-close]")) {
+        try {
+          await cxAssemblySaveEvent025U("closed");
+        } catch (error) {
+          cxAssemblyMsg025U(error.message || "No se pudo cerrar la asamblea.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-asm-add-agenda]")) {
+        try {
+          await cxAssemblyAddAgenda025U();
+        } catch (error) {
+          cxAssemblyMsg025U(error.message || "No se pudo agregar agenda.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-asm-add-attendee]")) {
+        try {
+          await cxAssemblyAddAttendee025U();
+        } catch (error) {
+          cxAssemblyMsg025U(error.message || "No se pudo registrar asistencia.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-asm-add-vote]")) {
+        try {
+          await cxAssemblyAddVote025U();
+        } catch (error) {
+          cxAssemblyMsg025U(error.message || "No se pudo crear la votacion.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-asm-add-question]")) {
+        try {
+          await cxAssemblyAddQuestion025U();
+        } catch (error) {
+          cxAssemblyMsg025U(error.message || "No se pudo agregar la pregunta.", true);
+        }
+        return;
+      }
+
       const moduleTrigger = target.closest("[data-client-module]");
       if (moduleTrigger) {
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
@@ -16914,6 +17391,11 @@ document.addEventListener("click", async (event) => {
 
         if (typeof cxIsHospitalityDashboardCode024W === "function" && cxIsHospitalityDashboardCode024W(code)) {
           await renderHospitalityDashboardModule024W();
+          return;
+        }
+
+        if (typeof cxIsAssemblyCode025U === "function" && cxIsAssemblyCode025U(code)) {
+          await renderAssemblyModule025U(code);
           return;
         }
 

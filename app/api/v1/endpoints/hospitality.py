@@ -1905,6 +1905,7 @@ async def hospitality_qr_tables(
     count: int = Query(default=12, ge=1, le=500),
     include_bar: bool = Query(default=True),
     base_url: str | None = Query(default=None, max_length=260),
+    mode: str | None = Query(default=None, max_length=40),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _ensure_storage(db)
@@ -1957,7 +1958,13 @@ async def hospitality_qr_tables(
     }
 
     base = _public_base_url(request, base_url)
-    labels = (["Barra"] if include_bar else []) + [f"Mesa {index}" for index in range(1, count + 1)]
+    qr_mode = _clean(mode).lower().replace(" ", "_")
+    if qr_mode in {"voting", "vote", "votacion", "participantes", "assembly", "asamblea"}:
+        labels = [f"Participante {index}" for index in range(1, count + 1)]
+    elif qr_mode in {"generic", "generico", "general"}:
+        labels = [f"QR {index}" for index in range(1, count + 1)]
+    else:
+        labels = (["Barra"] if include_bar else []) + [f"Mesa {index}" for index in range(1, count + 1)]
     tables: list[dict[str, Any]] = []
     for position, label in enumerate(labels, start=1):
         key = _table_key(label)

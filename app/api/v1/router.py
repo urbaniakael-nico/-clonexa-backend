@@ -44,6 +44,7 @@ for _module_name, _prefix, _tags in [
     ("hospitality", "/hospitality", ["hospitality"]),
     ("field", "/field", ["field"]),
     ("landing_analytics", "/landing-analytics", ["landing_analytics"]),
+    ("assemblies", "/assemblies", ["assemblies"]),
 ]:
     _include(_module_name, _prefix, _tags)
 
