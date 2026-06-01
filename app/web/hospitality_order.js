@@ -27,6 +27,11 @@
     assemblyEvent: null,
     assemblyFields: [],
     assemblyAttendee: null,
+    assemblySummary: {},
+    assemblyVotes: [],
+    assemblyQuestions: [],
+    assemblyResponses: {},
+    assemblyParticipantQuestions: {},
     loading: true,
     message: "",
     error: "",
@@ -240,6 +245,7 @@
         cursor:pointer;
       }
       .qr-btn.secondary{background:rgba(255,255,255,.09);color:var(--qr-text);border:1px solid var(--qr-line)}
+      .qr-btn:disabled{opacity:.48;cursor:not-allowed;filter:grayscale(.35)}
       .qr-cart{position:sticky;top:14px;padding:16px;display:grid;gap:12px}
       .qr-cart h2{margin:0;font-size:22px}
       .qr-field{display:grid;gap:6px}
@@ -369,6 +375,7 @@
         padding:16px;
         box-shadow:0 18px 54px rgba(0,0,0,.24);
       }
+      .qr-assembly-card.is-wide{grid-column:1/-1}
       .qr-assembly-card h2{margin:0 0 8px;font-size:26px;color:var(--qr-secondary)}
       .qr-assembly-form{display:grid;gap:10px;margin-top:12px}
       .qr-assembly-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
@@ -389,11 +396,32 @@
       .qr-assembly-summary{display:grid;gap:9px}
       .qr-assembly-chip{display:flex;justify-content:space-between;gap:12px;border:1px solid rgba(255,255,255,.10);border-radius:15px;background:rgba(3,7,18,.34);padding:11px 12px;font-weight:1000}
       .qr-assembly-chip strong{color:var(--qr-secondary)}
+      .qr-assembly-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+      .qr-assembly-kpi{border:1px solid var(--qr-line);border-radius:16px;background:rgba(3,7,18,.34);padding:12px;font-weight:1000}
+      .qr-assembly-kpi span{display:block;color:var(--qr-muted);font-size:10px;letter-spacing:.10em;text-transform:uppercase}
+      .qr-assembly-kpi strong{display:block;margin-top:6px;color:var(--qr-secondary);font-size:24px}
+      .qr-vote-list{display:grid;gap:12px}
+      .qr-asm-vote-card{border:1px solid var(--qr-line);border-radius:18px;background:rgba(3,7,18,.30);padding:14px;display:grid;gap:11px}
+      .qr-asm-vote-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+      .qr-asm-vote-head h3{margin:0;font-size:22px;color:var(--qr-secondary)}
+      .qr-asm-clock{white-space:nowrap;border:1px solid rgba(255,255,255,.10);border-radius:999px;background:rgba(255,255,255,.07);padding:7px 10px;font-weight:1000}
+      .qr-asm-options{display:grid;gap:8px}
+      .qr-asm-choice{border:1px solid var(--qr-line);border-radius:14px;background:rgba(2,6,23,.48);padding:10px;display:grid;gap:8px;cursor:pointer}
+      .qr-asm-choice-top{display:flex;justify-content:space-between;gap:10px;font-weight:1000}
+      .qr-asm-choice input{accent-color:var(--qr-secondary)}
+      .qr-asm-bar{height:8px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden}
+      .qr-asm-bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--qr-primary),var(--qr-secondary));width:0}
+      .qr-asm-question{display:grid;gap:6px}
+      .qr-asm-question textarea{width:100%;min-height:76px;border:1px solid var(--qr-line);border-radius:14px;background:rgba(2,6,23,.58);color:var(--qr-text);padding:12px;font-weight:850;resize:vertical}
+      .qr-asm-participation{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(3,7,18,.34);padding:14px;margin-top:12px;display:grid;gap:8px}
+      .qr-asm-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,360px);gap:12px;align-items:start}
+      .qr-asm-side{display:grid;gap:8px}
+      .qr-asm-summary-list{display:grid;gap:8px;margin-top:8px}
       @media(max-width:860px){
         .qr-hero{grid-template-columns:1fr}
-        .qr-layout,.qr-assembly{grid-template-columns:1fr}
+        .qr-layout,.qr-assembly,.qr-asm-split{grid-template-columns:1fr}
         .qr-menu-head{grid-template-columns:1fr}
-        .qr-campaign,.qr-campaign-join,.qr-access-form,.qr-score-grid,.qr-assembly-grid{grid-template-columns:1fr}
+        .qr-campaign,.qr-campaign-join,.qr-access-form,.qr-score-grid,.qr-assembly-grid,.qr-assembly-kpis{grid-template-columns:1fr}
         .qr-cart{position:static}
       }
     `;
@@ -450,6 +478,53 @@
     const minutes = Math.floor((total % 3600) / 60);
     const seconds = Math.floor(total % 60);
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function secondsUntil(value = "") {
+    if (!value) return 0;
+    const time = new Date(value).getTime();
+    if (!Number.isFinite(time)) return 0;
+    return Math.max(0, Math.floor((time - Date.now()) / 1000));
+  }
+
+  function assemblyEventStorageKey(suffix = "continue") {
+    const eventId = state.assemblyEvent?.id || "sin_evento";
+    const tableKey = normalizeText(state.table).replace(/[^a-z0-9]+/g, "_");
+    return `clonexa_assembly_${suffix}_${state.companyId}_${eventId}_${tableKey}`;
+  }
+
+  function assemblyActUrl() {
+    const settings = state.assemblyEvent?.settings || {};
+    return settings.act_url || settings.minutes_file_url || settings.document_url || "";
+  }
+
+  function assemblyActRead() {
+    const url = assemblyActUrl();
+    return !url || localStorage.getItem(assemblyEventStorageKey("acta")) === "ok";
+  }
+
+  function assemblyCanShowDecisions() {
+    return state.assemblyAttendee?.id && localStorage.getItem(assemblyEventStorageKey("continue")) === "ok";
+  }
+
+  function assemblyDecisionTotals() {
+    const totals = { favor: 0, against: 0, abstain: 0, all: 0 };
+    (state.assemblyVotes || []).forEach((vote) => {
+      (vote.options || []).forEach((option) => {
+        const key = String(option.key || "");
+        const count = Number(option.count || 0);
+        if (["favor", "yes", "true"].includes(key)) totals.favor += count;
+        else if (["against", "no", "false"].includes(key)) totals.against += count;
+        else if (["abstain", "no_participa", "none"].includes(key)) totals.abstain += count;
+        totals.all += count;
+      });
+    });
+    const pct = (value) => totals.all ? Math.round((value / totals.all) * 100) : 0;
+    return { ...totals, favorPct: pct(totals.favor), againstPct: pct(totals.against), abstainPct: pct(totals.abstain) };
+  }
+
+  function assemblyVoteDomId(value = "") {
+    return String(value || "vote").replace(/[^a-zA-Z0-9_-]+/g, "_");
   }
 
   function campaignHtml() {
@@ -700,6 +775,9 @@
     }
     const settings = event.settings || {};
     const registered = state.assemblyAttendee?.id ? `<div class="qr-msg">Registro recibido. Ya quedaste habilitado para esta asamblea.</div>` : "";
+    if (state.assemblyAttendee?.id) {
+      return assemblyCanShowDecisions() ? assemblyDecisionBoardHtml() : assemblyActaGateHtml();
+    }
     const fieldHtml = fields.map((field) => {
       const key = String(field.key || "");
       const type = String(field.type || "text").toLowerCase();
@@ -742,6 +820,122 @@
           <div class="qr-access-note">Este registro alimenta el modulo Asambleas para asistentes, acta y PDF. El modulo QR solo controla cantidad, clave y acceso.</div>
         </aside>
       </section>
+    `;
+  }
+
+  function assemblyActaGateHtml() {
+    const event = state.assemblyEvent || {};
+    const settings = event.settings || {};
+    const url = assemblyActUrl();
+    const read = assemblyActRead();
+    return `
+      <section class="qr-assembly">
+        <div class="qr-assembly-card">
+          <p class="qr-eyebrow">Acta previa</p>
+          <h2>${h(event.title || "Asamblea")}</h2>
+          <p class="qr-muted">${h(event.description || settings.public_note || "Lee el acta o documento adjunto antes de continuar a las decisiones.")}</p>
+          <div class="qr-msg">Registro recibido. Antes de votar, revisa el acta adjunta.</div>
+          <div class="qr-assembly-summary" style="margin-top:12px">
+            <div class="qr-assembly-chip"><span>Participante</span><strong>${h(state.assemblyAttendee?.attendee_name || state.table)}</strong></div>
+            <div class="qr-assembly-chip"><span>Documento</span><strong>${h(state.assemblyAttendee?.document_ref || "Registrado")}</strong></div>
+          </div>
+          <div class="qr-assembly-form">
+            ${url ? `<button class="qr-btn secondary" type="button" data-assembly-acta-download="${h(url)}">Descargar acta</button>` : `<div class="qr-access-note">Aun no hay acta adjunta desde el panel. Puedes continuar cuando el operador la publique o avanzar sin adjunto.</div>`}
+            <button class="qr-btn" type="button" data-assembly-continue ${read ? "" : "disabled"}>${read ? "Continuar a decisiones" : "Descarga el acta para continuar"}</button>
+          </div>
+        </div>
+        <aside class="qr-assembly-card qr-assembly-summary">
+          <p class="qr-eyebrow">Contexto</p>
+          <h2>${h(state.assemblyPublic?.assembly_type_label || "Asamblea")}</h2>
+          <div class="qr-assembly-chip"><span>QR</span><strong>${h(state.table)}</strong></div>
+          <div class="qr-assembly-chip"><span>Participantes</span><strong>${h(state.assemblySummary?.present || state.assemblySummary?.attendees || 0)}</strong></div>
+          <div class="qr-assembly-chip"><span>Quorum</span><strong>${h(state.assemblySummary?.quorum_percent || 0)}%</strong></div>
+        </aside>
+      </section>
+    `;
+  }
+
+  function assemblyVoteClosed(vote = {}) {
+    return vote.status === "closed" || (vote.closes_at && secondsUntil(vote.closes_at) <= 0);
+  }
+
+  function assemblyDecisionBoardHtml() {
+    const event = state.assemblyEvent || {};
+    const settings = event.settings || {};
+    const summary = state.assemblySummary || {};
+    const votes = Array.isArray(state.assemblyVotes) ? state.assemblyVotes : [];
+    const totals = assemblyDecisionTotals();
+    const answered = votes.filter((vote) => state.assemblyResponses?.[vote.id]).length;
+    const voteCards = votes.length ? votes.map((vote, index) => assemblyVoteCardHtml(vote, index + 1)).join("") : `<div class="qr-empty">Aun no hay decisiones publicadas. Cuando el panel active una pregunta, aparecera aqui.</div>`;
+    const responseList = votes
+      .map((vote) => {
+        const response = state.assemblyResponses?.[vote.id];
+        if (!response) return "";
+        return `<div class="qr-assembly-chip"><span>${h(vote.title || "Decision")}</span><strong>${h(response.choice_label || response.choice_key)}</strong></div>`;
+      })
+      .filter(Boolean)
+      .join("");
+    return `
+      <section class="qr-assembly-card is-wide" data-assembly-live>
+        <p class="qr-eyebrow">Asamblea en curso</p>
+        <h2>${h(event.title || "Asamblea")}</h2>
+        <p class="qr-muted">${h(event.description || settings.public_note || "Responde las decisiones activas desde este QR.")}</p>
+        <div class="qr-assembly-kpis">
+          <div class="qr-assembly-kpi"><span>Participantes</span><strong>${h(summary.present || summary.attendees || 0)}</strong></div>
+          <div class="qr-assembly-kpi"><span>A favor</span><strong>${h(totals.favorPct)}%</strong></div>
+          <div class="qr-assembly-kpi"><span>En desacuerdo</span><strong>${h(totals.againstPct)}%</strong></div>
+          <div class="qr-assembly-kpi"><span>No participa</span><strong>${h(totals.abstainPct)}%</strong></div>
+        </div>
+        <div class="qr-asm-split">
+          <div class="qr-vote-list">${voteCards}</div>
+          <aside class="qr-asm-side">
+            <div class="qr-asm-participation">
+              <div class="qr-assembly-chip"><span>Tu participacion</span><strong>${h(answered)} / ${h(votes.length)} decisiones</strong></div>
+              <div class="qr-assembly-chip"><span>QR</span><strong>${h(state.table)}</strong></div>
+              <div class="qr-assembly-chip"><span>Asistente</span><strong>${h(state.assemblyAttendee?.attendee_name || "Registrado")}</strong></div>
+              <div class="qr-asm-summary-list">${responseList || `<div class="qr-access-note">Tus respuestas quedaran registradas aqui durante la asamblea.</div>`}</div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    `;
+  }
+
+  function assemblyVoteCardHtml(vote = {}, position = 1) {
+    const options = Array.isArray(vote.options) ? vote.options : [];
+    const response = state.assemblyResponses?.[vote.id] || null;
+    const question = state.assemblyParticipantQuestions?.[vote.id] || null;
+    const closed = assemblyVoteClosed(vote);
+    const domId = assemblyVoteDomId(vote.id);
+    const currentChoice = document.querySelector(`input[name="asmVoteChoice_${domId}"]:checked`)?.value || response?.choice_key || "";
+    const currentQuestion = document.getElementById(`asmVoteQuestion_${domId}`)?.value ?? question?.question ?? "";
+    return `
+      <article class="qr-asm-vote-card">
+        <div class="qr-asm-vote-head">
+          <div>
+            <p class="qr-eyebrow">Decision ${h(position)}</p>
+            <h3>${h(vote.title || "Pregunta de asamblea")}</h3>
+          </div>
+          <div class="qr-asm-clock" data-asm-clock="${h(vote.closes_at || "")}">${closed ? "Tiempo cerrado" : `Cierra en ${h(countdown(secondsUntil(vote.closes_at)))}`}</div>
+        </div>
+        <div class="qr-asm-options">
+          ${options.map((option) => `
+            <label class="qr-asm-choice">
+              <div class="qr-asm-choice-top">
+                <span><input type="radio" name="asmVoteChoice_${h(domId)}" value="${h(option.key)}" ${currentChoice === option.key ? "checked" : ""} ${closed ? "disabled" : ""}> ${h(option.label)}</span>
+                <b>${h(option.percent || 0)}%</b>
+              </div>
+              <div class="qr-asm-bar"><i style="width:${Math.min(100, Math.max(0, Number(option.percent || 0)))}%"></i></div>
+            </label>
+          `).join("")}
+        </div>
+        <label class="qr-asm-question">
+          <span>Pregunta u observacion maximo 300 caracteres</span>
+          <textarea id="asmVoteQuestion_${h(domId)}" maxlength="300" placeholder="Escribe tu pregunta para esta decision..." ${closed ? "disabled" : ""}>${h(currentQuestion)}</textarea>
+        </label>
+        ${response ? `<div class="qr-msg">Respuesta registrada: ${h(response.choice_label || response.choice_key)}${question?.question ? " - Pregunta enviada" : ""}</div>` : ""}
+        <button class="qr-btn" type="button" data-assembly-vote-submit="${h(vote.id)}" ${closed ? "disabled" : ""}>${response ? "Actualizar respuesta" : "Enviar respuesta"}</button>
+      </article>
     `;
   }
 
@@ -1043,6 +1237,80 @@
     state.assemblyEvent = data?.event || null;
     state.assemblyFields = Array.isArray(data?.fields) ? data.fields : [];
     state.assemblyAttendee = data?.attendee || null;
+    state.assemblySummary = data?.summary || {};
+    state.assemblyVotes = Array.isArray(data?.votes) ? data.votes : [];
+    state.assemblyQuestions = Array.isArray(data?.questions) ? data.questions : [];
+    state.assemblyResponses = data?.participant_responses || {};
+    state.assemblyParticipantQuestions = data?.participant_questions || {};
+  }
+
+  async function refreshAssemblyPublic() {
+    const fresh = await api(`/assemblies/companies/${encodeURIComponent(state.companyId)}/public?participant=${encodeURIComponent(state.table)}`);
+    applyAssemblyPublic(fresh || {});
+    return fresh;
+  }
+
+  function assemblyLiveHasFocus() {
+    const active = document.activeElement;
+    return !!(active && document.querySelector("[data-assembly-live]")?.contains(active));
+  }
+
+  async function refreshAssemblyPublicView() {
+    await refreshAssemblyPublic();
+    if (assemblyLiveHasFocus()) return;
+    render();
+  }
+
+  async function submitAssemblyVote(voteId = "") {
+    const vote = state.assemblyVotes.find((item) => String(item.id) === String(voteId));
+    if (!vote?.id) return;
+    if (assemblyVoteClosed(vote)) {
+      state.error = "El tiempo de respuesta para esta decision ya cerro.";
+      state.message = "";
+      render();
+      return;
+    }
+    const domId = assemblyVoteDomId(vote.id);
+    const choice = document.querySelector(`input[name="asmVoteChoice_${domId}"]:checked`)?.value || "";
+    if (!choice) {
+      state.error = "Selecciona una respuesta antes de enviar.";
+      state.message = "";
+      render();
+      return;
+    }
+    const selectedOption = (vote.options || []).find((option) => String(option.key) === String(choice)) || {};
+    const question = String(document.getElementById(`asmVoteQuestion_${domId}`)?.value || "").trim().slice(0, 300);
+    try {
+      await api(`/assemblies/companies/${encodeURIComponent(state.companyId)}/votes/${encodeURIComponent(vote.id)}/responses`, {
+        method: "POST",
+        body: JSON.stringify({
+          qr_key: state.table,
+          voter_name: state.assemblyAttendee?.attendee_name || state.table,
+          choice_key: choice,
+          choice_label: selectedOption.label || choice,
+        }),
+      });
+      if (question && state.assemblyEvent?.id) {
+        await api(`/assemblies/companies/${encodeURIComponent(state.companyId)}/events/${encodeURIComponent(state.assemblyEvent.id)}/questions`, {
+          method: "POST",
+          body: JSON.stringify({
+            vote_id: vote.id,
+            participant_name: state.assemblyAttendee?.attendee_name || state.table,
+            qr_key: state.table,
+            question,
+            status: "pending",
+          }),
+        });
+      }
+      await refreshAssemblyPublic();
+      state.message = "Respuesta registrada. La asamblea ya recibio tu decision.";
+      state.error = "";
+      render();
+    } catch (error) {
+      state.error = error.message || "No se pudo registrar la respuesta.";
+      state.message = "";
+      render();
+    }
   }
 
   async function load() {
@@ -1123,6 +1391,34 @@
     }
     if (target.closest("[data-assembly-submit]")) {
       submitAssemblyRegistration();
+      return;
+    }
+    const actaButton = target.closest("[data-assembly-acta-download]");
+    if (actaButton) {
+      const url = actaButton.getAttribute("data-assembly-acta-download") || assemblyActUrl();
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      localStorage.setItem(assemblyEventStorageKey("acta"), "ok");
+      state.message = "Acta descargada. Ya puedes continuar a las decisiones.";
+      state.error = "";
+      render();
+      return;
+    }
+    if (target.closest("[data-assembly-continue]")) {
+      if (!assemblyActRead()) {
+        state.error = "Primero descarga el acta adjunta para continuar.";
+        state.message = "";
+        render();
+        return;
+      }
+      localStorage.setItem(assemblyEventStorageKey("continue"), "ok");
+      state.message = "Ya puedes responder las decisiones publicadas.";
+      state.error = "";
+      refreshAssemblyPublic().catch(() => {}).finally(() => render());
+      return;
+    }
+    const assemblyVoteButton = target.closest("[data-assembly-vote-submit]");
+    if (assemblyVoteButton) {
+      submitAssemblyVote(assemblyVoteButton.getAttribute("data-assembly-vote-submit") || "");
       return;
     }
     if (target.closest("[data-access-verify]")) {
@@ -1365,11 +1661,24 @@
         }
       }
     }
+    if (isAssemblyMode() && state.access?.unlocked && assemblyCanShowDecisions()) {
+      document.querySelectorAll("[data-asm-clock]").forEach((clock) => {
+        const value = clock.getAttribute("data-asm-clock") || "";
+        const seconds = secondsUntil(value);
+        clock.textContent = seconds > 0 ? `Cierra en ${countdown(seconds)}` : "Tiempo cerrado";
+      });
+    }
   }, 1000);
 
   setInterval(() => {
     if ((!state.campaign && !state.scoreCampaign && !state.voteCampaign) || !state.access?.unlocked) return;
     refreshCampaignView().catch(() => {});
+  }, 6000);
+
+  setInterval(() => {
+    if (!isAssemblyMode() || !state.access?.unlocked || !assemblyCanShowDecisions()) return;
+    if (assemblyLiveHasFocus()) return;
+    refreshAssemblyPublicView().catch(() => {});
   }, 6000);
 
   render();

@@ -18,7 +18,7 @@ EVENT_STATUSES = {"draft", "active", "closed", "archived"}
 AGENDA_STATUSES = {"pending", "active", "done", "skipped"}
 VOTE_STATUSES = {"draft", "open", "closed"}
 QUESTION_STATUSES = {"pending", "answered", "archived"}
-VOTE_TYPES = {"yes_no", "true_false", "multiple", "participants"}
+VOTE_TYPES = {"decision", "yes_no", "true_false", "multiple", "participants"}
 ASSEMBLY_QR_MODES = {"voting", "vote", "votacion", "participantes", "participants", "assembly", "asamblea", "assemblies", "asambleas"}
 
 
@@ -88,6 +88,7 @@ def _agenda_payload(row: dict[str, Any]) -> dict[str, Any]:
 def _question_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
+        "vote_id": str(row.get("vote_id")) if row.get("vote_id") else "",
         "participant_name": row.get("participant_name") or "",
         "qr_key": row.get("qr_key") or "",
         "question": row.get("question") or "",
@@ -241,7 +242,7 @@ class AssemblyAgendaIn(BaseModel):
 
 class AssemblyVoteIn(BaseModel):
     title: str = Field(..., max_length=220)
-    vote_type: str = Field(default="yes_no", max_length=40)
+    vote_type: str = Field(default="decision", max_length=40)
     options: list[str | dict[str, Any]] = Field(default_factory=list)
     status: str = Field(default="open", max_length=40)
     agenda_id: uuid.UUID | None = None
@@ -274,9 +275,10 @@ class AssemblyAttendeeIn(BaseModel):
 
 
 class AssemblyQuestionIn(BaseModel):
+    vote_id: uuid.UUID | None = None
     participant_name: str | None = Field(default="", max_length=180)
     qr_key: str | None = Field(default="", max_length=120)
-    question: str = Field(..., max_length=1600)
+    question: str = Field(..., max_length=300)
     status: str = Field(default="pending", max_length=40)
 
     @field_validator("question")
@@ -417,6 +419,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
                 id UUID PRIMARY KEY,
                 event_id UUID NOT NULL REFERENCES assembly_events(id) ON DELETE CASCADE,
                 company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                vote_id UUID NULL REFERENCES assembly_votes(id) ON DELETE CASCADE,
                 participant_name VARCHAR(180) NOT NULL DEFAULT '',
                 qr_key VARCHAR(120) NOT NULL DEFAULT '',
                 question TEXT NOT NULL,
@@ -427,7 +430,9 @@ async def _ensure_storage(db: AsyncSession) -> None:
             """
         )
     )
+    await db.execute(text("ALTER TABLE assembly_questions ADD COLUMN IF NOT EXISTS vote_id UUID NULL REFERENCES assembly_votes(id) ON DELETE CASCADE;"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_assembly_questions_event ON assembly_questions(event_id, status, created_at DESC);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_assembly_questions_vote ON assembly_questions(vote_id, qr_key);"))
 
 
 async def _company_exists(db: AsyncSession, company_id: uuid.UUID) -> bool:
@@ -470,7 +475,13 @@ async def _active_event_row(db: AsyncSession, company_id: uuid.UUID) -> dict[str
 
 
 def _vote_options(vote_type: str, raw_options: list[Any] | None = None) -> list[dict[str, str]]:
-    vote_type = _status(vote_type, VOTE_TYPES, "yes_no")
+    vote_type = _status(vote_type, VOTE_TYPES, "decision")
+    if vote_type == "decision":
+        return [
+            {"key": "favor", "label": "A favor"},
+            {"key": "against", "label": "En desacuerdo"},
+            {"key": "abstain", "label": "No participa"},
+        ]
     if vote_type == "yes_no":
         return [{"key": "yes", "label": "Si"}, {"key": "no", "label": "No"}]
     if vote_type == "true_false":
@@ -573,7 +584,7 @@ async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_
         {"event_id": event_id},
     )
     vote_rows = await db.execute(
-        text("SELECT * FROM assembly_votes WHERE event_id = :event_id ORDER BY created_at DESC"),
+        text("SELECT * FROM assembly_votes WHERE event_id = :event_id ORDER BY created_at ASC"),
         {"event_id": event_id},
     )
 
@@ -651,7 +662,8 @@ async def assembly_public_context(
 ) -> dict[str, Any]:
     await _ensure_storage(db)
     await _require_company(db, company_id)
-    qr = await _qr_config(db, company_id)
+    full = await _event_summary_payload(db, company_id)
+    qr = full.get("qr") or await _qr_config(db, company_id)
     event_row = await _active_event_row(db, company_id)
     event = _event_payload(event_row) if event_row else None
     settings = event.get("settings") if isinstance(event, dict) else {}
@@ -677,6 +689,47 @@ async def assembly_public_context(
         attendee_row = attendee_result.mappings().first()
         attendee = _attendee_payload(dict(attendee_row)) if attendee_row else None
 
+    participant_responses: dict[str, Any] = {}
+    participant_questions: dict[str, Any] = {}
+    if event_row and participant_key:
+        response_result = await db.execute(
+            text(
+                """
+                SELECT vote_id, qr_key, voter_name, choice_key, choice_label, created_at
+                FROM assembly_vote_responses
+                WHERE event_id = :event_id
+                  AND qr_key = :qr_key
+                ORDER BY created_at DESC
+                """
+            ),
+            {"event_id": str(event_row["id"]), "qr_key": participant_key},
+        )
+        for row in response_result.mappings().all():
+            participant_responses[str(row["vote_id"])] = {
+                "vote_id": str(row["vote_id"]),
+                "qr_key": row.get("qr_key") or "",
+                "voter_name": row.get("voter_name") or "",
+                "choice_key": row.get("choice_key") or "",
+                "choice_label": row.get("choice_label") or "",
+                "created_at": _iso(row.get("created_at")),
+            }
+        question_result = await db.execute(
+            text(
+                """
+                SELECT *
+                FROM assembly_questions
+                WHERE event_id = :event_id
+                  AND qr_key = :qr_key
+                  AND vote_id IS NOT NULL
+                ORDER BY created_at DESC
+                """
+            ),
+            {"event_id": str(event_row["id"]), "qr_key": participant_key},
+        )
+        for row in question_result.mappings().all():
+            question = _question_payload(dict(row))
+            participant_questions[question["vote_id"]] = question
+
     return {
         "ok": True,
         "company_id": str(company_id),
@@ -688,6 +741,11 @@ async def assembly_public_context(
         "assembly_type_label": _assembly_type_label(settings.get("assembly_type") or "generic"),
         "fields": fields,
         "attendee": attendee,
+        "summary": full.get("summary") or {},
+        "votes": full.get("votes") or [],
+        "questions": full.get("questions") or [],
+        "participant_responses": participant_responses,
+        "participant_questions": participant_questions,
     }
 
 
@@ -840,7 +898,7 @@ async def add_assembly_vote(
 ) -> dict[str, Any]:
     await _ensure_storage(db)
     await _get_event_row(db, company_id, event_id)
-    vote_type = _status(payload.vote_type, VOTE_TYPES, "yes_no")
+    vote_type = _status(payload.vote_type, VOTE_TYPES, "decision")
     options = _vote_options(vote_type, payload.options)
     await db.execute(
         text(
@@ -940,21 +998,36 @@ async def add_assembly_question(
 ) -> dict[str, Any]:
     await _ensure_storage(db)
     await _get_event_row(db, company_id, event_id)
+    vote_id = str(payload.vote_id) if payload.vote_id else None
+    if vote_id:
+        vote_result = await db.execute(
+            text("SELECT id FROM assembly_votes WHERE id = :vote_id AND event_id = :event_id AND company_id = :company_id LIMIT 1"),
+            {"vote_id": vote_id, "event_id": str(event_id), "company_id": str(company_id)},
+        )
+        if not vote_result.first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="assembly_vote_not_found")
+    qr_key = _clean(payload.qr_key, 120)
+    if vote_id and qr_key:
+        await db.execute(
+            text("DELETE FROM assembly_questions WHERE event_id = :event_id AND vote_id = :vote_id AND qr_key = :qr_key"),
+            {"event_id": str(event_id), "vote_id": vote_id, "qr_key": qr_key},
+        )
     await db.execute(
         text(
             """
             INSERT INTO assembly_questions (
-                id, event_id, company_id, participant_name, qr_key, question, status, created_at, updated_at
+                id, event_id, company_id, vote_id, participant_name, qr_key, question, status, created_at, updated_at
             )
-            VALUES (:id, :event_id, :company_id, :participant_name, :qr_key, :question, :status, NOW(), NOW())
+            VALUES (:id, :event_id, :company_id, :vote_id, :participant_name, :qr_key, :question, :status, NOW(), NOW())
             """
         ),
         {
             "id": str(uuid.uuid4()),
             "event_id": str(event_id),
             "company_id": str(company_id),
+            "vote_id": vote_id,
             "participant_name": _clean(payload.participant_name, 180),
-            "qr_key": _clean(payload.qr_key, 120),
+            "qr_key": qr_key,
             "question": payload.question,
             "status": _status(payload.status, QUESTION_STATUSES, "pending"),
         },

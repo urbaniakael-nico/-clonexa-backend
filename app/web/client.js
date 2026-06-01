@@ -15674,6 +15674,7 @@ function inventoryCreatePayload() {
     return {
       ...existing,
       assembly_type: String($("asmType025V")?.value || existing.assembly_type || "generic").trim(),
+      act_url: String($("asmActUrl025W")?.value || existing.act_url || existing.minutes_file_url || "").trim(),
       minutes: String($("asmMinutes025U")?.value || existing.minutes || "").trim(),
       public_note: String($("asmPublicNote025U")?.value || existing.public_note || "").trim(),
     };
@@ -15751,9 +15752,11 @@ function inventoryCreatePayload() {
       method: "POST",
       body: JSON.stringify({
         title: String($("asmVoteTitle025U")?.value || "").trim(),
-        vote_type: String($("asmVoteType025U")?.value || "yes_no"),
+        vote_type: String($("asmVoteType025U")?.value || "decision"),
         options,
         status: "open",
+        opens_at: new Date().toISOString(),
+        closes_at: new Date(Date.now() + Math.max(1, Number($("asmVoteMinutes025W")?.value || 5)) * 60000).toISOString(),
       }),
     });
     await renderAssemblyModule025U(cxAssemblyActiveCode025U);
@@ -15910,6 +15913,7 @@ function inventoryCreatePayload() {
                       <label>Quorum requerido %<input id="asmQuorumRequired025U" type="number" min="0" max="100" value="${h(quorumRequired)}"></label>
                     </div>
                     <label>Texto publico QR<textarea id="asmPublicNote025U" placeholder="Mensaje visible para participantes">${h(settings.public_note || "")}</textarea></label>
+                    <label>Acta adjunta / PDF publico<input id="asmActUrl025W" placeholder="https://.../acta.pdf" value="${h(settings.act_url || settings.minutes_file_url || "")}"></label>
                     <label>Acta / observaciones<textarea id="asmMinutes025U" placeholder="Resumen, decisiones, pendientes y cierre">${h(settings.minutes || "")}</textarea></label>
                     <div class="asm-actions-025u">
                       <button class="client-btn" type="button" data-asm-save>${event.id ? "Guardar cambios" : "Crear asamblea"}</button>
@@ -15982,14 +15986,16 @@ function inventoryCreatePayload() {
                     <div class="asm-form-row-025u">
                       <label>Tipo
                         <select id="asmVoteType025U">
+                          <option value="decision">A favor / En desacuerdo / No participa</option>
                           <option value="yes_no">Si / No</option>
                           <option value="true_false">Verdadero / Falso</option>
                           <option value="multiple">Multiple</option>
                           <option value="participants">Participantes 1-5</option>
                         </select>
                       </label>
-                      <label>Opciones<textarea id="asmVoteOptions025U" placeholder="Para multiple o participantes: una opcion por linea, maximo 5"></textarea></label>
+                      <label>Tiempo respuesta min<input id="asmVoteMinutes025W" type="number" min="1" max="240" value="5"></label>
                     </div>
+                    <label>Opciones<textarea id="asmVoteOptions025U" placeholder="Solo para multiple o participantes: una opcion por linea, maximo 5"></textarea></label>
                     <button class="client-btn" type="button" data-asm-add-vote>Crear votacion</button>
                     <div class="asm-list-025u">${cxAssemblyVoteRows025U(data.votes || [])}</div>
                   </div>
