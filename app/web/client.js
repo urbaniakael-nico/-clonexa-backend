@@ -15642,9 +15642,21 @@ function inventoryCreatePayload() {
       .asm-form-025u textarea{min-height:82px;resize:vertical;text-transform:none;letter-spacing:0}
       .asm-form-row-025u{display:grid;grid-template-columns:1fr 1fr;gap:10px}
       .asm-list-025u{display:grid;gap:9px}
+      .asm-scroll-025x{display:grid;gap:9px;max-height:520px;overflow:auto;padding-right:4px}
+      .asm-scroll-025x.attendees{max-height:560px}
+      .asm-scroll-025x.questions,.asm-scroll-025x.votes{max-height:460px}
+      .asm-scroll-025x.managers{max-height:360px}
       .asm-row-025u{display:grid;gap:7px;background:rgba(3,7,18,.36);border:1px solid rgba(255,255,255,.10);border-radius:15px;padding:12px}
       .asm-row-head-025u{display:flex;align-items:center;justify-content:space-between;gap:10px}
       .asm-pill-025u{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.12);font-size:11px;font-weight:1000;color:var(--cx-secondary,#c6f6d5)}
+      .asm-pill-025u.pending{color:#fde68a;border-color:rgba(245,158,11,.32);background:rgba(245,158,11,.13)}
+      .asm-pill-025u.answered{color:#bbf7d0;border-color:rgba(34,197,94,.32);background:rgba(34,197,94,.14)}
+      .asm-row-actions-025x{display:flex;flex-wrap:wrap;gap:8px}
+      .asm-btn-mini-025x{border:1px solid rgba(255,255,255,.14);border-radius:999px;background:rgba(255,255,255,.08);color:var(--cx-text,#fff);font-weight:1000;padding:8px 11px;cursor:pointer}
+      .asm-btn-mini-025x.ok{background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.28);color:#bbf7d0}
+      .asm-options-025x{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:8px}
+      .asm-options-025x.hidden{display:none}
+      .asm-report-grid-025x{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
       .asm-qr-025u{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px}
       .asm-qr-025u div{background:rgba(3,7,18,.36);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:11px}
       .asm-qr-025u span{display:block;color:rgba(255,255,255,.56);font-size:10px;font-weight:1000;letter-spacing:.10em;text-transform:uppercase}
@@ -15655,8 +15667,8 @@ function inventoryCreatePayload() {
       .asm-msg-025u{display:none;border-radius:14px;padding:12px 14px;background:rgba(34,197,94,.13);border:1px solid rgba(34,197,94,.24);color:#bbf7d0;font-weight:900}
       .asm-msg-025u.err{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.28);color:#fecaca}
       .asm-empty-025u{border:1px dashed rgba(255,255,255,.18);border-radius:14px;padding:18px;text-align:center;color:rgba(255,255,255,.62);font-weight:900}
-      @media(max-width:1120px){.asm-grid-025u{grid-template-columns:1fr}.asm-kpis-025u,.asm-qr-025u{grid-template-columns:1fr 1fr}}
-      @media(max-width:720px){.asm-kpis-025u,.asm-qr-025u,.asm-form-row-025u{grid-template-columns:1fr}}
+      @media(max-width:1120px){.asm-grid-025u{grid-template-columns:1fr}.asm-kpis-025u,.asm-qr-025u,.asm-options-025x,.asm-report-grid-025x{grid-template-columns:1fr 1fr}}
+      @media(max-width:720px){.asm-kpis-025u,.asm-qr-025u,.asm-form-row-025u,.asm-options-025x,.asm-report-grid-025x{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
   }
@@ -15713,6 +15725,86 @@ function inventoryCreatePayload() {
     return eventId;
   }
 
+  function cxAssemblyManagerRoles025X(type = "generic") {
+    const kind = String(type || "generic").toLowerCase();
+    const roles = {
+      housing: [
+        ["administrador", "Administrador"],
+        ["representante", "Representante consejo"],
+        ["revisor", "Revisor fiscal"],
+        ["abogado", "Abogado"],
+        ["contador", "Contador"],
+        ["secretario", "Secretario(a)"],
+      ],
+      business: [
+        ["representante_legal", "Representante legal"],
+        ["gerente", "Gerente"],
+        ["contador", "Contador"],
+        ["abogado", "Abogado"],
+        ["secretario", "Secretario(a)"],
+        ["auditor", "Auditor"],
+      ],
+      sports: [
+        ["delegado", "Delegado"],
+        ["comisario", "Comisario"],
+        ["arbitro", "Arbitro"],
+        ["tesorero", "Tesorero"],
+        ["secretario", "Secretario(a)"],
+        ["representante", "Representante"],
+      ],
+      generic: [
+        ["presidente", "Presidente de asamblea"],
+        ["secretario", "Secretario(a)"],
+        ["moderador", "Moderador"],
+        ["administrador", "Administrador"],
+        ["contador", "Contador"],
+        ["abogado", "Abogado"],
+      ],
+    };
+    return roles[kind] || roles.generic;
+  }
+
+  function cxAssemblyIsManager025X(row = {}) {
+    const metadata = row?.metadata && typeof row.metadata === "object" ? row.metadata : {};
+    return !!metadata.manager_role;
+  }
+
+  function cxAssemblyParticipants025X(rows = []) {
+    return (Array.isArray(rows) ? rows : []).filter((row) => !cxAssemblyIsManager025X(row));
+  }
+
+  function cxAssemblyManagers025X(rows = []) {
+    return (Array.isArray(rows) ? rows : []).filter((row) => cxAssemblyIsManager025X(row));
+  }
+
+  function cxAssemblyQuestionClass025X(status = "") {
+    return String(status || "").toLowerCase() === "answered" ? "answered" : "pending";
+  }
+
+  function cxAssemblyVoteNeedsOptions025X(type = "") {
+    return ["multiple", "participants"].includes(String(type || "").toLowerCase());
+  }
+
+  function cxAssemblyVoteOptionValues025X() {
+    const type = String($("asmVoteType025U")?.value || "decision");
+    if (!cxAssemblyVoteNeedsOptions025X(type)) return [];
+    return [1, 2, 3, 4, 5]
+      .map((index) => String($(`asmVoteOpt${index}025X`)?.value || "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+  }
+
+  function cxAssemblyToggleVoteOptions025X() {
+    const wrap = $("asmVoteOptionsWrap025X");
+    if (!wrap) return;
+    const type = String($("asmVoteType025U")?.value || "decision");
+    wrap.classList.toggle("hidden", !cxAssemblyVoteNeedsOptions025X(type));
+  }
+
+  function cxAssemblyReportUrl025X(eventId, mode = "basic") {
+    return `${API}/assemblies/companies/${encodeURIComponent(state.companyId)}/events/${encodeURIComponent(eventId)}/report?mode=${encodeURIComponent(mode)}`;
+  }
+
   async function cxAssemblyAddAgenda025U() {
     const eventId = cxAssemblyRequireEvent025U();
     const title = String($("asmAgendaTitle025U")?.value || "").trim();
@@ -15728,31 +15820,38 @@ function inventoryCreatePayload() {
 
   async function cxAssemblyAddAttendee025U() {
     const eventId = cxAssemblyRequireEvent025U();
+    const role = String($("asmManagerRole025X")?.value || "gestor").trim();
+    const roleLabel = $("asmManagerRole025X")?.selectedOptions?.[0]?.textContent || role;
+    const name = String($("asmManagerName025X")?.value || "").trim();
+    const documentRef = String($("asmManagerDoc025X")?.value || "").trim();
+    if (!name) throw new Error("Escribe el nombre del gestor de asamblea.");
     await cxAssemblyApi025U(`/events/${encodeURIComponent(eventId)}/attendees`, {
       method: "POST",
       body: JSON.stringify({
-        attendee_name: String($("asmAttendeeName025U")?.value || "").trim(),
-        document_ref: String($("asmAttendeeDoc025U")?.value || "").trim(),
-        qr_key: String($("asmAttendeeQr025U")?.value || "").trim(),
+        attendee_name: name,
+        document_ref: documentRef,
+        qr_key: `gestor:${role}:${Date.now()}`,
         present: true,
+        metadata: {
+          manager_role: role,
+          role_label: roleLabel,
+          assembly_type: String($("asmType025V")?.value || "generic"),
+        },
       }),
     });
     await renderAssemblyModule025U(cxAssemblyActiveCode025U);
-    cxAssemblyMsg025U("Asistente registrado.");
+    cxAssemblyMsg025U("Gestor registrado.");
   }
 
   async function cxAssemblyAddVote025U() {
     const eventId = cxAssemblyRequireEvent025U();
-    const options = String($("asmVoteOptions025U")?.value || "")
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .slice(0, 5);
+    const voteType = String($("asmVoteType025U")?.value || "decision");
+    const options = cxAssemblyVoteOptionValues025X();
     await cxAssemblyApi025U(`/events/${encodeURIComponent(eventId)}/votes`, {
       method: "POST",
       body: JSON.stringify({
         title: String($("asmVoteTitle025U")?.value || "").trim(),
-        vote_type: String($("asmVoteType025U")?.value || "decision"),
+        vote_type: voteType,
         options,
         status: "open",
         opens_at: new Date().toISOString(),
@@ -15763,19 +15862,22 @@ function inventoryCreatePayload() {
     cxAssemblyMsg025U("Votacion creada.");
   }
 
-  async function cxAssemblyAddQuestion025U() {
+  async function cxAssemblySetQuestionStatus025X(questionId = "", nextStatus = "pending") {
     const eventId = cxAssemblyRequireEvent025U();
-    await cxAssemblyApi025U(`/events/${encodeURIComponent(eventId)}/questions`, {
-      method: "POST",
+    await cxAssemblyApi025U(`/events/${encodeURIComponent(eventId)}/questions/${encodeURIComponent(questionId)}`, {
+      method: "PATCH",
       body: JSON.stringify({
-        participant_name: String($("asmQuestionName025U")?.value || "").trim(),
-        qr_key: String($("asmQuestionQr025U")?.value || "").trim(),
-        question: String($("asmQuestionText025U")?.value || "").trim(),
-        status: "pending",
+        status: nextStatus,
       }),
     });
     await renderAssemblyModule025U(cxAssemblyActiveCode025U);
-    cxAssemblyMsg025U("Pregunta registrada.");
+    cxAssemblyMsg025U(nextStatus === "answered" ? "Pregunta marcada como respondida." : "Pregunta marcada como pendiente.");
+  }
+
+  async function cxAssemblyCloseAndReport025X(mode = "basic") {
+    const eventId = cxAssemblyRequireEvent025U();
+    await cxAssemblySaveEvent025U("closed");
+    window.open(cxAssemblyReportUrl025X(eventId, mode), "_blank", "noopener,noreferrer");
   }
 
   function cxAssemblyVoteRows025U(votes = []) {
@@ -15806,6 +15908,59 @@ function inventoryCreatePayload() {
     return rows.map(renderer).join("");
   }
 
+  function cxAssemblyManagerRows025X(rows = [], type = "generic") {
+    const managers = cxAssemblyManagers025X(rows);
+    return cxAssemblySimpleRows025U(managers, "Sin gestores registrados.", (row) => {
+      const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+      return `
+        <article class="asm-row-025u">
+          <div class="asm-row-head-025u">
+            <strong>${h(row.attendee_name || "Gestor")}</strong>
+            <span class="asm-pill-025u">${h(metadata.role_label || metadata.manager_role || cxAssemblyTypeLabel025V(type))}</span>
+          </div>
+          <small class="asm-muted-025u">${h(row.document_ref || "Sin documento")}</small>
+        </article>
+      `;
+    });
+  }
+
+  function cxAssemblyAttendeeRows025X(rows = []) {
+    const attendees = cxAssemblyParticipants025X(rows);
+    return cxAssemblySimpleRows025U(attendees, "Sin asistentes registrados desde QR.", (row) => {
+      const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+      const metaText = Object.entries(metadata)
+        .filter(([key]) => !["attendee_name", "document_ref"].includes(key))
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(" · ");
+      return `
+        <article class="asm-row-025u">
+          <div class="asm-row-head-025u"><strong>${h(row.attendee_name)}</strong><span class="asm-pill-025u">${row.present ? "Presente" : "Ausente"}</span></div>
+          <small class="asm-muted-025u">${h(row.document_ref || row.qr_key || "Sin identificador")}</small>
+          ${metaText ? `<small class="asm-muted-025u">${h(metaText)}</small>` : ""}
+        </article>
+      `;
+    });
+  }
+
+  function cxAssemblyQuestionRows025X(rows = []) {
+    return cxAssemblySimpleRows025U(rows, "Sin preguntas realizadas desde QR.", (row) => {
+      const statusName = cxAssemblyQuestionClass025X(row.status);
+      return `
+        <article class="asm-row-025u">
+          <div class="asm-row-head-025u">
+            <strong>${h(row.participant_name || row.qr_key || "Participante")}</strong>
+            <span class="asm-pill-025u ${h(statusName)}">${h(cxAssemblyStatusLabel025U(row.status))}</span>
+          </div>
+          <small class="asm-muted-025u">${h(row.question)}</small>
+          <div class="asm-row-actions-025x">
+            <button class="asm-btn-mini-025x ${statusName === "pending" ? "ok" : ""}" type="button" data-asm-question-status data-question-id="${h(row.id)}" data-status="pending">Pendiente</button>
+            <button class="asm-btn-mini-025x ${statusName === "answered" ? "ok" : ""}" type="button" data-asm-question-status data-question-id="${h(row.id)}" data-status="answered">Respondida</button>
+          </div>
+        </article>
+      `;
+    });
+  }
+
   async function renderAssemblyModule025U(code = "asamblea") {
     cxAssemblyActiveCode025U = code || "asamblea";
     cxAssemblyStyles025U();
@@ -15829,6 +15984,8 @@ function inventoryCreatePayload() {
     const quorumRequired = Number(event.quorum_required_percent || 50);
     const quorumNow = Number(summary.quorum_percent || 0);
     const quorumOk = quorumTotal > 0 && quorumNow >= quorumRequired;
+    const assemblyType = String(settings.assembly_type || "generic");
+    const managerRoles = cxAssemblyManagerRoles025X(assemblyType);
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -15923,37 +16080,28 @@ function inventoryCreatePayload() {
                 </section>
 
                 <section class="asm-card-025u">
-                  <h2>Asistentes y preguntas</h2>
+                  <h2>Gestores, asistencia y preguntas</h2>
                   <div class="asm-form-025u">
+                    <p class="asm-muted-025u">Registra aqui solo las personas encargadas de conducir la asamblea. Los asistentes y preguntas llegan desde los QR activados.</p>
                     <div class="asm-form-row-025u">
-                      <label>Asistente<input id="asmAttendeeName025U" placeholder="Nombre asistente"></label>
-                      <label>Documento / QR<input id="asmAttendeeDoc025U" placeholder="Cedula, apto, accion..."></label>
+                      <label>Rol en la asamblea
+                        <select id="asmManagerRole025X">
+                          ${managerRoles.map(([value, label]) => `<option value="${h(value)}">${h(label)}</option>`).join("")}
+                        </select>
+                      </label>
+                      <label>Nombre<input id="asmManagerName025X" placeholder="Nombre del gestor"></label>
                     </div>
-                    <label>Clave QR opcional<input id="asmAttendeeQr025U" placeholder="Participante 12, Mesa 8, QR..."></label>
-                    <button class="client-btn" type="button" data-asm-add-attendee>Registrar asistencia</button>
-                    <div class="asm-list-025u">
-                      ${cxAssemblySimpleRows025U(data.attendees, "Sin asistentes registrados.", (row) => `
-                        <article class="asm-row-025u">
-                          <div class="asm-row-head-025u"><strong>${h(row.attendee_name)}</strong><span class="asm-pill-025u">${row.present ? "Presente" : "Ausente"}</span></div>
-                          <small class="asm-muted-025u">${h(row.document_ref || row.qr_key || "Sin identificador")}</small>
-                          ${row.metadata && Object.keys(row.metadata).length ? `<small class="asm-muted-025u">${h(Object.entries(row.metadata).filter(([key]) => !["attendee_name", "document_ref"].includes(key)).map(([key, value]) => `${key}: ${value}`).join(" · "))}</small>` : ""}
-                        </article>
-                      `)}
-                    </div>
-                    <label>Pregunta / intervencion<textarea id="asmQuestionText025U" placeholder="Pregunta del participante"></textarea></label>
-                    <div class="asm-form-row-025u">
-                      <input id="asmQuestionName025U" placeholder="Nombre">
-                      <input id="asmQuestionQr025U" placeholder="QR / mesa / puesto">
-                    </div>
-                    <button class="client-btn" type="button" data-asm-add-question>Agregar pregunta</button>
-                    <div class="asm-list-025u">
-                      ${cxAssemblySimpleRows025U(data.questions, "Sin preguntas registradas.", (row) => `
-                        <article class="asm-row-025u">
-                          <div class="asm-row-head-025u"><strong>${h(row.participant_name || row.qr_key || "Participante")}</strong><span class="asm-pill-025u">${h(cxAssemblyStatusLabel025U(row.status))}</span></div>
-                          <small class="asm-muted-025u">${h(row.question)}</small>
-                        </article>
-                      `)}
-                    </div>
+                    <label>Documento<input id="asmManagerDoc025X" placeholder="Cedula, tarjeta profesional, NIT..."></label>
+                    <button class="client-btn" type="button" data-asm-add-attendee>Registrar gestor</button>
+
+                    <h3>Gestores de asamblea</h3>
+                    <div class="asm-scroll-025x managers">${cxAssemblyManagerRows025X(data.attendees, assemblyType)}</div>
+
+                    <h3>Registro de asistencia</h3>
+                    <div class="asm-scroll-025x attendees">${cxAssemblyAttendeeRows025X(data.attendees)}</div>
+
+                    <h3>Preguntas realizadas</h3>
+                    <div class="asm-scroll-025x questions">${cxAssemblyQuestionRows025X(data.questions)}</div>
                   </div>
                 </section>
               </div>
@@ -15995,17 +16143,32 @@ function inventoryCreatePayload() {
                       </label>
                       <label>Tiempo respuesta min<input id="asmVoteMinutes025W" type="number" min="1" max="240" value="5"></label>
                     </div>
-                    <label>Opciones<textarea id="asmVoteOptions025U" placeholder="Solo para multiple o participantes: una opcion por linea, maximo 5"></textarea></label>
+                    <div id="asmVoteOptionsWrap025X" class="asm-options-025x hidden">
+                      ${[1, 2, 3, 4, 5].map((index) => `
+                        <label>Opcion ${index}<input id="asmVoteOpt${index}025X" placeholder="Texto opcion ${index}"></label>
+                      `).join("")}
+                    </div>
                     <button class="client-btn" type="button" data-asm-add-vote>Crear votacion</button>
-                    <div class="asm-list-025u">${cxAssemblyVoteRows025U(data.votes || [])}</div>
+                    <div class="asm-scroll-025x votes">${cxAssemblyVoteRows025U(data.votes || [])}</div>
                   </div>
                 </section>
               </div>
+
+              <section class="asm-card-025u">
+                <h2>Cerrar asamblea y generar PDF</h2>
+                <p class="asm-muted-025u">Al cerrar, se abre una hoja lista para imprimir o guardar como PDF. La version basica queda pensada para descargar/publicar sin datos sensibles.</p>
+                <div class="asm-report-grid-025x">
+                  <button class="client-btn" type="button" data-asm-report="complete">Completa</button>
+                  <button class="client-btn" type="button" data-asm-report="basic">Basica publica</button>
+                  <button class="client-btn" type="button" data-asm-report="votes">Solo votaciones</button>
+                </div>
+              </section>
             </section>
           </section>
         </div>
       </main>
     `;
+    cxAssemblyToggleVoteOptions025X();
   }
   /* CLONEXA_025U_ASSEMBLY_MODULE_END */
 
@@ -16737,7 +16900,15 @@ async function renderClientModulePlaceholder(code) {
   /* CLONEXA_022F_CLIENT_REGISTRO_VENTA_CONSOLIDADO_END */
 
 
-document.addEventListener("click", async (event) => {
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.id === "asmVoteType025U") {
+      cxAssemblyToggleVoteOptions025X();
+    }
+  });
+
+  document.addEventListener("click", async (event) => {
       const target = event.target;
 
       const miniPanelCopyBtn = target.closest("[data-minipanel-copy-link]");
@@ -17387,11 +17558,25 @@ document.addEventListener("click", async (event) => {
         return;
       }
 
-      if (target.closest("[data-asm-add-question]")) {
+      const asmQuestionStatus = target.closest("[data-asm-question-status]");
+      if (asmQuestionStatus) {
         try {
-          await cxAssemblyAddQuestion025U();
+          await cxAssemblySetQuestionStatus025X(
+            asmQuestionStatus.getAttribute("data-question-id") || "",
+            asmQuestionStatus.getAttribute("data-status") || "pending"
+          );
         } catch (error) {
-          cxAssemblyMsg025U(error.message || "No se pudo agregar la pregunta.", true);
+          cxAssemblyMsg025U(error.message || "No se pudo actualizar la pregunta.", true);
+        }
+        return;
+      }
+
+      const asmReport = target.closest("[data-asm-report]");
+      if (asmReport) {
+        try {
+          await cxAssemblyCloseAndReport025X(asmReport.getAttribute("data-asm-report") || "basic");
+        } catch (error) {
+          cxAssemblyMsg025U(error.message || "No se pudo generar el acta.", true);
         }
         return;
       }

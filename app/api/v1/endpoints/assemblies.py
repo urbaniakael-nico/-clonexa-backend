@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+from html import escape
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -284,10 +286,14 @@ class AssemblyQuestionIn(BaseModel):
     @field_validator("question")
     @classmethod
     def clean_question(cls, value: str) -> str:
-        question = _clean(value, 1600)
+        question = _clean(value, 300)
         if not question:
             raise ValueError("question_required")
         return question
+
+
+class AssemblyQuestionUpdateIn(BaseModel):
+    status: str = Field(default="pending", max_length=40)
 
 
 class AssemblyVoteResponseIn(BaseModel):
@@ -463,8 +469,8 @@ async def _active_event_row(db: AsyncSession, company_id: uuid.UUID) -> dict[str
             SELECT *
             FROM assembly_events
             WHERE company_id = :company_id
-              AND status IN ('active', 'draft')
-            ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, created_at DESC
+              AND status IN ('active', 'draft', 'closed')
+            ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 WHEN 'closed' THEN 2 ELSE 3 END, created_at DESC
             LIMIT 1
             """
         ),
@@ -534,7 +540,7 @@ async def _qr_config(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
-async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_row: dict[str, Any] | None = None) -> dict[str, Any]:
+async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_row: dict[str, Any] | None = None, full: bool = False) -> dict[str, Any]:
     if event_row is None:
         event_row = await _active_event_row(db, company_id)
 
@@ -552,12 +558,13 @@ async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_
         }
 
     event_id = str(event_row["id"])
+    row_limit = 5000 if full else 80
     counts = await db.execute(
         text(
             """
             SELECT
-              (SELECT COUNT(*) FROM assembly_attendees WHERE event_id = :event_id) AS attendees,
-              (SELECT COUNT(*) FROM assembly_attendees WHERE event_id = :event_id AND present IS TRUE) AS present,
+              (SELECT COUNT(*) FROM assembly_attendees WHERE event_id = :event_id AND COALESCE(metadata->>'manager_role', '') = '') AS attendees,
+              (SELECT COUNT(*) FROM assembly_attendees WHERE event_id = :event_id AND present IS TRUE AND COALESCE(metadata->>'manager_role', '') = '') AS present,
               (SELECT COUNT(*) FROM assembly_agenda_items WHERE event_id = :event_id) AS agenda,
               (SELECT COUNT(*) FROM assembly_votes WHERE event_id = :event_id) AS votes,
               (SELECT COUNT(*) FROM assembly_questions WHERE event_id = :event_id) AS questions,
@@ -576,12 +583,12 @@ async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_
         {"event_id": event_id},
     )
     attendees_rows = await db.execute(
-        text("SELECT * FROM assembly_attendees WHERE event_id = :event_id ORDER BY checked_in_at DESC LIMIT 80"),
-        {"event_id": event_id},
+        text("SELECT * FROM assembly_attendees WHERE event_id = :event_id ORDER BY checked_in_at DESC LIMIT :limit"),
+        {"event_id": event_id, "limit": row_limit},
     )
     questions_rows = await db.execute(
-        text("SELECT * FROM assembly_questions WHERE event_id = :event_id ORDER BY created_at DESC LIMIT 80"),
-        {"event_id": event_id},
+        text("SELECT * FROM assembly_questions WHERE event_id = :event_id ORDER BY created_at DESC LIMIT :limit"),
+        {"event_id": event_id, "limit": row_limit},
     )
     vote_rows = await db.execute(
         text("SELECT * FROM assembly_votes WHERE event_id = :event_id ORDER BY created_at ASC"),
@@ -645,6 +652,148 @@ async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_
         "questions": [_question_payload(dict(row)) for row in questions_rows.mappings().all()],
         "qr": await _qr_config(db, company_id),
     }
+
+
+def _safe(value: Any) -> str:
+    return escape(str(value or ""), quote=True)
+
+
+def _is_manager_attendee(row: dict[str, Any]) -> bool:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else _json(row.get("metadata"), {})
+    return bool(metadata.get("manager_role"))
+
+
+def _report_stat(label: str, value: Any) -> str:
+    return f"<div class='stat'><span>{_safe(label)}</span><strong>{_safe(value)}</strong></div>"
+
+
+def _report_vote_html(vote: dict[str, Any]) -> str:
+    options = vote.get("options") if isinstance(vote.get("options"), list) else []
+    rows = []
+    for option in options:
+        percent = max(0, min(100, float(option.get("percent") or 0)))
+        rows.append(
+            "<div class='vote-option'>"
+            f"<div><b>{_safe(option.get('label'))}</b><em>{_safe(option.get('count') or 0)} respuesta(s) - {_safe(option.get('percent') or 0)}%</em></div>"
+            f"<i><span style='width:{percent}%'></span></i>"
+            "</div>"
+        )
+    return (
+        "<article class='block'>"
+        f"<h3>{_safe(vote.get('title') or 'Votacion')}</h3>"
+        f"<p>{_safe(vote.get('status') or 'open')} - {_safe(vote.get('responses') or 0)} respuesta(s)</p>"
+        f"{''.join(rows) if rows else '<p>Sin respuestas.</p>'}"
+        "</article>"
+    )
+
+
+def _report_attendee_html(row: dict[str, Any], include_sensitive: bool = True) -> str:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    role = metadata.get("role_label") or metadata.get("manager_role") or metadata.get("role") or ""
+    details = []
+    if include_sensitive and row.get("document_ref"):
+        details.append(f"Documento: {_safe(row.get('document_ref'))}")
+    if include_sensitive and row.get("qr_key"):
+        details.append(f"QR: {_safe(row.get('qr_key'))}")
+    if role:
+        details.append(f"Rol: {_safe(role)}")
+    return (
+        "<tr>"
+        f"<td>{_safe(row.get('attendee_name') or 'Participante')}</td>"
+        f"<td>{'Presente' if row.get('present') else 'Ausente'}</td>"
+        f"<td>{' | '.join(details)}</td>"
+        "</tr>"
+    )
+
+
+def _assembly_report_html(payload: dict[str, Any], mode: str = "basic") -> str:
+    mode = _status(mode, {"complete", "basic", "votes"}, "basic")
+    event = payload.get("event") or {}
+    summary = payload.get("summary") or {}
+    settings = event.get("settings") if isinstance(event.get("settings"), dict) else {}
+    attendees = payload.get("attendees") if isinstance(payload.get("attendees"), list) else []
+    managers = [row for row in attendees if _is_manager_attendee(row)]
+    participants = [row for row in attendees if not _is_manager_attendee(row)]
+    questions = payload.get("questions") if isinstance(payload.get("questions"), list) else []
+    answered_questions = [row for row in questions if str(row.get("status") or "").lower() == "answered"]
+    votes = payload.get("votes") if isinstance(payload.get("votes"), list) else []
+    title = event.get("title") or "Asamblea"
+    basic = mode == "basic"
+    votes_only = mode == "votes"
+    sensitive = mode == "complete"
+
+    attendee_table = ""
+    if sensitive and not votes_only:
+        attendee_rows = "".join(_report_attendee_html(row, True) for row in participants) or "<tr><td colspan='3'>Sin asistentes registrados.</td></tr>"
+        manager_rows = "".join(_report_attendee_html(row, True) for row in managers) or "<tr><td colspan='3'>Sin gestores registrados.</td></tr>"
+        attendee_table = (
+            "<section class='section'><h2>Gestores de asamblea</h2><table><tbody>"
+            f"{manager_rows}</tbody></table></section>"
+            "<section class='section'><h2>Asistencia completa</h2><table><tbody>"
+            f"{attendee_rows}</tbody></table></section>"
+        )
+
+    question_rows = ""
+    if not votes_only:
+        public_questions = answered_questions if basic else questions
+        question_rows = "".join(
+            "<article class='question'>"
+            f"<h3>{_safe(row.get('question'))}</h3>"
+            f"<p>{'Estado: ' + _safe(row.get('status')) if sensitive else 'Pregunta respondida en asamblea'}</p>"
+            f"{'<small>Solicita: ' + _safe(row.get('participant_name') or row.get('qr_key') or 'Participante') + '</small>' if sensitive else ''}"
+            "</article>"
+            for row in public_questions
+        ) or "<p>Sin preguntas seleccionadas para el acta.</p>"
+
+    vote_html = "".join(_report_vote_html(vote) for vote in votes) or "<p>Sin votaciones registradas.</p>"
+    notes = settings.get("minutes") or ""
+    mode_label = {"complete": "Acta completa", "basic": "Acta publica basica", "votes": "Reporte de votaciones"}.get(mode, "Acta publica")
+
+    return f"""<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{_safe(mode_label)} - {_safe(title)}</title>
+  <style>
+    *{{box-sizing:border-box}} body{{margin:0;background:#f7f7fb;color:#111827;font-family:Inter,Segoe UI,Arial,sans-serif;line-height:1.35}}
+    .page{{max-width:1100px;margin:0 auto;padding:34px}} .hero{{background:#111827;color:white;border-radius:22px;padding:26px;margin-bottom:18px}}
+    .eyebrow{{letter-spacing:.14em;text-transform:uppercase;color:#9ae6b4;font-size:12px;font-weight:900}} h1{{font-size:42px;margin:8px 0 4px}} h2{{font-size:22px;margin:0 0 12px}} h3{{margin:0 0 6px}}
+    .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}} .stat{{border:1px solid #d1d5db;border-radius:14px;padding:14px;background:white}}
+    .stat span{{display:block;color:#6b7280;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:900}} .stat strong{{display:block;font-size:24px;margin-top:6px}}
+    .section,.block,.question{{border:1px solid #d1d5db;border-radius:16px;background:white;padding:16px;margin:14px 0}} .block p,.question p{{margin:0;color:#4b5563;font-weight:700}}
+    table{{width:100%;border-collapse:collapse}} td,th{{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top}} th{{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#6b7280}}
+    .vote-option{{display:grid;gap:7px;margin:11px 0}} .vote-option div{{display:flex;justify-content:space-between;gap:16px}} .vote-option em{{font-style:normal;color:#4b5563;font-weight:800}}
+    .vote-option i{{display:block;height:10px;border-radius:999px;background:#e5e7eb;overflow:hidden}} .vote-option span{{display:block;height:100%;background:linear-gradient(90deg,#0ea5e9,#22c55e)}}
+    .actions{{display:flex;gap:10px;margin:18px 0}} button{{border:0;border-radius:999px;background:#111827;color:white;font-weight:900;padding:12px 18px;cursor:pointer}}
+    @media print{{.actions{{display:none}} body{{background:white}} .page{{padding:0}} .hero,.section,.block,.question,.stat{{break-inside:avoid}}}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">{_safe(mode_label)}</div>
+      <h1>{_safe(title)}</h1>
+      <p>{_safe(event.get('description') or '')}</p>
+      <p>Estado: {_safe(event.get('status') or 'closed')} | Generado desde CLONEXA</p>
+    </section>
+    <div class="actions"><button onclick="window.print()">Imprimir / guardar PDF</button></div>
+    <section class="grid">
+      {_report_stat('Participantes', summary.get('present') or 0)}
+      {_report_stat('Quorum', str(summary.get('quorum_percent') or 0) + '%')}
+      {_report_stat('Votaciones', summary.get('votes') or 0)}
+      {_report_stat('Respuestas', summary.get('responses') or 0)}
+    </section>
+    {attendee_table}
+    <section class="section">
+      <h2>Resultados de votaciones</h2>
+      {vote_html}
+    </section>
+    {'' if votes_only else f"<section class='section'><h2>Preguntas y respuestas seleccionadas</h2>{question_rows}</section>"}
+    {'' if votes_only else f"<section class='section'><h2>Observaciones y decisiones finales</h2><p>{_safe(notes)}</p></section>"}
+  </main>
+</body>
+</html>"""
 
 
 @router.get("/companies/{company_id}/summary")
@@ -747,6 +896,19 @@ async def assembly_public_context(
         "participant_responses": participant_responses,
         "participant_questions": participant_questions,
     }
+
+
+@router.get("/companies/{company_id}/events/{event_id}/report", response_class=HTMLResponse)
+async def assembly_event_report(
+    company_id: uuid.UUID,
+    event_id: uuid.UUID,
+    mode: str = Query(default="basic", max_length=40),
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    await _ensure_storage(db)
+    event_row = await _get_event_row(db, company_id, event_id)
+    payload = await _event_summary_payload(db, company_id, event_row, full=True)
+    return HTMLResponse(_assembly_report_html(payload, mode))
 
 
 @router.post("/companies/{company_id}/events", status_code=status.HTTP_201_CREATED)
@@ -1032,6 +1194,40 @@ async def add_assembly_question(
             "status": _status(payload.status, QUESTION_STATUSES, "pending"),
         },
     )
+    await db.commit()
+    return await _event_summary_payload(db, company_id, await _get_event_row(db, company_id, event_id))
+
+
+@router.patch("/companies/{company_id}/events/{event_id}/questions/{question_id}")
+async def update_assembly_question(
+    company_id: uuid.UUID,
+    event_id: uuid.UUID,
+    question_id: uuid.UUID,
+    payload: AssemblyQuestionUpdateIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    await _get_event_row(db, company_id, event_id)
+    result = await db.execute(
+        text(
+            """
+            UPDATE assembly_questions
+            SET status = :status, updated_at = NOW()
+            WHERE id = :question_id
+              AND event_id = :event_id
+              AND company_id = :company_id
+            RETURNING id
+            """
+        ),
+        {
+            "question_id": str(question_id),
+            "event_id": str(event_id),
+            "company_id": str(company_id),
+            "status": _status(payload.status, QUESTION_STATUSES, "pending"),
+        },
+    )
+    if not result.first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="assembly_question_not_found")
     await db.commit()
     return await _event_summary_payload(db, company_id, await _get_event_row(db, company_id, event_id))
 

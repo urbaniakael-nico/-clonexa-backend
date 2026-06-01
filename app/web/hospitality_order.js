@@ -498,6 +498,12 @@
     return settings.act_url || settings.minutes_file_url || settings.document_url || "";
   }
 
+  function assemblyPublicReportUrl() {
+    const eventId = state.assemblyEvent?.id || "";
+    if (!eventId || !state.companyId) return "";
+    return `${API}/assemblies/companies/${encodeURIComponent(state.companyId)}/events/${encodeURIComponent(eventId)}/report?mode=basic`;
+  }
+
   function assemblyActRead() {
     const url = assemblyActUrl();
     return !url || localStorage.getItem(assemblyEventStorageKey("acta")) === "ok";
@@ -776,6 +782,7 @@
     const settings = event.settings || {};
     const registered = state.assemblyAttendee?.id ? `<div class="qr-msg">Registro recibido. Ya quedaste habilitado para esta asamblea.</div>` : "";
     if (state.assemblyAttendee?.id) {
+      if (String(event.status || "").toLowerCase() === "closed") return assemblyDecisionBoardHtml();
       return assemblyCanShowDecisions() ? assemblyDecisionBoardHtml() : assemblyActaGateHtml();
     }
     const fieldHtml = fields.map((field) => {
@@ -856,7 +863,7 @@
   }
 
   function assemblyVoteClosed(vote = {}) {
-    return vote.status === "closed" || (vote.closes_at && secondsUntil(vote.closes_at) <= 0);
+    return String(state.assemblyEvent?.status || "").toLowerCase() === "closed" || vote.status === "closed" || (vote.closes_at && secondsUntil(vote.closes_at) <= 0);
   }
 
   function assemblyDecisionBoardHtml() {
@@ -866,6 +873,8 @@
     const votes = Array.isArray(state.assemblyVotes) ? state.assemblyVotes : [];
     const totals = assemblyDecisionTotals();
     const answered = votes.filter((vote) => state.assemblyResponses?.[vote.id]).length;
+    const reportUrl = assemblyPublicReportUrl();
+    const isClosed = String(event.status || "").toLowerCase() === "closed";
     const voteCards = votes.length ? votes.map((vote, index) => assemblyVoteCardHtml(vote, index + 1)).join("") : `<div class="qr-empty">Aun no hay decisiones publicadas. Cuando el panel active una pregunta, aparecera aqui.</div>`;
     const responseList = votes
       .map((vote) => {
@@ -894,6 +903,7 @@
               <div class="qr-assembly-chip"><span>QR</span><strong>${h(state.table)}</strong></div>
               <div class="qr-assembly-chip"><span>Asistente</span><strong>${h(state.assemblyAttendee?.attendee_name || "Registrado")}</strong></div>
               <div class="qr-asm-summary-list">${responseList || `<div class="qr-access-note">Tus respuestas quedaran registradas aqui durante la asamblea.</div>`}</div>
+              ${isClosed && reportUrl ? `<button class="qr-btn secondary" type="button" data-assembly-public-report>Descargar acta publica</button>` : ""}
             </div>
           </aside>
         </div>
@@ -1414,6 +1424,11 @@
       state.message = "Ya puedes responder las decisiones publicadas.";
       state.error = "";
       refreshAssemblyPublic().catch(() => {}).finally(() => render());
+      return;
+    }
+    if (target.closest("[data-assembly-public-report]")) {
+      const url = assemblyPublicReportUrl();
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
     const assemblyVoteButton = target.closest("[data-assembly-vote-submit]");
