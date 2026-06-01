@@ -15610,6 +15610,16 @@ function inventoryCreatePayload() {
     return map[String(status || "").toLowerCase()] || status || "Activo";
   }
 
+  function cxAssemblyTypeLabel025V(type = "") {
+    const map = {
+      generic: "General",
+      housing: "Propietarios / conjuntos",
+      business: "Decisiones empresariales",
+      sports: "Deportiva",
+    };
+    return map[String(type || "generic").toLowerCase()] || "General";
+  }
+
   function cxAssemblyStyles025U() {
     if (document.getElementById("cxAssemblyStyles025U")) return;
     const style = document.createElement("style");
@@ -15663,6 +15673,7 @@ function inventoryCreatePayload() {
     const existing = cxAssemblyData025U?.event?.settings || {};
     return {
       ...existing,
+      assembly_type: String($("asmType025V")?.value || existing.assembly_type || "generic").trim(),
       minutes: String($("asmMinutes025U")?.value || existing.minutes || "").trim(),
       public_note: String($("asmPublicNote025U")?.value || existing.public_note || "").trim(),
     };
@@ -15858,7 +15869,7 @@ function inventoryCreatePayload() {
                   <div><span>Estado QR</span><b>${qrActive ? "Activo" : "Inactivo"}</b></div>
                   <div><span>Uso configurado</span><b>${h(qrMode)}</b></div>
                   <div><span>QR generables</span><b>${h(qr.count || 0)}</b></div>
-                  <div><span>Tope V2</span><b>${h(qr.max_capacity || 0)}</b></div>
+                  <div><span>Tipo asamblea</span><b>${h(cxAssemblyTypeLabel025V(settings.assembly_type || "generic"))}</b></div>
                 </div>
               </section>
 
@@ -15868,6 +15879,16 @@ function inventoryCreatePayload() {
                   <div class="asm-form-025u">
                     <label>Titulo<input id="asmTitle025U" value="${h(event.title || "Asamblea general")}"></label>
                     <label>Descripcion<textarea id="asmDesc025U" placeholder="Tema central, alcance o notas para la jornada">${h(event.description || "")}</textarea></label>
+                    <label>Tipo de asamblea
+                      <select id="asmType025V">
+                        ${[
+                          ["generic", "General"],
+                          ["housing", "Propietarios / conjuntos"],
+                          ["business", "Decisiones empresariales"],
+                          ["sports", "Deportiva"],
+                        ].map(([value, label]) => `<option value="${value}" ${String(settings.assembly_type || "generic") === value ? "selected" : ""}>${h(label)}</option>`).join("")}
+                      </select>
+                    </label>
                     <div class="asm-form-row-025u">
                       <label>Estado
                         <select id="asmStatus025U">
@@ -15911,6 +15932,7 @@ function inventoryCreatePayload() {
                         <article class="asm-row-025u">
                           <div class="asm-row-head-025u"><strong>${h(row.attendee_name)}</strong><span class="asm-pill-025u">${row.present ? "Presente" : "Ausente"}</span></div>
                           <small class="asm-muted-025u">${h(row.document_ref || row.qr_key || "Sin identificador")}</small>
+                          ${row.metadata && Object.keys(row.metadata).length ? `<small class="asm-muted-025u">${h(Object.entries(row.metadata).filter(([key]) => !["attendee_name", "document_ref"].includes(key)).map(([key, value]) => `${key}: ${value}`).join(" · "))}</small>` : ""}
                         </article>
                       `)}
                     </div>

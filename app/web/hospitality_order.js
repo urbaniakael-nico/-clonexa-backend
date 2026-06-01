@@ -22,6 +22,11 @@
     campaignDismissed: false,
     campaignEndRefreshKey: "",
     access: { active: false, unlocked: false, code: "", expires_at: "" },
+    qrMode: "hospitality",
+    assemblyPublic: null,
+    assemblyEvent: null,
+    assemblyFields: [],
+    assemblyAttendee: null,
     loading: true,
     message: "",
     error: "",
@@ -65,6 +70,22 @@
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .trim();
+  }
+
+  function qrModeNorm() {
+    return normalizeText(state.qrMode || state.assemblyPublic?.qr?.mode || "hospitality").replace(/[^a-z0-9]+/g, "_");
+  }
+
+  function isAssemblyMode() {
+    return ["voting", "vote", "votacion", "participantes", "participants", "assembly", "asamblea", "assemblies", "asambleas"].includes(qrModeNorm());
+  }
+
+  function assemblyAccessLabel() {
+    return isAssemblyMode() ? "Participante QR" : "Mesa QR";
+  }
+
+  function assemblyActionLabel() {
+    return isAssemblyMode() ? "Activar acceso" : "Activar pedido";
   }
 
   function prettyLabel(value) {
@@ -335,11 +356,44 @@
       .qr-vote-row em{font-style:normal;color:var(--qr-secondary);font-weight:1000}
       .qr-vote-row i{display:block;height:7px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:6px}
       .qr-vote-row b{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--qr-primary),var(--qr-secondary))}
+      .qr-assembly{
+        display:grid;
+        grid-template-columns:minmax(0,1fr) minmax(240px,330px);
+        gap:14px;
+        align-items:start;
+      }
+      .qr-assembly-card{
+        background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.04)),var(--qr-card);
+        border:1px solid var(--qr-line);
+        border-radius:22px;
+        padding:16px;
+        box-shadow:0 18px 54px rgba(0,0,0,.24);
+      }
+      .qr-assembly-card h2{margin:0 0 8px;font-size:26px;color:var(--qr-secondary)}
+      .qr-assembly-form{display:grid;gap:10px;margin-top:12px}
+      .qr-assembly-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+      .qr-assembly-field{display:grid;gap:6px}
+      .qr-assembly-field.full{grid-column:1/-1}
+      .qr-assembly-field span{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--qr-muted);font-weight:1000}
+      .qr-assembly-field input,.qr-assembly-field textarea{
+        width:100%;
+        border:1px solid var(--qr-line);
+        border-radius:14px;
+        background:rgba(2,6,23,.58);
+        color:var(--qr-text);
+        padding:12px;
+        outline:none;
+        font-weight:900;
+      }
+      .qr-assembly-field textarea{min-height:88px;resize:vertical}
+      .qr-assembly-summary{display:grid;gap:9px}
+      .qr-assembly-chip{display:flex;justify-content:space-between;gap:12px;border:1px solid rgba(255,255,255,.10);border-radius:15px;background:rgba(3,7,18,.34);padding:11px 12px;font-weight:1000}
+      .qr-assembly-chip strong{color:var(--qr-secondary)}
       @media(max-width:860px){
         .qr-hero{grid-template-columns:1fr}
-        .qr-layout{grid-template-columns:1fr}
+        .qr-layout,.qr-assembly{grid-template-columns:1fr}
         .qr-menu-head{grid-template-columns:1fr}
-        .qr-campaign,.qr-campaign-join,.qr-access-form,.qr-score-grid{grid-template-columns:1fr}
+        .qr-campaign,.qr-campaign-join,.qr-access-form,.qr-score-grid,.qr-assembly-grid{grid-template-columns:1fr}
         .qr-cart{position:static}
       }
     `;
@@ -351,18 +405,19 @@
 
   function accessGateHtml() {
     const active = state.access?.active === true;
+    const assembly = isAssemblyMode();
     return `
       <section class="qr-access-gate">
         <div class="qr-access-top">
-          <p class="qr-eyebrow">Acceso de mesa</p>
+          <p class="qr-eyebrow">${assembly ? "Acceso de participante" : "Acceso de mesa"}</p>
           <h2>Ingresa clave de activacion</h2>
-          <p class="qr-muted">${active ? "Escribe la clave que te entrego el personal del bar para abrir el menu de pedidos." : "Si aun no tienes clave, pide al personal del bar activar esta mesa."}</p>
+          <p class="qr-muted">${active ? (assembly ? "Escribe la clave entregada por el operador para abrir el formulario de la asamblea." : "Escribe la clave que te entrego el personal del bar para abrir el menu de pedidos.") : (assembly ? "Si aun no tienes clave, pide al operador activar este participante QR." : "Si aun no tienes clave, pide al personal del bar activar esta mesa.")}</p>
         </div>
         <div class="qr-access-form">
           <input id="qrAccessCode025B" maxlength="12" autocomplete="one-time-code" placeholder="CLAVE" autofocus>
-          <button class="qr-btn" type="button" data-access-verify>Activar pedido</button>
+          <button class="qr-btn" type="button" data-access-verify>${assemblyActionLabel()}</button>
         </div>
-        <div class="qr-access-note">${active ? "Solo se solicita una vez en este dispositivo. Si la jornada cambia, el bar genera una nueva clave." : "La clave se genera desde el panel Mesa QR con el boton Activar mesa."}</div>
+        <div class="qr-access-note">${active ? "Solo se solicita una vez en este dispositivo. Si la jornada cambia, se genera una nueva clave." : "La clave se genera desde el panel QR con el boton Activar."}</div>
       </section>
     `;
   }
@@ -608,6 +663,88 @@
     `;
   }
 
+  function assemblyFieldId(key = "") {
+    return `qrAsm025V_${String(key || "field").replace(/[^a-zA-Z0-9_-]+/g, "_")}`;
+  }
+
+  function assemblyCurrentValue(field = {}) {
+    const id = assemblyFieldId(field.key);
+    const live = document.getElementById(id);
+    if (live && "value" in live) return live.value;
+    const attendee = state.assemblyAttendee || {};
+    if (field.key === "attendee_name") return attendee.attendee_name || "";
+    if (field.key === "document_ref") return attendee.document_ref || "";
+    const meta = attendee.metadata || {};
+    return meta[field.key] || "";
+  }
+
+  function assemblyPublicFormHtml() {
+    const event = state.assemblyEvent || null;
+    const publicData = state.assemblyPublic || {};
+    const fields = Array.isArray(state.assemblyFields) && state.assemblyFields.length
+      ? state.assemblyFields
+      : [
+          { key: "attendee_name", label: "Nombre completo", type: "text", required: true, placeholder: "Ej: Maria Perez" },
+          { key: "document_ref", label: "Documento / ID", type: "text", required: true, placeholder: "Identificacion" },
+        ];
+    if (!event?.id) {
+      return `
+        <section class="qr-assembly">
+          <div class="qr-assembly-card">
+            <p class="qr-eyebrow">Asamblea</p>
+            <h2>No hay asamblea activa</h2>
+            <p class="qr-muted">El QR ya esta en modo votacion / participantes, pero aun falta crear o activar la asamblea desde el panel cliente.</p>
+          </div>
+        </section>
+      `;
+    }
+    const settings = event.settings || {};
+    const registered = state.assemblyAttendee?.id ? `<div class="qr-msg">Registro recibido. Ya quedaste habilitado para esta asamblea.</div>` : "";
+    const fieldHtml = fields.map((field) => {
+      const key = String(field.key || "");
+      const type = String(field.type || "text").toLowerCase();
+      const full = type === "textarea" || key === "notes";
+      const required = field.required ? "required" : "";
+      const value = assemblyCurrentValue(field);
+      if (type === "textarea") {
+        return `
+          <label class="qr-assembly-field full">
+            <span>${h(field.label || key)}</span>
+            <textarea id="${h(assemblyFieldId(key))}" data-assembly-field="${h(key)}" placeholder="${h(field.placeholder || "")}" ${required}>${h(value)}</textarea>
+          </label>
+        `;
+      }
+      return `
+        <label class="qr-assembly-field ${full ? "full" : ""}">
+          <span>${h(field.label || key)}</span>
+          <input id="${h(assemblyFieldId(key))}" data-assembly-field="${h(key)}" type="${h(type || "text")}" placeholder="${h(field.placeholder || "")}" value="${h(value)}" ${required}>
+        </label>
+      `;
+    }).join("");
+    return `
+      <section class="qr-assembly">
+        <div class="qr-assembly-card">
+          <p class="qr-eyebrow">Formulario de participante</p>
+          <h2>${h(event.title || "Asamblea")}</h2>
+          <p class="qr-muted">${h(settings.public_note || event.description || "Completa tus datos para quedar registrado en la asamblea.")}</p>
+          ${registered}
+          <div class="qr-assembly-form">
+            <div class="qr-assembly-grid">${fieldHtml}</div>
+            <button class="qr-btn" type="button" data-assembly-submit>${state.assemblyAttendee?.id ? "Actualizar registro" : "Enviar registro"}</button>
+          </div>
+        </div>
+        <aside class="qr-assembly-card qr-assembly-summary">
+          <p class="qr-eyebrow">Contexto</p>
+          <h2>${h(publicData.assembly_type_label || "Asamblea")}</h2>
+          <div class="qr-assembly-chip"><span>QR asignado</span><strong>${h(state.table)}</strong></div>
+          <div class="qr-assembly-chip"><span>Estado</span><strong>${h(event.status || "active")}</strong></div>
+          <div class="qr-assembly-chip"><span>Quorum base</span><strong>${h(event.quorum_total || 0)}</strong></div>
+          <div class="qr-access-note">Este registro alimenta el modulo Asambleas para asistentes, acta y PDF. El modulo QR solo controla cantidad, clave y acceso.</div>
+        </aside>
+      </section>
+    `;
+  }
+
   function paintCampaignHost() {
     const host = document.getElementById("qrCampaignHost025F");
     if (host) host.innerHTML = `${campaignHtml025G()}${scorePoolHtml025G()}${votePollHtml025O()}`;
@@ -625,7 +762,7 @@
     }
 
     if (state.loading) {
-      app.innerHTML = `<main class="qr-shell"><section class="qr-hero"><div><p class="qr-eyebrow">Mesa QR</p><h1>${h(state.table)}</h1><p class="qr-muted">Cargando menu...</p></div></section></main>`;
+      app.innerHTML = `<main class="qr-shell"><section class="qr-hero"><div><p class="qr-eyebrow">${h(assemblyAccessLabel())}</p><h1>${h(state.table)}</h1><p class="qr-muted">Cargando acceso...</p></div></section></main>`;
       return;
     }
 
@@ -634,9 +771,9 @@
         <main class="qr-shell qr-shell-locked">
           <section class="qr-hero qr-hero-locked">
             <div>
-              <p class="qr-eyebrow">Mesa QR</p>
+              <p class="qr-eyebrow">${h(assemblyAccessLabel())}</p>
               <h1>${h(state.table)}</h1>
-              <p class="qr-muted">${h(companyName)} - acceso protegido para ordenar desde esta mesa.</p>
+              <p class="qr-muted">${h(companyName)} - ${isAssemblyMode() ? "acceso protegido para participar en esta asamblea." : "acceso protegido para ordenar desde esta mesa."}</p>
             </div>
             <div class="qr-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName)}">` : h(companyName.slice(0, 1).toUpperCase())}</div>
           </section>
@@ -646,6 +783,25 @@
         </main>
       `;
       setTimeout(() => document.getElementById("qrAccessCode025B")?.focus(), 0);
+      return;
+    }
+
+    if (isAssemblyMode()) {
+      app.innerHTML = `
+        <main class="qr-shell">
+          <section class="qr-hero">
+            <div>
+              <p class="qr-eyebrow">Participante QR</p>
+              <h1>${h(state.table)}</h1>
+              <p class="qr-muted">${h(companyName)} - completa tu registro para la asamblea.</p>
+            </div>
+            <div class="qr-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName)}">` : h(companyName.slice(0, 1).toUpperCase())}</div>
+          </section>
+          ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
+          ${state.error ? `<div class="qr-msg err">${h(state.error)}</div>` : ""}
+          ${assemblyPublicFormHtml()}
+        </main>
+      `;
       return;
     }
 
@@ -807,6 +963,62 @@
     }
   }
 
+  async function submitAssemblyRegistration() {
+    if (!state.access?.unlocked) {
+      state.error = "Activa el acceso con la clave antes de registrar tus datos.";
+      state.message = "";
+      render();
+      return;
+    }
+    const event = state.assemblyEvent || {};
+    if (!event.id) {
+      state.error = "No hay asamblea activa para recibir registros.";
+      state.message = "";
+      render();
+      return;
+    }
+    const fields = Array.isArray(state.assemblyFields) ? state.assemblyFields : [];
+    const values = {};
+    for (const field of fields) {
+      const key = String(field.key || "").trim();
+      if (!key) continue;
+      const value = String(document.getElementById(assemblyFieldId(key))?.value || "").trim();
+      if (field.required && !value) {
+        state.error = `Completa ${field.label || key}.`;
+        state.message = "";
+        render();
+        return;
+      }
+      values[key] = value;
+    }
+    const attendeeName = values.attendee_name || values.name || values.nombre || state.table;
+    const documentRef = values.document_ref || values.document || values.documento || "";
+    try {
+      state.error = "";
+      state.message = "Guardando registro...";
+      render();
+      await api(`/assemblies/companies/${encodeURIComponent(state.companyId)}/events/${encodeURIComponent(event.id)}/attendees`, {
+        method: "POST",
+        body: JSON.stringify({
+          attendee_name: attendeeName,
+          document_ref: documentRef,
+          qr_key: state.table,
+          present: true,
+          metadata: values,
+        }),
+      });
+      const fresh = await api(`/assemblies/companies/${encodeURIComponent(state.companyId)}/public?participant=${encodeURIComponent(state.table)}`).catch(() => ({}));
+      applyAssemblyPublic(fresh);
+      state.message = "Registro recibido. Ya quedaste habilitado para esta asamblea.";
+      state.error = "";
+      render();
+    } catch (error) {
+      state.error = error.message || "No se pudo guardar el registro.";
+      state.message = "";
+      render();
+    }
+  }
+
   async function refreshCampaign() {
     const campaign = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`);
     state.campaign = campaign.campaign || null;
@@ -825,24 +1037,46 @@
     paintCampaignHost();
   }
 
+  function applyAssemblyPublic(data = {}) {
+    state.assemblyPublic = data || null;
+    state.qrMode = data?.qr?.mode || state.qrMode || "hospitality";
+    state.assemblyEvent = data?.event || null;
+    state.assemblyFields = Array.isArray(data?.fields) ? data.fields : [];
+    state.assemblyAttendee = data?.attendee || null;
+  }
+
   async function load() {
     try {
-      const [company, branding, inventory, campaign, access] = await Promise.all([
+      const [company, branding, access, assemblyPublic] = await Promise.all([
         api(`/companies/${encodeURIComponent(state.companyId)}`),
         api(`/companies/${encodeURIComponent(state.companyId)}/branding`).catch(() => ({})),
-        api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`),
-        api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`).catch(() => ({})),
         api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/access?table=${encodeURIComponent(state.table)}`).catch(() => ({})),
+        api(`/assemblies/companies/${encodeURIComponent(state.companyId)}/public?participant=${encodeURIComponent(state.table)}`).catch(() => ({})),
       ]);
       state.company = company || {};
       state.branding = branding.branding || branding || {};
-      state.inventory = Array.isArray(inventory.inventory) ? inventory.inventory : [];
-      state.campaign = campaign.campaign || null;
-      state.participant = campaign.participant || null;
-      state.scoreCampaign = campaign.score_campaign || null;
-      state.scorePrediction = campaign.score_prediction || null;
-      state.voteCampaign = campaign.vote_campaign || null;
-      state.voteResponse = campaign.vote_response || null;
+      applyAssemblyPublic(assemblyPublic || {});
+      if (isAssemblyMode()) {
+        state.inventory = [];
+        state.campaign = null;
+        state.participant = null;
+        state.scoreCampaign = null;
+        state.scorePrediction = null;
+        state.voteCampaign = null;
+        state.voteResponse = null;
+      } else {
+        const [inventory, campaign] = await Promise.all([
+          api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`),
+          api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`).catch(() => ({})),
+        ]);
+        state.inventory = Array.isArray(inventory.inventory) ? inventory.inventory : [];
+        state.campaign = campaign.campaign || null;
+        state.participant = campaign.participant || null;
+        state.scoreCampaign = campaign.score_campaign || null;
+        state.scorePrediction = campaign.score_prediction || null;
+        state.voteCampaign = campaign.vote_campaign || null;
+        state.voteResponse = campaign.vote_response || null;
+      }
       state.access = {
         active: access.access?.active === true,
         unlocked: false,
@@ -885,6 +1119,10 @@
     }
     if (target.closest("[data-vote-submit]")) {
       submitVotePoll025O();
+      return;
+    }
+    if (target.closest("[data-assembly-submit]")) {
+      submitAssemblyRegistration();
       return;
     }
     if (target.closest("[data-access-verify]")) {
@@ -987,7 +1225,7 @@
     };
     sessionStorage.setItem(accessStorageKey(), cleanCode);
     state.error = "";
-    if (!options.silent) state.message = "Mesa activada. Ya puedes realizar tu pedido.";
+    if (!options.silent) state.message = isAssemblyMode() ? "Acceso activado. Completa tus datos para participar." : "Mesa activada. Ya puedes realizar tu pedido.";
     if (!options.silent) render();
     return data;
   }

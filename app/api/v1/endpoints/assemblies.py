@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ AGENDA_STATUSES = {"pending", "active", "done", "skipped"}
 VOTE_STATUSES = {"draft", "open", "closed"}
 QUESTION_STATUSES = {"pending", "answered", "archived"}
 VOTE_TYPES = {"yes_no", "true_false", "multiple", "participants"}
+ASSEMBLY_QR_MODES = {"voting", "vote", "votacion", "participantes", "participants", "assembly", "asamblea", "assemblies", "asambleas"}
 
 
 def _now() -> datetime:
@@ -102,8 +103,105 @@ def _attendee_payload(row: dict[str, Any]) -> dict[str, Any]:
         "document_ref": row.get("document_ref") or "",
         "qr_key": row.get("qr_key") or "",
         "present": bool(row.get("present")),
+        "metadata": _json(row.get("metadata"), {}),
         "checked_in_at": _iso(row.get("checked_in_at")),
     }
+
+
+def _normalized_kind(value: Any) -> str:
+    return (
+        str(value or "")
+        .strip()
+        .lower()
+        .replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        .replace("ñ", "n")
+        .replace(" ", "_")
+        .replace("-", "_")
+    )
+
+
+def _is_assembly_qr_mode(value: Any) -> bool:
+    return _normalized_kind(value) in ASSEMBLY_QR_MODES
+
+
+def _assembly_type_label(value: Any) -> str:
+    kind = _normalized_kind(value)
+    labels = {
+        "housing": "Propietarios / conjuntos",
+        "propietarios": "Propietarios / conjuntos",
+        "vivienda": "Propietarios / conjuntos",
+        "conjuntos": "Propietarios / conjuntos",
+        "business": "Decisiones empresariales",
+        "empresarial": "Decisiones empresariales",
+        "empresa": "Decisiones empresariales",
+        "sports": "Deportiva",
+        "deportiva": "Deportiva",
+        "deporte": "Deportiva",
+        "generic": "General",
+        "general": "General",
+    }
+    return labels.get(kind, "General")
+
+
+def _assembly_field_schema(settings: dict[str, Any] | None) -> list[dict[str, Any]]:
+    settings = settings if isinstance(settings, dict) else {}
+    custom_fields = settings.get("fields")
+    if isinstance(custom_fields, list) and custom_fields:
+        fields = []
+        for index, raw in enumerate(custom_fields[:12], start=1):
+            if not isinstance(raw, dict):
+                continue
+            key = _clean(raw.get("key") or f"campo_{index}", 80).lower().replace(" ", "_")
+            label = _clean(raw.get("label") or raw.get("name") or key, 120)
+            if not key or not label:
+                continue
+            fields.append({
+                "key": key,
+                "label": label,
+                "type": _clean(raw.get("type") or "text", 30) or "text",
+                "required": bool(raw.get("required")),
+                "placeholder": _clean(raw.get("placeholder") or "", 160),
+            })
+        if fields:
+            has_name = any(field["key"] == "attendee_name" for field in fields)
+            return ([{"key": "attendee_name", "label": "Nombre completo", "type": "text", "required": True, "placeholder": "Ej: Ana Perez"}] if not has_name else []) + fields
+
+    kind = _normalized_kind(settings.get("assembly_type") or settings.get("type") or "generic")
+    if kind in {"housing", "propietarios", "vivienda", "conjuntos"}:
+        return [
+            {"key": "attendee_name", "label": "Nombre completo", "type": "text", "required": True, "placeholder": "Ej: Ana Perez"},
+            {"key": "document_ref", "label": "Documento", "type": "text", "required": True, "placeholder": "Cedula o NIT"},
+            {"key": "unit", "label": "Casa / apto / unidad", "type": "text", "required": True, "placeholder": "Ej: Torre 2 - Apto 504"},
+            {"key": "coefficient", "label": "Coeficiente", "type": "number", "required": False, "placeholder": "Opcional"},
+            {"key": "role", "label": "Calidad", "type": "text", "required": False, "placeholder": "Propietario, apoderado, residente"},
+        ]
+    if kind in {"business", "empresarial", "empresa"}:
+        return [
+            {"key": "attendee_name", "label": "Nombre completo", "type": "text", "required": True, "placeholder": "Ej: Laura Gomez"},
+            {"key": "document_ref", "label": "Documento / ID", "type": "text", "required": True, "placeholder": "Cedula, NIT o ID interno"},
+            {"key": "company_area", "label": "Area / empresa", "type": "text", "required": True, "placeholder": "Ej: Operaciones"},
+            {"key": "position", "label": "Cargo / rol", "type": "text", "required": False, "placeholder": "Ej: Socio, gerente, delegado"},
+            {"key": "email", "label": "Correo", "type": "email", "required": False, "placeholder": "correo@empresa.com"},
+        ]
+    if kind in {"sports", "deportiva", "deporte"}:
+        return [
+            {"key": "attendee_name", "label": "Nombre completo", "type": "text", "required": True, "placeholder": "Ej: Carlos Rios"},
+            {"key": "document_ref", "label": "Documento / carnet", "type": "text", "required": True, "placeholder": "Cedula o carnet"},
+            {"key": "team", "label": "Club / equipo", "type": "text", "required": True, "placeholder": "Ej: Club Norte"},
+            {"key": "category", "label": "Categoria", "type": "text", "required": False, "placeholder": "Ej: Senior, juvenil, femenino"},
+            {"key": "phone", "label": "Telefono", "type": "tel", "required": False, "placeholder": "Numero de contacto"},
+        ]
+    return [
+        {"key": "attendee_name", "label": "Nombre completo", "type": "text", "required": True, "placeholder": "Ej: Maria Perez"},
+        {"key": "document_ref", "label": "Documento / ID", "type": "text", "required": True, "placeholder": "Identificacion"},
+        {"key": "phone", "label": "Telefono", "type": "tel", "required": False, "placeholder": "Numero de contacto"},
+        {"key": "email", "label": "Correo", "type": "email", "required": False, "placeholder": "correo@dominio.com"},
+        {"key": "notes", "label": "Observacion", "type": "textarea", "required": False, "placeholder": "Dato adicional para la asamblea"},
+    ]
 
 
 class AssemblyEventIn(BaseModel):
@@ -164,6 +262,7 @@ class AssemblyAttendeeIn(BaseModel):
     document_ref: str | None = Field(default="", max_length=120)
     qr_key: str | None = Field(default="", max_length=120)
     present: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("attendee_name")
     @classmethod
@@ -258,6 +357,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
                 document_ref VARCHAR(120) NOT NULL DEFAULT '',
                 qr_key VARCHAR(120) NOT NULL DEFAULT '',
                 present BOOLEAN NOT NULL DEFAULT TRUE,
+                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
                 checked_in_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -265,6 +365,7 @@ async def _ensure_storage(db: AsyncSession) -> None:
             """
         )
     )
+    await db.execute(text("ALTER TABLE assembly_attendees ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_assembly_attendees_event ON assembly_attendees(event_id, present, checked_in_at DESC);"))
 
     await db.execute(
@@ -542,6 +643,54 @@ async def assembly_summary(company_id: uuid.UUID, db: AsyncSession = Depends(get
     return await _event_summary_payload(db, company_id)
 
 
+@router.get("/companies/{company_id}/public")
+async def assembly_public_context(
+    company_id: uuid.UUID,
+    participant: str = Query(default="", max_length=120),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    await _require_company(db, company_id)
+    qr = await _qr_config(db, company_id)
+    event_row = await _active_event_row(db, company_id)
+    event = _event_payload(event_row) if event_row else None
+    settings = event.get("settings") if isinstance(event, dict) else {}
+    settings = settings if isinstance(settings, dict) else {}
+    fields = _assembly_field_schema(settings)
+    qr_mode = qr.get("mode") or ""
+    participant_key = _clean(participant, 120)
+    attendee = None
+    if event_row and participant_key:
+        attendee_result = await db.execute(
+            text(
+                """
+                SELECT *
+                FROM assembly_attendees
+                WHERE event_id = :event_id
+                  AND qr_key = :qr_key
+                ORDER BY checked_in_at DESC
+                LIMIT 1
+                """
+            ),
+            {"event_id": str(event_row["id"]), "qr_key": participant_key},
+        )
+        attendee_row = attendee_result.mappings().first()
+        attendee = _attendee_payload(dict(attendee_row)) if attendee_row else None
+
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "assembly_mode": _is_assembly_qr_mode(qr_mode),
+        "participant_label": participant_key,
+        "qr": qr,
+        "event": event,
+        "assembly_type": settings.get("assembly_type") or "generic",
+        "assembly_type_label": _assembly_type_label(settings.get("assembly_type") or "generic"),
+        "fields": fields,
+        "attendee": attendee,
+    }
+
+
 @router.post("/companies/{company_id}/events", status_code=status.HTTP_201_CREATED)
 async def create_assembly_event(
     company_id: uuid.UUID,
@@ -730,25 +879,54 @@ async def add_assembly_attendee(
 ) -> dict[str, Any]:
     await _ensure_storage(db)
     await _get_event_row(db, company_id, event_id)
-    await db.execute(
-        text(
-            """
-            INSERT INTO assembly_attendees (
-                id, event_id, company_id, attendee_name, document_ref, qr_key, present, checked_in_at, created_at, updated_at
-            )
-            VALUES (:id, :event_id, :company_id, :attendee_name, :document_ref, :qr_key, :present, NOW(), NOW(), NOW())
-            """
-        ),
-        {
-            "id": str(uuid.uuid4()),
-            "event_id": str(event_id),
-            "company_id": str(company_id),
-            "attendee_name": payload.attendee_name,
-            "document_ref": _clean(payload.document_ref, 120),
-            "qr_key": _clean(payload.qr_key, 120),
-            "present": bool(payload.present),
-        },
-    )
+    qr_key = _clean(payload.qr_key, 120)
+    params = {
+        "id": str(uuid.uuid4()),
+        "event_id": str(event_id),
+        "company_id": str(company_id),
+        "attendee_name": payload.attendee_name,
+        "document_ref": _clean(payload.document_ref, 120),
+        "qr_key": qr_key,
+        "present": bool(payload.present),
+        "metadata": _json_param(payload.metadata),
+    }
+    existing_id = None
+    if qr_key:
+        existing = await db.execute(
+            text("SELECT id FROM assembly_attendees WHERE event_id = :event_id AND qr_key = :qr_key ORDER BY checked_in_at DESC LIMIT 1"),
+            {"event_id": str(event_id), "qr_key": qr_key},
+        )
+        existing_id = existing.scalar_one_or_none()
+
+    if existing_id:
+        params["id"] = str(existing_id)
+        await db.execute(
+            text(
+                """
+                UPDATE assembly_attendees
+                SET attendee_name = :attendee_name,
+                    document_ref = :document_ref,
+                    present = :present,
+                    metadata = CAST(:metadata AS jsonb),
+                    checked_in_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = :id AND event_id = :event_id AND company_id = :company_id
+                """
+            ),
+            params,
+        )
+    else:
+        await db.execute(
+            text(
+                """
+                INSERT INTO assembly_attendees (
+                    id, event_id, company_id, attendee_name, document_ref, qr_key, present, metadata, checked_in_at, created_at, updated_at
+                )
+                VALUES (:id, :event_id, :company_id, :attendee_name, :document_ref, :qr_key, :present, CAST(:metadata AS jsonb), NOW(), NOW(), NOW())
+                """
+            ),
+            params,
+        )
     await db.commit()
     return await _event_summary_payload(db, company_id, await _get_event_row(db, company_id, event_id))
 
