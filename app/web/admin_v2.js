@@ -26,6 +26,10 @@
       assignment: "all",
       company: "all",
     },
+    masterAccessFilters: {
+      search: "",
+      status: "all",
+    },
     landingAnalytics: null,
     landingFilters: {
       days: "30",
@@ -399,7 +403,7 @@
 
     const status = String(owner.status || "active").toLowerCase();
     const locked = isFutureDate(owner.locked_until);
-    if (companyAdmins.length > 1) return { owner, companyAdmins, status: "MÃƒÅ¡LTIPLE", level: "warn" };
+    if (companyAdmins.length > 1) return { owner, companyAdmins, status: "MULTIPLE", level: "warn" };
     if (locked || status === "blocked") return { owner, companyAdmins, status: "BLOQUEADO", level: "danger" };
     if (status === "inactive") return { owner, companyAdmins, status: "INACTIVO", level: "danger" };
     return { owner, companyAdmins, status: "OK", level: "ok" };
@@ -1545,7 +1549,7 @@
               <button class="cx-btn cx-btn-primary cx-btn-small" data-select-company="${escapeHtml(company.id)}" type="button">Gestionar</button>
               ${archived ? `<span class="cx-badge cx-badge-danger">Archivada</span>` : `<span class="cx-badge">Command Center</span>`}
             </div>
-            ${ownerInfo.status === "MÃƒÅ¡LTIPLE" ? `<br><small>Hay mÃƒÂºltiples accesos maestros.</small>` : ""}
+            ${ownerInfo.status === "MULTIPLE" ? `<br><small>Hay multiples accesos maestros.</small>` : ""}
           </td>
         </tr>
       `;
@@ -4333,13 +4337,13 @@
     const info = ownerAccessInfo(users);
     const owner = info.owner;
     const warning = info.companyAdmins && info.companyAdmins.length > 1
-      ? `<div class="cx-alert" style="display:block;margin-bottom:14px">Hay mÃƒÂ¡s de un acceso maestro. Se recomienda dejar solo uno.</div>`
+      ? `<div class="cx-alert" style="display:block;margin-bottom:14px">Hay mas de un acceso maestro. Se recomienda dejar solo uno.</div>`
       : "";
 
     const explanation = `
       <div class="cx-empty-state" style="text-align:left;margin-bottom:14px">
-        <strong>Usuario dueÃƒÂ±o / encargado</strong><br>
-        Este acceso pertenece al dueÃƒÂ±o o encargado de la empresa.
+        <strong>Usuario dueno / encargado</strong><br>
+        Este acceso pertenece al dueno o encargado de la empresa.
         El personal operativo se gestiona desde el panel de la empresa.
       </div>
     `;
@@ -4362,7 +4366,7 @@
               <label>Email
                 <input name="email" type="email" required placeholder="admin@empresa.com" />
               </label>
-              <label>ContraseÃƒÂ±a temporal
+              <label>Contrasena temporal
                 <div style="display:flex;gap:8px;align-items:center">
                   <input name="password" type="text" required value="${escapeHtml(generateTempPassword(company.slug))}" />
                   <button class="cx-btn cx-btn-small" data-generate-password-for-form="#createUserForm" type="button">Generar clave</button>
@@ -4387,18 +4391,18 @@
           <div class="cx-card-head">
             <div>
               <strong>${escapeHtml(owner.email)}</strong>
-              <p>${escapeHtml(owner.full_name || "Encargado")} Ã‚Â· dueÃƒÂ±o / encargado</p>
+              <p>${escapeHtml(owner.full_name || "Encargado")} - dueno / encargado</p>
             </div>
             ${ownerAccessBadge(users)}
           </div>
           <div class="cx-detail-grid">
             <div class="cx-kv"><span>Rol</span><strong>${escapeHtml(owner.role || "company_admin")}</strong></div>
             <div class="cx-kv"><span>Estado</span><strong>${escapeHtml(owner.status || "active")}</strong></div>
-            <div class="cx-kv"><span>Cambio de clave requerido</span><strong>${owner.must_change_password ? "SÃƒÂ­" : "No"}</strong></div>
+            <div class="cx-kv"><span>Cambio de clave requerido</span><strong>${owner.must_change_password ? "Si" : "No"}</strong></div>
             <div class="cx-kv"><span>Intentos fallidos</span><strong>${escapeHtml(owner.failed_login_attempts || 0)}</strong></div>
-            <div class="cx-kv"><span>Bloqueado hasta</span><strong>${escapeHtml(owner.locked_until || "Ã¢â‚¬â€")}</strong></div>
-            <div class="cx-kv"><span>ÃƒÅ¡ltimo login</span><strong>${escapeHtml(owner.last_login_at || "Ã¢â‚¬â€")}</strong></div>
-            <div class="cx-kv"><span>ÃƒÅ¡ltimo reset</span><strong>${escapeHtml(owner.last_password_reset_at || "Ã¢â‚¬â€")}</strong></div>
+            <div class="cx-kv"><span>Bloqueado hasta</span><strong>${escapeHtml(owner.locked_until || "-")}</strong></div>
+            <div class="cx-kv"><span>Ultimo login</span><strong>${escapeHtml(owner.last_login_at || "-")}</strong></div>
+            <div class="cx-kv"><span>Ultimo reset</span><strong>${escapeHtml(owner.last_password_reset_at || "-")}</strong></div>
             <div class="cx-kv"><span>Empresa</span><strong>${escapeHtml(company.name)}</strong></div>
           </div>
           <div class="cx-actions" style="margin-top:12px">
@@ -4411,7 +4415,7 @@
         <aside>
           <form class="cx-form" data-owner-reset-form="${escapeHtml(owner.id)}">
             <h3>Clave temporal</h3>
-            <p>Entrega esta clave al dueÃƒÂ±o/encargado. Al ingresar podrÃƒÂ¡ cambiarla.</p>
+            <p>Entrega esta clave al dueno/encargado. Al ingresar podra cambiarla.</p>
             <label>Clave temporal
               <input data-owner-reset-input="${escapeHtml(owner.id)}" type="text" value="${escapeHtml(generateTempPassword(company.slug))}" />
             </label>
@@ -4422,20 +4426,174 @@
     `;
   }
 
+  function masterAccessRows025Y() {
+    return state.companies
+      .filter((company) => !isArchivedCompany(company))
+      .map((company) => {
+        const users = state.companyUsers.get(company.id);
+        const info = ownerAccessInfo(users);
+        return { company, users, info, owner: info.owner || null };
+      });
+  }
+
+  function masterAccessMatches025Y(row) {
+    const filters = state.masterAccessFilters || {};
+    const query = String(filters.search || "").toLowerCase().trim();
+    const status = filters.status || "all";
+    const haystack = [
+      row.company.name,
+      row.company.slug,
+      row.company.id,
+      row.owner?.email,
+      row.owner?.full_name,
+      row.info.status,
+      packageForCompany(row.company),
+    ].join(" ").toLowerCase();
+
+    if (query && !haystack.includes(query)) return false;
+    if (status === "ok") return row.info.level === "ok";
+    if (status === "risk") return row.info.level !== "ok";
+    if (status === "missing") return row.info.status === "FALTA";
+    if (status === "blocked") return row.info.status === "BLOQUEADO";
+    if (status === "multiple") return row.info.status === "MULTIPLE";
+    return true;
+  }
+
+  function masterAccessStats025Y(rows) {
+    return {
+      total: rows.length,
+      ok: rows.filter((row) => row.info.level === "ok").length,
+      risk: rows.filter((row) => row.info.level !== "ok").length,
+      missing: rows.filter((row) => row.info.status === "FALTA").length,
+      blocked: rows.filter((row) => row.info.status === "BLOQUEADO").length,
+      multiple: rows.filter((row) => row.info.status === "MULTIPLE").length,
+    };
+  }
+
+  function masterAccessDate025Y(value) {
+    if (!value) return "Sin registro";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat("es-CO", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "America/Bogota",
+    }).format(date);
+  }
+
+  function masterAccessSelectedHtml025Y(company) {
+    if (!company) {
+      return `<div class="cx-empty-state">Selecciona una empresa para crear o administrar su Acceso Maestro.</div>`;
+    }
+    const wrapper = document.createElement("div");
+    renderCompanyUsersPanel(wrapper, company, state.companyUsers.get(company.id));
+    return wrapper.innerHTML;
+  }
+
   function renderUsersGlobalView() {
     const node = el("#usersGlobalView");
     if (!node) return;
 
-    if (!state.selectedCompanyId) {
-      node.innerHTML = `<div class="cx-empty-state">Selecciona una empresa en la secciÃƒÂ³n Empresas para gestionar el Acceso Maestro.</div>`;
+    const allRows = masterAccessRows025Y();
+    if (!allRows.length) {
+      node.innerHTML = `<div class="cx-empty-state">No hay empresas visibles para gestionar Acceso Maestro.</div>`;
       return;
     }
 
-    const company = state.companies.find((c) => c.id === state.selectedCompanyId);
-    const users = state.companyUsers.get(state.selectedCompanyId);
-    const wrapper = document.createElement("div");
-    renderCompanyUsersPanel(wrapper, company, users);
-    node.innerHTML = wrapper.innerHTML;
+    if (!state.selectedCompanyId) {
+      const firstRisk = allRows.find((row) => row.info.level !== "ok") || allRows[0];
+      state.selectedCompanyId = firstRisk.company.id;
+    }
+
+    const filters = state.masterAccessFilters || {};
+    const rows = allRows.filter(masterAccessMatches025Y);
+    const stats = masterAccessStats025Y(allRows);
+    const selectedCompany = state.companies.find((company) => company.id === state.selectedCompanyId) || allRows[0]?.company || null;
+
+    node.innerHTML = `
+      <section class="cx-master-access-command-025Y">
+        <div>
+          <span class="cx-kicker">Gobierno de acceso SaaS</span>
+          <h3>Acceso Maestro por empresa</h3>
+          <p>Controla el usuario dueno/encargado del panel cliente. El personal operativo sigue separado dentro de cada tenant.</p>
+        </div>
+        <div class="cx-master-access-metrics-025Y">
+          <div><span>Empresas</span><strong>${escapeHtml(stats.total)}</strong></div>
+          <div><span>OK</span><strong>${escapeHtml(stats.ok)}</strong></div>
+          <div><span>Revisar</span><strong>${escapeHtml(stats.risk)}</strong></div>
+          <div><span>Sin acceso</span><strong>${escapeHtml(stats.missing)}</strong></div>
+          <div><span>Bloqueadas</span><strong>${escapeHtml(stats.blocked)}</strong></div>
+        </div>
+      </section>
+
+      <form class="cx-master-access-filters-025Y" id="masterAccessFilters025Y">
+        <label>Buscar empresa o email
+          <input name="search" type="search" value="${escapeHtml(filters.search || "")}" placeholder="Mundo Case, admin@empresa.com..." autocomplete="off" />
+        </label>
+        <label>Estado
+          <select name="status">
+            <option value="all" ${filters.status === "all" ? "selected" : ""}>Todos</option>
+            <option value="risk" ${filters.status === "risk" ? "selected" : ""}>Requieren revision</option>
+            <option value="missing" ${filters.status === "missing" ? "selected" : ""}>Sin acceso maestro</option>
+            <option value="blocked" ${filters.status === "blocked" ? "selected" : ""}>Bloqueados</option>
+            <option value="multiple" ${filters.status === "multiple" ? "selected" : ""}>Multiples</option>
+            <option value="ok" ${filters.status === "ok" ? "selected" : ""}>OK</option>
+          </select>
+        </label>
+        <button class="cx-btn cx-btn-primary" type="submit">Filtrar</button>
+        <button class="cx-btn cx-btn-ghost" data-master-access-clear type="button">Limpiar</button>
+      </form>
+
+      <section class="cx-master-access-layout-025Y">
+        <article class="cx-master-access-list-025Y">
+          <div class="cx-card-head">
+            <div>
+              <h3>Empresas</h3>
+              <p>${escapeHtml(rows.length)} de ${escapeHtml(allRows.length)} visibles</p>
+            </div>
+            <span class="cx-badge ${stats.risk ? "cx-badge-warning" : "cx-badge-live"}">${stats.risk ? "Revision pendiente" : "Todo OK"}</span>
+          </div>
+          <div class="cx-master-access-rows-025Y">
+            ${rows.length ? rows.map((row) => {
+              const isSelected = selectedCompany && selectedCompany.id === row.company.id;
+              const ownerLabel = row.owner
+                ? `${row.owner.full_name || "Encargado"} - ${row.owner.email}`
+                : "Sin usuario dueno/encargado";
+              const levelClass = row.info.level === "ok" ? "is-ok" : row.info.level === "danger" ? "is-danger" : "is-warn";
+              return `
+                <div class="cx-master-access-row-025Y ${levelClass} ${isSelected ? "is-selected" : ""}">
+                  <div>
+                    <strong>${escapeHtml(row.company.name)}</strong>
+                    <small>${escapeHtml(row.company.slug || truncate(row.company.id, 18))} - ${escapeHtml(packageForCompany(row.company))}</small>
+                    <p>${escapeHtml(ownerLabel)}</p>
+                  </div>
+                  <div class="cx-master-access-row-side-025Y">
+                    ${ownerAccessBadge(row.users)}
+                    <small>Ultimo login: ${escapeHtml(masterAccessDate025Y(row.owner?.last_login_at))}</small>
+                    <div class="cx-actions">
+                      <button class="cx-btn cx-btn-small" data-master-access-company="${escapeHtml(row.company.id)}" type="button">Gestionar</button>
+                      <button class="cx-btn cx-btn-small" data-open-client="${escapeHtml(row.company.id)}" type="button">Abrir /client</button>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join("") : `<div class="cx-empty-state">No hay empresas para este filtro.</div>`}
+          </div>
+        </article>
+
+        <aside class="cx-master-access-panel-025Y">
+          <div class="cx-card-head">
+            <div>
+              <span class="cx-kicker">Empresa seleccionada</span>
+              <h3>${escapeHtml(selectedCompany?.name || "Sin seleccion")}</h3>
+              <p>${escapeHtml(selectedCompany?.slug || "")}</p>
+            </div>
+            ${selectedCompany ? `<button class="cx-btn cx-btn-small" data-copy="${escapeHtml(selectedCompany.id)}" type="button">Copiar ID</button>` : ""}
+          </div>
+          ${masterAccessSelectedHtml025Y(selectedCompany)}
+        </aside>
+      </section>
+    `;
   }
 
 
@@ -4463,7 +4621,7 @@
     section.innerHTML = `
       <div class="cx-empty-state" style="text-align:left;margin:14px 0">
         <strong>Acceso Maestro</strong><br>
-        Este serÃƒÂ¡ el usuario dueÃƒÂ±o o encargado que entrarÃƒÂ¡ al panel de la empresa.
+        Este sera el usuario dueno o encargado que entrara al panel de la empresa.
         El personal operativo se gestiona desde el panel de la empresa.
       </div>
       <label>Nombre del encargado
@@ -4472,7 +4630,7 @@
       <label>Email del encargado
         <input name="owner_email" type="email" placeholder="admin@empresa.com" autocomplete="off" />
       </label>
-      <label>ContraseÃƒÂ±a temporal
+      <label>Contrasena temporal
         <div style="display:flex;gap:8px;align-items:center">
           <input name="owner_password" type="text" placeholder="Clonexa-empresa-a7k2!" autocomplete="off" />
           <button class="cx-btn cx-btn-small" data-generate-create-owner-password type="button">Generar clave</button>
@@ -4503,10 +4661,10 @@
     box.hidden = false;
     box.innerHTML = `
       <strong>Empresa creada correctamente.</strong><br>
-      <span>Empresa: ${escapeHtml(company?.name || "Ã¢â‚¬â€")}</span><br>
-      <span>Slug: ${escapeHtml(company?.slug || "Ã¢â‚¬â€")}</span><br>
-      <span>Email acceso maestro: ${escapeHtml(ownerEmail || "Ã¢â‚¬â€")}</span><br>
-      <span>Clave temporal: <strong>${escapeHtml(temporaryPassword || "Ã¢â‚¬â€")}</strong></span>
+      <span>Empresa: ${escapeHtml(company?.name || "-")}</span><br>
+      <span>Slug: ${escapeHtml(company?.slug || "-")}</span><br>
+      <span>Email acceso maestro: ${escapeHtml(ownerEmail || "-")}</span><br>
+      <span>Clave temporal: <strong>${escapeHtml(temporaryPassword || "-")}</strong></span>
       ${packageWarning ? `<br><span class="cx-badge cx-badge-danger">${escapeHtml(packageWarning)}</span>` : ""}
       ${ownerWarning ? `<br><span class="cx-badge cx-badge-danger">${escapeHtml(ownerWarning)}</span>` : ""}
       <div class="cx-actions" style="margin-top:10px">
@@ -4901,16 +5059,16 @@
 
     const usersPanelText = document.querySelector('[data-view-panel="users"] p');
     if (usersPanelText) {
-      usersPanelText.textContent = "Usuario dueÃƒÂ±o/encargado de cada empresa. El personal operativo se gestiona desde el panel de la empresa.";
+      usersPanelText.textContent = "Control central de duenos/encargados por empresa: crear, regenerar clave, desbloquear y revisar estado.";
     }
 
     document.querySelectorAll("th, h2, h3, p, button, span, small, label").forEach((node) => {
       const text = node.textContent ? node.textContent.trim() : "";
       if (text === "Usuarios") node.textContent = "Acceso Maestro";
-      if (text === "Usuarios de acceso") node.textContent = "Usuario dueÃƒÂ±o / encargado";
+      if (text === "Usuarios de acceso") node.textContent = "Usuario dueno / encargado";
       if (text === "Crear usuario") node.textContent = "Crear acceso maestro";
       if (text === "Reset password") node.textContent = "Regenerar clave";
-      if (text === "ContraseÃƒÂ±a temporal generada") node.textContent = "Clave temporal generada";
+      if (text === "Contrasena temporal generada" || text === "ContraseÃƒÂ±a temporal generada") node.textContent = "Clave temporal generada";
       if (text === "Desbloquear usuario") node.textContent = "Desbloquear acceso";
       if (text === "Desactivar usuario") node.textContent = "Desactivar acceso";
       if (text === "Activar usuario") node.textContent = "Activar acceso";
@@ -4931,7 +5089,7 @@
     const titles = {
       dashboard: ["Dashboard", "Control SaaS de empresas, actividad, alertas y salud operativa."],
       companies: ["Empresas", "GestiÃƒÂ³n de tenants, paquetes, módulos, Acceso Maestro y CRM."],
-      users: ["Acceso Maestro", "Usuario dueÃƒÂ±o/encargado, regeneraciÃƒÂ³n de clave y desbloqueo."],
+      users: ["Acceso Maestro", "Usuario dueno/encargado, regeneracion de clave y desbloqueo."],
       packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
       modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
       access: ["Accesos", "Rutas operativas rápidas del ecosistema."],
@@ -4974,6 +5132,24 @@
       const navView = event.target.closest("[data-nav-view]");
       if (navView) {
         setView(navView.dataset.navView);
+        return;
+      }
+
+      const masterAccessCompany = event.target.closest("[data-master-access-company]");
+      if (masterAccessCompany) {
+        const companyId = masterAccessCompany.dataset.masterAccessCompany;
+        state.selectedCompanyId = companyId;
+        state.activeDetailTab = "usuarios";
+        await loadCompanyUsers(companyId).catch(() => null);
+        setView("users");
+        renderUsersGlobalView();
+        return;
+      }
+
+      const masterAccessClear = event.target.closest("[data-master-access-clear]");
+      if (masterAccessClear) {
+        state.masterAccessFilters = { search: "", status: "all" };
+        renderUsersGlobalView();
         return;
       }
 
@@ -5031,7 +5207,7 @@
 
       const generatePasswordForForm = event.target.closest("[data-generate-password-for-form]");
       if (generatePasswordForForm) {
-        const targetForm = document.querySelector(generatePasswordForForm.dataset.generatePasswordForForm);
+        const targetForm = generatePasswordForForm.closest("form") || document.querySelector(generatePasswordForForm.dataset.generatePasswordForForm);
         const company = state.companies.find((c) => c.id === state.selectedCompanyId);
         const input = targetForm?.querySelector("input[name='password']");
         if (input) input.value = generateTempPassword(company?.slug || "empresa");
@@ -5173,6 +5349,17 @@
     });
 
     document.addEventListener("submit", async (event) => {
+      if (event.target.matches("#masterAccessFilters025Y")) {
+        event.preventDefault();
+        const data = new FormData(event.target);
+        state.masterAccessFilters = {
+          search: String(data.get("search") || "").trim(),
+          status: String(data.get("status") || "all"),
+        };
+        renderUsersGlobalView();
+        return;
+      }
+
       if (event.target.matches("#activatePackageForm") && state.selectedCompanyId) {
         event.preventDefault();
         const body = Object.fromEntries(new FormData(event.target).entries());

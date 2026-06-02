@@ -1677,6 +1677,196 @@ p {
 }
 /* CLONEXA_019A_R2_PACKAGE_BUILDER_END */
 
+/* CLONEXA_025Y_MASTER_ACCESS_CENTER_START */
+.cx-master-access-command-025Y {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(420px, .9fr);
+  gap: 18px;
+  align-items: stretch;
+  padding: 18px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255,255,255,.065), rgba(0,255,136,.035));
+}
+
+.cx-master-access-command-025Y h3,
+.cx-master-access-list-025Y h3,
+.cx-master-access-panel-025Y h3 {
+  margin: 0 0 6px;
+}
+
+.cx-master-access-command-025Y p,
+.cx-master-access-list-025Y p,
+.cx-master-access-panel-025Y p {
+  margin: 0;
+  color: var(--cx-muted);
+}
+
+.cx-master-access-metrics-025Y {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cx-master-access-metrics-025Y div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 14px;
+  background: rgba(0,0,0,.20);
+}
+
+.cx-master-access-metrics-025Y span {
+  display: block;
+  color: var(--cx-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.cx-master-access-metrics-025Y strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 24px;
+}
+
+.cx-master-access-filters-025Y {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(180px, 260px) auto auto;
+  gap: 10px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 18px;
+  background: rgba(255,255,255,.035);
+}
+
+.cx-master-access-filters-025Y label {
+  display: grid;
+  gap: 7px;
+  color: var(--cx-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.cx-master-access-filters-025Y input,
+.cx-master-access-filters-025Y select {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  background: rgba(0,0,0,.36);
+  color: var(--cx-text);
+  padding: 12px 14px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.cx-master-access-layout-025Y {
+  display: grid;
+  grid-template-columns: minmax(360px, .9fr) minmax(0, 1.1fr);
+  gap: 18px;
+}
+
+.cx-master-access-list-025Y,
+.cx-master-access-panel-025Y {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.055), rgba(255,255,255,.025)),
+    rgba(0,0,0,.10);
+}
+
+.cx-master-access-rows-025Y {
+  display: grid;
+  gap: 10px;
+  max-height: 620px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.cx-master-access-row-025Y {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, .55fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  background: rgba(0,0,0,.20);
+}
+
+.cx-master-access-row-025Y.is-selected {
+  border-color: rgba(255,43,214,.55);
+  background: rgba(255,43,214,.10);
+}
+
+.cx-master-access-row-025Y.is-danger {
+  border-color: rgba(255,77,109,.32);
+}
+
+.cx-master-access-row-025Y.is-warn {
+  border-color: rgba(255,200,87,.30);
+}
+
+.cx-master-access-row-025Y strong,
+.cx-master-access-row-025Y small,
+.cx-master-access-row-025Y p {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.cx-master-access-row-025Y small {
+  color: var(--cx-soft);
+  margin-top: 4px;
+}
+
+.cx-master-access-row-025Y p {
+  margin-top: 8px;
+  color: var(--cx-muted);
+  font-size: 13px;
+}
+
+.cx-master-access-row-side-025Y {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+  text-align: right;
+}
+
+.cx-master-access-panel-025Y .cx-layout-two {
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, .85fr);
+}
+
+@media (max-width: 1180px) {
+  .cx-master-access-command-025Y,
+  .cx-master-access-layout-025Y,
+  .cx-master-access-panel-025Y .cx-layout-two {
+    grid-template-columns: 1fr;
+  }
+
+  .cx-master-access-metrics-025Y {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .cx-master-access-filters-025Y,
+  .cx-master-access-row-025Y {
+    grid-template-columns: 1fr;
+  }
+
+  .cx-master-access-row-side-025Y {
+    justify-items: start;
+    text-align: left;
+  }
+}
+/* CLONEXA_025Y_MASTER_ACCESS_CENTER_END */
+
 
 
 
