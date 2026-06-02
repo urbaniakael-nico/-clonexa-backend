@@ -67,13 +67,30 @@
   }
 
   function normalizeBranding(raw = {}) {
-    const allowedStyles = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid"];
+    const allowedStyles = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid", "corporate_dark", "corporate_light", "classic_dashboard", "neutral_slate"];
     const allowedFonts = ["Inter", "Manrope", "Sora", "Space Grotesk", "Rajdhani", "Orbitron", "Poppins", "Montserrat"];
-    const allowedCards = ["glass_premium", "neon_border", "soft_solid", "dark_elevated"];
+    const allowedCards = ["glass_premium", "neon_border", "soft_solid", "dark_elevated", "classic_panel", "flat_dashboard", "executive_glass"];
+    const allowedThemes = ["dark", "light", "classic", "corporate"];
+    const preset = String(raw.visual_preset || raw.preset_visual || raw.preset || "custom").trim();
+
+    const byPreset = {
+      clonexa_dark: "aurora_boreal",
+      field_ops_dark: "cyber_grid",
+      voltage_field: "cyber_grid",
+      retail_neon: "holografico",
+      hospitality_gold: "neon_profundo",
+      production_neon: "cyber_grid",
+      boardroom_dark: "corporate_dark",
+      executive_light: "corporate_light",
+      classic_office: "classic_dashboard",
+      neutral_slate: "neutral_slate",
+      minimal_light: "corporate_light",
+      custom: "aurora_boreal",
+    };
 
     const backgroundStyle = allowedStyles.includes(String(raw.background_style || "").trim())
       ? String(raw.background_style).trim()
-      : "aurora_boreal";
+      : byPreset[preset] || "aurora_boreal";
 
     const fontFamily = allowedFonts.includes(String(raw.font_family || "").trim())
       ? String(raw.font_family).trim()
@@ -83,22 +100,61 @@
       ? String(raw.card_style).trim()
       : "glass_premium";
 
+    const themeMode = allowedThemes.includes(String(raw.theme_mode || raw.mode || "").trim())
+      ? String(raw.theme_mode || raw.mode).trim()
+      : "dark";
+
     return {
       logo_url: String(raw.logo_url || "").trim(),
       primary_color: validHex(raw.primary_color || raw.color_principal, "#ff2bd6"),
       secondary_color: validHex(raw.secondary_color || raw.color_secundario, "#00ff88"),
       background_color: validHex(raw.background_color || raw.color_fondo, "#050509"),
       text_color: validHex(raw.text_color || raw.color_texto, "#f8fafc"),
-      visual_preset: "custom",
+      visual_preset: preset,
       background_style: backgroundStyle,
       font_family: fontFamily,
       card_style: cardStyle,
-      mode: "dark",
-      theme_mode: "dark",
+      mode: themeMode,
+      theme_mode: themeMode,
+      gradient_from: validHex(raw.gradient_from || raw.primary_color, "#ff2bd6"),
+      gradient_to: validHex(raw.gradient_to || raw.secondary_color, "#00ff88"),
+      gradient_extra: validHex(raw.gradient_extra || raw.background_color, "#050509"),
+      gradient_angle: Number(raw.gradient_angle || 135) || 135,
     };
   }
 
   function brandingBackground(b) {
+    if (b.background_style === "corporate_light") {
+      return `
+        radial-gradient(circle at 0% 0%, ${b.secondary_color}22, transparent 32%),
+        radial-gradient(circle at 100% 0%, ${b.primary_color}12, transparent 32%),
+        linear-gradient(135deg, ${b.gradient_from}, ${b.gradient_to})
+      `;
+    }
+
+    if (b.background_style === "corporate_dark") {
+      return `
+        radial-gradient(circle at 8% 0%, ${b.secondary_color}1f, transparent 30%),
+        radial-gradient(circle at 100% 4%, ${b.primary_color}24, transparent 34%),
+        linear-gradient(135deg, ${b.background_color}, #020617 72%)
+      `;
+    }
+
+    if (b.background_style === "classic_dashboard") {
+      return `
+        linear-gradient(135deg, ${b.gradient_from}, ${b.gradient_to}),
+        radial-gradient(circle at 80% 0%, ${b.gradient_extra}44, transparent 35%)
+      `;
+    }
+
+    if (b.background_style === "neutral_slate") {
+      return `
+        radial-gradient(circle at 10% 0%, ${b.primary_color}1f, transparent 30%),
+        radial-gradient(circle at 90% 0%, ${b.secondary_color}1f, transparent 30%),
+        linear-gradient(135deg, #020617, #111827 52%, ${b.background_color})
+      `;
+    }
+
     if (b.background_style === "holografico") {
       return `
         radial-gradient(circle at 0% 0%, ${b.primary_color}88, transparent 32%),
@@ -220,6 +276,30 @@
   }
 
   function cardProfile(b) {
+    if (b.card_style === "classic_panel") {
+      return {
+        bg: "linear-gradient(145deg, rgba(255,255,255,.78), rgba(241,245,249,.58))",
+        border: "1px solid rgba(15,23,42,.16)",
+        shadow: "0 18px 54px rgba(15,23,42,.14)",
+      };
+    }
+
+    if (b.card_style === "flat_dashboard") {
+      return {
+        bg: "linear-gradient(145deg, rgba(255,255,255,.9), rgba(248,250,252,.72))",
+        border: "1px solid rgba(15,23,42,.12)",
+        shadow: "0 14px 40px rgba(15,23,42,.12)",
+      };
+    }
+
+    if (b.card_style === "executive_glass") {
+      return {
+        bg: "linear-gradient(145deg, rgba(15,23,42,.76), rgba(255,255,255,.07))",
+        border: "1px solid rgba(255,255,255,.17)",
+        shadow: "0 24px 84px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.1)",
+      };
+    }
+
     if (b.card_style === "neon_border") {
       return {
         bg: `linear-gradient(145deg, ${b.primary_color}28, rgba(255,255,255,.075), ${b.secondary_color}1f)`,
@@ -263,6 +343,8 @@
     const b = normalizeBranding(state.branding || {});
     const fp = fontProfile(b);
     const cp = cardProfile(b);
+    const lightSurface = ["light", "classic"].includes(b.theme_mode) || ["soft_solid", "flat_dashboard", "classic_panel"].includes(b.card_style);
+    const mutedColor = lightSurface ? "rgba(15,23,42,.64)" : "rgba(255,255,255,.68)";
 
     let style = $("clientBrandingDynamicStyle");
     if (!style) {
@@ -364,7 +446,7 @@
       }
 
       .client-muted {
-        color: rgba(255,255,255,.68);
+        color: ${mutedColor};
         font-size: 14px;
         line-height: 1.45;
       }

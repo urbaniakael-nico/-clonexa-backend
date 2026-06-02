@@ -3615,11 +3615,15 @@
 
   /* CLONEXA_BRANDING_STUDIO_RENDER_HELPERS */
   const CX_BRANDING_PALETTES = [
-    { name: "CLONEXA Dark", primary_color: "#ff2bd6", secondary_color: "#00ff88", background_color: "#050509", text_color: "#f8fafc", visual_preset: "clonexa_dark", theme_mode: "dark", background_mode: "iridescent", gradient_from: "#ff2bd6", gradient_to: "#00ff88", gradient_extra: "#2563eb", gradient_angle: 135, surface_style: "neon" },
-    { name: "Voltage Field", primary_color: "#2563eb", secondary_color: "#00ff88", background_color: "#05070a", text_color: "#f8fafc", visual_preset: "field_ops_dark", theme_mode: "dark", background_mode: "gradient", gradient_from: "#2563eb", gradient_to: "#00ff88", gradient_extra: "#05070a", gradient_angle: 145, surface_style: "glass" },
-    { name: "Retail Neon", primary_color: "#f97316", secondary_color: "#22c55e", background_color: "#09090b", text_color: "#ffffff", visual_preset: "retail_neon", theme_mode: "dark", background_mode: "iridescent", gradient_from: "#f97316", gradient_to: "#22c55e", gradient_extra: "#7c3aed", gradient_angle: 135, surface_style: "neon" },
-    { name: "Hospitality Gold", primary_color: "#f59e0b", secondary_color: "#ef4444", background_color: "#07310f", text_color: "#fff7ed", visual_preset: "hospitality_gold", theme_mode: "dark", background_mode: "iridescent", gradient_from: "#f59e0b", gradient_to: "#ef4444", gradient_extra: "#14532d", gradient_angle: 120, surface_style: "glass" },
-    { name: "Minimal Light", primary_color: "#111827", secondary_color: "#2563eb", background_color: "#f8fafc", text_color: "#111827", visual_preset: "minimal_light", theme_mode: "light", background_mode: "gradient", gradient_from: "#f8fafc", gradient_to: "#dbeafe", gradient_extra: "#2563eb", gradient_angle: 135, surface_style: "soft" },
+    { name: "CLONEXA Dark", description: "SaaS futurista con energia comercial.", primary_color: "#ff2bd6", secondary_color: "#00ff88", background_color: "#050509", text_color: "#f8fafc", visual_preset: "clonexa_dark", theme_mode: "dark", background_style: "aurora_boreal", card_style: "glass_premium", font_family: "Inter", background_mode: "iridescent", gradient_from: "#ff2bd6", gradient_to: "#00ff88", gradient_extra: "#2563eb", gradient_angle: 135, surface_style: "glass" },
+    { name: "Boardroom Dark", description: "Panel serio para gerencia y operaciones.", primary_color: "#38bdf8", secondary_color: "#f8fafc", background_color: "#0b1220", text_color: "#f8fafc", visual_preset: "boardroom_dark", theme_mode: "corporate", background_style: "corporate_dark", card_style: "executive_glass", font_family: "Manrope", background_mode: "solid", gradient_from: "#0f172a", gradient_to: "#164e63", gradient_extra: "#111827", gradient_angle: 140, surface_style: "glass" },
+    { name: "Executive Light", description: "Dashboard claro, limpio y corporativo.", primary_color: "#0f172a", secondary_color: "#2563eb", background_color: "#f8fafc", text_color: "#0f172a", visual_preset: "executive_light", theme_mode: "light", background_style: "corporate_light", card_style: "flat_dashboard", font_family: "Inter", background_mode: "gradient", gradient_from: "#f8fafc", gradient_to: "#e0f2fe", gradient_extra: "#dbeafe", gradient_angle: 135, surface_style: "soft" },
+    { name: "Classic Office", description: "Empresa tradicional, sobria y estable.", primary_color: "#1f2937", secondary_color: "#b45309", background_color: "#f3f4f6", text_color: "#111827", visual_preset: "classic_office", theme_mode: "classic", background_style: "classic_dashboard", card_style: "classic_panel", font_family: "Montserrat", background_mode: "solid", gradient_from: "#f3f4f6", gradient_to: "#e5e7eb", gradient_extra: "#d6d3d1", gradient_angle: 135, surface_style: "soft" },
+    { name: "Neutral Slate", description: "Oscuro sobrio para salas de control.", primary_color: "#94a3b8", secondary_color: "#22d3ee", background_color: "#020617", text_color: "#e5e7eb", visual_preset: "neutral_slate", theme_mode: "dark", background_style: "neutral_slate", card_style: "dark_elevated", font_family: "Sora", background_mode: "gradient", gradient_from: "#020617", gradient_to: "#1e293b", gradient_extra: "#0f766e", gradient_angle: 150, surface_style: "glass" },
+    { name: "Retail Neon", description: "Ventas, tiendas y energia de vitrina.", primary_color: "#f97316", secondary_color: "#22c55e", background_color: "#09090b", text_color: "#ffffff", visual_preset: "retail_neon", theme_mode: "dark", background_style: "holografico", card_style: "neon_border", font_family: "Poppins", background_mode: "iridescent", gradient_from: "#f97316", gradient_to: "#22c55e", gradient_extra: "#7c3aed", gradient_angle: 135, surface_style: "neon" },
+    { name: "Hospitality Gold", description: "Bares, restaurantes y servicio premium.", primary_color: "#f59e0b", secondary_color: "#ef4444", background_color: "#07310f", text_color: "#fff7ed", visual_preset: "hospitality_gold", theme_mode: "dark", background_style: "neon_profundo", card_style: "executive_glass", font_family: "Manrope", background_mode: "iridescent", gradient_from: "#f59e0b", gradient_to: "#ef4444", gradient_extra: "#14532d", gradient_angle: 120, surface_style: "glass" },
+    { name: "Voltage Field", description: "Operacion tecnica, campo y fuerza movil.", primary_color: "#2563eb", secondary_color: "#00ff88", background_color: "#05070a", text_color: "#f8fafc", visual_preset: "field_ops_dark", theme_mode: "dark", background_style: "cyber_grid", card_style: "glass_premium", font_family: "Sora", background_mode: "gradient", gradient_from: "#2563eb", gradient_to: "#00ff88", gradient_extra: "#05070a", gradient_angle: 145, surface_style: "glass" },
+    { name: "Minimal Light", description: "Claro minimalista para administracion diaria.", primary_color: "#111827", secondary_color: "#14b8a6", background_color: "#f8fafc", text_color: "#111827", visual_preset: "minimal_light", theme_mode: "light", background_style: "corporate_light", card_style: "soft_solid", font_family: "Inter", background_mode: "gradient", gradient_from: "#f8fafc", gradient_to: "#ccfbf1", gradient_extra: "#dbeafe", gradient_angle: 135, surface_style: "soft" },
   ];
 
   function cxValidHex(value, fallback = "#000000") {
@@ -3634,7 +3638,7 @@
     const mode = String(raw.background_mode || raw.backgroundMode || "").trim();
     const surface = String(raw.surface_style || raw.surfaceStyle || "").trim();
 
-    const allowed = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid"];
+    const allowed = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid", "corporate_dark", "corporate_light", "classic_dashboard", "neutral_slate"];
     if (allowed.includes(direct) && !mode && !surface) return direct;
 
     if (mode === "iridescent") return "holografico";
@@ -3656,7 +3660,7 @@
     const mode = String(raw.background_mode || raw.backgroundMode || "").trim();
     const surface = String(raw.surface_style || raw.surfaceStyle || "").trim();
 
-    const allowed = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid"];
+    const allowed = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid", "corporate_dark", "corporate_light", "classic_dashboard", "neutral_slate"];
 
     if (allowed.includes(direct)) return direct;
 
@@ -3667,7 +3671,11 @@
       retail_neon: "holografico",
       hospitality_gold: "neon_profundo",
       production_neon: "cyber_grid",
-      minimal_light: "cyber_grid",
+      boardroom_dark: "corporate_dark",
+      executive_light: "corporate_light",
+      classic_office: "classic_dashboard",
+      neutral_slate: "neutral_slate",
+      minimal_light: "corporate_light",
       custom: "aurora_boreal",
     };
 
@@ -3686,17 +3694,22 @@
 
 
   function cxNormalizeBranding(raw = {}) {
-    const styleRaw = String(raw.background_style || raw.backgroundStyle || "").trim();
-    const allowedStyles = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid"];
-    const style = allowedStyles.includes(styleRaw) ? styleRaw : "aurora_boreal";
+    const allowedStyles = ["aurora_boreal", "neon_profundo", "holografico", "cyber_grid", "corporate_dark", "corporate_light", "classic_dashboard", "neutral_slate"];
+    const style = cxResolveBackgroundStyle(raw);
 
     const fontRaw = String(raw.font_family || raw.fontFamily || "Inter").trim();
     const allowedFonts = ["Inter", "Manrope", "Sora", "Space Grotesk", "Rajdhani", "Orbitron", "Poppins", "Montserrat"];
     const font = allowedFonts.includes(fontRaw) ? fontRaw : "Inter";
 
     const cardRaw = String(raw.card_style || raw.cardStyle || "glass_premium").trim();
-    const allowedCards = ["glass_premium", "neon_border", "soft_solid", "dark_elevated"];
+    const allowedCards = ["glass_premium", "neon_border", "soft_solid", "dark_elevated", "classic_panel", "flat_dashboard", "executive_glass"];
     const card = allowedCards.includes(cardRaw) ? cardRaw : "glass_premium";
+    const presetRaw = String(raw.visual_preset || raw.preset_visual || raw.preset || "custom").trim();
+    const allowedPresets = ["custom", ...CX_BRANDING_PALETTES.map((item) => item.visual_preset)];
+    const visualPreset = allowedPresets.includes(presetRaw) ? presetRaw : "custom";
+    const themeRaw = String(raw.theme_mode || raw.mode || "dark").trim();
+    const allowedThemes = ["dark", "light", "classic", "corporate"];
+    const themeMode = allowedThemes.includes(themeRaw) ? themeRaw : "dark";
 
     return {
       logo_url: String(raw.logo_url || raw.logoUrl || raw.logo || "").trim(),
@@ -3704,15 +3717,15 @@
       secondary_color: cxValidHex(raw.secondary_color || raw.color_secundario || raw.secondaryColor, "#00ff88"),
       background_color: cxValidHex(raw.background_color || raw.color_fondo || raw.backgroundColor, "#050509"),
       text_color: cxValidHex(raw.text_color || raw.color_texto || raw.textColor, "#f8fafc"),
-      visual_preset: "custom",
-      background_style: style,
+      visual_preset: visualPreset,
+      background_style: allowedStyles.includes(style) ? style : "aurora_boreal",
       font_family: font,
       card_style: card,
-      mode: "dark",
-      theme_mode: "dark",
+      mode: themeMode,
+      theme_mode: themeMode,
 
       background_mode: style === "holografico" ? "iridescent" : style === "neon_profundo" ? "solid" : "gradient",
-      surface_style: card === "neon_border" ? "neon" : card === "soft_solid" ? "soft" : "glass",
+      surface_style: card === "neon_border" ? "neon" : card === "soft_solid" || card === "flat_dashboard" || card === "classic_panel" ? "soft" : "glass",
       gradient_from: cxValidHex(raw.gradient_from || raw.primary_color, "#ff2bd6"),
       gradient_to: cxValidHex(raw.gradient_to || raw.secondary_color, "#00ff88"),
       gradient_extra: cxValidHex(raw.gradient_extra || raw.background_color, "#050509"),
@@ -3722,6 +3735,37 @@
 
   function cxBrandingBackground(branding) {
     const b = cxNormalizeBranding(branding);
+
+    if (b.background_style === "corporate_light") {
+      return `
+        radial-gradient(circle at 0% 0%, ${b.secondary_color}22, transparent 32%),
+        radial-gradient(circle at 100% 0%, ${b.primary_color}12, transparent 32%),
+        linear-gradient(135deg, ${b.gradient_from}, ${b.gradient_to})
+      `;
+    }
+
+    if (b.background_style === "corporate_dark") {
+      return `
+        radial-gradient(circle at 8% 0%, ${b.secondary_color}1f, transparent 30%),
+        radial-gradient(circle at 100% 4%, ${b.primary_color}24, transparent 34%),
+        linear-gradient(135deg, ${b.background_color}, #020617 72%)
+      `;
+    }
+
+    if (b.background_style === "classic_dashboard") {
+      return `
+        linear-gradient(135deg, ${b.gradient_from}, ${b.gradient_to}),
+        radial-gradient(circle at 80% 0%, ${b.gradient_extra}44, transparent 35%)
+      `;
+    }
+
+    if (b.background_style === "neutral_slate") {
+      return `
+        radial-gradient(circle at 10% 0%, ${b.primary_color}1f, transparent 30%),
+        radial-gradient(circle at 90% 0%, ${b.secondary_color}1f, transparent 30%),
+        linear-gradient(135deg, #020617, #111827 52%, ${b.background_color})
+      `;
+    }
 
     if (b.background_style === "holografico") {
       return `
@@ -3774,6 +3818,33 @@
 
   function cxSurfaceStyle(branding) {
     const b = cxNormalizeBranding(branding);
+
+    if (b.card_style === "classic_panel") {
+      return `
+        background:linear-gradient(145deg, rgba(255,255,255,.78), rgba(241,245,249,.58));
+        color:#111827;
+        border:1px solid rgba(15,23,42,.16);
+        box-shadow:0 18px 54px rgba(15,23,42,.14);
+      `;
+    }
+
+    if (b.card_style === "flat_dashboard") {
+      return `
+        background:linear-gradient(145deg, rgba(255,255,255,.9), rgba(248,250,252,.72));
+        color:#0f172a;
+        border:1px solid rgba(15,23,42,.12);
+        box-shadow:0 14px 40px rgba(15,23,42,.12);
+      `;
+    }
+
+    if (b.card_style === "executive_glass") {
+      return `
+        background:linear-gradient(145deg, rgba(15,23,42,.76), rgba(255,255,255,.07));
+        border:1px solid rgba(255,255,255,.17);
+        box-shadow:0 24px 84px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.1);
+        backdrop-filter:blur(20px) saturate(1.18);
+      `;
+    }
 
     if (b.card_style === "neon_border") {
       return `
@@ -3985,11 +4056,11 @@
     const b = cxNormalizeBranding(branding);
 
     const colorControl = (key, label, value) => `
-      <div style="padding:13px;border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(0,0,0,.18)">
-        <label style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(248,250,252,.68);margin-bottom:8px">${escapeHtml(label)}</label>
-        <div style="display:grid;grid-template-columns:56px 1fr;gap:10px;align-items:center">
-          <input type="color" value="${escapeHtml(value)}" data-branding-color="${escapeHtml(key)}" style="width:56px;height:42px;border:0;background:transparent">
-          <input class="cx-input" name="${escapeHtml(key)}" data-branding-hex="${escapeHtml(key)}" type="text" value="${escapeHtml(value)}">
+      <div class="cx-brand-color-026d">
+        <label>${escapeHtml(label)}</label>
+        <div>
+          <input type="color" value="${escapeHtml(value)}" data-branding-color="${escapeHtml(key)}">
+          <input name="${escapeHtml(key)}" data-branding-hex="${escapeHtml(key)}" type="text" value="${escapeHtml(value)}">
         </div>
       </div>
     `;
@@ -4006,128 +4077,165 @@
       <option value="${escapeHtml(value)}" ${b.card_style === value ? "selected" : ""}>${escapeHtml(label)}</option>
     `;
 
+    const themeOption = (value, label) => `
+      <option value="${escapeHtml(value)}" ${b.theme_mode === value ? "selected" : ""}>${escapeHtml(label)}</option>
+    `;
+
+    const paletteCards = CX_BRANDING_PALETTES.map((palette, index) => `
+      <button class="cx-brand-preset-026d ${b.visual_preset === palette.visual_preset ? "is-active" : ""}" type="button" data-branding-palette="${index}">
+        <span class="cx-brand-preset-swatches-026d">
+          <i style="background:${escapeHtml(palette.primary_color)}"></i>
+          <i style="background:${escapeHtml(palette.secondary_color)}"></i>
+          <i style="background:${escapeHtml(palette.background_color)}"></i>
+        </span>
+        <strong>${escapeHtml(palette.name)}</strong>
+        <small>${escapeHtml(palette.description || "")}</small>
+      </button>
+    `).join("");
+
     const logoPreview = b.logo_url
-      ? `<div style="display:flex;align-items:center;gap:12px">
-          <div style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);overflow:hidden">
+      ? `<div class="cx-brand-logo-preview-026d">
+          <div>
             ${cxRenderLogo(company, b)}
           </div>
-          <div>
+          <span>
             <strong>Logo cargado</strong>
-            <p class="cx-muted" style="margin:4px 0 0;font-size:12px">Puedes reemplazarlo con una URL o archivo nuevo.</p>
-          </div>
+            <small>Puedes reemplazarlo con una URL o archivo nuevo.</small>
+          </span>
         </div>`
-      : `<div class="cx-muted">Sin logo cargado. Se usar? la inicial de la empresa.</div>`;
+      : `<div class="cx-brand-empty-026d">Sin logo cargado. Se usara la inicial de la empresa.</div>`;
 
     return `
-      <section style="
-        padding:20px;
-        border:1px solid rgba(255,255,255,.12);
-        border-radius:26px;
-        background:
-          radial-gradient(circle at 0% 0%, ${escapeHtml(b.primary_color)}22, transparent 34%),
-          radial-gradient(circle at 100% 0%, ${escapeHtml(b.secondary_color)}16, transparent 34%),
-          rgba(255,255,255,.035);
+      <section class="cx-branding-studio-026d" style="
+        --brand-primary:${escapeHtml(b.primary_color)};
+        --brand-secondary:${escapeHtml(b.secondary_color)};
+        --brand-bg:${escapeHtml(b.background_color)};
+        --brand-text:${escapeHtml(b.text_color)};
       ">
         <div class="cx-card-head">
           <div>
             <h2>Branding Studio</h2>
-            <p>Configura logo, colores, estilo visual, fuente y tarjetas del panel cliente.</p>
+            <p>Configura identidad visual, modo de panel, paletas, tipografia y tarjetas por empresa.</p>
           </div>
-          <button class="cx-btn cx-btn-small" type="button" data-open-branding-preview>Ver as? quedar?</button>
+          <button class="cx-btn cx-btn-small" type="button" data-open-branding-preview>Vista ampliada</button>
         </div>
 
-        <form id="brandingForm" style="display:grid;gap:14px">
-          <input type="hidden" name="visual_preset" value="custom" />
-          <input type="hidden" name="mode" value="dark" />
-          <input type="hidden" name="theme_mode" value="dark" />
+        <form id="brandingForm" class="cx-branding-layout-026d">
+          <input type="hidden" name="visual_preset" value="${escapeHtml(b.visual_preset)}" />
+          <input type="hidden" name="mode" value="${escapeHtml(b.theme_mode)}" />
+          <input type="hidden" name="gradient_angle" value="${escapeHtml(b.gradient_angle)}" />
 
-          <section style="padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.035);display:grid;gap:12px">
-            <div class="cx-card-head">
+          <div class="cx-branding-main-026d">
+            <section class="cx-brand-section-026d cx-brand-section-tight-026d">
               <div>
-                <h3>Logo</h3>
-                <p>Imagen del panel cliente. Se ajusta autom?ticamente sin deformarse.</p>
+                <h3>Catalogo visual</h3>
+                <p>Elige una base y ajusta colores finos si hace falta.</p>
+              </div>
+              <div class="cx-brand-preset-grid-026d">${paletteCards}</div>
+            </section>
+
+            <section class="cx-brand-section-026d">
+              <div>
+                <h3>Identidad</h3>
+                <p>Logo compacto, sin deformar, aplicado al panel cliente.</p>
+              </div>
+              <div class="cx-brand-logo-grid-026d">
+                ${logoPreview}
+                <label class="cx-brand-field-026d">Logo URL
+                  <input name="logo_url" type="text" value="${escapeHtml(b.logo_url)}" data-branding-basic placeholder="https://... o /static/logo.png" />
+                </label>
+                <label class="cx-brand-field-026d">Subir logo
+                  <input id="brandingLogoUpload" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+                </label>
+              </div>
+            </section>
+
+            <section class="cx-brand-section-026d">
+              <div>
+                <h3>Modo y estructura</h3>
+                <p>Define si la empresa se ve futurista, seria, clara o clasica.</p>
+              </div>
+              <div class="cx-brand-select-grid-026d">
+                <label class="cx-brand-field-026d">Modo visual
+                  <select name="theme_mode" data-branding-basic>
+                    ${themeOption("dark", "Futurista oscuro")}
+                    ${themeOption("corporate", "Corporativo serio")}
+                    ${themeOption("light", "Claro ejecutivo")}
+                    ${themeOption("classic", "Clasico empresarial")}
+                  </select>
+                </label>
+                <label class="cx-brand-field-026d">Fondo del panel
+                  <select name="background_style" data-branding-basic>
+                    ${styleOption("aurora_boreal", "Aurora moderna")}
+                    ${styleOption("neon_profundo", "Oscuro premium")}
+                    ${styleOption("holografico", "Tornasol futurista")}
+                    ${styleOption("cyber_grid", "Grid tecnico")}
+                    ${styleOption("corporate_dark", "Corporativo oscuro")}
+                    ${styleOption("corporate_light", "Corporativo claro")}
+                    ${styleOption("classic_dashboard", "Panel clasico")}
+                    ${styleOption("neutral_slate", "Dashboard sobrio")}
+                  </select>
+                </label>
+                <label class="cx-brand-field-026d">Fuente del panel
+                  <select name="font_family" data-branding-basic>
+                    ${fontOption("Inter")}
+                    ${fontOption("Manrope")}
+                    ${fontOption("Sora")}
+                    ${fontOption("Space Grotesk")}
+                    ${fontOption("Rajdhani")}
+                    ${fontOption("Orbitron")}
+                    ${fontOption("Poppins")}
+                    ${fontOption("Montserrat")}
+                  </select>
+                </label>
+                <label class="cx-brand-field-026d">Tarjetas
+                  <select name="card_style" data-branding-basic>
+                    ${cardOption("glass_premium", "Glass premium")}
+                    ${cardOption("executive_glass", "Glass ejecutivo")}
+                    ${cardOption("neon_border", "Borde neon")}
+                    ${cardOption("dark_elevated", "Oscuro elevado")}
+                    ${cardOption("soft_solid", "Solido suave")}
+                    ${cardOption("flat_dashboard", "Dashboard plano")}
+                    ${cardOption("classic_panel", "Panel clasico")}
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section class="cx-brand-section-026d">
+              <div>
+                <h3>Sistema de color</h3>
+                <p>Paleta principal, fondo, texto y degradado base.</p>
+              </div>
+              <div class="cx-brand-color-grid-026d">
+                ${colorControl("primary_color", "Principal", b.primary_color)}
+                ${colorControl("secondary_color", "Secundario", b.secondary_color)}
+                ${colorControl("background_color", "Fondo", b.background_color)}
+                ${colorControl("text_color", "Texto", b.text_color)}
+                ${colorControl("gradient_from", "Gradiente A", b.gradient_from)}
+                ${colorControl("gradient_to", "Gradiente B", b.gradient_to)}
+                ${colorControl("gradient_extra", "Acento extra", b.gradient_extra)}
+              </div>
+            </section>
+          </div>
+
+          <aside class="cx-branding-preview-rail-026d">
+            <div class="cx-branding-preview-card-026d">
+              <div class="cx-card-head">
+                <div>
+                  <h3>Vista previa</h3>
+                  <p>Preview en vivo antes de guardar.</p>
+                </div>
+                <span class="cx-badge">${escapeHtml(b.theme_mode)}</span>
+              </div>
+              <div id="brandingLivePreview">${cxBrandingPreview(company, b, false)}</div>
+              <div class="cx-branding-save-row-026d">
+                <button class="cx-btn cx-btn-primary" type="submit">Guardar branding</button>
+                <a class="cx-btn" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer">Abrir cliente</a>
               </div>
             </div>
-
-            ${logoPreview}
-
-            <label>Logo URL
-              <input name="logo_url" type="text" value="${escapeHtml(b.logo_url)}" data-branding-basic placeholder="https://... o /static/logo.png" />
-            </label>
-
-            <label>Subir logo
-              <input id="brandingLogoUpload" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
-            </label>
-          </section>
-
-          <section style="padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.035);display:grid;gap:12px">
-            <div>
-              <h3>Colores</h3>
-              <p class="cx-muted">Paleta principal aplicada al panel cliente y tarjetas.</p>
-            </div>
-
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
-              ${colorControl("primary_color", "Color principal", b.primary_color)}
-              ${colorControl("secondary_color", "Color secundario", b.secondary_color)}
-              ${colorControl("background_color", "Color fondo", b.background_color)}
-              ${colorControl("text_color", "Color texto", b.text_color)}
-            </div>
-          </section>
-
-          <section style="padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.035);display:grid;gap:12px">
-            <div>
-              <h3>Estilo visual</h3>
-              <p class="cx-muted">Se guarda como background_style y define el fondo general del panel.</p>
-            </div>
-
-            <label>Estilo del panel cliente
-              <select name="background_style" data-branding-basic>
-                ${styleOption("aurora_boreal", "Aurora boreal / degradado futurista")}
-                ${styleOption("neon_profundo", "Ne?n profundo / s?lido premium")}
-                ${styleOption("holografico", "Tornasol hologr?fico")}
-                ${styleOption("cyber_grid", "Cyber grid / tecnol?gico")}
-              </select>
-            </label>
-          </section>
-
-          <section style="padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.035);display:grid;gap:12px">
-            <div>
-              <h3>Fuente y tarjetas</h3>
-              <p class="cx-muted">Se aplica al preview, CRM y /client por empresa.</p>
-            </div>
-
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
-              <label>Fuente del panel
-                <select name="font_family" data-branding-basic>
-                  ${fontOption("Inter")}
-                  ${fontOption("Manrope")}
-                  ${fontOption("Sora")}
-                  ${fontOption("Space Grotesk")}
-                  ${fontOption("Rajdhani")}
-                  ${fontOption("Orbitron")}
-                  ${fontOption("Poppins")}
-                  ${fontOption("Montserrat")}
-                </select>
-              </label>
-
-              <label>Estilo de tarjetas
-                <select name="card_style" data-branding-basic>
-                  ${cardOption("glass_premium", "Glass premium")}
-                  ${cardOption("neon_border", "Neon border")}
-                  ${cardOption("soft_solid", "Soft solid")}
-                  ${cardOption("dark_elevated", "Dark elevated")}
-                </select>
-              </label>
-            </div>
-          </section>
-
-          <button class="cx-btn cx-btn-primary" type="submit">Guardar branding</button>
+          </aside>
         </form>
-
-        <div style="margin-top:20px">
-          <h3>Vista previa del panel cliente</h3>
-          <div id="brandingLivePreview">${cxBrandingPreview(company, b, false)}</div>
-        </div>
       </section>
 
       <dialog id="brandingPreviewModal" style="
@@ -4141,7 +4249,7 @@
         <div style="padding:18px">
           <div class="cx-card-head">
             <div>
-              <h2>As? quedar? el panel cliente</h2>
+              <h2>Asi quedara el panel cliente</h2>
               <p>Preview visual con el branding actual del formulario.</p>
             </div>
             <button class="cx-btn cx-btn-small" type="button" data-close-branding-preview>Cerrar</button>
@@ -4165,12 +4273,18 @@
       secondary_color: b.secondary_color,
       background_color: b.background_color,
       text_color: b.text_color,
-      visual_preset: "custom",
+      visual_preset: b.visual_preset,
       background_style: b.background_style,
       font_family: b.font_family,
       card_style: b.card_style,
-      mode: "dark",
-      theme_mode: "dark",
+      mode: b.theme_mode,
+      theme_mode: b.theme_mode,
+      background_mode: b.background_mode,
+      surface_style: b.surface_style,
+      gradient_from: b.gradient_from,
+      gradient_to: b.gradient_to,
+      gradient_extra: b.gradient_extra,
+      gradient_angle: b.gradient_angle,
     };
   }
 
@@ -4242,6 +4356,9 @@
         }
       });
 
+      document.querySelectorAll("[data-branding-palette]").forEach((button) => {
+        button.classList.toggle("is-active", button === paletteButton);
+      });
       cxUpdateBrandingPreview();
       return;
     }
