@@ -1204,6 +1204,7 @@
 
   async function loadAdminDashboard() {
     clearAdminError();
+    state.errors = [];
 
     const tasks = [
       loadHealth().catch((error) => {
@@ -3273,20 +3274,235 @@
     `;
   }
 
+  function cxHealthBadge026C(level = "ok", label = "OK") {
+    const cls = level === "danger"
+      ? "cx-badge-danger"
+      : level === "warn"
+        ? "cx-badge-warning"
+        : "cx-badge-live";
+    return `<span class="cx-badge ${cls}">${escapeHtml(label)}</span>`;
+  }
+
+  function cxHealthServiceCard026C(item) {
+    return `
+      <article class="cx-health-service-026c cx-health-${escapeHtml(item.level || "ok")}-026c">
+        <div>
+          ${cxHealthBadge026C(item.level, item.badge)}
+          <h3>${escapeHtml(item.title)}</h3>
+          <p>${escapeHtml(item.detail || "")}</p>
+        </div>
+        ${item.href ? `
+          <div class="cx-access-actions-026b">
+            <a class="cx-btn cx-btn-small" href="${escapeHtml(cxAccessUrl026B(item.href))}" target="_blank" rel="noreferrer">Abrir</a>
+            <button class="cx-btn cx-btn-small" type="button" data-copy="${escapeHtml(cxAccessUrl026B(item.href))}">Copiar</button>
+          </div>
+        ` : ""}
+      </article>
+    `;
+  }
+
+  function cxHealthCompanyRisk026C(company) {
+    const status = companyStatus(company);
+    const owner = ownerAccessInfo(state.companyUsers.get(company.id));
+    const modules = moduleCodesForCompany(company.id);
+    const activity = state.companyActivity.get(company.id);
+    const risks = [];
+
+    if (status !== "active") risks.push(status === "inactive" ? "Empresa inactiva" : "Estado no activo");
+    if (owner.level === "danger") risks.push("Acceso maestro pendiente");
+    if (owner.level === "warn") risks.push("Acceso maestro revisar");
+    if (!modules.length && status === "active") risks.push("Sin modulos activos");
+    if (activity?.errors?.length) risks.push(`${activity.errors.length} consulta(s) parciales`);
+
+    const qr = cxFindCompanyQrModule025N(company.id, true);
+    const qrText = qr ? (() => {
+      const settings = cxNormalizeCompanyQrSettings025N(qr);
+      return `${settings.table_count}/${settings.max_capacity} ${settings.mode}`;
+    })() : "sin QR";
+
+    return {
+      risks,
+      owner,
+      modules,
+      activity,
+      qrText,
+      level: risks.some((item) => item.toLowerCase().includes("pendiente") || item.toLowerCase().includes("sin modulos"))
+        ? "danger"
+        : risks.length
+          ? "warn"
+          : "ok",
+    };
+  }
+
+  function cxHealthCompanyRow026C(company) {
+    const info = cxHealthCompanyRisk026C(company);
+    const statusLabel = info.level === "ok" ? "OK" : info.level === "warn" ? "Revisar" : "Riesgo";
+    const activityLabel = info.activity
+      ? `${info.activity.totalSignals || 0} senales`
+      : "sin muestra";
+
+    return `
+      <article class="cx-health-company-026c">
+        <div>
+          <h3>${escapeHtml(company.name)}</h3>
+          <p>${escapeHtml(company.slug || company.id)}</p>
+        </div>
+        <div class="cx-health-company-meta-026c">
+          ${cxHealthBadge026C(info.level, statusLabel)}
+          <span>${escapeHtml(info.modules.length)} modulos</span>
+          <span>${escapeHtml(info.qrText)}</span>
+          <span>${escapeHtml(activityLabel)}</span>
+        </div>
+        <div class="cx-health-company-risks-026c">
+          ${info.risks.length ? info.risks.map((risk) => `<span class="cx-badge cx-badge-warning">${escapeHtml(risk)}</span>`).join("") : `<span class="cx-badge cx-badge-live">Sin riesgos detectados</span>`}
+        </div>
+        <button class="cx-btn cx-btn-small" type="button" data-select-company="${escapeHtml(company.id)}">Gestionar</button>
+      </article>
+    `;
+  }
+
   function renderHealth() {
     const content = el("#healthContent");
     if (!content) return;
 
+    const title = content.closest(".cx-card")?.querySelector(".cx-card-head h2");
+    const subtitle = content.closest(".cx-card")?.querySelector(".cx-card-head p");
+    if (title) title.textContent = "Centro de salud operativa";
+    if (subtitle) subtitle.textContent = "Semaforos de produccion, tenants, modulos, accesos y riesgos.";
+
+    const apiOk = !!state.health && state.health.ok !== false;
+    const visibleCompanies = state.companies.filter((company) => !isArchivedCompany(company));
+    const activeCompanies = visibleCompanies.filter((company) => companyStatus(company) === "active");
+    const inactiveCompanies = visibleCompanies.filter((company) => companyStatus(company) !== "active");
+    const ownerRisks = activeCompanies.filter((company) => ownerAccessInfo(state.companyUsers.get(company.id)).level !== "ok");
+    const noModules = activeCompanies.filter((company) => !moduleCodesForCompany(company.id).length);
+    const qrActive = visibleCompanies.filter((company) => cxFindCompanyQrModule025N(company.id, true)).length;
+    const pendingModules = state.modules.map(normalizeModule).filter((module) => cxModuleStatus025M(module).key === "pending");
+    const alerts = cxDashboardAlerts023A();
+    const errors = [...new Set([...(state.errors || []), ...(state.dashboardActivityErrors || [])].filter(Boolean))];
+    const riskCompanies = visibleCompanies
+      .map((company) => ({ company, info: cxHealthCompanyRisk026C(company) }))
+      .sort((a, b) => (b.info.risks.length - a.info.risks.length) || a.company.name.localeCompare(b.company.name));
+
+    const services = [
+      {
+        title: "API produccion",
+        badge: apiOk ? "LIVE" : "OFFLINE",
+        level: apiOk ? "ok" : "danger",
+        detail: apiOk ? "Health responde correctamente." : (state.health?.error || "Health no disponible."),
+        href: "/health",
+      },
+      {
+        title: "PostgreSQL",
+        badge: apiOk ? "Derivado OK" : "No verificado",
+        level: apiOk ? "ok" : "warn",
+        detail: "Estado inferido desde API y lecturas principales de V2.",
+      },
+      {
+        title: "Tenants",
+        badge: `${activeCompanies.length}/${visibleCompanies.length} activos`,
+        level: inactiveCompanies.length ? "warn" : "ok",
+        detail: `${inactiveCompanies.length} tenant(s) visibles no activos.`,
+        href: "/admin-v2",
+      },
+      {
+        title: "Acceso Maestro",
+        badge: ownerRisks.length ? `${ownerRisks.length} revisar` : "OK",
+        level: ownerRisks.length ? "danger" : "ok",
+        detail: "Control de dueno/encargado por empresa.",
+      },
+      {
+        title: "Modulos",
+        badge: `${state.modules.length} catalogo`,
+        level: noModules.length || pendingModules.length ? "warn" : "ok",
+        detail: `${pendingModules.length} modulo(s) pendientes y ${noModules.length} empresa(s) sin modulos.`,
+      },
+      {
+        title: "QR configurado",
+        badge: `${qrActive} empresa(s)`,
+        level: qrActive ? "ok" : "warn",
+        detail: "Empresas con modulo QR activo y disponible para operar.",
+      },
+    ];
+
     content.innerHTML = `
-      <div class="cx-detail-grid">
-        <div class="cx-kv"><span>API</span><strong>${state.health && state.health.ok !== false ? "LIVE" : "OFFLINE"}</strong></div>
-        <div class="cx-kv"><span>Empresas</span><strong>${escapeHtml(state.companies.length)}</strong></div>
-        <div class="cx-kv"><span>Paquetes</span><strong>${escapeHtml(state.packages.length)}</strong></div>
-        <div class="cx-kv"><span>Módulos</span><strong>${escapeHtml(state.modules.length)}</strong></div>
-        <div class="cx-kv"><span>ÃƒÅ¡ltimo refresh</span><strong>${escapeHtml(state.lastRefresh || "Ã¢â‚¬â€")}</strong></div>
-        <div class="cx-kv"><span>PostgreSQL</span><strong>${state.health && state.health.ok !== false ? "Derivado OK" : "No verificado"}</strong></div>
+      <section class="cx-health-hero-026c">
+        <div>
+          <span class="cx-kicker">Estado general</span>
+          <h2>${apiOk && !ownerRisks.length && !noModules.length ? "Sistema operativo" : "Sistema con puntos por revisar"}</h2>
+          <p>${escapeHtml(state.health?.service || "clonexa-backend")} · Ultimo refresh ${escapeHtml(state.lastRefresh || "sin refresh")}</p>
+        </div>
+        ${cxHealthBadge026C(apiOk ? "ok" : "danger", apiOk ? "LIVE" : "OFFLINE")}
+      </section>
+
+      <div class="cx-health-kpis-026c">
+        <div class="cx-kv"><span>API</span><strong>${apiOk ? "LIVE" : "OFFLINE"}</strong></div>
+        <div class="cx-kv"><span>Tenants activos</span><strong>${escapeHtml(activeCompanies.length)}</strong></div>
+        <div class="cx-kv"><span>Riesgos acceso</span><strong>${escapeHtml(ownerRisks.length)}</strong></div>
+        <div class="cx-kv"><span>Sin modulos</span><strong>${escapeHtml(noModules.length)}</strong></div>
+        <div class="cx-kv"><span>QR activos</span><strong>${escapeHtml(qrActive)}</strong></div>
+        <div class="cx-kv"><span>Errores carga</span><strong>${escapeHtml(errors.length)}</strong></div>
       </div>
-      <pre class="cx-secret">${escapeHtml(JSON.stringify(state.health || {}, null, 2))}</pre>
+
+      <section class="cx-health-section-026c">
+        <div class="cx-health-section-head-026c">
+          <div>
+            <span class="cx-kicker">Servicios</span>
+            <h3>Semaforos principales</h3>
+          </div>
+          <button class="cx-btn cx-btn-small" type="button" data-nav-view="access">Ver accesos</button>
+        </div>
+        <div class="cx-health-services-026c">
+          ${services.map(cxHealthServiceCard026C).join("")}
+        </div>
+      </section>
+
+      <section class="cx-health-section-026c">
+        <div class="cx-health-section-head-026c">
+          <div>
+            <span class="cx-kicker">Alertas</span>
+            <h3>Checklist de riesgo SaaS</h3>
+          </div>
+        </div>
+        <div class="cx-health-alerts-026c">
+          ${alerts.map((alert) => `
+            <article class="cx-health-alert-026c">
+              ${cxHealthBadge026C(alert.level, alert.level === "ok" ? "OK" : alert.level === "danger" ? "Riesgo" : "Revision")}
+              <div>
+                <strong>${escapeHtml(alert.title)}</strong>
+                <p>${escapeHtml(alert.detail)}</p>
+              </div>
+            </article>
+          `).join("")}
+        </div>
+      </section>
+
+      <section class="cx-health-section-026c">
+        <div class="cx-health-section-head-026c">
+          <div>
+            <span class="cx-kicker">Tenants</span>
+            <h3>Estado por empresa</h3>
+          </div>
+          <button class="cx-btn cx-btn-small" type="button" data-nav-view="companies">Ir a empresas</button>
+        </div>
+        ${riskCompanies.length ? `<div class="cx-health-company-grid-026c">${riskCompanies.map((item) => cxHealthCompanyRow026C(item.company)).join("")}</div>` : `<div class="cx-empty-state">No hay empresas para revisar.</div>`}
+      </section>
+
+      <section class="cx-health-section-026c">
+        <div class="cx-health-section-head-026c">
+          <div>
+            <span class="cx-kicker">Diagnostico</span>
+            <h3>Errores y respuesta cruda</h3>
+          </div>
+          <button class="cx-btn cx-btn-small" type="button" data-copy="${escapeHtml(JSON.stringify(state.health || {}))}">Copiar health</button>
+        </div>
+        ${errors.length ? `
+          <div class="cx-health-error-list-026c">
+            ${errors.map((error) => `<div>${escapeHtml(error)}</div>`).join("")}
+          </div>
+        ` : `<div class="cx-empty-state">No hay errores de carga en la ultima lectura.</div>`}
+        <pre class="cx-secret">${escapeHtml(JSON.stringify(state.health || {}, null, 2))}</pre>
+      </section>
     `;
   }
 
@@ -5520,11 +5736,14 @@
       showToast("Datos actualizados.");
     });
 
-    el("#healthRefreshBtn")?.addEventListener("click", async () => {
-      await loadHealth().catch(() => null);
-      state.lastRefresh = localTime();
-      updateMetrics();
-      renderHealth();
+    el("#healthRefreshBtn")?.addEventListener("click", async (event) => {
+      event.currentTarget.disabled = true;
+      try {
+        await loadAdminDashboard();
+        showToast("Estado del sistema actualizado.");
+      } finally {
+        event.currentTarget.disabled = false;
+      }
     });
 
     el("#openAdminLegacyBtn")?.addEventListener("click", () => window.open("/admin", "_blank"));
