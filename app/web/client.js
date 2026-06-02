@@ -15716,7 +15716,7 @@ function inventoryCreatePayload() {
     });
     cxAssemblyData025U = data;
     await renderAssemblyModule025U(cxAssemblyActiveCode025U);
-    cxAssemblyMsg025U(statusOverride === "closed" ? "Asamblea cerrada." : "Asamblea guardada.");
+    cxAssemblyMsg025U(statusOverride === "closed" ? "Asamblea cerrada y archivada en historial." : "Asamblea guardada.");
   }
 
   function cxAssemblyRequireEvent025U() {
@@ -15961,6 +15961,36 @@ function inventoryCreatePayload() {
     });
   }
 
+  function cxAssemblyHistoryDate025Z(value = "") {
+    const date = new Date(value || "");
+    if (Number.isNaN(date.getTime())) return "Sin fecha";
+    return date.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function cxAssemblyHistoryRows025Z(rows = []) {
+    return cxAssemblySimpleRows025U(rows, "Sin actas historicas todavia.", (row) => {
+      const reports = row.reports && typeof row.reports === "object" ? row.reports : {};
+      const reportUrl = (mode) => reports[mode] || cxAssemblyReportUrl025X(row.id, mode);
+      return `
+        <article class="asm-row-025u">
+          <div class="asm-row-head-025u">
+            <strong>${h(row.title || "Asamblea cerrada")}</strong>
+            <span class="asm-pill-025u">${h(cxAssemblyStatusLabel025U(row.status || "closed"))}</span>
+          </div>
+          <small class="asm-muted-025u">
+            ${h(cxAssemblyHistoryDate025Z(row.updated_at || row.ends_at || row.starts_at))} ·
+            ${h(row.present || 0)} presente(s) · ${h(row.votes || 0)} votacion(es) · ${h(row.responses || 0)} respuesta(s)
+          </small>
+          <div class="asm-row-actions-025x">
+            <a class="asm-btn-mini-025x ok" href="${h(reportUrl("complete"))}" target="_blank" rel="noopener noreferrer">Completa</a>
+            <a class="asm-btn-mini-025x ok" href="${h(reportUrl("basic"))}" target="_blank" rel="noopener noreferrer">Publica</a>
+            <a class="asm-btn-mini-025x" href="${h(reportUrl("votes"))}" target="_blank" rel="noopener noreferrer">Votaciones</a>
+          </div>
+        </article>
+      `;
+    });
+  }
+
   async function renderAssemblyModule025U(code = "asamblea") {
     cxAssemblyActiveCode025U = code || "asamblea";
     cxAssemblyStyles025U();
@@ -15971,12 +16001,13 @@ function inventoryCreatePayload() {
       data = await cxAssemblyApi025U("/summary");
     } catch (error) {
       loadError = error.message || "No se pudo cargar Asambleas.";
-      data = { event: null, summary: {}, agenda: [], attendees: [], votes: [], questions: [], qr: {} };
+      data = { event: null, summary: {}, agenda: [], attendees: [], votes: [], questions: [], qr: {}, history: [] };
     }
     cxAssemblyData025U = data;
     const event = data.event || {};
     const summary = data.summary || {};
     const settings = event.settings || {};
+    const history = Array.isArray(data.history) ? data.history : [];
     const qr = data.qr || {};
     const qrActive = !!qr.active;
     const qrMode = qr.mode || "sin configurar";
@@ -16157,11 +16188,19 @@ function inventoryCreatePayload() {
               <section class="asm-card-025u">
                 <h2>Cerrar asamblea y generar PDF</h2>
                 <p class="asm-muted-025u">Al cerrar, se abre una hoja lista para imprimir o guardar como PDF. La version basica queda pensada para descargar/publicar sin datos sensibles.</p>
-                <div class="asm-report-grid-025x">
-                  <button class="client-btn" type="button" data-asm-report="complete">Completa</button>
-                  <button class="client-btn" type="button" data-asm-report="basic">Basica publica</button>
-                  <button class="client-btn" type="button" data-asm-report="votes">Solo votaciones</button>
-                </div>
+                ${event.id ? `
+                  <div class="asm-report-grid-025x">
+                    <button class="client-btn" type="button" data-asm-report="complete">Completa</button>
+                    <button class="client-btn" type="button" data-asm-report="basic">Basica publica</button>
+                    <button class="client-btn" type="button" data-asm-report="votes">Solo votaciones</button>
+                  </div>
+                ` : `<div class="asm-empty-025u">Crea o guarda una asamblea para habilitar el cierre.</div>`}
+              </section>
+
+              <section class="asm-card-025u">
+                <h2>Historial de actas</h2>
+                <p class="asm-muted-025u">Las asambleas cerradas quedan archivadas aqui. La pantalla activa queda libre para crear la siguiente jornada.</p>
+                <div class="asm-scroll-025x">${cxAssemblyHistoryRows025Z(history)}</div>
               </section>
             </section>
           </section>

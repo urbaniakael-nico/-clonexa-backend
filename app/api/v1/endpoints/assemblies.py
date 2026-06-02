@@ -469,8 +469,8 @@ async def _active_event_row(db: AsyncSession, company_id: uuid.UUID) -> dict[str
             SELECT *
             FROM assembly_events
             WHERE company_id = :company_id
-              AND status IN ('active', 'draft', 'closed')
-            ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 WHEN 'closed' THEN 2 ELSE 3 END, created_at DESC
+              AND status IN ('active', 'draft')
+            ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, created_at DESC
             LIMIT 1
             """
         ),
@@ -540,9 +540,59 @@ async def _qr_config(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
+async def _event_history_payload(db: AsyncSession, company_id: uuid.UUID, limit: int = 12) -> list[dict[str, Any]]:
+    result = await db.execute(
+        text(
+            """
+            SELECT
+              e.*,
+              (SELECT COUNT(*) FROM assembly_attendees WHERE event_id = e.id AND COALESCE(metadata->>'manager_role', '') = '') AS attendees,
+              (SELECT COUNT(*) FROM assembly_attendees WHERE event_id = e.id AND present IS TRUE AND COALESCE(metadata->>'manager_role', '') = '') AS present,
+              (SELECT COUNT(*) FROM assembly_votes WHERE event_id = e.id) AS votes,
+              (SELECT COUNT(*) FROM assembly_questions WHERE event_id = e.id) AS questions,
+              (SELECT COUNT(*) FROM assembly_vote_responses WHERE event_id = e.id) AS responses
+            FROM assembly_events e
+            WHERE e.company_id = :company_id
+              AND e.status IN ('closed', 'archived')
+            ORDER BY e.updated_at DESC, e.created_at DESC
+            LIMIT :limit
+            """
+        ),
+        {"company_id": str(company_id), "limit": max(1, min(50, int(limit or 12)))},
+    )
+    history = []
+    company_text = str(company_id)
+    for raw in result.mappings().all():
+        row = dict(raw)
+        event_id = str(row["id"])
+        history.append(
+            {
+                "id": event_id,
+                "title": row.get("title") or "Asamblea",
+                "status": row.get("status") or "closed",
+                "starts_at": _iso(row.get("starts_at")),
+                "ends_at": _iso(row.get("ends_at")),
+                "updated_at": _iso(row.get("updated_at")),
+                "attendees": int(row.get("attendees") or 0),
+                "present": int(row.get("present") or 0),
+                "votes": int(row.get("votes") or 0),
+                "questions": int(row.get("questions") or 0),
+                "responses": int(row.get("responses") or 0),
+                "reports": {
+                    "complete": f"/api/v1/assemblies/companies/{company_text}/events/{event_id}/report?mode=complete",
+                    "basic": f"/api/v1/assemblies/companies/{company_text}/events/{event_id}/report?mode=basic",
+                    "votes": f"/api/v1/assemblies/companies/{company_text}/events/{event_id}/report?mode=votes",
+                },
+            }
+        )
+    return history
+
+
 async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_row: dict[str, Any] | None = None, full: bool = False) -> dict[str, Any]:
     if event_row is None:
         event_row = await _active_event_row(db, company_id)
+
+    history = await _event_history_payload(db, company_id)
 
     if not event_row:
         return {
@@ -555,6 +605,7 @@ async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_
             "votes": [],
             "questions": [],
             "qr": await _qr_config(db, company_id),
+            "history": history,
         }
 
     event_id = str(event_row["id"])
@@ -651,6 +702,7 @@ async def _event_summary_payload(db: AsyncSession, company_id: uuid.UUID, event_
         "votes": votes,
         "questions": [_question_payload(dict(row)) for row in questions_rows.mappings().all()],
         "qr": await _qr_config(db, company_id),
+        "history": history,
     }
 
 
@@ -958,7 +1010,22 @@ async def create_assembly_event(
         },
     )
     row = dict(result.mappings().first())
+    if event_status == "closed":
+        await db.execute(
+            text(
+                """
+                UPDATE assembly_votes
+                SET status = 'closed', updated_at = NOW()
+                WHERE event_id = :event_id
+                  AND company_id = :company_id
+                  AND status <> 'closed'
+                """
+            ),
+            {"event_id": str(event_id), "company_id": str(company_id)},
+        )
     await db.commit()
+    if event_status == "closed":
+        return await _event_summary_payload(db, company_id)
     return await _event_summary_payload(db, company_id, row)
 
 
@@ -1017,7 +1084,22 @@ async def update_assembly_event(
         },
     )
     row = dict(result.mappings().first())
+    if event_status == "closed":
+        await db.execute(
+            text(
+                """
+                UPDATE assembly_votes
+                SET status = 'closed', updated_at = NOW()
+                WHERE event_id = :event_id
+                  AND company_id = :company_id
+                  AND status <> 'closed'
+                """
+            ),
+            {"event_id": str(event_id), "company_id": str(company_id)},
+        )
     await db.commit()
+    if event_status == "closed":
+        return await _event_summary_payload(db, company_id)
     return await _event_summary_payload(db, company_id, row)
 
 
