@@ -3141,7 +3141,6 @@
     renderCompanyDetail(company);
     renderModules();
     renderUsersGlobalView();
-    renderCrmView();
   }
 
   function renderCompanyDetail(company) {
@@ -4920,7 +4919,6 @@
         renderCompanyDetail(company);
       }
 
-      renderCrmView();
       showToast("Branding guardado.");
     } catch (error) {
       showToast(`No se pudo guardar branding: ${error.message}`, "error");
@@ -4931,7 +4929,6 @@
       await apiPost(`${API}/companies/${companyId}/experience/ensure-defaults`, {});
       await loadCompanyExperience(companyId);
       renderCompanyDetail(state.companies.find((c) => c.id === companyId));
-      renderCrmView();
       showToast("Defaults CRM regenerados.");
     } catch (error) {
       showToast(`No se pudieron regenerar defaults: ${error.message}`, "error");
@@ -5093,7 +5090,6 @@
       packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
       modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
       access: ["Accesos", "Rutas operativas rápidas del ecosistema."],
-      crm: ["CRM / Panel Empresa", "Estado resumido de branding, experiencia y panel cliente."],
       landing: ["Landing", "Analitica comercial de visitas, fuentes, campanas y dispositivos."],
       health: ["Health / Estado del sistema", "Estado de API y conteos principales."]
     };
@@ -5112,7 +5108,6 @@
     renderAccess();
     renderLandingAnalytics025R();
     renderHealth();
-    renderCrmView();
     renderUsersGlobalView();
 
     if (state.selectedCompanyId) {
