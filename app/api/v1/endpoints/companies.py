@@ -16,9 +16,19 @@ from app.models.core import Company
 
 router = APIRouter()
 ALLOWED_COMPANY_STATUSES = {"active", "inactive", "archived"}
-ALLOWED_THEME_MODES = {"dark", "light"}
+ALLOWED_THEME_MODES = {"dark", "light", "corporate", "classic"}
 ALLOWED_BRANDING_FONTS = {"Inter", "Manrope", "Sora", "Space Grotesk", "Rajdhani", "Orbitron", "Poppins", "Montserrat"}
-ALLOWED_CARD_STYLES = {"glass_premium", "neon_border", "soft_solid", "dark_elevated"}
+ALLOWED_CARD_STYLES = {
+    "glass_premium",
+    "neon_border",
+    "soft_solid",
+    "dark_elevated",
+    "classic_panel",
+    "flat_dashboard",
+    "executive_glass",
+}
+ALLOWED_BACKGROUND_MODES = {"solid", "gradient", "iridescent"}
+ALLOWED_SURFACE_STYLES = {"glass", "soft", "neon", "solid"}
 
 
 class CompanyCreateRequest(BaseModel):
@@ -49,10 +59,16 @@ class CompanyBrandingRequest(BaseModel):
     text_color: Optional[str] = None
     visual_preset: Optional[str] = None
     background_style: Optional[str] = None
+    background_mode: Optional[str] = None
+    surface_style: Optional[str] = None
     font_family: Optional[str] = None
     card_style: Optional[str] = None
     font_family: str | None = None
     card_style: str | None = None
+    gradient_from: Optional[str] = None
+    gradient_to: Optional[str] = None
+    gradient_extra: Optional[str] = None
+    gradient_angle: Optional[float] = None
     mode: Optional[str] = None
     theme_mode: Optional[str] = None
 
@@ -457,7 +473,7 @@ def _normalise_branding(raw: Optional[Dict[str, Any]], company: Optional[Company
 
     mode = str(raw.get("mode") or raw.get("theme_mode") or defaults["mode"]).strip().lower()
     if mode not in ALLOWED_THEME_MODES:
-        raise HTTPException(status_code=400, detail="theme_mode/mode inválido. Usa dark o light.")
+        raise HTTPException(status_code=400, detail="theme_mode/mode invalido. Usa dark, light, corporate o classic.")
 
     background_style = (
         raw.get("background_style")
@@ -465,6 +481,22 @@ def _normalise_branding(raw: Optional[Dict[str, Any]], company: Optional[Company
         or defaults.get("background_style")
         or "cyber_grid"
     )
+    background_mode = str(
+        raw.get("background_mode")
+        or raw.get("backgroundMode")
+        or custom_css.get("background_mode")
+        or custom_css.get("backgroundMode")
+        or defaults.get("background_mode")
+        or "gradient"
+    ).strip().lower()
+    surface_style = str(
+        raw.get("surface_style")
+        or raw.get("surfaceStyle")
+        or custom_css.get("surface_style")
+        or custom_css.get("surfaceStyle")
+        or defaults.get("surface_style")
+        or "glass"
+    ).strip().lower()
 
     font_family = (
         raw.get("font_family")
@@ -490,16 +522,48 @@ def _normalise_branding(raw: Optional[Dict[str, Any]], company: Optional[Company
     if card_style not in ALLOWED_CARD_STYLES:
         card_style = "glass_premium"
 
+    if background_mode not in ALLOWED_BACKGROUND_MODES:
+        background_mode = "gradient"
+
+    if surface_style not in ALLOWED_SURFACE_STYLES:
+        surface_style = "glass"
+
+    try:
+        gradient_angle = float(
+            raw.get("gradient_angle")
+            or raw.get("gradientAngle")
+            or custom_css.get("gradient_angle")
+            or custom_css.get("gradientAngle")
+            or defaults.get("gradient_angle")
+            or 135
+        )
+    except (TypeError, ValueError):
+        gradient_angle = 135
+
+    if gradient_angle < 0 or gradient_angle > 360:
+        gradient_angle = 135
+
+    primary_color = _hex_or_default(raw.get("primary_color") or raw.get("color_principal") or raw.get("button_color"), defaults["primary_color"])
+    secondary_color = _hex_or_default(raw.get("secondary_color") or raw.get("color_secundario") or raw.get("success_color"), defaults["secondary_color"])
+    background_color = _hex_or_default(raw.get("background_color") or raw.get("color_fondo"), defaults["background_color"])
+    text_color = _hex_or_default(raw.get("text_color") or raw.get("color_texto"), defaults["text_color"])
+
     branding = {
         "logo_url": str(raw.get("logo_url") or defaults["logo_url"] or "").strip(),
-        "primary_color": _hex_or_default(raw.get("primary_color") or raw.get("color_principal") or raw.get("button_color"), defaults["primary_color"]),
-        "secondary_color": _hex_or_default(raw.get("secondary_color") or raw.get("color_secundario") or raw.get("success_color"), defaults["secondary_color"]),
-        "background_color": _hex_or_default(raw.get("background_color") or raw.get("color_fondo"), defaults["background_color"]),
-        "text_color": _hex_or_default(raw.get("text_color") or raw.get("color_texto"), defaults["text_color"]),
+        "primary_color": primary_color,
+        "secondary_color": secondary_color,
+        "background_color": background_color,
+        "text_color": text_color,
         "visual_preset": str(raw.get("visual_preset") or raw.get("preset_visual") or defaults["visual_preset"] or "clonexa_dark").strip(),
         "background_style": str(background_style or "cyber_grid").strip(),
+        "background_mode": background_mode,
+        "surface_style": surface_style,
         "font_family": font_family,
         "card_style": card_style,
+        "gradient_from": _hex_or_default(raw.get("gradient_from") or raw.get("gradientFrom"), primary_color),
+        "gradient_to": _hex_or_default(raw.get("gradient_to") or raw.get("gradientTo"), secondary_color),
+        "gradient_extra": _hex_or_default(raw.get("gradient_extra") or raw.get("gradientExtra"), background_color),
+        "gradient_angle": gradient_angle,
         "mode": mode,
         "theme_mode": mode,
     }
