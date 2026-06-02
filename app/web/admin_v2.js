@@ -3052,25 +3052,225 @@
     cxModuleApplyFilterValues025T();
   }
 
+  function cxAccessUrl026B(path = "") {
+    const value = String(path || "");
+    if (/^https?:\/\//i.test(value)) return value;
+    const clean = value.startsWith("/") ? value : `/${value}`;
+    return `${window.location.origin || ""}${clean}`;
+  }
+
+  function cxAccessModuleSet026B(companyId) {
+    return new Set(moduleCodesForCompany(companyId).map((code) => cxQrNorm025N(code)));
+  }
+
+  function cxAccessHasModule026B(moduleSet, codes = []) {
+    return codes.some((code) => moduleSet.has(cxQrNorm025N(code)));
+  }
+
+  function cxAccessQrLabel026B(settings = {}) {
+    if (settings.mode === "voting") return "Participante 1";
+    if (settings.mode === "generic") return "QR 1";
+    return settings.include_bar ? "Barra" : "Mesa 1";
+  }
+
+  function cxAccessQrUrl026B(company, settings = {}) {
+    const base = cxCleanQrBaseUrl025N(settings.base_url || window.location.origin || "");
+    const point = cxAccessQrLabel026B(settings);
+    return `${base}/ordenar?company_id=${encodeURIComponent(company.id)}&mesa=${encodeURIComponent(point)}`;
+  }
+
+  function cxAccessLinkCard026B(item) {
+    const url = cxAccessUrl026B(item.href);
+    return `
+      <article class="cx-access-card-026b">
+        <div>
+          <span class="cx-badge ${item.badgeClass || "cx-badge-primary"}">${escapeHtml(item.badge || item.href)}</span>
+          <h3>${escapeHtml(item.title)}</h3>
+          <p>${escapeHtml(item.subtitle || "")}</p>
+        </div>
+        <div class="cx-access-actions-026b">
+          <a class="cx-btn cx-btn-small" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Abrir</a>
+          <button class="cx-btn cx-btn-small" type="button" data-copy="${escapeHtml(url)}">Copiar</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function cxAccessCompanyLinks026B(company) {
+    const encodedId = encodeURIComponent(company.id);
+    const modules = cxAccessModuleSet026B(company.id);
+    const links = [
+      { title: "Panel cliente", href: `/client?company_id=${encodedId}`, subtitle: "Operacion del tenant", badge: "/client" },
+      { title: "Login empresa", href: "/login", subtitle: "Acceso dueno / encargado", badge: "/login" },
+    ];
+
+    if (cxAccessHasModule026B(modules, ["mini_panel", "sales", "registro_venta", "cotizacion", "requests"])) {
+      links.push({
+        title: "Mini panel ventas",
+        href: `/mini-panel/login?company_id=${encodedId}&type=sales`,
+        subtitle: "Entrada vendedor / comercial",
+        badge: "sales",
+      });
+    }
+
+    if (cxAccessHasModule026B(modules, ["stores", "login", "retail"])) {
+      links.push({
+        title: "Mini panel tiendas",
+        href: `/mini-panel/login?company_id=${encodedId}&type=store`,
+        subtitle: "Entrada tienda / cajero",
+        badge: "store",
+      });
+    }
+
+    const qrModule = cxFindCompanyQrModule025N(company.id, true);
+    if (qrModule) {
+      const settings = cxNormalizeCompanyQrSettings025N(qrModule);
+      links.push({
+        title: settings.mode === "voting" ? "QR votacion" : "QR publico",
+        href: cxAccessQrUrl026B(company, settings),
+        subtitle: `${settings.table_count}/${settings.max_capacity} habilitados`,
+        badge: settings.mode,
+        badgeClass: "cx-badge-live",
+      });
+    }
+
+    if (cxAccessHasModule026B(modules, ["asamblea", "asambleas", "asambleas_votaciones", "assembly"])) {
+      links.push({
+        title: "Asamblea",
+        href: `/client?company_id=${encodedId}`,
+        subtitle: "Configurar evento, quorum y votaciones",
+        badge: "ASA",
+      });
+    }
+
+    return links;
+  }
+
+  function cxAccessModulePreview026B(companyId) {
+    const codes = moduleCodesForCompany(companyId);
+    if (!codes.length) return "Sin modulos activos";
+    const labels = codes.slice(0, 5).map((code) => (CX_MODULE_META[code] ? CX_MODULE_META[code][0] : code));
+    const extra = codes.length > labels.length ? ` +${codes.length - labels.length}` : "";
+    return `${labels.join(", ")}${extra}`;
+  }
+
+  function cxAccessCompanyCard026B(company) {
+    const modules = cxAccessModuleSet026B(company.id);
+    const users = state.companyUsers.get(company.id);
+    const ownerInfo = ownerAccessInfo(users);
+    const owner = ownerInfo.owner;
+    const qrModule = cxFindCompanyQrModule025N(company.id, true);
+    const qrSettings = qrModule ? cxNormalizeCompanyQrSettings025N(qrModule) : null;
+    const status = companyStatus(company);
+    const statusClass = status === "active" ? "cx-badge-live" : "cx-badge-danger";
+    const links = cxAccessCompanyLinks026B(company);
+
+    const miniPanels = [
+      cxAccessHasModule026B(modules, ["mini_panel", "sales", "registro_venta"]) ? "ventas" : "",
+      cxAccessHasModule026B(modules, ["stores", "login", "retail"]) ? "tiendas" : "",
+    ].filter(Boolean).join(" / ") || "sin mini panel";
+
+    return `
+      <article class="cx-access-company-card-026b">
+        <div class="cx-access-company-head-026b">
+          <div>
+            <span class="cx-badge ${statusClass}">${escapeHtml(status)}</span>
+            <h3>${escapeHtml(company.name)}</h3>
+            <p>${escapeHtml(company.slug || company.id)}</p>
+          </div>
+          <button class="cx-btn cx-btn-small" type="button" data-select-company="${escapeHtml(company.id)}" data-detail-tab="accesos">Gestionar</button>
+        </div>
+        <div class="cx-access-kv-grid-026b">
+          <div><span>Paquete</span><strong>${escapeHtml(packageForCompany(company))}</strong></div>
+          <div><span>Acceso maestro</span><strong>${escapeHtml(owner ? (owner.email || owner.name || ownerInfo.status) : ownerInfo.status)}</strong></div>
+          <div><span>Mini panel</span><strong>${escapeHtml(miniPanels)}</strong></div>
+          <div><span>QR</span><strong>${escapeHtml(qrSettings ? `${qrSettings.table_count}/${qrSettings.max_capacity} ${qrSettings.mode}` : "no activo")}</strong></div>
+        </div>
+        <p class="cx-access-modules-026b">${escapeHtml(cxAccessModulePreview026B(company.id))}</p>
+        <div class="cx-access-link-list-026b">
+          ${links.map((link) => {
+            const url = cxAccessUrl026B(link.href);
+            return `
+              <div class="cx-access-row-026b">
+                <div>
+                  <strong>${escapeHtml(link.title)}</strong>
+                  <small>${escapeHtml(link.subtitle || url)}</small>
+                </div>
+                <div class="cx-access-actions-026b">
+                  <a class="cx-btn cx-btn-small" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Abrir</a>
+                  <button class="cx-btn cx-btn-small" type="button" data-copy="${escapeHtml(url)}">Copiar</button>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </article>
+    `;
+  }
+
   function renderAccess() {
     const grid = el("#accessGrid");
     if (!grid) return;
 
-    const links = [
-      { title: "Admin actual", subtitle: "Consola previa", href: "/admin" },
-      { title: "Portal cliente", subtitle: "Panel empresa", href: "/client" },
-      { title: "Swagger / Docs", subtitle: "API docs", href: "/docs" },
-      { title: "Health", subtitle: "Estado API", href: "/health" },
-      { title: "Login", subtitle: "Acceso cliente", href: "/login" },
+    const title = grid.closest(".cx-card")?.querySelector(".cx-card-head h2");
+    const subtitle = grid.closest(".cx-card")?.querySelector(".cx-card-head p");
+    if (title) title.textContent = "Centro de accesos operativos";
+    if (subtitle) subtitle.textContent = "Mapa de entrada por herramienta, empresa y modulo activo.";
+
+    const companies = state.companies.filter((company) => !isArchivedCompany(company));
+    const qrCompanies = companies.filter((company) => cxFindCompanyQrModule025N(company.id, true)).length;
+    const miniPanelCompanies = companies.filter((company) => {
+      const modules = cxAccessModuleSet026B(company.id);
+      return cxAccessHasModule026B(modules, ["mini_panel", "sales", "stores", "login", "retail"]);
+    }).length;
+    const totalLinks = companies.reduce((count, company) => count + cxAccessCompanyLinks026B(company).length, 0);
+
+    const globalLinks = [
+      { title: "Admin V2", subtitle: "Super consola SaaS", href: "/admin-v2", badge: "/admin-v2", badgeClass: "cx-badge-live" },
+      { title: "Panel cliente", subtitle: "Entrada general de tenants", href: "/client", badge: "/client" },
+      { title: "Login empresa", subtitle: "Acceso dueno / encargado", href: "/login", badge: "/login" },
+      { title: "Mini panel", subtitle: "Login operativo por rol", href: "/mini-panel/login", badge: "/mini-panel" },
+      { title: "Ordenar QR", subtitle: "Entrada publica QR", href: "/ordenar", badge: "/ordenar" },
+      { title: "Docs API", subtitle: "Swagger operativo", href: "/docs", badge: "/docs" },
+      { title: "Health", subtitle: "Estado de produccion", href: "/health", badge: "/health", badgeClass: "cx-badge-live" },
+      { title: "Landing", subtitle: "Web publica comercial", href: "https://clonexa-landing-production.up.railway.app/", badge: "landing" },
     ];
 
-    grid.innerHTML = links.map((item) => `
-      <a class="cx-package-card" href="${escapeHtml(item.href)}" target="_blank" rel="noreferrer">
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.subtitle)}</p>
-        <span class="cx-badge cx-badge-primary">${escapeHtml(item.href)}</span>
-      </a>
-    `).join("");
+    grid.innerHTML = `
+      <div class="cx-access-summary-026b">
+        <div class="cx-kv"><span>Empresas visibles</span><strong>${escapeHtml(companies.length)}</strong></div>
+        <div class="cx-kv"><span>Accesos tenant</span><strong>${escapeHtml(totalLinks)}</strong></div>
+        <div class="cx-kv"><span>Mini panel activo</span><strong>${escapeHtml(miniPanelCompanies)}</strong></div>
+        <div class="cx-kv"><span>QR activo</span><strong>${escapeHtml(qrCompanies)}</strong></div>
+      </div>
+
+      <section class="cx-access-section-026b">
+        <div class="cx-access-section-head-026b">
+          <div>
+            <span class="cx-kicker">Global</span>
+            <h3>Entradas base del sistema</h3>
+          </div>
+        </div>
+        <div class="cx-access-grid-026b">
+          ${globalLinks.map(cxAccessLinkCard026B).join("")}
+        </div>
+      </section>
+
+      <section class="cx-access-section-026b">
+        <div class="cx-access-section-head-026b">
+          <div>
+            <span class="cx-kicker">Empresas</span>
+            <h3>Accesos por tenant</h3>
+          </div>
+          <button class="cx-btn cx-btn-small" type="button" data-nav-view="companies">Gestionar empresas</button>
+        </div>
+        ${companies.length ? `
+          <div class="cx-access-company-grid-026b">
+            ${companies.map(cxAccessCompanyCard026B).join("")}
+          </div>
+        ` : `<div class="cx-empty-state">No hay empresas visibles para mostrar accesos.</div>`}
+      </section>
+    `;
   }
 
   function renderHealth() {
@@ -5089,7 +5289,7 @@
       users: ["Acceso Maestro", "Usuario dueno/encargado, regeneracion de clave y desbloqueo."],
       packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
       modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
-      access: ["Accesos", "Rutas operativas rápidas del ecosistema."],
+      access: ["Accesos", "Centro operativo de rutas, enlaces por empresa y copiado rapido."],
       landing: ["Landing", "Analitica comercial de visitas, fuentes, campanas y dispositivos."],
       health: ["Health / Estado del sistema", "Estado de API y conteos principales."]
     };
