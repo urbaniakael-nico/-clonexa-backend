@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,11 @@ ALLOWED_CARD_STYLES = {
 }
 ALLOWED_BACKGROUND_MODES = {"solid", "gradient", "iridescent"}
 ALLOWED_SURFACE_STYLES = {"glass", "soft", "neon", "solid"}
+ACCESS_POLICY_SCOPES = {
+    "client": "Panel cliente",
+    "mini_panel": "Mini paneles",
+    "ordering_qr": "QR / ordenar",
+}
 
 
 class CompanyCreateRequest(BaseModel):
@@ -96,6 +102,11 @@ class CompanyClientSettingsRequest(BaseModel):
     payroll: Optional[Dict[str, Any]] = None
 
 
+class CompanyAccessPolicyRequest(BaseModel):
+    enabled: Optional[bool] = False
+    scopes: Optional[Dict[str, Dict[str, Any]]] = None
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -160,6 +171,108 @@ def _touch_company(company: Company, now: Optional[datetime] = None) -> None:
     now = now or _now()
     if hasattr(company, "updated_at"):
         company.updated_at = now
+
+
+def _client_ip_from_request(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For") or ""
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return ""
+
+
+def _normalise_ip_entry(value: Any) -> Optional[str]:
+    text_value = str(value or "").strip()
+    if not text_value:
+        return None
+
+    try:
+        if "/" in text_value:
+            return str(ipaddress.ip_network(text_value, strict=False))
+        return str(ipaddress.ip_address(text_value))
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"IP o CIDR invalido: {text_value}")
+
+
+def _normalise_ip_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = value.replace(",", "\n").splitlines()
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = []
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in raw_items:
+        normalised = _normalise_ip_entry(item)
+        if normalised and normalised not in seen:
+            seen.add(normalised)
+            result.append(normalised)
+    return result
+
+
+def _default_access_policy() -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "scopes": {
+            code: {
+                "label": label,
+                "enabled": False,
+                "allowed_ips": [],
+            }
+            for code, label in ACCESS_POLICY_SCOPES.items()
+        },
+    }
+
+
+def _normalise_access_policy(raw: Any) -> Dict[str, Any]:
+    base = _default_access_policy()
+    if not isinstance(raw, dict):
+        return base
+
+    base["enabled"] = bool(raw.get("enabled"))
+    scopes = raw.get("scopes") if isinstance(raw.get("scopes"), dict) else {}
+
+    for code, label in ACCESS_POLICY_SCOPES.items():
+        scope = scopes.get(code) if isinstance(scopes.get(code), dict) else {}
+        base["scopes"][code] = {
+            "label": label,
+            "enabled": bool(scope.get("enabled")),
+            "allowed_ips": _normalise_ip_list(scope.get("allowed_ips") or scope.get("ips") or []),
+        }
+
+    if raw.get("updated_at"):
+        base["updated_at"] = str(raw.get("updated_at"))
+    return base
+
+
+def _read_company_access_policy(company: Company) -> Dict[str, Any]:
+    store = _read_json_store(company)
+    security = store.get("security") if isinstance(store.get("security"), dict) else {}
+    return _normalise_access_policy(security.get("ip_allowlist"))
+
+
+def _write_company_access_policy(company: Company, payload: CompanyAccessPolicyRequest) -> Dict[str, Any]:
+    column = _json_store_column()
+    if not column:
+        raise HTTPException(
+            status_code=500,
+            detail="No existe una columna JSON persistente en companies para guardar politica de accesos.",
+        )
+
+    store = _read_json_store(company)
+    security = dict(store.get("security") or {})
+    data = payload.model_dump(exclude_unset=True)
+    policy = _normalise_access_policy(data)
+    policy["updated_at"] = _now().isoformat()
+
+    security["ip_allowlist"] = policy
+    store["security"] = security
+    setattr(company, column, store)
+    _touch_company(company)
+    return policy
 
 
 def _apply_company_status(company: Company, status: str) -> None:
@@ -966,6 +1079,39 @@ async def update_company_client_settings(
     await db.commit()
     await db.refresh(company)
     return _read_client_settings(company)
+
+
+@router.get("/{company_id}/access-policy")
+async def get_company_access_policy(
+    company_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    policy = _read_company_access_policy(company)
+    return {
+        "company_id": str(company.id),
+        "current_ip": _client_ip_from_request(request),
+        **policy,
+    }
+
+
+@router.put("/{company_id}/access-policy")
+async def update_company_access_policy(
+    company_id: UUID,
+    payload: CompanyAccessPolicyRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    policy = _write_company_access_policy(company, payload)
+    await db.commit()
+    await db.refresh(company)
+    return {
+        "company_id": str(company.id),
+        "current_ip": _client_ip_from_request(request),
+        **policy,
+    }
 
 
 @router.get("/{company_id}/experience")

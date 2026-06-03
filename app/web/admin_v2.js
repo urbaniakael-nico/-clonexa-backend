@@ -11,6 +11,7 @@
     companyUsers: new Map(),
     companyExperience: new Map(),
     companyBotConfigs: new Map(),
+    companyAccessPolicies: new Map(),
     companyActivity: new Map(),
     companyResetPreviews: new Map(),
     companyResetBusy: false,
@@ -809,6 +810,166 @@
     }
   }
 
+  const ACCESS_POLICY_SCOPES_026G = [
+    ["client", "Panel cliente", "/client"],
+    ["mini_panel", "Mini paneles", "/mini-panel"],
+    ["ordering_qr", "QR / pedidos / votacion", "/ordenar"],
+  ];
+
+  function defaultAccessPolicy026G() {
+    return {
+      enabled: false,
+      current_ip: "",
+      scopes: Object.fromEntries(ACCESS_POLICY_SCOPES_026G.map(([code, label]) => [
+        code,
+        { label, enabled: false, allowed_ips: [] },
+      ])),
+    };
+  }
+
+  function accessPolicyForCompany026G(companyId) {
+    const current = state.companyAccessPolicies.get(companyId);
+    if (current && !current.loading) {
+      const base = defaultAccessPolicy026G();
+      const scopes = current.scopes && typeof current.scopes === "object" ? current.scopes : {};
+      ACCESS_POLICY_SCOPES_026G.forEach(([code, label]) => {
+        const scoped = scopes[code] || {};
+        base.scopes[code] = {
+          label: scoped.label || label,
+          enabled: !!scoped.enabled,
+          allowed_ips: Array.isArray(scoped.allowed_ips) ? scoped.allowed_ips : [],
+        };
+      });
+      return { ...base, ...current, scopes: base.scopes };
+    }
+    return current || defaultAccessPolicy026G();
+  }
+
+  async function loadCompanyAccessPolicy026G(companyId, force = false) {
+    if (!companyId) return null;
+    if (!force && state.companyAccessPolicies.has(companyId)) {
+      return state.companyAccessPolicies.get(companyId);
+    }
+    try {
+      const data = await apiGet(`${API}/companies/${companyId}/access-policy`);
+      state.companyAccessPolicies.set(companyId, data || defaultAccessPolicy026G());
+      return data || defaultAccessPolicy026G();
+    } catch (error) {
+      const fallback = { ...defaultAccessPolicy026G(), unavailable: true, error: error.message };
+      state.companyAccessPolicies.set(companyId, fallback);
+      return fallback;
+    }
+  }
+
+  function accessPolicyIpsText026G(policy, scope) {
+    const scoped = policy?.scopes?.[scope] || {};
+    return Array.isArray(scoped.allowed_ips) ? scoped.allowed_ips.join("\n") : "";
+  }
+
+  function renderCompanyIpAccessPolicy026G(company, policy) {
+    const loading = policy?.loading;
+    const unavailable = policy?.unavailable;
+    const enabled = !!policy?.enabled;
+    const currentIp = policy?.current_ip || "No detectada";
+    const activeScopes = ACCESS_POLICY_SCOPES_026G.filter(([code]) => policy?.scopes?.[code]?.enabled).length;
+    const totalIps = ACCESS_POLICY_SCOPES_026G.reduce((sum, [code]) => (
+      sum + (Array.isArray(policy?.scopes?.[code]?.allowed_ips) ? policy.scopes[code].allowed_ips.length : 0)
+    ), 0);
+
+    return `
+      <section class="cx-panel" style="margin-top:18px">
+        <div class="cx-card-head">
+          <div>
+            <h3>Seguridad por IP</h3>
+            <p>Define desde que IP publica se permite abrir el portal cliente, mini paneles y QR de esta empresa.</p>
+          </div>
+          <span class="cx-badge ${enabled ? "cx-badge-live" : ""}">${enabled ? "Bloqueo activo" : "Sin bloqueo"}</span>
+        </div>
+
+        ${loading ? `<div class="cx-empty-state">Cargando politica de accesos...</div>` : ""}
+        ${unavailable ? `<div class="cx-alert" style="display:block;margin:12px 0">No se pudo cargar la politica IP: ${escapeHtml(policy.error || "error desconocido")}</div>` : ""}
+
+        <div class="cx-detail-grid" style="margin:14px 0">
+          <div class="cx-kv"><span>IP detectada ahora</span><strong>${escapeHtml(currentIp)}</strong></div>
+          <div class="cx-kv"><span>Alcances protegidos</span><strong>${activeScopes}</strong></div>
+          <div class="cx-kv"><span>IPs/CIDR guardadas</span><strong>${totalIps}</strong></div>
+          <div class="cx-kv"><span>Admin V2</span><strong>No se bloquea aqui</strong></div>
+        </div>
+
+        <form class="cx-form" id="companyIpAccessPolicyForm026G" data-company-id="${escapeHtml(company.id)}">
+          <label class="cx-reset-scope" style="margin:4px 0 10px">
+            <input name="enabled" type="checkbox" ${enabled ? "checked" : ""} />
+            <span>
+              <strong>Activar bloqueo por IP para esta empresa</strong>
+              <small>Si esta apagado, las listas quedan guardadas pero no restringen acceso.</small>
+            </span>
+          </label>
+
+          <div class="cx-detail-grid">
+            ${ACCESS_POLICY_SCOPES_026G.map(([code, label, path]) => {
+              const scoped = policy?.scopes?.[code] || {};
+              return `
+                <div class="cx-kv" style="align-items:stretch">
+                  <label class="cx-reset-scope" style="margin:0 0 10px">
+                    <input name="${escapeHtml(code)}_enabled" type="checkbox" ${scoped.enabled ? "checked" : ""} />
+                    <span>
+                      <strong>${escapeHtml(label)}</strong>
+                      <small>${escapeHtml(path)}</small>
+                    </span>
+                  </label>
+                  <textarea name="${escapeHtml(code)}_ips" rows="4" placeholder="Una IP o rango CIDR por linea. Ej: ${escapeHtml(currentIp)}">${escapeHtml(accessPolicyIpsText026G(policy, code))}</textarea>
+                </div>
+              `;
+            }).join("")}
+          </div>
+
+          <div class="cx-alert" style="display:block;margin:14px 0">
+            Recomendacion: primero copia la IP detectada, guardala en el alcance correcto y prueba desde otro navegador. No uses esta regla para Admin V2 hasta tener un metodo de recuperacion.
+          </div>
+
+          <div class="cx-actions" style="gap:10px;flex-wrap:wrap">
+            <button class="cx-btn cx-btn-primary" type="submit">Guardar politica IP</button>
+            <button class="cx-btn" type="button" data-copy="${escapeHtml(currentIp)}">Copiar IP actual</button>
+          </div>
+        </form>
+      </section>
+    `;
+  }
+
+  function ipListFromTextarea026G(form, name) {
+    return String(form.get(name) || "")
+      .replaceAll(",", "\n")
+      .split(/\n+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  async function saveCompanyAccessPolicy026G(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const data = new FormData(form);
+    const scopes = {};
+    ACCESS_POLICY_SCOPES_026G.forEach(([code]) => {
+      scopes[code] = {
+        enabled: data.get(`${code}_enabled`) === "on",
+        allowed_ips: ipListFromTextarea026G(data, `${code}_ips`),
+      };
+    });
+
+    try {
+      const policy = await apiPut(`${API}/companies/${companyId}/access-policy`, {
+        enabled: data.get("enabled") === "on",
+        scopes,
+      });
+      state.companyAccessPolicies.set(companyId, policy);
+      showToast("Politica IP guardada para esta empresa.");
+      const company = state.companies.find((c) => c.id === companyId);
+      if (company) renderCompanyDetailTab(company);
+    } catch (error) {
+      showToast(`No se pudo guardar la politica IP: ${error.message}`, "error");
+    }
+  }
+
   function telegramBotStatusBadge(config) {
     const status = String(config?.status || (config?.configured ? "configured" : "not_configured"));
     const label = config?.configured
@@ -886,6 +1047,7 @@
 
   function renderCompanyAccessPanel(company) {
     const config = telegramConfig(company.id);
+    const accessPolicy = accessPolicyForCompany026G(company.id);
     const botModuleCodes = moduleCodesForCompany(company.id);
     const botsEnabled = botModuleCodes.includes("bots");
     const botFlowCode = config?.flow_code || suggestedBotFlow(company);
@@ -902,6 +1064,8 @@
         <a class="cx-package-card" href="/docs" target="_blank" rel="noreferrer"><h3>Swagger</h3><p>Documentación API.</p></a>
         <button class="cx-package-card" data-copy="${escapeHtml(company.id)}" type="button"><h3>Copiar Company ID</h3><p>${escapeHtml(company.id)}</p></button>
       </div>
+
+      ${renderCompanyIpAccessPolicy026G(company, accessPolicy)}
 
       <section class="cx-panel">
         <div class="cx-card-head">
@@ -4850,6 +5014,14 @@
           }
         });
       }
+      if (!state.companyAccessPolicies.has(company.id)) {
+        state.companyAccessPolicies.set(company.id, { ...defaultAccessPolicy026G(), loading: true });
+        loadCompanyAccessPolicy026G(company.id, true).then(() => {
+          if (state.selectedCompanyId === company.id && state.activeDetailTab === "accesos") {
+            renderCompanyDetailTab(company);
+          }
+        });
+      }
       node.innerHTML = renderCompanyAccessPanel(company);
       return;
     }
@@ -5909,6 +6081,11 @@
       if (event.target.matches("#telegramBotConfigForm")) {
         const companyId = event.target.dataset.companyId || state.selectedCompanyId;
         await saveTelegramBotConfig(companyId, event);
+      }
+
+      if (event.target.matches("#companyIpAccessPolicyForm026G")) {
+        const companyId = event.target.dataset.companyId || state.selectedCompanyId;
+        await saveCompanyAccessPolicy026G(companyId, event);
       }
     });
 
