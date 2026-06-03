@@ -13,6 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.models.core import Company
+from app.services.access_sessions import (
+    close_access_session,
+    close_company_access_sessions,
+    list_access_sessions,
+    normalise_session_policy,
+)
 
 
 router = APIRouter()
@@ -105,6 +111,16 @@ class CompanyClientSettingsRequest(BaseModel):
 class CompanyAccessPolicyRequest(BaseModel):
     enabled: Optional[bool] = False
     scopes: Optional[Dict[str, Dict[str, Any]]] = None
+
+
+class CompanySessionPolicyRequest(BaseModel):
+    enabled: Optional[bool] = False
+    mode: Optional[str] = "replace_oldest"
+    scopes: Optional[Dict[str, Dict[str, Any]]] = None
+
+
+class CompanyAccessSessionCloseRequest(BaseModel):
+    scope: Optional[str] = None
 
 
 def _now() -> datetime:
@@ -269,6 +285,33 @@ def _write_company_access_policy(company: Company, payload: CompanyAccessPolicyR
     policy["updated_at"] = _now().isoformat()
 
     security["ip_allowlist"] = policy
+    store["security"] = security
+    setattr(company, column, store)
+    _touch_company(company)
+    return policy
+
+
+def _read_company_session_policy(company: Company) -> Dict[str, Any]:
+    store = _read_json_store(company)
+    security = store.get("security") if isinstance(store.get("security"), dict) else {}
+    return normalise_session_policy(security.get("session_limits"))
+
+
+def _write_company_session_policy(company: Company, payload: CompanySessionPolicyRequest) -> Dict[str, Any]:
+    column = _json_store_column()
+    if not column:
+        raise HTTPException(
+            status_code=500,
+            detail="No existe una columna JSON persistente en companies para guardar limites de sesiones.",
+        )
+
+    store = _read_json_store(company)
+    security = dict(store.get("security") or {})
+    data = payload.model_dump(exclude_unset=True)
+    policy = normalise_session_policy(data)
+    policy["updated_at"] = _now().isoformat()
+
+    security["session_limits"] = policy
     store["security"] = security
     setattr(company, column, store)
     _touch_company(company)
@@ -1112,6 +1155,86 @@ async def update_company_access_policy(
         "current_ip": _client_ip_from_request(request),
         **policy,
     }
+
+
+@router.get("/{company_id}/session-policy")
+async def get_company_session_policy(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    policy = _read_company_session_policy(company)
+    return {
+        "company_id": str(company.id),
+        **policy,
+    }
+
+
+@router.put("/{company_id}/session-policy")
+async def update_company_session_policy(
+    company_id: UUID,
+    payload: CompanySessionPolicyRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    policy = _write_company_session_policy(company, payload)
+    await db.commit()
+    await db.refresh(company)
+    return {
+        "company_id": str(company.id),
+        **policy,
+    }
+
+
+@router.get("/{company_id}/access-sessions")
+async def get_company_access_sessions(
+    company_id: UUID,
+    scope: Optional[str] = None,
+    include_closed: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    return {
+        "company_id": str(company.id),
+        "sessions": await list_access_sessions(
+            db,
+            company_id=company.id,
+            scope=scope,
+            include_closed=include_closed,
+            limit=120,
+        ),
+    }
+
+
+@router.post("/{company_id}/access-sessions/close")
+async def close_company_sessions(
+    company_id: UUID,
+    payload: CompanyAccessSessionCloseRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    closed = await close_company_access_sessions(
+        db,
+        company.id,
+        scope=payload.scope,
+        reason="closed_from_admin_v2",
+    )
+    return {"ok": True, "company_id": str(company.id), "closed": closed}
+
+
+@router.post("/{company_id}/access-sessions/{session_key}/close")
+async def close_company_session(
+    company_id: UUID,
+    session_key: str,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company = await _get_company_or_404(db, company_id)
+    sessions = await list_access_sessions(db, company_id=company.id, include_closed=True, limit=250)
+    allowed = any(str(item.get("session_key")) == str(session_key) for item in sessions)
+    if not allowed:
+        raise HTTPException(status_code=404, detail="Sesion no encontrada para esta empresa.")
+    closed = await close_access_session(db, session_key, "closed_from_admin_v2")
+    return {"ok": True, "company_id": str(company.id), "closed": bool(closed)}
 
 
 @router.get("/{company_id}/experience")

@@ -1043,6 +1043,58 @@ p {
   justify-content: flex-end;
 }
 
+.cx-session-scope-grid-026h {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.cx-session-panel-026h {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.cx-session-list-026h {
+  display: grid;
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.cx-session-row-026h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 15px;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.055), rgba(255,255,255,.018)),
+    rgba(5,5,9,.5);
+}
+
+.cx-session-row-026h strong,
+.cx-session-row-026h small {
+  display: block;
+}
+
+.cx-session-row-026h small {
+  color: var(--cx-muted);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.cx-session-row-actions-026h {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .cx-health-hero-026c,
 .cx-health-section-026c {
   border: 1px solid rgba(255,255,255,.09);

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -12,9 +12,11 @@ from app.services.auth_service import (
     company_modules_payload,
     company_user_out_payload,
     create_access_token,
+    decode_access_token,
     get_access_token_expire_minutes,
     get_current_company_user,
 )
+from app.services.access_sessions import close_access_session, register_access_session
 
 router = APIRouter()
 
@@ -29,9 +31,21 @@ def extract_bearer_token(authorization: str | None) -> str:
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
     user = await authenticate_user(db, payload.email, payload.password)
     expires_in_minutes = get_access_token_expire_minutes()
+    session_key = await register_access_session(
+        db,
+        company_id=user.company_id,
+        scope="client",
+        subject_id=user.id,
+        subject_label=user.email or user.full_name or "panel cliente",
+        request=request,
+    )
     access_token = create_access_token(
         {
             "sub": str(user.id),
@@ -39,6 +53,8 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
             "email": user.email,
             "company_id": str(user.company_id),
             "role": user.role,
+            "scope": "client",
+            "sid": session_key,
         },
         expires_minutes=expires_in_minutes,
     )
@@ -76,7 +92,18 @@ async def change_password(
 
 
 @router.post("/logout")
-async def logout():
+async def logout(
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    if authorization:
+        try:
+            payload = decode_access_token(extract_bearer_token(authorization))
+            session_key = payload.get("sid") or payload.get("session_key")
+            if session_key:
+                await close_access_session(db, str(session_key), "logout")
+        except Exception:
+            pass
     return {"ok": True}
 
 
@@ -519,6 +546,14 @@ async def client_logout(
     db: _AsyncSession = _Depends(_get_db),
 ) -> dict[str, _Any]:
     user = await _020a_current_user(db, request)
+    try:
+        token = _020a_bearer_token(request)
+        payload = _decode_access_token(token)
+        session_key = payload.get("sid") or payload.get("session_key")
+        if session_key:
+            await close_access_session(db, str(session_key), "logout", commit=False)
+    except Exception:
+        pass
 
     await db.execute(
         _sql_text("""

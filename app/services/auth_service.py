@@ -235,6 +235,17 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> Comp
 
 async def get_current_company_user(db: AsyncSession, token: str) -> CompanyUser:
     payload = decode_access_token(token)
+    session_key = payload.get("sid") or payload.get("session_key")
+    if session_key:
+        from app.services.access_sessions import validate_access_session
+
+        await validate_access_session(
+            db,
+            str(session_key),
+            expected_company_id=payload.get("company_id"),
+            expected_scope=payload.get("scope"),
+        )
+
     raw_user_id = payload.get("sub") or payload.get("user_id")
     if not raw_user_id:
         raise HTTPException(

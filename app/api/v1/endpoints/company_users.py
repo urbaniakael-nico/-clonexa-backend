@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 import re
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,7 @@ from app.services.auth_service import (
     hash_password,
     verify_password,
 )
+from app.services.access_sessions import register_access_session
 
 router = APIRouter()
 
@@ -234,6 +235,7 @@ async def _cx_minipanel_session_payload_019d(
 async def mini_panel_login(
     company_id: UUID,
     payload: MiniPanelLoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     panel_type = _cx_panel_type_019d(payload.panel_type)
@@ -262,6 +264,15 @@ async def mini_panel_login(
     await db.refresh(user)
 
     expires_in_minutes = get_access_token_expire_minutes()
+    session_key = await register_access_session(
+        db,
+        company_id=company_id,
+        scope="mini_panel",
+        subject_id=user.id,
+        subject_label=f"{user.full_name or user.email or 'mini panel'} / {panel_type}",
+        request=request,
+        metadata={"panel_type": panel_type},
+    )
     token = create_access_token(
         {
             "sub": str(user.id),
@@ -270,6 +281,8 @@ async def mini_panel_login(
             "role": user.role,
             "mini_panel": True,
             "panel_type": panel_type,
+            "scope": "mini_panel",
+            "sid": session_key,
         },
         expires_minutes=expires_in_minutes,
     )

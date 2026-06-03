@@ -8,8 +8,12 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_db
+from app.services.access_sessions import close_access_session, list_access_sessions, register_access_session, validate_access_session
 
 router = APIRouter()
 
@@ -46,35 +50,59 @@ def _password_hash(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-def _create_session_token(email: str) -> str:
+def _create_session_token(email: str, session_key: str) -> str:
     expires_at = int(time.time()) + _session_seconds()
-    payload = base64.urlsafe_b64encode(f"{email}|{expires_at}".encode("utf-8")).decode("ascii")
+    payload = base64.urlsafe_b64encode(f"{email}|{expires_at}|{session_key}".encode("utf-8")).decode("ascii")
     signature = hmac.new(_session_secret(), payload.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{payload}.{signature}"
 
 
-def _valid_session(request: Request) -> bool:
+def _session_payload(request: Request) -> dict[str, str | int]:
     token = request.cookies.get(ADMIN_V2_COOKIE, "")
     if "." not in token:
-        return False
+        return {}
 
     payload, signature = token.rsplit(".", 1)
     expected = hmac.new(_session_secret(), payload.encode("ascii"), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(signature, expected):
-        return False
+        return {}
 
     try:
         decoded = base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8")
-        email, expires_at_raw = decoded.rsplit("|", 1)
+        parts = decoded.split("|")
+        if len(parts) != 3:
+            return {}
+        email, expires_at_raw, session_key = parts
         expires_at = int(expires_at_raw)
     except (ValueError, UnicodeDecodeError, binascii.Error):
+        return {}
+
+    if email.lower() != ADMIN_V2_EMAIL or expires_at < int(time.time()) or not session_key:
+        return {}
+    return {"email": email.lower(), "expires_at": expires_at, "session_key": session_key}
+
+
+def _valid_session(request: Request) -> bool:
+    return bool(_session_payload(request))
+
+
+def _session_key_from_request(request: Request) -> str:
+    payload = _session_payload(request)
+    return str(payload.get("session_key") or "")
+
+
+async def _active_session(request: Request, db: AsyncSession) -> bool:
+    if not _valid_session(request):
+        return False
+    try:
+        await validate_access_session(db, _session_key_from_request(request), expected_scope="admin_v2")
+        return True
+    except HTTPException:
         return False
 
-    return email.lower() == ADMIN_V2_EMAIL and expires_at >= int(time.time())
 
-
-def _require_admin_v2_session(request: Request) -> None:
-    if not _valid_session(request):
+async def _require_admin_v2_session(request: Request, db: AsyncSession) -> None:
+    if not await _active_session(request, db):
         raise HTTPException(status_code=303, headers={"Location": "/admin-v2/login"})
 
 
@@ -240,14 +268,14 @@ def _login_html(error: str = "") -> str:
 
 
 @router.get("/admin-v2/login", response_class=HTMLResponse, include_in_schema=False)
-async def admin_v2_login_page(request: Request):
-    if _valid_session(request):
+async def admin_v2_login_page(request: Request, db: AsyncSession = Depends(get_db)):
+    if await _active_session(request, db):
         return RedirectResponse(url="/admin-v2", status_code=303)
     return _no_store(HTMLResponse(_login_html()))
 
 
 @router.post("/admin-v2/login", include_in_schema=False)
-async def admin_v2_login(request: Request):
+async def admin_v2_login(request: Request, db: AsyncSession = Depends(get_db)):
     payload = await _read_login_payload(request)
     email = payload.get("email", "").strip().lower()
     password = payload.get("password", "")
@@ -257,10 +285,20 @@ async def admin_v2_login(request: Request):
     if not (valid_email and valid_password):
         return _no_store(HTMLResponse(_login_html("Credenciales invalidas."), status_code=401))
 
+    session_key = await register_access_session(
+        db,
+        company_id=None,
+        scope="admin_v2",
+        subject_id=None,
+        subject_label=email,
+        request=request,
+        enforce_policy=False,
+        metadata={"surface": "admin_v2"},
+    )
     response = RedirectResponse(url="/admin-v2", status_code=303)
     response.set_cookie(
         ADMIN_V2_COOKIE,
-        _create_session_token(email),
+        _create_session_token(email, session_key),
         max_age=_session_seconds(),
         httponly=True,
         secure=_is_secure_request(request),
@@ -271,16 +309,39 @@ async def admin_v2_login(request: Request):
 
 
 @router.post("/admin-v2/logout", include_in_schema=False)
-async def admin_v2_logout():
+async def admin_v2_logout(request: Request, db: AsyncSession = Depends(get_db)):
+    session_key = _session_key_from_request(request)
+    if session_key:
+        await close_access_session(db, session_key, "logout")
     response = RedirectResponse(url="/admin-v2/login", status_code=303)
     response.delete_cookie(ADMIN_V2_COOKIE, path="/")
     return response
 
 
+@router.get("/admin-v2/api/sessions", include_in_schema=False)
+async def admin_v2_sessions(request: Request, db: AsyncSession = Depends(get_db)):
+    await _require_admin_v2_session(request, db)
+    current = _session_key_from_request(request)
+    sessions = await list_access_sessions(db, company_id=None, scope="admin_v2", include_closed=True, limit=40)
+    return {
+        "ok": True,
+        "current_session": current,
+        "active": len([item for item in sessions if str(item.get("status") or "").lower() == "active"]),
+        "sessions": sessions,
+    }
+
+
+@router.post("/admin-v2/api/sessions/{session_key}/close", include_in_schema=False)
+async def admin_v2_close_session(session_key: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await _require_admin_v2_session(request, db)
+    closed = await close_access_session(db, session_key, "closed_from_admin_v2")
+    return {"ok": True, "closed": bool(closed), "closed_session": session_key}
+
+
 @router.get("/admin-v2", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/admin-v2/", response_class=HTMLResponse, include_in_schema=False)
-async def admin_v2_page(request: Request):
-    _require_admin_v2_session(request)
+async def admin_v2_page(request: Request, db: AsyncSession = Depends(get_db)):
+    await _require_admin_v2_session(request, db)
     html_path = WEB_DIR / "admin_v2.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="Admin Console V2 no encontrada")
@@ -288,8 +349,8 @@ async def admin_v2_page(request: Request):
 
 
 @router.get("/admin-v2.css", include_in_schema=False)
-async def admin_v2_css(request: Request):
-    _require_admin_v2_session(request)
+async def admin_v2_css(request: Request, db: AsyncSession = Depends(get_db)):
+    await _require_admin_v2_session(request, db)
     css_path = WEB_DIR / "admin_v2.css"
     if not css_path.exists():
         raise HTTPException(status_code=404, detail="CSS Admin V2 no encontrado")
@@ -297,8 +358,8 @@ async def admin_v2_css(request: Request):
 
 
 @router.get("/admin-v2.js", include_in_schema=False)
-async def admin_v2_js(request: Request):
-    _require_admin_v2_session(request)
+async def admin_v2_js(request: Request, db: AsyncSession = Depends(get_db)):
+    await _require_admin_v2_session(request, db)
     js_path = WEB_DIR / "admin_v2.js"
     if not js_path.exists():
         raise HTTPException(status_code=404, detail="JS Admin V2 no encontrado")
@@ -306,8 +367,8 @@ async def admin_v2_js(request: Request):
 
 
 @router.get("/admin-v2-assets/{asset_path:path}", include_in_schema=False)
-async def admin_v2_assets(request: Request, asset_path: str):
-    _require_admin_v2_session(request)
+async def admin_v2_assets(request: Request, asset_path: str, db: AsyncSession = Depends(get_db)):
+    await _require_admin_v2_session(request, db)
     safe_path = (ASSETS_DIR / asset_path).resolve()
     assets_root = ASSETS_DIR.resolve()
 
@@ -321,6 +382,6 @@ async def admin_v2_assets(request: Request, asset_path: str):
 
 
 @router.get("/admin-v2/ping", include_in_schema=False)
-async def admin_v2_ping(request: Request):
-    _require_admin_v2_session(request)
+async def admin_v2_ping(request: Request, db: AsyncSession = Depends(get_db)):
+    await _require_admin_v2_session(request, db)
     return _no_store(Response("OK", media_type="text/plain"))

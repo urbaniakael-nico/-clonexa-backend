@@ -12,6 +12,9 @@
     companyExperience: new Map(),
     companyBotConfigs: new Map(),
     companyAccessPolicies: new Map(),
+    companySessionPolicies: new Map(),
+    companyAccessSessions: new Map(),
+    adminV2Sessions: null,
     companyActivity: new Map(),
     companyResetPreviews: new Map(),
     companyResetBusy: false,
@@ -970,6 +973,333 @@
     }
   }
 
+  const SESSION_POLICY_SCOPES_026H = [
+    ["client", "Panel cliente", "/client", 2, 20],
+    ["mini_panel", "Mini paneles", "/mini-panel", 5, 100],
+  ];
+
+  function defaultSessionPolicy026H() {
+    return {
+      enabled: false,
+      mode: "replace_oldest",
+      scopes: Object.fromEntries(SESSION_POLICY_SCOPES_026H.map(([code, label, path, defaultMax]) => [
+        code,
+        { label, path, enabled: false, max_sessions: defaultMax },
+      ])),
+    };
+  }
+
+  function sessionPolicyForCompany026H(companyId) {
+    const current = state.companySessionPolicies.get(companyId);
+    if (current && !current.loading) {
+      const base = defaultSessionPolicy026H();
+      const scopes = current.scopes && typeof current.scopes === "object" ? current.scopes : {};
+      SESSION_POLICY_SCOPES_026H.forEach(([code, label, path, defaultMax]) => {
+        const scoped = scopes[code] || {};
+        base.scopes[code] = {
+          label: scoped.label || label,
+          path,
+          enabled: !!scoped.enabled,
+          max_sessions: Number(scoped.max_sessions || defaultMax),
+        };
+      });
+      return { ...base, ...current, scopes: base.scopes };
+    }
+    return current || defaultSessionPolicy026H();
+  }
+
+  async function loadCompanySessionPolicy026H(companyId, force = false) {
+    if (!companyId) return null;
+    if (!force && state.companySessionPolicies.has(companyId)) {
+      return state.companySessionPolicies.get(companyId);
+    }
+    try {
+      const data = await apiGet(`${API}/companies/${companyId}/session-policy`);
+      state.companySessionPolicies.set(companyId, data || defaultSessionPolicy026H());
+      return data || defaultSessionPolicy026H();
+    } catch (error) {
+      const fallback = { ...defaultSessionPolicy026H(), unavailable: true, error: error.message };
+      state.companySessionPolicies.set(companyId, fallback);
+      return fallback;
+    }
+  }
+
+  async function loadCompanyAccessSessions026H(companyId, force = false) {
+    if (!companyId) return null;
+    if (!force && state.companyAccessSessions.has(companyId)) {
+      return state.companyAccessSessions.get(companyId);
+    }
+    try {
+      const data = await apiGet(`${API}/companies/${companyId}/access-sessions?include_closed=true`);
+      state.companyAccessSessions.set(companyId, data || { sessions: [] });
+      return data || { sessions: [] };
+    } catch (error) {
+      const fallback = { sessions: [], unavailable: true, error: error.message };
+      state.companyAccessSessions.set(companyId, fallback);
+      return fallback;
+    }
+  }
+
+  async function loadAdminV2Sessions026H(force = false) {
+    if (!force && state.adminV2Sessions) return state.adminV2Sessions;
+    try {
+      state.adminV2Sessions = await apiGet("/admin-v2/api/sessions");
+      return state.adminV2Sessions;
+    } catch (error) {
+      state.adminV2Sessions = { sessions: [], unavailable: true, error: error.message };
+      return state.adminV2Sessions;
+    }
+  }
+
+  function sessionDate026H(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function sessionStatusBadge026H(status) {
+    const clean = String(status || "").toLowerCase();
+    if (clean === "active") return `<span class="cx-badge cx-badge-live">Activa</span>`;
+    return `<span class="cx-badge cx-badge-danger">Cerrada</span>`;
+  }
+
+  function sessionCountByScope026H(sessions, scope) {
+    return (sessions || []).filter((item) => (
+      String(item.scope || "") === scope
+      && String(item.status || "").toLowerCase() === "active"
+    )).length;
+  }
+
+  function renderSessionRows026H(companyId, sessions) {
+    const rows = (sessions || []).slice(0, 24);
+    if (!rows.length) {
+      return `<div class="cx-empty-state">No hay sesiones registradas todavia.</div>`;
+    }
+    return `
+      <div class="cx-session-list-026h">
+        ${rows.map((item) => {
+          const active = String(item.status || "").toLowerCase() === "active";
+          return `
+            <article class="cx-session-row-026h">
+              <div>
+                <strong>${escapeHtml(item.subject_label || item.scope || "Sesion")}</strong>
+                <small>${escapeHtml(item.scope || "")} · ${escapeHtml(item.ip_address || "sin IP")} · ${escapeHtml(sessionDate026H(item.last_seen_at))}</small>
+              </div>
+              <div class="cx-session-row-actions-026h">
+                ${sessionStatusBadge026H(item.status)}
+                <button class="cx-btn cx-btn-small" type="button" data-close-access-session="${escapeHtml(item.session_key)}" data-company-id="${escapeHtml(companyId)}" ${active ? "" : "disabled"}>Cerrar</button>
+              </div>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderCompanySessionAccess026H(company, policy, sessionPayload) {
+    const loading = policy?.loading || sessionPayload?.loading;
+    const sessions = Array.isArray(sessionPayload?.sessions) ? sessionPayload.sessions : [];
+    const activeTotal = sessions.filter((item) => String(item.status || "").toLowerCase() === "active").length;
+    const enabled = !!policy?.enabled;
+    const mode = policy?.mode || "replace_oldest";
+
+    return `
+      <section class="cx-panel" style="margin-top:18px">
+        <div class="cx-card-head">
+          <div>
+            <h3>Limite de sesiones por panel</h3>
+            <p>Controla cuantas sesiones activas puede tener esta empresa en portal cliente y mini paneles.</p>
+          </div>
+          <span class="cx-badge ${enabled ? "cx-badge-live" : ""}">${enabled ? "Limite activo" : "Sin limite"}</span>
+        </div>
+
+        ${loading ? `<div class="cx-empty-state">Cargando sesiones...</div>` : ""}
+        ${policy?.unavailable ? `<div class="cx-alert" style="display:block;margin:12px 0">No se pudo cargar politica de sesiones: ${escapeHtml(policy.error || "error")}</div>` : ""}
+        ${sessionPayload?.unavailable ? `<div class="cx-alert" style="display:block;margin:12px 0">No se pudo cargar sesiones: ${escapeHtml(sessionPayload.error || "error")}</div>` : ""}
+
+        <div class="cx-detail-grid" style="margin:14px 0">
+          <div class="cx-kv"><span>Sesiones activas</span><strong>${escapeHtml(activeTotal)}</strong></div>
+          <div class="cx-kv"><span>Modo al exceder</span><strong>${mode === "reject_new" ? "Rechazar nuevo login" : "Cerrar la mas antigua"}</strong></div>
+          ${SESSION_POLICY_SCOPES_026H.map(([code, label]) => `
+            <div class="cx-kv"><span>${escapeHtml(label)}</span><strong>${escapeHtml(sessionCountByScope026H(sessions, code))} abiertas</strong></div>
+          `).join("")}
+        </div>
+
+        <form class="cx-form" id="companySessionPolicyForm026H" data-company-id="${escapeHtml(company.id)}">
+          <label class="cx-reset-scope" style="margin:4px 0 10px">
+            <input name="enabled" type="checkbox" ${enabled ? "checked" : ""} />
+            <span>
+              <strong>Activar limite de sesiones</strong>
+              <small>Si esta apagado, solo se monitorean sesiones sin bloquear nuevos ingresos.</small>
+            </span>
+          </label>
+          <label>Cuando se supere el limite
+            <select name="mode">
+              <option value="replace_oldest" ${mode === "replace_oldest" ? "selected" : ""}>Cerrar automaticamente la sesion mas antigua</option>
+              <option value="reject_new" ${mode === "reject_new" ? "selected" : ""}>Rechazar el nuevo ingreso</option>
+            </select>
+          </label>
+          <div class="cx-session-scope-grid-026h">
+            ${SESSION_POLICY_SCOPES_026H.map(([code, label, path, defaultMax, max]) => {
+              const scoped = policy?.scopes?.[code] || {};
+              return `
+                <div class="cx-kv">
+                  <label class="cx-reset-scope" style="margin:0 0 10px">
+                    <input name="${escapeHtml(code)}_enabled" type="checkbox" ${scoped.enabled ? "checked" : ""} />
+                    <span>
+                      <strong>${escapeHtml(label)}</strong>
+                      <small>${escapeHtml(path)}</small>
+                    </span>
+                  </label>
+                  <label>Maximo de sesiones
+                    <input name="${escapeHtml(code)}_max" type="number" min="1" max="${escapeHtml(max)}" value="${escapeHtml(scoped.max_sessions || defaultMax)}" />
+                  </label>
+                </div>
+              `;
+            }).join("")}
+          </div>
+          <div class="cx-actions" style="gap:10px;flex-wrap:wrap">
+            <button class="cx-btn cx-btn-primary" type="submit">Guardar limites</button>
+            <button class="cx-btn" type="button" data-refresh-access-sessions="${escapeHtml(company.id)}">Actualizar sesiones</button>
+            <button class="cx-btn cx-btn-danger" type="button" data-close-company-sessions="${escapeHtml(company.id)}">Cerrar todas</button>
+          </div>
+        </form>
+
+        <div class="cx-session-panel-026h">
+          <div class="cx-access-section-head-026b">
+            <div>
+              <span class="cx-kicker">Sesiones</span>
+              <h3>Actividad reciente</h3>
+            </div>
+          </div>
+          ${renderSessionRows026H(company.id, sessions)}
+        </div>
+      </section>
+    `;
+  }
+
+  async function saveCompanySessionPolicy026H(companyId, event) {
+    event.preventDefault();
+    const data = new FormData(event.target);
+    const scopes = {};
+    SESSION_POLICY_SCOPES_026H.forEach(([code]) => {
+      scopes[code] = {
+        enabled: data.get(`${code}_enabled`) === "on",
+        max_sessions: Number(data.get(`${code}_max`) || 1),
+      };
+    });
+
+    try {
+      const policy = await apiPut(`${API}/companies/${companyId}/session-policy`, {
+        enabled: data.get("enabled") === "on",
+        mode: String(data.get("mode") || "replace_oldest"),
+        scopes,
+      });
+      state.companySessionPolicies.set(companyId, policy);
+      await loadCompanyAccessSessions026H(companyId, true);
+      showToast("Limites de sesiones guardados.");
+      const company = state.companies.find((c) => c.id === companyId);
+      if (company) renderCompanyDetailTab(company);
+    } catch (error) {
+      showToast(`No se pudo guardar limites de sesiones: ${error.message}`, "error");
+    }
+  }
+
+  async function refreshCompanySessions026H(companyId) {
+    await loadCompanyAccessSessions026H(companyId, true);
+    const company = state.companies.find((c) => c.id === companyId);
+    if (company && state.selectedCompanyId === companyId && state.activeDetailTab === "accesos") {
+      renderCompanyDetailTab(company);
+    }
+    showToast("Sesiones actualizadas.");
+  }
+
+  async function closeCompanySession026H(companyId, sessionKey) {
+    await apiPost(`${API}/companies/${companyId}/access-sessions/${sessionKey}/close`, {});
+    await loadCompanyAccessSessions026H(companyId, true);
+    const company = state.companies.find((c) => c.id === companyId);
+    if (company && state.selectedCompanyId === companyId && state.activeDetailTab === "accesos") {
+      renderCompanyDetailTab(company);
+    }
+    showToast("Sesion cerrada.");
+  }
+
+  async function closeAllCompanySessions026H(companyId) {
+    if (!window.confirm("Cerrar todas las sesiones activas de esta empresa?")) return;
+    await apiPost(`${API}/companies/${companyId}/access-sessions/close`, {});
+    await loadCompanyAccessSessions026H(companyId, true);
+    const company = state.companies.find((c) => c.id === companyId);
+    if (company && state.selectedCompanyId === companyId && state.activeDetailTab === "accesos") {
+      renderCompanyDetailTab(company);
+    }
+    showToast("Sesiones de la empresa cerradas.");
+  }
+
+  function renderAdminV2SessionMonitor026H() {
+    const payload = state.adminV2Sessions || { loading: true, sessions: [] };
+    const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+    const active = sessions.filter((item) => String(item.status || "").toLowerCase() === "active").length;
+    return `
+      <section class="cx-access-section-026b">
+        <div class="cx-access-section-head-026b">
+          <div>
+            <span class="cx-kicker">Admin V2</span>
+            <h3>Control de sesiones de la consola</h3>
+            <p class="cx-muted">Aqui ves y cierras accesos abiertos a la super consola.</p>
+          </div>
+          <button class="cx-btn cx-btn-small" type="button" data-refresh-admin-v2-sessions>Actualizar</button>
+        </div>
+        <div class="cx-access-summary-026b">
+          <div class="cx-kv"><span>Sesiones activas</span><strong>${escapeHtml(active)}</strong></div>
+          <div class="cx-kv"><span>Actual</span><strong>${escapeHtml(truncate(payload.current_session || "-", 14))}</strong></div>
+          <div class="cx-kv"><span>Historial mostrado</span><strong>${escapeHtml(sessions.length)}</strong></div>
+          <div class="cx-kv"><span>Estado</span><strong>${payload.unavailable ? "Error" : "OK"}</strong></div>
+        </div>
+        ${payload.unavailable ? `<div class="cx-alert" style="display:block;margin:10px 0">No se pudo cargar sesiones V2: ${escapeHtml(payload.error || "error")}</div>` : ""}
+        ${sessions.length ? `
+          <div class="cx-session-list-026h">
+            ${sessions.slice(0, 12).map((item) => {
+              const isCurrent = item.session_key === payload.current_session;
+              const activeRow = String(item.status || "").toLowerCase() === "active";
+              return `
+                <article class="cx-session-row-026h">
+                  <div>
+                    <strong>${escapeHtml(isCurrent ? "Esta consola" : (item.subject_label || "Admin V2"))}</strong>
+                    <small>${escapeHtml(item.ip_address || "sin IP")} · ${escapeHtml(sessionDate026H(item.last_seen_at))} · ${escapeHtml(truncate(item.session_key, 12))}</small>
+                  </div>
+                  <div class="cx-session-row-actions-026h">
+                    ${sessionStatusBadge026H(item.status)}
+                    <button class="cx-btn cx-btn-small" type="button" data-close-admin-v2-session="${escapeHtml(item.session_key)}" ${activeRow ? "" : "disabled"}>${isCurrent ? "Cerrar esta" : "Cerrar"}</button>
+                  </div>
+                </article>
+              `;
+            }).join("")}
+          </div>
+        ` : `<div class="cx-empty-state">No hay sesiones V2 registradas.</div>`}
+      </section>
+    `;
+  }
+
+  async function refreshAdminV2Sessions026H() {
+    await loadAdminV2Sessions026H(true);
+    if (state.activeView === "access") renderAccess();
+    showToast("Sesiones V2 actualizadas.");
+  }
+
+  async function closeAdminV2Session026H(sessionKey) {
+    const closesCurrent = sessionKey === state.adminV2Sessions?.current_session;
+    await apiPost(`/admin-v2/api/sessions/${sessionKey}/close`, {});
+    if (closesCurrent) {
+      showToast("Sesion V2 cerrada.");
+      window.location.href = "/admin-v2/login";
+      return;
+    }
+    await loadAdminV2Sessions026H(true);
+    if (state.activeView === "access") renderAccess();
+    showToast("Sesion V2 cerrada.");
+  }
+
   function telegramBotStatusBadge(config) {
     const status = String(config?.status || (config?.configured ? "configured" : "not_configured"));
     const label = config?.configured
@@ -1048,6 +1378,8 @@
   function renderCompanyAccessPanel(company) {
     const config = telegramConfig(company.id);
     const accessPolicy = accessPolicyForCompany026G(company.id);
+    const sessionPolicy = sessionPolicyForCompany026H(company.id);
+    const accessSessions = state.companyAccessSessions.get(company.id) || { sessions: [] };
     const botModuleCodes = moduleCodesForCompany(company.id);
     const botsEnabled = botModuleCodes.includes("bots");
     const botFlowCode = config?.flow_code || suggestedBotFlow(company);
@@ -1066,6 +1398,7 @@
       </div>
 
       ${renderCompanyIpAccessPolicy026G(company, accessPolicy)}
+      ${renderCompanySessionAccess026H(company, sessionPolicy, accessSessions)}
 
       <section class="cx-panel">
         <div class="cx-card-head">
@@ -3401,6 +3734,15 @@
       { title: "Landing", subtitle: "Web publica comercial", href: "https://clonexa-landing-production.up.railway.app/", badge: "landing" },
     ];
 
+    if (!state.adminV2Sessions) {
+      state.adminV2Sessions = { loading: true, sessions: [] };
+      loadAdminV2Sessions026H(true)
+        .then(() => {
+          if (state.activeView === "access") renderAccess();
+        })
+        .catch(() => null);
+    }
+
     grid.innerHTML = `
       <div class="cx-access-summary-026b">
         <div class="cx-kv"><span>Empresas visibles</span><strong>${escapeHtml(companies.length)}</strong></div>
@@ -3420,6 +3762,8 @@
           ${globalLinks.map(cxAccessLinkCard026B).join("")}
         </div>
       </section>
+
+      ${renderAdminV2SessionMonitor026H()}
 
       <section class="cx-access-section-026b">
         <div class="cx-access-section-head-026b">
@@ -5022,6 +5366,22 @@
           }
         });
       }
+      if (!state.companySessionPolicies.has(company.id)) {
+        state.companySessionPolicies.set(company.id, { ...defaultSessionPolicy026H(), loading: true });
+        loadCompanySessionPolicy026H(company.id, true).then(() => {
+          if (state.selectedCompanyId === company.id && state.activeDetailTab === "accesos") {
+            renderCompanyDetailTab(company);
+          }
+        });
+      }
+      if (!state.companyAccessSessions.has(company.id)) {
+        state.companyAccessSessions.set(company.id, { sessions: [], loading: true });
+        loadCompanyAccessSessions026H(company.id, true).then(() => {
+          if (state.selectedCompanyId === company.id && state.activeDetailTab === "accesos") {
+            renderCompanyDetailTab(company);
+          }
+        });
+      }
       node.innerHTML = renderCompanyAccessPanel(company);
       return;
     }
@@ -5992,6 +6352,40 @@
         return;
       }
 
+      const refreshAccessSessions = event.target.closest("[data-refresh-access-sessions]");
+      if (refreshAccessSessions) {
+        await refreshCompanySessions026H(refreshAccessSessions.dataset.refreshAccessSessions);
+        return;
+      }
+
+      const closeAccessSession = event.target.closest("[data-close-access-session]");
+      if (closeAccessSession) {
+        await closeCompanySession026H(closeAccessSession.dataset.companyId, closeAccessSession.dataset.closeAccessSession);
+        return;
+      }
+
+      const closeCompanySessions = event.target.closest("[data-close-company-sessions]");
+      if (closeCompanySessions) {
+        await closeAllCompanySessions026H(closeCompanySessions.dataset.closeCompanySessions);
+        return;
+      }
+
+      const refreshAdminV2Sessions = event.target.closest("[data-refresh-admin-v2-sessions]");
+      if (refreshAdminV2Sessions) {
+        await refreshAdminV2Sessions026H();
+        return;
+      }
+
+      const closeAdminV2Session = event.target.closest("[data-close-admin-v2-session]");
+      if (closeAdminV2Session) {
+        const sessionKey = closeAdminV2Session.dataset.closeAdminV2Session;
+        await closeAdminV2Session026H(sessionKey);
+        if (sessionKey === state.adminV2Sessions?.current_session) {
+          window.location.href = "/admin-v2/login";
+        }
+        return;
+      }
+
       const logout = event.target.closest("[data-admin-v2-logout]");
       if (logout) {
         await fetch("/admin-v2/logout", { method: "POST" }).catch(() => null);
@@ -6086,6 +6480,11 @@
       if (event.target.matches("#companyIpAccessPolicyForm026G")) {
         const companyId = event.target.dataset.companyId || state.selectedCompanyId;
         await saveCompanyAccessPolicy026G(companyId, event);
+      }
+
+      if (event.target.matches("#companySessionPolicyForm026H")) {
+        const companyId = event.target.dataset.companyId || state.selectedCompanyId;
+        await saveCompanySessionPolicy026H(companyId, event);
       }
     });
 
