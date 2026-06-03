@@ -349,8 +349,7 @@ async def admin_v2_page(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/admin-v2.css", include_in_schema=False)
-async def admin_v2_css(request: Request, db: AsyncSession = Depends(get_db)):
-    await _require_admin_v2_session(request, db)
+async def admin_v2_css():
     css_path = WEB_DIR / "admin_v2.css"
     if not css_path.exists():
         raise HTTPException(status_code=404, detail="CSS Admin V2 no encontrado")
@@ -358,8 +357,7 @@ async def admin_v2_css(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/admin-v2.js", include_in_schema=False)
-async def admin_v2_js(request: Request, db: AsyncSession = Depends(get_db)):
-    await _require_admin_v2_session(request, db)
+async def admin_v2_js():
     js_path = WEB_DIR / "admin_v2.js"
     if not js_path.exists():
         raise HTTPException(status_code=404, detail="JS Admin V2 no encontrado")
@@ -367,8 +365,7 @@ async def admin_v2_js(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/admin-v2-assets/{asset_path:path}", include_in_schema=False)
-async def admin_v2_assets(request: Request, asset_path: str, db: AsyncSession = Depends(get_db)):
-    await _require_admin_v2_session(request, db)
+async def admin_v2_assets(asset_path: str):
     safe_path = (ASSETS_DIR / asset_path).resolve()
     assets_root = ASSETS_DIR.resolve()
 
