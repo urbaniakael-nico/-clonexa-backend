@@ -285,6 +285,18 @@ async def admin_v2_login(request: Request, db: AsyncSession = Depends(get_db)):
     if not (valid_email and valid_password):
         return _no_store(HTMLResponse(_login_html("Credenciales invalidas."), status_code=401))
 
+    previous_sessions = await list_access_sessions(
+        db,
+        company_id=None,
+        scope="admin_v2",
+        include_closed=False,
+        limit=50,
+    )
+    for previous in previous_sessions:
+        previous_key = str(previous.get("session_key") or "")
+        if previous_key:
+            await close_access_session(db, previous_key, "replaced_by_new_admin_v2_login")
+
     session_key = await register_access_session(
         db,
         company_id=None,
