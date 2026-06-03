@@ -3525,7 +3525,7 @@
               <strong>${escapeHtml(company.name)}</strong>
               <p>${escapeHtml(company.slug)} Ã‚Â· ${escapeHtml(packageForCompany(company))}</p>
             </div>
-            <button class="cx-btn cx-btn-small" data-select-company="${escapeHtml(company.id)}" data-detail-tab="crm" type="button">Ver CRM</button>
+            <button class="cx-btn cx-btn-small" data-select-company="${escapeHtml(company.id)}" data-detail-tab="branding" type="button">Ver branding</button>
           </div>
           <div class="cx-actions">
             <span class="cx-badge">Preset: ${escapeHtml(branding.visual_preset || "Ã¢â‚¬â€")}</span>
@@ -3565,14 +3565,16 @@
 
     const tabs = [
       ["resumen", "Resumen"],
-      ["usuarios", "Acceso Maestro"],
       ["módulos", "Módulos"],
       ["paquete", "Paquete"],
       ["branding", "Branding"],
-      ["crm", "CRM"],
       ["accesos", "Accesos"],
       ["reset", "Reset operativo"],
     ];
+    const visibleTabKeys = new Set(tabs.map(([key]) => key));
+    if (!visibleTabKeys.has(state.activeDetailTab)) {
+      state.activeDetailTab = "resumen";
+    }
     const users = state.companyUsers.get(company.id);
     const ownerInfo = ownerAccessInfo(users);
     const modulesCount = moduleCodesForCompany(company.id).length;
@@ -3598,7 +3600,6 @@
           <div class="cx-command-actions">
             ${!isArchivedCompany(company) ? `<a class="cx-btn cx-btn-small" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer">Abrir /client</a>` : ""}
             <button class="cx-btn cx-btn-small" data-copy="${escapeHtml(company.id)}" type="button">Copiar ID</button>
-            <a class="cx-btn cx-btn-small" href="/admin" target="_blank" rel="noreferrer">Configurar CRM</a>
             <button class="cx-btn cx-btn-danger cx-btn-small" data-select-company="${escapeHtml(company.id)}" data-detail-tab="reset" type="button">Reset operativo</button>
             ${renderCompanyLifecycleActions(company, true)}
           </div>
@@ -4498,7 +4499,6 @@
             </div>
             <div class="cx-actions" style="margin-top:14px">
               <button class="cx-btn cx-btn-primary" data-select-company="${escapeHtml(company.id)}" data-detail-tab="módulos" type="button">Gestionar modulos</button>
-              <button class="cx-btn" data-select-company="${escapeHtml(company.id)}" data-detail-tab="usuarios" type="button">Acceso maestro</button>
               <button class="cx-btn cx-btn-danger" data-select-company="${escapeHtml(company.id)}" data-detail-tab="reset" type="button">Reset operativo</button>
             </div>
           </section>
@@ -5204,7 +5204,7 @@
         <button class="cx-btn cx-btn-small" data-copy="${escapeHtml(temporaryPassword || "")}" type="button">Copiar clave</button>
         <a class="cx-btn cx-btn-small" href="/login" target="_blank" rel="noreferrer">Abrir /login</a>
         <a class="cx-btn cx-btn-small" href="/client?company_id=${escapeHtml(company.id)}" target="_blank" rel="noreferrer">Abrir /client</a>
-        ${companyId ? `<button class="cx-btn cx-btn-small" data-select-company="${escapeHtml(companyId)}" data-detail-tab="usuarios" type="button">Ver Acceso Maestro</button>` : ""}
+        ${companyId ? `<button class="cx-btn cx-btn-small" data-master-access-company="${escapeHtml(companyId)}" type="button">Abrir Acceso Maestro</button>` : ""}
       </div>
     `;
   }
@@ -5287,9 +5287,6 @@
       await loadAdminDashboard();
       await loadCompanyUsers(companyId).catch(() => null);
       await selectCompany(companyId);
-      state.activeDetailTab = "usuarios";
-      const selected = state.companies.find((c) => c.id === companyId) || { ...company, id: companyId };
-      renderCompanyDetail(selected);
       renderCompanies();
 
       if (!ownerWarning) {
@@ -5618,7 +5615,7 @@
 
     const titles = {
       dashboard: ["Dashboard", "Control SaaS de empresas, actividad, alertas y salud operativa."],
-      companies: ["Empresas", "GestiÃƒÂ³n de tenants, paquetes, módulos, Acceso Maestro y CRM."],
+      companies: ["Empresas", "Gestion de tenants, paquetes, modulos y control operativo."],
       users: ["Acceso Maestro", "Usuario dueno/encargado, regeneracion de clave y desbloqueo."],
       packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
       modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
