@@ -202,6 +202,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "RTL",
         "is_transversal": False,
     },
+    "landing": {
+        "name": "Catálogo / Tienda pública",
+        "description": "Tienda pública ShopLink con catálogo, categorías, destacados, disponibilidad y botón WhatsApp.",
+        "category": "retail",
+        "category_label": "Comercial y retail",
+        "layer": "venta pública",
+        "module_type": "operational",
+        "badge": "LAN",
+        "is_transversal": False,
+    },
     "sales": {
         "name": "Ventas",
         "description": "Actividad comercial, ventas, conversión y resultados.",

@@ -695,6 +695,8 @@
     settings: ["Configuracion", "ajustes del tenant", "CFG"],
     production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
+    landing: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
+    shoplink: ["ShopLink", "catalogo publico por WhatsApp", "SHL"],
     sales: ["Ventas", "actividad comercial", "SAL"],
     stores: ["Tiendas", "puntos de venta", "STR"],
     orders: ["Pedidos", "creacion, seguimiento y estados", "ORD"],
@@ -16293,6 +16295,317 @@ function inventoryCreatePayload() {
   }
   /* CLONEXA_025U_ASSEMBLY_MODULE_END */
 
+  /* CLONEXA_026K_SHOPLINK_MODULE_START */
+  const CX_SHOPLINK_CODES_026K = new Set([
+    "landing",
+    "shoplink",
+    "catalogo_tienda_publica",
+    "catalogo_publico",
+    "tienda_publica",
+    "catalog_public"
+  ]);
+
+  function cxNormShoplink026K(value = "") {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function cxIsShoplinkCode026K(code = "") {
+    return CX_SHOPLINK_CODES_026K.has(cxNormShoplink026K(code));
+  }
+
+  function cxShoplinkStyles026K() {
+    let style = document.getElementById("cxShoplinkStyles026K");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "cxShoplinkStyles026K";
+      document.head.appendChild(style);
+    }
+    style.textContent = `
+      .shoplink-grid-026k{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:18px;align-items:start}
+      .shoplink-card-026k{border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.18));border-radius:22px;padding:22px;box-shadow:0 18px 48px rgba(0,0,0,.2)}
+      .shoplink-form-026k{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+      .shoplink-field-026k{display:flex;flex-direction:column;gap:8px}
+      .shoplink-field-026k label,.shoplink-checks-026k span{font-size:12px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+      .shoplink-field-026k input,.shoplink-field-026k textarea,.shoplink-field-026k select{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:15px;background:rgba(4,6,22,.72);color:var(--text);padding:13px 14px;font:inherit;font-weight:800}
+      .shoplink-field-026k textarea{min-height:96px;resize:vertical}
+      .shoplink-wide-026k{grid-column:1/-1}
+      .shoplink-checks-026k{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;grid-column:1/-1}
+      .shoplink-checks-026k label{border:1px solid rgba(255,255,255,.12);border-radius:15px;padding:12px;background:rgba(255,255,255,.06);display:flex;align-items:center;gap:10px;font-weight:900}
+      .shoplink-actions-026k{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+      .shoplink-kpis-026k{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+      .shoplink-kpi-026k{border:1px solid rgba(255,255,255,.11);border-radius:16px;background:rgba(0,0,0,.22);padding:14px}
+      .shoplink-kpi-026k b{display:block;font-size:28px;color:var(--accent)}
+      .shoplink-kpi-026k span{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:900}
+      .shoplink-url-026k{word-break:break-all;border:1px solid rgba(0,255,180,.2);border-radius:15px;background:rgba(0,0,0,.28);padding:14px;font-weight:900;color:var(--accent)}
+      .shoplink-preview-026k{margin-top:16px;border:1px solid rgba(255,255,255,.12);border-radius:20px;overflow:hidden;background:linear-gradient(135deg,rgba(255,45,190,.2),rgba(0,255,180,.16))}
+      .shoplink-preview-head-026k{min-height:130px;padding:20px;display:flex;align-items:flex-end;justify-content:space-between}
+      .shoplink-preview-head-026k h3{margin:0;font-size:28px}
+      .shoplink-pill-026k{display:inline-flex;border-radius:999px;padding:7px 11px;background:rgba(0,0,0,.25);font-weight:900;color:var(--accent)}
+      .shoplink-product-list-026k{display:grid;gap:10px;margin-top:14px;max-height:280px;overflow:auto;padding-right:5px}
+      .shoplink-product-026k{display:flex;justify-content:space-between;gap:12px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.2);border-radius:15px;padding:12px}
+      .shoplink-product-026k strong{display:block}
+      .shoplink-product-026k small{color:var(--muted);font-weight:800}
+      .shoplink-msg-026k{margin-top:12px;font-weight:900;color:var(--accent)}
+      @media(max-width:980px){.shoplink-grid-026k,.shoplink-form-026k{grid-template-columns:1fr}.shoplink-checks-026k,.shoplink-kpis-026k{grid-template-columns:1fr}}
+    `;
+  }
+
+  function cxShoplinkSplit026K(value = "") {
+    return String(value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function cxShoplinkJoin026K(value) {
+    return Array.isArray(value) ? value.join(", ") : String(value || "");
+  }
+
+  function cxShoplinkMoney026K(value, currency = "COP") {
+    const number = Number(value || 0);
+    if (!number) return "Por confirmar";
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: currency || "COP",
+      maximumFractionDigits: 0,
+    }).format(number);
+  }
+
+  function cxShoplinkPublicUrl026K(payload = {}) {
+    const url = payload.public_url || `/shoplink?company_id=${encodeURIComponent(state.companyId || "")}`;
+    return /^https?:\/\//i.test(url) ? url : `${window.location.origin}${url}`;
+  }
+
+  async function cxShoplinkLoad026K() {
+    if (!state.companyId) throw new Error("No hay empresa activa.");
+    return api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/settings`);
+  }
+
+  function cxShoplinkReadPayload026K() {
+    return {
+      public_enabled: !!$("shoplinkPublic026K")?.checked,
+      store_name: $("shoplinkStoreName026K")?.value || "",
+      headline: $("shoplinkHeadline026K")?.value || "",
+      description: $("shoplinkDescription026K")?.value || "",
+      whatsapp_number: $("shoplinkWhatsapp026K")?.value || "",
+      cta_message: $("shoplinkMessage026K")?.value || "",
+      show_prices: !!$("shoplinkPrices026K")?.checked,
+      show_stock: !!$("shoplinkStock026K")?.checked,
+      currency: $("shoplinkCurrency026K")?.value || "COP",
+      theme: $("shoplinkTheme026K")?.value || "shoplink_dark",
+      categories: cxShoplinkSplit026K($("shoplinkCategories026K")?.value || ""),
+      featured_terms: cxShoplinkSplit026K($("shoplinkFeatured026K")?.value || ""),
+      photos_per_category: Number($("shoplinkPhotos026K")?.value || 8),
+      hero_image_url: $("shoplinkHero026K")?.value || "",
+      logo_url: $("shoplinkLogo026K")?.value || "",
+    };
+  }
+
+  function cxShoplinkMessage026K(text, isError = false) {
+    const el = $("shoplinkMsg026K");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = isError ? "#ff7aa8" : "var(--accent)";
+  }
+
+  function cxShoplinkSampleProducts026K(payload = {}, settings = {}) {
+    const products = Array.isArray(payload.products) ? payload.products : [];
+    if (!products.length) {
+      return `<div class="shoplink-product-026k"><div><strong>Sin productos visibles</strong><small>Se alimenta desde Inventario y Referencias.</small></div></div>`;
+    }
+    return products.slice(0, 8).map((product) => `
+      <div class="shoplink-product-026k">
+        <div>
+          <strong>${h(product.name || "Producto")}</strong>
+          <small>${h(product.category || "General")} ${product.size ? `- ${h(product.size)}` : ""} ${product.color ? `- ${h(product.color)}` : ""}</small>
+        </div>
+        <div style="text-align:right">
+          <strong>${settings.show_prices === false ? "Consultar" : h(cxShoplinkMoney026K(product.price, settings.currency))}</strong>
+          <small>${settings.show_stock === false ? "" : `Stock ${h(product.stock || 0)}`}</small>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  async function renderShoplinkModule026K() {
+    cxShoplinkStyles026K();
+    let payload = null;
+    let error = "";
+    try {
+      payload = await cxShoplinkLoad026K();
+    } catch (err) {
+      error = err.message || "No se pudo cargar ShopLink.";
+      payload = { settings: {}, summary: {}, products: [], company: state.company || {} };
+    }
+    const company = payload.company || state.company || {};
+    const settings = payload.settings || {};
+    const summary = payload.summary || {};
+    const publicUrl = cxShoplinkPublicUrl026K(payload);
+    const activeCode = isClientModuleActive("landing") ? "landing" : "shoplink";
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${companyLogoMarkup()}</div>
+            <h2>${h(company.name || "CLONEXA")}</h2>
+            <p>${h(company.slug || "")}</p>
+            <nav class="client-nav">${renderClientNav(activeCode)}</nav>
+            <div class="tenant-pill">Tenant activo<br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <section class="client-hero">
+              <div>
+                <span class="eyebrow">CLONEXA ShopLink</span>
+                <h1>Catalogo / Tienda publica</h1>
+                <p>Configura una web publica para vender por estados, Instagram, WhatsApp o redes sin tocar la operacion estable.</p>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                <button class="client-btn" type="button" data-shoplink-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-shoplink-open>Abrir tienda</button>
+                <button class="client-btn" type="button" data-shoplink-copy>Copiar link</button>
+              </div>
+            </section>
+
+            ${error ? `<div class="shoplink-card-026k shoplink-msg-026k">${h(error)}</div>` : ""}
+            <section class="shoplink-grid-026k">
+              <article class="shoplink-card-026k">
+                <span class="eyebrow">Configuracion</span>
+                <h2>Publicacion del catalogo</h2>
+                <div class="shoplink-form-026k">
+                  <div class="shoplink-field-026k">
+                    <label>Nombre publico</label>
+                    <input id="shoplinkStoreName026K" value="${h(settings.store_name || company.name || "")}" placeholder="Ej: Mundo Case Store">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Moneda</label>
+                    <input id="shoplinkCurrency026K" value="${h(settings.currency || "COP")}" placeholder="COP">
+                  </div>
+                  <div class="shoplink-field-026k shoplink-wide-026k">
+                    <label>Titulo principal</label>
+                    <input id="shoplinkHeadline026K" value="${h(settings.headline || "")}" placeholder="Catalogo publico">
+                  </div>
+                  <div class="shoplink-field-026k shoplink-wide-026k">
+                    <label>Descripcion</label>
+                    <textarea id="shoplinkDescription026K" placeholder="Texto corto para la tienda">${h(settings.description || "")}</textarea>
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>WhatsApp atencion</label>
+                    <input id="shoplinkWhatsapp026K" value="${h(settings.whatsapp_number || "")}" placeholder="+573001234567">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Mensaje WhatsApp</label>
+                    <input id="shoplinkMessage026K" value="${h(settings.cta_message || "")}" placeholder="Hola, quiero consultar este producto:">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Categorias visibles</label>
+                    <input id="shoplinkCategories026K" value="${h(cxShoplinkJoin026K(settings.categories))}" placeholder="Tenis, Bolsos, Accesorios">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Destacados por palabra</label>
+                    <input id="shoplinkFeatured026K" value="${h(cxShoplinkJoin026K(settings.featured_terms))}" placeholder="nuevo, promo, oferta">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Fotos por categoria</label>
+                    <input id="shoplinkPhotos026K" type="number" min="1" max="40" value="${h(settings.photos_per_category || 8)}">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Estilo</label>
+                    <select id="shoplinkTheme026K">
+                      ${["shoplink_dark","shoplink_light","retail_neon","classic_store"].map((theme) => `<option value="${theme}" ${theme === settings.theme ? "selected" : ""}>${h(theme.replaceAll("_", " "))}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Logo URL</label>
+                    <input id="shoplinkLogo026K" value="${h(settings.logo_url || "")}" placeholder="https://...">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Hero imagen URL</label>
+                    <input id="shoplinkHero026K" value="${h(settings.hero_image_url || "")}" placeholder="https://...">
+                  </div>
+                  <div class="shoplink-checks-026k">
+                    <label><input id="shoplinkPublic026K" type="checkbox" ${settings.public_enabled !== false ? "checked" : ""}> <span>Publica</span></label>
+                    <label><input id="shoplinkPrices026K" type="checkbox" ${settings.show_prices !== false ? "checked" : ""}> <span>Precios</span></label>
+                    <label><input id="shoplinkStock026K" type="checkbox" ${settings.show_stock !== false ? "checked" : ""}> <span>Stock</span></label>
+                  </div>
+                </div>
+                <div class="shoplink-actions-026k">
+                  <button class="client-btn" type="button" data-shoplink-save>Guardar ShopLink</button>
+                  <button class="client-btn ghost" type="button" data-shoplink-open>Abrir tienda</button>
+                </div>
+                <div id="shoplinkMsg026K" class="shoplink-msg-026k"></div>
+              </article>
+
+              <article class="shoplink-card-026k">
+                <span class="eyebrow">Salida publica</span>
+                <h2>Link de tienda</h2>
+                <div class="shoplink-url-026k">${h(publicUrl)}</div>
+                <div class="shoplink-kpis-026k">
+                  <div class="shoplink-kpi-026k"><span>Productos</span><b>${h(summary.products || 0)}</b></div>
+                  <div class="shoplink-kpi-026k"><span>Categorias</span><b>${h(summary.categories || 0)}</b></div>
+                  <div class="shoplink-kpi-026k"><span>Destacados</span><b>${h(summary.featured || 0)}</b></div>
+                </div>
+                <div class="shoplink-preview-026k">
+                  <div class="shoplink-preview-head-026k">
+                    <div>
+                      <span class="shoplink-pill-026k">${settings.public_enabled === false ? "Oculta" : "Publica"}</span>
+                      <h3>${h(settings.store_name || company.name || "Tienda")}</h3>
+                      <p>${h(settings.headline || "Catalogo publico")}</p>
+                    </div>
+                    ${settings.logo_url ? `<img src="${h(settings.logo_url)}" alt="" style="width:70px;height:70px;border-radius:18px;object-fit:cover">` : ""}
+                  </div>
+                </div>
+                <h3>Primeros productos visibles</h3>
+                <div class="shoplink-product-list-026k">${cxShoplinkSampleProducts026K(payload, settings)}</div>
+              </article>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  async function cxShoplinkSave026K() {
+    try {
+      const payload = cxShoplinkReadPayload026K();
+      const saved = await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/settings`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      cxShoplinkMessage026K("ShopLink guardado. La tienda publica ya usa esta configuracion.");
+      setTimeout(() => renderShoplinkModule026K(), 450);
+      return saved;
+    } catch (error) {
+      cxShoplinkMessage026K(error.message || "No se pudo guardar ShopLink.", true);
+      return null;
+    }
+  }
+
+  async function cxShoplinkCopy026K() {
+    try {
+      const payload = await cxShoplinkLoad026K();
+      const url = cxShoplinkPublicUrl026K(payload);
+      await navigator.clipboard.writeText(url);
+      cxShoplinkMessage026K("Link copiado.");
+    } catch (error) {
+      cxShoplinkMessage026K(error.message || "No se pudo copiar el link.", true);
+    }
+  }
+
+  async function cxShoplinkOpen026K() {
+    try {
+      const payload = await cxShoplinkLoad026K();
+      window.open(cxShoplinkPublicUrl026K(payload), "_blank", "noopener");
+    } catch (error) {
+      cxShoplinkMessage026K(error.message || "No se pudo abrir la tienda.", true);
+    }
+  }
+  /* CLONEXA_026K_SHOPLINK_MODULE_END */
+
 async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -16350,6 +16663,14 @@ async function renderClientModulePlaceholder(code) {
       typeof renderAssemblyModule025U === "function"
     ) {
       return renderAssemblyModule025U(cxUniversalPlaceholderCode021DR1 || "asamblea");
+    }
+
+    if (
+      typeof cxIsShoplinkCode026K === "function" &&
+      cxIsShoplinkCode026K(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderShoplinkModule026K === "function"
+    ) {
+      return renderShoplinkModule026K();
     }
 
     if (
@@ -17702,6 +18023,26 @@ async function renderClientModulePlaceholder(code) {
         return;
       }
 
+      if (target.closest("[data-shoplink-save]")) {
+        await cxShoplinkSave026K();
+        return;
+      }
+
+      if (target.closest("[data-shoplink-refresh]")) {
+        await renderShoplinkModule026K();
+        return;
+      }
+
+      if (target.closest("[data-shoplink-copy]")) {
+        await cxShoplinkCopy026K();
+        return;
+      }
+
+      if (target.closest("[data-shoplink-open]")) {
+        await cxShoplinkOpen026K();
+        return;
+      }
+
       const moduleTrigger = target.closest("[data-client-module]");
       if (moduleTrigger) {
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
@@ -17730,6 +18071,11 @@ async function renderClientModulePlaceholder(code) {
 
         if (typeof cxIsAssemblyCode025U === "function" && cxIsAssemblyCode025U(code)) {
           await renderAssemblyModule025U(code);
+          return;
+        }
+
+        if (typeof cxIsShoplinkCode026K === "function" && cxIsShoplinkCode026K(code)) {
+          await renderShoplinkModule026K();
           return;
         }
 
