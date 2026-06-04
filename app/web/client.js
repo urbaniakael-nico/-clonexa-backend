@@ -967,7 +967,14 @@
 
   function buildClientHeroActions(modules = []) {
     const codes = clientModuleCodes(visibleClientModules(modules));
+    const shoplinkModule = visibleClientModules(modules).find((module) =>
+      typeof cxIsShoplinkModule026K === "function" && cxIsShoplinkModule026K(module)
+    );
     const actions = [];
+
+    if (shoplinkModule) {
+      actions.push({ label: "Abrir tienda", action: "shoplink:open" });
+    }
 
     if (typeof cxClientHasUniversalModule021D === "function" && cxClientHasUniversalModule021D(CX_UNIVERSAL_QUOTES_CODES_021D)) {
       actions.push({ label: "Cotizaciones", action: "quotes:open" });
@@ -17700,6 +17707,11 @@ async function renderClientModulePlaceholder(code) {
       const clientAction = target.closest("[data-client-action]");
       if (clientAction) {
         const action = String(clientAction.dataset.clientAction || "");
+
+        if (action === "shoplink:open") {
+          await renderShoplinkModule026K();
+          return;
+        }
 
         if (action === "quotes:open" && cxClientHasUniversalModule021D(CX_UNIVERSAL_QUOTES_CODES_021D)) {
           await renderClientUniversalQuotesModule021D("cotizaciones");
