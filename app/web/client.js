@@ -16432,6 +16432,11 @@ function inventoryCreatePayload() {
       .shoplink-product-026k{display:flex;justify-content:space-between;gap:12px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.2);border-radius:15px;padding:12px}
       .shoplink-product-026k strong{display:block}
       .shoplink-product-026k small{color:var(--muted);font-weight:800}
+      .shoplink-category-builder-026k{display:grid;gap:10px}
+      .shoplink-category-add-026k{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
+      .shoplink-category-chips-026k{display:flex;flex-wrap:wrap;gap:8px}
+      .shoplink-category-chip-026k{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.12);border-radius:999px;background:rgba(0,0,0,.22);padding:7px 10px;font-weight:900}
+      .shoplink-category-chip-026k button{border:0;background:rgba(255,255,255,.1);color:var(--text);border-radius:999px;width:22px;height:22px;font-weight:1000;cursor:pointer}
       .shoplink-order-row-026k{display:grid;grid-template-columns:1fr auto;gap:10px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.18);border-radius:15px;padding:12px;margin-top:10px}
       .shoplink-order-row-026k strong{display:block}
       .shoplink-order-row-026k small{color:var(--muted);font-weight:800}
@@ -16449,6 +16454,42 @@ function inventoryCreatePayload() {
 
   function cxShoplinkJoin026K(value) {
     return Array.isArray(value) ? value.join(", ") : String(value || "");
+  }
+
+  function cxShoplinkCategoryList026K() {
+    return cxShoplinkSplit026K($("shoplinkCategories026K")?.value || "");
+  }
+
+  function cxShoplinkRenderCategoryChips026K(categories = cxShoplinkCategoryList026K()) {
+    const wrap = $("shoplinkCategoryList026K");
+    if (!wrap) return;
+    wrap.innerHTML = categories.length
+      ? categories.map((category) => `
+        <span class="shoplink-category-chip-026k">
+          ${h(category)}
+          <button type="button" data-shoplink-category-remove="${h(category)}" aria-label="Quitar ${h(category)}">x</button>
+        </span>
+      `).join("")
+      : `<span class="client-muted">Sin categorias. Agrega la primera para alimentar Productos e Inventario.</span>`;
+    const hidden = $("shoplinkCategories026K");
+    if (hidden) hidden.value = cxShoplinkJoin026K(categories);
+  }
+
+  function cxShoplinkAddCategory026K() {
+    const input = $("shoplinkCategoryNew026K");
+    const next = String(input?.value || "").trim();
+    if (!next) return;
+    const categories = cxShoplinkCategoryList026K();
+    const exists = categories.some((category) => category.toLowerCase() === next.toLowerCase());
+    if (!exists) categories.push(next);
+    if (input) input.value = "";
+    cxShoplinkRenderCategoryChips026K(categories);
+  }
+
+  function cxShoplinkRemoveCategory026K(value = "") {
+    const removeKey = String(value || "").toLowerCase();
+    const categories = cxShoplinkCategoryList026K().filter((category) => category.toLowerCase() !== removeKey);
+    cxShoplinkRenderCategoryChips026K(categories);
   }
 
   function cxShoplinkMoney026K(value, currency = "COP") {
@@ -16487,7 +16528,7 @@ function inventoryCreatePayload() {
       theme: $("shoplinkTheme026K")?.value || "shoplink_dark",
       layout_mode: $("shoplinkLayout026K")?.value || "marketplace",
       accent_color: $("shoplinkAccent026K")?.value || "#ff7a00",
-      categories: cxShoplinkSplit026K($("shoplinkCategories026K")?.value || ""),
+      categories: cxShoplinkCategoryList026K(),
       featured_terms: cxShoplinkSplit026K($("shoplinkFeatured026K")?.value || ""),
       payment_methods: cxShoplinkSplit026K($("shoplinkPayments026K")?.value || ""),
       photos_per_category: Number($("shoplinkPhotos026K")?.value || 8),
@@ -16618,7 +16659,23 @@ function inventoryCreatePayload() {
                   </div>
                   <div class="shoplink-field-026k">
                     <label>Categorias visibles</label>
-                    <input id="shoplinkCategories026K" value="${h(cxShoplinkJoin026K(settings.categories))}" placeholder="Tenis, Bolsos, Accesorios">
+                    <div class="shoplink-category-builder-026k">
+                      <input id="shoplinkCategories026K" type="hidden" value="${h(cxShoplinkJoin026K(settings.categories))}">
+                      <div class="shoplink-category-add-026k">
+                        <input id="shoplinkCategoryNew026K" placeholder="Nueva categoria">
+                        <button class="client-btn ghost" type="button" data-shoplink-category-add>Agregar</button>
+                      </div>
+                      <div id="shoplinkCategoryList026K" class="shoplink-category-chips-026k">
+                        ${(settings.categories || []).length
+                          ? (settings.categories || []).map((category) => `
+                            <span class="shoplink-category-chip-026k">
+                              ${h(category)}
+                              <button type="button" data-shoplink-category-remove="${h(category)}" aria-label="Quitar ${h(category)}">x</button>
+                            </span>
+                          `).join("")
+                          : `<span class="client-muted">Sin categorias. Agrega una o varias.</span>`}
+                      </div>
+                    </div>
                   </div>
                   <div class="shoplink-field-026k">
                     <label>Destacados por palabra</label>
@@ -16769,6 +16826,7 @@ function inventoryCreatePayload() {
   ]);
 
   let cxSlProCurrentProduct026L = "";
+  let cxSlProSearch026L = "";
 
   function cxIsShoplinkProductsCode026L(code = "") {
     const normalized = cxNormShoplink026K(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -16818,9 +16876,9 @@ function inventoryCreatePayload() {
       document.head.appendChild(style);
     }
     style.textContent = `
-      .slpro-grid-026l{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(340px,.9fr);gap:18px;align-items:start}
+      .slpro-grid-026l{display:grid;grid-template-columns:1fr;gap:18px;align-items:start}
       .slpro-card-026l{border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.19));border-radius:22px;padding:22px;box-shadow:0 18px 48px rgba(0,0,0,.2)}
-      .slpro-form-026l{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+      .slpro-form-026l{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
       .slpro-field-026l{display:flex;flex-direction:column;gap:7px}
       .slpro-field-026l label,.slpro-checks-026l span{font-size:12px;font-weight:1000;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
       .slpro-field-026l input,.slpro-field-026l textarea,.slpro-field-026l select{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:15px;background:rgba(4,6,22,.72);color:var(--text);padding:13px 14px;font:inherit;font-weight:800}
@@ -16844,7 +16902,19 @@ function inventoryCreatePayload() {
       .slpro-badge-026l{display:inline-flex;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.09);font-size:11px;font-weight:1000;color:var(--accent)}
       .slpro-msg-026l{margin-top:12px;font-weight:900;color:var(--accent)}
       .slpro-empty-026l{border:1px dashed rgba(255,255,255,.16);border-radius:18px;padding:22px;background:rgba(0,0,0,.14)}
-      @media(max-width:980px){.slpro-grid-026l,.slpro-form-026l{grid-template-columns:1fr}.slpro-kpis-026l{grid-template-columns:1fr 1fr}}
+      .slpro-toolbar-026l{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;margin:12px 0 14px}
+      .slpro-toolbar-026l input{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:15px;background:rgba(4,6,22,.72);color:var(--text);padding:13px 14px;font:inherit;font-weight:800}
+      .slpro-table-026l{display:grid;gap:9px}
+      .slpro-list-row-026l{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(120px,.6fr) minmax(130px,.55fr) auto;gap:12px;align-items:center;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.18);border-radius:16px;padding:12px}
+      .slpro-list-row-026l.archived{opacity:.65}
+      .slpro-list-row-026l strong{display:block}
+      .slpro-list-row-026l small{display:block;color:var(--muted);font-weight:800}
+      .slpro-row-actions-026l{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+      .slpro-mini-btn-026l{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.07);color:var(--text);padding:8px 10px;font-weight:1000;cursor:pointer}
+      .slpro-mini-btn-026l.ok{color:var(--accent)}
+      .slpro-mini-btn-026l.danger{color:#ff7aa8}
+      @media(max-width:1100px){.slpro-form-026l{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media(max-width:760px){.slpro-grid-026l,.slpro-form-026l,.slpro-toolbar-026l,.slpro-list-row-026l{grid-template-columns:1fr}.slpro-kpis-026l{grid-template-columns:1fr 1fr}.slpro-row-actions-026l{justify-content:flex-start}}
     `;
   }
 
@@ -16874,27 +16944,46 @@ function inventoryCreatePayload() {
     ].join("");
   }
 
-  function cxSlProProductCards026L(payload = {}) {
+  function cxSlProFilteredProducts026L(payload = {}) {
     const products = Array.isArray(payload.products) ? payload.products : [];
+    const query = cxNormShoplink026K(cxSlProSearch026L);
+    if (!query) return products;
+    return products.filter((product) => cxNormShoplink026K([
+      product.name,
+      product.sku,
+      product.category,
+      product.size,
+      product.color,
+      product.price,
+      product.status,
+    ].filter(Boolean).join(" ")).includes(query));
+  }
+
+  function cxSlProProductList026L(payload = {}) {
+    const products = cxSlProFilteredProducts026L(payload);
     const currency = payload.settings?.currency || "COP";
     if (!products.length) {
-      return `<div class="slpro-empty-026l"><strong>Sin productos cargados</strong><p class="client-muted">Crea el primer producto usando las categorias de la tienda.</p></div>`;
+      return `<div class="slpro-empty-026l"><strong>Sin articulos</strong><p class="client-muted">Agrega el primer articulo o cambia el filtro de busqueda.</p></div>`;
     }
     return products.map((product) => `
-      <article class="slpro-product-026l">
-        <div class="slpro-thumb-026l">${product.image_url ? `<img src="${h(product.image_url)}" alt="${h(product.name)}">` : `<span>${h((product.name || "P").slice(0, 2).toUpperCase())}</span>`}</div>
-        <div class="slpro-body-026l">
-          <div class="slpro-row-026l">
-            <span class="slpro-badge-026l">${h(product.category || "General")}</span>
-            <span class="slpro-badge-026l">${product.published ? "Publico" : "Oculto"}</span>
-          </div>
-          <h3>${h(product.name || "Producto")}</h3>
-          <small>${h([product.sku, product.size, product.color].filter(Boolean).join(" / ") || "Sin variantes")}</small>
-          <div class="slpro-row-026l">
-            <strong>${h(cxSlProMoney026L(product.price, currency))}</strong>
-            <small>Stock ${h(product.stock || 0)}</small>
-          </div>
-          <button class="client-btn ghost" type="button" data-slpro-edit="${h(product.id)}">Editar</button>
+      <article class="slpro-list-row-026l ${product.archived ? "archived" : ""}">
+        <div>
+          <strong>${h(product.name || "Articulo")}</strong>
+          <small>${h(product.category || "General")} · ${product.published && !product.archived ? "Publicado" : product.archived ? "Archivado" : "Oculto"}</small>
+        </div>
+        <div>
+          <strong>${h(product.sku || "Sin SKU")}</strong>
+          <small>${h([product.size, product.color].filter(Boolean).join(" / ") || "Sin variante")}</small>
+        </div>
+        <div>
+          <strong>${h(cxSlProMoney026L(product.price, currency))}</strong>
+          <small>Stock ${h(product.stock || 0)}</small>
+        </div>
+        <div class="slpro-row-actions-026l">
+          <button class="slpro-mini-btn-026l" type="button" data-slpro-edit="${h(product.id)}">Editar</button>
+          ${(!product.published || product.archived) ? `<button class="slpro-mini-btn-026l ok" type="button" data-slpro-enable="${h(product.id)}">Habilitar</button>` : ""}
+          ${!product.archived ? `<button class="slpro-mini-btn-026l" type="button" data-slpro-archive="${h(product.id)}">Archivar</button>` : ""}
+          <button class="slpro-mini-btn-026l danger" type="button" data-slpro-delete="${h(product.id)}">Eliminar</button>
         </div>
       </article>
     `).join("");
@@ -16918,8 +17007,10 @@ function inventoryCreatePayload() {
     const category = document.getElementById("slProCategory026L");
     if (category) category.value = product.category || category.options?.[0]?.value || "General";
     const published = document.getElementById("slProPublished026L");
+    const archived = document.getElementById("slProArchived026L");
     const featured = document.getElementById("slProFeatured026L");
     if (published) published.checked = product.published !== false;
+    if (archived) archived.checked = Boolean(product.archived);
     if (featured) featured.checked = Boolean(product.featured);
     const file = document.getElementById("slProImageFile026L");
     if (file) file.value = "";
@@ -16939,6 +17030,7 @@ function inventoryCreatePayload() {
       image_url: $("slProImageUrl026L")?.value || "",
       inventory_item_id: $("slProInventory026L")?.value || "",
       published: !!$("slProPublished026L")?.checked,
+      archived: !!$("slProArchived026L")?.checked,
       featured: !!$("slProFeatured026L")?.checked,
     };
   }
@@ -17002,20 +17094,17 @@ function inventoryCreatePayload() {
 
             <section class="slpro-grid-026l">
               <article class="slpro-card-026l">
-                <span class="eyebrow">Producto vendible</span>
-                <h2>Crear o editar articulo</h2>
-                <p class="client-muted">Las categorias vienen de Catalogo / Tienda publica. Si creas una categoria alla, aparecera aqui.</p>
+                <span class="eyebrow">Articulo vendible</span>
+                <h2>Agregar articulo</h2>
+                <p class="client-muted">Las categorias vienen de Catalogo / Tienda publica. Agrega alla todas las categorias que necesites.</p>
                 <div class="slpro-form-026l">
                   <div class="slpro-field-026l">
-                    <label>Categoria tienda</label>
+                    <label>Seleccione categoria</label>
                     <select id="slProCategory026L">${cxSlProCategoryOptions026L(categories)}</select>
                   </div>
+                  <input id="slProInventory026L" type="hidden" value="">
                   <div class="slpro-field-026l">
-                    <label>Enlace inventario</label>
-                    <select id="slProInventory026L" data-slpro-inventory-select>${cxSlProInventoryOptions026L(inventoryItems)}</select>
-                  </div>
-                  <div class="slpro-field-026l slpro-wide-026l">
-                    <label>Nombre producto</label>
+                    <label>Nombre</label>
                     <input id="slProName026L" placeholder="Ej: Gorra Premium beige">
                   </div>
                   <div class="slpro-field-026l">
@@ -17023,7 +17112,7 @@ function inventoryCreatePayload() {
                     <input id="slProSku026L" placeholder="SKU o referencia">
                   </div>
                   <div class="slpro-field-026l">
-                    <label>Precio</label>
+                    <label>Precio unitario</label>
                     <input id="slProPrice026L" type="number" min="0" step="100" placeholder="0">
                   </div>
                   <div class="slpro-field-026l">
@@ -17031,7 +17120,7 @@ function inventoryCreatePayload() {
                     <input id="slProStock026L" type="number" min="0" step="1" placeholder="0">
                   </div>
                   <div class="slpro-field-026l">
-                    <label>Talla / variante</label>
+                    <label>Talla</label>
                     <input id="slProSize026L" placeholder="Unica, M, L...">
                   </div>
                   <div class="slpro-field-026l">
@@ -17043,30 +17132,35 @@ function inventoryCreatePayload() {
                     <textarea id="slProDescription026L" placeholder="Detalles visibles para el cliente"></textarea>
                   </div>
                   <div class="slpro-field-026l">
-                    <label>Foto archivo</label>
+                    <label>Cargar fotos</label>
                     <input id="slProImageFile026L" type="file" accept="image/png,image/jpeg,image/webp">
                   </div>
                   <div class="slpro-field-026l">
-                    <label>Foto URL</label>
+                    <label>Seleccionar foto URL</label>
                     <input id="slProImageUrl026L" placeholder="https://...">
                   </div>
                   <div class="slpro-checks-026l">
-                    <label><input id="slProPublished026L" type="checkbox" checked> <span>Publicado</span></label>
-                    <label><input id="slProFeatured026L" type="checkbox"> <span>Destacado</span></label>
+                    <label><input id="slProPublished026L" type="checkbox" checked> <span>Publicar</span></label>
+                    <label><input id="slProArchived026L" type="checkbox"> <span>Archivar</span></label>
+                    <label><input id="slProFeatured026L" type="checkbox"> <span>Promocionar</span></label>
                   </div>
                 </div>
                 <div class="slpro-actions-026l">
-                  <button class="client-btn" type="button" data-slpro-save>Guardar producto</button>
-                  <button class="client-btn ghost" type="button" data-slpro-reset>Nuevo</button>
+                  <button class="client-btn" type="button" data-slpro-save>Guardar articulo</button>
+                  <button class="client-btn ghost" type="button" data-slpro-reset>Nuevo articulo</button>
                 </div>
                 <div id="slProMsg026L" class="slpro-msg-026l"></div>
               </article>
 
-              <article class="slpro-card-026l">
-                <span class="eyebrow">Salida publica</span>
-                <h2>Productos en tienda</h2>
-                <p class="client-muted">Los productos publicados aparecen en ${h(cxShoplinkPublicUrl026K(payload))}.</p>
-                <div class="slpro-products-026l">${cxSlProProductCards026L(payload)}</div>
+              <article class="slpro-card-026l slpro-list-card-026l">
+                <span class="eyebrow">Inventario web</span>
+                <h2>Lista de articulos</h2>
+                <p class="client-muted">Los articulos publicados y no archivados aparecen en ${h(cxShoplinkPublicUrl026K(payload))}.</p>
+                <div class="slpro-toolbar-026l">
+                  <input id="slProSearch026L" data-slpro-search value="${h(cxSlProSearch026L)}" placeholder="Buscar por nombre, SKU, categoria o color">
+                  <button class="client-btn ghost" type="button" data-slpro-refresh>Actualizar</button>
+                </div>
+                <div class="slpro-table-026l">${cxSlProProductList026L(payload)}</div>
               </article>
             </section>
           </section>
@@ -17092,12 +17186,43 @@ function inventoryCreatePayload() {
         form.append("image", imageFile);
         await apiForm(`/shoplink/companies/${encodeURIComponent(state.companyId)}/products/${encodeURIComponent(productId)}/image`, form);
       }
-      cxSlProMessage026L("Producto guardado. La tienda publica ya puede usarlo.");
+      cxSlProMessage026L("Articulo guardado. La tienda publica ya puede usarlo.");
       cxSlProCurrentProduct026L = "";
       setTimeout(() => renderShoplinkProductsModule026L(), 500);
     } catch (error) {
-      cxSlProMessage026L(error.message || "No se pudo guardar el producto.", true);
+      cxSlProMessage026L(error.message || "No se pudo guardar el articulo.", true);
     }
+  }
+
+  async function cxSlProPatch026L(productId = "", data = {}) {
+    if (!productId) return null;
+    return api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/products/${encodeURIComponent(productId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async function cxSlProEnable026L(productId = "") {
+    await cxSlProPatch026L(productId, { published: true, archived: false });
+    await renderShoplinkProductsModule026L();
+    cxSlProMessage026L("Articulo habilitado.");
+  }
+
+  async function cxSlProArchive026L(productId = "") {
+    await cxSlProPatch026L(productId, { published: false, archived: true });
+    await renderShoplinkProductsModule026L();
+    cxSlProMessage026L("Articulo archivado.");
+  }
+
+  async function cxSlProDelete026L(productId = "") {
+    if (!productId) return;
+    if (!confirm("Eliminar este articulo? Esta accion lo borra de la tienda.")) return;
+    await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/products/${encodeURIComponent(productId)}`, {
+      method: "DELETE",
+    });
+    if (cxSlProCurrentProduct026L === productId) cxSlProCurrentProduct026L = "";
+    await renderShoplinkProductsModule026L();
+    cxSlProMessage026L("Articulo eliminado.");
   }
 
   function cxSlProEdit026L(productId = "") {
@@ -18575,6 +18700,17 @@ async function renderClientModulePlaceholder(code) {
         return;
       }
 
+      if (target.closest("[data-shoplink-category-add]")) {
+        cxShoplinkAddCategory026K();
+        return;
+      }
+
+      const shoplinkCategoryRemove = target.closest("[data-shoplink-category-remove]");
+      if (shoplinkCategoryRemove) {
+        cxShoplinkRemoveCategory026K(shoplinkCategoryRemove.getAttribute("data-shoplink-category-remove") || "");
+        return;
+      }
+
       if (target.closest("[data-slpro-save]")) {
         await cxSlProSave026L();
         return;
@@ -18594,6 +18730,24 @@ async function renderClientModulePlaceholder(code) {
       const slProEdit = target.closest("[data-slpro-edit]");
       if (slProEdit) {
         cxSlProEdit026L(slProEdit.getAttribute("data-slpro-edit") || "");
+        return;
+      }
+
+      const slProEnable = target.closest("[data-slpro-enable]");
+      if (slProEnable) {
+        await cxSlProEnable026L(slProEnable.getAttribute("data-slpro-enable") || "");
+        return;
+      }
+
+      const slProArchive = target.closest("[data-slpro-archive]");
+      if (slProArchive) {
+        await cxSlProArchive026L(slProArchive.getAttribute("data-slpro-archive") || "");
+        return;
+      }
+
+      const slProDelete = target.closest("[data-slpro-delete]");
+      if (slProDelete) {
+        await cxSlProDelete026L(slProDelete.getAttribute("data-slpro-delete") || "");
         return;
       }
 
@@ -19007,6 +19161,15 @@ async function renderClientModulePlaceholder(code) {
     });
 
     document.addEventListener("input", (event) => {
+      const slProSearch = event.target.closest("[data-slpro-search]");
+      if (slProSearch) {
+        cxSlProSearch026L = slProSearch.value || "";
+        const payload = window.__cxSlProPayload026L || {};
+        const list = document.querySelector(".slpro-table-026l");
+        if (list) list.innerHTML = cxSlProProductList026L(payload);
+        return;
+      }
+
       const personalInput = event.target.closest("[data-personal-search]");
       if (personalInput) {
         const query = String(personalInput.value || "").toLowerCase().trim();

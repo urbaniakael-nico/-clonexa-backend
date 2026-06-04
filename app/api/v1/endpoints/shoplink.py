@@ -68,6 +68,7 @@ class ShoplinkProductIn(BaseModel):
     image_url: str | None = ""
     inventory_item_id: str | None = ""
     published: bool | None = True
+    archived: bool | None = False
     featured: bool | None = False
 
 
@@ -171,6 +172,7 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
             image_file_size integer NOT NULL DEFAULT 0,
             inventory_item_id text NOT NULL DEFAULT '',
             published boolean NOT NULL DEFAULT true,
+            archived boolean NOT NULL DEFAULT false,
             featured boolean NOT NULL DEFAULT false,
             created_at timestamptz NOT NULL DEFAULT now(),
             updated_at timestamptz NOT NULL DEFAULT now()
@@ -191,6 +193,7 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_file_size integer NOT NULL DEFAULT 0",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS inventory_item_id text NOT NULL DEFAULT ''",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS published boolean NOT NULL DEFAULT true",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS featured boolean NOT NULL DEFAULT false",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()",
@@ -291,10 +294,11 @@ def _shoplink_product_out(row: dict[str, Any], public_id: bool = True) -> dict[s
         "description": _clean(row.get("description"), 700),
         "price": _money(row.get("price")),
         "stock": _money(row.get("stock")),
-        "status": "agotado" if _money(row.get("stock")) <= 0 else "disponible",
+        "status": "archivado" if bool(row.get("archived")) else ("agotado" if _money(row.get("stock")) <= 0 else "disponible"),
         "image_url": _image_url(row),
         "inventory_item_id": _clean(row.get("inventory_item_id"), 80),
         "published": bool(row.get("published")),
+        "archived": bool(row.get("archived")),
         "featured": bool(row.get("featured")),
         "has_image": bool(row.get("image_file_bytes") or row.get("image_url")),
         "image_file_size": int(row.get("image_file_size") or 0),
@@ -306,6 +310,7 @@ async def _shoplink_products(db: AsyncSession, company_id: str, public_only: boo
     where = ["company_id = :company_id"]
     if public_only:
         where.append("published IS TRUE")
+        where.append("archived IS NOT TRUE")
     result = await db.execute(
         text(f"""
             SELECT *
@@ -420,7 +425,10 @@ async def _reference_products(db: AsyncSession, company_id: str) -> list[dict[st
 
 
 async def _products(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
-    rows = await _shoplink_products(db, company_id, public_only=True)
+    managed_rows = await _shoplink_products(db, company_id, public_only=False)
+    if managed_rows:
+        return [row for row in managed_rows if row.get("published") and not row.get("archived")]
+    rows: list[dict[str, Any]] = []
     seen = {f"{r['name']}|{r['size']}|{r['color']}".lower() for r in rows}
     for row in await _inventory_products(db, company_id):
         key = f"{row['name']}|{row['size']}|{row['color']}".lower()
@@ -583,6 +591,7 @@ def _product_payload(payload: ShoplinkProductIn, current: dict[str, Any] | None 
         "image_url": _clean(data.get("image_url", current.get("image_url")), 1000),
         "inventory_item_id": _clean(data.get("inventory_item_id", current.get("inventory_item_id")), 80),
         "published": bool(data.get("published", current.get("published", True))),
+        "archived": bool(data.get("archived", current.get("archived", False))),
         "featured": bool(data.get("featured", current.get("featured", False))),
     }
 
@@ -595,7 +604,8 @@ async def get_shoplink_products(company_id: UUID, db: AsyncSession = Depends(get
     categories = _settings_categories(settings, products)
     summary = {
         "products": len(products),
-        "published": len([p for p in products if p.get("published")]),
+        "published": len([p for p in products if p.get("published") and not p.get("archived")]),
+        "archived": len([p for p in products if p.get("archived")]),
         "featured": len([p for p in products if p.get("featured")]),
         "with_photo": len([p for p in products if p.get("has_image")]),
         "low_stock": len([p for p in products if p.get("published") and _money(p.get("stock")) <= 3]),
@@ -627,12 +637,12 @@ async def create_shoplink_product(
         text("""
             INSERT INTO shoplink_products (
               id, company_id, category, name, sku, size, color, description,
-              price, stock, image_url, inventory_item_id, published, featured,
+              price, stock, image_url, inventory_item_id, published, archived, featured,
               created_at, updated_at
             )
             VALUES (
               :id, :company_id, :category, :name, :sku, :size, :color, :description,
-              :price, :stock, :image_url, :inventory_item_id, :published, :featured,
+              :price, :stock, :image_url, :inventory_item_id, :published, :archived, :featured,
               now(), now()
             )
             RETURNING *
@@ -675,6 +685,7 @@ async def update_shoplink_product(
                 image_url = :image_url,
                 inventory_item_id = :inventory_item_id,
                 published = :published,
+                archived = :archived,
                 featured = :featured,
                 updated_at = now()
             WHERE company_id = :company_id
@@ -685,6 +696,31 @@ async def update_shoplink_product(
     )
     await db.commit()
     return {"ok": True, "product": _shoplink_product_out(dict(result.mappings().first()), public_id=False)}
+
+
+@router.delete("/companies/{company_id}/products/{product_id}")
+async def delete_shoplink_product(
+    company_id: UUID,
+    product_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    await ensure_shoplink_storage(db)
+    raw_id = _clean(product_id.replace("shoplink:", ""), 80)
+    result = await db.execute(
+        text("""
+            DELETE FROM shoplink_products
+            WHERE company_id = :company_id
+              AND id = :id
+            RETURNING id
+        """),
+        {"company_id": company["id"], "id": raw_id},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+    await db.commit()
+    return {"ok": True, "deleted_id": raw_id}
 
 
 def _product_image_content_type(upload: UploadFile) -> str:
