@@ -17460,7 +17460,11 @@ function inventoryCreatePayload() {
     const orders = Array.isArray(payload.orders) ? payload.orders : [];
     const query = cxNormShoplink026K(cxSlCarSearch026M);
     return orders.filter((order) => {
-      const statusOk = cxSlCarStatus026M === "all" || String(order.status || "") === cxSlCarStatus026M;
+      const status = String(order.status || "");
+      const active = !["delivered", "archived", "cancelled"].includes(status);
+      const statusOk = cxSlCarStatus026M === "cancelled"
+        ? status === "cancelled"
+        : (cxSlCarStatus026M === "all" ? active : status === cxSlCarStatus026M);
       const text = cxNormShoplink026K([
         order.order_code,
         order.invoice_code,
@@ -17476,24 +17480,20 @@ function inventoryCreatePayload() {
   }
 
   function cxSlCarSummary026M(payload = {}) {
-    const orders = Array.isArray(payload.orders) ? payload.orders : [];
+    const orders = (Array.isArray(payload.orders) ? payload.orders : []).filter((order) => !["delivered", "archived", "cancelled"].includes(order.status));
     return {
       orders: orders.length,
-      pending: orders.filter((order) => ["new", "pending", "confirmed"].includes(order.status)).length,
-      separated: orders.filter((order) => order.status === "separated").length,
-      shipped: orders.filter((order) => ["shipped", "delivered"].includes(order.status)).length,
+      pending: orders.filter((order) => ["new", "pending", "confirmed", "separated"].includes(order.status)).length,
+      with_guide: orders.filter((order) => order.guide_url || order.guide_number || order.has_guide_file).length,
+      invoiced: orders.filter((order) => order.invoice_code || order.invoice_pdf_url).length,
       total_sales: orders.filter((order) => order.status !== "cancelled").reduce((sum, order) => sum + Number(order.total_amount || 0), 0),
     };
   }
 
   function cxSlCarStatusTabs026M() {
     const tabs = [
-      ["all", "Todos"],
+      ["all", "Activos"],
       ["new", "Nuevos"],
-      ["separated", "Separados"],
-      ["paid", "Pagados"],
-      ["shipped", "Enviados"],
-      ["delivered", "Entregados"],
       ["cancelled", "Cancelados"],
     ];
     return tabs.map(([status, label]) => `
@@ -17508,6 +17508,11 @@ function inventoryCreatePayload() {
 
   function cxSlCarInvoiceUrl026M(order = {}) {
     const url = order.invoice_url || `/api/v1/shoplink/companies/${encodeURIComponent(state.companyId || "")}/orders/${encodeURIComponent(order.id || "")}/invoice`;
+    return cxSlCarAbsoluteUrl026M(url);
+  }
+
+  function cxSlCarInvoicePdfUrl026M(order = {}) {
+    const url = order.invoice_pdf_url || `/api/v1/shoplink/companies/${encodeURIComponent(state.companyId || "")}/orders/${encodeURIComponent(order.id || "")}/invoice.pdf`;
     return cxSlCarAbsoluteUrl026M(url);
   }
 
@@ -17535,12 +17540,14 @@ function inventoryCreatePayload() {
 
   function cxSlCarPaymentMessage026M(order = {}, settings = {}) {
     const proofPhone = cxSlCarPaymentProofPhone026M(settings);
-    const proofLine = proofPhone ? `Envia el comprobante de pago a este WhatsApp: ${proofPhone}.` : "Quedamos atentos al comprobante de pago.";
+    const proofLine = proofPhone
+      ? `Envia el comprobante de pago al WhatsApp receptor de la empresa: ${proofPhone}.`
+      : "Envia el comprobante de pago al WhatsApp receptor de la empresa.";
     return [
       `Hola ${order.customer_name || ""}, recibimos tu pedido ${order.order_code || ""}.`,
       order.invoice_code ? `Factura: ${order.invoice_code}` : "",
       `Total a pagar: ${cxSlCarMoney026M(order.total_amount, order.currency || settings.currency || "COP")}.`,
-      `Factura para revisar/imprimir: ${cxSlCarInvoiceUrl026M(order)}`,
+      `Descarga tu factura PDF aqui: ${cxSlCarInvoicePdfUrl026M(order)}`,
       proofLine,
       "Apenas confirmemos el pago preparamos tu despacho.",
     ].filter(Boolean).join("\n");
@@ -17550,10 +17557,11 @@ function inventoryCreatePayload() {
     const orders = cxSlCarFilteredOrders026M(payload);
     if (!orders.length) {
       const totalOrders = (payload.orders || []).length;
+      const activeView = cxSlCarStatus026M === "all";
       return `<div class="slcar-empty-026m">
-        <strong>${totalOrders ? "Este filtro esta ocultando pedidos" : "Sin pedidos todavia"}</strong>
-        <p class="client-muted">${totalOrders ? "Cambia a Todos o Nuevos para ver los pedidos que ya entraron desde la tienda." : "Cuando un cliente finalice compra en la tienda publica, el pedido aparecera aqui como Nuevo pedido con factura automatica."}</p>
-        ${totalOrders ? `<button class="client-btn ghost" type="button" data-slcar-filter="all">Ver todos</button>` : ""}
+        <strong>${totalOrders ? (activeView ? "Sin pedidos activos" : "Este filtro esta ocultando pedidos") : "Sin pedidos todavia"}</strong>
+        <p class="client-muted">${totalOrders ? (activeView ? "Los pedidos entregados se archivan y dejan de aparecer en este panel activo." : "Cambia a Activos o Nuevos para ver pedidos pendientes de gestion.") : "Cuando un cliente finalice compra en la tienda publica, el pedido aparecera aqui como Nuevo pedido con factura automatica."}</p>
+        ${totalOrders && !activeView ? `<button class="client-btn ghost" type="button" data-slcar-filter="all">Ver activos</button>` : ""}
       </div>`;
     }
     return orders.map((order) => {
@@ -17598,15 +17606,9 @@ function inventoryCreatePayload() {
           ${order.has_guide_file ? `<small class="slcar-muted-026m">Guia adjunta: <a href="${h(guideFileUrl)}" target="_blank" rel="noopener">${h(order.guide_file_name || "Abrir guia")}</a></small>` : ""}
           <div class="slcar-actions-026m">
             <button class="slcar-mini-btn-026m ok" type="button" data-slcar-payment-wsp="${h(order.id)}">Cobrar WSP</button>
-            <button class="slcar-mini-btn-026m" type="button" data-slcar-invoice="${h(order.id)}">Factura</button>
-            <button class="slcar-mini-btn-026m" type="button" data-slcar-status="${h(order.id)}" data-status="confirmed">Confirmar</button>
-            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="separated">Separar</button>
-            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="paid">Pagado</button>
-            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="shipped">Enviado</button>
-            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="delivered">Entregado</button>
-            <button class="slcar-mini-btn-026m" type="button" data-slcar-save-guide="${h(order.id)}">Guardar guia</button>
             <button class="slcar-mini-btn-026m" type="button" data-slcar-upload-guide="${h(order.id)}">Adjuntar guia</button>
             <button class="slcar-mini-btn-026m ok" type="button" data-slcar-wsp-guide="${h(order.id)}">Enviar guia WSP</button>
+            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="delivered">Entregado</button>
             <button class="slcar-mini-btn-026m danger" type="button" data-slcar-status="${h(order.id)}" data-status="cancelled">Cancelar</button>
           </div>
         </article>
@@ -17657,7 +17659,7 @@ function inventoryCreatePayload() {
               <div>
                 <span class="eyebrow">CLONEXA ShopLink</span>
                 <h1>Carrito y pedidos web</h1>
-                <p>Gestiona compras, separados, factura, estados de envio y guia WhatsApp de la tienda publica.</p>
+                <p>Gestiona pedidos de la tienda publica, factura PDF, comprobantes de pago y envio de guia por WhatsApp.</p>
               </div>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
@@ -17668,33 +17670,33 @@ function inventoryCreatePayload() {
 
             ${error ? `<div class="slcar-card-026m slcar-msg-026m">${h(error)}</div>` : ""}
             <div class="slcar-kpis-026m">
-              <div class="slcar-kpi-026m"><span>Pedidos</span><b>${h(summary.orders || 0)}</b></div>
+              <div class="slcar-kpi-026m"><span>Activos</span><b>${h(summary.orders || 0)}</b></div>
               <div class="slcar-kpi-026m"><span>Pendientes</span><b>${h(summary.pending || 0)}</b></div>
-              <div class="slcar-kpi-026m"><span>Separados</span><b>${h(summary.separated || 0)}</b></div>
-              <div class="slcar-kpi-026m"><span>Enviados</span><b>${h(summary.shipped || 0)}</b></div>
-              <div class="slcar-kpi-026m"><span>Total</span><b>${h(cxSlCarMoney026M(summary.total_sales || 0, settings.currency || "COP"))}</b></div>
+              <div class="slcar-kpi-026m"><span>Con guia</span><b>${h(summary.with_guide || 0)}</b></div>
+              <div class="slcar-kpi-026m"><span>Facturas</span><b>${h(summary.invoiced || 0)}</b></div>
+              <div class="slcar-kpi-026m"><span>Total activo</span><b>${h(cxSlCarMoney026M(summary.total_sales || 0, settings.currency || "COP"))}</b></div>
             </div>
 
             <section class="slcar-grid-026m">
               <article class="slcar-card-026m">
                 <span class="eyebrow">Pedidos web</span>
-                <h2>Factura, separados y guia</h2>
+                <h2>Factura, comprobantes y guia</h2>
                 <p class="client-muted">Cada compra de ${h(cxShoplinkPublicUrl026K(payload))} entra aqui como Nuevo pedido con cliente, articulos, factura automatica y total a pagar.</p>
                 <div class="slcar-settings-026m">
                   <div class="slcar-settings-grid-026m">
-                    <label>WhatsApp comprobantes
+                    <label>WhatsApp receptor comprobantes
                       <input id="slCarProofWhatsapp026M" value="${h(settings.payment_proof_whatsapp || "")}" placeholder="+573001234567">
                     </label>
-                    <label>Mensaje QR comprobantes
+                    <label>Mensaje al abrir QR
                       <input id="slCarProofMessage026M" value="${h(settings.payment_proof_message || "Hola, envio el comprobante de pago de mi pedido:")}" placeholder="Texto al escanear el QR">
                     </label>
                     <div class="shoplink-actions-026k">
-                      <button class="client-btn" type="button" data-slcar-save-settings>Guardar comprobantes</button>
+                      <button class="client-btn" type="button" data-slcar-save-settings>Guardar receptor</button>
                     </div>
-                    <p class="client-muted">Este numero es donde llegaran los comprobantes de pago. El boton Cobrar WSP envia factura, total y solicitud de comprobante al cliente.</p>
+                    <p class="client-muted">Este es el numero receptor de la empresa o dueno. El QR abre ese WhatsApp para que el cliente envie el comprobante; Cobrar WSP envia factura PDF, total y solicitud de pago al cliente.</p>
                   </div>
                   <div class="slcar-qr-026m">
-                    ${proofQrUrl ? `<img src="${h(proofQrUrl)}" alt="QR WhatsApp comprobantes"><small class="slcar-muted-026m">QR comprobantes</small>` : `<small class="slcar-muted-026m">Registra el WhatsApp de comprobantes para generar el QR.</small>`}
+                    ${proofQrUrl ? `<img src="${h(proofQrUrl)}" alt="QR WhatsApp receptor de comprobantes"><small class="slcar-muted-026m">QR receptor comprobantes</small>` : `<small class="slcar-muted-026m">Registra el WhatsApp receptor para generar el QR.</small>`}
                   </div>
                 </div>
                 <div class="slcar-toolbar-026m">
@@ -17728,7 +17730,7 @@ function inventoryCreatePayload() {
         body: JSON.stringify(cxSlCarReadSettings026M()),
       });
       await renderShoplinkOrdersModule026M();
-      cxSlCarMessage026M("WhatsApp de comprobantes guardado.");
+      cxSlCarMessage026M("WhatsApp receptor de comprobantes guardado.");
     } catch (error) {
       cxSlCarMessage026M(error.message || "No se pudo guardar comprobantes.", true);
     }
@@ -17745,27 +17747,33 @@ function inventoryCreatePayload() {
     }
     const message = cxSlCarPaymentMessage026M(order, payload.settings || {});
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener");
-    cxSlCarMessage026M("Mensaje de cobro listo para WhatsApp.");
+    cxSlCarMessage026M("Cobro con factura PDF listo para WhatsApp.");
   }
 
-  async function cxSlCarUploadGuideFile026M(orderId = "", root = null) {
+  async function cxSlCarUploadGuideFile026M(orderId = "", root = null, repaint = true) {
     const scope = root?.closest?.("[data-slcar-order-row]") || document.querySelector(`[data-slcar-order-row="${orderId}"]`);
     const file = scope?.querySelector("[data-slcar-guide-file]")?.files?.[0];
     if (!file) {
       cxSlCarMessage026M("Selecciona el archivo de la guia antes de adjuntar.", true);
-      return;
+      return null;
     }
     const form = new FormData();
     form.append("guide_file", file);
-    await apiForm(`/shoplink/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(orderId)}/guide-file`, form);
-    await renderShoplinkOrdersModule026M();
-    cxSlCarMessage026M("Guia adjunta al pedido.");
+    const saved = await apiForm(`/shoplink/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(orderId)}/guide-file`, form);
+    if (repaint) {
+      await renderShoplinkOrdersModule026M();
+      cxSlCarMessage026M("Guia adjunta al pedido.");
+    }
+    return saved?.order || null;
   }
 
   async function cxSlCarSetStatus026M(orderId = "", status = "new") {
     await cxSlCarPatch026M(orderId, { status });
     await renderShoplinkOrdersModule026M();
-    cxSlCarMessage026M(`Pedido actualizado a ${cxSlCarStatusLabel026M(status)}.`);
+    const text = status === "delivered"
+      ? "Pedido entregado y archivado del panel activo."
+      : `Pedido actualizado a ${cxSlCarStatusLabel026M(status)}.`;
+    cxSlCarMessage026M(text);
   }
 
   async function cxSlCarSaveGuide026M(orderId = "", root = null, repaint = true) {
@@ -17779,9 +17787,14 @@ function inventoryCreatePayload() {
   }
 
   async function cxSlCarSendGuide026M(orderId = "", root = null) {
-    const order = cxSlCarOrderById026M(orderId);
+    let order = cxSlCarOrderById026M(orderId);
     if (!order) return;
+    const scope = root?.closest?.("[data-slcar-order-row]") || document.querySelector(`[data-slcar-order-row="${orderId}"]`);
     const guide = cxSlCarGuideData026M(orderId, root);
+    const selectedFile = scope?.querySelector("[data-slcar-guide-file]")?.files?.[0];
+    if (selectedFile) {
+      order = await cxSlCarUploadGuideFile026M(orderId, root, false) || order;
+    }
     if (!guide.guide_number && !guide.guide_url && !order.guide_file_url) {
       cxSlCarMessage026M("Agrega numero, URL o archivo de guia antes de enviar.", true);
       return;
@@ -17791,7 +17804,7 @@ function inventoryCreatePayload() {
       cxSlCarMessage026M("Este pedido no tiene telefono de WhatsApp.", true);
       return;
     }
-    await cxSlCarSaveGuide026M(orderId, root, false);
+    order = await cxSlCarSaveGuide026M(orderId, root, false) || order;
     const message = cxSlCarGuideMessage026M(order, guide);
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener");
     await renderShoplinkOrdersModule026M();

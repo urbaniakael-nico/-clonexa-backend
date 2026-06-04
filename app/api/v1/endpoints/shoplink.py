@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import re
 from html import escape
@@ -679,6 +680,7 @@ def _shoplink_order_out(row: dict[str, Any], company_id: str | None = None) -> d
         "order_code": order_code,
         "invoice_code": invoice_code,
         "invoice_url": f"/api/v1/shoplink/companies/{source_company_id}/orders/{order_id}/invoice",
+        "invoice_pdf_url": f"/api/v1/shoplink/companies/{source_company_id}/orders/{order_id}/invoice.pdf",
         "customer": customer,
         "customer_name": customer.get("name") or "",
         "customer_phone": customer.get("phone") or "",
@@ -819,6 +821,78 @@ def _shoplink_invoice_html(company: dict[str, Any], settings: dict[str, Any], or
   </main>
 </body>
 </html>"""
+
+
+def _shoplink_invoice_pdf(company: dict[str, Any], settings: dict[str, Any], order: dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfgen import canvas
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Motor PDF no disponible: {exc}") from exc
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    y = height - 54
+    currency = order.get("currency") or settings.get("currency") or "COP"
+    customer = order.get("customer") or {}
+    items = order.get("items") or []
+    store_name = _clean(settings.get("store_name") or company.get("name") or "Tienda CLONEXA", 120)
+
+    pdf.setFont("Helvetica-Bold", 20)
+    pdf.drawString(54, y, "Factura ShopLink")
+    pdf.setFont("Helvetica", 11)
+    pdf.drawRightString(width - 54, y + 4, _clean(order.get("invoice_code"), 60))
+    y -= 24
+    pdf.drawString(54, y, store_name)
+    pdf.drawRightString(width - 54, y, f"Pedido: {_clean(order.get('order_code'), 60)}")
+    y -= 34
+
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(54, y, "Cliente")
+    y -= 16
+    pdf.setFont("Helvetica", 10)
+    for line in [
+        f"Nombre: {_clean(customer.get('name'), 120)}",
+        f"Telefono: {_clean(customer.get('phone'), 40)}",
+        f"Ciudad: {_clean(customer.get('city'), 120)}",
+        f"Direccion: {_clean(customer.get('address'), 220)}",
+    ]:
+        pdf.drawString(54, y, line)
+        y -= 14
+    y -= 12
+
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawString(54, y, "Articulo")
+    pdf.drawRightString(370, y, "Cant.")
+    pdf.drawRightString(470, y, "Unitario")
+    pdf.drawRightString(width - 54, y, "Subtotal")
+    y -= 8
+    pdf.line(54, y, width - 54, y)
+    y -= 16
+    pdf.setFont("Helvetica", 10)
+    for item in items:
+        if y < 100:
+            pdf.showPage()
+            y = height - 54
+            pdf.setFont("Helvetica", 10)
+        name = _clean(item.get("name") or "Articulo", 64)
+        sku = _clean(item.get("sku"), 32)
+        pdf.drawString(54, y, f"{name}{f' / {sku}' if sku else ''}")
+        pdf.drawRightString(370, y, str(item.get("qty") or 1))
+        pdf.drawRightString(470, y, _format_invoice_money(item.get("unit_price"), currency))
+        pdf.drawRightString(width - 54, y, _format_invoice_money(item.get("subtotal"), currency))
+        y -= 18
+    y -= 8
+    pdf.line(54, y, width - 54, y)
+    y -= 28
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawRightString(width - 54, y, f"Total {_format_invoice_money(order.get('total_amount'), currency)}")
+    y -= 32
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(54, y, "Documento generado automaticamente desde CLONEXA ShopLink.")
+    pdf.save()
+    return buffer.getvalue()
 
 
 def _guide_file_content_type(upload: UploadFile) -> str:
@@ -1115,6 +1189,40 @@ async def get_shoplink_order_invoice(
         await db.commit()
     order = _shoplink_order_out(current, company["id"])
     return Response(content=_shoplink_invoice_html(company, settings, order), media_type="text/html")
+
+
+@router.get("/companies/{company_id}/orders/{order_id}/invoice.pdf")
+async def get_shoplink_order_invoice_pdf(
+    company_id: UUID,
+    order_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    current = await _shoplink_order_by_id(db, company["id"], order_id)
+    invoice_code = _clean(current.get("invoice_code"), 60) or _invoice_code_for_order(current.get("order_code"))
+    if not _clean(current.get("invoice_code"), 60):
+        result = await db.execute(
+            text("""
+                UPDATE shoplink_orders
+                SET invoice_code = :invoice_code,
+                    invoiced_at = COALESCE(invoiced_at, now()),
+                    updated_at = now()
+                WHERE company_id = :company_id
+                  AND id = :id
+                RETURNING *
+            """),
+            {"company_id": company["id"], "id": _clean(order_id, 80), "invoice_code": invoice_code},
+        )
+        current = dict(result.mappings().first() or current)
+        await db.commit()
+    order = _shoplink_order_out(current, company["id"])
+    filename = re.sub(r"[^A-Za-z0-9_.-]+", "_", _clean(order.get("invoice_code"), 80)) or "factura_shoplink"
+    return Response(
+        content=_shoplink_invoice_pdf(company, settings, order),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
+    )
 
 
 @router.post("/companies/{company_id}/orders/{order_id}/guide-file")
@@ -1606,6 +1714,7 @@ async def create_shoplink_order(
         "order_code": order_code,
         "invoice_code": invoice_code,
         "invoice_url": f"/api/v1/shoplink/companies/{company['id']}/orders/{order_id}/invoice",
+        "invoice_pdf_url": f"/api/v1/shoplink/companies/{company['id']}/orders/{order_id}/invoice.pdf",
         "status": "new",
         "total_amount": total,
         "currency": currency,
