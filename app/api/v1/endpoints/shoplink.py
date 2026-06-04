@@ -17,6 +17,8 @@ router = APIRouter()
 MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_PRODUCT_IMAGES = 3
 ALLOWED_PRODUCT_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_GUIDE_FILE_BYTES = 8 * 1024 * 1024
+ALLOWED_GUIDE_FILE_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
 
 
 class ShoplinkSettingsIn(BaseModel):
@@ -28,6 +30,8 @@ class ShoplinkSettingsIn(BaseModel):
     cta_message: str | None = ""
     checkout_enabled: bool | None = True
     support_whatsapp_enabled: bool | None = False
+    payment_proof_whatsapp: str | None = ""
+    payment_proof_message: str | None = ""
     show_prices: bool | None = True
     show_stock: bool | None = True
     currency: str | None = "COP"
@@ -101,6 +105,8 @@ def _settings_defaults(company: dict[str, Any] | None = None) -> dict[str, Any]:
         "description": "Explora productos, arma tu carrito y haz tu pedido en la web.",
         "whatsapp_number": "",
         "cta_message": "Hola, necesito ayuda con mi pedido:",
+        "payment_proof_whatsapp": "",
+        "payment_proof_message": "Hola, envio el comprobante de pago de mi pedido:",
         "show_prices": True,
         "show_stock": True,
         "currency": "COP",
@@ -159,6 +165,10 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
             guide_number text NOT NULL DEFAULT '',
             guide_url text NOT NULL DEFAULT '',
             guide_note text NOT NULL DEFAULT '',
+            guide_file_name text NOT NULL DEFAULT '',
+            guide_file_content_type text NOT NULL DEFAULT '',
+            guide_file_bytes bytea NULL,
+            guide_file_size integer NOT NULL DEFAULT 0,
             source text NOT NULL DEFAULT 'shoplink_public',
             created_at timestamptz NOT NULL DEFAULT now(),
             invoiced_at timestamptz NULL,
@@ -171,6 +181,10 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_number text NOT NULL DEFAULT ''",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_url text NOT NULL DEFAULT ''",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_note text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_file_name text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_file_content_type text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_file_bytes bytea NULL",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_file_size integer NOT NULL DEFAULT 0",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS invoiced_at timestamptz NULL",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS separated_at timestamptz NULL",
     ]:
@@ -289,6 +303,8 @@ async def _settings(db: AsyncSession, company: dict[str, Any]) -> dict[str, Any]
         "cta_message": "Hola, necesito ayuda con mi pedido:",
         "checkout_enabled": True,
         "support_whatsapp_enabled": False,
+        "payment_proof_whatsapp": "",
+        "payment_proof_message": "Hola, envio el comprobante de pago de mi pedido:",
         "theme": "marketplace_pop",
         "layout_mode": "marketplace",
         "accent_color": "#ff7a00",
@@ -679,6 +695,13 @@ def _shoplink_order_out(row: dict[str, Any], company_id: str | None = None) -> d
         "guide_number": _clean(row.get("guide_number"), 120),
         "guide_url": _clean(row.get("guide_url"), 500),
         "guide_note": _clean(row.get("guide_note"), 500),
+        "guide_file_name": _clean(row.get("guide_file_name"), 180),
+        "guide_file_size": int(row.get("guide_file_size") or 0),
+        "has_guide_file": bool(row.get("guide_file_bytes")),
+        "guide_file_url": (
+            f"/api/v1/shoplink/companies/{source_company_id}/orders/{order_id}/guide-file"
+            if row.get("guide_file_bytes") else ""
+        ),
         "source": row.get("source") or "shoplink_public",
         "created_at": str(row.get("created_at") or ""),
         "updated_at": str(row.get("updated_at") or ""),
@@ -796,6 +819,37 @@ def _shoplink_invoice_html(company: dict[str, Any], settings: dict[str, Any], or
   </main>
 </body>
 </html>"""
+
+
+def _guide_file_content_type(upload: UploadFile) -> str:
+    content_type = (upload.content_type or "").strip().lower()
+    filename = (upload.filename or "").strip().lower()
+    if content_type in ALLOWED_GUIDE_FILE_TYPES:
+        return content_type
+    if filename.endswith(".pdf"):
+        return "application/pdf"
+    if filename.endswith(".jpg") or filename.endswith(".jpeg"):
+        return "image/jpeg"
+    if filename.endswith(".png"):
+        return "image/png"
+    if filename.endswith(".webp"):
+        return "image/webp"
+    raise HTTPException(status_code=422, detail="Guia invalida. Usa PDF, JPG, PNG o WEBP.")
+
+
+async def _read_guide_file_upload(upload: UploadFile) -> dict[str, Any]:
+    content_type = _guide_file_content_type(upload)
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="Guia vacia.")
+    if len(content) > MAX_GUIDE_FILE_BYTES:
+        raise HTTPException(status_code=422, detail="La guia supera 8 MB.")
+    return {
+        "content_type": content_type,
+        "content": content,
+        "name": _clean(upload.filename or "guia_envio", 180) or "guia_envio",
+        "size": len(content),
+    }
 
 
 async def _managed_shoplink_products(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
@@ -1061,6 +1115,62 @@ async def get_shoplink_order_invoice(
         await db.commit()
     order = _shoplink_order_out(current, company["id"])
     return Response(content=_shoplink_invoice_html(company, settings, order), media_type="text/html")
+
+
+@router.post("/companies/{company_id}/orders/{order_id}/guide-file")
+async def upload_shoplink_order_guide_file(
+    company_id: UUID,
+    order_id: str,
+    guide_file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    await ensure_shoplink_storage(db)
+    await _shoplink_order_by_id(db, company["id"], order_id)
+    upload = await _read_guide_file_upload(guide_file)
+    result = await db.execute(
+        text("""
+            UPDATE shoplink_orders
+            SET guide_file_name = :guide_file_name,
+                guide_file_content_type = :guide_file_content_type,
+                guide_file_bytes = :guide_file_bytes,
+                guide_file_size = :guide_file_size,
+                updated_at = now()
+            WHERE company_id = :company_id
+              AND id = :id
+            RETURNING *
+        """),
+        {
+            "company_id": company["id"],
+            "id": _clean(order_id, 80),
+            "guide_file_name": upload["name"],
+            "guide_file_content_type": upload["content_type"],
+            "guide_file_bytes": upload["content"],
+            "guide_file_size": upload["size"],
+        },
+    )
+    row = result.mappings().first()
+    await db.commit()
+    return {"ok": True, "order": _shoplink_order_out(dict(row), company["id"])}
+
+
+@router.get("/companies/{company_id}/orders/{order_id}/guide-file")
+async def get_shoplink_order_guide_file(
+    company_id: UUID,
+    order_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    company = await _company(db, company_id)
+    current = await _shoplink_order_by_id(db, company["id"], order_id)
+    content = current.get("guide_file_bytes")
+    if not content:
+        raise HTTPException(status_code=404, detail="Guia no adjunta.")
+    filename = re.sub(r"[^A-Za-z0-9_.-]+", "_", _clean(current.get("guide_file_name"), 180)) or "guia_envio"
+    return Response(
+        content=content,
+        media_type=current.get("guide_file_content_type") or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/companies/{company_id}/products")
@@ -1354,6 +1464,8 @@ async def save_shoplink_settings(
     settings["delivery_notes"] = _clean(settings.get("delivery_notes"), 500)
     settings["whatsapp_number"] = re.sub(r"[^0-9+]", "", _clean(settings.get("whatsapp_number"), 40))
     settings["cta_message"] = _clean(settings.get("cta_message"), 180)
+    settings["payment_proof_whatsapp"] = re.sub(r"[^0-9+]", "", _clean(settings.get("payment_proof_whatsapp"), 40))
+    settings["payment_proof_message"] = _clean(settings.get("payment_proof_message"), 220)
     settings["checkout_enabled"] = bool(settings.get("checkout_enabled", True))
     settings["support_whatsapp_enabled"] = bool(settings.get("support_whatsapp_enabled", False))
     settings["show_prices"] = bool(settings.get("show_prices", True))
