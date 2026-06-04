@@ -706,6 +706,11 @@
     productos_e_inventario_landing: ["Productos e Inventario / Landing", "productos, fotos, precios y stock ShopLink", "PRO"],
     products_inventory_landing: ["Productos e Inventario / Landing", "productos, fotos, precios y stock ShopLink", "PRO"],
     product_inventory: ["Productos e Inventario / Landing", "productos, fotos, precios y stock ShopLink", "PRO"],
+    car: ["Carrito y Pedidos / Landing", "pedidos, factura y guia WhatsApp", "CAR"],
+    carrito_y_pedidos_landing: ["Carrito y Pedidos / Landing", "pedidos, factura y guia WhatsApp", "CAR"],
+    carrito_pedidos_landing: ["Carrito y Pedidos / Landing", "pedidos, factura y guia WhatsApp", "CAR"],
+    cart_orders_landing: ["Carrito y Pedidos / Landing", "pedidos, factura y guia WhatsApp", "CAR"],
+    shoplink_orders: ["Carrito y Pedidos / Landing", "pedidos, factura y guia WhatsApp", "CAR"],
     sales: ["Ventas", "actividad comercial", "SAL"],
     stores: ["Tiendas", "puntos de venta", "STR"],
     orders: ["Pedidos", "creacion, seguimiento y estados", "ORD"],
@@ -17288,6 +17293,376 @@ function inventoryCreatePayload() {
   }
   /* CLONEXA_026K_R7_SHOPLINK_PRODUCTS_END */
 
+  /* CLONEXA_026K_R11_SHOPLINK_ORDERS_START */
+  const CX_SLCAR_CODES_026M = new Set([
+    "car",
+    "carrito_y_pedidos_landing",
+    "carrito_pedidos_landing",
+    "cart_orders_landing",
+    "shoplink_orders",
+    "pedidos_shoplink",
+  ]);
+
+  let cxSlCarSearch026M = "";
+  let cxSlCarStatus026M = "all";
+
+  function cxIsShoplinkOrdersCode026M(code = "") {
+    const normalized = cxNormShoplink026K(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return CX_SLCAR_CODES_026M.has(normalized);
+  }
+
+  function cxShoplinkOrdersText026M(module = {}) {
+    const raw = module.raw || {};
+    const rawModule = raw.module && typeof raw.module === "object" ? raw.module : {};
+    return [
+      module.code,
+      module.badge,
+      module.title,
+      module.subtitle,
+      raw.code,
+      raw.name,
+      raw.title,
+      raw.description,
+      rawModule.code,
+      rawModule.name,
+      rawModule.title,
+      rawModule.description,
+    ].map(cxNormShoplink026K).filter(Boolean).join(" ");
+  }
+
+  function cxIsShoplinkOrdersModule026M(module = {}) {
+    const text = cxShoplinkOrdersText026M(module);
+    const code = cxNormShoplink026K(module.code || module.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return (
+      cxIsShoplinkOrdersCode026M(code) ||
+      (text.includes("carrito") && text.includes("pedido")) ||
+      (text.includes("pedido") && text.includes("factura")) ||
+      (text.includes("cart") && text.includes("order"))
+    );
+  }
+
+  function cxSlCarActiveCode026M() {
+    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkOrdersModule026M);
+    return module?.code || "car";
+  }
+
+  function cxSlCarStyles026M() {
+    let style = document.getElementById("cxSlCarStyles026M");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "cxSlCarStyles026M";
+      document.head.appendChild(style);
+    }
+    style.textContent = `
+      .slcar-grid-026m{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+      .slcar-card-026m{border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.18));border-radius:22px;padding:22px;box-shadow:0 18px 48px rgba(0,0,0,.2)}
+      .slcar-kpis-026m{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:14px 0}
+      .slcar-kpi-026m{border:1px solid rgba(255,255,255,.11);border-radius:16px;background:rgba(0,0,0,.22);padding:14px}
+      .slcar-kpi-026m b{display:block;font-size:25px;color:var(--accent)}
+      .slcar-kpi-026m span{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:1000}
+      .slcar-toolbar-026m{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;margin:12px 0 16px}
+      .slcar-toolbar-026m input,.slcar-guide-grid-026m input{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:15px;background:rgba(4,6,22,.72);color:var(--text);padding:13px 14px;font:inherit;font-weight:800}
+      .slcar-status-tabs-026m{display:flex;flex-wrap:wrap;gap:8px}
+      .slcar-tab-026m{border:1px solid rgba(255,255,255,.12);border-radius:999px;background:rgba(255,255,255,.06);color:var(--text);padding:9px 12px;font-weight:1000;cursor:pointer}
+      .slcar-tab-026m.active{background:var(--accent);border-color:transparent;color:#03111a}
+      .slcar-orders-026m{display:grid;gap:12px}
+      .slcar-order-026m{border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(0,0,0,.2);padding:14px;display:grid;gap:13px}
+      .slcar-order-head-026m{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start}
+      .slcar-order-head-026m h3{margin:0;font-size:20px;line-height:1.15}
+      .slcar-order-head-026m small,.slcar-muted-026m{display:block;color:var(--muted);font-weight:800;line-height:1.35}
+      .slcar-pill-026m{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:rgba(255,255,255,.09);color:var(--accent);padding:7px 10px;font-size:12px;font-weight:1000;white-space:nowrap}
+      .slcar-info-026m{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+      .slcar-info-026m div{border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.04);padding:11px}
+      .slcar-info-026m strong{display:block}
+      .slcar-guide-grid-026m{display:grid;grid-template-columns:minmax(150px,.45fr) minmax(180px,.8fr) minmax(180px,.8fr);gap:10px}
+      .slcar-actions-026m{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+      .slcar-mini-btn-026m{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.07);color:var(--text);padding:8px 10px;font-weight:1000;cursor:pointer}
+      .slcar-mini-btn-026m.ok{color:var(--accent)}
+      .slcar-mini-btn-026m.danger{color:#ff7aa8}
+      .slcar-empty-026m{border:1px dashed rgba(255,255,255,.16);border-radius:18px;padding:22px;background:rgba(0,0,0,.14)}
+      .slcar-msg-026m{margin-top:12px;font-weight:900;color:var(--accent)}
+      @media(max-width:1120px){.slcar-kpis-026m{grid-template-columns:repeat(2,minmax(0,1fr))}.slcar-info-026m{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media(max-width:760px){.slcar-toolbar-026m,.slcar-order-head-026m,.slcar-info-026m,.slcar-guide-grid-026m{grid-template-columns:1fr}.slcar-actions-026m{justify-content:flex-start}.slcar-kpis-026m{grid-template-columns:1fr}}
+    `;
+  }
+
+  function cxSlCarLoad026M() {
+    if (!state.companyId) throw new Error("No hay empresa activa.");
+    return api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/orders?status=all&limit=500`);
+  }
+
+  function cxSlCarMoney026M(value, currency = "COP") {
+    return cxShoplinkMoney026K(value, currency);
+  }
+
+  function cxSlCarMessage026M(text, isError = false) {
+    const el = $("slCarMsg026M");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = isError ? "#ff7aa8" : "var(--accent)";
+  }
+
+  function cxSlCarStatusLabel026M(status = "") {
+    const labels = {
+      new: "Nuevo",
+      pending: "Pendiente",
+      separated: "Separado",
+      confirmed: "Confirmado",
+      paid: "Pagado",
+      shipped: "Enviado",
+      delivered: "Entregado",
+      cancelled: "Cancelado",
+      archived: "Archivado",
+    };
+    return labels[status] || status || "Nuevo";
+  }
+
+  function cxSlCarFilteredOrders026M(payload = {}) {
+    const orders = Array.isArray(payload.orders) ? payload.orders : [];
+    const query = cxNormShoplink026K(cxSlCarSearch026M);
+    return orders.filter((order) => {
+      const statusOk = cxSlCarStatus026M === "all" || String(order.status || "") === cxSlCarStatus026M;
+      const text = cxNormShoplink026K([
+        order.order_code,
+        order.invoice_code,
+        order.customer_name,
+        order.customer_phone,
+        order.customer_city,
+        order.guide_number,
+        order.items_summary,
+        order.total_amount,
+      ].filter(Boolean).join(" "));
+      return statusOk && (!query || text.includes(query));
+    });
+  }
+
+  function cxSlCarSummary026M(payload = {}) {
+    const orders = Array.isArray(payload.orders) ? payload.orders : [];
+    return {
+      orders: orders.length,
+      pending: orders.filter((order) => ["new", "pending", "confirmed"].includes(order.status)).length,
+      separated: orders.filter((order) => order.status === "separated").length,
+      shipped: orders.filter((order) => ["shipped", "delivered"].includes(order.status)).length,
+      total_sales: orders.filter((order) => order.status !== "cancelled").reduce((sum, order) => sum + Number(order.total_amount || 0), 0),
+    };
+  }
+
+  function cxSlCarStatusTabs026M() {
+    const tabs = [
+      ["all", "Todos"],
+      ["new", "Nuevos"],
+      ["separated", "Separados"],
+      ["paid", "Pagados"],
+      ["shipped", "Enviados"],
+      ["delivered", "Entregados"],
+      ["cancelled", "Cancelados"],
+    ];
+    return tabs.map(([status, label]) => `
+      <button class="slcar-tab-026m ${cxSlCarStatus026M === status ? "active" : ""}" type="button" data-slcar-filter="${h(status)}">${h(label)}</button>
+    `).join("");
+  }
+
+  function cxSlCarOrderById026M(orderId = "") {
+    const payload = window.__cxSlCarPayload026M || {};
+    return (payload.orders || []).find((order) => String(order.id) === String(orderId)) || null;
+  }
+
+  function cxSlCarInvoiceUrl026M(order = {}) {
+    const url = order.invoice_url || `/api/v1/shoplink/companies/${encodeURIComponent(state.companyId || "")}/orders/${encodeURIComponent(order.id || "")}/invoice`;
+    return /^https?:\/\//i.test(url) ? url : `${window.location.origin}${url}`;
+  }
+
+  function cxSlCarGuideData026M(orderId = "", root = null) {
+    const scope = root?.closest?.("[data-slcar-order-row]") || document.querySelector(`[data-slcar-order-row="${orderId}"]`);
+    return {
+      guide_number: scope?.querySelector("[data-slcar-guide-number]")?.value || "",
+      guide_url: scope?.querySelector("[data-slcar-guide-url]")?.value || "",
+      guide_note: scope?.querySelector("[data-slcar-guide-note]")?.value || "",
+    };
+  }
+
+  function cxSlCarGuideMessage026M(order = {}, guide = {}) {
+    const name = order.customer_name ? ` ${order.customer_name}` : "";
+    return [
+      `Hola${name}, te enviamos la guia de tu pedido ${order.order_code || ""}.`,
+      order.invoice_code ? `Factura: ${order.invoice_code}` : "",
+      guide.guide_number ? `Guia: ${guide.guide_number}` : "",
+      guide.guide_url ? `Rastreo: ${guide.guide_url}` : "",
+      guide.guide_note ? guide.guide_note : "",
+      `Total: ${cxSlCarMoney026M(order.total_amount, order.currency || "COP")}`,
+    ].filter(Boolean).join("\n");
+  }
+
+  function cxSlCarOrderRows026M(payload = {}) {
+    const orders = cxSlCarFilteredOrders026M(payload);
+    if (!orders.length) {
+      return `<div class="slcar-empty-026m"><strong>Sin pedidos para este filtro</strong><p class="client-muted">Cuando un cliente finalice compra en la tienda publica, el pedido aparecera aqui con factura automatica.</p></div>`;
+    }
+    return orders.map((order) => {
+      const items = Array.isArray(order.items) ? order.items : [];
+      const itemSummary = items.length
+        ? items.slice(0, 3).map((item) => `${item.qty || 1}x ${item.name || "Articulo"}`).join(" / ")
+        : (order.items_summary || "Sin detalle");
+      return `
+        <article class="slcar-order-026m" data-slcar-order-row="${h(order.id)}">
+          <div class="slcar-order-head-026m">
+            <div>
+              <h3>${h(order.order_code || "Pedido")} · ${h(order.invoice_code || "Factura pendiente")}</h3>
+              <small>${h(order.customer_name || "Cliente")} ${order.customer_phone ? `· ${h(order.customer_phone)}` : ""} ${order.customer_city ? `· ${h(order.customer_city)}` : ""}</small>
+              <small>${h(itemSummary)}</small>
+            </div>
+            <span class="slcar-pill-026m">${h(order.status_label || cxSlCarStatusLabel026M(order.status))}</span>
+          </div>
+          <div class="slcar-info-026m">
+            <div><small class="slcar-muted-026m">Total</small><strong>${h(cxSlCarMoney026M(order.total_amount, order.currency || "COP"))}</strong></div>
+            <div><small class="slcar-muted-026m">Articulos</small><strong>${h(order.items_count || items.length || 0)}</strong></div>
+            <div><small class="slcar-muted-026m">Direccion</small><strong>${h(order.customer_address || "Sin direccion")}</strong></div>
+            <div><small class="slcar-muted-026m">Creado</small><strong>${h(String(order.created_at || "").slice(0, 16))}</strong></div>
+          </div>
+          <div class="slcar-guide-grid-026m">
+            <input data-slcar-guide-number value="${h(order.guide_number || "")}" placeholder="Numero de guia">
+            <input data-slcar-guide-url value="${h(order.guide_url || "")}" placeholder="URL de rastreo">
+            <input data-slcar-guide-note value="${h(order.guide_note || "")}" placeholder="Nota para WhatsApp">
+          </div>
+          <div class="slcar-actions-026m">
+            <button class="slcar-mini-btn-026m" type="button" data-slcar-invoice="${h(order.id)}">Factura</button>
+            <button class="slcar-mini-btn-026m" type="button" data-slcar-status="${h(order.id)}" data-status="confirmed">Confirmar</button>
+            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="separated">Separar</button>
+            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="paid">Pagado</button>
+            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="shipped">Enviado</button>
+            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-status="${h(order.id)}" data-status="delivered">Entregado</button>
+            <button class="slcar-mini-btn-026m" type="button" data-slcar-save-guide="${h(order.id)}">Guardar guia</button>
+            <button class="slcar-mini-btn-026m ok" type="button" data-slcar-wsp-guide="${h(order.id)}">Enviar guia WSP</button>
+            <button class="slcar-mini-btn-026m danger" type="button" data-slcar-status="${h(order.id)}" data-status="cancelled">Cancelar</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function cxSlCarPaintOrders026M(payload = window.__cxSlCarPayload026M || {}) {
+    const list = document.querySelector("[data-slcar-orders]");
+    if (list) list.innerHTML = cxSlCarOrderRows026M(payload);
+    const count = document.querySelector("[data-slcar-visible-count]");
+    if (count) count.textContent = `${cxSlCarFilteredOrders026M(payload).length} de ${(payload.orders || []).length} pedidos visibles`;
+  }
+
+  async function renderShoplinkOrdersModule026M() {
+    cxSlCarStyles026M();
+    let payload = {};
+    let error = "";
+    try {
+      payload = await cxSlCarLoad026M();
+      window.__cxSlCarPayload026M = payload;
+    } catch (err) {
+      error = err.message || "No se pudieron cargar pedidos ShopLink.";
+      payload = { orders: [], settings: {}, summary: {}, company: state.company || {} };
+      window.__cxSlCarPayload026M = payload;
+    }
+    const company = payload.company || state.company || {};
+    const b = normalizeBranding(state.branding || {});
+    const settings = payload.settings || {};
+    const summary = cxSlCarSummary026M(payload);
+    const activeCode = cxSlCarActiveCode026M();
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, b)}</div>
+            <h2>${h(company.name || "CLONEXA")}</h2>
+            <p>${h(company.slug || "")}</p>
+            <nav class="client-nav">${renderClientNav(activeCode)}</nav>
+            <div class="tenant-pill">Tenant activo<br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <section class="client-hero">
+              <div>
+                <span class="eyebrow">CLONEXA ShopLink</span>
+                <h1>Carrito y pedidos web</h1>
+                <p>Gestiona compras, separados, factura, estados de envio y guia WhatsApp de la tienda publica.</p>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                <button class="client-btn" type="button" data-slcar-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-shoplink-open>Abrir tienda</button>
+              </div>
+            </section>
+
+            ${error ? `<div class="slcar-card-026m slcar-msg-026m">${h(error)}</div>` : ""}
+            <div class="slcar-kpis-026m">
+              <div class="slcar-kpi-026m"><span>Pedidos</span><b>${h(summary.orders || 0)}</b></div>
+              <div class="slcar-kpi-026m"><span>Pendientes</span><b>${h(summary.pending || 0)}</b></div>
+              <div class="slcar-kpi-026m"><span>Separados</span><b>${h(summary.separated || 0)}</b></div>
+              <div class="slcar-kpi-026m"><span>Enviados</span><b>${h(summary.shipped || 0)}</b></div>
+              <div class="slcar-kpi-026m"><span>Total</span><b>${h(cxSlCarMoney026M(summary.total_sales || 0, settings.currency || "COP"))}</b></div>
+            </div>
+
+            <section class="slcar-grid-026m">
+              <article class="slcar-card-026m">
+                <span class="eyebrow">Pedidos web</span>
+                <h2>Factura, separados y guia</h2>
+                <p class="client-muted">Cada compra de ${h(cxShoplinkPublicUrl026K(payload))} genera factura automaticamente. Desde aqui puedes separar, confirmar, enviar y compartir la guia al WhatsApp del cliente.</p>
+                <div class="slcar-toolbar-026m">
+                  <input id="slCarSearch026M" data-slcar-search value="${h(cxSlCarSearch026M)}" placeholder="Buscar por pedido, factura, cliente, telefono, guia o producto">
+                  <button class="client-btn ghost" type="button" data-slcar-refresh>Actualizar</button>
+                </div>
+                <div class="slcar-status-tabs-026m">${cxSlCarStatusTabs026M()}</div>
+                <p class="client-muted" data-slcar-visible-count>${h(cxSlCarFilteredOrders026M(payload).length)} de ${h((payload.orders || []).length)} pedidos visibles</p>
+                <div class="slcar-orders-026m" data-slcar-orders>${cxSlCarOrderRows026M(payload)}</div>
+                <div id="slCarMsg026M" class="slcar-msg-026m"></div>
+              </article>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  async function cxSlCarPatch026M(orderId = "", data = {}) {
+    if (!orderId) return null;
+    return api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/orders/${encodeURIComponent(orderId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async function cxSlCarSetStatus026M(orderId = "", status = "new") {
+    await cxSlCarPatch026M(orderId, { status });
+    await renderShoplinkOrdersModule026M();
+    cxSlCarMessage026M(`Pedido actualizado a ${cxSlCarStatusLabel026M(status)}.`);
+  }
+
+  async function cxSlCarSaveGuide026M(orderId = "", root = null, repaint = true) {
+    const guide = cxSlCarGuideData026M(orderId, root);
+    const saved = await cxSlCarPatch026M(orderId, guide);
+    if (repaint) {
+      await renderShoplinkOrdersModule026M();
+      cxSlCarMessage026M("Guia guardada.");
+    }
+    return saved?.order || null;
+  }
+
+  async function cxSlCarSendGuide026M(orderId = "", root = null) {
+    const order = cxSlCarOrderById026M(orderId);
+    if (!order) return;
+    const guide = cxSlCarGuideData026M(orderId, root);
+    if (!guide.guide_number && !guide.guide_url) {
+      cxSlCarMessage026M("Agrega numero de guia o URL de rastreo antes de enviar.", true);
+      return;
+    }
+    const phone = String(order.customer_phone || "").replace(/\D/g, "");
+    if (!phone) {
+      cxSlCarMessage026M("Este pedido no tiene telefono de WhatsApp.", true);
+      return;
+    }
+    await cxSlCarSaveGuide026M(orderId, root, false);
+    const message = cxSlCarGuideMessage026M(order, guide);
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+    await renderShoplinkOrdersModule026M();
+    cxSlCarMessage026M("Guia lista para enviar por WhatsApp.");
+  }
+  /* CLONEXA_026K_R11_SHOPLINK_ORDERS_END */
+
 async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -17345,6 +17720,14 @@ async function renderClientModulePlaceholder(code) {
       typeof renderAssemblyModule025U === "function"
     ) {
       return renderAssemblyModule025U(cxUniversalPlaceholderCode021DR1 || "asamblea");
+    }
+
+    if (
+      typeof cxIsShoplinkOrdersCode026M === "function" &&
+      cxIsShoplinkOrdersCode026M(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderShoplinkOrdersModule026M === "function"
+    ) {
+      return renderShoplinkOrdersModule026M();
     }
 
     if (
@@ -18718,6 +19101,58 @@ async function renderClientModulePlaceholder(code) {
         return;
       }
 
+      if (target.closest("[data-slcar-refresh]")) {
+        await renderShoplinkOrdersModule026M();
+        return;
+      }
+
+      const slCarFilter = target.closest("[data-slcar-filter]");
+      if (slCarFilter) {
+        cxSlCarStatus026M = slCarFilter.getAttribute("data-slcar-filter") || "all";
+        await renderShoplinkOrdersModule026M();
+        return;
+      }
+
+      const slCarInvoice = target.closest("[data-slcar-invoice]");
+      if (slCarInvoice) {
+        const order = cxSlCarOrderById026M(slCarInvoice.getAttribute("data-slcar-invoice") || "");
+        if (order) window.open(cxSlCarInvoiceUrl026M(order), "_blank", "noopener");
+        return;
+      }
+
+      const slCarStatus = target.closest("[data-slcar-status]");
+      if (slCarStatus) {
+        try {
+          await cxSlCarSetStatus026M(
+            slCarStatus.getAttribute("data-slcar-status") || "",
+            slCarStatus.getAttribute("data-status") || "new"
+          );
+        } catch (error) {
+          cxSlCarMessage026M(error.message || "No se pudo actualizar el pedido.", true);
+        }
+        return;
+      }
+
+      const slCarSaveGuide = target.closest("[data-slcar-save-guide]");
+      if (slCarSaveGuide) {
+        try {
+          await cxSlCarSaveGuide026M(slCarSaveGuide.getAttribute("data-slcar-save-guide") || "", slCarSaveGuide);
+        } catch (error) {
+          cxSlCarMessage026M(error.message || "No se pudo guardar la guia.", true);
+        }
+        return;
+      }
+
+      const slCarWspGuide = target.closest("[data-slcar-wsp-guide]");
+      if (slCarWspGuide) {
+        try {
+          await cxSlCarSendGuide026M(slCarWspGuide.getAttribute("data-slcar-wsp-guide") || "", slCarWspGuide);
+        } catch (error) {
+          cxSlCarMessage026M(error.message || "No se pudo preparar WhatsApp.", true);
+        }
+        return;
+      }
+
       if (target.closest("[data-shoplink-save]")) {
         await cxShoplinkSave026K();
         return;
@@ -18818,6 +19253,14 @@ async function renderClientModulePlaceholder(code) {
 
         if (typeof cxIsAssemblyCode025U === "function" && cxIsAssemblyCode025U(code)) {
           await renderAssemblyModule025U(code);
+          return;
+        }
+
+        if (
+          typeof cxIsShoplinkOrdersCode026M === "function" &&
+          (cxIsShoplinkOrdersCode026M(code) || cxIsShoplinkOrdersModule026M(activeModule))
+        ) {
+          await renderShoplinkOrdersModule026M();
           return;
         }
 
@@ -19199,6 +19642,13 @@ async function renderClientModulePlaceholder(code) {
     });
 
     document.addEventListener("input", (event) => {
+      const slCarSearch = event.target.closest("[data-slcar-search]");
+      if (slCarSearch) {
+        cxSlCarSearch026M = slCarSearch.value || "";
+        cxSlCarPaintOrders026M(window.__cxSlCarPayload026M || {});
+        return;
+      }
+
       const slProSearch = event.target.closest("[data-slpro-search]");
       if (slProSearch) {
         cxSlProSearch026L = slProSearch.value || "";

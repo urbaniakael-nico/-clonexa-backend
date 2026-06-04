@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from html import escape
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -55,6 +56,13 @@ class ShoplinkOrderIn(BaseModel):
     customer_address: str | None = ""
     customer_note: str | None = ""
     items: list[ShoplinkOrderItemIn] | None = None
+
+
+class ShoplinkOrderUpdate(BaseModel):
+    status: str | None = None
+    guide_number: str | None = None
+    guide_url: str | None = None
+    guide_note: str | None = None
 
 
 class ShoplinkProductIn(BaseModel):
@@ -147,14 +155,38 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
             total_amount double precision NOT NULL DEFAULT 0,
             currency text NOT NULL DEFAULT 'COP',
             status text NOT NULL DEFAULT 'new',
+            invoice_code text NOT NULL DEFAULT '',
+            guide_number text NOT NULL DEFAULT '',
+            guide_url text NOT NULL DEFAULT '',
+            guide_note text NOT NULL DEFAULT '',
             source text NOT NULL DEFAULT 'shoplink_public',
             created_at timestamptz NOT NULL DEFAULT now(),
+            invoiced_at timestamptz NULL,
+            separated_at timestamptz NULL,
             updated_at timestamptz NOT NULL DEFAULT now()
         )
     """))
+    for stmt in [
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS invoice_code text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_number text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_url text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_note text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS invoiced_at timestamptz NULL",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS separated_at timestamptz NULL",
+    ]:
+        await db.execute(text(stmt))
     await db.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_shoplink_orders_company_created
         ON shoplink_orders (company_id, created_at DESC)
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_shoplink_orders_company_status
+        ON shoplink_orders (company_id, lower(status), created_at DESC)
+    """))
+    await db.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_shoplink_orders_company_invoice
+        ON shoplink_orders (company_id, invoice_code)
+        WHERE invoice_code <> ''
     """))
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS shoplink_products (
@@ -512,7 +544,7 @@ async def _recent_orders(db: AsyncSession, company_id: str, limit: int = 8) -> l
     await ensure_shoplink_storage(db)
     result = await db.execute(
         text("""
-            SELECT order_code, customer_json, total_amount, currency, status, created_at
+            SELECT order_code, invoice_code, customer_json, total_amount, currency, status, guide_number, guide_url, created_at
             FROM shoplink_orders
             WHERE company_id = :company_id
             ORDER BY created_at DESC
@@ -527,14 +559,243 @@ async def _recent_orders(db: AsyncSession, company_id: str, limit: int = 8) -> l
             customer = json.loads(customer or "{}")
         rows.append({
             "order_code": row.get("order_code"),
+            "invoice_code": row.get("invoice_code") or _invoice_code_for_order(row.get("order_code")),
             "customer_name": customer.get("name") or "",
             "customer_phone": customer.get("phone") or "",
             "total_amount": float(row.get("total_amount") or 0),
             "currency": row.get("currency") or "COP",
             "status": row.get("status") or "new",
+            "guide_number": row.get("guide_number") or "",
+            "guide_url": row.get("guide_url") or "",
             "created_at": str(row.get("created_at") or ""),
         })
     return rows
+
+
+def _json_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value or "{}")
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _json_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value or "[]")
+            return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def _invoice_code_for_order(order_code: Any) -> str:
+    token = re.sub(r"[^A-Z0-9]", "", _clean(order_code, 40).upper())
+    if token.startswith("SL"):
+        token = token[2:]
+    return f"FV-{token or uuid4().hex[:8].upper()}"
+
+
+def _order_status(value: Any) -> str:
+    raw = _clean(value, 40).lower()
+    aliases = {
+        "nuevo": "new",
+        "pendiente": "pending",
+        "separado": "separated",
+        "separada": "separated",
+        "confirmado": "confirmed",
+        "confirmada": "confirmed",
+        "pagado": "paid",
+        "pagada": "paid",
+        "enviado": "shipped",
+        "enviada": "shipped",
+        "entregado": "delivered",
+        "entregada": "delivered",
+        "cancelado": "cancelled",
+        "cancelada": "cancelled",
+        "archivado": "archived",
+        "archivada": "archived",
+    }
+    raw = aliases.get(raw, raw)
+    allowed = {"new", "pending", "separated", "confirmed", "paid", "shipped", "delivered", "cancelled", "archived"}
+    return raw if raw in allowed else "new"
+
+
+def _order_status_label(value: Any) -> str:
+    labels = {
+        "new": "Nuevo",
+        "pending": "Pendiente",
+        "separated": "Separado",
+        "confirmed": "Confirmado",
+        "paid": "Pagado",
+        "shipped": "Enviado",
+        "delivered": "Entregado",
+        "cancelled": "Cancelado",
+        "archived": "Archivado",
+    }
+    return labels.get(_order_status(value), "Nuevo")
+
+
+def _format_invoice_money(value: Any, currency: str = "COP") -> str:
+    number = _money(value)
+    formatted = f"{number:,.0f}".replace(",", ".")
+    return f"{_clean(currency, 8).upper() or 'COP'} {formatted}"
+
+
+def _shoplink_order_out(row: dict[str, Any], company_id: str | None = None) -> dict[str, Any]:
+    customer = _json_dict(row.get("customer_json"))
+    items = _json_list(row.get("items_json"))
+    order_id = _clean(row.get("id"), 80)
+    source_company_id = company_id or _clean(row.get("company_id"), 80)
+    order_code = _clean(row.get("order_code"), 60)
+    invoice_code = _clean(row.get("invoice_code"), 60) or _invoice_code_for_order(order_code)
+    status = _order_status(row.get("status"))
+    return {
+        "id": order_id,
+        "company_id": source_company_id,
+        "order_code": order_code,
+        "invoice_code": invoice_code,
+        "invoice_url": f"/api/v1/shoplink/companies/{source_company_id}/orders/{order_id}/invoice",
+        "customer": customer,
+        "customer_name": customer.get("name") or "",
+        "customer_phone": customer.get("phone") or "",
+        "customer_city": customer.get("city") or "",
+        "customer_address": customer.get("address") or "",
+        "customer_note": customer.get("note") or "",
+        "items": items,
+        "items_count": sum(int(item.get("qty") or 0) for item in items),
+        "items_summary": ", ".join([_clean(item.get("name"), 80) for item in items[:3] if item.get("name")]),
+        "total_amount": float(row.get("total_amount") or 0),
+        "currency": row.get("currency") or "COP",
+        "status": status,
+        "status_label": _order_status_label(status),
+        "guide_number": _clean(row.get("guide_number"), 120),
+        "guide_url": _clean(row.get("guide_url"), 500),
+        "guide_note": _clean(row.get("guide_note"), 500),
+        "source": row.get("source") or "shoplink_public",
+        "created_at": str(row.get("created_at") or ""),
+        "updated_at": str(row.get("updated_at") or ""),
+        "invoiced_at": str(row.get("invoiced_at") or ""),
+        "separated_at": str(row.get("separated_at") or ""),
+    }
+
+
+async def _shoplink_order_rows(db: AsyncSession, company_id: str, limit: int = 300) -> list[dict[str, Any]]:
+    await ensure_shoplink_storage(db)
+    safe_limit = max(1, min(int(limit or 300), 1000))
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM shoplink_orders
+            WHERE company_id = :company_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+        """),
+        {"company_id": company_id, "limit": safe_limit},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def _shoplink_order_by_id(db: AsyncSession, company_id: str, order_id: str) -> dict[str, Any]:
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM shoplink_orders
+            WHERE company_id = :company_id
+              AND id = :id
+            LIMIT 1
+        """),
+        {"company_id": company_id, "id": _clean(order_id, 80)},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado.")
+    return dict(row)
+
+
+def _shoplink_invoice_html(company: dict[str, Any], settings: dict[str, Any], order: dict[str, Any]) -> str:
+    customer = order.get("customer") or {}
+    items = order.get("items") or []
+    store_name = settings.get("store_name") or company.get("name") or "Tienda CLONEXA"
+    currency = order.get("currency") or settings.get("currency") or "COP"
+    item_rows = "".join(
+        f"""
+        <tr>
+          <td>{escape(_clean(item.get("name"), 180))}<br><small>{escape(_clean(item.get("sku"), 80))}</small></td>
+          <td>{escape(_clean(item.get("qty"), 20))}</td>
+          <td>{escape(_format_invoice_money(item.get("unit_price"), currency))}</td>
+          <td>{escape(_format_invoice_money(item.get("subtotal"), currency))}</td>
+        </tr>
+        """
+        for item in items
+    )
+    return f"""<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{escape(order.get("invoice_code") or "Factura ShopLink")}</title>
+  <style>
+    body{{margin:0;background:#f3f5f8;color:#111827;font-family:Arial,Helvetica,sans-serif}}
+    .page{{max-width:860px;margin:24px auto;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:32px;box-shadow:0 20px 50px rgba(15,23,42,.12)}}
+    header{{display:flex;justify-content:space-between;gap:24px;border-bottom:3px solid #111827;padding-bottom:18px;margin-bottom:22px}}
+    h1{{margin:0;font-size:34px;letter-spacing:.02em}} h2{{margin:0 0 8px;font-size:20px}} p{{margin:4px 0;color:#4b5563}}
+    .tag{{display:inline-block;background:#111827;color:#fff;border-radius:999px;padding:8px 12px;font-weight:800}}
+    .grid{{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0}}
+    .box{{border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#f9fafb}}
+    table{{width:100%;border-collapse:collapse;margin-top:18px}} th,td{{border-bottom:1px solid #e5e7eb;padding:12px;text-align:left}} th{{background:#111827;color:#fff}}
+    .total{{display:flex;justify-content:flex-end;margin-top:20px}} .total strong{{font-size:26px}}
+    .actions{{display:flex;gap:10px;margin-top:24px}} button{{border:0;border-radius:12px;background:#111827;color:#fff;padding:12px 16px;font-weight:800;cursor:pointer}}
+    small{{color:#6b7280}} @media print{{body{{background:#fff}}.page{{box-shadow:none;margin:0;border:0}}.actions{{display:none}}}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <span class="tag">{escape(_order_status_label(order.get("status")))}</span>
+        <h1>Factura ShopLink</h1>
+        <p>{escape(store_name)}</p>
+      </div>
+      <div>
+        <h2>{escape(order.get("invoice_code") or "")}</h2>
+        <p>Pedido: {escape(order.get("order_code") or "")}</p>
+        <p>Fecha: {escape(str(order.get("created_at") or "")[:19])}</p>
+      </div>
+    </header>
+    <section class="grid">
+      <div class="box">
+        <h2>Cliente</h2>
+        <p><strong>{escape(customer.get("name") or "Cliente")}</strong></p>
+        <p>Telefono: {escape(customer.get("phone") or "")}</p>
+        <p>Ciudad: {escape(customer.get("city") or "")}</p>
+        <p>Direccion: {escape(customer.get("address") or "")}</p>
+      </div>
+      <div class="box">
+        <h2>Entrega</h2>
+        <p>Guia: {escape(order.get("guide_number") or "Pendiente")}</p>
+        <p>{escape(order.get("guide_url") or "")}</p>
+        <p>{escape(order.get("guide_note") or "")}</p>
+      </div>
+    </section>
+    <table>
+      <thead><tr><th>Articulo</th><th>Cant.</th><th>Unitario</th><th>Subtotal</th></tr></thead>
+      <tbody>{item_rows}</tbody>
+    </table>
+    <div class="total"><strong>Total {escape(_format_invoice_money(order.get("total_amount"), currency))}</strong></div>
+    <p><small>Documento generado automaticamente desde CLONEXA ShopLink.</small></p>
+    <div class="actions"><button onclick="window.print()">Imprimir / PDF</button></div>
+  </main>
+</body>
+</html>"""
 
 
 async def _managed_shoplink_products(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
@@ -673,6 +934,133 @@ async def get_shoplink_products(company_id: UUID, db: AsyncSession = Depends(get
         "inventory_items": await _inventory_candidates(db, company["id"]),
         "public_url": _public_url(settings, company["id"]),
     }
+
+
+@router.get("/companies/{company_id}/orders")
+async def get_shoplink_orders(
+    company_id: UUID,
+    status: str = "all",
+    q: str = "",
+    limit: int = 300,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    rows = [_shoplink_order_out(row, company["id"]) for row in await _shoplink_order_rows(db, company["id"], limit)]
+    status_filter = _clean(status, 40).lower()
+    if status_filter and status_filter not in {"all", "todos"}:
+        wanted = _order_status(status_filter)
+        rows = [row for row in rows if _order_status(row.get("status")) == wanted]
+    query = _clean(q, 120).lower()
+    if query:
+        rows = [
+            row for row in rows
+            if query in " ".join([
+                row.get("order_code") or "",
+                row.get("invoice_code") or "",
+                row.get("customer_name") or "",
+                row.get("customer_phone") or "",
+                row.get("customer_city") or "",
+                row.get("guide_number") or "",
+                row.get("items_summary") or "",
+            ]).lower()
+        ]
+    summary = {
+        "orders": len(rows),
+        "new": len([row for row in rows if row.get("status") == "new"]),
+        "pending": len([row for row in rows if row.get("status") in {"new", "pending", "confirmed"}]),
+        "separated": len([row for row in rows if row.get("status") == "separated"]),
+        "shipped": len([row for row in rows if row.get("status") in {"shipped", "delivered"}]),
+        "cancelled": len([row for row in rows if row.get("status") == "cancelled"]),
+        "total_sales": sum(float(row.get("total_amount") or 0) for row in rows if row.get("status") != "cancelled"),
+    }
+    return {
+        "ok": True,
+        "company": {"id": company["id"], "name": company["name"], "slug": company["slug"]},
+        "settings": settings,
+        "summary": summary,
+        "orders": rows,
+        "public_url": _public_url(settings, company["id"]),
+    }
+
+
+@router.patch("/companies/{company_id}/orders/{order_id}")
+async def update_shoplink_order(
+    company_id: UUID,
+    order_id: str,
+    payload: ShoplinkOrderUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    current = await _shoplink_order_by_id(db, company["id"], order_id)
+    data = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    next_status = _order_status(data["status"]) if "status" in data and data.get("status") is not None else _order_status(current.get("status"))
+    invoice_code = _clean(current.get("invoice_code"), 60) or _invoice_code_for_order(current.get("order_code"))
+    guide_number = _clean(data.get("guide_number", current.get("guide_number")), 120)
+    guide_url = _clean(data.get("guide_url", current.get("guide_url")), 500)
+    guide_note = _clean(data.get("guide_note", current.get("guide_note")), 500)
+    result = await db.execute(
+        text("""
+            UPDATE shoplink_orders
+            SET status = :status,
+                invoice_code = :invoice_code,
+                guide_number = :guide_number,
+                guide_url = :guide_url,
+                guide_note = :guide_note,
+                invoiced_at = COALESCE(invoiced_at, now()),
+                separated_at = CASE
+                    WHEN :status = 'separated' THEN COALESCE(separated_at, now())
+                    ELSE separated_at
+                END,
+                updated_at = now()
+            WHERE company_id = :company_id
+              AND id = :id
+            RETURNING *
+        """),
+        {
+            "company_id": company["id"],
+            "id": _clean(order_id, 80),
+            "status": next_status,
+            "invoice_code": invoice_code,
+            "guide_number": guide_number,
+            "guide_url": guide_url,
+            "guide_note": guide_note,
+        },
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado.")
+    await db.commit()
+    return {"ok": True, "order": _shoplink_order_out(dict(row), company["id"])}
+
+
+@router.get("/companies/{company_id}/orders/{order_id}/invoice")
+async def get_shoplink_order_invoice(
+    company_id: UUID,
+    order_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    current = await _shoplink_order_by_id(db, company["id"], order_id)
+    invoice_code = _clean(current.get("invoice_code"), 60) or _invoice_code_for_order(current.get("order_code"))
+    if not _clean(current.get("invoice_code"), 60):
+        result = await db.execute(
+            text("""
+                UPDATE shoplink_orders
+                SET invoice_code = :invoice_code,
+                    invoiced_at = COALESCE(invoiced_at, now()),
+                    updated_at = now()
+                WHERE company_id = :company_id
+                  AND id = :id
+                RETURNING *
+            """),
+            {"company_id": company["id"], "id": _clean(order_id, 80), "invoice_code": invoice_code},
+        )
+        current = dict(result.mappings().first() or current)
+        await db.commit()
+    order = _shoplink_order_out(current, company["id"])
+    return Response(content=_shoplink_invoice_html(company, settings, order), media_type="text/html")
 
 
 @router.post("/companies/{company_id}/products")
@@ -1072,24 +1460,27 @@ async def create_shoplink_order(
     if not items:
         raise HTTPException(status_code=400, detail="El pedido no tiene productos disponibles.")
 
+    order_id = str(uuid4())
     order_code = f"SL-{uuid4().hex[:8].upper()}"
+    invoice_code = _invoice_code_for_order(order_code)
     currency = _clean(settings.get("currency") or "COP", 8).upper() or "COP"
     await ensure_shoplink_storage(db)
     await db.execute(
         text("""
             INSERT INTO shoplink_orders (
               id, company_id, order_code, customer_json, items_json,
-              total_amount, currency, status, source, updated_at
+              total_amount, currency, status, invoice_code, source, invoiced_at, updated_at
             )
             VALUES (
               :id, :company_id, :order_code, CAST(:customer AS jsonb), CAST(:items AS jsonb),
-              :total_amount, :currency, 'new', 'shoplink_public', now()
+              :total_amount, :currency, 'new', :invoice_code, 'shoplink_public', now(), now()
             )
         """),
         {
-            "id": str(uuid4()),
+            "id": order_id,
             "company_id": company["id"],
             "order_code": order_code,
+            "invoice_code": invoice_code,
             "customer": json.dumps(customer, ensure_ascii=False),
             "items": json.dumps(items, ensure_ascii=False),
             "total_amount": total,
@@ -1099,7 +1490,10 @@ async def create_shoplink_order(
     await db.commit()
     return {
         "ok": True,
+        "id": order_id,
         "order_code": order_code,
+        "invoice_code": invoice_code,
+        "invoice_url": f"/api/v1/shoplink/companies/{company['id']}/orders/{order_id}/invoice",
         "status": "new",
         "total_amount": total,
         "currency": currency,

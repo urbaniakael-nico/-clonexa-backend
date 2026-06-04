@@ -282,11 +282,15 @@
 
   function renderOrderSuccess() {
     const s = settings();
+    const invoiceUrl = state.order.invoice_url
+      ? (/^https?:\/\//i.test(state.order.invoice_url) ? state.order.invoice_url : `${window.location.origin}${state.order.invoice_url}`)
+      : "";
     return `
       <div class="sl-success">
         <strong>Pedido recibido</strong>
-        <p>Codigo ${h(state.order.order_code)}. La tienda ya registro tu compra y el equipo la gestionara.</p>
+        <p>Codigo ${h(state.order.order_code)}. Factura ${h(state.order.invoice_code || "generada")}.</p>
         <small>Total: ${h(money(state.order.total_amount, s.currency))}</small>
+        ${invoiceUrl ? `<button class="sl-btn secondary" type="button" data-shoplink-open-invoice="${h(invoiceUrl)}">Abrir factura</button>` : ""}
       </div>
     `;
   }
@@ -457,6 +461,12 @@
 
     if (event.target.closest("[data-shoplink-place-order]")) {
       placeOrder();
+      return;
+    }
+
+    const invoice = event.target.closest("[data-shoplink-open-invoice]");
+    if (invoice) {
+      window.open(invoice.getAttribute("data-shoplink-open-invoice") || "", "_blank", "noopener");
       return;
     }
 

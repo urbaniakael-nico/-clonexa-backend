@@ -560,6 +560,10 @@ button:disabled {
   margin: 0;
 }
 
+.sl-success .sl-btn {
+  margin-top: 8px;
+}
+
 .sl-empty {
   border: 1px dashed var(--sl-line);
   background: #fafafa;
