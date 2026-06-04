@@ -16518,6 +16518,7 @@ function inventoryCreatePayload() {
       payload = { settings: {}, summary: {}, products: [], company: state.company || {} };
     }
     const company = payload.company || state.company || {};
+    const b = normalizeBranding(state.branding || {});
     const settings = payload.settings || {};
     const summary = payload.summary || {};
     const publicUrl = cxShoplinkPublicUrl026K(payload);
@@ -16526,7 +16527,7 @@ function inventoryCreatePayload() {
       <main class="client-shell">
         <div class="client-layout">
           <aside class="client-sidebar">
-            <div class="client-logo">${companyLogoMarkup()}</div>
+            <div class="client-logo">${logo(company, b)}</div>
             <h2>${h(company.name || "CLONEXA")}</h2>
             <p>${h(company.slug || "")}</p>
             <nav class="client-nav">${renderClientNav(activeCode)}</nav>
