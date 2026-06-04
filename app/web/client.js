@@ -16843,6 +16843,7 @@ function inventoryCreatePayload() {
       .slpro-row-026l{display:flex;justify-content:space-between;gap:10px;align-items:center}
       .slpro-badge-026l{display:inline-flex;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.09);font-size:11px;font-weight:1000;color:var(--accent)}
       .slpro-msg-026l{margin-top:12px;font-weight:900;color:var(--accent)}
+      .slpro-empty-026l{border:1px dashed rgba(255,255,255,.16);border-radius:18px;padding:22px;background:rgba(0,0,0,.14)}
       @media(max-width:980px){.slpro-grid-026l,.slpro-form-026l{grid-template-columns:1fr}.slpro-kpis-026l{grid-template-columns:1fr 1fr}}
     `;
   }
@@ -16865,7 +16866,7 @@ function inventoryCreatePayload() {
 
   function cxSlProInventoryOptions026L(items = [], selected = "") {
     return [
-      `<option value="">Sin enlace de inventario</option>`,
+      `<option value="">Sin enlace</option>`,
       ...items.map((item) => {
         const label = [item.name, item.sku, item.size, item.color].filter(Boolean).join(" / ");
         return `<option value="${h(item.id)}" ${String(item.id) === String(selected) ? "selected" : ""}>${h(label || item.id)} - stock ${h(item.stock || 0)}</option>`;
@@ -16877,7 +16878,7 @@ function inventoryCreatePayload() {
     const products = Array.isArray(payload.products) ? payload.products : [];
     const currency = payload.settings?.currency || "COP";
     if (!products.length) {
-      return `<div class="slpro-card-026l"><strong>Sin productos cargados</strong><p class="client-muted">Crea el primer producto usando las categorias de la tienda.</p></div>`;
+      return `<div class="slpro-empty-026l"><strong>Sin productos cargados</strong><p class="client-muted">Crea el primer producto usando las categorias de la tienda.</p></div>`;
     }
     return products.map((product) => `
       <article class="slpro-product-026l">
