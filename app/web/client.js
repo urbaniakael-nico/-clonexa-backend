@@ -697,7 +697,7 @@
     retail: ["Retail", "tiendas y ventas", "RTL"],
     lan: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     landing: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
-    shoplink: ["ShopLink", "catalogo publico por WhatsApp", "SHL"],
+    shoplink: ["ShopLink", "tienda web con carrito y pedidos", "SHL"],
     catalogo_tienda_publica: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     catalogo_publico: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     tienda_publica: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
@@ -16409,7 +16409,9 @@ function inventoryCreatePayload() {
       .shoplink-field-026k input,.shoplink-field-026k textarea,.shoplink-field-026k select{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:15px;background:rgba(4,6,22,.72);color:var(--text);padding:13px 14px;font:inherit;font-weight:800}
       .shoplink-field-026k textarea{min-height:96px;resize:vertical}
       .shoplink-wide-026k{grid-column:1/-1}
-      .shoplink-checks-026k{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;grid-column:1/-1}
+      .shoplink-section-026k{grid-column:1/-1;border-top:1px solid rgba(255,255,255,.1);padding-top:14px;margin-top:4px}
+      .shoplink-section-026k h3{margin:0 0 10px;font-size:20px;line-height:1.1}
+      .shoplink-checks-026k{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;grid-column:1/-1}
       .shoplink-checks-026k label{border:1px solid rgba(255,255,255,.12);border-radius:15px;padding:12px;background:rgba(255,255,255,.06);display:flex;align-items:center;gap:10px;font-weight:900}
       .shoplink-actions-026k{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
       .shoplink-kpis-026k{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
@@ -16425,6 +16427,9 @@ function inventoryCreatePayload() {
       .shoplink-product-026k{display:flex;justify-content:space-between;gap:12px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.2);border-radius:15px;padding:12px}
       .shoplink-product-026k strong{display:block}
       .shoplink-product-026k small{color:var(--muted);font-weight:800}
+      .shoplink-order-row-026k{display:grid;grid-template-columns:1fr auto;gap:10px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.18);border-radius:15px;padding:12px;margin-top:10px}
+      .shoplink-order-row-026k strong{display:block}
+      .shoplink-order-row-026k small{color:var(--muted);font-weight:800}
       .shoplink-msg-026k{margin-top:12px;font-weight:900;color:var(--accent)}
       @media(max-width:980px){.shoplink-grid-026k,.shoplink-form-026k{grid-template-columns:1fr}.shoplink-checks-026k,.shoplink-kpis-026k{grid-template-columns:1fr}}
     `;
@@ -16469,15 +16474,22 @@ function inventoryCreatePayload() {
       description: $("shoplinkDescription026K")?.value || "",
       whatsapp_number: $("shoplinkWhatsapp026K")?.value || "",
       cta_message: $("shoplinkMessage026K")?.value || "",
+      checkout_enabled: !!$("shoplinkCheckout026K")?.checked,
+      support_whatsapp_enabled: !!$("shoplinkSupportWhatsapp026K")?.checked,
       show_prices: !!$("shoplinkPrices026K")?.checked,
       show_stock: !!$("shoplinkStock026K")?.checked,
       currency: $("shoplinkCurrency026K")?.value || "COP",
       theme: $("shoplinkTheme026K")?.value || "shoplink_dark",
+      layout_mode: $("shoplinkLayout026K")?.value || "marketplace",
+      accent_color: $("shoplinkAccent026K")?.value || "#ff7a00",
       categories: cxShoplinkSplit026K($("shoplinkCategories026K")?.value || ""),
       featured_terms: cxShoplinkSplit026K($("shoplinkFeatured026K")?.value || ""),
+      payment_methods: cxShoplinkSplit026K($("shoplinkPayments026K")?.value || ""),
       photos_per_category: Number($("shoplinkPhotos026K")?.value || 8),
       hero_image_url: $("shoplinkHero026K")?.value || "",
       logo_url: $("shoplinkLogo026K")?.value || "",
+      announcement: $("shoplinkAnnouncement026K")?.value || "",
+      delivery_notes: $("shoplinkDelivery026K")?.value || "",
     };
   }
 
@@ -16502,6 +16514,25 @@ function inventoryCreatePayload() {
         <div style="text-align:right">
           <strong>${settings.show_prices === false ? "Consultar" : h(cxShoplinkMoney026K(product.price, settings.currency))}</strong>
           <small>${settings.show_stock === false ? "" : `Stock ${h(product.stock || 0)}`}</small>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  function cxShoplinkRecentOrders026K(payload = {}) {
+    const orders = Array.isArray(payload.orders) ? payload.orders : [];
+    if (!orders.length) {
+      return `<div class="shoplink-order-row-026k"><div><strong>Sin pedidos web todavia</strong><small>Cuando un cliente finalice compra en la tienda, aparecera aqui.</small></div></div>`;
+    }
+    return orders.slice(0, 6).map((order) => `
+      <div class="shoplink-order-row-026k">
+        <div>
+          <strong>${h(order.order_code || "Pedido")}</strong>
+          <small>${h(order.customer_name || "Cliente")} ${order.customer_phone ? `- ${h(order.customer_phone)}` : ""}</small>
+        </div>
+        <div style="text-align:right">
+          <strong>${h(cxShoplinkMoney026K(order.total_amount, order.currency || "COP"))}</strong>
+          <small>${h(order.status || "new")}</small>
         </div>
       </div>
     `).join("");
@@ -16537,8 +16568,8 @@ function inventoryCreatePayload() {
             <section class="client-hero">
               <div>
                 <span class="eyebrow">CLONEXA ShopLink</span>
-                <h1>Catalogo / Tienda publica</h1>
-                <p>Configura una web publica para vender por estados, Instagram, WhatsApp o redes sin tocar la operacion estable.</p>
+                <h1>Constructor de tienda web</h1>
+                <p>Controla la vitrina publica, carrito, checkout, pagos y pedidos de tu tienda online desde este modulo.</p>
               </div>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
@@ -16552,8 +16583,11 @@ function inventoryCreatePayload() {
             <section class="shoplink-grid-026k">
               <article class="shoplink-card-026k">
                 <span class="eyebrow">Configuracion</span>
-                <h2>Publicacion del catalogo</h2>
+                <h2>Control de la tienda online</h2>
                 <div class="shoplink-form-026k">
+                  <div class="shoplink-section-026k">
+                    <h3>Identidad y portada</h3>
+                  </div>
                   <div class="shoplink-field-026k">
                     <label>Nombre publico</label>
                     <input id="shoplinkStoreName026K" value="${h(settings.store_name || company.name || "")}" placeholder="Ej: Mundo Case Store">
@@ -16570,13 +16604,12 @@ function inventoryCreatePayload() {
                     <label>Descripcion</label>
                     <textarea id="shoplinkDescription026K" placeholder="Texto corto para la tienda">${h(settings.description || "")}</textarea>
                   </div>
-                  <div class="shoplink-field-026k">
-                    <label>WhatsApp atencion</label>
-                    <input id="shoplinkWhatsapp026K" value="${h(settings.whatsapp_number || "")}" placeholder="+573001234567">
+                  <div class="shoplink-field-026k shoplink-wide-026k">
+                    <label>Anuncio superior</label>
+                    <input id="shoplinkAnnouncement026K" value="${h(settings.announcement || "")}" placeholder="Envios hoy, promociones, nueva coleccion...">
                   </div>
-                  <div class="shoplink-field-026k">
-                    <label>Mensaje WhatsApp</label>
-                    <input id="shoplinkMessage026K" value="${h(settings.cta_message || "")}" placeholder="Hola, quiero consultar este producto:">
+                  <div class="shoplink-section-026k">
+                    <h3>Vitrina y navegacion</h3>
                   </div>
                   <div class="shoplink-field-026k">
                     <label>Categorias visibles</label>
@@ -16587,14 +16620,24 @@ function inventoryCreatePayload() {
                     <input id="shoplinkFeatured026K" value="${h(cxShoplinkJoin026K(settings.featured_terms))}" placeholder="nuevo, promo, oferta">
                   </div>
                   <div class="shoplink-field-026k">
+                    <label>Plantilla</label>
+                    <select id="shoplinkLayout026K">
+                      ${["marketplace","boutique","compact"].map((layout) => `<option value="${layout}" ${layout === (settings.layout_mode || "marketplace") ? "selected" : ""}>${h(layout.replaceAll("_", " "))}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div class="shoplink-field-026k">
                     <label>Fotos por categoria</label>
                     <input id="shoplinkPhotos026K" type="number" min="1" max="40" value="${h(settings.photos_per_category || 8)}">
                   </div>
                   <div class="shoplink-field-026k">
                     <label>Estilo</label>
                     <select id="shoplinkTheme026K">
-                      ${["shoplink_dark","shoplink_light","retail_neon","classic_store"].map((theme) => `<option value="${theme}" ${theme === settings.theme ? "selected" : ""}>${h(theme.replaceAll("_", " "))}</option>`).join("")}
+                      ${["marketplace_pop","shoplink_dark","shoplink_light","retail_neon","classic_store"].map((theme) => `<option value="${theme}" ${theme === (settings.theme || "marketplace_pop") ? "selected" : ""}>${h(theme.replaceAll("_", " "))}</option>`).join("")}
                     </select>
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Color acento</label>
+                    <input id="shoplinkAccent026K" value="${h(settings.accent_color || "#ff7a00")}" placeholder="#ff7a00">
                   </div>
                   <div class="shoplink-field-026k">
                     <label>Logo URL</label>
@@ -16604,10 +16647,34 @@ function inventoryCreatePayload() {
                     <label>Hero imagen URL</label>
                     <input id="shoplinkHero026K" value="${h(settings.hero_image_url || "")}" placeholder="https://...">
                   </div>
+                  <div class="shoplink-section-026k">
+                    <h3>Checkout y pedidos</h3>
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Metodos de pago</label>
+                    <input id="shoplinkPayments026K" value="${h(cxShoplinkJoin026K(settings.payment_methods || ["Efectivo","Transferencia","Tarjeta"]))}" placeholder="Efectivo, Transferencia, Tarjeta">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Notas de entrega</label>
+                    <input id="shoplinkDelivery026K" value="${h(settings.delivery_notes || "")}" placeholder="Tiempos de entrega, cobertura, recogida en tienda...">
+                  </div>
+                  <div class="shoplink-section-026k">
+                    <h3>Soporte opcional</h3>
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>WhatsApp soporte</label>
+                    <input id="shoplinkWhatsapp026K" value="${h(settings.whatsapp_number || "")}" placeholder="+573001234567">
+                  </div>
+                  <div class="shoplink-field-026k">
+                    <label>Mensaje soporte</label>
+                    <input id="shoplinkMessage026K" value="${h(settings.cta_message || "")}" placeholder="Hola, necesito ayuda con mi pedido:">
+                  </div>
                   <div class="shoplink-checks-026k">
                     <label><input id="shoplinkPublic026K" type="checkbox" ${settings.public_enabled !== false ? "checked" : ""}> <span>Publica</span></label>
+                    <label><input id="shoplinkCheckout026K" type="checkbox" ${settings.checkout_enabled !== false ? "checked" : ""}> <span>Checkout</span></label>
                     <label><input id="shoplinkPrices026K" type="checkbox" ${settings.show_prices !== false ? "checked" : ""}> <span>Precios</span></label>
                     <label><input id="shoplinkStock026K" type="checkbox" ${settings.show_stock !== false ? "checked" : ""}> <span>Stock</span></label>
+                    <label><input id="shoplinkSupportWhatsapp026K" type="checkbox" ${settings.support_whatsapp_enabled ? "checked" : ""}> <span>Soporte WSP</span></label>
                   </div>
                 </div>
                 <div class="shoplink-actions-026k">
@@ -16618,26 +16685,28 @@ function inventoryCreatePayload() {
               </article>
 
               <article class="shoplink-card-026k">
-                <span class="eyebrow">Salida publica</span>
-                <h2>Link de tienda</h2>
+                <span class="eyebrow">Tienda publicada</span>
+                <h2>Preview y pedidos</h2>
                 <div class="shoplink-url-026k">${h(publicUrl)}</div>
                 <div class="shoplink-kpis-026k">
                   <div class="shoplink-kpi-026k"><span>Productos</span><b>${h(summary.products || 0)}</b></div>
-                  <div class="shoplink-kpi-026k"><span>Categorias</span><b>${h(summary.categories || 0)}</b></div>
-                  <div class="shoplink-kpi-026k"><span>Destacados</span><b>${h(summary.featured || 0)}</b></div>
+                  <div class="shoplink-kpi-026k"><span>Pedidos</span><b>${h(summary.orders || 0)}</b></div>
+                  <div class="shoplink-kpi-026k"><span>Abiertos</span><b>${h(summary.open_orders || 0)}</b></div>
                 </div>
                 <div class="shoplink-preview-026k">
                   <div class="shoplink-preview-head-026k">
                     <div>
                       <span class="shoplink-pill-026k">${settings.public_enabled === false ? "Oculta" : "Publica"}</span>
                       <h3>${h(settings.store_name || company.name || "Tienda")}</h3>
-                      <p>${h(settings.headline || "Catalogo publico")}</p>
+                      <p>${h(settings.headline || "Tienda online")}</p>
                     </div>
                     ${settings.logo_url ? `<img src="${h(settings.logo_url)}" alt="" style="width:70px;height:70px;border-radius:18px;object-fit:cover">` : ""}
                   </div>
                 </div>
                 <h3>Primeros productos visibles</h3>
                 <div class="shoplink-product-list-026k">${cxShoplinkSampleProducts026K(payload, settings)}</div>
+                <h3>Pedidos web recientes</h3>
+                <div>${cxShoplinkRecentOrders026K(payload)}</div>
               </article>
             </section>
           </section>
@@ -16653,7 +16722,7 @@ function inventoryCreatePayload() {
         method: "PUT",
         body: JSON.stringify(payload),
       });
-      cxShoplinkMessage026K("ShopLink guardado. La tienda publica ya usa esta configuracion.");
+      cxShoplinkMessage026K("Tienda guardada. La web publica ya usa esta configuracion.");
       setTimeout(() => renderShoplinkModule026K(), 450);
       return saved;
     } catch (error) {

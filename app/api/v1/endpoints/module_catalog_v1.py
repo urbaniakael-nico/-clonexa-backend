@@ -204,7 +204,7 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
     },
     "landing": {
         "name": "Catálogo / Tienda pública",
-        "description": "Tienda pública ShopLink con catálogo, categorías, destacados, disponibilidad y botón WhatsApp.",
+        "description": "Tienda pública ShopLink con catálogo, categorías, carrito, checkout y pedidos web.",
         "category": "retail",
         "category_label": "Comercial y retail",
         "layer": "venta pública",
