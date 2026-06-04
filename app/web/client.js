@@ -16904,6 +16904,10 @@ function inventoryCreatePayload() {
       .slpro-empty-026l{border:1px dashed rgba(255,255,255,.16);border-radius:18px;padding:22px;background:rgba(0,0,0,.14)}
       .slpro-toolbar-026l{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;margin:12px 0 14px}
       .slpro-toolbar-026l input{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:15px;background:rgba(4,6,22,.72);color:var(--text);padding:13px 14px;font:inherit;font-weight:800}
+      .slpro-photo-slots-026l{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+      .slpro-photo-slot-026l{display:grid;gap:9px;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(255,255,255,.05);padding:12px}
+      .slpro-photo-slot-026l strong{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+      .slpro-photo-slot-026l input{width:100%;min-width:0;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:rgba(4,6,22,.72);color:var(--text);padding:11px;font:inherit;font-weight:800}
       .slpro-table-026l{display:grid;gap:9px}
       .slpro-list-row-026l{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(120px,.6fr) minmax(130px,.55fr) auto;gap:12px;align-items:center;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.18);border-radius:16px;padding:12px}
       .slpro-list-row-026l.archived{opacity:.65}
@@ -16914,7 +16918,7 @@ function inventoryCreatePayload() {
       .slpro-mini-btn-026l.ok{color:var(--accent)}
       .slpro-mini-btn-026l.danger{color:#ff7aa8}
       @media(max-width:1100px){.slpro-form-026l{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      @media(max-width:760px){.slpro-grid-026l,.slpro-form-026l,.slpro-toolbar-026l,.slpro-list-row-026l{grid-template-columns:1fr}.slpro-kpis-026l{grid-template-columns:1fr 1fr}.slpro-row-actions-026l{justify-content:flex-start}}
+      @media(max-width:760px){.slpro-grid-026l,.slpro-form-026l,.slpro-toolbar-026l,.slpro-list-row-026l,.slpro-photo-slots-026l{grid-template-columns:1fr}.slpro-kpis-026l{grid-template-columns:1fr 1fr}.slpro-row-actions-026l{justify-content:flex-start}}
     `;
   }
 
@@ -16946,6 +16950,14 @@ function inventoryCreatePayload() {
 
   function cxSlProImageUrls026L(value = "") {
     return cxShoplinkSplit026K(value).slice(0, 3);
+  }
+
+  function cxSlProImageUrlInputs026L() {
+    return [1, 2, 3].map((index) => String($(`slProImageUrl${index}026L`)?.value || "").trim()).filter(Boolean).slice(0, 3);
+  }
+
+  function cxSlProImageFiles026L() {
+    return [1, 2, 3].flatMap((index) => Array.from($(`slProImageFile${index}026L`)?.files || [])).slice(0, 3);
   }
 
   function cxSlProExternalImageUrls026L(product = {}) {
@@ -17015,7 +17027,8 @@ function inventoryCreatePayload() {
     set("slProSize026L", product.size || "");
     set("slProColor026L", product.color || "");
     set("slProDescription026L", product.description || "");
-    set("slProImageUrl026L", cxSlProExternalImageUrls026L(product).join(", "));
+    const externalUrls = cxSlProExternalImageUrls026L(product);
+    [1, 2, 3].forEach((index) => set(`slProImageUrl${index}026L`, externalUrls[index - 1] || ""));
     set("slProInventory026L", product.inventory_item_id || "");
     const category = document.getElementById("slProCategory026L");
     if (category) category.value = product.category || category.options?.[0]?.value || "General";
@@ -17025,8 +17038,10 @@ function inventoryCreatePayload() {
     if (published) published.checked = product.published !== false;
     if (archived) archived.checked = Boolean(product.archived);
     if (featured) featured.checked = Boolean(product.featured);
-    const file = document.getElementById("slProImageFile026L");
-    if (file) file.value = "";
+    [1, 2, 3].forEach((index) => {
+      const file = document.getElementById(`slProImageFile${index}026L`);
+      if (file) file.value = "";
+    });
     cxSlProMessage026L(product.id ? "Editando producto existente." : "");
   }
 
@@ -17040,8 +17055,8 @@ function inventoryCreatePayload() {
       size: $("slProSize026L")?.value || "",
       color: $("slProColor026L")?.value || "",
       description: $("slProDescription026L")?.value || "",
-      image_url: cxSlProImageUrls026L($("slProImageUrl026L")?.value || "")[0] || "",
-      image_urls: cxSlProImageUrls026L($("slProImageUrl026L")?.value || ""),
+      image_url: cxSlProImageUrlInputs026L()[0] || "",
+      image_urls: cxSlProImageUrlInputs026L(),
       inventory_item_id: $("slProInventory026L")?.value || "",
       published: !!$("slProPublished026L")?.checked,
       archived: !!$("slProArchived026L")?.checked,
@@ -17145,14 +17160,14 @@ function inventoryCreatePayload() {
                     <label>Descripcion</label>
                     <textarea id="slProDescription026L" placeholder="Detalles visibles para el cliente"></textarea>
                   </div>
-                  <div class="slpro-field-026l">
-                    <label>Cargar fotos</label>
-                    <input id="slProImageFile026L" type="file" accept="image/png,image/jpeg,image/webp" multiple>
-                    <small class="client-muted">Hasta 3 imagenes por articulo.</small>
-                  </div>
-                  <div class="slpro-field-026l">
-                    <label>Seleccionar foto URL</label>
-                    <input id="slProImageUrl026L" placeholder="https://foto1..., https://foto2..., https://foto3...">
+                  <div class="slpro-photo-slots-026l">
+                    ${[1, 2, 3].map((index) => `
+                      <div class="slpro-photo-slot-026l">
+                        <strong>Foto ${index}</strong>
+                        <input id="slProImageFile${index}026L" data-slpro-image-file type="file" accept="image/png,image/jpeg,image/webp">
+                        <input id="slProImageUrl${index}026L" placeholder="URL foto ${index}">
+                      </div>
+                    `).join("")}
                   </div>
                   <div class="slpro-checks-026l">
                     <label><input id="slProPublished026L" type="checkbox" checked> <span>Publicar</span></label>
@@ -17187,7 +17202,12 @@ function inventoryCreatePayload() {
   async function cxSlProSave026L() {
     try {
       const payload = cxSlProReadPayload026L();
-      const imageFiles = Array.from($("slProImageFile026L")?.files || []);
+      if (!String(payload.name || "").trim()) {
+        cxSlProMessage026L("Escribe el nombre del articulo antes de guardar.", true);
+        $("slProName026L")?.focus();
+        return;
+      }
+      const imageFiles = cxSlProImageFiles026L();
       if (imageFiles.length > 3) {
         throw new Error("Puedes cargar maximo 3 imagenes por articulo.");
       }
