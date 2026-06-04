@@ -697,6 +697,9 @@
     retail: ["Retail", "tiendas y ventas", "RTL"],
     landing: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     shoplink: ["ShopLink", "catalogo publico por WhatsApp", "SHL"],
+    catalogo_tienda_publica: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
+    catalogo_publico: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
+    tienda_publica: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     sales: ["Ventas", "actividad comercial", "SAL"],
     stores: ["Tiendas", "puntos de venta", "STR"],
     orders: ["Pedidos", "creacion, seguimiento y estados", "ORD"],
@@ -16314,7 +16317,15 @@ function inventoryCreatePayload() {
   }
 
   function cxIsShoplinkCode026K(code = "") {
-    return CX_SHOPLINK_CODES_026K.has(cxNormShoplink026K(code));
+    const normalized = cxNormShoplink026K(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return (
+      CX_SHOPLINK_CODES_026K.has(normalized) ||
+      normalized.includes("shoplink") ||
+      normalized.includes("landing") ||
+      (normalized.includes("catalog") && normalized.includes("tienda")) ||
+      (normalized.includes("catalogo") && normalized.includes("tienda")) ||
+      (normalized.includes("tienda") && normalized.includes("public"))
+    );
   }
 
   function cxShoplinkStyles026K() {
