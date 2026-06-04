@@ -14,6 +14,7 @@ from app.api.deps import get_db
 
 router = APIRouter()
 MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_PRODUCT_IMAGES = 3
 ALLOWED_PRODUCT_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
@@ -66,6 +67,7 @@ class ShoplinkProductIn(BaseModel):
     price: float | int | str | None = 0
     stock: float | int | str | None = 0
     image_url: str | None = ""
+    image_urls: list[str] | None = None
     inventory_item_id: str | None = ""
     published: bool | None = True
     archived: bool | None = False
@@ -170,6 +172,14 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
             image_content_type text NOT NULL DEFAULT '',
             image_file_bytes bytea NULL,
             image_file_size integer NOT NULL DEFAULT 0,
+            image_url_2 text NOT NULL DEFAULT '',
+            image_2_content_type text NOT NULL DEFAULT '',
+            image_2_file_bytes bytea NULL,
+            image_2_file_size integer NOT NULL DEFAULT 0,
+            image_url_3 text NOT NULL DEFAULT '',
+            image_3_content_type text NOT NULL DEFAULT '',
+            image_3_file_bytes bytea NULL,
+            image_3_file_size integer NOT NULL DEFAULT 0,
             inventory_item_id text NOT NULL DEFAULT '',
             published boolean NOT NULL DEFAULT true,
             archived boolean NOT NULL DEFAULT false,
@@ -191,6 +201,14 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_content_type text NOT NULL DEFAULT ''",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_file_bytes bytea NULL",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_file_size integer NOT NULL DEFAULT 0",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_url_2 text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_2_content_type text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_2_file_bytes bytea NULL",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_2_file_size integer NOT NULL DEFAULT 0",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_url_3 text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_3_content_type text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_3_file_bytes bytea NULL",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_3_file_size integer NOT NULL DEFAULT 0",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS inventory_item_id text NOT NULL DEFAULT ''",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS published boolean NOT NULL DEFAULT true",
         "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false",
@@ -274,10 +292,29 @@ def _money(value: Any) -> float:
         return 0.0
 
 
+def _image_slot_columns(position: int) -> tuple[str, str, str, str]:
+    if position == 1:
+        return ("image_url", "image_content_type", "image_file_bytes", "image_file_size")
+    if position in {2, 3}:
+        return (f"image_url_{position}", f"image_{position}_content_type", f"image_{position}_file_bytes", f"image_{position}_file_size")
+    raise HTTPException(status_code=422, detail="Posicion de imagen invalida.")
+
+
+def _image_slot_url(row: dict[str, Any], position: int) -> str:
+    url_col, _, bytes_col, _ = _image_slot_columns(position)
+    if row.get(bytes_col):
+        return f"/api/v1/shoplink/products/{row.get('id')}/images/{position}"
+    return _clean(row.get(url_col), 1000)
+
+
+def _image_urls(row: dict[str, Any]) -> list[str]:
+    urls = [_image_slot_url(row, position) for position in range(1, MAX_PRODUCT_IMAGES + 1)]
+    return [url for url in urls if url]
+
+
 def _image_url(row: dict[str, Any]) -> str:
-    if row.get("image_file_bytes"):
-        return f"/api/v1/shoplink/products/{row.get('id')}/image"
-    return _clean(row.get("image_url"), 1000)
+    urls = _image_urls(row)
+    return urls[0] if urls else ""
 
 
 def _shoplink_product_out(row: dict[str, Any], public_id: bool = True) -> dict[str, Any]:
@@ -296,12 +333,13 @@ def _shoplink_product_out(row: dict[str, Any], public_id: bool = True) -> dict[s
         "stock": _money(row.get("stock")),
         "status": "archivado" if bool(row.get("archived")) else ("agotado" if _money(row.get("stock")) <= 0 else "disponible"),
         "image_url": _image_url(row),
+        "image_urls": _image_urls(row),
         "inventory_item_id": _clean(row.get("inventory_item_id"), 80),
         "published": bool(row.get("published")),
         "archived": bool(row.get("archived")),
         "featured": bool(row.get("featured")),
-        "has_image": bool(row.get("image_file_bytes") or row.get("image_url")),
-        "image_file_size": int(row.get("image_file_size") or 0),
+        "has_image": bool(_image_urls(row)),
+        "image_file_size": sum(int(row.get(_image_slot_columns(position)[3]) or 0) for position in range(1, MAX_PRODUCT_IMAGES + 1)),
     }
 
 
@@ -579,6 +617,18 @@ def _product_payload(payload: ShoplinkProductIn, current: dict[str, Any] | None 
     name = _clean(data.get("name", current.get("name")), 180)
     if not name:
         raise HTTPException(status_code=422, detail="Nombre de producto requerido.")
+    if "image_urls" in data and data.get("image_urls") is not None:
+        image_urls = [_clean(url, 1000) for url in data.get("image_urls") or [] if _clean(url, 1000)]
+    elif "image_url" in data:
+        image_urls = [_clean(data.get("image_url"), 1000)] if _clean(data.get("image_url"), 1000) else []
+    else:
+        image_urls = [
+            _clean(current.get("image_url"), 1000),
+            _clean(current.get("image_url_2"), 1000),
+            _clean(current.get("image_url_3"), 1000),
+        ]
+        image_urls = [url for url in image_urls if url]
+    image_urls = image_urls[:MAX_PRODUCT_IMAGES]
     return {
         "name": name,
         "category": _clean(data.get("category", current.get("category")) or "General", 80) or "General",
@@ -588,7 +638,9 @@ def _product_payload(payload: ShoplinkProductIn, current: dict[str, Any] | None 
         "description": _clean(data.get("description", current.get("description")), 700),
         "price": max(0.0, _money(data.get("price", current.get("price")))),
         "stock": max(0.0, _money(data.get("stock", current.get("stock")))),
-        "image_url": _clean(data.get("image_url", current.get("image_url")), 1000),
+        "image_url": image_urls[0] if len(image_urls) > 0 else "",
+        "image_url_2": image_urls[1] if len(image_urls) > 1 else "",
+        "image_url_3": image_urls[2] if len(image_urls) > 2 else "",
         "inventory_item_id": _clean(data.get("inventory_item_id", current.get("inventory_item_id")), 80),
         "published": bool(data.get("published", current.get("published", True))),
         "archived": bool(data.get("archived", current.get("archived", False))),
@@ -637,12 +689,12 @@ async def create_shoplink_product(
         text("""
             INSERT INTO shoplink_products (
               id, company_id, category, name, sku, size, color, description,
-              price, stock, image_url, inventory_item_id, published, archived, featured,
+              price, stock, image_url, image_url_2, image_url_3, inventory_item_id, published, archived, featured,
               created_at, updated_at
             )
             VALUES (
               :id, :company_id, :category, :name, :sku, :size, :color, :description,
-              :price, :stock, :image_url, :inventory_item_id, :published, :archived, :featured,
+              :price, :stock, :image_url, :image_url_2, :image_url_3, :inventory_item_id, :published, :archived, :featured,
               now(), now()
             )
             RETURNING *
@@ -683,6 +735,8 @@ async def update_shoplink_product(
                 price = :price,
                 stock = :stock,
                 image_url = :image_url,
+                image_url_2 = :image_url_2,
+                image_url_3 = :image_url_3,
                 inventory_item_id = :inventory_item_id,
                 published = :published,
                 archived = :archived,
@@ -737,6 +791,90 @@ def _product_image_content_type(upload: UploadFile) -> str:
     raise HTTPException(status_code=422, detail="Imagen invalida. Usa JPG, PNG o WEBP.")
 
 
+async def _read_product_image_upload(upload: UploadFile) -> dict[str, Any]:
+    content_type = _product_image_content_type(upload)
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="Imagen vacia.")
+    if len(content) > MAX_PRODUCT_IMAGE_BYTES:
+        raise HTTPException(status_code=422, detail="Una imagen supera 5 MB.")
+    return {"content_type": content_type, "content": content, "size": len(content)}
+
+
+def _image_slot_has_value(row: dict[str, Any], position: int) -> bool:
+    url_col, _, bytes_col, _ = _image_slot_columns(position)
+    return bool(row.get(bytes_col) or row.get(url_col))
+
+
+async def _write_product_image_slots(
+    db: AsyncSession,
+    company_id: str,
+    raw_id: str,
+    uploads: list[dict[str, Any]],
+    append: bool = True,
+) -> dict[str, Any]:
+    if not uploads:
+        raise HTTPException(status_code=422, detail="Selecciona al menos una imagen.")
+    uploads = uploads[:MAX_PRODUCT_IMAGES]
+    current_result = await db.execute(
+        text("SELECT * FROM shoplink_products WHERE company_id = :company_id AND id = :id LIMIT 1"),
+        {"company_id": company_id, "id": raw_id},
+    )
+    current = current_result.mappings().first()
+    if not current:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+    current_row = dict(current)
+    if append:
+        empty_positions = [position for position in range(1, MAX_PRODUCT_IMAGES + 1) if not _image_slot_has_value(current_row, position)]
+        fallback_positions = [position for position in range(1, MAX_PRODUCT_IMAGES + 1) if position not in empty_positions]
+        positions = (empty_positions + fallback_positions)[:len(uploads)]
+    else:
+        positions = list(range(1, MAX_PRODUCT_IMAGES + 1))[:len(uploads)]
+
+    set_parts = ["updated_at = now()"]
+    params: dict[str, Any] = {"company_id": company_id, "id": raw_id}
+    for upload, position in zip(uploads, positions):
+        url_col, content_type_col, bytes_col, size_col = _image_slot_columns(position)
+        set_parts.extend([
+            f"{url_col} = ''",
+            f"{content_type_col} = :content_type_{position}",
+            f"{bytes_col} = :content_{position}",
+            f"{size_col} = :size_{position}",
+        ])
+        params[f"content_type_{position}"] = upload["content_type"]
+        params[f"content_{position}"] = upload["content"]
+        params[f"size_{position}"] = upload["size"]
+
+    result = await db.execute(
+        text(f"""
+            UPDATE shoplink_products
+            SET {", ".join(set_parts)}
+            WHERE company_id = :company_id
+              AND id = :id
+            RETURNING *
+        """),
+        params,
+    )
+    row = result.mappings().first()
+    await db.commit()
+    return dict(row)
+
+
+@router.post("/companies/{company_id}/products/{product_id}/images")
+async def upload_shoplink_product_images(
+    company_id: UUID,
+    product_id: str,
+    images: list[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    await ensure_shoplink_storage(db)
+    raw_id = _clean(product_id.replace("shoplink:", ""), 80)
+    uploads = [await _read_product_image_upload(image) for image in list(images or [])[:MAX_PRODUCT_IMAGES]]
+    row = await _write_product_image_slots(db, company["id"], raw_id, uploads, append=True)
+    return {"ok": True, "product": _shoplink_product_out(row, public_id=False)}
+
+
 @router.post("/companies/{company_id}/products/{product_id}/image")
 async def upload_shoplink_product_image(
     company_id: UUID,
@@ -747,46 +885,23 @@ async def upload_shoplink_product_image(
     company = await _company(db, company_id)
     await ensure_shoplink_storage(db)
     raw_id = _clean(product_id.replace("shoplink:", ""), 80)
-    content_type = _product_image_content_type(image)
-    content = await image.read()
-    if not content:
-        raise HTTPException(status_code=422, detail="Imagen vacia.")
-    if len(content) > MAX_PRODUCT_IMAGE_BYTES:
-        raise HTTPException(status_code=422, detail="La imagen supera 5 MB.")
-    result = await db.execute(
-        text("""
-            UPDATE shoplink_products
-            SET image_content_type = :content_type,
-                image_file_bytes = :content,
-                image_file_size = :size,
-                image_url = '',
-                updated_at = now()
-            WHERE company_id = :company_id
-              AND id = :id
-            RETURNING *
-        """),
-        {
-            "company_id": company["id"],
-            "id": raw_id,
-            "content_type": content_type,
-            "content": content,
-            "size": len(content),
-        },
-    )
-    row = result.mappings().first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Producto no encontrado.")
-    await db.commit()
-    return {"ok": True, "product": _shoplink_product_out(dict(row), public_id=False)}
+    upload = await _read_product_image_upload(image)
+    row = await _write_product_image_slots(db, company["id"], raw_id, [upload], append=False)
+    return {"ok": True, "product": _shoplink_product_out(row, public_id=False)}
 
 
-@router.get("/products/{product_id}/image")
-async def get_shoplink_product_image(product_id: str, db: AsyncSession = Depends(get_db)) -> Response:
+@router.get("/products/{product_id}/images/{position}")
+async def get_shoplink_product_image_at_position(
+    product_id: str,
+    position: int,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
     await ensure_shoplink_storage(db)
     raw_id = _clean(product_id.replace("shoplink:", ""), 80)
+    _, content_type_col, bytes_col, _ = _image_slot_columns(position)
     result = await db.execute(
-        text("""
-            SELECT image_content_type, image_file_bytes
+        text(f"""
+            SELECT {content_type_col} AS image_content_type, {bytes_col} AS image_file_bytes
             FROM shoplink_products
             WHERE id = :id
             LIMIT 1
@@ -800,6 +915,11 @@ async def get_shoplink_product_image(product_id: str, db: AsyncSession = Depends
     if isinstance(content, memoryview):
         content = content.tobytes()
     return Response(content=bytes(content), media_type=str(row.get("image_content_type") or "image/jpeg"))
+
+
+@router.get("/products/{product_id}/image")
+async def get_shoplink_product_image(product_id: str, db: AsyncSession = Depends(get_db)) -> Response:
+    return await get_shoplink_product_image_at_position(product_id, 1, db)
 
 
 @router.get("/companies/{company_id}/settings")

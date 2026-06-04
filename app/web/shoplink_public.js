@@ -113,12 +113,46 @@
     return phone ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${text}` : `https://wa.me/?text=${text}`;
   }
 
+  function productImages(product) {
+    const urls = Array.isArray(product.image_urls) && product.image_urls.length
+      ? product.image_urls
+      : [product.image_url].filter(Boolean);
+    return urls.filter(Boolean).slice(0, 3);
+  }
+
   function productVisual(product) {
-    if (product.image_url) {
-      return `<img src="${h(product.image_url)}" alt="${h(product.name || "Producto")}" loading="lazy">`;
+    const images = productImages(product);
+    if (images.length) {
+      return `
+        <div class="sl-gallery ${images.length > 1 ? "multi" : "single"}">
+          ${images.map((url, index) => `
+            <button class="sl-image-thumb" type="button" data-shoplink-zoom="${h(url)}" data-shoplink-zoom-title="${h(product.name || "Producto")}">
+              <img src="${h(url)}" alt="${h(product.name || "Producto")} ${index + 1}" loading="lazy">
+            </button>
+          `).join("")}
+        </div>
+      `;
     }
     const initials = String(product.name || "P").trim().slice(0, 2).toUpperCase();
     return `<div class="sl-product-fallback"><b>${h(initials)}</b><span>${h(product.category || "Nuevo")}</span></div>`;
+  }
+
+  function openImageZoom(url = "", title = "") {
+    if (!url) return;
+    document.querySelector("[data-shoplink-zoom-modal]")?.remove();
+    document.body.insertAdjacentHTML("beforeend", `
+      <div class="sl-zoom" data-shoplink-zoom-modal>
+        <button class="sl-zoom-close" type="button" data-shoplink-zoom-close>Cerrar</button>
+        <figure>
+          <img src="${h(url)}" alt="${h(title || "Imagen de producto")}">
+          ${title ? `<figcaption>${h(title)}</figcaption>` : ""}
+        </figure>
+      </div>
+    `);
+  }
+
+  function closeImageZoom() {
+    document.querySelector("[data-shoplink-zoom-modal]")?.remove();
   }
 
   function productCard(product, compact = false) {
@@ -214,7 +248,7 @@
           <div>
             <div class="sl-eyebrow">Catalogo</div>
             <h2>Explora la tienda</h2>
-            <p>${h(rows.length)} de ${h(products().length)} productos visibles</p>
+            <p data-shoplink-visible-count>${h(rows.length)} de ${h(products().length)} productos visibles</p>
           </div>
         </div>
         <div class="sl-tabs">
@@ -224,11 +258,26 @@
             </button>
           `).join("")}
         </div>
-        <div class="sl-products">
-          ${rows.length ? rows.map((product) => productCard(product)).join("") : `<div class="sl-empty">No hay productos visibles para este filtro.</div>`}
+        <div class="sl-products" data-shoplink-products-grid>
+          ${renderProductGrid()}
         </div>
       </section>
     `;
+  }
+
+  function renderProductGrid() {
+    const rows = visibleProducts();
+    return rows.length
+      ? rows.map((product) => productCard(product)).join("")
+      : `<div class="sl-empty">No hay productos visibles para este filtro.</div>`;
+  }
+
+  function refreshProductResults() {
+    const rows = visibleProducts();
+    const count = document.querySelector("[data-shoplink-visible-count]");
+    if (count) count.textContent = `${rows.length} de ${products().length} productos visibles`;
+    const grid = document.querySelector("[data-shoplink-products-grid]");
+    if (grid) grid.innerHTML = renderProductGrid();
   }
 
   function renderOrderSuccess() {
@@ -362,6 +411,17 @@
   }
 
   document.addEventListener("click", (event) => {
+    const zoom = event.target.closest("[data-shoplink-zoom]");
+    if (zoom) {
+      openImageZoom(zoom.getAttribute("data-shoplink-zoom") || "", zoom.getAttribute("data-shoplink-zoom-title") || "");
+      return;
+    }
+
+    if (event.target.closest("[data-shoplink-zoom-close]") || event.target.matches("[data-shoplink-zoom-modal]")) {
+      closeImageZoom();
+      return;
+    }
+
     const category = event.target.closest("[data-shoplink-category]");
     if (category) {
       state.category = category.dataset.shoplinkCategory || "Todos";
@@ -410,7 +470,7 @@
     if (search) {
       state.query = search.value || "";
       window.clearTimeout(window.__shoplinkSearchTimer);
-      window.__shoplinkSearchTimer = window.setTimeout(render, 120);
+      window.__shoplinkSearchTimer = window.setTimeout(refreshProductResults, 80);
       return;
     }
 
@@ -418,6 +478,10 @@
     if (customer) {
       state.customer[customer.dataset.shoplinkCustomer] = customer.value || "";
     }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeImageZoom();
   });
 
   async function boot() {

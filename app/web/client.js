@@ -16944,6 +16944,19 @@ function inventoryCreatePayload() {
     ].join("");
   }
 
+  function cxSlProImageUrls026L(value = "") {
+    return cxShoplinkSplit026K(value).slice(0, 3);
+  }
+
+  function cxSlProExternalImageUrls026L(product = {}) {
+    const urls = Array.isArray(product.image_urls) && product.image_urls.length
+      ? product.image_urls
+      : [product.image_url].filter(Boolean);
+    return urls
+      .filter((url) => url && !String(url).includes("/api/v1/shoplink/products/"))
+      .slice(0, 3);
+  }
+
   function cxSlProFilteredProducts026L(payload = {}) {
     const products = Array.isArray(payload.products) ? payload.products : [];
     const query = cxNormShoplink026K(cxSlProSearch026L);
@@ -16977,7 +16990,7 @@ function inventoryCreatePayload() {
         </div>
         <div>
           <strong>${h(cxSlProMoney026L(product.price, currency))}</strong>
-          <small>Stock ${h(product.stock || 0)}</small>
+          <small>Stock ${h(product.stock || 0)} · Fotos ${h((product.image_urls || []).length || (product.image_url ? 1 : 0))}</small>
         </div>
         <div class="slpro-row-actions-026l">
           <button class="slpro-mini-btn-026l" type="button" data-slpro-edit="${h(product.id)}">Editar</button>
@@ -17002,7 +17015,7 @@ function inventoryCreatePayload() {
     set("slProSize026L", product.size || "");
     set("slProColor026L", product.color || "");
     set("slProDescription026L", product.description || "");
-    set("slProImageUrl026L", product.image_url && !String(product.image_url).includes("/api/v1/shoplink/products/") ? product.image_url : "");
+    set("slProImageUrl026L", cxSlProExternalImageUrls026L(product).join(", "));
     set("slProInventory026L", product.inventory_item_id || "");
     const category = document.getElementById("slProCategory026L");
     if (category) category.value = product.category || category.options?.[0]?.value || "General";
@@ -17027,7 +17040,8 @@ function inventoryCreatePayload() {
       size: $("slProSize026L")?.value || "",
       color: $("slProColor026L")?.value || "",
       description: $("slProDescription026L")?.value || "",
-      image_url: $("slProImageUrl026L")?.value || "",
+      image_url: cxSlProImageUrls026L($("slProImageUrl026L")?.value || "")[0] || "",
+      image_urls: cxSlProImageUrls026L($("slProImageUrl026L")?.value || ""),
       inventory_item_id: $("slProInventory026L")?.value || "",
       published: !!$("slProPublished026L")?.checked,
       archived: !!$("slProArchived026L")?.checked,
@@ -17133,11 +17147,12 @@ function inventoryCreatePayload() {
                   </div>
                   <div class="slpro-field-026l">
                     <label>Cargar fotos</label>
-                    <input id="slProImageFile026L" type="file" accept="image/png,image/jpeg,image/webp">
+                    <input id="slProImageFile026L" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+                    <small class="client-muted">Hasta 3 imagenes por articulo.</small>
                   </div>
                   <div class="slpro-field-026l">
                     <label>Seleccionar foto URL</label>
-                    <input id="slProImageUrl026L" placeholder="https://...">
+                    <input id="slProImageUrl026L" placeholder="https://foto1..., https://foto2..., https://foto3...">
                   </div>
                   <div class="slpro-checks-026l">
                     <label><input id="slProPublished026L" type="checkbox" checked> <span>Publicar</span></label>
@@ -17172,6 +17187,10 @@ function inventoryCreatePayload() {
   async function cxSlProSave026L() {
     try {
       const payload = cxSlProReadPayload026L();
+      const imageFiles = Array.from($("slProImageFile026L")?.files || []);
+      if (imageFiles.length > 3) {
+        throw new Error("Puedes cargar maximo 3 imagenes por articulo.");
+      }
       const path = cxSlProCurrentProduct026L
         ? `/shoplink/companies/${encodeURIComponent(state.companyId)}/products/${encodeURIComponent(cxSlProCurrentProduct026L)}`
         : `/shoplink/companies/${encodeURIComponent(state.companyId)}/products`;
@@ -17180,11 +17199,10 @@ function inventoryCreatePayload() {
         body: JSON.stringify(payload),
       });
       const productId = saved.product?.id || cxSlProCurrentProduct026L;
-      const imageFile = $("slProImageFile026L")?.files?.[0];
-      if (imageFile && productId) {
+      if (imageFiles.length && productId) {
         const form = new FormData();
-        form.append("image", imageFile);
-        await apiForm(`/shoplink/companies/${encodeURIComponent(state.companyId)}/products/${encodeURIComponent(productId)}/image`, form);
+        imageFiles.slice(0, 3).forEach((imageFile) => form.append("images", imageFile));
+        await apiForm(`/shoplink/companies/${encodeURIComponent(state.companyId)}/products/${encodeURIComponent(productId)}/images`, form);
       }
       cxSlProMessage026L("Articulo guardado. La tienda publica ya puede usarlo.");
       cxSlProCurrentProduct026L = "";
