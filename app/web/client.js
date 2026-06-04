@@ -695,6 +695,7 @@
     settings: ["Configuracion", "ajustes del tenant", "CFG"],
     production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
+    lan: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     landing: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     shoplink: ["ShopLink", "catalogo publico por WhatsApp", "SHL"],
     catalogo_tienda_publica: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
@@ -757,7 +758,8 @@
       ""
     ).trim();
 
-    const meta = MODULE_UI[code] || [
+    const metaKey = normalizeClientModuleCode(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const meta = MODULE_UI[code] || MODULE_UI[metaKey] || [
       source.name || code || `Modulo ${index + 1}`,
       source.description || source.category || "servicio activo",
       (code || String(index + 1)).slice(0, 3).toUpperCase(),
@@ -843,13 +845,14 @@
 
   function isClientModuleActive(code) {
     const normalized = String(code || "").trim();
+    const normalizedToken = cxNormalizeModuleToken017H(normalized);
 
     if (!normalized || cxIsHiddenClientModule017H({ code: normalized })) {
       return false;
     }
 
     return activeClientModules().some((module) =>
-      module.code === normalized &&
+      (module.code === normalized || cxNormalizeModuleToken017H(module.code) === normalizedToken) &&
       module.enabled &&
       !cxIsHiddenClientModule017H(module)
     );
@@ -16301,6 +16304,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_026K_SHOPLINK_MODULE_START */
   const CX_SHOPLINK_CODES_026K = new Set([
     "landing",
+    "lan",
     "shoplink",
     "catalogo_tienda_publica",
     "catalogo_publico",
@@ -16321,11 +16325,65 @@ function inventoryCreatePayload() {
     return (
       CX_SHOPLINK_CODES_026K.has(normalized) ||
       normalized.includes("shoplink") ||
-      normalized.includes("landing") ||
       (normalized.includes("catalog") && normalized.includes("tienda")) ||
       (normalized.includes("catalogo") && normalized.includes("tienda")) ||
       (normalized.includes("tienda") && normalized.includes("public"))
     );
+  }
+
+  function cxShoplinkModuleText026K(module = {}) {
+    const raw = module.raw || {};
+    const rawModule = raw.module && typeof raw.module === "object" ? raw.module : {};
+    return [
+      module.title,
+      module.subtitle,
+      raw.name,
+      raw.title,
+      raw.description,
+      rawModule.name,
+      rawModule.title,
+      rawModule.description
+    ]
+      .map(cxNormShoplink026K)
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  function cxIsShoplinkModule026K(module = {}) {
+    const raw = module.raw || {};
+    const rawModule = raw.module && typeof raw.module === "object" ? raw.module : {};
+    const codeTokens = [
+      module.code,
+      module.badge,
+      raw.code,
+      raw.module_code,
+      rawModule.code,
+      rawModule.module_code
+    ]
+      .map(cxNormShoplink026K)
+      .map((value) => value.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""))
+      .filter(Boolean);
+    const text = cxShoplinkModuleText026K(module);
+    return (
+      codeTokens.some(cxIsShoplinkCode026K) ||
+      text.includes("shoplink") ||
+      (text.includes("catalogo") && text.includes("tienda")) ||
+      (text.includes("catalog") && text.includes("tienda")) ||
+      (text.includes("tienda") && text.includes("public"))
+    );
+  }
+
+  function cxGetClientModuleByCode026K(code = "") {
+    const token = cxNormalizeModuleToken017H(code);
+    return visibleClientModules(activeClientModules()).find((module) =>
+      String(module.code || "").trim() === String(code || "").trim() ||
+      cxNormalizeModuleToken017H(module.code) === token
+    ) || null;
+  }
+
+  function cxShoplinkActiveCode026K() {
+    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkModule026K);
+    return module?.code || (isClientModuleActive("landing") ? "landing" : "shoplink");
   }
 
   function cxShoplinkStyles026K() {
@@ -16456,7 +16514,7 @@ function inventoryCreatePayload() {
     const settings = payload.settings || {};
     const summary = payload.summary || {};
     const publicUrl = cxShoplinkPublicUrl026K(payload);
-    const activeCode = isClientModuleActive("landing") ? "landing" : "shoplink";
+    const activeCode = cxShoplinkActiveCode026K();
     $("app").innerHTML = `
       <main class="client-shell">
         <div class="client-layout">
@@ -18057,6 +18115,7 @@ async function renderClientModulePlaceholder(code) {
       const moduleTrigger = target.closest("[data-client-module]");
       if (moduleTrigger) {
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
+        const activeModule = cxGetClientModuleByCode026K(code) || { code };
 
         if (!isClientModuleActive(code)) return;
 
@@ -18085,7 +18144,10 @@ async function renderClientModulePlaceholder(code) {
           return;
         }
 
-        if (typeof cxIsShoplinkCode026K === "function" && cxIsShoplinkCode026K(code)) {
+        if (
+          typeof cxIsShoplinkCode026K === "function" &&
+          (cxIsShoplinkCode026K(code) || cxIsShoplinkModule026K(activeModule))
+        ) {
           await renderShoplinkModule026K();
           return;
         }
