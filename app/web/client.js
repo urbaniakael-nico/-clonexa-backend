@@ -701,6 +701,11 @@
     catalogo_tienda_publica: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     catalogo_publico: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     tienda_publica: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
+    pro: ["Productos e Inventario / Landing", "productos, fotos, precios y stock ShopLink", "PRO"],
+    productos_inventario_landing: ["Productos e Inventario / Landing", "productos, fotos, precios y stock ShopLink", "PRO"],
+    productos_e_inventario_landing: ["Productos e Inventario / Landing", "productos, fotos, precios y stock ShopLink", "PRO"],
+    products_inventory_landing: ["Productos e Inventario / Landing", "productos, fotos, precios y stock ShopLink", "PRO"],
+    product_inventory: ["Productos e Inventario / Landing", "productos, fotos, precios y stock ShopLink", "PRO"],
     sales: ["Ventas", "actividad comercial", "SAL"],
     stores: ["Tiendas", "puntos de venta", "STR"],
     orders: ["Pedidos", "creacion, seguimiento y estados", "ORD"],
@@ -16752,6 +16757,373 @@ function inventoryCreatePayload() {
   }
   /* CLONEXA_026K_SHOPLINK_MODULE_END */
 
+  /* CLONEXA_026K_R7_SHOPLINK_PRODUCTS_START */
+  const CX_SLPRO_CODES_026L = new Set([
+    "pro",
+    "productos_inventario_landing",
+    "productos_e_inventario_landing",
+    "products_inventory_landing",
+    "product_inventory",
+    "shoplink_products",
+    "productos_shoplink",
+  ]);
+
+  let cxSlProCurrentProduct026L = "";
+
+  function cxIsShoplinkProductsCode026L(code = "") {
+    const normalized = cxNormShoplink026K(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return CX_SLPRO_CODES_026L.has(normalized);
+  }
+
+  function cxShoplinkProductsText026L(module = {}) {
+    const raw = module.raw || {};
+    const rawModule = raw.module && typeof raw.module === "object" ? raw.module : {};
+    return [
+      module.code,
+      module.badge,
+      module.title,
+      module.subtitle,
+      raw.code,
+      raw.name,
+      raw.title,
+      raw.description,
+      rawModule.code,
+      rawModule.name,
+      rawModule.title,
+      rawModule.description,
+    ].map(cxNormShoplink026K).filter(Boolean).join(" ");
+  }
+
+  function cxIsShoplinkProductsModule026L(module = {}) {
+    const text = cxShoplinkProductsText026L(module);
+    const code = cxNormShoplink026K(module.code || module.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return (
+      cxIsShoplinkProductsCode026L(code) ||
+      code === "pro" ||
+      (text.includes("productos") && text.includes("inventario") && text.includes("landing")) ||
+      (text.includes("products") && text.includes("inventory") && text.includes("landing"))
+    );
+  }
+
+  function cxSlProActiveCode026L() {
+    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkProductsModule026L);
+    return module?.code || "pro";
+  }
+
+  function cxSlProStyles026L() {
+    let style = document.getElementById("cxSlProStyles026L");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "cxSlProStyles026L";
+      document.head.appendChild(style);
+    }
+    style.textContent = `
+      .slpro-grid-026l{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(340px,.9fr);gap:18px;align-items:start}
+      .slpro-card-026l{border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.19));border-radius:22px;padding:22px;box-shadow:0 18px 48px rgba(0,0,0,.2)}
+      .slpro-form-026l{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+      .slpro-field-026l{display:flex;flex-direction:column;gap:7px}
+      .slpro-field-026l label,.slpro-checks-026l span{font-size:12px;font-weight:1000;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+      .slpro-field-026l input,.slpro-field-026l textarea,.slpro-field-026l select{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:15px;background:rgba(4,6,22,.72);color:var(--text);padding:13px 14px;font:inherit;font-weight:800}
+      .slpro-field-026l textarea{min-height:82px;resize:vertical}
+      .slpro-wide-026l{grid-column:1/-1}
+      .slpro-checks-026l{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+      .slpro-checks-026l label{border:1px solid rgba(255,255,255,.12);border-radius:15px;padding:12px;background:rgba(255,255,255,.06);display:flex;gap:9px;align-items:center;font-weight:900}
+      .slpro-actions-026l{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+      .slpro-kpis-026l{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
+      .slpro-kpi-026l{border:1px solid rgba(255,255,255,.11);border-radius:16px;background:rgba(0,0,0,.22);padding:14px}
+      .slpro-kpi-026l b{display:block;font-size:26px;color:var(--accent)}
+      .slpro-kpi-026l span{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:1000}
+      .slpro-products-026l{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}
+      .slpro-product-026l{border:1px solid rgba(255,255,255,.12);border-radius:18px;overflow:hidden;background:rgba(0,0,0,.2);display:grid;grid-template-rows:132px 1fr}
+      .slpro-thumb-026l{background:linear-gradient(135deg,rgba(255,122,0,.2),rgba(34,211,238,.16));display:grid;place-items:center;color:var(--accent);font-weight:1000;overflow:hidden}
+      .slpro-thumb-026l img{width:100%;height:100%;object-fit:cover;display:block}
+      .slpro-body-026l{padding:13px;display:grid;gap:9px}
+      .slpro-body-026l h3{margin:0;font-size:18px;line-height:1.15}
+      .slpro-body-026l small{color:var(--muted);font-weight:800;line-height:1.35}
+      .slpro-row-026l{display:flex;justify-content:space-between;gap:10px;align-items:center}
+      .slpro-badge-026l{display:inline-flex;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.09);font-size:11px;font-weight:1000;color:var(--accent)}
+      .slpro-msg-026l{margin-top:12px;font-weight:900;color:var(--accent)}
+      @media(max-width:980px){.slpro-grid-026l,.slpro-form-026l{grid-template-columns:1fr}.slpro-kpis-026l{grid-template-columns:1fr 1fr}}
+    `;
+  }
+
+  function cxSlProMoney026L(value, currency = "COP") {
+    return cxShoplinkMoney026K(value, currency);
+  }
+
+  async function cxSlProLoad026L() {
+    if (!state.companyId) throw new Error("No hay empresa activa.");
+    return api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/products`);
+  }
+
+  function cxSlProCategoryOptions026L(categories = [], selected = "") {
+    const list = Array.isArray(categories) && categories.length ? categories : ["General"];
+    const current = selected || list[0] || "General";
+    const final = list.includes(current) ? list : [current, ...list];
+    return final.map((category) => `<option value="${h(category)}" ${category === current ? "selected" : ""}>${h(category)}</option>`).join("");
+  }
+
+  function cxSlProInventoryOptions026L(items = [], selected = "") {
+    return [
+      `<option value="">Sin enlace de inventario</option>`,
+      ...items.map((item) => {
+        const label = [item.name, item.sku, item.size, item.color].filter(Boolean).join(" / ");
+        return `<option value="${h(item.id)}" ${String(item.id) === String(selected) ? "selected" : ""}>${h(label || item.id)} - stock ${h(item.stock || 0)}</option>`;
+      })
+    ].join("");
+  }
+
+  function cxSlProProductCards026L(payload = {}) {
+    const products = Array.isArray(payload.products) ? payload.products : [];
+    const currency = payload.settings?.currency || "COP";
+    if (!products.length) {
+      return `<div class="slpro-card-026l"><strong>Sin productos cargados</strong><p class="client-muted">Crea el primer producto usando las categorias de la tienda.</p></div>`;
+    }
+    return products.map((product) => `
+      <article class="slpro-product-026l">
+        <div class="slpro-thumb-026l">${product.image_url ? `<img src="${h(product.image_url)}" alt="${h(product.name)}">` : `<span>${h((product.name || "P").slice(0, 2).toUpperCase())}</span>`}</div>
+        <div class="slpro-body-026l">
+          <div class="slpro-row-026l">
+            <span class="slpro-badge-026l">${h(product.category || "General")}</span>
+            <span class="slpro-badge-026l">${product.published ? "Publico" : "Oculto"}</span>
+          </div>
+          <h3>${h(product.name || "Producto")}</h3>
+          <small>${h([product.sku, product.size, product.color].filter(Boolean).join(" / ") || "Sin variantes")}</small>
+          <div class="slpro-row-026l">
+            <strong>${h(cxSlProMoney026L(product.price, currency))}</strong>
+            <small>Stock ${h(product.stock || 0)}</small>
+          </div>
+          <button class="client-btn ghost" type="button" data-slpro-edit="${h(product.id)}">Editar</button>
+        </div>
+      </article>
+    `).join("");
+  }
+
+  function cxSlProFillForm026L(product = {}) {
+    cxSlProCurrentProduct026L = product.id || "";
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value ?? "";
+    };
+    set("slProName026L", product.name || "");
+    set("slProSku026L", product.sku || "");
+    set("slProPrice026L", product.price || "");
+    set("slProStock026L", product.stock || "");
+    set("slProSize026L", product.size || "");
+    set("slProColor026L", product.color || "");
+    set("slProDescription026L", product.description || "");
+    set("slProImageUrl026L", product.image_url && !String(product.image_url).includes("/api/v1/shoplink/products/") ? product.image_url : "");
+    set("slProInventory026L", product.inventory_item_id || "");
+    const category = document.getElementById("slProCategory026L");
+    if (category) category.value = product.category || category.options?.[0]?.value || "General";
+    const published = document.getElementById("slProPublished026L");
+    const featured = document.getElementById("slProFeatured026L");
+    if (published) published.checked = product.published !== false;
+    if (featured) featured.checked = Boolean(product.featured);
+    const file = document.getElementById("slProImageFile026L");
+    if (file) file.value = "";
+    cxSlProMessage026L(product.id ? "Editando producto existente." : "");
+  }
+
+  function cxSlProReadPayload026L() {
+    return {
+      name: $("slProName026L")?.value || "",
+      category: $("slProCategory026L")?.value || "General",
+      sku: $("slProSku026L")?.value || "",
+      price: Number($("slProPrice026L")?.value || 0),
+      stock: Number($("slProStock026L")?.value || 0),
+      size: $("slProSize026L")?.value || "",
+      color: $("slProColor026L")?.value || "",
+      description: $("slProDescription026L")?.value || "",
+      image_url: $("slProImageUrl026L")?.value || "",
+      inventory_item_id: $("slProInventory026L")?.value || "",
+      published: !!$("slProPublished026L")?.checked,
+      featured: !!$("slProFeatured026L")?.checked,
+    };
+  }
+
+  function cxSlProMessage026L(text, isError = false) {
+    const el = $("slProMsg026L");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = isError ? "#ff7aa8" : "var(--accent)";
+  }
+
+  async function renderShoplinkProductsModule026L() {
+    cxSlProStyles026L();
+    let payload = {};
+    let error = "";
+    try {
+      payload = await cxSlProLoad026L();
+      window.__cxSlProPayload026L = payload;
+    } catch (err) {
+      error = err.message || "No se pudo cargar productos ShopLink.";
+      payload = { products: [], categories: ["General"], inventory_items: [], settings: {}, summary: {} };
+    }
+    const company = payload.company || state.company || {};
+    const b = normalizeBranding(state.branding || {});
+    const summary = payload.summary || {};
+    const settings = payload.settings || {};
+    const activeCode = cxSlProActiveCode026L();
+    const categories = payload.categories || ["General"];
+    const inventoryItems = payload.inventory_items || [];
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, b)}</div>
+            <h2>${h(company.name || "CLONEXA")}</h2>
+            <p>${h(company.slug || "")}</p>
+            <nav class="client-nav">${renderClientNav(activeCode)}</nav>
+            <div class="tenant-pill">Tenant activo<br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <section class="client-hero">
+              <div>
+                <span class="eyebrow">CLONEXA ShopLink</span>
+                <h1>Productos e inventario web</h1>
+                <p>Sube articulos, fotos, precios y stock por categoria para alimentar la tienda publica.</p>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                <button class="client-btn" type="button" data-slpro-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-shoplink-open>Abrir tienda</button>
+              </div>
+            </section>
+
+            ${error ? `<div class="slpro-card-026l slpro-msg-026l">${h(error)}</div>` : ""}
+            <div class="slpro-kpis-026l">
+              <div class="slpro-kpi-026l"><span>Productos</span><b>${h(summary.products || 0)}</b></div>
+              <div class="slpro-kpi-026l"><span>Publicos</span><b>${h(summary.published || 0)}</b></div>
+              <div class="slpro-kpi-026l"><span>Con foto</span><b>${h(summary.with_photo || 0)}</b></div>
+              <div class="slpro-kpi-026l"><span>Categorias</span><b>${h(summary.categories || categories.length || 0)}</b></div>
+            </div>
+
+            <section class="slpro-grid-026l">
+              <article class="slpro-card-026l">
+                <span class="eyebrow">Producto vendible</span>
+                <h2>Crear o editar articulo</h2>
+                <p class="client-muted">Las categorias vienen de Catalogo / Tienda publica. Si creas una categoria alla, aparecera aqui.</p>
+                <div class="slpro-form-026l">
+                  <div class="slpro-field-026l">
+                    <label>Categoria tienda</label>
+                    <select id="slProCategory026L">${cxSlProCategoryOptions026L(categories)}</select>
+                  </div>
+                  <div class="slpro-field-026l">
+                    <label>Enlace inventario</label>
+                    <select id="slProInventory026L" data-slpro-inventory-select>${cxSlProInventoryOptions026L(inventoryItems)}</select>
+                  </div>
+                  <div class="slpro-field-026l slpro-wide-026l">
+                    <label>Nombre producto</label>
+                    <input id="slProName026L" placeholder="Ej: Gorra Premium beige">
+                  </div>
+                  <div class="slpro-field-026l">
+                    <label>SKU / codigo</label>
+                    <input id="slProSku026L" placeholder="SKU o referencia">
+                  </div>
+                  <div class="slpro-field-026l">
+                    <label>Precio</label>
+                    <input id="slProPrice026L" type="number" min="0" step="100" placeholder="0">
+                  </div>
+                  <div class="slpro-field-026l">
+                    <label>Stock</label>
+                    <input id="slProStock026L" type="number" min="0" step="1" placeholder="0">
+                  </div>
+                  <div class="slpro-field-026l">
+                    <label>Talla / variante</label>
+                    <input id="slProSize026L" placeholder="Unica, M, L...">
+                  </div>
+                  <div class="slpro-field-026l">
+                    <label>Color</label>
+                    <input id="slProColor026L" placeholder="Negro, beige...">
+                  </div>
+                  <div class="slpro-field-026l slpro-wide-026l">
+                    <label>Descripcion</label>
+                    <textarea id="slProDescription026L" placeholder="Detalles visibles para el cliente"></textarea>
+                  </div>
+                  <div class="slpro-field-026l">
+                    <label>Foto archivo</label>
+                    <input id="slProImageFile026L" type="file" accept="image/png,image/jpeg,image/webp">
+                  </div>
+                  <div class="slpro-field-026l">
+                    <label>Foto URL</label>
+                    <input id="slProImageUrl026L" placeholder="https://...">
+                  </div>
+                  <div class="slpro-checks-026l">
+                    <label><input id="slProPublished026L" type="checkbox" checked> <span>Publicado</span></label>
+                    <label><input id="slProFeatured026L" type="checkbox"> <span>Destacado</span></label>
+                  </div>
+                </div>
+                <div class="slpro-actions-026l">
+                  <button class="client-btn" type="button" data-slpro-save>Guardar producto</button>
+                  <button class="client-btn ghost" type="button" data-slpro-reset>Nuevo</button>
+                </div>
+                <div id="slProMsg026L" class="slpro-msg-026l"></div>
+              </article>
+
+              <article class="slpro-card-026l">
+                <span class="eyebrow">Salida publica</span>
+                <h2>Productos en tienda</h2>
+                <p class="client-muted">Los productos publicados aparecen en ${h(cxShoplinkPublicUrl026K(payload))}.</p>
+                <div class="slpro-products-026l">${cxSlProProductCards026L(payload)}</div>
+              </article>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  async function cxSlProSave026L() {
+    try {
+      const payload = cxSlProReadPayload026L();
+      const path = cxSlProCurrentProduct026L
+        ? `/shoplink/companies/${encodeURIComponent(state.companyId)}/products/${encodeURIComponent(cxSlProCurrentProduct026L)}`
+        : `/shoplink/companies/${encodeURIComponent(state.companyId)}/products`;
+      const saved = await api(path, {
+        method: cxSlProCurrentProduct026L ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
+      const productId = saved.product?.id || cxSlProCurrentProduct026L;
+      const imageFile = $("slProImageFile026L")?.files?.[0];
+      if (imageFile && productId) {
+        const form = new FormData();
+        form.append("image", imageFile);
+        await apiForm(`/shoplink/companies/${encodeURIComponent(state.companyId)}/products/${encodeURIComponent(productId)}/image`, form);
+      }
+      cxSlProMessage026L("Producto guardado. La tienda publica ya puede usarlo.");
+      cxSlProCurrentProduct026L = "";
+      setTimeout(() => renderShoplinkProductsModule026L(), 500);
+    } catch (error) {
+      cxSlProMessage026L(error.message || "No se pudo guardar el producto.", true);
+    }
+  }
+
+  function cxSlProEdit026L(productId = "") {
+    const payload = window.__cxSlProPayload026L || {};
+    const product = (payload.products || []).find((item) => String(item.id) === String(productId));
+    if (!product) return;
+    cxSlProFillForm026L(product);
+    document.querySelector(".slpro-card-026l")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function cxSlProFillFromInventory026L(inventoryId = "") {
+    const payload = window.__cxSlProPayload026L || {};
+    const item = (payload.inventory_items || []).find((row) => String(row.id) === String(inventoryId));
+    if (!item) return;
+    const setIfEmpty = (id, value) => {
+      const el = $(id);
+      if (el && !el.value) el.value = value || "";
+    };
+    setIfEmpty("slProName026L", item.name);
+    setIfEmpty("slProSku026L", item.sku);
+    setIfEmpty("slProPrice026L", item.price);
+    setIfEmpty("slProStock026L", item.stock);
+    setIfEmpty("slProSize026L", item.size);
+    setIfEmpty("slProColor026L", item.color);
+  }
+  /* CLONEXA_026K_R7_SHOPLINK_PRODUCTS_END */
+
 async function renderClientModulePlaceholder(code) {
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
@@ -16817,6 +17189,14 @@ async function renderClientModulePlaceholder(code) {
       typeof renderShoplinkModule026K === "function"
     ) {
       return renderShoplinkModule026K();
+    }
+
+    if (
+      typeof cxIsShoplinkProductsCode026L === "function" &&
+      cxIsShoplinkProductsCode026L(cxUniversalPlaceholderCode021DR1) &&
+      typeof renderShoplinkProductsModule026L === "function"
+    ) {
+      return renderShoplinkProductsModule026L();
     }
 
     if (
@@ -18194,6 +18574,28 @@ async function renderClientModulePlaceholder(code) {
         return;
       }
 
+      if (target.closest("[data-slpro-save]")) {
+        await cxSlProSave026L();
+        return;
+      }
+
+      if (target.closest("[data-slpro-refresh]")) {
+        await renderShoplinkProductsModule026L();
+        return;
+      }
+
+      if (target.closest("[data-slpro-reset]")) {
+        cxSlProCurrentProduct026L = "";
+        cxSlProFillForm026L({});
+        return;
+      }
+
+      const slProEdit = target.closest("[data-slpro-edit]");
+      if (slProEdit) {
+        cxSlProEdit026L(slProEdit.getAttribute("data-slpro-edit") || "");
+        return;
+      }
+
       const moduleTrigger = target.closest("[data-client-module]");
       if (moduleTrigger) {
         const code = String(moduleTrigger.dataset.clientModule || "").trim();
@@ -18223,6 +18625,14 @@ async function renderClientModulePlaceholder(code) {
 
         if (typeof cxIsAssemblyCode025U === "function" && cxIsAssemblyCode025U(code)) {
           await renderAssemblyModule025U(code);
+          return;
+        }
+
+        if (
+          typeof cxIsShoplinkProductsCode026L === "function" &&
+          (cxIsShoplinkProductsCode026L(code) || cxIsShoplinkProductsModule026L(activeModule))
+        ) {
+          await renderShoplinkProductsModule026L();
           return;
         }
 
@@ -18583,6 +18993,15 @@ async function renderClientModulePlaceholder(code) {
       if (target.closest("[data-bot-save-name]")) {
         await saveClientBotName();
         return;
+      }
+    });
+
+    document.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const slProInventory = target.closest("[data-slpro-inventory-select]");
+      if (slProInventory) {
+        cxSlProFillFromInventory026L(slProInventory.value || "");
       }
     });
 

@@ -5,7 +5,7 @@ import re
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 
 router = APIRouter()
+MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
+ALLOWED_PRODUCT_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 class ShoplinkSettingsIn(BaseModel):
@@ -52,6 +54,21 @@ class ShoplinkOrderIn(BaseModel):
     customer_address: str | None = ""
     customer_note: str | None = ""
     items: list[ShoplinkOrderItemIn] | None = None
+
+
+class ShoplinkProductIn(BaseModel):
+    name: str | None = ""
+    category: str | None = ""
+    sku: str | None = ""
+    size: str | None = ""
+    color: str | None = ""
+    description: str | None = ""
+    price: float | int | str | None = 0
+    stock: float | int | str | None = 0
+    image_url: str | None = ""
+    inventory_item_id: str | None = ""
+    published: bool | None = True
+    featured: bool | None = False
 
 
 def _clean(value: Any, limit: int = 500) -> str:
@@ -136,6 +153,53 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
         CREATE INDEX IF NOT EXISTS ix_shoplink_orders_company_created
         ON shoplink_orders (company_id, created_at DESC)
     """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS shoplink_products (
+            id text PRIMARY KEY,
+            company_id text NOT NULL,
+            category text NOT NULL DEFAULT 'General',
+            name text NOT NULL DEFAULT '',
+            sku text NOT NULL DEFAULT '',
+            size text NOT NULL DEFAULT '',
+            color text NOT NULL DEFAULT '',
+            description text NOT NULL DEFAULT '',
+            price double precision NOT NULL DEFAULT 0,
+            stock double precision NOT NULL DEFAULT 0,
+            image_url text NOT NULL DEFAULT '',
+            image_content_type text NOT NULL DEFAULT '',
+            image_file_bytes bytea NULL,
+            image_file_size integer NOT NULL DEFAULT 0,
+            inventory_item_id text NOT NULL DEFAULT '',
+            published boolean NOT NULL DEFAULT true,
+            featured boolean NOT NULL DEFAULT false,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    for stmt in [
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'General'",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS name text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS sku text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS size text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS color text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS price double precision NOT NULL DEFAULT 0",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS stock double precision NOT NULL DEFAULT 0",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_url text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_content_type text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_file_bytes bytea NULL",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS image_file_size integer NOT NULL DEFAULT 0",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS inventory_item_id text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS published boolean NOT NULL DEFAULT true",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS featured boolean NOT NULL DEFAULT false",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()",
+        "ALTER TABLE shoplink_products ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()",
+    ]:
+        await db.execute(text(stmt))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_shoplink_products_company_category
+        ON shoplink_products (company_id, lower(category), lower(name))
+    """))
     await db.commit()
 
 
@@ -205,6 +269,54 @@ def _money(value: Any) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _image_url(row: dict[str, Any]) -> str:
+    if row.get("image_file_bytes"):
+        return f"/api/v1/shoplink/products/{row.get('id')}/image"
+    return _clean(row.get("image_url"), 1000)
+
+
+def _shoplink_product_out(row: dict[str, Any], public_id: bool = True) -> dict[str, Any]:
+    raw_id = _clean(row.get("id"), 80)
+    return {
+        "id": f"shoplink:{raw_id}" if public_id else raw_id,
+        "raw_id": raw_id,
+        "source": "shoplink",
+        "name": _clean(row.get("name"), 180) or "Producto",
+        "category": _clean(row.get("category") or "General", 80) or "General",
+        "sku": _clean(row.get("sku"), 80),
+        "size": _clean(row.get("size"), 80),
+        "color": _clean(row.get("color"), 80),
+        "description": _clean(row.get("description"), 700),
+        "price": _money(row.get("price")),
+        "stock": _money(row.get("stock")),
+        "status": "agotado" if _money(row.get("stock")) <= 0 else "disponible",
+        "image_url": _image_url(row),
+        "inventory_item_id": _clean(row.get("inventory_item_id"), 80),
+        "published": bool(row.get("published")),
+        "featured": bool(row.get("featured")),
+        "has_image": bool(row.get("image_file_bytes") or row.get("image_url")),
+        "image_file_size": int(row.get("image_file_size") or 0),
+    }
+
+
+async def _shoplink_products(db: AsyncSession, company_id: str, public_only: bool = True) -> list[dict[str, Any]]:
+    await ensure_shoplink_storage(db)
+    where = ["company_id = :company_id"]
+    if public_only:
+        where.append("published IS TRUE")
+    result = await db.execute(
+        text(f"""
+            SELECT *
+            FROM shoplink_products
+            WHERE {" AND ".join(where)}
+            ORDER BY featured DESC, lower(category), lower(name), updated_at DESC
+            LIMIT 1000
+        """),
+        {"company_id": company_id},
+    )
+    return [_shoplink_product_out(dict(row), public_id=True) for row in result.mappings().all()]
 
 
 async def _inventory_products(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
@@ -308,8 +420,14 @@ async def _reference_products(db: AsyncSession, company_id: str) -> list[dict[st
 
 
 async def _products(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
-    rows = await _inventory_products(db, company_id)
+    rows = await _shoplink_products(db, company_id, public_only=True)
     seen = {f"{r['name']}|{r['size']}|{r['color']}".lower() for r in rows}
+    for row in await _inventory_products(db, company_id):
+        key = f"{row['name']}|{row['size']}|{row['color']}".lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(row)
     for row in await _reference_products(db, company_id):
         key = f"{row['name']}|{row['size']}|{row['color']}".lower()
         if key in seen:
@@ -371,6 +489,281 @@ async def _recent_orders(db: AsyncSession, company_id: str, limit: int = 8) -> l
             "created_at": str(row.get("created_at") or ""),
         })
     return rows
+
+
+async def _managed_shoplink_products(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM shoplink_products
+            WHERE company_id = :company_id
+            ORDER BY featured DESC, lower(category), lower(name), updated_at DESC
+            LIMIT 1000
+        """),
+        {"company_id": company_id},
+    )
+    return [_shoplink_product_out(dict(row), public_id=False) for row in result.mappings().all()]
+
+
+async def _inventory_candidates(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
+    if not await _table_exists(db, "inventory_items"):
+        return []
+    cols = await _columns(db, "inventory_items")
+    name_expr = "COALESCE(NULLIF(name_reference, ''), NULLIF(name, ''), NULLIF(reference, ''), sku, 'Producto')" if "name_reference" in cols else "COALESCE(NULLIF(name, ''), NULLIF(reference, ''), sku, 'Producto')"
+    size_expr = "COALESCE(item_size, '')" if "item_size" in cols else "''"
+    color_expr = "COALESCE(color, '')" if "color" in cols else "''"
+    sku_expr = "COALESCE(sku, '')" if "sku" in cols else "''"
+    category_expr = "COALESCE(category, '')" if "category" in cols else "''"
+    price_columns = [column for column in ("unit_value", "unit_price", "sale_price", "price") if column in cols]
+    stock_columns = [column for column in ("current_stock", "quantity", "stock", "initial_quantity") if column in cols]
+    price_expr = f"COALESCE({', '.join(price_columns + ['0'])})"
+    stock_expr = f"COALESCE({', '.join(stock_columns + ['0'])})"
+    result = await db.execute(
+        text(f"""
+            SELECT
+              id::text AS id,
+              {name_expr} AS name,
+              {category_expr} AS category,
+              {size_expr} AS size,
+              {color_expr} AS color,
+              {sku_expr} AS sku,
+              {price_expr}::float AS price,
+              {stock_expr}::float AS stock
+            FROM inventory_items
+            WHERE company_id::text = :company_id
+            ORDER BY lower({name_expr})
+            LIMIT 500
+        """),
+        {"company_id": company_id},
+    )
+    return [
+        {
+            "id": _clean(row.get("id"), 80),
+            "name": _clean(row.get("name"), 180),
+            "category": _clean(row.get("category"), 80),
+            "size": _clean(row.get("size"), 80),
+            "color": _clean(row.get("color"), 80),
+            "sku": _clean(row.get("sku"), 80),
+            "price": _money(row.get("price")),
+            "stock": _money(row.get("stock")),
+        }
+        for row in result.mappings().all()
+    ]
+
+
+def _settings_categories(settings: dict[str, Any], products: list[dict[str, Any]] | None = None) -> list[str]:
+    seen: set[str] = set()
+    categories: list[str] = []
+    for value in list(settings.get("categories") or []) + [p.get("category") for p in (products or [])]:
+        category = _clean(value, 80) or "General"
+        key = category.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        categories.append(category)
+    return categories or ["General"]
+
+
+def _product_payload(payload: ShoplinkProductIn, current: dict[str, Any] | None = None) -> dict[str, Any]:
+    current = current or {}
+    data = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    name = _clean(data.get("name", current.get("name")), 180)
+    if not name:
+        raise HTTPException(status_code=422, detail="Nombre de producto requerido.")
+    return {
+        "name": name,
+        "category": _clean(data.get("category", current.get("category")) or "General", 80) or "General",
+        "sku": _clean(data.get("sku", current.get("sku")), 80),
+        "size": _clean(data.get("size", current.get("size")), 80),
+        "color": _clean(data.get("color", current.get("color")), 80),
+        "description": _clean(data.get("description", current.get("description")), 700),
+        "price": max(0.0, _money(data.get("price", current.get("price")))),
+        "stock": max(0.0, _money(data.get("stock", current.get("stock")))),
+        "image_url": _clean(data.get("image_url", current.get("image_url")), 1000),
+        "inventory_item_id": _clean(data.get("inventory_item_id", current.get("inventory_item_id")), 80),
+        "published": bool(data.get("published", current.get("published", True))),
+        "featured": bool(data.get("featured", current.get("featured", False))),
+    }
+
+
+@router.get("/companies/{company_id}/products")
+async def get_shoplink_products(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    products = await _managed_shoplink_products(db, company["id"])
+    categories = _settings_categories(settings, products)
+    summary = {
+        "products": len(products),
+        "published": len([p for p in products if p.get("published")]),
+        "featured": len([p for p in products if p.get("featured")]),
+        "with_photo": len([p for p in products if p.get("has_image")]),
+        "low_stock": len([p for p in products if p.get("published") and _money(p.get("stock")) <= 3]),
+        "categories": len(categories),
+    }
+    return {
+        "ok": True,
+        "company": {"id": company["id"], "name": company["name"], "slug": company["slug"]},
+        "settings": settings,
+        "categories": categories,
+        "summary": summary,
+        "products": products,
+        "inventory_items": await _inventory_candidates(db, company["id"]),
+        "public_url": _public_url(settings, company["id"]),
+    }
+
+
+@router.post("/companies/{company_id}/products")
+async def create_shoplink_product(
+    company_id: UUID,
+    payload: ShoplinkProductIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    await ensure_shoplink_storage(db)
+    data = _product_payload(payload)
+    product_id = str(uuid4())
+    result = await db.execute(
+        text("""
+            INSERT INTO shoplink_products (
+              id, company_id, category, name, sku, size, color, description,
+              price, stock, image_url, inventory_item_id, published, featured,
+              created_at, updated_at
+            )
+            VALUES (
+              :id, :company_id, :category, :name, :sku, :size, :color, :description,
+              :price, :stock, :image_url, :inventory_item_id, :published, :featured,
+              now(), now()
+            )
+            RETURNING *
+        """),
+        {"id": product_id, "company_id": company["id"], **data},
+    )
+    await db.commit()
+    return {"ok": True, "product": _shoplink_product_out(dict(result.mappings().first()), public_id=False)}
+
+
+@router.patch("/companies/{company_id}/products/{product_id}")
+async def update_shoplink_product(
+    company_id: UUID,
+    product_id: str,
+    payload: ShoplinkProductIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    await ensure_shoplink_storage(db)
+    raw_id = _clean(product_id.replace("shoplink:", ""), 80)
+    current_result = await db.execute(
+        text("SELECT * FROM shoplink_products WHERE company_id = :company_id AND id = :id LIMIT 1"),
+        {"company_id": company["id"], "id": raw_id},
+    )
+    current = current_result.mappings().first()
+    if not current:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+    data = _product_payload(payload, dict(current))
+    result = await db.execute(
+        text("""
+            UPDATE shoplink_products
+            SET category = :category,
+                name = :name,
+                sku = :sku,
+                size = :size,
+                color = :color,
+                description = :description,
+                price = :price,
+                stock = :stock,
+                image_url = :image_url,
+                inventory_item_id = :inventory_item_id,
+                published = :published,
+                featured = :featured,
+                updated_at = now()
+            WHERE company_id = :company_id
+              AND id = :id
+            RETURNING *
+        """),
+        {"company_id": company["id"], "id": raw_id, **data},
+    )
+    await db.commit()
+    return {"ok": True, "product": _shoplink_product_out(dict(result.mappings().first()), public_id=False)}
+
+
+def _product_image_content_type(upload: UploadFile) -> str:
+    content_type = (upload.content_type or "").strip().lower()
+    filename = (upload.filename or "").strip().lower()
+    if content_type in ALLOWED_PRODUCT_IMAGE_TYPES:
+        return content_type
+    if filename.endswith(".jpg") or filename.endswith(".jpeg"):
+        return "image/jpeg"
+    if filename.endswith(".png"):
+        return "image/png"
+    if filename.endswith(".webp"):
+        return "image/webp"
+    raise HTTPException(status_code=422, detail="Imagen invalida. Usa JPG, PNG o WEBP.")
+
+
+@router.post("/companies/{company_id}/products/{product_id}/image")
+async def upload_shoplink_product_image(
+    company_id: UUID,
+    product_id: str,
+    image: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    await ensure_shoplink_storage(db)
+    raw_id = _clean(product_id.replace("shoplink:", ""), 80)
+    content_type = _product_image_content_type(image)
+    content = await image.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="Imagen vacia.")
+    if len(content) > MAX_PRODUCT_IMAGE_BYTES:
+        raise HTTPException(status_code=422, detail="La imagen supera 5 MB.")
+    result = await db.execute(
+        text("""
+            UPDATE shoplink_products
+            SET image_content_type = :content_type,
+                image_file_bytes = :content,
+                image_file_size = :size,
+                image_url = '',
+                updated_at = now()
+            WHERE company_id = :company_id
+              AND id = :id
+            RETURNING *
+        """),
+        {
+            "company_id": company["id"],
+            "id": raw_id,
+            "content_type": content_type,
+            "content": content,
+            "size": len(content),
+        },
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+    await db.commit()
+    return {"ok": True, "product": _shoplink_product_out(dict(row), public_id=False)}
+
+
+@router.get("/products/{product_id}/image")
+async def get_shoplink_product_image(product_id: str, db: AsyncSession = Depends(get_db)) -> Response:
+    await ensure_shoplink_storage(db)
+    raw_id = _clean(product_id.replace("shoplink:", ""), 80)
+    result = await db.execute(
+        text("""
+            SELECT image_content_type, image_file_bytes
+            FROM shoplink_products
+            WHERE id = :id
+            LIMIT 1
+        """),
+        {"id": raw_id},
+    )
+    row = result.mappings().first()
+    if not row or not row.get("image_file_bytes"):
+        raise HTTPException(status_code=404, detail="Imagen no encontrada.")
+    content = row.get("image_file_bytes")
+    if isinstance(content, memoryview):
+        content = content.tobytes()
+    return Response(content=bytes(content), media_type=str(row.get("image_content_type") or "image/jpeg"))
 
 
 @router.get("/companies/{company_id}/settings")
