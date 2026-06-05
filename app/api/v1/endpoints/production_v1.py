@@ -264,9 +264,12 @@ async def reference_rows(db: AsyncSession, company_id: str, view: str = "active"
                 SELECT sum(c.quantity_finished)
                 FROM reference_production_closures c
                 WHERE c.company_id::text = :company_id
+                  AND (pr.activation_date IS NULL OR c.closed_at >= pr.activation_date)
                   AND (
-                    c.reference_id = pr.id
+                    (COALESCE(c.reference_id, '') <> '' AND c.reference_id = pr.id)
                     OR (
+                        COALESCE(c.reference_id, '') = ''
+                        AND
                         lower(COALESCE(c.reference_name, '')) = lower(COALESCE(pr.name, ''))
                         AND lower(COALESCE(c.size, '')) = lower(COALESCE(pr.size, ''))
                     )

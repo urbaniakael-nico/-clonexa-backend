@@ -12034,7 +12034,7 @@ function inventoryCreatePayload() {
   }
 
   async function cxLoadReferencesSummary022E() {
-    return { by_reference_size: [] };
+    return cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}/summary`);
   }
 
   function cxReferencesNumber022E(value) {
@@ -12073,9 +12073,17 @@ function inventoryCreatePayload() {
     };
   }
 
+  function cxReferenceCycleDate022E(value = "") {
+    const raw = String(value || "").trim();
+    if (!raw) return "Sin reinicio";
+    return raw.replace("T", " ").slice(0, 16);
+  }
+
   function cxReferenceMergeRows022E(items = [], summary = {}) {
+    const byId = new Map((Array.isArray(summary.by_reference_size) ? summary.by_reference_size : []).map((row) => [String(row.id || ""), row]));
     return (Array.isArray(items) ? items : []).map((item) => ({
       ...item,
+      ...(byId.get(String(item.id || "")) || {}),
       sku: item.sku || item.code || item.barcode || "",
       unit_price: Number(item.unit_price ?? item.price ?? 0) || 0,
       channel: item.channel || (item.bot_active ? "bot" : "system"),
@@ -12093,7 +12101,15 @@ function inventoryCreatePayload() {
         <td><input data-ref-field="color" value="${h(row.color || "")}" placeholder="Ej: negro"></td>
         <td><input data-ref-field="sku" value="${h(row.sku || row.code || row.barcode || "")}" placeholder="SKU / código"></td>
         <td><input data-ref-field="unit_price" type="number" min="0" step="100" value="${h(row.unit_price ?? 0)}"></td>
-        <td><input data-ref-field="initial_quantity" type="number" min="0" step="1" value="${h(row.initial_quantity ?? 0)}"></td>
+        <td>
+          <input data-ref-field="initial_quantity" type="number" min="0" step="1" value="${h(row.initial_quantity ?? 0)}">
+          <small class="client-muted">Ciclo: ${h(cxReferenceCycleDate022E(row.activation_date))}</small>
+        </td>
+        <td>
+          <strong>${h(cxReferencesNumber022E(row.finished_quantity || 0))}</strong>
+          <small class="client-muted">Hist. ${h(cxReferencesNumber022E(row.historical_finished_quantity || row.finished_quantity || 0))}</small>
+        </td>
+        <td><strong>${h(cxReferencesNumber022E(row.pending_quantity ?? row.initial_quantity ?? 0))}</strong></td>
         <td>
           <select data-ref-field="channel">
             <option value="system" ${channel === "system" ? "selected" : ""}>Sistema</option>
@@ -12104,6 +12120,7 @@ function inventoryCreatePayload() {
         <td>
           <div class="cx-ref-actions-022m">
             <button class="client-btn" type="button" data-reference-save="${h(row.id || "")}">Guardar</button>
+            <button class="client-btn" type="button" data-reference-reset="${h(row.id || "")}">Reiniciar</button>
             <button class="client-btn" type="button" data-reference-delete="${h(row.id || "")}">Archivar</button>
           </div>
         </td>
@@ -12124,12 +12141,14 @@ function inventoryCreatePayload() {
               <th>SKU</th>
               <th>Precio unidad</th>
               <th>Meta operativa</th>
+              <th>Producido ciclo</th>
+              <th>Pendiente ciclo</th>
               <th>Canal de uso</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            ${rows.length ? rows.map(cxReferenceRow022E).join("") : `<tr><td colspan="9">Sin referencias para este filtro.</td></tr>`}
+            ${rows.length ? rows.map(cxReferenceRow022E).join("") : `<tr><td colspan="11">Sin referencias para este filtro.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -12189,7 +12208,7 @@ function inventoryCreatePayload() {
       .cx-ref-table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 1320px;
+        min-width: 1560px;
       }
       .cx-ref-table th,
       .cx-ref-table td {
@@ -12251,10 +12270,15 @@ function inventoryCreatePayload() {
     let loadError = "";
     try {
       payload = await cxLoadReferences022E();
+      try {
+        payload.summary = await cxLoadReferencesSummary022E();
+      } catch (_) {
+        payload.summary = { by_reference_size: [] };
+      }
     } catch (error) {
       loadError = error.message || "No se pudieron cargar referencias.";
     }
-    const rows = cxReferenceMergeRows022E(payload.items || []);
+    const rows = cxReferenceMergeRows022E(payload.items || [], payload.summary || {});
     window.__cxReferencesRows022E = rows;
     $("app").innerHTML = `
       <main class="client-shell">
@@ -12368,6 +12392,26 @@ function inventoryCreatePayload() {
       });
       await renderReferencesModule022E();
       setTimeout(() => cxReferencesNotice022E("Referencia actualizada."), 80);
+      return;
+    }
+
+    const resetOne = event.target.closest("[data-reference-reset]");
+    if (resetOne) {
+      const row = resetOne.closest("[data-reference-row]");
+      const id = resetOne.dataset.referenceReset;
+      if (!row || !id) return;
+      const payload = cxReferenceReadRowPayload022E(row);
+      const total = Number(payload.initial_quantity || 0) || 0;
+      if (!confirm(`Reiniciar ciclo de esta referencia con meta ${total}? El historial anterior queda guardado y el conteo activo empieza en cero.`)) return;
+      await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/reset`, {
+        method: "POST",
+        body: JSON.stringify({
+          initial_quantity: total,
+          source: "client_panel"
+        })
+      });
+      await renderReferencesModule022E();
+      setTimeout(() => cxReferencesNotice022E("Referencia reiniciada. El historial anterior se conserva."), 80);
       return;
     }
 

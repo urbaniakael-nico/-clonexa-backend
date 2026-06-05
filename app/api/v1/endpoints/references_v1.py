@@ -178,6 +178,28 @@ async def ensure_storage(db: AsyncSession) -> None:
     """))
 
     await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS reference_cycle_resets (
+            id text PRIMARY KEY,
+            company_id text NOT NULL,
+            reference_id text NOT NULL,
+            reference_name text NOT NULL,
+            size text NOT NULL,
+            previous_initial_quantity integer NOT NULL DEFAULT 0,
+            previous_finished_quantity integer NOT NULL DEFAULT 0,
+            historical_finished_quantity integer NOT NULL DEFAULT 0,
+            new_initial_quantity integer NOT NULL DEFAULT 0,
+            reset_at timestamptz NOT NULL DEFAULT now(),
+            source text NOT NULL DEFAULT 'client_panel',
+            created_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_reference_cycle_resets_company_ref
+        ON reference_cycle_resets (company_id, reference_id, reset_at DESC)
+    """))
+
+    await db.execute(text("""
         CREATE UNIQUE INDEX IF NOT EXISTS ux_product_references_company_category_name_size_color
         ON product_references (
             company_id,
@@ -599,6 +621,156 @@ async def update_reference(
     }
 
 
+@router.post("/companies/{company_id}/{reference_id}/reset")
+async def reset_reference_cycle(
+    company_id: str,
+    reference_id: str,
+    payload: dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+
+    existing = await db.execute(
+        text("""
+            SELECT *
+            FROM product_references
+            WHERE company_id = :company_id
+              AND id = :reference_id
+            LIMIT 1
+        """),
+        {
+            "company_id": company_id,
+            "reference_id": reference_id,
+        },
+    )
+
+    current = existing.mappings().first()
+
+    if not current:
+        raise HTTPException(status_code=404, detail="Referencia no encontrada.")
+
+    new_initial = to_int(
+        payload.get("initial_quantity") if "initial_quantity" in payload else payload.get("new_initial_quantity"),
+        int(current["initial_quantity"] or 0),
+    )
+
+    counts: dict[str, Any] = {"current_finished": 0, "historical_finished": 0}
+
+    if await table_exists(db, "reference_production_closures"):
+        counts_result = await db.execute(
+            text("""
+                SELECT
+                    COALESCE(sum(quantity_finished) FILTER (
+                        WHERE :activation_date IS NULL OR closed_at >= :activation_date
+                    ), 0) AS current_finished,
+                    COALESCE(sum(quantity_finished), 0) AS historical_finished
+                FROM reference_production_closures
+                WHERE company_id::text = :company_id
+                  AND (
+                    (COALESCE(reference_id, '') <> '' AND reference_id = :reference_id)
+                    OR (
+                        COALESCE(reference_id, '') = ''
+                        AND lower(COALESCE(reference_name, '')) = lower(:reference_name)
+                        AND lower(COALESCE(size, '')) = lower(:size)
+                    )
+                  )
+            """),
+            {
+                "company_id": company_id,
+                "reference_id": reference_id,
+                "reference_name": clean(current.get("name")),
+                "size": clean(current.get("size")),
+                "activation_date": current.get("activation_date"),
+            },
+        )
+        counts = dict(counts_result.mappings().first() or counts)
+
+    try:
+        reset_id = str(uuid4())
+        await db.execute(
+            text("""
+                INSERT INTO reference_cycle_resets (
+                    id,
+                    company_id,
+                    reference_id,
+                    reference_name,
+                    size,
+                    previous_initial_quantity,
+                    previous_finished_quantity,
+                    historical_finished_quantity,
+                    new_initial_quantity,
+                    reset_at,
+                    source,
+                    created_at
+                )
+                VALUES (
+                    :id,
+                    :company_id,
+                    :reference_id,
+                    :reference_name,
+                    :size,
+                    :previous_initial_quantity,
+                    :previous_finished_quantity,
+                    :historical_finished_quantity,
+                    :new_initial_quantity,
+                    now(),
+                    :source,
+                    now()
+                )
+            """),
+            {
+                "id": reset_id,
+                "company_id": company_id,
+                "reference_id": reference_id,
+                "reference_name": clean(current.get("name")),
+                "size": clean(current.get("size")),
+                "previous_initial_quantity": int(current["initial_quantity"] or 0),
+                "previous_finished_quantity": int(counts.get("current_finished") or 0),
+                "historical_finished_quantity": int(counts.get("historical_finished") or 0),
+                "new_initial_quantity": new_initial,
+                "source": clean(payload.get("source")) or "client_panel",
+            },
+        )
+
+        result = await db.execute(
+            text("""
+                UPDATE product_references
+                SET
+                    initial_quantity = :initial_quantity,
+                    activation_date = now(),
+                    updated_at = now()
+                WHERE company_id = :company_id
+                  AND id = :reference_id
+                RETURNING *
+            """),
+            {
+                "company_id": company_id,
+                "reference_id": reference_id,
+                "initial_quantity": new_initial,
+            },
+        )
+
+        row = result.mappings().first()
+        await db.commit()
+
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"reset_reference_cycle_failed: {type(exc).__name__}: {exc}")
+
+    return {
+        "ok": True,
+        "action": "reference_cycle_reset",
+        "reset_id": reset_id,
+        "reference": row_to_dict(row),
+        "previous_initial_quantity": int(current["initial_quantity"] or 0),
+        "previous_finished_quantity": int(counts.get("current_finished") or 0),
+        "historical_finished_quantity": int(counts.get("historical_finished") or 0),
+        "new_initial_quantity": new_initial,
+        "message": "Ciclo reiniciado. El historial anterior se conserva y el conteo activo empieza desde cero.",
+    }
+
+
 @router.delete("/companies/{company_id}/{reference_id}")
 async def delete_reference(
     company_id: str,
@@ -777,7 +949,8 @@ async def references_summary(
 
     refs = [row_to_dict(row) for row in refs_result.mappings().all()]
 
-    finished_map: dict[tuple[str, str], int] = {}
+    finished_map: dict[str, int] = {}
+    historical_finished_map: dict[str, int] = {}
 
     if await table_exists(db, "reference_production_closures"):
         try:
@@ -787,19 +960,32 @@ async def references_summary(
                 prod_result = await db.execute(
                     text("""
                         SELECT
-                            reference_name,
-                            size,
-                            COALESCE(sum(quantity_finished), 0) AS finished
-                        FROM reference_production_closures
-                        WHERE company_id::text = :company_id
-                        GROUP BY reference_name, size
+                            pr.id AS reference_id,
+                            COALESCE(sum(c.quantity_finished) FILTER (
+                                WHERE pr.activation_date IS NULL OR c.closed_at >= pr.activation_date
+                            ), 0) AS finished,
+                            COALESCE(sum(c.quantity_finished), 0) AS historical_finished
+                        FROM product_references pr
+                        LEFT JOIN reference_production_closures c
+                          ON c.company_id::text = :company_id
+                         AND (
+                            (COALESCE(c.reference_id, '') <> '' AND c.reference_id = pr.id)
+                            OR (
+                                COALESCE(c.reference_id, '') = ''
+                                AND lower(COALESCE(c.reference_name, '')) = lower(COALESCE(pr.name, ''))
+                                AND lower(COALESCE(c.size, '')) = lower(COALESCE(pr.size, ''))
+                            )
+                         )
+                        WHERE pr.company_id = :company_id
+                        GROUP BY pr.id
                     """),
                     {"company_id": company_id},
                 )
 
                 for row in prod_result.mappings().all():
-                    key = (clean(row["reference_name"]).lower(), clean(row["size"]).lower())
+                    key = clean(row["reference_id"])
                     finished_map[key] = int(row["finished"] or 0)
+                    historical_finished_map[key] = int(row["historical_finished"] or 0)
 
         except Exception:
             await db.rollback()
@@ -811,8 +997,9 @@ async def references_summary(
 
     for ref in refs:
         initial = int(ref.get("initial_quantity") or 0)
-        key = (clean(ref.get("name")).lower(), clean(ref.get("size")).lower())
+        key = clean(ref.get("id"))
         finished = int(finished_map.get(key, 0))
+        historical_finished = int(historical_finished_map.get(key, finished))
         pending = max(initial - finished, 0)
 
         initial_total += initial
@@ -829,6 +1016,7 @@ async def references_summary(
             "color": ref.get("color") or "",
             "initial_quantity": initial,
             "finished_quantity": finished,
+            "historical_finished_quantity": historical_finished,
             "pending_quantity": pending,
             "progress_percent": round((finished / initial) * 100, 2) if initial > 0 else 0,
             "bot_active": bool(ref.get("bot_active")),
