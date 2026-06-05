@@ -70,6 +70,18 @@ class ShoplinkOrderUpdate(BaseModel):
     guide_note: str | None = None
 
 
+class ShoplinkCustomerIn(BaseModel):
+    name: str | None = ""
+    phone: str | None = ""
+    city: str | None = ""
+    address: str | None = ""
+    status: str | None = "nuevo"
+    tag: str | None = ""
+    note: str | None = ""
+    source: str | None = "client_panel"
+    mark_contacted: bool | None = False
+
+
 class ShoplinkProductIn(BaseModel):
     name: str | None = ""
     category: str | None = ""
@@ -202,6 +214,33 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS ix_shoplink_orders_company_invoice
         ON shoplink_orders (company_id, invoice_code)
         WHERE invoice_code <> ''
+    """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS shoplink_customer_profiles (
+            id text PRIMARY KEY,
+            company_id text NOT NULL,
+            phone_key text NOT NULL,
+            customer_name text NOT NULL DEFAULT '',
+            customer_phone text NOT NULL DEFAULT '',
+            customer_city text NOT NULL DEFAULT '',
+            customer_address text NOT NULL DEFAULT '',
+            status text NOT NULL DEFAULT 'nuevo',
+            tag text NOT NULL DEFAULT '',
+            note text NOT NULL DEFAULT '',
+            source text NOT NULL DEFAULT 'shoplink',
+            archived boolean NOT NULL DEFAULT false,
+            last_contacted_at timestamptz NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    await db.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_shoplink_customer_profiles_company_phone
+        ON shoplink_customer_profiles (company_id, phone_key)
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_shoplink_customer_profiles_company_status
+        ON shoplink_customer_profiles (company_id, lower(status), updated_at DESC)
     """))
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS shoplink_products (
@@ -660,6 +699,60 @@ def _order_status_label(value: Any) -> str:
     return labels.get(_order_status(value), "Nuevo")
 
 
+def _customer_phone_key(value: Any) -> str:
+    return re.sub(r"\D+", "", _clean(value, 60))
+
+
+def _customer_fallback_key(name: Any, city: Any = "") -> str:
+    seed = " ".join([_clean(name, 100), _clean(city, 80)]).strip().lower()
+    key = re.sub(r"[^a-z0-9]+", "-", seed).strip("-")
+    return f"name-{key}" if key else ""
+
+
+def _customer_key(customer: dict[str, Any]) -> str:
+    return _customer_phone_key(customer.get("phone")) or _customer_fallback_key(customer.get("name"), customer.get("city"))
+
+
+def _customer_status(value: Any) -> str:
+    raw = _clean(value, 40).lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "nuevo": "nuevo",
+        "new": "nuevo",
+        "lead": "prospecto",
+        "prospect": "prospecto",
+        "prospecto": "prospecto",
+        "seguimiento": "seguimiento",
+        "follow_up": "seguimiento",
+        "pendiente": "seguimiento",
+        "recurrente": "recurrente",
+        "repeat": "recurrente",
+        "vip": "vip",
+        "frio": "frio",
+        "cold": "frio",
+        "bloqueado": "bloqueado",
+        "blocked": "bloqueado",
+        "archivado": "archivado",
+        "archived": "archivado",
+    }
+    normalized = aliases.get(raw, raw)
+    allowed = {"nuevo", "prospecto", "seguimiento", "recurrente", "vip", "frio", "bloqueado", "archivado"}
+    return normalized if normalized in allowed else "nuevo"
+
+
+def _customer_status_label(value: Any) -> str:
+    labels = {
+        "nuevo": "Nuevo",
+        "prospecto": "Prospecto",
+        "seguimiento": "Seguimiento",
+        "recurrente": "Recurrente",
+        "vip": "VIP",
+        "frio": "Frio",
+        "bloqueado": "Bloqueado",
+        "archivado": "Archivado",
+    }
+    return labels.get(_customer_status(value), "Nuevo")
+
+
 def _format_invoice_money(value: Any, currency: str = "COP") -> str:
     number = _money(value)
     formatted = f"{number:,.0f}".replace(",", ".")
@@ -743,6 +836,232 @@ async def _shoplink_order_by_id(db: AsyncSession, company_id: str, order_id: str
     row = result.mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Pedido no encontrado.")
+    return dict(row)
+
+
+async def _shoplink_customer_profile_rows(db: AsyncSession, company_id: str) -> dict[str, dict[str, Any]]:
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM shoplink_customer_profiles
+            WHERE company_id = :company_id
+              AND COALESCE(archived, false) IS NOT TRUE
+        """),
+        {"company_id": company_id},
+    )
+    return {
+        _clean(row.get("phone_key"), 120): dict(row)
+        for row in result.mappings().all()
+        if _clean(row.get("phone_key"), 120)
+    }
+
+
+def _customer_profile_out(row: dict[str, Any] | None = None) -> dict[str, Any]:
+    row = row or {}
+    status = _customer_status(row.get("status"))
+    return {
+        "profile_id": _clean(row.get("id"), 80),
+        "status": status,
+        "status_label": _customer_status_label(status),
+        "tag": _clean(row.get("tag"), 80),
+        "note": _clean(row.get("note"), 700),
+        "source": _clean(row.get("source"), 80),
+        "last_contacted_at": str(row.get("last_contacted_at") or ""),
+        "profile_updated_at": str(row.get("updated_at") or ""),
+    }
+
+
+async def _shoplink_customer_rows(db: AsyncSession, company_id: str, limit: int = 1000) -> list[dict[str, Any]]:
+    orders = [_shoplink_order_out(row, company_id) for row in await _shoplink_order_rows(db, company_id, limit)]
+    profiles = await _shoplink_customer_profile_rows(db, company_id)
+    grouped: dict[str, dict[str, Any]] = {}
+
+    for order in orders:
+        customer = order.get("customer") or {}
+        key = _customer_key(customer)
+        if not key:
+            continue
+        bucket = grouped.setdefault(key, {
+            "customer_key": key,
+            "name": "",
+            "phone": "",
+            "city": "",
+            "address": "",
+            "orders_count": 0,
+            "total_amount": 0.0,
+            "currency": order.get("currency") or "COP",
+            "first_order_at": "",
+            "last_order_at": "",
+            "last_order_code": "",
+            "last_order_id": "",
+            "last_order_status": "",
+            "last_order_status_label": "",
+            "last_order_total": 0.0,
+            "last_items_summary": "",
+            "orders": [],
+        })
+        bucket["orders_count"] += 1
+        if order.get("status") != "cancelled":
+            bucket["total_amount"] += float(order.get("total_amount") or 0)
+        if not bucket["name"]:
+            bucket["name"] = _clean(customer.get("name"), 120) or order.get("customer_name") or ""
+        if not bucket["phone"]:
+            bucket["phone"] = _clean(customer.get("phone"), 40) or order.get("customer_phone") or ""
+        if not bucket["city"]:
+            bucket["city"] = _clean(customer.get("city"), 120) or order.get("customer_city") or ""
+        if not bucket["address"]:
+            bucket["address"] = _clean(customer.get("address"), 220) or order.get("customer_address") or ""
+        created = str(order.get("created_at") or "")
+        if not bucket["first_order_at"] or created < bucket["first_order_at"]:
+            bucket["first_order_at"] = created
+        if not bucket["last_order_at"] or created > bucket["last_order_at"]:
+            bucket["last_order_at"] = created
+            bucket["last_order_code"] = order.get("order_code") or ""
+            bucket["last_order_id"] = order.get("id") or ""
+            bucket["last_order_status"] = order.get("status") or ""
+            bucket["last_order_status_label"] = order.get("status_label") or ""
+            bucket["last_order_total"] = float(order.get("total_amount") or 0)
+            bucket["last_items_summary"] = order.get("items_summary") or ""
+        bucket["orders"].append({
+            "id": order.get("id"),
+            "order_code": order.get("order_code"),
+            "invoice_code": order.get("invoice_code"),
+            "status": order.get("status"),
+            "status_label": order.get("status_label"),
+            "total_amount": order.get("total_amount"),
+            "created_at": order.get("created_at"),
+            "items_summary": order.get("items_summary"),
+        })
+
+    for key, profile in profiles.items():
+        bucket = grouped.setdefault(key, {
+            "customer_key": key,
+            "name": "",
+            "phone": "",
+            "city": "",
+            "address": "",
+            "orders_count": 0,
+            "total_amount": 0.0,
+            "currency": "COP",
+            "first_order_at": "",
+            "last_order_at": "",
+            "last_order_code": "",
+            "last_order_id": "",
+            "last_order_status": "",
+            "last_order_status_label": "",
+            "last_order_total": 0.0,
+            "last_items_summary": "",
+            "orders": [],
+        })
+        bucket["name"] = _clean(profile.get("customer_name"), 120) or bucket["name"]
+        bucket["phone"] = _clean(profile.get("customer_phone"), 40) or bucket["phone"]
+        bucket["city"] = _clean(profile.get("customer_city"), 120) or bucket["city"]
+        bucket["address"] = _clean(profile.get("customer_address"), 220) or bucket["address"]
+
+    output: list[dict[str, Any]] = []
+    for key, bucket in grouped.items():
+        profile = profiles.get(key, {})
+        profile_out = _customer_profile_out(profile)
+        default_status = "recurrente" if int(bucket.get("orders_count") or 0) > 1 else "nuevo"
+        if not profile:
+            profile_out["status"] = default_status
+            profile_out["status_label"] = _customer_status_label(default_status)
+        output.append({
+            **bucket,
+            **profile_out,
+            "orders": sorted(bucket.get("orders") or [], key=lambda item: str(item.get("created_at") or ""), reverse=True)[:8],
+        })
+
+    output.sort(key=lambda item: (str(item.get("last_order_at") or item.get("profile_updated_at") or ""), float(item.get("total_amount") or 0)), reverse=True)
+    return output
+
+
+async def _upsert_shoplink_customer_profile(
+    db: AsyncSession,
+    company_id: str,
+    customer_key: str,
+    payload: ShoplinkCustomerIn,
+) -> dict[str, Any]:
+    key = _clean(customer_key, 120)
+    data = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    phone = _clean(data.get("phone"), 40)
+    if not key:
+        key = _customer_phone_key(phone) or _customer_fallback_key(data.get("name"), data.get("city"))
+    if not key:
+        raise HTTPException(status_code=422, detail="Cliente requiere WhatsApp o nombre.")
+    status = _customer_status(data.get("status"))
+    result = await db.execute(
+        text("""
+            INSERT INTO shoplink_customer_profiles (
+                id,
+                company_id,
+                phone_key,
+                customer_name,
+                customer_phone,
+                customer_city,
+                customer_address,
+                status,
+                tag,
+                note,
+                source,
+                last_contacted_at,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                :id,
+                :company_id,
+                :phone_key,
+                :customer_name,
+                :customer_phone,
+                :customer_city,
+                :customer_address,
+                :status,
+                :tag,
+                :note,
+                :source,
+                CASE WHEN :mark_contacted IS TRUE THEN now() ELSE NULL END,
+                now(),
+                now()
+            )
+            ON CONFLICT (company_id, phone_key) DO UPDATE
+            SET
+                customer_name = COALESCE(NULLIF(EXCLUDED.customer_name, ''), shoplink_customer_profiles.customer_name),
+                customer_phone = COALESCE(NULLIF(EXCLUDED.customer_phone, ''), shoplink_customer_profiles.customer_phone),
+                customer_city = COALESCE(NULLIF(EXCLUDED.customer_city, ''), shoplink_customer_profiles.customer_city),
+                customer_address = COALESCE(NULLIF(EXCLUDED.customer_address, ''), shoplink_customer_profiles.customer_address),
+                status = EXCLUDED.status,
+                tag = EXCLUDED.tag,
+                note = EXCLUDED.note,
+                source = EXCLUDED.source,
+                archived = false,
+                last_contacted_at = CASE
+                    WHEN :mark_contacted IS TRUE THEN now()
+                    ELSE shoplink_customer_profiles.last_contacted_at
+                END,
+                updated_at = now()
+            RETURNING *
+        """),
+        {
+            "id": str(uuid4()),
+            "company_id": company_id,
+            "phone_key": key,
+            "customer_name": _clean(data.get("name"), 120),
+            "customer_phone": phone,
+            "customer_city": _clean(data.get("city"), 120),
+            "customer_address": _clean(data.get("address"), 220),
+            "status": status,
+            "tag": _clean(data.get("tag"), 80),
+            "note": _clean(data.get("note"), 700),
+            "source": _clean(data.get("source"), 80) or "client_panel",
+            "mark_contacted": bool(data.get("mark_contacted", False)),
+        },
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado.")
+    await db.commit()
     return dict(row)
 
 
@@ -1109,6 +1428,101 @@ async def get_shoplink_orders(
         "summary": summary,
         "orders": rows,
         "public_url": _public_url(settings, company["id"]),
+    }
+
+
+@router.get("/companies/{company_id}/customers")
+async def get_shoplink_customers(
+    company_id: UUID,
+    q: str = "",
+    status: str = "all",
+    limit: int = 1000,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    customers = await _shoplink_customer_rows(db, company["id"], limit)
+    query = _clean(q, 120).lower()
+    if query:
+        customers = [
+            customer for customer in customers
+            if query in " ".join([
+                customer.get("name") or "",
+                customer.get("phone") or "",
+                customer.get("city") or "",
+                customer.get("address") or "",
+                customer.get("status_label") or "",
+                customer.get("tag") or "",
+                customer.get("note") or "",
+                customer.get("last_order_code") or "",
+                customer.get("last_items_summary") or "",
+            ]).lower()
+        ]
+    status_filter = _clean(status, 40).lower()
+    if status_filter and status_filter not in {"all", "todos"}:
+        wanted = _customer_status(status_filter)
+        customers = [customer for customer in customers if _customer_status(customer.get("status")) == wanted]
+    active_customers = [customer for customer in customers if _customer_status(customer.get("status")) not in {"archivado", "bloqueado"}]
+    summary = {
+        "customers": len(customers),
+        "active": len(active_customers),
+        "with_orders": len([customer for customer in customers if int(customer.get("orders_count") or 0) > 0]),
+        "repeat": len([customer for customer in customers if int(customer.get("orders_count") or 0) > 1]),
+        "follow_up": len([customer for customer in customers if _customer_status(customer.get("status")) == "seguimiento"]),
+        "vip": len([customer for customer in customers if _customer_status(customer.get("status")) == "vip"]),
+        "total_sales": sum(float(customer.get("total_amount") or 0) for customer in customers),
+        "cities": len({(customer.get("city") or "").strip().lower() for customer in customers if (customer.get("city") or "").strip()}),
+    }
+    return {
+        "ok": True,
+        "company": {"id": company["id"], "name": company["name"], "slug": company["slug"]},
+        "settings": settings,
+        "summary": summary,
+        "customers": customers,
+        "public_url": _public_url(settings, company["id"]),
+    }
+
+
+@router.post("/companies/{company_id}/customers")
+async def create_shoplink_customer(
+    company_id: UUID,
+    payload: ShoplinkCustomerIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    row = await _upsert_shoplink_customer_profile(db, company["id"], "", payload)
+    return {
+        "ok": True,
+        "customer": {
+            "customer_key": _clean(row.get("phone_key"), 120),
+            "name": _clean(row.get("customer_name"), 120),
+            "phone": _clean(row.get("customer_phone"), 40),
+            "city": _clean(row.get("customer_city"), 120),
+            "address": _clean(row.get("customer_address"), 220),
+            **_customer_profile_out(row),
+        },
+    }
+
+
+@router.patch("/companies/{company_id}/customers/{customer_key}")
+async def update_shoplink_customer(
+    company_id: UUID,
+    customer_key: str,
+    payload: ShoplinkCustomerIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    row = await _upsert_shoplink_customer_profile(db, company["id"], customer_key, payload)
+    return {
+        "ok": True,
+        "customer": {
+            "customer_key": _clean(row.get("phone_key"), 120),
+            "name": _clean(row.get("customer_name"), 120),
+            "phone": _clean(row.get("customer_phone"), 40),
+            "city": _clean(row.get("customer_city"), 120),
+            "address": _clean(row.get("customer_address"), 220),
+            **_customer_profile_out(row),
+        },
     }
 
 

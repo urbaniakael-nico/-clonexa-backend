@@ -692,6 +692,11 @@
     reports: ["Reportes", "metricas y auditoria", "REP"],
     kpis: ["KPIs", "indicadores operativos", "KPI"],
     crm: ["CRM Campo", "operacion en vivo", "CRM"],
+    cli: ["Clientes / CRM / Landing", "clientes, WhatsApp y seguimiento", "CLI"],
+    clientes_crm_landing: ["Clientes / CRM / Landing", "clientes, WhatsApp y seguimiento", "CLI"],
+    clientes_landing: ["Clientes / CRM / Landing", "clientes, WhatsApp y seguimiento", "CLI"],
+    shoplink_clients: ["Clientes / CRM / Landing", "clientes, WhatsApp y seguimiento", "CLI"],
+    customer_crm_landing: ["Clientes / CRM / Landing", "clientes, WhatsApp y seguimiento", "CLI"],
     settings: ["Configuracion", "ajustes del tenant", "CFG"],
     production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
@@ -17856,7 +17861,382 @@ function inventoryCreatePayload() {
   }
   /* CLONEXA_026K_R11_SHOPLINK_ORDERS_END */
 
-async function renderClientModulePlaceholder(code) {
+  /* CLONEXA_026K_R15_SHOPLINK_CLIENTS_CRM_START */
+  const CX_SLCLI_CODES_026N = new Set([
+    "cli",
+    "clientes_crm_landing",
+    "clientes_landing",
+    "shoplink_clients",
+    "customer_crm_landing",
+    "customers_crm_landing",
+  ]);
+
+  let cxSlCliSearch026N = "";
+  let cxSlCliStatus026N = "all";
+
+  function cxIsShoplinkClientsCode026N(code = "") {
+    const normalized = cxNormShoplink026K(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return CX_SLCLI_CODES_026N.has(normalized);
+  }
+
+  function cxShoplinkClientsText026N(module = {}) {
+    const raw = module.raw || {};
+    const rawModule = raw.module && typeof raw.module === "object" ? raw.module : {};
+    return [
+      module.code,
+      module.badge,
+      module.title,
+      module.subtitle,
+      raw.code,
+      raw.name,
+      raw.title,
+      raw.description,
+      rawModule.code,
+      rawModule.name,
+      rawModule.title,
+      rawModule.description,
+    ].map(cxNormShoplink026K).filter(Boolean).join(" ");
+  }
+
+  function cxIsShoplinkClientsModule026N(module = {}) {
+    const text = cxShoplinkClientsText026N(module);
+    const code = cxNormShoplink026K(module.code || module.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return (
+      cxIsShoplinkClientsCode026N(code) ||
+      (text.includes("cliente") && text.includes("crm") && text.includes("landing")) ||
+      (text.includes("customer") && text.includes("crm"))
+    );
+  }
+
+  function cxSlCliActiveCode026N() {
+    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkClientsModule026N);
+    return module?.code || "cli";
+  }
+
+  function cxSlCliMoney026N(value, currency = "COP") {
+    if (typeof cxShoplinkMoney026K === "function") return cxShoplinkMoney026K(value, currency);
+    const number = Number(value || 0);
+    return `$ ${Math.round(number).toLocaleString("es-CO")}`;
+  }
+
+  function cxSlCliPhone026N(value = "") {
+    return String(value || "").replace(/\D/g, "");
+  }
+
+  function cxSlCliDate026N(value = "") {
+    const raw = String(value || "").trim();
+    return raw ? raw.replace("T", " ").slice(0, 16) : "Sin registro";
+  }
+
+  function cxSlCliStatusLabel026N(status = "") {
+    const labels = {
+      nuevo: "Nuevo",
+      prospecto: "Prospecto",
+      seguimiento: "Seguimiento",
+      recurrente: "Recurrente",
+      vip: "VIP",
+      frio: "Frio",
+      bloqueado: "Bloqueado",
+      archivado: "Archivado",
+    };
+    return labels[String(status || "").toLowerCase()] || "Nuevo";
+  }
+
+  function cxSlCliStatusOptions026N(selected = "nuevo") {
+    return ["nuevo", "prospecto", "seguimiento", "recurrente", "vip", "frio", "bloqueado", "archivado"].map((value) => `
+      <option value="${h(value)}" ${String(selected || "") === value ? "selected" : ""}>${h(cxSlCliStatusLabel026N(value))}</option>
+    `).join("");
+  }
+
+  function cxSlCliStyles026N() {
+    let style = document.getElementById("cxSlCliStyles026N");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "cxSlCliStyles026N";
+      document.head.appendChild(style);
+    }
+    style.textContent = `
+      .slcli-shell-026n{display:grid;gap:18px}
+      .slcli-card-026n{border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.16));border-radius:22px;padding:20px;box-shadow:0 18px 46px rgba(0,0,0,.18)}
+      .slcli-kpis-026n{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+      .slcli-kpi-026n{border:1px solid rgba(255,255,255,.11);border-radius:16px;background:rgba(0,0,0,.18);padding:14px}
+      .slcli-kpi-026n span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:1000}
+      .slcli-kpi-026n b{display:block;margin-top:6px;font-size:25px;color:var(--accent)}
+      .slcli-toolbar-026n,.slcli-new-026n{display:grid;grid-template-columns:minmax(220px,1fr) 180px auto;gap:10px;align-items:end}
+      .slcli-new-026n{grid-template-columns:1.1fr .8fr .8fr 1fr .8fr auto;margin-top:12px}
+      .slcli-field-026n{display:grid;gap:7px}
+      .slcli-field-026n label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:1000}
+      .slcli-field-026n input,.slcli-field-026n select,.slcli-field-026n textarea{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.68);color:var(--text);padding:12px 13px;font:inherit;font-weight:850;outline:none}
+      .slcli-field-026n textarea{min-height:72px;resize:vertical}
+      .slcli-list-026n{display:grid;gap:12px}
+      .slcli-row-026n{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(0,0,0,.18);padding:14px;display:grid;gap:12px}
+      .slcli-head-026n{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start}
+      .slcli-head-026n h3{margin:0;font-size:20px;line-height:1.15}
+      .slcli-pill-026n{border-radius:999px;background:rgba(255,255,255,.09);color:var(--accent);padding:7px 10px;font-size:12px;font-weight:1000;white-space:nowrap}
+      .slcli-grid-026n{display:grid;grid-template-columns:1.1fr .8fr .8fr 1fr;gap:10px}
+      .slcli-order-026n{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+      .slcli-order-026n div{border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(255,255,255,.04);padding:10px}
+      .slcli-actions-026n{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+      .slcli-mini-026n{border:1px solid rgba(255,255,255,.13);border-radius:12px;background:rgba(255,255,255,.07);color:var(--text);padding:8px 10px;font-weight:1000;cursor:pointer}
+      .slcli-mini-026n.ok{color:var(--accent)}
+      .slcli-msg-026n{font-weight:900;color:var(--accent)}
+      .slcli-empty-026n{border:1px dashed rgba(255,255,255,.16);border-radius:18px;padding:22px;background:rgba(0,0,0,.12)}
+      @media(max-width:1120px){.slcli-kpis-026n{grid-template-columns:repeat(2,minmax(0,1fr))}.slcli-toolbar-026n,.slcli-new-026n,.slcli-grid-026n,.slcli-order-026n{grid-template-columns:1fr 1fr}}
+      @media(max-width:760px){.slcli-kpis-026n,.slcli-toolbar-026n,.slcli-new-026n,.slcli-grid-026n,.slcli-order-026n,.slcli-head-026n{grid-template-columns:1fr}.slcli-actions-026n{justify-content:flex-start}}
+    `;
+  }
+
+  function cxSlCliLoad026N() {
+    const params = new URLSearchParams();
+    if (cxSlCliStatus026N && cxSlCliStatus026N !== "all") params.set("status", cxSlCliStatus026N);
+    params.set("limit", "1000");
+    return api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/customers?${params.toString()}`);
+  }
+
+  function cxSlCliFilteredCustomers026N(payload = {}) {
+    const customers = Array.isArray(payload.customers) ? payload.customers : [];
+    const query = String(cxSlCliSearch026N || "").toLowerCase().trim();
+    if (!query) return customers;
+    return customers.filter((customer) => [
+      customer.name,
+      customer.phone,
+      customer.city,
+      customer.address,
+      customer.status_label,
+      customer.tag,
+      customer.note,
+      customer.last_order_code,
+      customer.last_items_summary,
+    ].map((value) => String(value || "").toLowerCase()).join(" ").includes(query));
+  }
+
+  function cxSlCliMessage026N(text, isError = false) {
+    const el = $("slCliMsg026N");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = isError ? "#ff7aa8" : "var(--accent)";
+  }
+
+  function cxSlCliReadNew026N() {
+    return {
+      name: $("slCliNewName026N")?.value || "",
+      phone: $("slCliNewPhone026N")?.value || "",
+      city: $("slCliNewCity026N")?.value || "",
+      address: $("slCliNewAddress026N")?.value || "",
+      status: $("slCliNewStatus026N")?.value || "prospecto",
+      tag: $("slCliNewTag026N")?.value || "",
+      note: $("slCliNewNote026N")?.value || "",
+      source: "client_panel",
+    };
+  }
+
+  function cxSlCliReadRow026N(key = "", root = null) {
+    const row = root?.closest?.("[data-slcli-row]") || document.querySelector(`[data-slcli-row="${CSS.escape(key)}"]`);
+    return {
+      name: row?.querySelector("[data-slcli-name]")?.value || "",
+      phone: row?.querySelector("[data-slcli-phone]")?.value || "",
+      city: row?.querySelector("[data-slcli-city]")?.value || "",
+      address: row?.querySelector("[data-slcli-address]")?.value || "",
+      status: row?.querySelector("[data-slcli-status]")?.value || "nuevo",
+      tag: row?.querySelector("[data-slcli-tag]")?.value || "",
+      note: row?.querySelector("[data-slcli-note]")?.value || "",
+      source: "client_panel",
+    };
+  }
+
+  function cxSlCliCustomerByKey026N(key = "") {
+    const payload = window.__cxSlCliPayload026N || {};
+    return (payload.customers || []).find((row) => String(row.customer_key) === String(key)) || null;
+  }
+
+  function cxSlCliRows026N(payload = {}) {
+    const customers = Array.isArray(payload.customers) ? payload.customers : [];
+    if (!customers.length) {
+      return `<div class="slcli-empty-026n"><strong>Sin clientes para este filtro</strong><p class="client-muted">Cuando entren pedidos por la tienda, los clientes apareceran aqui automaticamente. Tambien puedes crear prospectos manuales.</p></div>`;
+    }
+    return customers.map((customer) => {
+      const key = customer.customer_key || "";
+      const phone = customer.phone || "";
+      return `
+        <article class="slcli-row-026n" data-slcli-row="${h(key)}">
+          <div class="slcli-head-026n">
+            <div>
+              <h3>${h(customer.name || "Cliente")}</h3>
+              <small class="client-muted">${h(phone || "Sin WhatsApp")} · ${h([customer.city, customer.address].filter(Boolean).join(" / ") || "Sin direccion")}</small>
+            </div>
+            <span class="slcli-pill-026n">${h(customer.status_label || cxSlCliStatusLabel026N(customer.status))}</span>
+          </div>
+          <div class="slcli-order-026n">
+            <div><small class="client-muted">Pedidos</small><strong>${h(customer.orders_count || 0)}</strong></div>
+            <div><small class="client-muted">Comprado</small><strong>${h(cxSlCliMoney026N(customer.total_amount || 0, customer.currency || "COP"))}</strong></div>
+            <div><small class="client-muted">Ultimo pedido</small><strong>${h(customer.last_order_code || "Sin pedido")}</strong></div>
+            <div><small class="client-muted">Ultimo contacto</small><strong>${h(cxSlCliDate026N(customer.last_contacted_at))}</strong></div>
+          </div>
+          <div class="slcli-grid-026n">
+            <div class="slcli-field-026n"><label>Nombre<input data-slcli-name value="${h(customer.name || "")}"></label></div>
+            <div class="slcli-field-026n"><label>WhatsApp<input data-slcli-phone value="${h(phone)}"></label></div>
+            <div class="slcli-field-026n"><label>Ciudad<input data-slcli-city value="${h(customer.city || "")}"></label></div>
+            <div class="slcli-field-026n"><label>Direccion<input data-slcli-address value="${h(customer.address || "")}"></label></div>
+            <div class="slcli-field-026n"><label>Estado<select data-slcli-status>${cxSlCliStatusOptions026N(customer.status || "nuevo")}</select></label></div>
+            <div class="slcli-field-026n"><label>Etiqueta<input data-slcli-tag value="${h(customer.tag || "")}" placeholder="VIP, mayorista, promo"></label></div>
+            <div class="slcli-field-026n" style="grid-column:span 2"><label>Nota<textarea data-slcli-note placeholder="Seguimiento comercial">${h(customer.note || "")}</textarea></label></div>
+          </div>
+          <small class="client-muted">Ultimo articulo: ${h(customer.last_items_summary || "Sin detalle")} · ${h(cxSlCliDate026N(customer.last_order_at))}</small>
+          <div class="slcli-actions-026n">
+            <button class="slcli-mini-026n ok" type="button" data-slcli-save="${h(key)}">Guardar</button>
+            <button class="slcli-mini-026n" type="button" data-slcli-whatsapp="${h(key)}">WhatsApp</button>
+            <button class="slcli-mini-026n" type="button" data-slcli-contacted="${h(key)}">Marcar contacto</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function cxSlCliPaintList026N(payload = window.__cxSlCliPayload026N || {}) {
+    const visible = cxSlCliFilteredCustomers026N(payload);
+    const list = document.querySelector(".slcli-list-026n");
+    if (list) list.innerHTML = cxSlCliRows026N({ ...payload, customers: visible });
+    const count = document.querySelector("[data-slcli-visible-count]");
+    if (count) {
+      count.textContent = `${visible.length} de ${(payload.customers || []).length} clientes visibles. Los pedidos nuevos alimentan este CRM automaticamente.`;
+    }
+  }
+
+  async function renderShoplinkClientsModule026N() {
+    cxSlCliStyles026N();
+    let payload = { customers: [], summary: {}, company: state.company || {} };
+    let error = "";
+    try {
+      payload = await cxSlCliLoad026N();
+      window.__cxSlCliPayload026N = payload;
+    } catch (err) {
+      error = err.message || "No se pudieron cargar clientes.";
+      window.__cxSlCliPayload026N = payload;
+    }
+    const company = payload.company || state.company || {};
+    const b = normalizeBranding(state.branding || {});
+    const summary = payload.summary || {};
+    const activeCode = cxSlCliActiveCode026N();
+    const visibleCustomers = cxSlCliFilteredCustomers026N(payload);
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, b)}</div>
+            <h2>${h(company.name || "CLONEXA")}</h2>
+            <p>${h(company.slug || "")}</p>
+            <nav class="client-nav">${renderClientNav(activeCode)}</nav>
+            <div class="tenant-pill">Tenant activo<br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <section class="client-hero">
+              <div>
+                <span class="eyebrow">CLONEXA ShopLink</span>
+                <h1>Clientes y CRM web</h1>
+                <p>Administra compradores y prospectos de la tienda publica con WhatsApp, historial de pedidos, etiquetas y notas.</p>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                <button class="client-btn" type="button" data-slcli-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-shoplink-open>Abrir tienda</button>
+              </div>
+            </section>
+
+            <section class="slcli-shell-026n">
+              ${error ? `<div class="slcli-card-026n slcli-msg-026n">${h(error)}</div>` : ""}
+              <div class="slcli-kpis-026n">
+                <div class="slcli-kpi-026n"><span>Clientes</span><b>${h(summary.customers || 0)}</b></div>
+                <div class="slcli-kpi-026n"><span>Con pedidos</span><b>${h(summary.with_orders || 0)}</b></div>
+                <div class="slcli-kpi-026n"><span>Recurrentes</span><b>${h(summary.repeat || 0)}</b></div>
+                <div class="slcli-kpi-026n"><span>Seguimiento</span><b>${h(summary.follow_up || 0)}</b></div>
+                <div class="slcli-kpi-026n"><span>Total comprado</span><b>${h(cxSlCliMoney026N(summary.total_sales || 0, payload.settings?.currency || "COP"))}</b></div>
+              </div>
+
+              <article class="slcli-card-026n">
+                <span class="eyebrow">Nuevo prospecto</span>
+                <h2>Agregar cliente manual</h2>
+                <div class="slcli-new-026n">
+                  <div class="slcli-field-026n"><label>Nombre<input id="slCliNewName026N" placeholder="Nombre cliente"></label></div>
+                  <div class="slcli-field-026n"><label>WhatsApp<input id="slCliNewPhone026N" placeholder="+57..."></label></div>
+                  <div class="slcli-field-026n"><label>Ciudad<input id="slCliNewCity026N" placeholder="Ciudad"></label></div>
+                  <div class="slcli-field-026n"><label>Direccion<input id="slCliNewAddress026N" placeholder="Direccion"></label></div>
+                  <div class="slcli-field-026n"><label>Estado<select id="slCliNewStatus026N">${cxSlCliStatusOptions026N("prospecto")}</select></label></div>
+                  <button class="client-btn" type="button" data-slcli-create>Crear</button>
+                  <div class="slcli-field-026n"><label>Etiqueta<input id="slCliNewTag026N" placeholder="Instagram, mayorista"></label></div>
+                  <div class="slcli-field-026n" style="grid-column:span 4"><label>Nota<textarea id="slCliNewNote026N" placeholder="Interes, talla, producto o seguimiento"></textarea></label></div>
+                </div>
+              </article>
+
+              <article class="slcli-card-026n">
+                <span class="eyebrow">Base comercial</span>
+                <h2>Clientes de la tienda</h2>
+                <div class="slcli-toolbar-026n">
+                  <div class="slcli-field-026n"><label>Buscar<input id="slCliSearch026N" data-slcli-search value="${h(cxSlCliSearch026N)}" placeholder="Nombre, WhatsApp, ciudad, pedido, etiqueta..."></label></div>
+                  <div class="slcli-field-026n"><label>Estado<select id="slCliStatus026N" data-slcli-status-filter>
+                    <option value="all" ${cxSlCliStatus026N === "all" ? "selected" : ""}>Todos</option>
+                    ${cxSlCliStatusOptions026N(cxSlCliStatus026N)}
+                  </select></label></div>
+                  <button class="client-btn" type="button" data-slcli-refresh>Buscar</button>
+                </div>
+                <p class="client-muted" data-slcli-visible-count>${h(visibleCustomers.length)} de ${h((payload.customers || []).length)} clientes visibles. Los pedidos nuevos alimentan este CRM automaticamente.</p>
+                <div class="slcli-list-026n">${cxSlCliRows026N({ ...payload, customers: visibleCustomers })}</div>
+                <div id="slCliMsg026N" class="slcli-msg-026n"></div>
+              </article>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  async function cxSlCliSave026N(customerKey = "", root = null, markContacted = false) {
+    const payload = { ...cxSlCliReadRow026N(customerKey, root), mark_contacted: markContacted };
+    await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/customers/${encodeURIComponent(customerKey)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    await renderShoplinkClientsModule026N();
+    cxSlCliMessage026N(markContacted ? "Contacto registrado." : "Cliente guardado.");
+  }
+
+  async function cxSlCliCreate026N() {
+    const payload = cxSlCliReadNew026N();
+    if (!payload.name && !payload.phone) {
+      cxSlCliMessage026N("Agrega nombre o WhatsApp para crear cliente.", true);
+      return;
+    }
+    await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/customers`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    await renderShoplinkClientsModule026N();
+    cxSlCliMessage026N("Cliente creado.");
+  }
+
+  async function cxSlCliWhatsApp026N(customerKey = "", root = null) {
+    const payload = cxSlCliReadRow026N(customerKey, root);
+    const phone = cxSlCliPhone026N(payload.phone);
+    if (!phone) {
+      cxSlCliMessage026N("Este cliente no tiene WhatsApp.", true);
+      return;
+    }
+    const customer = cxSlCliCustomerByKey026N(customerKey) || {};
+    const message = [
+      `Hola ${payload.name || customer.name || ""}, te escribe ${state.company?.name || "la tienda"}.`,
+      customer.last_order_code ? `Te contacto por tu pedido ${customer.last_order_code}.` : "Queria hacer seguimiento a tu solicitud.",
+    ].filter(Boolean).join("\n");
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+    await cxSlCliSave026N(customerKey, root, true);
+  }
+
+  async function renderClientModulePlaceholder(code) {
+    if (
+      typeof cxIsShoplinkClientsCode026N === "function" &&
+      (cxIsShoplinkClientsCode026N(code) || cxIsShoplinkClientsModule026N(cxGetClientModuleByCode026K(code) || { code }))
+    ) {
+      return renderShoplinkClientsModule026N();
+    }
+
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
     if (
@@ -19367,6 +19747,54 @@ async function renderClientModulePlaceholder(code) {
         return;
       }
 
+      if (target.closest("[data-slcli-refresh]")) {
+        try {
+          await renderShoplinkClientsModule026N();
+        } catch (error) {
+          cxSlCliMessage026N(error.message || "No se pudo actualizar clientes.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-slcli-create]")) {
+        try {
+          await cxSlCliCreate026N();
+        } catch (error) {
+          cxSlCliMessage026N(error.message || "No se pudo crear el cliente.", true);
+        }
+        return;
+      }
+
+      const slCliSave = target.closest("[data-slcli-save]");
+      if (slCliSave) {
+        try {
+          await cxSlCliSave026N(slCliSave.getAttribute("data-slcli-save") || "", slCliSave);
+        } catch (error) {
+          cxSlCliMessage026N(error.message || "No se pudo guardar el cliente.", true);
+        }
+        return;
+      }
+
+      const slCliWhatsApp = target.closest("[data-slcli-whatsapp]");
+      if (slCliWhatsApp) {
+        try {
+          await cxSlCliWhatsApp026N(slCliWhatsApp.getAttribute("data-slcli-whatsapp") || "", slCliWhatsApp);
+        } catch (error) {
+          cxSlCliMessage026N(error.message || "No se pudo preparar WhatsApp.", true);
+        }
+        return;
+      }
+
+      const slCliContacted = target.closest("[data-slcli-contacted]");
+      if (slCliContacted) {
+        try {
+          await cxSlCliSave026N(slCliContacted.getAttribute("data-slcli-contacted") || "", slCliContacted, true);
+        } catch (error) {
+          cxSlCliMessage026N(error.message || "No se pudo marcar el contacto.", true);
+        }
+        return;
+      }
+
       if (target.closest("[data-shoplink-save]")) {
         await cxShoplinkSave026K();
         return;
@@ -19444,6 +19872,14 @@ async function renderClientModulePlaceholder(code) {
         const activeModule = cxGetClientModuleByCode026K(code) || { code };
 
         if (!isClientModuleActive(code)) return;
+
+        if (
+          typeof cxIsShoplinkClientsCode026N === "function" &&
+          (cxIsShoplinkClientsCode026N(code) || cxIsShoplinkClientsModule026N(activeModule))
+        ) {
+          await renderShoplinkClientsModule026N();
+          return;
+        }
 
         if (typeof cxIsSalesRegisterCode022F === "function" && cxIsSalesRegisterCode022F(code)) {
           await renderClientSalesRegisterModule022F();
@@ -19853,6 +20289,13 @@ async function renderClientModulePlaceholder(code) {
       if (slProInventory) {
         cxSlProFillFromInventory026L(slProInventory.value || "");
       }
+
+      const slCliStatus = target.closest("[data-slcli-status-filter]");
+      if (slCliStatus) {
+        cxSlCliStatus026N = slCliStatus.value || "all";
+        void renderShoplinkClientsModule026N();
+        return;
+      }
     });
 
     document.addEventListener("input", (event) => {
@@ -19860,6 +20303,13 @@ async function renderClientModulePlaceholder(code) {
       if (slCarSearch) {
         cxSlCarSearch026M = slCarSearch.value || "";
         cxSlCarPaintOrders026M(window.__cxSlCarPayload026M || {});
+        return;
+      }
+
+      const slCliSearch = event.target.closest("[data-slcli-search]");
+      if (slCliSearch) {
+        cxSlCliSearch026N = slCliSearch.value || "";
+        cxSlCliPaintList026N(window.__cxSlCliPayload026N || {});
         return;
       }
 
