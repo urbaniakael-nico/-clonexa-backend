@@ -60,6 +60,8 @@ class ShoplinkOrderIn(BaseModel):
     customer_city: str | None = ""
     customer_address: str | None = ""
     customer_note: str | None = ""
+    campaign_slug: str | None = ""
+    coupon_code: str | None = ""
     items: list[ShoplinkOrderItemIn] | None = None
 
 
@@ -80,6 +82,29 @@ class ShoplinkCustomerIn(BaseModel):
     note: str | None = ""
     source: str | None = "client_panel"
     mark_contacted: bool | None = False
+
+
+class ShoplinkCampaignIn(BaseModel):
+    title: str | None = ""
+    slug: str | None = ""
+    objective: str | None = ""
+    status: str | None = "active"
+    starts_at: str | None = ""
+    ends_at: str | None = ""
+    headline: str | None = ""
+    description: str | None = ""
+    banner_url: str | None = ""
+    discount_label: str | None = ""
+    coupon_code: str | None = ""
+    discount_type: str | None = "none"
+    discount_value: float | int | str | None = 0
+    min_order: float | int | str | None = 0
+    max_uses: int | str | None = 0
+    product_ids: list[str] | None = None
+    customer_segment: str | None = "todos"
+    whatsapp_message: str | None = ""
+    notes: str | None = ""
+    landing_enabled: bool | None = True
 
 
 class ShoplinkProductIn(BaseModel):
@@ -200,6 +225,9 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_file_size integer NOT NULL DEFAULT 0",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS invoiced_at timestamptz NULL",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS separated_at timestamptz NULL",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS campaign_slug text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS coupon_code text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS discount_amount double precision NOT NULL DEFAULT 0",
     ]:
         await db.execute(text(stmt))
     await db.execute(text("""
@@ -241,6 +269,43 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
     await db.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_shoplink_customer_profiles_company_status
         ON shoplink_customer_profiles (company_id, lower(status), updated_at DESC)
+    """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS shoplink_campaigns (
+            id text PRIMARY KEY,
+            company_id text NOT NULL,
+            slug text NOT NULL DEFAULT '',
+            title text NOT NULL DEFAULT '',
+            objective text NOT NULL DEFAULT '',
+            status text NOT NULL DEFAULT 'active',
+            starts_at timestamptz NULL,
+            ends_at timestamptz NULL,
+            headline text NOT NULL DEFAULT '',
+            description text NOT NULL DEFAULT '',
+            banner_url text NOT NULL DEFAULT '',
+            discount_label text NOT NULL DEFAULT '',
+            coupon_code text NOT NULL DEFAULT '',
+            discount_type text NOT NULL DEFAULT 'none',
+            discount_value double precision NOT NULL DEFAULT 0,
+            min_order double precision NOT NULL DEFAULT 0,
+            max_uses integer NOT NULL DEFAULT 0,
+            product_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            customer_segment text NOT NULL DEFAULT 'todos',
+            whatsapp_message text NOT NULL DEFAULT '',
+            notes text NOT NULL DEFAULT '',
+            landing_enabled boolean NOT NULL DEFAULT true,
+            archived boolean NOT NULL DEFAULT false,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    await db.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_shoplink_campaigns_company_slug
+        ON shoplink_campaigns (company_id, slug)
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_shoplink_campaigns_company_status
+        ON shoplink_campaigns (company_id, lower(status), updated_at DESC)
     """))
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS shoplink_products (
@@ -575,6 +640,130 @@ def _public_url(settings: dict[str, Any], company_id: str) -> str:
     return f"/shoplink?company_id={company_id}"
 
 
+def _campaign_public_url(settings: dict[str, Any], company_id: str, slug: str) -> str:
+    return f"{_public_url(settings, company_id)}&campaign={_clean(slug, 100)}"
+
+
+def _campaign_status(value: Any) -> str:
+    raw = _clean(value, 40).lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "activo": "active",
+        "activa": "active",
+        "active": "active",
+        "live": "active",
+        "programada": "scheduled",
+        "programado": "scheduled",
+        "scheduled": "scheduled",
+        "borrador": "draft",
+        "draft": "draft",
+        "pausada": "paused",
+        "pausado": "paused",
+        "paused": "paused",
+        "finalizada": "finished",
+        "finalizado": "finished",
+        "finished": "finished",
+        "archivada": "archived",
+        "archivado": "archived",
+        "archived": "archived",
+    }
+    normalized = aliases.get(raw, raw)
+    allowed = {"active", "scheduled", "draft", "paused", "finished", "archived"}
+    return normalized if normalized in allowed else "active"
+
+
+def _campaign_status_label(value: Any) -> str:
+    labels = {
+        "active": "Activa",
+        "scheduled": "Programada",
+        "draft": "Borrador",
+        "paused": "Pausada",
+        "finished": "Finalizada",
+        "archived": "Archivada",
+    }
+    return labels.get(_campaign_status(value), "Activa")
+
+
+def _campaign_segment_label(value: Any) -> str:
+    labels = {
+        "todos": "Todos los clientes",
+        "nuevos": "Clientes nuevos",
+        "recurrentes": "Clientes recurrentes",
+        "vip": "VIP",
+        "seguimiento": "Seguimiento pendiente",
+        "ciudad": "Por ciudad",
+    }
+    return labels.get(_clean(value, 40).lower(), "Todos los clientes")
+
+
+def _campaign_product_ids(value: Any) -> list[str]:
+    raw = value
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw or "[]")
+            raw = parsed
+        except json.JSONDecodeError:
+            raw = [part.strip() for part in raw.split(",")]
+    if not isinstance(raw, list):
+        return []
+    seen: set[str] = set()
+    ids: list[str] = []
+    for item in raw:
+        product_id = _clean(item, 120)
+        if not product_id or product_id in seen:
+            continue
+        seen.add(product_id)
+        ids.append(product_id)
+    return ids[:120]
+
+
+def _campaign_slug(value: Any, title: Any = "") -> str:
+    return _slug(_clean(value, 100) or _clean(title, 120) or f"campana-{uuid4().hex[:6]}")
+
+
+def _campaign_discount_type(value: Any) -> str:
+    raw = _clean(value, 40).lower()
+    if raw in {"percent", "porcentaje", "%"}:
+        return "percent"
+    if raw in {"amount", "fixed", "valor", "fijo"}:
+        return "amount"
+    return "none"
+
+
+def _campaign_payload(payload: ShoplinkCampaignIn, current: dict[str, Any] | None = None) -> dict[str, Any]:
+    current = current or {}
+    data = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    title = _clean(data.get("title", current.get("title")), 140)
+    if not title:
+        raise HTTPException(status_code=422, detail="Nombre de campana requerido.")
+    slug = _campaign_slug(data.get("slug", current.get("slug")), title)
+    discount_type = _campaign_discount_type(data.get("discount_type", current.get("discount_type")))
+    discount_value = max(0.0, _money(data.get("discount_value", current.get("discount_value"))))
+    if discount_type == "percent":
+        discount_value = min(discount_value, 90.0)
+    return {
+        "title": title,
+        "slug": slug,
+        "objective": _clean(data.get("objective", current.get("objective")), 160),
+        "status": _campaign_status(data.get("status", current.get("status"))),
+        "starts_at": _clean(data.get("starts_at", current.get("starts_at")), 40),
+        "ends_at": _clean(data.get("ends_at", current.get("ends_at")), 40),
+        "headline": _clean(data.get("headline", current.get("headline")), 180),
+        "description": _clean(data.get("description", current.get("description")), 700),
+        "banner_url": _clean(data.get("banner_url", current.get("banner_url")), 1000),
+        "discount_label": _clean(data.get("discount_label", current.get("discount_label")), 120),
+        "coupon_code": _clean(data.get("coupon_code", current.get("coupon_code")), 40).upper(),
+        "discount_type": discount_type,
+        "discount_value": discount_value,
+        "min_order": max(0.0, _money(data.get("min_order", current.get("min_order")))),
+        "max_uses": max(0, min(int(float(data.get("max_uses", current.get("max_uses")) or 0)), 100000)),
+        "product_ids": _campaign_product_ids(data.get("product_ids", current.get("product_ids"))),
+        "customer_segment": _clean(data.get("customer_segment", current.get("customer_segment")) or "todos", 40).lower() or "todos",
+        "whatsapp_message": _clean(data.get("whatsapp_message", current.get("whatsapp_message")), 700),
+        "notes": _clean(data.get("notes", current.get("notes")), 700),
+        "landing_enabled": bool(data.get("landing_enabled", current.get("landing_enabled", True))),
+    }
+
+
 async def _orders_summary(db: AsyncSession, company_id: str) -> dict[str, Any]:
     await ensure_shoplink_storage(db)
     result = await db.execute(
@@ -785,6 +974,9 @@ def _shoplink_order_out(row: dict[str, Any], company_id: str | None = None) -> d
         "items_summary": ", ".join([_clean(item.get("name"), 80) for item in items[:3] if item.get("name")]),
         "total_amount": float(row.get("total_amount") or 0),
         "currency": row.get("currency") or "COP",
+        "campaign_slug": _clean(row.get("campaign_slug"), 100),
+        "coupon_code": _clean(row.get("coupon_code"), 40),
+        "discount_amount": float(row.get("discount_amount") or 0),
         "status": status,
         "status_label": _order_status_label(status),
         "guide_number": _clean(row.get("guide_number"), 120),
@@ -1065,6 +1257,290 @@ async def _upsert_shoplink_customer_profile(
     return dict(row)
 
 
+def _campaign_product_match(product_id: Any, product_ids: list[str]) -> bool:
+    value = _clean(product_id, 140)
+    if not value:
+        return False
+    raw = value.replace("shoplink:", "")
+    return value in product_ids or raw in product_ids or f"shoplink:{raw}" in product_ids
+
+
+def _campaign_order_has_product(order: dict[str, Any], product_ids: list[str]) -> bool:
+    if not product_ids:
+        return True
+    for item in order.get("items") or []:
+        if _campaign_product_match(item.get("product_id"), product_ids):
+            return True
+    return False
+
+
+def _campaign_order_base(order: dict[str, Any], product_ids: list[str]) -> float:
+    if not product_ids:
+        return float(order.get("total_amount") or 0) + float(order.get("discount_amount") or 0)
+    total = 0.0
+    for item in order.get("items") or []:
+        if _campaign_product_match(item.get("product_id"), product_ids):
+            total += float(item.get("subtotal") or 0)
+    return total
+
+
+def _shoplink_campaign_out(
+    row: dict[str, Any],
+    settings: dict[str, Any],
+    products: list[dict[str, Any]] | None = None,
+    orders: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    products = products or []
+    orders = orders or []
+    product_ids = _campaign_product_ids(row.get("product_ids"))
+    slug = _campaign_slug(row.get("slug"), row.get("title"))
+    linked_products = [
+        product for product in products
+        if _campaign_product_match(product.get("id") or product.get("raw_id"), product_ids)
+    ] if product_ids else []
+    direct_orders = [order for order in orders if _clean(order.get("campaign_slug"), 100) == slug]
+    matched_orders = [
+        order for order in orders
+        if order not in direct_orders and _campaign_order_has_product(order, product_ids)
+    ] if product_ids else []
+    status = _campaign_status(row.get("status"))
+    return {
+        "id": _clean(row.get("id"), 80),
+        "slug": slug,
+        "title": _clean(row.get("title"), 140),
+        "objective": _clean(row.get("objective"), 160),
+        "status": status,
+        "status_label": _campaign_status_label(status),
+        "starts_at": str(row.get("starts_at") or ""),
+        "ends_at": str(row.get("ends_at") or ""),
+        "headline": _clean(row.get("headline"), 180),
+        "description": _clean(row.get("description"), 700),
+        "banner_url": _clean(row.get("banner_url"), 1000),
+        "discount_label": _clean(row.get("discount_label"), 120),
+        "coupon_code": _clean(row.get("coupon_code"), 40),
+        "discount_type": _campaign_discount_type(row.get("discount_type")),
+        "discount_value": float(row.get("discount_value") or 0),
+        "min_order": float(row.get("min_order") or 0),
+        "max_uses": int(row.get("max_uses") or 0),
+        "product_ids": product_ids,
+        "products_count": len(linked_products),
+        "products_preview": linked_products[:8],
+        "customer_segment": _clean(row.get("customer_segment") or "todos", 40),
+        "customer_segment_label": _campaign_segment_label(row.get("customer_segment")),
+        "whatsapp_message": _clean(row.get("whatsapp_message"), 700),
+        "notes": _clean(row.get("notes"), 700),
+        "landing_enabled": bool(row.get("landing_enabled")),
+        "archived": bool(row.get("archived")) or status == "archived",
+        "landing_url": _campaign_public_url(settings, _clean(row.get("company_id"), 80), slug),
+        "direct_orders": len(direct_orders),
+        "direct_sales": sum(float(order.get("total_amount") or 0) for order in direct_orders if order.get("status") != "cancelled"),
+        "discounts_used": sum(float(order.get("discount_amount") or 0) for order in direct_orders),
+        "matched_orders": len(matched_orders),
+        "matched_sales": sum(float(order.get("total_amount") or 0) for order in matched_orders if order.get("status") != "cancelled"),
+        "created_at": str(row.get("created_at") or ""),
+        "updated_at": str(row.get("updated_at") or ""),
+    }
+
+
+async def _shoplink_campaign_rows(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM shoplink_campaigns
+            WHERE company_id = :company_id
+              AND COALESCE(archived, false) IS NOT TRUE
+            ORDER BY
+              CASE lower(status)
+                WHEN 'active' THEN 0
+                WHEN 'scheduled' THEN 1
+                WHEN 'draft' THEN 2
+                WHEN 'paused' THEN 3
+                ELSE 4
+              END,
+              updated_at DESC
+            LIMIT 300
+        """),
+        {"company_id": company_id},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def _shoplink_campaign_by_id(db: AsyncSession, company_id: str, campaign_id: str) -> dict[str, Any]:
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM shoplink_campaigns
+            WHERE company_id = :company_id
+              AND id = :id
+            LIMIT 1
+        """),
+        {"company_id": company_id, "id": _clean(campaign_id, 80)},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Campana no encontrada.")
+    return dict(row)
+
+
+async def _active_shoplink_campaign_by_slug(db: AsyncSession, company_id: str, slug: str) -> dict[str, Any] | None:
+    clean_slug = _slug(_clean(slug, 100))
+    if not clean_slug:
+        return None
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM shoplink_campaigns
+            WHERE company_id = :company_id
+              AND slug = :slug
+              AND lower(status) = 'active'
+              AND landing_enabled IS TRUE
+              AND COALESCE(archived, false) IS NOT TRUE
+              AND (starts_at IS NULL OR starts_at <= now())
+              AND (ends_at IS NULL OR ends_at >= now())
+            LIMIT 1
+        """),
+        {"company_id": company_id, "slug": clean_slug},
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def _save_shoplink_campaign(
+    db: AsyncSession,
+    company_id: str,
+    payload: ShoplinkCampaignIn,
+    campaign_id: str = "",
+) -> dict[str, Any]:
+    current = await _shoplink_campaign_by_id(db, company_id, campaign_id) if campaign_id else {}
+    data = _campaign_payload(payload, current)
+    if campaign_id:
+        result = await db.execute(
+            text("""
+                UPDATE shoplink_campaigns
+                SET
+                  slug = :slug,
+                  title = :title,
+                  objective = :objective,
+                  status = :status,
+                  starts_at = NULLIF(:starts_at, '')::timestamptz,
+                  ends_at = NULLIF(:ends_at, '')::timestamptz,
+                  headline = :headline,
+                  description = :description,
+                  banner_url = :banner_url,
+                  discount_label = :discount_label,
+                  coupon_code = :coupon_code,
+                  discount_type = :discount_type,
+                  discount_value = :discount_value,
+                  min_order = :min_order,
+                  max_uses = :max_uses,
+                  product_ids = CAST(:product_ids AS jsonb),
+                  customer_segment = :customer_segment,
+                  whatsapp_message = :whatsapp_message,
+                  notes = :notes,
+                  landing_enabled = :landing_enabled,
+                  archived = CASE WHEN :status = 'archived' THEN true ELSE false END,
+                  updated_at = now()
+                WHERE company_id = :company_id
+                  AND id = :id
+                RETURNING *
+            """),
+            {
+                **data,
+                "company_id": company_id,
+                "id": _clean(campaign_id, 80),
+                "product_ids": json.dumps(data["product_ids"], ensure_ascii=False),
+            },
+        )
+    else:
+        result = await db.execute(
+            text("""
+                INSERT INTO shoplink_campaigns (
+                  id, company_id, slug, title, objective, status, starts_at, ends_at,
+                  headline, description, banner_url, discount_label, coupon_code,
+                  discount_type, discount_value, min_order, max_uses, product_ids,
+                  customer_segment, whatsapp_message, notes, landing_enabled, archived,
+                  created_at, updated_at
+                )
+                VALUES (
+                  :id, :company_id, :slug, :title, :objective, :status,
+                  NULLIF(:starts_at, '')::timestamptz, NULLIF(:ends_at, '')::timestamptz,
+                  :headline, :description, :banner_url, :discount_label, :coupon_code,
+                  :discount_type, :discount_value, :min_order, :max_uses, CAST(:product_ids AS jsonb),
+                  :customer_segment, :whatsapp_message, :notes, :landing_enabled, false,
+                  now(), now()
+                )
+                ON CONFLICT (company_id, slug) DO UPDATE
+                SET
+                  title = EXCLUDED.title,
+                  objective = EXCLUDED.objective,
+                  status = EXCLUDED.status,
+                  starts_at = EXCLUDED.starts_at,
+                  ends_at = EXCLUDED.ends_at,
+                  headline = EXCLUDED.headline,
+                  description = EXCLUDED.description,
+                  banner_url = EXCLUDED.banner_url,
+                  discount_label = EXCLUDED.discount_label,
+                  coupon_code = EXCLUDED.coupon_code,
+                  discount_type = EXCLUDED.discount_type,
+                  discount_value = EXCLUDED.discount_value,
+                  min_order = EXCLUDED.min_order,
+                  max_uses = EXCLUDED.max_uses,
+                  product_ids = EXCLUDED.product_ids,
+                  customer_segment = EXCLUDED.customer_segment,
+                  whatsapp_message = EXCLUDED.whatsapp_message,
+                  notes = EXCLUDED.notes,
+                  landing_enabled = EXCLUDED.landing_enabled,
+                  archived = false,
+                  updated_at = now()
+                RETURNING *
+            """),
+            {
+                **data,
+                "company_id": company_id,
+                "id": str(uuid4()),
+                "product_ids": json.dumps(data["product_ids"], ensure_ascii=False),
+            },
+        )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Campana no encontrada.")
+    await db.commit()
+    return dict(row)
+
+
+def _campaign_discount_amount(campaign: dict[str, Any] | None, items: list[dict[str, Any]], subtotal: float, coupon_code: str = "") -> float:
+    if not campaign:
+        return 0.0
+    discount_type = _campaign_discount_type(campaign.get("discount_type"))
+    value = float(campaign.get("discount_value") or 0)
+    if discount_type == "none" or value <= 0:
+        return 0.0
+    expected_coupon = _clean(campaign.get("coupon_code"), 40).upper()
+    provided_coupon = _clean(coupon_code, 40).upper()
+    if expected_coupon and expected_coupon != provided_coupon:
+        return 0.0
+    if subtotal < float(campaign.get("min_order") or 0):
+        return 0.0
+    product_ids = _campaign_product_ids(campaign.get("product_ids"))
+    base = subtotal
+    if product_ids:
+        base = sum(
+            float(item.get("subtotal") or 0)
+            for item in items
+            if _campaign_product_match(item.get("product_id"), product_ids)
+        )
+    if base <= 0:
+        return 0.0
+    if discount_type == "percent":
+        return min(base, round(base * min(value, 90.0) / 100, 2))
+    if discount_type == "amount":
+        return min(base, value)
+    return 0.0
+
+
 def _shoplink_invoice_html(company: dict[str, Any], settings: dict[str, Any], order: dict[str, Any]) -> str:
     customer = order.get("customer") or {}
     items = order.get("items") or []
@@ -1080,6 +1556,12 @@ def _shoplink_invoice_html(company: dict[str, Any], settings: dict[str, Any], or
         </tr>
         """
         for item in items
+    )
+    discount_amount = float(order.get("discount_amount") or 0)
+    discount_line = (
+        f"<p>Descuento: {escape(_format_invoice_money(discount_amount, currency))}"
+        f"{' / Cupon ' + escape(order.get('coupon_code') or '') if order.get('coupon_code') else ''}</p>"
+        if discount_amount > 0 else ""
     )
     return f"""<!doctype html>
 <html lang="es">
@@ -1134,7 +1616,7 @@ def _shoplink_invoice_html(company: dict[str, Any], settings: dict[str, Any], or
       <thead><tr><th>Articulo</th><th>Cant.</th><th>Unitario</th><th>Subtotal</th></tr></thead>
       <tbody>{item_rows}</tbody>
     </table>
-    <div class="total"><strong>Total {escape(_format_invoice_money(order.get("total_amount"), currency))}</strong></div>
+    <div class="total"><div>{discount_line}<strong>Total {escape(_format_invoice_money(order.get("total_amount"), currency))}</strong></div></div>
     <p><small>Documento generado automaticamente desde CLONEXA ShopLink.</small></p>
     <div class="actions"><button onclick="window.print()">Imprimir / PDF</button></div>
   </main>
@@ -1206,6 +1688,11 @@ def _shoplink_invoice_pdf(company: dict[str, Any], settings: dict[str, Any], ord
     pdf.line(54, y, width - 54, y)
     y -= 28
     pdf.setFont("Helvetica-Bold", 16)
+    if float(order.get("discount_amount") or 0) > 0:
+        pdf.setFont("Helvetica", 11)
+        pdf.drawRightString(width - 54, y, f"Descuento {_format_invoice_money(order.get('discount_amount'), currency)}")
+        y -= 20
+        pdf.setFont("Helvetica-Bold", 16)
     pdf.drawRightString(width - 54, y, f"Total {_format_invoice_money(order.get('total_amount'), currency)}")
     y -= 32
     pdf.setFont("Helvetica", 9)
@@ -1481,6 +1968,100 @@ async def get_shoplink_customers(
         "customers": customers,
         "public_url": _public_url(settings, company["id"]),
     }
+
+
+@router.get("/companies/{company_id}/campaigns")
+async def get_shoplink_campaigns(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    products = await _products(db, company["id"])
+    orders = [_shoplink_order_out(row, company["id"]) for row in await _shoplink_order_rows(db, company["id"], 1000)]
+    campaigns = [
+        _shoplink_campaign_out(row, settings, products, orders)
+        for row in await _shoplink_campaign_rows(db, company["id"])
+    ]
+    customers = await _shoplink_customer_rows(db, company["id"], 1000)
+    summary = {
+        "campaigns": len(campaigns),
+        "active": len([row for row in campaigns if row.get("status") == "active" and row.get("landing_enabled")]),
+        "scheduled": len([row for row in campaigns if row.get("status") == "scheduled"]),
+        "direct_orders": sum(int(row.get("direct_orders") or 0) for row in campaigns),
+        "direct_sales": sum(float(row.get("direct_sales") or 0) for row in campaigns),
+        "matched_sales": sum(float(row.get("matched_sales") or 0) for row in campaigns),
+        "products": len(products),
+        "customers": len(customers),
+    }
+    return {
+        "ok": True,
+        "company": {"id": company["id"], "name": company["name"], "slug": company["slug"]},
+        "settings": settings,
+        "summary": summary,
+        "campaigns": campaigns,
+        "products": products,
+        "segments": [
+            {"value": value, "label": _campaign_segment_label(value)}
+            for value in ["todos", "nuevos", "recurrentes", "vip", "seguimiento", "ciudad"]
+        ],
+        "public_url": _public_url(settings, company["id"]),
+    }
+
+
+@router.post("/companies/{company_id}/campaigns")
+async def create_shoplink_campaign(
+    company_id: UUID,
+    payload: ShoplinkCampaignIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    products = await _products(db, company["id"])
+    row = await _save_shoplink_campaign(db, company["id"], payload)
+    return {
+        "ok": True,
+        "campaign": _shoplink_campaign_out(row, settings, products, []),
+    }
+
+
+@router.patch("/companies/{company_id}/campaigns/{campaign_id}")
+async def update_shoplink_campaign(
+    company_id: UUID,
+    campaign_id: str,
+    payload: ShoplinkCampaignIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    products = await _products(db, company["id"])
+    row = await _save_shoplink_campaign(db, company["id"], payload, campaign_id)
+    orders = [_shoplink_order_out(order, company["id"]) for order in await _shoplink_order_rows(db, company["id"], 1000)]
+    return {
+        "ok": True,
+        "campaign": _shoplink_campaign_out(row, settings, products, orders),
+    }
+
+
+@router.delete("/companies/{company_id}/campaigns/{campaign_id}")
+async def archive_shoplink_campaign(
+    company_id: UUID,
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            UPDATE shoplink_campaigns
+            SET archived = true, status = 'archived', updated_at = now()
+            WHERE company_id = :company_id
+              AND id = :id
+            RETURNING id
+        """),
+        {"company_id": company["id"], "id": _clean(campaign_id, 80)},
+    )
+    if not result.mappings().first():
+        raise HTTPException(status_code=404, detail="Campana no encontrada.")
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/companies/{company_id}/customers")
@@ -2094,6 +2675,12 @@ async def create_shoplink_order(
     if not items:
         raise HTTPException(status_code=400, detail="El pedido no tiene productos disponibles.")
 
+    requested_campaign_slug = _slug(_clean(payload.campaign_slug, 100))
+    campaign = await _active_shoplink_campaign_by_slug(db, company["id"], requested_campaign_slug) if requested_campaign_slug else None
+    coupon_code = _clean(payload.coupon_code, 40).upper()
+    discount_amount = _campaign_discount_amount(campaign, items, total, coupon_code)
+    total_after_discount = max(0.0, total - discount_amount)
+    campaign_slug = _clean(campaign.get("slug"), 100) if campaign else ""
     order_id = str(uuid4())
     order_code = f"SL-{uuid4().hex[:8].upper()}"
     invoice_code = _invoice_code_for_order(order_code)
@@ -2103,11 +2690,13 @@ async def create_shoplink_order(
         text("""
             INSERT INTO shoplink_orders (
               id, company_id, order_code, customer_json, items_json,
-              total_amount, currency, status, invoice_code, source, invoiced_at, updated_at
+              total_amount, currency, status, invoice_code, campaign_slug, coupon_code,
+              discount_amount, source, invoiced_at, updated_at
             )
             VALUES (
               :id, :company_id, :order_code, CAST(:customer AS jsonb), CAST(:items AS jsonb),
-              :total_amount, :currency, 'new', :invoice_code, 'shoplink_public', now(), now()
+              :total_amount, :currency, 'new', :invoice_code, :campaign_slug, :coupon_code,
+              :discount_amount, :source, now(), now()
             )
         """),
         {
@@ -2117,8 +2706,12 @@ async def create_shoplink_order(
             "invoice_code": invoice_code,
             "customer": json.dumps(customer, ensure_ascii=False),
             "items": json.dumps(items, ensure_ascii=False),
-            "total_amount": total,
+            "total_amount": total_after_discount,
             "currency": currency,
+            "campaign_slug": campaign_slug,
+            "coupon_code": coupon_code if discount_amount > 0 else "",
+            "discount_amount": discount_amount,
+            "source": f"shoplink_campaign:{campaign_slug}" if campaign_slug else "shoplink_public",
         },
     )
     await db.commit()
@@ -2130,28 +2723,45 @@ async def create_shoplink_order(
         "invoice_url": f"/api/v1/shoplink/companies/{company['id']}/orders/{order_id}/invoice",
         "invoice_pdf_url": f"/api/v1/shoplink/companies/{company['id']}/orders/{order_id}/invoice.pdf",
         "status": "new",
-        "total_amount": total,
+        "total_amount": total_after_discount,
+        "discount_amount": discount_amount,
+        "campaign_slug": campaign_slug,
+        "coupon_code": coupon_code if discount_amount > 0 else "",
         "currency": currency,
         "items": items,
     }
 
 
 @router.get("/public/{company_id}")
-async def public_shoplink(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def public_shoplink(
+    company_id: UUID,
+    campaign: str = "",
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
     company = await _company(db, company_id)
     settings = await _settings(db, company)
     if not settings.get("public_enabled", True):
         raise HTTPException(status_code=403, detail="Tienda pública desactivada.")
     products = await _products(db, company["id"])
+    campaign_row = await _active_shoplink_campaign_by_slug(db, company["id"], campaign) if campaign else None
+    campaign_out = _shoplink_campaign_out(campaign_row, settings, products, []) if campaign_row else None
+    if campaign_out:
+        product_ids = _campaign_product_ids(campaign_row.get("product_ids"))
+        if product_ids:
+            products = [
+                product for product in products
+                if _campaign_product_match(product.get("id") or product.get("raw_id"), product_ids)
+            ]
     configured_categories = [c for c in settings.get("categories") or [] if c]
     product_categories = sorted({p["category"] for p in products if p.get("category")})
-    categories = configured_categories or product_categories
+    categories = product_categories if campaign_out else (configured_categories or product_categories)
     return {
         "ok": True,
         "company": {"id": company["id"], "name": company["name"], "slug": company["slug"]},
         "settings": settings,
         "public_url": _public_url(settings, company["id"]),
+        "campaign": campaign_out,
         "categories": categories,
         "products": products,
-        "featured": _featured_products(products, settings),
+        "featured": products[:8] if campaign_out else _featured_products(products, settings),
     }

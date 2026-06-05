@@ -697,6 +697,11 @@
     clientes_landing: ["Clientes / CRM / Landing", "clientes, WhatsApp y seguimiento", "CLI"],
     shoplink_clients: ["Clientes / CRM / Landing", "clientes, WhatsApp y seguimiento", "CLI"],
     customer_crm_landing: ["Clientes / CRM / Landing", "clientes, WhatsApp y seguimiento", "CLI"],
+    cam: ["Campanas y Reportes/LANDING", "promos, cupones y reportes", "CAM"],
+    campanas_reportes_landing: ["Campanas y Reportes/LANDING", "promos, cupones y reportes", "CAM"],
+    campaigns_reports_landing: ["Campanas y Reportes/LANDING", "promos, cupones y reportes", "CAM"],
+    shoplink_campaigns: ["Campanas y Reportes/LANDING", "promos, cupones y reportes", "CAM"],
+    campaign_reports: ["Campanas y Reportes/LANDING", "promos, cupones y reportes", "CAM"],
     settings: ["Configuracion", "ajustes del tenant", "CFG"],
     production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
@@ -18229,7 +18234,410 @@ function inventoryCreatePayload() {
     await cxSlCliSave026N(customerKey, root, true);
   }
 
+  /* CLONEXA_026K_R16_SHOPLINK_CAMPAIGNS_START */
+  const CX_SLCAM_CODES_026O = new Set([
+    "cam",
+    "campanas_reportes_landing",
+    "campanas_y_reportes_landing",
+    "campaigns_reports_landing",
+    "shoplink_campaigns",
+    "campaign_reports",
+  ]);
+  let cxSlCamCurrent026O = "";
+
+  function cxIsShoplinkCampaignsCode026O(code = "") {
+    const normalized = cxNormShoplink026K(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return CX_SLCAM_CODES_026O.has(normalized);
+  }
+
+  function cxShoplinkCampaignsText026O(module = {}) {
+    const raw = module.raw || {};
+    const rawModule = raw.module && typeof raw.module === "object" ? raw.module : {};
+    return [
+      module.code,
+      module.badge,
+      module.title,
+      module.subtitle,
+      raw.code,
+      raw.name,
+      raw.title,
+      raw.description,
+      rawModule.code,
+      rawModule.name,
+      rawModule.title,
+      rawModule.description,
+    ].map(cxNormShoplink026K).filter(Boolean).join(" ");
+  }
+
+  function cxIsShoplinkCampaignsModule026O(module = {}) {
+    const text = cxShoplinkCampaignsText026O(module);
+    const code = cxNormShoplink026K(module.code || module.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return (
+      cxIsShoplinkCampaignsCode026O(code) ||
+      (text.includes("campana") && text.includes("report")) ||
+      (text.includes("campaign") && text.includes("report"))
+    );
+  }
+
+  function cxSlCamActiveCode026O() {
+    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkCampaignsModule026O);
+    return module?.code || "cam";
+  }
+
+  function cxSlCamStyles026O() {
+    let style = document.getElementById("cxSlCamStyles026O");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "cxSlCamStyles026O";
+      document.head.appendChild(style);
+    }
+    style.textContent = `
+      .slcam-shell-026o{display:grid;gap:18px}
+      .slcam-grid-026o{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(340px,.95fr);gap:18px;align-items:start}
+      .slcam-card-026o{border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.16));border-radius:22px;padding:20px;box-shadow:0 18px 46px rgba(0,0,0,.18)}
+      .slcam-kpis-026o{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+      .slcam-kpi-026o{border:1px solid rgba(255,255,255,.11);border-radius:16px;background:rgba(0,0,0,.18);padding:14px}
+      .slcam-kpi-026o span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:1000}
+      .slcam-kpi-026o b{display:block;margin-top:6px;font-size:24px;color:var(--accent)}
+      .slcam-form-026o{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+      .slcam-field-026o{display:grid;gap:7px}
+      .slcam-field-026o.wide{grid-column:1/-1}
+      .slcam-field-026o label,.slcam-products-026o label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:1000}
+      .slcam-field-026o input,.slcam-field-026o select,.slcam-field-026o textarea{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.68);color:var(--text);padding:12px 13px;font:inherit;font-weight:850;outline:none}
+      .slcam-field-026o textarea{min-height:82px;resize:vertical}
+      .slcam-products-026o{grid-column:1/-1;display:grid;gap:9px;max-height:280px;overflow:auto;border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(0,0,0,.14);padding:12px}
+      .slcam-product-026o{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid rgba(255,255,255,.08);border-radius:13px;padding:9px;background:rgba(255,255,255,.04);font-weight:850}
+      .slcam-product-026o small{color:var(--muted);display:block}
+      .slcam-actions-026o{display:flex;flex-wrap:wrap;gap:9px;margin-top:12px}
+      .slcam-list-026o{display:grid;gap:12px}
+      .slcam-row-026o{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(0,0,0,.18);padding:14px;display:grid;gap:12px}
+      .slcam-head-026o{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start}
+      .slcam-head-026o h3{margin:0;font-size:20px;line-height:1.12}
+      .slcam-pill-026o{border-radius:999px;background:rgba(255,255,255,.09);color:var(--accent);padding:7px 10px;font-size:12px;font-weight:1000;white-space:nowrap}
+      .slcam-mini-grid-026o{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+      .slcam-mini-grid-026o div{border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(255,255,255,.04);padding:10px}
+      .slcam-mini-026o{border:1px solid rgba(255,255,255,.13);border-radius:12px;background:rgba(255,255,255,.07);color:var(--text);padding:8px 10px;font-weight:1000;cursor:pointer}
+      .slcam-mini-026o.ok{color:var(--accent)}
+      .slcam-mini-026o.danger{color:#ff7aa8}
+      .slcam-url-026o{word-break:break-all;border:1px solid rgba(0,255,180,.2);border-radius:13px;background:rgba(0,0,0,.24);padding:10px;font-weight:900;color:var(--accent)}
+      .slcam-msg-026o{font-weight:900;color:var(--accent)}
+      .slcam-empty-026o{border:1px dashed rgba(255,255,255,.16);border-radius:18px;padding:20px;background:rgba(0,0,0,.12)}
+      @media(max-width:1120px){.slcam-grid-026o,.slcam-kpis-026o{grid-template-columns:1fr 1fr}.slcam-mini-grid-026o{grid-template-columns:1fr 1fr}}
+      @media(max-width:760px){.slcam-grid-026o,.slcam-kpis-026o,.slcam-form-026o,.slcam-mini-grid-026o,.slcam-head-026o{grid-template-columns:1fr}}
+    `;
+  }
+
+  function cxSlCamLoad026O() {
+    return api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/campaigns`);
+  }
+
+  function cxSlCamMoney026O(value, currency = "COP") {
+    return typeof cxShoplinkMoney026K === "function" ? cxShoplinkMoney026K(value, currency) : `$ ${Math.round(Number(value || 0)).toLocaleString("es-CO")}`;
+  }
+
+  function cxSlCamDateInput026O(value = "") {
+    return String(value || "").slice(0, 10);
+  }
+
+  function cxSlCamAbsoluteUrl026O(url = "") {
+    const clean = String(url || "").trim();
+    if (!clean) return "";
+    return /^https?:\/\//i.test(clean) ? clean : `${window.location.origin}${clean}`;
+  }
+
+  function cxSlCamStatusOptions026O(selected = "active") {
+    const options = [
+      ["active", "Activa"],
+      ["scheduled", "Programada"],
+      ["draft", "Borrador"],
+      ["paused", "Pausada"],
+      ["finished", "Finalizada"],
+    ];
+    return options.map(([value, label]) => `<option value="${value}" ${String(selected || "active") === value ? "selected" : ""}>${h(label)}</option>`).join("");
+  }
+
+  function cxSlCamDiscountOptions026O(selected = "none") {
+    return [
+      ["none", "Sin descuento"],
+      ["percent", "Porcentaje"],
+      ["amount", "Valor fijo"],
+    ].map(([value, label]) => `<option value="${value}" ${String(selected || "none") === value ? "selected" : ""}>${h(label)}</option>`).join("");
+  }
+
+  function cxSlCamProductsHtml026O(products = [], selected = []) {
+    const selectedSet = new Set((selected || []).map(String));
+    if (!products.length) {
+      return `<div class="slcam-empty-026o">Aun no hay productos publicados. Cargalos en Productos e Inventario.</div>`;
+    }
+    return products.slice(0, 120).map((product) => {
+      const checked = selectedSet.has(String(product.id)) || selectedSet.has(String(product.raw_id));
+      return `
+        <label class="slcam-product-026o">
+          <input data-slcam-product type="checkbox" value="${h(product.id || product.raw_id || "")}" ${checked ? "checked" : ""}>
+          <span>${h(product.name || "Producto")}<small>${h(product.category || "General")} ${product.sku ? ` / ${h(product.sku)}` : ""}</small></span>
+          <b>${h(cxSlCamMoney026O(product.price, "COP"))}</b>
+        </label>
+      `;
+    }).join("");
+  }
+
+  function cxSlCamRead026O() {
+    return {
+      title: $("slCamTitle026O")?.value || "",
+      slug: $("slCamSlug026O")?.value || "",
+      objective: $("slCamObjective026O")?.value || "",
+      status: $("slCamStatus026O")?.value || "active",
+      starts_at: $("slCamStart026O")?.value || "",
+      ends_at: $("slCamEnd026O")?.value || "",
+      headline: $("slCamHeadline026O")?.value || "",
+      description: $("slCamDescription026O")?.value || "",
+      banner_url: $("slCamBanner026O")?.value || "",
+      discount_label: $("slCamDiscountLabel026O")?.value || "",
+      coupon_code: $("slCamCoupon026O")?.value || "",
+      discount_type: $("slCamDiscountType026O")?.value || "none",
+      discount_value: Number($("slCamDiscountValue026O")?.value || 0),
+      min_order: Number($("slCamMinOrder026O")?.value || 0),
+      max_uses: Number($("slCamMaxUses026O")?.value || 0),
+      product_ids: Array.from(document.querySelectorAll("[data-slcam-product]:checked")).map((item) => item.value).filter(Boolean),
+      customer_segment: $("slCamSegment026O")?.value || "todos",
+      whatsapp_message: $("slCamWhatsApp026O")?.value || "",
+      notes: $("slCamNotes026O")?.value || "",
+      landing_enabled: !!$("slCamLanding026O")?.checked,
+    };
+  }
+
+  function cxSlCamCampaignById026O(id = "") {
+    const payload = window.__cxSlCamPayload026O || {};
+    return (payload.campaigns || []).find((row) => String(row.id) === String(id)) || null;
+  }
+
+  function cxSlCamFill026O(campaign = {}) {
+    cxSlCamCurrent026O = campaign.id || "";
+    const set = (id, value) => { const el = $(id); if (el) el.value = value || ""; };
+    set("slCamTitle026O", campaign.title);
+    set("slCamSlug026O", campaign.slug);
+    set("slCamObjective026O", campaign.objective);
+    set("slCamStatus026O", campaign.status || "active");
+    set("slCamStart026O", cxSlCamDateInput026O(campaign.starts_at));
+    set("slCamEnd026O", cxSlCamDateInput026O(campaign.ends_at));
+    set("slCamHeadline026O", campaign.headline);
+    set("slCamDescription026O", campaign.description);
+    set("slCamBanner026O", campaign.banner_url);
+    set("slCamDiscountLabel026O", campaign.discount_label);
+    set("slCamCoupon026O", campaign.coupon_code);
+    set("slCamDiscountType026O", campaign.discount_type || "none");
+    set("slCamDiscountValue026O", campaign.discount_value || 0);
+    set("slCamMinOrder026O", campaign.min_order || 0);
+    set("slCamMaxUses026O", campaign.max_uses || 0);
+    set("slCamSegment026O", campaign.customer_segment || "todos");
+    set("slCamWhatsApp026O", campaign.whatsapp_message);
+    set("slCamNotes026O", campaign.notes);
+    const landing = $("slCamLanding026O");
+    if (landing) landing.checked = campaign.landing_enabled !== false;
+    const selected = new Set((campaign.product_ids || []).map(String));
+    document.querySelectorAll("[data-slcam-product]").forEach((input) => {
+      input.checked = selected.has(input.value) || selected.has(input.value.replace("shoplink:", ""));
+    });
+    const title = $("slCamEditorTitle026O");
+    if (title) title.textContent = campaign.id ? "Editar campana" : "Crear campana";
+    const msg = $("slCamMsg026O");
+    if (msg) msg.textContent = campaign.id ? "Campana cargada para editar." : "";
+  }
+
+  function cxSlCamRows026O(payload = {}) {
+    const campaigns = Array.isArray(payload.campaigns) ? payload.campaigns : [];
+    const currency = payload.settings?.currency || "COP";
+    if (!campaigns.length) {
+      return `<div class="slcam-empty-026o"><strong>Sin campanas todavia</strong><p class="client-muted">Crea una promocion para generar link publico, cupon y reporte.</p></div>`;
+    }
+    return campaigns.map((campaign) => {
+      const url = cxSlCamAbsoluteUrl026O(campaign.landing_url);
+      return `
+        <article class="slcam-row-026o">
+          <div class="slcam-head-026o">
+            <div>
+              <h3>${h(campaign.title || "Campana")}</h3>
+              <small class="client-muted">${h(campaign.objective || "Sin objetivo")} · ${h(campaign.products_count || 0)} producto(s)</small>
+            </div>
+            <span class="slcam-pill-026o">${h(campaign.status_label || "Activa")}</span>
+          </div>
+          <div class="slcam-mini-grid-026o">
+            <div><small class="client-muted">Pedidos link</small><strong>${h(campaign.direct_orders || 0)}</strong></div>
+            <div><small class="client-muted">Vendido link</small><strong>${h(cxSlCamMoney026O(campaign.direct_sales || 0, currency))}</strong></div>
+            <div><small class="client-muted">Potencial productos</small><strong>${h(cxSlCamMoney026O(campaign.matched_sales || 0, currency))}</strong></div>
+            <div><small class="client-muted">Cupon</small><strong>${h(campaign.coupon_code || "Sin cupon")}</strong></div>
+          </div>
+          <div class="slcam-url-026o">${h(url)}</div>
+          <div class="slcam-actions-026o">
+            <button class="slcam-mini-026o ok" type="button" data-slcam-edit="${h(campaign.id)}">Editar</button>
+            <button class="slcam-mini-026o" type="button" data-slcam-open="${h(campaign.id)}">Abrir landing</button>
+            <button class="slcam-mini-026o" type="button" data-slcam-copy="${h(campaign.id)}">Copiar link</button>
+            <button class="slcam-mini-026o" type="button" data-slcam-whatsapp="${h(campaign.id)}">WhatsApp promo</button>
+            <button class="slcam-mini-026o danger" type="button" data-slcam-archive="${h(campaign.id)}">Archivar</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  async function renderShoplinkCampaignsModule026O() {
+    cxSlCamStyles026O();
+    let payload = { campaigns: [], products: [], summary: {}, segments: [], company: state.company || {}, settings: {} };
+    let error = "";
+    try {
+      payload = await cxSlCamLoad026O();
+      window.__cxSlCamPayload026O = payload;
+    } catch (err) {
+      error = err.message || "No se pudieron cargar campanas.";
+      window.__cxSlCamPayload026O = payload;
+    }
+    const company = payload.company || state.company || {};
+    const b = normalizeBranding(state.branding || {});
+    const summary = payload.summary || {};
+    const segments = payload.segments || [];
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, b)}</div>
+            <h2>${h(company.name || "CLONEXA")}</h2>
+            <p>${h(company.slug || "")}</p>
+            <nav class="client-nav">${renderClientNav(cxSlCamActiveCode026O())}</nav>
+            <div class="tenant-pill">Tenant activo<br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <section class="client-hero">
+              <div>
+                <span class="eyebrow">CLONEXA ShopLink</span>
+                <h1>Campanas y reportes web</h1>
+                <p>Crea promociones con landing, cupon, productos destacados y medicion de pedidos generados por la tienda.</p>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                <button class="client-btn" type="button" data-slcam-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-shoplink-open>Abrir tienda</button>
+              </div>
+            </section>
+
+            <section class="slcam-shell-026o">
+              ${error ? `<div class="slcam-card-026o slcam-msg-026o">${h(error)}</div>` : ""}
+              <div class="slcam-kpis-026o">
+                <div class="slcam-kpi-026o"><span>Campanas</span><b>${h(summary.campaigns || 0)}</b></div>
+                <div class="slcam-kpi-026o"><span>Activas</span><b>${h(summary.active || 0)}</b></div>
+                <div class="slcam-kpi-026o"><span>Pedidos link</span><b>${h(summary.direct_orders || 0)}</b></div>
+                <div class="slcam-kpi-026o"><span>Ventas link</span><b>${h(cxSlCamMoney026O(summary.direct_sales || 0, payload.settings?.currency || "COP"))}</b></div>
+                <div class="slcam-kpi-026o"><span>Productos</span><b>${h(summary.products || 0)}</b></div>
+              </div>
+
+              <section class="slcam-grid-026o">
+                <article class="slcam-card-026o">
+                  <span class="eyebrow">Editor comercial</span>
+                  <h2 id="slCamEditorTitle026O">Crear campana</h2>
+                  <div class="slcam-form-026o">
+                    <div class="slcam-field-026o"><label>Nombre<input id="slCamTitle026O" placeholder="Ej: Promo tenis fin de semana"></label></div>
+                    <div class="slcam-field-026o"><label>Slug link<input id="slCamSlug026O" placeholder="promo-tenis"></label></div>
+                    <div class="slcam-field-026o wide"><label>Objetivo<input id="slCamObjective026O" placeholder="Liquidar referencias, lanzar categoria, recuperar clientes..."></label></div>
+                    <div class="slcam-field-026o"><label>Estado<select id="slCamStatus026O">${cxSlCamStatusOptions026O("active")}</select></label></div>
+                    <div class="slcam-field-026o"><label>Segmento<select id="slCamSegment026O">${segments.map((segment) => `<option value="${h(segment.value)}">${h(segment.label)}</option>`).join("")}</select></label></div>
+                    <div class="slcam-field-026o"><label>Inicio<input id="slCamStart026O" type="date"></label></div>
+                    <div class="slcam-field-026o"><label>Fin<input id="slCamEnd026O" type="date"></label></div>
+                    <div class="slcam-field-026o wide"><label>Titulo landing<input id="slCamHeadline026O" placeholder="Oferta especial solo por hoy"></label></div>
+                    <div class="slcam-field-026o wide"><label>Descripcion landing<textarea id="slCamDescription026O" placeholder="Texto publico de la campana"></textarea></label></div>
+                    <div class="slcam-field-026o wide"><label>Banner URL<input id="slCamBanner026O" placeholder="https://..."></label></div>
+                    <div class="slcam-field-026o"><label>Tipo descuento<select id="slCamDiscountType026O">${cxSlCamDiscountOptions026O("none")}</select></label></div>
+                    <div class="slcam-field-026o"><label>Valor descuento<input id="slCamDiscountValue026O" type="number" min="0" value="0"></label></div>
+                    <div class="slcam-field-026o"><label>Codigo cupon<input id="slCamCoupon026O" placeholder="PROMO10"></label></div>
+                    <div class="slcam-field-026o"><label>Texto promo<input id="slCamDiscountLabel026O" placeholder="10% OFF en seleccionados"></label></div>
+                    <div class="slcam-field-026o"><label>Compra minima<input id="slCamMinOrder026O" type="number" min="0" value="0"></label></div>
+                    <div class="slcam-field-026o"><label>Limite usos<input id="slCamMaxUses026O" type="number" min="0" value="0"></label></div>
+                    <div class="slcam-field-026o wide"><label>Mensaje WhatsApp<textarea id="slCamWhatsApp026O" placeholder="Mensaje para compartir la promo"></textarea></label></div>
+                    <div class="slcam-field-026o wide"><label>Notas internas<textarea id="slCamNotes026O" placeholder="Margen, piezas objetivo, condiciones internas"></textarea></label></div>
+                    <div class="slcam-products-026o">
+                      <label>Productos de la campana</label>
+                      ${cxSlCamProductsHtml026O(payload.products || [], [])}
+                    </div>
+                    <div class="slcam-field-026o wide"><label><input id="slCamLanding026O" type="checkbox" checked> Landing publica activa</label></div>
+                  </div>
+                  <div class="slcam-actions-026o">
+                    <button class="client-btn" type="button" data-slcam-save>Guardar campana</button>
+                    <button class="client-btn ghost" type="button" data-slcam-new>Nueva</button>
+                  </div>
+                  <div id="slCamMsg026O" class="slcam-msg-026o"></div>
+                </article>
+
+                <article class="slcam-card-026o">
+                  <span class="eyebrow">Reportes</span>
+                  <h2>Campanas activas</h2>
+                  <p class="client-muted">Pedidos link son ventas que entraron por landing de campana. Potencial productos cruza ventas existentes con productos seleccionados.</p>
+                  <div class="slcam-list-026o">${cxSlCamRows026O(payload)}</div>
+                </article>
+              </section>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
+  async function cxSlCamSave026O() {
+    const payload = cxSlCamRead026O();
+    if (!payload.title.trim()) {
+      const msg = $("slCamMsg026O");
+      if (msg) msg.textContent = "Agrega nombre de campana.";
+      return;
+    }
+    const path = cxSlCamCurrent026O
+      ? `/shoplink/companies/${encodeURIComponent(state.companyId)}/campaigns/${encodeURIComponent(cxSlCamCurrent026O)}`
+      : `/shoplink/companies/${encodeURIComponent(state.companyId)}/campaigns`;
+    await api(path, {
+      method: cxSlCamCurrent026O ? "PATCH" : "POST",
+      body: JSON.stringify(payload),
+    });
+    cxSlCamCurrent026O = "";
+    await renderShoplinkCampaignsModule026O();
+    const msg = $("slCamMsg026O");
+    if (msg) msg.textContent = "Campana guardada. La landing ya puede usarse.";
+  }
+
+  function cxSlCamCopy026O(id = "") {
+    const campaign = cxSlCamCampaignById026O(id);
+    const url = cxSlCamAbsoluteUrl026O(campaign?.landing_url || "");
+    if (!url) return;
+    navigator.clipboard?.writeText(url).catch(() => null);
+    const msg = $("slCamMsg026O");
+    if (msg) msg.textContent = "Link de campana copiado.";
+  }
+
+  function cxSlCamOpen026O(id = "") {
+    const campaign = cxSlCamCampaignById026O(id);
+    const url = cxSlCamAbsoluteUrl026O(campaign?.landing_url || "");
+    if (url) window.open(url, "_blank", "noopener");
+  }
+
+  function cxSlCamWhatsApp026O(id = "") {
+    const campaign = cxSlCamCampaignById026O(id);
+    if (!campaign) return;
+    const url = cxSlCamAbsoluteUrl026O(campaign.landing_url || "");
+    const message = campaign.whatsapp_message || `${campaign.title || "Promo disponible"}\n${campaign.discount_label || ""}\n${url}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+  }
+
+  async function cxSlCamArchive026O(id = "") {
+    await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/campaigns/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await renderShoplinkCampaignsModule026O();
+    const msg = $("slCamMsg026O");
+    if (msg) msg.textContent = "Campana archivada.";
+  }
+  /* CLONEXA_026K_R16_SHOPLINK_CAMPAIGNS_END */
+
   async function renderClientModulePlaceholder(code) {
+    if (
+      typeof cxIsShoplinkCampaignsCode026O === "function" &&
+      (cxIsShoplinkCampaignsCode026O(code) || cxIsShoplinkCampaignsModule026O(cxGetClientModuleByCode026K(code) || { code }))
+    ) {
+      return renderShoplinkCampaignsModule026O();
+    }
+
     if (
       typeof cxIsShoplinkClientsCode026N === "function" &&
       (cxIsShoplinkClientsCode026N(code) || cxIsShoplinkClientsModule026N(cxGetClientModuleByCode026K(code) || { code }))
@@ -19747,6 +20155,67 @@ function inventoryCreatePayload() {
         return;
       }
 
+      if (target.closest("[data-slcam-refresh]")) {
+        try {
+          await renderShoplinkCampaignsModule026O();
+        } catch (error) {
+          const msg = $("slCamMsg026O");
+          if (msg) msg.textContent = error.message || "No se pudo actualizar campanas.";
+        }
+        return;
+      }
+
+      if (target.closest("[data-slcam-save]")) {
+        try {
+          await cxSlCamSave026O();
+        } catch (error) {
+          const msg = $("slCamMsg026O");
+          if (msg) msg.textContent = error.message || "No se pudo guardar la campana.";
+        }
+        return;
+      }
+
+      if (target.closest("[data-slcam-new]")) {
+        cxSlCamFill026O({});
+        return;
+      }
+
+      const slCamEdit = target.closest("[data-slcam-edit]");
+      if (slCamEdit) {
+        cxSlCamFill026O(cxSlCamCampaignById026O(slCamEdit.getAttribute("data-slcam-edit") || "") || {});
+        document.getElementById("slCamEditorTitle026O")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+
+      const slCamOpen = target.closest("[data-slcam-open]");
+      if (slCamOpen) {
+        cxSlCamOpen026O(slCamOpen.getAttribute("data-slcam-open") || "");
+        return;
+      }
+
+      const slCamCopy = target.closest("[data-slcam-copy]");
+      if (slCamCopy) {
+        cxSlCamCopy026O(slCamCopy.getAttribute("data-slcam-copy") || "");
+        return;
+      }
+
+      const slCamWhatsApp = target.closest("[data-slcam-whatsapp]");
+      if (slCamWhatsApp) {
+        cxSlCamWhatsApp026O(slCamWhatsApp.getAttribute("data-slcam-whatsapp") || "");
+        return;
+      }
+
+      const slCamArchive = target.closest("[data-slcam-archive]");
+      if (slCamArchive) {
+        try {
+          await cxSlCamArchive026O(slCamArchive.getAttribute("data-slcam-archive") || "");
+        } catch (error) {
+          const msg = $("slCamMsg026O");
+          if (msg) msg.textContent = error.message || "No se pudo archivar la campana.";
+        }
+        return;
+      }
+
       if (target.closest("[data-slcli-refresh]")) {
         try {
           await renderShoplinkClientsModule026N();
@@ -19872,6 +20341,14 @@ function inventoryCreatePayload() {
         const activeModule = cxGetClientModuleByCode026K(code) || { code };
 
         if (!isClientModuleActive(code)) return;
+
+        if (
+          typeof cxIsShoplinkCampaignsCode026O === "function" &&
+          (cxIsShoplinkCampaignsCode026O(code) || cxIsShoplinkCampaignsModule026O(activeModule))
+        ) {
+          await renderShoplinkCampaignsModule026O();
+          return;
+        }
 
         if (
           typeof cxIsShoplinkClientsCode026N === "function" &&

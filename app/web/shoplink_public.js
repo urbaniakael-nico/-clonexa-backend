@@ -11,6 +11,7 @@
     placing: false,
     order: null,
     checkoutError: "",
+    couponCode: "",
   };
 
   const h = (value) =>
@@ -24,6 +25,7 @@
   const app = () => document.getElementById("shoplinkApp");
   const settings = () => state.data?.settings || {};
   const products = () => state.data?.products || [];
+  const campaign = () => state.data?.campaign || null;
 
   function money(value, currency = "COP") {
     const number = Number(value || 0);
@@ -42,6 +44,11 @@
   function companyIdFromUrl() {
     const params = new URLSearchParams(window.location.search);
     return params.get("company_id") || params.get("companyId") || params.get("tenant") || "";
+  }
+
+  function campaignSlugFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("campaign") || params.get("campana") || "";
   }
 
   async function api(path, options = {}) {
@@ -103,6 +110,33 @@
 
   function cartTotal() {
     return state.cart.reduce((total, item) => total + Number(item.price || 0) * Number(item.qty || 1), 0);
+  }
+
+  function campaignDiscount() {
+    const c = campaign();
+    if (!c || !state.cart.length) return 0;
+    const type = String(c.discount_type || "none");
+    const value = Number(c.discount_value || 0);
+    if (!value || type === "none") return 0;
+    const expected = String(c.coupon_code || "").trim().toUpperCase();
+    const provided = String(state.couponCode || "").trim().toUpperCase();
+    if (expected && expected !== provided) return 0;
+    const subtotal = cartTotal();
+    if (subtotal < Number(c.min_order || 0)) return 0;
+    const selected = new Set((c.product_ids || []).map(String));
+    const base = selected.size
+      ? state.cart.reduce((sum, item) => (
+          selected.has(String(item.id)) || selected.has(String(item.raw_id)) || selected.has(String(item.id).replace("shoplink:", ""))
+            ? sum + Number(item.price || 0) * Number(item.qty || 1)
+            : sum
+        ), 0)
+      : subtotal;
+    if (!base) return 0;
+    return type === "percent" ? Math.min(base, Math.round(base * Math.min(value, 90) / 100)) : Math.min(base, value);
+  }
+
+  function cartPayableTotal() {
+    return Math.max(0, cartTotal() - campaignDiscount());
   }
 
   function supportUrl() {
@@ -202,18 +236,21 @@
   function renderHero() {
     const data = state.data || {};
     const s = settings();
-    const heroStyle = s.hero_image_url ? ` style="background-image:linear-gradient(90deg,rgba(10,12,18,.72),rgba(10,12,18,.18)),url('${h(s.hero_image_url)}')"` : "";
+    const c = campaign();
+    const heroImage = c?.banner_url || s.hero_image_url || "";
+    const heroStyle = heroImage ? ` style="background-image:linear-gradient(90deg,rgba(10,12,18,.72),rgba(10,12,18,.18)),url('${h(heroImage)}')"` : "";
     return `
       <section class="sl-hero"${heroStyle}>
         <div>
-          ${s.announcement ? `<div class="sl-announcement">${h(s.announcement)}</div>` : ""}
-          <div class="sl-eyebrow">Tienda online</div>
-          <h1>${h(s.headline || s.store_name || data.company?.name || "Compra en linea")}</h1>
-          <p>${h(s.description || "Explora productos, arma tu carrito y haz tu pedido en la web.")}</p>
+          ${(c?.discount_label || s.announcement) ? `<div class="sl-announcement">${h(c?.discount_label || s.announcement)}</div>` : ""}
+          <div class="sl-eyebrow">${c ? "Campana especial" : "Tienda online"}</div>
+          <h1>${h(c?.headline || c?.title || s.headline || s.store_name || data.company?.name || "Compra en linea")}</h1>
+          <p>${h(c?.description || s.description || "Explora productos, arma tu carrito y haz tu pedido en la web.")}</p>
           <div class="sl-meta">
             <span>${h(products().length)} productos</span>
             <span>${h((data.categories || []).length)} categorias</span>
             <span>${s.checkout_enabled === false ? "Solo vitrina" : "Checkout web"}</span>
+            ${c?.coupon_code ? `<span>Cupon ${h(c.coupon_code)}</span>` : ""}
           </div>
         </div>
       </section>
@@ -228,7 +265,7 @@
         <div class="sl-section-head">
           <div>
             <div class="sl-eyebrow">Destacados</div>
-            <h2>Vitrina principal</h2>
+            <h2>${campaign() ? "Seleccion de la promo" : "Vitrina principal"}</h2>
           </div>
         </div>
         <div class="sl-featured-row">
@@ -297,11 +334,13 @@
 
   function renderCheckoutForm() {
     const s = settings();
+    const c = campaign();
     if (s.checkout_enabled === false) {
       return `<div class="sl-empty">La tienda esta en modo vitrina. Los pedidos web estan desactivados.</div>`;
     }
     return `
       <div class="sl-checkout">
+        ${c ? `<div class="sl-payment-note"><strong>${h(c.title || "Campana")}</strong><span>${h(c.discount_label || "Promo activa")}</span></div>` : ""}
         <label>Nombre
           <input data-shoplink-customer="customer_name" value="${h(state.customer.customer_name || "")}" placeholder="Tu nombre">
         </label>
@@ -317,6 +356,11 @@
         <label class="wide">Nota
           <textarea data-shoplink-customer="customer_note" placeholder="Talla, color, referencia o comentario">${h(state.customer.customer_note || "")}</textarea>
         </label>
+        ${c?.coupon_code ? `
+          <label class="wide">Cupon
+            <input data-shoplink-coupon value="${h(state.couponCode || c.coupon_code || "")}" placeholder="Codigo promocional">
+          </label>
+        ` : ""}
         ${state.checkoutError ? `<div class="sl-error">${h(state.checkoutError)}</div>` : ""}
         <button class="sl-btn" type="button" data-shoplink-place-order ${state.cart.length && !state.placing ? "" : "disabled"}>
           ${state.placing ? "Enviando pedido..." : "Finalizar pedido"}
@@ -332,6 +376,7 @@
 
   function renderCart() {
     const s = settings();
+    const discount = campaignDiscount();
     return `
       <aside class="sl-cart">
         <h2>Carrito</h2>
@@ -351,7 +396,8 @@
             </div>
           `).join("") : `<div class="sl-empty">Agrega productos para iniciar tu pedido.</div>`}
         </div>
-        <div class="sl-total"><span>Total</span><strong>${h(money(cartTotal(), s.currency))}</strong></div>
+        ${discount ? `<div class="sl-total"><span>Descuento</span><strong>-${h(money(discount, s.currency))}</strong></div>` : ""}
+        <div class="sl-total"><span>Total</span><strong>${h(money(cartPayableTotal(), s.currency))}</strong></div>
         ${state.order ? renderOrderSuccess() : renderCheckoutForm()}
         <button class="sl-btn secondary" type="button" data-shoplink-clear ${state.cart.length ? "" : "disabled"}>Limpiar carrito</button>
       </aside>
@@ -398,6 +444,8 @@
       const companyId = companyIdFromUrl();
       const payload = {
         ...state.customer,
+        campaign_slug: campaign()?.slug || campaignSlugFromUrl(),
+        coupon_code: state.couponCode || campaign()?.coupon_code || "",
         items: state.cart.map((item) => ({ product_id: item.id, qty: item.qty })),
       };
       const saved = await api(`/shoplink/public/${encodeURIComponent(companyId)}/orders`, {
@@ -487,6 +535,12 @@
     const customer = event.target.closest("[data-shoplink-customer]");
     if (customer) {
       state.customer[customer.dataset.shoplinkCustomer] = customer.value || "";
+      return;
+    }
+
+    const coupon = event.target.closest("[data-shoplink-coupon]");
+    if (coupon) {
+      state.couponCode = coupon.value || "";
     }
   });
 
@@ -501,7 +555,9 @@
       return;
     }
     try {
-      state.data = await api(`/shoplink/public/${encodeURIComponent(companyId)}`);
+      const campaignSlug = campaignSlugFromUrl();
+      state.data = await api(`/shoplink/public/${encodeURIComponent(companyId)}${campaignSlug ? `?campaign=${encodeURIComponent(campaignSlug)}` : ""}`);
+      state.couponCode = state.data?.campaign?.coupon_code || "";
       render();
     } catch (error) {
       renderError(error.message || "Error cargando ShopLink.");
