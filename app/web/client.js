@@ -17472,7 +17472,10 @@ function inventoryCreatePayload() {
   }
 
   function cxSlCarPhone026M(value = "") {
-    return String(value || "").replace(/\D/g, "");
+    let phone = String(value || "").replace(/\D/g, "");
+    if (phone.startsWith("00")) phone = phone.slice(2);
+    if (phone.length === 10 && phone.startsWith("3")) phone = `57${phone}`;
+    return phone;
   }
 
   function cxSlCarPaymentProofPhone026M(settings = {}) {

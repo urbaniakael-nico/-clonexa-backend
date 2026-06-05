@@ -986,13 +986,22 @@ def _absolute_public_url(base_url: str, url: str) -> str:
     return f"{base_url.rstrip('/')}/{clean_url.lstrip('/')}"
 
 
+def _shoplink_whatsapp_phone(value: Any) -> str:
+    phone = re.sub(r"\D", "", _clean(value, 60))
+    if phone.startswith("00"):
+        phone = phone[2:]
+    if len(phone) == 10 and phone.startswith("3"):
+        phone = f"57{phone}"
+    return phone
+
+
 def _shoplink_owner_alert(
     company: dict[str, Any],
     settings: dict[str, Any],
     order: dict[str, Any],
     base_url: str,
 ) -> dict[str, str]:
-    phone = re.sub(r"\D", "", _clean(settings.get("payment_proof_whatsapp") or settings.get("whatsapp_number"), 40))
+    phone = _shoplink_whatsapp_phone(settings.get("payment_proof_whatsapp") or settings.get("whatsapp_number"))
     if not phone:
         return {"phone": "", "message": "", "url": ""}
     items = order.get("items") or []
@@ -2123,7 +2132,7 @@ async def test_shoplink_whatsapp_web(
 ) -> dict[str, Any]:
     company = await _company(db, company_id)
     settings = await _settings(db, company)
-    phone = re.sub(r"\D", "", _clean(settings.get("payment_proof_whatsapp") or settings.get("whatsapp_number"), 40))
+    phone = _shoplink_whatsapp_phone(settings.get("payment_proof_whatsapp") or settings.get("whatsapp_number"))
     message = _clean((payload.message if payload else "") or "", 700) or "\n".join([
         "Prueba alerta ShopLink",
         f"Tienda: {_clean(settings.get('store_name') or company.get('name'), 120)}",

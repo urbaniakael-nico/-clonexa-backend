@@ -21,7 +21,15 @@ function cleanCompanyId(value = "") {
 }
 
 function normalizePhone(value = "") {
-  return String(value || "").replace(/\D/g, "");
+  let phone = String(value || "").replace(/\D/g, "");
+  if (phone.startsWith("00")) phone = phone.slice(2);
+  if (phone.length === 10 && phone.startsWith("3")) phone = `57${phone}`;
+  return phone;
+}
+
+function phoneFromJid(value = "") {
+  const user = String(value || "").split("@")[0].split(":")[0];
+  return normalizePhone(user);
 }
 
 function sessionPublic(companyId) {
@@ -92,7 +100,7 @@ async function startSession(companyId) {
     if (update.connection === "open") {
       session.status = "connected";
       session.qrDataUrl = "";
-      session.connectedPhone = normalizePhone(sock.user?.id || sock.user?.lid || "");
+      session.connectedPhone = phoneFromJid(sock.user?.id || sock.user?.jid || "");
       session.lastError = "";
     }
     if (update.connection === "close") {
@@ -142,8 +150,21 @@ async function sendMessage(companyId, to, message) {
   if (!session?.sock || session.status !== "connected") {
     return { ok: false, status: session?.status || "not_linked", detail: "WhatsApp no esta vinculado." };
   }
-  await session.sock.sendMessage(`${phone}@s.whatsapp.net`, { text });
-  return { ok: true, status: "sent", to: phone };
+  const exists = await session.sock.onWhatsApp(phone).catch(() => null);
+  const target = Array.isArray(exists)
+    ? exists.find((item) => item?.exists)?.jid || ""
+    : "";
+  if (Array.isArray(exists) && !target) {
+    return {
+      ok: false,
+      status: "not_on_whatsapp",
+      to: phone,
+      detail: "El numero destino no aparece activo en WhatsApp.",
+    };
+  }
+  const jid = target || `${phone}@s.whatsapp.net`;
+  const sent = await session.sock.sendMessage(jid, { text });
+  return { ok: true, status: "sent", to: phone, jid, message_id: sent?.key?.id || "" };
 }
 
 async function readJson(req) {

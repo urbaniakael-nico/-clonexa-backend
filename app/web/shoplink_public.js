@@ -139,18 +139,25 @@
     return Math.max(0, cartTotal() - campaignDiscount());
   }
 
+  function normalizeWhatsappPhone(value = "") {
+    let phone = String(value || "").replace(/\D/g, "");
+    if (phone.startsWith("00")) phone = phone.slice(2);
+    if (phone.length === 10 && phone.startsWith("3")) phone = `57${phone}`;
+    return phone;
+  }
+
   function supportUrl() {
     const s = settings();
-    const phone = String(s.whatsapp_number || "").replace(/[^0-9+]/g, "");
+    const phone = normalizeWhatsappPhone(s.whatsapp_number || "");
     const store = s.store_name || state.data?.company?.name || "Tienda";
     const text = encodeURIComponent(`${s.cta_message || "Hola, necesito ayuda con mi pedido:"}\nTienda: ${store}`);
-    return phone ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${text}` : `https://wa.me/?text=${text}`;
+    return phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
   }
 
   function orderOwnerAlertUrl(order = {}) {
     if (order.owner_alert_url) return order.owner_alert_url;
     const s = settings();
-    const phone = String(order.owner_alert_phone || s.payment_proof_whatsapp || s.whatsapp_number || "").replace(/\D/g, "");
+    const phone = normalizeWhatsappPhone(order.owner_alert_phone || s.payment_proof_whatsapp || s.whatsapp_number || "");
     if (!phone) return "";
     const message = order.owner_alert_message || [
       "Nuevo pedido ShopLink",
