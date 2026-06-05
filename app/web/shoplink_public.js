@@ -147,6 +147,28 @@
     return phone ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${text}` : `https://wa.me/?text=${text}`;
   }
 
+  function orderOwnerAlertUrl(order = {}) {
+    if (order.owner_alert_url) return order.owner_alert_url;
+    const s = settings();
+    const phone = String(order.owner_alert_phone || s.payment_proof_whatsapp || s.whatsapp_number || "").replace(/\D/g, "");
+    if (!phone) return "";
+    const message = order.owner_alert_message || [
+      "Nuevo pedido ShopLink",
+      `Pedido: ${order.order_code || ""}`,
+      `Cliente: ${state.customer.customer_name || order.customer_name || "Cliente"}`,
+      `Telefono: ${state.customer.customer_phone || order.customer_phone || ""}`,
+      `Total: ${money(order.total_amount, order.currency || s.currency)}`,
+    ].filter(Boolean).join("\n");
+    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  }
+
+  function openOwnerAlert(order = {}) {
+    const url = orderOwnerAlertUrl(order);
+    if (!url) return false;
+    window.open(url, "_blank", "noopener");
+    return true;
+  }
+
   function productImages(product) {
     const urls = Array.isArray(product.image_urls) && product.image_urls.length
       ? product.image_urls
@@ -322,12 +344,15 @@
     const invoiceUrl = state.order.invoice_url
       ? (/^https?:\/\//i.test(state.order.invoice_url) ? state.order.invoice_url : `${window.location.origin}${state.order.invoice_url}`)
       : "";
+    const ownerAlertUrl = orderOwnerAlertUrl(state.order);
     return `
       <div class="sl-success">
         <strong>Pedido recibido</strong>
         <p>Codigo ${h(state.order.order_code)}. Factura ${h(state.order.invoice_code || "generada")}.</p>
         <small>Total: ${h(money(state.order.total_amount, s.currency))}</small>
+        ${ownerAlertUrl ? `<button class="sl-btn" type="button" data-shoplink-owner-alert>Enviar alerta a la tienda por WhatsApp</button>` : ""}
         ${invoiceUrl ? `<button class="sl-btn secondary" type="button" data-shoplink-open-invoice="${h(invoiceUrl)}">Abrir factura</button>` : ""}
+        ${ownerAlertUrl ? `<small>Si WhatsApp no se abrio automaticamente, toca el boton de alerta.</small>` : ""}
       </div>
     `;
   }
@@ -453,6 +478,7 @@
         body: JSON.stringify(payload),
       });
       state.order = saved;
+      openOwnerAlert(saved);
       state.cart = [];
     } catch (error) {
       state.checkoutError = error.message || "No se pudo crear el pedido.";
@@ -515,6 +541,11 @@
     const invoice = event.target.closest("[data-shoplink-open-invoice]");
     if (invoice) {
       window.open(invoice.getAttribute("data-shoplink-open-invoice") || "", "_blank", "noopener");
+      return;
+    }
+
+    if (event.target.closest("[data-shoplink-owner-alert]")) {
+      openOwnerAlert(state.order || {});
       return;
     }
 

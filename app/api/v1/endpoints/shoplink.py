@@ -9,9 +9,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from html import escape
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -969,6 +970,60 @@ def _format_invoice_money(value: Any, currency: str = "COP") -> str:
     number = _money(value)
     formatted = f"{number:,.0f}".replace(",", ".")
     return f"{_clean(currency, 8).upper() or 'COP'} {formatted}"
+
+
+def _absolute_public_url(base_url: str, url: str) -> str:
+    clean_url = _clean(url, 1000)
+    if not clean_url:
+        return ""
+    if clean_url.startswith(("http://", "https://")):
+        return clean_url
+    return f"{base_url.rstrip('/')}/{clean_url.lstrip('/')}"
+
+
+def _shoplink_owner_alert(
+    company: dict[str, Any],
+    settings: dict[str, Any],
+    order: dict[str, Any],
+    base_url: str,
+) -> dict[str, str]:
+    phone = re.sub(r"\D", "", _clean(settings.get("payment_proof_whatsapp") or settings.get("whatsapp_number"), 40))
+    if not phone:
+        return {"phone": "", "message": "", "url": ""}
+    items = order.get("items") or []
+    item_lines = [
+        f"- {int(item.get('qty') or 1)}x {_clean(item.get('name'), 90)}"
+        for item in items[:6]
+        if _clean(item.get("name"), 90)
+    ]
+    if len(items) > 6:
+        item_lines.append(f"- +{len(items) - 6} articulos mas")
+    invoice_pdf_url = _absolute_public_url(base_url, order.get("invoice_pdf_url") or "")
+    customer = [
+        _clean(order.get("customer_name"), 120),
+        _clean(order.get("customer_phone"), 40),
+    ]
+    delivery = " / ".join([
+        _clean(order.get("customer_city"), 120),
+        _clean(order.get("customer_address"), 220),
+    ]).strip(" /")
+    message = "\n".join([
+        "Nuevo pedido ShopLink",
+        f"Tienda: {_clean(settings.get('store_name') or company.get('name'), 120)}",
+        f"Pedido: {_clean(order.get('order_code'), 60)}",
+        f"Factura: {_clean(order.get('invoice_code'), 60)}",
+        f"Cliente: {' - '.join([part for part in customer if part]) or 'Cliente'}",
+        f"Entrega: {delivery or 'Por confirmar'}",
+        "Articulos:",
+        *(item_lines or ["- Sin detalle"]),
+        f"Total: {_format_invoice_money(order.get('total_amount'), order.get('currency') or settings.get('currency') or 'COP')}",
+        f"Factura PDF: {invoice_pdf_url}" if invoice_pdf_url else "",
+    ]).strip()
+    return {
+        "phone": phone,
+        "message": message,
+        "url": f"https://wa.me/{phone}?text={quote(message)}",
+    }
 
 
 def _shoplink_order_out(row: dict[str, Any], company_id: str | None = None) -> dict[str, Any]:
@@ -2786,6 +2841,7 @@ def _order_payload(payload: ShoplinkOrderIn) -> dict[str, Any]:
 async def create_shoplink_order(
     company_id: UUID,
     payload: ShoplinkOrderIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     company = await _company(db, company_id)
@@ -2868,13 +2924,18 @@ async def create_shoplink_order(
         },
     )
     await db.commit()
-    return {
+    order_out = {
         "ok": True,
         "id": order_id,
         "order_code": order_code,
         "invoice_code": invoice_code,
         "invoice_url": f"/api/v1/shoplink/companies/{company['id']}/orders/{order_id}/invoice",
         "invoice_pdf_url": f"/api/v1/shoplink/companies/{company['id']}/orders/{order_id}/invoice.pdf",
+        "customer_name": customer.get("name") or "",
+        "customer_phone": customer.get("phone") or "",
+        "customer_city": customer.get("city") or "",
+        "customer_address": customer.get("address") or "",
+        "customer_note": customer.get("note") or "",
         "status": "new",
         "total_amount": total_after_discount,
         "discount_amount": discount_amount,
@@ -2883,6 +2944,13 @@ async def create_shoplink_order(
         "currency": currency,
         "items": items,
     }
+    alert = _shoplink_owner_alert(company, settings, order_out, str(request.base_url))
+    order_out.update({
+        "owner_alert_phone": alert.get("phone") or "",
+        "owner_alert_message": alert.get("message") or "",
+        "owner_alert_url": alert.get("url") or "",
+    })
+    return order_out
 
 
 @router.get("/public/{company_id}")

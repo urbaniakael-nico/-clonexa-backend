@@ -17481,6 +17481,17 @@ function inventoryCreatePayload() {
     return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(waUrl)}`;
   }
 
+  function cxSlCarOwnerAlertTestUrl026M(settings = {}) {
+    const phone = cxSlCarPaymentProofPhone026M(settings);
+    if (!phone) return "";
+    const message = [
+      "Prueba alerta ShopLink",
+      "Este WhatsApp quedara como receptor de comprobantes y pedidos nuevos.",
+      `Tienda: ${(settings.store_name || state.company?.name || "ShopLink")}`,
+    ].join("\n");
+    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  }
+
   function cxSlCarReadSettings026M() {
     return {
       payment_proof_whatsapp: $("slCarProofWhatsapp026M")?.value || "",
@@ -17738,7 +17749,7 @@ function inventoryCreatePayload() {
                 <p class="client-muted">Cada compra de ${h(cxShoplinkPublicUrl026K(payload))} entra aqui como Nuevo pedido con cliente, articulos, factura automatica y total a pagar.</p>
                 <div class="slcar-settings-026m">
                   <div class="slcar-settings-grid-026m">
-                    <label>WhatsApp receptor comprobantes
+                    <label>WhatsApp receptor comprobantes y alertas
                       <input id="slCarProofWhatsapp026M" value="${h(settings.payment_proof_whatsapp || "")}" placeholder="+573001234567">
                     </label>
                     <label>Mensaje al abrir QR
@@ -17746,11 +17757,12 @@ function inventoryCreatePayload() {
                     </label>
                     <div class="shoplink-actions-026k">
                       <button class="client-btn" type="button" data-slcar-save-settings>Guardar receptor</button>
+                      <button class="client-btn ghost" type="button" data-slcar-test-alert ${cxSlCarPaymentProofPhone026M(settings) ? "" : "disabled"}>Probar alerta WSP</button>
                     </div>
-                    <p class="client-muted">Este es el numero receptor de la empresa o dueno. El QR abre ese WhatsApp para que el cliente envie el comprobante; Cobrar WSP envia factura PDF, total y solicitud de pago al cliente.</p>
+                    <p class="client-muted">Este es el numero del dueno o empresa. El QR abre ese WhatsApp para recibir comprobantes y cada pedido nuevo genera una alerta lista para WhatsApp Web; Cobrar WSP envia factura PDF, total y solicitud de pago al cliente.</p>
                   </div>
                   <div class="slcar-qr-026m">
-                    ${proofQrUrl ? `<img src="${h(proofQrUrl)}" alt="QR WhatsApp receptor de comprobantes"><small class="slcar-muted-026m">QR receptor comprobantes</small>` : `<small class="slcar-muted-026m">Registra el WhatsApp receptor para generar el QR.</small>`}
+                    ${proofQrUrl ? `<img src="${h(proofQrUrl)}" alt="QR WhatsApp receptor"><small class="slcar-muted-026m">QR receptor comprobantes y alertas</small>` : `<small class="slcar-muted-026m">Registra el WhatsApp receptor para generar el QR y las alertas.</small>`}
                   </div>
                 </div>
                 <div class="slcar-toolbar-026m">
@@ -17784,10 +17796,24 @@ function inventoryCreatePayload() {
         body: JSON.stringify(cxSlCarReadSettings026M()),
       });
       await renderShoplinkOrdersModule026M();
-      cxSlCarMessage026M("WhatsApp receptor de comprobantes guardado.");
+      cxSlCarMessage026M("WhatsApp receptor de comprobantes y alertas guardado.");
     } catch (error) {
       cxSlCarMessage026M(error.message || "No se pudo guardar comprobantes.", true);
     }
+  }
+
+  function cxSlCarTestOwnerAlert026M() {
+    const settings = {
+      ...(window.__cxSlCarPayload026M?.settings || {}),
+      ...cxSlCarReadSettings026M(),
+    };
+    const url = cxSlCarOwnerAlertTestUrl026M(settings);
+    if (!url) {
+      cxSlCarMessage026M("Registra un WhatsApp receptor antes de probar la alerta.", true);
+      return;
+    }
+    window.open(url, "_blank", "noopener");
+    cxSlCarMessage026M("Prueba de alerta lista en WhatsApp.");
   }
 
   async function cxSlCarSendPayment026M(orderId = "") {
@@ -20198,6 +20224,11 @@ function inventoryCreatePayload() {
 
       if (target.closest("[data-slcar-save-settings]")) {
         await cxSlCarSaveSettings026M();
+        return;
+      }
+
+      if (target.closest("[data-slcar-test-alert]")) {
+        cxSlCarTestOwnerAlert026M();
         return;
       }
 
