@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.services.shoplink_whatsapp_web import whatsapp_logout, whatsapp_send, whatsapp_start, whatsapp_status
 
 router = APIRouter()
 MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
@@ -75,6 +76,10 @@ class ShoplinkOrderUpdate(BaseModel):
     guide_number: str | None = None
     guide_url: str | None = None
     guide_note: str | None = None
+
+
+class ShoplinkWhatsAppTestIn(BaseModel):
+    message: str | None = ""
 
 
 class ShoplinkCustomerIn(BaseModel):
@@ -1018,12 +1023,31 @@ def _shoplink_owner_alert(
         *(item_lines or ["- Sin detalle"]),
         f"Total: {_format_invoice_money(order.get('total_amount'), order.get('currency') or settings.get('currency') or 'COP')}",
         f"Factura PDF: {invoice_pdf_url}" if invoice_pdf_url else "",
+        "Entra al panel Carrito y Pedidos para revisar.",
     ]).strip()
     return {
         "phone": phone,
         "message": message,
         "url": f"https://wa.me/{phone}?text={quote(message)}",
     }
+
+
+async def _send_shoplink_owner_alert(company_id: str, alert: dict[str, str]) -> dict[str, Any]:
+    phone = alert.get("phone") or ""
+    message = alert.get("message") or ""
+    if not phone or not message:
+        return {"ok": False, "status": "missing_phone", "detail": "WhatsApp receptor no configurado."}
+    try:
+        status = await whatsapp_status(company_id)
+        if status.get("status") != "connected":
+            return {
+                "ok": False,
+                "status": status.get("status") or "not_linked",
+                "detail": "WhatsApp Web no esta vinculado.",
+            }
+        return await whatsapp_send(company_id, phone, message)
+    except Exception as exc:
+        return {"ok": False, "status": "send_error", "detail": str(exc)}
 
 
 def _shoplink_order_out(row: dict[str, Any], company_id: str | None = None) -> dict[str, Any]:
@@ -2068,8 +2092,44 @@ async def get_shoplink_orders(
         "settings": settings,
         "summary": summary,
         "orders": rows,
+        "whatsapp_web": await whatsapp_status(company["id"]),
         "public_url": _public_url(settings, company["id"]),
     }
+
+
+@router.get("/companies/{company_id}/whatsapp-web")
+async def get_shoplink_whatsapp_web(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    return await whatsapp_status(company["id"])
+
+
+@router.post("/companies/{company_id}/whatsapp-web/start")
+async def start_shoplink_whatsapp_web(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    return await whatsapp_start(company["id"])
+
+
+@router.post("/companies/{company_id}/whatsapp-web/logout")
+async def logout_shoplink_whatsapp_web(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    return await whatsapp_logout(company["id"])
+
+
+@router.post("/companies/{company_id}/whatsapp-web/test")
+async def test_shoplink_whatsapp_web(
+    company_id: UUID,
+    payload: ShoplinkWhatsAppTestIn | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    phone = re.sub(r"\D", "", _clean(settings.get("payment_proof_whatsapp") or settings.get("whatsapp_number"), 40))
+    message = _clean((payload.message if payload else "") or "", 700) or "\n".join([
+        "Prueba alerta ShopLink",
+        f"Tienda: {_clean(settings.get('store_name') or company.get('name'), 120)}",
+        "Este numero ya puede recibir alertas automaticas de pedidos nuevos.",
+    ])
+    return await whatsapp_send(company["id"], phone, message)
 
 
 @router.get("/companies/{company_id}/customers")
@@ -2945,10 +3005,12 @@ async def create_shoplink_order(
         "items": items,
     }
     alert = _shoplink_owner_alert(company, settings, order_out, str(request.base_url))
+    delivery = await _send_shoplink_owner_alert(company["id"], alert)
     order_out.update({
         "owner_alert_phone": alert.get("phone") or "",
         "owner_alert_message": alert.get("message") or "",
         "owner_alert_url": alert.get("url") or "",
+        "owner_alert_delivery": delivery,
     })
     return order_out
 

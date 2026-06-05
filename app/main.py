@@ -251,6 +251,17 @@ async def _clonexa_startup_bootstrap_bots() -> None:
             "No se pudieron restaurar listeners Telegram activos: %s", exc
         )
 
+    try:
+        from app.services.shoplink_whatsapp_web import start_whatsapp_bridge
+
+        start_whatsapp_bridge()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("clonexa.whatsapp_bridge").warning(
+            "No se pudo iniciar puente WhatsApp Web: %s", exc
+        )
+
 
 if api_router is not None:
     app.include_router(api_router, prefix="/api/v1")

@@ -17422,6 +17422,12 @@ function inventoryCreatePayload() {
       .slcar-settings-grid-026m label,.slcar-guide-grid-026m label{display:grid;gap:7px;font-size:12px;font-weight:1000;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
       .slcar-qr-026m{border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(0,0,0,.18);display:grid;place-items:center;padding:12px;min-height:178px;text-align:center}
       .slcar-qr-026m img{width:138px;height:138px;border-radius:10px;background:#fff;padding:6px}
+      .slcar-bridge-actions-026m{display:flex;flex-wrap:wrap;gap:9px;grid-column:1/-1}
+      .slcar-bridge-status-026m{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.12);border-radius:999px;background:rgba(255,255,255,.07);padding:8px 11px;font-weight:1000;color:var(--text)}
+      .slcar-dot-026m{width:9px;height:9px;border-radius:50%;background:#94a3b8;box-shadow:0 0 0 3px rgba(148,163,184,.16)}
+      .slcar-dot-026m.connected{background:#39f28a;box-shadow:0 0 0 3px rgba(57,242,138,.18)}
+      .slcar-dot-026m.qr,.slcar-dot-026m.connecting{background:#22d3ee;box-shadow:0 0 0 3px rgba(34,211,238,.18)}
+      .slcar-dot-026m.error,.slcar-dot-026m.disconnected{background:#ff7aa8;box-shadow:0 0 0 3px rgba(255,122,168,.18)}
       .slcar-status-tabs-026m{display:flex;flex-wrap:wrap;gap:8px}
       .slcar-tab-026m{border:1px solid rgba(255,255,255,.12);border-radius:999px;background:rgba(255,255,255,.06);color:var(--text);padding:9px 12px;font-weight:1000;cursor:pointer}
       .slcar-tab-026m.active{background:var(--accent);border-color:transparent;color:#03111a}
@@ -17481,21 +17487,24 @@ function inventoryCreatePayload() {
     return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(waUrl)}`;
   }
 
-  function cxSlCarOwnerAlertTestUrl026M(settings = {}) {
-    const phone = cxSlCarPaymentProofPhone026M(settings);
-    if (!phone) return "";
-    const message = [
-      "Prueba alerta ShopLink",
-      "Este WhatsApp quedara como receptor de comprobantes y pedidos nuevos.",
-      `Tienda: ${(settings.store_name || state.company?.name || "ShopLink")}`,
-    ].join("\n");
-    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  function cxSlCarWebStatusLabel026M(status = "") {
+    const labels = {
+      connected: "WhatsApp vinculado",
+      qr: "Escanea el QR",
+      connecting: "Conectando",
+      disconnected: "Desconectado",
+      not_linked: "No vinculado",
+      bridge_unavailable: "Puente no disponible",
+      error: "Error",
+    };
+    return labels[status] || "No vinculado";
   }
 
   function cxSlCarReadSettings026M() {
+    const current = window.__cxSlCarPayload026M?.settings || {};
     return {
       payment_proof_whatsapp: $("slCarProofWhatsapp026M")?.value || "",
-      payment_proof_message: $("slCarProofMessage026M")?.value || "",
+      payment_proof_message: $("slCarProofMessage026M")?.value || current.payment_proof_message || "Hola, envio el comprobante de pago de mi pedido:",
     };
   }
 
@@ -17708,7 +17717,8 @@ function inventoryCreatePayload() {
     }
     const summary = cxSlCarSummary026M(payload);
     const activeCode = cxSlCarActiveCode026M();
-    const proofQrUrl = cxSlCarPaymentQrUrl026M(settings);
+    const whatsappWeb = payload.whatsapp_web || {};
+    const whatsappStatus = whatsappWeb.status || "not_linked";
     $("app").innerHTML = `
       <main class="client-shell">
         <div class="client-layout">
@@ -17752,17 +17762,17 @@ function inventoryCreatePayload() {
                     <label>WhatsApp receptor comprobantes y alertas
                       <input id="slCarProofWhatsapp026M" value="${h(settings.payment_proof_whatsapp || "")}" placeholder="+573001234567">
                     </label>
-                    <label>Mensaje al abrir QR
-                      <input id="slCarProofMessage026M" value="${h(settings.payment_proof_message || "Hola, envio el comprobante de pago de mi pedido:")}" placeholder="Texto al escanear el QR">
-                    </label>
-                    <div class="shoplink-actions-026k">
+                    <div class="slcar-bridge-actions-026m">
+                      <span class="slcar-bridge-status-026m"><span class="slcar-dot-026m ${h(whatsappStatus)}"></span>${h(cxSlCarWebStatusLabel026M(whatsappStatus))}</span>
                       <button class="client-btn" type="button" data-slcar-save-settings>Guardar receptor</button>
-                      <button class="client-btn ghost" type="button" data-slcar-test-alert ${cxSlCarPaymentProofPhone026M(settings) ? "" : "disabled"}>Probar alerta WSP</button>
+                      <button class="client-btn ghost" type="button" data-slcar-link-wsp ${whatsappStatus === "connected" ? "disabled" : ""}>Generar QR</button>
+                      <button class="client-btn ghost" type="button" data-slcar-test-alert ${whatsappStatus === "connected" && cxSlCarPaymentProofPhone026M(settings) ? "" : "disabled"}>Probar alerta</button>
+                      <button class="client-btn ghost" type="button" data-slcar-unlink-wsp ${whatsappStatus === "not_linked" ? "disabled" : ""}>Desvincular</button>
                     </div>
-                    <p class="client-muted">Este es el numero del dueno o empresa. El QR abre ese WhatsApp para recibir comprobantes y cada pedido nuevo genera una alerta lista para WhatsApp Web; Cobrar WSP envia factura PDF, total y solicitud de pago al cliente.</p>
+                    <p class="client-muted">Este numero es donde llegaran las alertas. Genera el QR, escanealo desde WhatsApp como dispositivo vinculado y cuando llegue un pedido el panel enviara la alerta automatica.</p>
                   </div>
                   <div class="slcar-qr-026m">
-                    ${proofQrUrl ? `<img src="${h(proofQrUrl)}" alt="QR WhatsApp receptor"><small class="slcar-muted-026m">QR receptor comprobantes y alertas</small>` : `<small class="slcar-muted-026m">Registra el WhatsApp receptor para generar el QR y las alertas.</small>`}
+                    ${whatsappWeb.qr_data_url ? `<img src="${h(whatsappWeb.qr_data_url)}" alt="QR vincular WhatsApp Web"><small class="slcar-muted-026m">Escanealo en WhatsApp > Dispositivos vinculados</small>` : `<small class="slcar-muted-026m">${whatsappStatus === "connected" ? `Conectado: ${h(whatsappWeb.connected_phone || "WhatsApp Web")}` : "Genera el QR para vincular el WhatsApp del dueno."}</small>`}
                   </div>
                 </div>
                 <div class="slcar-toolbar-026m">
@@ -17779,6 +17789,12 @@ function inventoryCreatePayload() {
         </div>
       </main>
     `;
+    clearTimeout(window.__cxSlCarQrTimer026M);
+    if (["qr", "connecting", "disconnected"].includes(whatsappStatus)) {
+      window.__cxSlCarQrTimer026M = setTimeout(() => {
+        renderShoplinkOrdersModule026M().catch(() => {});
+      }, 5000);
+    }
   }
 
   async function cxSlCarPatch026M(orderId = "", data = {}) {
@@ -17802,18 +17818,44 @@ function inventoryCreatePayload() {
     }
   }
 
-  function cxSlCarTestOwnerAlert026M() {
-    const settings = {
-      ...(window.__cxSlCarPayload026M?.settings || {}),
-      ...cxSlCarReadSettings026M(),
-    };
-    const url = cxSlCarOwnerAlertTestUrl026M(settings);
-    if (!url) {
-      cxSlCarMessage026M("Registra un WhatsApp receptor antes de probar la alerta.", true);
-      return;
+  async function cxSlCarLinkWhatsApp026M() {
+    try {
+      await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/settings`, {
+        method: "PUT",
+        body: JSON.stringify(cxSlCarReadSettings026M()),
+      });
+      await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/start`, { method: "POST" });
+      await renderShoplinkOrdersModule026M();
+      cxSlCarMessage026M("QR de vinculacion WhatsApp generado. Escanealo desde Dispositivos vinculados.");
+    } catch (error) {
+      cxSlCarMessage026M(error.message || "No se pudo generar el QR de WhatsApp.", true);
     }
-    window.open(url, "_blank", "noopener");
-    cxSlCarMessage026M("Prueba de alerta lista en WhatsApp.");
+  }
+
+  async function cxSlCarUnlinkWhatsApp026M() {
+    try {
+      await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/logout`, { method: "POST" });
+      await renderShoplinkOrdersModule026M();
+      cxSlCarMessage026M("WhatsApp desvinculado del panel.");
+    } catch (error) {
+      cxSlCarMessage026M(error.message || "No se pudo desvincular WhatsApp.", true);
+    }
+  }
+
+  async function cxSlCarTestOwnerAlert026M() {
+    try {
+      const result = await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/test`, {
+        method: "POST",
+        body: JSON.stringify({ message: "" }),
+      });
+      if (!result.ok) {
+        cxSlCarMessage026M(result.detail || "WhatsApp aun no esta vinculado.", true);
+        return;
+      }
+      cxSlCarMessage026M("Alerta de prueba enviada por WhatsApp Web.");
+    } catch (error) {
+      cxSlCarMessage026M(error.message || "No se pudo enviar la alerta.", true);
+    }
   }
 
   async function cxSlCarSendPayment026M(orderId = "") {
@@ -20228,7 +20270,17 @@ function inventoryCreatePayload() {
       }
 
       if (target.closest("[data-slcar-test-alert]")) {
-        cxSlCarTestOwnerAlert026M();
+        await cxSlCarTestOwnerAlert026M();
+        return;
+      }
+
+      if (target.closest("[data-slcar-link-wsp]")) {
+        await cxSlCarLinkWhatsApp026M();
+        return;
+      }
+
+      if (target.closest("[data-slcar-unlink-wsp]")) {
+        await cxSlCarUnlinkWhatsApp026M();
         return;
       }
 
