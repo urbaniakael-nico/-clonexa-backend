@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import csv
 from html import escape
 from typing import Any
 from uuid import UUID, uuid4
@@ -1342,14 +1343,15 @@ def _shoplink_campaign_out(
     }
 
 
-async def _shoplink_campaign_rows(db: AsyncSession, company_id: str) -> list[dict[str, Any]]:
+async def _shoplink_campaign_rows(db: AsyncSession, company_id: str, include_archived: bool = False) -> list[dict[str, Any]]:
     await ensure_shoplink_storage(db)
+    archived_clause = "" if include_archived else "AND COALESCE(archived, false) IS NOT TRUE"
     result = await db.execute(
-        text("""
+        text(f"""
             SELECT *
             FROM shoplink_campaigns
             WHERE company_id = :company_id
-              AND COALESCE(archived, false) IS NOT TRUE
+              {archived_clause}
             ORDER BY
               CASE lower(status)
                 WHEN 'active' THEN 0
@@ -1364,6 +1366,81 @@ async def _shoplink_campaign_rows(db: AsyncSession, company_id: str) -> list[dic
         {"company_id": company_id},
     )
     return [dict(row) for row in result.mappings().all()]
+
+
+def _filter_shoplink_campaigns(campaigns: list[dict[str, Any]], q: str = "", status: str = "all") -> list[dict[str, Any]]:
+    query = _clean(q, 140).lower()
+    rows = campaigns
+    if query:
+        rows = [
+            row for row in rows
+            if query in " ".join([
+                row.get("title") or "",
+                row.get("slug") or "",
+                row.get("status_label") or "",
+                row.get("coupon_code") or "",
+                row.get("discount_label") or "",
+                row.get("customer_segment_label") or "",
+                ", ".join([product.get("name") or "" for product in row.get("products_preview") or []]),
+            ]).lower()
+        ]
+    status_filter = _clean(status, 40).lower()
+    if status_filter and status_filter not in {"all", "todos"}:
+        if status_filter in {"archivadas", "archivados", "archived"}:
+            rows = [row for row in rows if row.get("archived") or row.get("status") == "archived"]
+        else:
+            wanted = _campaign_status(status_filter)
+            rows = [row for row in rows if _campaign_status(row.get("status")) == wanted and not row.get("archived")]
+    return rows
+
+
+def _campaign_report_summary(
+    campaigns: list[dict[str, Any]],
+    all_campaigns: list[dict[str, Any]],
+    orders: list[dict[str, Any]],
+    products: list[dict[str, Any]],
+    customers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    valid_orders = [row for row in orders if row.get("status") != "cancelled"]
+    total_sales = sum(float(row.get("total_amount") or 0) for row in valid_orders)
+    campaign_orders = sum(int(row.get("direct_orders") or 0) for row in campaigns)
+    campaign_sales = sum(float(row.get("direct_sales") or 0) for row in campaigns)
+    discounts = sum(float(row.get("discounts_used") or 0) for row in campaigns)
+    product_stats: dict[str, dict[str, Any]] = {}
+    for order in valid_orders:
+        for item in order.get("items") or []:
+            key = _clean(item.get("product_id") or item.get("name"), 160)
+            if not key:
+                continue
+            bucket = product_stats.setdefault(key, {
+                "name": _clean(item.get("name"), 180) or "Producto",
+                "category": _clean(item.get("category"), 80),
+                "qty": 0,
+                "sales": 0.0,
+            })
+            bucket["qty"] += int(item.get("qty") or 0)
+            bucket["sales"] += float(item.get("subtotal") or 0)
+    top_products = sorted(product_stats.values(), key=lambda item: (float(item.get("sales") or 0), int(item.get("qty") or 0)), reverse=True)[:8]
+    return {
+        "campaigns": len(campaigns),
+        "total_campaigns": len(all_campaigns),
+        "active": len([row for row in all_campaigns if row.get("status") == "active" and row.get("landing_enabled") and not row.get("archived")]),
+        "scheduled": len([row for row in all_campaigns if row.get("status") == "scheduled" and not row.get("archived")]),
+        "archived": len([row for row in all_campaigns if row.get("archived") or row.get("status") == "archived"]),
+        "direct_orders": campaign_orders,
+        "direct_sales": campaign_sales,
+        "matched_sales": sum(float(row.get("matched_sales") or 0) for row in campaigns),
+        "discounts": discounts,
+        "orders_total": len(orders),
+        "paid_orders": len(valid_orders),
+        "sales_total": total_sales,
+        "avg_order": (total_sales / len(valid_orders)) if valid_orders else 0,
+        "campaign_share": round((campaign_sales / total_sales) * 100, 1) if total_sales else 0,
+        "products": len(products),
+        "customers": len(customers),
+        "repeat_customers": len([customer for customer in customers if int(customer.get("orders_count") or 0) > 1]),
+        "top_products": top_products,
+    }
 
 
 async def _shoplink_campaign_by_id(db: AsyncSession, company_id: str, campaign_id: str) -> dict[str, Any]:
@@ -1971,26 +2048,25 @@ async def get_shoplink_customers(
 
 
 @router.get("/companies/{company_id}/campaigns")
-async def get_shoplink_campaigns(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def get_shoplink_campaigns(
+    company_id: UUID,
+    q: str = "",
+    status: str = "all",
+    include_archived: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
     company = await _company(db, company_id)
     settings = await _settings(db, company)
     products = await _products(db, company["id"])
     orders = [_shoplink_order_out(row, company["id"]) for row in await _shoplink_order_rows(db, company["id"], 1000)]
-    campaigns = [
+    all_campaigns = [
         _shoplink_campaign_out(row, settings, products, orders)
-        for row in await _shoplink_campaign_rows(db, company["id"])
+        for row in await _shoplink_campaign_rows(db, company["id"], include_archived=True)
     ]
     customers = await _shoplink_customer_rows(db, company["id"], 1000)
-    summary = {
-        "campaigns": len(campaigns),
-        "active": len([row for row in campaigns if row.get("status") == "active" and row.get("landing_enabled")]),
-        "scheduled": len([row for row in campaigns if row.get("status") == "scheduled"]),
-        "direct_orders": sum(int(row.get("direct_orders") or 0) for row in campaigns),
-        "direct_sales": sum(float(row.get("direct_sales") or 0) for row in campaigns),
-        "matched_sales": sum(float(row.get("matched_sales") or 0) for row in campaigns),
-        "products": len(products),
-        "customers": len(customers),
-    }
+    visible_base = all_campaigns if include_archived or _clean(status, 40).lower() in {"archivadas", "archivados", "archived"} else [row for row in all_campaigns if not row.get("archived")]
+    campaigns = _filter_shoplink_campaigns(visible_base, q, status)
+    summary = _campaign_report_summary(campaigns, all_campaigns, orders, products, customers)
     return {
         "ok": True,
         "company": {"id": company["id"], "name": company["name"], "slug": company["slug"]},
@@ -2004,6 +2080,50 @@ async def get_shoplink_campaigns(company_id: UUID, db: AsyncSession = Depends(ge
         ],
         "public_url": _public_url(settings, company["id"]),
     }
+
+
+@router.get("/companies/{company_id}/campaigns/export.csv")
+async def export_shoplink_campaigns(
+    company_id: UUID,
+    q: str = "",
+    status: str = "all",
+    include_archived: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    payload = await get_shoplink_campaigns(company_id, q, status, include_archived, db)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        "campana",
+        "estado",
+        "cupon",
+        "productos",
+        "pedidos_link",
+        "ventas_link",
+        "descuentos",
+        "ventas_potenciales_producto",
+        "landing",
+        "actualizado",
+    ])
+    for row in payload.get("campaigns") or []:
+        writer.writerow([
+            row.get("title") or "",
+            row.get("status_label") or "",
+            row.get("coupon_code") or "",
+            row.get("products_count") or 0,
+            row.get("direct_orders") or 0,
+            row.get("direct_sales") or 0,
+            row.get("discounts_used") or 0,
+            row.get("matched_sales") or 0,
+            row.get("landing_url") or "",
+            row.get("updated_at") or "",
+        ])
+    filename = f"shoplink_campanas_{_clean(payload.get('company', {}).get('slug'), 60) or 'reporte'}.csv"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/companies/{company_id}/campaigns")
