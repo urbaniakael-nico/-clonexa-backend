@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import csv
 import io
 import json
+import math
 import re
-import csv
+from datetime import date, datetime
+from decimal import Decimal
 from html import escape
 from typing import Any
 from uuid import UUID, uuid4
@@ -127,6 +130,25 @@ class ShoplinkProductIn(BaseModel):
 
 def _clean(value: Any, limit: int = 500) -> str:
     return str(value or "").strip()[:limit]
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float):
+        return value if math.isfinite(value) else 0.0
+    if isinstance(value, Decimal):
+        number = float(value)
+        return number if math.isfinite(number) else 0.0
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return ""
+    return value
 
 
 def _slug(value: str) -> str:
@@ -2047,13 +2069,12 @@ async def get_shoplink_customers(
     }
 
 
-@router.get("/companies/{company_id}/campaigns")
-async def get_shoplink_campaigns(
+async def _shoplink_campaigns_payload(
+    db: AsyncSession,
     company_id: UUID,
     q: str = "",
     status: str = "all",
     include_archived: bool = False,
-    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     company = await _company(db, company_id)
     settings = await _settings(db, company)
@@ -2082,6 +2103,18 @@ async def get_shoplink_campaigns(
     }
 
 
+@router.get("/companies/{company_id}/campaigns")
+async def get_shoplink_campaigns(
+    company_id: UUID,
+    q: str = "",
+    status: str = "all",
+    include_archived: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    payload = await _shoplink_campaigns_payload(db, company_id, q, status, include_archived)
+    return _json_safe(payload)
+
+
 @router.get("/companies/{company_id}/campaigns/export.csv")
 async def export_shoplink_campaigns(
     company_id: UUID,
@@ -2090,7 +2123,7 @@ async def export_shoplink_campaigns(
     include_archived: bool = False,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    payload = await get_shoplink_campaigns(company_id, q, status, include_archived, db)
+    payload = await _shoplink_campaigns_payload(db, company_id, q, status, include_archived)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow([
