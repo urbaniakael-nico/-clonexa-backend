@@ -2837,44 +2837,49 @@
     core: ["Nucleo", "Base operativa del tenant. Habilita estructura principal, estado de empresa y servicios base.", "Core", "COR"],
     core_settings: ["Ajustes", "Idioma, moneda, branding, claves y preferencias generales por empresa.", "Core", "SET"],
     mini_panel: ["Mini Paneles", "Links operativos, usuarios de panel y accesos por rol.", "Core", "MIN"],
-    workforce: ["Personal", "Gestion de personal operativo, roles internos y disponibilidad por empresa.", "Core", "WRK"],
+    workforce: ["Personal", "Gestion de personal operativo, roles internos y disponibilidad por empresa.", "Personas", "WRK"],
     field: ["Operación en campo", "Control para equipos externos, rutas, evidencias y actividad operativa.", "Campo", "FLD"],
     gps: ["GPS", "Ubicacion, rutas y control de equipos en campo.", "Campo", "GPS"],
     login: ["Login tiendas", "Acceso de tienda, turnos y sesiones de colaboradores.", "Campo", "LOG"],
-    cotizacion: ["Cotizaciones", "Captura y seguimiento de cotizaciones del tenant.", "Retail", "COT"],
+    cotizacion: ["Cotizaciones", "Captura y seguimiento de cotizaciones del tenant.", "Retail / Ventas", "COT"],
     payroll: ["Nómina", "Calculo de horas, cortes y pagos operativos.", "Finanzas", "PAY"],
-    registro_venta: ["Registro Venta", "Captura directa de ventas, facturas y medios de pago.", "Retail", "REG"],
+    registro_venta: ["Registro Venta", "Captura directa de ventas, facturas y medios de pago.", "Retail / Ventas", "REG"],
     day_closing: ["Cierre de dia", "Resumen diario de ventas, pedidos, inventario y operacion.", "Hospitality", "DAY"],
     hospitality: ["Hospitality", "Motor para bares, restaurantes, mesas, pedidos y atencion comercial.", "Hospitality", "HSP"],
     loyalty: ["Fidelización", "Clientes recurrentes, beneficios y seguimiento comercial.", "Hospitality", "LOY"],
     orders: ["Pedidos", "Creación, seguimiento y estados de pedidos.", "Hospitality", "ORD"],
     tables: ["Mesas", "Gestion de mesas, cuentas y sesiones por QR.", "Hospitality", "TBL"],
-    bots: ["Bots", "Entrada por Telegram, WhatsApp y automatizaciones.", "Input", "BOT"],
-    qr: ["QR", "Accesos por QR para mesas, operaciones o formularios.", "Input", "QR"],
-    asamblea: ["Asambleas / votaciones", "Configura eventos, quorum, agenda, asistencia, preguntas y votaciones apoyadas en QR.", "Input", "ASA"],
-    asambleas: ["Asambleas / votaciones", "Configura eventos, quorum, agenda, asistencia, preguntas y votaciones apoyadas en QR.", "Input", "ASA"],
-    asambleas_votaciones: ["Asambleas / votaciones", "Configura eventos, quorum, agenda, asistencia, preguntas y votaciones apoyadas en QR.", "Input", "ASA"],
-    assembly: ["Asambleas / votaciones", "Configura eventos, quorum, agenda, asistencia, preguntas y votaciones apoyadas en QR.", "Input", "ASA"],
+    bots: ["Bots", "Entrada por Telegram, WhatsApp y automatizaciones de captura.", "Canales / Input", "BOT"],
+    qr: ["QR", "Accesos por QR para mesas, operaciones o formularios.", "Canales / Input", "QR"],
+    asamblea: ["Asambleas / votaciones", "Configura eventos, quorum, agenda, asistencia, preguntas y votaciones apoyadas en QR.", "Canales / Input", "ASA"],
+    asambleas: ["Asambleas / votaciones", "Configura eventos, quorum, agenda, asistencia, preguntas y votaciones apoyadas en QR.", "Canales / Input", "ASA"],
+    asambleas_votaciones: ["Asambleas / votaciones", "Configura eventos, quorum, agenda, asistencia, preguntas y votaciones apoyadas en QR.", "Canales / Input", "ASA"],
+    assembly: ["Asambleas / votaciones", "Configura eventos, quorum, agenda, asistencia, preguntas y votaciones apoyadas en QR.", "Canales / Input", "ASA"],
+    assistant_ai: ["Asistente CLONEXA", "Chat operativo por empresa para consultar modulos, generar PDFs, leer Excel y ejecutar acciones con confirmacion.", "IA / Automatizacion", "AI"],
+    asistente_clonexa: ["Asistente CLONEXA", "Chat operativo por empresa para consultar modulos, generar PDFs, leer Excel y ejecutar acciones con confirmacion.", "IA / Automatizacion", "AI"],
+    clonexa_assistant: ["Asistente CLONEXA", "Chat operativo por empresa para consultar modulos, generar PDFs, leer Excel y ejecutar acciones con confirmacion.", "IA / Automatizacion", "AI"],
+    ai_assistant: ["Asistente CLONEXA", "Chat operativo por empresa para consultar modulos, generar PDFs, leer Excel y ejecutar acciones con confirmacion.", "IA / Automatizacion", "AI"],
+    ia_operativa: ["IA Operativa", "Asistente interno para consultas, reportes, cargas y automatizaciones por tenant.", "IA / Automatizacion", "AI"],
     inventory: ["Inventario", "Stock, existencias y control operativo de productos o materiales.", "Inventario", "INV"],
     materials: ["Materiales", "Solicitud, entrega, devolucion y control de materiales.", "Inventario", "MAT"],
     stock: ["Stock", "Existencias, minimos y alertas de disponibilidad.", "Inventario", "STK"],
     costs: ["Costos", "Costeo por referencia, produccion, servicio o pedido.", "Producción", "CST"],
     production: ["Producción", "Control de tiempos, referencias, productividad y costos.", "Producción", "PRD"],
     references: ["Referencias", "Catálogo de referencias, productos o servicios medibles.", "Producción", "REF"],
-    crm: ["CRM Campo", "Vista operativa para seguimiento, control y acciones por empresa.", "Reportes", "CRM"],
-    kpis: ["KPIs", "Indicadores ejecutivos y metricas por módulo.", "Reportes", "KPI"],
-    reports: ["Reportes", "Reportes operativos, historicos y auditoria.", "Reportes", "REP"],
-    notas___agenda: ["Notas / Agenda", "Notas internas, recordatorios y seguimiento operativo.", "Reportes", "NOT"],
-    commercial_closing: ["Cierre comercial", "Seguimiento de ventas, cierres y resultados comerciales.", "Retail", "COM"],
-    requests: ["Solicitudes", "Solicitudes internas, aprobaciones y estados.", "Retail", "REQ"],
-    retail: ["Retail", "Control de tiendas, ventas, solicitudes e inventario.", "Retail", "RTL"],
-    landing: ["Catálogo / Tienda pública", "Tienda pública ShopLink con catálogo, carrito, checkout y pedidos web.", "Retail", "LAN"],
-    shoplink: ["ShopLink", "Tienda online modular con vitrina, carrito, checkout y pedidos web.", "Retail", "SHL"],
-    catalogo_tienda_publica: ["Catálogo / Tienda pública", "Tienda pública ShopLink con catálogo, carrito, checkout y pedidos web.", "Retail", "LAN"],
-    catalogo_publico: ["Catálogo / Tienda pública", "Tienda pública ShopLink con catálogo, carrito, checkout y pedidos web.", "Retail", "LAN"],
-    tienda_publica: ["Catálogo / Tienda pública", "Tienda pública ShopLink con catálogo, carrito, checkout y pedidos web.", "Retail", "LAN"],
-    sales: ["Ventas", "Actividad comercial, ventas y conversion.", "Retail", "SAL"],
-    stores: ["Tiendas", "Sucursales, puntos de venta y operacion retail.", "Retail", "STR"],
+    crm: ["CRM Campo", "Vista operativa para seguimiento, control y acciones por empresa.", "Clientes / CRM", "CRM"],
+    kpis: ["KPIs", "Indicadores ejecutivos y metricas por módulo.", "Reportes / Analitica", "KPI"],
+    reports: ["Reportes", "Reportes operativos, historicos y auditoria.", "Reportes / Analitica", "REP"],
+    notas___agenda: ["Notas / Agenda", "Notas internas, recordatorios y seguimiento operativo.", "Reportes / Analitica", "NOT"],
+    commercial_closing: ["Cierre comercial", "Seguimiento de ventas, cierres y resultados comerciales.", "Retail / Ventas", "COM"],
+    requests: ["Solicitudes", "Solicitudes internas, aprobaciones y estados.", "Retail / Ventas", "REQ"],
+    retail: ["Retail", "Control de tiendas, ventas, solicitudes e inventario.", "Retail / Ventas", "RTL"],
+    landing: ["Catálogo / Tienda pública", "Tienda pública ShopLink con catálogo, carrito, checkout y pedidos web.", "ShopLink / Ecommerce", "LAN"],
+    shoplink: ["ShopLink", "Tienda online modular con vitrina, carrito, checkout y pedidos web.", "ShopLink / Ecommerce", "SHL"],
+    catalogo_tienda_publica: ["Catálogo / Tienda pública", "Tienda pública ShopLink con catálogo, carrito, checkout y pedidos web.", "ShopLink / Ecommerce", "LAN"],
+    catalogo_publico: ["Catálogo / Tienda pública", "Tienda pública ShopLink con catálogo, carrito, checkout y pedidos web.", "ShopLink / Ecommerce", "LAN"],
+    tienda_publica: ["Catálogo / Tienda pública", "Tienda pública ShopLink con catálogo, carrito, checkout y pedidos web.", "ShopLink / Ecommerce", "LAN"],
+    sales: ["Ventas", "Actividad comercial, ventas y conversion.", "Retail / Ventas", "SAL"],
+    stores: ["Tiendas", "Sucursales, puntos de venta y operacion retail.", "Retail / Ventas", "STR"],
     creacion_usuarios: ["Creacion usuarios", "Alta de usuarios operativos y accesos internos.", "Core", "USR"],
   };
 
@@ -2915,6 +2920,11 @@
     asambleas: ["functional", "Funcional", "Asambleas con eventos, quorum, agenda, preguntas y votaciones."],
     asambleas_votaciones: ["functional", "Funcional", "Asambleas con eventos, quorum, agenda, preguntas y votaciones."],
     assembly: ["functional", "Funcional", "Asambleas con eventos, quorum, agenda, preguntas y votaciones."],
+    assistant_ai: ["pending", "Pendiente", "Modulo definido; falta construir chat, herramientas y confirmaciones."],
+    asistente_clonexa: ["pending", "Pendiente", "Modulo definido; falta construir chat, herramientas y confirmaciones."],
+    clonexa_assistant: ["pending", "Pendiente", "Modulo definido; falta construir chat, herramientas y confirmaciones."],
+    ai_assistant: ["pending", "Pendiente", "Modulo definido; falta construir chat, herramientas y confirmaciones."],
+    ia_operativa: ["pending", "Pendiente", "Modulo definido; falta construir chat, herramientas y confirmaciones."],
     day_closing: ["integrated", "Integrado", "Funciona como consolidado/flujo dentro de cierres."],
     tables: ["integrated", "Integrado", "Las mesas viven dentro de QR y Pedidos."],
     retail: ["integrated", "Integrado", "Vertical agrupadora de ventas, tiendas y solicitudes."],
@@ -3361,16 +3371,22 @@
             </label>
             <label>Categoria
               <select name="category">
-                <option value="core">Core</option>
+                <option value="core">Core / Sistema</option>
+                <option value="people">Personas</option>
                 <option value="field">Campo</option>
-                <option value="inventory">Inventario</option>
+                <option value="inventory">Inventario / Activos</option>
                 <option value="production">Produccion</option>
-                <option value="finance">Finanzas</option>
+                <option value="finance">Finanzas / Nomina</option>
                 <option value="hospitality">Hospitality</option>
-                <option value="retail">Retail</option>
-                <option value="read_model">Reportes</option>
-                <option value="input">Input</option>
-                <option value="custom">Custom</option>
+                <option value="retail">Retail / Ventas</option>
+                <option value="shoplink">ShopLink / Ecommerce</option>
+                <option value="crm">Clientes / CRM</option>
+                <option value="marketing">Marketing / Campanas</option>
+                <option value="read_model">Reportes / Analitica</option>
+                <option value="input">Canales / Input</option>
+                <option value="automation_ai">IA / Automatizacion</option>
+                <option value="integrations">Integraciones</option>
+                <option value="custom">Custom / Experimental</option>
               </select>
             </label>
             <button class="cx-btn cx-btn-primary" type="submit">Crear modulo</button>
@@ -5059,6 +5075,11 @@
     tables: "mesas mesa cuenta qr restaurante bar",
     bots: "bot bots telegram whatsapp automatizacion mensajes entrada",
     qr: "qr código mesa escanear acceso link",
+    assistant_ai: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
+    asistente_clonexa: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
+    clonexa_assistant: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
+    ai_assistant: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
+    ia_operativa: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
     inventory: "inventario stock existencias productos materiales almacen",
     materials: "materiales material solicitud entregar devolver herramientas stock tecnico",
     stock: "stock inventario minimo existencias alerta",
@@ -5071,6 +5092,9 @@
     commercial_closing: "cierre comercial ventas resultados seguimiento comercial",
     requests: "solicitudes solicitud requerimientos aprobaciones pedir material",
     retail: "retail tiendas ventas mostrador solicitudes inventario",
+    shoplink: "shoplink ecommerce tienda publica catalogo carrito pedidos checkout productos inventario clientes campanas web",
+    landing: "shoplink ecommerce tienda publica catalogo carrito pedidos checkout productos inventario clientes campanas web",
+    catalogo_tienda_publica: "shoplink ecommerce tienda publica catalogo carrito pedidos checkout productos inventario clientes campanas web",
     sales: "ventas venta comercial ingresos pedidos",
     stores: "tiendas sucursales puntos venta locales",
   };
@@ -6566,6 +6590,11 @@
     tables: "mesas mesa cuenta qr restaurante bar",
     bots: "bot bots telegram whatsapp automatizacion mensajes entrada",
     qr: "qr código mesa escanear acceso link",
+    assistant_ai: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
+    asistente_clonexa: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
+    clonexa_assistant: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
+    ai_assistant: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
+    ia_operativa: "asistente ia inteligencia artificial chat agente pdf excel nomina reportes acciones automatizacion copiloto",
     inventory: "inventario stock existencias productos materiales almacen",
     inventario: "inventario stock existencias productos materiales almacen",
     materials: "materiales material solicitud entregar devolver herramientas stock tecnico pedir material",
@@ -6579,6 +6608,9 @@
     reports: "reportes informes historicos auditoria exportar",
     requests: "solicitudes solicitud requerimientos aprobaciones pedir material",
     retail: "retail tiendas ventas mostrador solicitudes inventario",
+    shoplink: "shoplink ecommerce tienda publica catalogo carrito pedidos checkout productos inventario clientes campanas web",
+    landing: "shoplink ecommerce tienda publica catalogo carrito pedidos checkout productos inventario clientes campanas web",
+    catalogo_tienda_publica: "shoplink ecommerce tienda publica catalogo carrito pedidos checkout productos inventario clientes campanas web",
     sales: "ventas venta comercial ingresos pedidos",
     stores: "tiendas sucursales puntos venta locales",
   };
