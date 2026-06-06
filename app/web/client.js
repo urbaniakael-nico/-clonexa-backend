@@ -903,6 +903,58 @@
     return options.some((code) => codes.has(code));
   }
 
+  function clientHasShoplinkDashboard026P(modules = [], codes = null) {
+    const normalizedCodes = new Set(
+      Array.from(codes || clientModuleCodes(modules) || [])
+        .map((code) => cxNormalizeModuleToken017H(code))
+        .filter(Boolean)
+    );
+    const shoplinkCodes = [
+      "lan",
+      "catalogo_tienda_publica",
+      "catalogo_tienda",
+      "tienda_publica",
+      "shoplink",
+      "shoplink_catalog",
+      "pro",
+      "productos_e_inventario_landing",
+      "productos_inventario_landing",
+      "productos_inventario",
+      "shoplink_products",
+      "car",
+      "carrito_y_pedidos_landing",
+      "carrito_pedidos_landing",
+      "shoplink_orders",
+      "cli",
+      "clientes_crm_landing",
+      "shoplink_clients",
+      "cam",
+      "campanas_y_reportes_landing",
+      "campanas_reportes_landing",
+      "shoplink_campaigns",
+    ];
+
+    if (shoplinkCodes.some((code) => normalizedCodes.has(code))) return true;
+
+    return (Array.isArray(modules) ? modules : []).some((module) => (
+      (typeof cxIsShoplinkModule026K === "function" && cxIsShoplinkModule026K(module)) ||
+      (typeof cxIsShoplinkProductsModule026L === "function" && cxIsShoplinkProductsModule026L(module)) ||
+      (typeof cxIsShoplinkOrdersModule026M === "function" && cxIsShoplinkOrdersModule026M(module)) ||
+      (typeof cxIsShoplinkClientsModule026N === "function" && cxIsShoplinkClientsModule026N(module)) ||
+      (typeof cxIsShoplinkCampaignsModule026O === "function" && cxIsShoplinkCampaignsModule026O(module))
+    ));
+  }
+
+  function clientMoney026P(value, currency = "COP") {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return "$ 0";
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: currency || "COP",
+      maximumFractionDigits: 0,
+    }).format(number);
+  }
+
   function clientHasHospitalityDashboard025I(codes) {
     const normalized = new Set(
       Array.from(codes || [])
@@ -942,6 +994,17 @@
         ["Stock bajo", String(Number(hospitality.lowStock || 0))],
         ["Pedido pendiente", String(Number(hospitality.pendingOrders || 0))],
         ["Total abierto", cxHspMoney024R(hospitality.openTotal || 0)],
+      ];
+    }
+
+    if (clientHasShoplinkDashboard026P(visible, codes)) {
+      const shoplink = metrics.shoplinkDashboard026P || {};
+      const whatsappStatus = String(shoplink.whatsappStatus || "").toLowerCase();
+      return [
+        ["Pedidos activos", String(Number(shoplink.activeOrders || 0))],
+        ["Por cobrar", clientMoney026P(shoplink.receivableTotal || 0, shoplink.currency || "COP")],
+        ["Stock bajo", String(Number(shoplink.lowStock || 0))],
+        ["Alertas WSP", whatsappStatus === "connected" ? "ON" : "OFF"],
       ];
     }
 
@@ -21083,7 +21146,7 @@ function inventoryCreatePayload() {
                 <div>
                   <div class="client-eyebrow">Sistema operativo empresarial</div>
                   <h1 class="client-title">${h(company.name || "Empresa")}</h1>
-                  <p class="client-muted">Panel operativo independiente conectado a sus m?dulos activos.</p>
+                  <p class="client-muted">Panel operativo independiente conectado a sus modulos activos.</p>
                 </div>
                 <span class="client-badge">LIVE</span>
               </div>
@@ -21100,7 +21163,7 @@ function inventoryCreatePayload() {
             <section class="client-panel">
               <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px">
                 <div>
-                  <div class="client-eyebrow">M?dulos del panel</div>
+                  <div class="client-eyebrow">Modulos del panel</div>
                   <h2>Servicios activos</h2>
                 </div>
                 <span class="client-badge">${h(modules.length)} modulos activos</span>
@@ -21230,7 +21293,8 @@ function inventoryCreatePayload() {
   }
 
   async function loadClientDashboardMetrics(companyId, modules = []) {
-    const codes = clientModuleCodes(visibleClientModules(modules));
+    const visibleModules = visibleClientModules(modules);
+    const codes = clientModuleCodes(visibleModules);
     const metrics = {};
     let employeesCache = [];
 
@@ -21265,6 +21329,45 @@ function inventoryCreatePayload() {
           : [];
       } catch (error) {
         metrics.kpiDashboardCards = [];
+      }
+    }
+
+    if (clientHasShoplinkDashboard026P(visibleModules, codes)) {
+      try {
+        const [ordersPayload, productsPayload] = await Promise.all([
+          api(`/shoplink/companies/${encodeURIComponent(companyId)}/orders?status=all&limit=500`).catch(() => ({})),
+          api(`/shoplink/companies/${encodeURIComponent(companyId)}/products`).catch(() => ({})),
+        ]);
+        const orders = Array.isArray(ordersPayload.orders) ? ordersPayload.orders : [];
+        const ordersSummary = ordersPayload.summary || {};
+        const productsSummary = productsPayload.summary || {};
+        const activeOrders = orders.filter((order) => {
+          const status = String(order.status || "").toLowerCase();
+          return !["cancelled", "delivered", "archived"].includes(status);
+        });
+        const receivableOrders = activeOrders.filter((order) => {
+          const status = String(order.status || "new").toLowerCase();
+          return ["new", "pending", "confirmed", "separated"].includes(status);
+        });
+        const receivableTotal = receivableOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
+
+        metrics.shoplinkDashboard026P = {
+          activeOrders: activeOrders.length || (Number(ordersSummary.pending || 0) + Number(ordersSummary.separated || 0)),
+          receivableTotal,
+          lowStock: Number(productsSummary.low_stock || 0),
+          publishedProducts: Number(productsSummary.published || 0),
+          whatsappStatus: ordersPayload?.whatsapp_web?.status || "",
+          currency: ordersPayload?.settings?.currency || productsPayload?.settings?.currency || "COP",
+        };
+      } catch (error) {
+        metrics.shoplinkDashboard026P = {
+          activeOrders: 0,
+          receivableTotal: 0,
+          lowStock: 0,
+          publishedProducts: 0,
+          whatsappStatus: "",
+          currency: "COP",
+        };
       }
     }
 
