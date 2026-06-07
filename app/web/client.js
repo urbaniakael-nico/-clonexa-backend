@@ -11935,14 +11935,21 @@ function inventoryCreatePayload() {
     return ["cotizacion", "cotizaciones", "cotizar", "quote", "quotes"].includes(code) || title.includes("cotizacion");
   }
 
+  function cxAssistantIsCrmTool027D(module = {}) {
+    const code = cxNormalizeModuleToken017H(module.code || module);
+    const title = cxNormalizeModuleToken017H(module.title || module.name || "");
+    return ["crm", "crm_campo", "crm_live", "crm_operativo"].includes(code) || (title.includes("crm") && title.includes("campo"));
+  }
+
   function cxAssistantReadActiveTools027A() {
     const modules = visibleClientModules(activeClientModules());
     const codes = clientModuleCodes(modules);
     const normalizedCodes = new Set(modules.map((module) => cxNormalizeModuleToken017H(module.code || module.title || "")).filter(Boolean));
     const hasQuotes = modules.some(cxAssistantIsQuotesTool027A);
+    const hasCrm = modules.some(cxAssistantIsCrmTool027D) || normalizedCodes.has("crm");
     const hasPayroll = normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasPayroll, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -11996,6 +12003,7 @@ function inventoryCreatePayload() {
     return `
       <div class="cxai-chip-wrap-027a">
         ${tools.hasQuotes ? `<button class="cxai-chip-027a primary" type="button" data-cxai-start-027a="account">Cuenta de cobro</button><button class="cxai-chip-027a primary" type="button" data-cxai-start-027a="quote">Cotizacion</button>` : ""}
+        ${tools.hasCrm ? `<button class="cxai-chip-027a primary" type="button" data-cxai-crm-summary-027d>Estado CRM</button>` : ""}
         ${moduleButtons}
       </div>
     `;
@@ -12292,8 +12300,203 @@ function inventoryCreatePayload() {
     cxAssistantPush027A(chat, "assistant", cxAssistantQuestion027A(flow));
   }
 
-  function cxAssistantModuleHelp027A(chat, code, title) {
+  function cxAssistantCrmHasAccess027D() {
+    return cxAssistantReadActiveTools027A().hasCrm || isClientModuleActive("crm");
+  }
+
+  async function cxAssistantLoadCrm027D() {
+    if (!cxAssistantCrmHasAccess027D()) return null;
+    const crm = await loadClientCrmData();
+    if (typeof crmUseMundoCaseAreaMode024C === "function" && crmUseMundoCaseAreaMode024C() && typeof crmApplyAreaMapping024C === "function") {
+      await crmApplyAreaMapping024C(crm);
+    }
+    return crm;
+  }
+
+  function cxAssistantCrmStatus027D(person = {}) {
+    return crmNormalizeStatus018B(person.status || person.metrics?.status || person.snapshotRow?.work_status || person.snapshotRow?.core?.status);
+  }
+
+  function cxAssistantCrmStatusText027D(person = {}) {
+    return crmStatusLabel(cxAssistantCrmStatus027D(person));
+  }
+
+  function cxAssistantCrmTimerText027D(person = {}) {
+    const timer = crmTimerData018B(person);
+    if (!timer || !Number(timer.seconds || 0)) return "";
+    const label = timer.kind === "pause" ? "tiempo en pausa" : "tiempo activo";
+    return `${label}: ${crmFormatSeconds018B(timer.seconds)}`;
+  }
+
+  function cxAssistantCrmDateText027D(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString("es-CO", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function cxAssistantCrmStartedText027D(person = {}) {
+    const core = person.metrics?.snapshotCore || person.snapshotRow?.core || {};
+    const row = person.snapshotRow || {};
+    const started = core.status_started_at || core.shift_started_at || row.status_started_at || row.shift_started_at || person.metrics?.startedAt || "";
+    const label = cxAssistantCrmDateText027D(started);
+    return label ? `desde ${label}` : "";
+  }
+
+  function cxAssistantCrmContextText027D(person = {}, crm = {}) {
+    const ctx = (typeof crmUseMundoCaseAreaMode024C === "function" && crmUseMundoCaseAreaMode024C() && typeof crmAreaContext024C === "function")
+      ? crmAreaContext024C(person)
+      : crmEmployeeContext018B(person, crm.dynamicModules || []);
+    if (!ctx) return "";
+    const parts = [ctx.label, ctx.value, ctx.meta].filter(Boolean);
+    return parts.length ? parts.join(": ").replace(": : ", ": ") : "";
+  }
+
+  function cxAssistantCrmPersonLine027D(person = {}, crm = {}) {
+    const timer = cxAssistantCrmTimerText027D(person);
+    const started = cxAssistantCrmStartedText027D(person);
+    const ctx = cxAssistantCrmContextText027D(person, crm);
+    return [
+      `<strong>${h(person.name || person.employee?.full_name || "Empleado")}</strong>`,
+      h(cxAssistantCrmStatusText027D(person)),
+      started ? h(started) : "",
+      timer ? h(timer) : "",
+      ctx ? h(ctx) : "",
+    ].filter(Boolean).join(" · ");
+  }
+
+  function cxAssistantCrmNameMatches027D(text, people = []) {
+    const norm = cxAssistantNorm027A(text).replace(/\benque\b/g, "en que");
+    const direct = (Array.isArray(people) ? people : []).filter((person) => {
+      const name = cxAssistantNorm027A(person.name || person.employee?.full_name || "");
+      if (!name || name.length < 2) return false;
+      const first = name.split(/\s+/).find((part) => part.length >= 3) || name;
+      return norm.includes(name) || norm.includes(first);
+    });
+    if (direct.length) return direct;
+
+    const patterns = [
+      /estado\s+(?:esta|est[aá])\s+(.+)$/,
+      /estado\s+de\s+(.+)$/,
+      /como\s+esta\s+(.+)$/,
+      /donde\s+esta\s+(.+)$/,
+      /buscar\s+(.+)$/,
+      /persona\s+(.+)$/,
+    ];
+    const found = patterns.map((pattern) => norm.match(pattern)?.[1]).find(Boolean);
+    if (!found) return [];
+    const candidate = found
+      .replace(/\b(en|el|la|los|las|crm|campo|hoy|ahora|conectado|conectada|conexion|conexiones)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!candidate || candidate.length < 2) return [];
+    return people.filter((person) => cxAssistantNorm027A(person.name || person.employee?.full_name || "").includes(candidate));
+  }
+
+  function cxAssistantCrmLooksGeneric027D(text = "") {
+    const norm = cxAssistantNorm027A(text).replace(/\benque\b/g, "en que");
+    return [
+      "crm",
+      "conexiones",
+      "conexion",
+      "conectados",
+      "conectadas",
+      "estado de la gente",
+      "estados de la gente",
+      "gente",
+      "equipo",
+      "colaboradores",
+      "personas",
+      "turnos",
+      "quien esta",
+      "quienes estan",
+    ].some((token) => norm.includes(token));
+  }
+
+  function cxAssistantLooksCrmQuery027D(text = "") {
+    if (!cxAssistantCrmHasAccess027D()) return false;
+    const norm = cxAssistantNorm027A(text).replace(/\benque\b/g, "en que");
+    if (cxAssistantCrmLooksGeneric027D(norm)) return true;
+    return (
+      norm.includes("estado") ||
+      norm.includes("conect") ||
+      norm.includes("turno") ||
+      norm.includes("pausa") ||
+      norm.includes("activo") ||
+      norm.includes("activa")
+    ) && !norm.includes("pedido") && !norm.includes("factura") && !norm.includes("cuenta de cobro");
+  }
+
+  function cxAssistantCrmSummaryHtml027D(crm = {}) {
+    const people = Array.isArray(crm.people) ? crm.people : [];
+    const working = Array.isArray(crm.working) ? crm.working : people.filter((person) => cxAssistantCrmStatus027D(person) === "working");
+    const onBreak = Array.isArray(crm.onBreak) ? crm.onBreak : people.filter((person) => cxAssistantCrmStatus027D(person) === "on_break");
+    const offShift = Array.isArray(crm.offShift) ? crm.offShift : people.filter((person) => !["working", "on_break"].includes(cxAssistantCrmStatus027D(person)));
+    const ordered = [...working, ...onBreak, ...offShift].slice(0, 14);
+    const rows = ordered.length
+      ? ordered.map((person) => `<div>${cxAssistantCrmPersonLine027D(person, crm)}</div>`).join("")
+      : "<div>No hay colaboradores activos para mostrar.</div>";
+    return `
+      <div>CRM Campo ahora:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Activos:</strong> ${h(working.length)}</div>
+        <div><strong>En pausa:</strong> ${h(onBreak.length)}</div>
+        <div><strong>Fuera de turno:</strong> ${h(offShift.length)}</div>
+        <div><strong>Total gente:</strong> ${h(people.length)}</div>
+      </div>
+      <div class="cxai-summary-027a">${rows}</div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="crm">Abrir CRM</button></div>
+    `;
+  }
+
+  function cxAssistantCrmPersonHtml027D(matches = [], crm = {}) {
+    if (!matches.length) {
+      return `
+        No encontre esa persona en CRM Campo. Puedo mostrarte el estado general o puedes escribir el nombre tal como aparece en Personal.
+        <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a primary" type="button" data-cxai-crm-summary-027d>Ver estado CRM</button></div>
+      `;
+    }
+    const rows = matches.slice(0, 6).map((person) => `<div>${cxAssistantCrmPersonLine027D(person, crm)}</div>`).join("");
+    return `
+      <div>Esto encontre en CRM Campo:</div>
+      <div class="cxai-summary-027a">${rows}</div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="crm">Abrir CRM</button></div>
+    `;
+  }
+
+  async function cxAssistantReplyCrm027D(chat, text = "") {
+    if (!cxAssistantCrmHasAccess027D()) {
+      cxAssistantPush027A(chat, "assistant", "CRM Campo no esta activo para esta empresa.");
+      return;
+    }
+    try {
+      cxAssistantPush027A(chat, "assistant", "Consultando CRM Campo en vivo...");
+      cxAssistantRenderMessages027A();
+      const crm = await cxAssistantLoadCrm027D();
+      const people = Array.isArray(crm?.people) ? crm.people : [];
+      const matches = cxAssistantCrmNameMatches027D(text, people);
+      const generic = cxAssistantCrmLooksGeneric027D(text) || !matches.length;
+      const html = matches.length && !generic
+        ? cxAssistantCrmPersonHtml027D(matches, crm)
+        : (matches.length ? cxAssistantCrmPersonHtml027D(matches, crm) : cxAssistantCrmSummaryHtml027D(crm || {}));
+      cxAssistantPush027A(chat, "assistant", html, true);
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar CRM Campo en este momento.");
+    }
+  }
+
+  async function cxAssistantModuleHelp027A(chat, code, title) {
     const token = cxNormalizeModuleToken017H(`${code} ${title}`);
+    if (cxAssistantIsCrmTool027D({ code, title })) {
+      await cxAssistantReplyCrm027D(chat, "estado crm");
+      return;
+    }
     if (cxAssistantIsQuotesTool027A({ code, title })) {
       cxAssistantPush027A(chat, "assistant", `En ${title || "Cotizaciones"} puedo generar estos documentos: ${cxAssistantModulesHtml027A({ hasQuotes: true, modules: [] })}`, true);
       return;
@@ -12324,6 +12527,8 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "account");
     } else if (norm.includes("cotiz") || norm.includes("presupuesto")) {
       cxAssistantStartFlow027A(chat, "quote");
+    } else if (cxAssistantLooksCrmQuery027D(clean)) {
+      await cxAssistantReplyCrm027D(chat, clean);
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("nomina") || norm.includes("reporte") || norm.includes("pedido") || norm.includes("inventario")) {
@@ -12379,12 +12584,16 @@ function inventoryCreatePayload() {
           await cxAssistantProcessText027A("cancelar", chat.activeCode);
           return;
         }
+        if (target.closest("[data-cxai-crm-summary-027d]")) {
+          await cxAssistantProcessText027A("estado crm", chat.activeCode);
+          return;
+        }
         const moduleButton = target.closest("[data-cxai-module-027a]");
         if (moduleButton) {
           const code = moduleButton.getAttribute("data-cxai-module-027a") || "";
           const title = moduleButton.getAttribute("data-cxai-module-title-027a") || code || "Modulo";
           cxAssistantPush027A(chat, "user", title);
-          cxAssistantModuleHelp027A(chat, code, title);
+          await cxAssistantModuleHelp027A(chat, code, title);
           cxAssistantRenderMessages027A();
           return;
         }
