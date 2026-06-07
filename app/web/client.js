@@ -11984,7 +11984,8 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantModulesHtml027A(tools = cxAssistantReadActiveTools027A()) {
-    const modules = Array.isArray(tools.modules) ? tools.modules : [];
+    const modules = (Array.isArray(tools.modules) ? tools.modules : [])
+      .filter((module) => !cxIsAssistantCode027A(module.code || module.title || ""));
     const moduleButtons = modules.length
       ? modules.map((module) => `
           <button class="cxai-chip-027a" type="button" data-cxai-module-027a="${h(module.code || "")}" data-cxai-module-title-027a="${h(module.title || module.code || "Modulo")}">
