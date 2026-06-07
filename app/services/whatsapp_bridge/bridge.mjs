@@ -153,6 +153,16 @@ async function removeAuth(companyId) {
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
 }
 
+async function hasAuth(companyId) {
+  try {
+    const dir = path.join(AUTH_ROOT, companyId);
+    const entries = await fs.readdir(dir);
+    return entries.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function startSession(companyId) {
   const existing = sessions.get(companyId);
   if (existing?.sock && ["connecting", "qr", "connected"].includes(existing.status)) {
@@ -324,6 +334,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 422, { ok: false, detail: "Empresa invalida." });
     }
     if (req.method === "GET" && parts.length === 2) {
+      const existing = sessions.get(companyId);
+      if ((!existing || existing.status === "disconnected") && await hasAuth(companyId)) {
+        return sendJson(res, 200, await startSession(companyId));
+      }
       return sendJson(res, 200, sessionPublic(companyId));
     }
     if (req.method === "POST" && parts[2] === "start") {
