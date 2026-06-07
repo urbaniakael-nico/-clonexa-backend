@@ -11891,32 +11891,28 @@ function inventoryCreatePayload() {
     const style = document.createElement("style");
     style.id = "cxAssistantStyles027A";
     style.textContent = `
-      .cxai-grid-027a{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,.7fr);gap:18px}
-      .cxai-card-027a{border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.07);padding:18px;box-shadow:0 22px 60px rgba(0,0,0,.18)}
-      .cxai-thread-027a{display:grid;gap:12px;margin-bottom:16px}
-      .cxai-msg-027a{max-width:760px;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:14px 16px;background:rgba(0,0,0,.18);font-weight:850;color:var(--text)}
-      .cxai-msg-027a.assistant{background:linear-gradient(135deg,rgba(34,211,238,.16),rgba(168,85,247,.14))}
-      .cxai-msg-027a.user{justify-self:end;background:rgba(255,255,255,.10)}
-      .cxai-actions-027a{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
-      .cxai-form-027a{display:grid;gap:14px}
-      .cxai-field-grid-027a{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-      .cxai-field-027a{display:grid;gap:7px}
-      .cxai-field-027a label,.cxai-item-grid-027a label{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);font-weight:1000}
-      .cxai-field-027a input,.cxai-field-027a textarea,.cxai-field-027a select,.cxai-item-grid-027a input{width:100%;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(0,0,0,.28);color:var(--text);padding:12px;font-weight:850;outline:none}
-      .cxai-field-027a textarea{min-height:86px;resize:vertical}
-      .cxai-item-027a{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(0,0,0,.12);padding:12px;margin-top:10px}
-      .cxai-item-grid-027a{display:grid;grid-template-columns:minmax(180px,1fr) 110px 150px auto;gap:10px;align-items:end}
-      .cxai-btn-027a{border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(255,255,255,.09);color:var(--text);padding:11px 14px;font-weight:1000;cursor:pointer}
-      .cxai-btn-027a.primary{background:linear-gradient(135deg,var(--accent,#22d3ee),#a855f7);color:#050816;border:0;box-shadow:0 14px 34px rgba(34,211,238,.18)}
-      .cxai-btn-027a.danger{color:#ff7aa8}
-      .cxai-kpis-027a{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-      .cxai-kpi-027a{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(0,0,0,.16);padding:14px}
-      .cxai-kpi-027a span{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em;font-weight:1000}
-      .cxai-kpi-027a strong{display:block;margin-top:7px;font-size:22px}
-      .cxai-result-027a{margin-top:12px;font-weight:900}
-      .cxai-result-027a.error{color:#ff7aa8}
-      .cxai-result-027a.ok{color:var(--accent)}
-      @media(max-width:980px){.cxai-grid-027a,.cxai-field-grid-027a,.cxai-item-grid-027a{grid-template-columns:1fr}}
+      .cxai-layer-027a{position:fixed;inset:auto 24px 24px auto;z-index:9999;pointer-events:none}
+      .cxai-window-027a{width:min(440px,calc(100vw - 32px));height:min(680px,calc(100vh - 44px));display:grid;grid-template-rows:auto 1fr auto;border:1px solid rgba(255,255,255,.16);border-radius:22px;background:linear-gradient(145deg,rgba(7,12,28,.96),rgba(20,31,58,.96));box-shadow:0 24px 90px rgba(0,0,0,.42);overflow:hidden;color:#f8fafc;pointer-events:auto}
+      .cxai-head-027a{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06)}
+      .cxai-head-main-027a{display:grid;gap:3px;min-width:0}
+      .cxai-kicker-027a{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#7df9ff;font-weight:1000}
+      .cxai-title-027a{font-size:16px;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .cxai-status-027a{font-size:11px;color:rgba(248,250,252,.66);font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .cxai-close-027a{width:34px;height:34px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(255,255,255,.08);color:#fff;font-size:18px;font-weight:1000;cursor:pointer}
+      .cxai-body-027a{padding:16px;display:flex;flex-direction:column;gap:10px;overflow:auto;scroll-behavior:smooth}
+      .cxai-bubble-027a{max-width:88%;border:1px solid rgba(255,255,255,.11);border-radius:18px;padding:11px 13px;font-size:14px;line-height:1.35;font-weight:800;white-space:normal;word-break:break-word}
+      .cxai-bubble-027a.assistant{align-self:flex-start;background:linear-gradient(135deg,rgba(34,211,238,.17),rgba(168,85,247,.14));color:#f8fafc}
+      .cxai-bubble-027a.user{align-self:flex-end;background:#f8fafc;color:#0f172a;border-color:rgba(255,255,255,.72)}
+      .cxai-chip-wrap-027a{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+      .cxai-chip-027a{border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(255,255,255,.10);color:#f8fafc;padding:8px 10px;font-size:12px;font-weight:1000;cursor:pointer}
+      .cxai-chip-027a.primary{background:linear-gradient(135deg,#7cff00,#22d3ee);color:#06101f;border:0}
+      .cxai-summary-027a{display:grid;gap:7px;margin-top:8px;padding:10px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(255,255,255,.07);font-size:12px}
+      .cxai-download-027a{display:inline-flex;align-items:center;justify-content:center;margin-top:9px;border-radius:12px;background:linear-gradient(135deg,#7cff00,#22d3ee);color:#06101f;text-decoration:none;padding:10px 12px;font-weight:1000}
+      .cxai-formbar-027a{display:grid;grid-template-columns:1fr auto;gap:10px;padding:12px;border-top:1px solid rgba(255,255,255,.10);background:rgba(0,0,0,.16)}
+      .cxai-input-027a{min-width:0;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(255,255,255,.08);color:#fff;padding:12px 13px;font-weight:850;outline:none}
+      .cxai-input-027a::placeholder{color:rgba(248,250,252,.48)}
+      .cxai-send-027a{border:0;border-radius:14px;background:linear-gradient(135deg,#22c55e,#ff8a00);color:#06101f;padding:0 14px;font-weight:1000;cursor:pointer}
+      @media(max-width:620px){.cxai-layer-027a{inset:auto 10px 10px 10px}.cxai-window-027a{width:100%;height:min(620px,calc(100vh - 20px));border-radius:18px}.cxai-bubble-027a{max-width:94%}}
     `;
     document.head.appendChild(style);
   }
@@ -11925,315 +11921,490 @@ function inventoryCreatePayload() {
     return type === "quote" ? "cotizacion" : "cuenta de cobro";
   }
 
-  function cxAssistantItemRow027A(item = {}) {
-    return `
-      <div class="cxai-item-027a" data-cxai-item-027a>
-        <div class="cxai-item-grid-027a">
-          <div>
-            <label>Concepto</label>
-            <input name="assistant_item_description" placeholder="Servicio, producto o referencia" value="${h(item.description || "")}" required>
-          </div>
-          <div>
-            <label>Cantidad</label>
-            <input name="assistant_item_quantity" type="number" min="0" step="0.01" value="${h(item.quantity ?? 1)}">
-          </div>
-          <div>
-            <label>Valor unitario</label>
-            <input name="assistant_item_unit_price" type="number" min="0" step="0.01" value="${h(item.unit_price ?? 0)}">
-          </div>
-          <button class="cxai-btn-027a danger" type="button" data-cxai-remove-item-027a>Quitar</button>
-        </div>
-      </div>
-    `;
+  function cxAssistantNorm027A(value = "") {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  }
+
+  function cxAssistantIsQuotesTool027A(module = {}) {
+    const code = cxNormalizeModuleToken017H(module.code || module);
+    const title = cxNormalizeModuleToken017H(module.title || module.name || "");
+    return ["cotizacion", "cotizaciones", "cotizar", "quote", "quotes"].includes(code) || title.includes("cotizacion");
   }
 
   function cxAssistantReadActiveTools027A() {
     const modules = visibleClientModules(activeClientModules());
     const codes = clientModuleCodes(modules);
-    const hasQuotes = modules.some((module) => {
-      const code = cxNormalizeModuleToken017H(module.code);
-      const title = cxNormalizeModuleToken017H(module.title || module.name || "");
-      return ["cotizacion", "cotizaciones", "quote", "quotes"].includes(code) || title.includes("cotizacion");
-    });
-    const hasPayroll = hasAnyClientModule(codes, ["payroll"]);
+    const normalizedCodes = new Set(modules.map((module) => cxNormalizeModuleToken017H(module.code || module.title || "")).filter(Boolean));
+    const hasQuotes = modules.some(cxAssistantIsQuotesTool027A);
+    const hasPayroll = normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
     return { hasQuotes, hasPayroll, hasShoplink, modules };
   }
 
-  function cxAssistantRecalc027A() {
-    const form = document.querySelector("[data-cxai-form-027a]");
-    if (!form) return;
-    let subtotal = 0;
-    form.querySelectorAll("[data-cxai-item-027a]").forEach((row) => {
-      const qty = Number(row.querySelector('[name="assistant_item_quantity"]')?.value || 0);
-      const unit = Number(row.querySelector('[name="assistant_item_unit_price"]')?.value || 0);
-      subtotal += qty * unit;
-    });
-    const discount = Number(form.querySelector('[name="discount_value"]')?.value || 0);
-    const retentionPercent = Math.min(100, Math.max(0, Number(form.querySelector('[name="retention_percent"]')?.value || 0)));
-    const total = Math.max(0, subtotal - discount);
-    const retention = subtotal * retentionPercent / 100;
-    const totalEl = document.querySelector("[data-cxai-total-027a]");
-    const retentionEl = document.querySelector("[data-cxai-retention-027a]");
-    if (totalEl) totalEl.textContent = cxUniversalMoney021D(total);
-    if (retentionEl) retentionEl.textContent = cxUniversalMoney021D(retention);
+  function cxAssistantOwnerName027A() {
+    const company = state.company || {};
+    const settings = company.settings_json || {};
+    const experience = state.experience || {};
+    const candidates = [
+      company.owner_name,
+      company.ownerName,
+      company.contact_name,
+      company.admin_name,
+      company.representative_name,
+      settings.owner_name,
+      settings.ownerName,
+      settings.dueno,
+      settings.duenio,
+      settings.admin_name,
+      settings.contact_name,
+      settings.representative_name,
+      settings?.client_settings?.owner_name,
+      settings?.experience?.owner_name,
+      experience.owner_name,
+      experience.ownerName,
+      experience.contact_name,
+      window.__clonexaUser?.full_name,
+      window.__clonexaAccount?.full_name,
+      localStorage.getItem("clonexa_owner_name"),
+    ];
+    const found = candidates.map((item) => String(item || "").trim()).find(Boolean);
+    if (found) return found.split(/\s+/).filter(Boolean).slice(0, 2).join(" ");
+    return company.name || "equipo";
   }
 
-  async function cxAssistantSubmitQuote027A(activeCode) {
-    const form = document.querySelector("[data-cxai-form-027a]");
-    const notice = document.querySelector("[data-cxai-result-027a]");
-    if (!form || !notice) return;
+  function cxAssistantPush027A(chat, role, html, raw = false) {
+    chat.messages.push({
+      role,
+      html: raw ? String(html || "") : h(html || "").replace(/\n/g, "<br>"),
+    });
+  }
 
-    const fd = new FormData(form);
-    const documentType = String(fd.get("document_type") || "account") === "quote" ? "quote" : "account";
-    const items = Array.from(form.querySelectorAll("[data-cxai-item-027a]"))
-      .map((row) => ({
-        description: String(row.querySelector('[name="assistant_item_description"]')?.value || "").trim(),
-        quantity: Number(row.querySelector('[name="assistant_item_quantity"]')?.value || 0),
-        unit_price: Number(row.querySelector('[name="assistant_item_unit_price"]')?.value || 0),
+  function cxAssistantModulesHtml027A(tools = cxAssistantReadActiveTools027A()) {
+    const modules = Array.isArray(tools.modules) ? tools.modules : [];
+    const moduleButtons = modules.length
+      ? modules.map((module) => `
+          <button class="cxai-chip-027a" type="button" data-cxai-module-027a="${h(module.code || "")}" data-cxai-module-title-027a="${h(module.title || module.code || "Modulo")}">
+            ${h(module.title || module.code || "Modulo")}
+          </button>
+        `).join("")
+      : `<span class="cxai-chip-027a">Sin modulos activos</span>`;
+    return `
+      <div class="cxai-chip-wrap-027a">
+        ${tools.hasQuotes ? `<button class="cxai-chip-027a primary" type="button" data-cxai-start-027a="account">Cuenta de cobro</button><button class="cxai-chip-027a primary" type="button" data-cxai-start-027a="quote">Cotizacion</button>` : ""}
+        ${moduleButtons}
+      </div>
+    `;
+  }
+
+  function cxAssistantPrime027A(chat) {
+    if (chat.messages.length) return;
+    const company = state.company || {};
+    const tools = cxAssistantReadActiveTools027A();
+    const owner = cxAssistantOwnerName027A();
+    cxAssistantPush027A(chat, "assistant", `Hola ${owner}. En que te puedo apoyar?`);
+    cxAssistantPush027A(
+      chat,
+      "assistant",
+      `Estas son las opciones activas de ${h(company.name || "esta empresa")}: ${cxAssistantModulesHtml027A(tools)}`,
+      true
+    );
+  }
+
+  function cxAssistantState027A(activeCode = "assistant_ai") {
+    const companyId = String(state.companyId || "");
+    if (!window.__cxAssistantChat027A || window.__cxAssistantChat027A.companyId !== companyId) {
+      window.__cxAssistantChat027A = {
+        activeCode,
+        companyId,
+        messages: [],
+        flow: null,
+      };
+    }
+    window.__cxAssistantChat027A.activeCode = activeCode;
+    cxAssistantPrime027A(window.__cxAssistantChat027A);
+    return window.__cxAssistantChat027A;
+  }
+
+  function cxAssistantRenderMessages027A() {
+    const chat = window.__cxAssistantChat027A;
+    const body = document.querySelector("[data-cxai-body-027a]");
+    if (!chat || !body) return;
+    body.innerHTML = chat.messages.map((message) => `
+      <div class="cxai-bubble-027a ${message.role === "user" ? "user" : "assistant"}">${message.html}</div>
+    `).join("");
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function cxAssistantParseMoney027A(value) {
+    const raw = String(value || "").replace(/[^\d,.-]/g, "").trim();
+    if (!raw) return 0;
+    const normalized = raw.replace(/\./g, "").replace(",", ".");
+    return Number(normalized) || 0;
+  }
+
+  function cxAssistantSkip027A(text) {
+    const norm = cxAssistantNorm027A(text);
+    return ["no", "n/a", "na", "omitir", "saltar", "ninguno", "sin", "-"].includes(norm);
+  }
+
+  function cxAssistantYes027A(text) {
+    const norm = cxAssistantNorm027A(text);
+    if (norm === "s") return true;
+    return ["si", "ok", "dale", "claro", "agregar", "otro", "otra"].some((token) => norm === token || norm.includes(token));
+  }
+
+  function cxAssistantNo027A(text) {
+    const norm = cxAssistantNorm027A(text);
+    if (norm === "n") return true;
+    return ["no", "listo", "ya", "terminar", "finalizar"].some((token) => norm === token || norm.includes(token));
+  }
+
+  function cxAssistantQuestion027A(flow) {
+    switch (flow.step) {
+      case "client_name": return "Perfecto. Confirmame el nombre o razon social del cliente.";
+      case "client_document": return "Ahora el CC o NIT. Si no aplica, escribe omitir.";
+      case "client_phone": return "Telefono del cliente. Si no tienes, escribe omitir.";
+      case "client_address": return "Direccion del cliente. Si no aplica, escribe omitir.";
+      case "client_email": return "Correo del cliente. Si no tienes, escribe omitir.";
+      case "item_description": return "Que concepto, producto o servicio va en el documento?";
+      case "item_quantity": return "Cantidad?";
+      case "item_unit_price": return "Valor unitario?";
+      case "add_more_items": return "Quieres agregar otro concepto? Responde si o no.";
+      case "payment_method": return "Forma de pago? Ej: transferencia, efectivo, nequi, bancolombia. Puedes escribir omitir.";
+      case "payment_data": return "Datos de pago: cuenta, banco, referencia o vencimiento. Si no aplica, escribe omitir.";
+      case "notes": return "Notas u observaciones para el PDF. Si no quieres agregar, escribe omitir.";
+      default: return "";
+    }
+  }
+
+  function cxAssistantFlowTotal027A(flow) {
+    return (flow.items || []).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
+  }
+
+  function cxAssistantConfirmHtml027A(flow) {
+    const label = cxAssistantDocumentLabel027A(flow.documentType);
+    const items = (flow.items || []).map((item) => `
+      <div>${h(item.quantity || 1)}x ${h(item.description || "")} - ${h(cxUniversalMoney021D(Number(item.quantity || 0) * Number(item.unit_price || 0)))}</div>
+    `).join("");
+    return `
+      <div>Listo. Revisa antes de generar la ${h(label)}.</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Cliente:</strong> ${h(flow.data.client_name || "")}</div>
+        ${items}
+        <div><strong>Total:</strong> ${h(cxUniversalMoney021D(cxAssistantFlowTotal027A(flow)))}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Generar PDF</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+      Tambien puedes escribir confirmar o cancelar.
+    `;
+  }
+
+  function cxAssistantStartFlow027A(chat, documentType = "account") {
+    const ready = cxAssistantReadActiveTools027A().hasQuotes;
+    if (!ready) {
+      cxAssistantPush027A(chat, "assistant", "Para generar cuenta de cobro o cotizacion necesito que esta empresa tenga activo el modulo Cotizaciones.");
+      return;
+    }
+    const type = documentType === "quote" ? "quote" : "account";
+    chat.flow = {
+      documentType: type,
+      step: "client_name",
+      data: {},
+      items: [{ description: "", quantity: 1, unit_price: 0 }],
+      itemIndex: 0,
+    };
+    cxAssistantPush027A(chat, "assistant", `Claro que si. Te voy a pedir los datos y al final te entrego la ${cxAssistantDocumentLabel027A(type)} en PDF.`);
+    cxAssistantPush027A(chat, "assistant", cxAssistantQuestion027A(chat.flow));
+  }
+
+  async function cxAssistantGenerateDocument027A(chat) {
+    const flow = chat.flow;
+    if (!flow) return;
+    const label = cxAssistantDocumentLabel027A(flow.documentType);
+    const items = (flow.items || [])
+      .map((item) => ({
+        description: String(item.description || "").trim(),
+        quantity: Number(item.quantity || 1),
+        unit_price: Number(item.unit_price || 0),
       }))
       .filter((item) => item.description);
-
-    if (!String(fd.get("client_name") || "").trim()) {
-      notice.className = "cxai-result-027a error";
-      notice.textContent = "Necesito el nombre o razon social del cliente.";
+    if (!flow.data.client_name || !items.length) {
+      cxAssistantPush027A(chat, "assistant", "Me falta el cliente o el concepto. Empecemos de nuevo.");
+      chat.flow = null;
       return;
     }
-
-    if (!items.length) {
-      notice.className = "cxai-result-027a error";
-      notice.textContent = "Necesito al menos un concepto para generar el documento.";
-      return;
-    }
-
-    const discounts = [
-      {
-        type: "discount",
-        kind: "discount",
-        affects_total: true,
-        name: String(fd.get("discount_name") || "").trim(),
-        description: String(fd.get("discount_description") || "").trim(),
-        value: Number(fd.get("discount_value") || 0),
-      },
-      {
-        type: "retention",
-        kind: "retention",
-        affects_total: false,
-        name: String(fd.get("retention_name") || "Retencion").trim(),
-        description: String(fd.get("retention_description") || "").trim(),
-        percent: Number(fd.get("retention_percent") || 0),
-        value: Number(fd.get("retention_percent") || 0),
-      },
-    ];
-
     const body = {
-      client_name: String(fd.get("client_name") || "").trim(),
-      client_document: String(fd.get("client_document") || "").trim(),
-      client_address: String(fd.get("client_address") || "").trim(),
-      client_phone: String(fd.get("client_phone") || "").trim(),
-      client_email: String(fd.get("client_email") || "").trim(),
+      client_name: String(flow.data.client_name || "").trim(),
+      client_document: String(flow.data.client_document || "").trim(),
+      client_address: String(flow.data.client_address || "").trim(),
+      client_phone: String(flow.data.client_phone || "").trim(),
+      client_email: String(flow.data.client_email || "").trim(),
       items,
-      discounts,
+      discounts: [
+        { type: "discount", kind: "discount", affects_total: true, name: "", description: "", value: 0 },
+        { type: "retention", kind: "retention", affects_total: false, name: "Retencion", description: "", percent: 0, value: 0 },
+      ],
       payment: {
-        detail: String(fd.get("payment_detail") || "").trim(),
-        name: String(fd.get("payment_name") || "").trim(),
-        method: String(fd.get("payment_method") || "transferencia"),
-        data: String(fd.get("payment_data") || "").trim(),
+        detail: "",
+        name: "",
+        method: String(flow.data.payment_method || "transferencia"),
+        data: String(flow.data.payment_data || "").trim(),
       },
-      notes: String(fd.get("notes") || "").trim(),
+      notes: String(flow.data.notes || "").trim(),
     };
 
     try {
-      notice.className = "cxai-result-027a";
-      notice.textContent = `Generando ${cxAssistantDocumentLabel027A(documentType)}...`;
-
+      cxAssistantPush027A(chat, "assistant", `Generando ${label}...`);
+      cxAssistantRenderMessages027A();
       const created = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, {
         method: "POST",
         body: JSON.stringify(body),
       });
       let quote = created.quote || {};
-
-      if (documentType === "account" && quote.id) {
+      if (flow.documentType === "account" && quote.id) {
         const converted = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(quote.id)}/convert?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, {
           method: "POST",
           body: JSON.stringify({}),
         });
         quote = converted.quote || quote;
       }
-
-      const pdfUrl = `${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(quote.id)}/pdf?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&document_type=${encodeURIComponent(documentType)}`;
-      const number = quote.document_number || (documentType === "account" ? quote.account_number : quote.quote_number) || quote.quote_number || "";
-      notice.className = "cxai-result-027a ok";
-      notice.innerHTML = `
-        Perfecto. Genere ${h(cxAssistantDocumentLabel027A(documentType))} ${h(number)}.
-        <div class="cxai-actions-027a">
-          <a class="cxai-btn-027a primary" href="${h(pdfUrl)}" target="_blank" rel="noopener">Descargar PDF</a>
-          <button class="cxai-btn-027a" type="button" data-client-module="cotizaciones">Ver historial</button>
-        </div>
-      `;
-      form.reset();
-      window.__cxAssistantDocType027A = documentType;
-      const wrap = document.querySelector("[data-cxai-items-027a]");
-      if (wrap) wrap.innerHTML = cxAssistantItemRow027A();
-      cxAssistantRecalc027A();
-    } catch (err) {
-      notice.className = "cxai-result-027a error";
-      notice.textContent = err.message || "No se pudo generar el documento.";
+      const pdfUrl = `${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(quote.id)}/pdf?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&document_type=${encodeURIComponent(flow.documentType)}`;
+      const number = quote.document_number || (flow.documentType === "account" ? quote.account_number : quote.quote_number) || quote.quote_number || "";
+      cxAssistantPush027A(
+        chat,
+        "assistant",
+        `
+          Listo. Esta es la ${h(label)} ${h(number)} que solicitaste.
+          <a class="cxai-download-027a" href="${h(pdfUrl)}" target="_blank" rel="noopener">Descargar PDF</a>
+          <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="cotizaciones">Ver historial</button></div>
+        `,
+        true
+      );
+      chat.flow = null;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || `No pude generar la ${label}.`);
     }
   }
 
-  async function renderAssistantModule027A(activeCode = "assistant_ai") {
+  async function cxAssistantHandleFlow027A(chat, text) {
+    const flow = chat.flow;
+    const clean = String(text || "").trim();
+    const norm = cxAssistantNorm027A(clean);
+    if (["cancelar", "salir", "parar"].includes(norm)) {
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `Listo, cancele el flujo. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
+      return;
+    }
+    const item = flow.items[flow.itemIndex] || flow.items[0];
+    switch (flow.step) {
+      case "client_name":
+        if (!clean || cxAssistantSkip027A(clean)) {
+          cxAssistantPush027A(chat, "assistant", "Necesito el nombre o razon social del cliente para generar el PDF.");
+          return;
+        }
+        flow.data.client_name = clean;
+        flow.step = "client_document";
+        break;
+      case "client_document":
+        if (!cxAssistantSkip027A(clean)) flow.data.client_document = clean;
+        flow.step = "client_phone";
+        break;
+      case "client_phone":
+        if (!cxAssistantSkip027A(clean)) flow.data.client_phone = clean;
+        flow.step = "client_address";
+        break;
+      case "client_address":
+        if (!cxAssistantSkip027A(clean)) flow.data.client_address = clean;
+        flow.step = "client_email";
+        break;
+      case "client_email":
+        if (!cxAssistantSkip027A(clean)) flow.data.client_email = clean;
+        flow.step = "item_description";
+        break;
+      case "item_description":
+        if (!clean || cxAssistantSkip027A(clean)) {
+          cxAssistantPush027A(chat, "assistant", "Necesito el concepto, producto o servicio.");
+          return;
+        }
+        item.description = clean;
+        flow.step = "item_quantity";
+        break;
+      case "item_quantity": {
+        const qty = cxAssistantParseMoney027A(clean) || 1;
+        item.quantity = qty;
+        flow.step = "item_unit_price";
+        break;
+      }
+      case "item_unit_price": {
+        const price = cxAssistantParseMoney027A(clean);
+        if (!price || price <= 0) {
+          cxAssistantPush027A(chat, "assistant", "Necesito un valor unitario mayor a cero.");
+          return;
+        }
+        item.unit_price = price;
+        flow.step = "add_more_items";
+        break;
+      }
+      case "add_more_items":
+        if (cxAssistantYes027A(clean)) {
+          flow.items.push({ description: "", quantity: 1, unit_price: 0 });
+          flow.itemIndex = flow.items.length - 1;
+          flow.step = "item_description";
+        } else if (cxAssistantNo027A(clean) || cxAssistantSkip027A(clean)) {
+          flow.step = "payment_method";
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Responde si para agregar otro concepto o no para continuar.");
+          return;
+        }
+        break;
+      case "payment_method":
+        flow.data.payment_method = cxAssistantSkip027A(clean) ? "transferencia" : clean;
+        flow.step = "payment_data";
+        break;
+      case "payment_data":
+        if (!cxAssistantSkip027A(clean)) flow.data.payment_data = clean;
+        flow.step = "notes";
+        break;
+      case "notes":
+        if (!cxAssistantSkip027A(clean)) flow.data.notes = clean;
+        flow.step = "confirm";
+        cxAssistantPush027A(chat, "assistant", cxAssistantConfirmHtml027A(flow), true);
+        return;
+      case "confirm":
+        if (norm.includes("confirmar") || norm.includes("generar") || cxAssistantYes027A(clean)) {
+          await cxAssistantGenerateDocument027A(chat);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para generar el PDF o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime si necesitas cuenta de cobro o cotizacion.");
+        return;
+    }
+    cxAssistantPush027A(chat, "assistant", cxAssistantQuestion027A(flow));
+  }
+
+  function cxAssistantModuleHelp027A(chat, code, title) {
+    const token = cxNormalizeModuleToken017H(`${code} ${title}`);
+    if (cxAssistantIsQuotesTool027A({ code, title })) {
+      cxAssistantPush027A(chat, "assistant", `En ${title || "Cotizaciones"} puedo generar estos documentos: ${cxAssistantModulesHtml027A({ hasQuotes: true, modules: [] })}`, true);
+      return;
+    }
+    if (token.includes("nomina") || token.includes("payroll")) {
+      cxAssistantPush027A(chat, "assistant", "Nomina esta activa para esta empresa. La siguiente accion natural sera pedirme: dame la nomina de este periodo, y el asistente consultara el modulo para entregar PDF o reporte.");
+      return;
+    }
+    if (token.includes("carrito") || token.includes("pedido") || token.includes("shoplink")) {
+      cxAssistantPush027A(chat, "assistant", "ShopLink esta activo. Desde aqui podremos consultar pedidos, pagos, guias y alertas. Por ahora ya estoy listo para abrir el flujo de cuenta de cobro o cotizacion.");
+      return;
+    }
+    cxAssistantPush027A(chat, "assistant", `${title || "Ese modulo"} esta activo. Dime que necesitas hacer y lo conectamos a este mismo chat.`);
+  }
+
+  async function cxAssistantProcessText027A(text, activeCode = "assistant_ai") {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    const chat = cxAssistantState027A(activeCode);
+    cxAssistantPush027A(chat, "user", clean);
+    if (chat.flow) {
+      await cxAssistantHandleFlow027A(chat, clean);
+      cxAssistantRenderMessages027A();
+      return;
+    }
+    const norm = cxAssistantNorm027A(clean);
+    if (norm.includes("cuenta") && norm.includes("cobro")) {
+      cxAssistantStartFlow027A(chat, "account");
+    } else if (norm.includes("cotiz") || norm.includes("presupuesto")) {
+      cxAssistantStartFlow027A(chat, "quote");
+    } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
+      cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
+    } else if (norm.includes("nomina") || norm.includes("reporte") || norm.includes("pedido") || norm.includes("inventario")) {
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente, pero la accion automatica conectada en esta version es cuenta de cobro y cotizacion con PDF. Selecciona una opcion o dime cuenta de cobro.");
+    } else {
+      cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
+    }
+    cxAssistantRenderMessages027A();
+  }
+
+  function cxAssistantOpenWidget027A(activeCode = "assistant_ai") {
     cxAssistantEnsureStyles027A();
-    const company = state.company || {};
-    const tools = cxAssistantReadActiveTools027A();
-    const docType = window.__cxAssistantDocType027A || "account";
-    const docLabel = cxAssistantDocumentLabel027A(docType);
-    const quoteReady = tools.hasQuotes;
-
-    $("app").innerHTML = `
-      <main class="client-shell">
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
-            <div class="client-muted">${h(company.slug || "tenant")}</div>
-            <nav class="client-nav">${renderClientNav(activeCode)}</nav>
-            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
-          </aside>
-          <section class="client-main">
-            <header class="client-hero">
-              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
-                <div>
-                  <div class="client-eyebrow">IA / Automatizacion</div>
-                  <h1 class="client-title">Asistente CLONEXA</h1>
-                  <p class="client-muted">Asistente operativo conectado a los modulos activos de ${h(company.name || "esta empresa")}.</p>
-                </div>
-                <span class="client-badge">AI</span>
-              </div>
-              <div class="client-actions">
-                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
-                ${quoteReady ? `<button class="client-btn" type="button" data-client-module="cotizaciones">Abrir cotizaciones</button>` : ""}
-              </div>
-            </header>
-
-            <section class="cxai-grid-027a">
-              <article class="cxai-card-027a">
-                <div class="cxai-thread-027a">
-                  <div class="cxai-msg-027a assistant">Hola. Soy el asistente de ${h(company.name || "tu empresa")}. Por ahora puedo ayudarte a generar <strong>cuentas de cobro</strong> y <strong>cotizaciones</strong> usando el modulo Cotizaciones.</div>
-                  <div class="cxai-msg-027a user">Necesito una ${h(docLabel)}.</div>
-                  <div class="cxai-msg-027a assistant">${quoteReady ? `Perfecto. Dame estos datos y te genero la ${h(docLabel)} en PDF.` : `Para generar documentos primero debes tener activo el modulo Cotizaciones en esta empresa.`}</div>
-                </div>
-                <div class="cxai-actions-027a">
-                  <button class="cxai-btn-027a ${docType === "account" ? "primary" : ""}" type="button" data-cxai-doc-type-027a="account">Cuenta de cobro</button>
-                  <button class="cxai-btn-027a ${docType === "quote" ? "primary" : ""}" type="button" data-cxai-doc-type-027a="quote">Cotizacion</button>
-                </div>
-
-                <form class="cxai-form-027a" data-cxai-form-027a>
-                  <input type="hidden" name="document_type" value="${h(docType)}">
-                  <div class="cxai-field-grid-027a">
-                    <div class="cxai-field-027a"><label>Nombre o razon social</label><input name="client_name" placeholder="Cliente / empresa" ${quoteReady ? "required" : "disabled"}></div>
-                    <div class="cxai-field-027a"><label>CC / NIT</label><input name="client_document" placeholder="Documento" ${quoteReady ? "" : "disabled"}></div>
-                    <div class="cxai-field-027a"><label>Telefono</label><input name="client_phone" placeholder="Telefono" ${quoteReady ? "" : "disabled"}></div>
-                    <div class="cxai-field-027a"><label>Direccion</label><input name="client_address" placeholder="Direccion" ${quoteReady ? "" : "disabled"}></div>
-                    <div class="cxai-field-027a"><label>Correo</label><input name="client_email" placeholder="correo@cliente.com" ${quoteReady ? "" : "disabled"}></div>
-                    <div class="cxai-field-027a"><label>Forma de pago</label>
-                      <select name="payment_method" ${quoteReady ? "" : "disabled"}>
-                        <option value="transferencia">Transferencia</option>
-                        <option value="efectivo">Efectivo</option>
-                        <option value="cheque">Cheque</option>
-                        <option value="otro">Otro</option>
-                      </select>
-                    </div>
-                    <div class="cxai-field-027a"><label>Detalle pago</label><input name="payment_detail" placeholder="Anticipo, saldo, contado..." ${quoteReady ? "" : "disabled"}></div>
-                    <div class="cxai-field-027a"><label>Datos de pago</label><input name="payment_data" placeholder="Cuenta, referencia, vencimiento..." ${quoteReady ? "" : "disabled"}></div>
-                    <div class="cxai-field-027a"><label>Nombre pago</label><input name="payment_name" placeholder="Banco / responsable" ${quoteReady ? "" : "disabled"}></div>
-                  </div>
-
-                  <div class="cxai-card-027a" style="padding:14px">
-                    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
-                      <h3>Conceptos</h3>
-                      <button class="cxai-btn-027a" type="button" data-cxai-add-item-027a ${quoteReady ? "" : "disabled"}>Agregar linea</button>
-                    </div>
-                    <div data-cxai-items-027a>${cxAssistantItemRow027A()}</div>
-                  </div>
-
-                  <div class="cxai-field-grid-027a">
-                    <div class="cxai-card-027a" style="padding:14px">
-                      <h3>Descuento</h3>
-                      <div class="cxai-field-027a"><label>Nombre</label><input name="discount_name" placeholder="Ej: pronto pago" ${quoteReady ? "" : "disabled"}></div>
-                      <div class="cxai-field-027a"><label>Descripcion</label><input name="discount_description" placeholder="Detalle" ${quoteReady ? "" : "disabled"}></div>
-                      <div class="cxai-field-027a"><label>Valor</label><input name="discount_value" type="number" min="0" step="0.01" value="0" ${quoteReady ? "" : "disabled"}></div>
-                    </div>
-                    <div class="cxai-card-027a" style="padding:14px">
-                      <h3>Retencion</h3>
-                      <div class="cxai-field-027a"><label>Nombre</label><input name="retention_name" value="Retencion" ${quoteReady ? "" : "disabled"}></div>
-                      <div class="cxai-field-027a"><label>Descripcion</label><input name="retention_description" placeholder="Detalle" ${quoteReady ? "" : "disabled"}></div>
-                      <div class="cxai-field-027a"><label>Porcentaje</label><input name="retention_percent" type="number" min="0" max="100" step="0.01" value="0" ${quoteReady ? "" : "disabled"}></div>
-                    </div>
-                  </div>
-
-                  <div class="cxai-field-027a"><label>Observaciones</label><textarea name="notes" placeholder="Condiciones, tiempos, detalles adicionales..." ${quoteReady ? "" : "disabled"}></textarea></div>
-                  <div class="cxai-actions-027a">
-                    <button class="cxai-btn-027a primary" type="submit" ${quoteReady ? "" : "disabled"}>Generar PDF</button>
-                    <button class="cxai-btn-027a" type="reset" ${quoteReady ? "" : "disabled"}>Nuevo</button>
-                  </div>
-                  <div class="cxai-result-027a" data-cxai-result-027a></div>
-                </form>
-              </article>
-
-              <aside class="cxai-card-027a">
-                <h2>Herramientas activas</h2>
-                <div class="cxai-kpis-027a">
-                  <div class="cxai-kpi-027a"><span>Cotizaciones</span><strong>${quoteReady ? "ON" : "OFF"}</strong></div>
-                  <div class="cxai-kpi-027a"><span>Nomina</span><strong>${tools.hasPayroll ? "ON" : "OFF"}</strong></div>
-                  <div class="cxai-kpi-027a"><span>ShopLink</span><strong>${tools.hasShoplink ? "ON" : "OFF"}</strong></div>
-                  <div class="cxai-kpi-027a"><span>Modulos</span><strong>${h(tools.modules.length)}</strong></div>
-                </div>
-                <p class="client-muted" style="margin-top:14px">Esta primera version trabaja con datos reales del tenant activo. Luego le sumamos nomina, Excel de personal y reportes con confirmacion.</p>
-                <div class="cxai-card-027a" style="margin-top:14px;padding:14px">
-                  <h3>Vista previa</h3>
-                  <p class="client-muted">Total: <strong data-cxai-total-027a>${h(cxUniversalMoney021D(0))}</strong></p>
-                  <p class="client-muted">Retencion informativa: <strong data-cxai-retention-027a>${h(cxUniversalMoney021D(0))}</strong></p>
-                </div>
-              </aside>
-            </section>
-          </section>
-        </div>
-      </main>
-    `;
-
-    document.querySelectorAll("[data-cxai-doc-type-027a]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        window.__cxAssistantDocType027A = button.getAttribute("data-cxai-doc-type-027a") || "account";
-        await renderAssistantModule027A(activeCode);
+    const chat = cxAssistantState027A(activeCode);
+    let layer = document.getElementById("cxAssistantLayer027A");
+    if (!layer) {
+      const company = state.company || {};
+      layer = document.createElement("div");
+      layer.id = "cxAssistantLayer027A";
+      layer.className = "cxai-layer-027a";
+      layer.innerHTML = `
+        <section class="cxai-window-027a" role="dialog" aria-label="Asistente CLONEXA">
+          <header class="cxai-head-027a">
+            <div class="cxai-head-main-027a">
+              <div class="cxai-kicker-027a">IA / Automatizacion</div>
+              <div class="cxai-title-027a">Asistente CLONEXA</div>
+              <div class="cxai-status-027a">${h(company.name || "Empresa")} · ${h(cxAssistantReadActiveTools027A().modules.length)} modulos activos</div>
+            </div>
+            <button class="cxai-close-027a" type="button" data-cxai-close-027a aria-label="Cerrar">x</button>
+          </header>
+          <div class="cxai-body-027a" data-cxai-body-027a></div>
+          <form class="cxai-formbar-027a" data-cxai-form-027a>
+            <input class="cxai-input-027a" name="cxai_text" autocomplete="off" placeholder="Escribe: necesito una cuenta de cobro">
+            <button class="cxai-send-027a" type="submit">Enviar</button>
+          </form>
+        </section>
+      `;
+      document.body.appendChild(layer);
+      layer.addEventListener("click", async (event) => {
+        const target = event.target;
+        const start = target.closest("[data-cxai-start-027a]");
+        if (start) {
+          const type = start.getAttribute("data-cxai-start-027a") || "account";
+          await cxAssistantProcessText027A(type === "quote" ? "cotizacion" : "cuenta de cobro", chat.activeCode);
+          return;
+        }
+        const confirm = target.closest("[data-cxai-confirm-027a]");
+        if (confirm) {
+          await cxAssistantProcessText027A("confirmar", chat.activeCode);
+          return;
+        }
+        const cancel = target.closest("[data-cxai-cancel-027a]");
+        if (cancel) {
+          await cxAssistantProcessText027A("cancelar", chat.activeCode);
+          return;
+        }
+        const moduleButton = target.closest("[data-cxai-module-027a]");
+        if (moduleButton) {
+          const code = moduleButton.getAttribute("data-cxai-module-027a") || "";
+          const title = moduleButton.getAttribute("data-cxai-module-title-027a") || code || "Modulo";
+          cxAssistantPush027A(chat, "user", title);
+          cxAssistantModuleHelp027A(chat, code, title);
+          cxAssistantRenderMessages027A();
+          return;
+        }
+        if (target.closest("[data-cxai-close-027a]")) {
+          layer.remove();
+        }
       });
-    });
+      layer.querySelector("[data-cxai-form-027a]")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const input = event.currentTarget.querySelector('[name="cxai_text"]');
+        const value = input?.value || "";
+        if (input) input.value = "";
+        await cxAssistantProcessText027A(value, chat.activeCode);
+      });
+    }
+    cxAssistantRenderMessages027A();
+    setTimeout(() => layer.querySelector('[name="cxai_text"]')?.focus(), 30);
+  }
 
-    const form = document.querySelector("[data-cxai-form-027a]");
-    form?.addEventListener("input", cxAssistantRecalc027A);
-    form?.addEventListener("reset", () => setTimeout(cxAssistantRecalc027A, 0));
-    form?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      await cxAssistantSubmitQuote027A(activeCode);
-    });
-
-    document.querySelector("[data-cxai-add-item-027a]")?.addEventListener("click", () => {
-      const wrap = document.querySelector("[data-cxai-items-027a]");
-      if (!wrap) return;
-      wrap.insertAdjacentHTML("beforeend", cxAssistantItemRow027A());
-      cxAssistantRecalc027A();
-    });
-
-    document.querySelector("[data-cxai-items-027a]")?.addEventListener("click", (event) => {
-      const remove = event.target.closest("[data-cxai-remove-item-027a]");
-      if (!remove) return;
-      const rows = Array.from(document.querySelectorAll("[data-cxai-item-027a]"));
-      if (rows.length <= 1) return;
-      remove.closest("[data-cxai-item-027a]")?.remove();
-      cxAssistantRecalc027A();
-    });
-
-    cxAssistantRecalc027A();
+  async function renderAssistantModule027A(activeCode = "assistant_ai") {
+    cxAssistantOpenWidget027A(activeCode);
   }
 
 
@@ -19255,7 +19426,8 @@ function inventoryCreatePayload() {
     }
 
     if (typeof cxIsAssistantCode027A === "function" && cxIsAssistantCode027A(code)) {
-      return renderAssistantModule027A(code || "assistant_ai");
+      cxAssistantOpenWidget027A(code || "assistant_ai");
+      return;
     }
 
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
@@ -20982,7 +21154,7 @@ function inventoryCreatePayload() {
         if (!isClientModuleActive(code)) return;
 
         if (typeof cxIsAssistantCode027A === "function" && cxIsAssistantCode027A(code)) {
-          await renderAssistantModule027A(code || "assistant_ai");
+          cxAssistantOpenWidget027A(code || "assistant_ai");
           return;
         }
 
