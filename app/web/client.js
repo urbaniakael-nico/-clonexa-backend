@@ -11929,24 +11929,61 @@ function inventoryCreatePayload() {
       .trim();
   }
 
+  function cxAssistantModuleTokens027E(module = {}) {
+    const raw = module?.raw && typeof module.raw === "object" ? module.raw : module;
+    const rawModule = raw?.module && typeof raw.module === "object" ? raw.module : {};
+    return [
+      module.code,
+      module.module_code,
+      module.title,
+      module.name,
+      module.subtitle,
+      module.description,
+      module.category,
+      raw.code,
+      raw.module_code,
+      raw.title,
+      raw.name,
+      raw.description,
+      raw.category,
+      rawModule.code,
+      rawModule.module_code,
+      rawModule.title,
+      rawModule.name,
+      rawModule.description,
+      rawModule.category,
+    ]
+      .map(cxNormalizeModuleToken017H)
+      .filter(Boolean);
+  }
+
+  function cxAssistantModulePool027E() {
+    const normalized = visibleClientModules(activeClientModules());
+    const raw = Array.isArray(state.companyModules) ? state.companyModules : [];
+    return [...normalized, ...raw];
+  }
+
   function cxAssistantIsQuotesTool027A(module = {}) {
-    const code = cxNormalizeModuleToken017H(module.code || module);
-    const title = cxNormalizeModuleToken017H(module.title || module.name || "");
-    return ["cotizacion", "cotizaciones", "cotizar", "quote", "quotes"].includes(code) || title.includes("cotizacion");
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) => ["cotizacion", "cotizaciones", "cotizar", "quote", "quotes", "quotation", "quotations"].includes(token) || token.includes("cotizacion"));
   }
 
   function cxAssistantIsCrmTool027D(module = {}) {
-    const code = cxNormalizeModuleToken017H(module.code || module);
-    const title = cxNormalizeModuleToken017H(module.title || module.name || "");
-    return ["crm", "crm_campo", "crm_live", "crm_operativo"].includes(code) || (title.includes("crm") && title.includes("campo"));
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["crm", "crm_campo", "crm_live", "crm_operativo", "field_crm"].includes(token) ||
+      token.includes("crm_campo") ||
+      (token.includes("crm") && (token.includes("campo") || token.includes("operacion") || token.includes("operativo") || token.includes("live")))
+    );
   }
 
   function cxAssistantReadActiveTools027A() {
     const modules = visibleClientModules(activeClientModules());
     const codes = clientModuleCodes(modules);
-    const normalizedCodes = new Set(modules.map((module) => cxNormalizeModuleToken017H(module.code || module.title || "")).filter(Boolean));
-    const hasQuotes = modules.some(cxAssistantIsQuotesTool027A);
-    const hasCrm = modules.some(cxAssistantIsCrmTool027D) || normalizedCodes.has("crm");
+    const modulePool = cxAssistantModulePool027E();
+    const normalizedCodes = new Set(modulePool.flatMap(cxAssistantModuleTokens027E).filter(Boolean));
+    const hasQuotes = modulePool.some(cxAssistantIsQuotesTool027A);
+    const hasCrm = modulePool.some(cxAssistantIsCrmTool027D) || normalizedCodes.has("crm");
     const hasPayroll = normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
     return { hasQuotes, hasCrm, hasPayroll, hasShoplink, modules };
@@ -12301,12 +12338,23 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantCrmHasAccess027D() {
-    return cxAssistantReadActiveTools027A().hasCrm || isClientModuleActive("crm");
+    return (
+      cxAssistantReadActiveTools027A().hasCrm ||
+      cxAssistantModulePool027E().some(cxAssistantIsCrmTool027D) ||
+      isClientModuleActive("crm") ||
+      isClientModuleActive("crm_campo") ||
+      isClientModuleActive("crm_live")
+    );
   }
 
   async function cxAssistantLoadCrm027D() {
-    if (!cxAssistantCrmHasAccess027D()) return null;
-    const crm = await loadClientCrmData();
+    let crm = null;
+    try {
+      crm = await loadClientCrmData();
+    } catch (error) {
+      const snapshot = await api(`/crm-core-v1/companies/${encodeURIComponent(state.companyId)}/snapshot`);
+      crm = crmNormalizeSnapshot018B(snapshot);
+    }
     if (typeof crmUseMundoCaseAreaMode024C === "function" && crmUseMundoCaseAreaMode024C() && typeof crmApplyAreaMapping024C === "function") {
       await crmApplyAreaMapping024C(crm);
     }
@@ -12420,17 +12468,17 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantLooksCrmQuery027D(text = "") {
-    if (!cxAssistantCrmHasAccess027D()) return false;
     const norm = cxAssistantNorm027A(text).replace(/\benque\b/g, "en que");
     if (cxAssistantCrmLooksGeneric027D(norm)) return true;
-    return (
+    const statusIntent = (
       norm.includes("estado") ||
       norm.includes("conect") ||
       norm.includes("turno") ||
       norm.includes("pausa") ||
       norm.includes("activo") ||
       norm.includes("activa")
-    ) && !norm.includes("pedido") && !norm.includes("factura") && !norm.includes("cuenta de cobro");
+    );
+    return cxAssistantCrmHasAccess027D() && statusIntent && !norm.includes("pedido") && !norm.includes("factura") && !norm.includes("cuenta de cobro");
   }
 
   function cxAssistantCrmSummaryHtml027D(crm = {}) {
@@ -12471,15 +12519,16 @@ function inventoryCreatePayload() {
   }
 
   async function cxAssistantReplyCrm027D(chat, text = "") {
-    if (!cxAssistantCrmHasAccess027D()) {
-      cxAssistantPush027A(chat, "assistant", "CRM Campo no esta activo para esta empresa.");
-      return;
-    }
+    const hadAccess = cxAssistantCrmHasAccess027D();
     try {
       cxAssistantPush027A(chat, "assistant", "Consultando CRM Campo en vivo...");
       cxAssistantRenderMessages027A();
       const crm = await cxAssistantLoadCrm027D();
       const people = Array.isArray(crm?.people) ? crm.people : [];
+      if (!hadAccess && !people.length) {
+        cxAssistantPush027A(chat, "assistant", "CRM Campo no esta activo o no tiene datos disponibles para esta empresa.");
+        return;
+      }
       const matches = cxAssistantCrmNameMatches027D(text, people);
       const generic = cxAssistantCrmLooksGeneric027D(text) || !matches.length;
       const html = matches.length && !generic
