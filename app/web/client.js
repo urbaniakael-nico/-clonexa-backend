@@ -2288,6 +2288,15 @@
     }
   }
 
+  async function loadClientBotWhatsApp027F() {
+    if (!state.companyId) return null;
+    try {
+      return await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web`);
+    } catch (error) {
+      return { configured: false, status: "error", last_error: error.message || "No se pudo cargar WhatsApp IA" };
+    }
+  }
+
   function botStatusLabel(status) {
     const value = String(status || "not_configured").toLowerCase();
     if (value === "listening") return "Escuchando";
@@ -2298,13 +2307,58 @@
     return value;
   }
 
+  function botWhatsAppStatusLabel027F(status) {
+    const value = String(status || "not_linked").toLowerCase();
+    if (value === "connected") return "Vinculado";
+    if (value === "qr") return "QR listo";
+    if (value === "connecting") return "Conectando";
+    if (value === "disconnected") return "Desconectado";
+    if (value === "not_linked") return "Sin vincular";
+    if (value === "error") return "Error";
+    return value;
+  }
+
+  function botWhatsAppQr027F(whatsapp = {}) {
+    if (whatsapp.qr_data_url) {
+      return `
+        <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:18px">
+          <div style="background:#fff;border-radius:18px;padding:12px;width:190px;min-height:190px;display:grid;place-items:center">
+            <img src="${h(whatsapp.qr_data_url)}" alt="QR WhatsApp IA" style="width:166px;height:166px;object-fit:contain">
+          </div>
+          <div class="client-muted" style="max-width:560px">
+            Escanea este QR desde WhatsApp > Dispositivos vinculados. El numero queda como puente del Agente CLONEXA de esta empresa.
+          </div>
+        </div>
+      `;
+    }
+    if (whatsapp.connected_phone) {
+      return `
+        <div class="client-kpi" style="margin-top:18px;max-width:420px">
+          <span>Numero vinculado</span>
+          <strong>${h(whatsapp.connected_phone)}</strong>
+        </div>
+      `;
+    }
+    return `
+      <div class="client-muted" style="margin-top:18px">
+        Genera el QR y vincula el WhatsApp que funcionara como contacto del agente.
+      </div>
+    `;
+  }
+
   async function renderBotsModule() {
     const company = state.company || {};
-    const bot = await loadClientBotConfig();
+    const [bot, whatsapp] = await Promise.all([
+      loadClientBotConfig(),
+      loadClientBotWhatsApp027F(),
+    ]);
     const configured = !!bot?.configured;
     const status = botStatusLabel(bot?.status);
     const botName = bot?.name || `${company.name || "Empresa"} Bot`;
     const botUsername = bot?.bot_username || "Sin configurar";
+    const waStatus = botWhatsAppStatusLabel027F(whatsapp?.status);
+    const waAgentName = whatsapp?.name || `Agente ${company.name || "Empresa"}`;
+    const waConfigured = !!whatsapp?.configured || ["connected", "qr", "connecting", "disconnected"].includes(String(whatsapp?.status || "").toLowerCase());
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -2364,6 +2418,42 @@
 
               ${bot?.last_error ? `<div class="personal-toast error">${h(bot.last_error)}</div>` : ""}
             </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Canal WhatsApp vinculado</div>
+              <h2>Agente IA por WhatsApp</h2>
+              <p class="client-muted">WhatsApp funciona como puente. CLONEXA lee el mensaje entrante y responde como ${h(waAgentName)} con datos de esta empresa.</p>
+
+              <div class="client-kpi-grid">
+                <div class="client-kpi">
+                  <span>Estado</span>
+                  <strong>${h(waStatus)}</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>Canal</span>
+                  <strong>WhatsApp Web</strong>
+                </div>
+                <div class="client-kpi">
+                  <span>Agente</span>
+                  <strong>${h(waAgentName)}</strong>
+                </div>
+              </div>
+
+              ${botWhatsAppQr027F(whatsapp || {})}
+
+              <div class="personal-toolbar" style="margin-top:22px;align-items:center">
+                <button class="client-btn" type="button" data-bot-wa-start>${whatsapp?.qr_data_url ? "Regenerar QR" : "Generar QR"}</button>
+                <button class="client-btn" type="button" data-bot-wa-refresh>Actualizar</button>
+                <button class="client-btn" type="button" data-bot-wa-logout ${waConfigured ? "" : "disabled"}>Desvincular</button>
+              </div>
+
+              <div class="personal-toolbar" style="margin-top:14px;align-items:center">
+                <input class="personal-search" data-bot-wa-test-phone placeholder="+57 numero para probar el agente">
+                <button class="client-btn" type="button" data-bot-wa-test>Probar agente</button>
+              </div>
+
+              ${whatsapp?.last_error ? `<div class="personal-toast error">${h(whatsapp.last_error)}</div>` : ""}
+            </section>
           </section>
         </div>
       </main>
@@ -2394,6 +2484,50 @@
       setTimeout(() => showBotsNotice("Nombre del bot actualizado."), 50);
     } catch (error) {
       showBotsNotice(error.message || "No se pudo guardar el nombre.", "error");
+    }
+  }
+
+  async function startClientBotWhatsApp027F() {
+    try {
+      showBotsNotice("Generando QR WhatsApp IA...");
+      await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/start`, { method: "POST" });
+      await renderBotsModule();
+      setTimeout(() => showBotsNotice("QR/estado WhatsApp actualizado."), 50);
+    } catch (error) {
+      showBotsNotice(error.message || "No se pudo generar el QR.", "error");
+    }
+  }
+
+  async function refreshClientBotWhatsApp027F() {
+    await renderBotsModule();
+    setTimeout(() => showBotsNotice("Estado actualizado."), 50);
+  }
+
+  async function logoutClientBotWhatsApp027F() {
+    try {
+      await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/logout`, { method: "POST" });
+      await renderBotsModule();
+      setTimeout(() => showBotsNotice("WhatsApp desvinculado."), 50);
+    } catch (error) {
+      showBotsNotice(error.message || "No se pudo desvincular WhatsApp.", "error");
+    }
+  }
+
+  async function testClientBotWhatsApp027F() {
+    const input = document.querySelector("[data-bot-wa-test-phone]");
+    const to = String(input?.value || "").trim();
+    if (!to) {
+      showBotsNotice("Escribe un numero destino para probar.", "error");
+      return;
+    }
+    try {
+      await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/test`, {
+        method: "POST",
+        body: JSON.stringify({ to, message: "Hola, soy el Agente CLONEXA. Escribeme: estado CRM, estado de una persona o modulos activos." }),
+      });
+      showBotsNotice("Prueba enviada por WhatsApp.");
+    } catch (error) {
+      showBotsNotice(error.message || "No se pudo enviar la prueba.", "error");
     }
   }
 
@@ -21830,6 +21964,26 @@ function inventoryCreatePayload() {
 
       if (target.closest("[data-bot-save-name]")) {
         await saveClientBotName();
+        return;
+      }
+
+      if (target.closest("[data-bot-wa-start]")) {
+        await startClientBotWhatsApp027F();
+        return;
+      }
+
+      if (target.closest("[data-bot-wa-refresh]")) {
+        await refreshClientBotWhatsApp027F();
+        return;
+      }
+
+      if (target.closest("[data-bot-wa-logout]")) {
+        await logoutClientBotWhatsApp027F();
+        return;
+      }
+
+      if (target.closest("[data-bot-wa-test]")) {
+        await testClientBotWhatsApp027F();
         return;
       }
     });

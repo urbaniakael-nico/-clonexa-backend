@@ -8,6 +8,7 @@ import json
 import re
 import logging
 import os
+import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
@@ -16,10 +17,12 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.crm_core_v1 import crm_core_snapshot
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
 from app.integrations.telegram.parser import parse_telegram_update
@@ -35,6 +38,7 @@ from app.schemas.bot import (
     TelegramBotTestOut,
 )
 from app.services.event_engine import EventEngine
+from app.services.shoplink_whatsapp_web import whatsapp_logout, whatsapp_send, whatsapp_start, whatsapp_status
 
 try:
     from cryptography.fernet import Fernet
@@ -231,6 +235,219 @@ def bot_out(row: CompanyBotInstance | None, company_id: UUID | None = None) -> T
         last_error=row.last_error,
         config_json=row.config_json or {},
     )
+
+
+class WhatsAppWebTestIn(BaseModel):
+    to: str | None = None
+    message: str | None = None
+
+
+class WhatsAppWebInboundIn(BaseModel):
+    company_id: str
+    from_jid: str | None = None
+    from_phone: str | None = None
+    push_name: str | None = None
+    message_id: str | None = None
+    text: str | None = None
+    timestamp: Any | None = None
+
+
+def _wa_agent_name(company: Company | None) -> str:
+    name = str(getattr(company, "name", "") or "Empresa").strip() or "Empresa"
+    return f"Agente {name}"
+
+
+def _text_norm(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    raw = unicodedata.normalize("NFKD", raw)
+    raw = "".join(char for char in raw if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", raw).strip()
+
+
+def _contains_any(text_value: str, words: list[str]) -> bool:
+    text_norm = _text_norm(text_value)
+    return any(_text_norm(word) in text_norm for word in words)
+
+
+def _seconds_label(value: Any) -> str:
+    try:
+        total = max(0, int(float(value or 0)))
+    except Exception:
+        total = 0
+    hours = total // 3600
+    minutes = (total % 3600) // 60
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _employee_match_from_text(text_value: str, employees: list[dict[str, Any]]) -> dict[str, Any] | None:
+    query = _text_norm(text_value)
+    best: tuple[int, dict[str, Any]] | None = None
+    for employee in employees:
+        name = _text_norm(employee.get("employee_name"))
+        if not name:
+            continue
+        tokens = [token for token in re.split(r"[^a-z0-9]+", name) if len(token) >= 3]
+        score = sum(1 for token in tokens if token and token in query)
+        if score and (best is None or score > best[0]):
+            best = (score, employee)
+    return best[1] if best else None
+
+
+def _employee_reference_label(employee: dict[str, Any]) -> str:
+    for adapter in employee.get("adapters") or []:
+        if adapter.get("code") != "production_references":
+            continue
+        for item in adapter.get("items") or []:
+            if item.get("is_active"):
+                return str(item.get("title") or item.get("name") or item.get("reference_name") or "").strip()
+    return ""
+
+
+def _format_employee_status(employee: dict[str, Any]) -> str:
+    name = str(employee.get("employee_name") or "Empleado").strip()
+    core = employee.get("core") or {}
+    status_label_value = str(core.get("status_label") or core.get("status") or "Sin estado").strip()
+    if core.get("pause_running"):
+        time_label = f"Tiempo en pausa: {_seconds_label(core.get('current_pause_seconds'))}."
+    elif core.get("shift_running"):
+        time_label = f"Tiempo activo: {_seconds_label(core.get('shift_effective_seconds'))}."
+    else:
+        time_label = "No tiene turno activo."
+    pieces = [f"{name}: {status_label_value}.", time_label]
+    reference = _employee_reference_label(employee)
+    if reference:
+        pieces.append(f"Referencia activa: {reference}.")
+    gps = employee.get("gps") or {}
+    if gps:
+        pieces.append(f"GPS: {gps.get('gps_label') or gps.get('gps_status') or 'reportado'}.")
+    return " ".join(piece for piece in pieces if piece)
+
+
+def _format_crm_summary(company: Company, snapshot: dict[str, Any], text_value: str) -> str:
+    employees = list(snapshot.get("employees") or [])
+    matched = _employee_match_from_text(text_value, employees)
+    if matched:
+        return _format_employee_status(matched)
+
+    summary = snapshot.get("summary") or {}
+    lines = [
+        f"CRM Campo de {company.name}:",
+        f"Personal total: {summary.get('employees_total', len(employees))}",
+        f"Activos: {summary.get('active_now', 0)}",
+        f"En pausa: {summary.get('on_break', 0)}",
+        f"Fuera: {summary.get('out', 0)}",
+    ]
+    if summary.get("gps_adapter"):
+        lines.append(f"GPS reportado: {summary.get('gps_sent_location', 0)}")
+    if summary.get("with_reference"):
+        lines.append(f"Con referencia: {summary.get('with_reference', 0)}")
+
+    visible = employees[:8]
+    if visible:
+        lines.append("")
+        lines.append("Estados visibles:")
+        for employee in visible:
+            core = employee.get("core") or {}
+            lines.append(f"- {employee.get('employee_name') or 'Empleado'}: {core.get('status_label') or core.get('status') or 'Sin estado'}")
+    if len(employees) > len(visible):
+        lines.append(f"...y {len(employees) - len(visible)} mas.")
+    return "\n".join(lines)
+
+
+async def _whatsapp_agent_reply(
+    *,
+    company_id: UUID,
+    company: Company,
+    db: AsyncSession,
+    text_value: str,
+    push_name: str | None = None,
+) -> str:
+    normalized = _text_norm(text_value)
+    sender = str(push_name or "").strip()
+    prefix_name = f" {sender}" if sender and len(sender) <= 40 else ""
+
+    crm_words = [
+        "crm",
+        "estado",
+        "estados",
+        "conexion",
+        "conexiones",
+        "gente",
+        "personal",
+        "equipo",
+        "turno",
+        "pausa",
+        "activo",
+        "activos",
+        "donde esta",
+        "en que esta",
+        "resumen",
+        "reporte",
+        "reportes",
+        "operativo",
+        "operativa",
+    ]
+    module_words = ["modulo", "modulos", "herramientas", "funciones", "que puedes", "que sabes"]
+    quote_words = ["cuenta de cobro", "cotizacion", "cotizacion", "cobro"]
+
+    try:
+        snapshot = await crm_core_snapshot(str(company_id), db)
+    except Exception as exc:
+        logger.warning("whatsapp agent snapshot failed: %s", exc, exc_info=True)
+        snapshot = {"active_modules": [], "employees": [], "summary": {}}
+
+    modules = list(snapshot.get("active_modules") or [])
+
+    if _contains_any(normalized, module_words):
+        module_label = ", ".join(modules) if modules else "sin modulos activos detectados"
+        return (
+            f"Hola{prefix_name}. Soy {_wa_agent_name(company)}. "
+            f"Estoy vinculado a CLONEXA para {company.name}. "
+            f"Modulos activos: {module_label}. "
+            "Puedes pedirme: estado CRM, estado de una persona, conexiones del equipo o resumen operativo."
+        )
+
+    if _contains_any(normalized, crm_words):
+        return _format_crm_summary(company, snapshot, text_value)
+
+    if _contains_any(normalized, quote_words):
+        return (
+            f"Perfecto{prefix_name}. Soy {_wa_agent_name(company)}. "
+            "Para cuenta de cobro o cotizacion por WhatsApp necesito activar el flujo guiado con PDF en este canal. "
+            "Ya puedo responder consultas operativas; el siguiente paso es conectar este chat al generador de PDF."
+        )
+
+    return (
+        f"Hola{prefix_name}. Soy {_wa_agent_name(company)}, conectado al panel CLONEXA de {company.name}. "
+        "Escribeme por ejemplo: estado CRM, estado de Nicolas, conexiones del equipo o modulos activos."
+    )
+
+
+def _whatsapp_web_out(company: Company, payload: dict[str, Any]) -> dict[str, Any]:
+    status_value = str(payload.get("status") or "not_linked")
+    return {
+        "ok": bool(payload.get("ok", True)),
+        "company_id": str(company.id),
+        "channel": "whatsapp_web",
+        "name": _wa_agent_name(company),
+        "configured": status_value not in {"not_linked", "missing_phone"},
+        "status": status_value,
+        "qr_data_url": payload.get("qr_data_url") or "",
+        "connected_phone": payload.get("connected_phone") or "",
+        "last_error": payload.get("last_error") or payload.get("detail") or "",
+        "updated_at": payload.get("updated_at") or "",
+    }
+
+
+def _ensure_whatsapp_inbound_secret(request: Request) -> None:
+    expected = str(os.getenv("WHATSAPP_INBOUND_SECRET") or get_settings().JWT_SECRET_KEY or "").strip()
+    if not expected:
+        return
+    received = str(request.headers.get("x-clonexa-whatsapp-secret") or "").strip()
+    if received != expected:
+        raise HTTPException(status_code=403, detail="WhatsApp inbound no autorizado.")
 
 
 async def get_telegram_instance(db: AsyncSession, company_id: UUID) -> CompanyBotInstance | None:
@@ -4469,6 +4686,88 @@ async def get_company_telegram_bot(
     await ensure_company_exists(db, company_id)
     row = await get_telegram_instance(db, company_id)
     return bot_out(row, company_id)
+
+
+@router.get("/companies/{company_id}/whatsapp-web")
+async def get_company_whatsapp_web_agent(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await ensure_company_exists(db, company_id)
+    payload = await whatsapp_status(str(company_id))
+    return _whatsapp_web_out(company, payload)
+
+
+@router.post("/companies/{company_id}/whatsapp-web/start")
+async def start_company_whatsapp_web_agent(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await ensure_company_exists(db, company_id)
+    payload = await whatsapp_start(str(company_id))
+    return _whatsapp_web_out(company, payload)
+
+
+@router.post("/companies/{company_id}/whatsapp-web/logout")
+async def logout_company_whatsapp_web_agent(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await ensure_company_exists(db, company_id)
+    payload = await whatsapp_logout(str(company_id))
+    return _whatsapp_web_out(company, payload)
+
+
+@router.post("/companies/{company_id}/whatsapp-web/test")
+async def test_company_whatsapp_web_agent(
+    company_id: UUID,
+    payload: WhatsAppWebTestIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await ensure_company_exists(db, company_id)
+    to = str(payload.to or "").strip()
+    if not to:
+        raise HTTPException(status_code=422, detail="Numero WhatsApp destino requerido para probar.")
+    message = str(payload.message or "").strip() or await _whatsapp_agent_reply(
+        company_id=company_id,
+        company=company,
+        db=db,
+        text_value="modulos activos",
+    )
+    sent = await whatsapp_send(str(company_id), to, message)
+    if not sent.get("ok"):
+        raise HTTPException(status_code=409, detail=sent.get("detail") or "No se pudo enviar la prueba WhatsApp.")
+    return {"ok": True, "sent": sent}
+
+
+@router.post("/whatsapp-web/inbound")
+async def whatsapp_web_agent_inbound(
+    payload: WhatsAppWebInboundIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _ensure_whatsapp_inbound_secret(request)
+    try:
+        company_id = UUID(str(payload.company_id))
+    except Exception:
+        raise HTTPException(status_code=422, detail="Empresa invalida.")
+    company = await ensure_company_exists(db, company_id)
+    text_value = str(payload.text or "").strip()
+    if not text_value:
+        return {"ok": True, "ignored": True, "reply": ""}
+    reply = await _whatsapp_agent_reply(
+        company_id=company_id,
+        company=company,
+        db=db,
+        text_value=text_value,
+        push_name=payload.push_name,
+    )
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "agent_name": _wa_agent_name(company),
+        "reply": reply,
+    }
 
 
 @router.put("/companies/{company_id}/telegram", response_model=TelegramBotConfigOut)

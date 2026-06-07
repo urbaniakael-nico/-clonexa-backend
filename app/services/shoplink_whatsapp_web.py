@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from app.core.config import get_settings
+
 _PROCESS: subprocess.Popen | None = None
 
 
@@ -34,6 +36,11 @@ def start_whatsapp_bridge() -> bool:
     env = os.environ.copy()
     env.setdefault("WHATSAPP_BRIDGE_PORT", str(_bridge_port()))
     env.setdefault("WHATSAPP_AUTH_DIR", "/tmp/clonexa-whatsapp-auth")
+    env.setdefault(
+        "WHATSAPP_INBOUND_URL",
+        os.getenv("WHATSAPP_INBOUND_URL", f"http://127.0.0.1:{os.getenv('PORT', '8000')}/api/v1/bots/whatsapp-web/inbound"),
+    )
+    env.setdefault("WHATSAPP_INBOUND_SECRET", os.getenv("WHATSAPP_INBOUND_SECRET", get_settings().JWT_SECRET_KEY))
     _PROCESS = subprocess.Popen(["node", str(script)], cwd=str(root), env=env)
     return True
 
@@ -70,4 +77,3 @@ async def whatsapp_logout(company_id: str) -> dict[str, Any]:
 
 async def whatsapp_send(company_id: str, to: str, message: str) -> dict[str, Any]:
     return await _request("POST", f"/sessions/{company_id}/send", {"to": to, "message": message})
-

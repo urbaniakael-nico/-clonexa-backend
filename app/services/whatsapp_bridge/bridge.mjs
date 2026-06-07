@@ -13,8 +13,11 @@ import QRCode from "qrcode";
 
 const PORT = Number(process.env.WHATSAPP_BRIDGE_PORT || 3219);
 const AUTH_ROOT = process.env.WHATSAPP_AUTH_DIR || "/tmp/clonexa-whatsapp-auth";
+const INBOUND_URL = String(process.env.WHATSAPP_INBOUND_URL || "").trim();
+const INBOUND_SECRET = String(process.env.WHATSAPP_INBOUND_SECRET || "").trim();
 const logger = Pino({ level: process.env.WHATSAPP_BRIDGE_LOG_LEVEL || "warn" });
 const sessions = new Map();
+const processedInboundIds = new Set();
 
 function cleanCompanyId(value = "") {
   return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 90);
@@ -30,6 +33,59 @@ function normalizePhone(value = "") {
 function phoneFromJid(value = "") {
   const user = String(value || "").split("@")[0].split(":")[0];
   return normalizePhone(user);
+}
+
+function rememberInboundId(id = "") {
+  const key = String(id || "").trim();
+  if (!key) return false;
+  if (processedInboundIds.has(key)) return true;
+  processedInboundIds.add(key);
+  if (processedInboundIds.size > 500) {
+    const first = processedInboundIds.values().next().value;
+    processedInboundIds.delete(first);
+  }
+  return false;
+}
+
+function extractMessageText(message = {}) {
+  const content = message.message || {};
+  return String(
+    content.conversation ||
+      content.extendedTextMessage?.text ||
+      content.imageMessage?.caption ||
+      content.videoMessage?.caption ||
+      content.documentMessage?.caption ||
+      ""
+  ).trim();
+}
+
+async function postInboundMessage(companyId, message) {
+  if (!INBOUND_URL) return { ok: false, detail: "WHATSAPP_INBOUND_URL not configured." };
+  const remoteJid = String(message.key?.remoteJid || "");
+  const text = extractMessageText(message);
+  if (!remoteJid || !text) return { ok: true, ignored: true };
+  const payload = {
+    company_id: companyId,
+    from_jid: remoteJid,
+    from_phone: phoneFromJid(remoteJid),
+    push_name: message.pushName || "",
+    message_id: message.key?.id || "",
+    text,
+    timestamp: message.messageTimestamp || null,
+  };
+  const response = await fetch(INBOUND_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(INBOUND_SECRET ? { "x-clonexa-whatsapp-secret": INBOUND_SECRET } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { ok: false, status: response.status, detail: data?.detail || "Inbound callback failed." };
+  }
+  return data;
 }
 
 function sessionPublic(companyId) {
@@ -90,6 +146,25 @@ async function startSession(companyId) {
   });
   session.sock = sock;
   sock.ev.on("creds.update", saveCreds);
+  sock.ev.on("messages.upsert", async (event) => {
+    const messages = Array.isArray(event?.messages) ? event.messages : [];
+    for (const message of messages) {
+      const remoteJid = String(message?.key?.remoteJid || "");
+      if (!remoteJid || message?.key?.fromMe) continue;
+      if (remoteJid.endsWith("@g.us") || remoteJid === "status@broadcast") continue;
+      const messageId = message?.key?.id || "";
+      if (rememberInboundId(`${companyId}:${remoteJid}:${messageId}`)) continue;
+      try {
+        const result = await postInboundMessage(companyId, message);
+        const reply = String(result?.reply || "").trim();
+        if (reply) {
+          await sock.sendMessage(remoteJid, { text: reply });
+        }
+      } catch (error) {
+        logger.error({ err: error, companyId, remoteJid }, "whatsapp inbound failed");
+      }
+    }
+  });
   sock.ev.on("connection.update", async (update) => {
     session.updatedAt = new Date().toISOString();
     if (update.qr) {
