@@ -740,6 +740,11 @@
     mini_paneles: ["Mini Paneles", "links operativos", "MIN"],
     creacion_minipanel: ["Mini Paneles", "links operativos", "MIN"],
     creacion_mini_panel: ["Mini Paneles", "links operativos", "MIN"],
+    assistant_ai: ["Asistente CLONEXA", "chat operativo y automatizaciones", "AI"],
+    asistente_clonexa: ["Asistente CLONEXA", "chat operativo y automatizaciones", "AI"],
+    clonexa_assistant: ["Asistente CLONEXA", "chat operativo y automatizaciones", "AI"],
+    ai_assistant: ["Asistente CLONEXA", "chat operativo y automatizaciones", "AI"],
+    ia_operativa: ["IA Operativa", "chat operativo y automatizaciones", "AI"],
   };
 
 
@@ -11870,6 +11875,367 @@ function inventoryCreatePayload() {
     });
   }
 
+  function cxIsAssistantCode027A(code = "") {
+    const normalized = cxNormalizeModuleToken017H(code);
+    return [
+      "assistant_ai",
+      "asistente_clonexa",
+      "clonexa_assistant",
+      "ai_assistant",
+      "ia_operativa",
+    ].includes(normalized);
+  }
+
+  function cxAssistantEnsureStyles027A() {
+    if (document.getElementById("cxAssistantStyles027A")) return;
+    const style = document.createElement("style");
+    style.id = "cxAssistantStyles027A";
+    style.textContent = `
+      .cxai-grid-027a{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,.7fr);gap:18px}
+      .cxai-card-027a{border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.07);padding:18px;box-shadow:0 22px 60px rgba(0,0,0,.18)}
+      .cxai-thread-027a{display:grid;gap:12px;margin-bottom:16px}
+      .cxai-msg-027a{max-width:760px;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:14px 16px;background:rgba(0,0,0,.18);font-weight:850;color:var(--text)}
+      .cxai-msg-027a.assistant{background:linear-gradient(135deg,rgba(34,211,238,.16),rgba(168,85,247,.14))}
+      .cxai-msg-027a.user{justify-self:end;background:rgba(255,255,255,.10)}
+      .cxai-actions-027a{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+      .cxai-form-027a{display:grid;gap:14px}
+      .cxai-field-grid-027a{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+      .cxai-field-027a{display:grid;gap:7px}
+      .cxai-field-027a label,.cxai-item-grid-027a label{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);font-weight:1000}
+      .cxai-field-027a input,.cxai-field-027a textarea,.cxai-field-027a select,.cxai-item-grid-027a input{width:100%;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(0,0,0,.28);color:var(--text);padding:12px;font-weight:850;outline:none}
+      .cxai-field-027a textarea{min-height:86px;resize:vertical}
+      .cxai-item-027a{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(0,0,0,.12);padding:12px;margin-top:10px}
+      .cxai-item-grid-027a{display:grid;grid-template-columns:minmax(180px,1fr) 110px 150px auto;gap:10px;align-items:end}
+      .cxai-btn-027a{border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(255,255,255,.09);color:var(--text);padding:11px 14px;font-weight:1000;cursor:pointer}
+      .cxai-btn-027a.primary{background:linear-gradient(135deg,var(--accent,#22d3ee),#a855f7);color:#050816;border:0;box-shadow:0 14px 34px rgba(34,211,238,.18)}
+      .cxai-btn-027a.danger{color:#ff7aa8}
+      .cxai-kpis-027a{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+      .cxai-kpi-027a{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(0,0,0,.16);padding:14px}
+      .cxai-kpi-027a span{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em;font-weight:1000}
+      .cxai-kpi-027a strong{display:block;margin-top:7px;font-size:22px}
+      .cxai-result-027a{margin-top:12px;font-weight:900}
+      .cxai-result-027a.error{color:#ff7aa8}
+      .cxai-result-027a.ok{color:var(--accent)}
+      @media(max-width:980px){.cxai-grid-027a,.cxai-field-grid-027a,.cxai-item-grid-027a{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxAssistantDocumentLabel027A(type = "account") {
+    return type === "quote" ? "cotizacion" : "cuenta de cobro";
+  }
+
+  function cxAssistantItemRow027A(item = {}) {
+    return `
+      <div class="cxai-item-027a" data-cxai-item-027a>
+        <div class="cxai-item-grid-027a">
+          <div>
+            <label>Concepto</label>
+            <input name="assistant_item_description" placeholder="Servicio, producto o referencia" value="${h(item.description || "")}" required>
+          </div>
+          <div>
+            <label>Cantidad</label>
+            <input name="assistant_item_quantity" type="number" min="0" step="0.01" value="${h(item.quantity ?? 1)}">
+          </div>
+          <div>
+            <label>Valor unitario</label>
+            <input name="assistant_item_unit_price" type="number" min="0" step="0.01" value="${h(item.unit_price ?? 0)}">
+          </div>
+          <button class="cxai-btn-027a danger" type="button" data-cxai-remove-item-027a>Quitar</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function cxAssistantReadActiveTools027A() {
+    const modules = visibleClientModules(activeClientModules());
+    const codes = clientModuleCodes(modules);
+    const hasQuotes = modules.some((module) => {
+      const code = cxNormalizeModuleToken017H(module.code);
+      const title = cxNormalizeModuleToken017H(module.title || module.name || "");
+      return ["cotizacion", "cotizaciones", "quote", "quotes"].includes(code) || title.includes("cotizacion");
+    });
+    const hasPayroll = hasAnyClientModule(codes, ["payroll"]);
+    const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
+    return { hasQuotes, hasPayroll, hasShoplink, modules };
+  }
+
+  function cxAssistantRecalc027A() {
+    const form = document.querySelector("[data-cxai-form-027a]");
+    if (!form) return;
+    let subtotal = 0;
+    form.querySelectorAll("[data-cxai-item-027a]").forEach((row) => {
+      const qty = Number(row.querySelector('[name="assistant_item_quantity"]')?.value || 0);
+      const unit = Number(row.querySelector('[name="assistant_item_unit_price"]')?.value || 0);
+      subtotal += qty * unit;
+    });
+    const discount = Number(form.querySelector('[name="discount_value"]')?.value || 0);
+    const retentionPercent = Math.min(100, Math.max(0, Number(form.querySelector('[name="retention_percent"]')?.value || 0)));
+    const total = Math.max(0, subtotal - discount);
+    const retention = subtotal * retentionPercent / 100;
+    const totalEl = document.querySelector("[data-cxai-total-027a]");
+    const retentionEl = document.querySelector("[data-cxai-retention-027a]");
+    if (totalEl) totalEl.textContent = cxUniversalMoney021D(total);
+    if (retentionEl) retentionEl.textContent = cxUniversalMoney021D(retention);
+  }
+
+  async function cxAssistantSubmitQuote027A(activeCode) {
+    const form = document.querySelector("[data-cxai-form-027a]");
+    const notice = document.querySelector("[data-cxai-result-027a]");
+    if (!form || !notice) return;
+
+    const fd = new FormData(form);
+    const documentType = String(fd.get("document_type") || "account") === "quote" ? "quote" : "account";
+    const items = Array.from(form.querySelectorAll("[data-cxai-item-027a]"))
+      .map((row) => ({
+        description: String(row.querySelector('[name="assistant_item_description"]')?.value || "").trim(),
+        quantity: Number(row.querySelector('[name="assistant_item_quantity"]')?.value || 0),
+        unit_price: Number(row.querySelector('[name="assistant_item_unit_price"]')?.value || 0),
+      }))
+      .filter((item) => item.description);
+
+    if (!String(fd.get("client_name") || "").trim()) {
+      notice.className = "cxai-result-027a error";
+      notice.textContent = "Necesito el nombre o razon social del cliente.";
+      return;
+    }
+
+    if (!items.length) {
+      notice.className = "cxai-result-027a error";
+      notice.textContent = "Necesito al menos un concepto para generar el documento.";
+      return;
+    }
+
+    const discounts = [
+      {
+        type: "discount",
+        kind: "discount",
+        affects_total: true,
+        name: String(fd.get("discount_name") || "").trim(),
+        description: String(fd.get("discount_description") || "").trim(),
+        value: Number(fd.get("discount_value") || 0),
+      },
+      {
+        type: "retention",
+        kind: "retention",
+        affects_total: false,
+        name: String(fd.get("retention_name") || "Retencion").trim(),
+        description: String(fd.get("retention_description") || "").trim(),
+        percent: Number(fd.get("retention_percent") || 0),
+        value: Number(fd.get("retention_percent") || 0),
+      },
+    ];
+
+    const body = {
+      client_name: String(fd.get("client_name") || "").trim(),
+      client_document: String(fd.get("client_document") || "").trim(),
+      client_address: String(fd.get("client_address") || "").trim(),
+      client_phone: String(fd.get("client_phone") || "").trim(),
+      client_email: String(fd.get("client_email") || "").trim(),
+      items,
+      discounts,
+      payment: {
+        detail: String(fd.get("payment_detail") || "").trim(),
+        name: String(fd.get("payment_name") || "").trim(),
+        method: String(fd.get("payment_method") || "transferencia"),
+        data: String(fd.get("payment_data") || "").trim(),
+      },
+      notes: String(fd.get("notes") || "").trim(),
+    };
+
+    try {
+      notice.className = "cxai-result-027a";
+      notice.textContent = `Generando ${cxAssistantDocumentLabel027A(documentType)}...`;
+
+      const created = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      let quote = created.quote || {};
+
+      if (documentType === "account" && quote.id) {
+        const converted = await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(quote.id)}/convert?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        quote = converted.quote || quote;
+      }
+
+      const pdfUrl = `${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(quote.id)}/pdf?panel_type=${encodeURIComponent(cxUniversalPanelType021D())}&document_type=${encodeURIComponent(documentType)}`;
+      const number = quote.document_number || (documentType === "account" ? quote.account_number : quote.quote_number) || quote.quote_number || "";
+      notice.className = "cxai-result-027a ok";
+      notice.innerHTML = `
+        Perfecto. Genere ${h(cxAssistantDocumentLabel027A(documentType))} ${h(number)}.
+        <div class="cxai-actions-027a">
+          <a class="cxai-btn-027a primary" href="${h(pdfUrl)}" target="_blank" rel="noopener">Descargar PDF</a>
+          <button class="cxai-btn-027a" type="button" data-client-module="cotizaciones">Ver historial</button>
+        </div>
+      `;
+      form.reset();
+      window.__cxAssistantDocType027A = documentType;
+      const wrap = document.querySelector("[data-cxai-items-027a]");
+      if (wrap) wrap.innerHTML = cxAssistantItemRow027A();
+      cxAssistantRecalc027A();
+    } catch (err) {
+      notice.className = "cxai-result-027a error";
+      notice.textContent = err.message || "No se pudo generar el documento.";
+    }
+  }
+
+  async function renderAssistantModule027A(activeCode = "assistant_ai") {
+    cxAssistantEnsureStyles027A();
+    const company = state.company || {};
+    const tools = cxAssistantReadActiveTools027A();
+    const docType = window.__cxAssistantDocType027A || "account";
+    const docLabel = cxAssistantDocumentLabel027A(docType);
+    const quoteReady = tools.hasQuotes;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav(activeCode)}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
+                <div>
+                  <div class="client-eyebrow">IA / Automatizacion</div>
+                  <h1 class="client-title">Asistente CLONEXA</h1>
+                  <p class="client-muted">Asistente operativo conectado a los modulos activos de ${h(company.name || "esta empresa")}.</p>
+                </div>
+                <span class="client-badge">AI</span>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
+                ${quoteReady ? `<button class="client-btn" type="button" data-client-module="cotizaciones">Abrir cotizaciones</button>` : ""}
+              </div>
+            </header>
+
+            <section class="cxai-grid-027a">
+              <article class="cxai-card-027a">
+                <div class="cxai-thread-027a">
+                  <div class="cxai-msg-027a assistant">Hola. Soy el asistente de ${h(company.name || "tu empresa")}. Por ahora puedo ayudarte a generar <strong>cuentas de cobro</strong> y <strong>cotizaciones</strong> usando el modulo Cotizaciones.</div>
+                  <div class="cxai-msg-027a user">Necesito una ${h(docLabel)}.</div>
+                  <div class="cxai-msg-027a assistant">${quoteReady ? `Perfecto. Dame estos datos y te genero la ${h(docLabel)} en PDF.` : `Para generar documentos primero debes tener activo el modulo Cotizaciones en esta empresa.`}</div>
+                </div>
+                <div class="cxai-actions-027a">
+                  <button class="cxai-btn-027a ${docType === "account" ? "primary" : ""}" type="button" data-cxai-doc-type-027a="account">Cuenta de cobro</button>
+                  <button class="cxai-btn-027a ${docType === "quote" ? "primary" : ""}" type="button" data-cxai-doc-type-027a="quote">Cotizacion</button>
+                </div>
+
+                <form class="cxai-form-027a" data-cxai-form-027a>
+                  <input type="hidden" name="document_type" value="${h(docType)}">
+                  <div class="cxai-field-grid-027a">
+                    <div class="cxai-field-027a"><label>Nombre o razon social</label><input name="client_name" placeholder="Cliente / empresa" ${quoteReady ? "required" : "disabled"}></div>
+                    <div class="cxai-field-027a"><label>CC / NIT</label><input name="client_document" placeholder="Documento" ${quoteReady ? "" : "disabled"}></div>
+                    <div class="cxai-field-027a"><label>Telefono</label><input name="client_phone" placeholder="Telefono" ${quoteReady ? "" : "disabled"}></div>
+                    <div class="cxai-field-027a"><label>Direccion</label><input name="client_address" placeholder="Direccion" ${quoteReady ? "" : "disabled"}></div>
+                    <div class="cxai-field-027a"><label>Correo</label><input name="client_email" placeholder="correo@cliente.com" ${quoteReady ? "" : "disabled"}></div>
+                    <div class="cxai-field-027a"><label>Forma de pago</label>
+                      <select name="payment_method" ${quoteReady ? "" : "disabled"}>
+                        <option value="transferencia">Transferencia</option>
+                        <option value="efectivo">Efectivo</option>
+                        <option value="cheque">Cheque</option>
+                        <option value="otro">Otro</option>
+                      </select>
+                    </div>
+                    <div class="cxai-field-027a"><label>Detalle pago</label><input name="payment_detail" placeholder="Anticipo, saldo, contado..." ${quoteReady ? "" : "disabled"}></div>
+                    <div class="cxai-field-027a"><label>Datos de pago</label><input name="payment_data" placeholder="Cuenta, referencia, vencimiento..." ${quoteReady ? "" : "disabled"}></div>
+                    <div class="cxai-field-027a"><label>Nombre pago</label><input name="payment_name" placeholder="Banco / responsable" ${quoteReady ? "" : "disabled"}></div>
+                  </div>
+
+                  <div class="cxai-card-027a" style="padding:14px">
+                    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+                      <h3>Conceptos</h3>
+                      <button class="cxai-btn-027a" type="button" data-cxai-add-item-027a ${quoteReady ? "" : "disabled"}>Agregar linea</button>
+                    </div>
+                    <div data-cxai-items-027a>${cxAssistantItemRow027A()}</div>
+                  </div>
+
+                  <div class="cxai-field-grid-027a">
+                    <div class="cxai-card-027a" style="padding:14px">
+                      <h3>Descuento</h3>
+                      <div class="cxai-field-027a"><label>Nombre</label><input name="discount_name" placeholder="Ej: pronto pago" ${quoteReady ? "" : "disabled"}></div>
+                      <div class="cxai-field-027a"><label>Descripcion</label><input name="discount_description" placeholder="Detalle" ${quoteReady ? "" : "disabled"}></div>
+                      <div class="cxai-field-027a"><label>Valor</label><input name="discount_value" type="number" min="0" step="0.01" value="0" ${quoteReady ? "" : "disabled"}></div>
+                    </div>
+                    <div class="cxai-card-027a" style="padding:14px">
+                      <h3>Retencion</h3>
+                      <div class="cxai-field-027a"><label>Nombre</label><input name="retention_name" value="Retencion" ${quoteReady ? "" : "disabled"}></div>
+                      <div class="cxai-field-027a"><label>Descripcion</label><input name="retention_description" placeholder="Detalle" ${quoteReady ? "" : "disabled"}></div>
+                      <div class="cxai-field-027a"><label>Porcentaje</label><input name="retention_percent" type="number" min="0" max="100" step="0.01" value="0" ${quoteReady ? "" : "disabled"}></div>
+                    </div>
+                  </div>
+
+                  <div class="cxai-field-027a"><label>Observaciones</label><textarea name="notes" placeholder="Condiciones, tiempos, detalles adicionales..." ${quoteReady ? "" : "disabled"}></textarea></div>
+                  <div class="cxai-actions-027a">
+                    <button class="cxai-btn-027a primary" type="submit" ${quoteReady ? "" : "disabled"}>Generar PDF</button>
+                    <button class="cxai-btn-027a" type="reset" ${quoteReady ? "" : "disabled"}>Nuevo</button>
+                  </div>
+                  <div class="cxai-result-027a" data-cxai-result-027a></div>
+                </form>
+              </article>
+
+              <aside class="cxai-card-027a">
+                <h2>Herramientas activas</h2>
+                <div class="cxai-kpis-027a">
+                  <div class="cxai-kpi-027a"><span>Cotizaciones</span><strong>${quoteReady ? "ON" : "OFF"}</strong></div>
+                  <div class="cxai-kpi-027a"><span>Nomina</span><strong>${tools.hasPayroll ? "ON" : "OFF"}</strong></div>
+                  <div class="cxai-kpi-027a"><span>ShopLink</span><strong>${tools.hasShoplink ? "ON" : "OFF"}</strong></div>
+                  <div class="cxai-kpi-027a"><span>Modulos</span><strong>${h(tools.modules.length)}</strong></div>
+                </div>
+                <p class="client-muted" style="margin-top:14px">Esta primera version trabaja con datos reales del tenant activo. Luego le sumamos nomina, Excel de personal y reportes con confirmacion.</p>
+                <div class="cxai-card-027a" style="margin-top:14px;padding:14px">
+                  <h3>Vista previa</h3>
+                  <p class="client-muted">Total: <strong data-cxai-total-027a>${h(cxUniversalMoney021D(0))}</strong></p>
+                  <p class="client-muted">Retencion informativa: <strong data-cxai-retention-027a>${h(cxUniversalMoney021D(0))}</strong></p>
+                </div>
+              </aside>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    document.querySelectorAll("[data-cxai-doc-type-027a]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        window.__cxAssistantDocType027A = button.getAttribute("data-cxai-doc-type-027a") || "account";
+        await renderAssistantModule027A(activeCode);
+      });
+    });
+
+    const form = document.querySelector("[data-cxai-form-027a]");
+    form?.addEventListener("input", cxAssistantRecalc027A);
+    form?.addEventListener("reset", () => setTimeout(cxAssistantRecalc027A, 0));
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await cxAssistantSubmitQuote027A(activeCode);
+    });
+
+    document.querySelector("[data-cxai-add-item-027a]")?.addEventListener("click", () => {
+      const wrap = document.querySelector("[data-cxai-items-027a]");
+      if (!wrap) return;
+      wrap.insertAdjacentHTML("beforeend", cxAssistantItemRow027A());
+      cxAssistantRecalc027A();
+    });
+
+    document.querySelector("[data-cxai-items-027a]")?.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-cxai-remove-item-027a]");
+      if (!remove) return;
+      const rows = Array.from(document.querySelectorAll("[data-cxai-item-027a]"));
+      if (rows.length <= 1) return;
+      remove.closest("[data-cxai-item-027a]")?.remove();
+      cxAssistantRecalc027A();
+    });
+
+    cxAssistantRecalc027A();
+  }
+
 
   /* CLONEXA_021E_CLIENT_QUOTES_DETAIL_MODAL_START */
   function cxClientQuoteDetailModal021E(quoteId) {
@@ -18888,6 +19254,10 @@ function inventoryCreatePayload() {
       return renderShoplinkClientsModule026N();
     }
 
+    if (typeof cxIsAssistantCode027A === "function" && cxIsAssistantCode027A(code)) {
+      return renderAssistantModule027A(code || "assistant_ai");
+    }
+
     /* CLONEXA_021D_R1_FORCE_UNIVERSAL_PLACEHOLDER_ROUTER_START */
     const cxUniversalPlaceholderCode021DR1 = String(code || "").trim();
     if (
@@ -20610,6 +20980,11 @@ function inventoryCreatePayload() {
         const activeModule = cxGetClientModuleByCode026K(code) || { code };
 
         if (!isClientModuleActive(code)) return;
+
+        if (typeof cxIsAssistantCode027A === "function" && cxIsAssistantCode027A(code)) {
+          await renderAssistantModule027A(code || "assistant_ai");
+          return;
+        }
 
         if (
           typeof cxIsShoplinkCampaignsCode026O === "function" &&
