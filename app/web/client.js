@@ -2448,8 +2448,8 @@
               </div>
 
               <div class="personal-toolbar" style="margin-top:14px;align-items:center">
-                <input class="personal-search" data-bot-wa-test-phone placeholder="+57 numero para probar el agente">
-                <button class="client-btn" type="button" data-bot-wa-test>Probar agente</button>
+                <input class="personal-search" data-bot-wa-test-phone placeholder="+57 opcional; vacio usa el numero vinculado">
+                <button class="client-btn" type="button" data-bot-wa-test>Enviar bienvenida</button>
               </div>
 
               ${whatsapp?.last_error ? `<div class="personal-toast error">${h(whatsapp.last_error)}</div>` : ""}
@@ -2516,18 +2516,14 @@
   async function testClientBotWhatsApp027F() {
     const input = document.querySelector("[data-bot-wa-test-phone]");
     const to = String(input?.value || "").trim();
-    if (!to) {
-      showBotsNotice("Escribe un numero destino para probar.", "error");
-      return;
-    }
     try {
       await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/test`, {
         method: "POST",
-        body: JSON.stringify({ to, message: "Hola, soy el Agente CLONEXA. Escribeme: estado CRM, estado de una persona o modulos activos." }),
+        body: JSON.stringify({ to }),
       });
-      showBotsNotice("Prueba enviada por WhatsApp.");
+      showBotsNotice("Bienvenida enviada por WhatsApp.");
     } catch (error) {
-      showBotsNotice(error.message || "No se pudo enviar la prueba.", "error");
+      showBotsNotice(error.message || "No se pudo enviar la bienvenida.", "error");
     }
   }
 

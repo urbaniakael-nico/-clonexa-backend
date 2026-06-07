@@ -244,6 +244,7 @@ class WhatsAppWebTestIn(BaseModel):
 
 class WhatsAppWebInboundIn(BaseModel):
     company_id: str
+    event_type: str | None = None
     from_jid: str | None = None
     from_phone: str | None = None
     push_name: str | None = None
@@ -356,6 +357,14 @@ def _format_crm_summary(company: Company, snapshot: dict[str, Any], text_value: 
     return "\n".join(lines)
 
 
+def _whatsapp_agent_welcome(company: Company) -> str:
+    return (
+        f"Hola. Soy {_wa_agent_name(company)}, tu agente IA para la operacion de {company.name}. "
+        "Ya quede enlazado con CLONEXA. Si necesitas algo escribeme aqui: "
+        "tiempo de Nicolas, estado CRM, conexiones del equipo o modulos activos."
+    )
+
+
 async def _whatsapp_agent_reply(
     *,
     company_id: UUID,
@@ -388,6 +397,15 @@ async def _whatsapp_agent_reply(
         "reportes",
         "operativo",
         "operativa",
+        "tiempo",
+        "tiempos",
+        "hora",
+        "horas",
+        "conectado",
+        "conectados",
+        "conectada",
+        "laborado",
+        "lleva",
     ]
     module_words = ["modulo", "modulos", "herramientas", "funciones", "que puedes", "que sabes"]
     quote_words = ["cuenta de cobro", "cotizacion", "cotizacion", "cobro"]
@@ -4727,13 +4745,11 @@ async def test_company_whatsapp_web_agent(
     company = await ensure_company_exists(db, company_id)
     to = str(payload.to or "").strip()
     if not to:
-        raise HTTPException(status_code=422, detail="Numero WhatsApp destino requerido para probar.")
-    message = str(payload.message or "").strip() or await _whatsapp_agent_reply(
-        company_id=company_id,
-        company=company,
-        db=db,
-        text_value="modulos activos",
-    )
+        current = await whatsapp_status(str(company_id))
+        to = str(current.get("connected_phone") or "").strip()
+    if not to:
+        raise HTTPException(status_code=422, detail="No hay numero destino ni WhatsApp vinculado para probar.")
+    message = str(payload.message or "").strip() or _whatsapp_agent_welcome(company)
     sent = await whatsapp_send(str(company_id), to, message)
     if not sent.get("ok"):
         raise HTTPException(status_code=409, detail=sent.get("detail") or "No se pudo enviar la prueba WhatsApp.")
@@ -4752,6 +4768,13 @@ async def whatsapp_web_agent_inbound(
     except Exception:
         raise HTTPException(status_code=422, detail="Empresa invalida.")
     company = await ensure_company_exists(db, company_id)
+    if _text_norm(payload.event_type) == "connected":
+        return {
+            "ok": True,
+            "company_id": str(company_id),
+            "agent_name": _wa_agent_name(company),
+            "reply": _whatsapp_agent_welcome(company),
+        }
     text_value = str(payload.text or "").strip()
     if not text_value:
         return {"ok": True, "ignored": True, "reply": ""}

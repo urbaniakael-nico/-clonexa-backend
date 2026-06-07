@@ -18,6 +18,7 @@ const INBOUND_SECRET = String(process.env.WHATSAPP_INBOUND_SECRET || "").trim();
 const logger = Pino({ level: process.env.WHATSAPP_BRIDGE_LOG_LEVEL || "warn" });
 const sessions = new Map();
 const processedInboundIds = new Set();
+const sentOutboundIds = new Set();
 
 function cleanCompanyId(value = "") {
   return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 90);
@@ -47,6 +48,21 @@ function rememberInboundId(id = "") {
   return false;
 }
 
+function rememberOutboundId(id = "") {
+  const key = String(id || "").trim();
+  if (!key) return;
+  sentOutboundIds.add(key);
+  if (sentOutboundIds.size > 500) {
+    const first = sentOutboundIds.values().next().value;
+    sentOutboundIds.delete(first);
+  }
+}
+
+function isOutboundId(id = "") {
+  const key = String(id || "").trim();
+  return !!key && sentOutboundIds.has(key);
+}
+
 function extractMessageText(message = {}) {
   const content = message.message || {};
   return String(
@@ -59,20 +75,8 @@ function extractMessageText(message = {}) {
   ).trim();
 }
 
-async function postInboundMessage(companyId, message) {
+async function postInboundPayload(payload) {
   if (!INBOUND_URL) return { ok: false, detail: "WHATSAPP_INBOUND_URL not configured." };
-  const remoteJid = String(message.key?.remoteJid || "");
-  const text = extractMessageText(message);
-  if (!remoteJid || !text) return { ok: true, ignored: true };
-  const payload = {
-    company_id: companyId,
-    from_jid: remoteJid,
-    from_phone: phoneFromJid(remoteJid),
-    push_name: message.pushName || "",
-    message_id: message.key?.id || "",
-    text,
-    timestamp: message.messageTimestamp || null,
-  };
   const response = await fetch(INBOUND_URL, {
     method: "POST",
     headers: {
@@ -86,6 +90,39 @@ async function postInboundMessage(companyId, message) {
     return { ok: false, status: response.status, detail: data?.detail || "Inbound callback failed." };
   }
   return data;
+}
+
+async function postInboundMessage(companyId, message) {
+  const remoteJid = String(message.key?.remoteJid || "");
+  const text = extractMessageText(message);
+  if (!remoteJid || !text) return { ok: true, ignored: true };
+  const payload = {
+    company_id: companyId,
+    from_jid: remoteJid,
+    from_phone: phoneFromJid(remoteJid),
+    push_name: message.pushName || "",
+    message_id: message.key?.id || "",
+    text,
+    timestamp: message.messageTimestamp || null,
+  };
+  return postInboundPayload(payload);
+}
+
+async function sendAgentWelcome(companyId, session, sock) {
+  if (session.welcomeSent || !session.connectedPhone) return;
+  const jid = `${session.connectedPhone}@s.whatsapp.net`;
+  const result = await postInboundPayload({
+    company_id: companyId,
+    event_type: "connected",
+    from_jid: jid,
+    from_phone: session.connectedPhone,
+    text: "__clonexa_whatsapp_connected__",
+  });
+  const reply = String(result?.reply || "").trim();
+  if (!reply) return;
+  const sent = await sock.sendMessage(jid, { text: reply });
+  rememberOutboundId(`${companyId}:${jid}:${sent?.key?.id || ""}`);
+  session.welcomeSent = true;
 }
 
 function sessionPublic(companyId) {
@@ -134,6 +171,7 @@ async function startSession(companyId) {
     lastError: "",
     updatedAt: new Date().toISOString(),
     intentionalClose: false,
+    welcomeSent: false,
   };
   sessions.set(companyId, session);
 
@@ -150,15 +188,20 @@ async function startSession(companyId) {
     const messages = Array.isArray(event?.messages) ? event.messages : [];
     for (const message of messages) {
       const remoteJid = String(message?.key?.remoteJid || "");
-      if (!remoteJid || message?.key?.fromMe) continue;
+      if (!remoteJid) continue;
       if (remoteJid.endsWith("@g.us") || remoteJid === "status@broadcast") continue;
       const messageId = message?.key?.id || "";
+      if (isOutboundId(`${companyId}:${remoteJid}:${messageId}`)) continue;
+      const fromMe = !!message?.key?.fromMe;
+      const remotePhone = phoneFromJid(remoteJid);
+      if (fromMe && (!session.connectedPhone || remotePhone !== session.connectedPhone)) continue;
       if (rememberInboundId(`${companyId}:${remoteJid}:${messageId}`)) continue;
       try {
         const result = await postInboundMessage(companyId, message);
         const reply = String(result?.reply || "").trim();
         if (reply) {
-          await sock.sendMessage(remoteJid, { text: reply });
+          const sent = await sock.sendMessage(remoteJid, { text: reply });
+          rememberOutboundId(`${companyId}:${remoteJid}:${sent?.key?.id || ""}`);
         }
       } catch (error) {
         logger.error({ err: error, companyId, remoteJid }, "whatsapp inbound failed");
@@ -177,6 +220,9 @@ async function startSession(companyId) {
       session.qrDataUrl = "";
       session.connectedPhone = phoneFromJid(sock.user?.id || sock.user?.jid || "");
       session.lastError = "";
+      await sendAgentWelcome(companyId, session, sock).catch((error) => {
+        logger.error({ err: error, companyId }, "whatsapp welcome failed");
+      });
     }
     if (update.connection === "close") {
       const statusCode = update.lastDisconnect?.error?.output?.statusCode;
@@ -239,6 +285,7 @@ async function sendMessage(companyId, to, message) {
   }
   const jid = target || `${phone}@s.whatsapp.net`;
   const sent = await session.sock.sendMessage(jid, { text });
+  rememberOutboundId(`${companyId}:${jid}:${sent?.key?.id || ""}`);
   return { ok: true, status: "sent", to: phone, jid, message_id: sent?.key?.id || "" };
 }
 
