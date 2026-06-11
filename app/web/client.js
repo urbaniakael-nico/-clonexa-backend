@@ -12107,6 +12107,15 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsPayrollTool027I(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["payroll", "nomina", "nómina", "nomina_quincenal", "payroll_biweekly"].includes(token) ||
+      token.includes("nomina") ||
+      token.includes("payroll")
+    );
+  }
+
   function cxAssistantReadActiveTools027A() {
     const modules = visibleClientModules(activeClientModules());
     const codes = clientModuleCodes(modules);
@@ -12114,7 +12123,7 @@ function inventoryCreatePayload() {
     const normalizedCodes = new Set(modulePool.flatMap(cxAssistantModuleTokens027E).filter(Boolean));
     const hasQuotes = modulePool.some(cxAssistantIsQuotesTool027A);
     const hasCrm = modulePool.some(cxAssistantIsCrmTool027D) || normalizedCodes.has("crm");
-    const hasPayroll = normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
+    const hasPayroll = modulePool.some(cxAssistantIsPayrollTool027I) || normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
     return { hasQuotes, hasCrm, hasPayroll, hasShoplink, modules };
   }
@@ -12171,6 +12180,7 @@ function inventoryCreatePayload() {
       <div class="cxai-chip-wrap-027a">
         ${tools.hasQuotes ? `<button class="cxai-chip-027a primary" type="button" data-cxai-start-027a="account">Cuenta de cobro</button><button class="cxai-chip-027a primary" type="button" data-cxai-start-027a="quote">Cotizacion</button>` : ""}
         ${tools.hasCrm ? `<button class="cxai-chip-027a primary" type="button" data-cxai-crm-summary-027d>Estado CRM</button>` : ""}
+        ${tools.hasPayroll ? `<button class="cxai-chip-027a primary" type="button" data-cxai-payroll-summary-027i>Nomina</button>` : ""}
         ${moduleButtons}
       </div>
     `;
@@ -12670,6 +12680,144 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantPayrollHasAccess027I() {
+    return cxAssistantReadActiveTools027A().hasPayroll || isClientModuleActive("payroll") || isClientModuleActive("nomina");
+  }
+
+  function cxAssistantPayrollPeriod027I(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const now = new Date();
+    const today = payrollDateOnly(now);
+    const isoDates = String(text || "").match(/\b\d{4}-\d{2}-\d{2}\b/g) || [];
+    if (isoDates.length >= 2) {
+      const ordered = isoDates.slice(0, 2).sort();
+      return { from: ordered[0], to: ordered[1], label: "rango indicado" };
+    }
+    if (isoDates.length === 1) return { from: isoDates[0], to: isoDates[0], label: "fecha indicada" };
+    if (norm.includes("hoy")) return { from: today, to: today, label: "hoy" };
+    if (norm.includes("ayer")) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      const day = payrollDateOnly(d);
+      return { from: day, to: day, label: "ayer" };
+    }
+    if (norm.includes("semana")) {
+      const start = new Date(now);
+      start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+      return { from: payrollDateOnly(start), to: today, label: "semana actual" };
+    }
+    if (norm.includes("quincena")) {
+      if (norm.includes("primera") || norm.includes("1ra") || norm.includes("1a")) {
+        return { from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 1)), to: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 15)), label: "primera quincena" };
+      }
+      if (norm.includes("segunda") || norm.includes("2da") || norm.includes("2a")) {
+        return { from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 16)), to: payrollDateOnly(new Date(now.getFullYear(), now.getMonth() + 1, 0)), label: "segunda quincena" };
+      }
+      if (now.getDate() <= 15) return { from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 1)), to: today, label: "quincena actual" };
+      return { from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 16)), to: today, label: "quincena actual" };
+    }
+    const period = payrollDefaultPeriod();
+    return { ...period, label: "mes actual" };
+  }
+
+  function cxAssistantPayrollMatch027I(text = "", rows = []) {
+    const norm = cxAssistantNorm027A(text);
+    let best = null;
+    let score = 0;
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const name = cxAssistantNorm027A(row.name || row.employee_name || "");
+      if (!name) return;
+      const tokens = name.split(/\s+/).filter((token) => token.length >= 3);
+      const current = tokens.reduce((acc, token) => acc + (norm.includes(token) ? 1 : 0), 0);
+      if (current > score) {
+        best = row;
+        score = current;
+      }
+    });
+    return score ? best : null;
+  }
+
+  function cxAssistantPayrollRowHtml027I(row = {}, period = payrollDefaultPeriod()) {
+    return `
+      <div>Nomina individual ${h(period.from)} / ${h(period.to)}</div>
+      <div class="cxai-summary-027a">
+        <div><strong>${h(row.name || row.employee_name || "Colaborador")}</strong></div>
+        <div><strong>Turnos/sesiones:</strong> ${h(row.shifts || row.closed_shifts || 0)}</div>
+        <div><strong>Ordinarias:</strong> ${h(payrollDuration(row.regularMinutes ?? row.regular_minutes ?? 0))}</div>
+        <div><strong>Extras:</strong> ${h(payrollDuration(row.extraMinutes ?? row.extra_minutes ?? 0))}</div>
+        <div><strong>Bruto:</strong> ${h(payrollMoney(row.gross ?? row.gross_amount ?? 0))}</div>
+        <div><strong>Descuento corte:</strong> ${h(payrollMoney(row.discount ?? row.discount_amount ?? 0))}</div>
+        <div><strong>Total a pagar:</strong> ${h(payrollMoney(row.net ?? row.net_amount ?? 0))}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="payroll">Abrir nomina</button></div>
+    `;
+  }
+
+  function cxAssistantPayrollSummaryHtml027I(rows = [], totals = {}, period = payrollDefaultPeriod(), label = "mes actual") {
+    const topRows = [...(Array.isArray(rows) ? rows : [])]
+      .sort((a, b) => Number(b.net || b.net_amount || 0) - Number(a.net || a.net_amount || 0))
+      .slice(0, 6);
+    const detail = topRows.length
+      ? topRows.map((row) => `
+          <div>${h(row.name || row.employee_name || "Colaborador")}: <strong>${h(payrollMoney(row.net ?? row.net_amount ?? 0))}</strong> · ${h(payrollDuration(row.regularMinutes ?? row.regular_minutes ?? 0))} ord / ${h(payrollDuration(row.extraMinutes ?? row.extra_minutes ?? 0))} ext</div>
+        `).join("")
+      : "<div>Sin colaboradores con corte en este periodo.</div>";
+    return `
+      <div>Nomina ${h(label)}:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Periodo:</strong> ${h(period.from)} / ${h(period.to)}</div>
+        <div><strong>Colaboradores:</strong> ${h(totals.people || rows.length || 0)}</div>
+        <div><strong>Turnos/sesiones:</strong> ${h(totals.shifts || 0)}</div>
+        <div><strong>Ordinarias:</strong> ${h(payrollDuration(totals.regularMinutes || 0))}</div>
+        <div><strong>Extras:</strong> ${h(payrollDuration(totals.extraMinutes || 0))}</div>
+        <div><strong>Bruto:</strong> ${h(payrollMoney(totals.gross || 0))}</div>
+        <div><strong>Descuentos:</strong> ${h(payrollMoney(totals.discount || 0))}</div>
+        <div><strong>Total a pagar:</strong> ${h(payrollMoney(totals.net || 0))}</div>
+      </div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="payroll">Abrir nomina</button></div>
+    `;
+  }
+
+  function cxAssistantLooksPayrollQuery027I(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return [
+      "nomina",
+      "payroll",
+      "corte",
+      "liquidacion",
+      "sueldo",
+      "salario",
+      "cuanto debo",
+      "cuanto debe",
+      "cuanto le debo",
+      "pagar",
+      "total a pagar",
+      "horas a pagar",
+    ].some((token) => norm.includes(token));
+  }
+
+  async function cxAssistantReplyPayroll027I(chat, text = "") {
+    if (!cxAssistantPayrollHasAccess027I()) {
+      cxAssistantPush027A(chat, "assistant", "Nomina no esta activa para esta empresa.");
+      return;
+    }
+    try {
+      const period = cxAssistantPayrollPeriod027I(text);
+      cxAssistantPush027A(chat, "assistant", `Calculando nomina (${period.label})...`);
+      cxAssistantRenderMessages027A();
+      const calculated = await payrollCalculatePeriod(period);
+      const rows = calculated.rows || [];
+      const totals = calculated.totals || payrollTotals(rows);
+      const match = cxAssistantPayrollMatch027I(text, rows);
+      const html = match
+        ? cxAssistantPayrollRowHtml027I(match, calculated.period || period)
+        : cxAssistantPayrollSummaryHtml027I(rows, totals, calculated.period || period, period.label);
+      cxAssistantPush027A(chat, "assistant", html, true);
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Nomina en este momento.");
+    }
+  }
+
   async function cxAssistantModuleHelp027A(chat, code, title) {
     const token = cxNormalizeModuleToken017H(`${code} ${title}`);
     if (cxAssistantIsCrmTool027D({ code, title })) {
@@ -12680,8 +12828,8 @@ function inventoryCreatePayload() {
       cxAssistantPush027A(chat, "assistant", `En ${title || "Cotizaciones"} puedo generar estos documentos: ${cxAssistantModulesHtml027A({ hasQuotes: true, modules: [] })}`, true);
       return;
     }
-    if (token.includes("nomina") || token.includes("payroll")) {
-      cxAssistantPush027A(chat, "assistant", "Nomina esta activa para esta empresa. La siguiente accion natural sera pedirme: dame la nomina de este periodo, y el asistente consultara el modulo para entregar PDF o reporte.");
+    if (cxAssistantIsPayrollTool027I({ code, title }) || token.includes("nomina") || token.includes("payroll")) {
+      await cxAssistantReplyPayroll027I(chat, "nomina del mes");
       return;
     }
     if (token.includes("carrito") || token.includes("pedido") || token.includes("shoplink")) {
@@ -12706,12 +12854,14 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "account");
     } else if (norm.includes("cotiz") || norm.includes("presupuesto")) {
       cxAssistantStartFlow027A(chat, "quote");
+    } else if (cxAssistantLooksPayrollQuery027I(clean)) {
+      await cxAssistantReplyPayroll027I(chat, clean);
     } else if (cxAssistantLooksCrmQuery027D(clean)) {
       await cxAssistantReplyCrm027D(chat, clean);
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
-    } else if (norm.includes("nomina") || norm.includes("reporte") || norm.includes("pedido") || norm.includes("inventario")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente, pero la accion automatica conectada en esta version es cuenta de cobro y cotizacion con PDF. Selecciona una opcion o dime cuenta de cobro.");
+    } else if (norm.includes("reporte") || norm.includes("pedido") || norm.includes("inventario")) {
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM y Nomina. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -12739,7 +12889,7 @@ function inventoryCreatePayload() {
           </header>
           <div class="cxai-body-027a" data-cxai-body-027a></div>
           <form class="cxai-formbar-027a" data-cxai-form-027a>
-            <input class="cxai-input-027a" name="cxai_text" autocomplete="off" placeholder="Escribe: necesito una cuenta de cobro">
+            <input class="cxai-input-027a" name="cxai_text" autocomplete="off" placeholder="Escribe: nomina del mes o cuenta de cobro">
             <button class="cxai-send-027a" type="submit">Enviar</button>
           </form>
         </section>
@@ -12765,6 +12915,10 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-crm-summary-027d]")) {
           await cxAssistantProcessText027A("estado crm", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-payroll-summary-027i]")) {
+          await cxAssistantProcessText027A("nomina del mes", chat.activeCode);
           return;
         }
         const moduleButton = target.closest("[data-cxai-module-027a]");

@@ -9,7 +9,7 @@ import re
 import logging
 import os
 import unicodedata
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.v1.endpoints.crm_core_v1 import crm_core_snapshot
+from app.api.v1.endpoints.payroll import calculate_period_snapshot, ensure_payroll_storage
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
 from app.integrations.telegram.parser import parse_telegram_update
@@ -282,6 +283,160 @@ def _seconds_label(value: Any) -> str:
     return f"{minutes}m"
 
 
+def _minutes_label(value: Any) -> str:
+    try:
+        minutes_total = max(0, int(float(value or 0)))
+    except Exception:
+        minutes_total = 0
+    hours = minutes_total // 60
+    minutes = minutes_total % 60
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _money_label(value: Any) -> str:
+    try:
+        amount = float(value or 0)
+    except Exception:
+        amount = 0.0
+    return "$ " + f"{amount:,.0f}".replace(",", ".")
+
+
+def _today_business() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _last_day_of_month(value: date) -> date:
+    if value.month == 12:
+        return date(value.year, 12, 31)
+    return date(value.year, value.month + 1, 1) - timedelta(days=1)
+
+
+def _parse_date_token(value: str) -> date | None:
+    raw = str(value or "").strip()
+    for pattern in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(raw, pattern).date()
+        except Exception:
+            continue
+    return None
+
+
+def _payroll_period_from_text(text_value: str) -> tuple[date, date, str]:
+    normalized = _text_norm(text_value)
+    today = _today_business()
+
+    explicit = [_parse_date_token(item) for item in re.findall(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", text_value)]
+    explicit = [item for item in explicit if item]
+    if len(explicit) >= 2:
+        start, end = min(explicit[0], explicit[1]), max(explicit[0], explicit[1])
+        return start, end, "rango indicado"
+    if len(explicit) == 1:
+        return explicit[0], explicit[0], "fecha indicada"
+
+    if "hoy" in normalized:
+        return today, today, "hoy"
+
+    if "semana" in normalized or "semanal" in normalized:
+        start = today - timedelta(days=today.weekday())
+        return start, today, "semana actual"
+
+    if "quincena" in normalized or "quincenal" in normalized:
+        if "primera" in normalized or "1ra" in normalized or "1a" in normalized:
+            return date(today.year, today.month, 1), date(today.year, today.month, 15), "primera quincena"
+        if "segunda" in normalized or "2da" in normalized or "2a" in normalized:
+            return date(today.year, today.month, 16), _last_day_of_month(today), "segunda quincena"
+        if today.day <= 15:
+            return date(today.year, today.month, 1), today, "quincena actual"
+        return date(today.year, today.month, 16), today, "quincena actual"
+
+    if "ayer" in normalized:
+        yesterday = today - timedelta(days=1)
+        return yesterday, yesterday, "ayer"
+
+    return date(today.year, today.month, 1), today, "mes actual"
+
+
+def _payroll_employee_match_from_text(text_value: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    query = _text_norm(text_value)
+    best: tuple[int, dict[str, Any]] | None = None
+    ignored = {
+        "nomina", "payroll", "corte", "periodo", "quincena", "semana", "mes", "actual",
+        "cuanto", "debo", "debe", "pagar", "total", "individual", "persona", "empleado",
+    }
+    for row in rows:
+        name = _text_norm(row.get("employee_name") or row.get("name"))
+        if not name:
+            continue
+        tokens = [token for token in re.split(r"[^a-z0-9]+", name) if len(token) >= 3 and token not in ignored]
+        score = sum(1 for token in tokens if token in query)
+        if score and (best is None or score > best[0]):
+            best = (score, row)
+    return best[1] if best else None
+
+
+def _format_payroll_row(row: dict[str, Any], period_start: date, period_end: date) -> str:
+    return "\n".join([
+        f"Nomina individual {period_start.isoformat()} / {period_end.isoformat()}:",
+        f"{row.get('employee_name') or row.get('name') or 'Colaborador'}",
+        f"Turnos/sesiones: {int(row.get('closed_shifts') or row.get('shifts') or 0)}",
+        f"Ordinarias: {_minutes_label(row.get('regular_minutes') or row.get('regularMinutes'))}",
+        f"Extras: {_minutes_label(row.get('extra_minutes') or row.get('extraMinutes'))}",
+        f"Bruto: {_money_label(row.get('gross_amount') or row.get('gross'))}",
+        f"Descuentos: {_money_label(row.get('discount_amount') or row.get('discount'))}",
+        f"Total a pagar: {_money_label(row.get('net_amount') or row.get('net'))}",
+    ])
+
+
+def _format_payroll_summary(company: Company, snapshot: dict[str, Any], text_value: str, period_label: str) -> str:
+    period = snapshot.get("period") or {}
+    period_start = _parse_date_token(str(period.get("period_start") or "")) or _today_business()
+    period_end = _parse_date_token(str(period.get("period_end") or "")) or period_start
+    rows = list(snapshot.get("rows") or snapshot.get("items") or [])
+    matched = _payroll_employee_match_from_text(text_value, rows)
+    if matched:
+        return _format_payroll_row(matched, period_start, period_end)
+
+    totals = snapshot.get("totals") or {}
+    top_rows = sorted(rows, key=lambda row: float(row.get("net_amount") or row.get("net") or 0), reverse=True)[:6]
+    lines = [
+        f"Nomina de {company.name} ({period_label})",
+        f"Periodo: {period_start.isoformat()} / {period_end.isoformat()}",
+        f"Colaboradores con corte: {int(totals.get('people') or len(rows) or 0)}",
+        f"Turnos/sesiones: {int(totals.get('closed_shifts') or totals.get('shifts') or 0)}",
+        f"Ordinarias: {_minutes_label(totals.get('regular_minutes') or totals.get('regularMinutes'))}",
+        f"Extras: {_minutes_label(totals.get('extra_minutes') or totals.get('extraMinutes'))}",
+        f"Bruto: {_money_label(totals.get('gross_amount') or totals.get('gross'))}",
+        f"Descuentos: {_money_label(totals.get('discount_amount') or totals.get('discount'))}",
+        f"Total a pagar: {_money_label(totals.get('net_amount') or totals.get('net'))}",
+    ]
+    if top_rows:
+        lines.append("")
+        lines.append("Detalle visible:")
+        for row in top_rows:
+            lines.append(
+                f"- {row.get('employee_name') or row.get('name') or 'Colaborador'}: "
+                f"{_money_label(row.get('net_amount') or row.get('net'))} "
+                f"({_minutes_label(row.get('regular_minutes') or row.get('regularMinutes'))} ord / "
+                f"{_minutes_label(row.get('extra_minutes') or row.get('extraMinutes'))} ext)"
+            )
+    return "\n".join(lines)
+
+
+async def _whatsapp_payroll_reply(
+    *,
+    company_id: UUID,
+    company: Company,
+    db: AsyncSession,
+    text_value: str,
+) -> str:
+    period_start, period_end, period_label = _payroll_period_from_text(text_value)
+    await ensure_payroll_storage(db)
+    snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end)
+    return _format_payroll_summary(company, snapshot, text_value, period_label)
+
+
 def _employee_match_from_text(text_value: str, employees: list[dict[str, Any]]) -> dict[str, Any] | None:
     query = _text_norm(text_value)
     best: tuple[int, dict[str, Any]] | None = None
@@ -361,7 +516,7 @@ def _whatsapp_agent_welcome(company: Company) -> str:
     return (
         f"Hola. Soy {_wa_agent_name(company)}, tu agente IA para la operacion de {company.name}. "
         "Ya quede enlazado con CLONEXA. Si necesitas algo escribeme aqui: "
-        "tiempo de Nicolas, estado CRM, conexiones del equipo o modulos activos."
+        "tiempo de Nicolas, nomina del mes, cuanto debo pagar, estado CRM, conexiones del equipo o modulos activos."
     )
 
 
@@ -409,6 +564,22 @@ async def _whatsapp_agent_reply(
     ]
     module_words = ["modulo", "modulos", "herramientas", "funciones", "que puedes", "que sabes"]
     quote_words = ["cuenta de cobro", "cotizacion", "cotizacion", "cobro"]
+    payroll_words = [
+        "nomina",
+        "payroll",
+        "corte",
+        "liquidacion",
+        "sueldo",
+        "salario",
+        "pagar",
+        "pago",
+        "pagos",
+        "total a pagar",
+        "cuanto debo",
+        "cuanto debe",
+        "cuanto le debo",
+        "horas a pagar",
+    ]
 
     try:
         snapshot = await crm_core_snapshot(str(company_id), db)
@@ -424,8 +595,22 @@ async def _whatsapp_agent_reply(
             f"Hola{prefix_name}. Soy {_wa_agent_name(company)}. "
             f"Estoy vinculado a CLONEXA para {company.name}. "
             f"Modulos activos: {module_label}. "
-            "Puedes pedirme: estado CRM, estado de una persona, conexiones del equipo o resumen operativo."
+            "Puedes pedirme: nomina del mes, nomina de una persona, estado CRM, estado de una persona, conexiones del equipo o resumen operativo."
         )
+
+    if _contains_any(normalized, payroll_words):
+        if "payroll" not in modules and "nomina" not in modules:
+            return "Nomina no aparece activa para esta empresa. Activa el modulo Nomina para consultar cortes, totales e individuales desde WhatsApp."
+        try:
+            return await _whatsapp_payroll_reply(
+                company_id=company_id,
+                company=company,
+                db=db,
+                text_value=text_value,
+            )
+        except Exception as exc:
+            logger.warning("whatsapp payroll reply failed: %s", exc, exc_info=True)
+            return "No pude consultar Nomina en este momento. Revisa que existan turnos cerrados o sesiones del periodo."
 
     if _contains_any(normalized, crm_words):
         return _format_crm_summary(company, snapshot, text_value)
@@ -439,7 +624,7 @@ async def _whatsapp_agent_reply(
 
     return (
         f"Hola{prefix_name}. Soy {_wa_agent_name(company)}, conectado al panel CLONEXA de {company.name}. "
-        "Escribeme por ejemplo: estado CRM, estado de Nicolas, conexiones del equipo o modulos activos."
+        "Escribeme por ejemplo: nomina del mes, cuanto debo pagar, nomina de Nicolas, estado CRM o modulos activos."
     )
 
 
