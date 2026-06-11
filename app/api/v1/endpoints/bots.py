@@ -509,9 +509,45 @@ def _production_operator_match_from_text(text_value: str, rows: list[dict[str, A
     return best[1] if best else None
 
 
+def _production_operator_reference_match_from_text(text_value: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for row in rows:
+        employee = str(row.get("employee_name") or row.get("telegram_user_id") or "Colaborador")
+        reference = str(row.get("reference_name") or row.get("name") or "Referencia")
+        operator_score = _production_score(text_value, employee)
+        reference_score = _production_score(text_value, f"{reference} {row.get('size') or ''}")
+        if operator_score > 0 and reference_score > 0:
+            candidates.append((operator_score + reference_score, row))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], _production_seconds(item[1])), reverse=True)
+    selected = candidates[0][1]
+    employee_key = _text_norm(selected.get("employee_name") or selected.get("telegram_user_id") or "Colaborador")
+    reference_key = _text_norm(selected.get("reference_name") or selected.get("name") or "Referencia")
+    grouped = [
+        row for row in rows
+        if _text_norm(row.get("employee_name") or row.get("telegram_user_id") or "Colaborador") == employee_key
+        and _text_norm(row.get("reference_name") or row.get("name") or "Referencia") == reference_key
+    ]
+    seconds = sum(_production_seconds(row) for row in grouped)
+    sessions = sum(int(row.get("sessions_count") or row.get("sessions") or 0) for row in grouped)
+    sizes = sorted({str(row.get("size") or "").strip() for row in grouped if str(row.get("size") or "").strip()})
+    return {
+        "employee": selected.get("employee_name") or selected.get("telegram_user_id") or "Colaborador",
+        "reference": selected.get("reference_name") or selected.get("name") or "Referencia",
+        "rows": grouped,
+        "seconds": seconds,
+        "sessions": sessions,
+        "sizes": sizes,
+    }
+
+
 def _production_mode(text_value: str, data: dict[str, Any]) -> str:
     normalized = _text_norm(text_value)
     time_rows = list(data.get("time_by_reference") or [])
+    operator_rows = list(data.get("time_by_operator_reference") or [])
+    if _production_operator_reference_match_from_text(text_value, operator_rows):
+        return "time_operator_reference"
     if "cierre" in normalized or "cerrada" in normalized or "cerradas" in normalized:
         return "closures"
     if "pendiente" in normalized or "faltan" in normalized or "falta" in normalized:
@@ -597,6 +633,25 @@ def _format_production_time_operator(data: dict[str, Any], text_value: str, peri
     return "\n".join(lines)
 
 
+def _format_production_operator_reference(data: dict[str, Any], text_value: str, period_label: str) -> str:
+    rows = list(data.get("time_by_operator_reference") or [])
+    matched = _production_operator_reference_match_from_text(text_value, rows)
+    if not matched:
+        return _format_production_time_operator(data, text_value, period_label)
+    total_label = _production_time_label(matched["rows"][0]) if len(matched["rows"]) == 1 else _seconds_label(matched["seconds"])
+    lines = [
+        f"Tiempo de colaborador en referencia ({period_label})",
+        f"{matched['employee']} en {matched['reference']}",
+        f"Tiempo productivo: {total_label}",
+        f"Sesiones: {int(matched['sessions'] or 0)}",
+        f"Tallas / variantes: {', '.join(matched['sizes']) or '-'}",
+    ]
+    if len(matched["rows"]) > 1:
+        for row in matched["rows"][:8]:
+            lines.append(f"- {row.get('size') or 'Sin talla'}: {_production_time_label(row)} - {int(row.get('sessions_count') or row.get('sessions') or 0)} sesiones")
+    return "\n".join(lines)
+
+
 def _format_production_closures(data: dict[str, Any], period_label: str) -> str:
     rows = list(data.get("closures_period") or [])
     rows.sort(key=lambda row: str(row.get("closed_at") or ""), reverse=True)
@@ -633,6 +688,8 @@ def _production_can_answer(data: dict[str, Any], text_value: str) -> bool:
     if any(token in normalized for token in ("produccion", "referencia", "avance", "pendiente", "cierre", "cerrada")):
         return True
     mode = _production_mode(text_value, data)
+    if mode == "time_operator_reference":
+        return _production_operator_reference_match_from_text(text_value, list(data.get("time_by_operator_reference") or [])) is not None
     if mode == "time_reference":
         return _production_time_ref_match_from_text(text_value, list(data.get("time_by_reference") or [])) is not None
     if mode == "time_operator":
@@ -642,6 +699,8 @@ def _production_can_answer(data: dict[str, Any], text_value: str) -> bool:
 
 def _format_production_summary(company: Company, data: dict[str, Any], text_value: str, period_label: str) -> str:
     mode = _production_mode(text_value, data)
+    if mode == "time_operator_reference":
+        return _format_production_operator_reference(data, text_value, period_label)
     if mode == "time_reference":
         return _format_production_time_reference(data, text_value, period_label)
     if mode == "time_operator":

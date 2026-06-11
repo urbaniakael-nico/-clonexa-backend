@@ -13129,9 +13129,44 @@ function inventoryCreatePayload() {
     return bestScore ? best : null;
   }
 
+  function cxAssistantProductionMatchOperatorReference027M(text = "", rows = []) {
+    const candidates = [];
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const employee = row.employee_name || row.telegram_user_id || "Colaborador";
+      const reference = row.reference_name || row.name || "Referencia";
+      const operatorScore = cxAssistantProductionScore027L(text, employee);
+      const referenceScore = cxAssistantProductionScore027L(text, `${reference} ${row.size || ""}`);
+      if (operatorScore > 0 && referenceScore > 0) {
+        candidates.push({ row, score: operatorScore + referenceScore });
+      }
+    });
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => b.score - a.score || cxAssistantProductionSeconds027L(b.row) - cxAssistantProductionSeconds027L(a.row));
+    const selected = candidates[0].row;
+    const employeeKey = cxAssistantNorm027A(selected.employee_name || selected.telegram_user_id || "Colaborador");
+    const referenceKey = cxAssistantNorm027A(selected.reference_name || selected.name || "Referencia");
+    const groupedRows = rows.filter((row) =>
+      cxAssistantNorm027A(row.employee_name || row.telegram_user_id || "Colaborador") === employeeKey &&
+      cxAssistantNorm027A(row.reference_name || row.name || "Referencia") === referenceKey
+    );
+    const seconds = groupedRows.reduce((sum, row) => sum + cxAssistantProductionSeconds027L(row), 0);
+    const sessions = groupedRows.reduce((sum, row) => sum + (Number(row.sessions_count || row.sessions || 0) || 0), 0);
+    const sizes = new Set(groupedRows.map((row) => row.size).filter(Boolean));
+    return {
+      employee: selected.employee_name || selected.telegram_user_id || "Colaborador",
+      reference: selected.reference_name || selected.name || "Referencia",
+      rows: groupedRows,
+      seconds,
+      sessions,
+      sizes,
+    };
+  }
+
   function cxAssistantProductionMode027L(text = "", summary = {}) {
     const norm = cxAssistantNorm027A(text);
     const timeRows = Array.isArray(summary.time_by_reference) ? summary.time_by_reference : [];
+    const operatorRows = Array.isArray(summary.time_by_operator_reference) ? summary.time_by_operator_reference : [];
+    if (cxAssistantProductionMatchOperatorReference027M(text, operatorRows)) return "time_operator_reference";
     if (norm.includes("cierre") || norm.includes("cerrada") || norm.includes("cerradas")) return "closures";
     if (norm.includes("pendiente") || norm.includes("faltan") || norm.includes("falta")) return "pending";
     if (norm.includes("avance") || norm.includes("progreso") || norm.includes("porcentaje")) return "progress";
@@ -13157,6 +13192,9 @@ function inventoryCreatePayload() {
   function cxAssistantProductionCanAnswer027L(summary = {}, text = "") {
     if (cxAssistantLooksProductionQuery027K(text)) return true;
     const mode = cxAssistantProductionMode027L(text, summary);
+    if (mode === "time_operator_reference") {
+      return Boolean(cxAssistantProductionMatchOperatorReference027M(text, summary.time_by_operator_reference || []));
+    }
     if (mode === "time_reference") {
       return Boolean(cxAssistantProductionMatchTimeRef027L(text, summary.time_by_reference || []));
     }
@@ -13229,6 +13267,27 @@ function inventoryCreatePayload() {
     `;
   }
 
+  function cxAssistantProductionOperatorReferenceHtml027M(summary = {}, text = "", period = {}) {
+    const rows = Array.isArray(summary.time_by_operator_reference) ? summary.time_by_operator_reference : [];
+    const match = cxAssistantProductionMatchOperatorReference027M(text, rows);
+    if (!match) return cxAssistantProductionTimeOperatorHtml027L(summary, text, period);
+    const details = match.rows.length > 1
+      ? match.rows.map((row) => `<div>${row.size ? h(row.size) : "Sin talla"}: <strong>${h(cxAssistantProductionTimeLabel027L(row))}</strong> · ${h(cxProdNum018E(row.sessions_count || row.sessions || 0))} sesiones</div>`).join("")
+      : "";
+    const totalLabel = match.rows.length === 1 ? cxAssistantProductionTimeLabel027L(match.rows[0]) : cxProdSeconds018E(match.seconds);
+    return `
+      <div>Tiempo de colaborador en referencia (${h(period.label || "periodo")}):</div>
+      <div class="cxai-summary-027a">
+        <div><strong>${h(match.employee)}</strong> en <strong>${h(match.reference)}</strong></div>
+        <div><strong>Tiempo productivo:</strong> ${h(totalLabel)}</div>
+        <div><strong>Sesiones:</strong> ${h(cxProdNum018E(match.sessions || 0))}</div>
+        <div><strong>Tallas / variantes:</strong> ${h([...match.sizes].join(", ") || "-")}</div>
+      </div>
+      ${details ? `<div class="cxai-summary-027a">${details}</div>` : ""}
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+    `;
+  }
+
   function cxAssistantProductionClosuresHtml027L(summary = {}, period = {}) {
     const rows = cxProdClosureSort018E(Array.isArray(summary.closures_period) ? summary.closures_period : [], "date_desc");
     const detail = rows.length
@@ -13273,6 +13332,7 @@ function inventoryCreatePayload() {
 
   function cxAssistantProductionSummaryHtml027K(summary = {}, text = "", period = {}) {
     const mode = cxAssistantProductionMode027L(text, summary);
+    if (mode === "time_operator_reference") return cxAssistantProductionOperatorReferenceHtml027M(summary, text, period);
     if (mode === "time_reference") return cxAssistantProductionTimeReferenceHtml027L(summary, text, period);
     if (mode === "time_operator") return cxAssistantProductionTimeOperatorHtml027L(summary, text, period);
     if (mode === "closures") return cxAssistantProductionClosuresHtml027L(summary, period);
