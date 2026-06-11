@@ -471,7 +471,188 @@ def _production_ref_match_from_text(text_value: str, refs: list[dict[str, Any]])
     return best[1] if best else None
 
 
+def _production_seconds(row: dict[str, Any]) -> int:
+    for key in ("total_effective_seconds", "effective_seconds", "seconds"):
+        try:
+            return max(0, int(float(row.get(key) or 0)))
+        except Exception:
+            continue
+    return 0
+
+
+def _production_time_label(row: dict[str, Any]) -> str:
+    return str(row.get("total_effective_label") or row.get("effective_label") or _seconds_label(_production_seconds(row)))
+
+
+def _production_score(text_value: str, label: str) -> int:
+    query = _text_norm(text_value)
+    ignored = {"produccion", "referencia", "referencias", "tiempo", "cuanto", "lleva", "detalle"}
+    tokens = [token for token in re.split(r"[^a-z0-9]+", _text_norm(label)) if len(token) >= 3 and token not in ignored]
+    return sum(1 for token in tokens if token in query)
+
+
+def _production_time_ref_match_from_text(text_value: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    best: tuple[int, dict[str, Any]] | None = None
+    for row in rows:
+        score = _production_score(text_value, f"{row.get('reference_name') or row.get('name') or ''} {row.get('size') or ''}")
+        if score and (best is None or score > best[0]):
+            best = (score, row)
+    return best[1] if best else None
+
+
+def _production_operator_match_from_text(text_value: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    best: tuple[int, dict[str, Any]] | None = None
+    for row in rows:
+        score = _production_score(text_value, f"{row.get('employee_name') or ''} {row.get('telegram_user_id') or ''}")
+        if score and (best is None or score > best[0]):
+            best = (score, row)
+    return best[1] if best else None
+
+
+def _production_mode(text_value: str, data: dict[str, Any]) -> str:
+    normalized = _text_norm(text_value)
+    time_rows = list(data.get("time_by_reference") or [])
+    if "cierre" in normalized or "cerrada" in normalized or "cerradas" in normalized:
+        return "closures"
+    if "pendiente" in normalized or "faltan" in normalized or "falta" in normalized:
+        return "pending"
+    if "avance" in normalized or "progreso" in normalized or "porcentaje" in normalized:
+        return "progress"
+    if (
+        "tiempo por colaborador" in normalized
+        or "tiempos por colaborador" in normalized
+        or "tiempo por empleado" in normalized
+        or "tiempos por empleado" in normalized
+        or "tiempo por persona" in normalized
+        or "colaborador" in normalized
+    ):
+        return "time_operator"
+    if (
+        "tiempo por referencia" in normalized
+        or "tiempos por referencia" in normalized
+        or "cuanto tiempo" in normalized
+        or "cuanto lleva" in normalized
+        or "tiempo lleva" in normalized
+        or _production_time_ref_match_from_text(text_value, time_rows)
+    ):
+        return "time_reference"
+    return "summary"
+
+
+def _format_production_time_reference(data: dict[str, Any], text_value: str, period_label: str) -> str:
+    rows = sorted(list(data.get("time_by_reference") or []), key=_production_seconds, reverse=True)
+    matched = _production_time_ref_match_from_text(text_value, rows)
+    if matched:
+        return "\n".join([
+            f"Tiempo por referencia ({period_label})",
+            f"{matched.get('reference_name') or matched.get('name') or 'Referencia'}{(' / ' + str(matched.get('size'))) if matched.get('size') else ''}",
+            f"Tiempo productivo: {_production_time_label(matched)}",
+            f"Sesiones: {int(matched.get('sessions_count') or matched.get('sessions') or 0)}",
+            f"Colaboradores: {int(matched.get('operators_count') or 0)}",
+        ])
+    lines = [f"Tiempos por referencia ({period_label})"]
+    if not rows:
+        lines.append("Sin tiempos por referencia en este periodo.")
+        return "\n".join(lines)
+    for row in rows[:10]:
+        lines.append(
+            f"- {row.get('reference_name') or row.get('name') or 'Referencia'}"
+            f"{(' / ' + str(row.get('size'))) if row.get('size') else ''}: "
+            f"{_production_time_label(row)} ({int(row.get('sessions_count') or row.get('sessions') or 0)} sesiones)"
+        )
+    return "\n".join(lines)
+
+
+def _format_production_time_operator(data: dict[str, Any], text_value: str, period_label: str) -> str:
+    rows = list(data.get("time_by_operator_reference") or [])
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = str(row.get("employee_name") or row.get("telegram_user_id") or "Colaborador")
+        current = grouped.setdefault(key, {"name": key, "seconds": 0, "sessions": 0, "references": set(), "rows": []})
+        current["seconds"] += _production_seconds(row)
+        current["sessions"] += int(row.get("sessions_count") or row.get("sessions") or 0)
+        if row.get("reference_name"):
+            current["references"].add(f"{row.get('reference_name')}{(' / ' + str(row.get('size'))) if row.get('size') else ''}")
+        current["rows"].append(row)
+    matched = _production_operator_match_from_text(text_value, rows)
+    if matched:
+        group = grouped.get(str(matched.get("employee_name") or matched.get("telegram_user_id") or "Colaborador"))
+        lines = [
+            f"Tiempo por colaborador ({period_label})",
+            str(group.get("name") if group else "Colaborador"),
+            f"Tiempo productivo: {_seconds_label(group.get('seconds') if group else 0)}",
+            f"Sesiones: {int(group.get('sessions') if group else 0)}",
+            f"Referencias: {', '.join(list(group.get('references') or [])[:4]) or '-'}",
+        ]
+        for row in list(group.get("rows") or [])[:8]:
+            lines.append(f"- {row.get('reference_name') or 'Referencia'}: {_production_time_label(row)}")
+        return "\n".join(lines)
+    groups = sorted(grouped.values(), key=lambda row: int(row.get("seconds") or 0), reverse=True)
+    lines = [f"Tiempos por colaborador ({period_label})"]
+    if not groups:
+        lines.append("Sin tiempos por colaborador en este periodo.")
+        return "\n".join(lines)
+    for group in groups[:10]:
+        lines.append(f"- {group['name']}: {_seconds_label(group['seconds'])} - {group['sessions']} sesiones - {len(group['references'])} referencias")
+    return "\n".join(lines)
+
+
+def _format_production_closures(data: dict[str, Any], period_label: str) -> str:
+    rows = list(data.get("closures_period") or [])
+    rows.sort(key=lambda row: str(row.get("closed_at") or ""), reverse=True)
+    lines = [f"Cierres de produccion ({period_label})"]
+    if not rows:
+        lines.append("Sin cierres en este periodo.")
+        return "\n".join(lines)
+    for row in rows[:12]:
+        lines.append(
+            f"- {row.get('employee_name') or 'Colaborador'} cerro {int(row.get('quantity_finished') or 0)} "
+            f"de {row.get('reference_name') or 'referencia'}{(' / ' + str(row.get('size'))) if row.get('size') else ''}"
+        )
+    return "\n".join(lines)
+
+
+def _format_production_pending(data: dict[str, Any], period_label: str, sort_key: str) -> str:
+    refs = list(data.get("references") or [])
+    refs.sort(key=lambda row: float(row.get(sort_key) or 0), reverse=True)
+    title = "Avance por referencia" if sort_key == "progress_percent" else "Pendientes por referencia"
+    lines = [f"{title} ({period_label})"]
+    if not refs:
+        lines.append("Sin referencias para este periodo.")
+        return "\n".join(lines)
+    for row in refs[:12]:
+        lines.append(
+            f"- {row.get('name') or 'Referencia'}{(' / ' + str(row.get('size'))) if row.get('size') else ''}: "
+            f"{float(row.get('progress_percent') or 0):g}% - cerrada {int(row.get('finished_quantity') or 0)} - pendiente {int(row.get('pending_quantity') or 0)}"
+        )
+    return "\n".join(lines)
+
+
+def _production_can_answer(data: dict[str, Any], text_value: str) -> bool:
+    normalized = _text_norm(text_value)
+    if any(token in normalized for token in ("produccion", "referencia", "avance", "pendiente", "cierre", "cerrada")):
+        return True
+    mode = _production_mode(text_value, data)
+    if mode == "time_reference":
+        return _production_time_ref_match_from_text(text_value, list(data.get("time_by_reference") or [])) is not None
+    if mode == "time_operator":
+        return "colaborador" in normalized or "empleado" in normalized
+    return False
+
+
 def _format_production_summary(company: Company, data: dict[str, Any], text_value: str, period_label: str) -> str:
+    mode = _production_mode(text_value, data)
+    if mode == "time_reference":
+        return _format_production_time_reference(data, text_value, period_label)
+    if mode == "time_operator":
+        return _format_production_time_operator(data, text_value, period_label)
+    if mode == "closures":
+        return _format_production_closures(data, period_label)
+    if mode == "pending":
+        return _format_production_pending(data, period_label, "pending_quantity")
+    if mode == "progress":
+        return _format_production_pending(data, period_label, "progress_percent")
+
     totals = data.get("totals") or {}
     refs = list(data.get("references") or [])
     matched = _production_ref_match_from_text(text_value, refs)
@@ -506,7 +687,7 @@ def _format_production_summary(company: Company, data: dict[str, Any], text_valu
             lines.append(
                 f"- {row.get('name') or 'Referencia'}"
                 f"{(' / ' + str(row.get('size'))) if row.get('size') else ''}: "
-                f"{float(row.get('progress_percent') or 0):g}% · pendiente {int(row.get('pending_quantity') or 0)}"
+                f"{float(row.get('progress_percent') or 0):g}% - pendiente {int(row.get('pending_quantity') or 0)}"
             )
     if closures:
         lines.append("")
@@ -525,7 +706,8 @@ async def _whatsapp_production_reply(
     company: Company,
     db: AsyncSession,
     text_value: str,
-) -> str:
+    only_if_specific: bool = False,
+) -> str | None:
     period_start, period_end, period_label, view = _production_period_from_text(text_value)
     data = await production_summary(
         company_id=str(company_id),
@@ -535,6 +717,8 @@ async def _whatsapp_production_reply(
         view=view,
         db=db,
     )
+    if only_if_specific and not _production_can_answer(data, text_value):
+        return None
     return _format_production_summary(company, data, text_value, period_label)
 
 
@@ -698,6 +882,15 @@ async def _whatsapp_agent_reply(
         "sobreproducida",
         "sobreproducidas",
     ]
+    production_maybe_words = [
+        "cuanto tiempo",
+        "cuanto lleva",
+        "tiempo lleva",
+        "tiempos",
+        "lleva",
+        "demora",
+        "duracion",
+    ]
 
     try:
         snapshot = await crm_core_snapshot(str(company_id), db)
@@ -743,6 +936,20 @@ async def _whatsapp_agent_reply(
         except Exception as exc:
             logger.warning("whatsapp production reply failed: %s", exc, exc_info=True)
             return "No pude consultar Produccion en este momento. Revisa que existan referencias, cierres o sesiones productivas."
+
+    if _contains_any(normalized, production_maybe_words) and ("production" in modules or "references" in modules):
+        try:
+            production_reply = await _whatsapp_production_reply(
+                company_id=company_id,
+                company=company,
+                db=db,
+                text_value=text_value,
+                only_if_specific=True,
+            )
+            if production_reply:
+                return production_reply
+        except Exception as exc:
+            logger.warning("whatsapp production probe failed: %s", exc, exc_info=True)
 
     if _contains_any(normalized, crm_words):
         return _format_crm_summary(company, snapshot, text_value)

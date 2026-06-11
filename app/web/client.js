@@ -13074,6 +13074,185 @@ function inventoryCreatePayload() {
     return productionWords.some((token) => norm.includes(token));
   }
 
+  function cxAssistantMaybeProductionQuery027L(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return [
+      "cuanto tiempo",
+      "cuanto lleva",
+      "tiempo lleva",
+      "tiempos",
+      "lleva",
+      "demora",
+      "duracion",
+    ].some((token) => norm.includes(token));
+  }
+
+  function cxAssistantProductionSeconds027L(row = {}) {
+    return Number(row.total_effective_seconds ?? row.effective_seconds ?? row.seconds ?? 0) || 0;
+  }
+
+  function cxAssistantProductionTimeLabel027L(row = {}) {
+    return row.total_effective_label || row.effective_label || cxProdSeconds018E(cxAssistantProductionSeconds027L(row));
+  }
+
+  function cxAssistantProductionScore027L(text = "", label = "") {
+    const query = cxAssistantNorm027A(text);
+    const tokens = cxAssistantNorm027A(label)
+      .split(/\s+/)
+      .filter((token) => token.length >= 3 && !["produccion", "referencia", "tiempo", "cuanto", "lleva", "detalle"].includes(token));
+    return tokens.reduce((sum, token) => sum + (query.includes(token) ? 1 : 0), 0);
+  }
+
+  function cxAssistantProductionMatchTimeRef027L(text = "", rows = []) {
+    let best = null;
+    let bestScore = 0;
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const score = cxAssistantProductionScore027L(text, `${row.reference_name || ""} ${row.name || ""} ${row.size || ""}`);
+      if (score > bestScore) {
+        best = row;
+        bestScore = score;
+      }
+    });
+    return bestScore ? best : null;
+  }
+
+  function cxAssistantProductionMatchOperator027L(text = "", rows = []) {
+    let best = null;
+    let bestScore = 0;
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const score = cxAssistantProductionScore027L(text, `${row.employee_name || ""} ${row.telegram_user_id || ""}`);
+      if (score > bestScore) {
+        best = row;
+        bestScore = score;
+      }
+    });
+    return bestScore ? best : null;
+  }
+
+  function cxAssistantProductionMode027L(text = "", summary = {}) {
+    const norm = cxAssistantNorm027A(text);
+    const timeRows = Array.isArray(summary.time_by_reference) ? summary.time_by_reference : [];
+    if (norm.includes("cierre") || norm.includes("cerrada") || norm.includes("cerradas")) return "closures";
+    if (norm.includes("pendiente") || norm.includes("faltan") || norm.includes("falta")) return "pending";
+    if (norm.includes("avance") || norm.includes("progreso") || norm.includes("porcentaje")) return "progress";
+    if (
+      norm.includes("tiempo por colaborador") ||
+      norm.includes("tiempos por colaborador") ||
+      norm.includes("tiempo por empleado") ||
+      norm.includes("tiempos por empleado") ||
+      norm.includes("tiempo por persona") ||
+      norm.includes("colaborador")
+    ) return "time_operator";
+    if (
+      norm.includes("tiempo por referencia") ||
+      norm.includes("tiempos por referencia") ||
+      norm.includes("cuanto tiempo") ||
+      norm.includes("cuanto lleva") ||
+      norm.includes("tiempo lleva") ||
+      cxAssistantProductionMatchTimeRef027L(text, timeRows)
+    ) return "time_reference";
+    return "summary";
+  }
+
+  function cxAssistantProductionCanAnswer027L(summary = {}, text = "") {
+    if (cxAssistantLooksProductionQuery027K(text)) return true;
+    const mode = cxAssistantProductionMode027L(text, summary);
+    if (mode === "time_reference") {
+      return Boolean(cxAssistantProductionMatchTimeRef027L(text, summary.time_by_reference || []));
+    }
+    if (mode === "time_operator") return true;
+    return false;
+  }
+
+  function cxAssistantProductionTimeReferenceHtml027L(summary = {}, text = "", period = {}) {
+    const rows = [...(Array.isArray(summary.time_by_reference) ? summary.time_by_reference : [])]
+      .sort((a, b) => cxAssistantProductionSeconds027L(b) - cxAssistantProductionSeconds027L(a));
+    const match = cxAssistantProductionMatchTimeRef027L(text, rows);
+    if (match) {
+      return `
+        <div>Tiempo por referencia (${h(period.label || "periodo")}):</div>
+        <div class="cxai-summary-027a">
+          <div><strong>${h(match.reference_name || match.name || "Referencia")}</strong>${match.size ? ` / ${h(match.size)}` : ""}</div>
+          <div><strong>Tiempo productivo:</strong> ${h(cxAssistantProductionTimeLabel027L(match))}</div>
+          <div><strong>Sesiones:</strong> ${h(cxProdNum018E(match.sessions_count || match.sessions || 0))}</div>
+          <div><strong>Colaboradores:</strong> ${h(cxProdNum018E(match.operators_count || 0))}</div>
+        </div>
+        <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+      `;
+    }
+    const detail = rows.length
+      ? rows.slice(0, 10).map((row) => `<div>${h(row.reference_name || row.name || "Referencia")}${row.size ? ` / ${h(row.size)}` : ""}: <strong>${h(cxAssistantProductionTimeLabel027L(row))}</strong> · ${h(cxProdNum018E(row.sessions_count || row.sessions || 0))} sesiones</div>`).join("")
+      : "<div>Sin tiempos por referencia en este periodo.</div>";
+    return `
+      <div>Tiempos por referencia (${h(period.label || "periodo")}):</div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+    `;
+  }
+
+  function cxAssistantProductionTimeOperatorHtml027L(summary = {}, text = "", period = {}) {
+    const rows = Array.isArray(summary.time_by_operator_reference) ? summary.time_by_operator_reference : [];
+    const grouped = new Map();
+    rows.forEach((row) => {
+      const key = row.employee_name || row.telegram_user_id || "Colaborador";
+      const current = grouped.get(key) || { name: key, seconds: 0, sessions: 0, references: new Set(), rows: [] };
+      current.seconds += cxAssistantProductionSeconds027L(row);
+      current.sessions += Number(row.sessions_count || row.sessions || 0) || 0;
+      if (row.reference_name) current.references.add(`${row.reference_name}${row.size ? " / " + row.size : ""}`);
+      current.rows.push(row);
+      grouped.set(key, current);
+    });
+    const groups = [...grouped.values()].sort((a, b) => b.seconds - a.seconds);
+    const matchedRow = cxAssistantProductionMatchOperator027L(text, rows);
+    if (matchedRow) {
+      const group = grouped.get(matchedRow.employee_name || matchedRow.telegram_user_id || "Colaborador");
+      const details = (group?.rows || []).slice(0, 8).map((row) => `<div>${h(row.reference_name || "Referencia")}${row.size ? ` / ${h(row.size)}` : ""}: <strong>${h(cxAssistantProductionTimeLabel027L(row))}</strong></div>`).join("");
+      return `
+        <div>Tiempo por colaborador (${h(period.label || "periodo")}):</div>
+        <div class="cxai-summary-027a">
+          <div><strong>${h(group?.name || "Colaborador")}</strong></div>
+          <div><strong>Tiempo productivo:</strong> ${h(cxProdSeconds018E(group?.seconds || 0))}</div>
+          <div><strong>Sesiones:</strong> ${h(cxProdNum018E(group?.sessions || 0))}</div>
+          <div><strong>Referencias:</strong> ${h([...(group?.references || [])].slice(0, 4).join(", ") || "-")}</div>
+        </div>
+        <div class="cxai-summary-027a">${details || "<div>Sin detalle por referencia.</div>"}</div>
+        <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+      `;
+    }
+    const detail = groups.length
+      ? groups.slice(0, 10).map((row) => `<div>${h(row.name)}: <strong>${h(cxProdSeconds018E(row.seconds))}</strong> · ${h(cxProdNum018E(row.sessions))} sesiones · ${h(row.references.size)} referencias</div>`).join("")
+      : "<div>Sin tiempos por colaborador en este periodo.</div>";
+    return `
+      <div>Tiempos por colaborador (${h(period.label || "periodo")}):</div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+    `;
+  }
+
+  function cxAssistantProductionClosuresHtml027L(summary = {}, period = {}) {
+    const rows = cxProdClosureSort018E(Array.isArray(summary.closures_period) ? summary.closures_period : [], "date_desc");
+    const detail = rows.length
+      ? rows.slice(0, 12).map((row) => `<div>${h(cxProdDate018E(row.closed_at))}: ${h(row.employee_name || "Colaborador")} cerro <strong>${h(cxProdNum018E(row.quantity_finished || 0))}</strong> de ${h(row.reference_name || "referencia")}${row.size ? ` / ${h(row.size)}` : ""}</div>`).join("")
+      : "<div>Sin cierres en este periodo.</div>";
+    return `
+      <div>Cierres de produccion (${h(period.label || "periodo")}):</div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+    `;
+  }
+
+  function cxAssistantProductionPendingHtml027L(summary = {}, period = {}, sort = "pending_desc") {
+    const rows = cxProdReferenceSort018E(Array.isArray(summary.references) ? summary.references : [], sort);
+    const detail = rows.length
+      ? rows.slice(0, 12).map((row) => `<div>${h(row.name || "Referencia")}${row.size ? ` / ${h(row.size)}` : ""}: <strong>${h(cxProdPercent018E(row.progress_percent || 0))}</strong> · cerrada ${h(cxProdNum018E(row.finished_quantity || 0))} · pendiente ${h(cxProdNum018E(row.pending_quantity || 0))}</div>`).join("")
+      : "<div>Sin referencias para este periodo.</div>";
+    return `
+      <div>${sort === "progress_desc" ? "Avance por referencia" : "Pendientes por referencia"} (${h(period.label || "periodo")}):</div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+    `;
+  }
+
   function cxAssistantProductionReferenceHtml027K(row = {}, summary = {}, period = {}) {
     const time = cxProdReferenceTime018E(row, cxProdBuildTimeMap018E(summary));
     return `
@@ -13093,6 +13272,13 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantProductionSummaryHtml027K(summary = {}, text = "", period = {}) {
+    const mode = cxAssistantProductionMode027L(text, summary);
+    if (mode === "time_reference") return cxAssistantProductionTimeReferenceHtml027L(summary, text, period);
+    if (mode === "time_operator") return cxAssistantProductionTimeOperatorHtml027L(summary, text, period);
+    if (mode === "closures") return cxAssistantProductionClosuresHtml027L(summary, period);
+    if (mode === "pending") return cxAssistantProductionPendingHtml027L(summary, period, "pending_desc");
+    if (mode === "progress") return cxAssistantProductionPendingHtml027L(summary, period, "progress_desc");
+
     const refs = Array.isArray(summary.references) ? summary.references : [];
     const matched = cxAssistantProductionMatchRef027K(text, refs);
     if (matched) return cxAssistantProductionReferenceHtml027K(matched, summary, period);
@@ -13123,19 +13309,22 @@ function inventoryCreatePayload() {
     `;
   }
 
-  async function cxAssistantReplyProduction027K(chat, text = "") {
+  async function cxAssistantReplyProduction027K(chat, text = "", options = {}) {
     if (!cxAssistantProductionHasAccess027K()) {
-      cxAssistantPush027A(chat, "assistant", "Produccion no esta activa para esta empresa.");
-      return;
+      if (!options.onlyIfSpecific) cxAssistantPush027A(chat, "assistant", "Produccion no esta activa para esta empresa.");
+      return false;
     }
     try {
       const period = cxAssistantProductionPeriod027K(text);
+      const summary = await cxProdLoadSummary018E(period);
+      if (options.onlyIfSpecific && !cxAssistantProductionCanAnswer027L(summary, text)) return false;
       cxAssistantPush027A(chat, "assistant", `Consultando Produccion (${period.label})...`);
       cxAssistantRenderMessages027A();
-      const summary = await cxProdLoadSummary018E(period);
       cxAssistantPush027A(chat, "assistant", cxAssistantProductionSummaryHtml027K(summary, text, period), true);
+      return true;
     } catch (error) {
-      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Produccion en este momento.");
+      if (!options.onlyIfSpecific) cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Produccion en este momento.");
+      return false;
     }
   }
 
@@ -13183,6 +13372,13 @@ function inventoryCreatePayload() {
       await cxAssistantReplyPayroll027I(chat, clean);
     } else if (cxAssistantLooksProductionQuery027K(clean)) {
       await cxAssistantReplyProduction027K(chat, clean);
+    } else if (cxAssistantMaybeProductionQuery027L(clean)) {
+      const answeredProduction = await cxAssistantReplyProduction027K(chat, clean, { onlyIfSpecific: true });
+      if (!answeredProduction && cxAssistantLooksCrmQuery027D(clean)) {
+        await cxAssistantReplyCrm027D(chat, clean);
+      } else if (!answeredProduction) {
+        cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
+      }
     } else if (cxAssistantLooksCrmQuery027D(clean)) {
       await cxAssistantReplyCrm027D(chat, clean);
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
