@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.api.v1.endpoints.crm_core_v1 import crm_core_snapshot
 from app.api.v1.endpoints.payroll import calculate_period_snapshot, ensure_payroll_storage
+from app.api.v1.endpoints.production_v1 import production_summary
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
 from app.integrations.telegram.parser import parse_telegram_update
@@ -437,6 +438,106 @@ async def _whatsapp_payroll_reply(
     return _format_payroll_summary(company, snapshot, text_value, period_label)
 
 
+def _production_period_from_text(text_value: str) -> tuple[date, date, str, str]:
+    normalized = _text_norm(text_value)
+    today = _today_business()
+    explicit = [_parse_date_token(item) for item in re.findall(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", text_value)]
+    explicit = [item for item in explicit if item]
+    view = "archived" if "archiv" in normalized else ("all" if "todas" in normalized or "todo" in normalized else "active")
+    if len(explicit) >= 2:
+        start, end = min(explicit[0], explicit[1]), max(explicit[0], explicit[1])
+        return start, end, "rango indicado", view
+    if len(explicit) == 1:
+        return explicit[0], explicit[0], "fecha indicada", view
+    if "hoy" in normalized:
+        return today, today, "hoy", view
+    if "mes" in normalized:
+        return date(today.year, today.month, 1), today, "mes actual", view
+    if "30" in normalized:
+        return today - timedelta(days=29), today, "ultimos 30 dias", view
+    return today - timedelta(days=6), today, "ultimos 7 dias", view
+
+
+def _production_ref_match_from_text(text_value: str, refs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    query = _text_norm(text_value)
+    ignored = {"produccion", "referencia", "referencias", "avance", "pendiente", "cerrada", "cierre", "cierres"}
+    best: tuple[int, dict[str, Any]] | None = None
+    for row in refs:
+        label = _text_norm(f"{row.get('name') or ''} {row.get('size') or ''}")
+        tokens = [token for token in re.split(r"[^a-z0-9]+", label) if len(token) >= 3 and token not in ignored]
+        score = sum(1 for token in tokens if token in query)
+        if score and (best is None or score > best[0]):
+            best = (score, row)
+    return best[1] if best else None
+
+
+def _format_production_summary(company: Company, data: dict[str, Any], text_value: str, period_label: str) -> str:
+    totals = data.get("totals") or {}
+    refs = list(data.get("references") or [])
+    matched = _production_ref_match_from_text(text_value, refs)
+    if matched:
+        lines = [
+            f"Produccion por referencia ({period_label})",
+            f"{matched.get('name') or 'Referencia'}{(' / ' + str(matched.get('size'))) if matched.get('size') else ''}",
+            f"Total: {int(matched.get('initial_quantity') or 0)}",
+            f"Cerrada: {int(matched.get('finished_quantity') or 0)}",
+            f"Pendiente: {int(matched.get('pending_quantity') or 0)}",
+            f"Sobreproducida: {int(matched.get('over_finished_quantity') or 0)}",
+            f"Avance: {float(matched.get('progress_percent') or 0):g}%",
+        ]
+        return "\n".join(lines)
+
+    top_refs = sorted(refs, key=lambda row: int(row.get("pending_quantity") or 0), reverse=True)[:6]
+    closures = list(data.get("closures_period") or [])[:5]
+    lines = [
+        f"Produccion de {company.name} ({period_label})",
+        f"Periodo: {data.get('date_from')} / {data.get('date_to')}",
+        f"Referencias: {int(totals.get('references_total') or len(refs) or 0)}",
+        f"Tiempo productivo: {totals.get('effective_label_period') or _seconds_label(totals.get('effective_seconds_period'))}",
+        f"Cantidad cerrada: {int(totals.get('finished_quantity_total') or 0)}",
+        f"Pendiente: {int(totals.get('pending_quantity_total') or 0)}",
+        f"Avance: {float(totals.get('progress_percent') or 0):g}%",
+        f"Sesiones activas: {int(totals.get('active_sessions') or 0)}",
+    ]
+    if top_refs:
+        lines.append("")
+        lines.append("Referencias con pendiente:")
+        for row in top_refs:
+            lines.append(
+                f"- {row.get('name') or 'Referencia'}"
+                f"{(' / ' + str(row.get('size'))) if row.get('size') else ''}: "
+                f"{float(row.get('progress_percent') or 0):g}% · pendiente {int(row.get('pending_quantity') or 0)}"
+            )
+    if closures:
+        lines.append("")
+        lines.append("Ultimos cierres:")
+        for row in closures:
+            lines.append(
+                f"- {row.get('employee_name') or 'Colaborador'} cerro "
+                f"{int(row.get('quantity_finished') or 0)} de {row.get('reference_name') or 'referencia'}"
+            )
+    return "\n".join(lines)
+
+
+async def _whatsapp_production_reply(
+    *,
+    company_id: UUID,
+    company: Company,
+    db: AsyncSession,
+    text_value: str,
+) -> str:
+    period_start, period_end, period_label, view = _production_period_from_text(text_value)
+    data = await production_summary(
+        company_id=str(company_id),
+        date_from=period_start.isoformat(),
+        date_to=period_end.isoformat(),
+        preset="custom",
+        view=view,
+        db=db,
+    )
+    return _format_production_summary(company, data, text_value, period_label)
+
+
 def _employee_match_from_text(text_value: str, employees: list[dict[str, Any]]) -> dict[str, Any] | None:
     query = _text_norm(text_value)
     best: tuple[int, dict[str, Any]] | None = None
@@ -516,7 +617,7 @@ def _whatsapp_agent_welcome(company: Company) -> str:
     return (
         f"Hola. Soy {_wa_agent_name(company)}, tu agente IA para la operacion de {company.name}. "
         "Ya quede enlazado con CLONEXA. Si necesitas algo escribeme aqui: "
-        "tiempo de Nicolas, nomina del mes, cuanto debo pagar, estado CRM, conexiones del equipo o modulos activos."
+        "tiempo de Nicolas, nomina del mes, produccion de hoy, avance por referencia, estado CRM, conexiones del equipo o modulos activos."
     )
 
 
@@ -580,6 +681,23 @@ async def _whatsapp_agent_reply(
         "cuanto le debo",
         "horas a pagar",
     ]
+    production_words = [
+        "produccion",
+        "productivo",
+        "referencia",
+        "referencias",
+        "avance",
+        "pendiente",
+        "pendientes",
+        "terminada",
+        "terminadas",
+        "cerrada",
+        "cerradas",
+        "cierre",
+        "cierres",
+        "sobreproducida",
+        "sobreproducidas",
+    ]
 
     try:
         snapshot = await crm_core_snapshot(str(company_id), db)
@@ -595,7 +713,7 @@ async def _whatsapp_agent_reply(
             f"Hola{prefix_name}. Soy {_wa_agent_name(company)}. "
             f"Estoy vinculado a CLONEXA para {company.name}. "
             f"Modulos activos: {module_label}. "
-            "Puedes pedirme: nomina del mes, nomina de una persona, estado CRM, estado de una persona, conexiones del equipo o resumen operativo."
+            "Puedes pedirme: nomina del mes, nomina de una persona, produccion de hoy, avance por referencia, estado CRM, estado de una persona, conexiones del equipo o resumen operativo."
         )
 
     if _contains_any(normalized, payroll_words):
@@ -612,6 +730,20 @@ async def _whatsapp_agent_reply(
             logger.warning("whatsapp payroll reply failed: %s", exc, exc_info=True)
             return "No pude consultar Nomina en este momento. Revisa que existan turnos cerrados o sesiones del periodo."
 
+    if _contains_any(normalized, production_words):
+        if "production" not in modules and "references" not in modules:
+            return "Produccion no aparece activa para esta empresa. Activa Produccion o Referencias para consultar avances, pendientes y cierres."
+        try:
+            return await _whatsapp_production_reply(
+                company_id=company_id,
+                company=company,
+                db=db,
+                text_value=text_value,
+            )
+        except Exception as exc:
+            logger.warning("whatsapp production reply failed: %s", exc, exc_info=True)
+            return "No pude consultar Produccion en este momento. Revisa que existan referencias, cierres o sesiones productivas."
+
     if _contains_any(normalized, crm_words):
         return _format_crm_summary(company, snapshot, text_value)
 
@@ -624,7 +756,7 @@ async def _whatsapp_agent_reply(
 
     return (
         f"Hola{prefix_name}. Soy {_wa_agent_name(company)}, conectado al panel CLONEXA de {company.name}. "
-        "Escribeme por ejemplo: nomina del mes, cuanto debo pagar, nomina de Nicolas, estado CRM o modulos activos."
+        "Escribeme por ejemplo: nomina del mes, produccion de hoy, avance por referencia, estado CRM o modulos activos."
     )
 
 

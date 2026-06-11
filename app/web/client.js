@@ -7783,8 +7783,8 @@ function inventoryCreatePayload() {
   /* CX_018E_PRODUCTION_ANALYTICS_MODULE_START */
   const CX_PROD_I18N_018E = {
     es: {
-      eyebrow: "MÃ³dulo ProducciÃ³n",
-      title: "ProducciÃ³n",
+      eyebrow: "Modulo Produccion",
+      title: "Produccion",
       subtitle: "Tiempos, referencias, cierres, cantidades y productividad por empresa.",
       back: "Volver",
       refresh: "Actualizar",
@@ -7799,9 +7799,9 @@ function inventoryCreatePayload() {
       all: "Todas",
       archived: "Archivadas",
       today: "Hoy",
-      sevenDays: "7 dÃ­as",
+      sevenDays: "7 dias",
       month: "Mes",
-      thirtyDays: "30 dÃ­as",
+      thirtyDays: "30 dias",
       custom: "Personalizado",
       summary: "Resumen productivo",
       referencesActive: "Referencias activas",
@@ -7829,11 +7829,11 @@ function inventoryCreatePayload() {
       closedAt: "Fecha cierre",
       channel: "Canal",
       notes: "Notas",
-      empty: "Sin datos productivos todavÃ­a.",
+      empty: "Sin datos productivos todavia.",
       noClosures: "Sin cierres en este periodo.",
       noTime: "Sin tiempos productivos en este periodo.",
-      error: "No se pudo cargar ProducciÃ³n.",
-      moduleInactive: "El mÃ³dulo ProducciÃ³n no estÃ¡ activo para esta empresa."
+      error: "No se pudo cargar Produccion.",
+      moduleInactive: "El modulo Produccion no esta activo para esta empresa."
     },
     en: {
       eyebrow: "Production module",
@@ -8113,7 +8113,13 @@ function inventoryCreatePayload() {
       preset: "7d",
       date_from: fromDate.toISOString().slice(0, 10),
       date_to: to,
-      view: "active"
+      view: "active",
+      reference_q: "",
+      reference_sort: "progress_desc",
+      operator_q: "",
+      operator_sort: "time_desc",
+      closure_q: "",
+      closure_sort: "date_desc"
     };
   }
 
@@ -8122,7 +8128,13 @@ function inventoryCreatePayload() {
       preset: document.querySelector("[data-production-preset]")?.value || "7d",
       date_from: document.querySelector("[data-production-from]")?.value || "",
       date_to: document.querySelector("[data-production-to]")?.value || "",
-      view: document.querySelector("[data-production-view]")?.value || "active"
+      view: document.querySelector("[data-production-view]")?.value || "active",
+      reference_q: document.querySelector("[data-production-ref-search]")?.value || "",
+      reference_sort: document.querySelector("[data-production-ref-sort]")?.value || "progress_desc",
+      operator_q: document.querySelector("[data-production-op-search]")?.value || "",
+      operator_sort: document.querySelector("[data-production-op-sort]")?.value || "time_desc",
+      closure_q: document.querySelector("[data-production-close-search]")?.value || "",
+      closure_sort: document.querySelector("[data-production-close-sort]")?.value || "date_desc"
     };
   }
 
@@ -8171,6 +8183,124 @@ function inventoryCreatePayload() {
     return `<div class="cx-prod-cell"><span class="cx-prod-progress-pill">${h(cxProdPercent018E(value))}</span></div>`;
   }
 
+  function cxProdNorm018E(value = "") {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  }
+
+  function cxProdRowMatches018E(row = {}, query = "", keys = []) {
+    const needle = cxProdNorm018E(query);
+    if (!needle) return true;
+    const haystack = keys.map((key) => cxProdNorm018E(row[key])).join(" ");
+    return needle.split(/\s+/).filter(Boolean).every((token) => haystack.includes(token));
+  }
+
+  function cxProdDateMs018E(value = "") {
+    const date = new Date(value || "");
+    const ms = date.getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  function cxProdCompareText018E(a = "", b = "") {
+    return cxProdNorm018E(a).localeCompare(cxProdNorm018E(b), "es");
+  }
+
+  function cxProdReferenceSort018E(rows = [], sort = "progress_desc") {
+    const output = [...rows];
+    output.sort((a, b) => {
+      if (sort === "name_desc") return cxProdCompareText018E(b.name, a.name) || cxProdCompareText018E(b.size, a.size);
+      if (sort === "name_asc") return cxProdCompareText018E(a.name, b.name) || cxProdCompareText018E(a.size, b.size);
+      if (sort === "date_asc") return cxProdDateMs018E(a.activation_date || a.archived_at) - cxProdDateMs018E(b.activation_date || b.archived_at);
+      if (sort === "date_desc") return cxProdDateMs018E(b.activation_date || b.archived_at) - cxProdDateMs018E(a.activation_date || a.archived_at);
+      if (sort === "pending_desc") return Number(b.pending_quantity || 0) - Number(a.pending_quantity || 0);
+      return Number(b.progress_percent || 0) - Number(a.progress_percent || 0);
+    });
+    return output;
+  }
+
+  function cxProdOperatorSort018E(rows = [], sort = "time_desc") {
+    const output = [...rows];
+    output.sort((a, b) => {
+      if (sort === "name_asc") return cxProdCompareText018E(a.employee_name || a.telegram_user_id, b.employee_name || b.telegram_user_id);
+      if (sort === "reference_asc") return cxProdCompareText018E(a.reference_name, b.reference_name) || cxProdCompareText018E(a.size, b.size);
+      if (sort === "time_asc") return Number(a.effective_seconds || 0) - Number(b.effective_seconds || 0);
+      return Number(b.effective_seconds || 0) - Number(a.effective_seconds || 0);
+    });
+    return output;
+  }
+
+  function cxProdClosureSort018E(rows = [], sort = "date_desc") {
+    const output = [...rows];
+    output.sort((a, b) => {
+      if (sort === "date_asc") return cxProdDateMs018E(a.closed_at) - cxProdDateMs018E(b.closed_at);
+      if (sort === "reference_asc") return cxProdCompareText018E(a.reference_name, b.reference_name) || cxProdCompareText018E(a.size, b.size);
+      if (sort === "name_asc") return cxProdCompareText018E(a.employee_name || a.telegram_user_id, b.employee_name || b.telegram_user_id);
+      if (sort === "quantity_desc") return Number(b.quantity_finished || 0) - Number(a.quantity_finished || 0);
+      return cxProdDateMs018E(b.closed_at) - cxProdDateMs018E(a.closed_at);
+    });
+    return output;
+  }
+
+  function cxProdSectionTools018E(section, filters = {}) {
+    const config = {
+      reference: {
+        q: filters.reference_q || "",
+        sort: filters.reference_sort || "progress_desc",
+        searchAttr: "data-production-ref-search",
+        sortAttr: "data-production-ref-sort",
+        placeholder: "Buscar referencia, talla o estado...",
+        options: [
+          ["progress_desc", "Mayor avance"],
+          ["pending_desc", "Mayor pendiente"],
+          ["date_desc", "Fecha mayor a menor"],
+          ["date_asc", "Fecha menor a mayor"],
+          ["name_asc", "Nombre A-Z"],
+          ["name_desc", "Nombre Z-A"],
+        ],
+      },
+      operator: {
+        q: filters.operator_q || "",
+        sort: filters.operator_sort || "time_desc",
+        searchAttr: "data-production-op-search",
+        sortAttr: "data-production-op-sort",
+        placeholder: "Buscar colaborador, referencia o talla...",
+        options: [
+          ["time_desc", "Mas tiempo"],
+          ["time_asc", "Menos tiempo"],
+          ["name_asc", "Colaborador A-Z"],
+          ["reference_asc", "Referencia A-Z"],
+        ],
+      },
+      closure: {
+        q: filters.closure_q || "",
+        sort: filters.closure_sort || "date_desc",
+        searchAttr: "data-production-close-search",
+        sortAttr: "data-production-close-sort",
+        placeholder: "Buscar cierre, colaborador, referencia o nota...",
+        options: [
+          ["date_desc", "Fecha mayor a menor"],
+          ["date_asc", "Fecha menor a mayor"],
+          ["reference_asc", "Referencia A-Z"],
+          ["name_asc", "Colaborador A-Z"],
+          ["quantity_desc", "Mayor cantidad"],
+        ],
+      },
+    }[section];
+    if (!config) return "";
+    return `
+      <div class="cx-prod-section-tools">
+        <input ${config.searchAttr} value="${h(config.q)}" placeholder="${h(config.placeholder)}">
+        <select ${config.sortAttr}>
+          ${config.options.map(([value, label]) => `<option value="${h(value)}" ${config.sort === value ? "selected" : ""}>${h(label)}</option>`).join("")}
+        </select>
+        <button class="client-btn" type="button" data-production-section-apply>Filtrar</button>
+      </div>
+    `;
+  }
+
   function cxProdEnsureStyles018E() {
     let style = document.getElementById("cxProductionAnalyticsStyles018E");
     if (style) return;
@@ -8197,7 +8327,9 @@ function inventoryCreatePayload() {
         margin-bottom: 6px;
       }
       .cx-prod-field input,
-      .cx-prod-field select {
+      .cx-prod-field select,
+      .cx-prod-section-tools input,
+      .cx-prod-section-tools select {
         width: 100%;
         border: 1px solid rgba(255,255,255,.16);
         background: rgba(0,0,0,.22);
@@ -8206,6 +8338,13 @@ function inventoryCreatePayload() {
         padding: 12px 12px;
         outline: none;
         font-weight: 900;
+      }
+      .cx-prod-section-tools {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px) auto;
+        gap: 10px;
+        align-items: center;
+        margin: 12px 0 2px;
       }
       .cx-prod-kpi small {
         display:block;
@@ -8307,15 +8446,24 @@ function inventoryCreatePayload() {
       }
       @media (max-width: 1000px) {
         .cx-prod-filters,
-        .cx-prod-charts {
+        .cx-prod-charts,
+        .cx-prod-section-tools {
           grid-template-columns: 1fr;
         }
       }
     `;
   }
 
-  function cxProdReferenceRows018E(summary, settings) {
-    const refs = Array.isArray(summary.references) ? summary.references : [];
+  function cxProdReferenceRows018E(summary, settings, filters = {}) {
+    const refs = cxProdReferenceSort018E(
+      (Array.isArray(summary.references) ? summary.references : [])
+        .filter((row) => cxProdRowMatches018E(
+          { ...row, status: row.archived ? cxProdT018E(settings, "archived") : cxProdT018E(settings, "active") },
+          filters.reference_q || "",
+          ["name", "size", "status", "activation_date", "archived_at"]
+        )),
+      filters.reference_sort || "progress_desc"
+    );
     const timeMap = cxProdBuildTimeMap018E(summary);
 
     if (!refs.length) {
@@ -8358,8 +8506,16 @@ function inventoryCreatePayload() {
     `;
   }
 
-  function cxProdOperatorRows018E(summary, settings) {
-    const rows = Array.isArray(summary.time_by_operator_reference) ? summary.time_by_operator_reference : [];
+  function cxProdOperatorRows018E(summary, settings, filters = {}) {
+    const rows = cxProdOperatorSort018E(
+      (Array.isArray(summary.time_by_operator_reference) ? summary.time_by_operator_reference : [])
+        .filter((row) => cxProdRowMatches018E(
+          row,
+          filters.operator_q || "",
+          ["employee_name", "telegram_user_id", "reference_name", "size", "effective_label"]
+        )),
+      filters.operator_sort || "time_desc"
+    );
 
     if (!rows.length) {
       return `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noTime"))}</div>`;
@@ -8385,10 +8541,18 @@ function inventoryCreatePayload() {
     `;
   }
 
-  function cxProdClosureRows018E(summary, settings) {
-    const rows = Array.isArray(summary.closures_period) && summary.closures_period.length
+  function cxProdClosureRows018E(summary, settings, filters = {}) {
+    const rowsSource = Array.isArray(summary.closures_period) && summary.closures_period.length
       ? summary.closures_period
       : (Array.isArray(summary.closures_display) ? summary.closures_display : []);
+    const rows = cxProdClosureSort018E(
+      rowsSource.filter((row) => cxProdRowMatches018E(
+        row,
+        filters.closure_q || "",
+        ["closed_at", "employee_name", "telegram_user_id", "reference_name", "size", "source_channel", "notes"]
+      )),
+      filters.closure_sort || "date_desc"
+    );
 
     if (!rows.length) {
       return `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noClosures"))}</div>`;
@@ -8548,19 +8712,22 @@ function inventoryCreatePayload() {
             <section class="client-panel">
               <div class="client-eyebrow">${h(cxProdT018E(settings, "referenceDetail"))}</div>
               <h2>${h(cxProdT018E(settings, "referenceDetail"))}</h2>
-              ${summary ? cxProdReferenceRows018E(summary, settings) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "empty"))}</div>`}
+              ${cxProdSectionTools018E("reference", filters)}
+              ${summary ? cxProdReferenceRows018E(summary, settings, filters) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "empty"))}</div>`}
             </section>
 
             <section class="client-panel">
               <div class="client-eyebrow">${h(cxProdT018E(settings, "timeByCollaborator"))}</div>
               <h2>${h(cxProdT018E(settings, "timeByCollaborator"))}</h2>
-              ${summary ? cxProdOperatorRows018E(summary, settings) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noTime"))}</div>`}
+              ${cxProdSectionTools018E("operator", filters)}
+              ${summary ? cxProdOperatorRows018E(summary, settings, filters) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noTime"))}</div>`}
             </section>
 
             <section class="client-panel">
               <div class="client-eyebrow">${h(cxProdT018E(settings, "closures"))}</div>
               <h2>${h(cxProdT018E(settings, "closures"))}</h2>
-              ${summary ? cxProdClosureRows018E(summary, settings) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noClosures"))}</div>`}
+              ${cxProdSectionTools018E("closure", filters)}
+              ${summary ? cxProdClosureRows018E(summary, settings, filters) : `<div class="cx-prod-empty">${h(cxProdT018E(settings, "noClosures"))}</div>`}
             </section>
           </section>
         </div>
@@ -12116,6 +12283,16 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsProductionTool027K(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["production", "produccion", "producción", "references", "reference", "referencias", "referencia", "referencias_produccion", "production_references"].includes(token) ||
+      token.includes("produccion") ||
+      token.includes("referencias") ||
+      token.includes("production_references")
+    );
+  }
+
   function cxAssistantReadActiveTools027A() {
     const modules = visibleClientModules(activeClientModules());
     const codes = clientModuleCodes(modules);
@@ -12124,8 +12301,9 @@ function inventoryCreatePayload() {
     const hasQuotes = modulePool.some(cxAssistantIsQuotesTool027A);
     const hasCrm = modulePool.some(cxAssistantIsCrmTool027D) || normalizedCodes.has("crm");
     const hasPayroll = modulePool.some(cxAssistantIsPayrollTool027I) || normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
+    const hasProduction = modulePool.some(cxAssistantIsProductionTool027K) || normalizedCodes.has("production") || normalizedCodes.has("produccion") || hasAnyClientModule(codes, ["production", "references"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12174,6 +12352,7 @@ function inventoryCreatePayload() {
         if (tools.hasQuotes && cxAssistantIsQuotesTool027A(module)) return false;
         if (tools.hasCrm && cxAssistantIsCrmTool027D(module)) return false;
         if (tools.hasPayroll && cxAssistantIsPayrollTool027I(module)) return false;
+        if (tools.hasProduction && cxAssistantIsProductionTool027K(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
         if (!key) return true;
         if (seenModules.has(key)) return false;
@@ -12192,6 +12371,7 @@ function inventoryCreatePayload() {
         ${tools.hasQuotes ? `<button class="cxai-chip-027a primary" type="button" data-cxai-start-027a="account">Cuenta de cobro</button><button class="cxai-chip-027a primary" type="button" data-cxai-start-027a="quote">Cotizacion</button>` : ""}
         ${tools.hasCrm ? `<button class="cxai-chip-027a primary" type="button" data-cxai-crm-summary-027d>Estado CRM</button>` : ""}
         ${tools.hasPayroll ? `<button class="cxai-chip-027a primary" type="button" data-cxai-payroll-summary-027i>Nomina</button>` : ""}
+        ${tools.hasProduction ? `<button class="cxai-chip-027a primary" type="button" data-cxai-production-summary-027k>Produccion</button>` : ""}
         ${moduleButtons}
       </div>
     `;
@@ -12829,6 +13009,136 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantProductionHasAccess027K() {
+    return cxAssistantReadActiveTools027A().hasProduction || isClientModuleActive("production") || isClientModuleActive("references");
+  }
+
+  function cxAssistantProductionPeriod027K(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const now = new Date();
+    const today = payrollDateOnly(now);
+    const isoDates = String(text || "").match(/\b\d{4}-\d{2}-\d{2}\b/g) || [];
+    const view = norm.includes("archiv") ? "archived" : (norm.includes("todas") || norm.includes("todo") ? "all" : "active");
+    if (isoDates.length >= 2) {
+      const ordered = isoDates.slice(0, 2).sort();
+      return { preset: "custom", date_from: ordered[0], date_to: ordered[1], view, label: "rango indicado" };
+    }
+    if (isoDates.length === 1) return { preset: "custom", date_from: isoDates[0], date_to: isoDates[0], view, label: "fecha indicada" };
+    if (norm.includes("hoy")) return { preset: "today", date_from: today, date_to: today, view, label: "hoy" };
+    if (norm.includes("mes")) {
+      return { preset: "month", date_from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 1)), date_to: today, view, label: "mes actual" };
+    }
+    if (norm.includes("30")) {
+      const start = new Date(now);
+      start.setDate(now.getDate() - 29);
+      return { preset: "30d", date_from: payrollDateOnly(start), date_to: today, view, label: "ultimos 30 dias" };
+    }
+    return { ...cxProdDefaultFilters018E(), view, label: "ultimos 7 dias" };
+  }
+
+  function cxAssistantProductionMatchRef027K(text = "", refs = []) {
+    const query = cxAssistantNorm027A(text);
+    let best = null;
+    let bestScore = 0;
+    (Array.isArray(refs) ? refs : []).forEach((row) => {
+      const label = cxAssistantNorm027A(`${row.name || ""} ${row.size || ""}`);
+      const tokens = label.split(/\s+/).filter((token) => token.length >= 3);
+      const score = tokens.reduce((sum, token) => sum + (query.includes(token) ? 1 : 0), 0);
+      if (score > bestScore) {
+        best = row;
+        bestScore = score;
+      }
+    });
+    return bestScore ? best : null;
+  }
+
+  function cxAssistantLooksProductionQuery027K(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const productionWords = [
+      "produccion",
+      "productivo",
+      "referencia",
+      "referencias",
+      "avance",
+      "pendiente",
+      "pendientes",
+      "terminada",
+      "terminadas",
+      "cerrada",
+      "cerradas",
+      "cierre",
+      "cierres",
+      "sobreproducida",
+      "sobreproducidas",
+    ];
+    return productionWords.some((token) => norm.includes(token));
+  }
+
+  function cxAssistantProductionReferenceHtml027K(row = {}, summary = {}, period = {}) {
+    const time = cxProdReferenceTime018E(row, cxProdBuildTimeMap018E(summary));
+    return `
+      <div>Produccion por referencia (${h(period.label || "periodo")}):</div>
+      <div class="cxai-summary-027a">
+        <div><strong>${h(row.name || "Referencia")}</strong>${row.size ? ` / ${h(row.size)}` : ""}</div>
+        <div><strong>Total:</strong> ${h(cxProdNum018E(row.initial_quantity || 0))}</div>
+        <div><strong>Cerrada:</strong> ${h(cxProdNum018E(row.finished_quantity || 0))}</div>
+        <div><strong>Pendiente:</strong> ${h(cxProdNum018E(row.pending_quantity || 0))}</div>
+        <div><strong>Sobreproducida:</strong> ${h(cxProdNum018E(row.over_finished_quantity || 0))}</div>
+        <div><strong>Avance:</strong> ${h(cxProdPercent018E(row.progress_percent || 0))}</div>
+        <div><strong>Tiempo:</strong> ${h(time.total_effective_label || cxProdSeconds018E(time.total_effective_seconds || 0))}</div>
+        <div><strong>Colaboradores:</strong> ${h(cxProdNum018E(time.operators_count || 0))}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+    `;
+  }
+
+  function cxAssistantProductionSummaryHtml027K(summary = {}, text = "", period = {}) {
+    const refs = Array.isArray(summary.references) ? summary.references : [];
+    const matched = cxAssistantProductionMatchRef027K(text, refs);
+    if (matched) return cxAssistantProductionReferenceHtml027K(matched, summary, period);
+
+    const totals = summary.totals || {};
+    const topRefs = cxProdReferenceSort018E(refs, "pending_desc").slice(0, 6);
+    const closures = Array.isArray(summary.closures_period) ? summary.closures_period.slice(0, 5) : [];
+    const detail = topRefs.length
+      ? topRefs.map((row) => `<div>${h(row.name || "Referencia")}${row.size ? ` / ${h(row.size)}` : ""}: <strong>${h(cxProdPercent018E(row.progress_percent || 0))}</strong> · pendiente ${h(cxProdNum018E(row.pending_quantity || 0))}</div>`).join("")
+      : "<div>Sin referencias productivas para este filtro.</div>";
+    const closureDetail = closures.length
+      ? closures.map((row) => `<div>${h(cxProdDate018E(row.closed_at))}: ${h(row.employee_name || "Colaborador")} cerro ${h(cxProdNum018E(row.quantity_finished || 0))} de ${h(row.reference_name || "referencia")}${row.size ? ` / ${h(row.size)}` : ""}</div>`).join("")
+      : "<div>Sin cierres en este periodo.</div>";
+    return `
+      <div>Produccion ${h(period.label || "periodo")}:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Periodo:</strong> ${h(summary.date_from || period.date_from || "")} / ${h(summary.date_to || period.date_to || "")}</div>
+        <div><strong>Referencias:</strong> ${h(cxProdNum018E(totals.references_total || refs.length || 0))}</div>
+        <div><strong>Tiempo productivo:</strong> ${h(totals.effective_label_period || cxProdSeconds018E(totals.effective_seconds_period || 0))}</div>
+        <div><strong>Cantidad cerrada:</strong> ${h(cxProdNum018E(totals.finished_quantity_total || 0))}</div>
+        <div><strong>Pendiente:</strong> ${h(cxProdNum018E(totals.pending_quantity_total || 0))}</div>
+        <div><strong>Avance:</strong> ${h(cxProdPercent018E(totals.progress_percent || 0))}</div>
+        <div><strong>Sesiones activas:</strong> ${h(cxProdNum018E(totals.active_sessions || 0))}</div>
+      </div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-summary-027a">${closureDetail}</div>
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
+    `;
+  }
+
+  async function cxAssistantReplyProduction027K(chat, text = "") {
+    if (!cxAssistantProductionHasAccess027K()) {
+      cxAssistantPush027A(chat, "assistant", "Produccion no esta activa para esta empresa.");
+      return;
+    }
+    try {
+      const period = cxAssistantProductionPeriod027K(text);
+      cxAssistantPush027A(chat, "assistant", `Consultando Produccion (${period.label})...`);
+      cxAssistantRenderMessages027A();
+      const summary = await cxProdLoadSummary018E(period);
+      cxAssistantPush027A(chat, "assistant", cxAssistantProductionSummaryHtml027K(summary, text, period), true);
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Produccion en este momento.");
+    }
+  }
+
   async function cxAssistantModuleHelp027A(chat, code, title) {
     const token = cxNormalizeModuleToken017H(`${code} ${title}`);
     if (cxAssistantIsCrmTool027D({ code, title })) {
@@ -12841,6 +13151,10 @@ function inventoryCreatePayload() {
     }
     if (cxAssistantIsPayrollTool027I({ code, title }) || token.includes("nomina") || token.includes("payroll")) {
       await cxAssistantReplyPayroll027I(chat, "nomina del mes");
+      return;
+    }
+    if (cxAssistantIsProductionTool027K({ code, title }) || token.includes("produccion") || token.includes("production")) {
+      await cxAssistantReplyProduction027K(chat, "resumen produccion");
       return;
     }
     if (token.includes("carrito") || token.includes("pedido") || token.includes("shoplink")) {
@@ -12867,12 +13181,14 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "quote");
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
       await cxAssistantReplyPayroll027I(chat, clean);
+    } else if (cxAssistantLooksProductionQuery027K(clean)) {
+      await cxAssistantReplyProduction027K(chat, clean);
     } else if (cxAssistantLooksCrmQuery027D(clean)) {
       await cxAssistantReplyCrm027D(chat, clean);
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido") || norm.includes("inventario")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM y Nomina. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina y Produccion. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -12900,7 +13216,7 @@ function inventoryCreatePayload() {
           </header>
           <div class="cxai-body-027a" data-cxai-body-027a></div>
           <form class="cxai-formbar-027a" data-cxai-form-027a>
-            <input class="cxai-input-027a" name="cxai_text" autocomplete="off" placeholder="Escribe: nomina del mes o cuenta de cobro">
+            <input class="cxai-input-027a" name="cxai_text" autocomplete="off" placeholder="Escribe: produccion de hoy, nomina del mes o cuenta de cobro">
             <button class="cxai-send-027a" type="submit">Enviar</button>
           </form>
         </section>
@@ -12930,6 +13246,10 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-payroll-summary-027i]")) {
           await cxAssistantProcessText027A("nomina del mes", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-production-summary-027k]")) {
+          await cxAssistantProcessText027A("resumen produccion", chat.activeCode);
           return;
         }
         const moduleButton = target.closest("[data-cxai-module-027a]");
@@ -21892,7 +22212,7 @@ function inventoryCreatePayload() {
         return;
       }
 
-      if (target.closest("[data-production-apply]") || target.closest("[data-production-refresh]")) {
+      if (target.closest("[data-production-apply]") || target.closest("[data-production-refresh]") || target.closest("[data-production-section-apply]")) {
         await renderProductionModule(cxProdReadFilters018E());
         return;
       }
