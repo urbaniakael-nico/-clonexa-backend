@@ -12167,8 +12167,19 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantModulesHtml027A(tools = cxAssistantReadActiveTools027A()) {
+    const seenModules = new Set();
     const modules = (Array.isArray(tools.modules) ? tools.modules : [])
-      .filter((module) => !cxIsAssistantCode027A(module.code || module.title || ""));
+      .filter((module) => !cxIsAssistantCode027A(module.code || module.title || ""))
+      .filter((module) => {
+        if (tools.hasQuotes && cxAssistantIsQuotesTool027A(module)) return false;
+        if (tools.hasCrm && cxAssistantIsCrmTool027D(module)) return false;
+        if (tools.hasPayroll && cxAssistantIsPayrollTool027I(module)) return false;
+        const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
+        if (!key) return true;
+        if (seenModules.has(key)) return false;
+        seenModules.add(key);
+        return true;
+      });
     const moduleButtons = modules.length
       ? modules.map((module) => `
           <button class="cxai-chip-027a" type="button" data-cxai-module-027a="${h(module.code || "")}" data-cxai-module-title-027a="${h(module.title || module.code || "Modulo")}">
