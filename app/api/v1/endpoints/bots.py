@@ -260,6 +260,50 @@ def _wa_agent_name(company: Company | None) -> str:
     return f"Agente {name}"
 
 
+def _wa_module_tokens(modules: list[Any] | set[Any] | tuple[Any, ...]) -> set[str]:
+    tokens: set[str] = set()
+    for item in modules or []:
+        raw = _text_norm(item)
+        compact = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+        if raw:
+            tokens.add(raw)
+        if compact:
+            tokens.add(compact)
+    return tokens
+
+
+def _wa_has_any(tokens: set[str], values: set[str]) -> bool:
+    return any(value in tokens for value in values)
+
+
+def _wa_capabilities(modules: list[Any] | set[Any] | tuple[Any, ...]) -> dict[str, bool]:
+    tokens = _wa_module_tokens(modules)
+    return {
+        "quotes": _wa_has_any(tokens, {"cot", "cotizacion", "cotizaciones", "quotes", "quote"}),
+        "crm": _wa_has_any(tokens, {"crm", "crm_campo", "field_crm", "cli", "clientes_crm_landing"}),
+        "payroll": _wa_has_any(tokens, {"pay", "payroll", "nomina", "nómina", "payroll_biweekly"}),
+        "production": _wa_has_any(tokens, {"production", "produccion", "producción", "prd"}),
+        "workforce": _wa_has_any(tokens, {"workforce", "wrk"}),
+        "shoplink": _wa_has_any(tokens, {"shoplink", "lan", "pro", "car", "catalogo_tienda_publica", "productos_inventario_landing", "carrito_y_pedidos_landing"}),
+    }
+
+
+def _wa_active_examples(modules: list[Any] | set[Any] | tuple[Any, ...]) -> str:
+    caps = _wa_capabilities(modules)
+    examples: list[str] = []
+    if caps["payroll"]:
+        examples.extend(["nomina del mes", "nomina de una persona"])
+    if caps["crm"] or caps["workforce"]:
+        examples.extend(["estado CRM", "conexiones del equipo", "tiempo de Nicolas"])
+    if caps["production"]:
+        examples.extend(["produccion de hoy", "avance por referencia", "cierres del mes"])
+    if caps["quotes"]:
+        examples.extend(["cuenta de cobro", "cotizacion"])
+    if caps["shoplink"]:
+        examples.extend(["pedidos activos", "stock bajo"])
+    return ", ".join(examples[:8]) or "modulos activos"
+
+
 def _text_norm(value: Any) -> str:
     raw = str(value or "").strip().lower()
     raw = unicodedata.normalize("NFKD", raw)
@@ -987,9 +1031,8 @@ def _format_crm_summary(company: Company, snapshot: dict[str, Any], text_value: 
 
 def _whatsapp_agent_welcome(company: Company) -> str:
     return (
-        f"Hola. Soy {_wa_agent_name(company)}, tu agente IA para la operacion de {company.name}. "
-        "Ya quede enlazado con CLONEXA. Si necesitas algo escribeme aqui: "
-        "tiempo de Nicolas, nomina del mes, produccion de hoy, avance por referencia, estado CRM, conexiones del equipo o modulos activos."
+        f"Hola. Soy tu asistente de CLONEXA dentro de {company.name}. "
+        "Pideme lo que necesites gestionar sobre tus modulos."
     )
 
 
@@ -1056,8 +1099,6 @@ async def _whatsapp_agent_reply(
     production_words = [
         "produccion",
         "productivo",
-        "referencia",
-        "referencias",
         "avance",
         "pendiente",
         "pendientes",
@@ -1088,6 +1129,8 @@ async def _whatsapp_agent_reply(
         snapshot = {"active_modules": [], "employees": [], "summary": {}}
 
     modules = list(snapshot.get("active_modules") or [])
+    caps = _wa_capabilities(modules)
+    active_examples = _wa_active_examples(modules)
 
     if _contains_any(normalized, module_words):
         module_label = ", ".join(modules) if modules else "sin modulos activos detectados"
@@ -1095,11 +1138,11 @@ async def _whatsapp_agent_reply(
             f"Hola{prefix_name}. Soy {_wa_agent_name(company)}. "
             f"Estoy vinculado a CLONEXA para {company.name}. "
             f"Modulos activos: {module_label}. "
-            "Puedes pedirme: nomina del mes, nomina de una persona, produccion de hoy, avance por referencia, estado CRM, estado de una persona, conexiones del equipo o resumen operativo."
+            f"Puedes pedirme: {active_examples}."
         )
 
     if _contains_any(normalized, payroll_words):
-        if "payroll" not in modules and "nomina" not in modules:
+        if not caps["payroll"]:
             return "Nomina no aparece activa para esta empresa. Activa el modulo Nomina para consultar cortes, totales e individuales desde WhatsApp."
         try:
             return await _whatsapp_payroll_reply(
@@ -1113,8 +1156,8 @@ async def _whatsapp_agent_reply(
             return "No pude consultar Nomina en este momento. Revisa que existan turnos cerrados o sesiones del periodo."
 
     if _contains_any(normalized, production_words):
-        if "production" not in modules and "references" not in modules:
-            return "Produccion no aparece activa para esta empresa. Activa Produccion o Referencias para consultar avances, pendientes y cierres."
+        if not caps["production"]:
+            return "Produccion no aparece activa para esta empresa. Solo puedo gestionar los modulos activos de este tenant."
         try:
             return await _whatsapp_production_reply(
                 company_id=company_id,
@@ -1126,7 +1169,7 @@ async def _whatsapp_agent_reply(
             logger.warning("whatsapp production reply failed: %s", exc, exc_info=True)
             return "No pude consultar Produccion en este momento. Revisa que existan referencias, cierres o sesiones productivas."
 
-    if _contains_any(normalized, production_maybe_words) and ("production" in modules or "references" in modules):
+    if _contains_any(normalized, production_maybe_words) and caps["production"]:
         try:
             production_reply = await _whatsapp_production_reply(
                 company_id=company_id,
@@ -1141,9 +1184,13 @@ async def _whatsapp_agent_reply(
             logger.warning("whatsapp production probe failed: %s", exc, exc_info=True)
 
     if _contains_any(normalized, crm_words):
+        if not (caps["crm"] or caps["workforce"]):
+            return "CRM/Workforce no aparece activo para esta empresa. Solo puedo consultar conexiones y estados cuando ese modulo esta activo."
         return _format_crm_summary(company, snapshot, text_value)
 
     if _contains_any(normalized, quote_words):
+        if not caps["quotes"]:
+            return "Cotizaciones no aparece activo para esta empresa. Solo puedo generar cuentas de cobro o cotizaciones si ese modulo esta activo."
         return (
             f"Perfecto{prefix_name}. Soy {_wa_agent_name(company)}. "
             "Para cuenta de cobro o cotizacion por WhatsApp necesito activar el flujo guiado con PDF en este canal. "
@@ -1152,7 +1199,7 @@ async def _whatsapp_agent_reply(
 
     return (
         f"Hola{prefix_name}. Soy {_wa_agent_name(company)}, conectado al panel CLONEXA de {company.name}. "
-        "Escribeme por ejemplo: nomina del mes, produccion de hoy, avance por referencia, estado CRM o modulos activos."
+        f"Escribeme por ejemplo: {active_examples}."
     )
 
 
@@ -1168,6 +1215,11 @@ def _whatsapp_web_out(company: Company, payload: dict[str, Any]) -> dict[str, An
         "qr_data_url": payload.get("qr_data_url") or "",
         "connected_phone": payload.get("connected_phone") or "",
         "last_error": payload.get("last_error") or payload.get("detail") or "",
+        "last_inbound_at": payload.get("last_inbound_at") or "",
+        "last_inbound_from": payload.get("last_inbound_from") or "",
+        "last_inbound_text": payload.get("last_inbound_text") or "",
+        "last_reply_at": payload.get("last_reply_at") or "",
+        "last_inbound_error": payload.get("last_inbound_error") or "",
         "updated_at": payload.get("updated_at") or "",
     }
 

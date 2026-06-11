@@ -2441,6 +2441,28 @@
 
               ${botWhatsAppQr027F(whatsapp || {})}
 
+              ${whatsapp?.last_inbound_at || whatsapp?.last_reply_at || whatsapp?.last_inbound_error ? `
+                <div class="client-kpi-grid" style="margin-top:18px">
+                  <div class="client-kpi">
+                    <span>Ultimo mensaje</span>
+                    <strong style="font-size:18px">${h(whatsapp?.last_inbound_at || "-")}</strong>
+                    <small>${h(whatsapp?.last_inbound_text || "")}</small>
+                  </div>
+                  <div class="client-kpi">
+                    <span>Ultima respuesta</span>
+                    <strong style="font-size:18px">${h(whatsapp?.last_reply_at || "-")}</strong>
+                    <small>${h(whatsapp?.last_inbound_from || "")}</small>
+                  </div>
+                  ${whatsapp?.last_inbound_error ? `
+                    <div class="client-kpi">
+                      <span>Error puente</span>
+                      <strong style="font-size:18px">Error</strong>
+                      <small>${h(whatsapp.last_inbound_error)}</small>
+                    </div>
+                  ` : ""}
+                </div>
+              ` : ""}
+
               <div class="personal-toolbar" style="margin-top:22px;align-items:center">
                 <button class="client-btn" type="button" data-bot-wa-start>${whatsapp?.qr_data_url ? "Regenerar QR" : "Generar QR"}</button>
                 <button class="client-btn" type="button" data-bot-wa-refresh>Actualizar</button>
@@ -12286,10 +12308,9 @@ function inventoryCreatePayload() {
   function cxAssistantIsProductionTool027K(module = {}) {
     const tokens = cxAssistantModuleTokens027E(module);
     return tokens.some((token) =>
-      ["production", "produccion", "producción", "references", "reference", "referencias", "referencia", "referencias_produccion", "production_references"].includes(token) ||
+      ["production", "produccion", "producción", "produccion_operativa", "production_module"].includes(token) ||
       token.includes("produccion") ||
-      token.includes("referencias") ||
-      token.includes("production_references")
+      token === "prd"
     );
   }
 
@@ -12301,7 +12322,7 @@ function inventoryCreatePayload() {
     const hasQuotes = modulePool.some(cxAssistantIsQuotesTool027A);
     const hasCrm = modulePool.some(cxAssistantIsCrmTool027D) || normalizedCodes.has("crm");
     const hasPayroll = modulePool.some(cxAssistantIsPayrollTool027I) || normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
-    const hasProduction = modulePool.some(cxAssistantIsProductionTool027K) || normalizedCodes.has("production") || normalizedCodes.has("produccion") || hasAnyClientModule(codes, ["production", "references"]);
+    const hasProduction = modulePool.some(cxAssistantIsProductionTool027K) || normalizedCodes.has("production") || normalizedCodes.has("produccion") || hasAnyClientModule(codes, ["production"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
     return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasShoplink, modules };
   }
@@ -13010,7 +13031,7 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantProductionHasAccess027K() {
-    return cxAssistantReadActiveTools027A().hasProduction || isClientModuleActive("production") || isClientModuleActive("references");
+    return cxAssistantReadActiveTools027A().hasProduction || isClientModuleActive("production");
   }
 
   function cxAssistantProductionParseDate027N(value = "") {
@@ -13097,8 +13118,6 @@ function inventoryCreatePayload() {
     const productionWords = [
       "produccion",
       "productivo",
-      "referencia",
-      "referencias",
       "avance",
       "pendiente",
       "pendientes",

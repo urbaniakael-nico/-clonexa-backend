@@ -75,6 +75,45 @@ function extractMessageText(message = {}) {
   ).trim();
 }
 
+function normalizeText(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function looksLikeAgentPrompt(text = "") {
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+  return [
+    "clonexa",
+    "crm",
+    "nomina",
+    "corte",
+    "conexion",
+    "conexiones",
+    "tiempo",
+    "tiempos",
+    "estado",
+    "estados",
+    "modulo",
+    "modulos",
+    "produccion",
+    "avance",
+    "cierre",
+    "cierres",
+    "cotizacion",
+    "cuenta de cobro",
+    "pedido",
+    "pedidos",
+    "stock",
+    "dame",
+    "consulta",
+    "necesito",
+  ].some((token) => normalized.includes(token));
+}
+
 async function postInboundPayload(payload) {
   if (!INBOUND_URL) return { ok: false, detail: "WHATSAPP_INBOUND_URL not configured." };
   const response = await fetch(INBOUND_URL, {
@@ -92,9 +131,9 @@ async function postInboundPayload(payload) {
   return data;
 }
 
-async function postInboundMessage(companyId, message) {
+async function postInboundMessage(companyId, message, textOverride = "") {
   const remoteJid = String(message.key?.remoteJid || "");
-  const text = extractMessageText(message);
+  const text = String(textOverride || extractMessageText(message) || "").trim();
   if (!remoteJid || !text) return { ok: true, ignored: true };
   const payload = {
     company_id: companyId,
@@ -135,6 +174,11 @@ function sessionPublic(companyId) {
       qr_data_url: "",
       connected_phone: "",
       last_error: "",
+      last_inbound_at: "",
+      last_inbound_from: "",
+      last_inbound_text: "",
+      last_reply_at: "",
+      last_inbound_error: "",
     };
   }
   return {
@@ -144,6 +188,11 @@ function sessionPublic(companyId) {
     qr_data_url: session.qrDataUrl || "",
     connected_phone: session.connectedPhone || "",
     last_error: session.lastError || "",
+    last_inbound_at: session.lastInboundAt || "",
+    last_inbound_from: session.lastInboundFrom || "",
+    last_inbound_text: session.lastInboundText || "",
+    last_reply_at: session.lastReplyAt || "",
+    last_inbound_error: session.lastInboundError || "",
     updated_at: session.updatedAt || "",
   };
 }
@@ -179,6 +228,11 @@ async function startSession(companyId) {
     qrDataUrl: "",
     connectedPhone: "",
     lastError: "",
+    lastInboundAt: "",
+    lastInboundFrom: "",
+    lastInboundText: "",
+    lastReplyAt: "",
+    lastInboundError: "",
     updatedAt: new Date().toISOString(),
     intentionalClose: false,
     welcomeSent: false,
@@ -204,16 +258,24 @@ async function startSession(companyId) {
       if (isOutboundId(`${companyId}:${remoteJid}:${messageId}`)) continue;
       const fromMe = !!message?.key?.fromMe;
       const remotePhone = phoneFromJid(remoteJid);
-      if (fromMe && (!session.connectedPhone || remotePhone !== session.connectedPhone)) continue;
+      const text = extractMessageText(message);
+      const isSelfChat = !!session.connectedPhone && remotePhone === normalizePhone(session.connectedPhone);
+      if (fromMe && !isSelfChat && !looksLikeAgentPrompt(text)) continue;
       if (rememberInboundId(`${companyId}:${remoteJid}:${messageId}`)) continue;
       try {
-        const result = await postInboundMessage(companyId, message);
+        session.lastInboundAt = new Date().toISOString();
+        session.lastInboundFrom = remotePhone || remoteJid;
+        session.lastInboundText = text.slice(0, 160);
+        session.lastInboundError = "";
+        const result = await postInboundMessage(companyId, message, text);
         const reply = String(result?.reply || "").trim();
         if (reply) {
           const sent = await sock.sendMessage(remoteJid, { text: reply });
           rememberOutboundId(`${companyId}:${remoteJid}:${sent?.key?.id || ""}`);
+          session.lastReplyAt = new Date().toISOString();
         }
       } catch (error) {
+        session.lastInboundError = error.message || String(error);
         logger.error({ err: error, companyId, remoteJid }, "whatsapp inbound failed");
       }
     }
