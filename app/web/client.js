@@ -703,6 +703,10 @@
     shoplink_campaigns: ["Campanas y Reportes/LANDING", "promos, cupones y reportes", "CAM"],
     campaign_reports: ["Campanas y Reportes/LANDING", "promos, cupones y reportes", "CAM"],
     settings: ["Configuracion", "ajustes del tenant", "CFG"],
+    references: ["Referencias", "catalogo maestro comercial", "REF"],
+    reference: ["Referencias", "catalogo maestro comercial", "REF"],
+    production_refs: ["Referencias", "catalogo maestro comercial", "REF"],
+    production_references: ["Referencias", "catalogo maestro comercial", "REF"],
     production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
     lan: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
@@ -12305,7 +12309,47 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantModuleIdentityTokens027Q(module = {}) {
+    const raw = module?.raw && typeof module.raw === "object" ? module.raw : module;
+    const rawModule = raw?.module && typeof raw.module === "object" ? raw.module : {};
+    return [
+      module.code,
+      module.module_code,
+      module.title,
+      module.name,
+      raw.code,
+      raw.module_code,
+      raw.title,
+      raw.name,
+      rawModule.code,
+      rawModule.module_code,
+      rawModule.title,
+      rawModule.name,
+    ]
+      .map(cxNormalizeModuleToken017H)
+      .filter(Boolean);
+  }
+
+  function cxAssistantIsReferencesTool027Q(module = {}) {
+    const tokens = cxAssistantModuleIdentityTokens027Q(module);
+    return tokens.some((token) =>
+      [
+        "references",
+        "reference",
+        "refs",
+        "ref",
+        "referencias",
+        "referencia",
+        "production_refs",
+        "production_references",
+        "production_reference",
+        "referencias_produccion"
+      ].includes(token)
+    );
+  }
+
   function cxAssistantIsProductionTool027K(module = {}) {
+    if (cxAssistantIsReferencesTool027Q(module)) return false;
     const tokens = cxAssistantModuleTokens027E(module);
     return tokens.some((token) =>
       ["production", "produccion", "producción", "produccion_operativa", "production_module"].includes(token) ||
@@ -13543,6 +13587,10 @@ function inventoryCreatePayload() {
       await cxAssistantReplyPayroll027I(chat, "nomina del mes");
       return;
     }
+    if (cxAssistantIsReferencesTool027Q({ code, title })) {
+      cxAssistantPush027A(chat, "assistant", "Referencias esta activo. Puedo ayudarte a ubicar el catalogo maestro comercial o revisar datos cuando conectemos esa accion al asistente.");
+      return;
+    }
     if (cxAssistantIsProductionTool027K({ code, title }) || token.includes("produccion") || token.includes("production")) {
       await cxAssistantReplyProduction027K(chat, "resumen produccion");
       return;
@@ -13850,6 +13898,7 @@ function inventoryCreatePayload() {
       "referencias",
       "referencia",
       "ref",
+      "production_refs",
       "production_references",
       "production_reference",
       "referencias_produccion",
@@ -13865,6 +13914,7 @@ function inventoryCreatePayload() {
       "referencias",
       "referencia",
       "ref",
+      "production_refs",
       "production_references",
       "production_reference",
       "referencias_produccion",

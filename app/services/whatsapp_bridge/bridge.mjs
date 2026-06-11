@@ -65,6 +65,15 @@ function isOutboundId(id = "") {
 
 function extractMessageText(message = {}) {
   const content = message.message || {};
+  const nested =
+    content.ephemeralMessage?.message ||
+    content.viewOnceMessage?.message ||
+    content.viewOnceMessageV2?.message ||
+    content.documentWithCaptionMessage?.message ||
+    content.editedMessage?.message ||
+    content.protocolMessage?.editedMessage ||
+    null;
+  if (nested) return extractMessageText({ message: nested });
   return String(
     content.conversation ||
       content.extendedTextMessage?.text ||
@@ -111,7 +120,18 @@ function looksLikeAgentPrompt(text = "") {
     "dame",
     "consulta",
     "necesito",
+    "?",
   ].some((token) => normalized.includes(token));
+}
+
+function looksLikeAgentReply(text = "") {
+  const normalized = normalizeText(text);
+  return (
+    normalized.startsWith("hola. soy tu asistente de clonexa") ||
+    normalized.startsWith("hola. soy agente") ||
+    normalized.startsWith("hola ") && normalized.includes("soy agente") ||
+    normalized.includes("soy agente") && normalized.includes("clonexa")
+  );
 }
 
 async function postInboundPayload(payload) {
@@ -260,6 +280,8 @@ async function startSession(companyId) {
       const remotePhone = phoneFromJid(remoteJid);
       const text = extractMessageText(message);
       const isSelfChat = !!session.connectedPhone && remotePhone === normalizePhone(session.connectedPhone);
+      if (!text) continue;
+      if (fromMe && looksLikeAgentReply(text)) continue;
       if (fromMe && !isSelfChat && !looksLikeAgentPrompt(text)) continue;
       if (rememberInboundId(`${companyId}:${remoteJid}:${messageId}`)) continue;
       try {
