@@ -13013,27 +13013,67 @@ function inventoryCreatePayload() {
     return cxAssistantReadActiveTools027A().hasProduction || isClientModuleActive("production") || isClientModuleActive("references");
   }
 
+  function cxAssistantProductionParseDate027N(value = "") {
+    const raw = String(value || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (!match) return "";
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = Number(match[3]);
+    const date = new Date(year, month - 1, day);
+    if (Number.isNaN(date.getTime()) || date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "";
+    return payrollDateOnly(date);
+  }
+
+  function cxAssistantProductionDayRange027N(norm = "", now = new Date()) {
+    const dayRange = norm.match(/(?:desde|del|de)\s+(?:el\s+)?(\d{1,2})\s+(?:al|a|hasta)\s+(?:la\s+fecha|hoy|(?:el\s+)?(\d{1,2}))/);
+    if (dayRange) {
+      const startDay = Number(dayRange[1]);
+      const endDay = dayRange[2] ? Number(dayRange[2]) : now.getDate();
+      const start = new Date(now.getFullYear(), now.getMonth(), startDay);
+      const end = new Date(now.getFullYear(), now.getMonth(), endDay);
+      if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start.getMonth() === now.getMonth() && end.getMonth() === now.getMonth()) {
+        const ordered = [payrollDateOnly(start), payrollDateOnly(end)].sort();
+        return { date_from: ordered[0], date_to: ordered[1], label: `desde ${ordered[0]} hasta ${ordered[1]}` };
+      }
+    }
+    const startOnly = norm.match(/(?:desde|del)\s+(?:el\s+)?(\d{1,2})(?:\s|$)/);
+    if (startOnly && (norm.includes("fecha") || norm.includes("hoy"))) {
+      const startDay = Number(startOnly[1]);
+      const start = new Date(now.getFullYear(), now.getMonth(), startDay);
+      if (!Number.isNaN(start.getTime()) && start.getMonth() === now.getMonth()) {
+        return { date_from: payrollDateOnly(start), date_to: payrollDateOnly(now), label: `desde ${payrollDateOnly(start)} hasta hoy` };
+      }
+    }
+    return null;
+  }
+
   function cxAssistantProductionPeriod027K(text = "") {
     const norm = cxAssistantNorm027A(text);
     const now = new Date();
     const today = payrollDateOnly(now);
-    const isoDates = String(text || "").match(/\b\d{4}-\d{2}-\d{2}\b/g) || [];
+    const explicitDates = (String(text || "").match(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b/g) || [])
+      .map(cxAssistantProductionParseDate027N)
+      .filter(Boolean);
     const view = norm.includes("archiv") ? "archived" : (norm.includes("todas") || norm.includes("todo") ? "all" : "active");
-    if (isoDates.length >= 2) {
-      const ordered = isoDates.slice(0, 2).sort();
-      return { preset: "custom", date_from: ordered[0], date_to: ordered[1], view, label: "rango indicado" };
+    if (explicitDates.length >= 2) {
+      const ordered = explicitDates.slice(0, 2).sort();
+      return { preset: "custom", date_from: ordered[0], date_to: ordered[1], view, label: "rango indicado", strict: true };
     }
-    if (isoDates.length === 1) return { preset: "custom", date_from: isoDates[0], date_to: isoDates[0], view, label: "fecha indicada" };
-    if (norm.includes("hoy")) return { preset: "today", date_from: today, date_to: today, view, label: "hoy" };
+    if (explicitDates.length === 1) return { preset: "custom", date_from: explicitDates[0], date_to: explicitDates[0], view, label: "fecha indicada", strict: true };
+    const dayRange = cxAssistantProductionDayRange027N(norm, now);
+    if (dayRange) return { preset: "custom", date_from: dayRange.date_from, date_to: dayRange.date_to, view, label: dayRange.label, strict: true };
+    if (norm.includes("hoy")) return { preset: "today", date_from: today, date_to: today, view, label: "hoy", strict: true };
     if (norm.includes("mes")) {
-      return { preset: "month", date_from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 1)), date_to: today, view, label: "mes actual" };
+      return { preset: "month", date_from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 1)), date_to: today, view, label: "mes actual", strict: true };
     }
     if (norm.includes("30")) {
       const start = new Date(now);
       start.setDate(now.getDate() - 29);
-      return { preset: "30d", date_from: payrollDateOnly(start), date_to: today, view, label: "ultimos 30 dias" };
+      return { preset: "30d", date_from: payrollDateOnly(start), date_to: today, view, label: "ultimos 30 dias", strict: true };
     }
-    return { ...cxProdDefaultFilters018E(), view, label: "ultimos 7 dias" };
+    return { ...cxProdDefaultFilters018E(), view, label: "ultimos 7 dias", strict: false };
   }
 
   function cxAssistantProductionMatchRef027K(text = "", refs = []) {
@@ -13068,6 +13108,7 @@ function inventoryCreatePayload() {
       "cerradas",
       "cierre",
       "cierres",
+      "coerres",
       "sobreproducida",
       "sobreproducidas",
     ];
@@ -13167,7 +13208,7 @@ function inventoryCreatePayload() {
     const timeRows = Array.isArray(summary.time_by_reference) ? summary.time_by_reference : [];
     const operatorRows = Array.isArray(summary.time_by_operator_reference) ? summary.time_by_operator_reference : [];
     if (cxAssistantProductionMatchOperatorReference027M(text, operatorRows)) return "time_operator_reference";
-    if (norm.includes("cierre") || norm.includes("cerrada") || norm.includes("cerradas")) return "closures";
+    if (norm.includes("cierre") || norm.includes("cierres") || norm.includes("coerres") || norm.includes("cerrada") || norm.includes("cerradas")) return "closures";
     if (norm.includes("pendiente") || norm.includes("faltan") || norm.includes("falta")) return "pending";
     if (norm.includes("avance") || norm.includes("progreso") || norm.includes("porcentaje")) return "progress";
     if (
@@ -13288,13 +13329,94 @@ function inventoryCreatePayload() {
     `;
   }
 
-  function cxAssistantProductionClosuresHtml027L(summary = {}, period = {}) {
-    const rows = cxProdClosureSort018E(Array.isArray(summary.closures_period) ? summary.closures_period : [], "date_desc");
+  function cxAssistantProductionClosureSource027N(summary = {}, period = {}) {
+    const periodRows = Array.isArray(summary.closures_period) ? summary.closures_period : [];
+    const displayRows = Array.isArray(summary.closures_display) ? summary.closures_display : [];
+    const allRows = Array.isArray(summary.closures_all_time) ? summary.closures_all_time : [];
+    if (periodRows.length || period.strict) {
+      return { rows: periodRows, label: period.label || "periodo", fallback: false };
+    }
+    const fallbackRows = displayRows.length ? displayRows : allRows;
+    if (fallbackRows.length) {
+      return { rows: fallbackRows, label: "historial disponible", fallback: true };
+    }
+    return { rows: periodRows, label: period.label || "periodo", fallback: false };
+  }
+
+  function cxAssistantProductionClosureFilter027N(text = "", rows = []) {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const employeeMatches = safeRows.filter((row) =>
+      cxAssistantProductionScore027L(text, `${row.employee_name || ""} ${row.telegram_user_id || ""}`) > 0
+    );
+    const referenceMatches = safeRows.filter((row) =>
+      cxAssistantProductionScore027L(text, `${row.reference_name || ""} ${row.size || ""}`) > 0
+    );
+    const employeeKeys = new Set(employeeMatches.map((row) => cxAssistantNorm027A(row.employee_name || row.telegram_user_id || "Colaborador")));
+    const referenceKeys = new Set(referenceMatches.map((row) => cxAssistantNorm027A(`${row.reference_name || ""} ${row.size || ""}`)));
+    let filtered = safeRows;
+    if (employeeKeys.size) {
+      filtered = filtered.filter((row) => employeeKeys.has(cxAssistantNorm027A(row.employee_name || row.telegram_user_id || "Colaborador")));
+    }
+    if (referenceKeys.size) {
+      filtered = filtered.filter((row) => referenceKeys.has(cxAssistantNorm027A(`${row.reference_name || ""} ${row.size || ""}`)));
+    }
+    return {
+      rows: filtered,
+      employee: employeeMatches[0]?.employee_name || employeeMatches[0]?.telegram_user_id || "",
+      reference: referenceMatches[0]?.reference_name || "",
+      size: referenceMatches[0]?.size || "",
+    };
+  }
+
+  function cxAssistantProductionClosureGroups027N(rows = []) {
+    const byEmployee = new Map();
+    const byReference = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const employee = row.employee_name || row.telegram_user_id || "Colaborador";
+      const reference = `${row.reference_name || "Referencia"}${row.size ? " / " + row.size : ""}`;
+      const quantity = Number(row.quantity_finished || 0) || 0;
+      const emp = byEmployee.get(employee) || { label: employee, closures: 0, quantity: 0 };
+      emp.closures += 1;
+      emp.quantity += quantity;
+      byEmployee.set(employee, emp);
+      const ref = byReference.get(reference) || { label: reference, closures: 0, quantity: 0 };
+      ref.closures += 1;
+      ref.quantity += quantity;
+      byReference.set(reference, ref);
+    });
+    const sortGroups = (items) => [...items.values()].sort((a, b) => b.quantity - a.quantity || b.closures - a.closures);
+    return { employees: sortGroups(byEmployee), references: sortGroups(byReference) };
+  }
+
+  function cxAssistantProductionClosuresHtml027L(summary = {}, text = "", period = {}) {
+    const source = cxAssistantProductionClosureSource027N(summary, period);
+    const filtered = cxAssistantProductionClosureFilter027N(text, source.rows);
+    const rows = cxProdClosureSort018E(filtered.rows, "date_desc");
+    const totalQuantity = rows.reduce((sum, row) => sum + (Number(row.quantity_finished || 0) || 0), 0);
+    const groups = cxAssistantProductionClosureGroups027N(rows);
+    const filterLabel = [
+      filtered.employee ? `colaborador: ${filtered.employee}` : "",
+      filtered.reference ? `referencia: ${filtered.reference}${filtered.size ? " / " + filtered.size : ""}` : "",
+    ].filter(Boolean).join(" · ");
+    const employeeDetail = groups.employees.length
+      ? groups.employees.slice(0, 4).map((row) => `<div>${h(row.label)}: <strong>${h(cxProdNum018E(row.closures))}</strong> cierres · ${h(cxProdNum018E(row.quantity))} unidades</div>`).join("")
+      : "";
+    const referenceDetail = groups.references.length
+      ? groups.references.slice(0, 4).map((row) => `<div>${h(row.label)}: <strong>${h(cxProdNum018E(row.closures))}</strong> cierres · ${h(cxProdNum018E(row.quantity))} unidades</div>`).join("")
+      : "";
     const detail = rows.length
-      ? rows.slice(0, 12).map((row) => `<div>${h(cxProdDate018E(row.closed_at))}: ${h(row.employee_name || "Colaborador")} cerro <strong>${h(cxProdNum018E(row.quantity_finished || 0))}</strong> de ${h(row.reference_name || "referencia")}${row.size ? ` / ${h(row.size)}` : ""}</div>`).join("")
+      ? rows.slice(0, 12).map((row) => `<div>${h(cxProdDate018E(row.closed_at))}: ${h(row.employee_name || "Colaborador")} cerro <strong>${h(cxProdNum018E(row.quantity_finished || 0))}</strong> de ${h(row.reference_name || "referencia")}${row.size ? ` / ${h(row.size)}` : ""}${row.notes ? ` · ${h(row.notes)}` : ""}</div>`).join("")
       : "<div>Sin cierres en este periodo.</div>";
     return `
-      <div>Cierres de produccion (${h(period.label || "periodo")}):</div>
+      <div>Cierres de produccion (${h(source.label)}):</div>
+      <div class="cxai-summary-027a">
+        ${source.fallback ? `<div>No encontre cierres en ${h(period.label || "ultimos 7 dias")}; te muestro el historial disponible.</div>` : ""}
+        ${filterLabel ? `<div><strong>Filtro:</strong> ${h(filterLabel)}</div>` : ""}
+        <div><strong>Cierres encontrados:</strong> ${h(cxProdNum018E(rows.length))}</div>
+        <div><strong>Cantidad cerrada total:</strong> ${h(cxProdNum018E(totalQuantity))}</div>
+      </div>
+      ${employeeDetail ? `<div class="cxai-summary-027a"><strong>Por colaborador</strong>${employeeDetail}</div>` : ""}
+      ${referenceDetail ? `<div class="cxai-summary-027a"><strong>Por referencia</strong>${referenceDetail}</div>` : ""}
       <div class="cxai-summary-027a">${detail}</div>
       <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="production">Abrir Produccion</button></div>
     `;
@@ -13335,7 +13457,7 @@ function inventoryCreatePayload() {
     if (mode === "time_operator_reference") return cxAssistantProductionOperatorReferenceHtml027M(summary, text, period);
     if (mode === "time_reference") return cxAssistantProductionTimeReferenceHtml027L(summary, text, period);
     if (mode === "time_operator") return cxAssistantProductionTimeOperatorHtml027L(summary, text, period);
-    if (mode === "closures") return cxAssistantProductionClosuresHtml027L(summary, period);
+    if (mode === "closures") return cxAssistantProductionClosuresHtml027L(summary, text, period);
     if (mode === "pending") return cxAssistantProductionPendingHtml027L(summary, period, "pending_desc");
     if (mode === "progress") return cxAssistantProductionPendingHtml027L(summary, period, "progress_desc");
 

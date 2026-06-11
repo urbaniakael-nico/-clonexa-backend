@@ -438,7 +438,29 @@ async def _whatsapp_payroll_reply(
     return _format_payroll_summary(company, snapshot, text_value, period_label)
 
 
-def _production_period_from_text(text_value: str) -> tuple[date, date, str, str]:
+def _production_day_range_from_text(normalized: str, today: date) -> tuple[date, date, str] | None:
+    match = re.search(r"(?:desde|del|de)\s+(?:el\s+)?(\d{1,2})\s+(?:al|a|hasta)\s+(?:la\s+fecha|hoy|(?:el\s+)?(\d{1,2}))", normalized)
+    if match:
+        try:
+            start = date(today.year, today.month, int(match.group(1)))
+            end = date(today.year, today.month, int(match.group(2))) if match.group(2) else today
+        except Exception:
+            return None
+        start, end = min(start, end), max(start, end)
+        return start, end, f"desde {start.isoformat()} hasta {end.isoformat()}"
+
+    start_only = re.search(r"(?:desde|del)\s+(?:el\s+)?(\d{1,2})(?:\s|$)", normalized)
+    if start_only and ("fecha" in normalized or "hoy" in normalized):
+        try:
+            start = date(today.year, today.month, int(start_only.group(1)))
+        except Exception:
+            return None
+        return start, today, f"desde {start.isoformat()} hasta hoy"
+
+    return None
+
+
+def _production_period_from_text(text_value: str) -> tuple[date, date, str, str, bool]:
     normalized = _text_norm(text_value)
     today = _today_business()
     explicit = [_parse_date_token(item) for item in re.findall(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", text_value)]
@@ -446,16 +468,19 @@ def _production_period_from_text(text_value: str) -> tuple[date, date, str, str]
     view = "archived" if "archiv" in normalized else ("all" if "todas" in normalized or "todo" in normalized else "active")
     if len(explicit) >= 2:
         start, end = min(explicit[0], explicit[1]), max(explicit[0], explicit[1])
-        return start, end, "rango indicado", view
+        return start, end, "rango indicado", view, True
     if len(explicit) == 1:
-        return explicit[0], explicit[0], "fecha indicada", view
+        return explicit[0], explicit[0], "fecha indicada", view, True
+    day_range = _production_day_range_from_text(normalized, today)
+    if day_range:
+        return day_range[0], day_range[1], day_range[2], view, True
     if "hoy" in normalized:
-        return today, today, "hoy", view
+        return today, today, "hoy", view, True
     if "mes" in normalized:
-        return date(today.year, today.month, 1), today, "mes actual", view
+        return date(today.year, today.month, 1), today, "mes actual", view, True
     if "30" in normalized:
-        return today - timedelta(days=29), today, "ultimos 30 dias", view
-    return today - timedelta(days=6), today, "ultimos 7 dias", view
+        return today - timedelta(days=29), today, "ultimos 30 dias", view, True
+    return today - timedelta(days=6), today, "ultimos 7 dias", view, False
 
 
 def _production_ref_match_from_text(text_value: str, refs: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -548,7 +573,7 @@ def _production_mode(text_value: str, data: dict[str, Any]) -> str:
     operator_rows = list(data.get("time_by_operator_reference") or [])
     if _production_operator_reference_match_from_text(text_value, operator_rows):
         return "time_operator_reference"
-    if "cierre" in normalized or "cerrada" in normalized or "cerradas" in normalized:
+    if "cierre" in normalized or "cierres" in normalized or "coerres" in normalized or "cerrada" in normalized or "cerradas" in normalized:
         return "closures"
     if "pendiente" in normalized or "faltan" in normalized or "falta" in normalized:
         return "pending"
@@ -652,16 +677,120 @@ def _format_production_operator_reference(data: dict[str, Any], text_value: str,
     return "\n".join(lines)
 
 
-def _format_production_closures(data: dict[str, Any], period_label: str) -> str:
-    rows = list(data.get("closures_period") or [])
+def _production_closure_source(data: dict[str, Any], period_label: str, strict_period: bool) -> tuple[list[dict[str, Any]], str, bool]:
+    period_rows = list(data.get("closures_period") or [])
+    if period_rows or strict_period:
+        return period_rows, period_label, False
+    display_rows = list(data.get("closures_display") or [])
+    all_rows = list(data.get("closures_all_time") or [])
+    fallback_rows = display_rows or all_rows
+    if fallback_rows:
+        return fallback_rows, "historial disponible", True
+    return period_rows, period_label, False
+
+
+def _production_closure_filter(text_value: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str, str]:
+    employee_matches = [
+        row for row in rows
+        if _production_score(text_value, f"{row.get('employee_name') or ''} {row.get('telegram_user_id') or ''}") > 0
+    ]
+    reference_matches = [
+        row for row in rows
+        if _production_score(text_value, f"{row.get('reference_name') or ''} {row.get('size') or ''}") > 0
+    ]
+    employee_keys = {
+        _text_norm(row.get("employee_name") or row.get("telegram_user_id") or "Colaborador")
+        for row in employee_matches
+    }
+    reference_keys = {
+        _text_norm(f"{row.get('reference_name') or ''} {row.get('size') or ''}")
+        for row in reference_matches
+    }
+    filtered = rows
+    if employee_keys:
+        filtered = [
+            row for row in filtered
+            if _text_norm(row.get("employee_name") or row.get("telegram_user_id") or "Colaborador") in employee_keys
+        ]
+    if reference_keys:
+        filtered = [
+            row for row in filtered
+            if _text_norm(f"{row.get('reference_name') or ''} {row.get('size') or ''}") in reference_keys
+        ]
+    employee_label = str(employee_matches[0].get("employee_name") or employee_matches[0].get("telegram_user_id") or "") if employee_matches else ""
+    if reference_matches:
+        reference_label = str(reference_matches[0].get("reference_name") or "")
+        if reference_matches[0].get("size"):
+            reference_label += f" / {reference_matches[0].get('size')}"
+    else:
+        reference_label = ""
+    return filtered, employee_label, reference_label
+
+
+def _production_closure_groups(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    employees: dict[str, dict[str, Any]] = {}
+    references: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        employee = str(row.get("employee_name") or row.get("telegram_user_id") or "Colaborador")
+        reference = f"{row.get('reference_name') or 'Referencia'}{(' / ' + str(row.get('size'))) if row.get('size') else ''}"
+        quantity = int(row.get("quantity_finished") or 0)
+        emp = employees.setdefault(employee, {"label": employee, "closures": 0, "quantity": 0})
+        emp["closures"] += 1
+        emp["quantity"] += quantity
+        ref = references.setdefault(reference, {"label": reference, "closures": 0, "quantity": 0})
+        ref["closures"] += 1
+        ref["quantity"] += quantity
+
+    sorter = lambda row: (int(row.get("quantity") or 0), int(row.get("closures") or 0))
+    return (
+        sorted(employees.values(), key=sorter, reverse=True),
+        sorted(references.values(), key=sorter, reverse=True),
+    )
+
+
+def _production_closure_date_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "-"
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return raw[:16]
+
+
+def _format_production_closures(data: dict[str, Any], text_value: str, period_label: str, strict_period: bool = False) -> str:
+    source_rows, source_label, fallback = _production_closure_source(data, period_label, strict_period)
+    rows, employee_label, reference_label = _production_closure_filter(text_value, source_rows)
     rows.sort(key=lambda row: str(row.get("closed_at") or ""), reverse=True)
-    lines = [f"Cierres de produccion ({period_label})"]
+    total_quantity = sum(int(row.get("quantity_finished") or 0) for row in rows)
+    employee_groups, reference_groups = _production_closure_groups(rows)
+    lines = [f"Cierres de produccion ({source_label})"]
+    if fallback:
+        lines.append(f"No encontre cierres en {period_label}; muestro el historial disponible.")
+    filters = [label for label in (f"colaborador: {employee_label}" if employee_label else "", f"referencia: {reference_label}" if reference_label else "") if label]
+    if filters:
+        lines.append("Filtro: " + " - ".join(filters))
+    lines.append(f"Cierres encontrados: {len(rows)}")
+    lines.append(f"Cantidad cerrada total: {total_quantity}")
     if not rows:
         lines.append("Sin cierres en este periodo.")
         return "\n".join(lines)
+    if employee_groups:
+        lines.append("")
+        lines.append("Por colaborador:")
+        for row in employee_groups[:4]:
+            lines.append(f"- {row['label']}: {row['closures']} cierres - {row['quantity']} unidades")
+    if reference_groups:
+        lines.append("")
+        lines.append("Por referencia:")
+        for row in reference_groups[:4]:
+            lines.append(f"- {row['label']}: {row['closures']} cierres - {row['quantity']} unidades")
+    lines.append("")
+    lines.append("Detalle:")
     for row in rows[:12]:
         lines.append(
-            f"- {row.get('employee_name') or 'Colaborador'} cerro {int(row.get('quantity_finished') or 0)} "
+            f"- {_production_closure_date_label(row.get('closed_at'))}: "
+            f"{row.get('employee_name') or 'Colaborador'} cerro {int(row.get('quantity_finished') or 0)} "
             f"de {row.get('reference_name') or 'referencia'}{(' / ' + str(row.get('size'))) if row.get('size') else ''}"
         )
     return "\n".join(lines)
@@ -685,7 +814,7 @@ def _format_production_pending(data: dict[str, Any], period_label: str, sort_key
 
 def _production_can_answer(data: dict[str, Any], text_value: str) -> bool:
     normalized = _text_norm(text_value)
-    if any(token in normalized for token in ("produccion", "referencia", "avance", "pendiente", "cierre", "cerrada")):
+    if any(token in normalized for token in ("produccion", "referencia", "avance", "pendiente", "cierre", "cierres", "coerres", "cerrada")):
         return True
     mode = _production_mode(text_value, data)
     if mode == "time_operator_reference":
@@ -697,7 +826,7 @@ def _production_can_answer(data: dict[str, Any], text_value: str) -> bool:
     return False
 
 
-def _format_production_summary(company: Company, data: dict[str, Any], text_value: str, period_label: str) -> str:
+def _format_production_summary(company: Company, data: dict[str, Any], text_value: str, period_label: str, strict_period: bool = False) -> str:
     mode = _production_mode(text_value, data)
     if mode == "time_operator_reference":
         return _format_production_operator_reference(data, text_value, period_label)
@@ -706,7 +835,7 @@ def _format_production_summary(company: Company, data: dict[str, Any], text_valu
     if mode == "time_operator":
         return _format_production_time_operator(data, text_value, period_label)
     if mode == "closures":
-        return _format_production_closures(data, period_label)
+        return _format_production_closures(data, text_value, period_label, strict_period)
     if mode == "pending":
         return _format_production_pending(data, period_label, "pending_quantity")
     if mode == "progress":
@@ -767,7 +896,7 @@ async def _whatsapp_production_reply(
     text_value: str,
     only_if_specific: bool = False,
 ) -> str | None:
-    period_start, period_end, period_label, view = _production_period_from_text(text_value)
+    period_start, period_end, period_label, view, strict_period = _production_period_from_text(text_value)
     data = await production_summary(
         company_id=str(company_id),
         date_from=period_start.isoformat(),
@@ -778,7 +907,7 @@ async def _whatsapp_production_reply(
     )
     if only_if_specific and not _production_can_answer(data, text_value):
         return None
-    return _format_production_summary(company, data, text_value, period_label)
+    return _format_production_summary(company, data, text_value, period_label, strict_period)
 
 
 def _employee_match_from_text(text_value: str, employees: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -938,6 +1067,7 @@ async def _whatsapp_agent_reply(
         "cerradas",
         "cierre",
         "cierres",
+        "coerres",
         "sobreproducida",
         "sobreproducidas",
     ]
