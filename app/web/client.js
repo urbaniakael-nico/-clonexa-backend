@@ -12348,6 +12348,31 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsWorkforceTool027R(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      [
+        "workforce",
+        "work_force",
+        "worforce",
+        "worforece",
+        "workforece",
+        "personal",
+        "personnel",
+        "empleados",
+        "empleado",
+        "employees",
+        "employee",
+        "staff",
+        "rrhh",
+        "rh"
+      ].includes(token) ||
+      token.includes("workforce") ||
+      token.includes("empleado") ||
+      token.includes("personal")
+    );
+  }
+
   function cxAssistantIsProductionTool027K(module = {}) {
     if (cxAssistantIsReferencesTool027Q(module)) return false;
     const tokens = cxAssistantModuleTokens027E(module);
@@ -12367,8 +12392,10 @@ function inventoryCreatePayload() {
     const hasCrm = modulePool.some(cxAssistantIsCrmTool027D) || normalizedCodes.has("crm");
     const hasPayroll = modulePool.some(cxAssistantIsPayrollTool027I) || normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
     const hasProduction = modulePool.some(cxAssistantIsProductionTool027K) || normalizedCodes.has("production") || normalizedCodes.has("produccion") || hasAnyClientModule(codes, ["production"]);
+    const hasReferences = modulePool.some(cxAssistantIsReferencesTool027Q) || ["references", "reference", "production_refs", "production_references", "referencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["references", "production_refs"]);
+    const hasWorkforce = modulePool.some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["workforce", "personal", "employees"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12641,6 +12668,14 @@ function inventoryCreatePayload() {
     if (["cancelar", "salir", "parar"].includes(norm)) {
       chat.flow = null;
       cxAssistantPush027A(chat, "assistant", `Listo, cancele el flujo. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
+      return;
+    }
+    if (flow.kind === "reference_create") {
+      await cxAssistantHandleReferenceFlow027R(chat, clean);
+      return;
+    }
+    if (flow.kind === "workforce_create") {
+      await cxAssistantHandleWorkforceFlow027R(chat, clean);
       return;
     }
     const item = flow.items[flow.itemIndex] || flow.items[0];
@@ -13573,6 +13608,504 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantReferencesHasAccess027R() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasReferences || cxAssistantModulePool027E().some(cxAssistantIsReferencesTool027Q) || ["references", "reference", "production_refs", "production_references", "referencias"].some(isClientModuleActive);
+  }
+
+  function cxAssistantWorkforceHasAccess027R() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasWorkforce || cxAssistantModulePool027E().some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees", "empleados"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksReferencesQuery027R(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const subject = norm.includes("referencia") || norm.includes("production_refs") || norm.includes("production references") || norm.includes("catalogo");
+    const action = ["agregar", "crear", "nueva", "nuevo", "archivar", "eliminar", "borrar", "status", "estado", "cantidad", "cuantas", "cuantos", "activa", "activas", "resumen", "reporte", "listar"].some((word) => norm.includes(word));
+    return subject && (action || norm === "referencias" || norm === "referencia");
+  }
+
+  function cxAssistantLooksWorkforceQuery027R(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const subject = norm.includes("workforce") || norm.includes("worforce") || norm.includes("worforece") || norm.includes("workforece") || norm.includes("personal") || norm.includes("empleado") || norm.includes("colaborador");
+    const action = ["agregar", "crear", "nuevo", "nueva", "archivar", "eliminar", "borrar", "status", "estado", "cantidad", "cuantos", "cuantas", "activos", "activo", "resumen", "reporte", "listar"].some((word) => norm.includes(word));
+    return subject && (action || norm === "workforce" || norm === "personal");
+  }
+
+  function cxAssistantActionTail027R(text = "") {
+    return String(text || "")
+      .replace(/\b(agregar|crear|nueva|nuevo|archivar|eliminar|borrar|quitar|referencias?|reference|references|production_refs|production_references|workforce|worforce|worforece|workforece|personal|empleados?|colaboradores?|persona|personas|estado|status|cantidad|cantidades|cuantos?|cuantas?|reporte|resumen|listar|activas?|activos?|activo)\b/ig, " ")
+      .replace(/[,:;]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function cxAssistantPipeParts027R(text = "") {
+    return cxAssistantActionTail027R(text).split("|").map((part) => part.trim()).filter(Boolean);
+  }
+
+  function cxAssistantNumber027R(value = "") {
+    const parsed = cxAssistantParseMoney027A(value);
+    const number = Number(parsed);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function cxAssistantBestMatch027R(query = "", rows = [], labelFn = (row) => row?.name || "") {
+    const wanted = cxAssistantNorm027A(query).replace(/\s+/g, " ").trim();
+    if (!wanted) return { match: null, candidates: [] };
+    const tokens = wanted.split(/\s+/).filter((token) => token.length >= 2);
+    const scored = (Array.isArray(rows) ? rows : []).map((row) => {
+      const label = cxAssistantNorm027A(labelFn(row)).replace(/\s+/g, " ").trim();
+      let score = 0;
+      if (label === wanted) score += 100;
+      if (wanted.length >= 3 && label.includes(wanted)) score += 50;
+      tokens.forEach((token) => {
+        if (label.includes(token)) score += 10;
+      });
+      return { row, score };
+    }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);
+    const top = scored[0];
+    const second = scored[1];
+    const match = top && (top.score >= 50 || (top.score >= 10 && (!second || top.score > second.score))) ? top.row : null;
+    return { match, candidates: scored.slice(0, 5).map((item) => item.row) };
+  }
+
+  function cxAssistantReferenceLabel027R(row = {}) {
+    return [row.name || "Referencia", row.size, row.color, row.sku].filter(Boolean).join(" / ");
+  }
+
+  function cxAssistantNormalizeReferenceChannel027R(value = "") {
+    const norm = cxAssistantNorm027A(value);
+    if (norm.includes("sistema") || norm === "system") return "system";
+    if (norm.includes("bot") || norm.includes("wsp") || norm.includes("whatsapp")) return "bot";
+    return "both";
+  }
+
+  function cxAssistantReferenceSeed027R(text = "") {
+    const parts = cxAssistantPipeParts027R(text);
+    const data = {};
+    if (parts[0]) data.name = parts[0];
+    if (parts[1]) data.size = parts[1];
+    if (parts[2]) data.initial_quantity = Math.max(0, Math.round(cxAssistantNumber027R(parts[2])));
+    if (parts[3]) data.channel = cxAssistantNormalizeReferenceChannel027R(parts[3]);
+    return data;
+  }
+
+  function cxAssistantReferenceQuestion027R(flow = {}) {
+    const data = flow.data || {};
+    if (flow.step === "name") return "Como se llama la referencia?";
+    if (flow.step === "size") return "Que talla, modelo o variante tiene?";
+    if (flow.step === "initial_quantity") return "Cantidad inicial o meta operativa? Escribe 0 u omitir si no aplica.";
+    if (flow.step === "channel") return "Canal de uso: sistema, bot o ambos?";
+    return `
+      <div>Confirma la referencia:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Nombre:</strong> ${h(data.name || "")}</div>
+        <div><strong>Talla/modelo:</strong> ${h(data.size || "")}</div>
+        <div><strong>Cantidad inicial:</strong> ${h(cxReferencesNumber022E(data.initial_quantity || 0))}</div>
+        <div><strong>Canal:</strong> ${h(data.channel || "both")}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantStartReferenceCreate027R(chat, text = "") {
+    const data = cxAssistantReferenceSeed027R(text);
+    const step = !data.name ? "name" : (!data.size ? "size" : (data.initial_quantity == null ? "initial_quantity" : (!data.channel ? "channel" : "confirm")));
+    chat.flow = { kind: "reference_create", step, data };
+    cxAssistantPush027A(chat, "assistant", cxAssistantReferenceQuestion027R(chat.flow), true);
+  }
+
+  async function cxAssistantCreateReference027R(chat, flow = {}) {
+    const data = flow.data || {};
+    const payload = {
+      name: String(data.name || "").trim(),
+      size: String(data.size || "").trim(),
+      initial_quantity: Math.max(0, Math.round(Number(data.initial_quantity || 0))),
+      channel: data.channel || "both"
+    };
+    if (!payload.name || !payload.size) {
+      cxAssistantPush027A(chat, "assistant", "Necesito nombre y talla/modelo para crear la referencia.");
+      return;
+    }
+    try {
+      const created = await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `Referencia creada: ${created.name || payload.name} / ${created.size || payload.size}.`);
+      await cxAssistantPushReferencesSummary027R(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude crear la referencia.");
+    }
+  }
+
+  async function cxAssistantHandleReferenceFlow027R(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "name":
+        if (!clean || cxAssistantSkip027A(clean)) {
+          cxAssistantPush027A(chat, "assistant", "Necesito el nombre de la referencia.");
+          return;
+        }
+        data.name = clean;
+        flow.step = "size";
+        break;
+      case "size":
+        if (!clean || cxAssistantSkip027A(clean)) {
+          cxAssistantPush027A(chat, "assistant", "Necesito la talla, modelo o variante.");
+          return;
+        }
+        data.size = clean;
+        flow.step = "initial_quantity";
+        break;
+      case "initial_quantity":
+        data.initial_quantity = cxAssistantSkip027A(clean) ? 0 : Math.max(0, Math.round(cxAssistantNumber027R(clean)));
+        flow.step = "channel";
+        break;
+      case "channel":
+        data.channel = cxAssistantSkip027A(clean) ? "both" : cxAssistantNormalizeReferenceChannel027R(clean);
+        flow.step = "confirm";
+        cxAssistantPush027A(chat, "assistant", cxAssistantReferenceQuestion027R(flow), true);
+        return;
+      case "confirm":
+        if (norm.includes("confirmar") || norm.includes("crear") || cxAssistantYes027A(clean)) {
+          await cxAssistantCreateReference027R(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para crearla o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime agregar referencia para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    cxAssistantPush027A(chat, "assistant", cxAssistantReferenceQuestion027R(flow), true);
+  }
+
+  function cxAssistantReferencesSummaryHtml027R(summary = {}, items = []) {
+    const activeItems = Array.isArray(items) ? items : [];
+    const byId = new Map((Array.isArray(summary.by_reference_size) ? summary.by_reference_size : []).map((row) => [String(row.id || ""), row]));
+    const total = Number(summary.references_total ?? activeItems.length) || 0;
+    const archived = Math.max(total - activeItems.length, 0);
+    const detail = activeItems.length
+      ? activeItems.slice(0, 8).map((item) => {
+          const row = { ...item, ...(byId.get(String(item.id || "")) || {}) };
+          return `<div>${h(cxAssistantReferenceLabel027R(row))}: <strong>${h(cxReferencesNumber022E(row.pending_quantity ?? row.initial_quantity ?? 0))}</strong> pendientes · avance ${h(cxProdPercent018E(row.progress_percent || 0))} · ${h(cxReferenceChannelLabel022E(row))}</div>`;
+        }).join("") + (activeItems.length > 8 ? `<div>+${h(activeItems.length - 8)} referencias activas mas.</div>` : "")
+      : "<div>Sin referencias activas.</div>";
+    return `
+      <div>Estado de Referencias:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Total registradas:</strong> ${h(cxReferencesNumber022E(total))}</div>
+        <div><strong>Activas:</strong> ${h(cxReferencesNumber022E(activeItems.length))}</div>
+        <div><strong>Archivadas:</strong> ${h(cxReferencesNumber022E(archived))}</div>
+        <div><strong>Activas para bot:</strong> ${h(cxReferencesNumber022E(summary.bot_active_total || 0))}</div>
+        <div><strong>Cantidad inicial:</strong> ${h(cxReferencesNumber022E(summary.initial_quantity_total || 0))}</div>
+        <div><strong>Terminadas:</strong> ${h(cxReferencesNumber022E(summary.finished_quantity_total || 0))}</div>
+        <div><strong>Pendientes:</strong> ${h(cxReferencesNumber022E(summary.pending_quantity_total || 0))}</div>
+      </div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-ref-add-027r>Agregar referencia</button>
+        <button class="cxai-chip-027a" type="button" data-client-module="references">Abrir Referencias</button>
+      </div>
+    `;
+  }
+
+  async function cxAssistantPushReferencesSummary027R(chat, options = {}) {
+    if (options.intro !== false) {
+      cxAssistantPush027A(chat, "assistant", "Consultando Referencias...");
+      cxAssistantRenderMessages027A();
+    }
+    const payload = await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}`);
+    let summary = {};
+    try {
+      summary = await cxLoadReferencesSummary022E();
+    } catch (error) {
+      summary = { references_total: payload.count || (payload.items || []).length };
+    }
+    cxAssistantPush027A(chat, "assistant", cxAssistantReferencesSummaryHtml027R(summary, payload.items || []), true);
+  }
+
+  async function cxAssistantArchiveReference027R(chat, text = "") {
+    const query = cxAssistantActionTail027R(text);
+    if (!query) {
+      cxAssistantPush027A(chat, "assistant", "Dime cual referencia quieres archivar. Ejemplo: archivar referencia Camiseta / M.");
+      return;
+    }
+    try {
+      const payload = await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}`);
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      const { match, candidates } = cxAssistantBestMatch027R(query, items, (row) => cxAssistantReferenceLabel027R(row));
+      if (!match) {
+        const options = candidates.length ? candidates.map((row) => `<div>${h(cxAssistantReferenceLabel027R(row))}</div>`).join("") : "<div>No encontre coincidencias activas.</div>";
+        cxAssistantPush027A(chat, "assistant", `<div>No pude elegir una referencia unica. Estas son las coincidencias:</div><div class="cxai-summary-027a">${options}</div>`, true);
+        return;
+      }
+      await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(match.id)}`, { method: "DELETE" });
+      cxAssistantPush027A(chat, "assistant", `Referencia archivada: ${cxAssistantReferenceLabel027R(match)}.`);
+      await cxAssistantPushReferencesSummary027R(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude archivar la referencia.");
+    }
+  }
+
+  async function cxAssistantReplyReferences027R(chat, text = "") {
+    if (!cxAssistantReferencesHasAccess027R()) {
+      cxAssistantPush027A(chat, "assistant", "Referencias no esta activo para esta empresa.");
+      return false;
+    }
+    const norm = cxAssistantNorm027A(text);
+    if (["agregar", "crear", "nueva", "nuevo"].some((word) => norm.includes(word))) {
+      cxAssistantStartReferenceCreate027R(chat, text);
+      return true;
+    }
+    if (["archivar", "eliminar", "borrar", "quitar"].some((word) => norm.includes(word))) {
+      await cxAssistantArchiveReference027R(chat, text);
+      return true;
+    }
+    try {
+      await cxAssistantPushReferencesSummary027R(chat);
+      return true;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Referencias.");
+      return false;
+    }
+  }
+
+  function cxAssistantEmployeeStatus027R(row = {}) {
+    return cxAssistantNorm027A(row.status || "active") || "active";
+  }
+
+  function cxAssistantEmployeeIsArchived027R(row = {}) {
+    return ["archived", "archive", "archivado"].includes(cxAssistantEmployeeStatus027R(row));
+  }
+
+  function cxAssistantEmployeeIsInactive027R(row = {}) {
+    return ["inactive", "inactivo", "deactivate", "deactivated"].includes(cxAssistantEmployeeStatus027R(row));
+  }
+
+  function cxAssistantEmployeeLabel027R(row = {}) {
+    return [row.full_name || row.name || "Personal", row.role || row.employee_type, row.phone || row.document_id].filter(Boolean).join(" / ");
+  }
+
+  function cxAssistantRoleFromText027R(value = "") {
+    const norm = cxAssistantNorm027A(value);
+    if (!norm || cxAssistantSkip027A(value)) return "operator";
+    if (norm.includes("admin")) return "admin_empresa";
+    if (norm.includes("supervisor")) return "supervisor";
+    if (norm.includes("tecnico")) return "tecnico";
+    if (norm.includes("operario")) return "operario";
+    if (norm.includes("vendedor") || norm.includes("ventas")) return "vendedor";
+    if (norm.includes("barman")) return "barman";
+    if (norm.includes("mesero")) return "mesero";
+    if (norm.includes("cajero")) return "cajero";
+    if (norm.includes("inventario")) return "inventario";
+    return norm.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "operator";
+  }
+
+  function cxAssistantWorkforceSeed027R(text = "") {
+    const parts = cxAssistantPipeParts027R(text);
+    const data = {};
+    if (parts[0]) data.full_name = parts[0];
+    if (parts[1]) data.role = cxAssistantRoleFromText027R(parts[1]);
+    if (parts[2]) data.phone = parts[2];
+    if (parts[3]) data.hourly_rate_regular = Math.max(0, cxAssistantNumber027R(parts[3]));
+    return data;
+  }
+
+  function cxAssistantWorkforceQuestion027R(flow = {}) {
+    const data = flow.data || {};
+    if (flow.step === "full_name") return "Nombre completo del personal?";
+    if (flow.step === "role") return "Rol del personal? Puedes escribir operario, vendedor, supervisor u omitir.";
+    if (flow.step === "phone") return "Telefono? Escribe omitir si no aplica.";
+    if (flow.step === "hourly_rate_regular") return "Valor hora ordinaria? Escribe omitir si no aplica.";
+    return `
+      <div>Confirma el personal:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Nombre:</strong> ${h(data.full_name || "")}</div>
+        <div><strong>Rol:</strong> ${h(data.role || "operator")}</div>
+        <div><strong>Telefono:</strong> ${h(data.phone || "Sin telefono")}</div>
+        <div><strong>Hora ordinaria:</strong> ${h(cxUniversalMoney021D(data.hourly_rate_regular || 0))}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantStartWorkforceCreate027R(chat, text = "") {
+    const data = cxAssistantWorkforceSeed027R(text);
+    const step = !data.full_name ? "full_name" : (!data.role ? "role" : (data.phone == null ? "phone" : (data.hourly_rate_regular == null ? "hourly_rate_regular" : "confirm")));
+    chat.flow = { kind: "workforce_create", step, data };
+    cxAssistantPush027A(chat, "assistant", cxAssistantWorkforceQuestion027R(chat.flow), true);
+  }
+
+  async function cxAssistantCreateWorkforce027R(chat, flow = {}) {
+    const data = flow.data || {};
+    const role = data.role || "operator";
+    const payload = {
+      company_id: state.companyId,
+      full_name: String(data.full_name || "").trim(),
+      role,
+      employee_type: role,
+      hourly_rate_regular: Math.max(0, Number(data.hourly_rate_regular || 0))
+    };
+    if (data.phone) payload.phone = data.phone;
+    if (!payload.full_name) {
+      cxAssistantPush027A(chat, "assistant", "Necesito el nombre completo para crear el personal.");
+      return;
+    }
+    try {
+      const created = await personalApi("/employees", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `Personal agregado: ${created.full_name || payload.full_name}.`);
+      await cxAssistantPushWorkforceSummary027R(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude agregar el personal.");
+    }
+  }
+
+  async function cxAssistantHandleWorkforceFlow027R(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "full_name":
+        if (!clean || cxAssistantSkip027A(clean)) {
+          cxAssistantPush027A(chat, "assistant", "Necesito el nombre completo.");
+          return;
+        }
+        data.full_name = clean;
+        flow.step = "role";
+        break;
+      case "role":
+        data.role = cxAssistantRoleFromText027R(clean);
+        flow.step = "phone";
+        break;
+      case "phone":
+        data.phone = cxAssistantSkip027A(clean) ? "" : clean;
+        flow.step = "hourly_rate_regular";
+        break;
+      case "hourly_rate_regular":
+        data.hourly_rate_regular = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
+        flow.step = "confirm";
+        cxAssistantPush027A(chat, "assistant", cxAssistantWorkforceQuestion027R(flow), true);
+        return;
+      case "confirm":
+        if (norm.includes("confirmar") || norm.includes("crear") || cxAssistantYes027A(clean)) {
+          await cxAssistantCreateWorkforce027R(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para agregarlo o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime agregar personal para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    cxAssistantPush027A(chat, "assistant", cxAssistantWorkforceQuestion027R(flow), true);
+  }
+
+  function cxAssistantWorkforceSummaryHtml027R(rows = []) {
+    const list = Array.isArray(rows) ? rows : [];
+    const archived = list.filter(cxAssistantEmployeeIsArchived027R);
+    const inactive = list.filter((row) => !cxAssistantEmployeeIsArchived027R(row) && cxAssistantEmployeeIsInactive027R(row));
+    const active = list.filter((row) => !cxAssistantEmployeeIsArchived027R(row) && !cxAssistantEmployeeIsInactive027R(row));
+    const byRole = active.reduce((acc, row) => {
+      const role = row.role || row.employee_type || "sin_rol";
+      acc[role] = (acc[role] || 0) + 1;
+      return acc;
+    }, {});
+    const roleDetail = Object.entries(byRole).slice(0, 6).map(([role, count]) => `<div>${h(role.replace(/_/g, " "))}: <strong>${h(cxReferencesNumber022E(count))}</strong></div>`).join("") || "<div>Sin roles activos.</div>";
+    const people = active.length
+      ? active.slice(0, 10).map((row) => `<div>${h(cxAssistantEmployeeLabel027R(row))}</div>`).join("") + (active.length > 10 ? `<div>+${h(active.length - 10)} personas activas mas.</div>` : "")
+      : "<div>Sin personal activo.</div>";
+    return `
+      <div>Resumen Workforce:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Total personal:</strong> ${h(cxReferencesNumber022E(list.length))}</div>
+        <div><strong>Activo:</strong> ${h(cxReferencesNumber022E(active.length))}</div>
+        <div><strong>Inactivo:</strong> ${h(cxReferencesNumber022E(inactive.length))}</div>
+        <div><strong>Archivado:</strong> ${h(cxReferencesNumber022E(archived.length))}</div>
+      </div>
+      <div class="cxai-summary-027a">${roleDetail}</div>
+      <div class="cxai-summary-027a">${people}</div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-wf-add-027r>Agregar personal</button>
+        <button class="cxai-chip-027a" type="button" data-client-module="workforce">Abrir Workforce</button>
+      </div>
+    `;
+  }
+
+  async function cxAssistantPushWorkforceSummary027R(chat, options = {}) {
+    if (options.intro !== false) {
+      cxAssistantPush027A(chat, "assistant", "Consultando Workforce...");
+      cxAssistantRenderMessages027A();
+    }
+    const rows = await loadPersonalEmployees();
+    cxAssistantPush027A(chat, "assistant", cxAssistantWorkforceSummaryHtml027R(rows), true);
+  }
+
+  async function cxAssistantArchiveWorkforce027R(chat, text = "") {
+    const query = cxAssistantActionTail027R(text);
+    if (!query) {
+      cxAssistantPush027A(chat, "assistant", "Dime cual persona quieres archivar. Ejemplo: archivar personal Maria Gomez.");
+      return;
+    }
+    try {
+      const rows = await loadPersonalEmployees();
+      const activeRows = (Array.isArray(rows) ? rows : []).filter((row) => !cxAssistantEmployeeIsArchived027R(row));
+      const { match, candidates } = cxAssistantBestMatch027R(query, activeRows, (row) => cxAssistantEmployeeLabel027R(row));
+      if (!match) {
+        const options = candidates.length ? candidates.map((row) => `<div>${h(cxAssistantEmployeeLabel027R(row))}</div>`).join("") : "<div>No encontre coincidencias activas.</div>";
+        cxAssistantPush027A(chat, "assistant", `<div>No pude elegir una persona unica. Estas son las coincidencias:</div><div class="cxai-summary-027a">${options}</div>`, true);
+        return;
+      }
+      await personalApi(`/employees/${encodeURIComponent(match.id)}/archive`, { method: "POST" });
+      cxAssistantPush027A(chat, "assistant", `Personal archivado: ${match.full_name || "persona"}.`);
+      await cxAssistantPushWorkforceSummary027R(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude archivar el personal.");
+    }
+  }
+
+  async function cxAssistantReplyWorkforce027R(chat, text = "") {
+    if (!cxAssistantWorkforceHasAccess027R()) {
+      cxAssistantPush027A(chat, "assistant", "Workforce no esta activo para esta empresa.");
+      return false;
+    }
+    const norm = cxAssistantNorm027A(text);
+    if (["agregar", "crear", "nuevo", "nueva"].some((word) => norm.includes(word))) {
+      cxAssistantStartWorkforceCreate027R(chat, text);
+      return true;
+    }
+    if (["archivar", "eliminar", "borrar", "quitar"].some((word) => norm.includes(word))) {
+      await cxAssistantArchiveWorkforce027R(chat, text);
+      return true;
+    }
+    try {
+      await cxAssistantPushWorkforceSummary027R(chat);
+      return true;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Workforce.");
+      return false;
+    }
+  }
+
   async function cxAssistantModuleHelp027A(chat, code, title) {
     const token = cxNormalizeModuleToken017H(`${code} ${title}`);
     if (cxAssistantIsCrmTool027D({ code, title })) {
@@ -13588,7 +14121,11 @@ function inventoryCreatePayload() {
       return;
     }
     if (cxAssistantIsReferencesTool027Q({ code, title })) {
-      cxAssistantPush027A(chat, "assistant", "Referencias esta activo. Puedo ayudarte a ubicar el catalogo maestro comercial o revisar datos cuando conectemos esa accion al asistente.");
+      await cxAssistantReplyReferences027R(chat, "resumen referencias");
+      return;
+    }
+    if (cxAssistantIsWorkforceTool027R({ code, title }) || token.includes("workforce") || token.includes("personal")) {
+      await cxAssistantReplyWorkforce027R(chat, "resumen workforce");
       return;
     }
     if (cxAssistantIsProductionTool027K({ code, title }) || token.includes("produccion") || token.includes("production")) {
@@ -13619,6 +14156,10 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "quote");
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
       await cxAssistantReplyPayroll027I(chat, clean);
+    } else if (cxAssistantLooksReferencesQuery027R(clean)) {
+      await cxAssistantReplyReferences027R(chat, clean);
+    } else if (cxAssistantLooksWorkforceQuery027R(clean)) {
+      await cxAssistantReplyWorkforce027R(chat, clean);
     } else if (cxAssistantLooksProductionQuery027K(clean)) {
       await cxAssistantReplyProduction027K(chat, clean);
     } else if (cxAssistantMaybeProductionQuery027L(clean)) {
@@ -13633,7 +14174,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido") || norm.includes("inventario")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina y Produccion. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias y Workforce. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -13695,6 +14236,22 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-production-summary-027k]")) {
           await cxAssistantProcessText027A("resumen produccion", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-ref-add-027r]")) {
+          await cxAssistantProcessText027A("agregar referencia", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-ref-summary-027r]")) {
+          await cxAssistantProcessText027A("resumen referencias", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-wf-add-027r]")) {
+          await cxAssistantProcessText027A("agregar personal", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-wf-summary-027r]")) {
+          await cxAssistantProcessText027A("resumen workforce", chat.activeCode);
           return;
         }
         const moduleButton = target.closest("[data-cxai-module-027a]");
