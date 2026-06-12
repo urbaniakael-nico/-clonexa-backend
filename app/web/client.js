@@ -13669,7 +13669,7 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantBackWorkforceFlow027R(chat) {
-    cxAssistantBackFlow027R(chat, ["full_name", "role", "phone", "hourly_rate_regular", "confirm"], cxAssistantWorkforceQuestion027R);
+    cxAssistantBackFlow027R(chat, ["full_name", "role", "phone", "email", "hire_date", "hourly_rate_regular", "hourly_rate_extra", "deduction_1", "deduction_2", "status", "confirm"], cxAssistantWorkforceQuestion027R);
   }
 
   function cxAssistantLooksReferencesQuery027R(text = "") {
@@ -14017,13 +14017,36 @@ function inventoryCreatePayload() {
     return norm.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "operator";
   }
 
+  function cxAssistantHireDate027T(value = "") {
+    if (cxAssistantSkip027A(value)) return "";
+    const raw = String(value || "").trim();
+    const digits = raw.replace(/[^\d]/g, "");
+    if (/^\d{8}$/.test(digits)) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+    return raw;
+  }
+
+  function cxAssistantWorkforceStatus027T(value = "") {
+    const norm = cxAssistantNorm027A(value);
+    if (!norm || cxAssistantSkip027A(value)) return "active";
+    if (norm.includes("inactivo") || norm.includes("inactive")) return "inactive";
+    if (norm.includes("archiv")) return "archived";
+    if (norm.includes("activo") || norm.includes("active")) return "active";
+    return "active";
+  }
+
   function cxAssistantWorkforceSeed027R(text = "") {
     const parts = cxAssistantPipeParts027R(text);
     const data = {};
     if (parts[0]) data.full_name = parts[0];
     if (parts[1]) data.role = cxAssistantRoleFromText027R(parts[1]);
     if (parts[2]) data.phone = parts[2];
-    if (parts[3]) data.hourly_rate_regular = Math.max(0, cxAssistantNumber027R(parts[3]));
+    if (parts[3]) data.email = parts[3];
+    if (parts[4]) data.hire_date = cxAssistantHireDate027T(parts[4]);
+    if (parts[5]) data.hourly_rate_regular = Math.max(0, cxAssistantNumber027R(parts[5]));
+    if (parts[6]) data.hourly_rate_extra = Math.max(0, cxAssistantNumber027R(parts[6]));
+    if (parts[7]) data.deduction_1 = Math.max(0, cxAssistantNumber027R(parts[7]));
+    if (parts[8]) data.deduction_2 = Math.max(0, cxAssistantNumber027R(parts[8]));
+    if (parts[9]) data.status = cxAssistantWorkforceStatus027T(parts[9]);
     return data;
   }
 
@@ -14032,14 +14055,26 @@ function inventoryCreatePayload() {
     if (flow.step === "full_name") return "Nombre completo del personal? Puedes escribir cancelar para salir.";
     if (flow.step === "role") return "Rol del personal? Puedes escribir operario, vendedor, supervisor, omitir o atras.";
     if (flow.step === "phone") return "Telefono? Escribe omitir si no aplica, o atras para corregir.";
+    if (flow.step === "email") return "Correo del personal? Escribe omitir si no aplica, o atras.";
+    if (flow.step === "hire_date") return "Fecha de ingreso? Usa YYYY-MM-DD o 20260114. Escribe omitir o atras.";
     if (flow.step === "hourly_rate_regular") return "Valor hora ordinaria? Escribe omitir si no aplica, o atras para corregir.";
+    if (flow.step === "hourly_rate_extra") return "Valor hora extra? Escribe omitir si no aplica, o atras.";
+    if (flow.step === "deduction_1") return "Descuento 1? Escribe 0, omitir o atras.";
+    if (flow.step === "deduction_2") return "Descuento 2? Escribe 0, omitir o atras.";
+    if (flow.step === "status") return "Estado inicial: activo o inactivo? Escribe omitir para activo, o atras.";
     return `
       <div>Confirma el personal:</div>
       <div class="cxai-summary-027a">
         <div><strong>Nombre:</strong> ${h(data.full_name || "")}</div>
         <div><strong>Rol:</strong> ${h(data.role || "operator")}</div>
         <div><strong>Telefono:</strong> ${h(data.phone || "Sin telefono")}</div>
+        <div><strong>Correo:</strong> ${h(data.email || "Sin correo")}</div>
+        <div><strong>Fecha ingreso:</strong> ${h(data.hire_date || "Sin fecha")}</div>
         <div><strong>Hora ordinaria:</strong> ${h(cxUniversalMoney021D(data.hourly_rate_regular || 0))}</div>
+        <div><strong>Hora extra:</strong> ${h(cxUniversalMoney021D(data.hourly_rate_extra || 0))}</div>
+        <div><strong>Descuento 1:</strong> ${h(cxUniversalMoney021D(data.deduction_1 || 0))}</div>
+        <div><strong>Descuento 2:</strong> ${h(cxUniversalMoney021D(data.deduction_2 || 0))}</div>
+        <div><strong>Estado:</strong> ${h(data.status || "active")}</div>
       </div>
       <div class="cxai-chip-wrap-027a">
         <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
@@ -14048,9 +14083,23 @@ function inventoryCreatePayload() {
     `;
   }
 
+  function cxAssistantWorkforceNextStep027T(data = {}) {
+    if (!data.full_name) return "full_name";
+    if (!data.role) return "role";
+    if (data.phone == null) return "phone";
+    if (data.email == null) return "email";
+    if (data.hire_date == null) return "hire_date";
+    if (data.hourly_rate_regular == null) return "hourly_rate_regular";
+    if (data.hourly_rate_extra == null) return "hourly_rate_extra";
+    if (data.deduction_1 == null) return "deduction_1";
+    if (data.deduction_2 == null) return "deduction_2";
+    if (!data.status) return "status";
+    return "confirm";
+  }
+
   function cxAssistantStartWorkforceCreate027R(chat, text = "") {
     const data = cxAssistantWorkforceSeed027R(text);
-    const step = !data.full_name ? "full_name" : (!data.role ? "role" : (data.phone == null ? "phone" : (data.hourly_rate_regular == null ? "hourly_rate_regular" : "confirm")));
+    const step = cxAssistantWorkforceNextStep027T(data);
     chat.flow = { kind: "workforce_create", step, data };
     cxAssistantPush027A(chat, "assistant", cxAssistantWorkforceQuestion027R(chat.flow), true);
   }
@@ -14063,9 +14112,15 @@ function inventoryCreatePayload() {
       full_name: String(data.full_name || "").trim(),
       role,
       employee_type: role,
-      hourly_rate_regular: Math.max(0, Number(data.hourly_rate_regular || 0))
+      status: data.status || "active",
+      hourly_rate_regular: Math.max(0, Number(data.hourly_rate_regular || 0)),
+      hourly_rate_extra: Math.max(0, Number(data.hourly_rate_extra || 0)),
+      deduction_1: Math.max(0, Number(data.deduction_1 || 0)),
+      deduction_2: Math.max(0, Number(data.deduction_2 || 0))
     };
     if (data.phone) payload.phone = data.phone;
+    if (data.email) payload.email = data.email;
+    if (data.hire_date) payload.hire_date = data.hire_date;
     if (!payload.full_name) {
       cxAssistantPush027A(chat, "assistant", "Necesito el nombre completo para crear el personal.");
       return;
@@ -14094,19 +14149,43 @@ function inventoryCreatePayload() {
           return;
         }
         data.full_name = clean;
-        flow.step = "role";
+        flow.step = cxAssistantWorkforceNextStep027T(data);
         break;
       case "role":
         data.role = cxAssistantRoleFromText027R(clean);
-        flow.step = "phone";
+        flow.step = cxAssistantWorkforceNextStep027T(data);
         break;
       case "phone":
         data.phone = cxAssistantSkip027A(clean) ? "" : clean;
-        flow.step = "hourly_rate_regular";
+        flow.step = cxAssistantWorkforceNextStep027T(data);
+        break;
+      case "email":
+        data.email = cxAssistantSkip027A(clean) ? "" : clean;
+        flow.step = cxAssistantWorkforceNextStep027T(data);
+        break;
+      case "hire_date":
+        data.hire_date = cxAssistantHireDate027T(clean);
+        flow.step = cxAssistantWorkforceNextStep027T(data);
         break;
       case "hourly_rate_regular":
         data.hourly_rate_regular = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
-        flow.step = "confirm";
+        flow.step = cxAssistantWorkforceNextStep027T(data);
+        break;
+      case "hourly_rate_extra":
+        data.hourly_rate_extra = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
+        flow.step = cxAssistantWorkforceNextStep027T(data);
+        break;
+      case "deduction_1":
+        data.deduction_1 = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
+        flow.step = cxAssistantWorkforceNextStep027T(data);
+        break;
+      case "deduction_2":
+        data.deduction_2 = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
+        flow.step = cxAssistantWorkforceNextStep027T(data);
+        break;
+      case "status":
+        data.status = cxAssistantWorkforceStatus027T(clean);
+        flow.step = cxAssistantWorkforceNextStep027T(data);
         cxAssistantPush027A(chat, "assistant", cxAssistantWorkforceQuestion027R(flow), true);
         return;
       case "confirm":
@@ -14137,7 +14216,7 @@ function inventoryCreatePayload() {
     }, {});
     const roleDetail = Object.entries(byRole).slice(0, 6).map(([role, count]) => `<div>${h(role.replace(/_/g, " "))}: <strong>${h(cxReferencesNumber022E(count))}</strong></div>`).join("") || "<div>Sin roles activos.</div>";
     const people = active.length
-      ? active.slice(0, 10).map((row) => `<div>${h(cxAssistantEmployeeLabel027R(row))}</div>`).join("") + (active.length > 10 ? `<div>+${h(active.length - 10)} personas activas mas.</div>` : "")
+      ? active.slice(0, 10).map((row) => `<div>${h(row.full_name || "Personal")} · ${h(row.role || row.employee_type || "sin rol")} · Tel: ${h(row.phone || "N/A")} · Correo: ${h(row.email || "N/A")} · Ingreso: ${h(row.hire_date || "N/A")} · H. ord: ${h(cxUniversalMoney021D(row.hourly_rate_regular || 0))} · H. extra: ${h(cxUniversalMoney021D(row.hourly_rate_extra || 0))} · Desc: ${h(cxUniversalMoney021D(row.deduction_1 || 0))}/${h(cxUniversalMoney021D(row.deduction_2 || 0))}</div>`).join("") + (active.length > 10 ? `<div>+${h(active.length - 10)} personas activas mas.</div>` : "")
       : "<div>Sin personal activo.</div>";
     return `
       <div>Resumen Workforce:</div>
