@@ -12420,6 +12420,14 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsQrTool028D(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["qr", "mesa_qr", "mesas_qr", "qr_mesas", "hospitality_qr", "voting_qr"].includes(token) ||
+      (token.includes("qr") && !token.includes("whatsapp"))
+    );
+  }
+
   function cxAssistantIsGpsTool027X(module = {}) {
     const tokens = cxAssistantModuleTokens027E(module);
     return tokens.some((token) =>
@@ -12463,10 +12471,11 @@ function inventoryCreatePayload() {
     const hasStock = modulePool.some(cxAssistantIsStockTool028A) || ["stock", "stocks", "existencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["stock"]);
     const hasHospitality = modulePool.some(cxAssistantIsHospitalityTool028B) || ["hospitality", "hsp", "hospitality_dashboard", "hospitality_analytics"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["hospitality", "hsp"]);
     const hasLoyalty = modulePool.some(cxAssistantIsLoyaltyTool028C) || ["loyalty", "fidelizacion", "hospitality_loyalty"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["loyalty", "fidelizacion"]);
+    const hasQr = modulePool.some(cxAssistantIsQrTool028D) || ["qr", "mesa_qr", "mesas_qr", "qr_mesas", "hospitality_qr"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["qr"]);
     const hasGps = modulePool.some(cxAssistantIsGpsTool027X) || ["gps", "geolocalizacion", "ubicaciones"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["gps"]);
     const hasReports = modulePool.some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["reports"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasStock, hasHospitality, hasLoyalty, hasGps, hasReports, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasStock, hasHospitality, hasLoyalty, hasQr, hasGps, hasReports, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12523,6 +12532,7 @@ function inventoryCreatePayload() {
         if (tools.hasStock && cxAssistantIsStockTool028A(module)) return false;
         if (tools.hasHospitality && cxAssistantIsHospitalityTool028B(module)) return false;
         if (tools.hasLoyalty && cxAssistantIsLoyaltyTool028C(module)) return false;
+        if (tools.hasQr && cxAssistantIsQrTool028D(module)) return false;
         if (tools.hasGps && cxAssistantIsGpsTool027X(module)) return false;
         if (tools.hasReports && cxAssistantIsReportsTool027Y(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
@@ -12551,6 +12561,7 @@ function inventoryCreatePayload() {
         ${tools.hasStock ? `<button class="cxai-chip-027a primary" type="button" data-cxai-stock-summary-028a>Stock</button>` : ""}
         ${tools.hasHospitality ? `<button class="cxai-chip-027a primary" type="button" data-cxai-hsp-report-028b>Hospitality</button>` : ""}
         ${tools.hasLoyalty ? `<button class="cxai-chip-027a primary" type="button" data-cxai-loy-result-028c>Fidelizacion</button>` : ""}
+        ${tools.hasQr ? `<button class="cxai-chip-027a primary" type="button" data-cxai-qr-summary-028d>QR</button>` : ""}
         ${tools.hasGps ? `<button class="cxai-chip-027a primary" type="button" data-cxai-gps-summary-027x>GPS</button>` : ""}
         ${tools.hasReports ? `<button class="cxai-chip-027a primary" type="button" data-cxai-reports-start-027y>Reportes</button>` : ""}
         ${moduleButtons}
@@ -12784,6 +12795,11 @@ function inventoryCreatePayload() {
       await cxAssistantReplyLoyalty028C(chat, clean);
       return;
     }
+    if (flow.kind !== "qr_access" && cxAssistantLooksQrQuery028D(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyQr028D(chat, clean);
+      return;
+    }
     if (!["inventory_create", "inventory_update"].includes(flow.kind) && cxAssistantLooksInventoryQuery027W(clean)) {
       chat.flow = null;
       await cxAssistantReplyInventory027W(chat, clean);
@@ -12828,6 +12844,10 @@ function inventoryCreatePayload() {
         cxAssistantBackLoyaltyFlow028C(chat);
         return;
       }
+      if (flow.kind === "qr_access") {
+        cxAssistantBackQrFlow028D(chat);
+        return;
+      }
       if (flow.kind === "gps_config") {
         cxAssistantBackGpsConfigFlow027X(chat);
         return;
@@ -12863,6 +12883,10 @@ function inventoryCreatePayload() {
     }
     if (flow.kind === "loyalty_create") {
       await cxAssistantHandleLoyaltyFlow028C(chat, clean);
+      return;
+    }
+    if (flow.kind === "qr_access") {
+      await cxAssistantHandleQrFlow028D(chat, clean);
       return;
     }
     if (flow.kind === "gps_config") {
@@ -16590,6 +16614,218 @@ function inventoryCreatePayload() {
     return true;
   }
 
+  function cxAssistantQrHasAccess028D() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasQr || cxAssistantModulePool027E().some(cxAssistantIsQrTool028D) || ["qr", "mesa_qr", "mesas_qr", "qr_mesas", "hospitality_qr"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksQrQuery028D(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (!norm || norm.includes("whatsapp") || norm.includes("wsp")) return false;
+    const hasQr = /\bqr\b/.test(norm) || norm.includes("mesa qr") || norm.includes("mesas qr");
+    const hasMesa = /\bmesa\s*#?\s*\d+\b/.test(norm) || /\bmesas?\b/.test(norm);
+    const action = ["activar", "habilitar", "clave", "libre", "libres", "ocupado", "ocupada", "ocupados", "ocupadas", "imprimir", "impresion", "estado", "status", "abrir"].some((word) => norm.includes(word));
+    return hasQr || (hasMesa && action);
+  }
+
+  function cxAssistantQrActivationIntent028D(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return ["activar", "habilitar", "generar", "clave", "nueva clave"].some((word) => norm.includes(word));
+  }
+
+  function cxAssistantQrPrintIntent028D(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return ["imprimir", "impresion", "plantilla"].some((word) => norm.includes(word));
+  }
+
+  function cxAssistantQrNormLabel028D(value = "") {
+    return cxAssistantNorm027A(value).replace(/[^a-z0-9]+/g, "");
+  }
+
+  function cxAssistantQrTableSeed028D(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (/\bbarra\b/.test(norm)) return { label: "Barra", number: "" };
+    const match = norm.match(/\b(?:mesa|qr|punto|puesto)\s*#?\s*(\d+)\b/) || norm.match(/^#?\s*(\d+)\s*$/);
+    if (!match) return { label: "", number: "" };
+    return { label: `Mesa ${Number(match[1])}`, number: String(Number(match[1])) };
+  }
+
+  function cxAssistantQrFindRow028D(rows = [], text = "") {
+    const seed = cxAssistantQrTableSeed028D(text);
+    if (!seed.label && !seed.number) return null;
+    const wanted = cxAssistantQrNormLabel028D(seed.label);
+    const wantedNumber = seed.number;
+    return (Array.isArray(rows) ? rows : []).find((row) => {
+      const label = String(row.label || "");
+      const rowNorm = cxAssistantQrNormLabel028D(label);
+      const rowNumber = (label.match(/(\d+)/) || [])[1] || "";
+      return rowNorm === wanted || (wantedNumber && Number(rowNumber) === Number(wantedNumber));
+    }) || null;
+  }
+
+  function cxAssistantQrRowLine028D(row = {}) {
+    const status = Number(row.active_orders || 0) > 0 ? "ocupado" : "libre";
+    const access = row.access_active ? `clave ${row.access_code || "activa"}` : "sin clave";
+    return `${row.label || "QR"}: ${status}, ${row.active_orders || 0} cuenta(s), ${cxHspMoney024R(row.open_total || 0)}, ${access}`;
+  }
+
+  async function cxAssistantQrLoad028D() {
+    if (typeof cxHspQrApplyConfig025N === "function") cxHspQrApplyConfig025N();
+    const data = await cxHspQrLoad024S(cxHspQrCount024S);
+    return {
+      rows: Array.isArray(data.tables) ? data.tables : cxHspQrTables024S,
+      summary: data.summary || cxHspQrSummary024S || {},
+    };
+  }
+
+  function cxAssistantQrStatusHtml028D(rows = [], summary = {}, row = null) {
+    if (row) {
+      const occupied = Number(row.active_orders || 0) > 0;
+      const code = row.access_active ? row.access_code || "Activa" : "Sin activar";
+      return `
+        <div>${h(row.label || "QR")} esta ${occupied ? "ocupada" : "libre"}.</div>
+        <div class="cxai-summary-027a">
+          <div><strong>Cuentas abiertas:</strong> ${h(row.active_orders || 0)}</div>
+          <div><strong>Total abierto:</strong> ${h(cxHspMoney024R(row.open_total || 0))}</div>
+          <div><strong>Clave:</strong> ${h(code)}</div>
+        </div>
+        <div class="cxai-chip-wrap-027a">
+          ${occupied ? "" : `<button class="cxai-chip-027a primary" type="button" data-cxai-qr-activate-028d="${h(row.label || "")}">Activar QR</button>`}
+          <button class="cxai-chip-027a" type="button" data-cxai-qr-print-028d="${h(row.label || "")}">Imprimir QR</button>
+          <a class="cxai-download-027a" href="${h(row.order_url || "#")}" target="_blank" rel="noopener">Abrir QR</a>
+        </div>
+      `;
+    }
+    const occupiedRows = rows.filter((item) => Number(item.active_orders || 0) > 0);
+    const freeRows = rows.filter((item) => Number(item.active_orders || 0) <= 0);
+    const activeKeys = rows.filter((item) => item.access_active).length;
+    return `
+      <div>Estado QR:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>QR activos:</strong> ${h(summary.qr_count ?? rows.length)}</div>
+        <div><strong>Cuentas abiertas:</strong> ${h(summary.open_accounts ?? occupiedRows.length)}</div>
+        <div><strong>Total abierto:</strong> ${h(cxHspMoney024R(summary.open_total || 0))}</div>
+        <div><strong>Claves activas:</strong> ${h(activeKeys)}</div>
+      </div>
+      <div class="cxai-summary-027a">
+        <div><strong>Ocupados:</strong> ${occupiedRows.length ? h(occupiedRows.slice(0, 10).map(cxAssistantQrRowLine028D).join(" | ")) : "ninguno"}</div>
+        <div><strong>Libres:</strong> ${freeRows.length ? h(freeRows.slice(0, 10).map((item) => item.label || "QR").join(", ")) : "ninguno"}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-qr-activate-028d>Activar QR</button>
+        <button class="cxai-chip-027a" type="button" data-client-module="qr">Abrir QR</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantQrQuestion028D() {
+    return `
+      <div>Que QR o mesa quieres activar?</div>
+      <div class="cxai-summary-027a">Ej: mesa 1, mesa 2, QR 5 o Barra. Puedes escribir ocupados, libres, atras o cancelar.</div>
+    `;
+  }
+
+  function cxAssistantBackQrFlow028D(chat) {
+    chat.flow = { kind: "qr_access", step: "table", data: {} };
+    cxAssistantPush027A(chat, "assistant", cxAssistantQrQuestion028D(), true);
+  }
+
+  async function cxAssistantActivateQr028D(chat, text = "") {
+    const { rows } = await cxAssistantQrLoad028D();
+    const row = cxAssistantQrFindRow028D(rows, text);
+    if (!row) {
+      chat.flow = { kind: "qr_access", step: "table", data: {} };
+      cxAssistantPush027A(chat, "assistant", cxAssistantQrQuestion028D(), true);
+      return;
+    }
+    if (Number(row.active_orders || 0) > 0) {
+      chat.flow = { kind: "qr_access", step: "table", data: {} };
+      cxAssistantPush027A(
+        chat,
+        "assistant",
+        `${h(row.label || "QR")} esta ocupada con ${h(row.active_orders || 0)} cuenta(s) y ${h(cxHspMoney024R(row.open_total || 0))} abierto. Indica otro QR libre o escribe cancelar.`,
+        true
+      );
+      return;
+    }
+    const data = await cxHspQrApi024S("/qr-tables/access", {
+      method: "POST",
+      body: JSON.stringify({ table: row.label || text, duration_hours: 12 }),
+    });
+    const refreshed = await cxAssistantQrLoad028D();
+    const activeRow = cxAssistantQrFindRow028D(refreshed.rows, row.label || text) || row;
+    const code = data.access?.access_code || activeRow.access_code || "";
+    chat.flow = null;
+    cxAssistantPush027A(
+      chat,
+      "assistant",
+      `
+        <div>${h(activeRow.label || row.label || "QR")} activado.</div>
+        <div class="cxai-summary-027a">
+          <div><strong>Clave:</strong> ${h(code || "Generada")}</div>
+          <div><strong>Estado:</strong> libre para usar</div>
+        </div>
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-qr-print-028d="${h(activeRow.label || row.label || "")}">Imprimir QR</button>
+          <a class="cxai-download-027a" href="${h(activeRow.order_url || row.order_url || "#")}" target="_blank" rel="noopener">Abrir QR</a>
+          <button class="cxai-chip-027a" type="button" data-cxai-qr-summary-028d>Ver ocupados/libres</button>
+        </div>
+      `,
+      true
+    );
+  }
+
+  async function cxAssistantPushQrStatus028D(chat, text = "") {
+    const { rows, summary } = await cxAssistantQrLoad028D();
+    const row = cxAssistantQrFindRow028D(rows, text);
+    cxAssistantPush027A(chat, "assistant", cxAssistantQrStatusHtml028D(rows, summary, row), true);
+  }
+
+  async function cxAssistantHandleQrFlow028D(chat, clean) {
+    if (cxAssistantQrActivationIntent028D(clean) || cxAssistantQrTableSeed028D(clean).label) {
+      await cxAssistantActivateQr028D(chat, clean);
+      return;
+    }
+    await cxAssistantPushQrStatus028D(chat, clean);
+  }
+
+  async function cxAssistantReplyQr028D(chat, text = "") {
+    if (!cxAssistantQrHasAccess028D()) {
+      cxAssistantPush027A(chat, "assistant", "QR no esta activo para esta empresa.");
+      return false;
+    }
+    try {
+      if (cxAssistantQrActivationIntent028D(text)) {
+        const seed = cxAssistantQrTableSeed028D(text);
+        if (!seed.label) {
+          chat.flow = { kind: "qr_access", step: "table", data: {} };
+          cxAssistantPush027A(chat, "assistant", cxAssistantQrQuestion028D(), true);
+          return true;
+        }
+        await cxAssistantActivateQr028D(chat, text);
+        return true;
+      }
+      await cxAssistantPushQrStatus028D(chat, text);
+      if (cxAssistantQrPrintIntent028D(text)) {
+        cxAssistantPush027A(chat, "assistant", "Para imprimir, elige una mesa y usa el boton Imprimir QR.");
+      }
+      return true;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar QR.");
+      return false;
+    }
+  }
+
+  async function cxAssistantOpenQrPrint028D(label = "") {
+    await renderHospitalityQrModule024S();
+    const rows = cxHspQrTables024S || [];
+    const row = cxAssistantQrFindRow028D(rows, label) || rows[0] || {};
+    cxHspQrPrintSelection025H = row.label || label || "";
+    cxHspQrPaint024S();
+    cxHspQrPaintPrintPanel025H(true);
+    document.getElementById("hspQrPrintPanel025H")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function cxAssistantReportsHasAccess027Y() {
     const tools = cxAssistantReadActiveTools027A();
     return tools.hasReports || cxAssistantModulePool027E().some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some(isClientModuleActive);
@@ -16864,6 +17100,10 @@ function inventoryCreatePayload() {
       await cxAssistantReplyLoyalty028C(chat, "resultado fidelizacion");
       return;
     }
+    if (cxAssistantIsQrTool028D({ code, title }) || token.includes("qr")) {
+      await cxAssistantReplyQr028D(chat, "estado qr");
+      return;
+    }
     if (cxAssistantIsInventoryTool027W({ code, title }) || token.includes("inventario")) {
       await cxAssistantReplyInventory027W(chat, "estado inventario");
       return;
@@ -16906,6 +17146,8 @@ function inventoryCreatePayload() {
       await cxAssistantReplyHospitality028B(chat, clean);
     } else if (cxAssistantLooksLoyaltyQuery028C(clean)) {
       await cxAssistantReplyLoyalty028C(chat, clean);
+    } else if (cxAssistantLooksQrQuery028D(clean)) {
+      await cxAssistantReplyQr028D(chat, clean);
     } else if (cxAssistantLooksReportsQuery027Y(clean)) {
       await cxAssistantReplyReports027Y(chat, clean);
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
@@ -16936,7 +17178,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, Stock, Hospitality, Fidelizacion, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, Stock, Hospitality, Fidelizacion, QR, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -17073,6 +17315,21 @@ function inventoryCreatePayload() {
         const loyaltyVoteMode = target.closest("[data-cxai-loy-vote-mode-028c]");
         if (loyaltyVoteMode) {
           await cxAssistantProcessText027A(loyaltyVoteMode.getAttribute("data-cxai-loy-vote-mode-028c") || "inscripcion", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-qr-summary-028d]")) {
+          await cxAssistantProcessText027A("estado qr", chat.activeCode);
+          return;
+        }
+        const qrActivate = target.closest("[data-cxai-qr-activate-028d]");
+        if (qrActivate) {
+          const label = qrActivate.getAttribute("data-cxai-qr-activate-028d") || "";
+          await cxAssistantProcessText027A(label ? `activar ${label}` : "activar qr", chat.activeCode);
+          return;
+        }
+        const qrPrint = target.closest("[data-cxai-qr-print-028d]");
+        if (qrPrint) {
+          await cxAssistantOpenQrPrint028D(qrPrint.getAttribute("data-cxai-qr-print-028d") || "");
           return;
         }
         const stockAction = target.closest("[data-cxai-stock-action-028a]");
