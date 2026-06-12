@@ -12373,6 +12373,20 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsCommercialClosingTool027V(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      [
+        "commercial_closing",
+        "cierre_comercial",
+        "cierres_comerciales",
+        "cierre_comercial_diario",
+        "client_commercial_closing"
+      ].includes(token) ||
+      token.includes("cierre_comercial")
+    );
+  }
+
   function cxAssistantIsProductionTool027K(module = {}) {
     if (cxAssistantIsReferencesTool027Q(module)) return false;
     const tokens = cxAssistantModuleTokens027E(module);
@@ -12395,8 +12409,9 @@ function inventoryCreatePayload() {
     const hasProduction = ["production", "produccion", "produccion_operativa", "production_module"].some((code) => activeIdentityCodes.has(code)) || hasAnyClientModule(codes, ["production"]);
     const hasReferences = modulePool.some(cxAssistantIsReferencesTool027Q) || ["references", "reference", "production_refs", "production_references", "referencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["references", "production_refs"]);
     const hasWorkforce = modulePool.some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["workforce", "personal", "employees"]);
+    const hasCommercialClosing = modulePool.some(cxAssistantIsCommercialClosingTool027V) || ["commercial_closing", "cierre_comercial", "cierres_comerciales"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["commercial_closing", "cierre_comercial", "cierres_comerciales"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12448,6 +12463,7 @@ function inventoryCreatePayload() {
         if (tools.hasProduction && cxAssistantIsProductionTool027K(module)) return false;
         if (tools.hasReferences && cxAssistantIsReferencesTool027Q(module)) return false;
         if (tools.hasWorkforce && cxAssistantIsWorkforceTool027R(module)) return false;
+        if (tools.hasCommercialClosing && cxAssistantIsCommercialClosingTool027V(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
         if (!key) return true;
         if (seenModules.has(key)) return false;
@@ -12469,6 +12485,7 @@ function inventoryCreatePayload() {
         ${tools.hasProduction ? `<button class="cxai-chip-027a primary" type="button" data-cxai-production-summary-027k>Produccion</button>` : ""}
         ${tools.hasReferences ? `<button class="cxai-chip-027a primary" type="button" data-cxai-ref-summary-027r>Referencias</button>` : ""}
         ${tools.hasWorkforce ? `<button class="cxai-chip-027a primary" type="button" data-cxai-wf-summary-027r>Workforce</button>` : ""}
+        ${tools.hasCommercialClosing ? `<button class="cxai-chip-027a primary" type="button" data-cxai-closing-summary-027v>Cierre comercial</button>` : ""}
         ${moduleButtons}
       </div>
     `;
@@ -14342,6 +14359,153 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantCommercialClosingHasAccess027V() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasCommercialClosing || cxAssistantModulePool027E().some(cxAssistantIsCommercialClosingTool027V) || ["commercial_closing", "cierre_comercial", "cierres_comerciales"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksCommercialClosingQuery027V(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const closingSubject = norm.includes("cierre comercial") || norm.includes("cierres comerciales") || norm.includes("reporte de cierre") || norm.includes("reportes de cierre");
+    const salesSubject = ["venta", "ventas", "vendedor", "vendedores", "tienda", "tiendas", "redes", "recaudo", "meta", "comercial"].some((word) => norm.includes(word));
+    const action = ["quien", "mejor", "top", "ranking", "consolidado", "total", "todas", "area", "areas", "meta", "vs", "envio", "enviado", "enviaron", "reporto", "reportaron", "reporte", "reportes", "cierre", "cierres", "recaudo"].some((word) => norm.includes(word));
+    return closingSubject || (salesSubject && action);
+  }
+
+  function cxAssistantClosingFilters027V(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const filters = {
+      from: cxClosingDateInput023K(30),
+      to: cxClosingDateInput023K(0),
+      panel_type: "all",
+      status: "active",
+      q: "",
+    };
+    if (norm.includes("hoy")) {
+      filters.from = cxClosingDateInput023K(0);
+      filters.to = cxClosingDateInput023K(0);
+    } else if (norm.includes("ayer")) {
+      filters.from = cxClosingDateInput023K(1);
+      filters.to = cxClosingDateInput023K(1);
+    } else if (norm.includes("semana")) {
+      filters.from = cxClosingDateInput023K(7);
+    } else if (norm.includes("mes")) {
+      const today = new Date();
+      filters.from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+    }
+    if (norm.includes("archiv")) filters.status = "all";
+    return filters;
+  }
+
+  function cxAssistantClosingPct027V(total = 0, goal = 0) {
+    const safeGoal = Number(goal || 0);
+    if (!safeGoal || safeGoal <= 0) return "sin meta";
+    return `${Math.round((Number(total || 0) / safeGoal) * 100)}%`;
+  }
+
+  function cxAssistantClosingRollupLine027V(row = {}, fallback = "Sin datos") {
+    if (!row) return fallback;
+    return `${h(row.label || fallback)}: <strong>${h(cxClosingMoney023K(row.total_amount || row.amount || 0))}</strong> · ${h(Number(row.sales_count || row.count || 0))} venta(s)`;
+  }
+
+  function cxAssistantClosingRows027V(rows = [], empty = "Sin datos para este filtro.") {
+    const items = Array.isArray(rows) ? rows : [];
+    if (!items.length) return `<div>${h(empty)}</div>`;
+    return items.slice(0, 6).map((row, index) => `<div>#${index + 1} ${cxAssistantClosingRollupLine027V(row)}</div>`).join("");
+  }
+
+  function cxAssistantClosingReports027V(items = []) {
+    const rows = Array.isArray(items) ? items : [];
+    if (!rows.length) return "<div>No hay reportes de cierre enviados para este filtro.</div>";
+    return rows.slice(0, 8).map((item) => {
+      const totals = item.totals || {};
+      return `<div>${h(item.submitted_by_label || "Panel principal")} · ${h(cxClosingPanelLabel023K(item.panel_type))} · ${h(cxClosingDateLabel023K(item.closure_date))} · ${h(cxClosingStatusLabel023K(item.status))} · ${h(cxClosingMoney023K(totals.total_amount || 0))}</div>`;
+    }).join("");
+  }
+
+  async function cxAssistantLoadClosing027V(text = "") {
+    const filters = cxAssistantClosingFilters027V(text);
+    const [data, salesData, mundoMetrics] = await Promise.all([
+      cxClosingApi023K(`/client-console?${cxClosingQuery023K(filters)}`).catch(() => ({ items: [], summary: {}, stores: [], sellers: [], groups: [] })),
+      cxClosingSalesDataApi025L(filters).catch(() => ({ items: [] })),
+      loadMundoCaseDashboardMetrics024K().catch(() => null),
+    ]);
+    const rollup = cxClosingBuildSalesRollups025L(salesData, filters);
+    return {
+      filters,
+      data,
+      items: Array.isArray(data.items) ? data.items : [],
+      summary: data.summary || {},
+      rollup,
+      mundoMetrics,
+    };
+  }
+
+  function cxAssistantClosingSummaryHtml027V(ctx = {}, text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const rollup = ctx.rollup || {};
+    const metrics = ctx.mundoMetrics || {};
+    const salesGoal = metrics.sales || {};
+    const storesGoal = metrics.stores || {};
+    const wantsReports = ["envio", "enviado", "enviaron", "reporto", "reportaron", "reporte", "reportes"].some((word) => norm.includes(word));
+    const wantsStore = norm.includes("tienda");
+    const wantsSeller = norm.includes("vendedor") || norm.includes("redes") || norm.includes("ventas");
+    const wantsMeta = norm.includes("meta") || norm.includes("vs");
+    const wantsTotal = norm.includes("total") || norm.includes("consolidado") || norm.includes("area");
+    const sections = [];
+
+    if (!norm || wantsTotal || (!wantsReports && !wantsStore && !wantsSeller && !wantsMeta)) {
+      sections.push(`
+        <div class="cxai-summary-027a">
+          <div><strong>Total ventas:</strong> ${h(cxClosingMoney023K(rollup.total_amount || 0))}</div>
+          <div><strong>Ventas del corte:</strong> ${h(Number(rollup.period_count || 0))}</div>
+          <div><strong>Ventas/redes:</strong> ${h(cxClosingMoney023K((rollup.sellers || []).reduce((sum, row) => sum + Number(row.total_amount || 0), 0)))}</div>
+          <div><strong>Tiendas:</strong> ${h(cxClosingMoney023K((rollup.stores || []).reduce((sum, row) => sum + Number(row.total_amount || 0), 0)))}</div>
+        </div>
+      `);
+    }
+    if (wantsMeta || (!wantsReports && !wantsStore && !wantsSeller)) {
+      sections.push(`
+        <div class="cxai-summary-027a">
+          <div><strong>Ventas/redes vs meta:</strong> ${h(cxClosingMoney023K(salesGoal.total || 0))} / ${h(cxClosingMoney023K(salesGoal.goal || 0))} · ${h(cxAssistantClosingPct027V(salesGoal.total, salesGoal.goal))}</div>
+          <div><strong>Tiendas vs meta:</strong> ${h(cxClosingMoney023K(storesGoal.total || 0))} / ${h(cxClosingMoney023K(storesGoal.goal || 0))} · ${h(cxAssistantClosingPct027V(storesGoal.total, storesGoal.goal))}</div>
+        </div>
+      `);
+    }
+    if (wantsSeller || (!wantsReports && !wantsStore && !wantsMeta)) {
+      sections.push(`<div class="cxai-summary-027a"><div><strong>Mejor ventas/redes:</strong> ${cxAssistantClosingRollupLine027V(rollup.top_seller, "Sin ventas/redes")}</div>${cxAssistantClosingRows027V(rollup.sellers, "Sin recaudos de vendedores.")}</div>`);
+    }
+    if (wantsStore || (!wantsReports && !wantsSeller && !wantsMeta)) {
+      sections.push(`<div class="cxai-summary-027a"><div><strong>Mejor tienda:</strong> ${cxAssistantClosingRollupLine027V(rollup.top_store, "Sin tienda")}</div>${cxAssistantClosingRows027V(rollup.stores, "Sin recaudos de tiendas.")}</div>`);
+    }
+    if (wantsReports || norm.includes("cierre")) {
+      sections.push(`<div class="cxai-summary-027a"><div><strong>Cierres recibidos:</strong> ${h(Number(ctx.summary?.closures_count || ctx.items?.length || 0))}</div>${cxAssistantClosingReports027V(ctx.items)}</div>`);
+    }
+
+    return `
+      <div>Cierre comercial (${h(ctx.filters?.from || "")} / ${h(ctx.filters?.to || "")}):</div>
+      ${sections.join("")}
+      <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="commercial_closing">Abrir Cierre comercial</button></div>
+    `;
+  }
+
+  async function cxAssistantReplyCommercialClosing027V(chat, text = "") {
+    if (!cxAssistantCommercialClosingHasAccess027V()) {
+      cxAssistantPush027A(chat, "assistant", "Cierre comercial no esta activo para esta empresa.");
+      return false;
+    }
+    try {
+      cxAssistantPush027A(chat, "assistant", "Consultando Cierre comercial...");
+      cxAssistantRenderMessages027A();
+      const ctx = await cxAssistantLoadClosing027V(text);
+      cxAssistantPush027A(chat, "assistant", cxAssistantClosingSummaryHtml027V(ctx, text), true);
+      return true;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Cierre comercial.");
+      return false;
+    }
+  }
+
   async function cxAssistantModuleHelp027A(chat, code, title) {
     const token = cxNormalizeModuleToken017H(`${code} ${title}`);
     if (cxAssistantIsCrmTool027D({ code, title })) {
@@ -14362,6 +14526,10 @@ function inventoryCreatePayload() {
     }
     if (cxAssistantIsWorkforceTool027R({ code, title }) || token.includes("workforce") || token.includes("personal")) {
       await cxAssistantReplyWorkforce027R(chat, "resumen workforce");
+      return;
+    }
+    if (cxAssistantIsCommercialClosingTool027V({ code, title }) || token.includes("cierre_comercial")) {
+      await cxAssistantReplyCommercialClosing027V(chat, "resumen cierre comercial");
       return;
     }
     if (cxAssistantIsProductionTool027K({ code, title }) || token.includes("produccion") || token.includes("production")) {
@@ -14396,6 +14564,8 @@ function inventoryCreatePayload() {
       await cxAssistantReplyReferences027R(chat, clean);
     } else if (cxAssistantLooksWorkforceQuery027R(clean)) {
       await cxAssistantReplyWorkforce027R(chat, clean);
+    } else if (cxAssistantLooksCommercialClosingQuery027V(clean)) {
+      await cxAssistantReplyCommercialClosing027V(chat, clean);
     } else if (cxAssistantLooksProductionQuery027K(clean)) {
       await cxAssistantReplyProduction027K(chat, clean);
     } else if (cxAssistantMaybeProductionQuery027L(clean)) {
@@ -14410,7 +14580,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido") || norm.includes("inventario")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias y Workforce. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce y Cierre comercial. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -14488,6 +14658,10 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-wf-summary-027r]")) {
           await cxAssistantProcessText027A("resumen workforce", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-closing-summary-027v]")) {
+          await cxAssistantProcessText027A("resumen cierre comercial", chat.activeCode);
           return;
         }
         const moduleButton = target.closest("[data-cxai-module-027a]");
