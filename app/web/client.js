@@ -12665,10 +12665,30 @@ function inventoryCreatePayload() {
     const flow = chat.flow;
     const clean = String(text || "").trim();
     const norm = cxAssistantNorm027A(clean);
-    if (["cancelar", "salir", "parar"].includes(norm)) {
+    if (cxAssistantIsCancelCommand027R(norm)) {
       chat.flow = null;
-      cxAssistantPush027A(chat, "assistant", `Listo, cancele el flujo. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
+      cxAssistantPush027A(chat, "assistant", `Listo, cancele la incorporacion. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
       return;
+    }
+    if (flow.kind === "reference_create" && cxAssistantLooksWorkforceQuery027R(clean)) {
+      chat.flow = null;
+      cxAssistantStartWorkforceCreate027R(chat, clean);
+      return;
+    }
+    if (flow.kind === "workforce_create" && cxAssistantLooksReferencesQuery027R(clean)) {
+      chat.flow = null;
+      cxAssistantStartReferenceCreate027R(chat, clean);
+      return;
+    }
+    if (cxAssistantIsBackCommand027R(norm)) {
+      if (flow.kind === "reference_create") {
+        cxAssistantBackReferenceFlow027R(chat);
+        return;
+      }
+      if (flow.kind === "workforce_create") {
+        cxAssistantBackWorkforceFlow027R(chat);
+        return;
+      }
     }
     if (flow.kind === "reference_create") {
       await cxAssistantHandleReferenceFlow027R(chat, clean);
@@ -13618,23 +13638,52 @@ function inventoryCreatePayload() {
     return tools.hasWorkforce || cxAssistantModulePool027E().some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees", "empleados"].some(isClientModuleActive);
   }
 
+  function cxAssistantIsCancelCommand027R(norm = "") {
+    const value = cxAssistantNorm027A(norm);
+    return value.startsWith("cancel") || ["salir", "parar", "detener", "abortar"].includes(value);
+  }
+
+  function cxAssistantIsBackCommand027R(norm = "") {
+    const value = cxAssistantNorm027A(norm);
+    return ["atras", "volver", "anterior", "retroceder", "regresar"].includes(value);
+  }
+
+  function cxAssistantBackFlow027R(chat, steps = [], questionFn = () => "") {
+    const flow = chat.flow || {};
+    const current = steps.indexOf(flow.step);
+    if (current <= 0) {
+      cxAssistantPush027A(chat, "assistant", questionFn(flow), true);
+      return;
+    }
+    flow.step = steps[current - 1];
+    cxAssistantPush027A(chat, "assistant", questionFn(flow), true);
+  }
+
+  function cxAssistantBackReferenceFlow027R(chat) {
+    cxAssistantBackFlow027R(chat, ["name", "size", "initial_quantity", "channel", "confirm"], cxAssistantReferenceQuestion027R);
+  }
+
+  function cxAssistantBackWorkforceFlow027R(chat) {
+    cxAssistantBackFlow027R(chat, ["full_name", "role", "phone", "hourly_rate_regular", "confirm"], cxAssistantWorkforceQuestion027R);
+  }
+
   function cxAssistantLooksReferencesQuery027R(text = "") {
     const norm = cxAssistantNorm027A(text);
     const subject = norm.includes("referencia") || norm.includes("production_refs") || norm.includes("production references") || norm.includes("catalogo");
-    const action = ["agregar", "crear", "nueva", "nuevo", "archivar", "eliminar", "borrar", "status", "estado", "cantidad", "cuantas", "cuantos", "activa", "activas", "resumen", "reporte", "listar"].some((word) => norm.includes(word));
+    const action = ["agregar", "agrgar", "agrega", "crear", "nueva", "nuevo", "anadir", "sumar", "archivar", "eliminar", "borrar", "status", "estado", "cantidad", "cuantas", "cuantos", "activa", "activas", "resumen", "reporte", "listar"].some((word) => norm.includes(word));
     return subject && (action || norm === "referencias" || norm === "referencia");
   }
 
   function cxAssistantLooksWorkforceQuery027R(text = "") {
     const norm = cxAssistantNorm027A(text);
-    const subject = norm.includes("workforce") || norm.includes("worforce") || norm.includes("worforece") || norm.includes("workforece") || norm.includes("personal") || norm.includes("empleado") || norm.includes("colaborador");
-    const action = ["agregar", "crear", "nuevo", "nueva", "archivar", "eliminar", "borrar", "status", "estado", "cantidad", "cuantos", "cuantas", "activos", "activo", "resumen", "reporte", "listar"].some((word) => norm.includes(word));
+    const subject = norm.includes("workforce") || norm.includes("work force") || norm.includes("wrforce") || norm.includes("worforce") || norm.includes("worforece") || norm.includes("workforece") || norm.includes("workforse") || norm.includes("personal") || norm.includes("empleado") || norm.includes("colaborador") || norm.includes("persona");
+    const action = ["agregar", "agrgar", "agrega", "crear", "nuevo", "nueva", "anadir", "sumar", "archivar", "eliminar", "borrar", "status", "estado", "cantidad", "cuantos", "cuantas", "activos", "activo", "resumen", "reporte", "listar"].some((word) => norm.includes(word));
     return subject && (action || norm === "workforce" || norm === "personal");
   }
 
   function cxAssistantActionTail027R(text = "") {
     return String(text || "")
-      .replace(/\b(agregar|crear|nueva|nuevo|archivar|eliminar|borrar|quitar|referencias?|reference|references|production_refs|production_references|workforce|worforce|worforece|workforece|personal|empleados?|colaboradores?|persona|personas|estado|status|cantidad|cantidades|cuantos?|cuantas?|reporte|resumen|listar|activas?|activos?|activo)\b/ig, " ")
+      .replace(/\b(me|ayudas?|ayudame|ayudar|puedes?|podrias?|quiero|quisiera|necesito|por|favor|a|al|un|una|el|la|en|de|del|para|agregar|agrgar|agrega|crear|anadir|sumar|nueva|nuevo|archivar|eliminar|borrar|quitar|referencias?|reference|references|production_refs|production_references|workforce|work force|wrforce|worforce|worforece|workforece|workforse|personal|empleados?|colaboradores?|persona|personas|estado|status|cantidad|cantidades|cuantos?|cuantas?|reporte|resumen|listar|activas?|activos?|activo)\b/ig, " ")
       .replace(/[,:;]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -13693,10 +13742,10 @@ function inventoryCreatePayload() {
 
   function cxAssistantReferenceQuestion027R(flow = {}) {
     const data = flow.data || {};
-    if (flow.step === "name") return "Como se llama la referencia?";
-    if (flow.step === "size") return "Que talla, modelo o variante tiene?";
-    if (flow.step === "initial_quantity") return "Cantidad inicial o meta operativa? Escribe 0 u omitir si no aplica.";
-    if (flow.step === "channel") return "Canal de uso: sistema, bot o ambos?";
+    if (flow.step === "name") return "Como se llama la referencia? Puedes escribir cancelar para salir.";
+    if (flow.step === "size") return "Que talla, modelo o variante tiene? Escribe atras para corregir.";
+    if (flow.step === "initial_quantity") return "Cantidad inicial o meta operativa? Escribe 0, omitir o atras.";
+    if (flow.step === "channel") return "Canal de uso: sistema, bot o ambos? Escribe atras para corregir.";
     return `
       <div>Confirma la referencia:</div>
       <div class="cxai-summary-027a">
@@ -13778,7 +13827,7 @@ function inventoryCreatePayload() {
         if (norm.includes("confirmar") || norm.includes("crear") || cxAssistantYes027A(clean)) {
           await cxAssistantCreateReference027R(chat, flow);
         } else {
-          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para crearla o cancelar para salir.");
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para crearla, atras para corregir o cancelar para salir.");
         }
         return;
       default:
@@ -13924,10 +13973,10 @@ function inventoryCreatePayload() {
 
   function cxAssistantWorkforceQuestion027R(flow = {}) {
     const data = flow.data || {};
-    if (flow.step === "full_name") return "Nombre completo del personal?";
-    if (flow.step === "role") return "Rol del personal? Puedes escribir operario, vendedor, supervisor u omitir.";
-    if (flow.step === "phone") return "Telefono? Escribe omitir si no aplica.";
-    if (flow.step === "hourly_rate_regular") return "Valor hora ordinaria? Escribe omitir si no aplica.";
+    if (flow.step === "full_name") return "Nombre completo del personal? Puedes escribir cancelar para salir.";
+    if (flow.step === "role") return "Rol del personal? Puedes escribir operario, vendedor, supervisor, omitir o atras.";
+    if (flow.step === "phone") return "Telefono? Escribe omitir si no aplica, o atras para corregir.";
+    if (flow.step === "hourly_rate_regular") return "Valor hora ordinaria? Escribe omitir si no aplica, o atras para corregir.";
     return `
       <div>Confirma el personal:</div>
       <div class="cxai-summary-027a">
@@ -14008,7 +14057,7 @@ function inventoryCreatePayload() {
         if (norm.includes("confirmar") || norm.includes("crear") || cxAssistantYes027A(clean)) {
           await cxAssistantCreateWorkforce027R(chat, flow);
         } else {
-          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para agregarlo o cancelar para salir.");
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para agregarlo, atras para corregir o cancelar para salir.");
         }
         return;
       default:
