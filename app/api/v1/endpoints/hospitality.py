@@ -1584,6 +1584,28 @@ async def _active_loyalty_campaign(
     return dict(row) if row else None
 
 
+async def _latest_loyalty_campaign(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    campaign_type: str = "consumption",
+) -> dict[str, Any] | None:
+    result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_loyalty_campaigns
+            WHERE company_id = :company_id
+              AND campaign_type = :campaign_type
+            ORDER BY created_at DESC, starts_at DESC
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id), "campaign_type": _clean(campaign_type) or "consumption"},
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
 async def _loyalty_leaderboard(db: AsyncSession, campaign: dict[str, Any]) -> list[dict[str, Any]]:
     result = await db.execute(
         text(
@@ -1861,6 +1883,32 @@ async def _loyalty_response(
     }
 
 
+async def _loyalty_latest_response(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    campaign = await _latest_loyalty_campaign(db, company_id, "consumption")
+    score_campaign = await _latest_loyalty_campaign(db, company_id, "score_pool")
+    vote_campaign = await _latest_loyalty_campaign(db, company_id, "vote_poll")
+
+    campaign_payload = None
+    if campaign:
+        campaign_payload = _campaign_payload(campaign, await _loyalty_leaderboard(db, campaign))
+
+    score_payload = None
+    if score_campaign:
+        score_payload = _score_pool_payload(score_campaign, await _score_pool_predictions(db, score_campaign))
+
+    vote_payload = None
+    if vote_campaign:
+        vote_payload = _vote_poll_payload(vote_campaign, await _vote_poll_votes(db, vote_campaign))
+
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "campaign": campaign_payload,
+        "score_campaign": score_payload,
+        "vote_campaign": vote_payload,
+    }
+
+
 async def _fetch_active_table_access(db: AsyncSession, company_id: uuid.UUID, table: str) -> dict[str, Any] | None:
     result = await db.execute(
         text(
@@ -1940,6 +1988,17 @@ async def get_active_loyalty_campaign(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
     campaign = await _active_loyalty_campaign(db, company_id, "consumption")
     return await _loyalty_response(db, company_id, campaign, table)
+
+
+@router.get("/companies/{company_id}/loyalty-campaigns/summary")
+async def get_loyalty_campaigns_summary(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    return await _loyalty_latest_response(db, company_id)
 
 
 @router.post("/companies/{company_id}/loyalty-campaigns", status_code=status.HTTP_201_CREATED)

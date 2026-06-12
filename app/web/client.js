@@ -12411,6 +12411,15 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsLoyaltyTool028C(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["loyalty", "fidelizacion", "fidelizacion_hospitality", "hospitality_loyalty", "sorteos", "concursos"].includes(token) ||
+      token.includes("fidelizacion") ||
+      token.includes("loyalty")
+    );
+  }
+
   function cxAssistantIsGpsTool027X(module = {}) {
     const tokens = cxAssistantModuleTokens027E(module);
     return tokens.some((token) =>
@@ -12453,10 +12462,11 @@ function inventoryCreatePayload() {
     const hasInventory = modulePool.some(cxAssistantIsInventoryTool027W) || ["inventory", "inventario", "inventario_operativo"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["inventory"]);
     const hasStock = modulePool.some(cxAssistantIsStockTool028A) || ["stock", "stocks", "existencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["stock"]);
     const hasHospitality = modulePool.some(cxAssistantIsHospitalityTool028B) || ["hospitality", "hsp", "hospitality_dashboard", "hospitality_analytics"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["hospitality", "hsp"]);
+    const hasLoyalty = modulePool.some(cxAssistantIsLoyaltyTool028C) || ["loyalty", "fidelizacion", "hospitality_loyalty"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["loyalty", "fidelizacion"]);
     const hasGps = modulePool.some(cxAssistantIsGpsTool027X) || ["gps", "geolocalizacion", "ubicaciones"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["gps"]);
     const hasReports = modulePool.some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["reports"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasStock, hasHospitality, hasGps, hasReports, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasStock, hasHospitality, hasLoyalty, hasGps, hasReports, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12512,6 +12522,7 @@ function inventoryCreatePayload() {
         if (tools.hasInventory && cxAssistantIsInventoryTool027W(module)) return false;
         if (tools.hasStock && cxAssistantIsStockTool028A(module)) return false;
         if (tools.hasHospitality && cxAssistantIsHospitalityTool028B(module)) return false;
+        if (tools.hasLoyalty && cxAssistantIsLoyaltyTool028C(module)) return false;
         if (tools.hasGps && cxAssistantIsGpsTool027X(module)) return false;
         if (tools.hasReports && cxAssistantIsReportsTool027Y(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
@@ -12539,6 +12550,7 @@ function inventoryCreatePayload() {
         ${tools.hasInventory ? `<button class="cxai-chip-027a primary" type="button" data-cxai-inv-summary-027w>Inventario</button>` : ""}
         ${tools.hasStock ? `<button class="cxai-chip-027a primary" type="button" data-cxai-stock-summary-028a>Stock</button>` : ""}
         ${tools.hasHospitality ? `<button class="cxai-chip-027a primary" type="button" data-cxai-hsp-report-028b>Hospitality</button>` : ""}
+        ${tools.hasLoyalty ? `<button class="cxai-chip-027a primary" type="button" data-cxai-loy-result-028c>Fidelizacion</button>` : ""}
         ${tools.hasGps ? `<button class="cxai-chip-027a primary" type="button" data-cxai-gps-summary-027x>GPS</button>` : ""}
         ${tools.hasReports ? `<button class="cxai-chip-027a primary" type="button" data-cxai-reports-start-027y>Reportes</button>` : ""}
         ${moduleButtons}
@@ -12767,6 +12779,11 @@ function inventoryCreatePayload() {
       await cxAssistantReplyHospitality028B(chat, clean);
       return;
     }
+    if (flow.kind !== "loyalty_create" && cxAssistantLooksLoyaltyQuery028C(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyLoyalty028C(chat, clean);
+      return;
+    }
     if (!["inventory_create", "inventory_update"].includes(flow.kind) && cxAssistantLooksInventoryQuery027W(clean)) {
       chat.flow = null;
       await cxAssistantReplyInventory027W(chat, clean);
@@ -12807,6 +12824,10 @@ function inventoryCreatePayload() {
         cxAssistantBackHospitalityFlow028B(chat);
         return;
       }
+      if (flow.kind === "loyalty_create") {
+        cxAssistantBackLoyaltyFlow028C(chat);
+        return;
+      }
       if (flow.kind === "gps_config") {
         cxAssistantBackGpsConfigFlow027X(chat);
         return;
@@ -12838,6 +12859,10 @@ function inventoryCreatePayload() {
     }
     if (flow.kind === "hospitality_pdf") {
       await cxAssistantHandleHospitalityFlow028B(chat, clean);
+      return;
+    }
+    if (flow.kind === "loyalty_create") {
+      await cxAssistantHandleLoyaltyFlow028C(chat, clean);
       return;
     }
     if (flow.kind === "gps_config") {
@@ -16123,6 +16148,448 @@ function inventoryCreatePayload() {
     return true;
   }
 
+  function cxAssistantLoyaltyHasAccess028C() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasLoyalty || cxAssistantModulePool027E().some(cxAssistantIsLoyaltyTool028C) || ["loyalty", "fidelizacion"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksLoyaltyQuery028C(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const subject = norm.includes("fidelizacion") || norm.includes("loyalty") || norm.includes("sorteo") || norm.includes("polla") || norm.includes("concurso") || norm.includes("votacion");
+    const action = ["crear", "lanzar", "publicar", "configurar", "asistir", "asistencia", "resultado", "resultados", "ultimo", "resumen", "estado"].some((word) => norm.includes(word));
+    return subject && (action || norm === "fidelizacion" || norm === "loyalty");
+  }
+
+  function cxAssistantLoyaltyType028C(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (norm.includes("resultado") || norm.includes("resultados") || norm.includes("ultimo") || norm.includes("resumen") || norm.includes("estado")) return "results";
+    if (norm.includes("polla") || norm.includes("marcador") || norm.includes("score")) return "score_pool";
+    if (norm.includes("concurso") || norm.includes("votacion") || norm.includes("voto") || norm.includes("karaoke") || norm.includes("participante")) return "vote_poll";
+    if (norm.includes("sorteo") || norm.includes("reto") || norm.includes("consumo")) return "consumption";
+    return "";
+  }
+
+  function cxAssistantLoyaltyVoteMode028C(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const raw = String(text || "").trim().toLowerCase();
+    if (["registration", "true_false", "yes_no", "participants"].includes(raw)) return raw;
+    if (norm.includes("verdadero") || norm.includes("falso")) return "true_false";
+    if (norm.includes("si") && norm.includes("no")) return "yes_no";
+    if (norm.includes("participante") || norm.includes("opciones") || norm.includes("votar")) return "participants";
+    if (norm.includes("inscripcion") || norm.includes("inscribir") || norm.includes("registro")) return "registration";
+    return "";
+  }
+
+  function cxAssistantLoyaltyTypeLabel028C(type = "") {
+    return {
+      consumption: "Sorteo de consumo",
+      score_pool: "Polla de marcador",
+      vote_poll: "Concurso / votacion",
+    }[type] || "Fidelizacion";
+  }
+
+  function cxAssistantLoyaltyVoteModeLabel028C(mode = "") {
+    return {
+      registration: "Inscripcion simple",
+      true_false: "Verdadero / Falso",
+      yes_no: "Si / No",
+      participants: "Participantes 1-5",
+    }[mode] || "Inscripcion simple";
+  }
+
+  function cxAssistantLoyaltyLocalIso028C(minutes = 0) {
+    const date = new Date(Date.now() + Number(minutes || 0) * 60000);
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+
+  function cxAssistantLoyaltyAddMinutes028C(localValue = "", minutes = 0) {
+    const date = new Date(localValue || Date.now());
+    if (Number.isNaN(date.getTime())) return cxAssistantLoyaltyLocalIso028C(minutes);
+    const next = new Date(date.getTime() + Number(minutes || 0) * 60000);
+    const local = new Date(next.getTime() - next.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+
+  function cxAssistantLoyaltyDate028C(text = "", fallbackMinutes = 60) {
+    const clean = String(text || "").trim();
+    const norm = cxAssistantNorm027A(clean);
+    if (!clean || cxAssistantSkip027A(clean)) return cxAssistantLoyaltyLocalIso028C(fallbackMinutes);
+    const rel = norm.match(/(\d+(?:[.,]\d+)?)\s*(minuto|minutos|min|hora|horas|h)\b/);
+    if (rel) {
+      const n = Number(String(rel[1]).replace(",", ".")) || 0;
+      const unit = rel[2];
+      return cxAssistantLoyaltyLocalIso028C(unit.startsWith("hora") || unit === "h" ? n * 60 : n);
+    }
+    const isoLocal = clean.match(/\b\d{4}-\d{2}-\d{2}[T\s]\d{1,2}:\d{2}\b/);
+    if (isoLocal) return isoLocal[0].replace(" ", "T").slice(0, 16);
+    const slash = clean.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s+(\d{1,2}):(\d{2}))?\b/);
+    if (slash) {
+      const day = slash[1].padStart(2, "0");
+      const month = slash[2].padStart(2, "0");
+      const hour = String(slash[4] || "12").padStart(2, "0");
+      const minute = String(slash[5] || "00").padStart(2, "0");
+      return `${slash[3]}-${month}-${day}T${hour}:${minute}`;
+    }
+    const parsed = new Date(clean);
+    if (!Number.isNaN(parsed.getTime())) {
+      const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0, 16);
+    }
+    return "";
+  }
+
+  function cxAssistantLoyaltyRelativeMinutes028C(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const rel = norm.match(/(\d+(?:[.,]\d+)?)\s*(minuto|minutos|min|hora|horas|h)\b/);
+    if (!rel) return null;
+    const n = Number(String(rel[1]).replace(",", ".")) || 0;
+    return rel[2].startsWith("hora") || rel[2] === "h" ? n * 60 : n;
+  }
+
+  function cxAssistantLoyaltyNextStep028C(data = {}) {
+    if (!data.type) return "type";
+    if (data.type === "consumption") {
+      if (data.title == null) return "title";
+      if (data.prize == null) return "prize";
+      if (data.registration_ends_at == null) return "registration_ends_at";
+      if (data.starts_at == null) return "starts_at";
+      if (data.ends_at == null) return "ends_at";
+      if (data.description == null) return "description";
+      return "confirm";
+    }
+    if (data.type === "score_pool") {
+      if (data.title == null) return "title";
+      if (data.prize == null) return "prize";
+      if (data.team_a == null) return "team_a";
+      if (data.team_b == null) return "team_b";
+      if (data.description == null) return "description";
+      return "confirm";
+    }
+    if (data.type === "vote_poll") {
+      if (data.title == null) return "title";
+      if (data.prize == null) return "prize";
+      if (data.vote_mode == null) return "vote_mode";
+      if (data.registration_ends_at == null) return "registration_ends_at";
+      if (data.vote_mode === "participants" && data.options == null) return "options";
+      if (data.description == null) return "description";
+      return "confirm";
+    }
+    return "type";
+  }
+
+  function cxAssistantLoyaltyQuestion028C(flow = {}) {
+    const data = flow.data || {};
+    if (flow.step === "type") {
+      return `
+        <div>Que pieza de Fidelizacion quieres lanzar?</div>
+        <div class="cxai-summary-027a">Puedo asistirte con sorteo de consumo, polla de marcador o concurso/votacion.</div>
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-loy-type-028c="sorteo">Sorteo</button>
+          <button class="cxai-chip-027a primary" type="button" data-cxai-loy-type-028c="polla">Polla</button>
+          <button class="cxai-chip-027a primary" type="button" data-cxai-loy-type-028c="concurso">Concurso</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-loy-result-028c>Resultado ultimo</button>
+        </div>
+      `;
+    }
+    if (flow.step === "title") return `Titulo para ${cxAssistantLoyaltyTypeLabel028C(data.type)}? Escribe omitir para usar el sugerido.`;
+    if (flow.step === "prize") return "Premio? Ej: botella, consumo, entrada o 1/4 de ron. Puedes escribir omitir.";
+    if (flow.step === "registration_ends_at") {
+      if (data.type === "consumption") return "Cierre de inscripcion? Puedes escribir 20 minutos, 1 hora o una fecha DD/MM/AAAA HH:mm.";
+      return "Cierre del concurso? Puedes escribir 1 hora, 2 horas o una fecha DD/MM/AAAA HH:mm.";
+    }
+    if (flow.step === "starts_at") return "Inicio del torneo? Escribe omitir para iniciar al cerrar inscripcion, o indica fecha/hora.";
+    if (flow.step === "ends_at") return "Cierre del torneo? Ej: 3 horas, 12/06/2026 20:00 u omitir para 3 horas.";
+    if (flow.step === "team_a") return "Equipo 1 para la polla?";
+    if (flow.step === "team_b") return "Equipo 2 para la polla?";
+    if (flow.step === "vote_mode") {
+      return `
+        <div>Que tipo de concurso quieres?</div>
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-loy-vote-mode-028c="registration">Inscripcion</button>
+          <button class="cxai-chip-027a primary" type="button" data-cxai-loy-vote-mode-028c="yes_no">Si / No</button>
+          <button class="cxai-chip-027a primary" type="button" data-cxai-loy-vote-mode-028c="true_false">V/F</button>
+          <button class="cxai-chip-027a primary" type="button" data-cxai-loy-vote-mode-028c="participants">Participantes</button>
+        </div>
+      `;
+    }
+    if (flow.step === "options") return "Escribe los participantes u opciones, separados por coma o por linea. Maximo 5.";
+    if (flow.step === "description") return "Texto de publicacion para mostrar en el QR? Escribe omitir para usar uno sugerido.";
+    return `
+      <div>Confirma ${h(cxAssistantLoyaltyTypeLabel028C(data.type))}:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Titulo:</strong> ${h(data.title || "")}</div>
+        <div><strong>Premio:</strong> ${h(data.prize || "Sin premio definido")}</div>
+        ${data.type === "score_pool" ? `<div><strong>Equipos:</strong> ${h(data.team_a || "")} vs ${h(data.team_b || "")}</div>` : ""}
+        ${data.type === "vote_poll" ? `<div><strong>Tipo:</strong> ${h(cxAssistantLoyaltyVoteModeLabel028C(data.vote_mode))}</div>` : ""}
+        ${data.registration_ends_at ? `<div><strong>Cierre:</strong> ${h(data.registration_ends_at)}</div>` : ""}
+        ${data.starts_at ? `<div><strong>Inicio:</strong> ${h(data.starts_at)}</div>` : ""}
+        ${data.ends_at ? `<div><strong>Fin:</strong> ${h(data.ends_at)}</div>` : ""}
+        ${Array.isArray(data.options) && data.options.length ? `<div><strong>Opciones:</strong> ${h(data.options.join(", "))}</div>` : ""}
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Publicar</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantBackLoyaltyFlow028C(chat) {
+    cxAssistantBackFlow027R(chat, ["type", "title", "prize", "registration_ends_at", "starts_at", "ends_at", "team_a", "team_b", "vote_mode", "options", "description", "confirm"], cxAssistantLoyaltyQuestion028C);
+  }
+
+  function cxAssistantStartLoyaltyCreate028C(chat, text = "") {
+    const detectedType = cxAssistantLoyaltyType028C(text);
+    const type = detectedType === "results" ? "" : detectedType;
+    const data = { type };
+    chat.flow = { kind: "loyalty_create", step: cxAssistantLoyaltyNextStep028C(data), data };
+    cxAssistantPush027A(chat, "assistant", cxAssistantLoyaltyQuestion028C(chat.flow), true);
+  }
+
+  function cxAssistantLoyaltyDefaultText028C(data = {}) {
+    if (data.type === "score_pool") return "Adivina el marcador y participa por el premio.";
+    if (data.type === "vote_poll") return "Participa desde tu mesa escaneando el QR activado.";
+    return "Te animas a participar? La mesa con mas consumo registrado dentro del tiempo gana el premio.";
+  }
+
+  function cxAssistantLoyaltyStatus028C(campaign = {}) {
+    if (!campaign) return "";
+    if (campaign.tournament_phase === "closed") return "finalizado";
+    if (campaign.tournament_phase === "scheduled") return "programado";
+    return campaign.registration_open ? "inscripcion abierta" : "en curso";
+  }
+
+  function cxAssistantLoyaltyResultBlock028C(title = "", campaign = null, type = "campaign") {
+    if (!campaign) return `<div><strong>${h(title)}:</strong> sin registros todavia.</div>`;
+    if (type === "score") {
+      const rows = Array.isArray(campaign.predictions) ? campaign.predictions : [];
+      return `
+        <div><strong>${h(title)}:</strong> ${h(campaign.title || "Polla")} · ${h(rows.length)} marcador(es)</div>
+        ${rows.slice(0, 5).map((row) => `<div>${h(row.team_name || row.table_number || "Mesa")} · ${h(row.score_a)}-${h(row.score_b)}</div>`).join("") || "<div>Sin marcadores enviados.</div>"}
+      `;
+    }
+    if (type === "vote") {
+      const rows = (Array.isArray(campaign.results) ? campaign.results : []).slice().sort((a, b) => Number(b.count || 0) - Number(a.count || 0));
+      const leader = rows[0];
+      return `
+        <div><strong>${h(title)}:</strong> ${h(campaign.title || "Concurso")} · ${h(campaign.votes_count || 0)} respuesta(s)</div>
+        <div>Ganando: ${h(leader?.label || "-")} ${leader ? `(${h(leader.count || 0)} / ${h(leader.percent || 0)}%)` : ""}</div>
+        ${rows.slice(0, 5).map((row) => `<div>${h(row.label)} · ${h(row.count || 0)} voto(s) · ${h(row.percent || 0)}%</div>`).join("")}
+      `;
+    }
+    const rows = Array.isArray(campaign.leaderboard) ? campaign.leaderboard : [];
+    const top = campaign.winner || rows[0] || null;
+    return `
+      <div><strong>${h(title)}:</strong> ${h(campaign.title || "Sorteo")} · ${h(cxAssistantLoyaltyStatus028C(campaign))}</div>
+      <div>Lider/ganador: ${h(top?.team_name || top?.table_number || "-")} · ${h(cxHspMoney024R(top?.total || 0))}</div>
+      ${rows.slice(0, 5).map((row) => `<div>#${h(row.rank)} ${h(row.team_name || row.table_number)} · ${h(cxHspMoney024R(row.total || 0))} · ${h(row.orders_count || 0)} pedido(s)</div>`).join("") || "<div>Sin mesas inscritas.</div>"}
+    `;
+  }
+
+  function cxAssistantLoyaltySummaryHtml028C(summary = {}) {
+    return `
+      <div>Resultado de Fidelizacion:</div>
+      <div class="cxai-summary-027a">
+        ${cxAssistantLoyaltyResultBlock028C("Ultimo sorteo", summary.campaign, "campaign")}
+      </div>
+      <div class="cxai-summary-027a">
+        ${cxAssistantLoyaltyResultBlock028C("Ultima polla", summary.score_campaign, "score")}
+      </div>
+      <div class="cxai-summary-027a">
+        ${cxAssistantLoyaltyResultBlock028C("Ultimo concurso", summary.vote_campaign, "vote")}
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-loy-start-028c>Crear pieza</button>
+        <button class="cxai-chip-027a" type="button" data-client-module="loyalty">Abrir Fidelizacion</button>
+      </div>
+    `;
+  }
+
+  async function cxAssistantPushLoyaltySummary028C(chat, options = {}) {
+    if (options.intro !== false) {
+      cxAssistantPush027A(chat, "assistant", "Consultando Fidelizacion...");
+      cxAssistantRenderMessages027A();
+    }
+    const summary = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/summary`);
+    cxAssistantPush027A(chat, "assistant", cxAssistantLoyaltySummaryHtml028C(summary), true);
+  }
+
+  function cxAssistantRefreshLoyaltyView028C() {
+    if (!document.getElementById("hspLoyaltyRoot024Z")) return;
+    renderHospitalityLoyaltyModule024Z().catch(() => {});
+  }
+
+  async function cxAssistantSaveLoyalty028C(chat, flow = {}) {
+    const data = flow.data || {};
+    let path = "/loyalty-campaigns";
+    let body = {};
+    if (data.type === "consumption") {
+      path = "/loyalty-campaigns";
+      body = {
+        title: data.title || "Reto de consumo",
+        prize: data.prize || "",
+        description: data.description || cxAssistantLoyaltyDefaultText028C(data),
+        registration_ends_at: new Date(data.registration_ends_at).toISOString(),
+        starts_at: new Date(data.starts_at || data.registration_ends_at).toISOString(),
+        ends_at: new Date(data.ends_at).toISOString(),
+      };
+    } else if (data.type === "score_pool") {
+      path = "/loyalty-score-pools";
+      body = {
+        title: data.title || "Polla de marcador",
+        prize: data.prize || "",
+        description: data.description || cxAssistantLoyaltyDefaultText028C(data),
+        team_a: data.team_a || "",
+        team_b: data.team_b || "",
+      };
+    } else if (data.type === "vote_poll") {
+      path = "/loyalty-vote-polls";
+      body = {
+        title: data.title || "Concurso",
+        prize: data.prize || "",
+        description: data.description || cxAssistantLoyaltyDefaultText028C(data),
+        vote_mode: data.vote_mode || "registration",
+        options: Array.isArray(data.options) ? data.options : [],
+        registration_ends_at: new Date(data.registration_ends_at).toISOString(),
+      };
+    }
+    try {
+      await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `${cxAssistantLoyaltyTypeLabel028C(data.type)} publicado en las mesas QR.`);
+      cxAssistantRefreshLoyaltyView028C();
+      await cxAssistantPushLoyaltySummary028C(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude publicar la pieza de Fidelizacion.");
+    }
+  }
+
+  async function cxAssistantHandleLoyaltyFlow028C(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "type": {
+        const type = cxAssistantLoyaltyType028C(clean);
+        if (type === "results") {
+          chat.flow = null;
+          await cxAssistantPushLoyaltySummary028C(chat);
+          return;
+        }
+        if (!["consumption", "score_pool", "vote_poll"].includes(type)) {
+          cxAssistantPush027A(chat, "assistant", "Elige sorteo, polla o concurso.");
+          return;
+        }
+        data.type = type;
+        break;
+      }
+      case "title":
+        data.title = cxAssistantSkip027A(clean)
+          ? (data.type === "score_pool" ? "Polla de marcador" : data.type === "vote_poll" ? "Concurso" : "Reto de consumo")
+          : clean;
+        break;
+      case "prize":
+        data.prize = cxAssistantSkip027A(clean) ? "" : clean;
+        break;
+      case "registration_ends_at": {
+        const value = cxAssistantLoyaltyDate028C(clean, data.type === "consumption" ? 20 : 60);
+        if (!value) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una fecha/hora valida. Ejemplo: 1 hora o 12/06/2026 20:00.");
+          return;
+        }
+        data.registration_ends_at = value;
+        break;
+      }
+      case "starts_at": {
+        const value = cxAssistantSkip027A(clean) ? data.registration_ends_at : cxAssistantLoyaltyDate028C(clean, 20);
+        if (!value) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una fecha/hora valida para iniciar.");
+          return;
+        }
+        data.starts_at = value;
+        break;
+      }
+      case "ends_at": {
+        const relMinutes = cxAssistantLoyaltyRelativeMinutes028C(clean);
+        const value = cxAssistantSkip027A(clean)
+          ? cxAssistantLoyaltyAddMinutes028C(data.starts_at || data.registration_ends_at, 180)
+          : (relMinutes != null ? cxAssistantLoyaltyAddMinutes028C(data.starts_at || data.registration_ends_at, relMinutes) : cxAssistantLoyaltyDate028C(clean, 180));
+        if (!value) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una fecha/hora valida para cerrar.");
+          return;
+        }
+        data.ends_at = value;
+        break;
+      }
+      case "team_a":
+        if (!clean || cxAssistantSkip027A(clean)) {
+          cxAssistantPush027A(chat, "assistant", "Necesito el equipo 1.");
+          return;
+        }
+        data.team_a = clean;
+        break;
+      case "team_b":
+        if (!clean || cxAssistantSkip027A(clean)) {
+          cxAssistantPush027A(chat, "assistant", "Necesito el equipo 2.");
+          return;
+        }
+        data.team_b = clean;
+        break;
+      case "vote_mode": {
+        const mode = cxAssistantLoyaltyVoteMode028C(clean);
+        if (!mode) {
+          cxAssistantPush027A(chat, "assistant", "Elige inscripcion, si/no, verdadero/falso o participantes.");
+          return;
+        }
+        data.vote_mode = mode;
+        break;
+      }
+      case "options": {
+        const options = clean.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean).slice(0, 5);
+        if (!options.length) {
+          cxAssistantPush027A(chat, "assistant", "Necesito al menos una opcion o participante.");
+          return;
+        }
+        data.options = options;
+        break;
+      }
+      case "description":
+        data.description = cxAssistantSkip027A(clean) ? cxAssistantLoyaltyDefaultText028C(data) : clean;
+        break;
+      case "confirm":
+        if (norm.includes("confirmar") || norm.includes("publicar") || norm.includes("guardar") || cxAssistantYes027A(clean)) {
+          await cxAssistantSaveLoyalty028C(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe publicar para guardar, atras para corregir o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime crear sorteo para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    flow.step = cxAssistantLoyaltyNextStep028C(data);
+    cxAssistantPush027A(chat, "assistant", cxAssistantLoyaltyQuestion028C(flow), true);
+  }
+
+  async function cxAssistantReplyLoyalty028C(chat, text = "") {
+    if (!cxAssistantLoyaltyHasAccess028C()) {
+      cxAssistantPush027A(chat, "assistant", "Fidelizacion no esta activo para esta empresa.");
+      return false;
+    }
+    const type = cxAssistantLoyaltyType028C(text);
+    if (type === "results" || (!type && cxAssistantNorm027A(text).includes("resultado"))) {
+      await cxAssistantPushLoyaltySummary028C(chat);
+      return true;
+    }
+    cxAssistantStartLoyaltyCreate028C(chat, text);
+    return true;
+  }
+
   function cxAssistantReportsHasAccess027Y() {
     const tools = cxAssistantReadActiveTools027A();
     return tools.hasReports || cxAssistantModulePool027E().some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some(isClientModuleActive);
@@ -16393,6 +16860,10 @@ function inventoryCreatePayload() {
       await cxAssistantReplyHospitality028B(chat, "reporte hospitality");
       return;
     }
+    if (cxAssistantIsLoyaltyTool028C({ code, title }) || token.includes("fidelizacion") || token.includes("loyalty")) {
+      await cxAssistantReplyLoyalty028C(chat, "resultado fidelizacion");
+      return;
+    }
     if (cxAssistantIsInventoryTool027W({ code, title }) || token.includes("inventario")) {
       await cxAssistantReplyInventory027W(chat, "estado inventario");
       return;
@@ -16433,6 +16904,8 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "quote");
     } else if (cxAssistantLooksHospitalityQuery028B(clean)) {
       await cxAssistantReplyHospitality028B(chat, clean);
+    } else if (cxAssistantLooksLoyaltyQuery028C(clean)) {
+      await cxAssistantReplyLoyalty028C(chat, clean);
     } else if (cxAssistantLooksReportsQuery027Y(clean)) {
       await cxAssistantReplyReports027Y(chat, clean);
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
@@ -16463,7 +16936,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, Stock, Hospitality, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, Stock, Hospitality, Fidelizacion, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -16582,6 +17055,24 @@ function inventoryCreatePayload() {
         const hspPeriod = target.closest("[data-cxai-hsp-period-028b]");
         if (hspPeriod) {
           await cxAssistantProcessText027A(hspPeriod.getAttribute("data-cxai-hsp-period-028b") || "mensual", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-loy-result-028c]")) {
+          await cxAssistantProcessText027A("resultado fidelizacion", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-loy-start-028c]")) {
+          await cxAssistantProcessText027A("crear fidelizacion", chat.activeCode);
+          return;
+        }
+        const loyaltyType = target.closest("[data-cxai-loy-type-028c]");
+        if (loyaltyType) {
+          await cxAssistantProcessText027A(loyaltyType.getAttribute("data-cxai-loy-type-028c") || "sorteo", chat.activeCode);
+          return;
+        }
+        const loyaltyVoteMode = target.closest("[data-cxai-loy-vote-mode-028c]");
+        if (loyaltyVoteMode) {
+          await cxAssistantProcessText027A(loyaltyVoteMode.getAttribute("data-cxai-loy-vote-mode-028c") || "inscripcion", chat.activeCode);
           return;
         }
         const stockAction = target.closest("[data-cxai-stock-action-028a]");
