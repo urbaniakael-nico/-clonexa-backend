@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import csv
 import io
+import os
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -723,6 +725,68 @@ def build_cards(summary: dict[str, Any], details: dict[str, Any]) -> list[dict[s
     ]
 
 
+async def company_report_identity(db: AsyncSession, company_id: UUID) -> dict[str, Any]:
+    fallback = {
+        "name": "CLONEXA",
+        "slug": "",
+        "logo_url": "",
+        "primary_color": "#7c3cff",
+        "secondary_color": "#ff2bd6",
+        "background_color": "#111827",
+        "card_color": "#1f2937",
+        "text_color": "#f8fafc",
+        "success_color": "#22c55e",
+    }
+    if not await table_exists(db, "companies"):
+        return fallback
+
+    has_branding = await table_exists(db, "company_branding")
+    if has_branding:
+        result = await db.execute(
+            text("""
+                SELECT
+                    c.name,
+                    c.slug,
+                    c.settings_json,
+                    b.logo_url,
+                    b.primary_color,
+                    b.secondary_color,
+                    b.background_color,
+                    b.card_color,
+                    b.text_color,
+                    b.success_color
+                FROM companies c
+                LEFT JOIN company_branding b ON b.company_id = c.id
+                WHERE c.id = CAST(:company_id AS uuid)
+                LIMIT 1
+            """),
+            {"company_id": str(company_id)},
+        )
+    else:
+        result = await db.execute(
+            text("""
+                SELECT name, slug, settings_json
+                FROM companies
+                WHERE id = CAST(:company_id AS uuid)
+                LIMIT 1
+            """),
+            {"company_id": str(company_id)},
+        )
+
+    row = row_dict(result.mappings().first())
+    if not row:
+        return fallback
+
+    settings = row.get("settings_json") if isinstance(row.get("settings_json"), dict) else {}
+    branding = settings.get("branding") if isinstance(settings.get("branding"), dict) else {}
+    identity = dict(fallback)
+    identity.update({k: v for k, v in row.items() if v not in (None, "") and k != "settings_json"})
+    for key in ["logo_url", "primary_color", "secondary_color", "background_color", "card_color", "text_color", "success_color"]:
+        if not identity.get(key) and branding.get(key):
+            identity[key] = branding.get(key)
+    return identity
+
+
 async def build_report_payload(
     db: AsyncSession,
     company_id: UUID,
@@ -752,6 +816,12 @@ async def build_report_payload(
             "alerts": [],
             "cards": [],
         }
+
+    try:
+        company = await company_report_identity(db, company_id)
+    except Exception:
+        await safe_rollback(db)
+        company = {"name": "CLONEXA", "logo_url": ""}
 
     details: dict[str, list[dict[str, Any]]] = {
         "employees": [],
@@ -809,6 +879,7 @@ async def build_report_payload(
 
     payload = {
         "company_id": str(company_id),
+        "company": company,
         "mode": "employee" if employee_id else "general",
         "filters": {
             "preset": period_code,
@@ -1038,120 +1109,346 @@ def report_pdf_value(value: Any) -> str:
     return str(value)
 
 
+def report_pdf_logo_reader(source: str | None):
+    raw = str(source or "").strip()
+    if not raw:
+        return None
+    try:
+        from reportlab.lib.utils import ImageReader
+    except Exception:
+        return None
+    try:
+        if raw.startswith("data:image/"):
+            encoded = raw.split(",", 1)[1]
+            return ImageReader(io.BytesIO(base64.b64decode(encoded)))
+        if len(raw) > 300 and not raw.startswith(("http://", "https://", "/")):
+            try:
+                return ImageReader(io.BytesIO(base64.b64decode(raw)))
+            except Exception:
+                pass
+        if raw.startswith("/"):
+            base_url = str(os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_PUBLIC_URL") or "").strip().rstrip("/")
+            if base_url:
+                raw = base_url + raw
+        if raw.startswith(("http://", "https://")):
+            import urllib.request
+
+            with urllib.request.urlopen(raw, timeout=8) as response:
+                return ImageReader(io.BytesIO(response.read()))
+        if os.path.exists(raw):
+            return ImageReader(raw)
+    except Exception:
+        return None
+    return None
+
+
 def build_report_pdf_bytes(payload: dict[str, Any], detail: str | None) -> bytes:
     try:
-        from reportlab.lib.pagesizes import letter
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import landscape, letter
         from reportlab.pdfbase.pdfmetrics import stringWidth
         from reportlab.pdfgen import canvas
     except Exception as exc:  # pragma: no cover
         raise RuntimeError(f"Motor PDF no disponible. Falta reportlab: {exc}") from exc
 
     buffer = io.BytesIO()
-    page_w, page_h = letter
-    c = canvas.Canvas(buffer, pagesize=letter)
-    margin = 42
+    page_w, page_h = landscape(letter)
+    c = canvas.Canvas(buffer, pagesize=(page_w, page_h))
+    margin = 30
+    page_no = 0
     y = page_h - margin
 
+    company = payload.get("company") if isinstance(payload.get("company"), dict) else {}
+    filters = payload.get("filters") or {}
+    company_name = str(company.get("name") or "CLONEXA")
+    logo = report_pdf_logo_reader(company.get("logo_url"))
+
+    def pdf_color(value: Any, fallback: str):
+        try:
+            return colors.HexColor(str(value or fallback))
+        except Exception:
+            return colors.HexColor(fallback)
+
+    primary = pdf_color(company.get("primary_color"), "#7c3cff")
+    secondary = pdf_color(company.get("secondary_color"), "#ff2bd6")
+    success = pdf_color(company.get("success_color"), "#22c55e")
+    dark = colors.HexColor("#111827")
+    muted = colors.HexColor("#64748b")
+    border = colors.HexColor("#d8dee9")
+    soft = colors.HexColor("#f5f7fb")
+    soft_alt = colors.HexColor("#edf2f7")
+
+    def clean_text(value: Any) -> str:
+        text_value = report_pdf_value(value).replace("\n", " ").replace("\r", " ").strip()
+        return " ".join(text_value.split())
+
+    def fit_text(text_value: Any, width: float, font: str = "Helvetica", size: float = 7) -> str:
+        text_clean = clean_text(text_value)
+        if stringWidth(text_clean, font, size) <= width:
+            return text_clean
+        suffix = "..."
+        out = text_clean
+        while out and stringWidth(out + suffix, font, size) > width:
+            out = out[:-1]
+        return (out + suffix) if out else suffix
+
+    def metric_value(card: dict[str, Any]) -> str:
+        value = card.get("value")
+        if card.get("format") == "money" or "nomina" in normalize(card.get("label")):
+            try:
+                return "$ " + f"{int(round(num(value))):,}".replace(",", ".")
+            except Exception:
+                return report_pdf_value(value)
+        return report_pdf_value(value)
+
+    def draw_footer() -> None:
+        c.setFillColor(muted)
+        c.setFont("Helvetica", 7)
+        c.drawString(margin, 18, "CLONEXA / Reporte operativo generado automaticamente")
+        c.drawRightString(page_w - margin, 18, f"Pagina {page_no}")
+
+    def draw_header() -> None:
+        nonlocal y, page_no
+        page_no += 1
+        c.setFillColor(colors.white)
+        c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        c.setFillColor(dark)
+        c.rect(0, page_h - 86, page_w, 86, stroke=0, fill=1)
+        c.setFillColor(primary)
+        c.rect(0, page_h - 90, page_w * 0.58, 4, stroke=0, fill=1)
+        c.setFillColor(secondary)
+        c.rect(page_w * 0.58, page_h - 90, page_w * 0.42, 4, stroke=0, fill=1)
+
+        if logo is not None:
+            try:
+                c.drawImage(logo, margin, page_h - 70, width=54, height=42, preserveAspectRatio=True, mask="auto")
+            except Exception:
+                logo_box()
+        else:
+            logo_box()
+
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(margin + 68, page_h - 42, fit_text(company_name, 300, "Helvetica-Bold", 18))
+        c.setFont("Helvetica", 8)
+        c.drawString(margin + 68, page_h - 58, "Dashboard operativo exportado en PDF")
+
+        c.setFont("Helvetica-Bold", 18)
+        c.drawRightString(page_w - margin, page_h - 40, "REPORTE")
+        c.setFont("Helvetica", 8)
+        c.drawRightString(page_w - margin, page_h - 57, f"Rango: {clean_text(filters.get('start'))[:10]} / {clean_text(filters.get('end'))[:10]}")
+        c.drawRightString(page_w - margin, page_h - 70, f"Generado: {clean_text(payload.get('generated_at'))[:19]}")
+        draw_footer()
+        y = page_h - 116
+
+    def logo_box() -> None:
+        c.setFillColor(primary)
+        c.roundRect(margin, page_h - 72, 48, 48, 9, stroke=0, fill=1)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 14)
+        c.drawCentredString(margin + 24, page_h - 52, "CLX")
+
     def new_page() -> None:
-        nonlocal y
         c.showPage()
-        y = page_h - margin
+        draw_header()
 
     def ensure(space: float = 24) -> None:
-        if y - space < margin:
+        if y - space < 40:
             new_page()
 
-    def wrap(text_value: Any, width: float, font: str = "Helvetica", size: int = 8) -> list[str]:
-        text_raw = report_pdf_value(text_value).replace("\n", " ")
-        words = text_raw.split()
-        if not words:
-            return [""]
-        lines: list[str] = []
-        current = ""
-        for word in words:
-            candidate = f"{current} {word}".strip()
-            if stringWidth(candidate, font, size) <= width or not current:
-                current = candidate
-            else:
-                lines.append(current)
-                current = word
-        if current:
-            lines.append(current)
-        return lines
-
-    def line(text_value: Any = "", *, font: str = "Helvetica", size: int = 8, leading: int = 11, indent: int = 0) -> None:
+    def section_title(title_value: str, subtitle: str = "") -> None:
         nonlocal y
-        max_w = page_w - (margin * 2) - indent
-        for part in wrap(text_value, max_w, font, size):
-            ensure(leading)
-            c.setFont(font, size)
-            c.drawString(margin + indent, y, part[:260])
-            y -= leading
-
-    def title(text_value: str) -> None:
-        nonlocal y
-        ensure(32)
+        ensure(34)
+        c.setFillColor(primary)
+        c.roundRect(margin, y - 20, 5, 20, 2, stroke=0, fill=1)
+        c.setFillColor(dark)
         c.setFont("Helvetica-Bold", 13)
-        c.drawString(margin, y, text_value[:90])
-        y -= 18
+        c.drawString(margin + 12, y - 2, title_value[:92])
+        if subtitle:
+            c.setFillColor(muted)
+            c.setFont("Helvetica", 7)
+            c.drawRightString(page_w - margin, y - 2, fit_text(subtitle, 260, "Helvetica", 7))
+        y -= 30
 
-    def bar(label: str, value: Any, maximum: float) -> None:
+    def draw_kpi_cards(cards: list[dict[str, Any]]) -> None:
         nonlocal y
-        ensure(16)
-        safe_value = num(value)
-        pct = 0 if maximum <= 0 else max(0.02, min(1, safe_value / maximum))
-        c.setFont("Helvetica", 8)
-        c.drawString(margin + 8, y, f"{label[:28]}: {report_pdf_value(value)}")
-        c.rect(margin + 170, y - 1, 220, 7, stroke=1, fill=0)
-        c.rect(margin + 170, y - 1, 220 * pct, 7, stroke=0, fill=1)
-        y -= 13
+        section_title("Resumen ejecutivo", "Indicadores principales del periodo")
+        columns = 5
+        gap = 10
+        card_w = (page_w - margin * 2 - gap * (columns - 1)) / columns
+        card_h = 58
+        for index, card in enumerate(cards[:10]):
+            col = index % columns
+            if col == 0 and index:
+                y -= card_h + 10
+                ensure(card_h + 14)
+            x = margin + col * (card_w + gap)
+            yy = y - card_h
+            accent = [primary, secondary, success, colors.HexColor("#38bdf8"), colors.HexColor("#f59e0b")][index % 5]
+            c.setFillColor(soft)
+            c.roundRect(x, yy, card_w, card_h, 9, stroke=0, fill=1)
+            c.setStrokeColor(border)
+            c.roundRect(x, yy, card_w, card_h, 9, stroke=1, fill=0)
+            c.setFillColor(accent)
+            c.roundRect(x, yy, 7, card_h, 4, stroke=0, fill=1)
+            c.setFillColor(muted)
+            c.setFont("Helvetica-Bold", 6.5)
+            c.drawString(x + 15, yy + card_h - 16, fit_text(card.get("label"), card_w - 24, "Helvetica-Bold", 6.5).upper())
+            c.setFillColor(dark)
+            c.setFont("Helvetica-Bold", 17)
+            c.drawString(x + 15, yy + 20, fit_text(metric_value(card), card_w - 24, "Helvetica-Bold", 17))
+            c.setFillColor(muted)
+            c.setFont("Helvetica", 6.5)
+            c.drawString(x + 15, yy + 8, fit_text(card.get("module") or "", card_w - 24, "Helvetica", 6.5))
+        y -= card_h + 22
 
-    filters = payload.get("filters") or {}
-    c.setTitle("CLONEXA - Reporte Operativo")
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(margin, y, "CLONEXA - Reporte Operativo")
-    y -= 22
-    line(f"Empresa: {payload.get('company_id')} | Modo: {payload.get('mode')} | Generado: {payload.get('generated_at')}", size=8)
-    line(f"Rango: {filters.get('start')} / {filters.get('end')} | Detalle: {detail or 'all'}", size=8)
-    y -= 8
+    def chart_label_and_value(chart_key: str, item: dict[str, Any]) -> tuple[str, float, str]:
+        if chart_key == "activity_by_day":
+            value = num(item.get("turnos")) + num(item.get("gps")) + num(item.get("materiales"))
+            detail_text = f"T {report_pdf_value(item.get('turnos'))} / GPS {report_pdf_value(item.get('gps'))} / Mat {report_pdf_value(item.get('materiales'))}"
+            return str(item.get("date") or "Dia"), value, detail_text
+        label = str(item.get("label") or item.get("date") or "Dato")
+        value = num(item.get("value"))
+        return label, value, report_pdf_value(value)
 
-    title("Resumen ejecutivo")
-    for card in payload.get("cards") or []:
-        line(f"{card.get('label')}: {report_pdf_value(card.get('value'))} ({card.get('module')})", size=9, indent=8)
+    def draw_chart_card(chart_key: str, items: list[dict[str, Any]], x: float, yy: float, w: float, h: float) -> None:
+        title_map = {
+            "activity_by_day": "Actividad por dia",
+            "materials_by_status": "Materiales por estado",
+            "gps_distribution": "GPS",
+            "inventory_status": "Inventario critico",
+            "payroll_breakdown": "Nomina",
+            "inventory_movements": "Movimientos inventario",
+        }
+        c.setFillColor(soft)
+        c.roundRect(x, yy, w, h, 9, stroke=0, fill=1)
+        c.setStrokeColor(border)
+        c.roundRect(x, yy, w, h, 9, stroke=1, fill=0)
+        c.setFillColor(dark)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(x + 12, yy + h - 18, title_map.get(chart_key, chart_key.replace("_", " ").title()))
+        rows_ = [row for row in items if isinstance(row, dict)][:9]
+        values = [chart_label_and_value(chart_key, row)[1] for row in rows_]
+        maximum = max(values + [1])
+        row_y = yy + h - 36
+        for index, row in enumerate(rows_):
+            label, value, detail_text = chart_label_and_value(chart_key, row)
+            pct = 0 if maximum <= 0 else max(0.02, min(1, value / maximum))
+            bar_x = x + 120
+            bar_w = w - 178
+            c.setFillColor(muted)
+            c.setFont("Helvetica", 6.5)
+            c.drawString(x + 12, row_y, fit_text(label, 96, "Helvetica", 6.5))
+            c.setFillColor(colors.HexColor("#e5e7eb"))
+            c.roundRect(bar_x, row_y - 2, bar_w, 7, 3, stroke=0, fill=1)
+            c.setFillColor([success, primary, secondary, colors.HexColor("#38bdf8")][index % 4])
+            c.roundRect(bar_x, row_y - 2, bar_w * pct, 7, 3, stroke=0, fill=1)
+            c.setFillColor(dark)
+            c.setFont("Helvetica-Bold", 6.5)
+            c.drawRightString(x + w - 12, row_y, fit_text(detail_text, 46, "Helvetica-Bold", 6.5))
+            row_y -= 12
 
-    charts = payload.get("charts") or {}
-    if charts:
-        title("Graficas del periodo")
+    def draw_charts(charts: dict[str, Any]) -> None:
+        nonlocal y
+        if not charts:
+            return
+        section_title("Graficas", "Resumen visual de actividad")
+        gap = 14
+        card_w = (page_w - margin * 2 - gap) / 2
+        card_h = 148
+        col = 0
         for chart_key, items in charts.items():
             rows_ = items if isinstance(items, list) else []
             if not rows_:
                 continue
-            line(chart_key.replace("_", " ").title(), font="Helvetica-Bold", size=9)
-            maximum = max([num(item.get("value") or item.get("turnos") or item.get("gps") or item.get("materiales")) for item in rows_] + [1])
-            for item in rows_[:18]:
-                label = item.get("label") or item.get("date") or "Dato"
-                value = item.get("value")
-                if value is None:
-                    value = num(item.get("turnos")) + num(item.get("gps")) + num(item.get("materiales"))
-                bar(str(label), value, maximum)
-            y -= 4
+            if col == 0:
+                ensure(card_h + 12)
+            x = margin + col * (card_w + gap)
+            draw_chart_card(chart_key, rows_, x, y - card_h, card_w, card_h)
+            if col == 1:
+                y -= card_h + 14
+            col = 1 - col
+        if col == 1:
+            y -= card_h + 14
 
+    def draw_table_header(columns: list[tuple[str, str]], widths: list[float], table_y: float, font_size: float) -> None:
+        x = margin
+        c.setFillColor(dark)
+        c.roundRect(margin, table_y - 19, page_w - margin * 2, 19, 4, stroke=0, fill=1)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", font_size)
+        for index, ((_, label), col_w) in enumerate(zip(columns, widths)):
+            c.drawString(x + 4, table_y - 12, fit_text(label, col_w - 8, "Helvetica-Bold", font_size))
+            if index:
+                c.setStrokeColor(colors.HexColor("#334155"))
+                c.line(x, table_y - 19, x, table_y)
+                c.setFillColor(colors.white)
+            x += col_w
+
+    def table_widths(columns: list[tuple[str, str]]) -> list[float]:
+        weights = []
+        for field, _ in columns:
+            if any(token in field for token in ["name", "material", "reference", "detail", "notes", "destination"]):
+                weights.append(1.65)
+            elif any(token in field for token in ["created", "updated", "occurred", "requested", "approved", "delivered", "returned"]):
+                weights.append(1.25)
+            else:
+                weights.append(1.0)
+        total = sum(weights) or 1
+        available = page_w - margin * 2
+        return [available * weight / total for weight in weights]
+
+    def draw_table_section(key: str, cfg: dict[str, Any], rows_: list[dict[str, Any]]) -> None:
+        nonlocal y
+        section_title(f"{cfg['title']} ({len(rows_)})")
+        columns = cfg["columns"]
+        widths = table_widths(columns)
+        font_size = 5.8 if len(columns) > 8 else 6.5
+        row_h = 18
+        ensure(42)
+        draw_table_header(columns, widths, y, font_size)
+        y -= 19
+        if not rows_:
+            c.setFillColor(soft)
+            c.rect(margin, y - row_h, page_w - margin * 2, row_h, stroke=0, fill=1)
+            c.setFillColor(muted)
+            c.setFont("Helvetica", 7)
+            c.drawString(margin + 8, y - 12, "Sin datos para este filtro.")
+            y -= row_h + 12
+            return
+        for index, row in enumerate(rows_, start=1):
+            if y - row_h < 42:
+                new_page()
+                section_title(f"{cfg['title']} (continuacion)")
+                draw_table_header(columns, widths, y, font_size)
+                y -= 19
+            bg = soft if index % 2 else soft_alt
+            c.setFillColor(bg)
+            c.rect(margin, y - row_h, page_w - margin * 2, row_h, stroke=0, fill=1)
+            c.setStrokeColor(border)
+            c.line(margin, y - row_h, page_w - margin, y - row_h)
+            x = margin
+            c.setFillColor(dark)
+            c.setFont("Helvetica", font_size)
+            for col_index, (field, _label) in enumerate(columns):
+                c.drawString(x + 4, y - 12, fit_text(row.get(field), widths[col_index] - 8, "Helvetica", font_size))
+                c.setStrokeColor(colors.HexColor("#e2e8f0"))
+                c.line(x, y - row_h, x, y)
+                x += widths[col_index]
+            c.line(page_w - margin, y - row_h, page_w - margin, y)
+            y -= row_h
+        y -= 16
+
+    c.setTitle("CLONEXA - Reporte Operativo")
+    draw_header()
+    draw_kpi_cards(payload.get("cards") or [])
+    draw_charts(payload.get("charts") or {})
     details = payload.get("details") or {}
     for key in report_pdf_sections(detail):
         cfg = REPORT_PDF_SECTIONS.get(key)
         if not cfg:
             continue
-        rows_ = details.get(key) or []
-        title(f"{cfg['title']} ({len(rows_)})")
-        if not rows_:
-            line("Sin datos para este filtro.", indent=8)
-            continue
-        columns = cfg["columns"]
-        for index, row in enumerate(rows_, start=1):
-            row_text = " | ".join(f"{label}: {report_pdf_value(row.get(field))}" for field, label in columns)
-            line(f"{index}. {row_text}", size=7, leading=9, indent=8)
-            if index % 12 == 0:
-                y -= 3
+        draw_table_section(key, cfg, details.get(key) or [])
 
     c.save()
     return buffer.getvalue()

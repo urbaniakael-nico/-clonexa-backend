@@ -14605,7 +14605,7 @@ function inventoryCreatePayload() {
     if (["activar", "habilitar", "activo"].some((word) => norm.includes(word))) return "enable";
     if (["adjuntar", "factura", "cargar archivo", "cargar factura"].some((word) => norm.includes(word))) return "invoice";
     if (["ingresar", "entrada", "sumar", "aumentar", "cantidad"].some((word) => norm.includes(word))) return "entry";
-    if (["modificar", "actualizar", "editar", "guardar"].some((word) => norm.includes(word))) return "save";
+    if (["guardar", "guardar datos", "datos", "campos"].some((word) => norm.includes(word))) return "save";
     if (["estado", "status", "resumen", "reporte", "listar", "ver", "consultar", "buscar", "precio", "valor", "minimo", "alerta", "bajo", "stock"].some((word) => norm.includes(word))) return "status";
     return "";
   }
@@ -14885,9 +14885,20 @@ function inventoryCreatePayload() {
       return `
         <div>Que quieres hacer con ${h(cxAssistantInventoryLabel027W(item))}?</div>
         <div class="cxai-summary-027a">
-          <div>Opciones: guardar datos, ingresar cantidad, adjuntar factura, deshabilitar, activar o ver estado.</div>
+          <div><strong>Guardar datos:</strong> nombre, tamano, color, valor, minimo y estado.</div>
+          <div><strong>Ingresar cantidad:</strong> suma stock y crea movimiento.</div>
+          <div><strong>Adjuntar factura:</strong> pide cantidad y abre carga de archivo.</div>
+          <div><strong>Deshabilitar / activar:</strong> cambia disponibilidad del material.</div>
         </div>
-        Escribe la opcion, atras o cancelar.
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-inv-action-027w="entry">Ingresar cantidad</button>
+          <button class="cxai-chip-027a primary" type="button" data-cxai-inv-action-027w="invoice">Adjuntar factura</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-inv-action-027w="save">Guardar datos</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-inv-action-027w="disable">Deshabilitar</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-inv-action-027w="enable">Activar</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-inv-action-027w="status">Ver estado</button>
+        </div>
+        Tambien puedes escribir la opcion, atras o cancelar.
       `;
     }
     if (flow.step === "edit_name") return `Nombre/referencia? Actual: ${h(item.name_reference || "")}. Escribe omitir o atras.`;
@@ -14995,7 +15006,7 @@ function inventoryCreatePayload() {
   }
 
   async function cxAssistantStartInventoryUpdate027W(chat, text = "") {
-    const action = cxAssistantInventoryAction027W(text) || "save";
+    const action = cxAssistantInventoryAction027W(text);
     const query = cxAssistantInventoryActionTail027W(text);
     chat.flow = { kind: "inventory_update", step: "item", mode: "select", data: { action } };
     if (query) {
@@ -15004,7 +15015,12 @@ function inventoryCreatePayload() {
         cxAssistantPush027A(chat, "assistant", cxAssistantInventoryUpdateQuestion027W(chat.flow), true);
         return;
       }
-      cxAssistantInventoryRouteAction027W(chat.flow, action);
+      if (action) {
+        cxAssistantInventoryRouteAction027W(chat.flow, action);
+      } else {
+        chat.flow.step = "action";
+        chat.flow.mode = "select";
+      }
       if (chat.flow.step === "status") {
         cxAssistantPush027A(chat, "assistant", cxAssistantInventoryDetailHtml027W(chat.flow.data.item || {}), true);
         chat.flow = null;
@@ -15098,7 +15114,12 @@ function inventoryCreatePayload() {
           cxAssistantPush027A(chat, "assistant", cxAssistantInventoryUpdateQuestion027W(flow), true);
           return;
         }
-        cxAssistantInventoryRouteAction027W(flow, data.action || "save");
+        if (data.action) {
+          cxAssistantInventoryRouteAction027W(flow, data.action);
+        } else {
+          flow.step = "action";
+          flow.mode = "select";
+        }
         break;
       }
       case "action": {
@@ -15963,6 +15984,20 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-inv-edit-027w]")) {
           await cxAssistantProcessText027A("modificar inventario", chat.activeCode);
+          return;
+        }
+        const inventoryAction = target.closest("[data-cxai-inv-action-027w]");
+        if (inventoryAction) {
+          const action = inventoryAction.getAttribute("data-cxai-inv-action-027w") || "";
+          const labels = {
+            entry: "ingresar cantidad",
+            invoice: "adjuntar factura",
+            save: "guardar datos",
+            disable: "deshabilitar",
+            enable: "activar",
+            status: "ver estado",
+          };
+          await cxAssistantProcessText027A(labels[action] || action, chat.activeCode);
           return;
         }
         if (target.closest("[data-cxai-gps-summary-027x]")) {
