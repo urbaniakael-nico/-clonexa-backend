@@ -887,6 +887,276 @@ def write_section(writer: csv.writer, title: str, rows_: list[dict[str, Any]], c
         writer.writerow([row.get(col, "") for col in columns])
 
 
+REPORT_PDF_SECTIONS: dict[str, dict[str, Any]] = {
+    "employee_summary": {
+        "title": "Resumen por empleado",
+        "columns": [
+            ("employee_name", "Empleado"),
+            ("employee_role", "Rol"),
+            ("turnos", "Turnos"),
+            ("eventos", "Eventos"),
+            ("gps", "GPS"),
+            ("gps_fuera", "GPS fuera"),
+            ("materiales", "Materiales"),
+            ("material_devuelto", "Devueltos"),
+            ("horas_ordinarias", "Horas ord."),
+            ("horas_extra", "Horas extra"),
+            ("total_nomina", "Total nomina"),
+            ("alertas", "Alertas"),
+        ],
+    },
+    "materials": {
+        "title": "Materiales, autorizaciones y devoluciones",
+        "columns": [
+            ("order_number", "Orden"),
+            ("employee_name", "Solicitante"),
+            ("material_name", "Material"),
+            ("quantity", "Cantidad"),
+            ("quantity_returned", "Devuelto"),
+            ("status", "Estado"),
+            ("destination", "Destino"),
+            ("requested_at", "Solicitud"),
+            ("approved_at", "Autorizacion"),
+            ("delivered_at", "Entrega"),
+            ("returned_at", "Devolucion"),
+            ("notes", "Notas"),
+        ],
+    },
+    "inventory_items": {
+        "title": "Inventario",
+        "columns": [
+            ("name_reference", "Referencia"),
+            ("sku", "SKU"),
+            ("item_size", "Tamano"),
+            ("color", "Color"),
+            ("current_stock", "Stock actual"),
+            ("min_stock", "Minimo"),
+            ("status", "Estado"),
+            ("updated_at", "Actualizado"),
+        ],
+    },
+    "inventory_movements": {
+        "title": "Movimientos de inventario",
+        "columns": [
+            ("item_name", "Material"),
+            ("movement_type", "Movimiento"),
+            ("quantity_delta", "Cantidad"),
+            ("source_module", "Origen"),
+            ("source_ref", "Referencia"),
+            ("status", "Estado"),
+            ("notes", "Notas"),
+            ("created_at", "Fecha"),
+        ],
+    },
+    "gps": {
+        "title": "GPS",
+        "columns": [
+            ("employee_name", "Empleado"),
+            ("employee_role", "Rol"),
+            ("gps_status", "Estado GPS"),
+            ("occurred_at", "Fecha/Hora"),
+            ("detail", "Detalle"),
+            ("status", "Estado"),
+        ],
+    },
+    "payroll": {
+        "title": "Nomina",
+        "columns": [
+            ("employee_name", "Empleado"),
+            ("employee_role", "Rol"),
+            ("closed_shifts", "Turnos cerrados"),
+            ("regular_minutes", "Min. ordinarios"),
+            ("extra_minutes", "Min. extra"),
+            ("gross_amount", "Bruto"),
+            ("discount_amount", "Descuentos"),
+            ("net_amount", "Neto"),
+        ],
+    },
+    "attendance": {
+        "title": "Asistencia y bitacora",
+        "columns": [
+            ("occurred_at", "Fecha/Hora"),
+            ("employee_name", "Empleado"),
+            ("employee_role", "Rol"),
+            ("event_type", "Evento"),
+            ("source_channel", "Canal"),
+            ("module_code", "Modulo"),
+            ("status", "Estado"),
+            ("detail", "Detalle"),
+        ],
+    },
+}
+
+
+def report_pdf_sections(detail: str | None) -> list[str]:
+    raw = normalize(detail or "all")
+    parts = {normalize(part) for part in raw.replace(";", ",").split(",") if normalize(part)}
+    if not parts or parts.intersection({"all", "todo", "todos", "super", "super_archivo", "completo", "general"}):
+        return list(REPORT_PDF_SECTIONS.keys())
+
+    out: list[str] = []
+
+    def add(*keys: str) -> None:
+        for key in keys:
+            if key not in out:
+                out.append(key)
+
+    for part in parts:
+        if part in REPORT_PDF_SECTIONS:
+            add(part)
+
+    text_value = " ".join(parts)
+    if any(token in text_value for token in ["empleado", "empleados", "personal", "workforce", "persona"]):
+        add("employee_summary")
+    if any(token in text_value for token in ["material", "materiales", "autorizacion", "autorizaciones", "entrada", "entradas", "salida", "salidas"]):
+        add("materials", "inventory_movements")
+    if "inventario" in text_value or "inventory" in text_value or "stock" in text_value:
+        add("inventory_items", "inventory_movements")
+    if "gps" in text_value or "ubicacion" in text_value:
+        add("gps")
+    if "nomina" in text_value or "payroll" in text_value:
+        add("payroll")
+    if "asistencia" in text_value or "bitacora" in text_value:
+        add("attendance")
+
+    return out or ["employee_summary"]
+
+
+def report_pdf_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return f"{float(value):,.2f}"
+    if isinstance(value, float):
+        return f"{value:,.2f}".rstrip("0").rstrip(".")
+    if isinstance(value, dict):
+        return ", ".join(f"{k}: {report_pdf_value(v)}" for k, v in value.items() if v not in (None, ""))
+    if isinstance(value, list):
+        return ", ".join(report_pdf_value(item) for item in value[:6])
+    return str(value)
+
+
+def build_report_pdf_bytes(payload: dict[str, Any], detail: str | None) -> bytes:
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        from reportlab.pdfgen import canvas
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(f"Motor PDF no disponible. Falta reportlab: {exc}") from exc
+
+    buffer = io.BytesIO()
+    page_w, page_h = letter
+    c = canvas.Canvas(buffer, pagesize=letter)
+    margin = 42
+    y = page_h - margin
+
+    def new_page() -> None:
+        nonlocal y
+        c.showPage()
+        y = page_h - margin
+
+    def ensure(space: float = 24) -> None:
+        if y - space < margin:
+            new_page()
+
+    def wrap(text_value: Any, width: float, font: str = "Helvetica", size: int = 8) -> list[str]:
+        text_raw = report_pdf_value(text_value).replace("\n", " ")
+        words = text_raw.split()
+        if not words:
+            return [""]
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if stringWidth(candidate, font, size) <= width or not current:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines
+
+    def line(text_value: Any = "", *, font: str = "Helvetica", size: int = 8, leading: int = 11, indent: int = 0) -> None:
+        nonlocal y
+        max_w = page_w - (margin * 2) - indent
+        for part in wrap(text_value, max_w, font, size):
+            ensure(leading)
+            c.setFont(font, size)
+            c.drawString(margin + indent, y, part[:260])
+            y -= leading
+
+    def title(text_value: str) -> None:
+        nonlocal y
+        ensure(32)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(margin, y, text_value[:90])
+        y -= 18
+
+    def bar(label: str, value: Any, maximum: float) -> None:
+        nonlocal y
+        ensure(16)
+        safe_value = num(value)
+        pct = 0 if maximum <= 0 else max(0.02, min(1, safe_value / maximum))
+        c.setFont("Helvetica", 8)
+        c.drawString(margin + 8, y, f"{label[:28]}: {report_pdf_value(value)}")
+        c.rect(margin + 170, y - 1, 220, 7, stroke=1, fill=0)
+        c.rect(margin + 170, y - 1, 220 * pct, 7, stroke=0, fill=1)
+        y -= 13
+
+    filters = payload.get("filters") or {}
+    c.setTitle("CLONEXA - Reporte Operativo")
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(margin, y, "CLONEXA - Reporte Operativo")
+    y -= 22
+    line(f"Empresa: {payload.get('company_id')} | Modo: {payload.get('mode')} | Generado: {payload.get('generated_at')}", size=8)
+    line(f"Rango: {filters.get('start')} / {filters.get('end')} | Detalle: {detail or 'all'}", size=8)
+    y -= 8
+
+    title("Resumen ejecutivo")
+    for card in payload.get("cards") or []:
+        line(f"{card.get('label')}: {report_pdf_value(card.get('value'))} ({card.get('module')})", size=9, indent=8)
+
+    charts = payload.get("charts") or {}
+    if charts:
+        title("Graficas del periodo")
+        for chart_key, items in charts.items():
+            rows_ = items if isinstance(items, list) else []
+            if not rows_:
+                continue
+            line(chart_key.replace("_", " ").title(), font="Helvetica-Bold", size=9)
+            maximum = max([num(item.get("value") or item.get("turnos") or item.get("gps") or item.get("materiales")) for item in rows_] + [1])
+            for item in rows_[:18]:
+                label = item.get("label") or item.get("date") or "Dato"
+                value = item.get("value")
+                if value is None:
+                    value = num(item.get("turnos")) + num(item.get("gps")) + num(item.get("materiales"))
+                bar(str(label), value, maximum)
+            y -= 4
+
+    details = payload.get("details") or {}
+    for key in report_pdf_sections(detail):
+        cfg = REPORT_PDF_SECTIONS.get(key)
+        if not cfg:
+            continue
+        rows_ = details.get(key) or []
+        title(f"{cfg['title']} ({len(rows_)})")
+        if not rows_:
+            line("Sin datos para este filtro.", indent=8)
+            continue
+        columns = cfg["columns"]
+        for index, row in enumerate(rows_, start=1):
+            row_text = " | ".join(f"{label}: {report_pdf_value(row.get(field))}" for field, label in columns)
+            line(f"{index}. {row_text}", size=7, leading=9, indent=8)
+            if index % 12 == 0:
+                y -= 3
+
+    c.save()
+    return buffer.getvalue()
+
+
 @router.get("/companies/{company_id}/export.csv")
 async def export_report_csv(
     company_id: UUID,
@@ -971,5 +1241,39 @@ async def export_report_csv(
     return StreamingResponse(
         iter([csv_text]),
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/companies/{company_id}/export.pdf")
+async def export_report_pdf(
+    company_id: UUID,
+    preset: str = Query("7d"),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    employee_id: UUID | None = Query(None),
+    module: str | None = Query(None),
+    status: str | None = Query(None),
+    search: str | None = Query(None),
+    detail: str | None = Query("all"),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    payload = await build_report_payload(
+        db,
+        company_id,
+        preset=preset,
+        start_date=start_date,
+        end_date=end_date,
+        employee_id=employee_id,
+        module_code=module,
+        status=status,
+        search=search,
+    )
+    pdf_bytes = build_report_pdf_bytes(payload, detail)
+    safe_detail = normalize(detail or "all") or "all"
+    filename = f"clonexa_reporte_{safe_detail}_{date.today().isoformat()}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

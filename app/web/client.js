@@ -12403,6 +12403,14 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsReportsTool027Y(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["reports", "reportes", "reporte", "report", "informes", "informe", "auditoria"].includes(token) ||
+      token.includes("reportes")
+    );
+  }
+
   function cxAssistantIsProductionTool027K(module = {}) {
     if (cxAssistantIsReferencesTool027Q(module)) return false;
     const tokens = cxAssistantModuleTokens027E(module);
@@ -12428,8 +12436,9 @@ function inventoryCreatePayload() {
     const hasCommercialClosing = modulePool.some(cxAssistantIsCommercialClosingTool027V) || ["commercial_closing", "cierre_comercial", "cierres_comerciales"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["commercial_closing", "cierre_comercial", "cierres_comerciales"]);
     const hasInventory = modulePool.some(cxAssistantIsInventoryTool027W) || ["inventory", "inventario", "inventario_operativo"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["inventory"]);
     const hasGps = modulePool.some(cxAssistantIsGpsTool027X) || ["gps", "geolocalizacion", "ubicaciones"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["gps"]);
+    const hasReports = modulePool.some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["reports"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasGps, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasGps, hasReports, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12484,6 +12493,7 @@ function inventoryCreatePayload() {
         if (tools.hasCommercialClosing && cxAssistantIsCommercialClosingTool027V(module)) return false;
         if (tools.hasInventory && cxAssistantIsInventoryTool027W(module)) return false;
         if (tools.hasGps && cxAssistantIsGpsTool027X(module)) return false;
+        if (tools.hasReports && cxAssistantIsReportsTool027Y(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
         if (!key) return true;
         if (seenModules.has(key)) return false;
@@ -12508,6 +12518,7 @@ function inventoryCreatePayload() {
         ${tools.hasCommercialClosing ? `<button class="cxai-chip-027a primary" type="button" data-cxai-closing-summary-027v>Cierre comercial</button>` : ""}
         ${tools.hasInventory ? `<button class="cxai-chip-027a primary" type="button" data-cxai-inv-summary-027w>Inventario</button>` : ""}
         ${tools.hasGps ? `<button class="cxai-chip-027a primary" type="button" data-cxai-gps-summary-027x>GPS</button>` : ""}
+        ${tools.hasReports ? `<button class="cxai-chip-027a primary" type="button" data-cxai-reports-start-027y>Reportes</button>` : ""}
         ${moduleButtons}
       </div>
     `;
@@ -12734,6 +12745,11 @@ function inventoryCreatePayload() {
       await cxAssistantReplyGps027X(chat, clean);
       return;
     }
+    if (flow.kind !== "reports_pdf" && cxAssistantLooksReportsQuery027Y(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyReports027Y(chat, clean);
+      return;
+    }
     if (cxAssistantIsBackCommand027R(norm)) {
       if (flow.kind === "reference_create") {
         cxAssistantBackReferenceFlow027R(chat);
@@ -12755,6 +12771,10 @@ function inventoryCreatePayload() {
         cxAssistantBackGpsConfigFlow027X(chat);
         return;
       }
+      if (flow.kind === "reports_pdf") {
+        cxAssistantBackReportsFlow027Y(chat);
+        return;
+      }
     }
     if (flow.kind === "reference_create") {
       await cxAssistantHandleReferenceFlow027R(chat, clean);
@@ -12774,6 +12794,10 @@ function inventoryCreatePayload() {
     }
     if (flow.kind === "gps_config") {
       await cxAssistantHandleGpsConfigFlow027X(chat, clean);
+      return;
+    }
+    if (flow.kind === "reports_pdf") {
+      await cxAssistantHandleReportsFlow027Y(chat, clean);
       return;
     }
     const item = flow.items[flow.itemIndex] || flow.items[0];
@@ -15518,6 +15542,241 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantReportsHasAccess027Y() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasReports || cxAssistantModulePool027E().some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksReportsQuery027Y(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (norm.includes("cierre comercial") || norm.includes("reporte de cierre") || norm.includes("reportes de cierre")) return false;
+    const subject = norm.includes("reportes") || norm.includes("reporte") || norm.includes("informe") || norm.includes("auditoria") || norm.includes("super archivo");
+    const action = ["generar", "crear", "descargar", "pdf", "rango", "empleado", "empleados", "material", "materiales", "inventario", "gps", "nomina", "asistencia", "bitacora", "todo", "todos", "super"].some((word) => norm.includes(word));
+    return subject && (action || norm === "reportes" || norm === "reporte");
+  }
+
+  function cxAssistantReportDateIso027Y(offsetDays = 0) {
+    const date = new Date();
+    date.setDate(date.getDate() + Number(offsetDays || 0));
+    return date.toISOString().slice(0, 10);
+  }
+
+  function cxAssistantReportMonthStart027Y() {
+    const date = new Date();
+    date.setDate(1);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function cxAssistantReportDate027Y(value = "") {
+    const raw = String(value || "").trim();
+    const iso = raw.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+    if (iso) return iso[0];
+    const slash = raw.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/);
+    if (slash) {
+      const d = slash[1].padStart(2, "0");
+      const m = slash[2].padStart(2, "0");
+      return `${slash[3]}-${m}-${d}`;
+    }
+    return "";
+  }
+
+  function cxAssistantReportDatePair027Y(value = "") {
+    const raw = String(value || "");
+    const matches = [...raw.matchAll(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[\/-]\d{1,2}[\/-]\d{4}\b/g)].map((match) => cxAssistantReportDate027Y(match[0])).filter(Boolean);
+    return { startDate: matches[0] || "", endDate: matches[1] || "" };
+  }
+
+  function cxAssistantReportDetail027Y(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (!norm) return "";
+    if (["todo", "todos", "completo", "general", "super archivo", "super", "todas las categorias"].some((word) => norm.includes(word))) return "all";
+    if (["empleado", "empleados", "personal", "persona", "personas", "workforce"].some((word) => norm.includes(word))) return "employee_summary";
+    if (["material", "materiales", "autorizacion", "autorizaciones", "entrada", "entradas", "salida", "salidas"].some((word) => norm.includes(word))) return "materials";
+    if (["inventario", "stock"].some((word) => norm.includes(word))) return "inventory";
+    if (norm.includes("gps") || norm.includes("ubicacion")) return "gps";
+    if (norm.includes("nomina") || norm.includes("payroll")) return "payroll";
+    if (norm.includes("asistencia") || norm.includes("bitacora")) return "attendance";
+    return "";
+  }
+
+  function cxAssistantReportDetailLabel027Y(detail = "") {
+    return {
+      all: "Super archivo completo",
+      employee_summary: "Resumen por empleados",
+      materials: "Materiales, entradas/salidas y autorizaciones",
+      inventory: "Inventario y movimientos",
+      gps: "GPS",
+      payroll: "Nomina",
+      attendance: "Asistencia / Bitacora",
+    }[detail] || "Reporte";
+  }
+
+  function cxAssistantReportPeriodSeed027Y(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const pair = cxAssistantReportDatePair027Y(text);
+    if (pair.startDate && pair.endDate) return { preset: "custom", startDate: pair.startDate, endDate: pair.endDate };
+    if (norm.includes("hoy")) return { preset: "today", startDate: cxAssistantReportDateIso027Y(0), endDate: cxAssistantReportDateIso027Y(0) };
+    if (norm.includes("15")) return { preset: "15d", startDate: cxAssistantReportDateIso027Y(-15), endDate: cxAssistantReportDateIso027Y(0) };
+    if (norm.includes("30")) return { preset: "30d", startDate: cxAssistantReportDateIso027Y(-30), endDate: cxAssistantReportDateIso027Y(0) };
+    if (norm.includes("mes")) return { preset: "month", startDate: cxAssistantReportMonthStart027Y(), endDate: cxAssistantReportDateIso027Y(0) };
+    if (norm.includes("7") || norm.includes("semana")) return { preset: "7d", startDate: cxAssistantReportDateIso027Y(-7), endDate: cxAssistantReportDateIso027Y(0) };
+    return {};
+  }
+
+  function cxAssistantReportNextStep027Y(data = {}) {
+    if (!data.detail) return "detail";
+    if (!data.preset) return "period";
+    if (data.preset === "custom" && !data.startDate) return "start_date";
+    if (data.preset === "custom" && !data.endDate) return "end_date";
+    return "confirm";
+  }
+
+  function cxAssistantReportQuestion027Y(flow = {}) {
+    const data = flow.data || {};
+    if (flow.step === "detail") {
+      return `
+        <div>Que detalle quieres en el PDF?</div>
+        <div class="cxai-summary-027a">
+          <div>Opciones: resumen por empleados, materiales, inventario, GPS, nomina, asistencia/bitacora o super archivo completo.</div>
+        </div>
+        Escribe una opcion, cancelar o atras.
+      `;
+    }
+    if (flow.step === "period") return "Que rango quieres? Escribe hoy, 7 dias, 15 dias, mes, 30 dias o personalizado.";
+    if (flow.step === "start_date") return "Fecha desde? Usa YYYY-MM-DD o DD/MM/YYYY. Escribe atras o cancelar.";
+    if (flow.step === "end_date") return "Fecha hasta? Usa YYYY-MM-DD o DD/MM/YYYY. Escribe atras o cancelar.";
+    return `
+      <div>Confirma el PDF de Reportes:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Detalle:</strong> ${h(cxAssistantReportDetailLabel027Y(data.detail))}</div>
+        <div><strong>Rango:</strong> ${h(data.startDate || "")} / ${h(data.endDate || "")}</div>
+        <div><strong>Formato:</strong> PDF descargable con resumen, graficas y tablas auditables.</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Generar PDF</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantBackReportsFlow027Y(chat) {
+    cxAssistantBackFlow027R(chat, ["detail", "period", "start_date", "end_date", "confirm"], cxAssistantReportQuestion027Y);
+  }
+
+  function cxAssistantReportPdfUrl027Y(data = {}) {
+    const params = new URLSearchParams();
+    params.set("preset", data.preset || "7d");
+    params.set("detail", data.detail || "all");
+    if (data.startDate) params.set("start_date", data.startDate);
+    if (data.endDate) params.set("end_date", data.endDate);
+    return `${API}/reports/companies/${encodeURIComponent(state.companyId)}/export.pdf?${params.toString()}`;
+  }
+
+  function cxAssistantStartReportsFlow027Y(chat, text = "") {
+    const period = cxAssistantReportPeriodSeed027Y(text);
+    const data = {
+      detail: cxAssistantReportDetail027Y(text),
+      ...period,
+    };
+    const step = cxAssistantReportNextStep027Y(data);
+    chat.flow = { kind: "reports_pdf", step, data };
+    cxAssistantPush027A(chat, "assistant", cxAssistantReportQuestion027Y(chat.flow), true);
+  }
+
+  async function cxAssistantGenerateReportPdf027Y(chat, flow = {}) {
+    const data = flow.data || {};
+    const pdfUrl = cxAssistantReportPdfUrl027Y(data);
+    chat.flow = null;
+    cxAssistantPush027A(
+      chat,
+      "assistant",
+      `
+        Listo. Generé el enlace del reporte ${h(cxAssistantReportDetailLabel027Y(data.detail))}.
+        <a class="cxai-download-027a" href="${h(pdfUrl)}" target="_blank" rel="noopener">Descargar PDF</a>
+        <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="reports">Abrir Reportes</button></div>
+      `,
+      true
+    );
+  }
+
+  async function cxAssistantHandleReportsFlow027Y(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "detail": {
+        const detail = cxAssistantReportDetail027Y(clean);
+        if (!detail) {
+          cxAssistantPush027A(chat, "assistant", "Elige: empleados, materiales, inventario, GPS, nomina, asistencia o super archivo.");
+          return;
+        }
+        data.detail = detail;
+        break;
+      }
+      case "period": {
+        const pair = cxAssistantReportDatePair027Y(clean);
+        if (pair.startDate && pair.endDate) {
+          data.preset = "custom";
+          data.startDate = pair.startDate;
+          data.endDate = pair.endDate;
+          break;
+        }
+        const period = cxAssistantReportPeriodSeed027Y(clean);
+        if (!period.preset) {
+          if (norm.includes("personal") || norm.includes("custom")) {
+            data.preset = "custom";
+            break;
+          }
+          cxAssistantPush027A(chat, "assistant", "Escribe hoy, 7 dias, 15 dias, mes, 30 dias o personalizado.");
+          return;
+        }
+        Object.assign(data, period);
+        break;
+      }
+      case "start_date": {
+        const dateValue = cxAssistantReportDate027Y(clean);
+        if (!dateValue) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una fecha desde valida. Ejemplo: 2026-06-01.");
+          return;
+        }
+        data.startDate = dateValue;
+        break;
+      }
+      case "end_date": {
+        const dateValue = cxAssistantReportDate027Y(clean);
+        if (!dateValue) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una fecha hasta valida. Ejemplo: 2026-06-12.");
+          return;
+        }
+        data.endDate = dateValue;
+        break;
+      }
+      case "confirm":
+        if (norm.includes("confirmar") || norm.includes("generar") || norm.includes("pdf") || cxAssistantYes027A(clean)) {
+          await cxAssistantGenerateReportPdf027Y(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para generar el PDF, atras para corregir o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime generar reporte PDF para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    flow.step = cxAssistantReportNextStep027Y(data);
+    cxAssistantPush027A(chat, "assistant", cxAssistantReportQuestion027Y(flow), true);
+  }
+
+  async function cxAssistantReplyReports027Y(chat, text = "") {
+    if (!cxAssistantReportsHasAccess027Y()) {
+      cxAssistantPush027A(chat, "assistant", "Reportes no esta activo para esta empresa.");
+      return false;
+    }
+    cxAssistantStartReportsFlow027Y(chat, text);
+    return true;
+  }
+
   async function cxAssistantModuleHelp027A(chat, code, title) {
     const token = cxNormalizeModuleToken017H(`${code} ${title}`);
     if (cxAssistantIsCrmTool027D({ code, title })) {
@@ -15552,6 +15811,10 @@ function inventoryCreatePayload() {
       await cxAssistantReplyGps027X(chat, "estado gps");
       return;
     }
+    if (cxAssistantIsReportsTool027Y({ code, title }) || token.includes("reportes") || token.includes("reports")) {
+      await cxAssistantReplyReports027Y(chat, "generar reporte pdf");
+      return;
+    }
     if (cxAssistantIsProductionTool027K({ code, title }) || token.includes("produccion") || token.includes("production")) {
       await cxAssistantReplyProduction027K(chat, "resumen produccion");
       return;
@@ -15578,6 +15841,8 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "account");
     } else if (norm.includes("cotiz") || norm.includes("presupuesto")) {
       cxAssistantStartFlow027A(chat, "quote");
+    } else if (cxAssistantLooksReportsQuery027Y(clean)) {
+      await cxAssistantReplyReports027Y(chat, clean);
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
       await cxAssistantReplyPayroll027I(chat, clean);
     } else if (cxAssistantLooksGpsQuery027X(clean)) {
@@ -15604,7 +15869,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario y GPS. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -15706,6 +15971,10 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-gps-config-027x]")) {
           await cxAssistantProcessText027A("configurar gps", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-reports-start-027y]")) {
+          await cxAssistantProcessText027A("generar reporte pdf", chat.activeCode);
           return;
         }
         const moduleButton = target.closest("[data-cxai-module-027a]");
