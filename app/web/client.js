@@ -12395,6 +12395,14 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsStockTool028A(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["stock", "stocks", "existencias", "existencia", "inventario_stock", "stock_control"].includes(token) ||
+      token.includes("stock")
+    );
+  }
+
   function cxAssistantIsGpsTool027X(module = {}) {
     const tokens = cxAssistantModuleTokens027E(module);
     return tokens.some((token) =>
@@ -12435,10 +12443,11 @@ function inventoryCreatePayload() {
     const hasWorkforce = modulePool.some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["workforce", "personal", "employees"]);
     const hasCommercialClosing = modulePool.some(cxAssistantIsCommercialClosingTool027V) || ["commercial_closing", "cierre_comercial", "cierres_comerciales"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["commercial_closing", "cierre_comercial", "cierres_comerciales"]);
     const hasInventory = modulePool.some(cxAssistantIsInventoryTool027W) || ["inventory", "inventario", "inventario_operativo"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["inventory"]);
+    const hasStock = modulePool.some(cxAssistantIsStockTool028A) || ["stock", "stocks", "existencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["stock"]);
     const hasGps = modulePool.some(cxAssistantIsGpsTool027X) || ["gps", "geolocalizacion", "ubicaciones"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["gps"]);
     const hasReports = modulePool.some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["reports"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasGps, hasReports, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasStock, hasGps, hasReports, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12492,6 +12501,7 @@ function inventoryCreatePayload() {
         if (tools.hasWorkforce && cxAssistantIsWorkforceTool027R(module)) return false;
         if (tools.hasCommercialClosing && cxAssistantIsCommercialClosingTool027V(module)) return false;
         if (tools.hasInventory && cxAssistantIsInventoryTool027W(module)) return false;
+        if (tools.hasStock && cxAssistantIsStockTool028A(module)) return false;
         if (tools.hasGps && cxAssistantIsGpsTool027X(module)) return false;
         if (tools.hasReports && cxAssistantIsReportsTool027Y(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
@@ -12517,6 +12527,7 @@ function inventoryCreatePayload() {
         ${tools.hasWorkforce ? `<button class="cxai-chip-027a primary" type="button" data-cxai-wf-summary-027r>Workforce</button>` : ""}
         ${tools.hasCommercialClosing ? `<button class="cxai-chip-027a primary" type="button" data-cxai-closing-summary-027v>Cierre comercial</button>` : ""}
         ${tools.hasInventory ? `<button class="cxai-chip-027a primary" type="button" data-cxai-inv-summary-027w>Inventario</button>` : ""}
+        ${tools.hasStock ? `<button class="cxai-chip-027a primary" type="button" data-cxai-stock-summary-028a>Stock</button>` : ""}
         ${tools.hasGps ? `<button class="cxai-chip-027a primary" type="button" data-cxai-gps-summary-027x>GPS</button>` : ""}
         ${tools.hasReports ? `<button class="cxai-chip-027a primary" type="button" data-cxai-reports-start-027y>Reportes</button>` : ""}
         ${moduleButtons}
@@ -12735,6 +12746,11 @@ function inventoryCreatePayload() {
       cxAssistantStartReferenceCreate027R(chat, clean);
       return;
     }
+    if (flow.kind !== "stock_update" && cxAssistantLooksStockQuery028A(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyStock028A(chat, clean);
+      return;
+    }
     if (!["inventory_create", "inventory_update"].includes(flow.kind) && cxAssistantLooksInventoryQuery027W(clean)) {
       chat.flow = null;
       await cxAssistantReplyInventory027W(chat, clean);
@@ -12767,6 +12783,10 @@ function inventoryCreatePayload() {
         cxAssistantBackInventoryUpdateFlow027W(chat);
         return;
       }
+      if (flow.kind === "stock_update") {
+        cxAssistantBackStockFlow028A(chat);
+        return;
+      }
       if (flow.kind === "gps_config") {
         cxAssistantBackGpsConfigFlow027X(chat);
         return;
@@ -12790,6 +12810,10 @@ function inventoryCreatePayload() {
     }
     if (flow.kind === "inventory_update") {
       await cxAssistantHandleInventoryUpdateFlow027W(chat, clean);
+      return;
+    }
+    if (flow.kind === "stock_update") {
+      await cxAssistantHandleStockFlow028A(chat, clean);
       return;
     }
     if (flow.kind === "gps_config") {
@@ -15252,6 +15276,388 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantStockHasAccess028A() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasStock || cxAssistantModulePool027E().some(cxAssistantIsStockTool028A) || ["stock", "stocks", "existencias"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksStockQuery028A(text = "") {
+    if (!cxAssistantStockHasAccess028A()) return false;
+    const norm = cxAssistantNorm027A(text);
+    const subject = norm.includes("stock") || norm.includes("existencia") || norm.includes("existencias") || norm.includes("bajo minimo") || norm.includes("sin stock") || norm.includes("articulos bajos") || norm.includes("articulos mas bajos") || norm.includes("cantidad de articulos") || norm.includes("catidad de articulos") || norm.includes("cuantos articulos") || norm.includes("cuantas unidades") || norm.includes("valor stock");
+    const action = ["estado", "status", "resumen", "total", "cantidad", "cuantos", "cuantas", "articulo", "articulos", "producto", "productos", "bajo", "bajos", "minimo", "minimos", "valor", "precio", "unitario", "modificar", "editar", "guardar", "archivar", "deshabilitar", "activar", "agregar", "crear", "nuevo", "nueva"].some((word) => norm.includes(word));
+    return subject && (action || norm === "stock");
+  }
+
+  function cxAssistantStockAction028A(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (["agregar", "crear", "nuevo", "nueva", "ingresar articulo", "ingresar producto"].some((word) => norm.includes(word))) return "create";
+    if (["bajo", "bajos", "mas bajos", "menor stock", "pocos", "sin stock", "bajo minimo"].some((word) => norm.includes(word))) return "low";
+    if (["archivar", "arcivar", "deshabilitar", "desabilitar", "desactivar", "inhabilitar", "inactivo"].some((word) => norm.includes(word))) return "archive";
+    if (["activar", "habilitar", "activo"].some((word) => norm.includes(word))) return "enable";
+    if (["valor", "precio", "unitario", "costo"].some((word) => norm.includes(word))) return "value";
+    if (["minimo", "minimos", "alerta"].some((word) => norm.includes(word))) return "min";
+    if (["modificar", "editar", "guardar", "actualizar"].some((word) => norm.includes(word))) return "";
+    return "summary";
+  }
+
+  function cxAssistantStockRows028A(data = {}) {
+    return Array.isArray(data.items) ? data.items : [];
+  }
+
+  function cxAssistantStockSummary028A(rows = []) {
+    const summary = typeof cxStockSummary024T === "function" ? cxStockSummary024T(rows) : {};
+    const totalUnits = rows.reduce((sum, row) => sum + inventoryNumber(row.current_stock), 0);
+    const totalValue = rows.reduce((sum, row) => sum + inventoryNumber(row.stock_value || inventoryNumber(row.current_stock) * inventoryNumber(row.unit_value ?? row.unit_price ?? row.price)), 0);
+    return {
+      active: summary.active ?? rows.filter((row) => String(row.status || "active").toLowerCase() === "active").length,
+      inactive: summary.inactive ?? rows.filter((row) => String(row.status || "active").toLowerCase() === "inactive").length,
+      low: summary.low ?? rows.filter((row) => cxStockAlertClass024T(row) === "low").length,
+      out: summary.out ?? rows.filter((row) => cxStockAlertClass024T(row) === "out").length,
+      total: rows.length,
+      units: totalUnits,
+      value: summary.value ?? totalValue,
+    };
+  }
+
+  function cxAssistantStockValue028A(row = {}) {
+    const unit = inventoryNumber(row.unit_value ?? row.unit_price ?? row.price ?? 0);
+    return inventoryNumber(row.stock_value || inventoryNumber(row.current_stock) * unit);
+  }
+
+  function cxAssistantStockLowRows028A(rows = []) {
+    return rows
+      .filter((row) => String(row.status || "active").toLowerCase() === "active")
+      .slice()
+      .sort((a, b) => inventoryNumber(a.current_stock) - inventoryNumber(b.current_stock))
+      .slice(0, 10);
+  }
+
+  function cxAssistantStockDetailHtml028A(row = {}) {
+    const alertClass = typeof cxStockAlertClass024T === "function" ? cxStockAlertClass024T(row) : "ok";
+    return `
+      <div class="cxai-summary-027a">
+        <div><strong>Articulo:</strong> ${h(cxAssistantInventoryLabel027W(row))}</div>
+        <div><strong>Cantidad:</strong> ${h(inventoryQtyLabel(row.current_stock || 0))}</div>
+        <div><strong>Minimo stock:</strong> ${h(inventoryQtyLabel(row.min_stock || 0))}</div>
+        <div><strong>Valor unitario:</strong> ${h(cxStockMoney024T(row.unit_value ?? row.unit_price ?? row.price ?? 0))}</div>
+        <div><strong>Valor stock:</strong> ${h(cxStockMoney024T(cxAssistantStockValue028A(row)))}</div>
+        <div><strong>Alerta:</strong> ${h(cxStockAlertLabel024T(row))}</div>
+        <div><strong>Estado:</strong> ${h(inventoryStatusLabel(row.status || "active"))}</div>
+      </div>
+    `;
+  }
+
+  function cxAssistantStockSummaryHtml028A(data = {}, text = "") {
+    const rows = cxAssistantStockRows028A(data);
+    const summary = cxAssistantStockSummary028A(rows);
+    const norm = cxAssistantNorm027A(text);
+    const showLow = norm.includes("bajo") || norm.includes("pocos") || norm.includes("sin stock") || norm.includes("minimo");
+    const lowRows = cxAssistantStockLowRows028A(rows);
+    const lowHtml = lowRows.length
+      ? lowRows.map((row, index) => `
+          <div>${h(index + 1)}. ${h(cxAssistantInventoryLabel027W(row))}: <strong>${h(inventoryQtyLabel(row.current_stock || 0))}</strong> · min ${h(inventoryQtyLabel(row.min_stock || 0))} · ${h(cxStockMoney024T(cxAssistantStockValue028A(row)))} · ${h(cxStockAlertLabel024T(row))}</div>
+        `).join("")
+      : "<div>No encontre articulos activos en stock.</div>";
+    return `
+      <div>Estado del Stock:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Articulos activos:</strong> ${h(cxReferencesNumber022E(summary.active || 0))}</div>
+        <div><strong>Total articulos:</strong> ${h(cxReferencesNumber022E(summary.total || 0))}</div>
+        <div><strong>Unidades en stock:</strong> ${h(inventoryQtyLabel(summary.units || 0))}</div>
+        <div><strong>Bajo minimo:</strong> ${h(cxReferencesNumber022E(summary.low || 0))}</div>
+        <div><strong>Sin stock:</strong> ${h(cxReferencesNumber022E(summary.out || 0))}</div>
+        <div><strong>Inactivos/archivados:</strong> ${h(cxReferencesNumber022E(summary.inactive || 0))}</div>
+        <div><strong>Valor total stock:</strong> ${h(cxStockMoney024T(summary.value || 0))}</div>
+      </div>
+      <div class="cxai-summary-027a">
+        <div><strong>${showLow ? "Top 10 articulos mas bajos" : "Articulos mas bajos"}</strong></div>
+        ${lowHtml}
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-stock-low-028a>Articulos bajos</button>
+        <button class="cxai-chip-027a primary" type="button" data-cxai-stock-edit-028a>Modificar Stock</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-stock-add-028a>Agregar articulo</button>
+        <button class="cxai-chip-027a" type="button" data-client-module="stock">Abrir Stock</button>
+      </div>
+    `;
+  }
+
+  async function cxAssistantLoadStock028A() {
+    return cxAssistantLoadInventory027W();
+  }
+
+  function cxAssistantRefreshStockView028A() {
+    if (document.querySelector("[data-stock-refresh]") && typeof renderStockModule024T === "function") {
+      renderStockModule024T(cxStockReadFilters024T()).catch(() => {});
+    }
+  }
+
+  async function cxAssistantPushStockSummary028A(chat, text = "", options = {}) {
+    if (options.intro !== false) {
+      cxAssistantPush027A(chat, "assistant", "Consultando Stock...");
+      cxAssistantRenderMessages027A();
+    }
+    const data = await cxAssistantLoadStock028A();
+    cxAssistantPush027A(chat, "assistant", cxAssistantStockSummaryHtml028A(data, text), true);
+  }
+
+  function cxAssistantStockQuestion028A(flow = {}) {
+    const data = flow.data || {};
+    const item = data.item || {};
+    if (flow.step === "item") return "Que articulo de Stock quieres modificar? Puedes escribir cancelar para salir.";
+    if (flow.step === "action") {
+      return `
+        <div>Que quieres hacer con ${h(cxAssistantInventoryLabel027W(item))}?</div>
+        ${cxAssistantStockDetailHtml028A(item)}
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-stock-action-028a="value">Modificar valor</button>
+          <button class="cxai-chip-027a primary" type="button" data-cxai-stock-action-028a="min">Poner minimo stock</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-stock-action-028a="archive">Archivar articulo</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-stock-action-028a="enable">Activar articulo</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-stock-action-028a="status">Ver estado</button>
+        </div>
+        Tambien puedes escribir valor, minimo, archivar, activar, estado, atras o cancelar.
+      `;
+    }
+    if (flow.step === "value") return `Nuevo valor unitario para ${h(cxAssistantInventoryLabel027W(item))}? Actual: ${h(cxStockMoney024T(item.unit_value ?? item.unit_price ?? item.price ?? 0))}.`;
+    if (flow.step === "min") return `Nuevo minimo stock para ${h(cxAssistantInventoryLabel027W(item))}? Actual: ${h(inventoryQtyLabel(item.min_stock || 0))}.`;
+    if (flow.step === "confirm_status") {
+      const label = data.action === "enable" ? "activar" : "archivar";
+      return `
+        <div>Confirmas ${h(label)} este articulo?</div>
+        ${cxAssistantStockDetailHtml028A(item)}
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+        </div>
+      `;
+    }
+    return `
+      <div>Confirma el cambio de Stock:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Articulo:</strong> ${h(cxAssistantInventoryLabel027W(item))}</div>
+        <div><strong>Valor unitario:</strong> ${h(cxStockMoney024T(data.unit_value ?? item.unit_value ?? item.unit_price ?? item.price ?? 0))}</div>
+        <div><strong>Minimo stock:</strong> ${h(inventoryQtyLabel(data.min_stock ?? item.min_stock ?? 0))}</div>
+        <div><strong>Valor stock:</strong> ${h(cxStockMoney024T(inventoryNumber(item.current_stock || 0) * inventoryNumber(data.unit_value ?? item.unit_value ?? item.unit_price ?? item.price ?? 0)))}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantBackStockFlow028A(chat) {
+    const action = chat.flow?.data?.action || "";
+    const steps = action === "archive" || action === "enable"
+      ? ["item", "action", "confirm_status"]
+      : action === "min"
+        ? ["item", "action", "min", "confirm_save"]
+        : action === "value"
+          ? ["item", "action", "value", "confirm_save"]
+          : ["item", "action"];
+    cxAssistantBackFlow027R(chat, steps, cxAssistantStockQuestion028A);
+  }
+
+  function cxAssistantStockRouteAction028A(flow = {}, action = "") {
+    flow.data = flow.data || {};
+    flow.data.action = action;
+    if (action === "value") {
+      flow.step = "value";
+      return;
+    }
+    if (action === "min") {
+      flow.step = "min";
+      return;
+    }
+    if (action === "archive" || action === "enable") {
+      flow.step = "confirm_status";
+      return;
+    }
+    if (action === "status") {
+      flow.step = "status";
+      return;
+    }
+    flow.step = "action";
+  }
+
+  async function cxAssistantResolveStockItem028A(chat, flow = {}, query = "") {
+    const data = await cxAssistantLoadStock028A();
+    const rows = cxAssistantStockRows028A(data);
+    const { match, candidates } = cxAssistantInventoryFind027W(query, rows);
+    if (!match) {
+      const options = candidates.length ? candidates.slice(0, 8).map((row) => `<div>${h(cxAssistantInventoryLabel027W(row))} · ${h(inventoryQtyLabel(row.current_stock || 0))}</div>`).join("") : "<div>No encontre coincidencias.</div>";
+      cxAssistantPush027A(chat, "assistant", `<div>No pude elegir un articulo unico. Estas son las coincidencias:</div><div class="cxai-summary-027a">${options}</div>`, true);
+      flow.step = "item";
+      return false;
+    }
+    flow.data = flow.data || {};
+    flow.data.item = match;
+    flow.data.item_id = match.id;
+    return true;
+  }
+
+  async function cxAssistantStartStockUpdate028A(chat, text = "") {
+    const action = cxAssistantStockAction028A(text);
+    const query = cxAssistantInventoryActionTail027W(text);
+    chat.flow = { kind: "stock_update", step: "item", data: { action: ["summary", "low", "create"].includes(action) ? "" : action } };
+    if (query) {
+      const resolved = await cxAssistantResolveStockItem028A(chat, chat.flow, query);
+      if (!resolved) {
+        cxAssistantPush027A(chat, "assistant", cxAssistantStockQuestion028A(chat.flow), true);
+        return;
+      }
+      if (chat.flow.data.action) {
+        cxAssistantStockRouteAction028A(chat.flow, chat.flow.data.action);
+      } else {
+        chat.flow.step = "action";
+      }
+    }
+    cxAssistantPush027A(chat, "assistant", cxAssistantStockQuestion028A(chat.flow), true);
+  }
+
+  async function cxAssistantSaveStock028A(chat, flow = {}) {
+    const data = flow.data || {};
+    const item = data.item || {};
+    const payload = {
+      unit_value: Math.max(0, Number(data.unit_value ?? item.unit_value ?? item.unit_price ?? item.price ?? 0)),
+      min_stock: Math.max(0, Number(data.min_stock ?? item.min_stock ?? 0)),
+      status: data.status || item.status || "active",
+    };
+    try {
+      const updated = await api(`/inventory/items/${encodeURIComponent(data.item_id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `Stock actualizado: ${cxAssistantInventoryLabel027W(updated)}.`);
+      cxAssistantRefreshStockView028A();
+      await cxAssistantPushStockSummary028A(chat, "stock", { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude guardar Stock.");
+    }
+  }
+
+  async function cxAssistantArchiveStock028A(chat, flow = {}) {
+    const data = flow.data || {};
+    try {
+      if (data.action === "enable") {
+        await api(`/inventory/items/${encodeURIComponent(data.item_id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "active" }),
+        });
+        cxAssistantPush027A(chat, "assistant", "Articulo activado en Stock.");
+      } else {
+        await api(`/inventory/items/${encodeURIComponent(data.item_id)}/disable`, { method: "POST" });
+        cxAssistantPush027A(chat, "assistant", "Articulo archivado/deshabilitado en Stock.");
+      }
+      chat.flow = null;
+      cxAssistantRefreshStockView028A();
+      await cxAssistantPushStockSummary028A(chat, "stock", { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude cambiar el estado del articulo.");
+    }
+  }
+
+  async function cxAssistantHandleStockFlow028A(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "item": {
+        const resolved = await cxAssistantResolveStockItem028A(chat, flow, clean);
+        if (!resolved) {
+          cxAssistantPush027A(chat, "assistant", cxAssistantStockQuestion028A(flow), true);
+          return;
+        }
+        if (data.action) {
+          cxAssistantStockRouteAction028A(flow, data.action);
+        } else {
+          flow.step = "action";
+        }
+        break;
+      }
+      case "action": {
+        const action = cxAssistantStockAction028A(clean);
+        if (!["value", "min", "archive", "enable", "status"].includes(action)) {
+          cxAssistantPush027A(chat, "assistant", "Elige valor, minimo stock, archivar, activar o estado.");
+          return;
+        }
+        cxAssistantStockRouteAction028A(flow, action);
+        if (flow.step === "status") {
+          cxAssistantPush027A(chat, "assistant", cxAssistantStockDetailHtml028A(data.item || {}), true);
+          chat.flow = null;
+          return;
+        }
+        break;
+      }
+      case "value": {
+        const value = cxAssistantNumber027R(clean);
+        if (value < 0) {
+          cxAssistantPush027A(chat, "assistant", "El valor no puede ser negativo.");
+          return;
+        }
+        data.unit_value = value;
+        flow.step = "confirm_save";
+        break;
+      }
+      case "min": {
+        const value = cxAssistantNumber027R(clean);
+        if (value < 0) {
+          cxAssistantPush027A(chat, "assistant", "El minimo no puede ser negativo.");
+          return;
+        }
+        data.min_stock = value;
+        flow.step = "confirm_save";
+        break;
+      }
+      case "confirm_save":
+        if (norm.includes("confirmar") || norm.includes("guardar") || cxAssistantYes027A(clean)) {
+          await cxAssistantSaveStock028A(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para guardar, atras para corregir o cancelar para salir.");
+        }
+        return;
+      case "confirm_status":
+        if (norm.includes("confirmar") || cxAssistantYes027A(clean)) {
+          await cxAssistantArchiveStock028A(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para aplicar, atras para corregir o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime modificar stock para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    cxAssistantPush027A(chat, "assistant", cxAssistantStockQuestion028A(flow), true);
+  }
+
+  async function cxAssistantReplyStock028A(chat, text = "") {
+    if (!cxAssistantStockHasAccess028A()) {
+      cxAssistantPush027A(chat, "assistant", "Stock no esta activo para esta empresa.");
+      return false;
+    }
+    const action = cxAssistantStockAction028A(text);
+    if (action === "create") {
+      cxAssistantPush027A(chat, "assistant", "Perfecto. Vamos a ingresar el articulo para Stock.");
+      cxAssistantStartInventoryCreate027W(chat, text);
+      return true;
+    }
+    if (action === "summary" || action === "low") {
+      try {
+        await cxAssistantPushStockSummary028A(chat, text);
+      } catch (error) {
+        cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Stock.");
+      }
+      return true;
+    }
+    await cxAssistantStartStockUpdate028A(chat, text);
+    return true;
+  }
+
   function cxAssistantGpsHasAccess027X() {
     const tools = cxAssistantReadActiveTools027A();
     return tools.hasGps || cxAssistantModulePool027E().some(cxAssistantIsGpsTool027X) || ["gps"].some(isClientModuleActive);
@@ -15824,6 +16230,10 @@ function inventoryCreatePayload() {
       await cxAssistantReplyCommercialClosing027V(chat, "resumen cierre comercial");
       return;
     }
+    if (cxAssistantIsStockTool028A({ code, title }) || token.includes("stock")) {
+      await cxAssistantReplyStock028A(chat, "estado stock");
+      return;
+    }
     if (cxAssistantIsInventoryTool027W({ code, title }) || token.includes("inventario")) {
       await cxAssistantReplyInventory027W(chat, "estado inventario");
       return;
@@ -15868,6 +16278,8 @@ function inventoryCreatePayload() {
       await cxAssistantReplyPayroll027I(chat, clean);
     } else if (cxAssistantLooksGpsQuery027X(clean)) {
       await cxAssistantReplyGps027X(chat, clean);
+    } else if (cxAssistantLooksStockQuery028A(clean)) {
+      await cxAssistantReplyStock028A(chat, clean);
     } else if (cxAssistantLooksInventoryQuery027W(clean)) {
       await cxAssistantReplyInventory027W(chat, clean);
     } else if (cxAssistantLooksReferencesQuery027R(clean)) {
@@ -15890,7 +16302,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, Stock, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -15984,6 +16396,35 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-inv-edit-027w]")) {
           await cxAssistantProcessText027A("modificar inventario", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-stock-summary-028a]")) {
+          await cxAssistantProcessText027A("estado stock", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-stock-low-028a]")) {
+          await cxAssistantProcessText027A("articulos mas bajos stock", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-stock-edit-028a]")) {
+          await cxAssistantProcessText027A("modificar stock", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-stock-add-028a]")) {
+          await cxAssistantProcessText027A("agregar articulo stock", chat.activeCode);
+          return;
+        }
+        const stockAction = target.closest("[data-cxai-stock-action-028a]");
+        if (stockAction) {
+          const action = stockAction.getAttribute("data-cxai-stock-action-028a") || "";
+          const labels = {
+            value: "modificar valor",
+            min: "poner minimo stock",
+            archive: "archivar articulo",
+            enable: "activar articulo",
+            status: "ver estado",
+          };
+          await cxAssistantProcessText027A(labels[action] || action, chat.activeCode);
           return;
         }
         const inventoryAction = target.closest("[data-cxai-inv-action-027w]");
