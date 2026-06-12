@@ -12395,6 +12395,14 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsGpsTool027X(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["gps", "geolocalizacion", "geo_localizacion", "ubicacion", "ubicaciones"].includes(token) ||
+      token.includes("gps")
+    );
+  }
+
   function cxAssistantIsProductionTool027K(module = {}) {
     if (cxAssistantIsReferencesTool027Q(module)) return false;
     const tokens = cxAssistantModuleTokens027E(module);
@@ -12419,8 +12427,9 @@ function inventoryCreatePayload() {
     const hasWorkforce = modulePool.some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["workforce", "personal", "employees"]);
     const hasCommercialClosing = modulePool.some(cxAssistantIsCommercialClosingTool027V) || ["commercial_closing", "cierre_comercial", "cierres_comerciales"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["commercial_closing", "cierre_comercial", "cierres_comerciales"]);
     const hasInventory = modulePool.some(cxAssistantIsInventoryTool027W) || ["inventory", "inventario", "inventario_operativo"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["inventory"]);
+    const hasGps = modulePool.some(cxAssistantIsGpsTool027X) || ["gps", "geolocalizacion", "ubicaciones"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["gps"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasGps, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12474,6 +12483,7 @@ function inventoryCreatePayload() {
         if (tools.hasWorkforce && cxAssistantIsWorkforceTool027R(module)) return false;
         if (tools.hasCommercialClosing && cxAssistantIsCommercialClosingTool027V(module)) return false;
         if (tools.hasInventory && cxAssistantIsInventoryTool027W(module)) return false;
+        if (tools.hasGps && cxAssistantIsGpsTool027X(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
         if (!key) return true;
         if (seenModules.has(key)) return false;
@@ -12497,6 +12507,7 @@ function inventoryCreatePayload() {
         ${tools.hasWorkforce ? `<button class="cxai-chip-027a primary" type="button" data-cxai-wf-summary-027r>Workforce</button>` : ""}
         ${tools.hasCommercialClosing ? `<button class="cxai-chip-027a primary" type="button" data-cxai-closing-summary-027v>Cierre comercial</button>` : ""}
         ${tools.hasInventory ? `<button class="cxai-chip-027a primary" type="button" data-cxai-inv-summary-027w>Inventario</button>` : ""}
+        ${tools.hasGps ? `<button class="cxai-chip-027a primary" type="button" data-cxai-gps-summary-027x>GPS</button>` : ""}
         ${moduleButtons}
       </div>
     `;
@@ -12718,6 +12729,11 @@ function inventoryCreatePayload() {
       await cxAssistantReplyInventory027W(chat, clean);
       return;
     }
+    if (flow.kind !== "gps_config" && cxAssistantLooksGpsQuery027X(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyGps027X(chat, clean);
+      return;
+    }
     if (cxAssistantIsBackCommand027R(norm)) {
       if (flow.kind === "reference_create") {
         cxAssistantBackReferenceFlow027R(chat);
@@ -12735,6 +12751,10 @@ function inventoryCreatePayload() {
         cxAssistantBackInventoryUpdateFlow027W(chat);
         return;
       }
+      if (flow.kind === "gps_config") {
+        cxAssistantBackGpsConfigFlow027X(chat);
+        return;
+      }
     }
     if (flow.kind === "reference_create") {
       await cxAssistantHandleReferenceFlow027R(chat, clean);
@@ -12750,6 +12770,10 @@ function inventoryCreatePayload() {
     }
     if (flow.kind === "inventory_update") {
       await cxAssistantHandleInventoryUpdateFlow027W(chat, clean);
+      return;
+    }
+    if (flow.kind === "gps_config") {
+      await cxAssistantHandleGpsConfigFlow027X(chat, clean);
       return;
     }
     const item = flow.items[flow.itemIndex] || flow.items[0];
@@ -15183,6 +15207,317 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantGpsHasAccess027X() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasGps || cxAssistantModulePool027E().some(cxAssistantIsGpsTool027X) || ["gps"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksGpsQuery027X(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const subject = norm.includes("gps") || norm.includes("ubicacion") || norm.includes("ubicaciones") || norm.includes("geolocalizacion") || norm.includes("perimetro") || norm.includes("perimetros");
+    const pointSubject = norm.includes("punto") || norm.includes("puntos");
+    const action = ["configurar", "configura", "ajustar", "parametro", "parametros", "perimetro", "perimetros", "punto", "puntos", "activo", "activos", "estado", "status", "resumen", "reporte", "listar", "ver", "mostrar", "ubicacion", "ubicaciones", "dentro", "fuera", "latitud", "longitud"].some((word) => norm.includes(word));
+    const configAction = ["configurar", "configura", "ajustar", "editar", "guardar", "parametro", "parametros"].some((word) => norm.includes(word));
+    return subject && (action || norm === "gps") || (pointSubject && (configAction || ["activo", "activos", "gps"].some((word) => norm.includes(word))));
+  }
+
+  function cxAssistantGpsNeedsConfig027X(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return ["configurar", "configura", "ajustar", "editar", "cambiar", "guardar", "parametro", "parametros", "perimetro", "perimetros"].some((word) => norm.includes(word));
+  }
+
+  function cxAssistantGpsCoord027X(value = "") {
+    const raw = String(value || "").trim().replace(",", ".");
+    const match = raw.match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const n = Number(match[0]);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function cxAssistantGpsSlot027X(value = "") {
+    const norm = cxAssistantNorm027A(value);
+    const point = norm.match(/\bpunto\s*([1-5])\b/) || norm.match(/\bslot\s*([1-5])\b/);
+    if (point) return Number(point[1]);
+    const exact = norm.match(/^\s*([1-5])\s*$/);
+    return exact ? Number(exact[1]) : null;
+  }
+
+  function cxAssistantGpsComplete027X(row = {}) {
+    return row.latitude_min != null && row.latitude_max != null && row.longitude_min != null && row.longitude_max != null;
+  }
+
+  function cxAssistantGpsPerimeterLabel027X(row = {}) {
+    return row.name || `Punto ${row.slot || ""}`;
+  }
+
+  function cxAssistantGpsRange027X(row = {}) {
+    if (!cxAssistantGpsComplete027X(row)) return "sin coordenadas completas";
+    return `lat ${gpsNumberValue(row.latitude_min)} a ${gpsNumberValue(row.latitude_max)} · lng ${gpsNumberValue(row.longitude_min)} a ${gpsNumberValue(row.longitude_max)}`;
+  }
+
+  function cxAssistantGpsPointsHtml027X(perimeters = [], empty = "Sin puntos activos configurados.") {
+    const active = gpsPerimeterRows(perimeters).filter((row) => row.is_active && cxAssistantGpsComplete027X(row));
+    if (!active.length) return `<div>${h(empty)}</div>`;
+    return active.map((row) => `<div>#${h(row.slot)} ${h(cxAssistantGpsPerimeterLabel027X(row))}: ${h(cxAssistantGpsRange027X(row))}</div>`).join("");
+  }
+
+  function cxAssistantGpsPeopleHtml027X(people = []) {
+    const rows = Array.isArray(people) ? people : [];
+    if (!rows.length) return "<div>Sin ubicaciones activas recibidas.</div>";
+    return rows.slice(0, 8).map((row) => {
+      const perimeter = row.perimeter?.name ? ` · ${row.perimeter.name}` : "";
+      return `<div>${h(row.employee_name || "Persona")} · ${h(row.gps_label || row.gps_status || "GPS")} · ${h(row.coordinates || "")}${h(perimeter)}</div>`;
+    }).join("") + (rows.length > 8 ? `<div>+${h(rows.length - 8)} ubicaciones mas.</div>` : "");
+  }
+
+  function cxAssistantGpsSummaryHtml027X(summary = {}) {
+    const perimeters = Array.isArray(summary.perimeters) ? summary.perimeters : [];
+    const activeConfigured = gpsPerimeterRows(perimeters).filter((row) => row.is_active && cxAssistantGpsComplete027X(row));
+    return `
+      <div>Resumen GPS:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Personas activas:</strong> ${h(cxReferencesNumber022E(summary.active_people || 0))}</div>
+        <div><strong>Ubicaciones enviadas:</strong> ${h(cxReferencesNumber022E(summary.sent_location || 0))}</div>
+        <div><strong>Dentro de perimetro:</strong> ${h(cxReferencesNumber022E(summary.inside || 0))}</div>
+        <div><strong>Fuera de perimetro:</strong> ${h(cxReferencesNumber022E(summary.outside || 0))}</div>
+        <div><strong>Sin configurar:</strong> ${h(cxReferencesNumber022E(summary.unconfigured || 0))}</div>
+        <div><strong>Puntos activos configurados:</strong> ${h(cxReferencesNumber022E(activeConfigured.length))}</div>
+      </div>
+      <div class="cxai-summary-027a">
+        <div><strong>Puntos activos:</strong></div>
+        ${cxAssistantGpsPointsHtml027X(perimeters)}
+      </div>
+      <div class="cxai-summary-027a">
+        <div><strong>Ubicaciones activas:</strong></div>
+        ${cxAssistantGpsPeopleHtml027X(summary.people || [])}
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-gps-config-027x>Configurar GPS</button>
+        <button class="cxai-chip-027a" type="button" data-client-module="gps">Abrir GPS</button>
+      </div>
+    `;
+  }
+
+  async function cxAssistantPushGpsSummary027X(chat, options = {}) {
+    if (options.intro !== false) {
+      cxAssistantPush027A(chat, "assistant", "Consultando GPS...");
+      cxAssistantRenderMessages027A();
+    }
+    const summary = await loadGpsSummary();
+    cxAssistantPush027A(chat, "assistant", cxAssistantGpsSummaryHtml027X(summary), true);
+  }
+
+  function cxAssistantGpsSeed027X(text = "") {
+    const parts = String(text || "").split("|").map((part) => part.trim()).filter(Boolean);
+    const data = {};
+    const slot = cxAssistantGpsSlot027X(text);
+    if (slot) data.slot = slot;
+    if (parts.length >= 6) {
+      if (!data.slot) data.slot = cxAssistantGpsSlot027X(parts[0]);
+      data.name = parts[data.slot ? 1 : 0] || "";
+      const offset = data.slot ? 2 : 1;
+      data.latitude_min = cxAssistantGpsCoord027X(parts[offset]);
+      data.latitude_max = cxAssistantGpsCoord027X(parts[offset + 1]);
+      data.longitude_min = cxAssistantGpsCoord027X(parts[offset + 2]);
+      data.longitude_max = cxAssistantGpsCoord027X(parts[offset + 3]);
+      if (parts[offset + 4]) data.is_active = cxAssistantYes027A(parts[offset + 4]) || cxAssistantNorm027A(parts[offset + 4]).includes("activo");
+    }
+    return data;
+  }
+
+  function cxAssistantGpsCurrent027X(flow = {}) {
+    const slot = Number(flow.data?.slot || 1);
+    return gpsPerimeterRows(flow.perimeters || []).find((row) => Number(row.slot) === slot) || gpsEmptyPerimeter(slot);
+  }
+
+  function cxAssistantGpsConfigNextStep027X(data = {}) {
+    if (!data.slot) return "slot";
+    if (data.name == null) return "name";
+    if (data.latitude_min == null) return "latitude_min";
+    if (data.latitude_max == null) return "latitude_max";
+    if (data.longitude_min == null) return "longitude_min";
+    if (data.longitude_max == null) return "longitude_max";
+    if (data.is_active == null) return "is_active";
+    return "confirm";
+  }
+
+  function cxAssistantGpsConfigQuestion027X(flow = {}) {
+    const data = flow.data || {};
+    const current = cxAssistantGpsCurrent027X(flow);
+    if (flow.step === "slot") return "Que punto GPS quieres configurar? Escribe un numero del 1 al 5, o cancelar para salir.";
+    if (flow.step === "name") return `Nombre del punto? Actual: ${h(current.name || `Punto ${data.slot}`)}. Escribe omitir o atras.`;
+    if (flow.step === "latitude_min") return `Latitud desde? Actual: ${h(gpsNumberValue(current.latitude_min) || "sin valor")}. Escribe atras para corregir.`;
+    if (flow.step === "latitude_max") return `Latitud hasta? Actual: ${h(gpsNumberValue(current.latitude_max) || "sin valor")}. Escribe atras para corregir.`;
+    if (flow.step === "longitude_min") return `Longitud desde? Actual: ${h(gpsNumberValue(current.longitude_min) || "sin valor")}. Ej: -74.131657. Escribe atras.`;
+    if (flow.step === "longitude_max") return `Longitud hasta? Actual: ${h(gpsNumberValue(current.longitude_max) || "sin valor")}. Ej: -74.131657. Escribe atras.`;
+    if (flow.step === "is_active") return "Este punto queda activo? Escribe si, no, omitir o atras.";
+    return `
+      <div>Confirma el perimetro GPS:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Punto:</strong> ${h(data.slot)}</div>
+        <div><strong>Nombre:</strong> ${h(data.name || `Punto ${data.slot}`)}</div>
+        <div><strong>Lat desde:</strong> ${h(gpsNumberValue(data.latitude_min))}</div>
+        <div><strong>Lat hasta:</strong> ${h(gpsNumberValue(data.latitude_max))}</div>
+        <div><strong>Lng desde:</strong> ${h(gpsNumberValue(data.longitude_min))}</div>
+        <div><strong>Lng hasta:</strong> ${h(gpsNumberValue(data.longitude_max))}</div>
+        <div><strong>Activo:</strong> ${data.is_active ? "Si" : "No"}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantBackGpsConfigFlow027X(chat) {
+    cxAssistantBackFlow027R(chat, ["slot", "name", "latitude_min", "latitude_max", "longitude_min", "longitude_max", "is_active", "confirm"], cxAssistantGpsConfigQuestion027X);
+  }
+
+  async function cxAssistantStartGpsConfig027X(chat, text = "") {
+    try {
+      const perimetersData = await loadGpsPerimeters();
+      const data = cxAssistantGpsSeed027X(text);
+      const step = cxAssistantGpsConfigNextStep027X(data);
+      chat.flow = { kind: "gps_config", step, data, perimeters: gpsPerimeterRows(perimetersData.perimeters || []) };
+      cxAssistantPush027A(chat, "assistant", cxAssistantGpsConfigQuestion027X(chat.flow), true);
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude cargar los parametros GPS.");
+    }
+  }
+
+  function cxAssistantGpsRowsForSave027X(flow = {}) {
+    const data = flow.data || {};
+    const rows = gpsPerimeterRows(flow.perimeters || []);
+    const slot = Number(data.slot || 1);
+    return rows.map((row) => {
+      if (Number(row.slot) !== slot) return row;
+      return {
+        ...row,
+        slot,
+        name: String(data.name || `Punto ${slot}`).trim(),
+        latitude_min: data.latitude_min,
+        latitude_max: data.latitude_max,
+        longitude_min: data.longitude_min,
+        longitude_max: data.longitude_max,
+        is_active: Boolean(data.is_active),
+      };
+    });
+  }
+
+  function cxAssistantGpsRefreshView027X() {
+    if (!document.querySelector("[data-gps-refresh]")) return;
+    renderGpsModule().catch(() => {});
+  }
+
+  async function cxAssistantSaveGpsConfig027X(chat, flow = {}) {
+    const rows = cxAssistantGpsRowsForSave027X(flow);
+    const data = flow.data || {};
+    try {
+      await api(`/gps/companies/${encodeURIComponent(state.companyId)}/perimeters`, {
+        method: "PUT",
+        body: JSON.stringify({ perimeters: rows }),
+      });
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `GPS configurado: punto ${data.slot} ${data.name || ""}.`);
+      cxAssistantGpsRefreshView027X();
+      await cxAssistantPushGpsSummary027X(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude guardar el perimetro GPS.");
+    }
+  }
+
+  async function cxAssistantHandleGpsConfigFlow027X(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const current = cxAssistantGpsCurrent027X(flow);
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "slot": {
+        const slot = cxAssistantGpsSlot027X(clean);
+        if (!slot) {
+          cxAssistantPush027A(chat, "assistant", "Necesito un punto del 1 al 5.");
+          return;
+        }
+        data.slot = slot;
+        break;
+      }
+      case "name":
+        data.name = cxAssistantSkip027A(clean) ? current.name || `Punto ${data.slot}` : clean;
+        break;
+      case "latitude_min": {
+        const value = cxAssistantSkip027A(clean) ? cxAssistantGpsCoord027X(current.latitude_min) : cxAssistantGpsCoord027X(clean);
+        if (value == null) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una latitud valida. Ejemplo: 4.617507.");
+          return;
+        }
+        data.latitude_min = value;
+        break;
+      }
+      case "latitude_max": {
+        const value = cxAssistantSkip027A(clean) ? cxAssistantGpsCoord027X(current.latitude_max) : cxAssistantGpsCoord027X(clean);
+        if (value == null) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una latitud valida. Ejemplo: 4.657507.");
+          return;
+        }
+        data.latitude_max = value;
+        break;
+      }
+      case "longitude_min": {
+        const value = cxAssistantSkip027A(clean) ? cxAssistantGpsCoord027X(current.longitude_min) : cxAssistantGpsCoord027X(clean);
+        if (value == null) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una longitud valida. Ejemplo: -74.131657.");
+          return;
+        }
+        data.longitude_min = value;
+        break;
+      }
+      case "longitude_max": {
+        const value = cxAssistantSkip027A(clean) ? cxAssistantGpsCoord027X(current.longitude_max) : cxAssistantGpsCoord027X(clean);
+        if (value == null) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una longitud valida. Ejemplo: -75.131657.");
+          return;
+        }
+        data.longitude_max = value;
+        break;
+      }
+      case "is_active":
+        data.is_active = cxAssistantSkip027A(clean) ? true : (cxAssistantYes027A(clean) && !cxAssistantNo027A(clean));
+        break;
+      case "confirm":
+        if (norm.includes("confirmar") || norm.includes("guardar") || cxAssistantYes027A(clean)) {
+          await cxAssistantSaveGpsConfig027X(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para guardar, atras para corregir o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime configurar GPS para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    flow.step = cxAssistantGpsConfigNextStep027X(data);
+    cxAssistantPush027A(chat, "assistant", cxAssistantGpsConfigQuestion027X(flow), true);
+  }
+
+  async function cxAssistantReplyGps027X(chat, text = "") {
+    if (!cxAssistantGpsHasAccess027X()) {
+      cxAssistantPush027A(chat, "assistant", "GPS no esta activo para esta empresa.");
+      return false;
+    }
+    if (cxAssistantGpsNeedsConfig027X(text)) {
+      await cxAssistantStartGpsConfig027X(chat, text);
+      return true;
+    }
+    try {
+      await cxAssistantPushGpsSummary027X(chat);
+      return true;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar GPS.");
+      return false;
+    }
+  }
+
   async function cxAssistantModuleHelp027A(chat, code, title) {
     const token = cxNormalizeModuleToken017H(`${code} ${title}`);
     if (cxAssistantIsCrmTool027D({ code, title })) {
@@ -15213,6 +15548,10 @@ function inventoryCreatePayload() {
       await cxAssistantReplyInventory027W(chat, "estado inventario");
       return;
     }
+    if (cxAssistantIsGpsTool027X({ code, title }) || token.includes("gps")) {
+      await cxAssistantReplyGps027X(chat, "estado gps");
+      return;
+    }
     if (cxAssistantIsProductionTool027K({ code, title }) || token.includes("produccion") || token.includes("production")) {
       await cxAssistantReplyProduction027K(chat, "resumen produccion");
       return;
@@ -15241,6 +15580,8 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "quote");
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
       await cxAssistantReplyPayroll027I(chat, clean);
+    } else if (cxAssistantLooksGpsQuery027X(clean)) {
+      await cxAssistantReplyGps027X(chat, clean);
     } else if (cxAssistantLooksInventoryQuery027W(clean)) {
       await cxAssistantReplyInventory027W(chat, clean);
     } else if (cxAssistantLooksReferencesQuery027R(clean)) {
@@ -15263,7 +15604,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial e Inventario. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario y GPS. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -15357,6 +15698,14 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-inv-edit-027w]")) {
           await cxAssistantProcessText027A("modificar inventario", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-gps-summary-027x]")) {
+          await cxAssistantProcessText027A("estado gps", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-gps-config-027x]")) {
+          await cxAssistantProcessText027A("configurar gps", chat.activeCode);
           return;
         }
         const moduleButton = target.closest("[data-cxai-module-027a]");
