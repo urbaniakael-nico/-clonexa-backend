@@ -13675,7 +13675,7 @@ function inventoryCreatePayload() {
   function cxAssistantLooksReferencesQuery027R(text = "") {
     const norm = cxAssistantNorm027A(text);
     const subject = norm.includes("referencia") || norm.includes("production_refs") || norm.includes("production references") || norm.includes("catalogo");
-    const action = ["agregar", "agrgar", "agrega", "crear", "nueva", "nuevo", "anadir", "sumar", "archivar", "eliminar", "borrar", "status", "estado", "cantidad", "cuantas", "cuantos", "activa", "activas", "resumen", "reporte", "listar"].some((word) => norm.includes(word));
+    const action = ["agregar", "agrgar", "agrega", "crear", "nueva", "nuevo", "anadir", "sumar", "archivar", "eliminar", "borrar", "status", "estado", "cantidad", "cuantas", "cuantos", "cual", "cuales", "ver", "mostrar", "mirar", "consultar", "buscar", "saber", "dime", "dejame", "activa", "activas", "resumen", "reporte", "listar", "precio", "valor", "cuesta", "vale", "sku", "color", "categoria", "talla", "modelo", "detalle", "informacion"].some((word) => norm.includes(word));
     return subject && (action || norm === "referencias" || norm === "referencia");
   }
 
@@ -13688,7 +13688,7 @@ function inventoryCreatePayload() {
 
   function cxAssistantActionTail027R(text = "") {
     return String(text || "")
-      .replace(/\b(me|ayudas?|ayudame|ayudar|puedes?|podrias?|quiero|quisiera|necesito|por|favor|a|al|un|una|el|la|en|de|del|para|agregar|agrgar|agrega|crear|anadir|sumar|nueva|nuevo|archivar|eliminar|borrar|quitar|referencias?|reference|references|production_refs|production_references|workforce|work force|wrforce|worforce|worforece|workforece|workforse|personal|empleados?|colaboradores?|persona|personas|estado|status|cantidad|cantidades|cuantos?|cuantas?|reporte|resumen|listar|activas?|activos?|activo)\b/ig, " ")
+      .replace(/\b(me|ayudas?|ayudame|ayudar|puedes?|podrias?|quiero|quisiera|necesito|por|favor|a|al|un|una|el|la|las|los|en|de|del|para|son|es|saber|dime|dejame|ver|mostrar|mirar|consultar|buscar|cual|cuales|cuál|cuáles|agregar|agrgar|agrega|crear|anadir|sumar|nueva|nuevo|archivar|eliminar|borrar|quitar|referencias?|reference|references|production_refs|production_references|catalogo|catalogo|precio|precios|valor|valores|cuesta|vale|sku|color|categoria|categorias|talla|modelo|detalle|informacion|workforce|work force|wrforce|worforce|worforece|workforece|workforse|personal|empleados?|colaboradores?|persona|personas|estado|status|cantidad|cantidades|cuantos?|cuantas?|reporte|resumen|listar|activas?|activos?|activo)\b/ig, " ")
       .replace(/[,:;]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -13940,6 +13940,49 @@ function inventoryCreatePayload() {
     cxAssistantPush027A(chat, "assistant", cxAssistantReferencesSummaryHtml027R(summary, payload.items || []), true);
   }
 
+  function cxAssistantIsReferenceDetailQuery027U(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return ["precio", "valor", "cuesta", "vale", "sku", "color", "categoria", "talla", "modelo", "detalle", "informacion", "datos"].some((word) => norm.includes(word));
+  }
+
+  function cxAssistantReferenceDetailHtml027U(row = {}) {
+    return `
+      <div>Detalle de referencia:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Nombre:</strong> ${h(row.name || "Referencia")}</div>
+        <div><strong>Categoria:</strong> ${h(row.category || "N/A")}</div>
+        <div><strong>Talla/modelo:</strong> ${h(row.size || "N/A")}</div>
+        <div><strong>Color:</strong> ${h(row.color || "N/A")}</div>
+        <div><strong>SKU:</strong> ${h(row.sku || "N/A")}</div>
+        <div><strong>Precio unidad:</strong> ${h(cxReferencesMoney022M(row.unit_price || 0))}</div>
+        <div><strong>Meta operativa:</strong> ${h(cxReferencesNumber022E(row.initial_quantity || 0))}</div>
+        <div><strong>Canal:</strong> ${h(cxReferenceChannelLabel022E(row))}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a" type="button" data-client-module="references">Abrir Referencias</button>
+      </div>
+    `;
+  }
+
+  async function cxAssistantReplyReferenceDetail027U(chat, text = "") {
+    const payload = await cxReferencesApi022E(`/references-v1/companies/${encodeURIComponent(state.companyId)}`);
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const query = cxAssistantActionTail027R(text);
+    if (!query) {
+      cxAssistantPush027A(chat, "assistant", cxAssistantReferencesSummaryHtml027R({ references_total: payload.count || items.length }, items), true);
+      return;
+    }
+    const { match, candidates } = cxAssistantBestMatch027R(query, items, (row) => cxAssistantReferenceLabel027R(row));
+    if (match) {
+      cxAssistantPush027A(chat, "assistant", cxAssistantReferenceDetailHtml027U(match), true);
+      return;
+    }
+    const options = candidates.length
+      ? candidates.map((row) => `<div>${h(cxAssistantReferenceLabel027R(row))}: ${h(cxReferencesMoney022M(row.unit_price || 0))}</div>`).join("")
+      : "<div>No encontre coincidencias activas.</div>";
+    cxAssistantPush027A(chat, "assistant", `<div>No pude elegir una referencia unica. Estas son las coincidencias:</div><div class="cxai-summary-027a">${options}</div>`, true);
+  }
+
   async function cxAssistantArchiveReference027R(chat, text = "") {
     const query = cxAssistantActionTail027R(text);
     if (!query) {
@@ -13976,6 +14019,15 @@ function inventoryCreatePayload() {
     if (["archivar", "eliminar", "borrar", "quitar"].some((word) => norm.includes(word))) {
       await cxAssistantArchiveReference027R(chat, text);
       return true;
+    }
+    if (cxAssistantIsReferenceDetailQuery027U(text)) {
+      try {
+        await cxAssistantReplyReferenceDetail027U(chat, text);
+        return true;
+      } catch (error) {
+        cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar el detalle de la referencia.");
+        return false;
+      }
     }
     try {
       await cxAssistantPushReferencesSummary027R(chat);
