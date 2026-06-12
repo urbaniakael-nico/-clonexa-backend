@@ -12388,10 +12388,11 @@ function inventoryCreatePayload() {
     const codes = clientModuleCodes(modules);
     const modulePool = cxAssistantModulePool027E();
     const normalizedCodes = new Set(modulePool.flatMap(cxAssistantModuleTokens027E).filter(Boolean));
+    const activeIdentityCodes = new Set(modules.flatMap(cxAssistantModuleIdentityTokens027Q).filter(Boolean));
     const hasQuotes = modulePool.some(cxAssistantIsQuotesTool027A);
     const hasCrm = modulePool.some(cxAssistantIsCrmTool027D) || normalizedCodes.has("crm");
     const hasPayroll = modulePool.some(cxAssistantIsPayrollTool027I) || normalizedCodes.has("payroll") || normalizedCodes.has("nomina") || hasAnyClientModule(codes, ["payroll"]);
-    const hasProduction = modulePool.some(cxAssistantIsProductionTool027K) || normalizedCodes.has("production") || normalizedCodes.has("produccion") || hasAnyClientModule(codes, ["production"]);
+    const hasProduction = ["production", "produccion", "produccion_operativa", "production_module"].some((code) => activeIdentityCodes.has(code)) || hasAnyClientModule(codes, ["production"]);
     const hasReferences = modulePool.some(cxAssistantIsReferencesTool027Q) || ["references", "reference", "production_refs", "production_references", "referencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["references", "production_refs"]);
     const hasWorkforce = modulePool.some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["workforce", "personal", "employees"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
@@ -12445,6 +12446,8 @@ function inventoryCreatePayload() {
         if (tools.hasCrm && cxAssistantIsCrmTool027D(module)) return false;
         if (tools.hasPayroll && cxAssistantIsPayrollTool027I(module)) return false;
         if (tools.hasProduction && cxAssistantIsProductionTool027K(module)) return false;
+        if (tools.hasReferences && cxAssistantIsReferencesTool027Q(module)) return false;
+        if (tools.hasWorkforce && cxAssistantIsWorkforceTool027R(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
         if (!key) return true;
         if (seenModules.has(key)) return false;
@@ -12464,6 +12467,8 @@ function inventoryCreatePayload() {
         ${tools.hasCrm ? `<button class="cxai-chip-027a primary" type="button" data-cxai-crm-summary-027d>Estado CRM</button>` : ""}
         ${tools.hasPayroll ? `<button class="cxai-chip-027a primary" type="button" data-cxai-payroll-summary-027i>Nomina</button>` : ""}
         ${tools.hasProduction ? `<button class="cxai-chip-027a primary" type="button" data-cxai-production-summary-027k>Produccion</button>` : ""}
+        ${tools.hasReferences ? `<button class="cxai-chip-027a primary" type="button" data-cxai-ref-summary-027r>Referencias</button>` : ""}
+        ${tools.hasWorkforce ? `<button class="cxai-chip-027a primary" type="button" data-cxai-wf-summary-027r>Workforce</button>` : ""}
         ${moduleButtons}
       </div>
     `;
@@ -13660,7 +13665,7 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantBackReferenceFlow027R(chat) {
-    cxAssistantBackFlow027R(chat, ["name", "size", "initial_quantity", "channel", "confirm"], cxAssistantReferenceQuestion027R);
+    cxAssistantBackFlow027R(chat, ["name", "category", "size", "color", "sku", "unit_price", "initial_quantity", "channel", "confirm"], cxAssistantReferenceQuestion027R);
   }
 
   function cxAssistantBackWorkforceFlow027R(chat) {
@@ -13720,7 +13725,7 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantReferenceLabel027R(row = {}) {
-    return [row.name || "Referencia", row.size, row.color, row.sku].filter(Boolean).join(" / ");
+    return [row.name || "Referencia", row.category, row.size, row.color, row.sku].filter(Boolean).join(" / ");
   }
 
   function cxAssistantNormalizeReferenceChannel027R(value = "") {
@@ -13733,6 +13738,17 @@ function inventoryCreatePayload() {
   function cxAssistantReferenceSeed027R(text = "") {
     const parts = cxAssistantPipeParts027R(text);
     const data = {};
+    if (parts.length >= 5) {
+      if (parts[0]) data.name = parts[0];
+      if (parts[1]) data.category = parts[1];
+      if (parts[2]) data.size = parts[2];
+      if (parts[3]) data.color = parts[3];
+      if (parts[4]) data.sku = parts[4];
+      if (parts[5]) data.unit_price = Math.max(0, cxAssistantNumber027R(parts[5]));
+      if (parts[6]) data.initial_quantity = Math.max(0, Math.round(cxAssistantNumber027R(parts[6])));
+      if (parts[7]) data.channel = cxAssistantNormalizeReferenceChannel027R(parts[7]);
+      return data;
+    }
     if (parts[0]) data.name = parts[0];
     if (parts[1]) data.size = parts[1];
     if (parts[2]) data.initial_quantity = Math.max(0, Math.round(cxAssistantNumber027R(parts[2])));
@@ -13743,14 +13759,22 @@ function inventoryCreatePayload() {
   function cxAssistantReferenceQuestion027R(flow = {}) {
     const data = flow.data || {};
     if (flow.step === "name") return "Como se llama la referencia? Puedes escribir cancelar para salir.";
-    if (flow.step === "size") return "Que talla, modelo o variante tiene? Escribe atras para corregir.";
+    if (flow.step === "category") return "Categoria? Ejemplo: Funda Celular. Escribe omitir o atras.";
+    if (flow.step === "size") return "Talla o modelo? Ejemplo: 14 Pro Max, 18 Plus. Escribe atras para corregir.";
+    if (flow.step === "color") return "Color? Ejemplo: negro, rojo. Escribe omitir o atras.";
+    if (flow.step === "sku") return "SKU o codigo interno? Escribe omitir o atras.";
+    if (flow.step === "unit_price") return "Precio unidad? Escribe 0, omitir o atras.";
     if (flow.step === "initial_quantity") return "Cantidad inicial o meta operativa? Escribe 0, omitir o atras.";
     if (flow.step === "channel") return "Canal de uso: sistema, bot o ambos? Escribe atras para corregir.";
     return `
       <div>Confirma la referencia:</div>
       <div class="cxai-summary-027a">
         <div><strong>Nombre:</strong> ${h(data.name || "")}</div>
+        <div><strong>Categoria:</strong> ${h(data.category || "Sin categoria")}</div>
         <div><strong>Talla/modelo:</strong> ${h(data.size || "")}</div>
+        <div><strong>Color:</strong> ${h(data.color || "Sin color")}</div>
+        <div><strong>SKU:</strong> ${h(data.sku || "Sin SKU")}</div>
+        <div><strong>Precio unidad:</strong> ${h(cxUniversalMoney021D(data.unit_price || 0))}</div>
         <div><strong>Cantidad inicial:</strong> ${h(cxReferencesNumber022E(data.initial_quantity || 0))}</div>
         <div><strong>Canal:</strong> ${h(data.channel || "both")}</div>
       </div>
@@ -13761,9 +13785,21 @@ function inventoryCreatePayload() {
     `;
   }
 
+  function cxAssistantReferenceNextStep027S(data = {}) {
+    if (!data.name) return "name";
+    if (data.category == null) return "category";
+    if (!data.size) return "size";
+    if (data.color == null) return "color";
+    if (data.sku == null) return "sku";
+    if (data.unit_price == null) return "unit_price";
+    if (data.initial_quantity == null) return "initial_quantity";
+    if (!data.channel) return "channel";
+    return "confirm";
+  }
+
   function cxAssistantStartReferenceCreate027R(chat, text = "") {
     const data = cxAssistantReferenceSeed027R(text);
-    const step = !data.name ? "name" : (!data.size ? "size" : (data.initial_quantity == null ? "initial_quantity" : (!data.channel ? "channel" : "confirm")));
+    const step = cxAssistantReferenceNextStep027S(data);
     chat.flow = { kind: "reference_create", step, data };
     cxAssistantPush027A(chat, "assistant", cxAssistantReferenceQuestion027R(chat.flow), true);
   }
@@ -13772,7 +13808,11 @@ function inventoryCreatePayload() {
     const data = flow.data || {};
     const payload = {
       name: String(data.name || "").trim(),
+      category: String(data.category || "").trim(),
       size: String(data.size || "").trim(),
+      color: String(data.color || "").trim(),
+      sku: String(data.sku || "").trim(),
+      unit_price: Math.max(0, Number(data.unit_price || 0)),
       initial_quantity: Math.max(0, Math.round(Number(data.initial_quantity || 0))),
       channel: data.channel || "both"
     };
@@ -13804,7 +13844,11 @@ function inventoryCreatePayload() {
           return;
         }
         data.name = clean;
-        flow.step = "size";
+        flow.step = cxAssistantReferenceNextStep027S(data);
+        break;
+      case "category":
+        data.category = cxAssistantSkip027A(clean) ? "" : clean;
+        flow.step = cxAssistantReferenceNextStep027S(data);
         break;
       case "size":
         if (!clean || cxAssistantSkip027A(clean)) {
@@ -13812,15 +13856,27 @@ function inventoryCreatePayload() {
           return;
         }
         data.size = clean;
-        flow.step = "initial_quantity";
+        flow.step = cxAssistantReferenceNextStep027S(data);
+        break;
+      case "color":
+        data.color = cxAssistantSkip027A(clean) ? "" : clean;
+        flow.step = cxAssistantReferenceNextStep027S(data);
+        break;
+      case "sku":
+        data.sku = cxAssistantSkip027A(clean) ? "" : clean;
+        flow.step = cxAssistantReferenceNextStep027S(data);
+        break;
+      case "unit_price":
+        data.unit_price = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
+        flow.step = cxAssistantReferenceNextStep027S(data);
         break;
       case "initial_quantity":
         data.initial_quantity = cxAssistantSkip027A(clean) ? 0 : Math.max(0, Math.round(cxAssistantNumber027R(clean)));
-        flow.step = "channel";
+        flow.step = cxAssistantReferenceNextStep027S(data);
         break;
       case "channel":
         data.channel = cxAssistantSkip027A(clean) ? "both" : cxAssistantNormalizeReferenceChannel027R(clean);
-        flow.step = "confirm";
+        flow.step = cxAssistantReferenceNextStep027S(data);
         cxAssistantPush027A(chat, "assistant", cxAssistantReferenceQuestion027R(flow), true);
         return;
       case "confirm":
@@ -13847,7 +13903,7 @@ function inventoryCreatePayload() {
     const detail = activeItems.length
       ? activeItems.slice(0, 8).map((item) => {
           const row = { ...item, ...(byId.get(String(item.id || "")) || {}) };
-          return `<div>${h(cxAssistantReferenceLabel027R(row))}: <strong>${h(cxReferencesNumber022E(row.pending_quantity ?? row.initial_quantity ?? 0))}</strong> pendientes · avance ${h(cxProdPercent018E(row.progress_percent || 0))} · ${h(cxReferenceChannelLabel022E(row))}</div>`;
+          return `<div>${h(row.name || "Referencia")} · Cat: ${h(row.category || "N/A")} · Talla/modelo: ${h(row.size || "N/A")} · Color: ${h(row.color || "N/A")} · SKU: ${h(row.sku || "N/A")} · Precio: ${h(cxReferencesMoney022M(row.unit_price || 0))} · Pendiente: <strong>${h(cxReferencesNumber022E(row.pending_quantity ?? row.initial_quantity ?? 0))}</strong> · ${h(cxReferenceChannelLabel022E(row))}</div>`;
         }).join("") + (activeItems.length > 8 ? `<div>+${h(activeItems.length - 8)} referencias activas mas.</div>` : "")
       : "<div>Sin referencias activas.</div>";
     return `
