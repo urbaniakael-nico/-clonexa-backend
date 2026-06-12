@@ -12387,6 +12387,14 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsInventoryTool027W(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["inventory", "inventario", "inventario_operativo"].includes(token) ||
+      token.includes("inventario")
+    );
+  }
+
   function cxAssistantIsProductionTool027K(module = {}) {
     if (cxAssistantIsReferencesTool027Q(module)) return false;
     const tokens = cxAssistantModuleTokens027E(module);
@@ -12410,8 +12418,9 @@ function inventoryCreatePayload() {
     const hasReferences = modulePool.some(cxAssistantIsReferencesTool027Q) || ["references", "reference", "production_refs", "production_references", "referencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["references", "production_refs"]);
     const hasWorkforce = modulePool.some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["workforce", "personal", "employees"]);
     const hasCommercialClosing = modulePool.some(cxAssistantIsCommercialClosingTool027V) || ["commercial_closing", "cierre_comercial", "cierres_comerciales"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["commercial_closing", "cierre_comercial", "cierres_comerciales"]);
+    const hasInventory = modulePool.some(cxAssistantIsInventoryTool027W) || ["inventory", "inventario", "inventario_operativo"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["inventory"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12464,6 +12473,7 @@ function inventoryCreatePayload() {
         if (tools.hasReferences && cxAssistantIsReferencesTool027Q(module)) return false;
         if (tools.hasWorkforce && cxAssistantIsWorkforceTool027R(module)) return false;
         if (tools.hasCommercialClosing && cxAssistantIsCommercialClosingTool027V(module)) return false;
+        if (tools.hasInventory && cxAssistantIsInventoryTool027W(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
         if (!key) return true;
         if (seenModules.has(key)) return false;
@@ -12486,6 +12496,7 @@ function inventoryCreatePayload() {
         ${tools.hasReferences ? `<button class="cxai-chip-027a primary" type="button" data-cxai-ref-summary-027r>Referencias</button>` : ""}
         ${tools.hasWorkforce ? `<button class="cxai-chip-027a primary" type="button" data-cxai-wf-summary-027r>Workforce</button>` : ""}
         ${tools.hasCommercialClosing ? `<button class="cxai-chip-027a primary" type="button" data-cxai-closing-summary-027v>Cierre comercial</button>` : ""}
+        ${tools.hasInventory ? `<button class="cxai-chip-027a primary" type="button" data-cxai-inv-summary-027w>Inventario</button>` : ""}
         ${moduleButtons}
       </div>
     `;
@@ -12702,6 +12713,11 @@ function inventoryCreatePayload() {
       cxAssistantStartReferenceCreate027R(chat, clean);
       return;
     }
+    if (!["inventory_create", "inventory_update"].includes(flow.kind) && cxAssistantLooksInventoryQuery027W(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyInventory027W(chat, clean);
+      return;
+    }
     if (cxAssistantIsBackCommand027R(norm)) {
       if (flow.kind === "reference_create") {
         cxAssistantBackReferenceFlow027R(chat);
@@ -12711,6 +12727,14 @@ function inventoryCreatePayload() {
         cxAssistantBackWorkforceFlow027R(chat);
         return;
       }
+      if (flow.kind === "inventory_create") {
+        cxAssistantBackInventoryCreateFlow027W(chat);
+        return;
+      }
+      if (flow.kind === "inventory_update") {
+        cxAssistantBackInventoryUpdateFlow027W(chat);
+        return;
+      }
     }
     if (flow.kind === "reference_create") {
       await cxAssistantHandleReferenceFlow027R(chat, clean);
@@ -12718,6 +12742,14 @@ function inventoryCreatePayload() {
     }
     if (flow.kind === "workforce_create") {
       await cxAssistantHandleWorkforceFlow027R(chat, clean);
+      return;
+    }
+    if (flow.kind === "inventory_create") {
+      await cxAssistantHandleInventoryCreateFlow027W(chat, clean);
+      return;
+    }
+    if (flow.kind === "inventory_update") {
+      await cxAssistantHandleInventoryUpdateFlow027W(chat, clean);
       return;
     }
     const item = flow.items[flow.itemIndex] || flow.items[0];
@@ -14506,6 +14538,651 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantInventoryHasAccess027W() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasInventory || cxAssistantModulePool027E().some(cxAssistantIsInventoryTool027W) || ["inventory", "inventario"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksInventoryQuery027W(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const inventorySubject = norm.includes("inventario") || norm.includes("inventory") || norm.includes("stock");
+    const materialSubject = ["material", "materiales", "producto", "productos", "articulo", "articulos"].some((word) => norm.includes(word));
+    const action = ["agregar", "agrgar", "agrega", "crear", "nuevo", "nueva", "modificar", "actualizar", "editar", "guardar", "ingresar", "entrada", "cantidad", "factura", "adjuntar", "cargar", "archivo", "deshabilitar", "desactivar", "inhabilitar", "activar", "habilitar", "archivar", "estado", "status", "resumen", "reporte", "listar", "ver", "consultar", "buscar", "precio", "valor", "minimo", "alerta", "bajo"].some((word) => norm.includes(word));
+    return inventorySubject || (materialSubject && action);
+  }
+
+  function cxAssistantInventoryAction027W(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (["deshabilitar", "desactivar", "inhabilitar", "inactivo", "archivar"].some((word) => norm.includes(word))) return "disable";
+    if (["activar", "habilitar", "activo"].some((word) => norm.includes(word))) return "enable";
+    if (["adjuntar", "factura", "cargar archivo", "cargar factura"].some((word) => norm.includes(word))) return "invoice";
+    if (["ingresar", "entrada", "sumar", "aumentar", "cantidad"].some((word) => norm.includes(word))) return "entry";
+    if (["modificar", "actualizar", "editar", "guardar"].some((word) => norm.includes(word))) return "save";
+    if (["estado", "status", "resumen", "reporte", "listar", "ver", "consultar", "buscar", "precio", "valor", "minimo", "alerta", "bajo", "stock"].some((word) => norm.includes(word))) return "status";
+    return "";
+  }
+
+  function cxAssistantInventoryActionTail027W(text = "") {
+    return String(text || "")
+      .replace(/\b(me|ayudas?|ayudame|ayudar|puedes?|podrias?|quiero|quisiera|necesito|por|favor|a|al|un|una|el|la|las|los|en|de|del|para|son|es|saber|dime|dejame|ver|mostrar|mirar|consultar|buscar|cual|cuales|cuál|cuáles|agregar|agrgar|agrega|crear|anadir|sumar|nuevo|nueva|modificar|actualizar|editar|guardar|ingresar|entrada|cantidad|cantidades|adjuntar|factura|facturas|cargar|archivo|archivar|deshabilitar|desactivar|inhabilitar|activar|habilitar|estado|status|resumen|reporte|listar|precio|precios|valor|valores|minimo|minimos|alerta|alertas|bajo|inventario|inventory|stock|materiales?|productos?|articulos?)\b/ig, " ")
+      .replace(/[,:;]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function cxAssistantInventoryLabel027W(row = {}) {
+    return [row.name_reference || row.name || row.reference || "Material", row.size, row.color].filter(Boolean).join(" / ");
+  }
+
+  function cxAssistantInventoryAlert027W(row = {}) {
+    const status = String(row.status || "active").toLowerCase();
+    if (status !== "active") return "Inactivo";
+    const qty = inventoryNumber(row.current_stock);
+    if (qty <= 0) return "Sin stock";
+    if (row.alert_low) return "Stock bajo";
+    return "OK";
+  }
+
+  async function cxAssistantLoadInventory027W(query = "") {
+    return loadInventoryItems(query || "");
+  }
+
+  function cxAssistantInventoryFind027W(query = "", rows = []) {
+    return cxAssistantBestMatch027R(query, rows, cxAssistantInventoryLabel027W);
+  }
+
+  function cxAssistantInventoryDetailHtml027W(row = {}) {
+    const unit = inventoryNumber(row.unit_value ?? row.unit_price ?? row.price ?? 0);
+    const stock = inventoryNumber(row.current_stock);
+    const value = inventoryNumber(row.stock_value || stock * unit);
+    return `
+      <div class="cxai-summary-027a">
+        <div><strong>Material:</strong> ${h(cxAssistantInventoryLabel027W(row))}</div>
+        <div><strong>Stock actual:</strong> ${h(inventoryQtyLabel(stock))}</div>
+        <div><strong>Minimo alerta:</strong> ${h(inventoryQtyLabel(row.min_stock || 0))}</div>
+        <div><strong>Estado:</strong> ${h(inventoryStatusLabel(row.status || "active"))} · ${h(cxAssistantInventoryAlert027W(row))}</div>
+        <div><strong>Valor unitario:</strong> ${h(cxUniversalMoney021D(unit))}</div>
+        <div><strong>Valor stock:</strong> ${h(cxUniversalMoney021D(value))}</div>
+      </div>
+    `;
+  }
+
+  function cxAssistantInventorySummaryHtml027W(data = {}, text = "") {
+    const summary = data.summary || {};
+    const rows = Array.isArray(data.items) ? data.items : [];
+    const norm = cxAssistantNorm027A(text);
+    const wantsLow = norm.includes("bajo") || norm.includes("minimo") || norm.includes("alerta");
+    const activeRows = rows.filter((row) => String(row.status || "active").toLowerCase() === "active");
+    const detailRows = wantsLow ? activeRows.filter((row) => row.alert_low || inventoryNumber(row.current_stock) <= 0) : activeRows;
+    const detail = detailRows.length
+      ? detailRows.slice(0, 8).map((row) => `<div>${h(cxAssistantInventoryLabel027W(row))}: <strong>${h(inventoryQtyLabel(row.current_stock))}</strong> · min ${h(inventoryQtyLabel(row.min_stock || 0))} · ${h(cxAssistantInventoryAlert027W(row))}</div>`).join("")
+      : "<div>Sin materiales para este filtro.</div>";
+    return `
+      <div>Estado del Inventario:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Activos:</strong> ${h(cxReferencesNumber022E(summary.active || 0))}</div>
+        <div><strong>Stock bajo:</strong> ${h(cxReferencesNumber022E(summary.low_stock || 0))}</div>
+        <div><strong>Sin stock:</strong> ${h(cxReferencesNumber022E(summary.zero_stock || 0))}</div>
+        <div><strong>Inactivos:</strong> ${h(cxReferencesNumber022E(summary.inactive || 0))}</div>
+        <div><strong>Total registros:</strong> ${h(cxReferencesNumber022E(summary.total ?? rows.length))}</div>
+        <div><strong>Unidades:</strong> ${h(inventoryQtyLabel(summary.total_stock_units || 0))}</div>
+        <div><strong>Valor stock:</strong> ${h(cxUniversalMoney021D(summary.total_stock_value || 0))}</div>
+      </div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-inv-add-027w>Agregar inventario</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-inv-edit-027w>Modificar inventario</button>
+        <button class="cxai-chip-027a" type="button" data-client-module="inventory">Abrir Inventario</button>
+      </div>
+    `;
+  }
+
+  async function cxAssistantPushInventorySummary027W(chat, options = {}) {
+    if (options.intro !== false) {
+      cxAssistantPush027A(chat, "assistant", "Consultando Inventario...");
+      cxAssistantRenderMessages027A();
+    }
+    const data = await cxAssistantLoadInventory027W();
+    cxAssistantPush027A(chat, "assistant", cxAssistantInventorySummaryHtml027W(data), true);
+  }
+
+  function cxAssistantInventoryCreateSeed027W(text = "") {
+    const parts = cxAssistantInventoryActionTail027W(text).split("|").map((part) => part.trim()).filter(Boolean);
+    const data = {};
+    if (parts[0]) data.name_reference = parts[0];
+    if (parts[1]) data.size = parts[1];
+    if (parts[2]) data.color = parts[2];
+    if (parts[3]) data.initial_quantity = Math.max(0, cxAssistantNumber027R(parts[3]));
+    if (parts[4]) data.min_stock = Math.max(0, cxAssistantNumber027R(parts[4]));
+    if (parts[5]) data.unit_value = Math.max(0, cxAssistantNumber027R(parts[5]));
+    if (parts[6]) data.attach_invoice = cxAssistantYes027A(parts[6]);
+    return data;
+  }
+
+  function cxAssistantInventoryCreateNextStep027W(data = {}) {
+    if (!data.name_reference) return "name_reference";
+    if (data.size == null) return "size";
+    if (data.color == null) return "color";
+    if (data.unit_value == null) return "unit_value";
+    if (data.initial_quantity == null) return "initial_quantity";
+    if (data.min_stock == null) return "min_stock";
+    if (data.attach_invoice == null) return "attach_invoice";
+    return "confirm";
+  }
+
+  function cxAssistantInventoryCreateQuestion027W(flow = {}) {
+    const data = flow.data || {};
+    if (flow.step === "name_reference") return "Nombre o referencia del material/producto? Puedes escribir cancelar para salir.";
+    if (flow.step === "size") return "Tamano, modelo o presentacion? Escribe omitir o atras.";
+    if (flow.step === "color") return "Color? Escribe omitir o atras.";
+    if (flow.step === "unit_value") return "Valor unitario? Escribe 0, omitir o atras.";
+    if (flow.step === "initial_quantity") return "Cantidad inicial de stock? Escribe 0, omitir o atras.";
+    if (flow.step === "min_stock") return "Minimo de alerta? Escribe 0, omitir o atras.";
+    if (flow.step === "attach_invoice") return "Quieres adjuntar factura para esta cantidad inicial? Escribe si, no, omitir o atras.";
+    return `
+      <div>Confirma el material de inventario:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Nombre/referencia:</strong> ${h(data.name_reference || "")}</div>
+        <div><strong>Tamano/modelo:</strong> ${h(data.size || "Sin tamano")}</div>
+        <div><strong>Color:</strong> ${h(data.color || "Sin color")}</div>
+        <div><strong>Valor unitario:</strong> ${h(cxUniversalMoney021D(data.unit_value || 0))}</div>
+        <div><strong>Cantidad inicial:</strong> ${h(inventoryQtyLabel(data.initial_quantity || 0))}</div>
+        <div><strong>Minimo alerta:</strong> ${h(inventoryQtyLabel(data.min_stock || 0))}</div>
+        <div><strong>Factura:</strong> ${data.attach_invoice && Number(data.initial_quantity || 0) > 0 ? "Se solicitara archivo al confirmar" : "Sin factura inicial"}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantBackInventoryCreateFlow027W(chat) {
+    cxAssistantBackFlow027R(chat, ["name_reference", "size", "color", "unit_value", "initial_quantity", "min_stock", "attach_invoice", "confirm"], cxAssistantInventoryCreateQuestion027W);
+  }
+
+  function cxAssistantStartInventoryCreate027W(chat, text = "") {
+    const data = cxAssistantInventoryCreateSeed027W(text);
+    const step = cxAssistantInventoryCreateNextStep027W(data);
+    chat.flow = { kind: "inventory_create", step, data };
+    cxAssistantPush027A(chat, "assistant", cxAssistantInventoryCreateQuestion027W(chat.flow), true);
+  }
+
+  function cxAssistantRefreshInventoryView027W() {
+    if (!document.querySelector("[data-inventory-refresh]")) return;
+    setInventoryMode("modify");
+    renderInventoryModule().catch(() => {});
+  }
+
+  function cxAssistantInventoryPickAndUploadInvoice027W(chat, itemId, quantity, notes = "Entrada desde Inventario", doneText = "Entrada registrada con factura.") {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/jpeg,image/png,image/webp,application/pdf";
+    input.style.position = "fixed";
+    input.style.left = "-9999px";
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files.length ? input.files[0] : null;
+      input.remove();
+      if (!file) {
+        cxAssistantPush027A(chat, "assistant", "No se selecciono factura. Puedes volver a decir adjuntar factura cuando la tengas lista.");
+        cxAssistantRenderMessages027A();
+        return;
+      }
+      try {
+        const form = new FormData();
+        form.append("quantity", String(quantity));
+        form.append("notes", notes || "Entrada desde Inventario");
+        form.append("invoice", file);
+        await apiForm(`/inventory/items/${encodeURIComponent(itemId)}/entry-with-invoice`, form);
+        cxAssistantPush027A(chat, "assistant", doneText);
+        cxAssistantRefreshInventoryView027W();
+        await cxAssistantPushInventorySummary027W(chat, { intro: false });
+      } catch (error) {
+        cxAssistantPush027A(chat, "assistant", error.message || "No pude cargar la factura.");
+      }
+      cxAssistantRenderMessages027A();
+    });
+    document.body.appendChild(input);
+    cxAssistantPush027A(chat, "assistant", "Selecciona el archivo de factura (JPG, PNG, WEBP o PDF).");
+    cxAssistantRenderMessages027A();
+    input.click();
+  }
+
+  async function cxAssistantCreateInventory027W(chat, flow = {}) {
+    const data = flow.data || {};
+    const qty = Math.max(0, Number(data.initial_quantity || 0));
+    const withInvoice = Boolean(data.attach_invoice && qty > 0);
+    const payload = {
+      name_reference: String(data.name_reference || "").trim(),
+      size: String(data.size || "").trim(),
+      color: String(data.color || "").trim(),
+      unit_value: Math.max(0, Number(data.unit_value || 0)),
+      initial_quantity: withInvoice ? 0 : qty,
+      min_stock: Math.max(0, Number(data.min_stock || 0)),
+    };
+    if (!payload.name_reference) {
+      cxAssistantPush027A(chat, "assistant", "Necesito nombre o referencia para crear el material.");
+      return;
+    }
+    try {
+      const created = await api(`/inventory/companies/${encodeURIComponent(state.companyId)}/items`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `Material creado: ${cxAssistantInventoryLabel027W(created)}.`);
+      cxAssistantRefreshInventoryView027W();
+      if (withInvoice && created?.id) {
+        cxAssistantInventoryPickAndUploadInvoice027W(chat, created.id, qty, "Cantidad inicial", "Material creado con factura inicial.");
+        return;
+      }
+      await cxAssistantPushInventorySummary027W(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude crear el material en inventario.");
+    }
+  }
+
+  async function cxAssistantHandleInventoryCreateFlow027W(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "name_reference":
+        if (!clean || cxAssistantSkip027A(clean)) {
+          cxAssistantPush027A(chat, "assistant", "Necesito el nombre o referencia del material.");
+          return;
+        }
+        data.name_reference = clean;
+        break;
+      case "size":
+        data.size = cxAssistantSkip027A(clean) ? "" : clean;
+        break;
+      case "color":
+        data.color = cxAssistantSkip027A(clean) ? "" : clean;
+        break;
+      case "unit_value":
+        data.unit_value = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
+        break;
+      case "initial_quantity":
+        data.initial_quantity = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
+        break;
+      case "min_stock":
+        data.min_stock = cxAssistantSkip027A(clean) ? 0 : Math.max(0, cxAssistantNumber027R(clean));
+        break;
+      case "attach_invoice":
+        data.attach_invoice = cxAssistantYes027A(clean) && !cxAssistantNo027A(clean) && !cxAssistantSkip027A(clean);
+        break;
+      case "confirm":
+        if (norm.includes("confirmar") || norm.includes("crear") || cxAssistantYes027A(clean)) {
+          await cxAssistantCreateInventory027W(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para crearlo, atras para corregir o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime agregar inventario para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    flow.step = cxAssistantInventoryCreateNextStep027W(data);
+    cxAssistantPush027A(chat, "assistant", cxAssistantInventoryCreateQuestion027W(flow), true);
+  }
+
+  function cxAssistantInventoryUpdateQuestion027W(flow = {}) {
+    const data = flow.data || {};
+    const item = data.item || {};
+    if (flow.step === "item") return "Que material o producto quieres modificar? Puedes escribir cancelar para salir.";
+    if (flow.step === "action") {
+      return `
+        <div>Que quieres hacer con ${h(cxAssistantInventoryLabel027W(item))}?</div>
+        <div class="cxai-summary-027a">
+          <div>Opciones: guardar datos, ingresar cantidad, adjuntar factura, deshabilitar, activar o ver estado.</div>
+        </div>
+        Escribe la opcion, atras o cancelar.
+      `;
+    }
+    if (flow.step === "edit_name") return `Nombre/referencia? Actual: ${h(item.name_reference || "")}. Escribe omitir o atras.`;
+    if (flow.step === "edit_size") return `Tamano/modelo? Actual: ${h(item.size || "N/A")}. Escribe omitir o atras.`;
+    if (flow.step === "edit_color") return `Color? Actual: ${h(item.color || "N/A")}. Escribe omitir o atras.`;
+    if (flow.step === "edit_unit_value") return `Valor unitario? Actual: ${h(cxUniversalMoney021D(item.unit_value || item.unit_price || 0))}. Escribe omitir o atras.`;
+    if (flow.step === "edit_min_stock") return `Minimo alerta? Actual: ${h(inventoryQtyLabel(item.min_stock || 0))}. Escribe omitir o atras.`;
+    if (flow.step === "edit_status") return `Estado: activo o inactivo? Actual: ${h(inventoryStatusLabel(item.status || "active"))}. Escribe omitir o atras.`;
+    if (flow.step === "entry_quantity") return data.action === "invoice" ? "Que cantidad vas a ingresar con factura? Escribe atras o cancelar." : "Que cantidad quieres ingresar al stock? Escribe atras o cancelar.";
+    if (flow.step === "entry_notes") return "Notas para el ingreso? Escribe omitir o atras.";
+    if (flow.step === "entry_invoice") return "Quieres adjuntar factura para este ingreso? Escribe si, no, omitir o atras.";
+    if (flow.step === "confirm_entry") {
+      return `
+        <div>Confirma el ingreso a inventario:</div>
+        <div class="cxai-summary-027a">
+          <div><strong>Material:</strong> ${h(cxAssistantInventoryLabel027W(item))}</div>
+          <div><strong>Cantidad:</strong> ${h(inventoryQtyLabel(data.entry_quantity || 0))}</div>
+          <div><strong>Notas:</strong> ${h(data.entry_notes || "Entrada desde Inventario")}</div>
+          <div><strong>Factura:</strong> ${data.attach_invoice ? "Se solicitara archivo al confirmar" : "Sin factura"}</div>
+        </div>
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+        </div>
+      `;
+    }
+    if (flow.step === "confirm_status") {
+      const label = data.action === "enable" ? "activar" : "deshabilitar";
+      return `
+        <div>Confirmas ${h(label)} este material?</div>
+        ${cxAssistantInventoryDetailHtml027W(item)}
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+        </div>
+      `;
+    }
+    return `
+      <div>Confirma los cambios del material:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Nombre/referencia:</strong> ${h(data.name_reference ?? item.name_reference ?? "")}</div>
+        <div><strong>Tamano/modelo:</strong> ${h(data.size ?? item.size ?? "")}</div>
+        <div><strong>Color:</strong> ${h(data.color ?? item.color ?? "")}</div>
+        <div><strong>Valor unitario:</strong> ${h(cxUniversalMoney021D(data.unit_value ?? item.unit_value ?? item.unit_price ?? 0))}</div>
+        <div><strong>Minimo alerta:</strong> ${h(inventoryQtyLabel(data.min_stock ?? item.min_stock ?? 0))}</div>
+        <div><strong>Estado:</strong> ${h(data.status || item.status || "active")}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Confirmar</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantBackInventoryUpdateFlow027W(chat) {
+    const flow = chat.flow || {};
+    const mode = flow.mode || "select";
+    const steps = mode === "entry"
+      ? ["item", "action", "entry_quantity", "entry_notes", "entry_invoice", "confirm_entry"]
+      : mode === "status"
+        ? ["item", "action", "confirm_status"]
+        : mode === "edit"
+          ? ["item", "action", "edit_name", "edit_size", "edit_color", "edit_unit_value", "edit_min_stock", "edit_status", "confirm_save"]
+          : ["item", "action"];
+    cxAssistantBackFlow027R(chat, steps, cxAssistantInventoryUpdateQuestion027W);
+  }
+
+  function cxAssistantInventoryRouteAction027W(flow = {}, action = "") {
+    flow.data = flow.data || {};
+    flow.data.action = action;
+    if (action === "status") {
+      flow.step = "status";
+      flow.mode = "status";
+      return;
+    }
+    if (action === "disable" || action === "enable") {
+      flow.step = "confirm_status";
+      flow.mode = "status";
+      return;
+    }
+    if (action === "entry" || action === "invoice") {
+      flow.step = "entry_quantity";
+      flow.mode = "entry";
+      flow.data.attach_invoice = action === "invoice" ? true : flow.data.attach_invoice;
+      return;
+    }
+    flow.step = "edit_name";
+    flow.mode = "edit";
+  }
+
+  async function cxAssistantResolveInventoryItem027W(chat, flow = {}, query = "") {
+    const data = await cxAssistantLoadInventory027W();
+    const rows = Array.isArray(data.items) ? data.items : [];
+    const { match, candidates } = cxAssistantInventoryFind027W(query, rows);
+    if (!match) {
+      const options = candidates.length ? candidates.map((row) => `<div>${h(cxAssistantInventoryLabel027W(row))}</div>`).join("") : "<div>No encontre coincidencias.</div>";
+      cxAssistantPush027A(chat, "assistant", `<div>No pude elegir un material unico. Estas son las coincidencias:</div><div class="cxai-summary-027a">${options}</div>`, true);
+      flow.step = "item";
+      return false;
+    }
+    flow.data = flow.data || {};
+    flow.data.item = match;
+    flow.data.item_id = match.id;
+    return true;
+  }
+
+  async function cxAssistantStartInventoryUpdate027W(chat, text = "") {
+    const action = cxAssistantInventoryAction027W(text) || "save";
+    const query = cxAssistantInventoryActionTail027W(text);
+    chat.flow = { kind: "inventory_update", step: "item", mode: "select", data: { action } };
+    if (query) {
+      const resolved = await cxAssistantResolveInventoryItem027W(chat, chat.flow, query);
+      if (!resolved) {
+        cxAssistantPush027A(chat, "assistant", cxAssistantInventoryUpdateQuestion027W(chat.flow), true);
+        return;
+      }
+      cxAssistantInventoryRouteAction027W(chat.flow, action);
+      if (chat.flow.step === "status") {
+        cxAssistantPush027A(chat, "assistant", cxAssistantInventoryDetailHtml027W(chat.flow.data.item || {}), true);
+        chat.flow = null;
+        return;
+      }
+    }
+    cxAssistantPush027A(chat, "assistant", cxAssistantInventoryUpdateQuestion027W(chat.flow), true);
+  }
+
+  async function cxAssistantSaveInventoryUpdate027W(chat, flow = {}) {
+    const data = flow.data || {};
+    const item = data.item || {};
+    const payload = {
+      name_reference: String(data.name_reference ?? item.name_reference ?? "").trim(),
+      size: String(data.size ?? item.size ?? "").trim(),
+      color: String(data.color ?? item.color ?? "").trim(),
+      unit_value: Math.max(0, Number(data.unit_value ?? item.unit_value ?? item.unit_price ?? 0)),
+      min_stock: Math.max(0, Number(data.min_stock ?? item.min_stock ?? 0)),
+      status: data.status || item.status || "active",
+    };
+    try {
+      const updated = await api(`/inventory/items/${encodeURIComponent(data.item_id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `Material actualizado: ${cxAssistantInventoryLabel027W(updated)}.`);
+      cxAssistantRefreshInventoryView027W();
+      await cxAssistantPushInventorySummary027W(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude guardar el material.");
+    }
+  }
+
+  async function cxAssistantEntryInventory027W(chat, flow = {}) {
+    const data = flow.data || {};
+    const qty = Math.max(0, Number(data.entry_quantity || 0));
+    if (qty <= 0) {
+      cxAssistantPush027A(chat, "assistant", "La cantidad debe ser mayor a cero.");
+      return;
+    }
+    const notes = data.entry_notes || "Entrada desde Inventario";
+    try {
+      chat.flow = null;
+      if (data.attach_invoice) {
+        cxAssistantInventoryPickAndUploadInvoice027W(chat, data.item_id, qty, notes);
+        return;
+      }
+      await api(`/inventory/items/${encodeURIComponent(data.item_id)}/entry`, {
+        method: "POST",
+        body: JSON.stringify({ quantity: qty, notes }),
+      });
+      cxAssistantPush027A(chat, "assistant", "Entrada registrada. Stock actualizado.");
+      cxAssistantRefreshInventoryView027W();
+      await cxAssistantPushInventorySummary027W(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude ingresar stock.");
+    }
+  }
+
+  async function cxAssistantStatusInventory027W(chat, flow = {}) {
+    const data = flow.data || {};
+    const action = data.action === "enable" ? "enable" : "disable";
+    try {
+      if (action === "enable") {
+        await api(`/inventory/items/${encodeURIComponent(data.item_id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "active" }),
+        });
+        cxAssistantPush027A(chat, "assistant", "Material activado.");
+      } else {
+        await api(`/inventory/items/${encodeURIComponent(data.item_id)}/disable`, { method: "POST" });
+        cxAssistantPush027A(chat, "assistant", "Material deshabilitado.");
+      }
+      chat.flow = null;
+      cxAssistantRefreshInventoryView027W();
+      await cxAssistantPushInventorySummary027W(chat, { intro: false });
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude cambiar el estado del material.");
+    }
+  }
+
+  async function cxAssistantHandleInventoryUpdateFlow027W(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "item": {
+        const resolved = await cxAssistantResolveInventoryItem027W(chat, flow, clean);
+        if (!resolved) {
+          cxAssistantPush027A(chat, "assistant", cxAssistantInventoryUpdateQuestion027W(flow), true);
+          return;
+        }
+        cxAssistantInventoryRouteAction027W(flow, data.action || "save");
+        break;
+      }
+      case "action": {
+        const action = cxAssistantInventoryAction027W(clean);
+        if (!action) {
+          cxAssistantPush027A(chat, "assistant", "Elige una opcion: guardar datos, ingresar cantidad, adjuntar factura, deshabilitar, activar o ver estado.");
+          return;
+        }
+        cxAssistantInventoryRouteAction027W(flow, action);
+        if (flow.step === "status") {
+          cxAssistantPush027A(chat, "assistant", cxAssistantInventoryDetailHtml027W(data.item || {}), true);
+          chat.flow = null;
+          return;
+        }
+        break;
+      }
+      case "status":
+        cxAssistantPush027A(chat, "assistant", cxAssistantInventoryDetailHtml027W(data.item || {}), true);
+        chat.flow = null;
+        return;
+      case "edit_name":
+        data.name_reference = cxAssistantSkip027A(clean) ? data.item?.name_reference || "" : clean;
+        flow.step = "edit_size";
+        break;
+      case "edit_size":
+        data.size = cxAssistantSkip027A(clean) ? data.item?.size || "" : clean;
+        flow.step = "edit_color";
+        break;
+      case "edit_color":
+        data.color = cxAssistantSkip027A(clean) ? data.item?.color || "" : clean;
+        flow.step = "edit_unit_value";
+        break;
+      case "edit_unit_value":
+        data.unit_value = cxAssistantSkip027A(clean) ? inventoryNumber(data.item?.unit_value ?? data.item?.unit_price ?? 0) : Math.max(0, cxAssistantNumber027R(clean));
+        flow.step = "edit_min_stock";
+        break;
+      case "edit_min_stock":
+        data.min_stock = cxAssistantSkip027A(clean) ? inventoryNumber(data.item?.min_stock || 0) : Math.max(0, cxAssistantNumber027R(clean));
+        flow.step = "edit_status";
+        break;
+      case "edit_status":
+        data.status = cxAssistantSkip027A(clean) ? data.item?.status || "active" : (cxAssistantNorm027A(clean).includes("inactivo") ? "inactive" : "active");
+        flow.step = "confirm_save";
+        break;
+      case "confirm_save":
+        if (norm.includes("confirmar") || norm.includes("guardar") || cxAssistantYes027A(clean)) {
+          await cxAssistantSaveInventoryUpdate027W(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para guardar, atras para corregir o cancelar para salir.");
+        }
+        return;
+      case "entry_quantity": {
+        const qty = cxAssistantNumber027R(clean);
+        if (!qty || qty <= 0) {
+          cxAssistantPush027A(chat, "assistant", "Necesito una cantidad mayor a cero.");
+          return;
+        }
+        data.entry_quantity = qty;
+        flow.step = "entry_notes";
+        break;
+      }
+      case "entry_notes":
+        data.entry_notes = cxAssistantSkip027A(clean) ? "Entrada desde Inventario" : clean;
+        flow.step = data.action === "invoice" ? "confirm_entry" : "entry_invoice";
+        break;
+      case "entry_invoice":
+        data.attach_invoice = cxAssistantYes027A(clean) && !cxAssistantNo027A(clean) && !cxAssistantSkip027A(clean);
+        flow.step = "confirm_entry";
+        break;
+      case "confirm_entry":
+        if (norm.includes("confirmar") || norm.includes("ingresar") || cxAssistantYes027A(clean)) {
+          await cxAssistantEntryInventory027W(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para ingresar stock, atras para corregir o cancelar para salir.");
+        }
+        return;
+      case "confirm_status":
+        if (norm.includes("confirmar") || cxAssistantYes027A(clean)) {
+          await cxAssistantStatusInventory027W(chat, flow);
+        } else {
+          cxAssistantPush027A(chat, "assistant", "Escribe confirmar para cambiar el estado, atras para corregir o cancelar para salir.");
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime modificar inventario para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    cxAssistantPush027A(chat, "assistant", cxAssistantInventoryUpdateQuestion027W(flow), true);
+  }
+
+  async function cxAssistantReplyInventory027W(chat, text = "") {
+    if (!cxAssistantInventoryHasAccess027W()) {
+      cxAssistantPush027A(chat, "assistant", "Inventario no esta activo para esta empresa.");
+      return false;
+    }
+    const norm = cxAssistantNorm027A(text);
+    if (["agregar", "agrgar", "crear", "nuevo", "nueva"].some((word) => norm.includes(word))) {
+      cxAssistantStartInventoryCreate027W(chat, text);
+      return true;
+    }
+    const wantsInventoryMutation = ["modificar", "actualizar", "editar", "guardar", "ingresar", "entrada", "factura", "adjuntar", "deshabilitar", "desactivar", "activar", "habilitar", "archivar"].some((word) => norm.includes(word));
+    if (wantsInventoryMutation) {
+      await cxAssistantStartInventoryUpdate027W(chat, text);
+      return true;
+    }
+    try {
+      cxAssistantPush027A(chat, "assistant", "Consultando Inventario...");
+      cxAssistantRenderMessages027A();
+      const data = await cxAssistantLoadInventory027W();
+      const query = cxAssistantInventoryActionTail027W(text);
+      if (query) {
+        const { match, candidates } = cxAssistantInventoryFind027W(query, Array.isArray(data.items) ? data.items : []);
+        if (match) {
+          cxAssistantPush027A(chat, "assistant", cxAssistantInventoryDetailHtml027W(match), true);
+          return true;
+        }
+        if (candidates.length) {
+          const options = candidates.map((row) => `<div>${h(cxAssistantInventoryLabel027W(row))}</div>`).join("");
+          cxAssistantPush027A(chat, "assistant", `<div>Encontre varias coincidencias:</div><div class="cxai-summary-027a">${options}</div>`, true);
+          return true;
+        }
+      }
+      cxAssistantPush027A(chat, "assistant", cxAssistantInventorySummaryHtml027W(data, text), true);
+      return true;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Inventario.");
+      return false;
+    }
+  }
+
   async function cxAssistantModuleHelp027A(chat, code, title) {
     const token = cxNormalizeModuleToken017H(`${code} ${title}`);
     if (cxAssistantIsCrmTool027D({ code, title })) {
@@ -14530,6 +15207,10 @@ function inventoryCreatePayload() {
     }
     if (cxAssistantIsCommercialClosingTool027V({ code, title }) || token.includes("cierre_comercial")) {
       await cxAssistantReplyCommercialClosing027V(chat, "resumen cierre comercial");
+      return;
+    }
+    if (cxAssistantIsInventoryTool027W({ code, title }) || token.includes("inventario")) {
+      await cxAssistantReplyInventory027W(chat, "estado inventario");
       return;
     }
     if (cxAssistantIsProductionTool027K({ code, title }) || token.includes("produccion") || token.includes("production")) {
@@ -14560,6 +15241,8 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "quote");
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
       await cxAssistantReplyPayroll027I(chat, clean);
+    } else if (cxAssistantLooksInventoryQuery027W(clean)) {
+      await cxAssistantReplyInventory027W(chat, clean);
     } else if (cxAssistantLooksReferencesQuery027R(clean)) {
       await cxAssistantReplyReferences027R(chat, clean);
     } else if (cxAssistantLooksWorkforceQuery027R(clean)) {
@@ -14579,8 +15262,8 @@ function inventoryCreatePayload() {
       await cxAssistantReplyCrm027D(chat, clean);
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
-    } else if (norm.includes("reporte") || norm.includes("pedido") || norm.includes("inventario")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce y Cierre comercial. Selecciona una opcion o dime que necesitas.");
+    } else if (norm.includes("reporte") || norm.includes("pedido")) {
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial e Inventario. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -14662,6 +15345,18 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-closing-summary-027v]")) {
           await cxAssistantProcessText027A("resumen cierre comercial", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-inv-summary-027w]")) {
+          await cxAssistantProcessText027A("resumen inventario", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-inv-add-027w]")) {
+          await cxAssistantProcessText027A("agregar inventario", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-inv-edit-027w]")) {
+          await cxAssistantProcessText027A("modificar inventario", chat.activeCode);
           return;
         }
         const moduleButton = target.closest("[data-cxai-module-027a]");
