@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
+import os
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -9,6 +12,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -677,6 +681,521 @@ def _closure_payload(row: Any) -> dict[str, Any]:
         "created_at": _iso(data.get("created_at")),
         "updated_at": _iso(data.get("updated_at")),
     }
+
+
+async def _hospitality_company_identity(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    fallback = {
+        "name": "CLONEXA",
+        "slug": "",
+        "logo_url": "",
+        "primary_color": "#22c55e",
+        "secondary_color": "#22d3ee",
+        "success_color": "#22c55e",
+    }
+    has_branding = False
+    try:
+        exists = await db.execute(text("SELECT to_regclass('public.company_branding')"))
+        has_branding = bool(exists.scalar())
+    except Exception:
+        has_branding = False
+
+    if has_branding:
+        result = await db.execute(
+            text(
+                """
+                SELECT c.name, c.slug, c.settings_json,
+                       b.logo_url, b.primary_color, b.secondary_color, b.success_color
+                FROM companies c
+                LEFT JOIN company_branding b ON b.company_id = c.id
+                WHERE c.id = :company_id
+                LIMIT 1
+                """
+            ),
+            {"company_id": str(company_id)},
+        )
+    else:
+        result = await db.execute(
+            text("SELECT name, slug, settings_json FROM companies WHERE id = :company_id LIMIT 1"),
+            {"company_id": str(company_id)},
+        )
+    row = dict(result.mappings().first() or {})
+    if not row:
+        return fallback
+    settings = _json(row.get("settings_json"), {})
+    branding = settings.get("branding") if isinstance(settings, dict) and isinstance(settings.get("branding"), dict) else {}
+    identity = dict(fallback)
+    identity.update({key: value for key, value in row.items() if value not in (None, "") and key != "settings_json"})
+    for key in ["logo_url", "primary_color", "secondary_color", "success_color"]:
+        if not identity.get(key) and branding.get(key):
+            identity[key] = branding.get(key)
+    return identity
+
+
+def _hsp_report_date(value: Any) -> datetime | None:
+    raw = _clean(value)
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _hsp_week_start(value: datetime) -> datetime:
+    start = value.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start - timedelta(days=start.isoweekday() - 1)
+
+
+def _hsp_period_key(value: datetime, period: str) -> str:
+    if period == "weekly":
+        start = _hsp_week_start(value)
+        return start.strftime("%Y-%m-%d")
+    return value.strftime("%Y-%m")
+
+
+def _hsp_month_label(value: datetime) -> str:
+    months = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    return months[value.month - 1]
+
+
+def _hsp_period_defs(period: str, closures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    dates = [date for date in (_hsp_report_date(row.get("closed_at") or row.get("created_at")) for row in closures) if date]
+    anchor = max(dates) if dates else _now()
+    if period == "weekly":
+        current = _hsp_week_start(anchor)
+        defs = []
+        for index in range(12):
+            start = current - timedelta(days=(11 - index) * 7)
+            end = start + timedelta(days=6)
+            defs.append(
+                {
+                    "key": start.strftime("%Y-%m-%d"),
+                    "label": f"{start.day:02d} {_hsp_month_label(start)}",
+                    "subtitle": f"{end.day:02d} {_hsp_month_label(end)}",
+                }
+            )
+        return defs
+    first = datetime(anchor.year, anchor.month, 1, tzinfo=timezone.utc)
+    defs = []
+    for index in range(3):
+        month_index = first.month - (2 - index)
+        year = first.year + (month_index - 1) // 12
+        month = (month_index - 1) % 12 + 1
+        date_value = datetime(year, month, 1, tzinfo=timezone.utc)
+        defs.append({"key": date_value.strftime("%Y-%m"), "label": _hsp_month_label(date_value), "subtitle": str(year)})
+    return defs
+
+
+def _hsp_empty_bucket(definition: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "key": definition.get("key") or "",
+        "label": definition.get("label") or "",
+        "subtitle": definition.get("subtitle") or "",
+        "closures": 0,
+        "orders": 0,
+        "total": 0.0,
+        "cash": 0.0,
+        "transfer": 0.0,
+        "card": 0.0,
+        "other": 0.0,
+        "worked_minutes": 0.0,
+        "products": {},
+        "tables": {},
+        "songs": {},
+    }
+
+
+def _hsp_add_rank(target: dict[str, Any], key: Any, patch: dict[str, Any]) -> None:
+    clean_key = _clean(key) or "Sin dato"
+    row = target.get(clean_key) or {"name": clean_key, "quantity": 0.0, "total": 0.0, "count": 0.0, "orders": 0.0}
+    row["quantity"] += _num(patch.get("quantity"))
+    row["total"] += _num(patch.get("total"))
+    row["count"] += _num(patch.get("count"))
+    row["orders"] += _num(patch.get("orders"))
+    target[clean_key] = row
+
+
+def _hsp_top(source: dict[str, Any], metric: str = "total", limit: int = 20) -> list[dict[str, Any]]:
+    return sorted(source.values(), key=lambda row: _num(row.get(metric)), reverse=True)[:limit]
+
+
+def _hsp_hours(minutes: Any) -> str:
+    total = max(0, int(round(_num(minutes))))
+    return f"{total // 60}h {total % 60:02d}m"
+
+
+def _hsp_money_text(value: Any) -> str:
+    return "$ " + f"{int(round(_num(value))):,}".replace(",", ".")
+
+
+def _hsp_aggregate(closures: list[dict[str, Any]], period: str) -> dict[str, Any]:
+    definitions = _hsp_period_defs(period, closures)
+    buckets = {definition["key"]: _hsp_empty_bucket(definition) for definition in definitions}
+    totals = _hsp_empty_bucket({"key": "total", "label": "Total", "subtitle": ""})
+    included: list[dict[str, Any]] = []
+    for closure in closures:
+        date_value = _hsp_report_date(closure.get("closed_at") or closure.get("created_at"))
+        if not date_value:
+            continue
+        bucket = buckets.get(_hsp_period_key(date_value, period))
+        if not bucket:
+            continue
+        included.append(closure)
+        for target in (bucket, totals):
+            target["closures"] += 1
+            target["orders"] += int(closure.get("orders_count") or 0)
+            target["total"] += _num(closure.get("total_sold"))
+            target["cash"] += _num(closure.get("cash_total"))
+            target["transfer"] += _num(closure.get("transfer_total"))
+            target["card"] += _num(closure.get("card_total"))
+            target["other"] += _num(closure.get("other_total"))
+            target["worked_minutes"] += _num((closure.get("summary") or {}).get("worked_minutes"))
+            for item in closure.get("products") or []:
+                _hsp_add_rank(target["products"], item.get("name") or item.get("sku"), {"quantity": item.get("quantity"), "total": item.get("total")})
+            for item in closure.get("tables") or []:
+                _hsp_add_rank(target["tables"], item.get("table") or item.get("name"), {"orders": item.get("orders"), "total": item.get("total")})
+            for item in closure.get("songs") or []:
+                _hsp_add_rank(target["songs"], item.get("song") or item.get("name"), {"count": item.get("count")})
+    return {"periods": [buckets[item["key"]] for item in definitions], "totals": totals, "closures": included}
+
+
+async def _hospitality_report_payload(db: AsyncSession, company_id: uuid.UUID, period: str) -> dict[str, Any]:
+    period_mode = "weekly" if _norm(period) in {"weekly", "weeks", "week", "semanal", "semana", "semanas"} else "monthly"
+    result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_day_closures
+            WHERE company_id = :company_id
+            ORDER BY closed_at DESC
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    closures = [_closure_payload(row) for row in result.mappings().all()]
+    aggregated = _hsp_aggregate(closures, period_mode)
+    totals = aggregated["totals"]
+    avg_ticket = (totals["total"] / totals["orders"]) if totals["orders"] else 0
+    return {
+        "company_id": str(company_id),
+        "company": await _hospitality_company_identity(db, company_id),
+        "period": period_mode,
+        "period_label": "Semanal" if period_mode == "weekly" else "Mensual",
+        "generated_at": _now().isoformat(),
+        "periods": aggregated["periods"],
+        "totals": totals,
+        "closures": aggregated["closures"],
+        "cards": [
+            {"label": "Total vendido", "value": _hsp_money_text(totals["total"]), "detail": f"{totals['closures']} cierre(s)"},
+            {"label": "Ticket promedio", "value": _hsp_money_text(avg_ticket), "detail": f"{totals['orders']} pedido(s)"},
+            {"label": "Cierres", "value": totals["closures"], "detail": "Incluidos en el periodo"},
+            {"label": "Pedidos", "value": totals["orders"], "detail": "Cuentas cerradas"},
+            {"label": "Mesa lider", "value": (_hsp_top(totals["tables"], "total", 1)[0].get("name") if totals["tables"] else "-"), "detail": _hsp_money_text((_hsp_top(totals["tables"], "total", 1)[0].get("total") if totals["tables"] else 0))},
+            {"label": "Horas operadas", "value": _hsp_hours(totals["worked_minutes"]), "detail": "Desde cierres"},
+        ],
+        "top_products": _hsp_top(totals["products"], "total", 20),
+        "top_tables": _hsp_top(totals["tables"], "total", 20),
+        "top_songs": _hsp_top(totals["songs"], "count", 20),
+    }
+
+
+def _hsp_report_logo_reader(source: str | None):
+    raw = _clean(source)
+    if not raw:
+        return None
+    try:
+        from reportlab.lib.utils import ImageReader
+    except Exception:
+        return None
+    try:
+        if raw.startswith("data:image/"):
+            return ImageReader(io.BytesIO(base64.b64decode(raw.split(",", 1)[1])))
+        if len(raw) > 300 and not raw.startswith(("http://", "https://", "/")):
+            try:
+                return ImageReader(io.BytesIO(base64.b64decode(raw)))
+            except Exception:
+                pass
+        if raw.startswith("/"):
+            base_url = _clean(os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_PUBLIC_URL")).rstrip("/")
+            if base_url:
+                raw = base_url + raw
+        if raw.startswith(("http://", "https://")):
+            import urllib.request
+
+            with urllib.request.urlopen(raw, timeout=8) as response:
+                return ImageReader(io.BytesIO(response.read()))
+        if os.path.exists(raw):
+            return ImageReader(raw)
+    except Exception:
+        return None
+    return None
+
+
+def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import landscape, letter
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        from reportlab.pdfgen import canvas
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(f"Motor PDF no disponible. Falta reportlab: {exc}") from exc
+
+    buffer = io.BytesIO()
+    page_w, page_h = landscape(letter)
+    c = canvas.Canvas(buffer, pagesize=(page_w, page_h))
+    margin = 30
+    y = page_h - margin
+    page_no = 0
+    company = payload.get("company") if isinstance(payload.get("company"), dict) else {}
+    logo = _hsp_report_logo_reader(company.get("logo_url"))
+
+    def pdf_color(value: Any, fallback: str):
+        try:
+            return colors.HexColor(_clean(value) or fallback)
+        except Exception:
+            return colors.HexColor(fallback)
+
+    primary = pdf_color(company.get("primary_color"), "#22c55e")
+    secondary = pdf_color(company.get("secondary_color"), "#22d3ee")
+    dark = colors.HexColor("#111827")
+    muted = colors.HexColor("#64748b")
+    border = colors.HexColor("#d8dee9")
+    soft = colors.HexColor("#f5f7fb")
+    soft_alt = colors.HexColor("#edf2f7")
+
+    def clean_text(value: Any) -> str:
+        return " ".join(_clean(value).replace("\n", " ").replace("\r", " ").split())
+
+    def fit(value: Any, width: float, font: str = "Helvetica", size: float = 7) -> str:
+        text_value = clean_text(value)
+        if stringWidth(text_value, font, size) <= width:
+            return text_value
+        suffix = "..."
+        while text_value and stringWidth(text_value + suffix, font, size) > width:
+            text_value = text_value[:-1]
+        return (text_value + suffix) if text_value else suffix
+
+    def footer() -> None:
+        c.setFillColor(muted)
+        c.setFont("Helvetica", 7)
+        c.drawString(margin, 18, "CLONEXA / Hospitality dashboard PDF")
+        c.drawRightString(page_w - margin, 18, f"Pagina {page_no}")
+
+    def logo_box() -> None:
+        c.setFillColor(primary)
+        c.roundRect(margin, page_h - 72, 48, 48, 9, stroke=0, fill=1)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawCentredString(margin + 24, page_h - 52, "HSP")
+
+    def header() -> None:
+        nonlocal y, page_no
+        page_no += 1
+        c.setFillColor(colors.white)
+        c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        c.setFillColor(dark)
+        c.rect(0, page_h - 86, page_w, 86, stroke=0, fill=1)
+        c.setFillColor(primary)
+        c.rect(0, page_h - 90, page_w * 0.62, 4, stroke=0, fill=1)
+        c.setFillColor(secondary)
+        c.rect(page_w * 0.62, page_h - 90, page_w * 0.38, 4, stroke=0, fill=1)
+        if logo is not None:
+            try:
+                c.drawImage(logo, margin, page_h - 70, width=54, height=42, preserveAspectRatio=True, mask="auto")
+            except Exception:
+                logo_box()
+        else:
+            logo_box()
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(margin + 68, page_h - 42, fit(company.get("name") or "CLONEXA", 330, "Helvetica-Bold", 18))
+        c.setFont("Helvetica", 8)
+        c.drawString(margin + 68, page_h - 58, "Dashboard Hospitality exportado en PDF")
+        c.setFont("Helvetica-Bold", 18)
+        c.drawRightString(page_w - margin, page_h - 40, f"HOSPITALITY {payload.get('period_label', '').upper()}")
+        c.setFont("Helvetica", 8)
+        c.drawRightString(page_w - margin, page_h - 57, f"Generado: {clean_text(payload.get('generated_at'))[:19]}")
+        footer()
+        y = page_h - 116
+
+    def new_page() -> None:
+        c.showPage()
+        header()
+
+    def ensure(space: float) -> None:
+        if y - space < 42:
+            new_page()
+
+    def section(title: str, subtitle: str = "") -> None:
+        nonlocal y
+        ensure(34)
+        c.setFillColor(primary)
+        c.roundRect(margin, y - 20, 5, 20, 2, stroke=0, fill=1)
+        c.setFillColor(dark)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(margin + 12, y - 2, fit(title, 360, "Helvetica-Bold", 13))
+        if subtitle:
+            c.setFillColor(muted)
+            c.setFont("Helvetica", 7)
+            c.drawRightString(page_w - margin, y - 2, fit(subtitle, 270, "Helvetica", 7))
+        y -= 30
+
+    def kpis(cards: list[dict[str, Any]]) -> None:
+        nonlocal y
+        section("Resumen ejecutivo", "Indicadores principales")
+        columns = 6
+        gap = 9
+        card_w = (page_w - margin * 2 - gap * (columns - 1)) / columns
+        card_h = 58
+        for index, card in enumerate(cards[:6]):
+            x = margin + index * (card_w + gap)
+            yy = y - card_h
+            c.setFillColor(soft)
+            c.roundRect(x, yy, card_w, card_h, 9, stroke=0, fill=1)
+            c.setStrokeColor(border)
+            c.roundRect(x, yy, card_w, card_h, 9, stroke=1, fill=0)
+            c.setFillColor([primary, secondary, colors.HexColor("#38bdf8")][index % 3])
+            c.roundRect(x, yy, 7, card_h, 4, stroke=0, fill=1)
+            c.setFillColor(muted)
+            c.setFont("Helvetica-Bold", 6.3)
+            c.drawString(x + 15, yy + card_h - 16, fit(card.get("label"), card_w - 24, "Helvetica-Bold", 6.3).upper())
+            c.setFillColor(dark)
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(x + 15, yy + 21, fit(card.get("value"), card_w - 24, "Helvetica-Bold", 14))
+            c.setFillColor(muted)
+            c.setFont("Helvetica", 6.3)
+            c.drawString(x + 15, yy + 9, fit(card.get("detail"), card_w - 24, "Helvetica", 6.3))
+        y -= card_h + 22
+
+    def bars(periods: list[dict[str, Any]]) -> None:
+        nonlocal y
+        section("Grafica de venta", "Total por periodo")
+        ensure(120)
+        max_total = max([_num(row.get("total")) for row in periods] + [1])
+        chart_h = 112
+        row_y = y - 18
+        for row in periods:
+            label_w = 92
+            bar_w = page_w - margin * 2 - label_w - 100
+            pct = max(0.02, min(1, _num(row.get("total")) / max_total))
+            c.setFillColor(muted)
+            c.setFont("Helvetica-Bold", 7)
+            c.drawString(margin, row_y, fit(f"{row.get('label')} {row.get('subtitle')}", label_w - 4, "Helvetica-Bold", 7))
+            c.setFillColor(colors.HexColor("#e5e7eb"))
+            c.roundRect(margin + label_w, row_y - 3, bar_w, 8, 4, stroke=0, fill=1)
+            c.setFillColor(primary)
+            c.roundRect(margin + label_w, row_y - 3, bar_w * pct, 8, 4, stroke=0, fill=1)
+            c.setFillColor(dark)
+            c.drawRightString(page_w - margin, row_y, _hsp_money_text(row.get("total")))
+            row_y -= 15
+        y -= min(chart_h, 24 + len(periods) * 15)
+
+    def table(title: str, columns: list[tuple[str, str, float]], rows: list[dict[str, Any]], font_size: float = 6.2) -> None:
+        nonlocal y
+        section(title, f"{len(rows)} registro(s)")
+        total_weight = sum(col[2] for col in columns) or 1
+        widths = [(page_w - margin * 2) * col[2] / total_weight for col in columns]
+        row_h = 18
+        def draw_head() -> None:
+            x = margin
+            c.setFillColor(dark)
+            c.roundRect(margin, y - 19, page_w - margin * 2, 19, 4, stroke=0, fill=1)
+            c.setFillColor(colors.white)
+            c.setFont("Helvetica-Bold", font_size)
+            for index, (_, label, _) in enumerate(columns):
+                c.drawString(x + 4, y - 12, fit(label, widths[index] - 8, "Helvetica-Bold", font_size))
+                x += widths[index]
+        ensure(42)
+        draw_head()
+        y -= 19
+        if not rows:
+            c.setFillColor(soft)
+            c.rect(margin, y - row_h, page_w - margin * 2, row_h, stroke=0, fill=1)
+            c.setFillColor(muted)
+            c.drawString(margin + 8, y - 12, "Sin datos para este periodo.")
+            y -= row_h + 12
+            return
+        for index, row in enumerate(rows, start=1):
+            if y - row_h < 42:
+                new_page()
+                section(f"{title} (continuacion)")
+                draw_head()
+                y -= 19
+            c.setFillColor(soft if index % 2 else soft_alt)
+            c.rect(margin, y - row_h, page_w - margin * 2, row_h, stroke=0, fill=1)
+            c.setStrokeColor(border)
+            c.line(margin, y - row_h, page_w - margin, y - row_h)
+            x = margin
+            c.setFillColor(dark)
+            c.setFont("Helvetica", font_size)
+            for col_index, (field, _label, _) in enumerate(columns):
+                c.drawString(x + 4, y - 12, fit(row.get(field), widths[col_index] - 8, "Helvetica", font_size))
+                x += widths[col_index]
+            y -= row_h
+        y -= 16
+
+    totals = payload.get("totals") or {}
+    periods = payload.get("periods") or []
+    closures = payload.get("closures") or []
+    c.setTitle("CLONEXA - Hospitality Dashboard")
+    header()
+    kpis(payload.get("cards") or [])
+    bars(periods)
+    table(
+        "Metodos de pago",
+        [("label", "Metodo", 1.3), ("value", "Valor", 1), ("pct", "%", 0.5)],
+        [
+            {"label": "Efectivo", "value": _hsp_money_text(totals.get("cash")), "pct": f"{((_num(totals.get('cash')) / max(_num(totals.get('total')), 1)) * 100):.0f}%"},
+            {"label": "Transferencia", "value": _hsp_money_text(totals.get("transfer")), "pct": f"{((_num(totals.get('transfer')) / max(_num(totals.get('total')), 1)) * 100):.0f}%"},
+            {"label": "Tarjeta", "value": _hsp_money_text(totals.get("card")), "pct": f"{((_num(totals.get('card')) / max(_num(totals.get('total')), 1)) * 100):.0f}%"},
+            {"label": "Otro", "value": _hsp_money_text(totals.get("other")), "pct": f"{((_num(totals.get('other')) / max(_num(totals.get('total')), 1)) * 100):.0f}%"},
+        ],
+    )
+    table(
+        "KPI vs KPI por periodo",
+        [("period", "Periodo", 1), ("total", "Total", 1), ("cash", "Efectivo", 1), ("transfer", "Transf.", 1), ("card", "Tarjeta", 1), ("other", "Otro", 1), ("orders", "Pedidos", .7), ("ticket", "Ticket", 1), ("hours", "Horas", .7), ("top_table", "Mesa top", 1)],
+        [
+            {
+                "period": f"{row.get('label')} {row.get('subtitle')}",
+                "total": _hsp_money_text(row.get("total")),
+                "cash": _hsp_money_text(row.get("cash")),
+                "transfer": _hsp_money_text(row.get("transfer")),
+                "card": _hsp_money_text(row.get("card")),
+                "other": _hsp_money_text(row.get("other")),
+                "orders": row.get("orders"),
+                "ticket": _hsp_money_text((_num(row.get("total")) / _num(row.get("orders"))) if _num(row.get("orders")) else 0),
+                "hours": _hsp_hours(row.get("worked_minutes")),
+                "top_table": (_hsp_top(row.get("tables") or {}, "total", 1)[0].get("name") if row.get("tables") else "-"),
+            }
+            for row in periods
+        ],
+        font_size=5.7,
+    )
+    table("Productos lideres", [("name", "Producto", 1.9), ("quantity", "Cantidad", .8), ("total", "Total", 1)], [{"name": r.get("name"), "quantity": r.get("quantity"), "total": _hsp_money_text(r.get("total"))} for r in payload.get("top_products") or []])
+    table("Mesas con mas consumo", [("name", "Mesa", 1.6), ("orders", "Pedidos", .8), ("total", "Total", 1)], [{"name": r.get("name"), "orders": r.get("orders"), "total": _hsp_money_text(r.get("total"))} for r in payload.get("top_tables") or []])
+    table("Canciones mas pedidas", [("name", "Cancion", 1.8), ("count", "Solicitudes", .8)], [{"name": r.get("name"), "count": r.get("count")} for r in payload.get("top_songs") or []])
+    table(
+        "Cierres incluidos",
+        [("number", "Cierre", 1), ("closed_at", "Fecha", 1.2), ("closed_by", "Responsable", 1.2), ("orders", "Pedidos", .7), ("total", "Total", 1), ("cash", "Efectivo", 1), ("transfer", "Transf.", 1), ("card", "Tarjeta", 1), ("other", "Otro", 1), ("notes", "Notas", 1.4)],
+        [
+            {
+                "number": row.get("closure_number"),
+                "closed_at": clean_text(row.get("closed_at"))[:16],
+                "closed_by": row.get("closed_by") or "Panel",
+                "orders": row.get("orders_count"),
+                "total": _hsp_money_text(row.get("total_sold")),
+                "cash": _hsp_money_text(row.get("cash_total")),
+                "transfer": _hsp_money_text(row.get("transfer_total")),
+                "card": _hsp_money_text(row.get("card_total")),
+                "other": _hsp_money_text(row.get("other_total")),
+                "notes": row.get("notes"),
+            }
+            for row in closures
+        ],
+        font_size=5.4,
+    )
+    c.save()
+    return buffer.getvalue()
 
 
 def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -2140,6 +2659,25 @@ async def list_hospitality_day_closures(
     )
     closures = [_closure_payload(row) for row in result.mappings().all()]
     return {"ok": True, "company_id": str(company_id), "closures": closures}
+
+
+@router.get("/companies/{company_id}/dashboard.pdf")
+async def export_hospitality_dashboard_pdf(
+    company_id: uuid.UUID,
+    period: str = Query(default="monthly"),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    payload = await _hospitality_report_payload(db, company_id, period)
+    pdf_bytes = build_hospitality_dashboard_pdf(payload)
+    filename = f"clonexa_hospitality_{payload.get('period', 'monthly')}_{_now().date().isoformat()}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/companies/{company_id}/day-closures", status_code=status.HTTP_201_CREATED)

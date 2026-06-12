@@ -12403,6 +12403,14 @@ function inventoryCreatePayload() {
     );
   }
 
+  function cxAssistantIsHospitalityTool028B(module = {}) {
+    const tokens = cxAssistantModuleTokens027E(module);
+    return tokens.some((token) =>
+      ["hospitality", "hsp", "hospitality_dashboard", "hospitality_analytics", "bar", "restaurante"].includes(token) ||
+      token.includes("hospitality")
+    );
+  }
+
   function cxAssistantIsGpsTool027X(module = {}) {
     const tokens = cxAssistantModuleTokens027E(module);
     return tokens.some((token) =>
@@ -12444,10 +12452,11 @@ function inventoryCreatePayload() {
     const hasCommercialClosing = modulePool.some(cxAssistantIsCommercialClosingTool027V) || ["commercial_closing", "cierre_comercial", "cierres_comerciales"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["commercial_closing", "cierre_comercial", "cierres_comerciales"]);
     const hasInventory = modulePool.some(cxAssistantIsInventoryTool027W) || ["inventory", "inventario", "inventario_operativo"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["inventory"]);
     const hasStock = modulePool.some(cxAssistantIsStockTool028A) || ["stock", "stocks", "existencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["stock"]);
+    const hasHospitality = modulePool.some(cxAssistantIsHospitalityTool028B) || ["hospitality", "hsp", "hospitality_dashboard", "hospitality_analytics"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["hospitality", "hsp"]);
     const hasGps = modulePool.some(cxAssistantIsGpsTool027X) || ["gps", "geolocalizacion", "ubicaciones"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["gps"]);
     const hasReports = modulePool.some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["reports"]);
     const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
-    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasStock, hasGps, hasReports, hasShoplink, modules };
+    return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasStock, hasHospitality, hasGps, hasReports, hasShoplink, modules };
   }
 
   function cxAssistantOwnerName027A() {
@@ -12502,6 +12511,7 @@ function inventoryCreatePayload() {
         if (tools.hasCommercialClosing && cxAssistantIsCommercialClosingTool027V(module)) return false;
         if (tools.hasInventory && cxAssistantIsInventoryTool027W(module)) return false;
         if (tools.hasStock && cxAssistantIsStockTool028A(module)) return false;
+        if (tools.hasHospitality && cxAssistantIsHospitalityTool028B(module)) return false;
         if (tools.hasGps && cxAssistantIsGpsTool027X(module)) return false;
         if (tools.hasReports && cxAssistantIsReportsTool027Y(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
@@ -12528,6 +12538,7 @@ function inventoryCreatePayload() {
         ${tools.hasCommercialClosing ? `<button class="cxai-chip-027a primary" type="button" data-cxai-closing-summary-027v>Cierre comercial</button>` : ""}
         ${tools.hasInventory ? `<button class="cxai-chip-027a primary" type="button" data-cxai-inv-summary-027w>Inventario</button>` : ""}
         ${tools.hasStock ? `<button class="cxai-chip-027a primary" type="button" data-cxai-stock-summary-028a>Stock</button>` : ""}
+        ${tools.hasHospitality ? `<button class="cxai-chip-027a primary" type="button" data-cxai-hsp-report-028b>Hospitality</button>` : ""}
         ${tools.hasGps ? `<button class="cxai-chip-027a primary" type="button" data-cxai-gps-summary-027x>GPS</button>` : ""}
         ${tools.hasReports ? `<button class="cxai-chip-027a primary" type="button" data-cxai-reports-start-027y>Reportes</button>` : ""}
         ${moduleButtons}
@@ -12751,6 +12762,11 @@ function inventoryCreatePayload() {
       await cxAssistantReplyStock028A(chat, clean);
       return;
     }
+    if (flow.kind !== "hospitality_pdf" && cxAssistantLooksHospitalityQuery028B(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyHospitality028B(chat, clean);
+      return;
+    }
     if (!["inventory_create", "inventory_update"].includes(flow.kind) && cxAssistantLooksInventoryQuery027W(clean)) {
       chat.flow = null;
       await cxAssistantReplyInventory027W(chat, clean);
@@ -12787,6 +12803,10 @@ function inventoryCreatePayload() {
         cxAssistantBackStockFlow028A(chat);
         return;
       }
+      if (flow.kind === "hospitality_pdf") {
+        cxAssistantBackHospitalityFlow028B(chat);
+        return;
+      }
       if (flow.kind === "gps_config") {
         cxAssistantBackGpsConfigFlow027X(chat);
         return;
@@ -12814,6 +12834,10 @@ function inventoryCreatePayload() {
     }
     if (flow.kind === "stock_update") {
       await cxAssistantHandleStockFlow028A(chat, clean);
+      return;
+    }
+    if (flow.kind === "hospitality_pdf") {
+      await cxAssistantHandleHospitalityFlow028B(chat, clean);
       return;
     }
     if (flow.kind === "gps_config") {
@@ -15969,6 +15993,136 @@ function inventoryCreatePayload() {
     }
   }
 
+  function cxAssistantHospitalityHasAccess028B() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasHospitality || cxAssistantModulePool027E().some(cxAssistantIsHospitalityTool028B) || ["hospitality", "hsp"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksHospitalityQuery028B(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const subject = norm.includes("hospitality") || norm.includes("hsp") || norm.includes("restaurante") || norm.includes("bar");
+    const action = ["reporte", "reportes", "pdf", "descargar", "dashboard", "semanal", "semana", "mensual", "mes", "datos", "ventas", "mesas", "productos", "canciones", "pagos"].some((word) => norm.includes(word));
+    return subject && (action || norm === "hospitality" || norm === "hsp");
+  }
+
+  function cxAssistantHospitalityPeriod028B(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (norm.includes("semana") || norm.includes("semanal") || norm.includes("weekly")) return "weekly";
+    if (norm.includes("mensual") || norm.includes("mes") || norm.includes("monthly")) return "monthly";
+    return "";
+  }
+
+  function cxAssistantHospitalityPeriodLabel028B(period = "") {
+    return period === "weekly" ? "Semanal" : "Mensual";
+  }
+
+  function cxAssistantHospitalityPdfUrl028B(period = "monthly") {
+    const params = new URLSearchParams();
+    params.set("period", period === "weekly" ? "weekly" : "monthly");
+    return `${API}/hospitality/companies/${encodeURIComponent(state.companyId)}/dashboard.pdf?${params.toString()}`;
+  }
+
+  function cxAssistantHospitalityNextStep028B(data = {}) {
+    return data.period ? "confirm" : "period";
+  }
+
+  function cxAssistantHospitalityQuestion028B(flow = {}) {
+    const data = flow.data || {};
+    if (flow.step === "period") {
+      return `
+        <div>Que PDF de Hospitality quieres descargar?</div>
+        <div class="cxai-summary-027a">Escoge reporte semanal o mensual. Incluye dashboard, pagos, ventas, mesas, productos, canciones y cierres.</div>
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a primary" type="button" data-cxai-hsp-period-028b="weekly">Semanal</button>
+          <button class="cxai-chip-027a primary" type="button" data-cxai-hsp-period-028b="monthly">Mensual</button>
+        </div>
+      `;
+    }
+    return `
+      <div>Confirma el PDF Hospitality:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Periodo:</strong> ${h(cxAssistantHospitalityPeriodLabel028B(data.period))}</div>
+        <div><strong>Formato:</strong> dashboard descargable con logo, colores, graficas y tablas.</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Generar PDF</button>
+        <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+      </div>
+    `;
+  }
+
+  function cxAssistantBackHospitalityFlow028B(chat) {
+    cxAssistantBackFlow027R(chat, ["period", "confirm"], cxAssistantHospitalityQuestion028B);
+  }
+
+  function cxAssistantStartHospitalityPdf028B(chat, text = "") {
+    const data = { period: cxAssistantHospitalityPeriod028B(text) };
+    chat.flow = { kind: "hospitality_pdf", step: cxAssistantHospitalityNextStep028B(data), data };
+    cxAssistantPush027A(chat, "assistant", cxAssistantHospitalityQuestion028B(chat.flow), true);
+  }
+
+  async function cxAssistantGenerateHospitalityPdf028B(chat, flow = {}) {
+    const data = flow.data || {};
+    const pdfUrl = cxAssistantHospitalityPdfUrl028B(data.period || "monthly");
+    chat.flow = null;
+    cxAssistantPush027A(
+      chat,
+      "assistant",
+      `
+        Listo. Generé el PDF Hospitality ${h(cxAssistantHospitalityPeriodLabel028B(data.period))}.
+        <a class="cxai-download-027a" href="${h(pdfUrl)}" target="_blank" rel="noopener">Descargar PDF Hospitality</a>
+        <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="hospitality">Abrir Hospitality</button></div>
+      `,
+      true
+    );
+  }
+
+  async function cxAssistantHandleHospitalityFlow028B(chat, clean) {
+    const flow = chat.flow || {};
+    const data = flow.data || {};
+    const norm = cxAssistantNorm027A(clean);
+    switch (flow.step) {
+      case "period": {
+        const period = cxAssistantHospitalityPeriod028B(clean);
+        if (!period) {
+          cxAssistantPush027A(chat, "assistant", "Escribe semanal o mensual.");
+          return;
+        }
+        data.period = period;
+        break;
+      }
+      case "confirm":
+        if (norm.includes("confirmar") || norm.includes("generar") || norm.includes("pdf") || norm.includes("descargar") || cxAssistantYes027A(clean)) {
+          await cxAssistantGenerateHospitalityPdf028B(chat, flow);
+        } else {
+          const period = cxAssistantHospitalityPeriod028B(clean);
+          if (period) {
+            data.period = period;
+            cxAssistantPush027A(chat, "assistant", cxAssistantHospitalityQuestion028B(flow), true);
+          } else {
+            cxAssistantPush027A(chat, "assistant", "Escribe confirmar para generar, semanal/mensual para cambiar, atras o cancelar.");
+          }
+        }
+        return;
+      default:
+        chat.flow = null;
+        cxAssistantPush027A(chat, "assistant", "Reinicie el flujo. Dime reporte Hospitality para empezar otra vez.");
+        return;
+    }
+    flow.data = data;
+    flow.step = cxAssistantHospitalityNextStep028B(data);
+    cxAssistantPush027A(chat, "assistant", cxAssistantHospitalityQuestion028B(flow), true);
+  }
+
+  async function cxAssistantReplyHospitality028B(chat, text = "") {
+    if (!cxAssistantHospitalityHasAccess028B()) {
+      cxAssistantPush027A(chat, "assistant", "Hospitality no esta activo para esta empresa.");
+      return false;
+    }
+    cxAssistantStartHospitalityPdf028B(chat, text);
+    return true;
+  }
+
   function cxAssistantReportsHasAccess027Y() {
     const tools = cxAssistantReadActiveTools027A();
     return tools.hasReports || cxAssistantModulePool027E().some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some(isClientModuleActive);
@@ -15977,6 +16131,7 @@ function inventoryCreatePayload() {
   function cxAssistantLooksReportsQuery027Y(text = "") {
     const norm = cxAssistantNorm027A(text);
     if (norm.includes("cierre comercial") || norm.includes("reporte de cierre") || norm.includes("reportes de cierre")) return false;
+    if (norm.includes("hospitality") || norm.includes("hsp")) return false;
     const subject = norm.includes("reportes") || norm.includes("reporte") || norm.includes("informe") || norm.includes("auditoria") || norm.includes("super archivo");
     const action = ["generar", "crear", "descargar", "pdf", "rango", "empleado", "empleados", "material", "materiales", "inventario", "gps", "nomina", "asistencia", "bitacora", "todo", "todos", "super"].some((word) => norm.includes(word));
     return subject && (action || norm === "reportes" || norm === "reporte");
@@ -16234,6 +16389,10 @@ function inventoryCreatePayload() {
       await cxAssistantReplyStock028A(chat, "estado stock");
       return;
     }
+    if (cxAssistantIsHospitalityTool028B({ code, title }) || token.includes("hospitality")) {
+      await cxAssistantReplyHospitality028B(chat, "reporte hospitality");
+      return;
+    }
     if (cxAssistantIsInventoryTool027W({ code, title }) || token.includes("inventario")) {
       await cxAssistantReplyInventory027W(chat, "estado inventario");
       return;
@@ -16272,6 +16431,8 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "account");
     } else if (norm.includes("cotiz") || norm.includes("presupuesto")) {
       cxAssistantStartFlow027A(chat, "quote");
+    } else if (cxAssistantLooksHospitalityQuery028B(clean)) {
+      await cxAssistantReplyHospitality028B(chat, clean);
     } else if (cxAssistantLooksReportsQuery027Y(clean)) {
       await cxAssistantReplyReports027Y(chat, clean);
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
@@ -16302,7 +16463,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, Stock, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, Stock, Hospitality, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -16412,6 +16573,15 @@ function inventoryCreatePayload() {
         }
         if (target.closest("[data-cxai-stock-add-028a]")) {
           await cxAssistantProcessText027A("agregar articulo stock", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-hsp-report-028b]")) {
+          await cxAssistantProcessText027A("reporte hospitality", chat.activeCode);
+          return;
+        }
+        const hspPeriod = target.closest("[data-cxai-hsp-period-028b]");
+        if (hspPeriod) {
+          await cxAssistantProcessText027A(hspPeriod.getAttribute("data-cxai-hsp-period-028b") || "mensual", chat.activeCode);
           return;
         }
         const stockAction = target.closest("[data-cxai-stock-action-028a]");
@@ -19707,6 +19877,16 @@ function inventoryCreatePayload() {
     return api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, options);
   }
 
+  function cxHspDashPdfUrl028B(mode = cxHspDashMode024W) {
+    const params = new URLSearchParams();
+    params.set("period", mode === "weeks" ? "weekly" : "monthly");
+    return `${API}/hospitality/companies/${encodeURIComponent(state.companyId)}/dashboard.pdf?${params.toString()}`;
+  }
+
+  function cxHspDashDownloadPdf028B(mode = cxHspDashMode024W) {
+    window.open(cxHspDashPdfUrl028B(mode), "_blank", "noopener");
+  }
+
   function cxHspDashNum024W(value) {
     const number = Number(value || 0);
     return Number.isFinite(number) ? number : 0;
@@ -20054,6 +20234,7 @@ function inventoryCreatePayload() {
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 <button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
                 <button class="client-btn" type="button" data-client-module="qr">Mesa QR</button>
+                <button class="client-btn" type="button" data-hsp-dash-pdf>PDF</button>
                 <button class="client-btn" type="button" data-hsp-dash-refresh>Actualizar</button>
               </div>
             </header>
@@ -24642,6 +24823,11 @@ function inventoryCreatePayload() {
           const root = document.getElementById("hspDashRoot024W");
           if (root) root.innerHTML = `<div class="personal-toast error">${h(error.message || "No se pudo actualizar Hospitality.")}</div>`;
         }
+        return;
+      }
+
+      if (target.closest("[data-hsp-dash-pdf]")) {
+        cxHspDashDownloadPdf028B(cxHspDashMode024W);
         return;
       }
 
