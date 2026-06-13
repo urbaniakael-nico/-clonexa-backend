@@ -23963,33 +23963,44 @@ function inventoryCreatePayload() {
       document.head.appendChild(style);
     }
     style.textContent = `
-      .slcli-shell-026n{display:grid;gap:18px}
-      .slcli-card-026n{border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.16));border-radius:22px;padding:20px;box-shadow:0 18px 46px rgba(0,0,0,.18)}
-      .slcli-kpis-026n{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
-      .slcli-kpi-026n{border:1px solid rgba(255,255,255,.11);border-radius:16px;background:rgba(0,0,0,.18);padding:14px}
-      .slcli-kpi-026n span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:1000}
-      .slcli-kpi-026n b{display:block;margin-top:6px;font-size:25px;color:var(--accent)}
-      .slcli-toolbar-026n,.slcli-new-026n{display:grid;grid-template-columns:minmax(220px,1fr) 180px auto;gap:10px;align-items:end}
-      .slcli-new-026n{grid-template-columns:1.1fr .8fr .8fr 1fr .8fr auto;margin-top:12px}
-      .slcli-field-026n{display:grid;gap:7px}
-      .slcli-field-026n label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:1000}
-      .slcli-field-026n input,.slcli-field-026n select,.slcli-field-026n textarea{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.68);color:var(--text);padding:12px 13px;font:inherit;font-weight:850;outline:none}
-      .slcli-field-026n textarea{min-height:72px;resize:vertical}
-      .slcli-list-026n{display:grid;gap:12px}
-      .slcli-row-026n{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(0,0,0,.18);padding:14px;display:grid;gap:12px}
-      .slcli-head-026n{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start}
-      .slcli-head-026n h3{margin:0;font-size:20px;line-height:1.15}
-      .slcli-pill-026n{border-radius:999px;background:rgba(255,255,255,.09);color:var(--accent);padding:7px 10px;font-size:12px;font-weight:1000;white-space:nowrap}
-      .slcli-grid-026n{display:grid;grid-template-columns:1.1fr .8fr .8fr 1fr;gap:10px}
-      .slcli-order-026n{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-      .slcli-order-026n div{border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(255,255,255,.04);padding:10px}
-      .slcli-actions-026n{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
-      .slcli-mini-026n{border:1px solid rgba(255,255,255,.13);border-radius:12px;background:rgba(255,255,255,.07);color:var(--text);padding:8px 10px;font-weight:1000;cursor:pointer}
+      .client-hero.slcli-hero-026n{min-height:0!important;padding:18px 20px!important;margin-bottom:10px!important;align-items:center}
+      .client-hero.slcli-hero-026n h1{font-size:34px;line-height:1.05;margin:6px 0 8px}
+      .client-hero.slcli-hero-026n p{margin:0;max-width:1120px}
+      .client-hero.slcli-hero-026n .client-actions{gap:8px;margin-top:14px}
+      .slcli-shell-026n{display:grid;gap:10px}
+      .slcli-card-026n{border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.16));border-radius:16px;padding:14px;box-shadow:0 14px 34px rgba(0,0,0,.16)}
+      .slcli-card-026n h2{margin:4px 0 10px;font-size:24px;line-height:1.05}
+      .slcli-card-026n .eyebrow{font-size:11px}
+      .slcli-kpis-026n{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+      .slcli-kpi-026n{border:1px solid rgba(255,255,255,.11);border-radius:13px;background:rgba(0,0,0,.18);padding:9px 11px;min-height:66px}
+      .slcli-kpi-026n span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.10em;color:var(--muted);font-weight:1000}
+      .slcli-kpi-026n b{display:block;margin-top:3px;font-size:22px;line-height:1.1;color:var(--accent)}
+      .slcli-toolbar-026n,.slcli-new-026n{display:grid;grid-template-columns:minmax(220px,1fr) 160px auto;gap:8px;align-items:end}
+      .slcli-new-026n{grid-template-columns:1.05fr .75fr .72fr .95fr .72fr auto;margin-top:8px}
+      .slcli-new-026n .client-btn,.slcli-toolbar-026n .client-btn{min-height:38px;padding:9px 14px;border-radius:11px}
+      .slcli-field-026n{display:grid;gap:4px}
+      .slcli-field-026n label{font-size:10px;letter-spacing:.10em;text-transform:uppercase;color:var(--muted);font-weight:1000}
+      .slcli-field-026n input,.slcli-field-026n select,.slcli-field-026n textarea{width:100%;min-height:38px;border:1px solid rgba(255,255,255,.12);border-radius:11px;background:rgba(4,6,22,.68);color:var(--text);padding:9px 11px;font:inherit;font-weight:850;outline:none}
+      .slcli-field-026n textarea{min-height:48px;resize:vertical}
+      .slcli-note-new-026n{grid-column:span 4}
+      .slcli-note-row-026n{grid-column:span 2}
+      .slcli-list-026n{display:grid;gap:8px}
+      .slcli-row-026n{border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(0,0,0,.18);padding:10px;display:grid;gap:8px}
+      .slcli-head-026n{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}
+      .slcli-head-026n h3{margin:0;font-size:18px;line-height:1.1}
+      .slcli-pill-026n{border-radius:999px;background:rgba(255,255,255,.09);color:var(--accent);padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}
+      .slcli-grid-026n{display:grid;grid-template-columns:1.1fr .8fr .8fr 1fr;gap:8px}
+      .slcli-order-026n{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+      .slcli-order-026n div{border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.04);padding:7px 8px}
+      .slcli-order-026n strong{line-height:1.15}
+      .slcli-actions-026n{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+      .slcli-mini-026n{border:1px solid rgba(255,255,255,.13);border-radius:10px;background:rgba(255,255,255,.07);color:var(--text);padding:6px 8px;font-weight:1000;cursor:pointer}
       .slcli-mini-026n.ok{color:var(--accent)}
       .slcli-msg-026n{font-weight:900;color:var(--accent)}
-      .slcli-empty-026n{border:1px dashed rgba(255,255,255,.16);border-radius:18px;padding:22px;background:rgba(0,0,0,.12)}
-      @media(max-width:1120px){.slcli-kpis-026n{grid-template-columns:repeat(2,minmax(0,1fr))}.slcli-toolbar-026n,.slcli-new-026n,.slcli-grid-026n,.slcli-order-026n{grid-template-columns:1fr 1fr}}
-      @media(max-width:760px){.slcli-kpis-026n,.slcli-toolbar-026n,.slcli-new-026n,.slcli-grid-026n,.slcli-order-026n,.slcli-head-026n{grid-template-columns:1fr}.slcli-actions-026n{justify-content:flex-start}}
+      .slcli-empty-026n{border:1px dashed rgba(255,255,255,.16);border-radius:14px;padding:16px;background:rgba(0,0,0,.12)}
+      [data-slcli-visible-count]{margin:8px 0}
+      @media(max-width:1120px){.slcli-kpis-026n{grid-template-columns:repeat(2,minmax(0,1fr))}.slcli-toolbar-026n,.slcli-new-026n,.slcli-grid-026n,.slcli-order-026n{grid-template-columns:1fr 1fr}.slcli-note-new-026n,.slcli-note-row-026n{grid-column:1/-1}}
+      @media(max-width:760px){.slcli-kpis-026n,.slcli-toolbar-026n,.slcli-new-026n,.slcli-grid-026n,.slcli-order-026n,.slcli-head-026n{grid-template-columns:1fr}.slcli-actions-026n{justify-content:flex-start}.client-hero.slcli-hero-026n h1{font-size:28px}}
     `;
   }
 
@@ -24086,7 +24097,7 @@ function inventoryCreatePayload() {
             <div class="slcli-field-026n"><label>Direccion<input data-slcli-address value="${h(customer.address || "")}"></label></div>
             <div class="slcli-field-026n"><label>Estado<select data-slcli-status>${cxSlCliStatusOptions026N(customer.status || "nuevo")}</select></label></div>
             <div class="slcli-field-026n"><label>Etiqueta<input data-slcli-tag value="${h(customer.tag || "")}" placeholder="VIP, mayorista, promo"></label></div>
-            <div class="slcli-field-026n" style="grid-column:span 2"><label>Nota<textarea data-slcli-note placeholder="Seguimiento comercial">${h(customer.note || "")}</textarea></label></div>
+            <div class="slcli-field-026n slcli-note-row-026n"><label>Nota<textarea data-slcli-note placeholder="Seguimiento comercial">${h(customer.note || "")}</textarea></label></div>
           </div>
           <small class="client-muted">Ultimo articulo: ${h(customer.last_items_summary || "Sin detalle")} · ${h(cxSlCliDate026N(customer.last_order_at))}</small>
           <div class="slcli-actions-026n">
@@ -24136,7 +24147,7 @@ function inventoryCreatePayload() {
             <div class="tenant-pill">Tenant activo<br>${h(state.companyId || "")}</div>
           </aside>
           <section class="client-main">
-            <section class="client-hero">
+            <section class="client-hero slcli-hero-026n">
               <div>
                 <span class="eyebrow">CLONEXA ShopLink</span>
                 <h1>Clientes y CRM web</h1>
@@ -24170,7 +24181,7 @@ function inventoryCreatePayload() {
                   <div class="slcli-field-026n"><label>Estado<select id="slCliNewStatus026N">${cxSlCliStatusOptions026N("prospecto")}</select></label></div>
                   <button class="client-btn" type="button" data-slcli-create>Crear</button>
                   <div class="slcli-field-026n"><label>Etiqueta<input id="slCliNewTag026N" placeholder="Instagram, mayorista"></label></div>
-                  <div class="slcli-field-026n" style="grid-column:span 4"><label>Nota<textarea id="slCliNewNote026N" placeholder="Interes, talla, producto o seguimiento"></textarea></label></div>
+                  <div class="slcli-field-026n slcli-note-new-026n"><label>Nota<textarea id="slCliNewNote026N" placeholder="Interes, talla, producto o seguimiento"></textarea></label></div>
                 </div>
               </article>
 
