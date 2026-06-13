@@ -12388,18 +12388,16 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantIsInventoryTool027W(module = {}) {
-    const tokens = cxAssistantModuleTokens027E(module);
+    const tokens = cxAssistantModuleIdentityTokens027Q(module);
     return tokens.some((token) =>
-      ["inventory", "inventario", "inventario_operativo"].includes(token) ||
-      token.includes("inventario")
+      ["inventory", "inventario", "inventario_operativo"].includes(token)
     );
   }
 
   function cxAssistantIsStockTool028A(module = {}) {
-    const tokens = cxAssistantModuleTokens027E(module);
+    const tokens = cxAssistantModuleIdentityTokens027Q(module);
     return tokens.some((token) =>
-      ["stock", "stocks", "existencias", "existencia", "inventario_stock", "stock_control"].includes(token) ||
-      token.includes("stock")
+      ["stock", "stocks", "existencias", "existencia", "inventario_stock", "stock_control"].includes(token)
     );
   }
 
@@ -12437,10 +12435,16 @@ function inventoryCreatePayload() {
   }
 
   function cxAssistantIsReportsTool027Y(module = {}) {
-    const tokens = cxAssistantModuleTokens027E(module);
+    const tokens = cxAssistantModuleIdentityTokens027Q(module);
     return tokens.some((token) =>
-      ["reports", "reportes", "reporte", "report", "informes", "informe", "auditoria"].includes(token) ||
-      token.includes("reportes")
+      ["reports", "reportes", "reporte", "report", "informes", "informe", "auditoria"].includes(token)
+    );
+  }
+
+  function cxAssistantIsShoplinkTool028E(module = {}) {
+    const tokens = cxAssistantModuleIdentityTokens027Q(module);
+    return tokens.some((token) =>
+      ["landing", "lan", "shoplink", "shoplink_catalog", "catalogo_tienda_publica", "catalogo_publico", "tienda_publica", "catalog_public"].includes(token)
     );
   }
 
@@ -12467,14 +12471,14 @@ function inventoryCreatePayload() {
     const hasReferences = modulePool.some(cxAssistantIsReferencesTool027Q) || ["references", "reference", "production_refs", "production_references", "referencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["references", "production_refs"]);
     const hasWorkforce = modulePool.some(cxAssistantIsWorkforceTool027R) || ["workforce", "personal", "employees"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["workforce", "personal", "employees"]);
     const hasCommercialClosing = modulePool.some(cxAssistantIsCommercialClosingTool027V) || ["commercial_closing", "cierre_comercial", "cierres_comerciales"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["commercial_closing", "cierre_comercial", "cierres_comerciales"]);
-    const hasInventory = modulePool.some(cxAssistantIsInventoryTool027W) || ["inventory", "inventario", "inventario_operativo"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["inventory"]);
-    const hasStock = modulePool.some(cxAssistantIsStockTool028A) || ["stock", "stocks", "existencias"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["stock"]);
+    const hasInventory = ["inventory", "inventario", "inventario_operativo"].some((code) => activeIdentityCodes.has(code)) || hasAnyClientModule(codes, ["inventory"]);
+    const hasStock = ["stock", "stocks", "existencias", "inventario_stock", "stock_control"].some((code) => activeIdentityCodes.has(code)) || hasAnyClientModule(codes, ["stock", "stocks"]);
     const hasHospitality = modulePool.some(cxAssistantIsHospitalityTool028B) || ["hospitality", "hsp", "hospitality_dashboard", "hospitality_analytics"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["hospitality", "hsp"]);
     const hasLoyalty = modulePool.some(cxAssistantIsLoyaltyTool028C) || ["loyalty", "fidelizacion", "hospitality_loyalty"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["loyalty", "fidelizacion"]);
     const hasQr = modulePool.some(cxAssistantIsQrTool028D) || ["qr", "mesa_qr", "mesas_qr", "qr_mesas", "hospitality_qr"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["qr"]);
     const hasGps = modulePool.some(cxAssistantIsGpsTool027X) || ["gps", "geolocalizacion", "ubicaciones"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["gps"]);
-    const hasReports = modulePool.some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some((code) => normalizedCodes.has(code)) || hasAnyClientModule(codes, ["reports"]);
-    const hasShoplink = clientHasShoplinkDashboard026P(modules, codes);
+    const hasReports = ["reports", "reportes", "report"].some((code) => activeIdentityCodes.has(code)) || hasAnyClientModule(codes, ["reports"]);
+    const hasShoplink = modules.some(cxAssistantIsShoplinkTool028E) || ["landing", "lan", "shoplink", "catalogo_tienda_publica", "catalogo_publico", "tienda_publica"].some((code) => activeIdentityCodes.has(code));
     return { hasQuotes, hasCrm, hasPayroll, hasProduction, hasReferences, hasWorkforce, hasCommercialClosing, hasInventory, hasStock, hasHospitality, hasLoyalty, hasQr, hasGps, hasReports, hasShoplink, modules };
   }
 
@@ -12535,6 +12539,7 @@ function inventoryCreatePayload() {
         if (tools.hasQr && cxAssistantIsQrTool028D(module)) return false;
         if (tools.hasGps && cxAssistantIsGpsTool027X(module)) return false;
         if (tools.hasReports && cxAssistantIsReportsTool027Y(module)) return false;
+        if (tools.hasShoplink && cxAssistantIsShoplinkTool028E(module)) return false;
         const key = cxNormalizeModuleToken017H(module.code || module.title || module.name || "");
         if (!key) return true;
         if (seenModules.has(key)) return false;
@@ -12559,6 +12564,7 @@ function inventoryCreatePayload() {
         ${tools.hasCommercialClosing ? `<button class="cxai-chip-027a primary" type="button" data-cxai-closing-summary-027v>Cierre comercial</button>` : ""}
         ${tools.hasInventory ? `<button class="cxai-chip-027a primary" type="button" data-cxai-inv-summary-027w>Inventario</button>` : ""}
         ${tools.hasStock ? `<button class="cxai-chip-027a primary" type="button" data-cxai-stock-summary-028a>Stock</button>` : ""}
+        ${tools.hasShoplink ? `<button class="cxai-chip-027a primary" type="button" data-cxai-shoplink-summary-028e>Catalogo / Tienda</button>` : ""}
         ${tools.hasHospitality ? `<button class="cxai-chip-027a primary" type="button" data-cxai-hsp-report-028b>Hospitality</button>` : ""}
         ${tools.hasLoyalty ? `<button class="cxai-chip-027a primary" type="button" data-cxai-loy-result-028c>Fidelizacion</button>` : ""}
         ${tools.hasQr ? `<button class="cxai-chip-027a primary" type="button" data-cxai-qr-summary-028d>QR</button>` : ""}
@@ -12800,6 +12806,11 @@ function inventoryCreatePayload() {
       await cxAssistantReplyQr028D(chat, clean);
       return;
     }
+    if (flow.kind !== "shoplink_config" && cxAssistantLooksShoplinkQuery028E(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyShoplink028E(chat, clean);
+      return;
+    }
     if (!["inventory_create", "inventory_update"].includes(flow.kind) && cxAssistantLooksInventoryQuery027W(clean)) {
       chat.flow = null;
       await cxAssistantReplyInventory027W(chat, clean);
@@ -12848,6 +12859,10 @@ function inventoryCreatePayload() {
         cxAssistantBackQrFlow028D(chat);
         return;
       }
+      if (flow.kind === "shoplink_config") {
+        cxAssistantBackShoplinkFlow028E(chat);
+        return;
+      }
       if (flow.kind === "gps_config") {
         cxAssistantBackGpsConfigFlow027X(chat);
         return;
@@ -12887,6 +12902,10 @@ function inventoryCreatePayload() {
     }
     if (flow.kind === "qr_access") {
       await cxAssistantHandleQrFlow028D(chat, clean);
+      return;
+    }
+    if (flow.kind === "shoplink_config") {
+      await cxAssistantHandleShoplinkFlow028E(chat, clean);
       return;
     }
     if (flow.kind === "gps_config") {
@@ -16826,6 +16845,298 @@ function inventoryCreatePayload() {
     document.getElementById("hspQrPrintPanel025H")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  const CX_ASSISTANT_SHOPLINK_STEPS_028E = [
+    "store_name",
+    "currency",
+    "headline",
+    "description",
+    "announcement",
+    "categories",
+    "featured_terms",
+    "layout_mode",
+    "photos_per_category",
+    "theme",
+    "accent_color",
+    "logo_url",
+    "hero_image_url",
+    "payment_methods",
+    "delivery_notes",
+    "whatsapp_number",
+    "cta_message",
+    "payment_proof_whatsapp",
+    "payment_proof_message",
+    "public_enabled",
+    "checkout_enabled",
+    "show_prices",
+    "show_stock",
+    "support_whatsapp_enabled",
+    "confirm",
+  ];
+
+  function cxAssistantShoplinkHasAccess028E() {
+    const tools = cxAssistantReadActiveTools027A();
+    return tools.hasShoplink || cxAssistantModulePool027E().some(cxAssistantIsShoplinkTool028E) || ["landing", "lan", "shoplink", "catalogo_tienda_publica", "catalogo_publico", "tienda_publica"].some(isClientModuleActive);
+  }
+
+  function cxAssistantLooksShoplinkQuery028E(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    const subject = norm.includes("shoplink") || norm.includes("catalogo") || norm.includes("catalog") || norm.includes("tienda publica") || norm.includes("abrir tienda") || norm.includes("configurar tienda");
+    const action = ["configurar", "editar", "ajustar", "asist", "activar", "publicar", "guardar", "estado", "resumen", "abrir", "link"].some((word) => norm.includes(word));
+    return subject && (action || norm === "catalogo" || norm === "shoplink");
+  }
+
+  function cxAssistantShoplinkNeedsConfig028E(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return ["configurar", "editar", "ajustar", "asist", "activar", "publicar", "guardar"].some((word) => norm.includes(word));
+  }
+
+  function cxAssistantShoplinkList028E(value = "") {
+    return String(value || "")
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function cxAssistantShoplinkValue028E(settings = {}, key = "") {
+    const value = settings[key];
+    if (Array.isArray(value)) return value.join(", ") || "vacio";
+    if (typeof value === "boolean") return value ? "si" : "no";
+    return value == null || value === "" ? "vacio" : String(value);
+  }
+
+  function cxAssistantShoplinkPayload028E(flow = {}) {
+    return { ...(flow.data?.settings || {}), ...(flow.data?.payload || {}) };
+  }
+
+  function cxAssistantShoplinkLayout028E(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (norm.includes("boutique")) return "boutique";
+    if (norm.includes("compact")) return "compact";
+    if (norm.includes("market")) return "marketplace";
+    return "";
+  }
+
+  function cxAssistantShoplinkTheme028E(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    if (norm.includes("pop")) return "marketplace_pop";
+    if (norm.includes("claro") || norm.includes("light")) return "shoplink_light";
+    if (norm.includes("oscuro") || norm.includes("dark")) return "shoplink_dark";
+    if (norm.includes("neon")) return "retail_neon";
+    if (norm.includes("clasico") || norm.includes("classic")) return "classic_store";
+    return "";
+  }
+
+  function cxAssistantShoplinkQuestion028E(flow = {}) {
+    const current = cxAssistantShoplinkPayload028E(flow);
+    const actual = (key) => h(cxAssistantShoplinkValue028E(current, key));
+    switch (flow.step) {
+      case "store_name": return `Nombre publico de la tienda? Actual: ${actual("store_name")}. Escribe omitir para mantener.`;
+      case "currency": return `Moneda? Ej: COP, USD. Actual: ${actual("currency")}.`;
+      case "headline": return `Titulo principal de la tienda? Actual: ${actual("headline")}.`;
+      case "description": return `Descripcion publica de la tienda? Actual: ${actual("description")}.`;
+      case "announcement": return `Anuncio superior o promocion visible? Actual: ${actual("announcement")}.`;
+      case "categories": return `Categorias visibles? Escribe separadas por coma. Actual: ${actual("categories")}.`;
+      case "featured_terms": return `Palabras para destacar productos? Ej: nuevo, promo, oferta. Actual: ${actual("featured_terms")}.`;
+      case "layout_mode": return `Plantilla? Opciones: marketplace, boutique o compact. Actual: ${actual("layout_mode")}.`;
+      case "photos_per_category": return `Fotos por categoria? Numero de 1 a 40. Actual: ${actual("photos_per_category")}.`;
+      case "theme": return `Estilo visual? Opciones: pop, oscuro, claro, neon o clasico. Actual: ${actual("theme")}.`;
+      case "accent_color": return `Color acento HEX? Ej: #24d6c8. Actual: ${actual("accent_color")}.`;
+      case "logo_url": return `Logo URL? Puedes omitir si no aplica. Actual: ${actual("logo_url")}.`;
+      case "hero_image_url": return `Imagen principal URL? Puedes omitir si no aplica. Actual: ${actual("hero_image_url")}.`;
+      case "payment_methods": return `Metodos de pago? Separados por coma. Actual: ${actual("payment_methods")}.`;
+      case "delivery_notes": return `Notas de entrega, cobertura o recogida? Actual: ${actual("delivery_notes")}.`;
+      case "whatsapp_number": return `WhatsApp de soporte? Actual: ${actual("whatsapp_number")}.`;
+      case "cta_message": return `Mensaje inicial de soporte? Actual: ${actual("cta_message")}.`;
+      case "payment_proof_whatsapp": return `WhatsApp para comprobantes de pago? Actual: ${actual("payment_proof_whatsapp")}.`;
+      case "payment_proof_message": return `Mensaje para comprobante de pago? Actual: ${actual("payment_proof_message")}.`;
+      case "public_enabled": return `Tienda publica activa? Responde si o no. Actual: ${actual("public_enabled")}.`;
+      case "checkout_enabled": return `Checkout activo? Responde si o no. Actual: ${actual("checkout_enabled")}.`;
+      case "show_prices": return `Mostrar precios? Responde si o no. Actual: ${actual("show_prices")}.`;
+      case "show_stock": return `Mostrar stock? Responde si o no. Actual: ${actual("show_stock")}.`;
+      case "support_whatsapp_enabled": return `Boton de soporte WhatsApp activo? Responde si o no. Actual: ${actual("support_whatsapp_enabled")}.`;
+      default: {
+        const data = current;
+        return `
+          <div>Confirma configuracion Catalogo / Tienda:</div>
+          <div class="cxai-summary-027a">
+            <div><strong>Tienda:</strong> ${h(data.store_name || "")} · ${h(data.currency || "COP")}</div>
+            <div><strong>Portada:</strong> ${h(data.headline || "")}</div>
+            <div><strong>Categorias:</strong> ${h(cxAssistantShoplinkValue028E(data, "categories"))}</div>
+            <div><strong>Destacados:</strong> ${h(cxAssistantShoplinkValue028E(data, "featured_terms"))}</div>
+            <div><strong>Visual:</strong> ${h(data.layout_mode || "marketplace")} · ${h(data.theme || "marketplace_pop")} · ${h(data.accent_color || "#ff7a00")}</div>
+            <div><strong>Checkout:</strong> ${data.checkout_enabled !== false ? "activo" : "inactivo"} · precios ${data.show_prices !== false ? "si" : "no"} · stock ${data.show_stock !== false ? "si" : "no"}</div>
+            <div><strong>Soporte:</strong> ${data.support_whatsapp_enabled ? "activo" : "inactivo"} · ${h(data.whatsapp_number || "sin numero")}</div>
+            <div><strong>Comprobantes:</strong> ${h(data.payment_proof_whatsapp || "sin numero")}</div>
+          </div>
+          <div class="cxai-chip-wrap-027a">
+            <button class="cxai-chip-027a primary" type="button" data-cxai-confirm-027a>Guardar tienda</button>
+            <button class="cxai-chip-027a" type="button" data-cxai-cancel-027a>Cancelar</button>
+          </div>
+        `;
+      }
+    }
+  }
+
+  function cxAssistantBackShoplinkFlow028E(chat) {
+    cxAssistantBackFlow027R(chat, CX_ASSISTANT_SHOPLINK_STEPS_028E, cxAssistantShoplinkQuestion028E);
+  }
+
+  async function cxAssistantStartShoplinkConfig028E(chat) {
+    const loaded = await cxShoplinkLoad026K();
+    chat.flow = {
+      kind: "shoplink_config",
+      step: "store_name",
+      data: { settings: loaded.settings || {}, payload: {}, publicUrl: loaded.public_url || "" },
+    };
+    cxAssistantPush027A(chat, "assistant", cxAssistantShoplinkQuestion028E(chat.flow), true);
+  }
+
+  function cxAssistantShoplinkApplyStep028E(flow = {}, clean = "") {
+    const payload = flow.data.payload || {};
+    const settings = flow.data.settings || {};
+    const step = flow.step;
+    const keep = cxAssistantSkip027A(clean);
+    const current = settings[step];
+    if (keep) {
+      payload[step] = current;
+      return true;
+    }
+    if (["categories", "featured_terms", "payment_methods"].includes(step)) {
+      payload[step] = cxAssistantShoplinkList028E(clean);
+      return true;
+    }
+    if (["public_enabled", "checkout_enabled", "show_prices", "show_stock", "support_whatsapp_enabled"].includes(step)) {
+      if (cxAssistantYes027A(clean)) {
+        payload[step] = true;
+        return true;
+      }
+      if (cxAssistantNo027A(clean)) {
+        payload[step] = false;
+        return true;
+      }
+      return "Responde si, no u omitir.";
+    }
+    if (step === "photos_per_category") {
+      const number = Math.round(Number(String(clean).replace(",", ".")));
+      if (!Number.isFinite(number) || number < 1 || number > 40) return "Necesito un numero entre 1 y 40.";
+      payload[step] = number;
+      return true;
+    }
+    if (step === "layout_mode") {
+      const layout = cxAssistantShoplinkLayout028E(clean);
+      if (!layout) return "Elige marketplace, boutique o compact.";
+      payload[step] = layout;
+      return true;
+    }
+    if (step === "theme") {
+      const theme = cxAssistantShoplinkTheme028E(clean);
+      if (!theme) return "Elige pop, oscuro, claro, neon o clasico.";
+      payload[step] = theme;
+      return true;
+    }
+    if (step === "accent_color") {
+      const color = String(clean || "").trim();
+      if (!/^#[0-9a-fA-F]{6}$/.test(color)) return "Usa un color HEX valido, por ejemplo #24d6c8.";
+      payload[step] = color;
+      return true;
+    }
+    payload[step] = String(clean || "").trim();
+    return true;
+  }
+
+  async function cxAssistantSaveShoplink028E(chat, flow = {}) {
+    const payload = cxAssistantShoplinkPayload028E(flow);
+    const saved = await api(`/shoplink/companies/${encodeURIComponent(state.companyId)}/settings`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    chat.flow = null;
+    const publicUrl = saved.public_url || flow.data?.publicUrl || cxShoplinkPublicUrl026K(saved);
+    cxAssistantPush027A(
+      chat,
+      "assistant",
+      `
+        Listo. Guarde Catalogo / Tienda publica.
+        <a class="cxai-download-027a" href="${h(publicUrl)}" target="_blank" rel="noopener">Abrir tienda</a>
+        <div class="cxai-chip-wrap-027a">
+          <button class="cxai-chip-027a" type="button" data-client-module="${h(cxShoplinkActiveCode026K())}">Abrir modulo</button>
+          <button class="cxai-chip-027a" type="button" data-cxai-shoplink-summary-028e>Ver estado</button>
+        </div>
+      `,
+      true
+    );
+    if (document.getElementById("shoplinkStoreName026K")) renderShoplinkModule026K().catch(() => {});
+  }
+
+  async function cxAssistantHandleShoplinkFlow028E(chat, clean) {
+    const flow = chat.flow || {};
+    if (flow.step === "confirm") {
+      const norm = cxAssistantNorm027A(clean);
+      if (norm.includes("guardar") || norm.includes("confirmar") || cxAssistantYes027A(clean)) {
+        try {
+          await cxAssistantSaveShoplink028E(chat, flow);
+        } catch (error) {
+          cxAssistantPush027A(chat, "assistant", error.message || "No pude guardar la tienda.");
+        }
+      } else {
+        cxAssistantPush027A(chat, "assistant", "Escribe guardar para aplicar, atras para corregir o cancelar para salir.");
+      }
+      return;
+    }
+    const applied = cxAssistantShoplinkApplyStep028E(flow, clean);
+    if (applied !== true) {
+      cxAssistantPush027A(chat, "assistant", applied);
+      return;
+    }
+    const currentIndex = CX_ASSISTANT_SHOPLINK_STEPS_028E.indexOf(flow.step);
+    flow.step = CX_ASSISTANT_SHOPLINK_STEPS_028E[Math.min(currentIndex + 1, CX_ASSISTANT_SHOPLINK_STEPS_028E.length - 1)];
+    cxAssistantPush027A(chat, "assistant", cxAssistantShoplinkQuestion028E(flow), true);
+  }
+
+  function cxAssistantShoplinkSummaryHtml028E(payload = {}) {
+    const settings = payload.settings || {};
+    const summary = payload.summary || {};
+    const publicUrl = cxShoplinkPublicUrl026K(payload);
+    return `
+      <div>Catalogo / Tienda publica esta activo.</div>
+      <div class="cxai-summary-027a">
+        <div><strong>Tienda:</strong> ${h(settings.store_name || "Tienda")}</div>
+        <div><strong>Estado:</strong> ${settings.public_enabled === false ? "oculta" : "publica"} · checkout ${settings.checkout_enabled === false ? "off" : "on"}</div>
+        <div><strong>Productos:</strong> ${h(summary.products || 0)} · <strong>Pedidos:</strong> ${h(summary.orders || 0)} · <strong>Abiertos:</strong> ${h(summary.open_orders || 0)}</div>
+        <div><strong>Categorias:</strong> ${h(cxAssistantShoplinkValue028E(settings, "categories"))}</div>
+        <div><strong>Pagos:</strong> ${h(cxAssistantShoplinkValue028E(settings, "payment_methods"))}</div>
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        <button class="cxai-chip-027a primary" type="button" data-cxai-shoplink-config-028e>Configurar todo</button>
+        <a class="cxai-download-027a" href="${h(publicUrl)}" target="_blank" rel="noopener">Abrir tienda</a>
+        <button class="cxai-chip-027a" type="button" data-client-module="${h(cxShoplinkActiveCode026K())}">Abrir modulo</button>
+      </div>
+    `;
+  }
+
+  async function cxAssistantPushShoplinkSummary028E(chat) {
+    const payload = await cxShoplinkLoad026K();
+    cxAssistantPush027A(chat, "assistant", cxAssistantShoplinkSummaryHtml028E(payload), true);
+  }
+
+  async function cxAssistantReplyShoplink028E(chat, text = "") {
+    if (!cxAssistantShoplinkHasAccess028E()) {
+      cxAssistantPush027A(chat, "assistant", "Catalogo / Tienda publica no esta activo para esta empresa.");
+      return false;
+    }
+    try {
+      if (cxAssistantShoplinkNeedsConfig028E(text)) {
+        await cxAssistantStartShoplinkConfig028E(chat);
+      } else {
+        await cxAssistantPushShoplinkSummary028E(chat);
+      }
+      return true;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Catalogo / Tienda.");
+      return false;
+    }
+  }
+
   function cxAssistantReportsHasAccess027Y() {
     const tools = cxAssistantReadActiveTools027A();
     return tools.hasReports || cxAssistantModulePool027E().some(cxAssistantIsReportsTool027Y) || ["reports", "reportes"].some(isClientModuleActive);
@@ -17088,7 +17399,7 @@ function inventoryCreatePayload() {
       await cxAssistantReplyCommercialClosing027V(chat, "resumen cierre comercial");
       return;
     }
-    if (cxAssistantIsStockTool028A({ code, title }) || token.includes("stock")) {
+    if (cxAssistantIsStockTool028A({ code, title })) {
       await cxAssistantReplyStock028A(chat, "estado stock");
       return;
     }
@@ -17104,7 +17415,11 @@ function inventoryCreatePayload() {
       await cxAssistantReplyQr028D(chat, "estado qr");
       return;
     }
-    if (cxAssistantIsInventoryTool027W({ code, title }) || token.includes("inventario")) {
+    if (cxAssistantIsShoplinkTool028E({ code, title }) || token.includes("shoplink") || token.includes("catalogo_tienda") || token.includes("tienda_publica")) {
+      await cxAssistantReplyShoplink028E(chat, "estado catalogo tienda");
+      return;
+    }
+    if (cxAssistantIsInventoryTool027W({ code, title })) {
       await cxAssistantReplyInventory027W(chat, "estado inventario");
       return;
     }
@@ -17112,7 +17427,7 @@ function inventoryCreatePayload() {
       await cxAssistantReplyGps027X(chat, "estado gps");
       return;
     }
-    if (cxAssistantIsReportsTool027Y({ code, title }) || token.includes("reportes") || token.includes("reports")) {
+    if (cxAssistantIsReportsTool027Y({ code, title })) {
       await cxAssistantReplyReports027Y(chat, "generar reporte pdf");
       return;
     }
@@ -17148,6 +17463,8 @@ function inventoryCreatePayload() {
       await cxAssistantReplyLoyalty028C(chat, clean);
     } else if (cxAssistantLooksQrQuery028D(clean)) {
       await cxAssistantReplyQr028D(chat, clean);
+    } else if (cxAssistantLooksShoplinkQuery028E(clean)) {
+      await cxAssistantReplyShoplink028E(chat, clean);
     } else if (cxAssistantLooksReportsQuery027Y(clean)) {
       await cxAssistantReplyReports027Y(chat, clean);
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
@@ -17178,7 +17495,7 @@ function inventoryCreatePayload() {
     } else if (norm.includes("hola") || norm.includes("ayuda") || norm.includes("opciones")) {
       cxAssistantPush027A(chat, "assistant", `Claro. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else if (norm.includes("reporte") || norm.includes("pedido")) {
-      cxAssistantPush027A(chat, "assistant", "Te entiendo. Ese modulo aparece como herramienta del asistente. Por ahora puedo ejecutar cuenta de cobro, cotizacion, CRM, Nomina, Produccion, Referencias, Workforce, Cierre comercial, Inventario, Stock, Hospitality, Fidelizacion, QR, GPS y Reportes. Selecciona una opcion o dime que necesitas.");
+      cxAssistantPush027A(chat, "assistant", `Te entiendo. Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     } else {
       cxAssistantPush027A(chat, "assistant", `Puedo ayudarte desde estos modulos activos. ${cxAssistantModulesHtml027A(cxAssistantReadActiveTools027A())}`, true);
     }
@@ -17330,6 +17647,14 @@ function inventoryCreatePayload() {
         const qrPrint = target.closest("[data-cxai-qr-print-028d]");
         if (qrPrint) {
           await cxAssistantOpenQrPrint028D(qrPrint.getAttribute("data-cxai-qr-print-028d") || "");
+          return;
+        }
+        if (target.closest("[data-cxai-shoplink-summary-028e]")) {
+          await cxAssistantProcessText027A("estado catalogo tienda", chat.activeCode);
+          return;
+        }
+        if (target.closest("[data-cxai-shoplink-config-028e]")) {
+          await cxAssistantProcessText027A("configurar catalogo tienda", chat.activeCode);
           return;
         }
         const stockAction = target.closest("[data-cxai-stock-action-028a]");
