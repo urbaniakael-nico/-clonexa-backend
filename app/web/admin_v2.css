@@ -482,6 +482,27 @@ p {
   gap: 18px;
 }
 
+.cx-landing-report-card-025S {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 0;
+}
+
+.cx-landing-card-head-025S {
+  display: grid;
+  gap: 5px;
+}
+
+.cx-landing-card-head-025S h3 {
+  margin: 0;
+}
+
+.cx-landing-card-head-025S small {
+  color: var(--cx-muted);
+  line-height: 1.45;
+}
+
 .cx-landing-wide-025S {
   grid-column: 1 / -1;
 }
@@ -489,6 +510,12 @@ p {
 .cx-landing-bars-025S {
   display: grid;
   gap: 10px;
+}
+
+.cx-landing-scroll-025S {
+  max-height: 372px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .cx-landing-bar-row-025S {
@@ -513,6 +540,22 @@ p {
 
 .cx-landing-table-025S {
   min-width: 1040px;
+}
+
+.cx-landing-recent-wrap-025S {
+  max-height: 418px;
+  overflow: auto;
+}
+
+.cx-landing-recent-wrap-025S thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(28, 28, 39, .96);
+}
+
+.cx-landing-table-025S td:first-child {
+  white-space: nowrap;
 }
 
 .cx-table {

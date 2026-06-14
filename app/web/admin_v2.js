@@ -178,7 +178,7 @@
           <div class="cx-card-head">
             <div>
               <h2>Analitica landing</h2>
-              <p>Visitas reales, fuentes, campanas y comportamiento de la landing publica.</p>
+              <p>Resumen comercial de visitas reales, origen, ubicacion, campanas y dispositivos.</p>
             </div>
             <button class="cx-btn cx-btn-small" data-refresh-landing-analytics type="button">Actualizar</button>
           </div>
@@ -206,29 +206,54 @@
           <div class="cx-grid-metrics cx-landing-metrics-025S" id="landingMetrics025R"></div>
         </article>
         <div class="cx-landing-grid-025S">
-          <article class="cx-card">
-            <h3>Visitas por dia</h3>
-            <div class="cx-landing-bars-025S" id="landingDaily025S"></div>
+          <article class="cx-card cx-landing-report-card-025S">
+            <div class="cx-landing-card-head-025S">
+              <h3>Visitas por dia</h3>
+              <small>Actividad diaria del periodo filtrado.</small>
+            </div>
+            <div class="cx-landing-bars-025S cx-landing-scroll-025S" id="landingDaily025S"></div>
           </article>
-          <article class="cx-card">
-            <h3>Fuentes</h3>
-            <div class="cx-landing-bars-025S" id="landingSources025R"></div>
+          <article class="cx-card cx-landing-report-card-025S">
+            <div class="cx-landing-card-head-025S">
+              <h3>Fuentes</h3>
+              <small>Origen de trafico y referencia comercial.</small>
+            </div>
+            <div class="cx-landing-bars-025S cx-landing-scroll-025S" id="landingSources025R"></div>
           </article>
-          <article class="cx-card">
-            <h3>Campanas</h3>
-            <div class="cx-landing-bars-025S" id="landingCampaigns025R"></div>
+          <article class="cx-card cx-landing-report-card-025S">
+            <div class="cx-landing-card-head-025S">
+              <h3>Campanas</h3>
+              <small>UTM campaign o trafico sin campana.</small>
+            </div>
+            <div class="cx-landing-bars-025S cx-landing-scroll-025S" id="landingCampaigns025R"></div>
           </article>
-          <article class="cx-card">
-            <h3>Dispositivos</h3>
-            <div class="cx-landing-bars-025S" id="landingDevices025S"></div>
+          <article class="cx-card cx-landing-report-card-025S">
+            <div class="cx-landing-card-head-025S">
+              <h3>Dispositivos</h3>
+              <small>Desktop, mobile y tamano de pantalla.</small>
+            </div>
+            <div class="cx-landing-bars-025S cx-landing-scroll-025S" id="landingDevices025S"></div>
+          </article>
+          <article class="cx-card cx-landing-report-card-025S">
+            <div class="cx-landing-card-head-025S">
+              <h3>Georreferencia</h3>
+              <small>Ciudad y pais detectados o derivados por zona horaria.</small>
+            </div>
+            <div class="cx-landing-bars-025S cx-landing-scroll-025S" id="landingGeo025S"></div>
+          </article>
+          <article class="cx-card cx-landing-report-card-025S">
+            <div class="cx-landing-card-head-025S">
+              <h3>Rutas visitadas</h3>
+              <small>Paginas vistas dentro de la landing.</small>
+            </div>
+            <div class="cx-landing-bars-025S cx-landing-scroll-025S" id="landingPaths025S"></div>
           </article>
           <article class="cx-card cx-landing-wide-025S">
-            <h3>Rutas visitadas</h3>
-            <div class="cx-landing-bars-025S" id="landingPaths025S"></div>
-          </article>
-          <article class="cx-card cx-landing-wide-025S">
-            <h3>Ultimas visitas</h3>
-            <div class="cx-table-wrap">
+            <div class="cx-landing-card-head-025S">
+              <h3>Ultimas visitas</h3>
+              <small>Se muestran 5 filas visibles; el resto queda disponible con scroll.</small>
+            </div>
+            <div class="cx-table-wrap cx-landing-recent-wrap-025S">
               <table class="cx-table cx-landing-table-025S">
                 <thead>
                   <tr>
@@ -237,7 +262,7 @@
                     <th>Campana</th>
                     <th>Ruta</th>
                     <th>Dispositivo</th>
-                    <th>Idioma / zona</th>
+                    <th>Ubicacion</th>
                   </tr>
                 </thead>
                 <tbody id="landingRecent025R"></tbody>
@@ -1773,6 +1798,26 @@
     return first.label || emptyLabel;
   }
 
+  function cxLandingDate025S(value) {
+    const parsed = new Date(value || "");
+    if (Number.isNaN(parsed.getTime())) return value || "";
+    return parsed.toLocaleString("es-CO", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function cxLandingVisitLocation025S(item = {}) {
+    const city = item.city_name || item.city || "";
+    const country = item.country_name || item.country || "";
+    const location = [city, country].filter(Boolean).join(" / ") || "Sin ubicacion";
+    const zone = item.timezone || item.language || "";
+    return { location, zone };
+  }
+
   function cxLandingSelectOptions025S(selector, rows = [], selectedValue = "", emptyLabel = "Todos") {
     const select = el(selector);
     if (!select) return;
@@ -1828,6 +1873,7 @@
     const sourcesRows = analytics.sources || [];
     const campaignsRows = analytics.campaigns || [];
     const devicesRows = analytics.devices || [];
+    const geoRows = analytics.geo || [];
     cxLandingSyncFilters025S(analytics);
     const metrics = el("#landingMetrics025R");
     if (metrics) {
@@ -1836,10 +1882,8 @@
         : `
           <article class="cx-metric-card"><span>Visitas</span><strong>${escapeHtml(totalVisits)}</strong><small>Ultimos ${escapeHtml(analytics.days || 30)} dias</small></article>
           <article class="cx-metric-card"><span>Visitantes</span><strong>${escapeHtml(totals.unique_visitors || 0)}</strong><small>IDs unicos</small></article>
-          <article class="cx-metric-card"><span>Sesiones</span><strong>${escapeHtml(totals.sessions || 0)}</strong><small>Sesiones detectadas</small></article>
           <article class="cx-metric-card"><span>Ultimas 24h</span><strong>${escapeHtml(totals.last_24h || 0)}</strong><small>Actividad reciente</small></article>
-          <article class="cx-metric-card"><span>Fuente top</span><strong>${escapeHtml(cxLandingTopLabel025S(sourcesRows))}</strong><small>${escapeHtml(sourcesRows[0]?.total || 0)} visita(s)</small></article>
-          <article class="cx-metric-card"><span>Dispositivo top</span><strong>${escapeHtml(cxLandingTopLabel025S(devicesRows))}</strong><small>${escapeHtml(devicesRows[0]?.total || 0)} visita(s)</small></article>
+          <article class="cx-metric-card"><span>Ciudad top</span><strong>${escapeHtml(cxLandingTopLabel025S(geoRows))}</strong><small>${escapeHtml(geoRows[0]?.total || 0)} visita(s)</small></article>
         `;
     }
 
@@ -1855,6 +1899,9 @@
     const devices = el("#landingDevices025S");
     if (devices) devices.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(devicesRows, { base: totalVisits });
 
+    const geo = el("#landingGeo025S");
+    if (geo) geo.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(geoRows, { base: totalVisits });
+
     const paths = el("#landingPaths025S");
     if (paths) paths.innerHTML = analytics.ok === false ? `<div class="cx-empty-state">No disponible.</div>` : cxLandingGroup025R(analytics.paths || [], { base: totalVisits });
 
@@ -1862,16 +1909,18 @@
     if (recent) {
       const rows = analytics.recent || [];
       recent.innerHTML = rows.length
-        ? rows.map((item) => `
+        ? rows.map((item) => {
+          const geo = cxLandingVisitLocation025S(item);
+          return `
           <tr>
-            <td>${escapeHtml(item.created_at || "")}</td>
+            <td>${escapeHtml(cxLandingDate025S(item.created_at))}</td>
             <td><strong>${escapeHtml(item.source || "directo")}</strong><br><small>${escapeHtml(item.referrer_domain || item.medium || "")}</small></td>
             <td>${escapeHtml(item.campaign || "sin campana")}</td>
             <td>${escapeHtml(item.path || "/")}</td>
             <td>${escapeHtml(item.device || "sin dato")}<br><small>${escapeHtml(item.viewport || "")}</small></td>
-            <td>${escapeHtml(item.language || "sin dato")}<br><small>${escapeHtml(item.timezone || "")}</small></td>
+            <td><strong>${escapeHtml(geo.location)}</strong><br><small>${escapeHtml(geo.zone)}</small></td>
           </tr>
-        `).join("")
+        `; }).join("")
         : `<tr><td colspan="6">Aun no hay visitas capturadas.</td></tr>`;
     }
   }

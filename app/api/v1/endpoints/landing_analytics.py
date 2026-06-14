@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote_plus, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -75,6 +75,40 @@ def _country_from_headers(request: Request) -> str:
     return ""
 
 
+def _header_geo_value(request: Request, keys: tuple[str, ...], limit: int = 120) -> str:
+    for key in keys:
+        value = request.headers.get(key)
+        if value:
+            return _clean(unquote_plus(value), limit)
+    return ""
+
+
+def _city_from_headers(request: Request) -> str:
+    return _header_geo_value(
+        request,
+        (
+            "cf-ipcity",
+            "x-vercel-ip-city",
+            "x-city",
+            "x-appengine-city",
+            "cloudfront-viewer-city",
+        ),
+    )
+
+
+def _region_from_headers(request: Request) -> str:
+    return _header_geo_value(
+        request,
+        (
+            "cf-region",
+            "x-vercel-ip-country-region",
+            "x-region",
+            "x-appengine-region",
+            "cloudfront-viewer-country-region",
+        ),
+    )
+
+
 def _source_label(event: LandingEventIn) -> str:
     if event.utm_source:
         return event.utm_source
@@ -103,6 +137,8 @@ async def _ensure_storage(db: AsyncSession) -> None:
             session_id VARCHAR(140) NOT NULL DEFAULT '',
             ip_address VARCHAR(80) NOT NULL DEFAULT '',
             country VARCHAR(20) NOT NULL DEFAULT '',
+            region VARCHAR(120) NOT NULL DEFAULT '',
+            city VARCHAR(120) NOT NULL DEFAULT '',
             user_agent TEXT NOT NULL DEFAULT '',
             language VARCHAR(80) NOT NULL DEFAULT '',
             timezone VARCHAR(120) NOT NULL DEFAULT '',
@@ -118,6 +154,8 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_landing_events_created ON landing_visit_events(created_at DESC);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_landing_events_source ON landing_visit_events(source, created_at DESC);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_landing_events_visitor ON landing_visit_events(visitor_id, created_at DESC);"))
+    await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS region VARCHAR(120) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS city VARCHAR(120) NOT NULL DEFAULT '';"))
     await db.commit()
 
 
@@ -170,19 +208,21 @@ async def _store_event(db: AsyncSession, request: Request, event: LandingEventIn
         "origin": request.headers.get("origin", ""),
         "referer": request.headers.get("referer", ""),
         "country": _country_from_headers(request),
+        "region": _region_from_headers(request),
+        "city": _city_from_headers(request),
     }
     await db.execute(
         text("""
             INSERT INTO landing_visit_events (
                 event_type, landing_url, path, title, referrer, referrer_domain,
                 source, medium, campaign, term, content, visitor_id, session_id,
-                ip_address, country, user_agent, language, timezone, platform,
+                ip_address, country, region, city, user_agent, language, timezone, platform,
                 device, screen, viewport, headers_json, extra_json
             )
             VALUES (
                 :event_type, :landing_url, :path, :title, :referrer, :referrer_domain,
                 :source, :medium, :campaign, :term, :content, :visitor_id, :session_id,
-                :ip_address, :country, :user_agent, :language, :timezone, :platform,
+                :ip_address, :country, :region, :city, :user_agent, :language, :timezone, :platform,
                 :device, :screen, :viewport, CAST(:headers_json AS jsonb), CAST(:extra_json AS jsonb)
             )
         """),
@@ -202,6 +242,8 @@ async def _store_event(db: AsyncSession, request: Request, event: LandingEventIn
             "session_id": normalized.session_id,
             "ip_address": _client_ip(request),
             "country": _country_from_headers(request),
+            "region": _region_from_headers(request),
+            "city": _city_from_headers(request),
             "user_agent": request.headers.get("user-agent", "")[:1200],
             "language": normalized.language,
             "timezone": normalized.timezone,
@@ -256,6 +298,35 @@ async def landing_analytics_summary(
         params["device"] = filters["device"]
     where_sql = " AND ".join(where_parts)
     option_where_sql = f"created_at >= NOW() - INTERVAL '{day_window} days'"
+    city_expr = """
+        COALESCE(
+            NULLIF(city, ''),
+            NULLIF(INITCAP(REPLACE(SPLIT_PART(timezone, '/', 2), '_', ' ')), ''),
+            'Ciudad no detectada'
+        )
+    """
+    country_expr = """
+        CASE
+            WHEN UPPER(NULLIF(country, '')) = 'CO' THEN 'Colombia'
+            WHEN UPPER(NULLIF(country, '')) = 'US' THEN 'Estados Unidos'
+            WHEN UPPER(NULLIF(country, '')) = 'MX' THEN 'Mexico'
+            WHEN UPPER(NULLIF(country, '')) = 'ES' THEN 'Espana'
+            WHEN UPPER(NULLIF(country, '')) = 'AR' THEN 'Argentina'
+            WHEN UPPER(NULLIF(country, '')) = 'CL' THEN 'Chile'
+            WHEN UPPER(NULLIF(country, '')) = 'PE' THEN 'Peru'
+            WHEN UPPER(NULLIF(country, '')) = 'EC' THEN 'Ecuador'
+            WHEN UPPER(NULLIF(country, '')) = 'VE' THEN 'Venezuela'
+            WHEN UPPER(NULLIF(country, '')) = 'PA' THEN 'Panama'
+            WHEN UPPER(NULLIF(country, '')) = 'CR' THEN 'Costa Rica'
+            WHEN UPPER(NULLIF(country, '')) = 'DO' THEN 'Republica Dominicana'
+            WHEN NULLIF(country, '') IS NOT NULL THEN UPPER(country)
+            WHEN timezone = 'America/Bogota' THEN 'Colombia'
+            WHEN timezone LIKE 'America/%' THEN 'America'
+            WHEN timezone LIKE 'Europe/%' THEN 'Europa'
+            ELSE 'Pais no detectado'
+        END
+    """
+    geo_label_expr = f"({city_expr} || ' / ' || {country_expr})"
 
     row = (await db.execute(text(f"""
         SELECT
@@ -305,6 +376,14 @@ async def landing_analytics_summary(
         ORDER BY total DESC, label ASC
         LIMIT {row_limit}
     """, params)
+    geo = await group(f"""
+        SELECT {geo_label_expr} AS label, COUNT(*)::int AS total
+        FROM landing_visit_events
+        WHERE {where_sql}
+        GROUP BY {geo_label_expr}
+        ORDER BY total DESC, label ASC
+        LIMIT {row_limit}
+    """, params)
     daily = await group(f"""
         SELECT
             TO_CHAR(created_at AT TIME ZONE 'America/Bogota', 'YYYY-MM-DD') AS label,
@@ -323,6 +402,10 @@ async def landing_analytics_summary(
             path,
             referrer_domain,
             country,
+            {country_expr} AS country_name,
+            region,
+            city,
+            {city_expr} AS city_name,
             language,
             timezone,
             device,
@@ -366,6 +449,7 @@ async def landing_analytics_summary(
         "campaigns": campaigns,
         "paths": paths,
         "devices": devices,
+        "geo": geo,
         "daily": daily,
         "recent": recent,
         "options": {
