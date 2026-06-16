@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 from typing import Any
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -11,9 +12,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.api.v1.endpoints.bots import decrypt_token
+from app.api.v1.endpoints.bots import decrypt_token, get_telegram_instance, _process_telegram_update
 
 router = APIRouter()
+
+DEDICATED_FLOW_CODES = {"velvet_references", "field_operations"}
 
 
 def clean(value: Any) -> str:
@@ -138,6 +141,8 @@ async def active_modules(db: AsyncSession, company_id: str) -> set[str]:
 def infer_flow_code(modules: set[str]) -> str:
     if "references" in modules and "workforce" in modules:
         return "velvet_references"
+    if {"field", "gps", "materials", "inventory"}.intersection(modules):
+        return "field_operations"
     return "base"
 
 
@@ -1017,7 +1022,7 @@ async def activate_company_telegram_webhook(
     requested_flow = clean((payload or {}).get("flow_code"))
     flow_code = requested_flow or infer_flow_code(modules)
 
-    if flow_code != "velvet_references":
+    if flow_code not in DEDICATED_FLOW_CODES:
         raise HTTPException(status_code=400, detail=f"Flujo no soportado todavía: {flow_code}")
 
     webhook_secret = secrets.token_urlsafe(32)
@@ -1109,6 +1114,33 @@ async def company_telegram_webhook(
             company_id=company_id,
             update=update,
         )
+
+    if flow_code == "field_operations":
+        try:
+            company_uuid = UUID(company_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="company_id inválido.") from exc
+
+        bot = await get_telegram_instance(db, company_uuid)
+
+        if bot is None or not bot.bot_token_encrypted:
+            return {"ok": True, "ignored": "bot_not_configured"}
+
+        item = await _process_telegram_update(
+            db,
+            bot=bot,
+            token=token,
+            update=update,
+            send_replies=True,
+        )
+
+        return {
+            "ok": item.ok,
+            "handled": item.action,
+            "message": item.message,
+            "flow_code": flow_code,
+            "item": item.model_dump(mode="json"),
+        }
 
     return {
         "ok": True,
