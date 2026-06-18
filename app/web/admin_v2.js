@@ -6988,6 +6988,7 @@
   const SECTION_ID = "cx-mp-r6b-section";
   const STORAGE_PREFIX = "clonexa.miniPanelAssignments.r6b.";
   const API = "/api/v1";
+  let pauseMountUntil = 0;
 
   const PANEL_DEFS = [
     { type: "sales", label: "Ventas", keys: ["ventas", "sales", "sal"] },
@@ -7254,11 +7255,13 @@
     next.module_names = normalizedNames;
 
     const detected = detectPanels(companyId, next);
+    const knownPanels = new Set(Object.keys(next.panels || {}));
 
-    detected.forEach((type) => {
+    PANEL_DEFS.forEach((panelDef) => {
+      const type = panelDef.type;
       const current = next.panels[type] && typeof next.panels[type] === "object" ? next.panels[type] : {};
       next.panels[type] = {
-        enabled: current.enabled === false ? false : true,
+        enabled: knownPanels.has(type) ? current.enabled === true : detected.includes(type),
         link: current.link || panelLink(companyId, type),
         modules: uniqueCodes022A(current.modules),
         max_users: panelMaxUsers(current.max_users ?? current.users_allowed, type)
@@ -7276,7 +7279,7 @@
 
     const activePanels = PANEL_DEFS.filter((p) => next.panels[p.type]?.enabled);
     if (!next.selected_panel || !next.panels[next.selected_panel]?.enabled) {
-      next.selected_panel = activePanels[0]?.type || "";
+      next.selected_panel = activePanels[0]?.type || PANEL_DEFS[0]?.type || "";
     }
 
     return next;
@@ -7396,6 +7399,7 @@
   function assignedListHtml(config) {
     const modules = selectedModules(config);
     const label = panelLabel(config.selected_panel);
+    const selectedPanel = config.panels?.[config.selected_panel];
 
     if (!config.enabled) {
       return `<div class="cx-mp-r6b-empty">Activa módulos para minipanel para comenzar.</div>`;
@@ -7403,6 +7407,10 @@
 
     if (!config.selected_panel) {
       return `<div class="cx-mp-r6b-empty">Selecciona un panel destino.</div>`;
+    }
+
+    if (selectedPanel?.enabled !== true) {
+      return `<div class="cx-mp-r6b-empty">Activa ${label} con la casilla para asignar módulos a este segmento.</div>`;
     }
 
     if (!modules.length) {
@@ -7425,7 +7433,10 @@
   }
 
   function buildSection(companyId, config) {
-    const panels = activePanels(config);
+    const panels = PANEL_DEFS;
+    const activeCount = activePanels(config).length;
+    const selectedPanel = config.panels?.[config.selected_panel] || {};
+    const selectedMax = panelMaxUsers(selectedPanel.max_users, config.selected_panel);
 
     return `
       <section id="${SECTION_ID}" class="cx-mp-r6b-section">
@@ -7446,19 +7457,30 @@
         </div>
 
         <div class="cx-mp-r6b-body" data-cx-mp-r6b-body ${config.enabled ? "" : "hidden"}>
+          <div class="cx-mp-r6b-active-count">
+            <strong>${activeCount}</strong> mini panel(es) activos. Marca solo los segmentos que esta empresa va a usar.
+          </div>
+
           <div class="cx-mp-r6b-panels">
             ${panels.map((panel) => {
               const row = config.panels[panel.type];
               const selected = config.selected_panel === panel.type;
               const count = Array.isArray(row.modules) ? row.modules.length : 0;
               const maxUsers = panelMaxUsers(row.max_users, panel.type);
+              const enabled = row.enabled === true;
 
               return `
-                <button type="button" class="cx-mp-r6b-panel ${selected ? "is-selected" : ""}" data-cx-mp-r6b-panel="${panel.type}">
-                  <span>${panel.label}</span>
-                  <small>${count} módulos asignados · max ${maxUsers}</small>
-                  <code>${row.link}</code>
-                </button>
+                <article class="cx-mp-r6b-panel ${selected ? "is-selected" : ""} ${enabled ? "is-enabled" : "is-disabled"}">
+                  <label class="cx-mp-r6b-panel-check">
+                    <input type="checkbox" data-cx-mp-r6b-enable="${panel.type}" ${enabled ? "checked" : ""}>
+                    <span>${enabled ? "Activo" : "Inactivo"}</span>
+                  </label>
+                  <button type="button" class="cx-mp-r6b-panel-main" data-cx-mp-r6b-panel="${panel.type}">
+                    <span>${panel.label}</span>
+                    <small>${count} módulos asignados · max ${maxUsers}</small>
+                    <code>${row.link}</code>
+                  </button>
+                </article>
               `;
             }).join("")}
           </div>
@@ -7470,9 +7492,7 @@
             </div>
             <label class="cx-mp-r6b-limit">
               <span>Max permitido para este mini panel</span>
-              <select data-cx-mp-r6b-max="${config.selected_panel || ""}">
-                ${panelMaxOptions(config.panels?.[config.selected_panel]?.max_users)}
-              </select>
+              <input type="number" min="1" max="${MINI_PANEL_MAX_USERS}" step="1" value="${selectedMax}" data-cx-mp-r6b-max="${config.selected_panel || ""}">
             </label>
           </div>
 
@@ -7487,7 +7507,8 @@
 
   function summaryHtml(config) {
     if (!config.enabled) return "Desactivado. Activa el botón para asignar módulos existentes.";
-    return `Panel destino: <strong>${panelLabel(config.selected_panel)}</strong> · Módulos asignados: <strong>${selectedModules(config).length}</strong>`;
+    const activeCount = activePanels(config).length;
+    return `Panel destino: <strong>${panelLabel(config.selected_panel)}</strong> · Módulos asignados: <strong>${selectedModules(config).length}</strong> · Segmentos activos: <strong>${activeCount}</strong>`;
   }
 
   function renderSection(companyId, config) {
@@ -7548,6 +7569,7 @@
   }
 
   async function persistAndRefresh(companyId, config) {
+    pauseMountUntil = Date.now() + 1400;
     const saved = saveLocal(companyId, config);
     renderSection(companyId, saved);
     refreshModuleButtons(companyId, saved);
@@ -7640,6 +7662,25 @@
   });
 
   document.addEventListener("change", async (event) => {
+    const panelToggle = event.target.closest("[data-cx-mp-r6b-enable]");
+    if (panelToggle) {
+      const companyId = getCompanyId();
+      let config = normalizeConfig(companyId, loadConfig(companyId));
+      const panel = panelToggle.getAttribute("data-cx-mp-r6b-enable");
+      if (!panel || !config.panels?.[panel]) return;
+
+      config.panels[panel].enabled = panelToggle.checked === true;
+      if (config.panels[panel].enabled && !config.selected_panel) {
+        config.selected_panel = panel;
+      }
+      if (!config.panels[config.selected_panel]?.enabled) {
+        config.selected_panel = activePanels(config)[0]?.type || panel;
+      }
+
+      await persistAndRefresh(companyId, config);
+      return;
+    }
+
     const maxSelect = event.target.closest("[data-cx-mp-r6b-max]");
     if (!maxSelect) return;
 
@@ -7654,6 +7695,8 @@
 
   let timer = null;
   function schedule() {
+    if (Date.now() < pauseMountUntil) return;
+    if (document.activeElement?.closest?.(`#${SECTION_ID}`)) return;
     clearTimeout(timer);
     timer = setTimeout(() => {
       try {
@@ -7665,7 +7708,10 @@
   }
 
   document.addEventListener("DOMContentLoaded", schedule);
-  document.addEventListener("change", schedule);
+  document.addEventListener("change", (event) => {
+    if (event.target.closest(`#${SECTION_ID}`)) return;
+    schedule();
+  });
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
 
   schedule();

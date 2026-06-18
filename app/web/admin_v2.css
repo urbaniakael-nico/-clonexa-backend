@@ -2357,19 +2357,60 @@ p {
   gap: 12px;
 }
 
+.cx-mp-r6b-active-count {
+  margin-bottom: 12px;
+  color: rgba(255,255,255,.72);
+  font-weight: 800;
+}
+
+.cx-mp-r6b-active-count strong {
+  color: #38ffac;
+}
+
 .cx-mp-r6b-panel {
   text-align: left;
   border: 1px solid rgba(255,255,255,.12);
   background: rgba(255,255,255,.055);
   color: #fff;
   border-radius: 18px;
-  padding: 14px;
-  cursor: pointer;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
 }
 
 .cx-mp-r6b-panel.is-selected {
   border-color: rgba(0,212,128,.55);
   background: rgba(0,212,128,.13);
+}
+
+.cx-mp-r6b-panel.is-disabled {
+  opacity: .68;
+}
+
+.cx-mp-r6b-panel-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255,255,255,.80);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.cx-mp-r6b-panel-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #38ffac;
+}
+
+.cx-mp-r6b-panel-main {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
 }
 
 .cx-mp-r6b-panel span,
@@ -2422,7 +2463,7 @@ p {
   text-transform: uppercase;
 }
 
-.cx-mp-r6b-limit select {
+.cx-mp-r6b-limit input {
   width: 100%;
   border: 1px solid rgba(0,212,128,.42);
   background: rgba(0,0,0,.32);
