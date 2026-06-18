@@ -22256,7 +22256,7 @@ function inventoryCreatePayload() {
     inventory: ["inventario", "inventory", "bodega", "almacen", "almacenista", "materiales"],
     logistics: ["logistica", "logistics", "operador", "operario", "tecnico", "tecnico_campo", "field", "campo", "gps", "conductor", "driver", "ruta"],
     call_center: ["agente_call", "agente_call_center", "asesor_call", "call_center", "callcenter", "llamadas", "telefono", "operador", "operario"],
-    external: ["agente_externo", "asesor_externo", "externo", "externos", "external"],
+    external: ["agente_externo", "asesor_externo", "externo", "externos", "external", "supervisor", "tesoreria"],
     other: ["admin", "administrador", "supervisor", "tesoreria", "gerencia", "gerente", "operador", "operario"],
   };
 
