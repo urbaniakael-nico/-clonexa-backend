@@ -156,7 +156,7 @@ async def transport_calls_summary(
                 (SELECT COUNT(*) FROM today) AS calls_today,
                 (SELECT COUNT(*) FROM transport_call_logs WHERE company_id = :company_id) AS calls_total,
                 COALESCE((SELECT SUM(duration_seconds) FROM today), 0) AS duration_today,
-                COALESCE((SELECT AVG(duration_seconds) FROM today), 0) AS avg_duration_today,
+                COALESCE((SELECT ROUND(AVG(duration_seconds))::integer FROM today), 0) AS avg_duration_today,
                 (SELECT COUNT(*) FROM today WHERE quote_requested IS TRUE) AS quotes_today,
                 (SELECT COUNT(*) FROM today WHERE ticket_requested IS TRUE) AS tickets_today,
                 (SELECT COUNT(*) FROM latest_advisor) AS advisors_total,
