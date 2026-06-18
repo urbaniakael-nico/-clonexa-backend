@@ -331,33 +331,14 @@ async def sync_module_catalog(db: AsyncSession = Depends(get_db)) -> dict[str, A
     for code, meta in MODULE_CATALOG_ES.items():
         result = await db.execute(
             text("""
-                INSERT INTO modules (
-                    code,
-                    name,
-                    description,
-                    category,
-                    is_active,
-                    config_json,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    :code,
-                    :name,
-                    :description,
-                    :category,
-                    true,
-                    CAST(:config_json AS jsonb),
-                    now(),
-                    now()
-                )
-                ON CONFLICT (code)
-                DO UPDATE SET
-                    name = EXCLUDED.name,
-                    description = EXCLUDED.description,
-                    category = EXCLUDED.category,
-                    config_json = COALESCE(modules.config_json, '{}'::jsonb) || EXCLUDED.config_json,
+                UPDATE modules
+                SET
+                    name = :name,
+                    description = :description,
+                    category = :category,
+                    config_json = COALESCE(config_json, '{}'::jsonb) || CAST(:config_json AS jsonb),
                     updated_at = now()
+                WHERE code = :code
             """),
             {
                 "code": code,
@@ -367,7 +348,41 @@ async def sync_module_catalog(db: AsyncSession = Depends(get_db)) -> dict[str, A
                 "config_json": __import__("json").dumps(meta, ensure_ascii=False),
             },
         )
-        updated += int(result.rowcount or 0)
+        touched = int(result.rowcount or 0)
+        if not touched:
+            result = await db.execute(
+                text("""
+                    INSERT INTO modules (
+                        code,
+                        name,
+                        description,
+                        category,
+                        is_active,
+                        config_json,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (
+                        :code,
+                        :name,
+                        :description,
+                        :category,
+                        true,
+                        CAST(:config_json AS jsonb),
+                        now(),
+                        now()
+                    )
+                """),
+                {
+                    "code": code,
+                    "name": meta["name"],
+                    "description": meta["description"],
+                    "category": meta["category"],
+                    "config_json": __import__("json").dumps(meta, ensure_ascii=False),
+                },
+            )
+            touched = int(result.rowcount or 0)
+        updated += touched
 
     await db.commit()
 
