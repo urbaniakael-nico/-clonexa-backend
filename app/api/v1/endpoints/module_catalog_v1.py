@@ -52,6 +52,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "BOT",
         "is_transversal": False,
     },
+    "transport_calls": {
+        "name": "Call Center / Llamadas",
+        "description": "Registro operativo de llamadas, asesor asignado, duración, estado y resultado comercial.",
+        "category": "transport",
+        "category_label": "Transporte operativo",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "CALL",
+        "is_transversal": False,
+    },
     "references": {
         "name": "Referencias",
         "description": "Catálogo de referencias, productos, tallas o servicios medibles.",
@@ -321,14 +331,33 @@ async def sync_module_catalog(db: AsyncSession = Depends(get_db)) -> dict[str, A
     for code, meta in MODULE_CATALOG_ES.items():
         result = await db.execute(
             text("""
-                UPDATE modules
-                SET
-                    name = :name,
-                    description = :description,
-                    category = :category,
-                    config_json = COALESCE(config_json, '{}'::jsonb) || CAST(:config_json AS jsonb),
+                INSERT INTO modules (
+                    code,
+                    name,
+                    description,
+                    category,
+                    is_active,
+                    config_json,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :code,
+                    :name,
+                    :description,
+                    :category,
+                    true,
+                    CAST(:config_json AS jsonb),
+                    now(),
+                    now()
+                )
+                ON CONFLICT (code)
+                DO UPDATE SET
+                    name = EXCLUDED.name,
+                    description = EXCLUDED.description,
+                    category = EXCLUDED.category,
+                    config_json = COALESCE(modules.config_json, '{}'::jsonb) || EXCLUDED.config_json,
                     updated_at = now()
-                WHERE code = :code
             """),
             {
                 "code": code,

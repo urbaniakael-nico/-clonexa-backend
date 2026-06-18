@@ -677,6 +677,7 @@
     core: ["Core", "base operativa", "COR"],
     workforce: ["Workforce", "personal operativo", "WRK"],
     field: ["Field Ops", "operacion en campo", "FLD"],
+    transport_calls: ["Call Center / Llamadas", "registro y control de llamadas", "CALL"],
     login: ["Login tiendas", "turnos y accesos", "LOG"],
     store_login: ["Login tiendas", "turnos y accesos", "LOG"],
     shift_control: ["Login tiendas", "turnos y accesos", "LOG"],
@@ -1078,6 +1079,10 @@
 
     if (hasAnyClientModule(codes, ["workforce"])) {
       actions.push({ label: "Agregar personal", action: "workforce:add" });
+    }
+
+    if (hasAnyClientModule(codes, ["transport_calls"])) {
+      actions.push({ label: "Call Center", action: "transport_calls:open" });
     }
 
     if (hasAnyClientModule(codes, ["bots"])) {
@@ -24752,7 +24757,70 @@ function inventoryCreatePayload() {
   }
   /* CLONEXA_026K_R16_SHOPLINK_CAMPAIGNS_END */
 
+  function cxIsTransportCallsCode028A(code = "") {
+    return cxNormalizeModuleToken017H(code) === "transport_calls";
+  }
+
+  function renderTransportCallsModule028A() {
+    const company = state.company || {};
+    const plannedCards = [
+      ["Llamadas", "Registro de entrada/salida, asesor, duracion y resultado."],
+      ["Estados", "Disponible, en llamada, break, bano, almuerzo y offline."],
+      ["Cotizaciones", "Origen, destino, ruta, valor y aprobacion comercial."],
+      ["Tickets", "Viaje confirmado, responsable, contrato y seguimiento."],
+      ["Contratos", "Saldo inicial, consumo por orden y alerta de saldo bajo."],
+      ["Supervision", "Vista en vivo por asesor, tiempos y productividad."],
+    ];
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("transport_calls")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Vertical transporte</div>
+              <h1 class="client-title">Call Center / Llamadas</h1>
+              <p class="client-muted">Primer paso activo para construir la operacion: llamadas, asesores, cotizaciones, tickets, contratos y supervision.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+              </div>
+            </header>
+
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px">
+                <div>
+                  <div class="client-eyebrow">Mapa funcional inicial</div>
+                  <h2>Flujo que vamos a conectar</h2>
+                </div>
+                <span class="client-badge">MVP 1</span>
+              </div>
+              <div class="client-module-grid">
+                ${plannedCards.map(([title, description]) => `
+                  <article class="client-module-card" style="cursor:default">
+                    <div class="client-badge">CALL</div>
+                    <strong>${h(title)}</strong>
+                    <small>${h(description)}</small>
+                  </article>
+                `).join("")}
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+  }
+
   async function renderClientModulePlaceholder(code) {
+    if (cxIsTransportCallsCode028A(code)) {
+      return renderTransportCallsModule028A();
+    }
+
     if (
       typeof cxIsShoplinkCampaignsCode026O === "function" &&
       (cxIsShoplinkCampaignsCode026O(code) || cxIsShoplinkCampaignsModule026O(cxGetClientModuleByCode026K(code) || { code }))
@@ -25831,6 +25899,11 @@ function inventoryCreatePayload() {
         if (action === "workforce:add" && isClientModuleActive("workforce")) {
           await renderPersonalModule();
           setTimeout(() => document.querySelector("[data-personal-add-row]")?.click(), 60);
+          return;
+        }
+
+        if (action === "transport_calls:open" && isClientModuleActive("transport_calls")) {
+          await renderTransportCallsModule028A();
           return;
         }
 
