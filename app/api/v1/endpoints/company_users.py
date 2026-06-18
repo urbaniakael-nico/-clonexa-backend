@@ -718,28 +718,37 @@ async def list_mini_panel_users(
     ]
 
 
-@router.post("/{company_id}/mini-panel-users/sales/from-employee")
-async def create_sales_mini_panel_user(
+async def _cx_create_minipanel_user_from_employee_026j(
+    *,
     company_id: UUID,
     payload: SalesMiniPanelUserCreateRequest,
-    db: AsyncSession = Depends(get_db),
+    panel_type: str,
+    db: AsyncSession,
+    source: str,
 ) -> Dict[str, Any]:
+    clean_type = _cx_panel_type_019d(panel_type)
     employee = await _cx_employee_or_404_019c(db, company_id, payload.employee_id)
 
-    if not _cx_employee_is_sales_019c(employee):
+    if clean_type == "sales" and not _cx_employee_is_sales_019c(employee):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El empleado debe tener rol vendedor, ventas, comercial o asesor comercial.",
         )
 
-    existing = await _cx_find_minipanel_user_019c(db, company_id, payload.employee_id, "sales")
+    if clean_type == "store" and not _cx_employee_is_store_023s(employee):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El empleado debe tener rol cajero, tienda, punto de venta o retail.",
+        )
+
+    existing = await _cx_find_minipanel_user_019c(db, company_id, payload.employee_id, clean_type)
     if existing:
         return _cx_minipanel_user_payload_019c(existing)
 
     temp_password = generate_temporary_password()
     now = datetime.now(timezone.utc)
-    username = _cx_operational_username_019c(employee, "sales")
-    email = _cx_operational_email_019c(company_id, "sales", payload.employee_id)
+    username = _cx_operational_username_019c(employee, clean_type)
+    email = _cx_operational_email_019c(company_id, clean_type, payload.employee_id)
 
     user = CompanyUser(
         company_id=company_id,
@@ -757,11 +766,11 @@ async def create_sales_mini_panel_user(
         settings_json={
             "mini_panel": {
                 "enabled": True,
-                "type": "sales",
+                "type": clean_type,
                 "employee_id": str(payload.employee_id),
                 "username": username,
                 "link": str(payload.link or ""),
-                "source": "client_sales_module",
+                "source": source,
                 "monthly_goal": 0,
                 "goal_currency": "COP",
             }
@@ -773,6 +782,21 @@ async def create_sales_mini_panel_user(
     await db.refresh(user)
 
     return _cx_minipanel_user_payload_019c(user, temporary_password=temp_password)
+
+
+@router.post("/{company_id}/mini-panel-users/sales/from-employee")
+async def create_sales_mini_panel_user(
+    company_id: UUID,
+    payload: SalesMiniPanelUserCreateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    return await _cx_create_minipanel_user_from_employee_026j(
+        company_id=company_id,
+        payload=payload,
+        panel_type="sales",
+        db=db,
+        source="client_sales_module",
+    )
 
 
 @router.post("/{company_id}/mini-panel-users/store/from-employee")
@@ -781,55 +805,28 @@ async def create_store_mini_panel_user_023s(
     payload: SalesMiniPanelUserCreateRequest,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    employee = await _cx_employee_or_404_019c(db, company_id, payload.employee_id)
-
-    if not _cx_employee_is_store_023s(employee):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El empleado debe tener rol cajero, tienda, punto de venta o retail.",
-        )
-
-    existing = await _cx_find_minipanel_user_019c(db, company_id, payload.employee_id, "store")
-    if existing:
-        return _cx_minipanel_user_payload_019c(existing)
-
-    temp_password = generate_temporary_password()
-    now = datetime.now(timezone.utc)
-    username = _cx_operational_username_019c(employee, "store")
-    email = _cx_operational_email_019c(company_id, "store", payload.employee_id)
-
-    user = CompanyUser(
+    return await _cx_create_minipanel_user_from_employee_026j(
         company_id=company_id,
-        email=email,
-        password_hash=hash_password(temp_password),
-        full_name=str(getattr(employee, "full_name", "") or username),
-        role="operator",
-        status="active",
-        must_change_password=True,
-        failed_login_attempts=0,
-        locked_until=None,
-        last_password_reset_at=now,
-        created_at=now,
-        updated_at=now,
-        settings_json={
-            "mini_panel": {
-                "enabled": True,
-                "type": "store",
-                "employee_id": str(payload.employee_id),
-                "username": username,
-                "link": str(payload.link or ""),
-                "source": "client_stores_module",
-                "monthly_goal": 0,
-                "goal_currency": "COP",
-            }
-        },
+        payload=payload,
+        panel_type="store",
+        db=db,
+        source="client_stores_module",
     )
 
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-
-    return _cx_minipanel_user_payload_019c(user, temporary_password=temp_password)
+@router.post("/{company_id}/mini-panel-users/{panel_type}/from-employee")
+async def create_generic_mini_panel_user_026j(
+    company_id: UUID,
+    panel_type: str,
+    payload: SalesMiniPanelUserCreateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    return await _cx_create_minipanel_user_from_employee_026j(
+        company_id=company_id,
+        payload=payload,
+        panel_type=panel_type,
+        db=db,
+        source="client_mini_panel_module",
+    )
 
 
 # CLONEXA_019D_R2_MINIPANEL_PASSWORD_RESET_START

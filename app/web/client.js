@@ -8809,6 +8809,24 @@ function inventoryCreatePayload() {
         pt: "Link base para mini paineis de logistica."
       }
     },
+    call_center: {
+      label: { es: "Call Center", en: "Call Center", fr: "Centre d'appels", pt: "Call Center" },
+      description: {
+        es: "Acceso para agentes de llamada y asesores del centro operativo.",
+        en: "Access for call agents and operational advisors.",
+        fr: "Acces pour les agents d'appels et conseillers operationnels.",
+        pt: "Acesso para agentes de chamada e assessores operacionais."
+      }
+    },
+    external: {
+      label: { es: "Externo", en: "External", fr: "Externe", pt: "Externo" },
+      description: {
+        es: "Acceso para asesores o aliados externos.",
+        en: "Access for external advisors or partners.",
+        fr: "Acces pour les conseillers ou partenaires externes.",
+        pt: "Acesso para assessores ou parceiros externos."
+      }
+    },
     inventory: {
       label: { es: "Inventarios", en: "Inventory", fr: "Inventaires", pt: "Inventarios" },
       description: {
@@ -8833,49 +8851,49 @@ function inventoryCreatePayload() {
     es: {
       eyebrow: "Modulo Mini Paneles",
       title: "Mini Paneles",
-      subtitle: "Enlaces operativos habilitados desde Admin V2 segun el paquete asignado a esta empresa.",
+      subtitle: "Segmentos operativos habilitados desde Admin V2 y asignados a personas de Workforce.",
       back: "Volver",
       refresh: "Actualizar",
-      package: "Paquete",
-      inherited: "Capacidad heredada del paquete",
+      package: "Configuracion",
+      inherited: "Capacidad activa por empresa",
       enabled: "Habilitado",
       disabled: "Deshabilitado",
       usersAllowed: "Usuarios permitidos",
       link: "Link de acceso",
       copy: "Copiar enlace",
       copied: "Copiado",
-      noPackage: "No se encontro el paquete asignado a esta empresa.",
-      noSettings: "El paquete no tiene mini_panel habilitado.",
-      noTypes: "No hay tipos de mini panel habilitados para este paquete.",
+      noPackage: "No se encontro configuracion de mini panel para esta empresa.",
+      noSettings: "Mini Paneles no esta habilitado desde Admin V2.",
+      noTypes: "No hay segmentos de mini panel activos para esta empresa.",
       moduleInactive: "El modulo Mini Paneles no esta activo para esta empresa.",
       source: "Fuente",
-      pending: "Los usuarios se asignaran en el modulo Usuarios.",
+      pending: "Selecciona personas de Workforce segun su rol para generar usuario y clave.",
       error: "No se pudieron cargar los mini paneles.",
-      needMore: "Si necesitas mas usuarios, comunicate con el administrador de CLONEXA.",
+      needMore: "Si necesitas mas usuarios, ajusta el maximo permitido en Admin V2.",
       linkFor: "Link para"
     },
     en: {
       eyebrow: "Mini Panels Module",
       title: "Mini Panels",
-      subtitle: "Operational links enabled from Admin V2 according to this company's package.",
+      subtitle: "Operational segments enabled from Admin V2 and assigned to Workforce people.",
       back: "Back",
       refresh: "Refresh",
-      package: "Package",
-      inherited: "Capability inherited from package",
+      package: "Configuration",
+      inherited: "Company active capability",
       enabled: "Enabled",
       disabled: "Disabled",
       usersAllowed: "Allowed users",
       link: "Access link",
       copy: "Copy link",
       copied: "Copied",
-      noPackage: "The package assigned to this company was not found.",
-      noSettings: "The package does not have mini_panel enabled.",
-      noTypes: "There are no mini panel types enabled for this package.",
+      noPackage: "Mini panel configuration was not found for this company.",
+      noSettings: "Mini Panels is not enabled from Admin V2.",
+      noTypes: "There are no active mini panel segments for this company.",
       moduleInactive: "The Mini Panels module is not active for this company.",
       source: "Source",
-      pending: "Users will be assigned in the Users module.",
+      pending: "Select Workforce people by role to generate username and password.",
       error: "Mini panels could not be loaded.",
-      needMore: "If you need more users, contact the CLONEXA administrator.",
+      needMore: "If you need more users, adjust the allowed maximum in Admin V2.",
       linkFor: "Link for"
     },
     fr: {
@@ -8929,6 +8947,7 @@ function inventoryCreatePayload() {
   };
 
   let cxMiniPanelClientSettingsCache019B = null;
+  let cxMiniPanelCompanyConfigCache026J = null;
 
   function cxIsMiniPanelModuleCode019B(code) {
     return CX_MINI_PANEL_MODULE_CODES_019B.has(String(code || "").trim());
@@ -9045,6 +9064,43 @@ function inventoryCreatePayload() {
         padding: 24px;
         color: rgba(255,255,255,.74);
       }
+
+      .cx-mini-people {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .cx-mini-person-row {
+        display: grid;
+        grid-template-columns: minmax(180px, 1.15fr) minmax(120px, .7fr) minmax(220px, 1.2fr) minmax(150px, .75fr);
+        gap: 12px;
+        align-items: center;
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(0,0,0,.17);
+        border-radius: 18px;
+        padding: 14px;
+      }
+
+      .cx-mini-person-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .cx-mini-credential {
+        border: 1px solid rgba(0,255,160,.25);
+        background: rgba(0,255,160,.1);
+        border-radius: 18px;
+        padding: 14px;
+        margin-top: 14px;
+      }
+
+      @media (max-width: 1100px) {
+        .cx-mini-person-row { grid-template-columns: 1fr; }
+        .cx-mini-person-actions { justify-content: flex-start; }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -9089,6 +9145,9 @@ function inventoryCreatePayload() {
   }
 
   function cxMiniPanelLink019B(typeCode, typeData = {}) {
+    const direct = String(typeData.link || "").trim();
+    if (direct) return cxMiniPanelAbsoluteUrl019B(direct);
+
     const template = String(typeData.login_template || "").trim()
       || `/mini-panel/login?company_id={company_id}&type=${encodeURIComponent(typeCode)}`;
 
@@ -9097,6 +9156,122 @@ function inventoryCreatePayload() {
       .replaceAll("{type}", encodeURIComponent(typeCode));
 
     return cxMiniPanelAbsoluteUrl019B(replaced);
+  }
+
+  function cxMiniPanelType026J(value) {
+    const raw = String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+    const aliases = {
+      venta: "sales",
+      ventas: "sales",
+      sales: "sales",
+      tienda: "store",
+      tiendas: "store",
+      store: "store",
+      stores: "store",
+      inventario: "inventory",
+      inventarios: "inventory",
+      inventory: "inventory",
+      logistica: "logistics",
+      logistics: "logistics",
+      field: "logistics",
+      campo: "logistics",
+      call: "call_center",
+      calls: "call_center",
+      callcenter: "call_center",
+      call_center: "call_center",
+      llamadas: "call_center",
+      transport_calls: "call_center",
+      externo: "external",
+      externos: "external",
+      external: "external",
+      otro: "other",
+      otros: "other",
+      other: "other",
+    };
+
+    return aliases[raw] || raw || "other";
+  }
+
+  function cxMiniPanelMaxUsers026J(panel = {}, type = "") {
+    const fallback = type === "call_center" ? 30 : (type === "external" ? 20 : (type === "inventory" ? 5 : 10));
+    const parsed = Number(panel.max_users ?? panel.users_allowed);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.min(50, Math.max(1, Math.round(parsed)));
+  }
+
+  function cxMiniPanelModuleRow026J(rows = []) {
+    return (Array.isArray(rows) ? rows : []).find((row) => {
+      const module = row && typeof row.module === "object" ? row.module : {};
+      const code = String(module.code || row.module_code || row.code || "").trim();
+      const name = String(module.name || row.name || "").trim().toLowerCase();
+      return cxIsMiniPanelModuleCode019B(code) || name.includes("mini panel") || name.includes("minipanel");
+    }) || null;
+  }
+
+  function cxMiniPanelNormalizeCompanyConfig026J(rawConfig = {}) {
+    const source = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
+    const config = source.mini_panel_modules && typeof source.mini_panel_modules === "object"
+      ? source.mini_panel_modules
+      : source;
+
+    if (config.enabled !== true || !config.panels || typeof config.panels !== "object") {
+      return null;
+    }
+
+    const panels = {};
+    Object.entries(config.panels).forEach(([rawType, rawPanel]) => {
+      const panel = rawPanel && typeof rawPanel === "object" ? rawPanel : {};
+      if (panel.enabled !== true) return;
+
+      const code = cxMiniPanelType026J(rawType);
+      const maxUsers = cxMiniPanelMaxUsers026J(panel, code);
+      panels[code] = {
+        ...panel,
+        enabled: true,
+        code,
+        label: panel.label || cxMiniPanelTypeLabel019B(code, panel, {}),
+        link: panel.link || cxMiniPanelLink019B(code, panel),
+        login_template: panel.login_template || "",
+        modules: Array.isArray(panel.modules) ? panel.modules : [],
+        max_users: maxUsers,
+        users_allowed: maxUsers,
+      };
+    });
+
+    if (!Object.keys(panels).length) return null;
+
+    return {
+      enabled: true,
+      source: "company_modules",
+      selected_panel: cxMiniPanelType026J(config.selected_panel || Object.keys(panels)[0]),
+      panels,
+      module_names: config.module_names && typeof config.module_names === "object" ? config.module_names : {},
+      updated_at: config.updated_at || "",
+    };
+  }
+
+  async function cxLoadMiniPanelCompanyConfig026J(force = false) {
+    if (!force && cxMiniPanelCompanyConfigCache026J) return cxMiniPanelCompanyConfigCache026J;
+    if (!state.companyId) return null;
+
+    try {
+      const rows = await api(`/companies/${encodeURIComponent(state.companyId)}/modules?enabled_only=true`);
+      const miniRow = cxMiniPanelModuleRow026J(rows);
+      const settings = miniRow && typeof miniRow.settings === "object" && miniRow.settings ? miniRow.settings : {};
+      const config = cxMiniPanelNormalizeCompanyConfig026J(settings);
+      cxMiniPanelCompanyConfigCache026J = config;
+      return config;
+    } catch (error) {
+      cxMiniPanelCompanyConfigCache026J = null;
+      return null;
+    }
   }
 
   function cxMiniPanelPackageSearchScore019B(pkg = {}, company = {}) {
@@ -9204,6 +9379,21 @@ function inventoryCreatePayload() {
     let error = "";
 
     try {
+      const companyConfig = await cxLoadMiniPanelCompanyConfig026J(force);
+      if (companyConfig && companyConfig.enabled === true) {
+        return {
+          settings,
+          packages,
+          selectedPackage: {
+            id: "company_modules",
+            code: "company_modules",
+            name: "Admin V2",
+          },
+          packageSettings: companyConfig,
+          error
+        };
+      }
+
       packages = await api("/packages");
       selectedPackage = cxMiniPanelFindPackage019B(packages, company);
 
@@ -9238,6 +9428,24 @@ function inventoryCreatePayload() {
   function cxMiniPanelEnabledTypes019B(packageSettings = {}) {
     const source = packageSettings && packageSettings.mini_panel ? packageSettings.mini_panel : packageSettings;
     if (!source || source.enabled !== true) return [];
+
+    if (source.panels && typeof source.panels === "object") {
+      return Object.entries(source.panels)
+        .filter(([, value]) => value && value.enabled === true)
+        .map(([code, value]) => {
+          const cleanCode = cxMiniPanelType026J(value.code || code);
+          const usersAllowed = cxMiniPanelMaxUsers026J(value, cleanCode);
+          return {
+            code: cleanCode,
+            ...value,
+            link: value.link || cxMiniPanelLink019B(cleanCode, value),
+            users_allowed: usersAllowed,
+            max_users: usersAllowed,
+            modules: Array.isArray(value.modules) ? value.modules : []
+          };
+        })
+        .filter((item) => Number(item.users_allowed || 0) > 0);
+    }
 
     const rawTypes = source.types && typeof source.types === "object" ? source.types : {};
 
@@ -9294,6 +9502,7 @@ function inventoryCreatePayload() {
 
   async function renderMiniPanelLinksModule019B(force = false) {
     cxMiniPanelEnsureStyles019B();
+    cxSalesEnsureStyles019C();
 
     const company = state.company || {};
     const moduleActive = ["mini_panel", "mini_paneles", "creacion_minipanel", "creacion_mini_panel"].some((code) => isClientModuleActive(code));
@@ -9304,6 +9513,23 @@ function inventoryCreatePayload() {
     const types = cxMiniPanelEnabledTypes019B(packageSettings);
 
     let body = "";
+    let employees = [];
+    let users = [];
+    let loadError = data.error || "";
+    const lastCreated = window.__cxMiniPanelLastCreated026J || null;
+
+    if (moduleActive && types.length) {
+      try {
+        const [employeeRows, userRows] = await Promise.all([
+          loadPersonalEmployees(),
+          cxLoadMiniPanelUsers026J()
+        ]);
+        employees = Array.isArray(employeeRows) ? employeeRows : [];
+        users = Array.isArray(userRows) ? userRows : [];
+      } catch (error) {
+        loadError = error.message || cxMiniPanelText019B(settings, "error");
+      }
+    }
 
     if (!moduleActive) {
       body = `<div class="cx-mini-empty">${h(cxMiniPanelText019B(settings, "moduleInactive"))}</div>`;
@@ -9314,7 +9540,21 @@ function inventoryCreatePayload() {
     } else if (!types.length) {
       body = `<div class="cx-mini-empty">${h(cxMiniPanelText019B(settings, "noTypes"))}</div>`;
     } else {
-      body = `<div class="cx-mini-links-grid">${cxMiniPanelCards019B(types, settings)}</div><div class="cx-mini-empty" style="margin-top:16px">${h(cxMiniPanelText019B(settings, "needMore"))}</div>`;
+      body = `
+        ${lastCreated ? `
+          <div class="cx-mini-credential">
+            Usuario: <strong>${h(lastCreated.username || lastCreated.email || "")}</strong><br>
+            ${lastCreated.temporary_password
+              ? `Clave temporal: <strong>${h(lastCreated.temporary_password)}</strong><br><span class="cx-sales-muted">Guarda esta clave. Solo se muestra una vez.</span>`
+              : `<span class="cx-sales-muted">Usuario activo. Para entregar una clave nueva usa Regenerar clave.</span>`
+            }
+          </div>
+        ` : ""}
+        <div class="cx-mini-links-grid">
+          ${types.map((item) => cxMiniPanelAssignmentCard026J(item, employees, users, settings)).join("")}
+        </div>
+        <div class="cx-mini-empty" style="margin-top:16px">${h(cxMiniPanelText019B(settings, "needMore"))}</div>
+      `;
     }
 
     $("app").innerHTML = `
@@ -9343,7 +9583,7 @@ function inventoryCreatePayload() {
               <div class="client-eyebrow">${h(cxMiniPanelText019B(settings, "inherited"))}</div>
               <h2>${h(cxMiniPanelText019B(settings, "package"))}: ${h(selectedPackage ? (selectedPackage.name || selectedPackage.code || selectedPackage.id) : cxMiniPanelPackageKey019B(company) || "-")}</h2>
               <p class="client-muted">${h(cxMiniPanelText019B(settings, "pending"))}</p>
-              ${data.error ? `<div class="personal-toast error" style="margin-top:14px">${h(data.error)}</div>` : ""}
+              ${loadError ? `<div class="personal-toast error" style="margin-top:14px">${h(loadError)}</div>` : ""}
               ${body}
             </section>
           </section>
@@ -22010,6 +22250,181 @@ function inventoryCreatePayload() {
     }).join("");
   }
 
+  const CX_MINI_PANEL_ROLE_TOKENS_026J = {
+    sales: ["vendedor", "ventas", "sales", "comercial", "asesor_comercial", "asesor_comercial"],
+    store: ["cajero", "cajera", "caja", "cashier", "tienda", "store", "retail", "punto_venta", "punto_de_venta"],
+    inventory: ["inventario", "inventory", "bodega", "almacen", "almacenista", "materiales"],
+    logistics: ["logistica", "logistics", "operador", "operario", "tecnico", "tecnico_campo", "field", "campo", "gps", "conductor", "driver", "ruta"],
+    call_center: ["agente_call", "agente_call_center", "asesor_call", "call_center", "callcenter", "llamadas", "telefono", "operador", "operario"],
+    external: ["agente_externo", "asesor_externo", "externo", "externos", "external"],
+    other: ["admin", "administrador", "supervisor", "tesoreria", "gerencia", "gerente", "operador", "operario"],
+  };
+
+  function cxMiniPanelEmployeeKey026J(employee = {}) {
+    return String(employee.id || employee.employee_id || "").trim();
+  }
+
+  function cxMiniPanelEmployeeRoleTokens026J(employee = {}) {
+    return [
+      employee.role,
+      employee.employee_type,
+      employee.position,
+      employee.job_title,
+      employee.area,
+      employee.department,
+    ].map(cxNormalizeRole019C).filter(Boolean);
+  }
+
+  function cxMiniPanelEmployeeMatchesType026J(employee = {}, panelType = "") {
+    const type = cxMiniPanelType026J(panelType);
+    const tokens = cxMiniPanelEmployeeRoleTokens026J(employee);
+    if (!tokens.length) return type === "other";
+    const expected = CX_MINI_PANEL_ROLE_TOKENS_026J[type] || CX_MINI_PANEL_ROLE_TOKENS_026J.other;
+    return tokens.some((token) =>
+      expected.includes(token) ||
+      expected.some((needle) => token.includes(needle) || needle.includes(token))
+    );
+  }
+
+  async function cxLoadMiniPanelUsers026J(panelType = "") {
+    if (!state.companyId) return [];
+    const type = cxMiniPanelType026J(panelType);
+    const query = panelType ? `?panel_type=${encodeURIComponent(type)}` : "";
+    try {
+      const rows = await api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users${query}`);
+      return Array.isArray(rows) ? rows : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  async function cxCreateMiniPanelUser026J(panelType, employeeId, link) {
+    const type = cxMiniPanelType026J(panelType);
+    return api(`/companies/${encodeURIComponent(state.companyId)}/mini-panel-users/${encodeURIComponent(type)}/from-employee`, {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: employeeId,
+        link: link || ""
+      })
+    });
+  }
+
+  function cxMiniPanelUsersByTypeEmployee026J(users = []) {
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach((user) => {
+      const type = cxMiniPanelType026J(user.panel_type || "");
+      const employeeId = String(user.employee_id || "").trim();
+      if (type && employeeId) map.set(`${type}:${employeeId}`, user);
+    });
+    return map;
+  }
+
+  function cxMiniPanelNotice026J(message, isError = false) {
+    const panel = document.querySelector(".cx-mini-links-grid") || document.querySelector(".client-panel");
+    if (!panel) {
+      if (message) window.alert(message);
+      return;
+    }
+
+    const existing = document.getElementById("cxMiniPanelNotice026J");
+    if (existing) existing.remove();
+
+    const notice = document.createElement("div");
+    notice.id = "cxMiniPanelNotice026J";
+    notice.className = `personal-toast ${isError ? "error" : ""}`;
+    notice.style.margin = "14px 0";
+    notice.textContent = message || "";
+    panel.insertAdjacentElement("beforebegin", notice);
+  }
+
+  function cxMiniPanelPersonRow026J(employee, assigned, item, maxReached = false) {
+    const type = cxMiniPanelType026J(item.code);
+    const employeeId = cxMiniPanelEmployeeKey026J(employee);
+    const assignedUser = assigned ? (assigned.username || assigned.email || "") : "";
+    const assignedId = assigned ? String(assigned.id || "") : "";
+    const link = assigned && assigned.link ? assigned.link : (item.link || cxMiniPanelLink019B(type, item));
+    const roleLabel = employee.role || employee.employee_type || "Sin rol";
+    const statusLabel = assigned ? (assigned.status || "active") : "pendiente";
+    const disabled = !assigned && (maxReached || !link);
+
+    return `
+      <div class="cx-mini-person-row">
+        <div>
+          <strong>${h(employee.full_name || employee.name || "Sin nombre")}</strong>
+          <div class="cx-sales-muted">${h(employee.phone || employee.email || "Sin contacto")}</div>
+        </div>
+        <div>
+          <span class="cx-sales-chip">${h(roleLabel)}</span>
+        </div>
+        <div>
+          <div class="cx-sales-muted">Usuario mini panel</div>
+          <strong>${h(assignedUser || "Sin usuario")}</strong>
+          <div class="cx-sales-muted">Estado: ${h(statusLabel)}</div>
+        </div>
+        <div class="cx-mini-person-actions">
+          ${
+            assigned
+              ? `<button class="client-btn" type="button" data-minipanel-user-reset="${h(assignedId)}" data-minipanel-user-name="${h(assignedUser)}">Regenerar clave</button>`
+              : `<button class="client-btn" type="button" data-minipanel-user-create="${h(employeeId)}" data-minipanel-user-type="${h(type)}" data-minipanel-user-link="${h(link)}" ${disabled ? "disabled" : ""}>Generar usuario</button>`
+          }
+          ${maxReached && !assigned ? `<span class="cx-sales-muted">Maximo alcanzado</span>` : ""}
+        </div>
+      </div>
+    `;
+  }
+
+  function cxMiniPanelAssignmentCard026J(item, employees = [], users = [], settings = {}) {
+    const type = cxMiniPanelType026J(item.code);
+    const label = cxMiniPanelTypeLabel019B(type, item, settings);
+    const link = item.link || cxMiniPanelLink019B(type, item);
+    const assignedByEmployee = cxMiniPanelUsersByTypeEmployee026J(users);
+    const usersForType = (Array.isArray(users) ? users : []).filter((user) => cxMiniPanelType026J(user.panel_type || "") === type);
+    const allowed = Number(item.users_allowed || item.max_users || 0);
+    const activeEmployees = (Array.isArray(employees) ? employees : []).filter((employee) => {
+      const statusValue = String(employee.status || "active").trim().toLowerCase();
+      return statusValue !== "archived" && statusValue !== "inactivo" && statusValue !== "inactive";
+    });
+    const candidates = activeEmployees.filter((employee) => cxMiniPanelEmployeeMatchesType026J(employee, type));
+    const maxReached = allowed > 0 && usersForType.length >= allowed;
+
+    const rows = candidates.length
+      ? candidates.map((employee) => {
+          const employeeId = cxMiniPanelEmployeeKey026J(employee);
+          return cxMiniPanelPersonRow026J(
+            employee,
+            assignedByEmployee.get(`${type}:${employeeId}`),
+            { ...item, code: type, link },
+            maxReached
+          );
+        }).join("")
+      : `<div class="cx-mini-empty">No hay personas activas en Workforce para el rol de ${h(label)}.</div>`;
+
+    return `
+      <article class="cx-mini-link-card">
+        <div class="client-eyebrow">${h(cxMiniPanelText019B(settings, "enabled"))}</div>
+        <h3>${h(label)}</h3>
+        <p class="client-muted">${h(cxMiniPanelTypeDescription019B(type, settings))}</p>
+
+        <div class="cx-mini-link-meta">
+          <span class="cx-mini-link-pill">${h(cxMiniPanelText019B(settings, "usersAllowed"))}: ${h(allowed)}</span>
+          <span class="cx-mini-link-pill">${h(usersForType.length)} asignado(s)</span>
+          <span class="cx-mini-link-pill">${h(Array.isArray(item.modules) ? item.modules.length : 0)} modulo(s)</span>
+          <span class="cx-mini-link-pill">type=${h(type)}</span>
+        </div>
+
+        <div class="client-label">${h(cxMiniPanelText019B(settings, "link"))}</div>
+        <div class="cx-mini-link-box">${h(link)}</div>
+        <div class="cx-mini-link-actions">
+          <button class="client-btn" type="button" data-minipanel-copy-link="${h(link)}">${h(cxMiniPanelText019B(settings, "copy"))}</button>
+        </div>
+
+        <div class="cx-mini-people">
+          ${rows}
+        </div>
+      </article>
+    `;
+  }
+
   function cxAssemblySimpleRows025U(rows = [], empty = "Sin registros", renderer) {
     if (!Array.isArray(rows) || !rows.length) return `<div class="asm-empty-025u">${h(empty)}</div>`;
     return rows.map(renderer).join("");
@@ -25897,6 +26312,76 @@ function inventoryCreatePayload() {
           setTimeout(() => { miniPanelCopyBtn.textContent = previous; }, 1400);
         } catch (error) {
           alert(value);
+        }
+        return;
+      }
+
+      const miniPanelCreateBtn = target.closest("[data-minipanel-user-create]");
+      if (miniPanelCreateBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const employeeId = miniPanelCreateBtn.getAttribute("data-minipanel-user-create") || "";
+        const panelType = miniPanelCreateBtn.getAttribute("data-minipanel-user-type") || "";
+        const link = miniPanelCreateBtn.getAttribute("data-minipanel-user-link") || "";
+        const originalText = miniPanelCreateBtn.textContent || "Generar usuario";
+
+        if (!employeeId || !panelType) {
+          cxMiniPanelNotice026J("No se encontro el empleado o segmento para generar el usuario.", true);
+          return;
+        }
+
+        try {
+          miniPanelCreateBtn.disabled = true;
+          miniPanelCreateBtn.textContent = "Generando...";
+          const created = await cxCreateMiniPanelUser026J(panelType, employeeId, link);
+          window.__cxMiniPanelLastCreated026J = created || null;
+          await renderMiniPanelLinksModule019B(true);
+          const username = created?.username || created?.email || "usuario generado";
+          const tempPassword = created?.temporary_password || "";
+          cxMiniPanelNotice026J(
+            tempPassword
+              ? `Usuario generado: ${username}. Clave temporal: ${tempPassword}`
+              : `Usuario ya existente: ${username}. Usa Regenerar clave para entregar una clave nueva.`
+          );
+        } catch (error) {
+          miniPanelCreateBtn.disabled = false;
+          miniPanelCreateBtn.textContent = originalText;
+          cxMiniPanelNotice026J(error.message || "No se pudo generar el usuario mini panel.", true);
+        }
+        return;
+      }
+
+      const miniPanelResetBtn = target.closest("[data-minipanel-user-reset]");
+      if (miniPanelResetBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const userId = miniPanelResetBtn.getAttribute("data-minipanel-user-reset") || "";
+        const originalText = miniPanelResetBtn.textContent || "Regenerar clave";
+
+        if (!userId) {
+          cxMiniPanelNotice026J("No se encontro el usuario mini panel para regenerar clave.", true);
+          return;
+        }
+
+        try {
+          miniPanelResetBtn.disabled = true;
+          miniPanelResetBtn.textContent = "Regenerando...";
+          const updated = await cxResetSalesMiniPanelPassword019DR2(userId);
+          window.__cxMiniPanelLastCreated026J = updated || null;
+          await renderMiniPanelLinksModule019B(true);
+          const username = updated?.username || updated?.email || "usuario";
+          const tempPassword = updated?.temporary_password || "";
+          cxMiniPanelNotice026J(
+            tempPassword
+              ? `Clave regenerada para ${username}: ${tempPassword}`
+              : `Clave regenerada para ${username}.`
+          );
+        } catch (error) {
+          miniPanelResetBtn.disabled = false;
+          miniPanelResetBtn.textContent = originalText;
+          cxMiniPanelNotice026J(error.message || "No se pudo regenerar la clave.", true);
         }
         return;
       }
