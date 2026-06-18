@@ -26836,6 +26836,11 @@ function inventoryCreatePayload() {
 
         if (!isClientModuleActive(code)) return;
 
+        if (cxIsTransportCallsCode028A(code)) {
+          await renderTransportCallsModule028A();
+          return;
+        }
+
         if (typeof cxIsAssistantCode027A === "function" && cxIsAssistantCode027A(code)) {
           cxAssistantOpenWidget027A(code || "assistant_ai");
           return;

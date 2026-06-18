@@ -8,7 +8,10 @@ from fastapi.staticfiles import StaticFiles
 
 
 def _read_html(path: Path) -> HTMLResponse:
-    return HTMLResponse(path.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 def register_client_portal(app: FastAPI) -> None:
