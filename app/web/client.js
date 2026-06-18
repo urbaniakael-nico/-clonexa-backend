@@ -1656,6 +1656,10 @@
     const roles = [
       ["admin_empresa", "Admin empresa"],
       ["supervisor", "Supervisor"],
+      ["agente_call", "Agente call"],
+      ["agente_externo", "Agente externo"],
+      ["tesoreria", "Tesoreria"],
+      ["gerencia", "Gerencia"],
       ["tecnico", "Tecnico"],
       ["operario", "Operario"],
       ["vendedor", "Vendedor"],
@@ -14277,6 +14281,12 @@ function inventoryCreatePayload() {
     if (!norm || cxAssistantSkip027A(value)) return "operator";
     if (norm.includes("admin")) return "admin_empresa";
     if (norm.includes("supervisor")) return "supervisor";
+    if (norm.includes("agente") && (norm.includes("call") || norm.includes("llamada") || norm.includes("telefono"))) return "agente_call";
+    if (norm.includes("asesor") && (norm.includes("call") || norm.includes("llamada") || norm.includes("telefono"))) return "agente_call";
+    if (norm.includes("agente") && (norm.includes("extern") || norm.includes("campo"))) return "agente_externo";
+    if (norm.includes("asesor") && (norm.includes("extern") || norm.includes("campo"))) return "agente_externo";
+    if (norm.includes("tesorer")) return "tesoreria";
+    if (norm.includes("gerenc") || norm.includes("gerente")) return "gerencia";
     if (norm.includes("tecnico")) return "tecnico";
     if (norm.includes("operario")) return "operario";
     if (norm.includes("vendedor") || norm.includes("ventas")) return "vendedor";
@@ -14323,7 +14333,7 @@ function inventoryCreatePayload() {
   function cxAssistantWorkforceQuestion027R(flow = {}) {
     const data = flow.data || {};
     if (flow.step === "full_name") return "Nombre completo del personal? Puedes escribir cancelar para salir.";
-    if (flow.step === "role") return "Rol del personal? Puedes escribir operario, vendedor, supervisor, omitir o atras.";
+    if (flow.step === "role") return "Rol del personal? Puedes escribir agente call, agente externo, tesoreria, gerencia, supervisor, omitir o atras.";
     if (flow.step === "phone") return "Telefono? Escribe omitir si no aplica, o atras para corregir.";
     if (flow.step === "email") return "Correo del personal? Escribe omitir si no aplica, o atras.";
     if (flow.step === "hire_date") return "Fecha de ingreso? Usa YYYY-MM-DD o 20260114. Escribe omitir o atras.";
