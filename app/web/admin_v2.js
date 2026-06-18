@@ -1422,6 +1422,8 @@
         <button class="cx-package-card" data-copy="${escapeHtml(company.id)}" type="button"><h3>Copiar Company ID</h3><p>${escapeHtml(company.id)}</p></button>
       </div>
 
+      ${cxRenderCompanyMiniPanelAccess026I(company)}
+
       ${renderCompanyIpAccessPolicy026G(company, accessPolicy)}
       ${renderCompanySessionAccess026H(company, sessionPolicy, accessSessions)}
 
@@ -3642,6 +3644,136 @@
     return codes.some((code) => moduleSet.has(cxQrNorm025N(code)));
   }
 
+  const CX_ACCESS_PANEL_TYPES_026I = {
+    sales: { label: "Ventas", defaultMax: 10 },
+    store: { label: "Tiendas", defaultMax: 10 },
+    inventory: { label: "Inventario", defaultMax: 5 },
+    logistics: { label: "Logistica", defaultMax: 10 },
+    call_center: { label: "Call Center", defaultMax: 30 },
+    external: { label: "Externo", defaultMax: 20 },
+    other: { label: "Otro", defaultMax: 10 },
+  };
+
+  function cxAccessPanelType026I(value) {
+    const raw = String(value || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+    const aliases = {
+      ventas: "sales",
+      venta: "sales",
+      sales: "sales",
+      tiendas: "store",
+      tienda: "store",
+      stores: "store",
+      store: "store",
+      inventario: "inventory",
+      inventory: "inventory",
+      logistica: "logistics",
+      logistics: "logistics",
+      field: "logistics",
+      call: "call_center",
+      calls: "call_center",
+      callcenter: "call_center",
+      call_center: "call_center",
+      llamadas: "call_center",
+      transport_calls: "call_center",
+      externo: "external",
+      externos: "external",
+      external: "external",
+      otro: "other",
+      otros: "other",
+      other: "other",
+    };
+
+    return aliases[raw] || raw || "other";
+  }
+
+  function cxAccessPanelLabel026I(type) {
+    const clean = cxAccessPanelType026I(type);
+    return CX_ACCESS_PANEL_TYPES_026I[clean]?.label || clean;
+  }
+
+  function cxAccessPanelMax026I(panel = {}, type = "") {
+    const clean = cxAccessPanelType026I(type);
+    const fallback = CX_ACCESS_PANEL_TYPES_026I[clean]?.defaultMax || 10;
+    const parsed = Number(panel.max_users ?? panel.users_allowed);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(50, Math.max(1, Math.round(parsed)));
+  }
+
+  function cxAccessCompanyMiniPanelConfig026I(company) {
+    const rows = safeArray(state.companyModules.get(company.id));
+    const miniRow = rows.find((row) => {
+      const code = cxQrNorm025N(row?.module?.code || row?.module_code || row?.code || "");
+      const name = cxQrNorm025N(row?.module?.name || row?.name || "");
+      return code === "mini_panel" || name.includes("mini_panel") || name.includes("creacion_mini");
+    });
+
+    const settings = miniRow && typeof miniRow.settings === "object" && miniRow.settings ? miniRow.settings : {};
+    const config = settings.mini_panel_modules && typeof settings.mini_panel_modules === "object"
+      ? settings.mini_panel_modules
+      : (settings.panels && typeof settings.panels === "object" ? settings : null);
+
+    if (!config || config.enabled !== true || !config.panels || typeof config.panels !== "object") {
+      return { enabled: false, panels: [] };
+    }
+
+    const panels = [];
+    Object.entries(config.panels).forEach(([rawType, rawPanel]) => {
+      const panel = rawPanel && typeof rawPanel === "object" ? rawPanel : {};
+      if (panel.enabled !== true) return;
+      const type = cxAccessPanelType026I(rawType);
+      panels.push({
+        type,
+        label: cxAccessPanelLabel026I(type),
+        link: panel.link || `/mini-panel/login?company_id=${encodeURIComponent(company.id)}&type=${encodeURIComponent(type)}`,
+        modules: safeArray(panel.modules),
+        max_users: cxAccessPanelMax026I(panel, type),
+      });
+    });
+
+    return { enabled: panels.length > 0, panels };
+  }
+
+  function cxAccessCompanyMiniPanelLinks026I(company) {
+    const config = cxAccessCompanyMiniPanelConfig026I(company);
+    return config.panels.map((panel) => ({
+      title: `Mini panel ${panel.label}`,
+      href: panel.link,
+      subtitle: `${panel.modules.length} modulo(s) asignado(s) · max ${panel.max_users}`,
+      badge: panel.type,
+      badgeClass: panel.type === "call_center" || panel.type === "external" ? "cx-badge-live" : "",
+    }));
+  }
+
+  function cxRenderCompanyMiniPanelAccess026I(company) {
+    const links = cxAccessCompanyMiniPanelLinks026I(company);
+
+    return `
+      <section class="cx-access-section-026b" style="margin-bottom:18px">
+        <div class="cx-access-section-head-026b">
+          <div>
+            <h3>Mini paneles por rol</h3>
+            <p>Links independientes segun el segmento asignado desde Workforce.</p>
+          </div>
+          <span class="cx-badge cx-badge-live">${escapeHtml(links.length)} configurados</span>
+        </div>
+        ${links.length ? `
+          <div class="cx-access-grid-026b">
+            ${links.map(cxAccessLinkCard026B).join("")}
+          </div>
+        ` : `
+          <div class="cx-empty-state">Esta empresa no tiene mini paneles configurados por segmento.</div>
+        `}
+      </section>
+    `;
+  }
+
   function cxAccessQrLabel026B(settings = {}) {
     if (settings.mode === "voting") return "Participante 1";
     if (settings.mode === "generic") return "QR 1";
@@ -3679,23 +3811,7 @@
       { title: "Login empresa", href: "/login", subtitle: "Acceso dueno / encargado", badge: "/login" },
     ];
 
-    if (cxAccessHasModule026B(modules, ["mini_panel", "sales", "registro_venta", "cotizacion", "requests"])) {
-      links.push({
-        title: "Mini panel ventas",
-        href: `/mini-panel/login?company_id=${encodedId}&type=sales`,
-        subtitle: "Entrada vendedor / comercial",
-        badge: "sales",
-      });
-    }
-
-    if (cxAccessHasModule026B(modules, ["stores", "login", "retail"])) {
-      links.push({
-        title: "Mini panel tiendas",
-        href: `/mini-panel/login?company_id=${encodedId}&type=store`,
-        subtitle: "Entrada tienda / cajero",
-        badge: "store",
-      });
-    }
+    links.push(...cxAccessCompanyMiniPanelLinks026I(company));
 
     const qrModule = cxFindCompanyQrModule025N(company.id, true);
     if (qrModule) {
@@ -3730,7 +3846,6 @@
   }
 
   function cxAccessCompanyCard026B(company) {
-    const modules = cxAccessModuleSet026B(company.id);
     const users = state.companyUsers.get(company.id);
     const ownerInfo = ownerAccessInfo(users);
     const owner = ownerInfo.owner;
@@ -3739,11 +3854,10 @@
     const status = companyStatus(company);
     const statusClass = status === "active" ? "cx-badge-live" : "cx-badge-danger";
     const links = cxAccessCompanyLinks026B(company);
-
-    const miniPanels = [
-      cxAccessHasModule026B(modules, ["mini_panel", "sales", "registro_venta"]) ? "ventas" : "",
-      cxAccessHasModule026B(modules, ["stores", "login", "retail"]) ? "tiendas" : "",
-    ].filter(Boolean).join(" / ") || "sin mini panel";
+    const miniConfig = cxAccessCompanyMiniPanelConfig026I(company);
+    const miniPanels = miniConfig.enabled
+      ? miniConfig.panels.map((panel) => panel.label).join(" / ")
+      : "sin mini panel";
 
     return `
       <article class="cx-access-company-card-026b">
@@ -3794,10 +3908,7 @@
 
     const companies = state.companies.filter((company) => !isArchivedCompany(company));
     const qrCompanies = companies.filter((company) => cxFindCompanyQrModule025N(company.id, true)).length;
-    const miniPanelCompanies = companies.filter((company) => {
-      const modules = cxAccessModuleSet026B(company.id);
-      return cxAccessHasModule026B(modules, ["mini_panel", "sales", "stores", "login", "retail"]);
-    }).length;
+    const miniPanelCompanies = companies.filter((company) => cxAccessCompanyMiniPanelConfig026I(company).enabled).length;
     const totalLinks = companies.reduce((count, company) => count + cxAccessCompanyLinks026B(company).length, 0);
 
     const globalLinks = [
@@ -6268,13 +6379,23 @@
     document.addEventListener("click", async (event) => {
       const nav = event.target.closest("[data-view]");
       if (nav) {
-        setView(nav.dataset.view);
+        const nextView = nav.dataset.view;
+        setView(nextView);
+        if (nextView === "access") {
+          await Promise.all(state.companies.map((company) => loadCompanyModules(company.id).catch(() => [])));
+          renderAccess();
+        }
         return;
       }
 
       const navView = event.target.closest("[data-nav-view]");
       if (navView) {
-        setView(navView.dataset.navView);
+        const nextView = navView.dataset.navView;
+        setView(nextView);
+        if (nextView === "access") {
+          await Promise.all(state.companies.map((company) => loadCompanyModules(company.id).catch(() => [])));
+          renderAccess();
+        }
         return;
       }
 
@@ -6307,6 +6428,9 @@
       if (tab && state.selectedCompanyId) {
         state.activeDetailTab = tab.dataset.detailTab;
         const company = state.companies.find((c) => c.id === state.selectedCompanyId);
+        if (company && state.activeDetailTab === "accesos") {
+          await loadCompanyModules(company.id).catch(() => []);
+        }
         if (company) renderCompanyDetail(company);
         return;
       }
