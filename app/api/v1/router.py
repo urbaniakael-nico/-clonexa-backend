@@ -46,6 +46,7 @@ for _module_name, _prefix, _tags in [
     ("landing_analytics", "/landing-analytics", ["landing_analytics"]),
     ("assemblies", "/assemblies", ["assemblies"]),
     ("shoplink", "/shoplink", ["shoplink"]),
+    ("transport_calls", "/transport-calls", ["transport_calls"]),
 ]:
     _include(_module_name, _prefix, _tags)
 

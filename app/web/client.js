@@ -24761,16 +24761,132 @@ function inventoryCreatePayload() {
     return cxNormalizeModuleToken017H(code) === "transport_calls";
   }
 
-  function renderTransportCallsModule028A() {
+  const CX_TRANSPORT_ADVISOR_STATUS_028A = {
+    available: "Disponible",
+    in_call: "En llamada",
+    break: "Break",
+    bathroom: "Bano",
+    lunch: "Almuerzo",
+    offline: "Offline",
+  };
+
+  const CX_TRANSPORT_RESULT_LABELS_028A = {
+    quoted: "Cotizado",
+    ticket: "Ticket creado",
+    follow_up: "Seguimiento",
+    no_answer: "No contesto",
+    cancelled: "Cancelado",
+    information: "Informacion",
+  };
+
+  const CX_TRANSPORT_CALL_STATUS_028A = {
+    completed: "Completada",
+    missed: "Perdida",
+    pending: "Pendiente",
+    transferred: "Transferida",
+  };
+
+  function cxTransportNumber028A(value) {
+    const parsed = Number(value || 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function cxTransportDuration028A(seconds) {
+    const total = Math.max(0, Math.round(cxTransportNumber028A(seconds)));
+    const minutes = Math.floor(total / 60);
+    const rest = total % 60;
+    if (minutes <= 0) return `${rest}s`;
+    return `${minutes}m ${String(rest).padStart(2, "0")}s`;
+  }
+
+  function cxTransportDate028A(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString("es-CO", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function cxTransportLabel028A(map, value, fallback = "-") {
+    const key = String(value || "").trim();
+    return map[key] || key || fallback;
+  }
+
+  function cxTransportStatusPill028A(value) {
+    const key = String(value || "").trim();
+    const bg = key === "available"
+      ? "rgba(0,255,136,.18)"
+      : key === "in_call"
+        ? "rgba(43,214,255,.18)"
+        : key === "offline"
+          ? "rgba(148,163,184,.18)"
+          : "rgba(245,158,11,.18)";
+    const color = key === "available"
+      ? "#00ff88"
+      : key === "in_call"
+        ? "#2bd6ff"
+        : key === "offline"
+          ? "#cbd5e1"
+          : "#fbbf24";
+    return `<span style="display:inline-flex;align-items:center;border-radius:999px;padding:7px 10px;background:${bg};color:${color};font-size:12px;font-weight:950">${h(cxTransportLabel028A(CX_TRANSPORT_ADVISOR_STATUS_028A, key))}</span>`;
+  }
+
+  async function cxTransportApi028A(path, options = {}) {
+    return api(`/transport-calls/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  async function renderTransportCallsModule028A() {
     const company = state.company || {};
-    const plannedCards = [
-      ["Llamadas", "Registro de entrada/salida, asesor, duracion y resultado."],
-      ["Estados", "Disponible, en llamada, break, bano, almuerzo y offline."],
-      ["Cotizaciones", "Origen, destino, ruta, valor y aprobacion comercial."],
-      ["Tickets", "Viaje confirmado, responsable, contrato y seguimiento."],
-      ["Contratos", "Saldo inicial, consumo por orden y alerta de saldo bajo."],
-      ["Supervision", "Vista en vivo por asesor, tiempos y productividad."],
-    ];
+    let summary = {};
+    let calls = [];
+    let loadError = "";
+
+    try {
+      const [summaryResponse, callsResponse] = await Promise.all([
+        cxTransportApi028A("/summary"),
+        cxTransportApi028A("/calls?limit=80"),
+      ]);
+      summary = summaryResponse.summary || {};
+      calls = Array.isArray(callsResponse.calls) ? callsResponse.calls : [];
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar el modulo de llamadas.";
+    }
+
+    const inputStyle = "width:100%;min-height:46px;margin-top:7px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.28);color:inherit;padding:11px 12px;font:inherit;font-weight:800";
+    const labelStyle = "display:grid;gap:3px;min-width:0";
+    const tableCellStyle = "padding:13px 12px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top";
+    const tableHeadStyle = "padding:12px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left;letter-spacing:.12em;text-transform:uppercase;font-size:11px;opacity:.78";
+    const rows = calls.length
+      ? calls.map((call) => `
+          <tr>
+            <td style="${tableCellStyle}"><strong>${h(cxTransportDate028A(call.created_at))}</strong></td>
+            <td style="${tableCellStyle}">
+              <strong>${h(call.advisor_name || "Sin asesor")}</strong><br>
+              ${cxTransportStatusPill028A(call.advisor_status)}
+            </td>
+            <td style="${tableCellStyle}">
+              <strong>${h(call.customer_name || "Sin cliente")}</strong><br>
+              <span class="client-muted">${h(call.phone || "")}</span>
+            </td>
+            <td style="${tableCellStyle}">
+              <strong>${h(call.origin || "-")}</strong><br>
+              <span class="client-muted">${h(call.destination || "-")}</span>
+            </td>
+            <td style="${tableCellStyle}">${h(cxTransportLabel028A(CX_TRANSPORT_CALL_STATUS_028A, call.call_status))}</td>
+            <td style="${tableCellStyle}">${h(cxTransportLabel028A(CX_TRANSPORT_RESULT_LABELS_028A, call.result))}</td>
+            <td style="${tableCellStyle}">${h(cxTransportDuration028A(call.duration_seconds))}</td>
+            <td style="${tableCellStyle}">
+              ${call.quote_requested ? '<span class="client-badge" style="margin-right:6px">COT</span>' : ""}
+              ${call.ticket_requested ? '<span class="client-badge">TKT</span>' : ""}
+              ${!call.quote_requested && !call.ticket_requested ? '<span class="client-muted">-</span>' : ""}
+            </td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="8" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin llamadas registradas todavia.</td></tr>`;
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -24786,34 +24902,181 @@ function inventoryCreatePayload() {
             <header class="client-hero">
               <div class="client-eyebrow">Vertical transporte</div>
               <h1 class="client-title">Call Center / Llamadas</h1>
-              <p class="client-muted">Primer paso activo para construir la operacion: llamadas, asesores, cotizaciones, tickets, contratos y supervision.</p>
+              <p class="client-muted">Registro operativo para asesores: llamadas, rutas, cotizaciones, tickets, contratos y supervision en vivo.</p>
+              <div class="client-kpi-grid">
+                <article class="client-kpi"><span>Llamadas hoy</span><strong>${h(summary.calls_today || 0)}</strong></article>
+                <article class="client-kpi"><span>Disponibles</span><strong>${h(summary.advisors_available || 0)}</strong></article>
+                <article class="client-kpi"><span>En llamada</span><strong>${h(summary.advisors_in_call || 0)}</strong></article>
+                <article class="client-kpi"><span>Duracion hoy</span><strong>${h(cxTransportDuration028A(summary.duration_today || 0))}</strong></article>
+              </div>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" id="transportRefresh028A">Actualizar</button>
               </div>
             </header>
+
+            ${loadError ? `
+              <section class="client-panel" style="border-color:rgba(248,113,113,.4)">
+                <strong>No se pudo cargar Call Center / Llamadas.</strong>
+                <p class="client-muted">${h(loadError)}</p>
+              </section>
+            ` : ""}
 
             <section class="client-panel">
               <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px">
                 <div>
-                  <div class="client-eyebrow">Mapa funcional inicial</div>
-                  <h2>Flujo que vamos a conectar</h2>
+                  <div class="client-eyebrow">Registro operativo</div>
+                  <h2>Nueva llamada</h2>
                 </div>
-                <span class="client-badge">MVP 1</span>
+                <span class="client-badge">CALL</span>
               </div>
-              <div class="client-module-grid">
-                ${plannedCards.map(([title, description]) => `
-                  <article class="client-module-card" style="cursor:default">
-                    <div class="client-badge">CALL</div>
-                    <strong>${h(title)}</strong>
-                    <small>${h(description)}</small>
-                  </article>
-                `).join("")}
+              <form id="transportCallForm028A">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px">
+                  <label style="${labelStyle}"><span class="client-label">Asesor</span><input name="advisor_name" required placeholder="Nombre asesor" style="${inputStyle}"></label>
+                  <label style="${labelStyle}"><span class="client-label">Estado asesor</span>
+                    <select name="advisor_status" style="${inputStyle}">
+                      <option value="available">Disponible</option>
+                      <option value="in_call">En llamada</option>
+                      <option value="break">Break</option>
+                      <option value="bathroom">Bano</option>
+                      <option value="lunch">Almuerzo</option>
+                      <option value="offline">Offline</option>
+                    </select>
+                  </label>
+                  <label style="${labelStyle}"><span class="client-label">Cliente</span><input name="customer_name" placeholder="Persona o empresa" style="${inputStyle}"></label>
+                  <label style="${labelStyle}"><span class="client-label">Tipo cliente</span>
+                    <select name="customer_type" style="${inputStyle}">
+                      <option value="person">Persona</option>
+                      <option value="company">Empresa</option>
+                      <option value="contract">Contrato</option>
+                    </select>
+                  </label>
+                  <label style="${labelStyle}"><span class="client-label">Telefono</span><input name="phone" placeholder="+57..." style="${inputStyle}"></label>
+                  <label style="${labelStyle}"><span class="client-label">Origen</span><input name="origin" placeholder="Ciudad origen" style="${inputStyle}"></label>
+                  <label style="${labelStyle}"><span class="client-label">Destino</span><input name="destination" placeholder="Ciudad destino" style="${inputStyle}"></label>
+                  <label style="${labelStyle}"><span class="client-label">Tipo viaje</span><input name="trip_type" placeholder="Ruta, expreso, aeropuerto" style="${inputStyle}"></label>
+                  <label style="${labelStyle}"><span class="client-label">Direccion llamada</span>
+                    <select name="call_direction" style="${inputStyle}">
+                      <option value="inbound">Entrante</option>
+                      <option value="outbound">Saliente</option>
+                    </select>
+                  </label>
+                  <label style="${labelStyle}"><span class="client-label">Estado llamada</span>
+                    <select name="call_status" style="${inputStyle}">
+                      <option value="completed">Completada</option>
+                      <option value="missed">Perdida</option>
+                      <option value="pending">Pendiente</option>
+                      <option value="transferred">Transferida</option>
+                    </select>
+                  </label>
+                  <label style="${labelStyle}"><span class="client-label">Resultado</span>
+                    <select name="result" style="${inputStyle}">
+                      <option value="follow_up">Seguimiento</option>
+                      <option value="quoted">Cotizado</option>
+                      <option value="ticket">Ticket creado</option>
+                      <option value="information">Informacion</option>
+                      <option value="no_answer">No contesto</option>
+                      <option value="cancelled">Cancelado</option>
+                    </select>
+                  </label>
+                  <label style="${labelStyle}"><span class="client-label">Duracion min</span><input name="duration_minutes" type="number" min="0" step="0.1" placeholder="0" style="${inputStyle}"></label>
+                  <label style="${labelStyle}"><span class="client-label">Contrato / aval</span><input name="contract_code" placeholder="Contrato o aval" style="${inputStyle}"></label>
+                </div>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;margin:14px 0">
+                  <label style="display:flex;gap:8px;align-items:center;font-weight:900"><input name="quote_requested" type="checkbox"> Genero cotizacion</label>
+                  <label style="display:flex;gap:8px;align-items:center;font-weight:900"><input name="ticket_requested" type="checkbox"> Genero ticket</label>
+                </div>
+                <label style="${labelStyle}"><span class="client-label">Notas</span><textarea name="notes" rows="3" placeholder="Resumen de la llamada, ruta solicitada, aprobaciones o pendiente..." style="${inputStyle};resize:vertical"></textarea></label>
+                <div class="client-actions">
+                  <button class="client-btn" type="submit" id="transportSave028A">Guardar llamada</button>
+                  <span id="transportMsg028A" class="client-muted" style="align-self:center"></span>
+                </div>
+              </form>
+            </section>
+
+            <section class="client-panel">
+              <div class="client-kpi-grid" style="margin-top:0">
+                <article class="client-kpi"><span>Cotizaciones hoy</span><strong>${h(summary.quotes_today || 0)}</strong></article>
+                <article class="client-kpi"><span>Tickets hoy</span><strong>${h(summary.tickets_today || 0)}</strong></article>
+                <article class="client-kpi"><span>Pausados</span><strong>${h(summary.advisors_paused || 0)}</strong></article>
+                <article class="client-kpi"><span>Perdidas hoy</span><strong>${h(summary.missed_today || 0)}</strong></article>
+              </div>
+            </section>
+
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:12px">
+                <div>
+                  <div class="client-eyebrow">Supervision</div>
+                  <h2>Ultimas llamadas</h2>
+                </div>
+                <span class="client-badge">${h(calls.length)}</span>
+              </div>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08)">
+                <table style="width:100%;border-collapse:collapse;min-width:980px">
+                  <thead>
+                    <tr>
+                      <th style="${tableHeadStyle}">Fecha</th>
+                      <th style="${tableHeadStyle}">Asesor</th>
+                      <th style="${tableHeadStyle}">Cliente</th>
+                      <th style="${tableHeadStyle}">Ruta</th>
+                      <th style="${tableHeadStyle}">Estado</th>
+                      <th style="${tableHeadStyle}">Resultado</th>
+                      <th style="${tableHeadStyle}">Duracion</th>
+                      <th style="${tableHeadStyle}">Gestion</th>
+                    </tr>
+                  </thead>
+                  <tbody>${rows}</tbody>
+                </table>
               </div>
             </section>
           </section>
         </div>
       </main>
     `;
+
+    $("transportRefresh028A")?.addEventListener("click", () => {
+      renderTransportCallsModule028A();
+    });
+
+    $("transportCallForm028A")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const msg = $("transportMsg028A");
+      const save = $("transportSave028A");
+      const formData = new FormData(form);
+      const payload = {
+        advisor_name: String(formData.get("advisor_name") || ""),
+        advisor_status: String(formData.get("advisor_status") || "available"),
+        customer_name: String(formData.get("customer_name") || ""),
+        customer_type: String(formData.get("customer_type") || "person"),
+        phone: String(formData.get("phone") || ""),
+        origin: String(formData.get("origin") || ""),
+        destination: String(formData.get("destination") || ""),
+        trip_type: String(formData.get("trip_type") || ""),
+        call_direction: String(formData.get("call_direction") || "inbound"),
+        call_status: String(formData.get("call_status") || "completed"),
+        result: String(formData.get("result") || "follow_up"),
+        duration_minutes: Number(formData.get("duration_minutes") || 0),
+        quote_requested: formData.get("quote_requested") === "on",
+        ticket_requested: formData.get("ticket_requested") === "on",
+        contract_code: String(formData.get("contract_code") || ""),
+        notes: String(formData.get("notes") || ""),
+      };
+      try {
+        if (save) save.disabled = true;
+        if (msg) msg.textContent = "Guardando llamada...";
+        await cxTransportApi028A("/calls", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        form.reset();
+        await renderTransportCallsModule028A();
+      } catch (error) {
+        if (msg) msg.textContent = error.message || "No se pudo guardar la llamada.";
+      } finally {
+        if (save) save.disabled = false;
+      }
+    });
   }
 
   async function renderClientModulePlaceholder(code) {
