@@ -2405,6 +2405,34 @@ p {
   border: 1px solid rgba(255,255,255,.10);
 }
 
+.cx-mp-r6b-selected {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  align-items: end;
+  gap: 14px;
+}
+
+.cx-mp-r6b-limit {
+  display: grid;
+  gap: 8px;
+  color: rgba(255,255,255,.76);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.cx-mp-r6b-limit select {
+  width: 100%;
+  border: 1px solid rgba(0,212,128,.42);
+  background: rgba(0,0,0,.32);
+  color: #fff;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font: inherit;
+  font-weight: 900;
+}
+
 .cx-mp-r6b-empty {
   margin-top: 10px;
   color: rgba(255,255,255,.65);
@@ -2470,6 +2498,10 @@ p {
 
   .cx-mp-r6b-toggle {
     width: 100%;
+  }
+
+  .cx-mp-r6b-selected {
+    grid-template-columns: 1fr;
   }
 
   .cx-mp-r6b-panels {

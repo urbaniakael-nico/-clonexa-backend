@@ -22,6 +22,8 @@
     store: "Tiendas",
     stores: "Tiendas",
     inventory: "Inventarios",
+    call_center: "Call Center",
+    external: "Externo",
     logistics: "Logística",
     other: "Otros"
   };
@@ -1729,6 +1731,15 @@
     "logistics": "logistics",
     "logistica": "logistics",
     "field": "logistics",
+    "call": "call_center",
+    "calls": "call_center",
+    "call_center": "call_center",
+    "callcenter": "call_center",
+    "llamadas": "call_center",
+    "transport_calls": "call_center",
+    "external": "external",
+    "externo": "external",
+    "externos": "external",
     "other": "other"
   };
 
@@ -1769,6 +1780,9 @@
     "gps": { title: "GPS", description: "Consultar ubicación y control operativo.", tag: "GPS" },
     "crm": { title: "CRM Campo", description: "Consultar operación en campo.", tag: "CRM" },
     "field": { title: "Operación en campo", description: "Consultar actividades en campo.", tag: "FLD" },
+    "transport_calls": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "call_center": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "llamadas": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
     "bots": { title: "Bots", description: "Consultar canales automatizados.", tag: "BOT" }
   };
 

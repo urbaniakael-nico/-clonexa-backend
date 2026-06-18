@@ -47,6 +47,13 @@ PANEL_ALIASES = {
     "logistics": "logistics",
     "logistica": "logistics",
     "field": "logistics",
+    "call": "call_center",
+    "call_center": "call_center",
+    "callcenter": "call_center",
+    "llamadas": "call_center",
+    "external": "external",
+    "externo": "external",
+    "externos": "external",
 }
 
 VALID_STATUS = {"draft", "issued", "archived", "converted"}
@@ -199,6 +206,8 @@ PANEL_LABELS_022B = {
     "store": "Mini Panel Tiendas",
     "inventory": "Mini Panel Inventario",
     "logistics": "Mini Panel Logística",
+    "call_center": "Mini Panel Call Center",
+    "external": "Mini Panel Externo",
     "other": "Mini Panel Otro",
 }
 

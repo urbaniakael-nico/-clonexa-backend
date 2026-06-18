@@ -45,6 +45,13 @@ PANEL_ALIASES = {
     "logistics": "logistics",
     "logistica": "logistics",
     "field": "logistics",
+    "call": "call_center",
+    "call_center": "call_center",
+    "callcenter": "call_center",
+    "llamadas": "call_center",
+    "external": "external",
+    "externo": "external",
+    "externos": "external",
 }
 
 VALID_TYPES = {"note", "reminder"}

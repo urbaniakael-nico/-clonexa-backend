@@ -6870,8 +6870,12 @@
     { type: "store", label: "Tiendas", keys: ["tiendas", "stores", "store", "str"] },
     { type: "inventory", label: "Inventario", keys: ["inventario", "inventory", "inv"] },
     { type: "logistics", label: "Logística", keys: ["logistica", "logística", "field", "gps", "fld"] },
-    { type: "other", label: "Otro", keys: ["otro", "other"] }
+    { type: "call_center", label: "Call Center", keys: ["call center", "llamadas", "transport_calls", "agente call", "asesor call"], always: true, defaultMax: 30 },
+    { type: "external", label: "Externo", keys: ["externo", "externos", "agente externo", "asesor externo"], always: true, defaultMax: 20 },
+    { type: "other", label: "Otro", keys: ["otro", "other"], always: true, defaultMax: 10 }
   ];
+
+  const MINI_PANEL_MAX_USERS = 50;
 
   const KNOWN = {
     "nucleo": "core",
@@ -7017,6 +7021,27 @@
     return `${window.location.origin}/mini-panel/login?company_id=${encodeURIComponent(companyId)}&type=${encodeURIComponent(type)}`;
   }
 
+  function panelDefaultMax(type) {
+    const def = PANEL_DEFS.find((panel) => panel.type === type);
+    if (Number.isFinite(Number(def?.defaultMax))) return Number(def.defaultMax);
+    if (type === "inventory") return 5;
+    return 10;
+  }
+
+  function panelMaxUsers(value, type = "") {
+    const fallback = panelDefaultMax(type);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return Math.min(MINI_PANEL_MAX_USERS, Math.max(1, fallback));
+    return Math.min(MINI_PANEL_MAX_USERS, Math.max(1, Math.round(parsed)));
+  }
+
+  function panelMaxOptions(selected) {
+    const current = panelMaxUsers(selected);
+    return Array.from({ length: MINI_PANEL_MAX_USERS }, (_, index) => index + 1)
+      .map((value) => `<option value="${value}" ${value === current ? "selected" : ""}>${value}</option>`)
+      .join("");
+  }
+
   function detectPanels(companyId, config) {
     const text = pageText();
     const panels = [];
@@ -7025,7 +7050,7 @@
       const detected = panel.keys.some((key) => text.includes(norm(key)));
       const already = config?.panels?.[panel.type]?.enabled === true;
 
-      if (detected || already || panel.type === "other") {
+      if (detected || already || panel.always === true) {
         panels.push(panel.type);
       }
     });
@@ -7111,7 +7136,8 @@
       next.panels[type] = {
         enabled: current.enabled === false ? false : true,
         link: current.link || panelLink(companyId, type),
-        modules: uniqueCodes022A(current.modules)
+        modules: uniqueCodes022A(current.modules),
+        max_users: panelMaxUsers(current.max_users ?? current.users_allowed, type)
       };
     });
 
@@ -7120,6 +7146,7 @@
         next.panels[type].enabled = next.panels[type].enabled === true;
         next.panels[type].link = next.panels[type].link || panelLink(companyId, type);
         next.panels[type].modules = uniqueCodes022A(next.panels[type].modules);
+        next.panels[type].max_users = panelMaxUsers(next.panels[type].max_users ?? next.panels[type].users_allowed, type);
       }
     });
 
@@ -7300,11 +7327,12 @@
               const row = config.panels[panel.type];
               const selected = config.selected_panel === panel.type;
               const count = Array.isArray(row.modules) ? row.modules.length : 0;
+              const maxUsers = panelMaxUsers(row.max_users, panel.type);
 
               return `
                 <button type="button" class="cx-mp-r6b-panel ${selected ? "is-selected" : ""}" data-cx-mp-r6b-panel="${panel.type}">
                   <span>${panel.label}</span>
-                  <small>${count} módulos asignados</small>
+                  <small>${count} módulos asignados · max ${maxUsers}</small>
                   <code>${row.link}</code>
                 </button>
               `;
@@ -7316,6 +7344,12 @@
               <strong>Panel seleccionado: ${panelLabel(config.selected_panel)}</strong>
               <p>${config.panels?.[config.selected_panel]?.link || ""}</p>
             </div>
+            <label class="cx-mp-r6b-limit">
+              <span>Max permitido para este mini panel</span>
+              <select data-cx-mp-r6b-max="${config.selected_panel || ""}">
+                ${panelMaxOptions(config.panels?.[config.selected_panel]?.max_users)}
+              </select>
+            </label>
           </div>
 
           <div class="cx-mp-r6b-assigned">
@@ -7479,6 +7513,19 @@
       config.panels[panel].modules = (config.panels[panel].modules || []).filter((item) => canonicalModuleCode022A(item) !== code);
       await persistAndRefresh(companyId, config);
     }
+  });
+
+  document.addEventListener("change", async (event) => {
+    const maxSelect = event.target.closest("[data-cx-mp-r6b-max]");
+    if (!maxSelect) return;
+
+    const companyId = getCompanyId();
+    let config = normalizeConfig(companyId, loadConfig(companyId));
+    const panel = maxSelect.getAttribute("data-cx-mp-r6b-max") || config.selected_panel;
+    if (!panel || !config.panels?.[panel]) return;
+
+    config.panels[panel].max_users = panelMaxUsers(maxSelect.value, panel);
+    await persistAndRefresh(companyId, config);
   });
 
   let timer = null;

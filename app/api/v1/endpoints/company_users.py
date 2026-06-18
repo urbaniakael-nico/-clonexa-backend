@@ -108,6 +108,14 @@ def _cx_panel_type_019d(value: Any) -> str:
         "logistica": "logistics",
         "logística": "logistics",
         "logistics": "logistics",
+        "call": "call_center",
+        "call_center": "call_center",
+        "callcenter": "call_center",
+        "call center": "call_center",
+        "llamadas": "call_center",
+        "externo": "external",
+        "externos": "external",
+        "external": "external",
         "otro": "other",
         "otros": "other",
         "other": "other",
@@ -124,6 +132,8 @@ def _cx_minipanel_type_label_019d(panel_type: str) -> str:
         "store": "Tiendas",
         "inventory": "Inventarios",
         "logistics": "Logística",
+        "call_center": "Call Center",
+        "external": "Externo",
         "other": "Otros",
     }.get(panel_type, panel_type)
 
@@ -322,7 +332,7 @@ async def mini_panel_session(
 # CLONEXA_019D_MINIPANEL_LOGIN_BACKEND_END
 
 
-MINI_PANEL_ALLOWED_TYPES_019C = {"sales", "store", "inventory", "logistics", "other"}
+MINI_PANEL_ALLOWED_TYPES_019C = {"sales", "store", "inventory", "logistics", "call_center", "external", "other"}
 SALES_ROLE_TOKENS_019C = {"vendedor", "ventas", "sales", "comercial", "asesor_comercial", "asesor comercial"}
 STORE_ROLE_TOKENS_023S = {
     "cajero",
