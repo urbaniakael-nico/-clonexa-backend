@@ -1780,8 +1780,16 @@
     "gps": { title: "GPS", description: "Consultar ubicación y control operativo.", tag: "GPS" },
     "crm": { title: "CRM Campo", description: "Consultar operación en campo.", tag: "CRM" },
     "field": { title: "Operación en campo", description: "Consultar actividades en campo.", tag: "FLD" },
+    "cal": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
     "transport_calls": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "transport_call": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
     "call_center": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "call_center_llamada": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "call_center_llamadas": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "callcenter": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "call": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "calls": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
+    "llamada": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
     "llamadas": { title: "Call Center / Llamadas", description: "Registrar llamadas, rutas, cotizaciones y tickets.", tag: "CALL" },
     "bots": { title: "Bots", description: "Consultar canales automatizados.", tag: "BOT" }
   };
@@ -1852,7 +1860,19 @@
     "shift": "store_shift_control",
     "shift_control": "store_shift_control",
     "store_shift": "store_shift_control",
-    "store_shift_control": "store_shift_control"
+    "store_shift_control": "store_shift_control",
+
+    "cal": "transport_calls",
+    "call": "transport_calls",
+    "calls": "transport_calls",
+    "call_center": "transport_calls",
+    "callcenter": "transport_calls",
+    "call_center_llamada": "transport_calls",
+    "call_center_llamadas": "transport_calls",
+    "llamada": "transport_calls",
+    "llamadas": "transport_calls",
+    "transport_call": "transport_calls",
+    "transport_calls": "transport_calls"
   };
 
   function canonicalModuleCode022A(value) {
