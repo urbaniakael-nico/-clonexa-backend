@@ -353,6 +353,7 @@ async def sync_module_catalog(db: AsyncSession = Depends(get_db)) -> dict[str, A
             result = await db.execute(
                 text("""
                     INSERT INTO modules (
+                        id,
                         code,
                         name,
                         description,
@@ -363,6 +364,7 @@ async def sync_module_catalog(db: AsyncSession = Depends(get_db)) -> dict[str, A
                         updated_at
                     )
                     VALUES (
+                        CAST(:id AS uuid),
                         :code,
                         :name,
                         :description,
@@ -374,6 +376,7 @@ async def sync_module_catalog(db: AsyncSession = Depends(get_db)) -> dict[str, A
                     )
                 """),
                 {
+                    "id": str(__import__("uuid").uuid4()),
                     "code": code,
                     "name": meta["name"],
                     "description": meta["description"],
