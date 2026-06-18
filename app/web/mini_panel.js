@@ -2497,7 +2497,29 @@
       .tc-table-028l th{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58)}
       .tc-chip-028l{display:inline-flex;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.14);font-size:12px;font-weight:950}
       .tc-chip-028l.twilio{color:#8fffd8;border-color:rgba(63,255,190,.28);background:rgba(63,255,190,.10)}
+      .tc-monitor-card-028n{width:min(1320px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto}
+      .tc-monitor-toolbar-028n{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin:14px 0}
+      .tc-monitor-kpis-028n{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0 16px}
+      .tc-monitor-kpi-028n{padding:14px;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(255,255,255,.06)}
+      .tc-monitor-kpi-028n span{display:block;margin-bottom:8px;color:rgba(255,255,255,.58);font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:950}
+      .tc-monitor-kpi-028n strong{display:block;font-size:26px;line-height:1;color:#fff}
+      .tc-monitor-kpi-028n.alert strong{color:#ff8ebd}
+      .tc-monitor-settings-028n{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end;margin:10px 0 16px;padding:14px;border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(255,255,255,.045)}
+      .tc-monitor-status-028n{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:950;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.10)}
+      .tc-monitor-status-028n:before{content:"";width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.45)}
+      .tc-monitor-status-028n.in_call{color:#8fffd8;border-color:rgba(63,255,190,.35);background:rgba(63,255,190,.12)}
+      .tc-monitor-status-028n.in_call:before{background:#28ff92}
+      .tc-monitor-status-028n.available{color:#b4ffcf;border-color:rgba(111,255,86,.28);background:rgba(111,255,86,.10)}
+      .tc-monitor-status-028n.available:before{background:#67ff3f}
+      .tc-monitor-status-028n.break{color:#ffd493;border-color:rgba(255,174,64,.30);background:rgba(255,174,64,.12)}
+      .tc-monitor-status-028n.break:before{background:#ffb340}
+      .tc-monitor-status-028n.offline{color:rgba(255,255,255,.62)}
+      .tc-monitor-alerts-028n{display:flex;gap:6px;flex-wrap:wrap}
+      .tc-monitor-alert-028n{display:inline-flex;border-radius:999px;padding:6px 8px;background:rgba(255,44,126,.14);border:1px solid rgba(255,44,126,.28);color:#ffc0d8;font-size:11px;font-weight:950}
+      .tc-monitor-empty-028n{padding:24px;border:1px dashed rgba(255,255,255,.18);border-radius:18px;color:rgba(255,255,255,.68);font-weight:850}
+      .tc-monitor-muted-028n{color:rgba(255,255,255,.58);font-size:12px;font-weight:850}
       @media(max-width:900px){.tc-grid-028l{grid-template-columns:1fr}.tc-grid-028l .wide{grid-column:auto}.tc-head-028l{flex-direction:column}.tc-card-028l{width:calc(100vw - 18px)}}
+      @media(max-width:900px){.tc-monitor-kpis-028n,.tc-monitor-settings-028n{grid-template-columns:1fr}.tc-monitor-card-028n{width:calc(100vw - 18px)}}
     `;
     document.head.appendChild(style);
   }
@@ -2509,6 +2531,320 @@
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  function transportToken028N(value) {
+    return normalizeTransportLookup028L(value)
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function transportRoleTokens028N(session) {
+    const employee = session?.employee || {};
+    const user = session?.user || {};
+    const mini = session?.mini_panel || {};
+    const source = [
+      employee.role,
+      employee.employee_type,
+      user.role,
+      mini.type,
+      panelType
+    ];
+    const tokens = new Set();
+    source.forEach((value) => {
+      const token = transportToken028N(value);
+      if (!token) return;
+      tokens.add(token);
+      tokens.add(token.replaceAll("_", ""));
+      token.split("_").forEach((part) => {
+        if (part) tokens.add(part);
+      });
+    });
+    return tokens;
+  }
+
+  function transportCallsViewMode028N(session) {
+    const tokens = transportRoleTokens028N(session);
+    if (tokens.has("supervisor") || tokens.has("supervisora")) return "supervisor";
+    const managementTokens = [
+      "gerencia",
+      "gerente",
+      "manager",
+      "admin",
+      "admin_empresa",
+      "adminempresa",
+      "company_admin",
+      "companyadmin",
+      "tesoreria"
+    ];
+    return managementTokens.some((item) => tokens.has(item)) ? "management" : "advisor";
+  }
+
+  async function transportMonitorApi028N(path = "", options = {}) {
+    if (!companyId) throw new Error("Falta company_id.");
+    const suffix = `${path || ""}${String(path || "").includes("?") ? "&" : "?"}panel_type=${encodeURIComponent(panelType)}`;
+    const headers = {
+      ...authHeaders(),
+      ...(options.headers || {})
+    };
+    if (options.body && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
+    }
+    return api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-agent-monitor${suffix}`, {
+      ...options,
+      headers
+    });
+  }
+
+  function transportMonitorStatusLabel028N(value) {
+    const status = String(value || "offline").toLowerCase();
+    if (status === "in_call") return "En llamada";
+    if (status === "break") return "En pausa";
+    if (status === "available") return "Disponible";
+    return "Sin sesion";
+  }
+
+  function transportMonitorAlertLabel028N(value) {
+    const reason = String(value || "");
+    if (reason === "llamada_larga") return "Llamada larga";
+    if (reason === "pausa_larga") return "Pausa larga";
+    return reason || "Alerta";
+  }
+
+  function transportMonitorDate028N(value) {
+    if (!value) return "-";
+    return String(value).slice(0, 16).replace("T", " ");
+  }
+
+  function transportMonitorKpis028N(payload) {
+    const summary = payload?.summary || {};
+    const cards = [
+      ["Agentes", summary.agents_total || 0, ""],
+      ["Disponibles", summary.agents_available || 0, ""],
+      ["En llamada", summary.agents_in_call || 0, ""],
+      ["Pausa", summary.agents_paused || 0, ""],
+      ["Alertas", summary.alerts || 0, "alert"],
+      ["Llamadas hoy", summary.calls_today || 0, ""],
+      ["Duracion hoy", formatSeconds(summary.duration_today || 0), ""],
+      ["Tickets / cotiz.", `${Number(summary.tickets_today || 0)} / ${Number(summary.quotes_today || 0)}`, ""]
+    ];
+    return cards.map(([label, value, extra]) => `
+      <article class="tc-monitor-kpi-028n ${h(extra)}">
+        <span>${h(label)}</span>
+        <strong>${h(value)}</strong>
+      </article>
+    `).join("");
+  }
+
+  function transportMonitorAgentRows028N(payload) {
+    const agents = Array.isArray(payload?.agents) ? payload.agents : [];
+    if (!agents.length) {
+      return `<tr><td colspan="8"><div class="tc-monitor-empty-028n">No hay agentes activos para este segmento.</div></td></tr>`;
+    }
+    return agents.map((agent) => {
+      const latest = agent.latest_call || {};
+      const route = latest.origin || latest.destination ? `${latest.origin || "-"} -> ${latest.destination || "-"}` : "Sin ruta reciente";
+      const alerts = Array.isArray(agent.alert_reasons) && agent.alert_reasons.length
+        ? `<div class="tc-monitor-alerts-028n">${agent.alert_reasons.map((item) => `<span class="tc-monitor-alert-028n">${h(transportMonitorAlertLabel028N(item))}</span>`).join("")}</div>`
+        : `<span class="tc-monitor-muted-028n">OK</span>`;
+      const canForce = Boolean(agent.can_force_logout && agent.user_id);
+      return `
+        <tr>
+          <td><strong>${h(agent.full_name || "Agente")}</strong><br><small>${h(agent.role || "rol sin definir")}${agent.username ? ` / ${h(agent.username)}` : ""}</small></td>
+          <td><span class="tc-monitor-status-028n ${h(agent.live_status || "offline")}">${h(transportMonitorStatusLabel028N(agent.live_status))}</span></td>
+          <td><strong>${h(formatSeconds(agent.current_call_seconds || 0))}</strong><br><small>${h(String(agent.call_status || "none") === "none" ? "Sin llamada" : transportCallStatusLabel028L(agent.call_status))}</small></td>
+          <td>${h(formatSeconds(agent.active_seconds || 0))}</td>
+          <td>${h(formatSeconds(agent.break_seconds || 0))}</td>
+          <td><strong>${h(route)}</strong><br><small>${h(transportMonitorDate028N(latest.created_at || agent.last_seen_at))}</small></td>
+          <td>${alerts}</td>
+          <td>
+            ${canForce ? `<button class="mp-button small danger" type="button" data-transport-force-logout="${h(agent.user_id)}">Desloguear</button>` : `<span class="tc-monitor-muted-028n">Solo lectura</span>`}
+          </td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  function transportMonitorSettingsHtml028N(settings = {}) {
+    return `
+      <form class="tc-monitor-settings-028n" data-transport-monitor-settings>
+        <div class="tc-field-028l">
+          <label>Alerta llamada min</label>
+          <input name="call_alert_minutes" type="number" min="1" max="240" value="${h(settings.call_alert_minutes || 10)}" />
+        </div>
+        <div class="tc-field-028l">
+          <label>Alerta pausa min</label>
+          <input name="break_alert_minutes" type="number" min="1" max="240" value="${h(settings.break_alert_minutes || 15)}" />
+        </div>
+        <div class="tc-field-028l">
+          <label>Inactividad min</label>
+          <input name="idle_alert_minutes" type="number" min="1" max="240" value="${h(settings.idle_alert_minutes || 30)}" />
+        </div>
+        <button class="mp-button" type="submit">Guardar alertas</button>
+      </form>
+    `;
+  }
+
+  function transportMonitorBodyHtml028N(payload, viewMode) {
+    const settings = payload?.settings || {};
+    const title = viewMode === "management" ? "Panel gerencial de llamadas" : "Control de agentes";
+    const subtitle = viewMode === "management"
+      ? "Vision consolidada de llamadas, agentes, tickets y cotizaciones."
+      : "Estados en vivo, duracion de llamada, pausas y cierre de sesiones pegadas.";
+    return `
+      <div class="tc-head-028l">
+        <div>
+          <div class="mp-kicker">${viewMode === "management" ? "Panel gerencial" : "Mini panel supervisor"}</div>
+          <h2>${h(title)}</h2>
+          <p>${h(subtitle)}</p>
+        </div>
+        <div class="tc-monitor-toolbar-028n">
+          <button class="mp-button secondary" type="button" data-transport-monitor-refresh>Actualizar</button>
+          <button class="mp-button secondary" type="button" data-transport-close>Cerrar</button>
+        </div>
+      </div>
+
+      <div class="tc-monitor-kpis-028n">${transportMonitorKpis028N(payload)}</div>
+      ${transportMonitorSettingsHtml028N(settings)}
+
+      <section class="tc-panel-028l">
+        <h3>${viewMode === "management" ? "Agentes y supervision" : "Agentes monitoreados"}</h3>
+        <div style="overflow:auto">
+          <table class="tc-table-028l">
+            <thead>
+              <tr>
+                <th>Agente</th>
+                <th>Estado</th>
+                <th>Llamada</th>
+                <th>Activo</th>
+                <th>Pausa</th>
+                <th>Ultima gestion</th>
+                <th>Alertas</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>${transportMonitorAgentRows028N(payload)}</tbody>
+          </table>
+        </div>
+      </section>
+      <div class="mp-message ok" data-transport-monitor-message></div>
+    `;
+  }
+
+  async function openTransportMonitorModule028N(session, viewMode) {
+    transportCallsStyles028L();
+    const overlay = document.createElement("div");
+    overlay.className = "mp-modal";
+    overlay.innerHTML = `
+      <div class="mp-modal-backdrop" data-transport-close></div>
+      <section class="mp-modal-card tc-monitor-card-028n" role="dialog" aria-modal="true" aria-label="Monitor Call Center">
+        <div class="tc-panel-028l">Cargando monitor de agentes...</div>
+      </section>
+    `;
+    document.body.appendChild(overlay);
+
+    const card = overlay.querySelector(".tc-monitor-card-028n");
+    let timer = null;
+    let closed = false;
+
+    const close = () => {
+      closed = true;
+      if (timer) window.clearInterval(timer);
+      overlay.remove();
+    };
+
+    const bindMonitorActions = () => {
+      card?.querySelector("[data-transport-monitor-refresh]")?.addEventListener("click", () => {
+        loadMonitor();
+      });
+
+      card?.querySelector("[data-transport-monitor-settings]")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const message = card.querySelector("[data-transport-monitor-message]");
+        const payload = {
+          call_alert_minutes: Number(form.elements.call_alert_minutes?.value || 10),
+          break_alert_minutes: Number(form.elements.break_alert_minutes?.value || 15),
+          idle_alert_minutes: Number(form.elements.idle_alert_minutes?.value || 30)
+        };
+        try {
+          if (message) {
+            message.classList.add("ok");
+            message.textContent = "Guardando alertas...";
+          }
+          const data = await transportMonitorApi028N("/settings", {
+            method: "PUT",
+            body: JSON.stringify(payload)
+          });
+          if (!closed && card) {
+            card.innerHTML = transportMonitorBodyHtml028N(data.monitor || data, viewMode);
+            bindMonitorActions();
+          }
+        } catch (error) {
+          if (message) {
+            message.classList.remove("ok");
+            message.textContent = error.message || "No fue posible guardar alertas.";
+          }
+        }
+      });
+
+      card?.querySelectorAll("[data-transport-force-logout]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const userId = button.getAttribute("data-transport-force-logout") || "";
+          if (!userId) return;
+          if (!window.confirm("Deseas desloguear este agente y cerrar su sesion activa?")) return;
+          button.disabled = true;
+          button.textContent = "Cerrando...";
+          try {
+            const data = await transportMonitorApi028N(`/${encodeURIComponent(userId)}/force-logout`, {
+              method: "POST"
+            });
+            if (!closed && card) {
+              card.innerHTML = transportMonitorBodyHtml028N(data.monitor || data, viewMode);
+              bindMonitorActions();
+            }
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = "Desloguear";
+            const message = card.querySelector("[data-transport-monitor-message]");
+            if (message) {
+              message.classList.remove("ok");
+              message.textContent = error.message || "No fue posible cerrar la sesion.";
+            }
+          }
+        });
+      });
+    };
+
+    async function loadMonitor() {
+      try {
+        const data = await transportMonitorApi028N("", { method: "GET" });
+        if (!closed && card) {
+          card.innerHTML = transportMonitorBodyHtml028N(data, viewMode);
+          bindMonitorActions();
+        }
+      } catch (error) {
+        if (!closed && card) {
+          card.innerHTML = `
+            <div class="tc-head-028l">
+              <div>
+                <div class="mp-kicker">Call Center</div>
+                <h2>No se pudo cargar el monitor</h2>
+                <p>${h(error.message || "Revisa permisos del mini panel.")}</p>
+              </div>
+              <button class="mp-button secondary" type="button" data-transport-close>Cerrar</button>
+            </div>
+          `;
+        }
+      }
+    }
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target.closest("[data-transport-close]")) close();
+    });
+
+    await loadMonitor();
+    timer = window.setInterval(loadMonitor, 15000);
   }
 
   function transportCustomerKeyMap028L(customers) {
@@ -2591,6 +2927,12 @@
   }
 
   async function openTransportCallsModule028L(session) {
+    const viewMode028N = transportCallsViewMode028N(session);
+    if (viewMode028N === "supervisor" || viewMode028N === "management") {
+      await openTransportMonitorModule028N(session, viewMode028N);
+      return;
+    }
+
     transportCallsStyles028L();
     const employee = session?.employee || {};
     const user = session?.user || {};

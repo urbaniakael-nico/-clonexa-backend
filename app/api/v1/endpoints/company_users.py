@@ -41,7 +41,8 @@ from app.services.auth_service import (
     hash_password,
     verify_password,
 )
-from app.services.access_sessions import register_access_session
+from app.services.access_sessions import ensure_access_sessions_storage, register_access_session
+from app.api.v1.endpoints.transport_calls import ensure_transport_calls_storage
 
 router = APIRouter()
 
@@ -2196,6 +2197,563 @@ async def mini_panel_operational_finish_019f(
     if clean_type == "store":
         await _cx_store_finish_team_if_admin_023w(db, company, user, mini_panel)
     return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, updated)}
+
+
+# CLONEXA_028N_TRANSPORT_SUPERVISOR_MONITOR_START
+
+class TransportMonitorSettingsRequest028N(BaseModel):
+    call_alert_minutes: int = 10
+    break_alert_minutes: int = 15
+    idle_alert_minutes: int = 30
+
+
+TRANSPORT_AGENT_ROLE_TOKENS_028N = {
+    "agente_call",
+    "agentecall",
+    "agente_call_center",
+    "agentecallcenter",
+    "asesor_call",
+    "asesorcall",
+    "asesor_call_center",
+    "asesorcallcenter",
+    "call_center",
+    "callcenter",
+    "llamadas",
+    "telefono",
+    "telefonico",
+    "operador_call",
+    "operadorcall",
+    "agente_externo",
+    "agenteexterno",
+    "asesor_externo",
+    "asesorexterno",
+}
+
+TRANSPORT_MONITOR_ROLE_TOKENS_028N = {
+    "supervisor",
+    "supervisora",
+    "gerencia",
+    "gerente",
+    "manager",
+    "admin",
+    "admin_empresa",
+    "adminempresa",
+    "company_admin",
+    "companyadmin",
+    "tesoreria",
+}
+
+TRANSPORT_FORCE_LOGOUT_TOKENS_028N = {
+    "supervisor",
+    "supervisora",
+    "gerencia",
+    "gerente",
+    "manager",
+    "admin",
+    "admin_empresa",
+    "adminempresa",
+    "company_admin",
+    "companyadmin",
+}
+
+
+def _cx_norm_token_028n(value: Any) -> str:
+    clean = str(value or "").strip().lower()
+    clean = (
+        clean.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        .replace("ñ", "n")
+    )
+    return re.sub(r"[^a-z0-9]+", "_", clean).strip("_")
+
+
+def _cx_role_tokens_028n(*values: Any) -> set[str]:
+    tokens: set[str] = set()
+    for value in values:
+        normalized = _cx_norm_token_028n(value)
+        if not normalized:
+            continue
+        tokens.add(normalized)
+        tokens.add(normalized.replace("_", ""))
+        for part in normalized.split("_"):
+            if part:
+                tokens.add(part)
+    return tokens
+
+
+def _cx_clamp_minutes_028n(value: Any, default: int, maximum: int = 240) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = default
+    return max(1, min(maximum, parsed))
+
+
+def _cx_transport_monitor_settings_028n(company: Company) -> Dict[str, Any]:
+    store = dict(company.settings_json or {})
+    transport = store.get("transport_calls") if isinstance(store.get("transport_calls"), dict) else {}
+    monitor = transport.get("monitor") if isinstance(transport.get("monitor"), dict) else {}
+    call_minutes = _cx_clamp_minutes_028n(monitor.get("call_alert_minutes"), 10)
+    break_minutes = _cx_clamp_minutes_028n(monitor.get("break_alert_minutes"), 15)
+    idle_minutes = _cx_clamp_minutes_028n(monitor.get("idle_alert_minutes"), 30)
+    return {
+        "call_alert_minutes": call_minutes,
+        "break_alert_minutes": break_minutes,
+        "idle_alert_minutes": idle_minutes,
+        "call_alert_seconds": call_minutes * 60,
+        "break_alert_seconds": break_minutes * 60,
+        "idle_alert_seconds": idle_minutes * 60,
+    }
+
+
+def _cx_set_transport_monitor_settings_028n(
+    company: Company,
+    payload: TransportMonitorSettingsRequest028N,
+) -> Dict[str, Any]:
+    settings = _cx_transport_monitor_settings_028n(company)
+    settings.update({
+        "call_alert_minutes": _cx_clamp_minutes_028n(payload.call_alert_minutes, 10),
+        "break_alert_minutes": _cx_clamp_minutes_028n(payload.break_alert_minutes, 15),
+        "idle_alert_minutes": _cx_clamp_minutes_028n(payload.idle_alert_minutes, 30),
+    })
+    settings["call_alert_seconds"] = settings["call_alert_minutes"] * 60
+    settings["break_alert_seconds"] = settings["break_alert_minutes"] * 60
+    settings["idle_alert_seconds"] = settings["idle_alert_minutes"] * 60
+
+    store = dict(company.settings_json or {})
+    transport = dict(store.get("transport_calls") or {})
+    transport["monitor"] = {
+        "call_alert_minutes": settings["call_alert_minutes"],
+        "break_alert_minutes": settings["break_alert_minutes"],
+        "idle_alert_minutes": settings["idle_alert_minutes"],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    store["transport_calls"] = transport
+    company.settings_json = store
+    if hasattr(company, "updated_at"):
+        company.updated_at = datetime.now(timezone.utc)
+    return settings
+
+
+def _cx_transport_mode_028n(user: CompanyUser, mini_panel: Dict[str, Any], employee: Employee | None) -> Dict[str, Any]:
+    tokens = _cx_role_tokens_028n(
+        getattr(user, "role", ""),
+        mini_panel.get("type"),
+        getattr(employee, "role", "") if employee else "",
+        getattr(employee, "employee_type", "") if employee else "",
+    )
+    if not (tokens & TRANSPORT_MONITOR_ROLE_TOKENS_028N):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Mini panel sin permisos de supervisor.")
+    is_supervisor = bool(tokens & {"supervisor", "supervisora"})
+    is_management = bool(tokens & {"gerencia", "gerente", "manager", "admin", "admin_empresa", "adminempresa", "company_admin", "companyadmin", "tesoreria"})
+    return {
+        "view_mode": "supervisor" if is_supervisor else "management",
+        "can_force_logout": bool(tokens & TRANSPORT_FORCE_LOGOUT_TOKENS_028N),
+        "role_tokens": sorted(tokens),
+        "is_management": is_management,
+    }
+
+
+async def _cx_transport_monitor_context_028n(
+    db: AsyncSession,
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str],
+) -> tuple[Company, CompanyUser, Dict[str, Any], Employee | None, Dict[str, Any]]:
+    company, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
+    employee = await _cx_mp_employee_for_attendance_023j(db, company_id, mini_panel.get("employee_id"))
+    mode = _cx_transport_mode_028n(user, mini_panel, employee)
+    return company, user, mini_panel, employee, mode
+
+
+async def _cx_transport_minipanel_users_028n(db: AsyncSession, company_id: UUID) -> Dict[str, tuple[CompanyUser, Dict[str, Any]]]:
+    result = await db.execute(select(CompanyUser).where(CompanyUser.company_id == company_id))
+    users_by_employee: Dict[str, tuple[CompanyUser, Dict[str, Any]]] = {}
+    for user in result.scalars().all():
+        settings = _cx_user_settings_019c(user)
+        mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+        if mini_panel.get("enabled") is not True:
+            continue
+        panel_type = _cx_panel_type_019d(mini_panel.get("type"))
+        employee_id = str(mini_panel.get("employee_id") or "").strip()
+        if panel_type not in {"call_center", "external"} or not employee_id:
+            continue
+        if employee_id not in users_by_employee:
+            users_by_employee[employee_id] = (user, mini_panel)
+    return users_by_employee
+
+
+def _cx_employee_is_transport_agent_028n(employee: Employee, mini_panel: Dict[str, Any] | None = None) -> bool:
+    panel_type = _cx_panel_type_019d((mini_panel or {}).get("type")) if mini_panel else ""
+    tokens = _cx_role_tokens_028n(
+        getattr(employee, "role", ""),
+        getattr(employee, "employee_type", ""),
+    )
+    if tokens & TRANSPORT_MONITOR_ROLE_TOKENS_028N:
+        return False
+    if panel_type == "call_center":
+        return True
+    if tokens & TRANSPORT_AGENT_ROLE_TOKENS_028N:
+        return True
+    return False
+
+
+async def _cx_transport_employees_028n(
+    db: AsyncSession,
+    company_id: UUID,
+    users_by_employee: Dict[str, tuple[CompanyUser, Dict[str, Any]]],
+) -> list[Employee]:
+    result = await db.execute(
+        select(Employee)
+        .where(Employee.company_id == company_id)
+        .order_by(Employee.full_name.asc())
+    )
+    employees = []
+    for employee in result.scalars().all():
+        status_value = str(getattr(employee, "status", "") or "active").strip().lower()
+        if status_value in {"archived", "inactive", "inactivo"}:
+            continue
+        employee_id = str(employee.id)
+        user_tuple = users_by_employee.get(employee_id)
+        mini_panel = user_tuple[1] if user_tuple else {}
+        if _cx_employee_is_transport_agent_028n(employee, mini_panel):
+            employees.append(employee)
+    return employees
+
+
+async def _cx_transport_open_sessions_028n(
+    db: AsyncSession,
+    company_id: UUID,
+    users_by_employee: Dict[str, tuple[CompanyUser, Dict[str, Any]]],
+) -> Dict[str, Dict[str, Any]]:
+    await _cx_mp_work_ensure_019f(db)
+    user_to_employee = {str(user.id): employee_id for employee_id, (user, _) in users_by_employee.items()}
+    if not user_to_employee:
+        return {}
+
+    params: Dict[str, Any] = {"company_id": str(company_id)}
+    placeholders: list[str] = []
+    for index, user_id in enumerate(user_to_employee):
+        key = f"user_{index}"
+        params[key] = user_id
+        placeholders.append(f"CAST(:{key} AS uuid)")
+
+    result = await db.execute(
+        text(f"""
+            SELECT DISTINCT ON (user_id) *
+            FROM mini_panel_work_sessions
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND user_id IN ({', '.join(placeholders)})
+              AND status IN ('active', 'break')
+            ORDER BY user_id, started_at DESC
+        """),
+        params,
+    )
+    rows: Dict[str, Dict[str, Any]] = {}
+    for row in result.mappings().all():
+        employee_id = user_to_employee.get(str(row.get("user_id") or ""))
+        if employee_id:
+            rows[employee_id] = dict(row)
+    return rows
+
+
+async def _cx_transport_access_sessions_028n(
+    db: AsyncSession,
+    company_id: UUID,
+    users_by_employee: Dict[str, tuple[CompanyUser, Dict[str, Any]]],
+) -> Dict[str, Dict[str, Any]]:
+    await ensure_access_sessions_storage(db)
+    user_to_employee = {str(user.id): employee_id for employee_id, (user, _) in users_by_employee.items()}
+    if not user_to_employee:
+        return {}
+    params: Dict[str, Any] = {"company_id": str(company_id)}
+    placeholders: list[str] = []
+    for index, user_id in enumerate(user_to_employee):
+        key = f"user_{index}"
+        params[key] = user_id
+        placeholders.append(f"CAST(:{key} AS uuid)")
+    result = await db.execute(
+        text(f"""
+            SELECT DISTINCT ON (subject_id)
+                subject_id::text AS user_id,
+                session_key,
+                status,
+                last_seen_at,
+                created_at,
+                ip_address
+            FROM clonexa_access_sessions
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND scope = 'mini_panel'
+              AND status = 'active'
+              AND subject_id IN ({', '.join(placeholders)})
+            ORDER BY subject_id, last_seen_at DESC, created_at DESC
+        """),
+        params,
+    )
+    rows: Dict[str, Dict[str, Any]] = {}
+    for row in result.mappings().all():
+        data = dict(row)
+        employee_id = user_to_employee.get(str(data.get("user_id") or ""))
+        if not employee_id:
+            continue
+        for key in ("last_seen_at", "created_at"):
+            if data.get(key) and isinstance(data.get(key), datetime):
+                data[key] = data[key].isoformat()
+        rows[employee_id] = data
+    return rows
+
+
+async def _cx_transport_latest_calls_028n(db: AsyncSession, company_id: UUID) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    await ensure_transport_calls_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM transport_call_logs
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND created_at >= now() - interval '24 hours'
+            ORDER BY created_at DESC
+            LIMIT 500
+        """),
+        {"company_id": str(company_id)},
+    )
+    latest: Dict[str, Dict[str, Any]] = {}
+    summary = {
+        "calls_today": 0,
+        "duration_today": 0,
+        "quotes_today": 0,
+        "tickets_today": 0,
+        "missed_today": 0,
+    }
+    now = datetime.now(timezone.utc)
+    for row in result.mappings().all():
+        data = dict(row)
+        created_at = data.get("created_at")
+        if isinstance(created_at, datetime):
+            data["created_at"] = created_at.isoformat()
+        updated_at = data.get("updated_at")
+        if isinstance(updated_at, datetime):
+            data["updated_at"] = updated_at.isoformat()
+        if isinstance(created_at, datetime) and created_at.date() == now.date():
+            summary["calls_today"] += 1
+            summary["duration_today"] += int(data.get("duration_seconds") or 0)
+            if data.get("quote_requested"):
+                summary["quotes_today"] += 1
+            if data.get("ticket_requested"):
+                summary["tickets_today"] += 1
+            if str(data.get("call_status") or "").lower() == "missed":
+                summary["missed_today"] += 1
+        advisor_key = _cx_norm_token_028n(data.get("advisor_name"))
+        if advisor_key and advisor_key not in latest:
+            latest[advisor_key] = data
+    summary["avg_duration_today"] = int(summary["duration_today"] / summary["calls_today"]) if summary["calls_today"] else 0
+    return latest, summary
+
+
+def _cx_transport_agent_payload_028n(
+    employee: Employee,
+    user_tuple: tuple[CompanyUser, Dict[str, Any]] | None,
+    session_row: Dict[str, Any] | None,
+    access_row: Dict[str, Any] | None,
+    latest_call: Dict[str, Any] | None,
+    monitor_settings: Dict[str, Any],
+    mode: Dict[str, Any],
+) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    user = user_tuple[0] if user_tuple else None
+    mini_panel = user_tuple[1] if user_tuple else {}
+    session_payload = _cx_mp_operational_payload_019f(session_row) if session_row else None
+    session_status = session_payload.get("status") if session_payload else "offline"
+    call_status = str((latest_call or {}).get("call_status") or "").lower()
+    advisor_status = str((latest_call or {}).get("advisor_status") or "").lower()
+    in_call = call_status == "pending" or advisor_status == "in_call"
+    created_at = _cx_mp_dt_019f((latest_call or {}).get("created_at"))
+    call_seconds = int((latest_call or {}).get("duration_seconds") or 0)
+    if in_call and created_at:
+        call_seconds = max(call_seconds, int((now - created_at).total_seconds()))
+
+    live_status = "offline"
+    if in_call:
+        live_status = "in_call"
+    elif session_status == "break":
+        live_status = "break"
+    elif session_status == "active":
+        live_status = "available"
+
+    active_seconds = int((session_payload or {}).get("active_seconds") or 0)
+    break_seconds = int((session_payload or {}).get("break_seconds") or 0)
+    alert_reasons: list[str] = []
+    if in_call and call_seconds >= int(monitor_settings.get("call_alert_seconds") or 600):
+        alert_reasons.append("llamada_larga")
+    if session_status == "break" and break_seconds >= int(monitor_settings.get("break_alert_seconds") or 900):
+        alert_reasons.append("pausa_larga")
+
+    return {
+        "employee_id": str(employee.id),
+        "full_name": str(employee.full_name or "Agente"),
+        "phone": str(employee.phone or ""),
+        "role": str(employee.role or employee.employee_type or ""),
+        "employee_status": str(employee.status or "active"),
+        "user_id": str(user.id) if user else "",
+        "username": str((mini_panel or {}).get("username") or getattr(user, "email", "") or ""),
+        "panel_type": _cx_panel_type_019d((mini_panel or {}).get("type") or "call_center") if mini_panel else "",
+        "has_login": bool(user),
+        "session": session_payload,
+        "access_session": access_row or None,
+        "live_status": live_status,
+        "call_status": call_status or "none",
+        "current_call_seconds": call_seconds,
+        "active_seconds": active_seconds,
+        "break_seconds": break_seconds,
+        "last_seen_at": (access_row or {}).get("last_seen_at") or (session_payload or {}).get("server_time"),
+        "latest_call": latest_call or None,
+        "alert": bool(alert_reasons),
+        "alert_reasons": alert_reasons,
+        "can_force_logout": bool(mode.get("can_force_logout") and user and (session_payload or access_row)),
+    }
+
+
+def _cx_transport_monitor_summary_028n(agents: list[Dict[str, Any]], call_summary: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        **call_summary,
+        "agents_total": len(agents),
+        "agents_online": sum(1 for item in agents if item.get("live_status") != "offline"),
+        "agents_available": sum(1 for item in agents if item.get("live_status") == "available"),
+        "agents_in_call": sum(1 for item in agents if item.get("live_status") == "in_call"),
+        "agents_paused": sum(1 for item in agents if item.get("live_status") == "break"),
+        "agents_offline": sum(1 for item in agents if item.get("live_status") == "offline"),
+        "alerts": sum(1 for item in agents if item.get("alert")),
+    }
+
+
+async def _cx_transport_monitor_payload_028n(
+    db: AsyncSession,
+    company: Company,
+    mode: Dict[str, Any],
+) -> Dict[str, Any]:
+    users_by_employee = await _cx_transport_minipanel_users_028n(db, company.id)
+    employees = await _cx_transport_employees_028n(db, company.id, users_by_employee)
+    sessions = await _cx_transport_open_sessions_028n(db, company.id, users_by_employee)
+    access_sessions = await _cx_transport_access_sessions_028n(db, company.id, users_by_employee)
+    latest_calls, call_summary = await _cx_transport_latest_calls_028n(db, company.id)
+    settings = _cx_transport_monitor_settings_028n(company)
+    agents = [
+        _cx_transport_agent_payload_028n(
+            employee,
+            users_by_employee.get(str(employee.id)),
+            sessions.get(str(employee.id)),
+            access_sessions.get(str(employee.id)),
+            latest_calls.get(_cx_norm_token_028n(employee.full_name)),
+            settings,
+            mode,
+        )
+        for employee in employees
+    ]
+    agents.sort(key=lambda item: (
+        0 if item.get("alert") else 1,
+        {"in_call": 0, "break": 1, "available": 2, "offline": 3}.get(str(item.get("live_status")), 9),
+        str(item.get("full_name") or "").lower(),
+    ))
+    return {
+        "ok": True,
+        "company_id": str(company.id),
+        "view_mode": mode.get("view_mode") or "supervisor",
+        "can_force_logout": bool(mode.get("can_force_logout")),
+        "settings": settings,
+        "summary": _cx_transport_monitor_summary_028n(agents, call_summary),
+        "agents": agents,
+    }
+
+
+@router.get("/{company_id}/mini-panel-agent-monitor")
+async def mini_panel_agent_monitor_028n(
+    company_id: UUID,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company, _, _, _, mode = await _cx_transport_monitor_context_028n(db, company_id, panel_type, authorization)
+    return await _cx_transport_monitor_payload_028n(db, company, mode)
+
+
+@router.put("/{company_id}/mini-panel-agent-monitor/settings")
+async def update_mini_panel_agent_monitor_settings_028n(
+    company_id: UUID,
+    panel_type: str,
+    payload: TransportMonitorSettingsRequest028N,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company, _, _, _, mode = await _cx_transport_monitor_context_028n(db, company_id, panel_type, authorization)
+    settings = _cx_set_transport_monitor_settings_028n(company, payload)
+    await db.commit()
+    return {
+        "ok": True,
+        "settings": settings,
+        "monitor": await _cx_transport_monitor_payload_028n(db, company, mode),
+    }
+
+
+@router.post("/{company_id}/mini-panel-agent-monitor/{target_user_id}/force-logout")
+async def force_logout_mini_panel_agent_028n(
+    company_id: UUID,
+    target_user_id: UUID,
+    panel_type: str,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    company, _, _, _, mode = await _cx_transport_monitor_context_028n(db, company_id, panel_type, authorization)
+    if not mode.get("can_force_logout"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permisos para cerrar agentes.")
+
+    result = await db.execute(select(CompanyUser).where(CompanyUser.id == target_user_id, CompanyUser.company_id == company_id))
+    target_user = result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario mini panel no encontrado.")
+
+    settings = _cx_user_settings_019c(target_user)
+    target_mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    if target_mini_panel.get("enabled") is not True:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario sin mini panel activo.")
+    target_type = _cx_panel_type_019d(target_mini_panel.get("type"))
+    if target_type not in {"call_center", "external"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario fuera de call center.")
+
+    await _cx_mp_apply_operational_action_023w(
+        db,
+        company,
+        target_user,
+        target_mini_panel,
+        target_type,
+        "finish",
+        allow_missing=True,
+    )
+
+    await ensure_access_sessions_storage(db)
+    closed = await db.execute(
+        text("""
+            UPDATE clonexa_access_sessions
+            SET status = 'closed',
+                closed_at = COALESCE(closed_at, NOW()),
+                closed_reason = 'closed_from_supervisor',
+                last_seen_at = NOW()
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND scope = 'mini_panel'
+              AND subject_id = CAST(:user_id AS uuid)
+              AND status = 'active'
+        """),
+        {"company_id": str(company_id), "user_id": str(target_user_id)},
+    )
+    await db.commit()
+    return {
+        "ok": True,
+        "closed_sessions": int(getattr(closed, "rowcount", 0) or 0),
+        "monitor": await _cx_transport_monitor_payload_028n(db, company, mode),
+    }
+
+# CLONEXA_028N_TRANSPORT_SUPERVISOR_MONITOR_END
 
 
 
