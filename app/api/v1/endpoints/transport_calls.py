@@ -3,8 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Any
+from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,8 @@ class TransportCallIn(BaseModel):
     quote_requested: bool | None = False
     ticket_requested: bool | None = False
     contract_code: str | None = Field(default="", max_length=120)
+    source: str | None = Field(default="manual", max_length=40)
+    twilio_call_sid: str | None = Field(default="", max_length=120)
     notes: str | None = Field(default="", max_length=1200)
 
 
@@ -87,8 +90,11 @@ async def ensure_transport_calls_storage(db: AsyncSession) -> None:
     for statement in [
         "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS advisor_status varchar(40) NOT NULL DEFAULT 'available'",
         "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS contract_code varchar(120) NOT NULL DEFAULT ''",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS source varchar(40) NOT NULL DEFAULT 'manual'",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS twilio_call_sid varchar(120) NOT NULL DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_logs_company_created ON transport_call_logs (company_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_logs_company_advisor ON transport_call_logs (company_id, advisor_name)",
+        "CREATE INDEX IF NOT EXISTS ix_transport_call_logs_company_twilio ON transport_call_logs (company_id, twilio_call_sid)",
     ]:
         await db.execute(text(statement))
 
@@ -113,6 +119,8 @@ async def list_transport_calls(
                 OR LOWER(advisor_name) LIKE :query
                 OR LOWER(customer_name) LIKE :query
                 OR LOWER(phone) LIKE :query
+                OR LOWER(contract_code) LIKE :query
+                OR LOWER(twilio_call_sid) LIKE :query
                 OR LOWER(origin) LIKE :query
                 OR LOWER(destination) LIKE :query
                 OR LOWER(result) LIKE :query
@@ -199,6 +207,8 @@ async def create_transport_call(
                 quote_requested,
                 ticket_requested,
                 contract_code,
+                source,
+                twilio_call_sid,
                 notes,
                 created_at,
                 updated_at
@@ -220,6 +230,8 @@ async def create_transport_call(
                 :quote_requested,
                 :ticket_requested,
                 :contract_code,
+                :source,
+                :twilio_call_sid,
                 :notes,
                 now(),
                 now()
@@ -244,8 +256,189 @@ async def create_transport_call(
             "quote_requested": bool(payload.quote_requested),
             "ticket_requested": bool(payload.ticket_requested),
             "contract_code": _clean(payload.contract_code, 120),
+            "source": _clean(payload.source or "manual", 40),
+            "twilio_call_sid": _clean(payload.twilio_call_sid, 120),
             "notes": _clean(payload.notes, 1200),
         },
     )
+    await db.commit()
+    return {"ok": True, "company_id": str(company_id), "call": _row(result.first())}
+
+
+@router.get("/companies/{company_id}/customers")
+async def transport_customer_suggestions(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    search: str = Query(default="", max_length=120),
+    limit: int = Query(default=30, ge=1, le=100),
+) -> dict[str, Any]:
+    await ensure_transport_calls_storage(db)
+    query = f"%{_clean(search, 120).lower()}%"
+    result = await db.execute(
+        text(
+            """
+            SELECT DISTINCT ON (
+                NULLIF(LOWER(TRIM(phone)), ''),
+                NULLIF(LOWER(TRIM(customer_name)), ''),
+                NULLIF(LOWER(TRIM(contract_code)), '')
+            )
+                customer_name,
+                customer_type,
+                phone,
+                contract_code,
+                origin,
+                destination,
+                created_at
+            FROM transport_call_logs
+            WHERE company_id = :company_id
+              AND (
+                :query = '%%'
+                OR LOWER(customer_name) LIKE :query
+                OR LOWER(phone) LIKE :query
+                OR LOWER(contract_code) LIKE :query
+              )
+              AND (
+                TRIM(customer_name) <> ''
+                OR TRIM(phone) <> ''
+                OR TRIM(contract_code) <> ''
+              )
+            ORDER BY
+                NULLIF(LOWER(TRIM(phone)), ''),
+                NULLIF(LOWER(TRIM(customer_name)), ''),
+                NULLIF(LOWER(TRIM(contract_code)), ''),
+                created_at DESC
+            LIMIT :limit
+            """
+        ),
+        {"company_id": str(company_id), "query": query, "limit": int(limit)},
+    )
+    rows = [_row(row) for row in result.fetchall()]
+    return {"ok": True, "company_id": str(company_id), "customers": rows, "count": len(rows)}
+
+
+def _twilio_direction(value: Any) -> str:
+    raw = _clean(value, 40).lower()
+    if "out" in raw:
+        return "outbound"
+    return "inbound"
+
+
+def _twilio_status(value: Any) -> str:
+    raw = _clean(value, 40).lower()
+    if raw in {"no-answer", "busy", "failed", "canceled", "cancelled"}:
+        return "missed"
+    if raw in {"ringing", "queued", "initiated", "in-progress"}:
+        return "pending"
+    return "completed"
+
+
+@router.post("/companies/{company_id}/twilio/status")
+async def transport_twilio_status_webhook(
+    company_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_transport_calls_storage(db)
+    if "application/json" in _clean(request.headers.get("content-type"), 120).lower():
+        form = await request.json()
+    else:
+        raw_body = (await request.body()).decode("utf-8", errors="ignore")
+        parsed = parse_qs(raw_body)
+        form = {key: values[-1] if values else "" for key, values in parsed.items()}
+
+    call_sid = _clean(form.get("CallSid") or form.get("call_sid"), 120)
+    if not call_sid:
+        return {"ok": False, "detail": "missing_call_sid"}
+
+    direction = _twilio_direction(form.get("Direction"))
+    status_value = _twilio_status(form.get("CallStatus"))
+    duration = max(0, int(float(form.get("CallDuration") or form.get("Duration") or 0)))
+    phone = _clean(form.get("From") or form.get("Caller") or "", 80)
+    notes = _clean(form.get("To") or "", 1200)
+
+    existing = await db.execute(
+        text(
+            """
+            SELECT id
+            FROM transport_call_logs
+            WHERE company_id = :company_id
+              AND twilio_call_sid = :call_sid
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id), "call_sid": call_sid},
+    )
+    row = existing.first()
+
+    if row:
+        result = await db.execute(
+            text(
+                """
+                UPDATE transport_call_logs
+                SET call_direction = :direction,
+                    call_status = :status,
+                    duration_seconds = CASE WHEN :duration > 0 THEN :duration ELSE duration_seconds END,
+                    phone = CASE WHEN TRIM(phone) = '' THEN :phone ELSE phone END,
+                    source = 'twilio',
+                    updated_at = now()
+                WHERE id = :id
+                RETURNING *
+                """
+            ),
+            {
+                "id": row._mapping["id"],
+                "direction": direction,
+                "status": status_value,
+                "duration": duration,
+                "phone": phone,
+            },
+        )
+    else:
+        result = await db.execute(
+            text(
+                """
+                INSERT INTO transport_call_logs (
+                    company_id,
+                    advisor_status,
+                    customer_type,
+                    phone,
+                    call_direction,
+                    call_status,
+                    duration_seconds,
+                    source,
+                    twilio_call_sid,
+                    notes,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :company_id,
+                    :advisor_status,
+                    'person',
+                    :phone,
+                    :direction,
+                    :status,
+                    :duration,
+                    'twilio',
+                    :call_sid,
+                    :notes,
+                    now(),
+                    now()
+                )
+                RETURNING *
+                """
+            ),
+            {
+                "company_id": str(company_id),
+                "advisor_status": "in_call" if status_value == "pending" else "available",
+                "phone": phone,
+                "direction": direction,
+                "status": status_value,
+                "duration": duration,
+                "call_sid": call_sid,
+                "notes": notes,
+            },
+        )
+
     await db.commit()
     return {"ok": True, "company_id": str(company_id), "call": _row(result.first())}

@@ -2333,6 +2333,484 @@
   }
   /* CLONEXA_023W_STORE_TEAM_MINI_PANEL_END */
 
+  /* CLONEXA_028L_TRANSPORT_CALLS_MINIPANEL_START */
+  const CX_TRANSPORT_CALL_CODES_028L = new Set([
+    "transport_calls",
+    "call_center",
+    "callcenter",
+    "llamadas",
+    "llamada",
+    "calls",
+    "call"
+  ]);
+
+  const TRANSPORT_CITIES_CO_028L = [
+    "Bogota D.C.",
+    "Medellin",
+    "Cali",
+    "Barranquilla",
+    "Cartagena",
+    "Cucuta",
+    "Bucaramanga",
+    "Pereira",
+    "Santa Marta",
+    "Ibague",
+    "Manizales",
+    "Pasto",
+    "Neiva",
+    "Villavicencio",
+    "Armenia",
+    "Monteria",
+    "Sincelejo",
+    "Valledupar",
+    "Popayan",
+    "Tunja",
+    "Riohacha",
+    "Quibdo",
+    "Florencia",
+    "Yopal",
+    "Arauca",
+    "Mocoa",
+    "San Andres",
+    "Leticia",
+    "Inirida",
+    "Puerto Carreno",
+    "Mitu",
+    "Soacha",
+    "Bello",
+    "Itagui",
+    "Envigado",
+    "Rionegro",
+    "Dosquebradas",
+    "Palmira",
+    "Buenaventura",
+    "Tulua",
+    "Buga",
+    "Cartago",
+    "Jamundi",
+    "Yumbo",
+    "Chia",
+    "Cajica",
+    "Zipaquira",
+    "Fusagasuga",
+    "Facatativa",
+    "Madrid",
+    "Mosquera",
+    "Funza",
+    "Cota",
+    "Girardot",
+    "Duitama",
+    "Sogamoso",
+    "Floridablanca",
+    "Giron",
+    "Piedecuesta",
+    "Barrancabermeja",
+    "Ocana",
+    "Pamplona",
+    "Soledad",
+    "Malambo",
+    "Apartado",
+    "Turbo",
+    "Caucasia",
+    "Magangue",
+    "Cerete",
+    "Sahagun",
+    "Lorica",
+    "Aguachica",
+    "Ipiales",
+    "Tumaco",
+    "Santander de Quilichao",
+    "Pitalito",
+    "Garzon",
+    "La Dorada",
+    "Honda",
+    "Espinal",
+    "Melgar",
+    "Mariquita",
+    "Acacias",
+    "Granada",
+    "Aguazul"
+  ];
+
+  function isTransportCallsCode028L(code) {
+    const normalized = normalizeModuleCode019H(code);
+    return CX_TRANSPORT_CALL_CODES_028L.has(normalized);
+  }
+
+  async function transportCallsApi028L(path, options = {}) {
+    if (!companyId) throw new Error("Falta company_id.");
+    const headers = {
+      ...authHeaders(),
+      ...(options.headers || {})
+    };
+    if (options.body && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
+    }
+    return api(`/api/v1/transport-calls/companies/${encodeURIComponent(companyId)}${path}`, {
+      ...options,
+      headers
+    });
+  }
+
+  function transportCallsStyles028L() {
+    if (document.getElementById("cxTransportCallsStyles028L")) return;
+    const style = document.createElement("style");
+    style.id = "cxTransportCallsStyles028L";
+    style.textContent = `
+      .tc-card-028l{width:min(1180px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto}
+      .tc-head-028l{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}
+      .tc-head-028l h2{margin:6px 0 6px;font-size:34px;line-height:1}
+      .tc-head-028l p{margin:0;color:rgba(255,255,255,.68);font-weight:800}
+      .tc-grid-028l{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+      .tc-grid-028l .wide{grid-column:span 2}
+      .tc-grid-028l .full{grid-column:1/-1}
+      .tc-field-028l label{display:block;margin:0 0 7px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:950;color:rgba(255,255,255,.66)}
+      .tc-field-028l input,.tc-field-028l select,.tc-field-028l textarea{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.15);border-radius:16px;background:rgba(4,7,23,.72);color:#fff;padding:13px 14px;font-weight:850;outline:none}
+      .tc-field-028l input[readonly]{color:#8fffd8;border-color:rgba(63,255,190,.28);background:rgba(63,255,190,.08)}
+      .tc-checks-028l{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:6px 0 0}
+      .tc-checks-028l label{display:inline-flex;gap:8px;align-items:center;font-weight:950;color:#fff}
+      .tc-actions-028l{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
+      .tc-panel-028l{margin-top:18px;padding:16px;border:1px solid rgba(255,255,255,.13);border-radius:22px;background:rgba(255,255,255,.06)}
+      .tc-panel-028l h3{margin:0 0 12px;font-size:20px}
+      .tc-table-028l{width:100%;border-collapse:collapse;font-weight:800}
+      .tc-table-028l th,.tc-table-028l td{padding:11px 10px;border-bottom:1px solid rgba(255,255,255,.09);text-align:left;vertical-align:top}
+      .tc-table-028l th{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58)}
+      .tc-chip-028l{display:inline-flex;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.14);font-size:12px;font-weight:950}
+      .tc-chip-028l.twilio{color:#8fffd8;border-color:rgba(63,255,190,.28);background:rgba(63,255,190,.10)}
+      @media(max-width:900px){.tc-grid-028l{grid-template-columns:1fr}.tc-grid-028l .wide{grid-column:auto}.tc-head-028l{flex-direction:column}.tc-card-028l{width:calc(100vw - 18px)}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function normalizeTransportLookup028L(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function transportCustomerKeyMap028L(customers) {
+    const map = new Map();
+    (Array.isArray(customers) ? customers : []).forEach((item) => {
+      [item.customer_name, item.phone, item.contract_code].forEach((value) => {
+        const key = normalizeTransportLookup028L(value);
+        if (key && !map.has(key)) map.set(key, item);
+      });
+    });
+    return map;
+  }
+
+  function transportCustomerOptions028L(customers) {
+    return (Array.isArray(customers) ? customers : [])
+      .map((item) => {
+        const label = [item.phone, item.contract_code].filter(Boolean).join(" / ");
+        return `<option value="${h(item.customer_name || item.phone || item.contract_code || "")}" label="${h(label)}"></option>`;
+      })
+      .join("");
+  }
+
+  function transportCityOptions028L() {
+    return TRANSPORT_CITIES_CO_028L.map((city) => `<option value="${h(city)}"></option>`).join("");
+  }
+
+  function transportCallStatusLabel028L(value) {
+    const status = String(value || "completed").toLowerCase();
+    if (status === "missed") return "Perdida";
+    if (status === "pending") return "En proceso";
+    return "Completada";
+  }
+
+  function transportCallDirectionLabel028L(value) {
+    return String(value || "inbound").toLowerCase() === "outbound" ? "Saliente" : "Entrante";
+  }
+
+  function transportCallsRows028L(calls) {
+    const rows = Array.isArray(calls) ? calls : [];
+    if (!rows.length) {
+      return `<tr><td colspan="7">Sin llamadas registradas todavia.</td></tr>`;
+    }
+    return rows.slice(0, 12).map((item) => `
+      <tr>
+        <td>${h(String(item.created_at || "").slice(0, 16).replace("T", " "))}</td>
+        <td><strong>${h(item.customer_name || "Cliente sin nombre")}</strong><br><small>${h(item.phone || item.contract_code || "")}</small></td>
+        <td>${h(item.contract_code || "Sin contrato")}</td>
+        <td>${h(item.origin || "-")} -> ${h(item.destination || "-")}</td>
+        <td>${h(transportCallDirectionLabel028L(item.call_direction))}</td>
+        <td><span class="tc-chip-028l">${h(transportCallStatusLabel028L(item.call_status))}</span></td>
+        <td>${h(formatSeconds(item.duration_seconds || 0))}</td>
+      </tr>
+    `).join("");
+  }
+
+  async function loadTransportCustomers028L(search = "") {
+    const suffix = `?limit=80&search=${encodeURIComponent(search || "")}`;
+    const data = await transportCallsApi028L(`/customers${suffix}`, { method: "GET" });
+    return Array.isArray(data.customers) ? data.customers : [];
+  }
+
+  async function loadTransportCalls028L() {
+    const data = await transportCallsApi028L("/calls?limit=40", { method: "GET" });
+    return Array.isArray(data.calls) ? data.calls : [];
+  }
+
+  function setTransportField028L(form, name, value) {
+    const field = form?.elements?.[name];
+    if (field && value) field.value = value;
+  }
+
+  function fillTransportCustomer028L(form, customer) {
+    if (!form || !customer) return;
+    setTransportField028L(form, "customer_name", customer.customer_name || "");
+    setTransportField028L(form, "customer_type", customer.customer_type || "person");
+    setTransportField028L(form, "phone", customer.phone || "");
+    setTransportField028L(form, "contract_code", customer.contract_code || "");
+    setTransportField028L(form, "origin", customer.origin || "");
+    setTransportField028L(form, "destination", customer.destination || "");
+  }
+
+  async function openTransportCallsModule028L(session) {
+    transportCallsStyles028L();
+    const employee = session?.employee || {};
+    const user = session?.user || {};
+    const employeeName = employee.full_name || user.full_name || "asesor";
+    const uid = `tc028l_${Date.now()}`;
+    let customers = [];
+    let calls = [];
+    try {
+      [customers, calls] = await Promise.all([
+        loadTransportCustomers028L(),
+        loadTransportCalls028L()
+      ]);
+    } catch (error) {
+      console.warn("CLONEXA 028L transport calls load:", error);
+    }
+
+    let customerMap = transportCustomerKeyMap028L(customers);
+    const overlay = document.createElement("div");
+    overlay.className = "mp-modal";
+    overlay.innerHTML = `
+      <div class="mp-modal-backdrop" data-transport-close></div>
+      <section class="mp-modal-card tc-card-028l" role="dialog" aria-modal="true" aria-label="Call Center">
+        <div class="tc-head-028l">
+          <div>
+            <div class="mp-kicker">Mini panel asesor</div>
+            <h2>Call Center / Llamadas</h2>
+            <p>Registro operativo de cliente, ruta, contrato, cotizacion y ticket.</p>
+          </div>
+          <button class="mp-button secondary" type="button" data-transport-close>Cerrar</button>
+        </div>
+
+        <form class="mp-form" data-transport-form>
+          <datalist id="${h(uid)}_customers">${transportCustomerOptions028L(customers)}</datalist>
+          <datalist id="${h(uid)}_cities">${transportCityOptions028L()}</datalist>
+          <input type="hidden" name="call_direction" value="inbound" />
+          <input type="hidden" name="call_status" value="completed" />
+          <input type="hidden" name="duration_seconds" value="0" />
+          <input type="hidden" name="source" value="mini_panel" />
+
+          <div class="tc-grid-028l">
+            <div class="tc-field-028l wide">
+              <label>Cliente</label>
+              <input name="customer_name" list="${h(uid)}_customers" placeholder="Nombre, telefono o contrato" autocomplete="off" required />
+            </div>
+            <div class="tc-field-028l">
+              <label>Tipo cliente</label>
+              <select name="customer_type">
+                <option value="person">Persona</option>
+                <option value="company">Empresa</option>
+                <option value="contract">Contrato</option>
+              </select>
+            </div>
+            <div class="tc-field-028l">
+              <label>Telefono</label>
+              <input name="phone" placeholder="+57..." autocomplete="off" />
+            </div>
+            <div class="tc-field-028l">
+              <label># contrato / aval</label>
+              <input name="contract_code" placeholder="Contrato o aval" autocomplete="off" />
+            </div>
+            <div class="tc-field-028l">
+              <label>Origen</label>
+              <input name="origin" list="${h(uid)}_cities" placeholder="Ciudad origen" autocomplete="off" />
+            </div>
+            <div class="tc-field-028l">
+              <label>Destino</label>
+              <input name="destination" list="${h(uid)}_cities" placeholder="Ciudad destino" autocomplete="off" />
+            </div>
+            <div class="tc-field-028l">
+              <label>Tipo viaje</label>
+              <input name="trip_type" placeholder="Ruta, expreso, aeropuerto..." autocomplete="off" />
+            </div>
+            <div class="tc-field-028l">
+              <label>Resultado</label>
+              <select name="result">
+                <option value="follow_up">Seguimiento</option>
+                <option value="quoted">Cotizado</option>
+                <option value="ticket_created">Ticket generado</option>
+                <option value="not_interested">No interesado</option>
+                <option value="failed">No contestado</option>
+              </select>
+            </div>
+            <div class="tc-field-028l">
+              <label>Direccion llamada</label>
+              <input value="Automatico por Twilio" readonly />
+            </div>
+            <div class="tc-field-028l">
+              <label>Estado llamada</label>
+              <input value="Automatico por Twilio" readonly />
+            </div>
+            <div class="tc-field-028l">
+              <label>Duracion</label>
+              <input value="Automatico por Twilio" readonly />
+            </div>
+            <div class="tc-field-028l">
+              <label>ID llamada</label>
+              <input name="twilio_call_sid" placeholder="Twilio automatico" autocomplete="off" />
+            </div>
+            <div class="tc-field-028l full">
+              <label>Notas</label>
+              <textarea name="notes" rows="3" placeholder="Resumen, ruta solicitada, aprobaciones o pendientes..."></textarea>
+            </div>
+          </div>
+
+          <div class="tc-checks-028l">
+            <label><input type="checkbox" name="quote_requested" /> Genero cotizacion</label>
+            <label><input type="checkbox" name="ticket_requested" /> Genero ticket</label>
+            <span class="tc-chip-028l twilio">Twilio automatico</span>
+          </div>
+
+          <div class="tc-actions-028l">
+            <button class="mp-button" type="submit">Guardar llamada</button>
+            <button class="mp-button secondary" type="button" data-transport-refresh>Actualizar base</button>
+            <span class="mp-message ok" data-transport-message></span>
+          </div>
+        </form>
+
+        <section class="tc-panel-028l">
+          <h3>Ultimas llamadas</h3>
+          <div style="overflow:auto">
+            <table class="tc-table-028l">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>Contrato</th>
+                  <th>Ruta</th>
+                  <th>Dir.</th>
+                  <th>Estado</th>
+                  <th>Duracion</th>
+                </tr>
+              </thead>
+              <tbody data-transport-rows>${transportCallsRows028L(calls)}</tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    `;
+    document.body.appendChild(overlay);
+
+    const form = overlay.querySelector("[data-transport-form]");
+    const message = overlay.querySelector("[data-transport-message]");
+    const rowsTarget = overlay.querySelector("[data-transport-rows]");
+    const customerDatalist = overlay.querySelector(`#${uid}_customers`);
+
+    const refreshLists = async (search = "") => {
+      try {
+        const nextCustomers = await loadTransportCustomers028L(search);
+        customers = nextCustomers;
+        customerMap = transportCustomerKeyMap028L(customers);
+        if (customerDatalist) customerDatalist.innerHTML = transportCustomerOptions028L(customers);
+        calls = await loadTransportCalls028L();
+        if (rowsTarget) rowsTarget.innerHTML = transportCallsRows028L(calls);
+      } catch (error) {
+        if (message) {
+          message.classList.remove("ok");
+          message.textContent = error.message || "No se pudo actualizar.";
+        }
+      }
+    };
+
+    form?.elements?.customer_name?.addEventListener("input", (event) => {
+      const value = event.target.value || "";
+      const match = customerMap.get(normalizeTransportLookup028L(value));
+      if (match) fillTransportCustomer028L(form, match);
+    });
+
+    overlay.querySelector("[data-transport-refresh]")?.addEventListener("click", async () => {
+      if (message) {
+        message.classList.add("ok");
+        message.textContent = "Actualizando...";
+      }
+      await refreshLists(form?.elements?.customer_name?.value || "");
+      if (message) {
+        message.classList.add("ok");
+        message.textContent = "Base actualizada.";
+      }
+    });
+
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const payload = {
+        advisor_name: employeeName,
+        advisor_status: "available",
+        customer_name: String(data.get("customer_name") || "").trim(),
+        customer_type: String(data.get("customer_type") || "person").trim(),
+        phone: String(data.get("phone") || "").trim(),
+        origin: String(data.get("origin") || "").trim(),
+        destination: String(data.get("destination") || "").trim(),
+        trip_type: String(data.get("trip_type") || "").trim(),
+        call_direction: String(data.get("call_direction") || "inbound").trim(),
+        call_status: String(data.get("call_status") || "completed").trim(),
+        result: String(data.get("result") || "follow_up").trim(),
+        duration_seconds: Number(data.get("duration_seconds") || 0),
+        quote_requested: data.has("quote_requested"),
+        ticket_requested: data.has("ticket_requested"),
+        contract_code: String(data.get("contract_code") || "").trim(),
+        source: String(data.get("twilio_call_sid") || "").trim() ? "twilio" : "mini_panel",
+        twilio_call_sid: String(data.get("twilio_call_sid") || "").trim(),
+        notes: String(data.get("notes") || "").trim()
+      };
+
+      if (!payload.customer_name && !payload.phone && !payload.contract_code) {
+        if (message) {
+          message.classList.remove("ok");
+          message.textContent = "Agrega cliente, telefono o contrato.";
+        }
+        return;
+      }
+
+      try {
+        if (message) {
+          message.classList.add("ok");
+          message.textContent = "Guardando llamada...";
+        }
+        await transportCallsApi028L("/calls", {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        form.reset();
+        if (message) {
+          message.classList.add("ok");
+          message.textContent = "Llamada guardada.";
+        }
+        await refreshLists();
+      } catch (error) {
+        if (message) {
+          message.classList.remove("ok");
+          message.textContent = error.message || "No se pudo guardar la llamada.";
+        }
+      }
+    });
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target.closest("[data-transport-close]")) overlay.remove();
+    });
+  }
+  /* CLONEXA_028L_TRANSPORT_CALLS_MINIPANEL_END */
+
   /* CLONEXA_019H_R1_SAFE_DYNAMIC_MODULES_END */
 
 function moduleCard(title, description, tag, code = "") {
@@ -2660,6 +3138,11 @@ function moduleCard(title, description, tag, code = "") {
 
         if (typeof isStoreShiftControlCode023W === "function" && isStoreShiftControlCode023W(moduleCode)) {
           await openStoreShiftControlModule023W(session);
+          return;
+        }
+
+        if (typeof isTransportCallsCode028L === "function" && isTransportCallsCode028L(moduleCode)) {
+          await openTransportCallsModule028L(session);
           return;
         }
 
