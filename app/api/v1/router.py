@@ -48,6 +48,7 @@ for _module_name, _prefix, _tags in [
     ("shoplink", "/shoplink", ["shoplink"]),
     ("transport_calls", "/transport-calls", ["transport_calls"]),
     ("transport_contracts", "/transport-contracts", ["transport_contracts"]),
+    ("transport_quotes_tickets", "/transport-quotes-tickets", ["transport_quotes_tickets"]),
 ]:
     _include(_module_name, _prefix, _tags)
 

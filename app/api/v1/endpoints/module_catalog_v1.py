@@ -72,6 +72,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "CON",
         "is_transversal": False,
     },
+    "transport_quotes_tickets": {
+        "name": "Cotizaciones / Tickets",
+        "description": "Cotizaciones, tickets y ordenes de servicio imprimibles con original y copia para transporte.",
+        "category": "transport",
+        "category_label": "Transporte operativo",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "TKT",
+        "is_transversal": False,
+    },
     "references": {
         "name": "Referencias",
         "description": "Catálogo de referencias, productos, tallas o servicios medibles.",

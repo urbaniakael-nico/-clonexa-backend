@@ -679,6 +679,7 @@
     field: ["Field Ops", "operacion en campo", "FLD"],
     transport_calls: ["Call Center / Llamadas", "registro y control de llamadas", "CALL"],
     transport_contracts: ["Contratos / Avales", "clientes, saldos y alertas", "CON"],
+    transport_quotes_tickets: ["Cotizaciones / Tickets", "ordenes imprimibles", "TKT"],
     login: ["Login tiendas", "turnos y accesos", "LOG"],
     store_login: ["Login tiendas", "turnos y accesos", "LOG"],
     shift_control: ["Login tiendas", "turnos y accesos", "LOG"],
@@ -1084,6 +1085,10 @@
 
     if (hasAnyClientModule(codes, ["transport_calls"])) {
       actions.push({ label: "Call Center", action: "transport_calls:open" });
+    }
+
+    if (hasAnyClientModule(codes, ["transport_quotes_tickets"])) {
+      actions.push({ label: "Cotizar / Ticket", action: "transport_quotes_tickets:open" });
     }
 
     if (hasAnyClientModule(codes, ["transport_contracts"])) {
@@ -25981,7 +25986,311 @@ function inventoryCreatePayload() {
     });
   }
 
+  function cxIsTransportQuotesTicketsCode028N(code = "") {
+    return cxNormalizeModuleToken017H(code) === "transport_quotes_tickets";
+  }
+
+  function cxTransportDocumentsApi028N(path, options = {}) {
+    return api(`/transport-quotes-tickets/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxTransportDocumentsPdfUrl028N(id, inline = true) {
+    return `${API}/transport-quotes-tickets/companies/${encodeURIComponent(state.companyId)}/documents/${encodeURIComponent(id)}/print.pdf?inline=${inline ? "true" : "false"}`;
+  }
+
+  function cxTransportDocumentsField028N(id) {
+    return String(document.getElementById(id)?.value || "").trim();
+  }
+
+  function cxTransportDocumentsSetMsg028N(message, isError = false) {
+    const el = document.getElementById("tqtMsg028N");
+    if (!el) return;
+    el.textContent = message || "";
+    el.style.color = isError ? "#fca5a5" : "#86efac";
+  }
+
+  function cxTransportDocumentsTypeLabel028N(value) {
+    return String(value || "quote") === "ticket" ? "Ticket / orden" : "Cotizacion";
+  }
+
+  function cxTransportDocumentsStatusLabel028N(value) {
+    const labels = {
+      pending: "Pendiente",
+      approved: "Aprobada",
+      rejected: "Rechazada",
+      converted: "Convertida",
+      scheduled: "Programada",
+      in_route: "En ruta",
+      completed: "Completada",
+      cancelled: "Cancelada",
+      billed: "Facturada",
+    };
+    return labels[String(value || "pending")] || "Pendiente";
+  }
+
+  function cxTransportDocumentsPayload028N() {
+    const ticketCount = Math.max(1, Math.round(cxTransportContractsNumber028M(cxTransportDocumentsField028N("tqtTickets028N")) || 1));
+    const personName = cxTransportDocumentsField028N("tqtPersonName028N") || cxTransportDocumentsField028N("tqtClient028N");
+    const personDocument = cxTransportDocumentsField028N("tqtPersonDocument028N") || cxTransportDocumentsField028N("tqtDocument028N");
+    return {
+      document_type: cxTransportDocumentsField028N("tqtDocType028N") || "quote",
+      status: cxTransportDocumentsField028N("tqtStatus028N") || "pending",
+      contract_id: cxTransportDocumentsField028N("tqtContractSelect028N"),
+      client_name: cxTransportDocumentsField028N("tqtClient028N"),
+      client_type: cxTransportDocumentsField028N("tqtClientType028N") || "company",
+      phone: cxTransportDocumentsField028N("tqtPhone028N"),
+      email: cxTransportDocumentsField028N("tqtEmail028N"),
+      document_id: cxTransportDocumentsField028N("tqtDocument028N"),
+      contract_code: cxTransportDocumentsField028N("tqtContractCode028N"),
+      account_code: cxTransportDocumentsField028N("tqtAccountCode028N"),
+      validity_date: cxTransportDocumentsField028N("tqtValidity028N"),
+      origin: cxTransportDocumentsField028N("tqtOrigin028N"),
+      destination: cxTransportDocumentsField028N("tqtDestination028N"),
+      route_detail: cxTransportDocumentsField028N("tqtRoute028N"),
+      service_date: cxTransportDocumentsField028N("tqtServiceDate028N"),
+      ticket_count: ticketCount,
+      authorized_people: [{ document_id: personDocument, name: personName, ticket_count: ticketCount }],
+      transporter: cxTransportDocumentsField028N("tqtTransporter028N"),
+      value_amount: cxTransportContractsNumber028M(cxTransportDocumentsField028N("tqtValue028N")),
+      discount_amount: cxTransportContractsNumber028M(cxTransportDocumentsField028N("tqtDiscount028N")),
+      total_amount: cxTransportContractsNumber028M(cxTransportDocumentsField028N("tqtTotal028N")),
+      charged_to_contract: Boolean(document.getElementById("tqtChargeContract028N")?.checked),
+      supervisor_check: Boolean(document.getElementById("tqtSupervisorCheck028N")?.checked),
+      treasury_check: Boolean(document.getElementById("tqtTreasuryCheck028N")?.checked),
+      approval_code: cxTransportDocumentsField028N("tqtApproval028N"),
+      advisor_name: cxTransportDocumentsField028N("tqtAdvisor028N"),
+      notes: cxTransportDocumentsField028N("tqtNotes028N"),
+    };
+  }
+
+  function cxTransportDocumentsFillFromContract028N(select) {
+    const option = select?.selectedOptions?.[0];
+    if (!option) return;
+    const map = {
+      tqtClient028N: option.dataset.client,
+      tqtClientType028N: option.dataset.type,
+      tqtPhone028N: option.dataset.phone,
+      tqtEmail028N: option.dataset.email,
+      tqtDocument028N: option.dataset.document,
+      tqtContractCode028N: option.dataset.contract,
+    };
+    Object.entries(map).forEach(([id, value]) => {
+      if (value !== undefined && document.getElementById(id)) document.getElementById(id).value = value || "";
+    });
+  }
+
+  async function renderTransportQuotesTicketsModule028N() {
+    const company = state.company || {};
+    const search = cxTransportDocumentsField028N("tqtSearch028N");
+    const typeFilter = cxTransportDocumentsField028N("tqtTypeFilter028N") || "all";
+    const statusFilter = cxTransportDocumentsField028N("tqtStatusFilter028N") || "all";
+    let summary = {};
+    let documents = [];
+    let contracts = [];
+    let loadError = "";
+
+    try {
+      const [summaryResponse, docsResponse, contractsResponse] = await Promise.all([
+        cxTransportDocumentsApi028N("/summary"),
+        cxTransportDocumentsApi028N(`/documents?limit=160&document_type=${encodeURIComponent(typeFilter)}&status=${encodeURIComponent(statusFilter)}&search=${encodeURIComponent(search)}`),
+        cxTransportContractsApi028M("/contracts?limit=160&status=all"),
+      ]);
+      summary = summaryResponse.summary || {};
+      documents = Array.isArray(docsResponse.documents) ? docsResponse.documents : [];
+      contracts = Array.isArray(contractsResponse.contracts) ? contractsResponse.contracts : [];
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar cotizaciones y tickets.";
+    }
+
+    const fieldWrap = "display:flex;flex-direction:column;gap:8px;min-width:0";
+    const fieldLabel = "font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:950;color:var(--cx-secondary)";
+    const fieldInput = "width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850;min-width:0";
+    const tableCell = "padding:12px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top";
+    const tableHead = "padding:12px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left;letter-spacing:.12em;text-transform:uppercase;font-size:11px;opacity:.78";
+    const contractOptions = contracts.map((item) => `
+      <option value="${h(item.id || "")}" data-client="${h(item.client_name || "")}" data-type="${h(item.client_type || "company")}" data-phone="${h(item.phone || "")}" data-email="${h(item.email || "")}" data-document="${h(item.document_id || "")}" data-contract="${h(item.contract_code || "")}">
+        ${h(item.client_name || "Cliente")} - ${h(item.contract_code || "sin contrato")}
+      </option>
+    `).join("");
+    const rows = documents.length
+      ? documents.map((item) => {
+          const id = String(item.id || "");
+          const isQuote = String(item.document_type || "quote") === "quote";
+          return `
+            <tr>
+              <td style="${tableCell};min-width:170px">
+                <strong>${h(item.document_number || "-")}</strong>
+                <div class="client-muted">${h(cxTransportDocumentsTypeLabel028N(item.document_type))}</div>
+                <span class="client-badge" style="margin-top:8px">${h(cxTransportDocumentsStatusLabel028N(item.status))}</span>
+              </td>
+              <td style="${tableCell};min-width:230px">
+                <strong>${h(item.client_name || "-")}</strong>
+                <div class="client-muted">${h(item.contract_code || "Sin contrato")} · ${h(item.account_code || "sin cuenta")}</div>
+                <div class="client-muted">${h(item.phone || "")}</div>
+              </td>
+              <td style="${tableCell};min-width:260px">
+                <strong>${h(item.origin || "-")} -> ${h(item.destination || "-")}</strong>
+                <div class="client-muted">${h(item.route_detail || "Ruta sin detalle")}</div>
+                <div class="client-muted">Servicio: ${h(item.service_date || "sin fecha")}</div>
+              </td>
+              <td style="${tableCell};min-width:160px">
+                <strong>${h(cxTransportContractsMoney028M(item.total_amount))}</strong>
+                <div class="client-muted">Tiquetes: ${h(item.ticket_count || 0)}</div>
+                <div class="client-muted">Vigencia: ${h(item.validity_date || "-")}</div>
+              </td>
+              <td style="${tableCell};min-width:250px">
+                <button class="client-btn" type="button" data-tqt-print="${h(id)}" style="margin:0 8px 8px 0">Imprimir</button>
+                <button class="client-btn" type="button" data-tqt-download="${h(id)}" style="margin:0 8px 8px 0;background:rgba(255,255,255,.08);box-shadow:none">Descargar PDF</button>
+                ${isQuote ? `<button class="client-btn" type="button" data-tqt-convert="${h(id)}" style="margin:0 8px 8px 0">Convertir a ticket</button>` : ""}
+              </td>
+            </tr>
+          `;
+        }).join("")
+      : `<tr><td colspan="5" style="${tableCell};color:rgba(255,255,255,.68)">Sin cotizaciones o tickets creados todavia.</td></tr>`;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("transport_quotes_tickets")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Vertical transporte</div>
+              <h1 class="client-title">Cotizaciones / Tickets</h1>
+              <p class="client-muted">Genera cotizaciones y ordenes de servicio imprimibles con original y copia, conectadas a contratos o avales.</p>
+              <div class="client-kpi-grid">
+                <article class="client-kpi"><span>Cotizaciones</span><strong>${h(summary.quote_count || 0)}</strong></article>
+                <article class="client-kpi"><span>Tickets</span><strong>${h(summary.ticket_count || 0)}</strong></article>
+                <article class="client-kpi"><span>Pendientes</span><strong>${h(summary.pending_count || 0)}</strong></article>
+                <article class="client-kpi"><span>Valor total</span><strong>${h(cxTransportContractsMoney028M(summary.total_amount))}</strong></article>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" id="tqtRefresh028N">Actualizar</button>
+              </div>
+            </header>
+
+            ${loadError ? `
+              <section class="client-panel" style="border-color:rgba(248,113,113,.4)">
+                <strong>No se pudo cargar Cotizaciones / Tickets.</strong>
+                <p class="client-muted">${h(loadError)}</p>
+              </section>
+            ` : ""}
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Documento operativo</div>
+              <h2>Crear cotizacion o ticket</h2>
+              <form id="tqtCreateForm028N" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Tipo documento</span><select id="tqtDocType028N" style="${fieldInput}"><option value="quote">Cotizacion</option><option value="ticket">Ticket / orden</option></select></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Contrato / aval</span><select id="tqtContractSelect028N" style="${fieldInput}"><option value="">Manual o sin contrato</option>${contractOptions}</select></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Cliente</span><input id="tqtClient028N" style="${fieldInput}" placeholder="Empresa o persona"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Tipo cliente</span><select id="tqtClientType028N" style="${fieldInput}"><option value="company">Empresa</option><option value="person">Persona</option><option value="agency">Agencia</option></select></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Telefono</span><input id="tqtPhone028N" style="${fieldInput}" placeholder="+57..."></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Correo</span><input id="tqtEmail028N" style="${fieldInput}" placeholder="correo@empresa.com"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Documento / NIT</span><input id="tqtDocument028N" style="${fieldInput}" placeholder="NIT, CC o ID"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Contrato</span><input id="tqtContractCode028N" style="${fieldInput}" placeholder="Contrato o aval"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Cuenta</span><input id="tqtAccountCode028N" style="${fieldInput}" placeholder="Cuenta K..."></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Vigencia</span><input id="tqtValidity028N" type="date" style="${fieldInput}"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Fecha servicio</span><input id="tqtServiceDate028N" type="date" style="${fieldInput}"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Estado</span><select id="tqtStatus028N" style="${fieldInput}"><option value="pending">Pendiente</option><option value="approved">Aprobada</option><option value="scheduled">Programada</option><option value="completed">Completada</option><option value="billed">Facturada</option></select></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Origen</span><input id="tqtOrigin028N" style="${fieldInput}" placeholder="Ciudad origen"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Destino</span><input id="tqtDestination028N" style="${fieldInput}" placeholder="Ciudad destino"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Tipo viaje / ruta</span><input id="tqtRoute028N" style="${fieldInput}" placeholder="Ruta, expreso, aeropuerto..."></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Transportadora</span><input id="tqtTransporter028N" style="${fieldInput}" placeholder="Empresa transportadora"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Persona autorizada</span><input id="tqtPersonName028N" style="${fieldInput}" placeholder="Nombre autorizado"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">ID autorizado</span><input id="tqtPersonDocument028N" style="${fieldInput}" placeholder="Documento autorizado"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Tiquetes</span><input id="tqtTickets028N" style="${fieldInput}" inputmode="numeric" value="1"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Autorizado</span><input id="tqtApproval028N" style="${fieldInput}" placeholder="Codigo autorizacion"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Valor</span><input id="tqtValue028N" style="${fieldInput}" inputmode="decimal" placeholder="0"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Descuento</span><input id="tqtDiscount028N" style="${fieldInput}" inputmode="decimal" placeholder="0"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Total</span><input id="tqtTotal028N" style="${fieldInput}" inputmode="decimal" placeholder="0"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Asesor</span><input id="tqtAdvisor028N" style="${fieldInput}" placeholder="Asesor"></label>
+                <label style="${fieldWrap};grid-column:1/-1"><span style="${fieldLabel}">Notas</span><textarea id="tqtNotes028N" style="${fieldInput};min-height:82px;resize:vertical" placeholder="Observaciones, aprobaciones, pendientes o condiciones"></textarea></label>
+                <div style="grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+                  <label style="display:flex;gap:8px;align-items:center;font-weight:850"><input id="tqtChargeContract028N" type="checkbox"> Cargar a contrato</label>
+                  <label style="display:flex;gap:8px;align-items:center;font-weight:850"><input id="tqtSupervisorCheck028N" type="checkbox"> Check supervisor</label>
+                  <label style="display:flex;gap:8px;align-items:center;font-weight:850"><input id="tqtTreasuryCheck028N" type="checkbox"> Check tesoreria</label>
+                  <button class="client-btn" type="submit">Crear documento</button>
+                  <span id="tqtMsg028N" class="client-muted"></span>
+                </div>
+              </form>
+            </section>
+
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px">
+                <div>
+                  <div class="client-eyebrow">Impresion y control</div>
+                  <h2>Cotizaciones y tickets generados</h2>
+                </div>
+                <span class="client-badge">${h(documents.length)}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:minmax(0,1fr) 180px 180px auto;gap:10px;margin-bottom:14px">
+                <input id="tqtSearch028N" value="${h(search)}" style="${fieldInput}" placeholder="Buscar cliente, contrato, origen o destino">
+                <select id="tqtTypeFilter028N" style="${fieldInput}"><option value="all" ${typeFilter === "all" ? "selected" : ""}>Todos</option><option value="quote" ${typeFilter === "quote" ? "selected" : ""}>Cotizaciones</option><option value="ticket" ${typeFilter === "ticket" ? "selected" : ""}>Tickets</option></select>
+                <select id="tqtStatusFilter028N" style="${fieldInput}"><option value="all" ${statusFilter === "all" ? "selected" : ""}>Todos</option><option value="pending" ${statusFilter === "pending" ? "selected" : ""}>Pendientes</option><option value="approved" ${statusFilter === "approved" ? "selected" : ""}>Aprobadas</option><option value="scheduled" ${statusFilter === "scheduled" ? "selected" : ""}>Programadas</option><option value="completed" ${statusFilter === "completed" ? "selected" : ""}>Completadas</option><option value="billed" ${statusFilter === "billed" ? "selected" : ""}>Facturadas</option></select>
+                <button class="client-btn" type="button" id="tqtSearchBtn028N">Buscar</button>
+              </div>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:620px">
+                <table style="width:100%;border-collapse:collapse;min-width:1180px">
+                  <thead><tr><th style="${tableHead}">Documento</th><th style="${tableHead}">Cliente</th><th style="${tableHead}">Ruta</th><th style="${tableHead}">Valor</th><th style="${tableHead}">Acciones</th></tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    document.getElementById("tqtRefresh028N")?.addEventListener("click", () => renderTransportQuotesTicketsModule028N());
+    document.getElementById("tqtSearchBtn028N")?.addEventListener("click", () => renderTransportQuotesTicketsModule028N());
+    document.getElementById("tqtTypeFilter028N")?.addEventListener("change", () => renderTransportQuotesTicketsModule028N());
+    document.getElementById("tqtStatusFilter028N")?.addEventListener("change", () => renderTransportQuotesTicketsModule028N());
+    document.getElementById("tqtSearch028N")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") renderTransportQuotesTicketsModule028N();
+    });
+    document.getElementById("tqtContractSelect028N")?.addEventListener("change", (event) => cxTransportDocumentsFillFromContract028N(event.currentTarget));
+    document.getElementById("tqtCreateForm028N")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = cxTransportDocumentsPayload028N();
+        if (!payload.client_name || !payload.origin || !payload.destination) {
+          cxTransportDocumentsSetMsg028N("Cliente, origen y destino son obligatorios.", true);
+          return;
+        }
+        await cxTransportDocumentsApi028N("/documents", { method: "POST", body: JSON.stringify(payload) });
+        await renderTransportQuotesTicketsModule028N();
+      } catch (error) {
+        cxTransportDocumentsSetMsg028N(error.message || "No se pudo crear el documento.", true);
+      }
+    });
+    document.querySelectorAll("[data-tqt-print]").forEach((button) => {
+      button.addEventListener("click", () => window.open(cxTransportDocumentsPdfUrl028N(button.getAttribute("data-tqt-print") || "", true), "_blank", "noopener"));
+    });
+    document.querySelectorAll("[data-tqt-download]").forEach((button) => {
+      button.addEventListener("click", () => window.open(cxTransportDocumentsPdfUrl028N(button.getAttribute("data-tqt-download") || "", false), "_blank", "noopener"));
+    });
+    document.querySelectorAll("[data-tqt-convert]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          await cxTransportDocumentsApi028N(`/documents/${encodeURIComponent(button.getAttribute("data-tqt-convert") || "")}/convert-ticket`, { method: "POST" });
+          await renderTransportQuotesTicketsModule028N();
+        } catch (error) {
+          cxTransportDocumentsSetMsg028N(error.message || "No se pudo convertir a ticket.", true);
+        }
+      });
+    });
+  }
   async function renderClientModulePlaceholder(code) {
+    if (cxIsTransportQuotesTicketsCode028N(code)) {
+      return renderTransportQuotesTicketsModule028N();
+    }
+
     if (cxIsTransportContractsCode028M(code)) {
       return renderTransportContractsModule028M();
     }
@@ -27146,6 +27455,11 @@ function inventoryCreatePayload() {
           return;
         }
 
+        if (action === "transport_quotes_tickets:open" && isClientModuleActive("transport_quotes_tickets")) {
+          await renderTransportQuotesTicketsModule028N();
+          return;
+        }
+
         if (action === "transport_contracts:open" && isClientModuleActive("transport_contracts")) {
           await renderTransportContractsModule028M();
           return;
@@ -27819,6 +28133,11 @@ function inventoryCreatePayload() {
 
         if (cxIsTransportCallsCode028A(code)) {
           await renderTransportCallsModule028A();
+          return;
+        }
+
+        if (cxIsTransportQuotesTicketsCode028N(code)) {
+          await renderTransportQuotesTicketsModule028N();
           return;
         }
 
