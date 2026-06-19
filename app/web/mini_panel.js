@@ -1748,7 +1748,10 @@
     "cotizaciones": { title: "Cotizaciones", description: "Crear cotizaciones para clientes.", tag: "COT" },
     "quote": { title: "Cotizaciones", description: "Crear cotizaciones para clientes.", tag: "COT" },
     "quotes": { title: "Cotizaciones", description: "Crear cotizaciones para clientes.", tag: "COT" },
-
+    "transport_quotes_tickets": { title: "Cotizaciones / Tickets", description: "Crear ordenes de servicio y revisar checks por rol.", tag: "TKT" },
+    "transport_tickets": { title: "Cotizaciones / Tickets", description: "Crear ordenes de servicio y revisar checks por rol.", tag: "TKT" },
+    "cotizaciones_tickets": { title: "Cotizaciones / Tickets", description: "Crear ordenes de servicio y revisar checks por rol.", tag: "TKT" },
+    "tickets_cotizaciones": { title: "Cotizaciones / Tickets", description: "Crear ordenes de servicio y revisar checks por rol.", tag: "TKT" },
     "notas_o_agenda": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
     "notes": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
     "notas": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
@@ -1827,7 +1830,17 @@
     "quotations": "cotizacion",
     "presupuesto": "cotizacion",
     "presupuestos": "cotizacion",
-
+    "transport_quotes_tickets": "transport_quotes_tickets",
+    "transport_tickets": "transport_quotes_tickets",
+    "cotizaciones_tickets": "transport_quotes_tickets",
+    "tickets_cotizaciones": "transport_quotes_tickets",
+    "cotizacion_ticket": "transport_quotes_tickets",
+    "cotizacion_tickets": "transport_quotes_tickets",
+    "quotes_tickets": "transport_quotes_tickets",
+    "quote_ticket": "transport_quotes_tickets",
+    "ticket_quote": "transport_quotes_tickets",
+    "ticket_quotes": "transport_quotes_tickets",
+    "tickets": "transport_quotes_tickets",
     "nota": "notas",
     "notas": "notas",
     "notes": "notas",
@@ -3173,6 +3186,451 @@
   }
   /* CLONEXA_028L_TRANSPORT_CALLS_MINIPANEL_END */
 
+
+  /* CLONEXA_028O_TRANSPORT_QUOTES_TICKETS_MINIPANEL_START */
+  const CX_TRANSPORT_QUOTES_TICKETS_CODES_028O = new Set([
+    "transport_quotes_tickets",
+    "transport_tickets",
+    "cotizaciones_tickets",
+    "tickets_cotizaciones",
+    "cotizacion_ticket",
+    "cotizacion_tickets",
+    "quotes_tickets",
+    "quote_ticket",
+    "ticket_quote",
+    "ticket_quotes",
+    "tickets"
+  ]);
+
+  function isTransportQuotesTicketsCode028O(code) {
+    const normalized = canonicalModuleCode022A(code);
+    return CX_TRANSPORT_QUOTES_TICKETS_CODES_028O.has(normalized) || normalized === "transport_quotes_tickets";
+  }
+
+  function isTransportQuotesPanel028O(session) {
+    const type = normalizePanelType019H(panelType);
+    if (type === "call_center" || type === "external") return true;
+    const tokens = typeof transportRoleTokens028N === "function" ? transportRoleTokens028N(session) : new Set();
+    return ["agente_call", "agentecall", "agente_externo", "agenteexterno", "supervisor", "tesoreria", "gerencia", "gerente"].some((item) => tokens.has(item));
+  }
+
+  async function openQuotesEntry028O(session, moduleCode = "") {
+    if (isTransportQuotesTicketsCode028O(moduleCode) || (isTransportQuotesPanel028O(session) && isQuotesCode021A(moduleCode || "cotizacion"))) {
+      await openTransportQuotesTicketsModule028O(session);
+      return;
+    }
+    await openQuotesModule021A(session);
+  }
+
+  function transportQuoteRole028O(session) {
+    const tokens = typeof transportRoleTokens028N === "function" ? transportRoleTokens028N(session) : new Set();
+    if (tokens.has("supervisor") || tokens.has("supervisora")) return "supervisor";
+    if (tokens.has("tesoreria") || tokens.has("tesorero") || tokens.has("treasury")) return "tesoreria";
+    if (tokens.has("gerencia") || tokens.has("gerente") || tokens.has("manager") || tokens.has("admin") || tokens.has("admin_empresa")) return "gerencia";
+    if (tokens.has("agente_externo") || tokens.has("agenteexterno") || tokens.has("external") || tokens.has("externo")) return "agente_externo";
+    return "agente_call";
+  }
+
+  function transportQuoteCanCheckSupervisor028O(session) {
+    return transportQuoteRole028O(session) === "supervisor";
+  }
+
+  function transportQuoteCanCheckTreasury028O(session) {
+    return transportQuoteRole028O(session) === "tesoreria";
+  }
+
+  async function transportQuoteApi028O(path, options = {}) {
+    if (!companyId) throw new Error("Falta company_id.");
+    const headers = {
+      ...authHeaders(),
+      ...(options.headers || {})
+    };
+    if (options.body && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
+    }
+    return api(`/api/v1/transport-quotes-tickets/companies/${encodeURIComponent(companyId)}${path}`, {
+      ...options,
+      headers
+    });
+  }
+
+  function transportQuotePdfUrl028O(id, inline = true) {
+    return `/api/v1/transport-quotes-tickets/companies/${encodeURIComponent(companyId)}/documents/${encodeURIComponent(id)}/print.pdf?inline=${inline ? "true" : "false"}`;
+  }
+
+  function transportQuoteMoneyValue028O(value) {
+    try {
+      const raw = String(value || "0").trim();
+      const clean = raw.replace(/[^0-9,.-]/g, "");
+      if (clean.includes(",") && clean.includes(".")) {
+        return Number(clean.lastIndexOf(",") > clean.lastIndexOf(".") ? clean.replaceAll(".", "").replace(",", ".") : clean.replaceAll(",", "")) || 0;
+      }
+      if ((clean.match(/\./g) || []).length > 1) return Number(clean.replaceAll(".", "")) || 0;
+      if ((clean.match(/,/g) || []).length > 1) return Number(clean.replaceAll(",", "")) || 0;
+      return Number(clean.replace(",", ".")) || 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function transportQuoteTypeLabel028O(value) {
+    return String(value || "quote") === "ticket" ? "Ticket / orden" : "Cotizacion";
+  }
+
+  function transportQuoteStatusLabel028O(value) {
+    const labels = {
+      pending: "Pendiente",
+      approved: "Aprobada",
+      rejected: "Rechazada",
+      converted: "Convertida",
+      scheduled: "Programada",
+      in_route: "En ruta",
+      completed: "Completada",
+      cancelled: "Cancelada",
+      billed: "Facturada"
+    };
+    return labels[String(value || "pending")] || "Pendiente";
+  }
+
+  function transportQuoteCheckChips028O(item) {
+    return `
+      <div class="tqt-checks-028o">
+        <span class="tqt-chip-028o ${item?.supervisor_check ? "ok" : "pending"}">${item?.supervisor_check ? "Supervisor OK" : "Supervisor pendiente"}</span>
+        <span class="tqt-chip-028o ${item?.treasury_check ? "ok" : "pending"}">${item?.treasury_check ? "Tesoreria OK" : "Tesoreria pendiente"}</span>
+        ${item?.charged_to_contract ? `<span class="tqt-chip-028o ok">Cargado a contrato</span>` : `<span class="tqt-chip-028o pending">Sin cargar a contrato</span>`}
+      </div>
+    `;
+  }
+
+  function transportQuoteRows028O(documents, session) {
+    const rows = Array.isArray(documents) ? documents : [];
+    const canSupervisor = transportQuoteCanCheckSupervisor028O(session);
+    const canTreasury = transportQuoteCanCheckTreasury028O(session);
+    if (!rows.length) {
+      return `<tr><td colspan="6"><div class="tc-monitor-empty-028n">No hay cotizaciones o tickets para revisar.</div></td></tr>`;
+    }
+    return rows.map((item) => {
+      const id = String(item.id || "");
+      const isQuote = String(item.document_type || "quote") === "quote";
+      return `
+        <tr>
+          <td><strong>${h(item.document_number || "-")}</strong><br><small>${h(transportQuoteTypeLabel028O(item.document_type))}</small><br><span class="tc-chip-028l">${h(transportQuoteStatusLabel028O(item.status))}</span></td>
+          <td><strong>${h(item.client_name || "Cliente")}</strong><br><small>${h(item.contract_code || "Sin contrato")} ${item.account_code ? ` / ${h(item.account_code)}` : ""}</small><br><small>${h(item.phone || "")}</small></td>
+          <td><strong>${h(item.origin || "-")} -> ${h(item.destination || "-")}</strong><br><small>${h(item.route_detail || "Ruta sin detalle")}</small><br><small>Servicio: ${h(item.service_date || "-")}</small></td>
+          <td><strong>${h(formatMoney(item.total_amount || 0))}</strong><br><small>Tiquetes: ${h(item.ticket_count || 0)}</small><br><small>Vigencia: ${h(item.validity_date || "-")}</small></td>
+          <td>${transportQuoteCheckChips028O(item)}</td>
+          <td>
+            <div class="tqt-actions-028o">
+              <button class="mp-button small" type="button" data-tqt-print-028o="${h(id)}">Imprimir</button>
+              <button class="mp-button small secondary" type="button" data-tqt-download-028o="${h(id)}">PDF</button>
+              ${isQuote ? `<button class="mp-button small secondary" type="button" data-tqt-convert-028o="${h(id)}">Convertir a ticket</button>` : ""}
+              ${canSupervisor && !item.supervisor_check ? `<button class="mp-button small" type="button" data-tqt-check-028o="${h(id)}" data-tqt-check-field-028o="supervisor_check">Check supervisor</button>` : ""}
+              ${canTreasury && !item.treasury_check ? `<button class="mp-button small" type="button" data-tqt-check-028o="${h(id)}" data-tqt-check-field-028o="treasury_check">Check tesoreria</button>` : ""}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  function transportQuoteStyles028O() {
+    transportCallsStyles028L();
+    if (document.getElementById("cxTransportQuotesTicketsStyles028O")) return;
+    const style = document.createElement("style");
+    style.id = "cxTransportQuotesTicketsStyles028O";
+    style.textContent = `
+      .tqt-card-028o{width:min(1320px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto}
+      .tqt-layout-028o{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(360px,.72fr);gap:16px;align-items:start}
+      .tqt-side-028o{position:sticky;top:0}
+      .tqt-summary-028o{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 18px}
+      .tqt-summary-028o article{border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(255,255,255,.06);padding:13px}
+      .tqt-summary-028o span{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58);font-weight:950;margin-bottom:6px}
+      .tqt-summary-028o strong{display:block;font-size:24px;color:#fff}
+      .tqt-checks-028o{display:flex;gap:6px;flex-wrap:wrap}
+      .tqt-chip-028o{display:inline-flex;border-radius:999px;padding:6px 9px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.10);font-size:11px;font-weight:950;color:rgba(255,255,255,.74)}
+      .tqt-chip-028o.ok{background:rgba(41,255,187,.14);border-color:rgba(41,255,187,.34);color:#8fffd8}
+      .tqt-chip-028o.pending{background:rgba(255,255,255,.08)}
+      .tqt-actions-028o{display:flex;gap:8px;flex-wrap:wrap;min-width:250px}
+      .mp-button.small{padding:9px 11px;border-radius:13px;font-size:12px}
+      @media(max-width:980px){.tqt-layout-028o,.tqt-summary-028o{grid-template-columns:1fr}.tqt-side-028o{position:static}.tqt-card-028o{width:calc(100vw - 18px)}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function loadTransportQuoteDocuments028O(filters = {}) {
+    const query = new URLSearchParams({
+      limit: "160",
+      document_type: filters.type || "all",
+      status: filters.status || "all",
+      search: filters.search || ""
+    });
+    const data = await transportQuoteApi028O(`/documents?${query.toString()}`, { method: "GET" });
+    return Array.isArray(data.documents) ? data.documents : [];
+  }
+
+  async function openTransportQuotesTicketsModule028O(session) {
+    transportQuoteStyles028O();
+    const employee = session?.employee || {};
+    const user = session?.user || {};
+    const role = transportQuoteRole028O(session);
+    const advisorName = employee.full_name || user.full_name || user.email || "Mini panel";
+    const uid = `tqt028o_${Date.now()}`;
+    const overlay = document.createElement("div");
+    overlay.className = "mp-modal";
+    overlay.innerHTML = `
+      <div class="mp-modal-backdrop" data-tqt-close-028o></div>
+      <section class="mp-modal-card tqt-card-028o" role="dialog" aria-modal="true" aria-label="Cotizaciones y Tickets">
+        <div class="tc-head-028l">
+          <div>
+            <div class="mp-kicker">Vertical transporte</div>
+            <h2>Cotizaciones / Tickets</h2>
+            <p>${role === "supervisor" ? "Revisa y aprueba documentos como supervisor." : role === "tesoreria" ? "Revisa y aprueba documentos de tesoreria." : "Crea cotizaciones y tickets; los checks los hacen supervisor y tesoreria."}</p>
+          </div>
+          <div class="tc-actions-028l" style="margin-top:0">
+            <button class="mp-button secondary" type="button" data-tqt-refresh-028o>Actualizar</button>
+            <button class="mp-button secondary" type="button" data-tqt-close-028o>Cerrar</button>
+          </div>
+        </div>
+        <div class="tc-panel-028l">Cargando cotizaciones y tickets...</div>
+      </section>
+    `;
+    document.body.appendChild(overlay);
+    const card = overlay.querySelector(".tqt-card-028o");
+
+    async function renderBody(filters = {}) {
+      let summary = {};
+      let documents = [];
+      let loadError = "";
+      try {
+        const [summaryResponse, docs] = await Promise.all([
+          transportQuoteApi028O("/summary", { method: "GET" }),
+          loadTransportQuoteDocuments028O(filters)
+        ]);
+        summary = summaryResponse.summary || {};
+        documents = docs;
+      } catch (error) {
+        loadError = error.message || "No se pudo cargar cotizaciones y tickets.";
+      }
+
+      const canReview = role === "supervisor" || role === "tesoreria" || role === "gerencia";
+      card.innerHTML = `
+        <div class="tc-head-028l">
+          <div>
+            <div class="mp-kicker">Vertical transporte</div>
+            <h2>Cotizaciones / Tickets</h2>
+            <p>${role === "supervisor" ? "Solo tu rol puede dar Check supervisor." : role === "tesoreria" ? "Solo tu rol puede dar Check tesoreria." : "Los checks quedan visibles en verde cuando supervisor y tesoreria los aprueban."}</p>
+          </div>
+          <div class="tc-actions-028l" style="margin-top:0">
+            <button class="mp-button secondary" type="button" data-tqt-refresh-028o>Actualizar</button>
+            <button class="mp-button secondary" type="button" data-tqt-close-028o>Cerrar</button>
+          </div>
+        </div>
+
+        <div class="tqt-summary-028o">
+          <article><span>Cotizaciones</span><strong>${h(summary.quote_count || 0)}</strong></article>
+          <article><span>Tickets</span><strong>${h(summary.ticket_count || 0)}</strong></article>
+          <article><span>Pendientes</span><strong>${h(summary.pending_count || 0)}</strong></article>
+          <article><span>Valor total</span><strong>${h(formatMoney(summary.total_amount || 0))}</strong></article>
+        </div>
+        ${loadError ? `<div class="mp-message">${h(loadError)}</div>` : ""}
+
+        <div class="tqt-layout-028o">
+          <form class="mp-form tc-panel-028l" data-tqt-form-028o>
+            <div class="mp-kicker">Nuevo documento</div>
+            <h3>${canReview ? "Crear o consultar" : "Crear cotizacion o ticket"}</h3>
+            <datalist id="${h(uid)}_cities">${transportCityOptions028L()}</datalist>
+            <div class="tc-grid-028l">
+              <div class="tc-field-028l"><label>Tipo</label><select name="document_type"><option value="quote">Cotizacion</option><option value="ticket">Ticket / orden</option></select></div>
+              <div class="tc-field-028l"><label>Estado</label><select name="status"><option value="pending">Pendiente</option><option value="approved">Aprobada</option><option value="scheduled">Programada</option><option value="completed">Completada</option><option value="billed">Facturada</option></select></div>
+              <div class="tc-field-028l wide"><label>Cliente</label><input name="client_name" placeholder="Empresa o persona" required></div>
+              <div class="tc-field-028l"><label>Tipo cliente</label><select name="client_type"><option value="company">Empresa</option><option value="person">Persona</option><option value="agency">Agencia</option></select></div>
+              <div class="tc-field-028l"><label>Telefono</label><input name="phone" placeholder="+57..."></div>
+              <div class="tc-field-028l"><label>Correo</label><input name="email" placeholder="correo@empresa.com"></div>
+              <div class="tc-field-028l"><label>Documento / NIT</label><input name="document_id" placeholder="NIT, CC o ID"></div>
+              <div class="tc-field-028l"><label># contrato / aval</label><input name="contract_code" placeholder="Contrato o aval"></div>
+              <div class="tc-field-028l"><label>Cuenta</label><input name="account_code" placeholder="Cuenta K..."></div>
+              <div class="tc-field-028l"><label>Vigencia</label><input name="validity_date" type="date"></div>
+              <div class="tc-field-028l"><label>Fecha servicio</label><input name="service_date" type="date"></div>
+              <div class="tc-field-028l"><label>Origen</label><input name="origin" list="${h(uid)}_cities" placeholder="Ciudad origen" required></div>
+              <div class="tc-field-028l"><label>Destino</label><input name="destination" list="${h(uid)}_cities" placeholder="Ciudad destino" required></div>
+              <div class="tc-field-028l"><label>Tipo viaje / ruta</label><input name="route_detail" placeholder="Ruta, expreso, aeropuerto..."></div>
+              <div class="tc-field-028l"><label>Transportadora</label><input name="transporter" placeholder="Transportadora"></div>
+              <div class="tc-field-028l"><label>Persona autorizada</label><input name="person_name" placeholder="Nombre autorizado"></div>
+              <div class="tc-field-028l"><label>ID autorizado</label><input name="person_document" placeholder="Documento autorizado"></div>
+              <div class="tc-field-028l"><label>Tiquetes</label><input name="ticket_count" inputmode="numeric" value="1"></div>
+              <div class="tc-field-028l"><label>Autorizado</label><input name="approval_code" placeholder="Codigo autorizacion"></div>
+              <div class="tc-field-028l"><label>Valor</label><input name="value_amount" inputmode="decimal" placeholder="0"></div>
+              <div class="tc-field-028l"><label>Descuento</label><input name="discount_amount" inputmode="decimal" placeholder="0"></div>
+              <div class="tc-field-028l"><label>Total</label><input name="total_amount" inputmode="decimal" placeholder="0"></div>
+              <div class="tc-field-028l"><label>Asesor</label><input name="advisor_name" value="${h(advisorName)}"></div>
+              <div class="tc-field-028l full"><label>Notas</label><textarea name="notes" rows="3" placeholder="Observaciones, aprobaciones, pendientes o condiciones"></textarea></div>
+            </div>
+            <div class="tc-checks-028l">
+              <label><input type="checkbox" name="charged_to_contract"> Cargar a contrato</label>
+              <span class="tqt-chip-028o pending">Supervisor pendiente</span>
+              <span class="tqt-chip-028o pending">Tesoreria pendiente</span>
+            </div>
+            <div class="tc-actions-028l">
+              <button class="mp-button" type="submit">Crear documento</button>
+              <span class="mp-message ok" data-tqt-message-028o></span>
+            </div>
+          </form>
+
+          <section class="tc-panel-028l tqt-side-028o">
+            <div class="mp-kicker">Buscar y revisar</div>
+            <h3>${role === "supervisor" ? "Pendientes de supervisor" : role === "tesoreria" ? "Pendientes de tesoreria" : "Historial"}</h3>
+            <div class="tc-grid-028l" style="grid-template-columns:1fr 150px 150px auto">
+              <div class="tc-field-028l"><label>Buscar</label><input data-tqt-search-028o value="${h(filters.search || "")}" placeholder="Cliente, contrato, ruta"></div>
+              <div class="tc-field-028l"><label>Tipo</label><select data-tqt-type-028o><option value="all" ${filters.type === "all" || !filters.type ? "selected" : ""}>Todos</option><option value="quote" ${filters.type === "quote" ? "selected" : ""}>Cotizaciones</option><option value="ticket" ${filters.type === "ticket" ? "selected" : ""}>Tickets</option></select></div>
+              <div class="tc-field-028l"><label>Estado</label><select data-tqt-status-028o><option value="all" ${filters.status === "all" || !filters.status ? "selected" : ""}>Todos</option><option value="pending" ${filters.status === "pending" ? "selected" : ""}>Pendientes</option><option value="approved" ${filters.status === "approved" ? "selected" : ""}>Aprobadas</option><option value="scheduled" ${filters.status === "scheduled" ? "selected" : ""}>Programadas</option><option value="billed" ${filters.status === "billed" ? "selected" : ""}>Facturadas</option></select></div>
+              <button class="mp-button" type="button" data-tqt-apply-028o style="align-self:end">Buscar</button>
+            </div>
+          </section>
+        </div>
+
+        <section class="tc-panel-028l">
+          <h3>Cotizaciones y tickets generados</h3>
+          <div style="overflow:auto">
+            <table class="tc-table-028l" style="min-width:1180px">
+              <thead>
+                <tr><th>Documento</th><th>Cliente</th><th>Ruta</th><th>Valor</th><th>Checks</th><th>Acciones</th></tr>
+              </thead>
+              <tbody>${transportQuoteRows028O(documents, session)}</tbody>
+            </table>
+          </div>
+        </section>
+      `;
+      bindActions(filters);
+    }
+
+    function nextFilters() {
+      return {
+        search: card.querySelector("[data-tqt-search-028o]")?.value || "",
+        type: card.querySelector("[data-tqt-type-028o]")?.value || "all",
+        status: card.querySelector("[data-tqt-status-028o]")?.value || "all"
+      };
+    }
+
+    function bindActions(currentFilters = {}) {
+      card.querySelector("[data-tqt-refresh-028o]")?.addEventListener("click", () => renderBody(currentFilters));
+      card.querySelector("[data-tqt-apply-028o]")?.addEventListener("click", () => renderBody(nextFilters()));
+      card.querySelector("[data-tqt-search-028o]")?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") renderBody(nextFilters());
+      });
+      card.querySelector("[data-tqt-form-028o]")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const data = new FormData(form);
+        const ticketCount = Math.max(1, Math.round(transportQuoteMoneyValue028O(data.get("ticket_count")) || 1));
+        const valueAmount = transportQuoteMoneyValue028O(data.get("value_amount"));
+        const discountAmount = transportQuoteMoneyValue028O(data.get("discount_amount"));
+        const totalAmount = transportQuoteMoneyValue028O(data.get("total_amount")) || Math.max(0, valueAmount - discountAmount);
+        const payload = {
+          document_type: String(data.get("document_type") || "quote"),
+          status: String(data.get("status") || "pending"),
+          client_name: String(data.get("client_name") || "").trim(),
+          client_type: String(data.get("client_type") || "company"),
+          phone: String(data.get("phone") || "").trim(),
+          email: String(data.get("email") || "").trim(),
+          document_id: String(data.get("document_id") || "").trim(),
+          contract_code: String(data.get("contract_code") || "").trim(),
+          account_code: String(data.get("account_code") || "").trim(),
+          validity_date: String(data.get("validity_date") || "").trim(),
+          origin: String(data.get("origin") || "").trim(),
+          destination: String(data.get("destination") || "").trim(),
+          route_detail: String(data.get("route_detail") || "").trim(),
+          service_date: String(data.get("service_date") || "").trim(),
+          ticket_count: ticketCount,
+          authorized_people: [{
+            document_id: String(data.get("person_document") || data.get("document_id") || "").trim(),
+            name: String(data.get("person_name") || data.get("client_name") || "").trim(),
+            ticket_count: ticketCount
+          }],
+          transporter: String(data.get("transporter") || "").trim(),
+          value_amount: valueAmount,
+          discount_amount: discountAmount,
+          total_amount: totalAmount,
+          charged_to_contract: data.has("charged_to_contract"),
+          approval_code: String(data.get("approval_code") || "").trim(),
+          advisor_name: String(data.get("advisor_name") || advisorName || "").trim(),
+          supervisor_check: false,
+          treasury_check: false,
+          notes: String(data.get("notes") || "").trim()
+        };
+        const message = card.querySelector("[data-tqt-message-028o]");
+        if (!payload.client_name || !payload.origin || !payload.destination) {
+          if (message) {
+            message.classList.remove("ok");
+            message.textContent = "Cliente, origen y destino son obligatorios.";
+          }
+          return;
+        }
+        try {
+          if (message) {
+            message.classList.add("ok");
+            message.textContent = "Creando documento...";
+          }
+          await transportQuoteApi028O("/documents", { method: "POST", body: JSON.stringify(payload) });
+          await renderBody(currentFilters);
+        } catch (error) {
+          if (message) {
+            message.classList.remove("ok");
+            message.textContent = error.message || "No se pudo crear el documento.";
+          }
+        }
+      });
+      card.querySelectorAll("[data-tqt-print-028o]").forEach((button) => {
+        button.addEventListener("click", () => window.open(transportQuotePdfUrl028O(button.getAttribute("data-tqt-print-028o") || "", true), "_blank", "noopener"));
+      });
+      card.querySelectorAll("[data-tqt-download-028o]").forEach((button) => {
+        button.addEventListener("click", () => window.open(transportQuotePdfUrl028O(button.getAttribute("data-tqt-download-028o") || "", false), "_blank", "noopener"));
+      });
+      card.querySelectorAll("[data-tqt-convert-028o]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const id = button.getAttribute("data-tqt-convert-028o") || "";
+          if (!id) return;
+          button.disabled = true;
+          button.textContent = "Convirtiendo...";
+          try {
+            await transportQuoteApi028O(`/documents/${encodeURIComponent(id)}/convert-ticket`, { method: "POST" });
+            await renderBody(currentFilters);
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = "Convertir a ticket";
+            alert(error.message || "No se pudo convertir a ticket.");
+          }
+        });
+      });
+      card.querySelectorAll("[data-tqt-check-028o]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const id = button.getAttribute("data-tqt-check-028o") || "";
+          const field = button.getAttribute("data-tqt-check-field-028o") || "";
+          const allowed = (field === "supervisor_check" && transportQuoteCanCheckSupervisor028O(session)) || (field === "treasury_check" && transportQuoteCanCheckTreasury028O(session));
+          if (!id || !allowed) return;
+          button.disabled = true;
+          button.textContent = "Validando...";
+          try {
+            await transportQuoteApi028O(`/documents/${encodeURIComponent(id)}`, {
+              method: "PATCH",
+              body: JSON.stringify({ [field]: true })
+            });
+            await renderBody(currentFilters);
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = field === "supervisor_check" ? "Check supervisor" : "Check tesoreria";
+            alert(error.message || "No se pudo aplicar el check.");
+          }
+        });
+      });
+    }
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target.closest("[data-tqt-close-028o]")) overlay.remove();
+    });
+
+    await renderBody({ search: "", type: "all", status: "all" });
+  }
+  /* CLONEXA_028O_TRANSPORT_QUOTES_TICKETS_MINIPANEL_END */
   /* CLONEXA_019H_R1_SAFE_DYNAMIC_MODULES_END */
 
 function moduleCard(title, description, tag, code = "") {
@@ -3444,13 +3902,13 @@ function moduleCard(title, description, tag, code = "") {
     });
 
     root.querySelector("[data-quotes-card]")?.addEventListener("click", async () => {
-      await openQuotesModule021A(session);
+      await openQuotesEntry028O(session, "cotizacion");
     });
 
     root.querySelector("[data-quotes-card]")?.addEventListener("keydown", async (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        await openQuotesModule021A(session);
+        await openQuotesEntry028O(session, "cotizacion");
       }
     });
 
@@ -3468,11 +3926,15 @@ function moduleCard(title, description, tag, code = "") {
     root.querySelectorAll("[data-module]").forEach((button) => {
       button.addEventListener("click", async () => {
         const moduleCode = button.getAttribute("data-module") || "";
-        if (isQuotesCode021A(moduleCode)) {
-          await openQuotesModule021A(session);
+        if (typeof isTransportQuotesTicketsCode028O === "function" && isTransportQuotesTicketsCode028O(moduleCode)) {
+          await openTransportQuotesTicketsModule028O(session);
           return;
         }
 
+        if (isQuotesCode021A(moduleCode)) {
+          await openQuotesEntry028O(session, moduleCode);
+          return;
+        }
         if (isNotesCode020A(moduleCode)) {
           await openNotesCalendar020A(session);
           return;
