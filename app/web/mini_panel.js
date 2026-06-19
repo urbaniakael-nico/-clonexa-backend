@@ -2510,14 +2510,22 @@
       .tc-table-028l th{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58)}
       .tc-chip-028l{display:inline-flex;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.14);font-size:12px;font-weight:950}
       .tc-chip-028l.twilio{color:#8fffd8;border-color:rgba(63,255,190,.28);background:rgba(63,255,190,.10)}
-      .tc-monitor-card-028n{width:min(1320px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto}
+      .tc-monitor-card-028n{width:calc(100vw - 32px);height:calc(100vh - 32px);max-height:none;overflow:hidden;display:flex;flex-direction:column;padding:22px}
+      .tc-monitor-card-028n .tc-head-028l{flex:0 0 auto;margin-bottom:12px}
       .tc-monitor-toolbar-028n{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin:14px 0}
-      .tc-monitor-kpis-028n{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0 16px}
-      .tc-monitor-kpi-028n{padding:14px;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(255,255,255,.06)}
+      .tc-monitor-kpis-028n{display:grid;grid-template-columns:repeat(8,minmax(118px,1fr));gap:10px;margin:8px 0 12px;flex:0 0 auto}
+      .tc-monitor-kpi-028n{padding:12px;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(255,255,255,.06);min-height:72px}
       .tc-monitor-kpi-028n span{display:block;margin-bottom:8px;color:rgba(255,255,255,.58);font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:950}
-      .tc-monitor-kpi-028n strong{display:block;font-size:26px;line-height:1;color:#fff}
+      .tc-monitor-kpi-028n strong{display:block;font-size:24px;line-height:1;color:#fff}
       .tc-monitor-kpi-028n.alert strong{color:#ff8ebd}
-      .tc-monitor-settings-028n{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end;margin:10px 0 16px;padding:14px;border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(255,255,255,.045)}
+      .tc-monitor-settings-028n{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px;align-items:end;margin:8px 0 12px;padding:12px;border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(255,255,255,.045);flex:0 0 auto}
+      .tc-monitor-table-panel-028n{flex:1 1 auto;min-height:0;margin-top:0;display:flex;flex-direction:column}
+      .tc-monitor-table-panel-028n h3{flex:0 0 auto}
+      .tc-monitor-table-wrap-028n{flex:1 1 auto;min-height:0;overflow:auto;border-radius:18px;border:1px solid rgba(255,255,255,.08)}
+      .tc-monitor-table-wrap-028n .tc-table-028l{min-width:1040px}
+      .tc-monitor-table-wrap-028n thead th{position:sticky;top:0;z-index:2;background:rgba(22,20,47,.98);backdrop-filter:blur(10px)}
+      .tc-monitor-table-wrap-028n tbody tr:nth-child(even){background:rgba(255,255,255,.025)}
+      .tc-monitor-table-wrap-028n tbody tr:hover{background:rgba(41,255,187,.045)}
       .tc-monitor-status-028n{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:950;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.10)}
       .tc-monitor-status-028n:before{content:"";width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.45)}
       .tc-monitor-status-028n.in_call{color:#8fffd8;border-color:rgba(63,255,190,.35);background:rgba(63,255,190,.12)}
@@ -2532,7 +2540,8 @@
       .tc-monitor-empty-028n{padding:24px;border:1px dashed rgba(255,255,255,.18);border-radius:18px;color:rgba(255,255,255,.68);font-weight:850}
       .tc-monitor-muted-028n{color:rgba(255,255,255,.58);font-size:12px;font-weight:850}
       @media(max-width:900px){.tc-grid-028l{grid-template-columns:1fr}.tc-grid-028l .wide{grid-column:auto}.tc-head-028l{flex-direction:column}.tc-card-028l{width:calc(100vw - 18px)}}
-      @media(max-width:900px){.tc-monitor-kpis-028n,.tc-monitor-settings-028n{grid-template-columns:1fr}.tc-monitor-card-028n{width:calc(100vw - 18px)}}
+      @media(max-width:1200px){.tc-monitor-kpis-028n{grid-template-columns:repeat(4,minmax(0,1fr))}}
+      @media(max-width:900px){.tc-monitor-kpis-028n,.tc-monitor-settings-028n{grid-template-columns:1fr}.tc-monitor-card-028n{width:calc(100vw - 12px);height:calc(100vh - 12px);padding:14px}.tc-monitor-table-wrap-028n .tc-table-028l{min-width:940px}}
     `;
     document.head.appendChild(style);
   }
@@ -2720,9 +2729,9 @@
       <div class="tc-monitor-kpis-028n">${transportMonitorKpis028N(payload)}</div>
       ${transportMonitorSettingsHtml028N(settings)}
 
-      <section class="tc-panel-028l">
+      <section class="tc-panel-028l tc-monitor-table-panel-028n">
         <h3>${viewMode === "management" ? "Agentes y supervision" : "Agentes monitoreados"}</h3>
-        <div style="overflow:auto">
+        <div class="tc-monitor-table-wrap-028n">
           <table class="tc-table-028l">
             <thead>
               <tr>
