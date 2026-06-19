@@ -82,6 +82,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "TKT",
         "is_transversal": False,
     },
+    "transport_payments": {
+        "name": "Tesoreria / Pagos",
+        "description": "Check de tesoreria, pagos, facturacion y control financiero de tickets de transporte.",
+        "category": "transport",
+        "category_label": "Transporte operativo",
+        "layer": "financiero",
+        "module_type": "operational",
+        "badge": "TES",
+        "is_transversal": False,
+    },
     "references": {
         "name": "Referencias",
         "description": "Catálogo de referencias, productos, tallas o servicios medibles.",

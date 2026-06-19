@@ -680,6 +680,7 @@
     transport_calls: ["Call Center / Llamadas", "registro y control de llamadas", "CALL"],
     transport_contracts: ["Contratos / Avales", "clientes, saldos y alertas", "CON"],
     transport_quotes_tickets: ["Cotizaciones / Tickets", "ordenes imprimibles", "TKT"],
+    transport_payments: ["Tesoreria / Pagos", "checks, pagos y facturacion", "TES"],
     login: ["Login tiendas", "turnos y accesos", "LOG"],
     store_login: ["Login tiendas", "turnos y accesos", "LOG"],
     shift_control: ["Login tiendas", "turnos y accesos", "LOG"],
@@ -1093,6 +1094,10 @@
 
     if (hasAnyClientModule(codes, ["transport_contracts"])) {
       actions.push({ label: "Contratos", action: "transport_contracts:open" });
+    }
+
+    if (hasAnyClientModule(codes, ["transport_payments"])) {
+      actions.push({ label: "Tesoreria", action: "transport_payments:open" });
     }
 
     if (hasAnyClientModule(codes, ["bots"])) {
@@ -26419,7 +26424,297 @@ function inventoryCreatePayload() {
       });
     });
   }
+
+  function cxIsTransportPaymentsCode028R(code = "") {
+    return cxNormalizeModuleToken017H(code) === "transport_payments";
+  }
+
+  function cxTransportPaymentsApi028R(path, options = {}) {
+    return api(`/transport-payments/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxTransportPaymentsSetMsg028R(message, isError = false) {
+    const el = document.getElementById("tpMsg028R");
+    if (!el) return;
+    el.textContent = message || "";
+    el.style.color = isError ? "#fca5a5" : "#86efac";
+  }
+
+  function cxTransportPaymentsStatusLabel028R(value) {
+    const labels = {
+      pending: "Pendiente",
+      approved: "Aprobado",
+      scheduled: "Programado",
+      in_route: "En ruta",
+      completed: "Completado",
+      billed: "Facturado",
+      cancelled: "Cancelado",
+      paid: "Pagado",
+      rejected: "Rechazado",
+    };
+    return labels[String(value || "pending")] || "Pendiente";
+  }
+
+  function cxTransportPaymentsBadge028R(label, enabled) {
+    const bg = enabled ? "rgba(16,245,137,.2)" : "rgba(255,255,255,.08)";
+    const color = enabled ? "#86efac" : "rgba(255,255,255,.74)";
+    return `<span class="client-badge" style="background:${bg};color:${color};margin-right:6px">${h(label)}</span>`;
+  }
+
+  async function renderTransportPaymentsModule028R() {
+    const company = state.company || {};
+    const search = String(document.getElementById("tpSearch028R")?.value || "").trim();
+    const statusFilter = String(document.getElementById("tpStatus028R")?.value || "all").trim() || "all";
+    const paymentStatus = String(document.getElementById("tpPaymentStatus028R")?.value || "all").trim() || "all";
+    const startDate = String(document.getElementById("tpStart028R")?.value || "").trim();
+    const endDate = String(document.getElementById("tpEnd028R")?.value || "").trim();
+    let summary = {};
+    let tickets = [];
+    let payments = [];
+    let loadError = "";
+
+    try {
+      const query = `start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&search=${encodeURIComponent(search)}`;
+      const [summaryResponse, queueResponse, paymentsResponse] = await Promise.all([
+        cxTransportPaymentsApi028R(`/summary?${query}`),
+        cxTransportPaymentsApi028R(`/queue?limit=160&status=${encodeURIComponent(statusFilter)}&${query}`),
+        cxTransportPaymentsApi028R(`/payments?limit=80&status=${encodeURIComponent(paymentStatus)}&${query}`),
+      ]);
+      summary = summaryResponse.summary || {};
+      tickets = Array.isArray(queueResponse.tickets) ? queueResponse.tickets : [];
+      payments = Array.isArray(paymentsResponse.payments) ? paymentsResponse.payments : [];
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar Tesoreria / Pagos.";
+    }
+
+    const fieldWrap = "display:flex;flex-direction:column;gap:8px;min-width:0";
+    const fieldLabel = "font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:950;color:var(--cx-secondary)";
+    const fieldInput = "width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850;min-width:0";
+    const tableCell = "padding:12px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top";
+    const tableHead = "padding:12px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left;letter-spacing:.12em;text-transform:uppercase;font-size:11px;opacity:.78";
+    const ticketRows = tickets.length
+      ? tickets.map((item) => {
+          const id = String(item.id || "");
+          const pendingAmount = cxTransportContractsNumber028M(item.pending_amount);
+          const treasuryOk = Boolean(item.treasury_check);
+          const supervisorOk = Boolean(item.supervisor_check);
+          return `
+            <tr>
+              <td style="${tableCell};min-width:160px">
+                <strong>${h(item.document_number || "-")}</strong>
+                <div class="client-muted">${h(cxTransportPaymentsStatusLabel028R(item.status))}</div>
+              </td>
+              <td style="${tableCell};min-width:240px">
+                <strong>${h(item.client_name || "-")}</strong>
+                <div class="client-muted">${h(item.contract_code || "Sin contrato")} · ${h(item.phone || "")}</div>
+              </td>
+              <td style="${tableCell};min-width:260px">
+                <strong>${h(item.origin || "-")} -> ${h(item.destination || "-")}</strong>
+                <div class="client-muted">${h(item.route_detail || "Ruta sin detalle")}</div>
+                <div class="client-muted">Servicio: ${h(item.service_date || "sin fecha")}</div>
+              </td>
+              <td style="${tableCell};min-width:170px">
+                <strong>${h(cxTransportContractsMoney028M(item.total_amount))}</strong>
+                <div class="client-muted">Pagado: ${h(cxTransportContractsMoney028M(item.paid_amount))}</div>
+                <div class="client-muted">Pendiente: ${h(cxTransportContractsMoney028M(item.pending_amount))}</div>
+              </td>
+              <td style="${tableCell};min-width:220px">
+                ${cxTransportPaymentsBadge028R("Supervisor", supervisorOk)}
+                ${cxTransportPaymentsBadge028R("Tesoreria", treasuryOk)}
+                <div class="client-muted" style="margin-top:8px">Saldo contrato: ${h(cxTransportContractsMoney028M(item.contract_available_balance))}</div>
+              </td>
+              <td style="${tableCell};min-width:300px">
+                ${treasuryOk ? "" : `<button class="client-btn" type="button" data-tp-check="${h(id)}" style="margin:0 8px 8px 0">Check tesoreria</button>`}
+                ${pendingAmount > 0 ? `<button class="client-btn" type="button" data-tp-pay="${h(id)}" data-tp-amount="${h(pendingAmount)}" style="margin:0 8px 8px 0">Registrar pago</button>` : ""}
+                <button class="client-btn" type="button" data-tp-print="${h(id)}" style="margin:0 8px 8px 0;background:rgba(255,255,255,.08);box-shadow:none">Imprimir</button>
+                <button class="client-btn" type="button" data-tp-pdf="${h(id)}" style="margin:0 8px 8px 0;background:rgba(255,255,255,.08);box-shadow:none">PDF</button>
+              </td>
+            </tr>
+          `;
+        }).join("")
+      : `<tr><td colspan="6" style="${tableCell};color:rgba(255,255,255,.68)">No hay tickets para el filtro actual.</td></tr>`;
+    const paymentRows = payments.length
+      ? payments.map((item) => `
+          <tr>
+            <td style="${tableCell};min-width:160px"><strong>${h(item.document_number || "-")}</strong><div class="client-muted">${h(item.payment_reference || "sin referencia")}</div></td>
+            <td style="${tableCell};min-width:220px"><strong>${h(item.client_name || "-")}</strong><div class="client-muted">${h(item.contract_code || "Sin contrato")}</div></td>
+            <td style="${tableCell};min-width:140px"><strong>${h(cxTransportContractsMoney028M(item.amount))}</strong><div class="client-muted">${h(cxTransportPaymentsStatusLabel028R(item.status))}</div></td>
+            <td style="${tableCell};min-width:160px">${h(item.payment_method || "transfer")}<div class="client-muted">${h(item.paid_at || item.created_at || "")}</div></td>
+            <td style="${tableCell};min-width:160px">${h(item.created_by || "-")}</td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="5" style="${tableCell};color:rgba(255,255,255,.68)">Sin pagos registrados para el filtro actual.</td></tr>`;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("transport_payments")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Vertical transporte</div>
+              <h1 class="client-title">Tesoreria / Pagos</h1>
+              <p class="client-muted">Control financiero de tickets: checks, pagos, facturacion, saldos de contrato y alertas de consumo.</p>
+              <div class="client-kpi-grid">
+                <article class="client-kpi"><span>Pendientes tesoreria</span><strong>${h(summary.pending_treasury_count || 0)}</strong></article>
+                <article class="client-kpi"><span>Listos para facturar</span><strong>${h(summary.ready_to_bill_count || 0)}</strong></article>
+                <article class="client-kpi"><span>Valor tickets</span><strong>${h(cxTransportContractsMoney028M(summary.ticket_total))}</strong></article>
+                <article class="client-kpi"><span>Pagos periodo</span><strong>${h(cxTransportContractsMoney028M(summary.paid_total))}</strong></article>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" id="tpRefresh028R">Actualizar</button>
+              </div>
+            </header>
+
+            ${loadError ? `
+              <section class="client-panel" style="border-color:rgba(248,113,113,.4)">
+                <strong>No se pudo cargar Tesoreria / Pagos.</strong>
+                <p class="client-muted">${h(loadError)}</p>
+              </section>
+            ` : ""}
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Consulta inteligente</div>
+              <h2>Filtros de corte</h2>
+              <div style="display:grid;grid-template-columns:minmax(0,1fr) 160px 160px 190px 180px auto auto;gap:10px;align-items:end">
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Buscar</span><input id="tpSearch028R" value="${h(search)}" style="${fieldInput}" placeholder="Cliente, contrato, ticket, ruta o referencia"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Desde</span><input id="tpStart028R" type="date" value="${h(startDate)}" style="${fieldInput}"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Hasta</span><input id="tpEnd028R" type="date" value="${h(endDate)}" style="${fieldInput}"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Tickets</span><select id="tpStatus028R" style="${fieldInput}">
+                  <option value="all" ${statusFilter === "all" ? "selected" : ""}>Todos</option>
+                  <option value="pending_treasury" ${statusFilter === "pending_treasury" ? "selected" : ""}>Pendiente tesoreria</option>
+                  <option value="ready" ${statusFilter === "ready" ? "selected" : ""}>Listos facturar</option>
+                  <option value="billed" ${statusFilter === "billed" ? "selected" : ""}>Facturados</option>
+                  <option value="scheduled" ${statusFilter === "scheduled" ? "selected" : ""}>Programados</option>
+                  <option value="completed" ${statusFilter === "completed" ? "selected" : ""}>Completados</option>
+                </select></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Pagos</span><select id="tpPaymentStatus028R" style="${fieldInput}">
+                  <option value="all" ${paymentStatus === "all" ? "selected" : ""}>Todos</option>
+                  <option value="paid" ${paymentStatus === "paid" ? "selected" : ""}>Pagados</option>
+                  <option value="pending" ${paymentStatus === "pending" ? "selected" : ""}>Pendientes</option>
+                  <option value="rejected" ${paymentStatus === "rejected" ? "selected" : ""}>Rechazados</option>
+                </select></label>
+                <button class="client-btn" type="button" id="tpApply028R">Aplicar</button>
+                <button class="client-btn" type="button" id="tpClear028R" style="background:rgba(255,255,255,.08);box-shadow:none">Limpiar</button>
+              </div>
+              <div id="tpMsg028R" class="client-muted" style="margin-top:12px"></div>
+            </section>
+
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px">
+                <div>
+                  <div class="client-eyebrow">Bandeja financiera</div>
+                  <h2>Tickets por revisar</h2>
+                </div>
+                <span class="client-badge">${h(tickets.length)}</span>
+              </div>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:520px">
+                <table style="width:100%;border-collapse:collapse;min-width:1320px">
+                  <thead><tr><th style="${tableHead}">Ticket</th><th style="${tableHead}">Cliente</th><th style="${tableHead}">Ruta</th><th style="${tableHead}">Valor</th><th style="${tableHead}">Checks</th><th style="${tableHead}">Acciones</th></tr></thead>
+                  <tbody>${ticketRows}</tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px">
+                <div>
+                  <div class="client-eyebrow">Pagos y facturacion</div>
+                  <h2>Ultimos pagos registrados</h2>
+                </div>
+                <span class="client-badge">${h(payments.length)}</span>
+              </div>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
+                <table style="width:100%;border-collapse:collapse;min-width:980px">
+                  <thead><tr><th style="${tableHead}">Documento</th><th style="${tableHead}">Cliente</th><th style="${tableHead}">Monto</th><th style="${tableHead}">Metodo</th><th style="${tableHead}">Usuario</th></tr></thead>
+                  <tbody>${paymentRows}</tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    document.getElementById("tpRefresh028R")?.addEventListener("click", () => renderTransportPaymentsModule028R());
+    document.getElementById("tpApply028R")?.addEventListener("click", () => renderTransportPaymentsModule028R());
+    document.getElementById("tpClear028R")?.addEventListener("click", () => {
+      ["tpSearch028R", "tpStart028R", "tpEnd028R"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+      });
+      const statusEl = document.getElementById("tpStatus028R");
+      const payStatusEl = document.getElementById("tpPaymentStatus028R");
+      if (statusEl) statusEl.value = "all";
+      if (payStatusEl) payStatusEl.value = "all";
+      renderTransportPaymentsModule028R();
+    });
+    document.getElementById("tpSearch028R")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") renderTransportPaymentsModule028R();
+    });
+    document.querySelectorAll("[data-tp-check]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          const id = button.getAttribute("data-tp-check") || "";
+          await cxTransportPaymentsApi028R(`/tickets/${encodeURIComponent(id)}/treasury-check`, {
+            method: "PATCH",
+            body: JSON.stringify({ treasury_check: true, status: "approved", created_by: company.name || "Tesoreria" }),
+          });
+          await renderTransportPaymentsModule028R();
+        } catch (error) {
+          cxTransportPaymentsSetMsg028R(error.message || "No se pudo aplicar el check.", true);
+        }
+      });
+    });
+    document.querySelectorAll("[data-tp-pay]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          const id = button.getAttribute("data-tp-pay") || "";
+          const suggested = button.getAttribute("data-tp-amount") || "0";
+          const typedAmount = window.prompt("Valor pagado", suggested);
+          if (typedAmount === null) return;
+          const amount = cxTransportContractsNumber028M(typedAmount);
+          if (!amount) {
+            cxTransportPaymentsSetMsg028R("El valor pagado debe ser mayor a 0.", true);
+            return;
+          }
+          const reference = window.prompt("Referencia de pago o factura", "") || "";
+          await cxTransportPaymentsApi028R("/payments", {
+            method: "POST",
+            body: JSON.stringify({
+              document_id: id,
+              amount,
+              payment_method: "transfer",
+              payment_reference: reference,
+              status: "paid",
+              created_by: company.name || "Tesoreria",
+            }),
+          });
+          await renderTransportPaymentsModule028R();
+        } catch (error) {
+          cxTransportPaymentsSetMsg028R(error.message || "No se pudo registrar el pago.", true);
+        }
+      });
+    });
+    document.querySelectorAll("[data-tp-print]").forEach((button) => {
+      button.addEventListener("click", () => window.open(cxTransportDocumentsPdfUrl028N(button.getAttribute("data-tp-print") || "", true), "_blank", "noopener"));
+    });
+    document.querySelectorAll("[data-tp-pdf]").forEach((button) => {
+      button.addEventListener("click", () => window.open(cxTransportDocumentsPdfUrl028N(button.getAttribute("data-tp-pdf") || "", false), "_blank", "noopener"));
+    });
+  }
+
   async function renderClientModulePlaceholder(code) {
+    if (cxIsTransportPaymentsCode028R(code)) {
+      return renderTransportPaymentsModule028R();
+    }
+
     if (cxIsTransportQuotesTicketsCode028N(code)) {
       return renderTransportQuotesTicketsModule028N();
     }
@@ -27595,6 +27890,11 @@ function inventoryCreatePayload() {
 
         if (action === "transport_contracts:open" && isClientModuleActive("transport_contracts")) {
           await renderTransportContractsModule028M();
+          return;
+        }
+
+        if (action === "transport_payments:open" && isClientModuleActive("transport_payments")) {
+          await renderTransportPaymentsModule028R();
           return;
         }
 
