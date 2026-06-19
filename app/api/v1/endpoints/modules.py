@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.module_catalog_v1 import sync_module_catalog
 from app.models.saas import CompanyModule, Module, PackageModule
 from app.schemas.saas import ModuleCreate, ModuleOut
 from app.web.admin_v2_routes import _valid_session
@@ -15,6 +16,7 @@ async def list_modules(
     db: AsyncSession = Depends(get_db),
     active_only: bool = False,
 ) -> list[Module]:
+    await sync_module_catalog(db)
     stmt = select(Module).order_by(Module.category.asc().nullslast(), Module.code.asc())
     if active_only:
         stmt = stmt.where(Module.is_active.is_(True))
