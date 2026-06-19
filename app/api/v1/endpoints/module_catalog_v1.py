@@ -62,6 +62,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "CALL",
         "is_transversal": False,
     },
+    "transport_contracts": {
+        "name": "Contratos / Avales",
+        "description": "Base de clientes, contratos, avales, saldos, consumo y alertas para transporte.",
+        "category": "transport",
+        "category_label": "Transporte operativo",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "CON",
+        "is_transversal": False,
+    },
     "references": {
         "name": "Referencias",
         "description": "Catálogo de referencias, productos, tallas o servicios medibles.",

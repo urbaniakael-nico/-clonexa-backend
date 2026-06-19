@@ -678,6 +678,7 @@
     workforce: ["Workforce", "personal operativo", "WRK"],
     field: ["Field Ops", "operacion en campo", "FLD"],
     transport_calls: ["Call Center / Llamadas", "registro y control de llamadas", "CALL"],
+    transport_contracts: ["Contratos / Avales", "clientes, saldos y alertas", "CON"],
     login: ["Login tiendas", "turnos y accesos", "LOG"],
     store_login: ["Login tiendas", "turnos y accesos", "LOG"],
     shift_control: ["Login tiendas", "turnos y accesos", "LOG"],
@@ -1083,6 +1084,10 @@
 
     if (hasAnyClientModule(codes, ["transport_calls"])) {
       actions.push({ label: "Call Center", action: "transport_calls:open" });
+    }
+
+    if (hasAnyClientModule(codes, ["transport_contracts"])) {
+      actions.push({ label: "Contratos", action: "transport_contracts:open" });
     }
 
     if (hasAnyClientModule(codes, ["bots"])) {
@@ -25594,7 +25599,393 @@ function inventoryCreatePayload() {
     });
   }
 
+  function cxIsTransportContractsCode028M(code = "") {
+    return cxNormalizeModuleToken017H(code) === "transport_contracts";
+  }
+
+  function cxTransportContractsMoney028M(value) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return "$ 0";
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: "COP",
+      maximumFractionDigits: 0,
+    }).format(number);
+  }
+
+  function cxTransportContractsNumber028M(value) {
+    let clean = String(value ?? "").replace(/[^\d,.-]/g, "");
+    if (clean.includes(",") && clean.includes(".")) {
+      clean = clean.lastIndexOf(",") > clean.lastIndexOf(".")
+        ? clean.replaceAll(".", "").replace(",", ".")
+        : clean.replaceAll(",", "");
+    } else if ((clean.match(/\./g) || []).length > 1) {
+      clean = clean.replaceAll(".", "");
+    } else if ((clean.match(/,/g) || []).length > 1) {
+      clean = clean.replaceAll(",", "");
+    } else if (clean.includes(",")) {
+      clean = clean.replace(",", ".");
+    }
+    const parsed = Number(clean || 0);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  }
+
+  function cxTransportContractsDate028M(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString("es-CO", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function cxTransportContractsStatusLabel028M(value) {
+    const labels = {
+      active: "Activo",
+      paused: "Pausado",
+      expired: "Vencido",
+      archived: "Archivado",
+    };
+    return labels[String(value || "active")] || "Activo";
+  }
+
+  function cxTransportContractsApi028M(path, options = {}) {
+    return api(`/transport-contracts/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxTransportContractsFieldValue028M(id) {
+    return String(document.getElementById(id)?.value || "").trim();
+  }
+
+  function cxTransportContractsNewPayload028M() {
+    return {
+      client_name: cxTransportContractsFieldValue028M("tcNewClient028M"),
+      client_type: cxTransportContractsFieldValue028M("tcNewType028M") || "company",
+      phone: cxTransportContractsFieldValue028M("tcNewPhone028M"),
+      email: cxTransportContractsFieldValue028M("tcNewEmail028M"),
+      document_id: cxTransportContractsFieldValue028M("tcNewDocument028M"),
+      contract_code: cxTransportContractsFieldValue028M("tcNewContract028M"),
+      initial_balance: cxTransportContractsNumber028M(cxTransportContractsFieldValue028M("tcNewInitial028M")),
+      consumed_balance: cxTransportContractsNumber028M(cxTransportContractsFieldValue028M("tcNewConsumed028M")),
+      alert_balance: cxTransportContractsNumber028M(cxTransportContractsFieldValue028M("tcNewAlert028M")),
+      status: cxTransportContractsFieldValue028M("tcNewStatus028M") || "active",
+      authorized_contacts: cxTransportContractsFieldValue028M("tcNewContacts028M"),
+      notes: cxTransportContractsFieldValue028M("tcNewNotes028M"),
+    };
+  }
+
+  function cxTransportContractsRowPayload028M(row) {
+    const payload = {};
+    row.querySelectorAll("[data-tc-field]").forEach((field) => {
+      const key = field.getAttribute("data-tc-field") || "";
+      if (!key) return;
+      payload[key] = ["initial_balance", "consumed_balance", "alert_balance"].includes(key)
+        ? cxTransportContractsNumber028M(field.value)
+        : String(field.value || "").trim();
+    });
+    return payload;
+  }
+
+  function cxTransportContractsSetMsg028M(message, isError = false) {
+    const el = document.getElementById("tcMsg028M");
+    if (!el) return;
+    el.textContent = message || "";
+    el.style.color = isError ? "#fca5a5" : "#86efac";
+  }
+
+  function cxTransportContractsInput028M(name, value = "", extra = "") {
+    return `<input data-tc-field="${h(name)}" value="${h(value ?? "")}" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(4,6,22,.72);color:inherit;padding:10px 11px;font:inherit;font-weight:850;min-width:0" ${extra}>`;
+  }
+
+  async function renderTransportContractsModule028M() {
+    const company = state.company || {};
+    const search = cxTransportContractsFieldValue028M("tcSearch028M");
+    const statusFilter = cxTransportContractsFieldValue028M("tcStatusFilter028M") || "all";
+    let summary = {};
+    let contracts = [];
+    let loadError = "";
+
+    try {
+      const [summaryResponse, contractsResponse] = await Promise.all([
+        cxTransportContractsApi028M("/summary"),
+        cxTransportContractsApi028M(`/contracts?limit=160&status=${encodeURIComponent(statusFilter)}&search=${encodeURIComponent(search)}`),
+      ]);
+      summary = summaryResponse.summary || {};
+      contracts = Array.isArray(contractsResponse.contracts) ? contractsResponse.contracts : [];
+    } catch (error) {
+      loadError = error.message || "No se pudo cargar contratos y avales.";
+    }
+
+    const fieldWrap = "display:flex;flex-direction:column;gap:8px;min-width:0";
+    const fieldLabel = "font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:950;color:var(--cx-secondary)";
+    const fieldInput = "width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850;min-width:0";
+    const tableCell = "padding:12px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top";
+    const tableHead = "padding:12px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left;letter-spacing:.12em;text-transform:uppercase;font-size:11px;opacity:.78";
+
+    const rows = contracts.length
+      ? contracts.map((item) => {
+          const id = String(item.id || "");
+          const available = cxTransportContractsNumber028M(item.available_balance);
+          const alert = String(item.balance_alert || "") === "low_balance";
+          return `
+            <tr data-tc-row="${h(id)}">
+              <td style="${tableCell};min-width:220px">
+                ${cxTransportContractsInput028M("client_name", item.client_name)}
+                <div style="height:8px"></div>
+                <select data-tc-field="client_type" style="${fieldInput};padding:10px 11px">
+                  <option value="company" ${String(item.client_type || "") === "company" ? "selected" : ""}>Empresa</option>
+                  <option value="person" ${String(item.client_type || "") === "person" ? "selected" : ""}>Persona</option>
+                  <option value="agency" ${String(item.client_type || "") === "agency" ? "selected" : ""}>Agencia</option>
+                </select>
+              </td>
+              <td style="${tableCell};min-width:210px">
+                ${cxTransportContractsInput028M("phone", item.phone)}
+                <div style="height:8px"></div>
+                ${cxTransportContractsInput028M("email", item.email)}
+              </td>
+              <td style="${tableCell};min-width:210px">
+                ${cxTransportContractsInput028M("contract_code", item.contract_code)}
+                <div style="height:8px"></div>
+                ${cxTransportContractsInput028M("document_id", item.document_id)}
+              </td>
+              <td style="${tableCell};min-width:300px">
+                <div style="display:grid;grid-template-columns:repeat(3,minmax(90px,1fr));gap:8px">
+                  ${cxTransportContractsInput028M("initial_balance", item.initial_balance, 'inputmode="decimal"')}
+                  ${cxTransportContractsInput028M("consumed_balance", item.consumed_balance, 'inputmode="decimal"')}
+                  ${cxTransportContractsInput028M("alert_balance", item.alert_balance, 'inputmode="decimal"')}
+                </div>
+                <div class="client-muted" style="margin-top:8px">
+                  Disponible: <strong style="color:${alert ? "#fbbf24" : "var(--cx-secondary)"}">${h(cxTransportContractsMoney028M(available))}</strong>
+                </div>
+              </td>
+              <td style="${tableCell};min-width:150px">
+                <select data-tc-field="status" style="${fieldInput};padding:10px 11px">
+                  <option value="active" ${String(item.status || "") === "active" ? "selected" : ""}>Activo</option>
+                  <option value="paused" ${String(item.status || "") === "paused" ? "selected" : ""}>Pausado</option>
+                  <option value="expired" ${String(item.status || "") === "expired" ? "selected" : ""}>Vencido</option>
+                  <option value="archived" ${String(item.status || "") === "archived" ? "selected" : ""}>Archivado</option>
+                </select>
+                <div class="client-muted" style="margin-top:8px">${h(cxTransportContractsDate028M(item.updated_at))}</div>
+              </td>
+              <td style="${tableCell};min-width:260px">
+                <textarea data-tc-field="authorized_contacts" style="${fieldInput};min-height:70px;resize:vertical">${h(item.authorized_contacts || "")}</textarea>
+                <div style="height:8px"></div>
+                <textarea data-tc-field="notes" style="${fieldInput};min-height:70px;resize:vertical">${h(item.notes || "")}</textarea>
+              </td>
+              <td style="${tableCell};min-width:150px">
+                <button class="client-btn" type="button" data-tc-save="${h(id)}" style="width:100%;margin-bottom:8px">Guardar</button>
+                <button class="client-btn" type="button" data-tc-archive="${h(id)}" style="width:100%;background:rgba(248,113,113,.16);color:#fecaca;border-color:rgba(248,113,113,.32);box-shadow:none">Archivar</button>
+              </td>
+            </tr>
+          `;
+        }).join("")
+      : `<tr><td colspan="7" style="${tableCell};color:rgba(255,255,255,.68)">Sin contratos o avales cargados todavia.</td></tr>`;
+
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("transport_contracts")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Vertical transporte</div>
+              <h1 class="client-title">Contratos / Avales</h1>
+              <p class="client-muted">Base operativa para clientes, contratos, avales, saldo disponible, consumo y alertas que alimentan call center, tickets, pagos y gerencia.</p>
+              <div class="client-kpi-grid">
+                <article class="client-kpi"><span>Contratos activos</span><strong>${h(summary.active_count || 0)}</strong></article>
+                <article class="client-kpi"><span>Saldo inicial</span><strong>${h(cxTransportContractsMoney028M(summary.initial_total))}</strong></article>
+                <article class="client-kpi"><span>Consumido</span><strong>${h(cxTransportContractsMoney028M(summary.consumed_total))}</strong></article>
+                <article class="client-kpi"><span>Disponible</span><strong>${h(cxTransportContractsMoney028M(summary.available_total))}</strong></article>
+              </div>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" id="tcRefresh028M">Actualizar</button>
+              </div>
+            </header>
+
+            ${loadError ? `
+              <section class="client-panel" style="border-color:rgba(248,113,113,.4)">
+                <strong>No se pudo cargar Contratos / Avales.</strong>
+                <p class="client-muted">${h(loadError)}</p>
+              </section>
+            ` : ""}
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Estado financiero</div>
+              <h2>Control de saldos</h2>
+              <div class="client-kpi-grid" style="margin-top:0">
+                <article class="client-kpi"><span>Total contratos</span><strong>${h(summary.contracts_total || 0)}</strong></article>
+                <article class="client-kpi"><span>Saldo bajo</span><strong>${h(summary.low_balance_count || 0)}</strong></article>
+                <article class="client-kpi"><span>Pausados</span><strong>${h(summary.paused_count || 0)}</strong></article>
+                <article class="client-kpi"><span>Archivados</span><strong>${h(summary.archived_count || 0)}</strong></article>
+              </div>
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Carga base</div>
+              <h2>Crear contrato / aval</h2>
+              <form id="tcCreateForm028M" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Cliente</span><input id="tcNewClient028M" style="${fieldInput}" placeholder="Empresa o persona"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Tipo cliente</span><select id="tcNewType028M" style="${fieldInput}"><option value="company">Empresa</option><option value="person">Persona</option><option value="agency">Agencia</option></select></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Telefono</span><input id="tcNewPhone028M" style="${fieldInput}" placeholder="+57..."></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Correo</span><input id="tcNewEmail028M" style="${fieldInput}" placeholder="correo@empresa.com"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Documento / NIT</span><input id="tcNewDocument028M" style="${fieldInput}" placeholder="NIT, CC o ID"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Contrato / aval</span><input id="tcNewContract028M" style="${fieldInput}" placeholder="Numero contrato"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Saldo inicial</span><input id="tcNewInitial028M" style="${fieldInput}" inputmode="decimal" placeholder="20000000"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Consumido</span><input id="tcNewConsumed028M" style="${fieldInput}" inputmode="decimal" placeholder="0"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Alerta saldo bajo</span><input id="tcNewAlert028M" style="${fieldInput}" inputmode="decimal" value="2000000"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Estado</span><select id="tcNewStatus028M" style="${fieldInput}"><option value="active">Activo</option><option value="paused">Pausado</option><option value="expired">Vencido</option></select></label>
+                <label style="${fieldWrap};grid-column:span 2"><span style="${fieldLabel}">Contactos autorizados</span><input id="tcNewContacts028M" style="${fieldInput}" placeholder="Nombres, cargos o telefonos"></label>
+                <label style="${fieldWrap};grid-column:1/-1"><span style="${fieldLabel}">Notas</span><textarea id="tcNewNotes028M" style="${fieldInput};min-height:82px;resize:vertical" placeholder="Condiciones, aprobaciones, pendiente de facturacion o tesoreria"></textarea></label>
+                <div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                  <button class="client-btn" type="submit">Crear contrato</button>
+                  <span id="tcMsg028M" class="client-muted"></span>
+                </div>
+              </form>
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Importar desde Excel</div>
+              <h2>CSV de clientes y contratos</h2>
+              <p class="client-muted">Exporta tu Excel como CSV con columnas como cliente, telefono, correo, documento, contrato, valor_contrato, consumido y saldo_alerta.</p>
+              <form id="tcImportForm028M" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
+                <label style="${fieldWrap};min-width:min(420px,100%)">
+                  <span style="${fieldLabel}">Archivo CSV</span>
+                  <input id="tcImportFile028M" type="file" accept=".csv,text/csv" style="${fieldInput}">
+                </label>
+                <button class="client-btn" type="submit">Cargar base</button>
+              </form>
+            </section>
+
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px">
+                <div>
+                  <div class="client-eyebrow">Administrar</div>
+                  <h2>Buscar y actualizar</h2>
+                </div>
+                <span class="client-badge">${h(contracts.length)}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:minmax(0,1fr) 180px auto;gap:10px;margin-bottom:14px">
+                <input id="tcSearch028M" value="${h(search)}" style="${fieldInput}" placeholder="Buscar cliente, telefono, documento o contrato">
+                <select id="tcStatusFilter028M" style="${fieldInput}">
+                  <option value="all" ${statusFilter === "all" ? "selected" : ""}>Todos</option>
+                  <option value="active" ${statusFilter === "active" ? "selected" : ""}>Activos</option>
+                  <option value="paused" ${statusFilter === "paused" ? "selected" : ""}>Pausados</option>
+                  <option value="expired" ${statusFilter === "expired" ? "selected" : ""}>Vencidos</option>
+                  <option value="archived" ${statusFilter === "archived" ? "selected" : ""}>Archivados</option>
+                </select>
+                <button class="client-btn" type="button" id="tcSearchBtn028M">Buscar</button>
+              </div>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:620px">
+                <table style="width:100%;border-collapse:collapse;min-width:1320px">
+                  <thead>
+                    <tr>
+                      <th style="${tableHead}">Cliente</th>
+                      <th style="${tableHead}">Contacto</th>
+                      <th style="${tableHead}">Contrato / doc.</th>
+                      <th style="${tableHead}">Saldos</th>
+                      <th style="${tableHead}">Estado</th>
+                      <th style="${tableHead}">Contactos / notas</th>
+                      <th style="${tableHead}">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        </div>
+      </main>
+    `;
+
+    document.getElementById("tcRefresh028M")?.addEventListener("click", () => renderTransportContractsModule028M());
+    document.getElementById("tcSearchBtn028M")?.addEventListener("click", () => renderTransportContractsModule028M());
+    document.getElementById("tcStatusFilter028M")?.addEventListener("change", () => renderTransportContractsModule028M());
+    document.getElementById("tcSearch028M")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") renderTransportContractsModule028M();
+    });
+
+    document.getElementById("tcCreateForm028M")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = cxTransportContractsNewPayload028M();
+        if (!payload.client_name && !payload.contract_code) {
+          cxTransportContractsSetMsg028M("Agrega cliente o numero de contrato.", true);
+          return;
+        }
+        await cxTransportContractsApi028M("/contracts", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        await renderTransportContractsModule028M();
+      } catch (error) {
+        cxTransportContractsSetMsg028M(error.message || "No se pudo crear el contrato.", true);
+      }
+    });
+
+    document.getElementById("tcImportForm028M")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const file = document.getElementById("tcImportFile028M")?.files?.[0];
+        if (!file) {
+          cxTransportContractsSetMsg028M("Selecciona un CSV exportado desde Excel.", true);
+          return;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        await apiForm(`/transport-contracts/companies/${encodeURIComponent(state.companyId)}/contracts/import-csv`, form);
+        await renderTransportContractsModule028M();
+      } catch (error) {
+        cxTransportContractsSetMsg028M(error.message || "No se pudo importar el CSV.", true);
+      }
+    });
+
+    document.querySelectorAll("[data-tc-save]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          const id = button.getAttribute("data-tc-save") || "";
+          const row = button.closest("[data-tc-row]");
+          if (!id || !row) return;
+          await cxTransportContractsApi028M(`/contracts/${encodeURIComponent(id)}`, {
+            method: "PATCH",
+            body: JSON.stringify(cxTransportContractsRowPayload028M(row)),
+          });
+          await renderTransportContractsModule028M();
+        } catch (error) {
+          cxTransportContractsSetMsg028M(error.message || "No se pudo guardar.", true);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-tc-archive]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          const id = button.getAttribute("data-tc-archive") || "";
+          if (!id) return;
+          if (!window.confirm("Archivar este contrato o aval?")) return;
+          await cxTransportContractsApi028M(`/contracts/${encodeURIComponent(id)}/archive`, { method: "POST" });
+          await renderTransportContractsModule028M();
+        } catch (error) {
+          cxTransportContractsSetMsg028M(error.message || "No se pudo archivar.", true);
+        }
+      });
+    });
+  }
+
   async function renderClientModulePlaceholder(code) {
+    if (cxIsTransportContractsCode028M(code)) {
+      return renderTransportContractsModule028M();
+    }
+
     if (cxIsTransportCallsCode028A(code)) {
       return renderTransportCallsModule028A();
     }
@@ -26755,6 +27146,11 @@ function inventoryCreatePayload() {
           return;
         }
 
+        if (action === "transport_contracts:open" && isClientModuleActive("transport_contracts")) {
+          await renderTransportContractsModule028M();
+          return;
+        }
+
         if (action === "bots:open" && isClientModuleActive("bots")) {
           await renderBotsModule();
           return;
@@ -27423,6 +27819,11 @@ function inventoryCreatePayload() {
 
         if (cxIsTransportCallsCode028A(code)) {
           await renderTransportCallsModule028A();
+          return;
+        }
+
+        if (cxIsTransportContractsCode028M(code)) {
+          await renderTransportContractsModule028M();
           return;
         }
 
