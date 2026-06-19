@@ -25299,17 +25299,31 @@ function inventoryCreatePayload() {
 
   async function renderTransportCallsModule028A() {
     const company = state.company || {};
+    const today = new Date().toISOString().slice(0, 10);
+    const startDate = cxTransportContractsFieldValue028M("transportStart028P") || today;
+    const endDate = cxTransportContractsFieldValue028M("transportEnd028P") || today;
+    const search = cxTransportContractsFieldValue028M("transportSearch028P");
+    const qs = `start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&search=${encodeURIComponent(search)}`;
     let summary = {};
     let calls = [];
+    let documents = [];
+    let agents = [];
+    let batches = [];
     let loadError = "";
 
     try {
-      const [summaryResponse, callsResponse] = await Promise.all([
-        cxTransportApi028A("/summary"),
-        cxTransportApi028A("/calls?limit=80"),
+      const [summaryResponse, callsResponse, docsResponse, agentsResponse, batchesResponse] = await Promise.all([
+        cxTransportApi028A(`/summary?${qs}`),
+        cxTransportApi028A(`/calls?limit=160&${qs}`),
+        api(`/transport-quotes-tickets/companies/${encodeURIComponent(state.companyId)}/documents?limit=160&${qs}`),
+        cxTransportApi028A("/agents"),
+        cxTransportApi028A("/batches?status=all&limit=120"),
       ]);
       summary = summaryResponse.summary || {};
       calls = Array.isArray(callsResponse.calls) ? callsResponse.calls : [];
+      documents = Array.isArray(docsResponse.documents) ? docsResponse.documents : [];
+      agents = Array.isArray(agentsResponse.agents) ? agentsResponse.agents : [];
+      batches = Array.isArray(batchesResponse.batches) ? batchesResponse.batches : [];
     } catch (error) {
       loadError = error.message || "No se pudo cargar el modulo de llamadas.";
     }
@@ -25318,9 +25332,13 @@ function inventoryCreatePayload() {
     const tableHeadStyle = "padding:12px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left;letter-spacing:.12em;text-transform:uppercase;font-size:11px;opacity:.78";
     const panelStyle = "display:grid;gap:16px";
     const progressStyle = "height:8px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:8px";
-    const safeCallsToday = cxTransportNumber028A(summary.calls_today || 0);
-    const conversionTicket = cxTransportPercent028L(summary.tickets_today || 0, safeCallsToday);
-    const conversionQuote = cxTransportPercent028L(summary.quotes_today || 0, safeCallsToday);
+    const periodCalls = calls.length;
+    const periodTickets = documents.filter((doc) => String(doc.document_type || "") === "ticket").length || cxTransportNumber028A(summary.tickets_period || 0);
+    const periodQuotes = documents.filter((doc) => String(doc.document_type || "") === "quote").length || cxTransportNumber028A(summary.quotes_period || 0);
+    const periodDuration = calls.reduce((total, call) => total + cxTransportNumber028A(call.duration_seconds), 0);
+    const avgDuration = periodCalls ? Math.round(periodDuration / periodCalls) : 0;
+    const conversionTicket = cxTransportPercent028L(periodTickets, periodCalls);
+    const conversionQuote = cxTransportPercent028L(periodQuotes, periodCalls);
 
     const advisors = cxTransportGroupCalls028L(
       calls,
@@ -25342,7 +25360,7 @@ function inventoryCreatePayload() {
         row.quotes += call.quote_requested ? 1 : 0;
         row.missed += String(call.call_status || "") === "missed" ? 1 : 0;
       }
-    ).sort((a, b) => b.calls - a.calls || b.tickets - a.tickets).slice(0, 12);
+    ).sort((a, b) => b.calls - a.calls || b.tickets - a.tickets).slice(0, 5);
 
     const routes = cxTransportGroupCalls028L(
       calls,
@@ -25354,7 +25372,7 @@ function inventoryCreatePayload() {
         row.quotes += call.quote_requested ? 1 : 0;
         row.duration += cxTransportNumber028A(call.duration_seconds);
       }
-    ).sort((a, b) => b.calls - a.calls).slice(0, 8);
+    ).sort((a, b) => b.calls - a.calls).slice(0, 5);
 
     const contracts = cxTransportGroupCalls028L(
       calls,
@@ -25366,11 +25384,11 @@ function inventoryCreatePayload() {
         row.quotes += call.quote_requested ? 1 : 0;
         row.last_at = row.last_at || call.created_at || "";
       }
-    ).sort((a, b) => b.calls - a.calls).slice(0, 8);
+    ).sort((a, b) => b.calls - a.calls).slice(0, 5);
 
     const alertItems = [];
-    if (cxTransportNumber028A(summary.missed_today) > 0) {
-      alertItems.push({ label: "Llamadas perdidas", value: summary.missed_today, note: "Requieren devolucion o seguimiento." });
+    if (cxTransportNumber028A(summary.missed_period || summary.missed_today) > 0) {
+      alertItems.push({ label: "Llamadas perdidas", value: summary.missed_period || summary.missed_today, note: "Requieren devolucion o seguimiento." });
     }
     if (calls.some((call) => String(call.call_status || "") === "pending")) {
       alertItems.push({ label: "Llamadas pendientes", value: calls.filter((call) => String(call.call_status || "") === "pending").length, note: "Validar cierre operativo." });
@@ -25403,7 +25421,7 @@ function inventoryCreatePayload() {
             <div>
               <strong>${h(item.route)}</strong>
               <div class="client-muted">${h(item.quotes)} cotizaciones · ${h(item.tickets)} tickets · ${h(cxTransportDuration028A(item.duration))}</div>
-              <div style="${progressStyle}"><i style="display:block;height:100%;width:${h(cxTransportPercent028L(item.calls, calls.length))};background:linear-gradient(90deg,#ff2bd6,#00ff88)"></i></div>
+              <div style="${progressStyle}"><i style="display:block;height:100%;width:${h(cxTransportPercent028L(item.calls, Math.max(1, calls.length)))};background:linear-gradient(90deg,#ff2bd6,#00ff88)"></i></div>
             </div>
             <strong style="text-align:right">${h(item.calls)}</strong>
           </div>
@@ -25431,7 +25449,7 @@ function inventoryCreatePayload() {
     `).join("");
 
     const rows = calls.length
-      ? calls.slice(0, 20).map((call) => `
+      ? calls.slice(0, 5).map((call) => `
           <tr>
             <td style="${tableCellStyle}"><strong>${h(cxTransportDate028A(call.created_at))}</strong></td>
             <td style="${tableCellStyle}">
@@ -25456,7 +25474,29 @@ function inventoryCreatePayload() {
             </td>
           </tr>
         `).join("")
-      : `<tr><td colspan="8" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin llamadas registradas todavia.</td></tr>`;
+      : `<tr><td colspan="8" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin llamadas registradas en este periodo.</td></tr>`;
+
+    const agentOptions = agents.length
+      ? agents.map((agent) => `<option value="${h(agent.id)}">${h(agent.full_name || agent.email || agent.phone || "Agente")}</option>`).join("")
+      : `<option value="">Sin agentes call en Workforce</option>`;
+    const batchRows = batches.length
+      ? batches.slice(0, 5).map((batch) => {
+          const total = cxTransportNumber028A(batch.rows_total || batch.record_count || 0);
+          const managed = cxTransportNumber028A(batch.rows_managed || 0);
+          return `
+            <tr>
+              <td style="${tableCellStyle}"><strong>${h(batch.file_name || "Base CSV")}</strong><br><span class="client-muted">${h(batch.status || "active")}</span></td>
+              <td style="${tableCellStyle}">${h(batch.assigned_agent_name || "Sin agente")}</td>
+              <td style="${tableCellStyle}"><strong>${h(total)}</strong><br><span class="client-muted">${h(managed)} gestionados</span></td>
+              <td style="${tableCellStyle}">
+                <button class="client-btn" type="button" data-tc-batch-export="${h(batch.id)}" style="padding:10px 14px;margin-right:6px">Ver gestion</button>
+                <button class="client-btn" type="button" data-tc-batch-archive="${h(batch.id)}" style="padding:10px 14px;margin-right:6px;box-shadow:none">Archivar</button>
+                <button class="client-btn" type="button" data-tc-batch-delete="${h(batch.id)}" style="padding:10px 14px;background:rgba(248,113,113,.16);color:#fecaca;border-color:rgba(248,113,113,.32);box-shadow:none">Eliminar</button>
+              </td>
+            </tr>
+          `;
+        }).join("")
+      : `<tr><td colspan="4" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin bases asignadas a agentes.</td></tr>`;
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -25474,10 +25514,10 @@ function inventoryCreatePayload() {
               <h1 class="client-title">Call Center / Llamadas</h1>
               <p class="client-muted">Panel gerencial para controlar asesores, llamadas, rutas, cotizaciones, tickets, contratos y alertas operativas.</p>
               <div class="client-kpi-grid">
-                <article class="client-kpi"><span>Llamadas hoy</span><strong>${h(summary.calls_today || 0)}</strong></article>
-                <article class="client-kpi"><span>Tickets hoy</span><strong>${h(summary.tickets_today || 0)}</strong><small class="client-muted">${h(conversionTicket)} conversion</small></article>
-                <article class="client-kpi"><span>Cotizaciones hoy</span><strong>${h(summary.quotes_today || 0)}</strong><small class="client-muted">${h(conversionQuote)} conversion</small></article>
-                <article class="client-kpi"><span>Duracion promedio</span><strong>${h(cxTransportDuration028A(summary.avg_duration_today || 0))}</strong></article>
+                <article class="client-kpi"><span>Llamadas periodo</span><strong>${h(periodCalls)}</strong></article>
+                <article class="client-kpi"><span>Tickets periodo</span><strong>${h(periodTickets)}</strong><small class="client-muted">${h(conversionTicket)} conversion</small></article>
+                <article class="client-kpi"><span>Cotizaciones periodo</span><strong>${h(periodQuotes)}</strong><small class="client-muted">${h(conversionQuote)} conversion</small></article>
+                <article class="client-kpi"><span>Duracion promedio</span><strong>${h(cxTransportDuration028A(avgDuration))}</strong></article>
               </div>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
@@ -25493,6 +25533,34 @@ function inventoryCreatePayload() {
             ` : ""}
 
             <section class="client-panel">
+              <div class="client-eyebrow">Consultas</div>
+              <h2>Periodo y busqueda inteligente</h2>
+              <div style="display:grid;grid-template-columns:160px 160px minmax(0,1fr) auto auto;gap:10px;align-items:end">
+                <label><span class="client-muted">Desde</span><input id="transportStart028P" type="date" value="${h(startDate)}" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
+                <label><span class="client-muted">Hasta</span><input id="transportEnd028P" type="date" value="${h(endDate)}" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
+                <label><span class="client-muted">Buscar</span><input id="transportSearch028P" value="${h(search)}" placeholder="cliente, contrato, asesor, ruta..." style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
+                <button class="client-btn" type="button" id="transportApply028P">Aplicar</button>
+                <button class="client-btn" type="button" id="transportClear028P" style="box-shadow:none">Limpiar</button>
+              </div>
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Bases de llamadas</div>
+              <h2>Asignar archivo a agente</h2>
+              <form id="tcBatchImport028P" style="display:grid;grid-template-columns:minmax(220px,320px) minmax(260px,1fr) auto;gap:12px;align-items:end;margin-bottom:16px">
+                <label><span class="client-muted">Agente call</span><select id="tcBatchAgent028P" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850">${agentOptions}</select></label>
+                <label><span class="client-muted">Archivo CSV</span><input id="tcBatchFile028P" type="file" accept=".csv,text/csv" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
+                <button class="client-btn" type="submit">Cargar base</button>
+              </form>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
+                <table style="width:100%;border-collapse:collapse;min-width:860px">
+                  <thead><tr><th style="${tableHeadStyle}">Archivo</th><th style="${tableHeadStyle}">Agente</th><th style="${tableHeadStyle}">Registros</th><th style="${tableHeadStyle}">Acciones</th></tr></thead>
+                  <tbody>${batchRows}</tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="client-panel">
               <div class="client-eyebrow">Direccion</div>
               <h2>Control ejecutivo</h2>
               <div class="client-kpi-grid" style="margin-top:0">
@@ -25500,8 +25568,8 @@ function inventoryCreatePayload() {
                 <article class="client-kpi"><span>Disponibles</span><strong>${h(summary.advisors_available || 0)}</strong></article>
                 <article class="client-kpi"><span>En llamada</span><strong>${h(summary.advisors_in_call || 0)}</strong></article>
                 <article class="client-kpi"><span>Pausados</span><strong>${h(summary.advisors_paused || 0)}</strong></article>
-                <article class="client-kpi"><span>Perdidas hoy</span><strong>${h(summary.missed_today || 0)}</strong></article>
-                <article class="client-kpi"><span>Duracion hoy</span><strong>${h(cxTransportDuration028A(summary.duration_today || 0))}</strong></article>
+                <article class="client-kpi"><span>Perdidas periodo</span><strong>${h(summary.missed_period || 0)}</strong></article>
+                <article class="client-kpi"><span>Duracion periodo</span><strong>${h(cxTransportDuration028A(periodDuration))}</strong></article>
               </div>
             </section>
 
@@ -25516,8 +25584,9 @@ function inventoryCreatePayload() {
                 <div>
                   <div class="client-eyebrow">Equipo</div>
                   <h2>Ranking y estados</h2>
+                  <p class="client-muted">Mostrando 5 primeros. Usa busqueda para filtrar el resto.</p>
                 </div>
-                <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:440px">
+                <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
                   <table style="width:100%;border-collapse:collapse;min-width:760px">
                     <thead>
                       <tr>
@@ -25539,8 +25608,9 @@ function inventoryCreatePayload() {
                 <div>
                   <div class="client-eyebrow">Demanda</div>
                   <h2>Rutas principales</h2>
+                  <p class="client-muted">Top 5 del periodo seleccionado.</p>
                 </div>
-                <div>${routeRows}</div>
+                <div style="max-height:360px;overflow:auto">${routeRows}</div>
               </section>
             </section>
 
@@ -25552,7 +25622,7 @@ function inventoryCreatePayload() {
                 </div>
                 <span class="client-badge">${h(contracts.length)}</span>
               </div>
-              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08)">
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
                 <table style="width:100%;border-collapse:collapse;min-width:760px">
                   <thead>
                     <tr>
@@ -25573,10 +25643,11 @@ function inventoryCreatePayload() {
                 <div>
                   <div class="client-eyebrow">Auditoria</div>
                   <h2>Ultimas gestiones</h2>
+                  <p class="client-muted">Maximo 5 visibles. El resto se consulta con filtros o scroll.</p>
                 </div>
                 <span class="client-badge">${h(calls.length)}</span>
               </div>
-              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:520px">
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:420px">
                 <table style="width:100%;border-collapse:collapse;min-width:980px">
                   <thead>
                     <tr>
@@ -25599,10 +25670,66 @@ function inventoryCreatePayload() {
       </main>
     `;
 
-    $("transportRefresh028A")?.addEventListener("click", () => {
+    $("transportRefresh028A")?.addEventListener("click", () => renderTransportCallsModule028A());
+    $("transportApply028P")?.addEventListener("click", () => renderTransportCallsModule028A());
+    $("transportSearch028P")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") renderTransportCallsModule028A();
+    });
+    $("transportClear028P")?.addEventListener("click", () => {
+      const start = $("transportStart028P");
+      const end = $("transportEnd028P");
+      const searchField = $("transportSearch028P");
+      if (start) start.value = today;
+      if (end) end.value = today;
+      if (searchField) searchField.value = "";
       renderTransportCallsModule028A();
     });
+    $("tcBatchImport028P")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const agentId = $("tcBatchAgent028P")?.value || "";
+      const file = $("tcBatchFile028P")?.files?.[0];
+      if (!agentId || !file) {
+        alert("Selecciona agente y archivo CSV.");
+        return;
+      }
+      const form = new FormData();
+      form.append("assigned_employee_id", agentId);
+      form.append("file", file);
+      try {
+        await apiForm(`/transport-calls/companies/${encodeURIComponent(state.companyId)}/batches/import-csv`, form);
+        renderTransportCallsModule028A();
+      } catch (error) {
+        const message = error?.message === "agent_has_active_batch"
+          ? "Este agente ya tiene una base activa. Archiva o elimina la base anterior."
+          : (error?.message || "No se pudo cargar la base.");
+        alert(message);
+      }
+    });
+    document.querySelectorAll("[data-tc-batch-export]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.getAttribute("data-tc-batch-export") || "";
+        if (!id) return;
+        window.open(`/api/v1/transport-calls/companies/${encodeURIComponent(state.companyId)}/batches/${encodeURIComponent(id)}/export.csv`, "_blank");
+      });
+    });
+    document.querySelectorAll("[data-tc-batch-archive]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-tc-batch-archive") || "";
+        if (!id) return;
+        await cxTransportApi028A(`/batches/${encodeURIComponent(id)}/archive`, { method: "POST" });
+        renderTransportCallsModule028A();
+      });
+    });
+    document.querySelectorAll("[data-tc-batch-delete]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-tc-batch-delete") || "";
+        if (!id || !window.confirm("Eliminar esta base asignada?")) return;
+        await cxTransportApi028A(`/batches/${encodeURIComponent(id)}`, { method: "DELETE" });
+        renderTransportCallsModule028A();
+      });
+    });
   }
+
 
   function cxIsTransportContractsCode028M(code = "") {
     return cxNormalizeModuleToken017H(code) === "transport_contracts";
@@ -25685,13 +25812,15 @@ function inventoryCreatePayload() {
 
   function cxTransportContractsRowPayload028M(row) {
     const payload = {};
+    const editable = new Set(["alert_balance", "status", "notes"]);
     row.querySelectorAll("[data-tc-field]").forEach((field) => {
       const key = field.getAttribute("data-tc-field") || "";
-      if (!key) return;
-      payload[key] = ["initial_balance", "consumed_balance", "alert_balance"].includes(key)
+      if (!editable.has(key)) return;
+      payload[key] = key === "alert_balance"
         ? cxTransportContractsNumber028M(field.value)
         : String(field.value || "").trim();
     });
+    payload.last_updated_by = state?.user?.full_name || state?.user?.email || "Admin V2";
     return payload;
   }
 
@@ -25704,6 +25833,10 @@ function inventoryCreatePayload() {
 
   function cxTransportContractsInput028M(name, value = "", extra = "") {
     return `<input data-tc-field="${h(name)}" value="${h(value ?? "")}" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(4,6,22,.72);color:inherit;padding:10px 11px;font:inherit;font-weight:850;min-width:0" ${extra}>`;
+  }
+
+  function cxTransportContractsLockedInput028M(name, value = "") {
+    return `<input data-tc-field="${h(name)}" value="${h(value ?? "")}" readonly style="width:100%;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.72);padding:10px 11px;font:inherit;font-weight:850;min-width:0;cursor:not-allowed">`;
   }
 
   async function renderTransportContractsModule028M() {
@@ -25739,31 +25872,31 @@ function inventoryCreatePayload() {
           return `
             <tr data-tc-row="${h(id)}">
               <td style="${tableCell};min-width:220px">
-                ${cxTransportContractsInput028M("client_name", item.client_name)}
+                ${cxTransportContractsLockedInput028M("client_name", item.client_name)}
                 <div style="height:8px"></div>
-                <select data-tc-field="client_type" style="${fieldInput};padding:10px 11px">
+                <select data-tc-field="client_type" disabled style="${fieldInput};padding:10px 11px;opacity:.72;cursor:not-allowed">
                   <option value="company" ${String(item.client_type || "") === "company" ? "selected" : ""}>Empresa</option>
                   <option value="person" ${String(item.client_type || "") === "person" ? "selected" : ""}>Persona</option>
                   <option value="agency" ${String(item.client_type || "") === "agency" ? "selected" : ""}>Agencia</option>
                 </select>
               </td>
               <td style="${tableCell};min-width:210px">
-                ${cxTransportContractsInput028M("phone", item.phone)}
+                ${cxTransportContractsLockedInput028M("phone", item.phone)}
                 <div style="height:8px"></div>
-                ${cxTransportContractsInput028M("email", item.email)}
+                ${cxTransportContractsLockedInput028M("email", item.email)}
               </td>
               <td style="${tableCell};min-width:210px">
-                ${cxTransportContractsInput028M("contract_code", item.contract_code)}
+                ${cxTransportContractsLockedInput028M("contract_code", item.contract_code)}
                 <div style="height:8px"></div>
-                ${cxTransportContractsInput028M("document_id", item.document_id)}
+                ${cxTransportContractsLockedInput028M("document_id", item.document_id)}
               </td>
               <td style="${tableCell};min-width:300px">
                 <div style="display:grid;grid-template-columns:repeat(3,minmax(90px,1fr));gap:8px">
-                  ${cxTransportContractsInput028M("initial_balance", item.initial_balance, 'inputmode="decimal"')}
-                  ${cxTransportContractsInput028M("consumed_balance", item.consumed_balance, 'inputmode="decimal"')}
+                  ${cxTransportContractsLockedInput028M("initial_balance", item.initial_balance)}
+                  ${cxTransportContractsLockedInput028M("consumed_balance", item.consumed_balance)}
                   ${cxTransportContractsInput028M("alert_balance", item.alert_balance, 'inputmode="decimal"')}
                 </div>
-                <div class="client-muted" style="margin-top:8px">
+                <div class="client-muted" style="margin-top:8px">Saldo y consumo automaticos por tickets generados.<br>
                   Disponible: <strong style="color:${alert ? "#fbbf24" : "var(--cx-secondary)"}">${h(cxTransportContractsMoney028M(available))}</strong>
                 </div>
               </td>
@@ -25777,7 +25910,7 @@ function inventoryCreatePayload() {
                 <div class="client-muted" style="margin-top:8px">${h(cxTransportContractsDate028M(item.updated_at))}</div>
               </td>
               <td style="${tableCell};min-width:260px">
-                <textarea data-tc-field="authorized_contacts" style="${fieldInput};min-height:70px;resize:vertical">${h(item.authorized_contacts || "")}</textarea>
+                <textarea data-tc-field="authorized_contacts" readonly style="${fieldInput};min-height:70px;resize:vertical;opacity:.72;cursor:not-allowed">${h(item.authorized_contacts || "")}</textarea>
                 <div style="height:8px"></div>
                 <textarea data-tc-field="notes" style="${fieldInput};min-height:70px;resize:vertical">${h(item.notes || "")}</textarea>
               </td>

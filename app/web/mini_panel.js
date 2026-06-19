@@ -2874,7 +2874,8 @@
   function transportCustomerOptions028L(customers) {
     return (Array.isArray(customers) ? customers : [])
       .map((item) => {
-        const label = [item.phone, item.contract_code].filter(Boolean).join(" / ");
+        const batch = item.batch_file_name ? `Base: ${item.batch_file_name}${item.row_number ? ` #${item.row_number}` : ""}` : "";
+        const label = [item.phone, item.contract_code, batch].filter(Boolean).join(" / ");
         return `<option value="${h(item.customer_name || item.phone || item.contract_code || "")}" label="${h(label)}"></option>`;
       })
       .join("");
@@ -2913,8 +2914,9 @@
     `).join("");
   }
 
-  async function loadTransportCustomers028L(search = "") {
-    const suffix = `?limit=80&search=${encodeURIComponent(search || "")}`;
+  async function loadTransportCustomers028L(search = "", session = null) {
+    const employeeId = session?.employee?.id || session?.employee_id || session?.mini_panel?.employee_id || "";
+    const suffix = `?limit=80&search=${encodeURIComponent(search || "")}&employee_id=${encodeURIComponent(employeeId || "")}`;
     const data = await transportCallsApi028L(`/customers${suffix}`, { method: "GET" });
     return Array.isArray(data.customers) ? data.customers : [];
   }
@@ -2937,6 +2939,9 @@
     setTransportField028L(form, "contract_code", customer.contract_code || "");
     setTransportField028L(form, "origin", customer.origin || "");
     setTransportField028L(form, "destination", customer.destination || "");
+    setTransportField028L(form, "trip_type", customer.trip_type || "");
+    setTransportField028L(form, "batch_row_id", customer.batch_row_id || "");
+    if (customer.notes && form.elements.notes && !form.elements.notes.value) form.elements.notes.value = customer.notes;
   }
 
   async function openTransportCallsModule028L(session) {
@@ -2955,7 +2960,7 @@
     let calls = [];
     try {
       [customers, calls] = await Promise.all([
-        loadTransportCustomers028L(),
+        loadTransportCustomers028L("", session),
         loadTransportCalls028L()
       ]);
     } catch (error) {
@@ -2984,6 +2989,7 @@
           <input type="hidden" name="call_status" value="completed" />
           <input type="hidden" name="duration_seconds" value="0" />
           <input type="hidden" name="source" value="mini_panel" />
+          <input type="hidden" name="batch_row_id" value="" />
 
           <div class="tc-grid-028l">
             <div class="tc-field-028l wide">
@@ -3093,7 +3099,7 @@
 
     const refreshLists = async (search = "") => {
       try {
-        const nextCustomers = await loadTransportCustomers028L(search);
+        const nextCustomers = await loadTransportCustomers028L(search, session);
         customers = nextCustomers;
         customerMap = transportCustomerKeyMap028L(customers);
         if (customerDatalist) customerDatalist.innerHTML = transportCustomerOptions028L(customers);
@@ -3146,6 +3152,7 @@
         contract_code: String(data.get("contract_code") || "").trim(),
         source: String(data.get("twilio_call_sid") || "").trim() ? "twilio" : "mini_panel",
         twilio_call_sid: String(data.get("twilio_call_sid") || "").trim(),
+        batch_row_id: String(data.get("batch_row_id") || "").trim(),
         notes: String(data.get("notes") || "").trim()
       };
 

@@ -46,6 +46,7 @@ class TransportContractPatch(BaseModel):
     status: str | None = Field(default=None, max_length=40)
     authorized_contacts: str | None = Field(default=None, max_length=1200)
     notes: str | None = Field(default=None, max_length=1600)
+    last_updated_by: str | None = Field(default=None, max_length=180)
 
 
 def _clean(value: Any, limit: int = 255) -> str:
@@ -121,6 +122,7 @@ async def ensure_transport_contracts_storage(db: AsyncSession) -> None:
     for statement in [
         "ALTER TABLE transport_contracts ADD COLUMN IF NOT EXISTS authorized_contacts text NOT NULL DEFAULT ''",
         "ALTER TABLE transport_contracts ADD COLUMN IF NOT EXISTS archived_at timestamptz NULL",
+        "ALTER TABLE transport_contracts ADD COLUMN IF NOT EXISTS last_updated_by VARCHAR(180) NOT NULL DEFAULT '';",
         "CREATE INDEX IF NOT EXISTS ix_transport_contracts_company_status ON transport_contracts (company_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_transport_contracts_company_code ON transport_contracts (company_id, contract_code)",
         "CREATE INDEX IF NOT EXISTS ix_transport_contracts_company_client ON transport_contracts (company_id, client_name)",
@@ -270,10 +272,7 @@ async def update_transport_contract(
 ) -> dict[str, Any]:
     await ensure_transport_contracts_storage(db)
     data = payload.model_dump(exclude_unset=True)
-    allowed = {
-        "client_name", "client_type", "phone", "email", "document_id", "contract_code",
-        "initial_balance", "consumed_balance", "alert_balance", "status", "authorized_contacts", "notes",
-    }
+    allowed = {"alert_balance", "status", "notes", "last_updated_by"}
     updates: list[str] = []
     params: dict[str, Any] = {"company_id": str(company_id), "contract_id": str(contract_id)}
     for key, value in data.items():
@@ -283,8 +282,10 @@ async def update_transport_contract(
             params[key] = _money(value)
         elif key == "status":
             params[key] = _status(value)
+        elif key == "notes":
+            params[key] = _clean(value, 1600)
         else:
-            params[key] = _clean(value, 1600 if key in {"notes", "authorized_contacts"} else 180)
+            params[key] = _clean(value, 180)
         updates.append(f"{key} = :{key}")
     if not updates:
         raise HTTPException(status_code=400, detail="no_fields_to_update")

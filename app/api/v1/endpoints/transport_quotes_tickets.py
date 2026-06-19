@@ -176,6 +176,23 @@ async def _company(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
     return _row(result.first() or {"id": company_id, "name": "CLONEXA Transporte", "slug": ""})
 
 
+async def _consume_contract_for_ticket(db: AsyncSession, company_id: uuid.UUID, contract_id: str, amount: float) -> None:
+    if not contract_id or _money(amount) <= 0:
+        return
+    await db.execute(
+        text(
+            """
+            UPDATE transport_contracts
+            SET consumed_balance = LEAST(COALESCE(initial_balance, 0), COALESCE(consumed_balance, 0) + :amount),
+                updated_at = now()
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND id = CAST(:contract_id AS uuid)
+            """
+        ),
+        {"company_id": str(company_id), "contract_id": contract_id, "amount": _money(amount)},
+    )
+
+
 async def _contract(db: AsyncSession, company_id: uuid.UUID, contract_id: str = "", contract_code: str = "") -> dict[str, Any] | None:
     await ensure_transport_contracts_storage(db)
     where = "id = CAST(:contract_id AS uuid)" if contract_id else "LOWER(contract_code) = LOWER(:contract_code)"
@@ -231,15 +248,21 @@ async def list_transport_documents(
     document_type: str = Query(default="all", max_length=20),
     status_filter: str = Query(default="all", alias="status", max_length=40),
     search: str = Query(default="", max_length=120),
+    start_date: str = Query(default="", max_length=20),
+    end_date: str = Query(default="", max_length=20),
 ) -> dict[str, Any]:
     await ensure_transport_documents_storage(db)
     where = """
       AND (:document_type = 'all' OR document_type = :document_type)
       AND (:status_filter = 'all' OR status = :status_filter)
+      AND (:start_date = '' OR created_at >= CAST(:start_date AS date))
+      AND (:end_date = '' OR created_at < (CAST(:end_date AS date) + INTERVAL '1 day'))
       AND (
         :query = '%%'
         OR LOWER(document_number) LIKE :query
         OR LOWER(client_name) LIKE :query
+        OR LOWER(phone) LIKE :query
+        OR LOWER(document_id) LIKE :query
         OR LOWER(contract_code) LIKE :query
         OR LOWER(origin) LIKE :query
         OR LOWER(destination) LIKE :query
@@ -252,6 +275,8 @@ async def list_transport_documents(
             "document_type": _document_type(document_type) if document_type != "all" else "all",
             "status_filter": _status(status_filter) if status_filter != "all" else "all",
             "query": f"%{_clean(search, 120).lower()}%",
+            "start_date": _clean(start_date, 20),
+            "end_date": _clean(end_date, 20),
             "limit": int(limit),
         },
     )
@@ -260,7 +285,12 @@ async def list_transport_documents(
 
 
 @router.get("/companies/{company_id}/summary")
-async def transport_documents_summary(company_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def transport_documents_summary(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    start_date: str = Query(default="", max_length=20),
+    end_date: str = Query(default="", max_length=20),
+) -> dict[str, Any]:
     await ensure_transport_documents_storage(db)
     result = await db.execute(
         text(
@@ -275,9 +305,11 @@ async def transport_documents_summary(company_id: uuid.UUID, db: AsyncSession = 
             FROM transport_service_documents
             WHERE company_id = CAST(:company_id AS uuid)
               AND archived_at IS NULL
+              AND (:start_date = '' OR created_at >= CAST(:start_date AS date))
+              AND (:end_date = '' OR created_at < (CAST(:end_date AS date) + INTERVAL '1 day'))
             """
         ),
-        {"company_id": str(company_id)},
+        {"company_id": str(company_id), "start_date": _clean(start_date, 20), "end_date": _clean(end_date, 20)},
     )
     return {"ok": True, "company_id": str(company_id), "summary": _row(result.first() or {})}
 
@@ -334,7 +366,7 @@ async def create_transport_document(company_id: uuid.UUID, payload: TransportDoc
             "value_amount": _money(payload.value_amount),
             "discount_amount": _money(payload.discount_amount),
             "total_amount": total,
-            "charged_to_contract": bool(payload.charged_to_contract),
+            "charged_to_contract": bool(payload.charged_to_contract or (doc_type == "ticket" and linked_contract)),
             "approval_code": _clean(payload.approval_code or str(uuid.uuid4().int)[-10:], 120),
             "advisor_name": _clean(payload.advisor_name, 180),
             "supervisor_check": bool(payload.supervisor_check),
@@ -342,8 +374,11 @@ async def create_transport_document(company_id: uuid.UUID, payload: TransportDoc
             "notes": _clean(payload.notes, 1600),
         },
     )
+    row = result.first()
+    if doc_type == "ticket" and linked_contract and total > 0:
+        await _consume_contract_for_ticket(db, company_id, str(linked_contract.get("id") or ""), total)
     await db.commit()
-    return {"ok": True, "company_id": str(company_id), "document": _row(result.first())}
+    return {"ok": True, "company_id": str(company_id), "document": _row(row)}
 
 
 @router.patch("/companies/{company_id}/documents/{document_id}")
