@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,14 @@ from app.api.v1.endpoints.transport_contracts import ensure_transport_contracts_
 from app.api.v1.endpoints.transport_quotes_tickets import ensure_transport_documents_storage
 
 router = APIRouter()
+
+MAX_PAYMENT_PROOF_BYTES = 8 * 1024 * 1024
+ALLOWED_PAYMENT_PROOF_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+}
 
 
 class TransportPaymentIn(BaseModel):
@@ -87,6 +95,51 @@ def _row(row: Any) -> dict[str, Any]:
     return data
 
 
+
+def _payment_proof_content_type(upload: UploadFile | None) -> str:
+    if not upload or not upload.filename:
+        return ""
+    content_type = _clean(upload.content_type, 120).lower()
+    if content_type:
+        return content_type
+    name = str(upload.filename or "").lower()
+    if name.endswith(".pdf"):
+        return "application/pdf"
+    if name.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    if name.endswith(".png"):
+        return "image/png"
+    if name.endswith(".webp"):
+        return "image/webp"
+    return "application/octet-stream"
+
+
+async def _read_payment_proof_upload(upload: UploadFile | None) -> tuple[str, str, bytes | None, int]:
+    if not upload or not upload.filename:
+        return "", "", None, 0
+    content_type = _payment_proof_content_type(upload)
+    if content_type not in ALLOWED_PAYMENT_PROOF_TYPES:
+        raise HTTPException(status_code=400, detail="proof_type_not_supported")
+    data = await upload.read()
+    if not data:
+        return "", "", None, 0
+    if len(data) > MAX_PAYMENT_PROOF_BYTES:
+        raise HTTPException(status_code=400, detail="proof_file_too_large")
+    return _clean(upload.filename, 260), content_type, data, len(data)
+
+
+def _payment_proof_url(company_id: uuid.UUID | str, payment_id: Any, original_name: Any) -> str:
+    if not payment_id or not original_name:
+        return ""
+    return f"/api/v1/transport-payments/companies/{company_id}/payments/{payment_id}/proof"
+
+
+def _payment_payload(row: Any, company_id: uuid.UUID | str) -> dict[str, Any]:
+    data = _row(row)
+    data.pop("proof_file_bytes", None)
+    data["proof_file_url"] = _payment_proof_url(company_id, data.get("id"), data.get("proof_original_name"))
+    return data
+
 def _payment_status(value: Any) -> str:
     clean = _clean(value or "paid", 40).lower().replace(" ", "_")
     return clean if clean in {"pending", "paid", "rejected", "archived"} else "paid"
@@ -139,6 +192,10 @@ async def ensure_transport_payments_storage(db: AsyncSession) -> None:
     )
     for statement in [
         "ALTER TABLE transport_payment_records ADD COLUMN IF NOT EXISTS record_type VARCHAR(40) NOT NULL DEFAULT 'ticket_payment';",
+        "ALTER TABLE transport_payment_records ADD COLUMN IF NOT EXISTS proof_original_name varchar(260) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_payment_records ADD COLUMN IF NOT EXISTS proof_content_type varchar(120) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_payment_records ADD COLUMN IF NOT EXISTS proof_file_bytes bytea NULL;",
+        "ALTER TABLE transport_payment_records ADD COLUMN IF NOT EXISTS proof_file_size integer NOT NULL DEFAULT 0;",
         "CREATE INDEX IF NOT EXISTS ix_transport_payments_company_status ON transport_payment_records (company_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_transport_payments_company_doc ON transport_payment_records (company_id, document_id)",
         "CREATE INDEX IF NOT EXISTS ix_transport_payments_company_created ON transport_payment_records (company_id, created_at DESC)",
@@ -173,6 +230,24 @@ async def ensure_transport_payments_storage(db: AsyncSession) -> None:
         )
     )
     for statement in [
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS document_id uuid NULL;",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS contract_id uuid NULL;",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS invoice_number varchar(60) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS document_number varchar(60) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS contract_code varchar(120) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS client_name varchar(180) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS recipient varchar(180) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS channel varchar(40) NOT NULL DEFAULT 'whatsapp';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS amount numeric(14,2) NOT NULL DEFAULT 0;",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS due_date date NULL;",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS status varchar(40) NOT NULL DEFAULT 'sent';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS sent_at timestamptz NULL;",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS paid_at timestamptz NULL;",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS created_by varchar(180) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS notes text NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS archived_at timestamptz NULL;",
         "CREATE INDEX IF NOT EXISTS ix_transport_invoices_company_status ON transport_invoice_records (company_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_transport_invoices_company_due ON transport_invoice_records (company_id, due_date)",
         "CREATE INDEX IF NOT EXISTS ix_transport_invoices_company_doc ON transport_invoice_records (company_id, document_id)",
@@ -447,7 +522,7 @@ async def list_transport_payments(
             "limit": int(limit),
         },
     )
-    payments = [_row(row) for row in result.fetchall()]
+    payments = [_payment_payload(row, company_id) for row in result.fetchall()]
     return {"ok": True, "company_id": str(company_id), "payments": payments, "count": len(payments)}
 
 
@@ -536,7 +611,7 @@ async def create_transport_payment(company_id: uuid.UUID, payload: TransportPaym
             "notes": _clean(payload.notes, 1600),
         },
     )
-    payment = _row(result.first() or {})
+    payment = _payment_payload(result.first() or {}, company_id)
     document_status = "billed" if payment_status == "paid" and (paid_before + amount) >= total else ""
     if payment_status == "paid":
         await db.execute(
@@ -652,29 +727,36 @@ async def list_transport_payment_alerts(
     }
 
 
-@router.post("/companies/{company_id}/contracts/{contract_id}/credits", status_code=status.HTTP_201_CREATED)
-async def create_transport_contract_credit(
+async def _create_transport_contract_credit_record(
     company_id: uuid.UUID,
     contract_id: uuid.UUID,
-    payload: TransportCreditIn,
-    db: AsyncSession = Depends(get_db),
+    amount_value: Any,
+    payment_method: Any,
+    payment_reference: Any,
+    created_by: Any,
+    notes: Any,
+    db: AsyncSession,
+    proof: UploadFile | None = None,
 ) -> dict[str, Any]:
     await ensure_transport_payments_storage(db)
-    amount = _money(payload.amount)
+    amount = _money(amount_value)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="amount_required")
+    proof_name, proof_type, proof_bytes, proof_size = await _read_payment_proof_upload(proof)
     contract = await _contract_by_id(db, company_id, str(contract_id))
     result = await db.execute(
         text(
             """
             INSERT INTO transport_payment_records (
                 company_id, document_id, contract_id, document_number, contract_code, client_name, record_type,
-                payment_method, payment_reference, amount, status, paid_at, created_by, notes, created_at, updated_at
+                payment_method, payment_reference, amount, status, paid_at, created_by, notes,
+                proof_original_name, proof_content_type, proof_file_bytes, proof_file_size, created_at, updated_at
             )
             VALUES (
                 CAST(:company_id AS uuid), NULL, CAST(:contract_id AS uuid), :document_number,
                 :contract_code, :client_name, 'contract_credit', :payment_method, :payment_reference,
-                :amount, 'paid', now(), :created_by, :notes, now(), now()
+                :amount, 'paid', now(), :created_by, :notes,
+                :proof_original_name, :proof_content_type, :proof_file_bytes, :proof_file_size, now(), now()
             )
             RETURNING *
             """
@@ -685,14 +767,18 @@ async def create_transport_contract_credit(
             "document_number": "CREDITO",
             "contract_code": _clean(contract.get("contract_code"), 120),
             "client_name": _clean(contract.get("client_name"), 180),
-            "payment_method": _clean(payload.payment_method or "transfer", 60),
-            "payment_reference": _clean(payload.payment_reference, 160),
+            "payment_method": _clean(payment_method or "transfer", 60),
+            "payment_reference": _clean(payment_reference, 160),
             "amount": amount,
-            "created_by": _clean(payload.created_by, 180),
-            "notes": _clean(payload.notes, 1600),
+            "created_by": _clean(created_by, 180),
+            "notes": _clean(notes, 1600),
+            "proof_original_name": proof_name,
+            "proof_content_type": proof_type,
+            "proof_file_bytes": proof_bytes,
+            "proof_file_size": proof_size,
         },
     )
-    payment = _row(result.first() or {})
+    payment = _payment_payload(result.first() or {}, company_id)
     updated = await db.execute(
         text(
             """
@@ -714,12 +800,84 @@ async def create_transport_contract_credit(
             "company_id": str(company_id),
             "contract_id": str(contract_id),
             "amount": amount,
-            "created_by": _clean(payload.created_by, 180),
-            "notes": _clean(payload.notes or f"Credito agregado por {_clean(payload.created_by, 180) or 'Tesoreria'}: {amount}", 1600),
+            "created_by": _clean(created_by, 180),
+            "notes": _clean(notes or f"Credito agregado por {_clean(created_by, 180) or 'Tesoreria'}: {amount}", 1600),
         },
     )
     await db.commit()
     return {"ok": True, "company_id": str(company_id), "payment": payment, "contract": _row(updated.first() or {})}
+
+
+@router.post("/companies/{company_id}/contracts/{contract_id}/credits", status_code=status.HTTP_201_CREATED)
+async def create_transport_contract_credit(
+    company_id: uuid.UUID,
+    contract_id: uuid.UUID,
+    payload: TransportCreditIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return await _create_transport_contract_credit_record(
+        company_id,
+        contract_id,
+        payload.amount,
+        payload.payment_method,
+        payload.payment_reference,
+        payload.created_by,
+        payload.notes,
+        db,
+    )
+
+
+@router.post("/companies/{company_id}/contracts/{contract_id}/credits-with-proof", status_code=status.HTTP_201_CREATED)
+async def create_transport_contract_credit_with_proof(
+    company_id: uuid.UUID,
+    contract_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    amount: float = Form(default=0),
+    payment_method: str = Form(default="transfer"),
+    payment_reference: str = Form(default=""),
+    created_by: str = Form(default=""),
+    notes: str = Form(default=""),
+    proof: UploadFile | None = File(default=None),
+) -> dict[str, Any]:
+    return await _create_transport_contract_credit_record(
+        company_id,
+        contract_id,
+        amount,
+        payment_method,
+        payment_reference,
+        created_by,
+        notes,
+        db,
+        proof=proof,
+    )
+
+
+@router.get("/companies/{company_id}/payments/{payment_id}/proof")
+async def get_transport_payment_proof(company_id: uuid.UUID, payment_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Response:
+    await ensure_transport_payments_storage(db)
+    result = await db.execute(
+        text(
+            """
+            SELECT proof_original_name, proof_content_type, proof_file_bytes
+            FROM transport_payment_records
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND id = CAST(:payment_id AS uuid)
+              AND archived_at IS NULL
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id), "payment_id": str(payment_id)},
+    )
+    row = _row(result.first() or {})
+    content = row.get("proof_file_bytes")
+    if not row or not content:
+        raise HTTPException(status_code=404, detail="proof_not_found")
+    filename = _clean(row.get("proof_original_name") or "comprobante", 260).replace('"', "")
+    return Response(
+        content=bytes(content),
+        media_type=_clean(row.get("proof_content_type") or "application/octet-stream", 120),
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/companies/{company_id}/invoices", status_code=status.HTTP_201_CREATED)
