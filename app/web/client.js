@@ -26461,6 +26461,40 @@ function inventoryCreatePayload() {
     return `<span class="client-badge" style="background:${bg};color:${color};margin-right:6px">${h(label)}</span>`;
   }
 
+  function cxTransportPaymentsDefaultDue028R(days = 7) {
+    const date = new Date(Date.now() + Number(days || 7) * 86400000);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function cxTransportPaymentsInvoiceUrl028R(invoice) {
+    const raw = String(invoice?.invoice_url || "");
+    const fallback = invoice?.document_id
+      ? `${API}/transport-quotes-tickets/companies/${encodeURIComponent(state.companyId)}/documents/${encodeURIComponent(invoice.document_id)}/print.pdf?inline=false`
+      : "";
+    const finalUrl = raw || fallback;
+    if (!finalUrl) return "";
+    return /^https?:\/\//i.test(finalUrl) ? finalUrl : `${window.location.origin}${finalUrl}`;
+  }
+
+  function cxTransportPaymentsOpenInvoiceSend028R(invoice) {
+    const url = cxTransportPaymentsInvoiceUrl028R(invoice);
+    const recipient = String(invoice?.recipient || "").trim();
+    const amount = cxTransportContractsMoney028M(invoice?.amount || 0);
+    const due = invoice?.due_date ? ` con vencimiento ${invoice.due_date}` : "";
+    const message = `Hola, enviamos la factura ${invoice?.invoice_number || ""} por ${amount}${due}. Puedes revisarla aqui: ${url}`;
+    if (String(invoice?.channel || "").toLowerCase() === "email" && recipient.includes("@")) {
+      window.open(`mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent("Factura " + (invoice?.invoice_number || ""))}&body=${encodeURIComponent(message)}`, "_blank", "noopener");
+      return;
+    }
+    const digits = recipient.replace(/\D/g, "");
+    if (digits) {
+      const phone = digits.startsWith("57") ? digits : `57${digits}`;
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+      return;
+    }
+    if (url) window.open(url, "_blank", "noopener");
+  }
+
   async function renderTransportPaymentsModule028R() {
     const company = state.company || {};
     const search = String(document.getElementById("tpSearch028R")?.value || "").trim();
@@ -26471,18 +26505,24 @@ function inventoryCreatePayload() {
     let summary = {};
     let tickets = [];
     let payments = [];
+    let invoices = [];
+    let alerts = {};
     let loadError = "";
 
     try {
       const query = `start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&search=${encodeURIComponent(search)}`;
-      const [summaryResponse, queueResponse, paymentsResponse] = await Promise.all([
+      const [summaryResponse, queueResponse, paymentsResponse, invoicesResponse, alertsResponse] = await Promise.all([
         cxTransportPaymentsApi028R(`/summary?${query}`),
         cxTransportPaymentsApi028R(`/queue?limit=160&status=${encodeURIComponent(statusFilter)}&${query}`),
         cxTransportPaymentsApi028R(`/payments?limit=80&status=${encodeURIComponent(paymentStatus)}&${query}`),
+        cxTransportPaymentsApi028R(`/invoices?limit=80&status=all&${query}`),
+        cxTransportPaymentsApi028R(`/alerts?limit=30`),
       ]);
       summary = summaryResponse.summary || {};
       tickets = Array.isArray(queueResponse.tickets) ? queueResponse.tickets : [];
       payments = Array.isArray(paymentsResponse.payments) ? paymentsResponse.payments : [];
+      invoices = Array.isArray(invoicesResponse.invoices) ? invoicesResponse.invoices : [];
+      alerts = alertsResponse || {};
     } catch (error) {
       loadError = error.message || "No se pudo cargar Tesoreria / Pagos.";
     }
@@ -26496,6 +26536,7 @@ function inventoryCreatePayload() {
       ? tickets.map((item) => {
           const id = String(item.id || "");
           const pendingAmount = cxTransportContractsNumber028M(item.pending_amount);
+          const invoiceAmount = pendingAmount || cxTransportContractsNumber028M(item.total_amount);
           const treasuryOk = Boolean(item.treasury_check);
           const supervisorOk = Boolean(item.supervisor_check);
           return `
@@ -26525,7 +26566,9 @@ function inventoryCreatePayload() {
               </td>
               <td style="${tableCell};min-width:300px">
                 ${treasuryOk ? "" : `<button class="client-btn" type="button" data-tp-check="${h(id)}" style="margin:0 8px 8px 0">Check tesoreria</button>`}
+                <button class="client-btn" type="button" data-tp-invoice="${h(id)}" data-tp-amount="${h(invoiceAmount)}" data-tp-recipient="${h(item.email || item.phone || "")}" style="margin:0 8px 8px 0">Enviar factura</button>
                 ${pendingAmount > 0 ? `<button class="client-btn" type="button" data-tp-pay="${h(id)}" data-tp-amount="${h(pendingAmount)}" style="margin:0 8px 8px 0">Registrar pago</button>` : ""}
+                ${item.contract_id ? `<button class="client-btn" type="button" data-tp-credit="${h(item.contract_id)}" style="margin:0 8px 8px 0;background:rgba(16,245,137,.14);box-shadow:none">Agregar credito</button>` : ""}
                 <button class="client-btn" type="button" data-tp-print="${h(id)}" style="margin:0 8px 8px 0;background:rgba(255,255,255,.08);box-shadow:none">Imprimir</button>
                 <button class="client-btn" type="button" data-tp-pdf="${h(id)}" style="margin:0 8px 8px 0;background:rgba(255,255,255,.08);box-shadow:none">PDF</button>
               </td>
@@ -26536,7 +26579,7 @@ function inventoryCreatePayload() {
     const paymentRows = payments.length
       ? payments.map((item) => `
           <tr>
-            <td style="${tableCell};min-width:160px"><strong>${h(item.document_number || "-")}</strong><div class="client-muted">${h(item.payment_reference || "sin referencia")}</div></td>
+            <td style="${tableCell};min-width:160px"><strong>${h(item.document_number || "-")}</strong><div class="client-muted">${h(item.payment_reference || "sin referencia")}</div><div class="client-muted">${h(item.record_type === "contract_credit" ? "Credito contrato" : "Pago ticket")}</div></td>
             <td style="${tableCell};min-width:220px"><strong>${h(item.client_name || "-")}</strong><div class="client-muted">${h(item.contract_code || "Sin contrato")}</div></td>
             <td style="${tableCell};min-width:140px"><strong>${h(cxTransportContractsMoney028M(item.amount))}</strong><div class="client-muted">${h(cxTransportPaymentsStatusLabel028R(item.status))}</div></td>
             <td style="${tableCell};min-width:160px">${h(item.payment_method || "transfer")}<div class="client-muted">${h(item.paid_at || item.created_at || "")}</div></td>
@@ -26544,6 +26587,41 @@ function inventoryCreatePayload() {
           </tr>
         `).join("")
       : `<tr><td colspan="5" style="${tableCell};color:rgba(255,255,255,.68)">Sin pagos registrados para el filtro actual.</td></tr>`;
+    const invoiceRows = invoices.length
+      ? invoices.map((item) => {
+          const overdue = item.due_date && new Date(`${item.due_date}T23:59:59`) < new Date() && ["draft", "sent"].includes(String(item.status || ""));
+          return `
+            <tr>
+              <td style="${tableCell};min-width:160px"><strong>${h(item.invoice_number || "-")}</strong><div class="client-muted">${h(cxTransportPaymentsStatusLabel028R(item.status))}</div></td>
+              <td style="${tableCell};min-width:220px"><strong>${h(item.client_name || "-")}</strong><div class="client-muted">${h(item.contract_code || "Sin contrato")}</div></td>
+              <td style="${tableCell};min-width:140px"><strong>${h(cxTransportContractsMoney028M(item.amount))}</strong><div class="client-muted">${h(item.document_number || "")}</div></td>
+              <td style="${tableCell};min-width:170px;color:${overdue ? "#fca5a5" : "inherit"}">${h(item.due_date || "Sin vencimiento")}<div class="client-muted">${h(item.channel || "manual")} - ${h(item.recipient || "sin destino")}</div></td>
+              <td style="${tableCell};min-width:220px"><button class="client-btn" type="button" data-tp-open-invoice="${h(item.id || "")}" data-tp-invoice-payload="${h(JSON.stringify(item))}" style="margin:0 8px 8px 0">Enviar / abrir</button></td>
+            </tr>
+          `;
+        }).join("")
+      : `<tr><td colspan="5" style="${tableCell};color:rgba(255,255,255,.68)">Sin facturas registradas para el filtro actual.</td></tr>`;
+    const lowContracts = Array.isArray(alerts.low_balance_contracts) ? alerts.low_balance_contracts : [];
+    const dueInvoices = Array.isArray(alerts.due_invoices) ? alerts.due_invoices : [];
+    const lowCards = lowContracts.length
+      ? lowContracts.slice(0, 8).map((item) => `
+          <article class="client-kpi" style="min-height:120px">
+            <span>Credito bajo</span>
+            <strong>${h(cxTransportContractsMoney028M(item.available_balance))}</strong>
+            <small>${h(item.client_name || "Cliente")} - ${h(item.contract_code || "Sin contrato")}</small>
+            <button class="client-btn" type="button" data-tp-credit="${h(item.id || "")}" style="margin-top:10px;padding:9px 12px">Agregar credito</button>
+          </article>
+        `).join("")
+      : `<article class="client-kpi"><span>Credito bajo</span><strong>OK</strong><small>Sin contratos por debajo de alerta.</small></article>`;
+    const dueCards = dueInvoices.length
+      ? dueInvoices.slice(0, 8).map((item) => `
+          <article class="client-kpi" style="min-height:120px">
+            <span>${item.due_date ? "Proxima a pagar" : "Factura sin fecha"}</span>
+            <strong>${h(cxTransportContractsMoney028M(item.amount))}</strong>
+            <small>${h(item.client_name || "Cliente")} - ${h(item.invoice_number || "Factura")}${item.due_date ? ` - vence ${h(item.due_date)}` : ""}</small>
+          </article>
+        `).join("")
+      : `<article class="client-kpi"><span>Facturas proximas</span><strong>OK</strong><small>Sin vencimientos cercanos.</small></article>`;
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -26565,6 +26643,8 @@ function inventoryCreatePayload() {
                 <article class="client-kpi"><span>Listos para facturar</span><strong>${h(summary.ready_to_bill_count || 0)}</strong></article>
                 <article class="client-kpi"><span>Valor tickets</span><strong>${h(cxTransportContractsMoney028M(summary.ticket_total))}</strong></article>
                 <article class="client-kpi"><span>Pagos periodo</span><strong>${h(cxTransportContractsMoney028M(summary.paid_total))}</strong></article>
+                <article class="client-kpi"><span>Credito disponible</span><strong>${h(cxTransportContractsMoney028M(summary.contracts_available_total))}</strong></article>
+                <article class="client-kpi"><span>Facturas por cobrar</span><strong>${h(cxTransportContractsMoney028M(summary.invoice_pending_total))}</strong><small>${h(summary.due_soon_count || 0)} proximas - ${h(summary.overdue_invoice_count || 0)} vencidas</small></article>
               </div>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
@@ -26607,6 +26687,12 @@ function inventoryCreatePayload() {
             </section>
 
             <section class="client-panel">
+              <div class="client-eyebrow">Alertas financieras</div>
+              <h2>Credito bajo y facturas proximas</h2>
+              <div class="client-kpi-grid">${lowCards}${dueCards}</div>
+            </section>
+
+            <section class="client-panel">
               <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px">
                 <div>
                   <div class="client-eyebrow">Bandeja financiera</div>
@@ -26618,6 +26704,22 @@ function inventoryCreatePayload() {
                 <table style="width:100%;border-collapse:collapse;min-width:1320px">
                   <thead><tr><th style="${tableHead}">Ticket</th><th style="${tableHead}">Cliente</th><th style="${tableHead}">Ruta</th><th style="${tableHead}">Valor</th><th style="${tableHead}">Checks</th><th style="${tableHead}">Acciones</th></tr></thead>
                   <tbody>${ticketRows}</tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px">
+                <div>
+                  <div class="client-eyebrow">Facturas enviadas</div>
+                  <h2>Por cobrar y proximas a pagar</h2>
+                </div>
+                <span class="client-badge">${h(invoices.length)}</span>
+              </div>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
+                <table style="width:100%;border-collapse:collapse;min-width:1080px">
+                  <thead><tr><th style="${tableHead}">Factura</th><th style="${tableHead}">Cliente</th><th style="${tableHead}">Monto</th><th style="${tableHead}">Vence / canal</th><th style="${tableHead}">Acciones</th></tr></thead>
+                  <tbody>${invoiceRows}</tbody>
                 </table>
               </div>
             </section>
@@ -26699,6 +26801,60 @@ function inventoryCreatePayload() {
           await renderTransportPaymentsModule028R();
         } catch (error) {
           cxTransportPaymentsSetMsg028R(error.message || "No se pudo registrar el pago.", true);
+        }
+      });
+    });
+    document.querySelectorAll("[data-tp-credit]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          const contractId = button.getAttribute("data-tp-credit") || "";
+          if (!contractId) return;
+          const typedAmount = window.prompt("Monto de credito o recarga", "");
+          if (typedAmount === null) return;
+          const amount = cxTransportContractsNumber028M(typedAmount);
+          if (!amount) {
+            cxTransportPaymentsSetMsg028R("El credito debe ser mayor a 0.", true);
+            return;
+          }
+          const reference = window.prompt("Referencia del pago", "") || "";
+          await cxTransportPaymentsApi028R(`/contracts/${encodeURIComponent(contractId)}/credits`, {
+            method: "POST",
+            body: JSON.stringify({ amount, payment_method: "transfer", payment_reference: reference, created_by: company.name || "Tesoreria" }),
+          });
+          await renderTransportPaymentsModule028R();
+        } catch (error) {
+          cxTransportPaymentsSetMsg028R(error.message || "No se pudo agregar el credito.", true);
+        }
+      });
+    });
+    document.querySelectorAll("[data-tp-invoice]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          const id = button.getAttribute("data-tp-invoice") || "";
+          const amount = cxTransportContractsNumber028M(button.getAttribute("data-tp-amount") || "0");
+          const dueDate = window.prompt("Fecha limite de pago YYYY-MM-DD", cxTransportPaymentsDefaultDue028R(7));
+          if (dueDate === null) return;
+          const recipient = window.prompt("Correo o WhatsApp para enviar factura", button.getAttribute("data-tp-recipient") || "") || "";
+          const channel = window.prompt("Canal de envio: whatsapp, email o manual", recipient.includes("@") ? "email" : "whatsapp") || "manual";
+          const data = await cxTransportPaymentsApi028R("/invoices", {
+            method: "POST",
+            body: JSON.stringify({ document_id: id, amount, due_date: dueDate, recipient, channel, status: "sent", created_by: company.name || "Tesoreria" }),
+          });
+          cxTransportPaymentsSetMsg028R(`Factura ${data?.invoice?.invoice_number || ""} registrada.`);
+          cxTransportPaymentsOpenInvoiceSend028R(data?.invoice || {});
+          await renderTransportPaymentsModule028R();
+        } catch (error) {
+          cxTransportPaymentsSetMsg028R(error.message || "No se pudo enviar la factura.", true);
+        }
+      });
+    });
+    document.querySelectorAll("[data-tp-open-invoice]").forEach((button) => {
+      button.addEventListener("click", () => {
+        try {
+          const payload = JSON.parse(button.getAttribute("data-tp-invoice-payload") || "{}");
+          cxTransportPaymentsOpenInvoiceSend028R(payload);
+        } catch {
+          cxTransportPaymentsSetMsg028R("No se pudo abrir la factura.", true);
         }
       });
     });
