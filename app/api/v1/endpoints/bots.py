@@ -400,7 +400,9 @@ def _payroll_period_from_text(text_value: str) -> tuple[date, date, str]:
         yesterday = today - timedelta(days=1)
         return yesterday, yesterday, "ayer"
 
-    return date(today.year, today.month, 1), today, "mes actual"
+    if today.day <= 15:
+        return date(today.year, today.month, 1), today, "quincena actual"
+    return date(today.year, today.month, 16), today, "quincena actual"
 
 
 def _payroll_employee_match_from_text(text_value: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -422,12 +424,16 @@ def _payroll_employee_match_from_text(text_value: str, rows: list[dict[str, Any]
 
 
 def _format_payroll_row(row: dict[str, Any], period_start: date, period_end: date) -> str:
+    regular_minutes = int(row.get("regular_minutes") or row.get("regularMinutes") or 0)
+    extra_minutes = int(row.get("extra_minutes") or row.get("extraMinutes") or 0)
+    period_label = "Tiempo de hoy" if period_start == period_end == _today_business() else "Tiempo del periodo"
     return "\n".join([
         f"Nomina individual {period_start.isoformat()} / {period_end.isoformat()}:",
         f"{row.get('employee_name') or row.get('name') or 'Colaborador'}",
         f"Turnos/sesiones: {int(row.get('closed_shifts') or row.get('shifts') or 0)}",
-        f"Ordinarias: {_minutes_label(row.get('regular_minutes') or row.get('regularMinutes'))}",
-        f"Extras: {_minutes_label(row.get('extra_minutes') or row.get('extraMinutes'))}",
+        f"{period_label}: {_minutes_label(regular_minutes + extra_minutes)}",
+        f"Ordinarias: {_minutes_label(regular_minutes)}",
+        f"Extras: {_minutes_label(extra_minutes)}",
         f"Bruto: {_money_label(row.get('gross_amount') or row.get('gross'))}",
         f"Descuentos: {_money_label(row.get('discount_amount') or row.get('discount'))}",
         f"Total a pagar: {_money_label(row.get('net_amount') or row.get('net'))}",
@@ -480,6 +486,23 @@ async def _whatsapp_payroll_reply(
     await ensure_payroll_storage(db)
     snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end)
     return _format_payroll_summary(company, snapshot, text_value, period_label)
+
+
+def _looks_today_payroll_time_query(normalized: str) -> bool:
+    if "hoy" not in normalized:
+        return False
+    return any(
+        token in normalized
+        for token in (
+            "cuanto tiempo",
+            "cuanto lleva",
+            "tiempo lleva",
+            "tiempo trabajado",
+            "horas de hoy",
+            "horas lleva",
+            "lleva hoy",
+        )
+    )
 
 
 def _production_day_range_from_text(normalized: str, today: date) -> tuple[date, date, str] | None:
@@ -1140,6 +1163,17 @@ async def _whatsapp_agent_reply(
             f"Modulos activos: {module_label}. "
             f"Puedes pedirme: {active_examples}."
         )
+
+    if _looks_today_payroll_time_query(normalized) and caps["payroll"]:
+        try:
+            return await _whatsapp_payroll_reply(
+                company_id=company_id,
+                company=company,
+                db=db,
+                text_value=text_value,
+            )
+        except Exception as exc:
+            logger.warning("whatsapp today payroll reply failed: %s", exc, exc_info=True)
 
     if _contains_any(normalized, payroll_words):
         if not caps["payroll"]:

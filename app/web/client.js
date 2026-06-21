@@ -6688,7 +6688,7 @@ function inventoryCreatePayload() {
 
   function payrollDefaultPeriod() {
     const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() <= 15 ? 1 : 16);
     return {
       from: payrollDateOnly(start),
       to: payrollDateOnly(now),
@@ -13498,6 +13498,9 @@ function inventoryCreatePayload() {
       start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
       return { from: payrollDateOnly(start), to: today, label: "semana actual" };
     }
+    if (norm.includes("mes")) {
+      return { from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 1)), to: today, label: "mes actual" };
+    }
     if (norm.includes("quincena")) {
       if (norm.includes("primera") || norm.includes("1ra") || norm.includes("1a")) {
         return { from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 1)), to: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 15)), label: "primera quincena" };
@@ -13509,7 +13512,7 @@ function inventoryCreatePayload() {
       return { from: payrollDateOnly(new Date(now.getFullYear(), now.getMonth(), 16)), to: today, label: "quincena actual" };
     }
     const period = payrollDefaultPeriod();
-    return { ...period, label: "mes actual" };
+    return { ...period, label: "quincena actual" };
   }
 
   function cxAssistantPayrollMatch027I(text = "", rows = []) {
@@ -13608,6 +13611,265 @@ function inventoryCreatePayload() {
       cxAssistantPush027A(chat, "assistant", html, true);
     } catch (error) {
       cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar Nomina en este momento.");
+    }
+  }
+
+  function cxAssistantTodayTimeHasAccess028F() {
+    return cxAssistantPayrollHasAccess027I() || cxAssistantWorkforceHasAccess027R() || cxAssistantCrmHasAccess027D();
+  }
+
+  function cxAssistantLooksTodayTimeQuery028F(text = "") {
+    const norm = cxAssistantNorm027A(text).replace(/\benque\b/g, "en que");
+    const timeIntent = [
+      "cuanto tiempo",
+      "cuanto lleva",
+      "tiempo lleva",
+      "tiempo de hoy",
+      "horas de hoy",
+      "horas lleva",
+      "lleva hoy",
+      "tiempo trabajado",
+    ].some((token) => norm.includes(token));
+    if (!timeIntent || !norm.includes("hoy")) return false;
+    if (["referencia", "produccion", "productivo", "inventario", "stock"].some((token) => norm.includes(token))) return false;
+    return cxAssistantTodayTimeHasAccess028F();
+  }
+
+  function cxAssistantTodayTimePeriod028F() {
+    const today = payrollDateOnly(new Date());
+    return { from: today, to: today, label: "hoy" };
+  }
+
+  function cxAssistantDateMs028F(value) {
+    if (!value) return 0;
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  function cxAssistantAttendanceMinutesToday028F(row = {}) {
+    const stored = Math.max(0, Math.round(Number(row.worked_minutes || row.workedMinutes || 0) || 0));
+    const status = crmNormalizeStatus018B(row.status || row.status_after || "");
+    const checkInMs = cxAssistantDateMs028F(row.check_in_at || row.checkInAt);
+    if (!checkInMs) return stored;
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startMs = Math.max(checkInMs, startOfToday.getTime());
+    const breakMinutes = Math.max(0, Math.round(Number(row.break_minutes || row.breakMinutes || 0) || 0));
+
+    if (status === "working") {
+      const minutes = Math.max(0, Math.round((Date.now() - startMs) / 60000) - breakMinutes);
+      return Math.max(stored, minutes);
+    }
+
+    if (status === "on_break") {
+      const pauseMs = cxAssistantDateMs028F(row.break_started_at || row.breakStartedAt) || Date.now();
+      const minutes = Math.max(0, Math.round((pauseMs - startMs) / 60000) - breakMinutes);
+      return Math.max(stored, minutes);
+    }
+
+    return stored;
+  }
+
+  function cxAssistantTodayTimeKey028F(row = {}) {
+    const id = row.employeeId || row.employee_id || row.id || "";
+    if (id) return `id:${id}`;
+    return `name:${cxAssistantNorm027A(row.name || row.employee_name || row.full_name || "")}`;
+  }
+
+  function cxAssistantTodayTimeMerge028F(rows = [], source = "", target = new Map()) {
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const key = cxAssistantTodayTimeKey028F(row);
+      if (!key || key === "name:") return;
+      const current = target.get(key) || {
+        employeeId: row.employeeId || row.employee_id || row.id || "",
+        name: row.name || row.employee_name || row.full_name || "Colaborador",
+        role: row.role || row.employee_role || "",
+        payrollMinutes: 0,
+        attendanceMinutes: 0,
+        shifts: 0,
+        status: "",
+        breakMinutes: 0,
+        checkInAt: "",
+        checkOutAt: "",
+        crmTimerSeconds: 0,
+        crmTimerKind: "",
+      };
+
+      current.name = current.name || row.name || row.employee_name || row.full_name || "Colaborador";
+      current.role = current.role || row.role || row.employee_role || "";
+
+      if (source === "payroll") {
+        current.payrollMinutes = Math.max(
+          current.payrollMinutes,
+          Math.round(Number(row.regularMinutes ?? row.regular_minutes ?? 0) + Number(row.extraMinutes ?? row.extra_minutes ?? 0))
+        );
+        current.shifts = Math.max(current.shifts, Number(row.shifts ?? row.closed_shifts ?? 0) || 0);
+      }
+
+      if (source === "attendance") {
+        current.attendanceMinutes = Math.max(current.attendanceMinutes, cxAssistantAttendanceMinutesToday028F(row));
+        current.status = row.status || current.status;
+        current.breakMinutes = Math.max(current.breakMinutes, Number(row.break_minutes || row.breakMinutes || 0) || 0);
+        current.checkInAt = row.check_in_at || row.checkInAt || current.checkInAt;
+        current.checkOutAt = row.check_out_at || row.checkOutAt || current.checkOutAt;
+      }
+
+      if (source === "crm") {
+        const timer = crmTimerData018B(row);
+        current.status = row.status || row.metrics?.status || current.status;
+        current.crmTimerSeconds = Math.max(current.crmTimerSeconds, Number(timer.seconds || 0) || 0);
+        current.crmTimerKind = timer.kind || current.crmTimerKind;
+      }
+
+      target.set(key, current);
+    });
+    return target;
+  }
+
+  function cxAssistantTodayTimeNameTokens028F(text = "") {
+    const ignored = new Set([
+      "cuanto", "cuanta", "cuantos", "cuantas", "tiempo", "lleva", "llevan", "hoy", "dia", "del", "de", "la", "el", "en",
+      "crm", "conexion", "conexiones", "nomina", "payroll", "workforce", "personal", "horas", "hora", "trabajado", "trabaja",
+      "tiene", "actual", "ahora", "por", "favor", "me", "dime", "saber", "quiero", "necesito"
+    ]);
+    return cxAssistantNorm027A(text)
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2 && !ignored.has(token));
+  }
+
+  function cxAssistantTodayTimeMatch028F(text = "", rows = []) {
+    const norm = cxAssistantNorm027A(text);
+    const tokens = cxAssistantTodayTimeNameTokens028F(text);
+    if (!tokens.length) return null;
+    let best = null;
+    let bestScore = 0;
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const name = cxAssistantNorm027A(row.name || "");
+      if (!name) return;
+      let score = norm.includes(name) ? 80 : 0;
+      tokens.forEach((token) => {
+        if (name.split(/\s+/).includes(token)) score += 20;
+        else if (name.includes(token)) score += 10;
+      });
+      if (score > bestScore) {
+        best = row;
+        bestScore = score;
+      }
+    });
+    return bestScore ? best : null;
+  }
+
+  function cxAssistantTodayTimeTotalMinutes028F(row = {}) {
+    return Math.max(Number(row.payrollMinutes || 0), Number(row.attendanceMinutes || 0));
+  }
+
+  function cxAssistantTodayTimeStatus028F(row = {}) {
+    const status = crmNormalizeStatus018B(row.status || "");
+    if (status === "working") return "Trabajando";
+    if (status === "on_break") return "En pausa";
+    if (status === "checked_out") return "Turno finalizado";
+    return row.status ? String(row.status) : "Sin estado activo";
+  }
+
+  function cxAssistantTodayTimeDate028F(value = "") {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function cxAssistantTodayTimePersonHtml028F(row = {}, period = cxAssistantTodayTimePeriod028F()) {
+    const minutes = cxAssistantTodayTimeTotalMinutes028F(row);
+    const crmTimer = Number(row.crmTimerSeconds || 0) > 0 ? crmFormatSeconds018B(row.crmTimerSeconds) : "";
+    return `
+      <div>Tiempo trabajado ${h(period.label)}:</div>
+      <div class="cxai-summary-027a">
+        <div><strong>${h(row.name || "Colaborador")}</strong>${row.role ? ` · ${h(row.role)}` : ""}</div>
+        <div><strong>Tiempo de hoy:</strong> ${h(payrollDuration(minutes))}</div>
+        <div><strong>Estado:</strong> ${h(cxAssistantTodayTimeStatus028F(row))}</div>
+        <div><strong>Entrada:</strong> ${h(cxAssistantTodayTimeDate028F(row.checkInAt) || "Sin entrada registrada")}</div>
+        <div><strong>Pausas:</strong> ${h(payrollDuration(row.breakMinutes || 0))}</div>
+        <div><strong>Turnos/sesiones:</strong> ${h(row.shifts || (minutes ? 1 : 0))}</div>
+        ${crmTimer ? `<div><strong>Timer CRM:</strong> ${h(crmTimer)} ${h(row.crmTimerKind === "pause" ? "en pausa" : "activo")}</div>` : ""}
+      </div>
+      <div class="cxai-chip-wrap-027a">
+        ${cxAssistantPayrollHasAccess027I() ? `<button class="cxai-chip-027a" type="button" data-client-module="payroll">Abrir nomina</button>` : ""}
+        ${cxAssistantCrmHasAccess027D() ? `<button class="cxai-chip-027a" type="button" data-client-module="crm">Abrir CRM</button>` : ""}
+      </div>
+    `;
+  }
+
+  function cxAssistantTodayTimeSummaryHtml028F(rows = [], period = cxAssistantTodayTimePeriod028F()) {
+    const ordered = [...(Array.isArray(rows) ? rows : [])]
+      .sort((a, b) => cxAssistantTodayTimeTotalMinutes028F(b) - cxAssistantTodayTimeTotalMinutes028F(a))
+      .slice(0, 10);
+    const detail = ordered.length
+      ? ordered.map((row) => `<div>${h(row.name || "Colaborador")}: <strong>${h(payrollDuration(cxAssistantTodayTimeTotalMinutes028F(row)))}</strong> · ${h(cxAssistantTodayTimeStatus028F(row))}</div>`).join("")
+      : "<div>No hay tiempos registrados hoy.</div>";
+    return `
+      <div>Tiempos de hoy del equipo:</div>
+      <div class="cxai-summary-027a">${detail}</div>
+      <div class="cxai-chip-wrap-027a">
+        ${cxAssistantPayrollHasAccess027I() ? `<button class="cxai-chip-027a" type="button" data-client-module="payroll">Abrir nomina</button>` : ""}
+        ${cxAssistantCrmHasAccess027D() ? `<button class="cxai-chip-027a" type="button" data-client-module="crm">Abrir CRM</button>` : ""}
+      </div>
+    `;
+  }
+
+  async function cxAssistantReplyTodayTime028F(chat, text = "") {
+    if (!cxAssistantTodayTimeHasAccess028F()) {
+      cxAssistantPush027A(chat, "assistant", "Necesito Nomina, Workforce o CRM activo para consultar tiempos de hoy.");
+      return;
+    }
+
+    try {
+      const period = cxAssistantTodayTimePeriod028F();
+      cxAssistantPush027A(chat, "assistant", "Consultando tiempo trabajado de hoy...");
+      cxAssistantRenderMessages027A();
+
+      const calculated = await payrollCalculatePeriod(period);
+      let attendance = [];
+      let crm = {};
+      try {
+        attendance = await api(`/employees/attendance/today?company_id=${encodeURIComponent(state.companyId)}`);
+      } catch (error) {
+        attendance = [];
+      }
+      if (cxAssistantCrmHasAccess027D()) {
+        try {
+          crm = await cxAssistantLoadCrm027D();
+        } catch (error) {
+          crm = {};
+        }
+      }
+
+      const merged = new Map();
+      cxAssistantTodayTimeMerge028F(calculated.rows || [], "payroll", merged);
+      cxAssistantTodayTimeMerge028F(attendance || [], "attendance", merged);
+      cxAssistantTodayTimeMerge028F(Array.isArray(crm.people) ? crm.people : [], "crm", merged);
+      const rows = [...merged.values()].filter((row) => row.name);
+      const match = cxAssistantTodayTimeMatch028F(text, rows);
+
+      if (match) {
+        cxAssistantPush027A(chat, "assistant", cxAssistantTodayTimePersonHtml028F(match, period), true);
+        return;
+      }
+
+      if (cxAssistantTodayTimeNameTokens028F(text).length) {
+        cxAssistantPush027A(
+          chat,
+          "assistant",
+          `No encontre esa persona con tiempo de hoy. ${cxAssistantTodayTimeSummaryHtml028F(rows, period)}`,
+          true
+        );
+        return;
+      }
+
+      cxAssistantPush027A(chat, "assistant", cxAssistantTodayTimeSummaryHtml028F(rows, period), true);
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude consultar el tiempo de hoy.");
     }
   }
 
@@ -17654,7 +17916,7 @@ function inventoryCreatePayload() {
       return;
     }
     if (cxAssistantIsPayrollTool027I({ code, title }) || token.includes("nomina") || token.includes("payroll")) {
-      await cxAssistantReplyPayroll027I(chat, "nomina del mes");
+      await cxAssistantReplyPayroll027I(chat, "nomina quincena actual");
       return;
     }
     if (cxAssistantIsReferencesTool027Q({ code, title })) {
@@ -17737,6 +17999,8 @@ function inventoryCreatePayload() {
       await cxAssistantReplyShoplink028E(chat, clean);
     } else if (cxAssistantLooksReportsQuery027Y(clean)) {
       await cxAssistantReplyReports027Y(chat, clean);
+    } else if (cxAssistantLooksTodayTimeQuery028F(clean)) {
+      await cxAssistantReplyTodayTime028F(chat, clean);
     } else if (cxAssistantLooksPayrollQuery027I(clean)) {
       await cxAssistantReplyPayroll027I(chat, clean);
     } else if (cxAssistantLooksGpsQuery027X(clean)) {
@@ -17822,7 +18086,7 @@ function inventoryCreatePayload() {
           return;
         }
         if (target.closest("[data-cxai-payroll-summary-027i]")) {
-          await cxAssistantProcessText027A("nomina del mes", chat.activeCode);
+          await cxAssistantProcessText027A("nomina quincena actual", chat.activeCode);
           return;
         }
         if (target.closest("[data-cxai-production-summary-027k]")) {

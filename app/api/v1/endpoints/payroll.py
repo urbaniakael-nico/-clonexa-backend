@@ -43,6 +43,21 @@ def date_from_payload(value: Any, field: str) -> date:
         raise HTTPException(status_code=400, detail=f"{field}_invalid") from exc
 
 
+def current_biweekly_period(reference: date | None = None) -> tuple[date, date]:
+    today = reference or utcnow().date()
+    start = today.replace(day=1 if today.day <= 15 else 16)
+    return start, today
+
+
+def period_from_payload(data: dict) -> tuple[date, date]:
+    start_raw = data.get("period_start") or data.get("from") or data.get("date_from")
+    end_raw = data.get("period_end") or data.get("to") or data.get("date_to")
+    default_start, default_end = current_biweekly_period()
+    period_start = date_from_payload(start_raw or default_start, "period_start")
+    period_end = date_from_payload(end_raw or default_end, "period_end")
+    return period_start, period_end
+
+
 def as_json(value: Any) -> str:
     return json.dumps(value or {}, ensure_ascii=False, default=str)
 
@@ -933,8 +948,7 @@ async def calculate_payroll_period(
     await ensure_payroll_storage(db)
 
     data = payload or {}
-    period_start = date_from_payload(data.get("period_start") or data.get("from") or data.get("date_from"), "period_start")
-    period_end = date_from_payload(data.get("period_end") or data.get("to") or data.get("date_to"), "period_end")
+    period_start, period_end = period_from_payload(data)
 
     if period_end < period_start:
         raise HTTPException(status_code=400, detail="period_end_before_start")
@@ -1065,8 +1079,7 @@ async def close_payroll_period(
     await ensure_payroll_storage(db)
 
     data = payload or {}
-    period_start = date_from_payload(data.get("period_start") or data.get("from") or data.get("date_from"), "period_start")
-    period_end = date_from_payload(data.get("period_end") or data.get("to") or data.get("date_to"), "period_end")
+    period_start, period_end = period_from_payload(data)
 
     if period_end < period_start:
         raise HTTPException(status_code=400, detail="period_end_before_start")
