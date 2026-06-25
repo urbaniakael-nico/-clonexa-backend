@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import extract_bearer_token, get_db
 from app.schemas.auth import ChangePasswordRequest, LoginRequest, MeResponse, TokenResponse
 from app.services.auth_service import (
     authenticate_user,
@@ -19,15 +19,6 @@ from app.services.auth_service import (
 from app.services.access_sessions import close_access_session, register_access_session
 
 router = APIRouter()
-
-
-def extract_bearer_token(authorization: str | None) -> str:
-    if not authorization:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token requerido.")
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authorization Bearer inválido.")
-    return parts[1]
 
 
 @router.post("/login", response_model=TokenResponse)

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
@@ -17,6 +19,7 @@ router = APIRouter()
 
 MONEY = Decimal("0.01")
 DEFAULT_COMPANY_PAYROLL_ORDINARY_HOURS = Decimal("48")
+BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")
 
 
 def utcnow() -> datetime:
@@ -44,9 +47,15 @@ def date_from_payload(value: Any, field: str) -> date:
 
 
 def current_biweekly_period(reference: date | None = None) -> tuple[date, date]:
-    today = reference or utcnow().date()
+    today = reference or datetime.now(BUSINESS_TIMEZONE).date()
     start = today.replace(day=1 if today.day <= 15 else 16)
     return start, today
+
+
+def period_datetime_bounds(period_start: date, period_end: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(period_start, time.min, tzinfo=BUSINESS_TIMEZONE)
+    end_local = datetime.combine(period_end, time.max, tzinfo=BUSINESS_TIMEZONE)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
 
 
 def period_from_payload(data: dict) -> tuple[date, date]:
@@ -224,24 +233,72 @@ async def ensure_payroll_storage(db: AsyncSession) -> None:
     await db.commit()
 
 
+def event_text(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    normalized = unicodedata.normalize("NFKD", raw)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(normalized.replace("_", " ").replace("-", " ").split())
+
+
 def event_type(value: Any) -> str:
-    return str(value or "").strip().lower()
+    return event_text(value).replace(" ", "_")
 
 
 def is_check_in(value: str) -> bool:
-    return value in {"check_in", "entrada", "start_shift", "shift_start"}
+    return value in {
+        "check_in",
+        "entrada",
+        "start_shift",
+        "shift_start",
+        "inicio",
+        "inicio_turno",
+        "inicio_de_turno",
+        "iniciar_turno",
+    }
 
 
 def is_break_start(value: str) -> bool:
-    return value in {"break_start", "pausa", "pause", "on_break"}
+    return value in {"break_start", "pausa", "pause", "on_break", "en_pausa"}
 
 
 def is_break_end(value: str) -> bool:
-    return value in {"break_end", "reanudar", "resume", "retomar"}
+    return value in {"break_end", "reanudar", "resume", "retomar", "retorno", "retomar_labores"}
 
 
 def is_check_out(value: str) -> bool:
-    return value in {"check_out", "salida", "end_shift", "shift_end"}
+    return value in {
+        "check_out",
+        "salida",
+        "end_shift",
+        "shift_end",
+        "finalizar",
+        "finalizar_turno",
+        "finalizacion_de_turno",
+        "fin_de_turno",
+        "turno_cerrado",
+        "checked_out",
+        "closed",
+    }
+
+
+def attendance_event_kind(event: dict) -> str:
+    type_key = event_type(event.get("event_type") or event.get("type") or event.get("action"))
+    label_text = event_text(event.get("event_label") or event.get("label") or event.get("detail"))
+    status_key = event_type(event.get("status_after") or event.get("status"))
+
+    if is_check_in(type_key) or any(token in label_text for token in ("inicio de turno", "iniciar turno", "entrada")):
+        return "check_in"
+    if is_break_start(type_key) or status_key in {"on_break", "en_pausa"} or "pausa" in label_text:
+        return "break_start"
+    if is_break_end(type_key) or any(token in label_text for token in ("retorno", "retomar", "reanudar")):
+        return "break_end"
+    if (
+        is_check_out(type_key)
+        or status_key in {"checked_out", "turno_cerrado", "closed", "cerrado"}
+        or any(token in label_text for token in ("finalizacion", "finalizar", "fin de turno", "turno cerrado", "salida"))
+    ):
+        return "check_out"
+    return type_key
 
 
 def parse_payload(value: Any) -> dict:
@@ -289,7 +346,7 @@ def build_closed_shifts(events: list[dict]) -> list[dict]:
         if not employee_id:
             continue
 
-        etype = event_type(ev.get("event_type"))
+        etype = attendance_event_kind(ev)
         occurred_at = ev.get("occurred_at")
         if not isinstance(occurred_at, datetime):
             continue
@@ -698,8 +755,7 @@ async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: 
 
 
 async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
-    start_dt = datetime.combine(period_start, time.min).replace(tzinfo=timezone.utc)
-    end_dt = datetime.combine(period_end, time.max).replace(tzinfo=timezone.utc)
+    start_dt, end_dt = period_datetime_bounds(period_start, period_end)
     lookback_dt = start_dt - timedelta(days=2)
     as_of = min(utcnow(), end_dt)
 
@@ -753,11 +809,21 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             WHERE ev.company_id = :company_id
               AND COALESCE(ev.occurred_at, ev.created_at) >= :lookback_dt
               AND COALESCE(ev.occurred_at, ev.created_at) <= :end_dt
-              AND ev.event_type IN (
-                  'check_in', 'entrada', 'start_shift', 'shift_start',
-                  'break_start', 'pausa', 'pause', 'on_break',
-                  'break_end', 'reanudar', 'resume', 'retomar',
-                  'check_out', 'salida', 'end_shift', 'shift_end'
+              AND (
+                  ev.event_type IN (
+                      'check_in', 'entrada', 'start_shift', 'shift_start',
+                      'break_start', 'pausa', 'pause', 'on_break',
+                      'break_end', 'reanudar', 'resume', 'retomar',
+                      'check_out', 'salida', 'end_shift', 'shift_end'
+                  )
+                  OR COALESCE(ev.event_label, '') ILIKE '%turno%'
+                  OR COALESCE(ev.event_label, '') ILIKE '%pausa%'
+                  OR COALESCE(ev.event_label, '') ILIKE '%retorno%'
+                  OR COALESCE(ev.event_label, '') ILIKE '%retomar%'
+                  OR COALESCE(ev.event_label, '') ILIKE '%reanudar%'
+                  OR COALESCE(ev.status_after, '') IN ('on_break', 'checked_out', 'turno_cerrado', 'closed')
+                  OR COALESCE(ev.status_after, '') ILIKE '%turno%'
+                  OR COALESCE(ev.status_after, '') ILIKE '%pausa%'
               )
             ORDER BY COALESCE(ev.occurred_at, ev.created_at) ASC
         """),

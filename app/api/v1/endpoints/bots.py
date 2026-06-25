@@ -14,6 +14,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -49,6 +50,7 @@ except Exception:  # pragma: no cover
 
 
 router = APIRouter()
+BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")
 
 logger = logging.getLogger("clonexa.telegram_listener")
 TELEGRAM_LISTENER_TASKS: dict[str, asyncio.Task] = {}
@@ -349,7 +351,7 @@ def _money_label(value: Any) -> str:
 
 
 def _today_business() -> date:
-    return datetime.now(timezone.utc).date()
+    return datetime.now(BUSINESS_TIMEZONE).date()
 
 
 def _last_day_of_month(value: date) -> date:
@@ -368,6 +370,37 @@ def _parse_date_token(value: str) -> date | None:
     return None
 
 
+def _payroll_date_from_current_month(day_value: str, today: date) -> date | None:
+    try:
+        day = int(day_value)
+        if day < 1 or day > 31:
+            return None
+        return date(today.year, today.month, day)
+    except Exception:
+        return None
+
+
+def _payroll_bare_day_period(normalized: str, today: date) -> tuple[date, date, str] | None:
+    range_match = re.search(
+        r"(?:desde|del|de)\s+(?:el\s+)?(?:dia\s+)?(\d{1,2})\s+(?:al|a|hasta)\s+(?:el\s+)?(?:dia\s+)?(\d{1,2})(?!\d)",
+        normalized,
+    )
+    if range_match:
+        start = _payroll_date_from_current_month(range_match.group(1), today)
+        end = _payroll_date_from_current_month(range_match.group(2), today)
+        if start and end:
+            start, end = min(start, end), max(start, end)
+            return start, end, "rango indicado"
+
+    single_match = re.search(r"(?:dia|fecha|del|de|el)\s+(\d{1,2})(?!\d)", normalized)
+    if single_match and any(token in normalized for token in ("nomina", "horas", "tiempo", "corte", "pago")):
+        selected = _payroll_date_from_current_month(single_match.group(1), today)
+        if selected:
+            return selected, selected, "dia indicado"
+
+    return None
+
+
 def _payroll_period_from_text(text_value: str) -> tuple[date, date, str]:
     normalized = _text_norm(text_value)
     today = _today_business()
@@ -379,6 +412,10 @@ def _payroll_period_from_text(text_value: str) -> tuple[date, date, str]:
         return start, end, "rango indicado"
     if len(explicit) == 1:
         return explicit[0], explicit[0], "fecha indicada"
+
+    bare_day = _payroll_bare_day_period(normalized, today)
+    if bare_day:
+        return bare_day
 
     if "hoy" in normalized:
         return today, today, "hoy"
@@ -450,7 +487,12 @@ def _format_payroll_summary(company: Company, snapshot: dict[str, Any], text_val
         return _format_payroll_row(matched, period_start, period_end)
 
     totals = snapshot.get("totals") or {}
-    top_rows = sorted(rows, key=lambda row: float(row.get("net_amount") or row.get("net") or 0), reverse=True)[:6]
+    is_single_day = period_start == period_end
+    detail_rows = (
+        sorted(rows, key=lambda row: _text_norm(row.get("employee_name") or row.get("name")))[:12]
+        if is_single_day
+        else sorted(rows, key=lambda row: float(row.get("net_amount") or row.get("net") or 0), reverse=True)[:6]
+    )
     lines = [
         f"Nomina de {company.name} ({period_label})",
         f"Periodo: {period_start.isoformat()} / {period_end.isoformat()}",
@@ -462,15 +504,17 @@ def _format_payroll_summary(company: Company, snapshot: dict[str, Any], text_val
         f"Descuentos: {_money_label(totals.get('discount_amount') or totals.get('discount'))}",
         f"Total a pagar: {_money_label(totals.get('net_amount') or totals.get('net'))}",
     ]
-    if top_rows:
+    if detail_rows:
         lines.append("")
-        lines.append("Detalle visible:")
-        for row in top_rows:
+        lines.append("Horas del dia por colaborador:" if is_single_day else "Detalle visible:")
+        for row in detail_rows:
+            regular_minutes = int(row.get("regular_minutes") or row.get("regularMinutes") or 0)
+            extra_minutes = int(row.get("extra_minutes") or row.get("extraMinutes") or 0)
             lines.append(
                 f"- {row.get('employee_name') or row.get('name') or 'Colaborador'}: "
-                f"{_money_label(row.get('net_amount') or row.get('net'))} "
-                f"({_minutes_label(row.get('regular_minutes') or row.get('regularMinutes'))} ord / "
-                f"{_minutes_label(row.get('extra_minutes') or row.get('extraMinutes'))} ext)"
+                f"{_minutes_label(regular_minutes + extra_minutes)} total "
+                f"({_minutes_label(regular_minutes)} ord / {_minutes_label(extra_minutes)} ext) - "
+                f"{_money_label(row.get('net_amount') or row.get('net'))}"
             )
     return "\n".join(lines)
 

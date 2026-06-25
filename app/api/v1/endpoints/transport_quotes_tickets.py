@@ -7,15 +7,43 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import READ_ROLES, WRITE_ROLES, get_db, require_company_user_for_tenant
 from app.api.v1.endpoints.transport_contracts import ensure_transport_contracts_storage
 
 router = APIRouter()
+
+
+async def require_transport_quotes_read(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        authorization,
+        company_id,
+        allowed_roles=READ_ROLES,
+        module_codes="transport_quotes_tickets",
+    )
+
+
+async def require_transport_quotes_write(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        authorization,
+        company_id,
+        allowed_roles=WRITE_ROLES,
+        module_codes="transport_quotes_tickets",
+    )
 
 
 class TransportAuthorizedPerson(BaseModel):
@@ -240,7 +268,7 @@ def _select_documents_sql(where_extra: str = "") -> str:
     """
 
 
-@router.get("/companies/{company_id}/documents")
+@router.get("/companies/{company_id}/documents", dependencies=[Depends(require_transport_quotes_read)])
 async def list_transport_documents(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -284,7 +312,7 @@ async def list_transport_documents(
     return {"ok": True, "company_id": str(company_id), "documents": docs, "count": len(docs)}
 
 
-@router.get("/companies/{company_id}/summary")
+@router.get("/companies/{company_id}/summary", dependencies=[Depends(require_transport_quotes_read)])
 async def transport_documents_summary(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -314,7 +342,7 @@ async def transport_documents_summary(
     return {"ok": True, "company_id": str(company_id), "summary": _row(result.first() or {})}
 
 
-@router.post("/companies/{company_id}/documents", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/documents", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_quotes_write)])
 async def create_transport_document(company_id: uuid.UUID, payload: TransportDocumentIn, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_documents_storage(db)
     doc_type = _document_type(payload.document_type)
@@ -381,7 +409,7 @@ async def create_transport_document(company_id: uuid.UUID, payload: TransportDoc
     return {"ok": True, "company_id": str(company_id), "document": _row(row)}
 
 
-@router.patch("/companies/{company_id}/documents/{document_id}")
+@router.patch("/companies/{company_id}/documents/{document_id}", dependencies=[Depends(require_transport_quotes_write)])
 async def update_transport_document(company_id: uuid.UUID, document_id: uuid.UUID, payload: TransportDocumentPatch, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_documents_storage(db)
     data = payload.model_dump(exclude_unset=True)
@@ -434,7 +462,7 @@ async def update_transport_document(company_id: uuid.UUID, document_id: uuid.UUI
     return {"ok": True, "company_id": str(company_id), "document": _row(row)}
 
 
-@router.post("/companies/{company_id}/documents/{document_id}/convert-ticket", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/documents/{document_id}/convert-ticket", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_quotes_write)])
 async def convert_quote_to_ticket(company_id: uuid.UUID, document_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_documents_storage(db)
     result = await db.execute(

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant
 from app.api.v1.endpoints.employees import (
     add_attendance_event,
     ensure_attendance_storage,
@@ -45,6 +45,21 @@ from app.services.access_sessions import ensure_access_sessions_storage, registe
 from app.api.v1.endpoints.transport_calls import ensure_transport_calls_storage
 
 router = APIRouter()
+
+COMPANY_USER_ADMIN_ROLES = ADMIN_ROLES | {"manager", "gerencia", "gerente"}
+
+
+async def require_company_user_admin_access(
+    company_id: UUID,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        authorization,
+        company_id,
+        allowed_roles=COMPANY_USER_ADMIN_ROLES,
+    )
 
 # CLONEXA_019C_SALES_MINIPANEL_USERS_BACKEND_START
 
@@ -2807,13 +2822,13 @@ async def mini_panel_change_password_019f_r1(
 
 
 
-@router.get("/{company_id}/users", response_model=list[CompanyUserOut])
+@router.get("/{company_id}/users", response_model=list[CompanyUserOut], dependencies=[Depends(require_company_user_admin_access)])
 async def list_users(company_id: UUID, db: AsyncSession = Depends(get_db)):
     users = await list_company_users(db, company_id)
     return [await company_user_out_payload(db, user) for user in users]
 
 
-@router.post("/{company_id}/users", response_model=CompanyUserOut)
+@router.post("/{company_id}/users", response_model=CompanyUserOut, dependencies=[Depends(require_company_user_admin_access)])
 async def create_user(
     company_id: UUID,
     payload: AdminCreateCompanyUserRequest,
@@ -2823,7 +2838,7 @@ async def create_user(
     return await company_user_out_payload(db, user)
 
 
-@router.put("/{company_id}/users/{user_id}", response_model=CompanyUserOut)
+@router.put("/{company_id}/users/{user_id}", response_model=CompanyUserOut, dependencies=[Depends(require_company_user_admin_access)])
 async def update_user(
     company_id: UUID,
     user_id: UUID,
@@ -2834,7 +2849,7 @@ async def update_user(
     return await company_user_out_payload(db, user)
 
 
-@router.post("/{company_id}/users/{user_id}/reset-password", response_model=AdminResetPasswordResponse)
+@router.post("/{company_id}/users/{user_id}/reset-password", response_model=AdminResetPasswordResponse, dependencies=[Depends(require_company_user_admin_access)])
 async def reset_password(
     company_id: UUID,
     user_id: UUID,
@@ -2845,6 +2860,6 @@ async def reset_password(
     return await reset_company_user_password(db, company_id, user_id, password)
 
 
-@router.post("/{company_id}/users/{user_id}/unlock", response_model=UnlockUserResponse)
+@router.post("/{company_id}/users/{user_id}/unlock", response_model=UnlockUserResponse, dependencies=[Depends(require_company_user_admin_access)])
 async def unlock_user(company_id: UUID, user_id: UUID, db: AsyncSession = Depends(get_db)):
     return await unlock_company_user(db, company_id, user_id)

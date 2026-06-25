@@ -27,7 +27,26 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
 MAX_BCRYPT_PASSWORD_BYTES = 72
-VALID_ROLES = {"company_admin", "manager", "operator", "viewer", "supervisor", "staff"}
+VALID_ROLES = {
+    "company_admin",
+    "admin_empresa",
+    "manager",
+    "operator",
+    "operador",
+    "operario",
+    "viewer",
+    "supervisor",
+    "staff",
+    "gerencia",
+    "gerente",
+    "agente_call",
+    "agent_call",
+    "agente_externo",
+    "external_agent",
+    "externo",
+    "tesoreria",
+    "treasury",
+}
 VALID_STATUS = {"active", "inactive", "blocked"}
 
 

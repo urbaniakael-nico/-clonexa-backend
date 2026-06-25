@@ -8,14 +8,44 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import ADMIN_ROLES, READ_ROLES, get_db, require_company_user_for_tenant
 
 router = APIRouter()
+
+TRANSPORT_CONTRACT_MANAGER_ROLES = ADMIN_ROLES | {"manager", "gerencia", "gerente", "supervisor", "tesoreria"}
+
+
+async def require_transport_contracts_read(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        authorization,
+        company_id,
+        allowed_roles=READ_ROLES,
+        module_codes="transport_contracts",
+    )
+
+
+async def require_transport_contracts_manage(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        authorization,
+        company_id,
+        allowed_roles=TRANSPORT_CONTRACT_MANAGER_ROLES,
+        module_codes="transport_contracts",
+    )
 
 
 class TransportContractIn(BaseModel):
@@ -146,7 +176,7 @@ def _select_contracts_sql(where_extra: str = "") -> str:
     """
 
 
-@router.get("/companies/{company_id}/contracts")
+@router.get("/companies/{company_id}/contracts", dependencies=[Depends(require_transport_contracts_read)])
 async def list_transport_contracts(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -181,7 +211,7 @@ async def list_transport_contracts(
     return {"ok": True, "company_id": str(company_id), "contracts": rows, "count": len(rows)}
 
 
-@router.get("/companies/{company_id}/summary")
+@router.get("/companies/{company_id}/summary", dependencies=[Depends(require_transport_contracts_read)])
 async def transport_contracts_summary(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -215,7 +245,7 @@ async def transport_contracts_summary(
     return {"ok": True, "company_id": str(company_id), "summary": _row(result.first() or {})}
 
 
-@router.post("/companies/{company_id}/contracts", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/contracts", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_contracts_manage)])
 async def create_transport_contract(
     company_id: uuid.UUID,
     payload: TransportContractIn,
@@ -263,7 +293,7 @@ async def create_transport_contract(
     return {"ok": True, "company_id": str(company_id), "contract": created}
 
 
-@router.patch("/companies/{company_id}/contracts/{contract_id}")
+@router.patch("/companies/{company_id}/contracts/{contract_id}", dependencies=[Depends(require_transport_contracts_manage)])
 async def update_transport_contract(
     company_id: uuid.UUID,
     contract_id: uuid.UUID,
@@ -313,7 +343,7 @@ async def update_transport_contract(
     return {"ok": True, "company_id": str(company_id), "contract": contract}
 
 
-@router.post("/companies/{company_id}/contracts/{contract_id}/archive")
+@router.post("/companies/{company_id}/contracts/{contract_id}/archive", dependencies=[Depends(require_transport_contracts_manage)])
 async def archive_transport_contract(
     company_id: uuid.UUID,
     contract_id: uuid.UUID,
@@ -346,7 +376,7 @@ def _csv_value(row: dict[str, str], *names: str) -> str:
     return ""
 
 
-@router.post("/companies/{company_id}/contracts/import-csv")
+@router.post("/companies/{company_id}/contracts/import-csv", dependencies=[Depends(require_transport_contracts_manage)])
 async def import_transport_contracts_csv(
     company_id: uuid.UUID,
     file: UploadFile = File(...),

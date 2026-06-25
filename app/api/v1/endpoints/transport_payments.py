@@ -5,16 +5,52 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import ADMIN_ROLES, READ_ROLES, get_db, require_company_user_for_tenant
 from app.api.v1.endpoints.transport_contracts import ensure_transport_contracts_storage
 from app.api.v1.endpoints.transport_quotes_tickets import ensure_transport_documents_storage
 
 router = APIRouter()
+
+TRANSPORT_PAYMENT_WRITE_ROLES = ADMIN_ROLES | {"manager", "gerencia", "gerente", "tesoreria", "treasury"}
+
+
+def _authorization_from_query_028s(authorization: str | None, access_token: str | None = "") -> str | None:
+    token = str(access_token or "").strip()
+    return authorization or (f"Bearer {token}" if token else None)
+
+
+async def require_transport_payments_read(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    access_token: str = Query(default="", max_length=2048),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        _authorization_from_query_028s(authorization, access_token),
+        company_id,
+        allowed_roles=READ_ROLES,
+        module_codes="transport_payments",
+    )
+
+
+async def require_transport_payments_write(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        authorization,
+        company_id,
+        allowed_roles=TRANSPORT_PAYMENT_WRITE_ROLES,
+        module_codes="transport_payments",
+    )
 
 MAX_PAYMENT_PROOF_BYTES = 8 * 1024 * 1024
 ALLOWED_PAYMENT_PROOF_TYPES = {
@@ -321,7 +357,7 @@ async def _ticket_document(db: AsyncSession, company_id: uuid.UUID, document_id:
     return _row(row)
 
 
-@router.get("/companies/{company_id}/summary")
+@router.get("/companies/{company_id}/summary", dependencies=[Depends(require_transport_payments_read)])
 async def transport_payments_summary(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -409,7 +445,7 @@ async def transport_payments_summary(
     return {"ok": True, "company_id": str(company_id), "summary": _row(result.first() or {})}
 
 
-@router.get("/companies/{company_id}/queue")
+@router.get("/companies/{company_id}/queue", dependencies=[Depends(require_transport_payments_read)])
 async def list_transport_payment_queue(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -480,7 +516,7 @@ async def list_transport_payment_queue(
     return {"ok": True, "company_id": str(company_id), "tickets": tickets, "count": len(tickets)}
 
 
-@router.get("/companies/{company_id}/payments")
+@router.get("/companies/{company_id}/payments", dependencies=[Depends(require_transport_payments_read)])
 async def list_transport_payments(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -526,7 +562,7 @@ async def list_transport_payments(
     return {"ok": True, "company_id": str(company_id), "payments": payments, "count": len(payments)}
 
 
-@router.patch("/companies/{company_id}/tickets/{document_id}/treasury-check")
+@router.patch("/companies/{company_id}/tickets/{document_id}/treasury-check", dependencies=[Depends(require_transport_payments_write)])
 async def update_transport_treasury_check(
     company_id: uuid.UUID,
     document_id: uuid.UUID,
@@ -569,7 +605,7 @@ async def update_transport_treasury_check(
     return {"ok": True, "company_id": str(company_id), "ticket": _row(row)}
 
 
-@router.post("/companies/{company_id}/payments", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/payments", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_payments_write)])
 async def create_transport_payment(company_id: uuid.UUID, payload: TransportPaymentIn, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_payments_storage(db)
     document_id = _clean(payload.document_id, 80)
@@ -630,7 +666,7 @@ async def create_transport_payment(company_id: uuid.UUID, payload: TransportPaym
     await db.commit()
     return {"ok": True, "company_id": str(company_id), "payment": payment}
 
-@router.get("/companies/{company_id}/invoices")
+@router.get("/companies/{company_id}/invoices", dependencies=[Depends(require_transport_payments_read)])
 async def list_transport_invoices(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -678,7 +714,7 @@ async def list_transport_invoices(
     return {"ok": True, "company_id": str(company_id), "invoices": invoices, "count": len(invoices)}
 
 
-@router.get("/companies/{company_id}/alerts")
+@router.get("/companies/{company_id}/alerts", dependencies=[Depends(require_transport_payments_read)])
 async def list_transport_payment_alerts(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -808,7 +844,7 @@ async def _create_transport_contract_credit_record(
     return {"ok": True, "company_id": str(company_id), "payment": payment, "contract": _row(updated.first() or {})}
 
 
-@router.post("/companies/{company_id}/contracts/{contract_id}/credits", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/contracts/{contract_id}/credits", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_payments_write)])
 async def create_transport_contract_credit(
     company_id: uuid.UUID,
     contract_id: uuid.UUID,
@@ -827,7 +863,7 @@ async def create_transport_contract_credit(
     )
 
 
-@router.post("/companies/{company_id}/contracts/{contract_id}/credits-with-proof", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/contracts/{contract_id}/credits-with-proof", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_payments_write)])
 async def create_transport_contract_credit_with_proof(
     company_id: uuid.UUID,
     contract_id: uuid.UUID,
@@ -852,7 +888,7 @@ async def create_transport_contract_credit_with_proof(
     )
 
 
-@router.get("/companies/{company_id}/payments/{payment_id}/proof")
+@router.get("/companies/{company_id}/payments/{payment_id}/proof", dependencies=[Depends(require_transport_payments_read)])
 async def get_transport_payment_proof(company_id: uuid.UUID, payment_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Response:
     await ensure_transport_payments_storage(db)
     result = await db.execute(
@@ -880,7 +916,7 @@ async def get_transport_payment_proof(company_id: uuid.UUID, payment_id: uuid.UU
     )
 
 
-@router.post("/companies/{company_id}/invoices", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/invoices", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_payments_write)])
 async def create_transport_invoice(company_id: uuid.UUID, payload: TransportInvoiceIn, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_payments_storage(db)
     document_id = _clean(payload.document_id, 80)

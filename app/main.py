@@ -228,8 +228,8 @@ app.add_middleware(
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "clonexa-backend"}
+async def health() -> dict[str, object]:
+    return {"ok": True, "status": "ok", "service": "clonexa-backend"}
 
 
 

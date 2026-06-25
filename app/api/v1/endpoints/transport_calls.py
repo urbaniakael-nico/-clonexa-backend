@@ -8,14 +8,65 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import ADMIN_ROLES, READ_ROLES, WRITE_ROLES, get_db, require_company_user_for_tenant
 
 router = APIRouter()
+
+TRANSPORT_CALL_MANAGER_ROLES = ADMIN_ROLES | {"manager", "gerencia", "gerente", "supervisor", "tesoreria"}
+
+
+def _authorization_from_query_028s(authorization: str | None, access_token: str | None = "") -> str | None:
+    token = str(access_token or "").strip()
+    return authorization or (f"Bearer {token}" if token else None)
+
+
+async def require_transport_calls_read(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    access_token: str = Query(default="", max_length=2048),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        _authorization_from_query_028s(authorization, access_token),
+        company_id,
+        allowed_roles=READ_ROLES,
+        module_codes="transport_calls",
+    )
+
+
+async def require_transport_calls_write(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        authorization,
+        company_id,
+        allowed_roles=WRITE_ROLES,
+        module_codes="transport_calls",
+    )
+
+
+async def require_transport_calls_manage(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    access_token: str = Query(default="", max_length=2048),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await require_company_user_for_tenant(
+        db,
+        _authorization_from_query_028s(authorization, access_token),
+        company_id,
+        allowed_roles=TRANSPORT_CALL_MANAGER_ROLES,
+        module_codes="transport_calls",
+    )
 
 
 class TransportCallIn(BaseModel):
@@ -210,7 +261,7 @@ async def ensure_transport_calls_storage(db: AsyncSession) -> None:
         await db.execute(text(statement))
 
 
-@router.get("/companies/{company_id}/calls")
+@router.get("/companies/{company_id}/calls", dependencies=[Depends(require_transport_calls_read)])
 async def list_transport_calls(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -257,7 +308,7 @@ async def list_transport_calls(
     return {"ok": True, "company_id": str(company_id), "calls": rows, "count": len(rows)}
 
 
-@router.get("/companies/{company_id}/summary")
+@router.get("/companies/{company_id}/summary", dependencies=[Depends(require_transport_calls_read)])
 async def transport_calls_summary(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -335,7 +386,7 @@ async def transport_calls_summary(
     return {"ok": True, "company_id": str(company_id), "summary": summary}
 
 
-@router.post("/companies/{company_id}/calls", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/calls", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_calls_write)])
 async def create_transport_call(
     company_id: uuid.UUID,
     payload: TransportCallIn,
@@ -472,7 +523,7 @@ async def create_transport_call(
     return {"ok": True, "company_id": str(company_id), "call": _row(row)}
 
 
-@router.get("/companies/{company_id}/customers")
+@router.get("/companies/{company_id}/customers", dependencies=[Depends(require_transport_calls_read)])
 async def transport_customer_suggestions(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -570,7 +621,7 @@ async def transport_customer_suggestions(
     return {"ok": True, "company_id": str(company_id), "customers": rows, "count": len(rows)}
 
 
-@router.get("/companies/{company_id}/agents")
+@router.get("/companies/{company_id}/agents", dependencies=[Depends(require_transport_calls_manage)])
 async def list_transport_call_agents(company_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_calls_storage(db)
     result = await db.execute(
@@ -594,7 +645,7 @@ async def list_transport_call_agents(company_id: uuid.UUID, db: AsyncSession = D
     return {"ok": True, "company_id": str(company_id), "agents": agents, "count": len(agents)}
 
 
-@router.get("/companies/{company_id}/batches")
+@router.get("/companies/{company_id}/batches", dependencies=[Depends(require_transport_calls_manage)])
 async def list_transport_call_batches(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -623,7 +674,7 @@ async def list_transport_call_batches(
     return {"ok": True, "company_id": str(company_id), "batches": rows, "count": len(rows)}
 
 
-@router.post("/companies/{company_id}/batches/import-csv", status_code=status.HTTP_201_CREATED)
+@router.post("/companies/{company_id}/batches/import-csv", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_calls_manage)])
 async def import_transport_call_batch_csv(
     company_id: uuid.UUID,
     assigned_employee_id: str = Form(...),
@@ -742,7 +793,7 @@ async def import_transport_call_batch_csv(
     return {"ok": True, "company_id": str(company_id), "batch_id": batch_id, "record_count": len(rows)}
 
 
-@router.post("/companies/{company_id}/batches/{batch_id}/archive")
+@router.post("/companies/{company_id}/batches/{batch_id}/archive", dependencies=[Depends(require_transport_calls_manage)])
 async def archive_transport_call_batch(company_id: uuid.UUID, batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_calls_storage(db)
     await db.execute(
@@ -760,7 +811,7 @@ async def archive_transport_call_batch(company_id: uuid.UUID, batch_id: uuid.UUI
     return {"ok": True, "company_id": str(company_id), "batch_id": str(batch_id)}
 
 
-@router.delete("/companies/{company_id}/batches/{batch_id}")
+@router.delete("/companies/{company_id}/batches/{batch_id}", dependencies=[Depends(require_transport_calls_manage)])
 async def delete_transport_call_batch(company_id: uuid.UUID, batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_calls_storage(db)
     await db.execute(
@@ -777,7 +828,7 @@ async def delete_transport_call_batch(company_id: uuid.UUID, batch_id: uuid.UUID
     return {"ok": True, "company_id": str(company_id), "batch_id": str(batch_id)}
 
 
-@router.get("/companies/{company_id}/batches/{batch_id}/export.csv")
+@router.get("/companies/{company_id}/batches/{batch_id}/export.csv", dependencies=[Depends(require_transport_calls_manage)])
 async def export_transport_call_batch_csv(company_id: uuid.UUID, batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Response:
     await ensure_transport_calls_storage(db)
     result = await db.execute(

@@ -53,14 +53,6 @@ for _module_name, _prefix, _tags in [
 ]:
     _include(_module_name, _prefix, _tags)
 
-# CLONEXA company users router
-from app.api.v1.endpoints import company_users as company_users_router
-api_router.include_router(company_users_router.router, prefix="/companies", tags=["company_users"])
-
-# CLONEXA auth router
-from app.api.v1.endpoints import auth as auth_router
-api_router.include_router(auth_router.router, prefix="/auth", tags=["auth"])
-
 # CLONEXA 020B core settings router
 from app.api.v1.endpoints import core_settings as core_settings_router
 api_router.include_router(core_settings_router.router, prefix="/companies", tags=["core_settings"])

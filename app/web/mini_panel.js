@@ -57,6 +57,11 @@
     return value ? { Authorization: `Bearer ${value}` } : {};
   }
 
+  function authQueryParam(prefix = "&") {
+    const value = token();
+    return value ? `${prefix}access_token=${encodeURIComponent(value)}` : "";
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(path, options);
     const data = await response.json().catch(() => ({}));
@@ -3276,7 +3281,7 @@
   }
 
   function transportQuotePdfUrl028O(id, inline = true) {
-    return `/api/v1/transport-quotes-tickets/companies/${encodeURIComponent(companyId)}/documents/${encodeURIComponent(id)}/print.pdf?inline=${inline ? "true" : "false"}`;
+    return `/api/v1/transport-quotes-tickets/companies/${encodeURIComponent(companyId)}/documents/${encodeURIComponent(id)}/print.pdf?inline=${inline ? "true" : "false"}${authQueryParam()}`;
   }
 
   function transportQuoteMoneyValue028O(value) {

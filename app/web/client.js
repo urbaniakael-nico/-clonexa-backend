@@ -24,10 +24,60 @@
 
   const $ = (id) => document.getElementById(id);
 
+
+  function authToken() {
+    const keys = [
+      "clonexa_access_token",
+      "clonexa_token",
+      "clonexa_client_token",
+      "access_token",
+      "token",
+      "auth_token",
+      "jwt",
+    ];
+    const stores = [window.localStorage, window.sessionStorage].filter(Boolean);
+    for (const store of stores) {
+      for (const key of keys) {
+        const value = store.getItem(key);
+        if (!value) continue;
+        if (value.trim().startsWith("{")) {
+          try {
+            const data = JSON.parse(value);
+            const nested = data.access_token || data.token || data.jwt;
+            if (nested) return nested;
+          } catch (_) {}
+        } else {
+          return value;
+        }
+      }
+    }
+    return "";
+  }
+
+  function authHeaders(base = {}) {
+    const headers = { ...(base || {}) };
+    const token = authToken();
+    if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  }
+
+  function authQueryParam(prefix = "&") {
+    const token = authToken();
+    return token ? `${prefix}access_token=${encodeURIComponent(token)}` : "";
+  }
+
+  function authInternalUrl(url) {
+    const token = authToken();
+    if (!url || !token) return url;
+    const isExternal = /^https?:\/\//i.test(url) && !String(url).startsWith(window.location.origin);
+    if (isExternal) return url;
+    return `${url}${String(url).includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token)}`;
+  }
+
   async function api(path, options = {}) {
     const res = await fetch(`${API}${path}`, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
       ...options,
+      headers: authHeaders({ "Content-Type": "application/json", ...(options.headers || {}) }),
     });
 
     if (!res.ok) {
@@ -40,10 +90,12 @@
 
   // CX_019E_INVENTORY_INVOICE_FRONTEND_START
   async function apiForm(path, formData, options = {}) {
+    const fetchOptions = options.fetchOptions || {};
     const res = await fetch(`${API}${path}`, {
       method: options.method || "POST",
       body: formData,
-      ...(options.fetchOptions || {}),
+      ...fetchOptions,
+      headers: authHeaders({ ...(fetchOptions.headers || {}), ...(options.headers || {}) }),
     });
 
     if (!res.ok) {
@@ -6714,24 +6766,63 @@ function inventoryCreatePayload() {
     return event.employee_id || event.employeeId || event.employee?.id || null;
   }
 
+  function payrollEventText(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function payrollEventKey(value) {
+    return payrollEventText(value).replace(/\s+/g, "_");
+  }
+
   function payrollEventType(event = {}) {
-    return String(event.event_type || event.type || event.action || "").toLowerCase();
+    const type = payrollEventKey(event.event_type || event.type || event.action);
+    const label = payrollEventText(event.event_label || event.label || event.detail);
+    const status = payrollEventKey(event.status_after || event.status);
+
+    if (payrollIsCheckIn(type) || label.includes("inicio de turno") || label.includes("iniciar turno") || label.includes("entrada")) {
+      return "check_in";
+    }
+    if (payrollIsBreakStart(type) || status === "on_break" || status === "en_pausa" || label.includes("pausa")) {
+      return "break_start";
+    }
+    if (payrollIsBreakEnd(type) || label.includes("retorno") || label.includes("retomar") || label.includes("reanudar")) {
+      return "break_end";
+    }
+    if (
+      payrollIsCheckOut(type) ||
+      ["checked_out", "turno_cerrado", "closed", "cerrado"].includes(status) ||
+      label.includes("finalizacion") ||
+      label.includes("finalizar") ||
+      label.includes("fin de turno") ||
+      label.includes("turno cerrado") ||
+      label.includes("salida")
+    ) {
+      return "check_out";
+    }
+
+    return type;
   }
 
   function payrollIsCheckIn(type) {
-    return ["check_in", "entrada", "start_shift", "shift_start"].includes(type);
+    return ["check_in", "entrada", "start_shift", "shift_start", "inicio", "inicio_turno", "inicio_de_turno", "iniciar_turno"].includes(type);
   }
 
   function payrollIsBreakStart(type) {
-    return ["break_start", "pausa", "pause", "on_break"].includes(type);
+    return ["break_start", "pausa", "pause", "on_break", "en_pausa"].includes(type);
   }
 
   function payrollIsBreakEnd(type) {
-    return ["break_end", "reanudar", "resume", "retomar"].includes(type);
+    return ["break_end", "reanudar", "resume", "retomar", "retorno", "retomar_labores"].includes(type);
   }
 
   function payrollIsCheckOut(type) {
-    return ["check_out", "salida", "end_shift", "shift_end"].includes(type);
+    return ["check_out", "salida", "end_shift", "shift_end", "finalizar", "finalizar_turno", "finalizacion_de_turno", "fin_de_turno", "turno_cerrado", "checked_out", "closed"].includes(type);
   }
 
   function payrollDuration(minutes) {
@@ -25978,7 +26069,7 @@ function inventoryCreatePayload() {
       button.addEventListener("click", () => {
         const id = button.getAttribute("data-tc-batch-export") || "";
         if (!id) return;
-        window.open(`/api/v1/transport-calls/companies/${encodeURIComponent(state.companyId)}/batches/${encodeURIComponent(id)}/export.csv`, "_blank");
+        window.open(`/api/v1/transport-calls/companies/${encodeURIComponent(state.companyId)}/batches/${encodeURIComponent(id)}/export.csv${authQueryParam("?")}`, "_blank");
       });
     });
     document.querySelectorAll("[data-tc-batch-archive]").forEach((button) => {
@@ -26771,7 +26862,8 @@ function inventoryCreatePayload() {
   function cxTransportPaymentsProofHref028R(item) {
     const raw = String(item?.proof_file_url || "").trim();
     if (!raw) return "";
-    return /^https?:\/\//i.test(raw) ? raw : `${window.location.origin}${raw}`;
+    const secured = authInternalUrl(raw);
+    return /^https?:\/\//i.test(secured) ? secured : `${window.location.origin}${secured}`;
   }
 
   function cxTransportPaymentsOptionLabel028R(item) {
