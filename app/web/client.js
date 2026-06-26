@@ -25671,21 +25671,28 @@ function inventoryCreatePayload() {
     let batches = [];
     let loadError = "";
 
-    try {
-      const [summaryResponse, callsResponse, docsResponse, agentsResponse, batchesResponse] = await Promise.all([
-        cxTransportApi028A(`/summary?${qs}`),
-        cxTransportApi028A(`/calls?limit=160&${qs}`),
-        api(`/transport-quotes-tickets/companies/${encodeURIComponent(state.companyId)}/documents?limit=160&${qs}`),
-        cxTransportApi028A("/agents"),
-        cxTransportApi028A("/batches?status=all&limit=120"),
-      ]);
-      summary = summaryResponse.summary || {};
-      calls = Array.isArray(callsResponse.calls) ? callsResponse.calls : [];
-      documents = Array.isArray(docsResponse.documents) ? docsResponse.documents : [];
-      agents = Array.isArray(agentsResponse.agents) ? agentsResponse.agents : [];
-      batches = Array.isArray(batchesResponse.batches) ? batchesResponse.batches : [];
-    } catch (error) {
-      loadError = error.message || "No se pudo cargar el modulo de llamadas.";
+    const loadPart = async (label, promise) => {
+      try {
+        return { ok: true, label, data: await promise };
+      } catch (error) {
+        return { ok: false, label, error };
+      }
+    };
+    const [summaryResult, callsResult, docsResult, agentsResult, batchesResult] = await Promise.all([
+      loadPart("resumen", cxTransportApi028A(`/summary?${qs}`)),
+      loadPart("llamadas", cxTransportApi028A(`/calls?limit=160&${qs}`)),
+      loadPart("documentos", api(`/transport-quotes-tickets/companies/${encodeURIComponent(state.companyId)}/documents?limit=160&${qs}`)),
+      loadPart("agentes", cxTransportApi028A("/agents")),
+      loadPart("bases", cxTransportApi028A("/batches?status=all&limit=120")),
+    ]);
+    if (summaryResult.ok) summary = summaryResult.data.summary || {};
+    if (callsResult.ok) calls = Array.isArray(callsResult.data.calls) ? callsResult.data.calls : [];
+    if (docsResult.ok) documents = Array.isArray(docsResult.data.documents) ? docsResult.data.documents : [];
+    if (agentsResult.ok) agents = Array.isArray(agentsResult.data.agents) ? agentsResult.data.agents : [];
+    if (batchesResult.ok) batches = Array.isArray(batchesResult.data.batches) ? batchesResult.data.batches : [];
+    const failedParts = [summaryResult, callsResult, docsResult, agentsResult, batchesResult].filter((item) => !item.ok);
+    if (failedParts.length) {
+      loadError = `No se cargaron estas secciones: ${failedParts.map((item) => item.label).join(", ")}. El resto del modulo sigue disponible.`;
     }
 
     const tableCellStyle = "padding:13px 12px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top";
@@ -25921,7 +25928,7 @@ function inventoryCreatePayload() {
 
             ${loadError ? `
               <section class="client-panel" style="border-color:rgba(248,113,113,.4)">
-                <strong>No se pudo cargar Call Center / Llamadas.</strong>
+                <strong>Carga parcial de Call Center / Llamadas.</strong>
                 <p class="client-muted">${h(loadError)}</p>
               </section>
             ` : ""}

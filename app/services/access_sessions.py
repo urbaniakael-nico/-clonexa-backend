@@ -325,11 +325,19 @@ async def validate_access_session(
     if str(row.get("status") or "").lower() != "active":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesion cerrada desde Admin V2.")
 
-    await db.execute(
-        text("UPDATE clonexa_access_sessions SET last_seen_at = NOW() WHERE session_key = :session_key"),
-        {"session_key": str(session_key)},
-    )
-    await db.commit()
+    try:
+        await db.execute(
+            text("""
+                UPDATE clonexa_access_sessions
+                SET last_seen_at = NOW()
+                WHERE session_key = :session_key
+                  AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '30 seconds')
+            """),
+            {"session_key": str(session_key)},
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
     return dict(row)
 
 

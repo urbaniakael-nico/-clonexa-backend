@@ -152,11 +152,12 @@ def _role_tokens(*values: Any) -> set[str]:
     return set(normalized.split()) | ({compact} if compact else set())
 
 
-def _is_call_agent_role(role: Any, employee_type: Any = "") -> bool:
-    tokens = _role_tokens(role, employee_type)
+def _is_call_agent_role(role: Any, employee_type: Any = "", panel_type: Any = "") -> bool:
+    tokens = _role_tokens(role, employee_type, panel_type)
     allowed = {
         "agente", "asesor", "operario", "vendedor", "agente_call", "agentecall",
-        "call", "callcenter", "asesorcall", "agenteexterno", "externo",
+        "agente_call_center", "agentecallcenter", "call", "callcenter", "call_center",
+        "asesorcall", "asesorcallcenter", "agenteexterno", "externo",
     }
     return bool(tokens & allowed)
 
@@ -641,7 +642,10 @@ async def list_transport_call_agents(company_id: uuid.UUID, db: AsyncSession = D
         text(
             """
             SELECT e.id::text AS id, e.full_name, e.phone, e.email, e.role, e.employee_type, e.status,
-                   u.id::text AS user_id, COALESCE(u.email, '') AS username
+                   u.id::text AS user_id,
+                   COALESCE(u.email, '') AS username,
+                   COALESCE(u.role, '') AS user_role,
+                   COALESCE(u.settings_json->'mini_panel'->>'type', '') AS mini_panel_type
             FROM employees e
             LEFT JOIN company_users u ON u.company_id = e.company_id
               AND u.settings_json->'mini_panel'->>'employee_id' = e.id::text
@@ -654,7 +658,13 @@ async def list_transport_call_agents(company_id: uuid.UUID, db: AsyncSession = D
         {"company_id": str(company_id)},
     )
     agents = [_row(row) for row in result.fetchall()]
-    agents = [agent for agent in agents if _is_call_agent_role(agent.get("role"), agent.get("employee_type"))]
+    for agent in agents:
+        if not agent.get("role") and agent.get("user_role"):
+            agent["role"] = agent.get("user_role")
+    agents = [
+        agent for agent in agents
+        if _is_call_agent_role(agent.get("role") or agent.get("user_role"), agent.get("employee_type"), agent.get("mini_panel_type"))
+    ]
     return {"ok": True, "company_id": str(company_id), "agents": agents, "count": len(agents)}
 
 
@@ -698,10 +708,15 @@ async def import_transport_call_batch_csv(
     employee = await db.execute(
         text(
             """
-            SELECT id::text, full_name, role, employee_type
-            FROM employees
-            WHERE company_id = CAST(:company_id AS uuid)
-              AND id = CAST(:employee_id AS uuid)
+            SELECT e.id::text, e.full_name, e.role, e.employee_type,
+                   COALESCE(u.role, '') AS user_role,
+                   COALESCE(u.settings_json->'mini_panel'->>'type', '') AS mini_panel_type
+            FROM employees e
+            LEFT JOIN company_users u ON u.company_id = e.company_id
+              AND u.settings_json->'mini_panel'->>'employee_id' = e.id::text
+              AND u.status = 'active'
+            WHERE e.company_id = CAST(:company_id AS uuid)
+              AND e.id = CAST(:employee_id AS uuid)
             LIMIT 1
             """
         ),
@@ -710,7 +725,11 @@ async def import_transport_call_batch_csv(
     employee_row = _row(employee.first() or {})
     if not employee_row:
         raise HTTPException(status_code=404, detail="agent_not_found")
-    if not _is_call_agent_role(employee_row.get("role"), employee_row.get("employee_type")):
+    if not _is_call_agent_role(
+        employee_row.get("role") or employee_row.get("user_role"),
+        employee_row.get("employee_type"),
+        employee_row.get("mini_panel_type"),
+    ):
         raise HTTPException(status_code=400, detail="employee_is_not_call_agent")
     active_batch = await db.execute(
         text(
