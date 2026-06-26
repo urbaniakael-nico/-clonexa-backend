@@ -7,22 +7,27 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import READ_ROLES, WRITE_ROLES, get_db, require_company_user_for_tenant
+from app.api.deps import READ_ROLES, WRITE_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
 from app.api.v1.endpoints.transport_contracts import ensure_transport_contracts_storage
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
 
 
 async def require_transport_quotes_read(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db):
+        await require_enabled_module(db, company_id, "transport_quotes_tickets")
+        return
     await require_company_user_for_tenant(
         db,
         authorization,
@@ -34,9 +39,13 @@ async def require_transport_quotes_read(
 
 async def require_transport_quotes_write(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db):
+        await require_enabled_module(db, company_id, "transport_quotes_tickets")
+        return
     await require_company_user_for_tenant(
         db,
         authorization,

@@ -13,7 +13,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ADMIN_ROLES, READ_ROLES, WRITE_ROLES, get_db, require_company_user_for_tenant
+from app.api.deps import ADMIN_ROLES, READ_ROLES, WRITE_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
 
@@ -27,10 +28,14 @@ def _authorization_from_query_028s(authorization: str | None, access_token: str 
 
 async def require_transport_calls_read(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     access_token: str = Query(default="", max_length=2048),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db):
+        await require_enabled_module(db, company_id, "transport_calls")
+        return
     await require_company_user_for_tenant(
         db,
         _authorization_from_query_028s(authorization, access_token),
@@ -42,9 +47,13 @@ async def require_transport_calls_read(
 
 async def require_transport_calls_write(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db):
+        await require_enabled_module(db, company_id, "transport_calls")
+        return
     await require_company_user_for_tenant(
         db,
         authorization,
@@ -56,10 +65,14 @@ async def require_transport_calls_write(
 
 async def require_transport_calls_manage(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     access_token: str = Query(default="", max_length=2048),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db):
+        await require_enabled_module(db, company_id, "transport_calls")
+        return
     await require_company_user_for_tenant(
         db,
         _authorization_from_query_028s(authorization, access_token),

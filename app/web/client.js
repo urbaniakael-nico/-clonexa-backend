@@ -25700,11 +25700,14 @@ function inventoryCreatePayload() {
     const conversionTicket = cxTransportPercent028L(periodTickets, periodCalls);
     const conversionQuote = cxTransportPercent028L(periodQuotes, periodCalls);
 
-    const advisors = cxTransportGroupCalls028L(
+    const advisorStatsByName = cxTransportGroupCalls028L(
       calls,
       (call) => call.advisor_name || "Sin asesor",
       (name, call) => ({
         name,
+        role: "",
+        phone: "",
+        email: "",
         status: call.advisor_status || "offline",
         calls: 0,
         tickets: 0,
@@ -25719,8 +25722,35 @@ function inventoryCreatePayload() {
         row.tickets += call.ticket_requested ? 1 : 0;
         row.quotes += call.quote_requested ? 1 : 0;
         row.missed += String(call.call_status || "") === "missed" ? 1 : 0;
+        row.last_at = call.created_at || row.last_at;
       }
-    ).sort((a, b) => b.calls - a.calls || b.tickets - a.tickets).slice(0, 5);
+    );
+    const advisorsByName = new Map(advisorStatsByName.map((item) => [String(item.name || "").trim().toLowerCase(), item]));
+    (Array.isArray(agents) ? agents : []).forEach((agent) => {
+      const name = String(agent.full_name || agent.email || agent.phone || "Agente").trim();
+      const key = name.toLowerCase();
+      const current = advisorsByName.get(key) || {
+        name,
+        role: "",
+        phone: "",
+        email: "",
+        status: "offline",
+        calls: 0,
+        tickets: 0,
+        quotes: 0,
+        duration: 0,
+        missed: 0,
+        last_at: "",
+      };
+      current.role = agent.role || agent.employee_type || current.role || "";
+      current.phone = agent.phone || current.phone || "";
+      current.email = agent.email || current.email || "";
+      current.status = current.calls ? current.status : (String(agent.status || "").toLowerCase() === "active" ? "available" : "offline");
+      advisorsByName.set(key, current);
+    });
+    const advisors = Array.from(advisorsByName.values())
+      .sort((a, b) => b.calls - a.calls || b.tickets - a.tickets || String(a.name || "").localeCompare(String(b.name || "")))
+      .slice(0, 20);
 
     const routes = cxTransportGroupCalls028L(
       calls,
@@ -25764,7 +25794,11 @@ function inventoryCreatePayload() {
     const advisorRows = advisors.length
       ? advisors.map((item) => `
           <tr>
-            <td style="${tableCellStyle}"><strong>${h(item.name)}</strong><br><span class="client-muted">${h(cxTransportDate028A(item.last_at))}</span></td>
+            <td style="${tableCellStyle}">
+              <strong>${h(item.name)}</strong><br>
+              <span class="client-muted">${h(item.role || "agente call")}${item.phone ? ` · ${h(item.phone)}` : ""}</span><br>
+              <span class="client-muted">${h(item.last_at ? cxTransportDate028A(item.last_at) : "Sin gestion en el periodo")}</span>
+            </td>
             <td style="${tableCellStyle}">${cxTransportStatusPill028A(item.status)}</td>
             <td style="${tableCellStyle}"><strong>${h(item.calls)}</strong></td>
             <td style="${tableCellStyle}">${h(item.quotes)}</td>
@@ -25773,7 +25807,7 @@ function inventoryCreatePayload() {
             <td style="${tableCellStyle}">${h(item.missed)}</td>
           </tr>
         `).join("")
-      : `<tr><td colspan="7" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin asesores detectados todavia.</td></tr>`;
+      : `<tr><td colspan="7" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin agentes call activos en Workforce. Crea o activa agentes en Workforce para asignar bases.</td></tr>`;
 
     const routeRows = routes.length
       ? routes.map((item) => `
@@ -25871,8 +25905,8 @@ function inventoryCreatePayload() {
           <section class="client-main">
             <header class="client-hero">
               <div class="client-eyebrow">Vertical transporte</div>
-              <h1 class="client-title">Call Center / Llamadas</h1>
-              <p class="client-muted">Panel gerencial para controlar asesores, llamadas, rutas, cotizaciones, tickets, contratos y alertas operativas.</p>
+              <h1 class="client-title">CRM de llamadas y supervision</h1>
+              <p class="client-muted">Centro operativo de transporte: estados de agentes, bases asignadas, llamadas, rutas, cotizaciones, tickets y alertas en una sola pantalla.</p>
               <div class="client-kpi-grid">
                 <article class="client-kpi"><span>Llamadas periodo</span><strong>${h(periodCalls)}</strong></article>
                 <article class="client-kpi"><span>Tickets periodo</span><strong>${h(periodTickets)}</strong><small class="client-muted">${h(conversionTicket)} conversion</small></article>
@@ -25904,6 +25938,30 @@ function inventoryCreatePayload() {
               </div>
             </section>
 
+            <section class="client-panel" style="${panelStyle}">
+              <div>
+                <div class="client-eyebrow">Supervisor</div>
+                <h2>Agentes y estados de llamada</h2>
+                <p class="client-muted">Este es el CRM operativo del supervisor: quien esta disponible, quien gestiono llamadas, tiempos, cotizaciones y tickets.</p>
+              </div>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
+                <table style="width:100%;border-collapse:collapse;min-width:860px">
+                  <thead>
+                    <tr>
+                      <th style="${tableHeadStyle}">Agente</th>
+                      <th style="${tableHeadStyle}">Estado</th>
+                      <th style="${tableHeadStyle}">Llamadas</th>
+                      <th style="${tableHeadStyle}">Cot.</th>
+                      <th style="${tableHeadStyle}">Tkt.</th>
+                      <th style="${tableHeadStyle}">Duracion</th>
+                      <th style="${tableHeadStyle}">Perd.</th>
+                    </tr>
+                  </thead>
+                  <tbody>${advisorRows}</tbody>
+                </table>
+              </div>
+            </section>
+
             <section class="client-panel">
               <div class="client-eyebrow">Bases de llamadas</div>
               <h2>Asignar archivo a agente</h2>
@@ -25921,8 +25979,8 @@ function inventoryCreatePayload() {
             </section>
 
             <section class="client-panel">
-              <div class="client-eyebrow">Direccion</div>
-              <h2>Control ejecutivo</h2>
+              <div class="client-eyebrow">Gerencia</div>
+              <h2>Indicadores del periodo</h2>
               <div class="client-kpi-grid" style="margin-top:0">
                 <article class="client-kpi"><span>Asesores detectados</span><strong>${h(summary.advisors_total || advisors.length || 0)}</strong></article>
                 <article class="client-kpi"><span>Disponibles</span><strong>${h(summary.advisors_available || 0)}</strong></article>
@@ -25943,8 +26001,8 @@ function inventoryCreatePayload() {
               <section class="client-panel" style="${panelStyle}">
                 <div>
                   <div class="client-eyebrow">Equipo</div>
-                  <h2>Ranking y estados</h2>
-                  <p class="client-muted">Mostrando 5 primeros. Usa busqueda para filtrar el resto.</p>
+                  <h2>Ranking por gestion</h2>
+                  <p class="client-muted">Mostrando hasta 20 agentes. Usa busqueda para filtrar el periodo.</p>
                 </div>
                 <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
                   <table style="width:100%;border-collapse:collapse;min-width:760px">
