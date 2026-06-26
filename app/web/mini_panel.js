@@ -2504,6 +2504,11 @@
       .tc-head-028l{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}
       .tc-head-028l h2{margin:6px 0 6px;font-size:34px;line-height:1}
       .tc-head-028l p{margin:0;color:rgba(255,255,255,.68);font-weight:800}
+      .tc-advisor-kpis-028l{display:grid;grid-template-columns:1.4fr repeat(4,minmax(120px,1fr));gap:10px;margin:0 0 16px}
+      .tc-advisor-kpis-028l article{min-height:78px;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(255,255,255,.06);padding:13px}
+      .tc-advisor-kpis-028l span{display:block;margin-bottom:7px;color:rgba(255,255,255,.58);font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:950}
+      .tc-advisor-kpis-028l strong{display:block;font-size:22px;line-height:1;color:#fff}
+      .tc-advisor-kpis-028l small{display:block;margin-top:7px;color:rgba(255,255,255,.62);font-weight:800}
       .tc-grid-028l{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
       .tc-grid-028l .wide{grid-column:span 2}
       .tc-grid-028l .full{grid-column:1/-1}
@@ -2549,7 +2554,7 @@
       .tc-monitor-alert-028n{display:inline-flex;border-radius:999px;padding:6px 8px;background:rgba(255,44,126,.14);border:1px solid rgba(255,44,126,.28);color:#ffc0d8;font-size:11px;font-weight:950}
       .tc-monitor-empty-028n{padding:24px;border:1px dashed rgba(255,255,255,.18);border-radius:18px;color:rgba(255,255,255,.68);font-weight:850}
       .tc-monitor-muted-028n{color:rgba(255,255,255,.58);font-size:12px;font-weight:850}
-      @media(max-width:900px){.tc-grid-028l{grid-template-columns:1fr}.tc-grid-028l .wide{grid-column:auto}.tc-head-028l{flex-direction:column}.tc-card-028l{width:calc(100vw - 18px)}}
+      @media(max-width:900px){.tc-grid-028l,.tc-advisor-kpis-028l{grid-template-columns:1fr}.tc-grid-028l .wide{grid-column:auto}.tc-head-028l{flex-direction:column}.tc-card-028l{width:calc(100vw - 18px)}}
       @media(max-width:1200px){.tc-monitor-kpis-028n{grid-template-columns:repeat(4,minmax(0,1fr))}}
       @media(max-width:900px){.tc-monitor-kpis-028n,.tc-monitor-settings-028n{grid-template-columns:1fr}.tc-monitor-card-028n{width:calc(100vw - 12px);height:calc(100vh - 12px);padding:14px}.tc-monitor-table-wrap-028n .tc-table-028l{min-width:940px}}
     `;
@@ -2894,7 +2899,8 @@
     return (Array.isArray(customers) ? customers : [])
       .map((item) => {
         const batch = item.batch_file_name ? `Base: ${item.batch_file_name}${item.row_number ? ` #${item.row_number}` : ""}` : "";
-        const label = [item.phone, item.contract_code, batch].filter(Boolean).join(" / ");
+        const fare = Number(item.ticket_value || 0) > 0 ? `Valor: ${formatMoney(item.ticket_value || 0)}` : "";
+        const label = [item.phone, item.contract_code, item.account_code, item.transporter, fare, batch].filter(Boolean).join(" / ");
         return `<option value="${h(item.customer_name || item.phone || item.contract_code || "")}" label="${h(label)}"></option>`;
       })
       .join("");
@@ -2902,6 +2908,48 @@
 
   function transportCityOptions028L() {
     return TRANSPORT_CITIES_CO_028L.map((city) => `<option value="${h(city)}"></option>`).join("");
+  }
+
+  function transportAdvisorCallMatches028L(item, employeeName) {
+    const advisor = normalizeTransportLookup028L(item?.advisor_name || "");
+    const target = normalizeTransportLookup028L(employeeName || "");
+    return !target || !advisor || advisor === target;
+  }
+
+  function transportAdvisorKpis028L(calls, employeeName, selectedCustomer = null) {
+    const rows = (Array.isArray(calls) ? calls : []).filter((item) => transportAdvisorCallMatches028L(item, employeeName));
+    const quoteCount = rows.filter((item) => item.quote_requested || String(item.result || "") === "quoted").length;
+    const ticketCount = rows.filter((item) => item.ticket_requested || String(item.result || "") === "ticket_created").length;
+    const selected = selectedCustomer?.customer_name || selectedCustomer?.phone || selectedCustomer?.contract_code || "Sin cliente seleccionado";
+    return `
+      <section class="tc-advisor-kpis-028l">
+        <article>
+          <span>Mensajes internos</span>
+          <strong>Sin mensajes</strong>
+          <small>Supervision, gerencia o tesoreria apareceran aqui.</small>
+        </article>
+        <article>
+          <span>Llamadas gestionadas</span>
+          <strong>${h(rows.length)}</strong>
+          <small>Ultimos registros visibles</small>
+        </article>
+        <article>
+          <span>Cotizaciones</span>
+          <strong>${h(quoteCount)}</strong>
+          <small>Generadas o marcadas</small>
+        </article>
+        <article>
+          <span>Tickets</span>
+          <strong>${h(ticketCount)}</strong>
+          <small>Generados o marcados</small>
+        </article>
+        <article>
+          <span>Cliente activo</span>
+          <strong data-transport-selected-client>${h(selected)}</strong>
+          <small>Seleccion desde base cargada</small>
+        </article>
+      </section>
+    `;
   }
 
   function transportCallStatusLabel028L(value) {
@@ -2915,12 +2963,12 @@
     return String(value || "inbound").toLowerCase() === "outbound" ? "Saliente" : "Entrante";
   }
 
-  function transportCallsRows028L(calls) {
-    const rows = Array.isArray(calls) ? calls : [];
+  function transportCallsRows028L(calls, employeeName = "") {
+    const rows = (Array.isArray(calls) ? calls : []).filter((item) => transportAdvisorCallMatches028L(item, employeeName));
     if (!rows.length) {
       return `<tr><td colspan="7">Sin llamadas registradas todavia.</td></tr>`;
     }
-    return rows.slice(0, 12).map((item) => `
+    return rows.slice(0, 10).map((item) => `
       <tr>
         <td>${h(String(item.created_at || "").slice(0, 16).replace("T", " "))}</td>
         <td><strong>${h(item.customer_name || "Cliente sin nombre")}</strong><br><small>${h(item.phone || item.contract_code || "")}</small></td>
@@ -2947,7 +2995,7 @@
 
   function setTransportField028L(form, name, value) {
     const field = form?.elements?.[name];
-    if (field && value) field.value = value;
+    if (field) field.value = value == null ? "" : value;
   }
 
   function fillTransportCustomer028L(form, customer) {
@@ -2956,9 +3004,14 @@
     setTransportField028L(form, "customer_type", customer.customer_type || "person");
     setTransportField028L(form, "phone", customer.phone || "");
     setTransportField028L(form, "contract_code", customer.contract_code || "");
+    setTransportField028L(form, "email", customer.email || "");
+    setTransportField028L(form, "document_id", customer.document_id || "");
+    setTransportField028L(form, "account_code", customer.account_code || "");
     setTransportField028L(form, "origin", customer.origin || "");
     setTransportField028L(form, "destination", customer.destination || "");
     setTransportField028L(form, "trip_type", customer.trip_type || "");
+    setTransportField028L(form, "transporter", customer.transporter || "");
+    setTransportField028L(form, "ticket_value", customer.ticket_value || "");
     setTransportField028L(form, "batch_row_id", customer.batch_row_id || "");
     if (customer.notes && form.elements.notes && !form.elements.notes.value) form.elements.notes.value = customer.notes;
   }
@@ -3001,6 +3054,8 @@
           <button class="mp-button secondary" type="button" data-transport-close>Cerrar</button>
         </div>
 
+        <div data-transport-kpis>${transportAdvisorKpis028L(calls, employeeName)}</div>
+
         <form class="mp-form" data-transport-form>
           <datalist id="${h(uid)}_customers">${transportCustomerOptions028L(customers)}</datalist>
           <datalist id="${h(uid)}_cities">${transportCityOptions028L()}</datalist>
@@ -3009,6 +3064,11 @@
           <input type="hidden" name="duration_seconds" value="0" />
           <input type="hidden" name="source" value="mini_panel" />
           <input type="hidden" name="batch_row_id" value="" />
+          <input type="hidden" name="email" value="" />
+          <input type="hidden" name="document_id" value="" />
+          <input type="hidden" name="account_code" value="" />
+          <input type="hidden" name="transporter" value="" />
+          <input type="hidden" name="ticket_value" value="0" />
 
           <div class="tc-grid-028l">
             <div class="tc-field-028l wide">
@@ -3047,10 +3107,30 @@
               <label>Resultado</label>
               <select name="result">
                 <option value="follow_up">Seguimiento</option>
-                <option value="quoted">Cotizado</option>
+                <option value="quoted">Cotizacion</option>
                 <option value="ticket_created">Ticket generado</option>
                 <option value="not_interested">No interesado</option>
-                <option value="failed">No contestado</option>
+                <option value="no_contact">No contacto</option>
+              </select>
+            </div>
+            <div class="tc-field-028l">
+              <label>Opcion 2</label>
+              <select name="typification_2">
+                <option value="">Sin seleccion</option>
+                <option value="requiere_confirmacion">Requiere confirmacion</option>
+                <option value="requiere_autorizacion">Requiere autorizacion</option>
+                <option value="requiere_pago">Requiere pago</option>
+                <option value="datos_incompletos">Datos incompletos</option>
+              </select>
+            </div>
+            <div class="tc-field-028l">
+              <label>Opcion 3</label>
+              <select name="typification_3">
+                <option value="">Sin seleccion</option>
+                <option value="cliente_indica_llamar">Cliente indica llamar</option>
+                <option value="cliente_indica_whatsapp">Cliente indica WhatsApp</option>
+                <option value="cliente_indica_correo">Cliente indica correo</option>
+                <option value="cliente_indica_no_contactar">Cliente indica no contactar</option>
               </select>
             </div>
             <div class="tc-field-028l">
@@ -3103,7 +3183,7 @@
                   <th>Duracion</th>
                 </tr>
               </thead>
-              <tbody data-transport-rows>${transportCallsRows028L(calls)}</tbody>
+              <tbody data-transport-rows>${transportCallsRows028L(calls, employeeName)}</tbody>
             </table>
           </div>
         </section>
@@ -3114,7 +3194,13 @@
     const form = overlay.querySelector("[data-transport-form]");
     const message = overlay.querySelector("[data-transport-message]");
     const rowsTarget = overlay.querySelector("[data-transport-rows]");
+    const kpisTarget = overlay.querySelector("[data-transport-kpis]");
     const customerDatalist = overlay.querySelector(`#${uid}_customers`);
+    let selectedCustomer = null;
+
+    const renderAdvisorKpis = () => {
+      if (kpisTarget) kpisTarget.innerHTML = transportAdvisorKpis028L(calls, employeeName, selectedCustomer);
+    };
 
     const refreshLists = async (search = "") => {
       try {
@@ -3123,7 +3209,8 @@
         customerMap = transportCustomerKeyMap028L(customers);
         if (customerDatalist) customerDatalist.innerHTML = transportCustomerOptions028L(customers);
         calls = await loadTransportCalls028L();
-        if (rowsTarget) rowsTarget.innerHTML = transportCallsRows028L(calls);
+        if (rowsTarget) rowsTarget.innerHTML = transportCallsRows028L(calls, employeeName);
+        renderAdvisorKpis();
       } catch (error) {
         if (message) {
           message.classList.remove("ok");
@@ -3135,7 +3222,11 @@
     form?.elements?.customer_name?.addEventListener("input", (event) => {
       const value = event.target.value || "";
       const match = customerMap.get(normalizeTransportLookup028L(value));
-      if (match) fillTransportCustomer028L(form, match);
+      if (match) {
+        selectedCustomer = match;
+        fillTransportCustomer028L(form, match);
+        renderAdvisorKpis();
+      }
     });
 
     overlay.querySelector("[data-transport-refresh]")?.addEventListener("click", async () => {
@@ -3153,6 +3244,15 @@
     form?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const data = new FormData(form);
+      const baseNotes = String(data.get("notes") || "").trim();
+      const typificationNotes = [
+        data.get("typification_2") ? `Opcion 2: ${data.get("typification_2")}` : "",
+        data.get("typification_3") ? `Opcion 3: ${data.get("typification_3")}` : "",
+        data.get("email") ? `Correo base: ${data.get("email")}` : "",
+        data.get("account_code") ? `Cuenta base: ${data.get("account_code")}` : "",
+        data.get("transporter") ? `Transportadora base: ${data.get("transporter")}` : "",
+        Number(data.get("ticket_value") || 0) > 0 ? `Valor ticket base: ${data.get("ticket_value")}` : ""
+      ].filter(Boolean);
       const payload = {
         advisor_name: employeeName,
         advisor_status: "available",
@@ -3172,7 +3272,7 @@
         source: String(data.get("twilio_call_sid") || "").trim() ? "twilio" : "mini_panel",
         twilio_call_sid: String(data.get("twilio_call_sid") || "").trim(),
         batch_row_id: String(data.get("batch_row_id") || "").trim(),
-        notes: String(data.get("notes") || "").trim()
+        notes: [baseNotes, ...typificationNotes].filter(Boolean).join("\n")
       };
 
       if (!payload.customer_name && !payload.phone && !payload.contract_code) {
@@ -3193,6 +3293,7 @@
           body: JSON.stringify(payload)
         });
         form.reset();
+        selectedCustomer = null;
         if (message) {
           message.classList.add("ok");
           message.textContent = "Llamada guardada.";
@@ -3206,8 +3307,16 @@
       }
     });
 
+    const closeTransportModal028L = () => {
+      document.removeEventListener("keydown", onTransportKeydown028L);
+      overlay.remove();
+    };
+    const onTransportKeydown028L = (event) => {
+      if (event.key === "Escape") closeTransportModal028L();
+    };
+    document.addEventListener("keydown", onTransportKeydown028L);
     overlay.addEventListener("click", (event) => {
-      if (event.target.closest("[data-transport-close]")) overlay.remove();
+      if (event.target.closest("[data-transport-close]")) closeTransportModal028L();
     });
   }
   /* CLONEXA_028L_TRANSPORT_CALLS_MINIPANEL_END */
@@ -3291,6 +3400,8 @@
       if (clean.includes(",") && clean.includes(".")) {
         return Number(clean.lastIndexOf(",") > clean.lastIndexOf(".") ? clean.replaceAll(".", "").replace(",", ".") : clean.replaceAll(",", "")) || 0;
       }
+      if ((clean.match(/\./g) || []).length === 1 && clean.split(".").pop().length === 3) return Number(clean.replaceAll(".", "")) || 0;
+      if ((clean.match(/,/g) || []).length === 1 && clean.split(",").pop().length === 3) return Number(clean.replaceAll(",", "")) || 0;
       if ((clean.match(/\./g) || []).length > 1) return Number(clean.replaceAll(".", "")) || 0;
       if ((clean.match(/,/g) || []).length > 1) return Number(clean.replaceAll(",", "")) || 0;
       return Number(clean.replace(",", ".")) || 0;
@@ -3394,6 +3505,49 @@
     return Array.isArray(data.documents) ? data.documents : [];
   }
 
+  function transportQuoteTransporterOptions028O(customers, documents = []) {
+    const values = new Set();
+    [...(Array.isArray(customers) ? customers : []), ...(Array.isArray(documents) ? documents : [])].forEach((item) => {
+      const value = String(item?.transporter || "").trim();
+      if (value) values.add(value);
+    });
+    return [...values].sort((a, b) => a.localeCompare(b)).map((item) => `<option value="${h(item)}"></option>`).join("");
+  }
+
+  function fillTransportQuoteCustomer028O(form, customer) {
+    if (!form || !customer) return;
+    const setValue = (name, value) => {
+      const field = form.elements?.[name];
+      if (field) field.value = value == null ? "" : value;
+    };
+    setValue("client_name", customer.customer_name || "");
+    setValue("client_type", customer.customer_type || "person");
+    setValue("phone", customer.phone || "");
+    setValue("email", customer.email || "");
+    setValue("document_id", customer.document_id || "");
+    setValue("contract_code", customer.contract_code || "");
+    setValue("account_code", customer.account_code || "");
+    setValue("origin", customer.origin || "");
+    setValue("destination", customer.destination || "");
+    setValue("route_detail", customer.trip_type || "");
+    setValue("transporter", customer.transporter || "");
+    const unit = transportQuoteMoneyValue028O(customer.ticket_value);
+    if (unit > 0) setValue("unit_amount", unit);
+    transportQuoteRecalculateTotals028O(form);
+  }
+
+  function transportQuoteRecalculateTotals028O(form) {
+    if (!form) return;
+    const ticketCount = Math.max(1, Math.round(transportQuoteMoneyValue028O(form.elements?.ticket_count?.value) || 1));
+    const unitAmount = transportQuoteMoneyValue028O(form.elements?.unit_amount?.value || form.elements?.value_amount?.value);
+    const discountAmount = transportQuoteMoneyValue028O(form.elements?.discount_amount?.value);
+    const valueAmount = Math.max(0, ticketCount * unitAmount);
+    const totalAmount = Math.max(0, valueAmount - discountAmount);
+    if (form.elements?.ticket_count) form.elements.ticket_count.value = ticketCount;
+    if (form.elements?.value_amount) form.elements.value_amount.value = valueAmount ? String(valueAmount) : "";
+    if (form.elements?.total_amount) form.elements.total_amount.value = totalAmount ? String(totalAmount) : "";
+  }
+
   async function openTransportQuotesTicketsModule028O(session) {
     transportQuoteStyles028O();
     const employee = session?.employee || {};
@@ -3426,17 +3580,21 @@
     async function renderBody(filters = {}) {
       let summary = {};
       let documents = [];
+      let customers = [];
       let loadError = "";
       try {
-        const [summaryResponse, docs] = await Promise.all([
+        const [summaryResponse, docs, loadedCustomers] = await Promise.all([
           transportQuoteApi028O("/summary", { method: "GET" }),
-          loadTransportQuoteDocuments028O(filters)
+          loadTransportQuoteDocuments028O(filters),
+          loadTransportCustomers028L("", session)
         ]);
         summary = summaryResponse.summary || {};
         documents = docs;
+        customers = loadedCustomers;
       } catch (error) {
         loadError = error.message || "No se pudo cargar cotizaciones y tickets.";
       }
+      const customerMap = transportCustomerKeyMap028L(customers);
 
       const canReview = role === "supervisor" || role === "tesoreria" || role === "gerencia";
       card.innerHTML = `
@@ -3464,11 +3622,13 @@
           <form class="mp-form tc-panel-028l" data-tqt-form-028o>
             <div class="mp-kicker">Nuevo documento</div>
             <h3>${canReview ? "Crear o consultar" : "Crear cotizacion o ticket"}</h3>
+            <datalist id="${h(uid)}_customers">${transportCustomerOptions028L(customers)}</datalist>
             <datalist id="${h(uid)}_cities">${transportCityOptions028L()}</datalist>
+            <datalist id="${h(uid)}_transporters">${transportQuoteTransporterOptions028O(customers, documents)}</datalist>
             <div class="tc-grid-028l">
               <div class="tc-field-028l"><label>Tipo</label><select name="document_type"><option value="quote">Cotizacion</option><option value="ticket">Ticket / orden</option></select></div>
-              <div class="tc-field-028l"><label>Estado</label><select name="status"><option value="pending">Pendiente</option><option value="approved">Aprobada</option><option value="scheduled">Programada</option><option value="completed">Completada</option><option value="billed">Facturada</option></select></div>
-              <div class="tc-field-028l wide"><label>Cliente</label><input name="client_name" placeholder="Empresa o persona" required></div>
+              <div class="tc-field-028l"><label>Estado</label><select name="status"><option value="approved">Aprobada</option><option value="scheduled">Programada</option><option value="completed">Completada</option><option value="cancelled">Cancelada</option></select></div>
+              <div class="tc-field-028l wide"><label>Cliente</label><input name="client_name" list="${h(uid)}_customers" placeholder="Empresa o persona" autocomplete="off" required></div>
               <div class="tc-field-028l"><label>Tipo cliente</label><select name="client_type"><option value="company">Empresa</option><option value="person">Persona</option><option value="agency">Agencia</option></select></div>
               <div class="tc-field-028l"><label>Telefono</label><input name="phone" placeholder="+57..."></div>
               <div class="tc-field-028l"><label>Correo</label><input name="email" placeholder="correo@empresa.com"></div>
@@ -3480,14 +3640,15 @@
               <div class="tc-field-028l"><label>Origen</label><input name="origin" list="${h(uid)}_cities" placeholder="Ciudad origen" required></div>
               <div class="tc-field-028l"><label>Destino</label><input name="destination" list="${h(uid)}_cities" placeholder="Ciudad destino" required></div>
               <div class="tc-field-028l"><label>Tipo viaje / ruta</label><input name="route_detail" placeholder="Ruta, expreso, aeropuerto..."></div>
-              <div class="tc-field-028l"><label>Transportadora</label><input name="transporter" placeholder="Transportadora"></div>
+              <div class="tc-field-028l"><label>Transportadora</label><input name="transporter" list="${h(uid)}_transporters" placeholder="Transportadora"></div>
               <div class="tc-field-028l"><label>Persona autorizada</label><input name="person_name" placeholder="Nombre autorizado"></div>
               <div class="tc-field-028l"><label>ID autorizado</label><input name="person_document" placeholder="Documento autorizado"></div>
               <div class="tc-field-028l"><label>Tiquetes</label><input name="ticket_count" inputmode="numeric" value="1"></div>
               <div class="tc-field-028l"><label>Autorizado</label><input name="approval_code" placeholder="Codigo autorizacion"></div>
-              <div class="tc-field-028l"><label>Valor</label><input name="value_amount" inputmode="decimal" placeholder="0"></div>
+              <div class="tc-field-028l"><label>Valor x ticket</label><input name="unit_amount" inputmode="decimal" placeholder="0"></div>
+              <div class="tc-field-028l"><label>Valor</label><input name="value_amount" inputmode="decimal" placeholder="0" readonly></div>
               <div class="tc-field-028l"><label>Descuento</label><input name="discount_amount" inputmode="decimal" placeholder="0"></div>
-              <div class="tc-field-028l"><label>Total</label><input name="total_amount" inputmode="decimal" placeholder="0"></div>
+              <div class="tc-field-028l"><label>Total</label><input name="total_amount" inputmode="decimal" placeholder="0" readonly></div>
               <div class="tc-field-028l"><label>Asesor</label><input name="advisor_name" value="${h(advisorName)}"></div>
               <div class="tc-field-028l full"><label>Notas</label><textarea name="notes" rows="3" placeholder="Observaciones, aprobaciones, pendientes o condiciones"></textarea></div>
             </div>
@@ -3526,7 +3687,7 @@
           </div>
         </section>
       `;
-      bindActions(filters);
+      bindActions(filters, customerMap);
     }
 
     function nextFilters() {
@@ -3537,23 +3698,33 @@
       };
     }
 
-    function bindActions(currentFilters = {}) {
+    function bindActions(currentFilters = {}, customerMap = new Map()) {
       card.querySelector("[data-tqt-refresh-028o]")?.addEventListener("click", () => renderBody(currentFilters));
       card.querySelector("[data-tqt-apply-028o]")?.addEventListener("click", () => renderBody(nextFilters()));
       card.querySelector("[data-tqt-search-028o]")?.addEventListener("keydown", (event) => {
         if (event.key === "Enter") renderBody(nextFilters());
+      });
+      const quoteForm = card.querySelector("[data-tqt-form-028o]");
+      quoteForm?.elements?.client_name?.addEventListener("input", (event) => {
+        const match = customerMap.get(normalizeTransportLookup028L(event.target.value || ""));
+        if (match) fillTransportQuoteCustomer028O(quoteForm, match);
+      });
+      ["ticket_count", "unit_amount", "discount_amount"].forEach((name) => {
+        quoteForm?.elements?.[name]?.addEventListener("input", () => transportQuoteRecalculateTotals028O(quoteForm));
       });
       card.querySelector("[data-tqt-form-028o]")?.addEventListener("submit", async (event) => {
         event.preventDefault();
         const form = event.currentTarget;
         const data = new FormData(form);
         const ticketCount = Math.max(1, Math.round(transportQuoteMoneyValue028O(data.get("ticket_count")) || 1));
-        const valueAmount = transportQuoteMoneyValue028O(data.get("value_amount"));
+        const unitAmount = transportQuoteMoneyValue028O(data.get("unit_amount") || data.get("value_amount"));
+        const valueAmount = Math.max(0, ticketCount * unitAmount);
         const discountAmount = transportQuoteMoneyValue028O(data.get("discount_amount"));
-        const totalAmount = transportQuoteMoneyValue028O(data.get("total_amount")) || Math.max(0, valueAmount - discountAmount);
+        const totalAmount = Math.max(0, valueAmount - discountAmount);
+        const documentType = String(data.get("document_type") || "quote");
         const payload = {
-          document_type: String(data.get("document_type") || "quote"),
-          status: String(data.get("status") || "pending"),
+          document_type: documentType,
+          status: String(data.get("status") || (documentType === "ticket" ? "scheduled" : "approved")),
           client_name: String(data.get("client_name") || "").trim(),
           client_type: String(data.get("client_type") || "company"),
           phone: String(data.get("phone") || "").trim(),
@@ -3650,8 +3821,16 @@
       });
     }
 
+    const closeTransportQuotesModal028O = () => {
+      document.removeEventListener("keydown", onTransportQuotesKeydown028O);
+      overlay.remove();
+    };
+    const onTransportQuotesKeydown028O = (event) => {
+      if (event.key === "Escape") closeTransportQuotesModal028O();
+    };
+    document.addEventListener("keydown", onTransportQuotesKeydown028O);
     overlay.addEventListener("click", (event) => {
-      if (event.target.closest("[data-tqt-close-028o]")) overlay.remove();
+      if (event.target.closest("[data-tqt-close-028o]")) closeTransportQuotesModal028O();
     });
 
     await renderBody({ search: "", type: "all", status: "all" });

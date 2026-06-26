@@ -137,6 +137,31 @@ def _csv_value(row: dict[str, Any], *names: str, limit: int = 255) -> str:
     return ""
 
 
+def _csv_money(row: dict[str, Any], *names: str) -> float:
+    raw = _csv_value(row, *names, limit=80)
+    if not raw:
+        return 0.0
+    clean = "".join(ch for ch in raw if ch.isdigit() or ch in ",.-")
+    if not clean:
+        return 0.0
+    try:
+        if "," in clean and "." in clean:
+            clean = clean.replace(".", "").replace(",", ".") if clean.rfind(",") > clean.rfind(".") else clean.replace(",", "")
+        elif clean.count(".") == 1 and len(clean.rsplit(".", 1)[-1]) == 3:
+            clean = clean.replace(".", "")
+        elif clean.count(",") == 1 and len(clean.rsplit(",", 1)[-1]) == 3:
+            clean = clean.replace(",", "")
+        elif clean.count(".") > 1:
+            clean = clean.replace(".", "")
+        elif clean.count(",") > 1:
+            clean = clean.replace(",", "")
+        else:
+            clean = clean.replace(",", ".")
+        return max(0.0, float(clean or 0))
+    except ValueError:
+        return 0.0
+
+
 def _role_tokens(*values: Any) -> set[str]:
     raw = " ".join(str(value or "") for value in values)
     normalized = (
@@ -249,9 +274,12 @@ async def ensure_transport_calls_storage(db: AsyncSession) -> None:
             email VARCHAR(160) NOT NULL DEFAULT '',
             document_id VARCHAR(80) NOT NULL DEFAULT '',
             contract_code VARCHAR(120) NOT NULL DEFAULT '',
+            account_code VARCHAR(120) NOT NULL DEFAULT '',
             origin VARCHAR(160) NOT NULL DEFAULT '',
             destination VARCHAR(160) NOT NULL DEFAULT '',
             trip_type VARCHAR(80) NOT NULL DEFAULT '',
+            transporter VARCHAR(180) NOT NULL DEFAULT '',
+            ticket_value NUMERIC(14,2) NOT NULL DEFAULT 0,
             call_direction VARCHAR(20) NOT NULL DEFAULT '',
             call_status VARCHAR(40) NOT NULL DEFAULT '',
             result VARCHAR(80) NOT NULL DEFAULT '',
@@ -267,6 +295,9 @@ async def ensure_transport_calls_storage(db: AsyncSession) -> None:
         )
     """))
     for statement in [
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS account_code VARCHAR(120) NOT NULL DEFAULT ''",
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS transporter VARCHAR(180) NOT NULL DEFAULT ''",
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS ticket_value NUMERIC(14,2) NOT NULL DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_batches_company ON transport_call_batches(company_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_batches_agent ON transport_call_batches(company_id, assigned_employee_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_batch_rows_batch ON transport_call_batch_rows(batch_id, row_number)",
@@ -587,9 +618,12 @@ async def transport_customer_suggestions(
                 "email": data.get("email", ""),
                 "document_id": data.get("document_id", ""),
                 "contract_code": data.get("contract_code", ""),
+                "account_code": data.get("account_code", ""),
                 "origin": data.get("origin", ""),
                 "destination": data.get("destination", ""),
                 "trip_type": data.get("trip_type", ""),
+                "transporter": data.get("transporter", ""),
+                "ticket_value": float(data.get("ticket_value") or 0),
                 "notes": data.get("notes", ""),
             })
         return {"ok": True, "company_id": str(company_id), "customers": rows, "count": len(rows)}
@@ -605,8 +639,11 @@ async def transport_customer_suggestions(
                 customer_type,
                 phone,
                 contract_code,
+                '' AS account_code,
                 origin,
                 destination,
+                '' AS transporter,
+                0 AS ticket_value,
                 created_at
             FROM transport_call_logs
             WHERE company_id = :company_id
@@ -798,10 +835,12 @@ async def import_transport_call_batch_csv(
                 """
                 INSERT INTO transport_call_batch_rows (
                     batch_id, company_id, row_number, customer_name, customer_type, phone, email,
-                    document_id, contract_code, origin, destination, trip_type, notes
+                    document_id, contract_code, account_code, origin, destination, trip_type,
+                    transporter, ticket_value, notes
                 ) VALUES (
                     CAST(:batch_id AS uuid), CAST(:company_id AS uuid), :row_number, :customer_name, :customer_type, :phone, :email,
-                    :document_id, :contract_code, :origin, :destination, :trip_type, :notes
+                    :document_id, :contract_code, :account_code, :origin, :destination, :trip_type,
+                    :transporter, :ticket_value, :notes
                 )
                 """
             ),
@@ -815,9 +854,12 @@ async def import_transport_call_batch_csv(
                 "email": _csv_value(row, "correo", "email", "mail", limit=160),
                 "document_id": _csv_value(row, "documento", "nit", "cc", "id", limit=80),
                 "contract_code": _csv_value(row, "contrato", "aval", "contrato_aval", "numero_contrato", limit=120),
+                "account_code": _csv_value(row, "cuenta", "account_code", "cuenta_k", "codigo_cuenta", limit=120),
                 "origin": _csv_value(row, "origen", "ciudad_origen", limit=160),
                 "destination": _csv_value(row, "destino", "ciudad_destino", limit=160),
                 "trip_type": _csv_value(row, "tipo_viaje", "servicio", "ruta", limit=80),
+                "transporter": _csv_value(row, "transportadora", "empresa_transportadora", "operador", "carrier", limit=180),
+                "ticket_value": _csv_money(row, "valor_ticket", "valor", "tarifa", "precio", "valor_base", "unit_value", "valor_unitario"),
                 "notes": _csv_value(row, "notas", "observaciones", "comentarios", limit=1200),
             },
         )
@@ -880,7 +922,8 @@ async def export_transport_call_batch_csv(company_id: uuid.UUID, batch_id: uuid.
     output = io.StringIO()
     fieldnames = [
         "archivo", "agente", "fila", "cliente", "tipo_cliente", "telefono", "correo", "documento", "contrato",
-        "origen", "destino", "tipo_viaje", "direccion_llamada", "estado_llamada", "resultado", "duracion_segundos",
+        "cuenta", "origen", "destino", "tipo_viaje", "transportadora", "valor_ticket",
+        "direccion_llamada", "estado_llamada", "resultado", "duracion_segundos",
         "genero_cotizacion", "genero_ticket", "id_twilio", "notas", "gestionado_por", "gestionado_en",
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -896,9 +939,12 @@ async def export_transport_call_batch_csv(company_id: uuid.UUID, batch_id: uuid.
             "correo": row.get("email") or "",
             "documento": row.get("document_id") or "",
             "contrato": row.get("contract_code") or "",
+            "cuenta": row.get("account_code") or "",
             "origen": row.get("origin") or "",
             "destino": row.get("destination") or "",
             "tipo_viaje": row.get("trip_type") or "",
+            "transportadora": row.get("transporter") or "",
+            "valor_ticket": row.get("ticket_value") or 0,
             "direccion_llamada": row.get("call_direction") or "",
             "estado_llamada": row.get("call_status") or "",
             "resultado": row.get("result") or "",
