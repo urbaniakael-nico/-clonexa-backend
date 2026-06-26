@@ -428,6 +428,13 @@ async def transport_calls_summary(
         },
     )
     summary = _row(result.first() or {})
+    live_agents = (await list_transport_call_agents(company_id, db)).get("agents") or []
+    summary.update({
+        "advisors_total": len(live_agents),
+        "advisors_available": sum(1 for agent in live_agents if agent.get("live_status") == "available"),
+        "advisors_in_call": sum(1 for agent in live_agents if agent.get("live_status") == "in_call"),
+        "advisors_paused": sum(1 for agent in live_agents if agent.get("live_status") == "break"),
+    })
     return {"ok": True, "company_id": str(company_id), "summary": summary}
 
 
@@ -675,18 +682,78 @@ async def transport_customer_suggestions(
 @router.get("/companies/{company_id}/agents", dependencies=[Depends(require_transport_calls_manage)])
 async def list_transport_call_agents(company_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     await ensure_transport_calls_storage(db)
+    work_sessions_available = bool(
+        (
+            await db.execute(
+                text("SELECT to_regclass('mini_panel_work_sessions') IS NOT NULL")
+            )
+        ).scalar()
+    )
+    session_fields = """
+                   , '' AS work_session_status
+                   , 0::bigint AS active_seconds
+                   , 0::bigint AS break_seconds
+                   , NULL::timestamptz AS work_session_updated_at
+    """
+    session_join = ""
+    if work_sessions_available:
+        session_fields = """
+                   , COALESCE(ws.status, '') AS work_session_status
+                   , (
+                       COALESCE(ws.active_seconds, 0)
+                       + CASE
+                           WHEN ws.status = 'active' AND ws.active_started_at IS NOT NULL
+                           THEN GREATEST(0, EXTRACT(EPOCH FROM (now() - ws.active_started_at)))::bigint
+                           ELSE 0
+                         END
+                     )::bigint AS active_seconds
+                   , (
+                       COALESCE(ws.break_seconds, 0)
+                       + CASE
+                           WHEN ws.status = 'break' AND ws.current_break_started_at IS NOT NULL
+                           THEN GREATEST(0, EXTRACT(EPOCH FROM (now() - ws.current_break_started_at)))::bigint
+                           ELSE 0
+                         END
+                     )::bigint AS break_seconds
+                   , ws.updated_at AS work_session_updated_at
+        """
+        session_join = """
+            LEFT JOIN LATERAL (
+                SELECT s.status, s.active_seconds, s.break_seconds,
+                       s.active_started_at, s.current_break_started_at, s.updated_at
+                FROM mini_panel_work_sessions s
+                WHERE s.company_id = e.company_id
+                  AND s.user_id = u.id
+                  AND s.panel_type IN ('call_center', 'external')
+                  AND s.status IN ('active', 'break')
+                ORDER BY s.started_at DESC
+                LIMIT 1
+            ) ws ON TRUE
+        """
     result = await db.execute(
         text(
-            """
+            f"""
             SELECT e.id::text AS id, e.full_name, e.phone, e.email, e.role, e.employee_type, e.status,
                    u.id::text AS user_id,
                    COALESCE(u.email, '') AS username,
                    COALESCE(u.role, '') AS user_role,
-                   COALESCE(u.settings_json->'mini_panel'->>'type', '') AS mini_panel_type
+                   COALESCE(u.settings_json->'mini_panel'->>'type', '') AS mini_panel_type,
+                   COALESCE(last_call.advisor_status, '') AS latest_advisor_status,
+                   COALESCE(last_call.call_status, '') AS latest_call_status
+                   {session_fields}
             FROM employees e
             LEFT JOIN company_users u ON u.company_id = e.company_id
               AND u.settings_json->'mini_panel'->>'employee_id' = e.id::text
               AND u.status = 'active'
+            {session_join}
+            LEFT JOIN LATERAL (
+                SELECT c.advisor_status, c.call_status
+                FROM transport_call_logs c
+                WHERE c.company_id = e.company_id
+                  AND LOWER(TRIM(c.advisor_name)) = LOWER(TRIM(e.full_name))
+                ORDER BY c.created_at DESC
+                LIMIT 1
+            ) last_call ON TRUE
             WHERE e.company_id = CAST(:company_id AS uuid)
               AND LOWER(COALESCE(e.status, 'active')) <> 'archived'
             ORDER BY e.full_name ASC
@@ -698,6 +765,19 @@ async def list_transport_call_agents(company_id: uuid.UUID, db: AsyncSession = D
     for agent in agents:
         if not agent.get("role") and agent.get("user_role"):
             agent["role"] = agent.get("user_role")
+        session_status = _clean(agent.get("work_session_status"), 40).lower()
+        latest_call_status = _clean(agent.get("latest_call_status"), 40).lower()
+        latest_advisor_status = _clean(agent.get("latest_advisor_status"), 40).lower()
+        if session_status == "break":
+            agent["live_status"] = "break"
+        elif session_status == "active" and (
+            latest_call_status == "pending" or latest_advisor_status == "in_call"
+        ):
+            agent["live_status"] = "in_call"
+        elif session_status == "active":
+            agent["live_status"] = "available"
+        else:
+            agent["live_status"] = "offline"
     agents = [
         agent for agent in agents
         if _is_call_agent_role(agent.get("role") or agent.get("user_role"), agent.get("employee_type"), agent.get("mini_panel_type"))

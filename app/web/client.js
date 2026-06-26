@@ -25658,6 +25658,10 @@ function inventoryCreatePayload() {
   }
 
   async function renderTransportCallsModule028A() {
+    if (state.transportAgentStatusTimer) {
+      window.clearInterval(state.transportAgentStatusTimer);
+      state.transportAgentStatusTimer = null;
+    }
     const company = state.company || {};
     const today = new Date().toISOString().slice(0, 10);
     const startDate = cxTransportContractsFieldValue028M("transportStart028P") || today;
@@ -25752,7 +25756,10 @@ function inventoryCreatePayload() {
       current.role = agent.role || agent.employee_type || current.role || "";
       current.phone = agent.phone || current.phone || "";
       current.email = agent.email || current.email || "";
-      current.status = current.calls ? current.status : (String(agent.status || "").toLowerCase() === "active" ? "available" : "offline");
+      current.id = agent.id || current.id || "";
+      current.status = agent.live_status || (current.calls ? current.status : "offline");
+      current.active_seconds = cxTransportNumber028A(agent.active_seconds);
+      current.break_seconds = cxTransportNumber028A(agent.break_seconds);
       advisorsByName.set(key, current);
     });
     const advisors = Array.from(advisorsByName.values())
@@ -25800,13 +25807,16 @@ function inventoryCreatePayload() {
 
     const advisorRows = advisors.length
       ? advisors.map((item) => `
-          <tr>
+          <tr data-tc-live-agent="${h(item.id || "")}">
             <td style="${tableCellStyle}">
               <strong>${h(item.name)}</strong><br>
               <span class="client-muted">${h(item.role || "agente call")}${item.phone ? ` · ${h(item.phone)}` : ""}</span><br>
               <span class="client-muted">${h(item.last_at ? cxTransportDate028A(item.last_at) : "Sin gestion en el periodo")}</span>
             </td>
-            <td style="${tableCellStyle}">${cxTransportStatusPill028A(item.status)}</td>
+            <td style="${tableCellStyle}" data-tc-live-status>
+              ${cxTransportStatusPill028A(item.status)}
+              ${item.status === "break" ? `<br><span class="client-muted">${h(cxTransportDuration028A(item.break_seconds))} en pausa</span>` : ""}
+            </td>
             <td style="${tableCellStyle}"><strong>${h(item.calls)}</strong></td>
             <td style="${tableCellStyle}">${h(item.quotes)}</td>
             <td style="${tableCellStyle}">${h(item.tickets)}</td>
@@ -25989,10 +25999,10 @@ function inventoryCreatePayload() {
               <div class="client-eyebrow">Gerencia</div>
               <h2>Indicadores del periodo</h2>
               <div class="client-kpi-grid" style="margin-top:0">
-                <article class="client-kpi"><span>Asesores detectados</span><strong>${h(summary.advisors_total || advisors.length || 0)}</strong></article>
-                <article class="client-kpi"><span>Disponibles</span><strong>${h(summary.advisors_available || 0)}</strong></article>
-                <article class="client-kpi"><span>En llamada</span><strong>${h(summary.advisors_in_call || 0)}</strong></article>
-                <article class="client-kpi"><span>Pausados</span><strong>${h(summary.advisors_paused || 0)}</strong></article>
+                <article class="client-kpi"><span>Asesores detectados</span><strong id="transportAgentsTotal028P">${h(agents.length || advisors.length || 0)}</strong></article>
+                <article class="client-kpi"><span>Disponibles</span><strong id="transportAgentsAvailable028P">${h(agents.filter((agent) => agent.live_status === "available").length)}</strong></article>
+                <article class="client-kpi"><span>En llamada</span><strong id="transportAgentsInCall028P">${h(agents.filter((agent) => agent.live_status === "in_call").length)}</strong></article>
+                <article class="client-kpi"><span>Pausados</span><strong id="transportAgentsPaused028P">${h(agents.filter((agent) => agent.live_status === "break").length)}</strong></article>
                 <article class="client-kpi"><span>Perdidas periodo</span><strong>${h(summary.missed_period || 0)}</strong></article>
                 <article class="client-kpi"><span>Duracion periodo</span><strong>${h(cxTransportDuration028A(periodDuration))}</strong></article>
               </div>
@@ -26130,6 +26140,37 @@ function inventoryCreatePayload() {
         alert(message);
       }
     });
+
+    const refreshAgentStates028P = async () => {
+      if (!$("transportAgentsTotal028P")) {
+        if (state.transportAgentStatusTimer) window.clearInterval(state.transportAgentStatusTimer);
+        state.transportAgentStatusTimer = null;
+        return;
+      }
+      try {
+        const payload = await cxTransportApi028A("/agents");
+        const liveAgents = Array.isArray(payload.agents) ? payload.agents : [];
+        const byId = new Map(liveAgents.map((agent) => [String(agent.id || ""), agent]));
+        document.querySelectorAll("[data-tc-live-agent]").forEach((row) => {
+          const agent = byId.get(String(row.getAttribute("data-tc-live-agent") || ""));
+          const cell = row.querySelector("[data-tc-live-status]");
+          if (!agent || !cell) return;
+          const liveStatus = String(agent.live_status || "offline");
+          cell.innerHTML = `${cxTransportStatusPill028A(liveStatus)}${liveStatus === "break" ? `<br><span class="client-muted">${h(cxTransportDuration028A(agent.break_seconds))} en pausa</span>` : ""}`;
+        });
+        const totals = {
+          transportAgentsTotal028P: liveAgents.length,
+          transportAgentsAvailable028P: liveAgents.filter((agent) => agent.live_status === "available").length,
+          transportAgentsInCall028P: liveAgents.filter((agent) => agent.live_status === "in_call").length,
+          transportAgentsPaused028P: liveAgents.filter((agent) => agent.live_status === "break").length,
+        };
+        Object.entries(totals).forEach(([id, value]) => {
+          const node = $(id);
+          if (node) node.textContent = String(value);
+        });
+      } catch (_) {}
+    };
+    state.transportAgentStatusTimer = window.setInterval(refreshAgentStates028P, 10000);
     document.querySelectorAll("[data-tc-batch-export]").forEach((button) => {
       button.addEventListener("click", () => {
         const id = button.getAttribute("data-tc-batch-export") || "";
