@@ -12,6 +12,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 from app.api.v1.endpoints.employees import (
     add_attendance_event,
     ensure_attendance_storage,
@@ -51,9 +52,12 @@ COMPANY_USER_ADMIN_ROLES = ADMIN_ROLES | {"manager", "gerencia", "gerente"}
 
 async def require_company_user_admin_access(
     company_id: UUID,
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db):
+        return
     await require_company_user_for_tenant(
         db,
         authorization,
