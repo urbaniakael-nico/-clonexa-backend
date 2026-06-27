@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 
-from app.api.v1.endpoints.transport_telephony import _normalize_phone, _optional_uuid, _phone_type
+from app.api.v1.endpoints.transport_calls import _csv_rows
+from app.api.v1.endpoints.transport_telephony import _normalize_phone, _optional_uuid, _phone_type, _settings
 
 
 def test_normalizes_colombian_numbers() -> None:
@@ -24,3 +27,14 @@ def test_rejects_invalid_optional_uuid_as_bad_request() -> None:
         _optional_uuid("not-a-row-id", "batch_row_id_invalid")
     assert error.value.status_code == 400
     assert error.value.detail == "batch_row_id_invalid"
+
+
+def test_company_with_empty_numbers_uses_railway_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TWILIO_OUTGOING_NUMBERS", "+16184378317")
+    company = SimpleNamespace(settings_json={"transport_telephony": {"outgoing_numbers": []}})
+    assert _settings(company)["outgoing_numbers"] == ["+16184378317"]
+
+
+def test_excel_semicolon_csv_is_supported() -> None:
+    rows = _csv_rows("cliente;telefono;contrato\nCliente Demo;+573001112233;TEST-001\n")
+    assert rows == [{"cliente": "Cliente Demo", "telefono": "+573001112233", "contrato": "TEST-001"}]

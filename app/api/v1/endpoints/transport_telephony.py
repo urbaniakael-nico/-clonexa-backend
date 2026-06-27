@@ -19,10 +19,11 @@ from twilio.request_validator import RequestValidator
 from twilio.rest import Client
 from twilio.twiml.voice_response import Dial, VoiceResponse
 
-from app.api.deps import WRITE_ROLES, get_db, require_company_user_for_tenant
+from app.api.deps import WRITE_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
 from app.api.v1.endpoints.transport_calls import ensure_transport_calls_storage
 from app.models.auth import CompanyUser
 from app.models.core import Company
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
 
@@ -85,7 +86,8 @@ def _settings(company: Company) -> dict[str, Any]:
     store = dict(company.settings_json or {})
     raw = store.get("transport_telephony") if isinstance(store.get("transport_telephony"), dict) else {}
     env_numbers = [number for number in (_normalize_phone(item) for item in os.getenv("TWILIO_OUTGOING_NUMBERS", "").split(",")) if number]
-    numbers = raw.get("outgoing_numbers") if isinstance(raw.get("outgoing_numbers"), list) else env_numbers
+    stored_numbers = raw.get("outgoing_numbers") if isinstance(raw.get("outgoing_numbers"), list) else []
+    numbers = stored_numbers or env_numbers
     return {
         "outgoing_numbers": list(dict.fromkeys(filter(None, (_normalize_phone(item) for item in numbers))))[:10],
         "default_campaign": _clean(raw.get("default_campaign") or "General", 120),
@@ -162,9 +164,13 @@ async def _telephony_user(
 
 async def _telephony_manager(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
-) -> CompanyUser:
+) -> CompanyUser | None:
+    if await active_admin_v2_session(request, db):
+        await require_enabled_module(db, company_id, "transport_calls")
+        return None
     return await require_company_user_for_tenant(
         db,
         authorization,

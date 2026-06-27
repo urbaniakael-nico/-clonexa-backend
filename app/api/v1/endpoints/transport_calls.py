@@ -184,6 +184,14 @@ def _csv_bool(row: dict[str, Any], *names: str) -> bool:
     return _csv_value(row, *names, limit=30).lower() in {"1", "true", "si", "yes", "x"}
 
 
+def _csv_rows(body: str) -> list[dict[str, Any]]:
+    try:
+        dialect = csv.Sniffer().sniff(body[:8192], delimiters=",;\t")
+        return list(csv.DictReader(io.StringIO(body), dialect=dialect))
+    except csv.Error:
+        return list(csv.DictReader(io.StringIO(body)))
+
+
 def _role_tokens(*values: Any) -> set[str]:
     raw = " ".join(str(value or "") for value in values)
     normalized = (
@@ -936,7 +944,7 @@ async def import_transport_call_batch_csv(
         body = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         body = raw.decode("latin-1")
-    rows = list(csv.DictReader(io.StringIO(body)))
+    rows = _csv_rows(body)
     if not rows:
         raise HTTPException(status_code=400, detail="empty_csv")
     filename = _clean(file.filename or "base_llamadas.csv", 240)
