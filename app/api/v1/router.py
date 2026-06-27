@@ -47,6 +47,7 @@ for _module_name, _prefix, _tags in [
     ("assemblies", "/assemblies", ["assemblies"]),
     ("shoplink", "/shoplink", ["shoplink"]),
     ("transport_calls", "/transport-calls", ["transport_calls"]),
+    ("transport_telephony", "/transport-telephony", ["transport_telephony"]),
     ("transport_contracts", "/transport-contracts", ["transport_contracts"]),
     ("transport_quotes_tickets", "/transport-quotes-tickets", ["transport_quotes_tickets"]),
     ("transport_payments", "/transport-payments", ["transport_payments"]),

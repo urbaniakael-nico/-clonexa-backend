@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import io
@@ -101,12 +101,30 @@ class TransportCallIn(BaseModel):
     contract_code: str | None = Field(default="", max_length=120)
     source: str | None = Field(default="manual", max_length=40)
     twilio_call_sid: str | None = Field(default="", max_length=120)
+    twilio_parent_call_sid: str | None = Field(default="", max_length=120)
     batch_row_id: str | None = Field(default="", max_length=80)
+    campaign_code: str | None = Field(default="", max_length=120)
+    caller_number: str | None = Field(default="", max_length=80)
+    phone_type: str | None = Field(default="unknown", max_length=30)
+    price_amount: float | None = Field(default=0, ge=0)
+    price_currency: str | None = Field(default="USD", max_length=12)
+    consent_status: str | None = Field(default="unknown", max_length=30)
+    do_not_call: bool | None = False
     notes: str | None = Field(default="", max_length=1200)
 
 
 def _clean(value: Any, limit: int = 255) -> str:
     return str(value or "").strip()[:limit]
+
+
+def _optional_uuid(value: Any, detail: str = "id_invalid") -> str:
+    raw = _clean(value, 80)
+    if not raw:
+        return ""
+    try:
+        return str(uuid.UUID(raw))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise HTTPException(status_code=400, detail=detail) from exc
 
 
 def _csv_value(row: dict[str, Any], *names: str, limit: int = 255) -> str:
@@ -160,6 +178,10 @@ def _csv_money(row: dict[str, Any], *names: str) -> float:
         return max(0.0, float(clean or 0))
     except ValueError:
         return 0.0
+
+
+def _csv_bool(row: dict[str, Any], *names: str) -> bool:
+    return _csv_value(row, *names, limit=30).lower() in {"1", "true", "si", "yes", "x"}
 
 
 def _role_tokens(*values: Any) -> set[str]:
@@ -238,7 +260,15 @@ async def ensure_transport_calls_storage(db: AsyncSession) -> None:
         "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS contract_code varchar(120) NOT NULL DEFAULT ''",
         "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS source varchar(40) NOT NULL DEFAULT 'manual'",
         "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS twilio_call_sid varchar(120) NOT NULL DEFAULT ''",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS twilio_parent_call_sid varchar(120) NOT NULL DEFAULT ''",
         "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS batch_row_id UUID NULL",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS campaign_code varchar(120) NOT NULL DEFAULT ''",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS caller_number varchar(80) NOT NULL DEFAULT ''",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS phone_type varchar(30) NOT NULL DEFAULT 'unknown'",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS price_amount numeric(14,6) NOT NULL DEFAULT 0",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS price_currency varchar(12) NOT NULL DEFAULT 'USD'",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS consent_status varchar(30) NOT NULL DEFAULT 'unknown'",
+        "ALTER TABLE transport_call_logs ADD COLUMN IF NOT EXISTS do_not_call boolean NOT NULL DEFAULT false",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_logs_company_created ON transport_call_logs (company_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_logs_company_advisor ON transport_call_logs (company_id, advisor_name)",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_logs_company_twilio ON transport_call_logs (company_id, twilio_call_sid)",
@@ -298,6 +328,13 @@ async def ensure_transport_calls_storage(db: AsyncSession) -> None:
         "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS account_code VARCHAR(120) NOT NULL DEFAULT ''",
         "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS transporter VARCHAR(180) NOT NULL DEFAULT ''",
         "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS ticket_value NUMERIC(14,2) NOT NULL DEFAULT 0",
+        "ALTER TABLE transport_call_batches ADD COLUMN IF NOT EXISTS campaign_code VARCHAR(120) NOT NULL DEFAULT ''",
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS campaign_code VARCHAR(120) NOT NULL DEFAULT ''",
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS phone_type VARCHAR(30) NOT NULL DEFAULT 'unknown'",
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS consent_status VARCHAR(30) NOT NULL DEFAULT 'unknown'",
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS do_not_call BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS price_amount NUMERIC(14,6) NOT NULL DEFAULT 0",
+        "ALTER TABLE transport_call_batch_rows ADD COLUMN IF NOT EXISTS price_currency VARCHAR(12) NOT NULL DEFAULT 'USD'",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_batches_company ON transport_call_batches(company_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_batches_agent ON transport_call_batches(company_id, assigned_employee_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_transport_call_batch_rows_batch ON transport_call_batch_rows(batch_id, row_number)",
@@ -332,6 +369,7 @@ async def list_transport_calls(
                 OR LOWER(phone) LIKE :query
                 OR LOWER(contract_code) LIKE :query
                 OR LOWER(twilio_call_sid) LIKE :query
+                OR LOWER(campaign_code) LIKE :query
                 OR LOWER(origin) LIKE :query
                 OR LOWER(destination) LIKE :query
                 OR LOWER(result) LIKE :query
@@ -412,6 +450,7 @@ async def transport_calls_summary(
                 COALESCE((SELECT ROUND(AVG(NULLIF(duration_seconds, 0)))::integer FROM period), 0) AS avg_duration_period,
                 (SELECT COUNT(*) FROM period WHERE quote_requested IS TRUE) AS quotes_period,
                 (SELECT COUNT(*) FROM period WHERE ticket_requested IS TRUE) AS tickets_period,
+                COALESCE((SELECT SUM(price_amount) FROM period), 0) AS cost_period,
                 (SELECT COUNT(*) FROM latest_advisor) AS advisors_total,
                 (SELECT COUNT(*) FROM latest_advisor WHERE advisor_status = 'available') AS advisors_available,
                 (SELECT COUNT(*) FROM latest_advisor WHERE advisor_status = 'in_call') AS advisors_in_call,
@@ -445,85 +484,83 @@ async def create_transport_call(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_transport_calls_storage(db)
-    result = await db.execute(
-        text(
-            """
-            INSERT INTO transport_call_logs (
-                company_id,
-                advisor_name,
-                advisor_status,
-                customer_name,
-                customer_type,
-                phone,
-                origin,
-                destination,
-                trip_type,
-                call_direction,
-                call_status,
-                result,
-                duration_seconds,
-                quote_requested,
-                ticket_requested,
-                contract_code,
-                source,
-                twilio_call_sid,
-                batch_row_id,
-                notes,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                :company_id,
-                :advisor_name,
-                :advisor_status,
-                :customer_name,
-                :customer_type,
-                :phone,
-                :origin,
-                :destination,
-                :trip_type,
-                :call_direction,
-                :call_status,
-                :result,
-                :duration_seconds,
-                :quote_requested,
-                :ticket_requested,
-                :contract_code,
-                :source,
-                :twilio_call_sid,
-                CAST(NULLIF(:batch_row_id, '') AS uuid),
-                :notes,
-                now(),
-                now()
-            )
+    params = {
+        "company_id": str(company_id),
+        "advisor_name": _clean(payload.advisor_name, 180),
+        "advisor_status": _clean(payload.advisor_status or "available", 40),
+        "customer_name": _clean(payload.customer_name, 180),
+        "customer_type": _clean(payload.customer_type or "person", 40),
+        "phone": _clean(payload.phone, 80),
+        "origin": _clean(payload.origin, 160),
+        "destination": _clean(payload.destination, 160),
+        "trip_type": _clean(payload.trip_type, 80),
+        "call_direction": _clean(payload.call_direction or "inbound", 20),
+        "call_status": _clean(payload.call_status or "completed", 40),
+        "result": _clean(payload.result or "follow_up", 80),
+        "duration_seconds": _duration_seconds(payload),
+        "quote_requested": bool(payload.quote_requested),
+        "ticket_requested": bool(payload.ticket_requested),
+        "contract_code": _clean(payload.contract_code, 120),
+        "source": _clean(payload.source or "manual", 40),
+        "twilio_call_sid": _clean(payload.twilio_call_sid, 120),
+        "twilio_parent_call_sid": _clean(payload.twilio_parent_call_sid, 120),
+        "batch_row_id": _optional_uuid(payload.batch_row_id, "batch_row_id_invalid"),
+        "campaign_code": _clean(payload.campaign_code, 120),
+        "caller_number": _clean(payload.caller_number, 80),
+        "phone_type": _clean(payload.phone_type or "unknown", 30),
+        "price_amount": float(payload.price_amount or 0),
+        "price_currency": _clean(payload.price_currency or "USD", 12).upper(),
+        "consent_status": _clean(payload.consent_status or "unknown", 30),
+        "do_not_call": bool(payload.do_not_call),
+        "notes": _clean(payload.notes, 1200),
+    }
+    row = None
+    call_sid = params["twilio_call_sid"] or params["twilio_parent_call_sid"]
+    if call_sid:
+        existing = await db.execute(text("""
+            UPDATE transport_call_logs
+            SET advisor_name = COALESCE(NULLIF(:advisor_name, ''), advisor_name),
+                advisor_status = :advisor_status,
+                customer_name = COALESCE(NULLIF(:customer_name, ''), customer_name),
+                customer_type = :customer_type,
+                phone = COALESCE(NULLIF(:phone, ''), phone),
+                origin = :origin, destination = :destination, trip_type = :trip_type,
+                call_direction = :call_direction, call_status = :call_status, result = :result,
+                duration_seconds = GREATEST(duration_seconds, :duration_seconds),
+                quote_requested = :quote_requested, ticket_requested = :ticket_requested,
+                contract_code = :contract_code, source = :source,
+                twilio_call_sid = COALESCE(NULLIF(:twilio_call_sid, ''), twilio_call_sid),
+                twilio_parent_call_sid = COALESCE(NULLIF(:twilio_parent_call_sid, ''), twilio_parent_call_sid),
+                batch_row_id = COALESCE(CAST(NULLIF(:batch_row_id, '') AS uuid), batch_row_id),
+                campaign_code = COALESCE(NULLIF(:campaign_code, ''), campaign_code),
+                caller_number = COALESCE(NULLIF(:caller_number, ''), caller_number),
+                phone_type = :phone_type,
+                price_amount = GREATEST(price_amount, :price_amount), price_currency = :price_currency,
+                consent_status = :consent_status, do_not_call = :do_not_call,
+                notes = :notes, updated_at = now()
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND (twilio_call_sid = :call_sid OR twilio_parent_call_sid = :call_sid)
             RETURNING *
-            """
-        ),
-        {
-            "company_id": str(company_id),
-            "advisor_name": _clean(payload.advisor_name, 180),
-            "advisor_status": _clean(payload.advisor_status or "available", 40),
-            "customer_name": _clean(payload.customer_name, 180),
-            "customer_type": _clean(payload.customer_type or "person", 40),
-            "phone": _clean(payload.phone, 80),
-            "origin": _clean(payload.origin, 160),
-            "destination": _clean(payload.destination, 160),
-            "trip_type": _clean(payload.trip_type, 80),
-            "call_direction": _clean(payload.call_direction or "inbound", 20),
-            "call_status": _clean(payload.call_status or "completed", 40),
-            "result": _clean(payload.result or "follow_up", 80),
-            "duration_seconds": _duration_seconds(payload),
-            "quote_requested": bool(payload.quote_requested),
-            "ticket_requested": bool(payload.ticket_requested),
-            "contract_code": _clean(payload.contract_code, 120),
-            "source": _clean(payload.source or "manual", 40),
-            "twilio_call_sid": _clean(payload.twilio_call_sid, 120),
-            "batch_row_id": _clean(payload.batch_row_id, 80),
-            "notes": _clean(payload.notes, 1200),
-        },
-    )
-    row = result.first()
-    if _clean(payload.batch_row_id, 80):
+        """), {**params, "call_sid": call_sid})
+        row = existing.first()
+    if row is None:
+        result = await db.execute(text("""
+            INSERT INTO transport_call_logs (
+                company_id, advisor_name, advisor_status, customer_name, customer_type, phone,
+                origin, destination, trip_type, call_direction, call_status, result, duration_seconds,
+                quote_requested, ticket_requested, contract_code, source, twilio_call_sid,
+                twilio_parent_call_sid, batch_row_id, campaign_code, caller_number, phone_type,
+                price_amount, price_currency, consent_status, do_not_call, notes, created_at, updated_at
+            ) VALUES (
+                CAST(:company_id AS uuid), :advisor_name, :advisor_status, :customer_name, :customer_type, :phone,
+                :origin, :destination, :trip_type, :call_direction, :call_status, :result, :duration_seconds,
+                :quote_requested, :ticket_requested, :contract_code, :source, :twilio_call_sid,
+                :twilio_parent_call_sid, CAST(NULLIF(:batch_row_id, '') AS uuid), :campaign_code, :caller_number,
+                :phone_type, :price_amount, :price_currency, :consent_status, :do_not_call, :notes, now(), now()
+            ) RETURNING *
+        """), params)
+        row = result.first()
+    if params["batch_row_id"]:
         await db.execute(
             text(
                 """
@@ -542,6 +579,10 @@ async def create_transport_call(
                     quote_requested = :quote_requested,
                     ticket_requested = :ticket_requested,
                     twilio_call_sid = :twilio_call_sid,
+                    campaign_code = COALESCE(NULLIF(:campaign_code, ''), campaign_code),
+                    phone_type = :phone_type,
+                    consent_status = :consent_status,
+                    do_not_call = :do_not_call,
                     notes = :notes,
                     managed_by = :advisor_name,
                     managed_at = now(),
@@ -552,7 +593,7 @@ async def create_transport_call(
             ),
             {
                 "company_id": str(company_id),
-                "batch_row_id": _clean(payload.batch_row_id, 80),
+                "batch_row_id": params["batch_row_id"],
                 "customer_name": _clean(payload.customer_name, 180),
                 "customer_type": _clean(payload.customer_type or "person", 40),
                 "phone": _clean(payload.phone, 80),
@@ -566,7 +607,11 @@ async def create_transport_call(
                 "duration_seconds": _duration_seconds(payload),
                 "quote_requested": bool(payload.quote_requested),
                 "ticket_requested": bool(payload.ticket_requested),
-                "twilio_call_sid": _clean(payload.twilio_call_sid, 120),
+                "twilio_call_sid": _clean(payload.twilio_call_sid or payload.twilio_parent_call_sid, 120),
+                "campaign_code": _clean(payload.campaign_code, 120),
+                "phone_type": _clean(payload.phone_type or "unknown", 30),
+                "consent_status": _clean(payload.consent_status or "unknown", 30),
+                "do_not_call": bool(payload.do_not_call),
                 "notes": _clean(payload.notes, 1200),
                 "advisor_name": _clean(payload.advisor_name, 180),
             },
@@ -631,6 +676,10 @@ async def transport_customer_suggestions(
                 "trip_type": data.get("trip_type", ""),
                 "transporter": data.get("transporter", ""),
                 "ticket_value": float(data.get("ticket_value") or 0),
+                "campaign_code": data.get("campaign_code", ""),
+                "phone_type": data.get("phone_type", "unknown"),
+                "consent_status": data.get("consent_status", "unknown"),
+                "do_not_call": bool(data.get("do_not_call")),
                 "notes": data.get("notes", ""),
             })
         return {"ok": True, "company_id": str(company_id), "customers": rows, "count": len(rows)}
@@ -651,6 +700,10 @@ async def transport_customer_suggestions(
                 destination,
                 '' AS transporter,
                 0 AS ticket_value,
+                campaign_code,
+                phone_type,
+                consent_status,
+                do_not_call,
                 created_at
             FROM transport_call_logs
             WHERE company_id = :company_id
@@ -818,6 +871,7 @@ async def list_transport_call_batches(
 async def import_transport_call_batch_csv(
     company_id: uuid.UUID,
     assigned_employee_id: str = Form(...),
+    campaign_code: str = Form(default=""),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -885,27 +939,30 @@ async def import_transport_call_batch_csv(
     rows = list(csv.DictReader(io.StringIO(body)))
     if not rows:
         raise HTTPException(status_code=400, detail="empty_csv")
+    filename = _clean(file.filename or "base_llamadas.csv", 240)
+    campaign = _clean(campaign_code, 120) or _clean(filename.rsplit(".", 1)[0].replace("_", " "), 120) or "General"
     batch = await db.execute(
         text(
             """
             INSERT INTO transport_call_batches (
                 company_id, file_name, assigned_employee_id, assigned_agent_name,
-                assigned_agent_role, assigned_user_id, record_count, created_by_label
+                assigned_agent_role, assigned_user_id, record_count, campaign_code, created_by_label
             ) VALUES (
                 CAST(:company_id AS uuid), :file_name, CAST(:employee_id AS uuid), :agent_name,
-                :agent_role, CAST(NULLIF(:user_id, '') AS uuid), :record_count, 'Admin V2'
+                :agent_role, CAST(NULLIF(:user_id, '') AS uuid), :record_count, :campaign_code, 'Admin V2'
             )
             RETURNING id
             """
         ),
         {
             "company_id": str(company_id),
-            "file_name": _clean(file.filename or "base_llamadas.csv", 240),
+            "file_name": filename,
             "employee_id": _clean(assigned_employee_id, 80),
             "agent_name": _clean(employee_row.get("full_name"), 180),
             "agent_role": _clean(employee_row.get("role") or employee_row.get("employee_type"), 80),
             "user_id": _clean(user_id, 80),
             "record_count": len(rows),
+            "campaign_code": campaign,
         },
     )
     batch_id = str(batch.scalar_one())
@@ -916,11 +973,11 @@ async def import_transport_call_batch_csv(
                 INSERT INTO transport_call_batch_rows (
                     batch_id, company_id, row_number, customer_name, customer_type, phone, email,
                     document_id, contract_code, account_code, origin, destination, trip_type,
-                    transporter, ticket_value, notes
+                    transporter, ticket_value, campaign_code, phone_type, consent_status, do_not_call, notes
                 ) VALUES (
                     CAST(:batch_id AS uuid), CAST(:company_id AS uuid), :row_number, :customer_name, :customer_type, :phone, :email,
                     :document_id, :contract_code, :account_code, :origin, :destination, :trip_type,
-                    :transporter, :ticket_value, :notes
+                    :transporter, :ticket_value, :campaign_code, :phone_type, :consent_status, :do_not_call, :notes
                 )
                 """
             ),
@@ -940,6 +997,10 @@ async def import_transport_call_batch_csv(
                 "trip_type": _csv_value(row, "tipo_viaje", "servicio", "ruta", limit=80),
                 "transporter": _csv_value(row, "transportadora", "empresa_transportadora", "operador", "carrier", limit=180),
                 "ticket_value": _csv_money(row, "valor_ticket", "valor", "tarifa", "precio", "valor_base", "unit_value", "valor_unitario"),
+                "campaign_code": _csv_value(row, "campana", "campaign", "campaign_code", limit=120) or campaign,
+                "phone_type": _csv_value(row, "tipo_linea", "phone_type", limit=30) or "unknown",
+                "consent_status": _csv_value(row, "consentimiento", "consent_status", limit=30) or "unknown",
+                "do_not_call": _csv_bool(row, "no_llamar", "do_not_call", "lista_robinson"),
                 "notes": _csv_value(row, "notas", "observaciones", "comentarios", limit=1200),
             },
         )
@@ -988,9 +1049,18 @@ async def export_transport_call_batch_csv(company_id: uuid.UUID, batch_id: uuid.
     result = await db.execute(
         text(
             """
-            SELECT b.file_name, b.assigned_agent_name, r.*
+            SELECT b.file_name, b.assigned_agent_name, r.*,
+                   COALESCE(call_cost.price_amount, r.price_amount, 0) AS exported_price_amount,
+                   COALESCE(call_cost.price_currency, r.price_currency, 'USD') AS exported_price_currency
             FROM transport_call_batches b
             JOIN transport_call_batch_rows r ON r.batch_id = b.id
+            LEFT JOIN LATERAL (
+                SELECT c.price_amount, c.price_currency
+                FROM transport_call_logs c
+                WHERE c.company_id = r.company_id AND c.batch_row_id = r.id
+                ORDER BY c.updated_at DESC
+                LIMIT 1
+            ) call_cost ON TRUE
             WHERE b.company_id = CAST(:company_id AS uuid)
               AND b.id = CAST(:batch_id AS uuid)
             ORDER BY r.row_number ASC
@@ -1002,9 +1072,9 @@ async def export_transport_call_batch_csv(company_id: uuid.UUID, batch_id: uuid.
     output = io.StringIO()
     fieldnames = [
         "archivo", "agente", "fila", "cliente", "tipo_cliente", "telefono", "correo", "documento", "contrato",
-        "cuenta", "origen", "destino", "tipo_viaje", "transportadora", "valor_ticket",
+        "cuenta", "campana", "tipo_linea", "consentimiento", "no_llamar", "origen", "destino", "tipo_viaje", "transportadora", "valor_ticket",
         "direccion_llamada", "estado_llamada", "resultado", "duracion_segundos",
-        "genero_cotizacion", "genero_ticket", "id_twilio", "notas", "gestionado_por", "gestionado_en",
+        "genero_cotizacion", "genero_ticket", "id_twilio", "costo_llamada", "moneda", "notas", "gestionado_por", "gestionado_en",
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
@@ -1020,6 +1090,10 @@ async def export_transport_call_batch_csv(company_id: uuid.UUID, batch_id: uuid.
             "documento": row.get("document_id") or "",
             "contrato": row.get("contract_code") or "",
             "cuenta": row.get("account_code") or "",
+            "campana": row.get("campaign_code") or "",
+            "tipo_linea": row.get("phone_type") or "unknown",
+            "consentimiento": row.get("consent_status") or "unknown",
+            "no_llamar": "si" if row.get("do_not_call") else "no",
             "origen": row.get("origin") or "",
             "destino": row.get("destination") or "",
             "tipo_viaje": row.get("trip_type") or "",
@@ -1032,6 +1106,8 @@ async def export_transport_call_batch_csv(company_id: uuid.UUID, batch_id: uuid.
             "genero_cotizacion": "si" if row.get("quote_requested") else "no",
             "genero_ticket": "si" if row.get("ticket_requested") else "no",
             "id_twilio": row.get("twilio_call_sid") or "",
+            "costo_llamada": row.get("exported_price_amount") or 0,
+            "moneda": row.get("exported_price_currency") or "USD",
             "notas": row.get("notes") or "",
             "gestionado_por": row.get("managed_by") or "",
             "gestionado_en": row.get("managed_at") or "",

@@ -2495,6 +2495,16 @@
     });
   }
 
+  async function transportTelephonyApi029A(path, options = {}) {
+    if (!companyId) throw new Error("Falta company_id.");
+    const headers = { ...authHeaders(), ...(options.headers || {}) };
+    if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+    return api(`/api/v1/transport-telephony/companies/${encodeURIComponent(companyId)}${path}`, {
+      ...options,
+      headers
+    });
+  }
+
   function transportCallsStyles028L() {
     if (document.getElementById("cxTransportCallsStyles028L")) return;
     const style = document.createElement("style");
@@ -2525,6 +2535,13 @@
       .tc-table-028l th{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58)}
       .tc-chip-028l{display:inline-flex;border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.14);font-size:12px;font-weight:950}
       .tc-chip-028l.twilio{color:#8fffd8;border-color:rgba(63,255,190,.28);background:rgba(63,255,190,.10)}
+      .tc-softphone-029a{grid-column:1/-1;display:grid;grid-template-columns:minmax(220px,1fr) repeat(3,auto);gap:10px;align-items:center;padding:14px;border:1px solid rgba(63,255,190,.28);border-radius:18px;background:rgba(63,255,190,.07)}
+      .tc-softphone-state-029a span{display:block;color:rgba(255,255,255,.58);font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:950}
+      .tc-softphone-state-029a strong{display:block;margin-top:5px;color:#8fffd8;font-size:18px}
+      .tc-call-btn-029a{border:0;border-radius:14px;padding:12px 18px;font-weight:950;cursor:pointer;background:#28e889;color:#07140f}
+      .tc-call-btn-029a.hangup{background:#ff4f87;color:#fff}
+      .tc-call-btn-029a.secondary{background:rgba(255,255,255,.11);color:#fff;border:1px solid rgba(255,255,255,.15)}
+      .tc-call-btn-029a:disabled{opacity:.45;cursor:not-allowed}
       .tc-monitor-card-028n{width:calc(100vw - 32px);height:calc(100vh - 32px);max-height:none;overflow:hidden;display:flex;flex-direction:column;padding:22px}
       .tc-monitor-card-028n .tc-head-028l{flex:0 0 auto;margin-bottom:12px}
       .tc-monitor-toolbar-028n{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin:14px 0}
@@ -2554,7 +2571,7 @@
       .tc-monitor-alert-028n{display:inline-flex;border-radius:999px;padding:6px 8px;background:rgba(255,44,126,.14);border:1px solid rgba(255,44,126,.28);color:#ffc0d8;font-size:11px;font-weight:950}
       .tc-monitor-empty-028n{padding:24px;border:1px dashed rgba(255,255,255,.18);border-radius:18px;color:rgba(255,255,255,.68);font-weight:850}
       .tc-monitor-muted-028n{color:rgba(255,255,255,.58);font-size:12px;font-weight:850}
-      @media(max-width:900px){.tc-grid-028l,.tc-advisor-kpis-028l{grid-template-columns:1fr}.tc-grid-028l .wide{grid-column:auto}.tc-head-028l{flex-direction:column}.tc-card-028l{width:calc(100vw - 18px)}}
+      @media(max-width:900px){.tc-grid-028l,.tc-advisor-kpis-028l{grid-template-columns:1fr}.tc-grid-028l .wide{grid-column:auto}.tc-head-028l{flex-direction:column}.tc-card-028l{width:calc(100vw - 18px)}.tc-softphone-029a{grid-template-columns:1fr 1fr}.tc-softphone-state-029a{grid-column:1/-1}}
       @media(max-width:1200px){.tc-monitor-kpis-028n{grid-template-columns:repeat(4,minmax(0,1fr))}}
       @media(max-width:900px){.tc-monitor-kpis-028n,.tc-monitor-settings-028n{grid-template-columns:1fr}.tc-monitor-card-028n{width:calc(100vw - 12px);height:calc(100vh - 12px);padding:14px}.tc-monitor-table-wrap-028n .tc-table-028l{min-width:940px}}
     `;
@@ -3013,6 +3030,10 @@
     setTransportField028L(form, "transporter", customer.transporter || "");
     setTransportField028L(form, "ticket_value", customer.ticket_value || "");
     setTransportField028L(form, "batch_row_id", customer.batch_row_id || "");
+    setTransportField028L(form, "campaign_code", customer.campaign_code || "");
+    setTransportField028L(form, "phone_type", customer.phone_type || "unknown");
+    setTransportField028L(form, "consent_status", customer.consent_status || "unknown");
+    if (form.elements.do_not_call) form.elements.do_not_call.checked = Boolean(customer.do_not_call);
     if (customer.notes && form.elements.notes && !form.elements.notes.value) form.elements.notes.value = customer.notes;
   }
 
@@ -3063,6 +3084,7 @@
           <input type="hidden" name="call_status" value="completed" />
           <input type="hidden" name="duration_seconds" value="0" />
           <input type="hidden" name="source" value="mini_panel" />
+          <input type="hidden" name="twilio_parent_call_sid" value="" />
           <input type="hidden" name="batch_row_id" value="" />
           <input type="hidden" name="email" value="" />
           <input type="hidden" name="document_id" value="" />
@@ -3071,6 +3093,15 @@
           <input type="hidden" name="ticket_value" value="0" />
 
           <div class="tc-grid-028l">
+            <div class="tc-softphone-029a">
+              <div class="tc-softphone-state-029a">
+                <span>Softphone web</span>
+                <strong data-telephony-state>Listo para llamar</strong>
+              </div>
+              <button class="tc-call-btn-029a" type="button" data-telephony-call>Llamar</button>
+              <button class="tc-call-btn-029a hangup" type="button" data-telephony-hangup disabled>Colgar</button>
+              <button class="tc-call-btn-029a secondary" type="button" data-telephony-mute disabled>Silenciar</button>
+            </div>
             <div class="tc-field-028l wide">
               <label>Cliente</label>
               <input name="customer_name" list="${h(uid)}_customers" placeholder="Nombre, telefono o contrato" autocomplete="off" required />
@@ -3086,6 +3117,27 @@
             <div class="tc-field-028l">
               <label>Telefono</label>
               <input name="phone" placeholder="+57..." autocomplete="off" />
+            </div>
+            <div class="tc-field-028l">
+              <label>Tipo de linea</label>
+              <input name="phone_type" value="unknown" readonly />
+            </div>
+            <div class="tc-field-028l">
+              <label>Campana</label>
+              <input name="campaign_code" placeholder="Campana o base asignada" autocomplete="off" />
+            </div>
+            <div class="tc-field-028l">
+              <label>Consentimiento</label>
+              <select name="consent_status">
+                <option value="unknown">Sin confirmar</option>
+                <option value="granted">Autorizado</option>
+                <option value="denied">No autorizado</option>
+                <option value="revoked">Revocado</option>
+              </select>
+            </div>
+            <div class="tc-field-028l">
+              <label>No llamar</label>
+              <label class="tc-chip-028l"><input type="checkbox" name="do_not_call" /> Bloquear llamadas</label>
             </div>
             <div class="tc-field-028l">
               <label># contrato / aval</label>
@@ -3135,19 +3187,19 @@
             </div>
             <div class="tc-field-028l">
               <label>Direccion llamada</label>
-              <input value="Automatico por Twilio" readonly />
+              <input name="call_direction_display" value="Saliente por Twilio" readonly />
             </div>
             <div class="tc-field-028l">
               <label>Estado llamada</label>
-              <input value="Automatico por Twilio" readonly />
+              <input name="call_status_display" value="Sin iniciar" readonly />
             </div>
             <div class="tc-field-028l">
               <label>Duracion</label>
-              <input value="Automatico por Twilio" readonly />
+              <input name="duration_display" value="00:00:00" readonly />
             </div>
             <div class="tc-field-028l">
               <label>ID llamada</label>
-              <input name="twilio_call_sid" placeholder="Twilio automatico" autocomplete="off" />
+              <input name="twilio_call_sid" placeholder="Twilio automatico" readonly />
             </div>
             <div class="tc-field-028l full">
               <label>Notas</label>
@@ -3196,7 +3248,45 @@
     const rowsTarget = overlay.querySelector("[data-transport-rows]");
     const kpisTarget = overlay.querySelector("[data-transport-kpis]");
     const customerDatalist = overlay.querySelector(`#${uid}_customers`);
+    const telephonyState = overlay.querySelector("[data-telephony-state]");
+    const callButton = overlay.querySelector("[data-telephony-call]");
+    const hangupButton = overlay.querySelector("[data-telephony-hangup]");
+    const muteButton = overlay.querySelector("[data-telephony-mute]");
     let selectedCustomer = null;
+    let telephonyDevice = null;
+    let activeCall = null;
+    let callStartedAt = 0;
+    let callTimer = null;
+    let callMuted = false;
+
+    const setTelephonyState029A = (label, status = "") => {
+      if (telephonyState) telephonyState.textContent = label;
+      if (form?.elements?.call_status_display && status) form.elements.call_status_display.value = status;
+    };
+    const updateCallTimer029A = () => {
+      const seconds = callStartedAt ? Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000)) : 0;
+      setTransportField028L(form, "duration_seconds", seconds);
+      setTransportField028L(form, "duration_display", formatSeconds(seconds));
+    };
+    const stopCallTimer029A = () => {
+      if (callTimer) window.clearInterval(callTimer);
+      callTimer = null;
+      updateCallTimer029A();
+    };
+    const setCallControls029A = (inCall) => {
+      if (callButton) callButton.disabled = inCall;
+      if (hangupButton) hangupButton.disabled = !inCall;
+      if (muteButton) muteButton.disabled = !inCall;
+    };
+    const finishSoftphoneCall029A = (statusLabel = "Completada") => {
+      stopCallTimer029A();
+      setTransportField028L(form, "call_status", statusLabel === "Completada" ? "completed" : "missed");
+      setTelephonyState029A("Llamada finalizada", statusLabel);
+      activeCall = null;
+      callMuted = false;
+      if (muteButton) muteButton.textContent = "Silenciar";
+      setCallControls029A(false);
+    };
 
     const renderAdvisorKpis = () => {
       if (kpisTarget) kpisTarget.innerHTML = transportAdvisorKpis028L(calls, employeeName, selectedCustomer);
@@ -3229,6 +3319,97 @@
       }
     });
 
+    callButton?.addEventListener("click", async () => {
+      const phone = String(form?.elements?.phone?.value || "").trim();
+      if (!phone) {
+        setTelephonyState029A("Selecciona un cliente con telefono", "Sin iniciar");
+        return;
+      }
+      if (!window.Twilio?.Device) {
+        setTelephonyState029A("No se cargo el softphone Twilio", "Error");
+        return;
+      }
+      try {
+        setTelephonyState029A("Validando consentimiento...", "Validando");
+        const consentPayload = {
+          consent_status: String(form.elements.consent_status?.value || "unknown"),
+          do_not_call: Boolean(form.elements.do_not_call?.checked),
+          source: "mini_panel",
+          notes: `Registrado por ${employeeName}`
+        };
+        await transportTelephonyApi029A(`/consents/${encodeURIComponent(phone)}`, {
+          method: "PUT",
+          body: JSON.stringify(consentPayload)
+        });
+        const preflight = await transportTelephonyApi029A("/preflight", {
+          method: "POST",
+          body: JSON.stringify({
+            phone,
+            batch_row_id: String(form.elements.batch_row_id?.value || ""),
+            campaign_code: String(form.elements.campaign_code?.value || "")
+          })
+        });
+        setTransportField028L(form, "phone", preflight.phone || phone);
+        setTransportField028L(form, "phone_type", preflight.phone_type || "unknown");
+        setTransportField028L(form, "campaign_code", preflight.campaign_code || "General");
+        if (!preflight.allowed) {
+          setTelephonyState029A("Llamada bloqueada: consentimiento o No llamar", "Bloqueada");
+          return;
+        }
+        const tokenData = await transportTelephonyApi029A("/token", { method: "GET" });
+        if (telephonyDevice) telephonyDevice.destroy();
+        telephonyDevice = new window.Twilio.Device(tokenData.token, {
+          logLevel: 1,
+          closeProtection: true
+        });
+        telephonyDevice.on("error", (error) => {
+          console.error("CLONEXA Twilio Device:", error);
+          setTelephonyState029A(error?.message || "Error de telefonia", "Error");
+          setCallControls029A(false);
+        });
+        setTelephonyState029A("Conectando llamada...", "Marcando");
+        setCallControls029A(true);
+        activeCall = await telephonyDevice.connect({ params: {
+          To: preflight.phone,
+          CompanyId: String(companyId),
+          CustomerName: String(form.elements.customer_name?.value || ""),
+          CampaignCode: String(preflight.campaign_code || "General"),
+          BatchRowId: String(form.elements.batch_row_id?.value || "")
+        }});
+        activeCall.on("accept", () => {
+          const parentSid = String(activeCall?.parameters?.CallSid || "");
+          setTransportField028L(form, "twilio_parent_call_sid", parentSid);
+          setTransportField028L(form, "twilio_call_sid", parentSid);
+          setTransportField028L(form, "call_direction", "outbound");
+          setTransportField028L(form, "call_status", "pending");
+          setTelephonyState029A("En llamada", "En llamada");
+          stopCallTimer029A();
+          callStartedAt = Date.now();
+          callTimer = window.setInterval(updateCallTimer029A, 1000);
+        });
+        activeCall.on("disconnect", () => finishSoftphoneCall029A("Completada"));
+        activeCall.on("cancel", () => finishSoftphoneCall029A("No contestada"));
+        activeCall.on("reject", () => finishSoftphoneCall029A("No contestada"));
+        activeCall.on("error", (error) => {
+          console.error("CLONEXA Twilio Call:", error);
+          finishSoftphoneCall029A("Fallida");
+          setTelephonyState029A(error?.message || "La llamada fallo", "Fallida");
+        });
+      } catch (error) {
+        console.error("CLONEXA softphone:", error);
+        setTelephonyState029A(error?.message || "No se pudo iniciar la llamada", "Error");
+        setCallControls029A(false);
+      }
+    });
+
+    hangupButton?.addEventListener("click", () => activeCall?.disconnect());
+    muteButton?.addEventListener("click", () => {
+      if (!activeCall) return;
+      callMuted = !callMuted;
+      activeCall.mute(callMuted);
+      muteButton.textContent = callMuted ? "Activar audio" : "Silenciar";
+    });
+
     overlay.querySelector("[data-transport-refresh]")?.addEventListener("click", async () => {
       if (message) {
         message.classList.add("ok");
@@ -3243,6 +3424,13 @@
 
     form?.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (activeCall) {
+        if (message) {
+          message.classList.remove("ok");
+          message.textContent = "Finaliza la llamada antes de guardar la tipificacion.";
+        }
+        return;
+      }
       const data = new FormData(form);
       const baseNotes = String(data.get("notes") || "").trim();
       const typificationNotes = [
@@ -3270,8 +3458,13 @@
         ticket_requested: data.has("ticket_requested"),
         contract_code: String(data.get("contract_code") || "").trim(),
         source: String(data.get("twilio_call_sid") || "").trim() ? "twilio" : "mini_panel",
-        twilio_call_sid: String(data.get("twilio_call_sid") || "").trim(),
+        twilio_call_sid: "",
+        twilio_parent_call_sid: String(data.get("twilio_parent_call_sid") || data.get("twilio_call_sid") || "").trim(),
         batch_row_id: String(data.get("batch_row_id") || "").trim(),
+        campaign_code: String(data.get("campaign_code") || "").trim(),
+        phone_type: String(data.get("phone_type") || "unknown").trim(),
+        consent_status: String(data.get("consent_status") || "unknown").trim(),
+        do_not_call: data.has("do_not_call"),
         notes: [baseNotes, ...typificationNotes].filter(Boolean).join("\n")
       };
 
@@ -3293,6 +3486,10 @@
           body: JSON.stringify(payload)
         });
         form.reset();
+        setTransportField028L(form, "phone_type", "unknown");
+        setTransportField028L(form, "call_status_display", "Sin iniciar");
+        setTransportField028L(form, "duration_display", "00:00:00");
+        setTelephonyState029A("Listo para llamar");
         selectedCustomer = null;
         if (message) {
           message.classList.add("ok");
@@ -3309,6 +3506,9 @@
 
     const closeTransportModal028L = () => {
       document.removeEventListener("keydown", onTransportKeydown028L);
+      stopCallTimer029A();
+      if (activeCall) activeCall.disconnect();
+      if (telephonyDevice) telephonyDevice.destroy();
       overlay.remove();
     };
     const onTransportKeydown028L = (event) => {
@@ -3767,8 +3967,20 @@
             message.classList.add("ok");
             message.textContent = "Creando documento...";
           }
-          await transportQuoteApi028O("/documents", { method: "POST", body: JSON.stringify(payload) });
+          const created = await transportQuoteApi028O("/documents", { method: "POST", body: JSON.stringify(payload) });
           await renderBody(currentFilters);
+          const nextMessage = card.querySelector("[data-tqt-message-028o]");
+          const delivery = created?.whatsapp_delivery || {};
+          if (nextMessage) {
+            nextMessage.classList.toggle("ok", delivery.status !== "send_failed" && delivery.status !== "phone_missing");
+            nextMessage.textContent = delivery.ok
+              ? "Documento creado y enviado por WhatsApp."
+              : delivery.status === "phone_missing"
+                ? "Documento creado. El cliente no tiene telefono para WhatsApp."
+                : delivery.status === "send_failed"
+                  ? "Documento creado. WhatsApp no pudo enviarlo; queda disponible para reintento."
+                  : "Documento creado correctamente.";
+          }
         } catch (error) {
           if (message) {
             message.classList.remove("ok");

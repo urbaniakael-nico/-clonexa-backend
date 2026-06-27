@@ -25657,6 +25657,15 @@ function inventoryCreatePayload() {
     return api(`/transport-calls/companies/${encodeURIComponent(state.companyId)}${path}`, options);
   }
 
+  async function cxTransportTelephonyApi029A(path, options = {}) {
+    return api(`/transport-telephony/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxTransportCallCost029A(value, currency = "USD") {
+    const amount = Number(value || 0);
+    return `${Number.isFinite(amount) ? amount.toFixed(4) : "0.0000"} ${String(currency || "USD").toUpperCase()}`;
+  }
+
   async function renderTransportCallsModule028A() {
     if (state.transportAgentStatusTimer) {
       window.clearInterval(state.transportAgentStatusTimer);
@@ -25673,6 +25682,7 @@ function inventoryCreatePayload() {
     let documents = [];
     let agents = [];
     let batches = [];
+    let telephony = {};
     let loadError = "";
 
     const loadPart = async (label, promise) => {
@@ -25682,19 +25692,21 @@ function inventoryCreatePayload() {
         return { ok: false, label, error };
       }
     };
-    const [summaryResult, callsResult, docsResult, agentsResult, batchesResult] = await Promise.all([
+    const [summaryResult, callsResult, docsResult, agentsResult, batchesResult, telephonyResult] = await Promise.all([
       loadPart("resumen", cxTransportApi028A(`/summary?${qs}`)),
       loadPart("llamadas", cxTransportApi028A(`/calls?limit=160&${qs}`)),
       loadPart("documentos", api(`/transport-quotes-tickets/companies/${encodeURIComponent(state.companyId)}/documents?limit=160&${qs}`)),
       loadPart("agentes", cxTransportApi028A("/agents")),
       loadPart("bases", cxTransportApi028A("/batches?status=all&limit=120")),
+      loadPart("telefonia", cxTransportTelephonyApi029A("/configuration")),
     ]);
     if (summaryResult.ok) summary = summaryResult.data.summary || {};
     if (callsResult.ok) calls = Array.isArray(callsResult.data.calls) ? callsResult.data.calls : [];
     if (docsResult.ok) documents = Array.isArray(docsResult.data.documents) ? docsResult.data.documents : [];
     if (agentsResult.ok) agents = Array.isArray(agentsResult.data.agents) ? agentsResult.data.agents : [];
     if (batchesResult.ok) batches = Array.isArray(batchesResult.data.batches) ? batchesResult.data.batches : [];
-    const failedParts = [summaryResult, callsResult, docsResult, agentsResult, batchesResult].filter((item) => !item.ok);
+    if (telephonyResult.ok) telephony = telephonyResult.data || {};
+    const failedParts = [summaryResult, callsResult, docsResult, agentsResult, batchesResult, telephonyResult].filter((item) => !item.ok);
     if (failedParts.length) {
       loadError = `No se cargaron estas secciones: ${failedParts.map((item) => item.label).join(", ")}. El resto del modulo sigue disponible.`;
     }
@@ -25710,6 +25722,7 @@ function inventoryCreatePayload() {
     const avgDuration = periodCalls ? Math.round(periodDuration / periodCalls) : 0;
     const conversionTicket = cxTransportPercent028L(periodTickets, periodCalls);
     const conversionQuote = cxTransportPercent028L(periodQuotes, periodCalls);
+    const periodCost = calls.reduce((total, call) => total + cxTransportNumber028A(call.price_amount), 0);
 
     const advisorStatsByName = cxTransportGroupCalls028L(
       calls,
@@ -25723,17 +25736,19 @@ function inventoryCreatePayload() {
         calls: 0,
         tickets: 0,
         quotes: 0,
-        duration: 0,
-        missed: 0,
-        last_at: call.created_at,
+         duration: 0,
+         missed: 0,
+         cost: 0,
+         last_at: call.created_at,
       }),
       (row, call) => {
         row.calls += 1;
         row.duration += cxTransportNumber028A(call.duration_seconds);
         row.tickets += call.ticket_requested ? 1 : 0;
-        row.quotes += call.quote_requested ? 1 : 0;
-        row.missed += String(call.call_status || "") === "missed" ? 1 : 0;
-        row.last_at = call.created_at || row.last_at;
+         row.quotes += call.quote_requested ? 1 : 0;
+         row.missed += String(call.call_status || "") === "missed" ? 1 : 0;
+         row.cost += cxTransportNumber028A(call.price_amount);
+         row.last_at = call.created_at || row.last_at;
       }
     );
     const advisorsByName = new Map(advisorStatsByName.map((item) => [String(item.name || "").trim().toLowerCase(), item]));
@@ -25749,9 +25764,10 @@ function inventoryCreatePayload() {
         calls: 0,
         tickets: 0,
         quotes: 0,
-        duration: 0,
-        missed: 0,
-        last_at: "",
+         duration: 0,
+         missed: 0,
+         cost: 0,
+         last_at: "",
       };
       current.role = agent.role || agent.employee_type || current.role || "";
       current.phone = agent.phone || current.phone || "";
@@ -25765,6 +25781,21 @@ function inventoryCreatePayload() {
     const advisors = Array.from(advisorsByName.values())
       .sort((a, b) => b.calls - a.calls || b.tickets - a.tickets || String(a.name || "").localeCompare(String(b.name || "")))
       .slice(0, 20);
+
+    const campaigns = cxTransportGroupCalls028L(
+      calls,
+      (call) => call.campaign_code || "General",
+      (campaign) => ({ campaign, calls: 0, tickets: 0, quotes: 0, duration: 0, cost: 0, mobile: 0, landline: 0 }),
+      (row, call) => {
+        row.calls += 1;
+        row.tickets += call.ticket_requested ? 1 : 0;
+        row.quotes += call.quote_requested ? 1 : 0;
+        row.duration += cxTransportNumber028A(call.duration_seconds);
+        row.cost += cxTransportNumber028A(call.price_amount);
+        row.mobile += String(call.phone_type || "") === "mobile" ? 1 : 0;
+        row.landline += String(call.phone_type || "") === "landline" ? 1 : 0;
+      }
+    ).sort((a, b) => b.calls - a.calls || String(a.campaign).localeCompare(String(b.campaign)));
 
     const routes = cxTransportGroupCalls028L(
       calls,
@@ -25822,9 +25853,24 @@ function inventoryCreatePayload() {
             <td style="${tableCellStyle}">${h(item.tickets)}</td>
             <td style="${tableCellStyle}">${h(cxTransportDuration028A(item.duration))}</td>
             <td style="${tableCellStyle}">${h(item.missed)}</td>
+            <td style="${tableCellStyle}">${h(cxTransportCallCost029A(item.cost))}</td>
           </tr>
         `).join("")
-      : `<tr><td colspan="7" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin agentes call activos en Workforce. Crea o activa agentes en Workforce para asignar bases.</td></tr>`;
+      : `<tr><td colspan="8" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin agentes call activos en Workforce. Crea o activa agentes en Workforce para asignar bases.</td></tr>`;
+
+    const campaignRows = campaigns.length
+      ? campaigns.map((item) => `
+          <tr>
+            <td style="${tableCellStyle}"><strong>${h(item.campaign)}</strong></td>
+            <td style="${tableCellStyle}">${h(item.calls)}</td>
+            <td style="${tableCellStyle}">${h(item.quotes)}</td>
+            <td style="${tableCellStyle}">${h(item.tickets)}</td>
+            <td style="${tableCellStyle}">${h(item.mobile)} / ${h(item.landline)}</td>
+            <td style="${tableCellStyle}">${h(cxTransportDuration028A(item.duration))}</td>
+            <td style="${tableCellStyle}">${h(cxTransportCallCost029A(item.cost))}</td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="7" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin llamadas por campana en el periodo.</td></tr>`;
 
     const routeRows = routes.length
       ? routes.map((item) => `
@@ -25896,7 +25942,7 @@ function inventoryCreatePayload() {
           const managed = cxTransportNumber028A(batch.rows_managed || 0);
           return `
             <tr>
-              <td style="${tableCellStyle}"><strong>${h(batch.file_name || "Base CSV")}</strong><br><span class="client-muted">${h(batch.status || "active")}</span></td>
+              <td style="${tableCellStyle}"><strong>${h(batch.file_name || "Base CSV")}</strong><br><span class="client-muted">${h(batch.campaign_code || "General")} · ${h(batch.status || "active")}</span></td>
               <td style="${tableCellStyle}">${h(batch.assigned_agent_name || "Sin agente")}</td>
               <td style="${tableCellStyle}"><strong>${h(total)}</strong><br><span class="client-muted">${h(managed)} gestionados</span></td>
               <td style="${tableCellStyle}">
@@ -25908,6 +25954,10 @@ function inventoryCreatePayload() {
           `;
         }).join("")
       : `<tr><td colspan="4" style="${tableCellStyle};color:rgba(255,255,255,.68)">Sin bases asignadas a agentes.</td></tr>`;
+
+    const telephonySettings = telephony.settings || {};
+    const outgoingNumbers = Array.isArray(telephonySettings.outgoing_numbers) ? telephonySettings.outgoing_numbers : [];
+    const telephonyMissing = Array.isArray(telephony.missing) ? telephony.missing : [];
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -25929,6 +25979,7 @@ function inventoryCreatePayload() {
                 <article class="client-kpi"><span>Tickets periodo</span><strong>${h(periodTickets)}</strong><small class="client-muted">${h(conversionTicket)} conversion</small></article>
                 <article class="client-kpi"><span>Cotizaciones periodo</span><strong>${h(periodQuotes)}</strong><small class="client-muted">${h(conversionQuote)} conversion</small></article>
                 <article class="client-kpi"><span>Duracion promedio</span><strong>${h(cxTransportDuration028A(avgDuration))}</strong></article>
+                <article class="client-kpi"><span>Costo llamadas</span><strong>${h(cxTransportCallCost029A(periodCost))}</strong></article>
               </div>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
@@ -25955,6 +26006,30 @@ function inventoryCreatePayload() {
               </div>
             </section>
 
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
+                <div>
+                  <div class="client-eyebrow">Telefonia</div>
+                  <h2>Twilio y numeros de salida</h2>
+                  <p class="client-muted">Rotacion de hasta 10 numeros, consentimiento y envio automatico de documentos.</p>
+                </div>
+                <span class="client-badge" style="box-shadow:none">${telephony.configured ? "LISTO" : "PENDIENTE"}</span>
+              </div>
+              ${telephonyMissing.length ? `<p style="color:#fca5a5;font-weight:850">Faltan variables Railway: ${h(telephonyMissing.join(", "))}</p>` : ""}
+              <form id="transportTelephonyConfig029A" style="display:grid;grid-template-columns:2fr 1fr;gap:12px;align-items:end">
+                <label><span class="client-muted">Numeros de salida, uno por linea (maximo 10)</span><textarea id="transportOutgoing029A" rows="4" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850">${h(outgoingNumbers.join("\n"))}</textarea></label>
+                <label><span class="client-muted">Campana predeterminada</span><input id="transportDefaultCampaign029A" value="${h(telephonySettings.default_campaign || "General")}" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
+                <label style="display:flex;gap:8px;align-items:center;font-weight:850"><input id="transportStrictConsent029A" type="checkbox" ${telephonySettings.strict_consent !== false ? "checked" : ""}> Exigir consentimiento antes de llamar</label>
+                <label style="display:flex;gap:8px;align-items:center;font-weight:850"><input id="transportAutoWhatsapp029A" type="checkbox" ${telephonySettings.auto_whatsapp_documents ? "checked" : ""}> Enviar ticket/cotizacion por WhatsApp</label>
+                <label style="grid-column:1/-1"><span class="client-muted">Voice URL para TwiML App</span><input value="${h(telephony.voice_url || "")}" readonly style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.52);color:inherit;padding:12px 13px;font:inherit"></label>
+                <div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap">
+                  <button class="client-btn" type="submit">Guardar telefonia</button>
+                  <button class="client-btn" id="transportSyncCosts029A" type="button" style="box-shadow:none">Sincronizar costos</button>
+                  <span class="client-muted" id="transportTelephonyMessage029A"></span>
+                </div>
+              </form>
+            </section>
+
             <section class="client-panel" style="${panelStyle}">
               <div>
                 <div class="client-eyebrow">Supervisor</div>
@@ -25972,6 +26047,7 @@ function inventoryCreatePayload() {
                       <th style="${tableHeadStyle}">Tkt.</th>
                       <th style="${tableHeadStyle}">Duracion</th>
                       <th style="${tableHeadStyle}">Perd.</th>
+                      <th style="${tableHeadStyle}">Costo</th>
                     </tr>
                   </thead>
                   <tbody>${advisorRows}</tbody>
@@ -25982,8 +26058,9 @@ function inventoryCreatePayload() {
             <section class="client-panel">
               <div class="client-eyebrow">Bases de llamadas</div>
               <h2>Asignar archivo a agente</h2>
-              <form id="tcBatchImport028P" style="display:grid;grid-template-columns:minmax(220px,320px) minmax(260px,1fr) auto;gap:12px;align-items:end;margin-bottom:16px">
+              <form id="tcBatchImport028P" style="display:grid;grid-template-columns:minmax(180px,260px) minmax(180px,260px) minmax(260px,1fr) auto;gap:12px;align-items:end;margin-bottom:16px">
                 <label><span class="client-muted">Agente call</span><select id="tcBatchAgent028P" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850">${agentOptions}</select></label>
+                <label><span class="client-muted">Campana</span><input id="tcBatchCampaign029A" placeholder="Ej. Renovaciones junio" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
                 <label><span class="client-muted">Archivo CSV</span><input id="tcBatchFile028P" type="file" accept=".csv,text/csv" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
                 <button class="client-btn" type="submit">Cargar base</button>
               </form>
@@ -25991,6 +26068,22 @@ function inventoryCreatePayload() {
                 <table style="width:100%;border-collapse:collapse;min-width:860px">
                   <thead><tr><th style="${tableHeadStyle}">Archivo</th><th style="${tableHeadStyle}">Agente</th><th style="${tableHeadStyle}">Registros</th><th style="${tableHeadStyle}">Acciones</th></tr></thead>
                   <tbody>${batchRows}</tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="client-panel">
+              <div class="client-eyebrow">Campanas</div>
+              <h2>Reporte por campana</h2>
+              <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
+                <table style="width:100%;border-collapse:collapse;min-width:900px">
+                  <thead><tr>
+                    <th style="${tableHeadStyle}">Campana</th><th style="${tableHeadStyle}">Llamadas</th>
+                    <th style="${tableHeadStyle}">Cot.</th><th style="${tableHeadStyle}">Tkt.</th>
+                    <th style="${tableHeadStyle}">Celular / fijo</th><th style="${tableHeadStyle}">Duracion</th>
+                    <th style="${tableHeadStyle}">Costo</th>
+                  </tr></thead>
+                  <tbody>${campaignRows}</tbody>
                 </table>
               </div>
             </section>
@@ -26032,6 +26125,7 @@ function inventoryCreatePayload() {
                         <th style="${tableHeadStyle}">Tkt.</th>
                         <th style="${tableHeadStyle}">Duracion</th>
                         <th style="${tableHeadStyle}">Perd.</th>
+                        <th style="${tableHeadStyle}">Costo</th>
                       </tr>
                     </thead>
                     <tbody>${advisorRows}</tbody>
@@ -26119,6 +26213,42 @@ function inventoryCreatePayload() {
       if (searchField) searchField.value = "";
       renderTransportCallsModule028A();
     });
+    $("transportTelephonyConfig029A")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const message = $("transportTelephonyMessage029A");
+      const outgoing = String($("transportOutgoing029A")?.value || "")
+        .split(/[\n,;]+/)
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .slice(0, 10);
+      try {
+        if (message) message.textContent = "Guardando...";
+        await cxTransportTelephonyApi029A("/configuration", {
+          method: "PUT",
+          body: JSON.stringify({
+            outgoing_numbers: outgoing,
+            default_campaign: String($("transportDefaultCampaign029A")?.value || "General").trim(),
+            strict_consent: Boolean($("transportStrictConsent029A")?.checked),
+            auto_whatsapp_documents: Boolean($("transportAutoWhatsapp029A")?.checked),
+          })
+        });
+        if (message) message.textContent = "Configuracion guardada.";
+        renderTransportCallsModule028A();
+      } catch (error) {
+        if (message) message.textContent = error?.message || "No se pudo guardar telefonia.";
+      }
+    });
+    $("transportSyncCosts029A")?.addEventListener("click", async () => {
+      const message = $("transportTelephonyMessage029A");
+      try {
+        if (message) message.textContent = "Consultando costos en Twilio...";
+        const result = await cxTransportTelephonyApi029A("/sync-costs", { method: "POST" });
+        if (message) message.textContent = `${result.updated || 0} llamada(s) actualizadas.`;
+        renderTransportCallsModule028A();
+      } catch (error) {
+        if (message) message.textContent = error?.message || "No se pudieron sincronizar costos.";
+      }
+    });
     $("tcBatchImport028P")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const agentId = $("tcBatchAgent028P")?.value || "";
@@ -26129,6 +26259,7 @@ function inventoryCreatePayload() {
       }
       const form = new FormData();
       form.append("assigned_employee_id", agentId);
+      form.append("campaign_code", String($("tcBatchCampaign029A")?.value || "").trim());
       form.append("file", file);
       try {
         await apiForm(`/transport-calls/companies/${encodeURIComponent(state.companyId)}/batches/import-csv`, form);
@@ -26862,8 +26993,13 @@ function inventoryCreatePayload() {
           cxTransportDocumentsSetMsg028N("Cliente, origen y destino son obligatorios.", true);
           return;
         }
-        await cxTransportDocumentsApi028N("/documents", { method: "POST", body: JSON.stringify(payload) });
+        const created = await cxTransportDocumentsApi028N("/documents", { method: "POST", body: JSON.stringify(payload) });
         await renderTransportQuotesTicketsModule028N();
+        const delivery = created?.whatsapp_delivery || {};
+        if (delivery.ok) cxTransportDocumentsSetMsg028N("Documento creado y enviado por WhatsApp.", false);
+        else if (delivery.status === "phone_missing") cxTransportDocumentsSetMsg028N("Documento creado. No se envio por WhatsApp porque el cliente no tiene telefono.", true);
+        else if (delivery.status === "send_failed") cxTransportDocumentsSetMsg028N("Documento creado. WhatsApp no pudo enviarlo; queda disponible para reintento.", true);
+        else cxTransportDocumentsSetMsg028N("Documento creado correctamente.", false);
       } catch (error) {
         cxTransportDocumentsSetMsg028N(error.message || "No se pudo crear el documento.", true);
       }

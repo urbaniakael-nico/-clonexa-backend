@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import READ_ROLES, WRITE_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
 from app.api.v1.endpoints.transport_contracts import ensure_transport_contracts_storage
+from app.services.shoplink_whatsapp_web import whatsapp_send
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
@@ -97,6 +99,42 @@ class TransportDocumentPatch(TransportDocumentIn):
 
 def _clean(value: Any, limit: int = 255) -> str:
     return str(value or "").strip()[:limit]
+
+
+async def _send_transport_document_whatsapp(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    document: dict[str, Any],
+) -> dict[str, Any]:
+    config = (await db.execute(text("""
+        SELECT COALESCE(settings_json->'transport_telephony', '{}'::jsonb) AS config
+        FROM companies WHERE id = CAST(:company_id AS uuid)
+    """), {"company_id": str(company_id)})).scalar_one_or_none() or {}
+    if not isinstance(config, dict) or not bool(config.get("auto_whatsapp_documents")):
+        return {"ok": False, "status": "disabled"}
+    phone = _clean(document.get("phone"), 80)
+    if not phone:
+        return {"ok": False, "status": "phone_missing"}
+    base_url = _clean(
+        os.getenv("CLONEXA_PUBLIC_BASE_URL")
+        or os.getenv("PUBLIC_BASE_URL")
+        or "https://clonexa-backend-production.up.railway.app",
+        500,
+    ).rstrip("/")
+    doc_type = "Ticket" if document.get("document_type") == "ticket" else "Cotizacion"
+    pdf_url = (
+        f"{base_url}/api/v1/transport-quotes-tickets/companies/{company_id}"
+        f"/documents/{document.get('id')}/print.pdf"
+    )
+    message = "\n".join([
+        f"{doc_type} {document.get('document_number') or ''} - CLONEXA",
+        f"Cliente: {document.get('client_name') or '-'}",
+        f"Ruta: {document.get('origin') or '-'} -> {document.get('destination') or '-'}",
+        f"Total: {_format_money(document.get('total_amount'))}",
+        f"Documento PDF: {pdf_url}",
+    ])
+    result = await whatsapp_send(str(company_id), phone, message)
+    return result if isinstance(result, dict) else {"ok": False, "status": "invalid_response"}
 
 
 def _money(value: Any) -> float:
@@ -415,7 +453,17 @@ async def create_transport_document(company_id: uuid.UUID, payload: TransportDoc
     if doc_type == "ticket" and linked_contract and total > 0:
         await _consume_contract_for_ticket(db, company_id, str(linked_contract.get("id") or ""), total)
     await db.commit()
-    return {"ok": True, "company_id": str(company_id), "document": _row(row)}
+    document = _row(row)
+    try:
+        whatsapp_delivery = await _send_transport_document_whatsapp(db, company_id, document)
+    except Exception as exc:
+        whatsapp_delivery = {"ok": False, "status": "send_failed", "detail": _clean(exc, 220)}
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "document": document,
+        "whatsapp_delivery": whatsapp_delivery,
+    }
 
 
 @router.patch("/companies/{company_id}/documents/{document_id}", dependencies=[Depends(require_transport_quotes_write)])
