@@ -1,2 +1,2 @@
 cliente,tipo_cliente,telefono,correo,documento,contrato,cuenta,origen,destino,tipo_viaje,transportadora,valor_ticket,campana,tipo_linea,consentimiento,no_llamar,notas
-Cliente Prueba,persona,+57XXXXXXXXXX,cliente@ejemplo.com,123456789,TEST-001,K100001,Bogota,Medellin,Ruta,Transportadora Demo,45000,Prueba Twilio,mobile,granted,no,Primera llamada de validacion CLONEXA
+Cliente Prueba,person,+57XXXXXXXXXX,cliente@ejemplo.com,123456789,TEST-001,K100001,Bogota,Medellin,Ruta,Transportadora Demo,45000,Prueba Twilio,mobile,granted,no,Primera llamada de validacion CLONEXA
