@@ -1,9 +1,11 @@
+import io
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from openpyxl import Workbook
 
-from app.api.v1.endpoints.transport_calls import _csv_rows
+from app.api.v1.endpoints.transport_calls import _csv_rows, _uploaded_call_rows
 from app.api.v1.endpoints.transport_telephony import _normalize_phone, _optional_uuid, _phone_type, _settings
 
 
@@ -38,3 +40,27 @@ def test_company_with_empty_numbers_uses_railway_fallback(monkeypatch: pytest.Mo
 def test_excel_semicolon_csv_is_supported() -> None:
     rows = _csv_rows("cliente;telefono;contrato\nCliente Demo;+573001112233;TEST-001\n")
     assert rows == [{"cliente": "Cliente Demo", "telefono": "+573001112233", "contrato": "TEST-001"}]
+
+
+def test_xlsx_call_base_is_supported() -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["cliente", "telefono", "contrato"])
+    sheet.append(["Cliente Excel", "+573001112233", "TEST-XLSX"])
+    output = io.BytesIO()
+    workbook.save(output)
+    workbook.close()
+
+    rows = _uploaded_call_rows(output.getvalue(), "base_llamadas.xlsx")
+
+    assert rows == [{"cliente": "Cliente Excel", "telefono": "+573001112233", "contrato": "TEST-XLSX"}]
+
+
+def test_invalid_call_base_returns_controlled_validation_error() -> None:
+    with pytest.raises(ValueError, match="Formato no compatible"):
+        _uploaded_call_rows(b"not a spreadsheet", "base_llamadas.pdf")
+
+
+def test_call_base_requires_at_least_one_phone() -> None:
+    with pytest.raises(ValueError, match="columna telefono"):
+        _uploaded_call_rows(b"cliente,contrato\nCliente Demo,TEST-001\n", "base_llamadas.csv")

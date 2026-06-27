@@ -26061,7 +26061,7 @@ function inventoryCreatePayload() {
               <form id="tcBatchImport028P" style="display:grid;grid-template-columns:minmax(180px,260px) minmax(180px,260px) minmax(260px,1fr) auto;gap:12px;align-items:end;margin-bottom:16px">
                 <label><span class="client-muted">Agente call</span><select id="tcBatchAgent028P" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850">${agentOptions}</select></label>
                 <label><span class="client-muted">Campana</span><input id="tcBatchCampaign029A" placeholder="Ej. Renovaciones junio" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
-                <label><span class="client-muted">Archivo CSV</span><input id="tcBatchFile028P" type="file" accept=".csv,text/csv" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
+                <label><span class="client-muted">Archivo Excel o CSV</span><input id="tcBatchFile028P" type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
                 <button class="client-btn" type="submit">Cargar base</button>
               </form>
               <div style="overflow:auto;border-radius:16px;border:1px solid rgba(255,255,255,.08);max-height:360px">
@@ -26254,7 +26254,15 @@ function inventoryCreatePayload() {
       const agentId = $("tcBatchAgent028P")?.value || "";
       const file = $("tcBatchFile028P")?.files?.[0];
       if (!agentId || !file) {
-        alert("Selecciona agente y archivo CSV.");
+        alert("Selecciona agente y archivo Excel o CSV.");
+        return;
+      }
+      if (!/\.(xlsx|csv)$/i.test(file.name || "")) {
+        alert("Formato no compatible. Selecciona un archivo .xlsx o .csv.");
+        return;
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        alert("El archivo supera el limite de 8 MB.");
         return;
       }
       const form = new FormData();
@@ -26265,9 +26273,19 @@ function inventoryCreatePayload() {
         await apiForm(`/transport-calls/companies/${encodeURIComponent(state.companyId)}/batches/import-csv`, form);
         renderTransportCallsModule028A();
       } catch (error) {
-        const message = error?.message === "agent_has_active_batch"
+        const rawMessage = String(error?.message || "");
+        let apiDetail = "";
+        const jsonStart = rawMessage.indexOf("{");
+        if (jsonStart >= 0) {
+          try {
+            apiDetail = String(JSON.parse(rawMessage.slice(jsonStart))?.detail || "");
+          } catch (_) {
+            apiDetail = "";
+          }
+        }
+        const message = rawMessage.includes("agent_has_active_batch")
           ? "Este agente ya tiene una base activa. Archiva o elimina la base anterior."
-          : (error?.message || "No se pudo cargar la base.");
+          : (apiDetail || rawMessage || "No se pudo cargar la base.");
         alert(message);
       }
     });

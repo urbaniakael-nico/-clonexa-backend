@@ -3263,6 +3263,20 @@
       if (telephonyState) telephonyState.textContent = label;
       if (form?.elements?.call_status_display && status) form.elements.call_status_display.value = status;
     };
+    const blockedCallMessage029A = (preflight = {}) => {
+      const consent = preflight?.consent || {};
+      const consentStatus = String(consent.consent_status || form?.elements?.consent_status?.value || "unknown");
+      if (Boolean(consent.do_not_call) || Boolean(form?.elements?.do_not_call?.checked)) {
+        return "Llamada bloqueada: el contacto esta marcado como No llamar";
+      }
+      if (["denied", "revoked"].includes(consentStatus)) {
+        return "Llamada bloqueada: el contacto no autorizo llamadas";
+      }
+      if (consentStatus !== "granted") {
+        return "Llamada bloqueada: selecciona Autorizado en Consentimiento";
+      }
+      return "Llamada bloqueada por la politica de contacto";
+    };
     const updateCallTimer029A = () => {
       const seconds = callStartedAt ? Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000)) : 0;
       setTransportField028L(form, "duration_seconds", seconds);
@@ -3353,7 +3367,7 @@
         setTransportField028L(form, "phone_type", preflight.phone_type || "unknown");
         setTransportField028L(form, "campaign_code", preflight.campaign_code || "General");
         if (!preflight.allowed) {
-          setTelephonyState029A("Llamada bloqueada: consentimiento o No llamar", "Bloqueada");
+          setTelephonyState029A(blockedCallMessage029A(preflight), "Bloqueada");
           return;
         }
         const tokenData = await transportTelephonyApi029A("/token", { method: "GET" });

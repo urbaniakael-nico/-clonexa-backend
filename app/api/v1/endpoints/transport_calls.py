@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
+from openpyxl import load_workbook
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,8 @@ from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 router = APIRouter()
 
 TRANSPORT_CALL_MANAGER_ROLES = ADMIN_ROLES | {"manager", "gerencia", "gerente", "supervisor", "tesoreria"}
+TRANSPORT_CALL_IMPORT_MAX_BYTES = 8 * 1024 * 1024
+TRANSPORT_CALL_IMPORT_MAX_ROWS = 10_000
 
 
 def _authorization_from_query_028s(authorization: str | None, access_token: str | None = "") -> str | None:
@@ -187,9 +190,70 @@ def _csv_bool(row: dict[str, Any], *names: str) -> bool:
 def _csv_rows(body: str) -> list[dict[str, Any]]:
     try:
         dialect = csv.Sniffer().sniff(body[:8192], delimiters=",;\t")
-        return list(csv.DictReader(io.StringIO(body), dialect=dialect))
     except csv.Error:
-        return list(csv.DictReader(io.StringIO(body)))
+        dialect = csv.excel
+    try:
+        rows = list(csv.DictReader(io.StringIO(body, newline=""), dialect=dialect))
+    except csv.Error as exc:
+        raise ValueError("El CSV no se pudo leer. Exportalo nuevamente como CSV UTF-8.") from exc
+    return [row for row in rows if any(value not in (None, "") for value in row.values())]
+
+
+def _xlsx_rows(raw: bytes) -> list[dict[str, Any]]:
+    try:
+        workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    except Exception as exc:
+        raise ValueError("El archivo Excel no se pudo leer. Usa un archivo .xlsx valido.") from exc
+    try:
+        try:
+            worksheet = workbook.active
+            values = worksheet.iter_rows(values_only=True)
+            headers: list[str] = []
+            for candidate in values:
+                if any(value not in (None, "") for value in candidate):
+                    headers = [str(value or "").strip() for value in candidate]
+                    break
+            if not headers or not any(headers):
+                return []
+            rows: list[dict[str, Any]] = []
+            for values_row in values:
+                if not any(value not in (None, "") for value in values_row):
+                    continue
+                rows.append({header: value for header, value in zip(headers, values_row) if header})
+                if len(rows) > TRANSPORT_CALL_IMPORT_MAX_ROWS:
+                    raise ValueError(f"La base supera el maximo de {TRANSPORT_CALL_IMPORT_MAX_ROWS} registros.")
+            return rows
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("El archivo Excel no se pudo leer. Usa un archivo .xlsx valido.") from exc
+    finally:
+        workbook.close()
+
+
+def _uploaded_call_rows(raw: bytes, filename: str) -> list[dict[str, Any]]:
+    if not raw:
+        raise ValueError("El archivo esta vacio.")
+    if len(raw) > TRANSPORT_CALL_IMPORT_MAX_BYTES:
+        raise ValueError("El archivo supera el limite de 8 MB.")
+    lower_name = str(filename or "").strip().lower()
+    if lower_name.endswith(".xlsx") or raw.startswith(b"PK\x03\x04"):
+        rows = _xlsx_rows(raw)
+    elif lower_name.endswith((".csv", ".txt")) or "." not in lower_name:
+        try:
+            body = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            body = raw.decode("latin-1")
+        rows = _csv_rows(body)
+        if len(rows) > TRANSPORT_CALL_IMPORT_MAX_ROWS:
+            raise ValueError(f"La base supera el maximo de {TRANSPORT_CALL_IMPORT_MAX_ROWS} registros.")
+    else:
+        raise ValueError("Formato no compatible. Selecciona un archivo .xlsx o .csv.")
+    if not rows:
+        raise ValueError("La base no contiene registros.")
+    if not any(_csv_value(row, "telefono", "phone", "celular", "whatsapp") for row in rows):
+        raise ValueError("La base debe incluir la columna telefono y al menos un numero.")
+    return rows
 
 
 def _role_tokens(*values: Any) -> set[str]:
@@ -939,15 +1003,12 @@ async def import_transport_call_batch_csv(
         {"company_id": str(company_id), "employee_id": _clean(assigned_employee_id, 80)},
     )
     user_id = user.scalar_one_or_none() or ""
+    filename = _clean(file.filename or "base_llamadas.csv", 240)
     raw = await file.read()
     try:
-        body = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        body = raw.decode("latin-1")
-    rows = _csv_rows(body)
-    if not rows:
-        raise HTTPException(status_code=400, detail="empty_csv")
-    filename = _clean(file.filename or "base_llamadas.csv", 240)
+        rows = _uploaded_call_rows(raw, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     campaign = _clean(campaign_code, 120) or _clean(filename.rsplit(".", 1)[0].replace("_", " "), 120) or "General"
     batch = await db.execute(
         text(
