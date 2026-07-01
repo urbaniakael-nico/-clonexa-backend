@@ -565,12 +565,16 @@ async def telephony_voice(request: Request, db: AsyncSession = Depends(get_db)) 
             campaign_code, caller_number, phone_type, consent_status, do_not_call, created_at, updated_at
         ) SELECT
             CAST(:company_id AS uuid), :advisor_name, 'in_call', :customer_name, :phone, 'outbound',
-            'pending', 'follow_up', 'twilio', :parent_sid, :parent_sid, CAST(NULLIF(:batch_row_id, '') AS uuid),
+            'pending', 'follow_up', 'twilio', CAST(:parent_sid AS varchar(120)),
+            CAST(:parent_sid AS varchar(120)), CAST(NULLIF(:batch_row_id, '') AS uuid),
             :campaign, :caller_number, :phone_type, :consent_status, :do_not_call, now(), now()
         WHERE NOT EXISTS (
             SELECT 1 FROM transport_call_logs
             WHERE company_id = CAST(:company_id AS uuid)
-              AND (twilio_call_sid = :parent_sid OR twilio_parent_call_sid = :parent_sid)
+              AND (
+                CAST(twilio_call_sid AS varchar(120)) = CAST(:parent_sid AS varchar(120))
+                OR CAST(twilio_parent_call_sid AS varchar(120)) = CAST(:parent_sid AS varchar(120))
+              )
         )
     """), {
         "company_id": str(company_id), "advisor_name": advisor_name, "customer_name": customer_name,
@@ -620,8 +624,8 @@ async def telephony_status(company_id: uuid.UUID, request: Request, db: AsyncSes
         price_amount, price_currency = await _fetch_twilio_cost(runtime, child_sid)
     result = await db.execute(text("""
         UPDATE transport_call_logs
-        SET twilio_call_sid = COALESCE(NULLIF(:child_sid, ''), twilio_call_sid),
-            twilio_parent_call_sid = COALESCE(NULLIF(:parent_sid, ''), twilio_parent_call_sid),
+        SET twilio_call_sid = COALESCE(NULLIF(CAST(:child_sid AS varchar(120)), ''), CAST(twilio_call_sid AS varchar(120))),
+            twilio_parent_call_sid = COALESCE(NULLIF(CAST(:parent_sid AS varchar(120)), ''), CAST(twilio_parent_call_sid AS varchar(120))),
             call_status = :call_status,
             advisor_status = CASE WHEN :call_status = 'pending' THEN 'in_call' ELSE 'available' END,
             duration_seconds = CASE WHEN :duration > 0 THEN :duration ELSE duration_seconds END,
@@ -630,9 +634,9 @@ async def telephony_status(company_id: uuid.UUID, request: Request, db: AsyncSes
             updated_at = now()
         WHERE company_id = CAST(:company_id AS uuid)
           AND (
-            (:parent_sid <> '' AND twilio_parent_call_sid = :parent_sid)
-            OR (:parent_sid <> '' AND twilio_call_sid = :parent_sid)
-            OR twilio_call_sid = :child_sid
+            (CAST(:parent_sid AS varchar(120)) <> '' AND CAST(twilio_parent_call_sid AS varchar(120)) = CAST(:parent_sid AS varchar(120)))
+            OR (CAST(:parent_sid AS varchar(120)) <> '' AND CAST(twilio_call_sid AS varchar(120)) = CAST(:parent_sid AS varchar(120)))
+            OR CAST(twilio_call_sid AS varchar(120)) = CAST(:child_sid AS varchar(120))
           )
         RETURNING id, batch_row_id
     """), {
@@ -645,7 +649,7 @@ async def telephony_status(company_id: uuid.UUID, request: Request, db: AsyncSes
             UPDATE transport_call_batch_rows
             SET call_direction = 'outbound', call_status = :call_status,
                 duration_seconds = CASE WHEN :duration > 0 THEN :duration ELSE duration_seconds END,
-                twilio_call_sid = COALESCE(NULLIF(:child_sid, ''), twilio_call_sid),
+                twilio_call_sid = COALESCE(NULLIF(CAST(:child_sid AS varchar(120)), ''), CAST(twilio_call_sid AS varchar(120))),
                 price_amount = CASE WHEN :price_amount > 0 THEN :price_amount ELSE price_amount END,
                 price_currency = :price_currency, updated_at = now()
             WHERE company_id = CAST(:company_id AS uuid) AND id = CAST(:row_id AS uuid)
