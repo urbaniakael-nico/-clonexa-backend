@@ -42,9 +42,24 @@ def test_excel_semicolon_csv_is_supported() -> None:
     assert rows == [{"cliente": "Cliente Demo", "telefono": "+573001112233", "contrato": "TEST-001"}]
 
 
+def test_csv_finds_headers_after_informative_rows() -> None:
+    rows = _csv_rows(
+        "CLONEXA | Base de llamadas\n"
+        "Completa una fila por cliente\n"
+        "\n"
+        "cliente,telefono,contrato,campana\n"
+        "Cliente Demo,+573001112233,TEST-001,Prueba\n"
+    )
+    assert rows[0]["telefono"] == "+573001112233"
+    assert rows[0]["campana"] == "Prueba"
+
+
 def test_xlsx_call_base_is_supported() -> None:
     workbook = Workbook()
     sheet = workbook.active
+    sheet.append(["CLONEXA | Base de llamadas para Call Center"])
+    sheet.append(["Completa una fila por cliente antes de cargar la base."])
+    sheet.append([])
     sheet.append(["cliente", "telefono", "contrato"])
     sheet.append(["Cliente Excel", "+573001112233", "TEST-XLSX"])
     output = io.BytesIO()

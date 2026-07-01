@@ -3215,7 +3215,9 @@
 
           <div class="tc-actions-028l">
             <button class="mp-button" type="submit">Guardar llamada</button>
+            <button class="mp-button secondary" type="button" data-transport-next>Siguiente llamada</button>
             <button class="mp-button secondary" type="button" data-transport-refresh>Actualizar base</button>
+            <span class="tc-chip-028l" data-transport-queue></span>
             <span class="mp-message ok" data-transport-message></span>
           </div>
         </form>
@@ -3252,6 +3254,8 @@
     const callButton = overlay.querySelector("[data-telephony-call]");
     const hangupButton = overlay.querySelector("[data-telephony-hangup]");
     const muteButton = overlay.querySelector("[data-telephony-mute]");
+    const nextButton = overlay.querySelector("[data-transport-next]");
+    const queueStatus = overlay.querySelector("[data-transport-queue]");
     let selectedCustomer = null;
     let telephonyDevice = null;
     let activeCall = null;
@@ -3306,15 +3310,57 @@
       if (kpisTarget) kpisTarget.innerHTML = transportAdvisorKpis028L(calls, employeeName, selectedCustomer);
     };
 
-    const refreshLists = async (search = "") => {
+    const updateQueueStatus028L = () => {
+      if (!queueStatus) return;
+      if (!customers.length) {
+        queueStatus.textContent = "Sin registros pendientes";
+        return;
+      }
+      const currentId = String(selectedCustomer?.batch_row_id || "");
+      const currentIndex = customers.findIndex((customer) => String(customer.batch_row_id || "") === currentId);
+      queueStatus.textContent = currentIndex >= 0
+        ? `Registro ${currentIndex + 1} de ${customers.length}`
+        : `${customers.length} registros pendientes`;
+    };
+
+    const selectTransportCustomer028L = (customer, resetForm = true) => {
+      if (resetForm) form?.reset();
+      selectedCustomer = customer || null;
+      if (selectedCustomer) {
+        fillTransportCustomer028L(form, selectedCustomer);
+        setTransportField028L(form, "call_status_display", "Sin iniciar");
+        setTransportField028L(form, "duration_display", "00:00:00");
+        setTelephonyState029A(
+          `Listo para llamar: ${selectedCustomer.customer_name || selectedCustomer.phone || "cliente"}`,
+          "Sin iniciar"
+        );
+      } else {
+        setTransportField028L(form, "phone_type", "unknown");
+        setTransportField028L(form, "call_status_display", "Sin iniciar");
+        setTransportField028L(form, "duration_display", "00:00:00");
+        setTelephonyState029A("Sin registros pendientes", "Sin iniciar");
+      }
+      renderAdvisorKpis();
+      updateQueueStatus028L();
+    };
+
+    const refreshLists = async (search = "", autoSelect = false) => {
       try {
+        const previousId = String(selectedCustomer?.batch_row_id || "");
         const nextCustomers = await loadTransportCustomers028L(search, session);
         customers = nextCustomers;
         customerMap = transportCustomerKeyMap028L(customers);
         if (customerDatalist) customerDatalist.innerHTML = transportCustomerOptions028L(customers);
         calls = await loadTransportCalls028L();
         if (rowsTarget) rowsTarget.innerHTML = transportCallsRows028L(calls, employeeName);
-        renderAdvisorKpis();
+        const preservedCustomer = customers.find((customer) => String(customer.batch_row_id || "") === previousId);
+        if (preservedCustomer) selectTransportCustomer028L(preservedCustomer);
+        else if (autoSelect || !selectedCustomer) selectTransportCustomer028L(customers[0] || null);
+        else {
+          selectedCustomer = null;
+          renderAdvisorKpis();
+          updateQueueStatus028L();
+        }
       } catch (error) {
         if (message) {
           message.classList.remove("ok");
@@ -3327,11 +3373,11 @@
       const value = event.target.value || "";
       const match = customerMap.get(normalizeTransportLookup028L(value));
       if (match) {
-        selectedCustomer = match;
-        fillTransportCustomer028L(form, match);
-        renderAdvisorKpis();
+        selectTransportCustomer028L(match);
       }
     });
+
+    selectTransportCustomer028L(customers[0] || null);
 
     callButton?.addEventListener("click", async () => {
       const phone = String(form?.elements?.phone?.value || "").trim();
@@ -3424,12 +3470,44 @@
       muteButton.textContent = callMuted ? "Activar audio" : "Silenciar";
     });
 
+    nextButton?.addEventListener("click", () => {
+      if (activeCall) {
+        if (message) {
+          message.classList.remove("ok");
+          message.textContent = "Finaliza la llamada antes de avanzar.";
+        }
+        return;
+      }
+      if (!customers.length) {
+        if (message) {
+          message.classList.add("ok");
+          message.textContent = "No hay registros pendientes en la base.";
+        }
+        return;
+      }
+      const currentId = String(selectedCustomer?.batch_row_id || "");
+      const currentIndex = customers.findIndex((customer) => String(customer.batch_row_id || "") === currentId);
+      const nextIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+      if (nextIndex >= customers.length) {
+        if (message) {
+          message.classList.add("ok");
+          message.textContent = "Estas en el ultimo registro pendiente. Guarda la gestion para continuar.";
+        }
+        return;
+      }
+      selectTransportCustomer028L(customers[nextIndex]);
+      if (message) {
+        message.classList.add("ok");
+        message.textContent = "Siguiente llamada cargada.";
+      }
+    });
+
     overlay.querySelector("[data-transport-refresh]")?.addEventListener("click", async () => {
       if (message) {
         message.classList.add("ok");
         message.textContent = "Actualizando...";
       }
-      await refreshLists(form?.elements?.customer_name?.value || "");
+      await refreshLists("", true);
       if (message) {
         message.classList.add("ok");
         message.textContent = "Base actualizada.";
@@ -3500,16 +3578,14 @@
           body: JSON.stringify(payload)
         });
         form.reset();
-        setTransportField028L(form, "phone_type", "unknown");
-        setTransportField028L(form, "call_status_display", "Sin iniciar");
-        setTransportField028L(form, "duration_display", "00:00:00");
-        setTelephonyState029A("Listo para llamar");
         selectedCustomer = null;
+        await refreshLists("", true);
         if (message) {
           message.classList.add("ok");
-          message.textContent = "Llamada guardada.";
+          message.textContent = customers.length
+            ? "Llamada guardada. Siguiente registro cargado."
+            : "Llamada guardada. Base completada.";
         }
-        await refreshLists();
       } catch (error) {
         if (message) {
           message.classList.remove("ok");

@@ -25599,6 +25599,7 @@ function inventoryCreatePayload() {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
     return date.toLocaleString("es-CO", {
+      year: "numeric",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
@@ -25942,7 +25943,7 @@ function inventoryCreatePayload() {
           const managed = cxTransportNumber028A(batch.rows_managed || 0);
           return `
             <tr>
-              <td style="${tableCellStyle}"><strong>${h(batch.file_name || "Base CSV")}</strong><br><span class="client-muted">${h(batch.campaign_code || "General")} · ${h(batch.status || "active")}</span></td>
+              <td style="${tableCellStyle}"><strong>${h(batch.file_name || "Base CSV")}</strong><br><span class="client-muted">${h(batch.campaign_code || "General")} · ${h(batch.status || "active")}</span><br><span class="client-muted">Cargada: ${h(cxTransportDate028A(batch.created_at))}</span></td>
               <td style="${tableCellStyle}">${h(batch.assigned_agent_name || "Sin agente")}</td>
               <td style="${tableCellStyle}"><strong>${h(total)}</strong><br><span class="client-muted">${h(managed)} gestionados</span></td>
               <td style="${tableCellStyle}">

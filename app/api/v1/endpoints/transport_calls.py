@@ -130,29 +130,23 @@ def _optional_uuid(value: Any, detail: str = "id_invalid") -> str:
         raise HTTPException(status_code=400, detail=detail) from exc
 
 
-def _csv_value(row: dict[str, Any], *names: str, limit: int = 255) -> str:
-    normalized = {
-        unicodedata.normalize("NFKD", str(key or ""))
+def _csv_key(value: Any) -> str:
+    return (
+        unicodedata.normalize("NFKD", str(value or ""))
         .encode("ascii", "ignore")
         .decode("ascii")
         .strip()
         .lower()
         .replace(" ", "_")
         .replace("/", "_")
-        .replace("-", "_"): value
-        for key, value in row.items()
-    }
+        .replace("-", "_")
+    )
+
+
+def _csv_value(row: dict[str, Any], *names: str, limit: int = 255) -> str:
+    normalized = {_csv_key(key): value for key, value in row.items()}
     for name in names:
-        key = (
-            unicodedata.normalize("NFKD", name)
-            .encode("ascii", "ignore")
-            .decode("ascii")
-            .strip()
-            .lower()
-            .replace(" ", "_")
-            .replace("/", "_")
-            .replace("-", "_")
-        )
+        key = _csv_key(name)
         if key in normalized and normalized[key] not in (None, ""):
             return _clean(normalized[key], limit)
     return ""
@@ -187,16 +181,64 @@ def _csv_bool(row: dict[str, Any], *names: str) -> bool:
     return _csv_value(row, *names, limit=30).lower() in {"1", "true", "si", "yes", "x"}
 
 
+def _tabular_call_rows(source_rows: Any) -> list[dict[str, Any]]:
+    phone_headers = {"telefono", "phone", "celular", "whatsapp"}
+    identity_headers = {
+        "cliente",
+        "customer_name",
+        "nombre",
+        "empresa",
+        "razon_social",
+        "contrato",
+        "aval",
+        "contrato_aval",
+    }
+    known_headers = phone_headers | identity_headers | {
+        "tipo_cliente",
+        "correo",
+        "email",
+        "documento",
+        "cuenta",
+        "origen",
+        "destino",
+        "tipo_viaje",
+        "transportadora",
+        "valor_ticket",
+        "campana",
+        "tipo_linea",
+        "consentimiento",
+        "no_llamar",
+        "notas",
+    }
+    headers: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for source_row in source_rows:
+        values = list(source_row or [])
+        if not headers:
+            normalized = {_csv_key(value) for value in values if value not in (None, "")}
+            if normalized & identity_headers and len(normalized & known_headers) >= 2:
+                headers = [str(value or "").strip() for value in values]
+            continue
+        if not any(value not in (None, "") for value in values):
+            continue
+        rows.append({header: value for header, value in zip(headers, values) if header})
+        if len(rows) > TRANSPORT_CALL_IMPORT_MAX_ROWS:
+            raise ValueError(f"La base supera el maximo de {TRANSPORT_CALL_IMPORT_MAX_ROWS} registros.")
+    if not headers:
+        raise ValueError("No se encontro la fila de encabezados con cliente y telefono.")
+    return rows
+
+
 def _csv_rows(body: str) -> list[dict[str, Any]]:
     try:
         dialect = csv.Sniffer().sniff(body[:8192], delimiters=",;\t")
     except csv.Error:
         dialect = csv.excel
     try:
-        rows = list(csv.DictReader(io.StringIO(body, newline=""), dialect=dialect))
+        rows = _tabular_call_rows(csv.reader(io.StringIO(body, newline=""), dialect=dialect))
     except csv.Error as exc:
         raise ValueError("El CSV no se pudo leer. Exportalo nuevamente como CSV UTF-8.") from exc
-    return [row for row in rows if any(value not in (None, "") for value in row.values())]
+    return rows
 
 
 def _xlsx_rows(raw: bytes) -> list[dict[str, Any]]:
@@ -206,23 +248,21 @@ def _xlsx_rows(raw: bytes) -> list[dict[str, Any]]:
         raise ValueError("El archivo Excel no se pudo leer. Usa un archivo .xlsx valido.") from exc
     try:
         try:
-            worksheet = workbook.active
-            values = worksheet.iter_rows(values_only=True)
-            headers: list[str] = []
-            for candidate in values:
-                if any(value not in (None, "") for value in candidate):
-                    headers = [str(value or "").strip() for value in candidate]
-                    break
-            if not headers or not any(headers):
-                return []
-            rows: list[dict[str, Any]] = []
-            for values_row in values:
-                if not any(value not in (None, "") for value in values_row):
+            worksheets = [workbook.active, *(sheet for sheet in workbook.worksheets if sheet is not workbook.active)]
+            header_error: ValueError | None = None
+            for worksheet in worksheets:
+                try:
+                    rows = _tabular_call_rows(worksheet.iter_rows(values_only=True))
+                except ValueError as exc:
+                    if "encabezados" not in str(exc):
+                        raise
+                    header_error = exc
                     continue
-                rows.append({header: value for header, value in zip(headers, values_row) if header})
-                if len(rows) > TRANSPORT_CALL_IMPORT_MAX_ROWS:
-                    raise ValueError(f"La base supera el maximo de {TRANSPORT_CALL_IMPORT_MAX_ROWS} registros.")
-            return rows
+                if rows:
+                    return rows
+            if header_error:
+                raise header_error
+            return []
         except ValueError:
             raise
         except Exception as exc:
