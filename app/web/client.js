@@ -25960,6 +25960,21 @@ function inventoryCreatePayload() {
     const telephonySettings = telephony.settings || {};
     const outgoingNumbers = Array.isArray(telephonySettings.outgoing_numbers) ? telephonySettings.outgoing_numbers : [];
     const telephonyMissing = Array.isArray(telephony.missing) ? telephony.missing : [];
+    const outgoingNumberFields = Array.from({ length: 10 }, (_, index) => `
+      <label style="display:grid;grid-template-columns:42px minmax(0,1fr);gap:10px;align-items:center">
+        <span class="client-muted" style="font-weight:900;text-align:center">${index + 1}</span>
+        <input
+          type="tel"
+          inputmode="tel"
+          autocomplete="off"
+          data-transport-outgoing-number
+          aria-label="Numero de salida ${index + 1}"
+          value="${h(outgoingNumbers[index] || "")}"
+          placeholder="+57..."
+          style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"
+        >
+      </label>
+    `).join("");
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -26019,11 +26034,14 @@ function inventoryCreatePayload() {
               </div>
               ${telephonyMissing.length ? `<p style="color:#fca5a5;font-weight:850">Faltan variables Railway: ${h(telephonyMissing.join(", "))}</p>` : ""}
               <form id="transportTelephonyConfig029A" style="display:grid;grid-template-columns:2fr 1fr;gap:12px;align-items:end">
-                <label><span class="client-muted">Numeros de salida, uno por linea (maximo 10)</span><textarea id="transportOutgoing029A" rows="4" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850">${h(outgoingNumbers.join("\n"))}</textarea></label>
+                <fieldset style="grid-column:1/-1;display:grid;gap:9px;border:0;padding:0;margin:0">
+                  <legend class="client-muted" style="padding:0 0 8px;font-weight:900">Numeros de salida (maximo 10)</legend>
+                  ${outgoingNumberFields}
+                </fieldset>
                 <label><span class="client-muted">Campana predeterminada</span><input id="transportDefaultCampaign029A" value="${h(telephonySettings.default_campaign || "General")}" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.72);color:inherit;padding:12px 13px;font:inherit;font-weight:850"></label>
                 <label style="display:flex;gap:8px;align-items:center;font-weight:850"><input id="transportStrictConsent029A" type="checkbox" ${telephonySettings.strict_consent !== false ? "checked" : ""}> Exigir consentimiento antes de llamar</label>
                 <label style="display:flex;gap:8px;align-items:center;font-weight:850"><input id="transportAutoWhatsapp029A" type="checkbox" ${telephonySettings.auto_whatsapp_documents ? "checked" : ""}> Enviar ticket/cotizacion por WhatsApp</label>
-                <label style="grid-column:1/-1"><span class="client-muted">Voice URL para TwiML App</span><input value="${h(telephony.voice_url || "")}" readonly style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.52);color:inherit;padding:12px 13px;font:inherit"></label>
+                <label style="grid-column:1/-1"><span class="client-muted">Voice URL compartida para el TwiML App</span><input value="${h(telephony.voice_url || "")}" readonly style="width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(4,6,22,.52);color:inherit;padding:12px 13px;font:inherit"></label>
                 <div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap">
                   <button class="client-btn" type="submit">Guardar telefonia</button>
                   <button class="client-btn" id="transportSyncCosts029A" type="button" style="box-shadow:none">Sincronizar costos</button>
@@ -26218,11 +26236,19 @@ function inventoryCreatePayload() {
     $("transportTelephonyConfig029A")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const message = $("transportTelephonyMessage029A");
-      const outgoing = String($("transportOutgoing029A")?.value || "")
-        .split(/[\n,;]+/)
-        .map((value) => value.trim())
+      const outgoing = Array.from(document.querySelectorAll("[data-transport-outgoing-number]"))
+        .map((field) => String(field.value || "").trim())
         .filter(Boolean)
         .slice(0, 10);
+      const invalidNumber = outgoing.find((value) => !/^\+[1-9]\d{7,14}$/.test(value));
+      if (invalidNumber) {
+        if (message) message.textContent = `Numero invalido: ${invalidNumber}. Usa formato internacional, por ejemplo +573001234567.`;
+        return;
+      }
+      if (new Set(outgoing).size !== outgoing.length) {
+        if (message) message.textContent = "No se permiten numeros de salida duplicados.";
+        return;
+      }
       try {
         if (message) message.textContent = "Guardando...";
         await cxTransportTelephonyApi029A("/configuration", {
