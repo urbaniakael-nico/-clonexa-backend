@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_db
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
+from app.web.admin_v2_routes import _set_company_preview_cookie
 from fastapi.staticfiles import StaticFiles
 
 
@@ -30,8 +35,15 @@ def register_client_portal(app: FastAPI) -> None:
 
     if not any(getattr(route, "path", None) == "/client" for route in app.routes):
         @app.get("/client", response_class=HTMLResponse)
-        async def client_page() -> HTMLResponse:
-            return _read_html(web_dir / "client.html")
+        async def client_page(
+            request: Request,
+            company_id: str = "",
+            db: AsyncSession = Depends(get_db),
+        ) -> HTMLResponse:
+            response = _read_html(web_dir / "client.html")
+            if company_id and await active_admin_v2_session(request, db):
+                _set_company_preview_cookie(response, request, company_id)
+            return response
 
     if not any(getattr(route, "path", None) == "/ordenar" for route in app.routes):
         @app.get("/ordenar", response_class=HTMLResponse, include_in_schema=False)

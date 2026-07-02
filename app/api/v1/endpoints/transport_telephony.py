@@ -24,6 +24,7 @@ from app.api.v1.endpoints.transport_calls import ensure_transport_calls_storage
 from app.models.auth import CompanyUser
 from app.models.core import Company
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
+from app.web.admin_v2_routes import _active_company_preview as active_admin_company_preview
 
 router = APIRouter()
 
@@ -168,7 +169,7 @@ async def _telephony_manager(
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> CompanyUser | None:
-    if await active_admin_v2_session(request, db):
+    if await active_admin_v2_session(request, db) or active_admin_company_preview(request, company_id):
         await require_enabled_module(db, company_id, "transport_calls")
         return None
     return await require_company_user_for_tenant(
@@ -626,11 +627,11 @@ async def telephony_status(company_id: uuid.UUID, request: Request, db: AsyncSes
         UPDATE transport_call_logs
         SET twilio_call_sid = COALESCE(NULLIF(CAST(:child_sid AS varchar(120)), ''), CAST(twilio_call_sid AS varchar(120))),
             twilio_parent_call_sid = COALESCE(NULLIF(CAST(:parent_sid AS varchar(120)), ''), CAST(twilio_parent_call_sid AS varchar(120))),
-            call_status = :call_status,
-            advisor_status = CASE WHEN :call_status = 'pending' THEN 'in_call' ELSE 'available' END,
-            duration_seconds = CASE WHEN :duration > 0 THEN :duration ELSE duration_seconds END,
-            price_amount = CASE WHEN :price_amount > 0 THEN :price_amount ELSE price_amount END,
-            price_currency = :price_currency,
+            call_status = CAST(:call_status AS varchar(40)),
+            advisor_status = CASE WHEN CAST(:call_status AS varchar(40)) = 'pending' THEN 'in_call' ELSE 'available' END,
+            duration_seconds = CASE WHEN CAST(:duration AS integer) > 0 THEN CAST(:duration AS integer) ELSE duration_seconds END,
+            price_amount = CASE WHEN CAST(:price_amount AS numeric) > 0 THEN CAST(:price_amount AS numeric) ELSE price_amount END,
+            price_currency = CAST(:price_currency AS varchar(12)),
             updated_at = now()
         WHERE company_id = CAST(:company_id AS uuid)
           AND (
@@ -647,11 +648,11 @@ async def telephony_status(company_id: uuid.UUID, request: Request, db: AsyncSes
     if updated_call and updated_call.get("batch_row_id"):
         await db.execute(text("""
             UPDATE transport_call_batch_rows
-            SET call_direction = 'outbound', call_status = :call_status,
-                duration_seconds = CASE WHEN :duration > 0 THEN :duration ELSE duration_seconds END,
+            SET call_direction = 'outbound', call_status = CAST(:call_status AS varchar(40)),
+                duration_seconds = CASE WHEN CAST(:duration AS integer) > 0 THEN CAST(:duration AS integer) ELSE duration_seconds END,
                 twilio_call_sid = COALESCE(NULLIF(CAST(:child_sid AS varchar(120)), ''), CAST(twilio_call_sid AS varchar(120))),
-                price_amount = CASE WHEN :price_amount > 0 THEN :price_amount ELSE price_amount END,
-                price_currency = :price_currency, updated_at = now()
+                price_amount = CASE WHEN CAST(:price_amount AS numeric) > 0 THEN CAST(:price_amount AS numeric) ELSE price_amount END,
+                price_currency = CAST(:price_currency AS varchar(12)), updated_at = now()
             WHERE company_id = CAST(:company_id AS uuid) AND id = CAST(:row_id AS uuid)
         """), {
             "company_id": str(company_id), "row_id": str(updated_call["batch_row_id"]),

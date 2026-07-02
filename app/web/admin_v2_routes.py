@@ -26,6 +26,8 @@ ADMIN_V2_PASSWORD_HASH = os.getenv(
 ).strip().lower()
 ADMIN_V2_COOKIE = "clonexa_admin_v2_session"
 ADMIN_V2_SESSION_SECONDS = 8 * 60 * 60
+ADMIN_V2_CLIENT_PREVIEW_COOKIE = "clonexa_admin_company_preview"
+ADMIN_V2_CLIENT_PREVIEW_SECONDS = 2 * 60 * 60
 _FALLBACK_SESSION_SECRET = secrets.token_urlsafe(48)
 
 
@@ -55,6 +57,42 @@ def _create_session_token(email: str, session_key: str) -> str:
     payload = base64.urlsafe_b64encode(f"{email}|{expires_at}|{session_key}".encode("utf-8")).decode("ascii")
     signature = hmac.new(_session_secret(), payload.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{payload}.{signature}"
+
+
+def _create_company_preview_token(company_id: str) -> str:
+    expires_at = int(time.time()) + ADMIN_V2_CLIENT_PREVIEW_SECONDS
+    payload = base64.urlsafe_b64encode(f"{company_id}|{expires_at}".encode("utf-8")).decode("ascii")
+    signature = hmac.new(_session_secret(), payload.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _active_company_preview(request: Request, company_id: object) -> bool:
+    token = request.cookies.get(ADMIN_V2_CLIENT_PREVIEW_COOKIE, "")
+    if "." not in token:
+        return False
+    payload, signature = token.rsplit(".", 1)
+    expected = hmac.new(_session_secret(), payload.encode("ascii"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return False
+    try:
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8")
+        preview_company_id, expires_at_raw = decoded.split("|", 1)
+        expires_at = int(expires_at_raw)
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return False
+    return preview_company_id == str(company_id) and expires_at >= int(time.time())
+
+
+def _set_company_preview_cookie(response: Response, request: Request, company_id: object) -> None:
+    response.set_cookie(
+        ADMIN_V2_CLIENT_PREVIEW_COOKIE,
+        _create_company_preview_token(str(company_id)),
+        max_age=ADMIN_V2_CLIENT_PREVIEW_SECONDS,
+        httponly=True,
+        secure=_is_secure_request(request),
+        samesite="lax",
+        path="/",
+    )
 
 
 def _session_payload(request: Request) -> dict[str, str | int]:

@@ -17,6 +17,7 @@ from app.api.deps import READ_ROLES, WRITE_ROLES, get_db, require_company_user_f
 from app.api.v1.endpoints.transport_contracts import ensure_transport_contracts_storage
 from app.services.shoplink_whatsapp_web import whatsapp_send
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
+from app.web.admin_v2_routes import _active_company_preview as active_admin_company_preview
 
 router = APIRouter()
 
@@ -27,7 +28,7 @@ async def require_transport_quotes_read(
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    if await active_admin_v2_session(request, db):
+    if await active_admin_v2_session(request, db) or active_admin_company_preview(request, company_id):
         await require_enabled_module(db, company_id, "transport_quotes_tickets")
         return
     await require_company_user_for_tenant(
@@ -45,7 +46,7 @@ async def require_transport_quotes_write(
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    if await active_admin_v2_session(request, db):
+    if await active_admin_v2_session(request, db) or active_admin_company_preview(request, company_id):
         await require_enabled_module(db, company_id, "transport_quotes_tickets")
         return
     await require_company_user_for_tenant(
