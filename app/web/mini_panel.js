@@ -107,6 +107,7 @@
     "notas",
     "nota",
     "agenda",
+    "notas_agenda",
     "notas_o_agenda",
     "recordatorio",
     "recordatorios",
@@ -409,7 +410,7 @@
             <div>
               <span>Agenda activa</span>
               <strong>${h(formatLongDate020A(selectedDate))}</strong>
-              <small>Gestiona notas, llamadas, seguimientos y recordatorios del panel de ventas.</small>
+              <small>Gestiona notas, seguimientos, eventos y recordatorios de ${h(session?.company?.name || "la empresa")}.</small>
             </div>
             <div class="mp-notes-hero-stats-020c">
               <article>
@@ -460,6 +461,7 @@
                     <select name="note_type">
                       <option value="reminder">Recordatorio</option>
                       <option value="note">Nota</option>
+                      <option value="event">Evento</option>
                     </select>
                   </div>
                 </div>
@@ -1758,9 +1760,10 @@
     "cotizaciones_tickets": { title: "Cotizaciones / Tickets", description: "Crear ordenes de servicio y revisar checks por rol.", tag: "TKT" },
     "tickets_cotizaciones": { title: "Cotizaciones / Tickets", description: "Crear ordenes de servicio y revisar checks por rol.", tag: "TKT" },
     "transport_payments": { title: "Tesoreria / Pagos", description: "Revisar checks, pagos y facturacion de tickets.", tag: "TES" },
-    "notas_o_agenda": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
-    "notes": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
-    "notas": { title: "Notas", description: "Registrar notas de seguimiento.", tag: "NOT" },
+    "notas_agenda": { title: "Notas / Agenda", description: "Notas, eventos y recordatorios operativos.", tag: "NOT" },
+    "notas_o_agenda": { title: "Notas / Agenda", description: "Notas, eventos y recordatorios operativos.", tag: "NOT" },
+    "notes": { title: "Notas / Agenda", description: "Notas, eventos y recordatorios operativos.", tag: "NOT" },
+    "notas": { title: "Notas / Agenda", description: "Notas, eventos y recordatorios operativos.", tag: "NOT" },
 
     "registro_venta": { title: "Registro ventas", description: "Reportar ventas cerradas.", tag: "VEN" },
     "registro_ventas": { title: "Registro ventas", description: "Reportar ventas cerradas.", tag: "VEN" },
@@ -1857,6 +1860,7 @@
     "agenda": "notas",
     "recordatorio": "notas",
     "recordatorios": "notas",
+    "notas_agenda": "notas",
     "notas_o_agenda": "notas",
 
     "registro_venta": "registro_venta",

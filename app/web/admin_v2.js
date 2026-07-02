@@ -7089,6 +7089,7 @@
     "agenda": "notas",
     "recordatorio": "notas",
     "recordatorios": "notas",
+    "notas_agenda": "notas",
     "notas_o_agenda": "notas",
 
     "registro_venta": "registro_venta",

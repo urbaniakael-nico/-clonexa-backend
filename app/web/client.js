@@ -11435,6 +11435,7 @@ function inventoryCreatePayload() {
     "notas",
     "nota",
     "agenda",
+    "notas_agenda",
     "notas_o_agenda",
     "recordatorio",
     "recordatorios",

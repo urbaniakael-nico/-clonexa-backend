@@ -23,6 +23,7 @@ NOTES_ALIASES = {
     "notes",
     "notas",
     "nota",
+    "notas_agenda",
     "notas_o_agenda",
     "recordatorio",
     "recordatorios",
@@ -54,7 +55,7 @@ PANEL_ALIASES = {
     "externos": "external",
 }
 
-VALID_TYPES = {"note", "reminder"}
+VALID_TYPES = {"note", "reminder", "event"}
 VALID_STATUS = {"active", "done", "archived"}
 
 BOGOTA = ZoneInfo("America/Bogota")
