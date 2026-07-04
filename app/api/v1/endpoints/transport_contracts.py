@@ -8,12 +8,14 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ADMIN_ROLES, READ_ROLES, get_db, require_company_user_for_tenant
+from app.api.deps import ADMIN_ROLES, READ_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
+from app.web.admin_v2_routes import _active_company_preview as active_admin_company_preview
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
 
@@ -22,9 +24,13 @@ TRANSPORT_CONTRACT_MANAGER_ROLES = ADMIN_ROLES | {"manager", "gerencia", "gerent
 
 async def require_transport_contracts_read(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db) or active_admin_company_preview(request, company_id):
+        await require_enabled_module(db, company_id, "transport_contracts")
+        return
     await require_company_user_for_tenant(
         db,
         authorization,
@@ -36,9 +42,13 @@ async def require_transport_contracts_read(
 
 async def require_transport_contracts_manage(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db) or active_admin_company_preview(request, company_id):
+        await require_enabled_module(db, company_id, "transport_contracts")
+        return
     await require_company_user_for_tenant(
         db,
         authorization,
