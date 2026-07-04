@@ -27132,7 +27132,7 @@ function inventoryCreatePayload() {
     const due = invoice?.due_date ? ` con vencimiento ${invoice.due_date}` : "";
     const message = `Hola, enviamos la factura ${invoice?.invoice_number || ""} por ${amount}${due}. Puedes revisarla aqui: ${url}`;
     if (String(invoice?.channel || "").toLowerCase() === "email" && recipient.includes("@")) {
-      window.open(`mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent("Factura " + (invoice?.invoice_number || ""))}&body=${encodeURIComponent(message)}`, "_blank", "noopener");
+      if (url) window.open(url, "_blank", "noopener");
       return;
     }
     const digits = recipient.replace(/\D/g, "");
@@ -27184,16 +27184,18 @@ function inventoryCreatePayload() {
     let invoices = [];
     let alerts = {};
     let contracts = [];
+    let mailSettings = {};
     let loadError = "";
 
     const query = `start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&search=${encodeURIComponent(search)}`;
-    const [summaryResponse, queueResponse, paymentsResponse, invoicesResponse, alertsResponse, contractsResponse] = await Promise.all([
+    const [summaryResponse, queueResponse, paymentsResponse, invoicesResponse, alertsResponse, contractsResponse, mailSettingsResponse] = await Promise.all([
       cxTransportPaymentsSafeLoad028R("Resumen", () => cxTransportPaymentsApi028R(`/summary?${query}`), { summary: {} }),
       cxTransportPaymentsSafeLoad028R("Tickets", () => cxTransportPaymentsApi028R(`/queue?limit=160&status=${encodeURIComponent(statusFilter)}&${query}`), { tickets: [] }),
       cxTransportPaymentsSafeLoad028R("Pagos", () => cxTransportPaymentsApi028R(`/payments?limit=80&status=${encodeURIComponent(paymentStatus)}&${query}`), { payments: [] }),
       cxTransportPaymentsSafeLoad028R("Facturas", () => cxTransportPaymentsApi028R(`/invoices?limit=80&status=all&${query}`), { invoices: [] }),
       cxTransportPaymentsSafeLoad028R("Alertas", () => cxTransportPaymentsApi028R("/alerts?limit=30"), { low_balance_contracts: [], due_invoices: [] }),
       cxTransportPaymentsSafeLoad028R("Contratos", () => cxTransportContractsApi028M("/contracts?limit=300&status=all"), { contracts: [] }),
+      cxTransportPaymentsSafeLoad028R("Correo", () => cxTransportPaymentsApi028R("/mail-settings"), { mail_settings: {} }),
     ]);
     summary = summaryResponse.summary || {};
     tickets = Array.isArray(queueResponse.tickets) ? queueResponse.tickets : [];
@@ -27201,7 +27203,8 @@ function inventoryCreatePayload() {
     invoices = Array.isArray(invoicesResponse.invoices) ? invoicesResponse.invoices : [];
     alerts = alertsResponse || {};
     contracts = Array.isArray(contractsResponse.contracts) ? contractsResponse.contracts : [];
-    loadError = [summaryResponse, queueResponse, paymentsResponse, invoicesResponse, alertsResponse, contractsResponse]
+    mailSettings = mailSettingsResponse.mail_settings || {};
+    loadError = [summaryResponse, queueResponse, paymentsResponse, invoicesResponse, alertsResponse, contractsResponse, mailSettingsResponse]
       .map((item) => item?._error)
       .filter(Boolean)
       .join(" | ");
@@ -27285,8 +27288,8 @@ function inventoryCreatePayload() {
               <td style="${tableCell};min-width:160px"><strong>${h(item.invoice_number || "-")}</strong><div class="client-muted">${h(cxTransportPaymentsStatusLabel028R(item.status))}</div></td>
               <td style="${tableCell};min-width:220px"><strong>${h(item.client_name || "-")}</strong><div class="client-muted">${h(item.contract_code || "Sin contrato")}</div></td>
               <td style="${tableCell};min-width:140px"><strong>${h(cxTransportContractsMoney028M(item.amount))}</strong><div class="client-muted">${h(item.document_number || "")}</div></td>
-              <td style="${tableCell};min-width:170px;color:${overdue ? "#fca5a5" : "inherit"}">${h(item.due_date || "Sin vencimiento")}<div class="client-muted">${h(item.channel || "manual")} - ${h(item.recipient || "sin destino")}</div></td>
-              <td style="${tableCell};min-width:220px"><button class="client-btn" type="button" data-tp-open-invoice="${h(item.id || "")}" data-tp-invoice-payload="${h(JSON.stringify(item))}" style="margin:0 8px 8px 0">Enviar / abrir</button></td>
+              <td style="${tableCell};min-width:170px;color:${overdue ? "#fca5a5" : "inherit"}">${h(item.due_date || "Sin vencimiento")}<div class="client-muted">${h(item.channel || "manual")} - ${h(item.recipient || "sin destino")}</div><div class="client-muted">Entrega: ${h(item.delivery_status || "preparada")}</div></td>
+              <td style="${tableCell};min-width:220px"><button class="client-btn" type="button" data-tp-open-invoice="${h(item.id || "")}" data-tp-invoice-payload="${h(JSON.stringify(item))}" style="margin:0 8px 8px 0">Abrir documento</button></td>
             </tr>
           `;
         }).join("")
@@ -27376,6 +27379,25 @@ function inventoryCreatePayload() {
               <div id="tpMsg028R" class="client-muted" style="margin-top:12px"></div>
             </section>
 
+            <section class="client-panel">
+              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
+                <div>
+                  <div class="client-eyebrow">Correo de tesoreria</div>
+                  <h2>Remitente y respuestas</h2>
+                  <p class="client-muted">El remitente verificado se protege en Railway. Las respuestas llegan al correo configurado para esta empresa.</p>
+                </div>
+                <span class="client-badge" style="background:${mailSettings.provider_configured ? "rgba(16,245,137,.2)" : "rgba(248,113,113,.18)"};color:${mailSettings.provider_configured ? "#86efac" : "#fca5a5"}">${mailSettings.provider_configured ? "Correo activo" : "Proveedor pendiente"}</span>
+              </div>
+              <form id="tpMailSettingsForm028R" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;align-items:end">
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Correo remitente verificado</span><input value="${h(mailSettings.from_email || "Pendiente en Railway")}" readonly style="${fieldInput};opacity:.72;cursor:not-allowed"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Nombre visible</span><input id="tpMailSenderName028R" value="${h(mailSettings.sender_name || company.name || "CLONEXA")}" style="${fieldInput}" placeholder="Tesoreria de la empresa"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Recibir respuestas en</span><input id="tpMailReplyTo028R" type="email" value="${h(mailSettings.reply_to_email || "")}" style="${fieldInput}" placeholder="tesoreria@empresa.com"></label>
+                <label style="${fieldWrap}"><span style="${fieldLabel}">Copia opcional</span><input id="tpMailCc028R" type="email" value="${h(mailSettings.cc_email || "")}" style="${fieldInput}" placeholder="contabilidad@empresa.com"></label>
+                <label style="${fieldWrap};grid-column:1/-1"><span style="${fieldLabel}">Firma</span><textarea id="tpMailSignature028R" rows="2" style="${fieldInput}" placeholder="Nombre, area y datos de contacto">${h(mailSettings.signature || "")}</textarea></label>
+                <button class="client-btn" type="submit" style="justify-self:start">Guardar correo</button>
+              </form>
+            </section>
+
             <section class="client-panel" id="tpOps028R">
               <div class="client-eyebrow">Operacion financiera</div>
               <h2>Recargas y cobros</h2>
@@ -27404,6 +27426,7 @@ function inventoryCreatePayload() {
                     <label style="${fieldWrap}"><span style="${fieldLabel}">Destino cobro</span><input id="tpChargeRecipient028R" style="${fieldInput}" placeholder="WhatsApp o correo"></label>
                     <label style="${fieldWrap}"><span style="${fieldLabel}">Canal</span><select id="tpChargeChannel028R" style="${fieldInput}"><option value="whatsapp">WhatsApp</option><option value="email">Correo</option><option value="manual">Manual</option><option value="link">Link</option></select></label>
                   </div>
+                  <label style="${fieldWrap}"><span style="${fieldLabel}">Adjuntar factura</span><input id="tpChargeAttachment028R" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style="${fieldInput}"><small class="client-muted">PDF o imagen, maximo 8 MB. Si eliges un ticket y no adjuntas archivo, CLONEXA genera su PDF.</small></label>
                   <label style="${fieldWrap}"><span style="${fieldLabel}">Mensaje / notas</span><textarea id="tpChargeNotes028R" rows="3" style="${fieldInput}" placeholder="Mensaje para el cobro, condiciones o vencimiento"></textarea></label>
                   <button class="client-btn" type="submit">Enviar cobro</button>
                 </form>
@@ -27509,6 +27532,26 @@ function inventoryCreatePayload() {
     document.getElementById("tpChargeTarget028R")?.addEventListener("change", (event) => fillChargeForm(event.currentTarget.value));
     fillChargeForm();
 
+    document.getElementById("tpMailSettingsForm028R")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        await cxTransportPaymentsApi028R("/mail-settings", {
+          method: "PUT",
+          body: JSON.stringify({
+            sender_name: String(document.getElementById("tpMailSenderName028R")?.value || ""),
+            reply_to_email: String(document.getElementById("tpMailReplyTo028R")?.value || ""),
+            cc_email: String(document.getElementById("tpMailCc028R")?.value || ""),
+            signature: String(document.getElementById("tpMailSignature028R")?.value || ""),
+            updated_by: company.name || "Tesoreria",
+          }),
+        });
+        cxTransportPaymentsSetMsg028R("Configuracion de correo guardada para esta empresa.");
+        await renderTransportPaymentsModule028R();
+      } catch (error) {
+        cxTransportPaymentsSetMsg028R(error.message || "No se pudo guardar el correo de tesoreria.", true);
+      }
+    });
+
     document.getElementById("tpCreditForm028R")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
@@ -27552,20 +27595,24 @@ function inventoryCreatePayload() {
           cxTransportPaymentsSetMsg028R("El valor del cobro debe ser mayor a 0.", true);
           return;
         }
-        const payload = {
-          amount,
-          due_date: String(document.getElementById("tpChargeDue028R")?.value || ""),
-          recipient: String(document.getElementById("tpChargeRecipient028R")?.value || ""),
-          channel: String(document.getElementById("tpChargeChannel028R")?.value || "whatsapp"),
-          status: "sent",
-          created_by: company.name || "Tesoreria",
-          notes: String(document.getElementById("tpChargeNotes028R")?.value || ""),
-        };
-        if (kind === "ticket") payload.document_id = id;
-        if (kind === "contract") payload.contract_id = id;
-        const data = await cxTransportPaymentsApi028R("/invoices", { method: "POST", body: JSON.stringify(payload) });
-        cxTransportPaymentsSetMsg028R(`Cobro ${data?.invoice?.invoice_number || ""} registrado.`);
-        cxTransportPaymentsOpenInvoiceSend028R(data?.invoice || {});
+        const form = new FormData();
+        form.append("amount", String(amount));
+        form.append("due_date", String(document.getElementById("tpChargeDue028R")?.value || ""));
+        form.append("recipient", String(document.getElementById("tpChargeRecipient028R")?.value || ""));
+        form.append("channel", String(document.getElementById("tpChargeChannel028R")?.value || "whatsapp"));
+        form.append("status", "sent");
+        form.append("created_by", company.name || "Tesoreria");
+        form.append("notes", String(document.getElementById("tpChargeNotes028R")?.value || ""));
+        form.append(kind === "ticket" ? "document_id" : "contract_id", id);
+        const attachment = document.getElementById("tpChargeAttachment028R")?.files?.[0];
+        if (attachment) form.append("attachment", attachment);
+        const data = await apiForm(`/transport-payments/companies/${encodeURIComponent(state.companyId)}/invoices-with-attachment`, form);
+        const invoice = data?.invoice || {};
+        const sentByEmail = String(invoice.channel || "") === "email" && String(invoice.delivery_status || "") === "sent";
+        cxTransportPaymentsSetMsg028R(sentByEmail
+          ? `Cobro ${invoice.invoice_number || ""} enviado por correo.`
+          : `Cobro ${invoice.invoice_number || ""} registrado.`);
+        if (!sentByEmail) cxTransportPaymentsOpenInvoiceSend028R(invoice);
         await renderTransportPaymentsModule028R();
       } catch (error) {
         cxTransportPaymentsSetMsg028R(error.message || "No se pudo enviar el cobro.", true);

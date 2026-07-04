@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = Field(default_factory=lambda: ["*"])
     LOG_LEVEL: str = "INFO"
 
+    RESEND_API_KEY: str = ""
+    MAIL_DEFAULT_FROM: str = ""
+    MAIL_DEFAULT_FROM_NAME: str = "CLONEXA"
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, value):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -12,7 +13,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ADMIN_ROLES, READ_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
 from app.api.v1.endpoints.transport_contracts import ensure_transport_contracts_storage
-from app.api.v1.endpoints.transport_quotes_tickets import ensure_transport_documents_storage
+from app.api.v1.endpoints.transport_quotes_tickets import (
+    _build_service_document_pdf,
+    _company,
+    ensure_transport_documents_storage,
+)
+from app.core.config import get_settings
+from app.services.transactional_email import (
+    TransactionalEmailConfigurationError,
+    TransactionalEmailDeliveryError,
+    send_transactional_email,
+)
 from app.web.admin_v2_routes import _active_company_preview as active_admin_company_preview
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
@@ -63,6 +74,7 @@ async def require_transport_payments_write(
     )
 
 MAX_PAYMENT_PROOF_BYTES = 8 * 1024 * 1024
+MAX_INVOICE_ATTACHMENT_BYTES = 8 * 1024 * 1024
 ALLOWED_PAYMENT_PROOF_TYPES = {
     "application/pdf",
     "image/jpeg",
@@ -106,6 +118,14 @@ class TreasuryCheckIn(BaseModel):
     status: str | None = Field(default="", max_length=40)
     created_by: str | None = Field(default="", max_length=180)
     notes: str | None = Field(default="", max_length=1600)
+
+
+class TransportMailSettingsIn(BaseModel):
+    sender_name: str | None = Field(default="", max_length=120)
+    reply_to_email: str | None = Field(default="", max_length=180)
+    cc_email: str | None = Field(default="", max_length=180)
+    signature: str | None = Field(default="", max_length=1200)
+    updated_by: str | None = Field(default="", max_length=180)
 
 
 def _clean(value: Any, limit: int = 255) -> str:
@@ -294,11 +314,76 @@ async def ensure_transport_payments_storage(db: AsyncSession) -> None:
         "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();",
         "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();",
         "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS archived_at timestamptz NULL;",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS provider_message_id varchar(180) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS delivery_status varchar(40) NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS delivery_error text NOT NULL DEFAULT '';",
+        "ALTER TABLE transport_invoice_records ADD COLUMN IF NOT EXISTS attachment_name varchar(260) NOT NULL DEFAULT '';",
         "CREATE INDEX IF NOT EXISTS ix_transport_invoices_company_status ON transport_invoice_records (company_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_transport_invoices_company_due ON transport_invoice_records (company_id, due_date)",
         "CREATE INDEX IF NOT EXISTS ix_transport_invoices_company_doc ON transport_invoice_records (company_id, document_id)",
     ]:
         await db.execute(text(statement))
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS transport_payment_mail_settings (
+                company_id uuid PRIMARY KEY,
+                sender_name varchar(120) NOT NULL DEFAULT '',
+                reply_to_email varchar(180) NOT NULL DEFAULT '',
+                cc_email varchar(180) NOT NULL DEFAULT '',
+                signature text NOT NULL DEFAULT '',
+                updated_by varchar(180) NOT NULL DEFAULT '',
+                created_at timestamptz NOT NULL DEFAULT now(),
+                updated_at timestamptz NOT NULL DEFAULT now()
+            )
+            """
+        )
+    )
+
+
+def _valid_optional_email(value: Any) -> str:
+    email = _clean(value, 180)
+    if email and ("@" not in email or email.startswith("@") or email.endswith("@")):
+        raise HTTPException(status_code=400, detail="email_invalid")
+    return email
+
+
+async def _transport_mail_settings(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    result = await db.execute(
+        text(
+            """
+            SELECT sender_name, reply_to_email, cc_email, signature, updated_by, updated_at
+            FROM transport_payment_mail_settings
+            WHERE company_id = CAST(:company_id AS uuid)
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    saved = _row(result.first() or {})
+    settings = get_settings()
+    saved.update(
+        {
+            "from_email": settings.MAIL_DEFAULT_FROM.strip(),
+            "provider": "resend",
+            "provider_configured": bool(settings.RESEND_API_KEY.strip() and settings.MAIL_DEFAULT_FROM.strip()),
+        }
+    )
+    return saved
+
+
+async def _read_invoice_attachment(upload: UploadFile | None) -> tuple[str, bytes]:
+    if not upload or not upload.filename:
+        return "", b""
+    content_type = _payment_proof_content_type(upload)
+    if content_type not in ALLOWED_PAYMENT_PROOF_TYPES:
+        raise HTTPException(status_code=400, detail="invoice_attachment_type_not_supported")
+    content = await upload.read()
+    if not content:
+        return "", b""
+    if len(content) > MAX_INVOICE_ATTACHMENT_BYTES:
+        raise HTTPException(status_code=400, detail="invoice_attachment_too_large")
+    return _clean(upload.filename, 260), content
 
 
 async def _contract_by_id(db: AsyncSession, company_id: uuid.UUID, contract_id: str) -> dict[str, Any]:
@@ -676,6 +761,51 @@ async def create_transport_payment(company_id: uuid.UUID, payload: TransportPaym
     await db.commit()
     return {"ok": True, "company_id": str(company_id), "payment": payment}
 
+@router.get("/companies/{company_id}/mail-settings", dependencies=[Depends(require_transport_payments_read)])
+async def get_transport_mail_settings(company_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await ensure_transport_payments_storage(db)
+    return {"ok": True, "company_id": str(company_id), "mail_settings": await _transport_mail_settings(db, company_id)}
+
+
+@router.put("/companies/{company_id}/mail-settings", dependencies=[Depends(require_transport_payments_write)])
+async def update_transport_mail_settings(
+    company_id: uuid.UUID,
+    payload: TransportMailSettingsIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_transport_payments_storage(db)
+    await db.execute(
+        text(
+            """
+            INSERT INTO transport_payment_mail_settings (
+                company_id, sender_name, reply_to_email, cc_email, signature, updated_by, created_at, updated_at
+            )
+            VALUES (
+                CAST(:company_id AS uuid), :sender_name, :reply_to_email, :cc_email,
+                :signature, :updated_by, now(), now()
+            )
+            ON CONFLICT (company_id) DO UPDATE SET
+                sender_name = EXCLUDED.sender_name,
+                reply_to_email = EXCLUDED.reply_to_email,
+                cc_email = EXCLUDED.cc_email,
+                signature = EXCLUDED.signature,
+                updated_by = EXCLUDED.updated_by,
+                updated_at = now()
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "sender_name": _clean(payload.sender_name, 120),
+            "reply_to_email": _valid_optional_email(payload.reply_to_email),
+            "cc_email": _valid_optional_email(payload.cc_email),
+            "signature": _clean(payload.signature, 1200),
+            "updated_by": _clean(payload.updated_by, 180),
+        },
+    )
+    await db.commit()
+    return {"ok": True, "company_id": str(company_id), "mail_settings": await _transport_mail_settings(db, company_id)}
+
+
 @router.get("/companies/{company_id}/invoices", dependencies=[Depends(require_transport_payments_read)])
 async def list_transport_invoices(
     company_id: uuid.UUID,
@@ -926,8 +1056,12 @@ async def get_transport_payment_proof(company_id: uuid.UUID, payment_id: uuid.UU
     )
 
 
-@router.post("/companies/{company_id}/invoices", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_payments_write)])
-async def create_transport_invoice(company_id: uuid.UUID, payload: TransportInvoiceIn, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def _create_transport_invoice_record(
+    company_id: uuid.UUID,
+    payload: TransportInvoiceIn,
+    db: AsyncSession,
+    attachment: UploadFile | None = None,
+) -> dict[str, Any]:
     await ensure_transport_payments_storage(db)
     document_id = _clean(payload.document_id, 80)
     contract_id = _clean(payload.contract_id, 80)
@@ -955,20 +1089,33 @@ async def create_transport_invoice(company_id: uuid.UUID, payload: TransportInvo
     contract_code = _clean((ticket or contract or {}).get("contract_code"), 120)
     client_name = _clean((ticket or contract or {}).get("client_name"), 180)
     recipient = _clean(payload.recipient or (ticket or contract or {}).get("email") or (ticket or contract or {}).get("phone"), 180)
+    channel_value = _channel(payload.channel)
+    attachment_name, attachment_content = await _read_invoice_attachment(attachment)
+    company: dict[str, Any] = {}
+    if channel_value == "email":
+        recipient = _valid_optional_email(recipient)
+        if not recipient:
+            raise HTTPException(status_code=400, detail="recipient_email_required")
+        company = await _company(db, company_id)
+        if not attachment_content and ticket:
+            attachment_name = f"{document_number or invoice_number}.pdf"
+            attachment_content = _build_service_document_pdf(company, ticket)
+
     result = await db.execute(
         text(
             """
             INSERT INTO transport_invoice_records (
                 company_id, document_id, contract_id, invoice_number, document_number, contract_code, client_name,
-                recipient, channel, amount, due_date, status, sent_at, paid_at, created_by, notes, created_at, updated_at
+                recipient, channel, amount, due_date, status, sent_at, paid_at, created_by, notes,
+                delivery_status, attachment_name, created_at, updated_at
             )
             VALUES (
                 CAST(:company_id AS uuid), CAST(:document_id AS uuid), CAST(:contract_id AS uuid), :invoice_number,
                 :document_number, :contract_code, :client_name, :recipient, :channel, :amount,
-                CAST(NULLIF(:due_date, '') AS date), :status,
-                CASE WHEN :status IN ('sent','paid') THEN now() ELSE NULL END,
-                CASE WHEN :status = 'paid' THEN now() ELSE NULL END,
-                :created_by, :notes, now(), now()
+                CAST(NULLIF(:due_date, '') AS date), CAST(:status AS varchar),
+                CASE WHEN CAST(:status AS varchar) IN ('sent','paid') THEN now() ELSE NULL END,
+                CASE WHEN CAST(:status AS varchar) = 'paid' THEN now() ELSE NULL END,
+                :created_by, :notes, :delivery_status, :attachment_name, now(), now()
             )
             RETURNING *
             """
@@ -982,12 +1129,14 @@ async def create_transport_invoice(company_id: uuid.UUID, payload: TransportInvo
             "contract_code": contract_code,
             "client_name": client_name,
             "recipient": recipient,
-            "channel": _channel(payload.channel),
+            "channel": channel_value,
             "amount": amount,
             "due_date": _clean(payload.due_date, 20),
             "status": status_value,
             "created_by": _clean(payload.created_by, 180),
             "notes": _clean(payload.notes, 1600),
+            "delivery_status": "pending" if channel_value == "email" else "prepared",
+            "attachment_name": attachment_name,
         },
     )
     invoice = _row(result.first() or {})
@@ -1005,5 +1154,114 @@ async def create_transport_invoice(company_id: uuid.UUID, payload: TransportInvo
             {"company_id": str(company_id), "document_id": document_id},
         )
         invoice["invoice_url"] = f"/api/v1/transport-quotes-tickets/companies/{company_id}/documents/{document_id}/print.pdf?inline=false"
+
+    if channel_value == "email":
+        mail_settings = await _transport_mail_settings(db, company_id)
+        sender_name = _clean(mail_settings.get("sender_name") or company.get("name") or "CLONEXA", 120)
+        signature = _clean(mail_settings.get("signature"), 1200)
+        due_text = f" con vencimiento {payload.due_date}" if _clean(payload.due_date, 20) else ""
+        amount_text = f"$ {amount:,.0f}".replace(",", ".")
+        plain_message = "\n".join(
+            part for part in [
+                f"Hola {client_name or 'cliente'},",
+                f"Adjuntamos el cobro {invoice_number} por {amount_text}{due_text}.",
+                _clean(payload.notes, 1600),
+                signature,
+            ] if part
+        )
+        html_message = "".join(
+            [
+                f"<p>Hola {html.escape(client_name or 'cliente')},</p>",
+                f"<p>Adjuntamos el cobro <strong>{html.escape(invoice_number)}</strong> por "
+                f"<strong>{html.escape(amount_text)}</strong>{html.escape(due_text)}.</p>",
+                f"<p>{html.escape(_clean(payload.notes, 1600)).replace(chr(10), '<br>')}</p>" if _clean(payload.notes, 1600) else "",
+                f"<p>{html.escape(signature).replace(chr(10), '<br>')}</p>" if signature else "",
+            ]
+        )
+        try:
+            delivery = await send_transactional_email(
+                recipient=recipient,
+                subject=f"Cobro {invoice_number} - {company.get('name') or 'CLONEXA'}",
+                html=html_message,
+                text=plain_message,
+                sender_name=sender_name,
+                reply_to=_clean(mail_settings.get("reply_to_email"), 180),
+                cc=_clean(mail_settings.get("cc_email"), 180),
+                attachment_name=attachment_name,
+                attachment_content=attachment_content,
+                idempotency_key=f"clonexa-transport-invoice-{company_id}-{invoice_number}",
+            )
+        except TransactionalEmailConfigurationError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except TransactionalEmailDeliveryError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        await db.execute(
+            text(
+                """
+                UPDATE transport_invoice_records
+                SET provider_message_id = :message_id,
+                    delivery_status = 'sent',
+                    delivery_error = '',
+                    status = 'sent',
+                    sent_at = now(),
+                    updated_at = now()
+                WHERE company_id = CAST(:company_id AS uuid)
+                  AND id = CAST(:invoice_id AS uuid)
+                """
+            ),
+            {
+                "company_id": str(company_id),
+                "invoice_id": str(invoice.get("id") or ""),
+                "message_id": _clean(delivery.get("message_id"), 180),
+            },
+        )
+        invoice.update(
+            {
+                "provider_message_id": _clean(delivery.get("message_id"), 180),
+                "delivery_status": "sent",
+                "delivery_error": "",
+                "status": "sent",
+            }
+        )
     await db.commit()
     return {"ok": True, "company_id": str(company_id), "invoice": invoice}
+
+
+@router.post("/companies/{company_id}/invoices", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_transport_payments_write)])
+async def create_transport_invoice(company_id: uuid.UUID, payload: TransportInvoiceIn, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    return await _create_transport_invoice_record(company_id, payload, db)
+
+
+@router.post(
+    "/companies/{company_id}/invoices-with-attachment",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_transport_payments_write)],
+)
+async def create_transport_invoice_with_attachment(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    document_id: str = Form(default=""),
+    contract_id: str = Form(default=""),
+    amount: float = Form(default=0),
+    due_date: str = Form(default=""),
+    recipient: str = Form(default=""),
+    channel: str = Form(default="email"),
+    status_value: str = Form(default="sent", alias="status"),
+    created_by: str = Form(default=""),
+    notes: str = Form(default=""),
+    attachment: UploadFile | None = File(default=None),
+) -> dict[str, Any]:
+    payload = TransportInvoiceIn(
+        document_id=document_id,
+        contract_id=contract_id,
+        amount=amount,
+        due_date=due_date,
+        recipient=recipient,
+        channel=channel,
+        status=status_value,
+        created_by=created_by,
+        notes=notes,
+    )
+    return await _create_transport_invoice_record(company_id, payload, db, attachment=attachment)
