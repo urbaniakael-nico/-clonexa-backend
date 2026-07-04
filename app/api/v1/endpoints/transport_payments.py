@@ -5,14 +5,16 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ADMIN_ROLES, READ_ROLES, get_db, require_company_user_for_tenant
+from app.api.deps import ADMIN_ROLES, READ_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
 from app.api.v1.endpoints.transport_contracts import ensure_transport_contracts_storage
 from app.api.v1.endpoints.transport_quotes_tickets import ensure_transport_documents_storage
+from app.web.admin_v2_routes import _active_company_preview as active_admin_company_preview
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
 
@@ -26,10 +28,14 @@ def _authorization_from_query_028s(authorization: str | None, access_token: str 
 
 async def require_transport_payments_read(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     access_token: str = Query(default="", max_length=2048),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db) or active_admin_company_preview(request, company_id):
+        await require_enabled_module(db, company_id, "transport_payments")
+        return
     await require_company_user_for_tenant(
         db,
         _authorization_from_query_028s(authorization, access_token),
@@ -41,9 +47,13 @@ async def require_transport_payments_read(
 
 async def require_transport_payments_write(
     company_id: uuid.UUID,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    if await active_admin_v2_session(request, db) or active_admin_company_preview(request, company_id):
+        await require_enabled_module(db, company_id, "transport_payments")
+        return
     await require_company_user_for_tenant(
         db,
         authorization,
