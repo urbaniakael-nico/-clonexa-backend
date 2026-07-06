@@ -24526,8 +24526,11 @@ function inventoryCreatePayload() {
     `;
     clearTimeout(window.__cxSlCarQrTimer026M);
     if (["qr", "connecting", "disconnected"].includes(whatsappStatus)) {
+      const companyId = state.companyId;
       window.__cxSlCarQrTimer026M = setTimeout(() => {
-        renderShoplinkOrdersModule026M().catch(() => {});
+        if (state.companyId === companyId && document.querySelector("[data-slcar-orders]")) {
+          renderShoplinkOrdersModule026M().catch(() => {});
+        }
       }, 5000);
     }
   }
