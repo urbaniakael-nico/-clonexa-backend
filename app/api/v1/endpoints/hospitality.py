@@ -27,6 +27,7 @@ STATUS_SERVED = "entregado"
 STATUS_CLOSED = "cerrado"
 ACTIVE_STATUSES = {STATUS_PENDING, STATUS_PREPARING, STATUS_SERVED}
 PAYMENT_METHODS = {"cash", "transfer", "card", "other"}
+CLOSING_PAYMENT_METHODS = {"cash", "transfer", "card"}
 PAYMENT_LABELS = {
     "cash": "Efectivo",
     "transfer": "Transferencia",
@@ -72,6 +73,7 @@ class HospitalityOrderCreateIn(BaseModel):
 
 class HospitalityStatusIn(BaseModel):
     status: str = Field(..., max_length=40)
+    payment_method: str | None = Field(default=None, max_length=40)
 
 
 class HospitalityCloseIn(BaseModel):
@@ -210,6 +212,17 @@ def _payment_method(value: Any) -> str:
         "otros": "other",
     }
     return aliases.get(raw, "other")
+
+
+def _closing_payment_method(value: Any) -> str:
+    raw = _clean(value)
+    payment_method = _payment_method(raw)
+    if not raw or payment_method not in CLOSING_PAYMENT_METHODS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Selecciona un metodo de pago valido: efectivo, transferencia o tarjeta.",
+        )
+    return payment_method
 
 
 def _table_key(value: Any) -> str:
@@ -2840,10 +2853,16 @@ async def update_hospitality_order_status(
     if next_status not in allowed.get(current, set()):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Transicion no permitida: {current} -> {next_status}")
 
+    closing_payment_method = _closing_payment_method(payload.payment_method) if next_status == STATUS_CLOSED else None
+
     if next_status == STATUS_SERVED:
         await _deduct_inventory(db, company_id, order)
 
-    params = {"order_id": str(order_id), "company_id": str(company_id)}
+    params = {
+        "order_id": str(order_id),
+        "company_id": str(company_id),
+        "payment_method": closing_payment_method,
+    }
     if next_status == STATUS_PREPARING:
         await db.execute(
             text(
@@ -2879,6 +2898,7 @@ async def update_hospitality_order_status(
                 """
                 UPDATE hospitality_orders
                 SET status = 'cerrado',
+                    payment_method = :payment_method,
                     closed_at = COALESCE(closed_at, NOW()),
                     updated_at = NOW()
                 WHERE id = :order_id
@@ -2906,8 +2926,7 @@ async def close_hospitality_order(
     if _status(order.get("status")) != STATUS_SERVED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="solo_se_puede_cerrar_mesa_entregada")
 
-    raw_payment_method = payload.payment_method if payload and _clean(payload.payment_method) else order.get("payment_method")
-    payment_method = _payment_method(raw_payment_method)
+    payment_method = _closing_payment_method(payload.payment_method if payload else None)
     await db.execute(
         text(
             """

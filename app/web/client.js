@@ -20253,6 +20253,62 @@ function inventoryCreatePayload() {
     return "other";
   }
 
+  function cxHspIsClosingPayment030A(value = "") {
+    return ["cash", "transfer", "card"].includes(cxHspPaymentMethod024V(value));
+  }
+
+  function cxHspCloseControls030A(order = {}) {
+    const merged = Boolean(order.__merged_table);
+    const orderId = String(order.id || "");
+    const closeAttributes = merged
+      ? `data-hsp-close-ids="${h((order.order_ids || []).join("|"))}" data-hsp-account="${h(orderId)}"`
+      : `data-hsp-close="${h(orderId)}"`;
+    return `
+      <div class="hsp-close-controls-030a">
+        <label class="hsp-close-method-030a">
+          <span>Modo de pago obligatorio</span>
+          <select data-hsp-close-payment="${h(orderId)}" required aria-required="true">
+            <option value="">Seleccionar metodo de pago</option>
+            <option value="transfer">Transferencia</option>
+            <option value="card">Tarjeta</option>
+            <option value="cash">Efectivo</option>
+          </select>
+        </label>
+        <button class="hsp-btn-024r red" type="button" ${closeAttributes} disabled aria-disabled="true">Cerrar mesa</button>
+        <small class="hsp-close-help-030a" data-hsp-close-help>Selecciona como ingreso el dinero para habilitar el cierre.</small>
+      </div>
+    `;
+  }
+
+  function cxHspSyncClosePayment030A(select) {
+    const controls = select?.closest(".hsp-close-controls-030a");
+    const button = controls?.querySelector("[data-hsp-close-ids], [data-hsp-close]");
+    const help = controls?.querySelector("[data-hsp-close-help]");
+    const method = cxHspPaymentMethod024V(select?.value || "");
+    const valid = cxHspIsClosingPayment030A(select?.value || "");
+    if (button) {
+      button.disabled = !valid;
+      button.setAttribute("aria-disabled", valid ? "false" : "true");
+    }
+    controls?.classList.toggle("is-ready", valid);
+    if (help) {
+      help.textContent = valid
+        ? `Cobro por ${cxHspPaymentLabel024V(method)}. Ya puedes cerrar la mesa.`
+        : "Selecciona como ingreso el dinero para habilitar el cierre.";
+    }
+  }
+
+  function cxHspClosingPaymentFromButton030A(button) {
+    const select = button?.closest(".hsp-close-controls-030a")?.querySelector("[data-hsp-close-payment]");
+    const method = cxHspPaymentMethod024V(select?.value || "");
+    if (!cxHspIsClosingPayment030A(select?.value || "")) {
+      cxHspShowMsg024R("hspGlobalMsg024R", "Selecciona transferencia, tarjeta o efectivo antes de cerrar la mesa.", true);
+      select?.focus();
+      return "";
+    }
+    return method;
+  }
+
   function cxHspApi024R(path, options = {}) {
     return api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, options);
   }
@@ -20381,6 +20437,13 @@ function inventoryCreatePayload() {
       .hsp-line-field-024r label{font-size:10px;color:var(--hsp-muted);font-weight:950;text-transform:uppercase;letter-spacing:.08em}
       .hsp-item-select-024r{grid-column:auto}
       .hsp-actions-024r{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+      .hsp-close-controls-030a{display:grid;grid-template-columns:minmax(170px,1fr) auto;gap:8px;align-items:end;width:100%}
+      .hsp-close-method-030a{display:grid;gap:5px;min-width:0}
+      .hsp-close-method-030a span{color:var(--hsp-muted);font-size:10px;font-weight:1000;letter-spacing:.09em;text-transform:uppercase}
+      .hsp-close-method-030a select{width:100%;min-height:42px;box-sizing:border-box;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:12px;padding:9px 11px;font-weight:950;outline:none}
+      .hsp-close-method-030a select:focus{border-color:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.16)}
+      .hsp-close-help-030a{grid-column:1 / -1;color:#fcd34d;font-size:10px;font-weight:850;line-height:1.3}
+      .hsp-close-controls-030a.is-ready .hsp-close-help-030a{color:#86efac}
       .hsp-btn-024r{
         border:0;
         border-radius:13px;
@@ -20397,6 +20460,7 @@ function inventoryCreatePayload() {
         gap:8px;
       }
       .hsp-btn-024r:hover{filter:brightness(1.06);transform:translateY(-1px)}
+      .hsp-btn-024r:disabled,.hsp-btn-024r:disabled:hover{opacity:.42;cursor:not-allowed;filter:grayscale(.45);transform:none}
       .hsp-btn-024r.secondary{background:rgba(255,255,255,.09);color:var(--cx-text,#fff);border:1px solid var(--hsp-line)}
       .hsp-btn-024r.green{background:linear-gradient(135deg,#22c55e,#8cf5b5);color:#052e16}
       .hsp-btn-024r.yellow{background:linear-gradient(135deg,#f59e0b,#fde68a);color:#2b1700}
@@ -20454,7 +20518,7 @@ function inventoryCreatePayload() {
       @media(max-width:1420px){.hsp-form-box-024r{grid-template-columns:minmax(190px,.72fr) minmax(500px,1.35fr) minmax(330px,1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(300px,.9fr) minmax(300px,1fr);align-items:end}.hsp-calc-screen-024r{grid-template-columns:1fr 1fr}.hsp-stats-024r{grid-template-columns:repeat(5,minmax(90px,1fr))}}
       @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(3,minmax(110px,1fr))}}
       @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
-      @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}}
+      @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}.hsp-close-controls-030a{grid-template-columns:1fr}.hsp-close-help-030a{grid-column:auto}}
     `;
     document.head.appendChild(style);
   }
@@ -20871,7 +20935,7 @@ function inventoryCreatePayload() {
             <div class="hsp-merged-note-024y">
               <span>${h(order.orders_count || 0)} pedido(s) QR</span>
               ${order.order_numbers?.length ? `<span>${h(order.order_numbers.slice(0, 3).join(" · "))}${order.order_numbers.length > 3 ? "..." : ""}</span>` : ""}
-              <span>Pago: ${h(order.payment_label || cxHspPaymentLabel024V(order.payment_method))}</span>
+              <span>Pago: Pendiente por seleccionar</span>
             </div>
           </div>
           <div style="text-align:right;display:grid;gap:8px;justify-items:end">
@@ -20887,7 +20951,7 @@ function inventoryCreatePayload() {
         <div class="hsp-section-title-024y">Cuentas por persona</div>
         <div class="hsp-person-024r">${people || `<div class="hsp-empty-024r">Sin personas</div>`}</div>
         <div class="hsp-actions-024r">
-          <button class="hsp-btn-024r red" type="button" data-hsp-close-ids="${h((order.order_ids || []).join("|"))}" data-hsp-account="${h(order.id)}">Cerrar mesa</button>
+          ${cxHspCloseControls030A(order)}
         </div>
       </article>
     `;
@@ -20921,7 +20985,7 @@ function inventoryCreatePayload() {
     } else if (order.status === "alistando") {
       actions = `<button class="hsp-btn-024r green" type="button" data-hsp-status="${h(order.id)}" data-hsp-next="entregado">Entregado</button>`;
     } else if (order.status === "entregado") {
-      actions = `<button class="hsp-btn-024r red" type="button" data-hsp-close="${h(order.id)}">Cerrar mesa</button>`;
+      actions = cxHspCloseControls030A(order);
     }
 
     const showSongs = ["pendiente", "alistando"].includes(order.status);
@@ -20937,7 +21001,7 @@ function inventoryCreatePayload() {
             <div class="hsp-mesa-024r">${h(order.table_number || "Mesa")}</div>
             <div class="hsp-muted-024r">${h((order.people || []).length)} persona(s) - ${h(order.status || "pendiente")}</div>
             <div class="hsp-num-024r">${h(order.order_number || "")}</div>
-            <div class="hsp-num-024r">Pago: ${h(order.payment_label || cxHspPaymentLabel024V(order.payment_method))}</div>
+            <div class="hsp-num-024r">Pago: ${order.status === "entregado" ? "Pendiente por seleccionar" : h(order.payment_label || cxHspPaymentLabel024V(order.payment_method))}</div>
           </div>
           <div style="text-align:right;display:grid;gap:8px;justify-items:end">
             <span class="hsp-pill-024r ${h(cxHspStatusClass024R(order.status))}">${h(order.status || "pendiente")}</span>
@@ -28810,15 +28874,13 @@ function inventoryCreatePayload() {
       const hspCloseBulk = target.closest("[data-hsp-close-ids]");
       if (hspCloseBulk) {
         try {
+          const payment_method = cxHspClosingPaymentFromButton030A(hspCloseBulk);
+          if (!payment_method) return;
           const ids = String(hspCloseBulk.getAttribute("data-hsp-close-ids") || "")
             .split("|")
             .map((id) => id.trim())
             .filter(Boolean);
           if (!ids.length) return;
-          const account = hspCloseBulk.getAttribute("data-hsp-account") || "";
-          const selectedPaymentAccount = document.getElementById("hspPaymentOrder024R")?.value || "";
-          const selectedPaymentMethod = document.getElementById("hspPaymentMethodForAccount024V")?.value || "";
-          const payment_method = String(selectedPaymentAccount) === String(account) ? selectedPaymentMethod : "";
           await Promise.all(ids.map((id) => cxHspApi024R(`/orders/${encodeURIComponent(id)}/close-table`, {
             method: "POST",
             body: JSON.stringify({ payment_method }),
@@ -28833,10 +28895,9 @@ function inventoryCreatePayload() {
       const hspClose = target.closest("[data-hsp-close]");
       if (hspClose) {
         try {
+          const payment_method = cxHspClosingPaymentFromButton030A(hspClose);
+          if (!payment_method) return;
           const id = hspClose.getAttribute("data-hsp-close");
-          const selectedPaymentOrder = document.getElementById("hspPaymentOrder024R")?.value || "";
-          const selectedPaymentMethod = document.getElementById("hspPaymentMethodForAccount024V")?.value || "";
-          const payment_method = String(selectedPaymentOrder) === String(id) ? selectedPaymentMethod : "";
           await cxHspApi024R(`/orders/${encodeURIComponent(id)}/close-table`, {
             method: "POST",
             body: JSON.stringify({ payment_method }),
@@ -30471,6 +30532,11 @@ function inventoryCreatePayload() {
   document.addEventListener("change", (event) => {
     const target = event.target;
     if (!target || !target.closest || !target.closest("#hspOrdersRoot024R")) return;
+    const closePayment = target.closest("[data-hsp-close-payment]");
+    if (closePayment) {
+      cxHspSyncClosePayment030A(closePayment);
+      return;
+    }
     const select = target.closest(".hsp-item-select-024r");
     if (select) {
       cxHspSyncLinePrice024R(select.closest(".hsp-line-024r"));
