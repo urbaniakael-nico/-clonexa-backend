@@ -21343,6 +21343,7 @@ function inventoryCreatePayload() {
         justify-content:center;
       }
       .hsp-qr-btn-024s.secondary{background:rgba(255,255,255,.09);color:var(--cx-text,#fff);border:1px solid var(--qr-line)}
+      .hsp-qr-btn-024s:disabled{cursor:not-allowed;opacity:.72;background:rgba(34,197,94,.13);color:#bbf7d0;border:1px solid rgba(34,197,94,.34)}
       .hsp-qr-empty-024s{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:22px;text-align:center;color:var(--qr-muted);font-weight:850}
       .hsp-qr-msg-024s{display:none;padding:11px 13px;border-radius:13px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:900}
       .hsp-qr-msg-024s.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.30);color:#fecaca}
@@ -21496,7 +21497,7 @@ function inventoryCreatePayload() {
           <span>Mesa o QR a imprimir</span>
           <select id="hspQrPrintSelect025H" class="hsp-qr-print-select-025h" data-hsp-qr-print-select>${options}</select>
         </label>
-        <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-activate>${row.access_active ? "Nueva clave" : "Generar clave"}</button>
+        <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-activate ${row.access_active ? "disabled" : ""}>${row.access_active ? "Activa hasta cerrar mesa" : "Generar clave"}</button>
         <button class="hsp-qr-btn-024s" type="button" data-hsp-qr-print-template>Imprimir plantilla</button>
         <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-close>Cerrar</button>
       </div>
@@ -21530,7 +21531,7 @@ function inventoryCreatePayload() {
         <div class="hsp-qr-actions-024s">
           <a class="hsp-qr-btn-024s" href="${h(row.order_url || "#")}" target="_blank" rel="noopener">Abrir</a>
           <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-copy="${h(row.order_url || "")}">Copiar</button>
-          <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-activate="${h(row.label || "Mesa")}">${accessActive ? "Nueva clave" : "Activar mesa"}</button>
+          <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-activate="${h(row.label || "Mesa")}" ${accessActive ? "disabled" : ""}>${accessActive ? "Activa hasta cerrar" : "Activar mesa"}</button>
         </div>
       </article>
     `;
