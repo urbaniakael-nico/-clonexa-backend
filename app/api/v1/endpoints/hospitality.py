@@ -1593,18 +1593,6 @@ async def _create_day_closure(
             ),
         },
     )
-    await db.execute(
-        text(
-            """
-            UPDATE hospitality_table_access
-            SET status = 'closed',
-                updated_at = NOW()
-            WHERE company_id = :company_id
-              AND status = 'active'
-            """
-        ),
-        {"company_id": str(company_id)},
-    )
     return closure
 
 
