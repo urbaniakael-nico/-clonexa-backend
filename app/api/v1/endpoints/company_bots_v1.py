@@ -12,7 +12,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.api.v1.endpoints.bots import decrypt_token, get_telegram_instance, _process_telegram_update
+from app.api.v1.endpoints.bots import (
+    _cancel_telegram_listener,
+    _process_telegram_update,
+    decrypt_token,
+    get_telegram_instance,
+)
 
 router = APIRouter()
 
@@ -1046,6 +1051,9 @@ async def activate_company_telegram_webhook(
         "webhook_mode": "dedicated",
         "webhook_url": webhook_url,
         "webhook_secret": webhook_secret,
+        "listener_enabled": False,
+        "listener_running": False,
+        "listener_error": None,
     }
 
     await db.execute(
@@ -1069,6 +1077,7 @@ async def activate_company_telegram_webhook(
     )
 
     await db.commit()
+    _cancel_telegram_listener(company_id)
 
     fresh = await bot_config_row(db, company_id)
     response = public_config(fresh)
