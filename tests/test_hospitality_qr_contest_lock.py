@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
@@ -53,6 +54,12 @@ def test_persistent_table_access_remains_active_after_legacy_expiration():
     assert payload["access_code"] == "ABCDE"
     assert payload["expires_at"] == ""
     assert payload["closes_with_table"] is True
+
+
+def test_day_closure_does_not_close_active_table_access():
+    source = inspect.getsource(hospitality._create_day_closure)
+
+    assert "UPDATE hospitality_table_access" not in source
 
 
 @pytest.mark.asyncio
