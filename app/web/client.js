@@ -23233,8 +23233,10 @@ function inventoryCreatePayload() {
       .map((value) => value.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""))
       .filter(Boolean);
     const text = cxShoplinkModuleText026K(module);
+    const exactKinds = codeTokens.map(cxShoplinkExactModuleKind032B).filter(Boolean);
+    if (exactKinds.includes("catalog")) return true;
+    if (exactKinds.length) return false;
     return (
-      codeTokens.some(cxIsShoplinkCode026K) ||
       (text.includes("shoplink") && (text.includes("catalog") || text.includes("tienda publica"))) ||
       (text.includes("catalogo") && text.includes("tienda")) ||
       (text.includes("catalog") && text.includes("tienda")) ||
@@ -23716,9 +23718,9 @@ function inventoryCreatePayload() {
   function cxIsShoplinkProductsModule026L(module = {}) {
     const text = cxShoplinkProductsText026L(module);
     const code = cxNormShoplink026K(module.code || module.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const exactKind = cxShoplinkExactModuleKind032B(code);
+    if (exactKind) return exactKind === "products";
     return (
-      cxIsShoplinkProductsCode026L(code) ||
-      code === "pro" ||
       (text.includes("productos") && text.includes("inventario") && text.includes("landing")) ||
       (text.includes("products") && text.includes("inventory") && text.includes("landing"))
     );
@@ -24191,8 +24193,9 @@ function inventoryCreatePayload() {
   function cxIsShoplinkOrdersModule026M(module = {}) {
     const text = cxShoplinkOrdersText026M(module);
     const code = cxNormShoplink026K(module.code || module.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const exactKind = cxShoplinkExactModuleKind032B(code);
+    if (exactKind) return exactKind === "orders";
     return (
-      cxIsShoplinkOrdersCode026M(code) ||
       (text.includes("carrito") && text.includes("pedido")) ||
       (text.includes("pedido") && text.includes("factura")) ||
       (text.includes("cart") && text.includes("order"))
@@ -24786,8 +24789,9 @@ function inventoryCreatePayload() {
   function cxIsShoplinkClientsModule026N(module = {}) {
     const text = cxShoplinkClientsText026N(module);
     const code = cxNormShoplink026K(module.code || module.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const exactKind = cxShoplinkExactModuleKind032B(code);
+    if (exactKind) return exactKind === "clients";
     return (
-      cxIsShoplinkClientsCode026N(code) ||
       (text.includes("cliente") && text.includes("crm") && text.includes("landing")) ||
       (text.includes("customer") && text.includes("crm"))
     );
@@ -25136,6 +25140,17 @@ function inventoryCreatePayload() {
     "shoplink_campaigns",
     "campaign_reports",
   ]);
+
+  function cxShoplinkExactModuleKind032B(code = "") {
+    const normalized = cxNormShoplink026K(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    if (CX_SLCAM_CODES_026O.has(normalized)) return "campaigns";
+    if (CX_SLCLI_CODES_026N.has(normalized)) return "clients";
+    if (CX_SLCAR_CODES_026M.has(normalized)) return "orders";
+    if (CX_SLPRO_CODES_026L.has(normalized)) return "products";
+    if (CX_SHOPLINK_CODES_026K.has(normalized)) return "catalog";
+    return "";
+  }
+
   let cxSlCamCurrent026O = "";
   let cxSlCamSearch026O = "";
   let cxSlCamStatus026O = "all";
@@ -25167,8 +25182,9 @@ function inventoryCreatePayload() {
   function cxIsShoplinkCampaignsModule026O(module = {}) {
     const text = cxShoplinkCampaignsText026O(module);
     const code = cxNormShoplink026K(module.code || module.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const exactKind = cxShoplinkExactModuleKind032B(code);
+    if (exactKind) return exactKind === "campaigns";
     return (
-      cxIsShoplinkCampaignsCode026O(code) ||
       (text.includes("campana") && text.includes("report")) ||
       (text.includes("campaign") && text.includes("report"))
     );

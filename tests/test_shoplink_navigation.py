@@ -34,5 +34,18 @@ def test_shoplink_submodule_active_navigation_prefers_exact_codes():
         assert exact_position < fuzzy_position
 
 
+def test_shoplink_fuzzy_detectors_respect_explicit_sibling_codes():
+    functions = [
+        "cxIsShoplinkModule026K",
+        "cxIsShoplinkProductsModule026L",
+        "cxIsShoplinkOrdersModule026M",
+        "cxIsShoplinkClientsModule026N",
+        "cxIsShoplinkCampaignsModule026O",
+    ]
+
+    for function_name in functions:
+        assert "cxShoplinkExactModuleKind032B" in function_source(function_name)
+
+
 def test_shoplink_navigation_cache_version_is_updated():
-    assert "032A_SHOPLINK_NAV_ROUTING" in CLIENT_HTML
+    assert "032B_SHOPLINK_STRICT_ROUTING" in CLIENT_HTML
