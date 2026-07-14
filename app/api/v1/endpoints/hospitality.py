@@ -517,8 +517,33 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS status VARCHAR(40) NOT NULL DEFAULT 'active';"))
     await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS closes_with_table BOOLEAN NOT NULL DEFAULT FALSE;"))
     await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("ALTER TABLE hospitality_table_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_table_access
+            SET status = 'closed',
+                updated_at = NOW()
+            WHERE status = 'active'
+              AND closes_with_table = FALSE
+              AND expires_at <= NOW()
+            """
+        )
+    )
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_table_access
+            SET closes_with_table = TRUE,
+                updated_at = NOW()
+            WHERE status = 'active'
+              AND closes_with_table = FALSE
+              AND expires_at > NOW()
+            """
+        )
+    )
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_table_access_company_table ON hospitality_table_access(company_id, table_key, status, expires_at DESC);"))
 
 
@@ -1265,17 +1290,26 @@ def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None)
 
 def _table_access_payload(row: Any | None, include_code: bool = False) -> dict[str, Any]:
     if not row:
-        return {"active": False, "access_code": "" if include_code else None, "expires_at": ""}
+        return {
+            "active": False,
+            "access_code": "" if include_code else None,
+            "expires_at": "",
+            "closes_with_table": False,
+        }
     data = dict(row)
     expires_at = data.get("expires_at")
     if isinstance(expires_at, datetime):
         expires_at = _aware(expires_at)
-    active = (data.get("status") or "active") == "active" and isinstance(expires_at, datetime) and expires_at > _now()
+    closes_with_table = bool(data.get("closes_with_table"))
+    active = (data.get("status") or "active") == "active" and (
+        closes_with_table or (isinstance(expires_at, datetime) and expires_at > _now())
+    )
     payload = {
         "active": active,
         "table_key": data.get("table_key") or "",
         "table_number": data.get("table_number") or "",
-        "expires_at": _iso(data.get("expires_at")),
+        "expires_at": "" if closes_with_table else _iso(data.get("expires_at")),
+        "closes_with_table": closes_with_table,
         "activated_at": _iso(data.get("activated_at")),
     }
     if include_code:
@@ -1931,7 +1965,7 @@ async def _fetch_active_table_access(db: AsyncSession, company_id: uuid.UUID, ta
             WHERE company_id = :company_id
               AND table_key = :table_key
               AND status = 'active'
-              AND expires_at > NOW()
+              AND (closes_with_table = TRUE OR expires_at > NOW())
             ORDER BY activated_at DESC
             LIMIT 1
             """
@@ -2188,12 +2222,7 @@ async def submit_loyalty_score_prediction(
                 :company_id, :campaign_id, :table_key, :table_number, :team_name, :score_a, :score_b, NOW(), NOW()
             )
             ON CONFLICT (campaign_id, table_key)
-            DO UPDATE SET
-                table_number = EXCLUDED.table_number,
-                team_name = EXCLUDED.team_name,
-                score_a = EXCLUDED.score_a,
-                score_b = EXCLUDED.score_b,
-                updated_at = NOW()
+            DO NOTHING
             """
         ),
         {
@@ -2320,12 +2349,7 @@ async def submit_loyalty_vote_poll(
                 :company_id, :campaign_id, :table_key, :table_number, :voter_name, :answer_key, :answer_label, NOW(), NOW()
             )
             ON CONFLICT (campaign_id, table_key)
-            DO UPDATE SET
-                table_number = EXCLUDED.table_number,
-                voter_name = EXCLUDED.voter_name,
-                answer_key = EXCLUDED.answer_key,
-                answer_label = EXCLUDED.answer_label,
-                updated_at = NOW()
+            DO NOTHING
             """
         ),
         {
@@ -2389,11 +2413,7 @@ async def join_loyalty_campaign(
                 :company_id, :campaign_id, :table_key, :table_number, :team_name, :accepted, NOW(), NOW()
             )
             ON CONFLICT (campaign_id, table_key)
-            DO UPDATE SET
-                table_number = EXCLUDED.table_number,
-                team_name = EXCLUDED.team_name,
-                accepted = EXCLUDED.accepted,
-                updated_at = NOW()
+            DO NOTHING
             """
         ),
         {
@@ -2434,6 +2454,16 @@ async def activate_hospitality_table_access(
 
     table_number = _clean(payload.table) or "Mesa"
     table_key = _table_key(table_number)
+    existing = await _fetch_active_table_access(db, company_id, table_number)
+    if existing:
+        return {
+            "ok": True,
+            "company_id": str(company_id),
+            "table": table_number,
+            "reused": True,
+            "access": _table_access_payload(existing, include_code=True),
+        }
+
     expires_at = _now() + timedelta(hours=int(payload.duration_hours or 12))
     code = _new_access_code()
     await db.execute(
@@ -2453,10 +2483,12 @@ async def activate_hospitality_table_access(
         text(
             """
             INSERT INTO hospitality_table_access (
-                company_id, table_key, table_number, access_code, status, activated_at, expires_at, created_at, updated_at
+                company_id, table_key, table_number, access_code, status, activated_at, expires_at,
+                closes_with_table, created_at, updated_at
             )
             VALUES (
-                :company_id, :table_key, :table_number, :access_code, 'active', NOW(), :expires_at, NOW(), NOW()
+                :company_id, :table_key, :table_number, :access_code, 'active', NOW(), :expires_at,
+                TRUE, NOW(), NOW()
             )
             RETURNING *
             """
@@ -2471,7 +2503,13 @@ async def activate_hospitality_table_access(
     )
     await db.commit()
     access = result.mappings().first()
-    return {"ok": True, "company_id": str(company_id), "table": table_number, "access": _table_access_payload(access, include_code=True)}
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "table": table_number,
+        "reused": False,
+        "access": _table_access_payload(access, include_code=True),
+    }
 
 
 @router.post("/companies/{company_id}/qr-tables/access/verify")
@@ -2537,7 +2575,7 @@ async def hospitality_qr_tables(
             FROM hospitality_table_access
             WHERE company_id = :company_id
               AND status = 'active'
-              AND expires_at > NOW()
+              AND (closes_with_table = TRUE OR expires_at > NOW())
             ORDER BY table_key, activated_at DESC
             """
         ),

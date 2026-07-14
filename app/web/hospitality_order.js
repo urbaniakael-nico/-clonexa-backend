@@ -349,6 +349,19 @@
       .qr-campaign-join span{display:block;color:var(--qr-muted);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
       .qr-campaign-join input{width:100%;border:1px solid var(--qr-line);border-radius:14px;background:rgba(2,6,23,.58);color:var(--qr-text);padding:12px;font-weight:900;outline:none}
       .qr-campaign-rank{display:grid;gap:8px;align-content:start}
+      .qr-campaign-locked{grid-template-columns:1fr;gap:10px;padding:13px}
+      .qr-contest-locked-head{display:flex;justify-content:space-between;gap:10px;align-items:center}
+      .qr-contest-locked-head span{font-size:10px;font-weight:1000;letter-spacing:.12em;text-transform:uppercase;color:var(--qr-primary)}
+      .qr-contest-locked-head strong{font-size:15px;line-height:1.15;text-align:right}
+      .qr-contest-facts{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(76px,.55fr);gap:7px}
+      .qr-contest-fact{min-width:0;border:1px solid rgba(255,255,255,.10);border-radius:13px;background:rgba(3,7,18,.34);padding:9px}
+      .qr-contest-fact span{display:block;color:var(--qr-muted);font-size:9px;font-weight:1000;letter-spacing:.10em;text-transform:uppercase}
+      .qr-contest-fact strong{display:block;margin-top:4px;color:var(--qr-secondary);font-size:14px;line-height:1.15;overflow-wrap:anywhere}
+      .qr-contestants{display:grid;gap:6px;max-height:154px;overflow:auto;overscroll-behavior:contain}
+      .qr-contestant{display:grid;grid-template-columns:30px minmax(0,1fr);gap:8px;align-items:center;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(3,7,18,.27);padding:7px 8px}
+      .qr-contestant-badge{display:grid;place-items:center;min-height:28px;border-radius:9px;background:rgba(255,255,255,.08);color:var(--qr-primary);font-size:10px;font-weight:1000;text-align:center;overflow-wrap:anywhere}
+      .qr-contestant strong{display:block;font-size:12px;line-height:1.15}
+      .qr-contestant small{display:block;margin-top:2px;color:var(--qr-muted);font-size:10px;font-weight:800;line-height:1.15}
       .qr-rank-row{display:grid;grid-template-columns:28px 1fr;gap:9px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:9px}
       .qr-rank-row span{font-weight:1000;color:var(--qr-secondary)}
       .qr-rank-row strong{display:block}
@@ -444,6 +457,21 @@
         .qr-layout,.qr-assembly,.qr-asm-split{grid-template-columns:1fr}
         .qr-menu-head{grid-template-columns:1fr}
         .qr-campaign,.qr-campaign-join,.qr-access-form,.qr-score-grid,.qr-assembly-grid,.qr-assembly-kpis{grid-template-columns:1fr}
+        .qr-campaign{gap:9px;padding:12px;border-radius:18px}
+        .qr-campaign h2{margin-bottom:4px;font-size:20px}
+        .qr-campaign-main{gap:7px}
+        .qr-campaign-main>.qr-muted{font-size:12px;line-height:1.3}
+        .qr-campaign-prize,.qr-campaign-clock,.qr-campaign-ok{padding:8px 10px;border-radius:12px;font-size:12px}
+        .qr-campaign-prize strong,.qr-campaign-clock strong{font-size:15px}
+        .qr-campaign-join{gap:7px}
+        .qr-campaign-join input,.qr-score-grid input,.qr-score-name{padding:10px;border-radius:12px}
+        .qr-campaign-rank{max-height:178px;overflow:auto}
+        .qr-campaign-locked{padding:10px;gap:8px}
+        .qr-contest-locked-head strong{font-size:13px}
+        .qr-contest-facts{gap:5px}
+        .qr-contest-fact{padding:7px;border-radius:11px}
+        .qr-contest-fact strong{font-size:12px}
+        .qr-contestants{max-height:128px}
         .qr-menu{gap:11px}
         .qr-menu-title{font-size:26px}
         .qr-search{min-height:50px;border-radius:15px;padding-inline:16px}
@@ -629,6 +657,34 @@
     return String(value || "vote").replace(/[^a-zA-Z0-9_-]+/g, "_");
   }
 
+  function lockedContestHtml026J({ label = "Sorteo", title = "Concurso", prize = "Por definir", result = "Pendiente", contestants = [] } = {}) {
+    const rows = Array.isArray(contestants) ? contestants : [];
+    return `
+      <section class="qr-campaign qr-campaign-locked" data-contest-locked>
+        <div class="qr-contest-locked-head">
+          <span>${h(label)}</span>
+          <strong>${h(title)}</strong>
+        </div>
+        <div class="qr-contest-facts">
+          <div class="qr-contest-fact"><span>Premio</span><strong>${h(prize || "Por definir")}</strong></div>
+          <div class="qr-contest-fact"><span>Resultado</span><strong>${h(result || "Pendiente")}</strong></div>
+          <div class="qr-contest-fact"><span>Concursantes</span><strong>${h(rows.length)}</strong></div>
+        </div>
+        <div class="qr-contestants" aria-label="Concursantes">
+          ${rows.length ? rows.slice(0, 8).map((row) => `
+            <div class="qr-contestant">
+              <span class="qr-contestant-badge">${h(row.badge || "-")}</span>
+              <div>
+                <strong>${h(row.name || "Concursante")}</strong>
+                <small>${h(row.detail || "Registro confirmado")}</small>
+              </div>
+            </div>
+          `).join("") : `<div class="qr-empty">Aun no hay concursantes visibles.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
   function campaignHtml() {
     const campaign = state.campaign;
     if (!campaign) return "";
@@ -691,6 +747,19 @@
     const winner = campaign.winner || null;
     const tournamentPhase = campaign.tournament_phase || "open";
     const tournamentLabel = tournamentPhase === "closed" ? "Torneo finalizado" : tournamentPhase === "scheduled" ? "Torneo inicia en" : "Torneo cierra en";
+    if (participant) {
+      return lockedContestHtml026J({
+        label: "Sorteo",
+        title: campaign.title || "Reto de consumo",
+        prize: campaign.prize || "Por definir",
+        result: winner?.team_name || (tournamentPhase === "closed" ? "Finalizado" : "Pendiente"),
+        contestants: rows.map((row) => ({
+          badge: row.rank || "-",
+          name: row.team_name || row.table_number || "Mesa",
+          detail: `${row.table_number || "Mesa"} · ${row.orders_count || 0} pedido(s)`,
+        })),
+      });
+    }
     const form = open && !participant && !state.campaignDismissed ? `
       <div class="qr-campaign-join">
         <div>
@@ -740,6 +809,19 @@
     if (!campaign) return "";
     const prediction = state.scorePrediction || {};
     const rows = Array.isArray(campaign.predictions) ? campaign.predictions : [];
+    if (prediction.id) {
+      return lockedContestHtml026J({
+        label: "Polla",
+        title: campaign.title || "Polla de marcador",
+        prize: campaign.prize || "Por definir",
+        result: `${campaign.team_a || "Equipo A"} ${prediction.score_a} - ${prediction.score_b} ${campaign.team_b || "Equipo B"}`,
+        contestants: rows.map((row) => ({
+          badge: String(row.table_number || "QR").replace(/^Mesa\s*/i, "M"),
+          name: row.team_name || row.table_number || "Mesa",
+          detail: `${campaign.team_a || "Equipo A"} ${row.score_a} - ${row.score_b} ${campaign.team_b || "Equipo B"}`,
+        })),
+      });
+    }
     const currentName = document.getElementById("qrScoreName025G")?.value || prediction.team_name || "";
     const scoreA = document.getElementById("qrScoreA025G")?.value ?? (prediction.score_a ?? "");
     const scoreB = document.getElementById("qrScoreB025G")?.value ?? (prediction.score_b ?? "");
@@ -790,8 +872,23 @@
     if (!campaign) return "";
     const response = state.voteResponse || {};
     const results = Array.isArray(campaign.results) ? campaign.results : [];
+    const votes = Array.isArray(campaign.votes) ? campaign.votes : [];
     const options = Array.isArray(campaign.options) ? campaign.options : [];
     const isClosed = campaign.phase === "closed" || Number(campaign.seconds_left || 0) <= 0;
+    if (response.id) {
+      const leader = [...results].sort((a, b) => Number(b.count || 0) - Number(a.count || 0))[0] || null;
+      return lockedContestHtml026J({
+        label: voteModeLabel025O(campaign.vote_mode),
+        title: campaign.title || "Concurso",
+        prize: campaign.prize || "Por definir",
+        result: isClosed && leader ? `${leader.label} · ${leader.percent || 0}%` : "Pendiente",
+        contestants: votes.map((vote) => ({
+          badge: String(vote.table_number || "QR").replace(/^Mesa\s*/i, "M"),
+          name: vote.voter_name || vote.table_number || "Concursante",
+          detail: "Registro confirmado",
+        })),
+      });
+    }
     const currentName = document.getElementById("qrVoteName025O")?.value || response.voter_name || "";
     const currentAnswer = document.querySelector("input[name='qrVoteOption025O']:checked")?.value || response.answer_key || "";
     const form = !isClosed && !response.id ? `
