@@ -59,6 +59,11 @@ TELEGRAM_LISTENER_STOP_REQUESTED: set[str] = set()
 TELEGRAM_LISTENER_DEFAULT_INTERVAL = 3
 
 
+def _uses_dedicated_telegram_webhook(config: dict[str, Any] | None) -> bool:
+    """Return True when Telegram updates must arrive through the dedicated webhook."""
+    return str((config or {}).get("webhook_mode") or "").strip().lower() == "dedicated"
+
+
 def _listener_lock(company_id: UUID | str) -> asyncio.Lock:
     key = _listener_key(company_id)
     lock = TELEGRAM_LISTENER_LOCKS.get(key)
@@ -5288,6 +5293,20 @@ async def _poll_telegram_updates_for_company(
             raise HTTPException(status_code=404, detail="Telegram bot token not configured for this company")
 
         config = dict(row.config_json or {})
+        if _uses_dedicated_telegram_webhook(config):
+            config["listener_enabled"] = False
+            config["listener_running"] = False
+            config.pop("listener_error", None)
+            config["listener_updated_at"] = utcnow().isoformat()
+            row.config_json = config
+            row.last_error = None
+            row.updated_at = utcnow()
+            await db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail="Telegram bot uses a dedicated webhook; polling is disabled",
+            )
+
         offset = config.get("telegram_update_offset")
         params: dict[str, Any] = {
             "timeout": 0,
@@ -5440,6 +5459,20 @@ async def _telegram_listener_loop(company_id: UUID) -> None:
                     if not config.get("listener_enabled"):
                         should_stop = True
                         keep_enabled_on_exit = False
+                    elif _uses_dedicated_telegram_webhook(config):
+                        # A bot cannot use Telegram webhooks and getUpdates simultaneously.
+                        # Clear stale polling state, including configurations created before
+                        # dedicated webhooks started enforcing a single delivery mode.
+                        should_stop = True
+                        keep_enabled_on_exit = False
+                        config["listener_enabled"] = False
+                        config["listener_running"] = False
+                        config.pop("listener_error", None)
+                        config["listener_updated_at"] = utcnow().isoformat()
+                        row.config_json = config
+                        row.last_error = None
+                        row.updated_at = utcnow()
+                        await db.commit()
                     else:
                         interval = int(config.get("listener_interval_seconds") or TELEGRAM_LISTENER_DEFAULT_INTERVAL)
                         interval = max(2, min(interval, 30))
@@ -5520,6 +5553,7 @@ async def bootstrap_telegram_listeners() -> dict[str, Any]:
     Esto permite reiniciar API/Docker sin volver a presionar Iniciar escucha por empresa.
     """
     started: list[str] = []
+    webhook_managed: list[str] = []
     async with AsyncSessionLocal() as db:
         await ensure_bot_storage(db)
         result = await db.execute(
@@ -5530,13 +5564,39 @@ async def bootstrap_telegram_listeners() -> dict[str, Any]:
         )
         rows = result.scalars().all()
 
+        for row in rows:
+            config = dict(row.config_json or {})
+            if not _uses_dedicated_telegram_webhook(config):
+                continue
+            webhook_managed.append(str(row.company_id))
+            if config.get("listener_enabled") or config.get("listener_running") or config.get("listener_error"):
+                config["listener_enabled"] = False
+                config["listener_running"] = False
+                config.pop("listener_error", None)
+                config["listener_updated_at"] = utcnow().isoformat()
+                row.config_json = config
+                row.last_error = None
+                row.updated_at = utcnow()
+
+        if webhook_managed:
+            await db.commit()
+
     for row in rows:
         config = dict(row.config_json or {})
-        if row.status != "inactive" and config.get("listener_enabled"):
+        if (
+            row.status != "inactive"
+            and config.get("listener_enabled")
+            and not _uses_dedicated_telegram_webhook(config)
+        ):
             if _ensure_telegram_listener_task(row.company_id):
                 started.append(str(row.company_id))
 
-    return {"ok": True, "started": started, "count": len(started)}
+    return {
+        "ok": True,
+        "started": started,
+        "count": len(started),
+        "webhook_managed": webhook_managed,
+    }
 
 
 @router.get("/companies/{company_id}/telegram", response_model=TelegramBotConfigOut)
@@ -5791,6 +5851,12 @@ async def start_company_telegram_listener(
         return bot_out(row, company_id)
 
     config = dict(row.config_json or {})
+    if _uses_dedicated_telegram_webhook(config):
+        raise HTTPException(
+            status_code=409,
+            detail="Telegram bot uses a dedicated webhook; polling listener cannot be started",
+        )
+
     config["listener_enabled"] = True
     config["listener_running"] = True
     config.setdefault("listener_interval_seconds", TELEGRAM_LISTENER_DEFAULT_INTERVAL)
