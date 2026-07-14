@@ -23174,6 +23174,8 @@ function inventoryCreatePayload() {
     "landing",
     "lan",
     "shoplink",
+    "shoplink_catalog",
+    "shoplink_store",
     "catalogo_tienda_publica",
     "catalogo_publico",
     "tienda_publica",
@@ -23192,7 +23194,6 @@ function inventoryCreatePayload() {
     const normalized = cxNormShoplink026K(code).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
     return (
       CX_SHOPLINK_CODES_026K.has(normalized) ||
-      normalized.includes("shoplink") ||
       (normalized.includes("catalog") && normalized.includes("tienda")) ||
       (normalized.includes("catalogo") && normalized.includes("tienda")) ||
       (normalized.includes("tienda") && normalized.includes("public"))
@@ -23234,7 +23235,7 @@ function inventoryCreatePayload() {
     const text = cxShoplinkModuleText026K(module);
     return (
       codeTokens.some(cxIsShoplinkCode026K) ||
-      text.includes("shoplink") ||
+      (text.includes("shoplink") && (text.includes("catalog") || text.includes("tienda publica"))) ||
       (text.includes("catalogo") && text.includes("tienda")) ||
       (text.includes("catalog") && text.includes("tienda")) ||
       (text.includes("tienda") && text.includes("public"))
@@ -23250,7 +23251,11 @@ function inventoryCreatePayload() {
   }
 
   function cxShoplinkActiveCode026K() {
-    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkModule026K);
+    const modules = visibleClientModules(activeClientModules());
+    const module = modules.find((item) => {
+      const code = cxNormShoplink026K(item.code || item.badge || "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      return CX_SHOPLINK_CODES_026K.has(code);
+    }) || modules.find(cxIsShoplinkModule026K);
     return module?.code || (isClientModuleActive("landing") ? "landing" : "shoplink");
   }
 
@@ -23720,7 +23725,9 @@ function inventoryCreatePayload() {
   }
 
   function cxSlProActiveCode026L() {
-    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkProductsModule026L);
+    const modules = visibleClientModules(activeClientModules());
+    const module = modules.find((item) => cxIsShoplinkProductsCode026L(item.code || item.badge || ""))
+      || modules.find(cxIsShoplinkProductsModule026L);
     return module?.code || "pro";
   }
 
@@ -24193,7 +24200,9 @@ function inventoryCreatePayload() {
   }
 
   function cxSlCarActiveCode026M() {
-    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkOrdersModule026M);
+    const modules = visibleClientModules(activeClientModules());
+    const module = modules.find((item) => cxIsShoplinkOrdersCode026M(item.code || item.badge || ""))
+      || modules.find(cxIsShoplinkOrdersModule026M);
     return module?.code || "car";
   }
 
@@ -24785,7 +24794,9 @@ function inventoryCreatePayload() {
   }
 
   function cxSlCliActiveCode026N() {
-    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkClientsModule026N);
+    const modules = visibleClientModules(activeClientModules());
+    const module = modules.find((item) => cxIsShoplinkClientsCode026N(item.code || item.badge || ""))
+      || modules.find(cxIsShoplinkClientsModule026N);
     return module?.code || "cli";
   }
 
@@ -25164,7 +25175,9 @@ function inventoryCreatePayload() {
   }
 
   function cxSlCamActiveCode026O() {
-    const module = visibleClientModules(activeClientModules()).find(cxIsShoplinkCampaignsModule026O);
+    const modules = visibleClientModules(activeClientModules());
+    const module = modules.find((item) => cxIsShoplinkCampaignsCode026O(item.code || item.badge || ""))
+      || modules.find(cxIsShoplinkCampaignsModule026O);
     return module?.code || "cam";
   }
 
