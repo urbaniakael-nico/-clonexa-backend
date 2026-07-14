@@ -33,6 +33,7 @@
     assemblyResponses: {},
     assemblyParticipantQuestions: {},
     loading: true,
+    cartOpen: false,
     message: "",
     error: "",
   };
@@ -231,9 +232,19 @@
       .qr-menu-meta{color:var(--qr-muted);font-size:12px;font-weight:900}
       .qr-products{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
       .qr-card{padding:14px;display:grid;gap:12px;min-height:176px}
+      .qr-product-card{align-content:space-between;transition:border-color .18s ease,transform .18s ease,box-shadow .18s ease}
+      .qr-product-card.is-selected{border-color:color-mix(in srgb,var(--qr-primary) 72%,white);box-shadow:0 16px 44px color-mix(in srgb,var(--qr-primary) 18%,transparent)}
+      .qr-product-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+      .qr-product-copy{min-width:0}
       .qr-product-name{font-size:17px;font-weight:950;line-height:1.1;word-break:break-word}
       .qr-stock{color:var(--qr-muted);font-size:12px;font-weight:850}
+      .qr-selected-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:6px 9px;white-space:nowrap;background:color-mix(in srgb,var(--qr-primary) 22%,rgba(2,6,23,.72));border:1px solid color-mix(in srgb,var(--qr-primary) 50%,transparent);color:var(--qr-text);font-size:10px;font-weight:1000}
+      .qr-product-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}
       .qr-price{font-size:22px;font-weight:1000;color:var(--qr-secondary)}
+      .qr-inline-qty{display:flex;align-items:center;gap:7px;border:1px solid color-mix(in srgb,var(--qr-primary) 48%,var(--qr-line));border-radius:14px;padding:4px;background:rgba(2,6,23,.5)}
+      .qr-inline-qty button{width:38px;height:38px;border:0;border-radius:11px;background:linear-gradient(135deg,var(--qr-primary),var(--qr-secondary));color:#101827;font-size:20px;font-weight:1000;cursor:pointer}
+      .qr-inline-qty strong{min-width:24px;text-align:center;font-size:18px}
+      .qr-add-btn{min-width:118px}
       .qr-btn{
         border:0;
         border-radius:14px;
@@ -247,7 +258,11 @@
       .qr-btn.secondary{background:rgba(255,255,255,.09);color:var(--qr-text);border:1px solid var(--qr-line)}
       .qr-btn:disabled{opacity:.48;cursor:not-allowed;filter:grayscale(.35)}
       .qr-cart{position:sticky;top:14px;padding:16px;display:grid;gap:12px}
-      .qr-cart h2{margin:0;font-size:22px}
+      .qr-cart-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+      .qr-cart-head h2{margin:0;font-size:22px}
+      .qr-cart-head p{margin:3px 0 0;color:var(--qr-muted);font-size:12px;font-weight:850}
+      .qr-cart-close{display:none;width:42px;height:42px;border-radius:50%;border:1px solid var(--qr-line);background:rgba(255,255,255,.08);color:var(--qr-text);font-size:24px;cursor:pointer}
+      .qr-cart-footer{display:grid;gap:10px}
       .qr-field{display:grid;gap:6px}
       .qr-field span{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--qr-muted);font-weight:1000}
       .qr-field input,.qr-field textarea{
@@ -267,6 +282,7 @@
       .qr-qty button{width:32px;height:32px;border-radius:10px;border:1px solid var(--qr-line);background:rgba(255,255,255,.08);color:var(--qr-text);font-weight:1000;cursor:pointer}
       .qr-total{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:16px;background:rgba(0,0,0,.24);font-weight:1000}
       .qr-total strong{font-size:22px;color:var(--qr-secondary)}
+      .qr-cart-dock,.qr-cart-overlay{display:none}
       .qr-msg{padding:12px;border-radius:14px;background:rgba(34,197,94,.13);border:1px solid rgba(34,197,94,.28);color:#bbf7d0;font-weight:900}
       .qr-msg.err{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.30);color:#fecaca}
       .qr-empty{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:18px;text-align:center;color:var(--qr-muted);font-weight:850}
@@ -418,11 +434,87 @@
       .qr-asm-side{display:grid;gap:8px}
       .qr-asm-summary-list{display:grid;gap:8px;margin-top:8px}
       @media(max-width:860px){
-        .qr-hero{grid-template-columns:1fr}
+        body{padding-bottom:calc(92px + env(safe-area-inset-bottom));background:linear-gradient(180deg,var(--qr-bg),#070312 60%);}
+        body:has(.qr-cart.open){overflow:hidden}
+        .qr-shell{padding:max(10px,env(safe-area-inset-top)) 12px 24px;gap:16px}
+        .qr-hero{grid-template-columns:minmax(0,1fr) auto;padding:16px;border-radius:20px}
+        .qr-hero h1{font-size:34px;line-height:1}
+        .qr-hero .qr-muted{margin:8px 0 0;font-size:14px}
+        .qr-logo{width:48px;height:48px;border-radius:14px}
         .qr-layout,.qr-assembly,.qr-asm-split{grid-template-columns:1fr}
         .qr-menu-head{grid-template-columns:1fr}
         .qr-campaign,.qr-campaign-join,.qr-access-form,.qr-score-grid,.qr-assembly-grid,.qr-assembly-kpis{grid-template-columns:1fr}
-        .qr-cart{position:static}
+        .qr-menu{gap:11px}
+        .qr-menu-title{font-size:26px}
+        .qr-search{min-height:50px;border-radius:15px;padding-inline:16px}
+        .qr-categories{margin-inline:-12px;padding:2px 12px 7px;scrollbar-width:none}
+        .qr-categories::-webkit-scrollbar{display:none}
+        .qr-category{min-height:44px;padding:10px 15px}
+        .qr-products{grid-template-columns:1fr;gap:10px}
+        .qr-card{min-height:0;border-radius:20px;padding:15px}
+        .qr-product-card{gap:14px}
+        .qr-product-name{font-size:18px}
+        .qr-product-actions{align-items:end}
+        .qr-price{font-size:21px}
+        .qr-add-btn{min-width:126px;min-height:46px}
+        .qr-inline-qty button{width:42px;height:42px}
+        .qr-cart-overlay{display:block;position:fixed;inset:0;z-index:999;background:rgba(2,6,23,.72);backdrop-filter:blur(5px);border:0;opacity:0;pointer-events:none;transition:opacity .22s ease}
+        .qr-cart-overlay.open{opacity:1;pointer-events:auto}
+        .qr-cart{
+          position:fixed;
+          z-index:1000;
+          left:0;
+          right:0;
+          bottom:0;
+          top:auto;
+          max-height:min(86svh,760px);
+          overflow:auto;
+          border-radius:24px 24px 0 0;
+          padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+          transform:translateY(105%);
+          visibility:hidden;
+          transition:transform .24s ease,visibility .24s ease;
+          box-shadow:0 -24px 80px rgba(0,0,0,.58);
+        }
+        .qr-cart.open{transform:translateY(0);visibility:visible}
+        .qr-cart-close{display:grid;place-items:center}
+        .qr-cart-footer{position:sticky;bottom:calc(-18px - env(safe-area-inset-bottom));margin:4px -16px calc(-18px - env(safe-area-inset-bottom));padding:12px 16px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(10,15,31,.86),#0a0f1f 24%);border-top:1px solid var(--qr-line)}
+        .qr-cart-dock{
+          display:flex;
+          position:fixed;
+          z-index:900;
+          left:12px;
+          right:12px;
+          bottom:calc(10px + env(safe-area-inset-bottom));
+          width:auto;
+          max-width:680px;
+          margin:auto;
+          min-height:68px;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          padding:10px 12px 10px 16px;
+          border:1px solid color-mix(in srgb,var(--qr-primary) 42%,var(--qr-line));
+          border-radius:20px;
+          background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(8,12,26,.98));
+          color:var(--qr-text);
+          box-shadow:0 18px 55px rgba(0,0,0,.52);
+          text-align:left;
+          cursor:pointer;
+        }
+        .qr-cart-dock.has-items{background:linear-gradient(135deg,color-mix(in srgb,var(--qr-primary) 24%,#111827),#0b1220)}
+        .qr-cart-dock-copy{display:grid;gap:2px;min-width:0}
+        .qr-cart-dock-copy small{color:var(--qr-muted);font-size:10px;font-weight:1000;letter-spacing:.12em;text-transform:uppercase}
+        .qr-cart-dock-copy strong{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .qr-cart-dock-total{display:grid;justify-items:end;gap:2px;white-space:nowrap}
+        .qr-cart-dock-total strong{color:var(--qr-secondary);font-size:17px}
+        .qr-cart-dock-total span{font-size:11px;font-weight:1000;color:var(--qr-muted)}
+      }
+      @media(max-width:390px){
+        .qr-product-top{display:grid}
+        .qr-selected-badge{justify-self:start}
+        .qr-product-actions{align-items:stretch}
+        .qr-add-btn{min-width:112px}
       }
     `;
   }
@@ -470,6 +562,10 @@
 
   function cartTotal() {
     return [...state.cart.values()].reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
+  }
+
+  function cartItemCount() {
+    return [...state.cart.values()].reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   }
 
   function countdown(value = 0) {
@@ -1017,18 +1113,34 @@
       </button>
     `).join("");
     const productCards = products.length
-      ? products.map((item) => `
-          <article class="qr-card">
-            <div>
-              <div class="qr-product-name">${h(item.name)}</div>
-              <div class="qr-stock">${h(productCategory(item))}</div>
-              <div class="qr-stock">Stock ${h(item.stock ?? 0)}</div>
-            </div>
-            <div class="qr-price">${Number(item.price || 0) > 0 ? h(money(item.price)) : "Por confirmar"}</div>
-            <button class="qr-btn" type="button" data-add="${h(item.id)}">Agregar</button>
-          </article>
-        `).join("")
+      ? products.map((item) => {
+          const selected = state.cart.get(String(item.id));
+          const quantity = Number(selected?.quantity || 0);
+          return `
+            <article class="qr-card qr-product-card ${quantity > 0 ? "is-selected" : ""}">
+              <div class="qr-product-top">
+                <div class="qr-product-copy">
+                  <div class="qr-product-name">${h(item.name)}</div>
+                  <div class="qr-stock">${h(productCategory(item))} · Stock ${h(item.stock ?? 0)}</div>
+                </div>
+                ${quantity > 0 ? `<span class="qr-selected-badge">✓ ${h(quantity)} en tu pedido</span>` : ""}
+              </div>
+              <div class="qr-product-actions">
+                <div class="qr-price">${Number(item.price || 0) > 0 ? h(money(item.price)) : "Por confirmar"}</div>
+                ${quantity > 0 ? `
+                  <div class="qr-inline-qty" aria-label="Cantidad de ${h(item.name)}">
+                    <button type="button" data-dec="${h(item.id)}" aria-label="Quitar una unidad">−</button>
+                    <strong aria-live="polite">${h(quantity)}</strong>
+                    <button type="button" data-inc="${h(item.id)}" aria-label="Agregar una unidad">+</button>
+                  </div>
+                ` : `<button class="qr-btn qr-add-btn" type="button" data-add="${h(item.id)}">Agregar +</button>`}
+              </div>
+            </article>
+          `;
+        }).join("")
       : `<div class="qr-empty">${state.inventory.length ? "No encontramos productos con ese filtro." : "No hay productos activos para esta mesa."}</div>`;
+    const itemCount = cartItemCount();
+    const total = cartTotal();
 
     app.innerHTML = `
       <main class="qr-shell">
@@ -1050,7 +1162,7 @@
             <div class="qr-menu-head">
               <div>
                 <p class="qr-eyebrow">Menu</p>
-                <h2 class="qr-menu-title">Elige por categoria</h2>
+                <h2 class="qr-menu-title">Explora el menu</h2>
               </div>
               <input id="qrSearch024X" class="qr-search" placeholder="Buscar producto" value="${h(state.search)}" autocomplete="off">
             </div>
@@ -1058,8 +1170,15 @@
             <div class="qr-menu-meta">${h(products.length)} de ${h(state.inventory.length)} productos visibles</div>
             <div class="qr-products">${productCards}</div>
           </div>
-          <aside class="qr-cart">
-            <h2>Tu pedido</h2>
+          <button class="qr-cart-overlay ${state.cartOpen ? "open" : ""}" type="button" data-cart-close aria-label="Cerrar pedido" aria-hidden="${state.cartOpen ? "false" : "true"}" ${state.cartOpen ? "" : "disabled"}></button>
+          <aside class="qr-cart ${state.cartOpen ? "open" : ""}" aria-label="Tu pedido">
+            <div class="qr-cart-head">
+              <div>
+                <h2>Tu pedido</h2>
+                <p>${h(itemCount)} ${itemCount === 1 ? "producto seleccionado" : "productos seleccionados"}</p>
+              </div>
+              <button class="qr-cart-close" type="button" data-cart-close aria-label="Cerrar pedido">×</button>
+            </div>
             <label class="qr-field">
               <span>Nombre</span>
               <input id="qrCustomer024S" placeholder="Ej: Javier" value="${h(document.getElementById("qrCustomer024S")?.value || "")}">
@@ -1073,11 +1192,23 @@
               <span>Notas</span>
               <textarea id="qrNotes024S" placeholder="Sin hielo, poco dulce...">${h(document.getElementById("qrNotes024S")?.value || "")}</textarea>
             </label>
-            <div class="qr-total"><span>Total</span><strong>${cartTotal() > 0 ? h(money(cartTotal())) : "Por confirmar"}</strong></div>
-            <button class="qr-btn" type="button" data-submit-order>Enviar pedido</button>
-            <button class="qr-btn secondary" type="button" data-clear-cart>Limpiar</button>
+            <div class="qr-cart-footer">
+              <div class="qr-total"><span>Total</span><strong>${total > 0 ? h(money(total)) : "Por confirmar"}</strong></div>
+              <button class="qr-btn" type="button" data-submit-order>Confirmar y enviar pedido</button>
+              <button class="qr-btn secondary" type="button" data-clear-cart>Vaciar pedido</button>
+            </div>
           </aside>
         </section>
+        <button class="qr-cart-dock ${itemCount > 0 ? "has-items" : ""}" type="button" data-cart-open aria-label="Abrir tu pedido" aria-live="polite">
+          <span class="qr-cart-dock-copy">
+            <small>Tu pedido</small>
+            <strong>${itemCount > 0 ? `${h(itemCount)} ${itemCount === 1 ? "producto" : "productos"}` : "Agrega tu primera bebida"}</strong>
+          </span>
+          <span class="qr-cart-dock-total">
+            <strong>${total > 0 ? h(money(total)) : "Ver pedido"}</strong>
+            <span>${itemCount > 0 ? "Revisar y enviar →" : "Abrir carrito →"}</span>
+          </span>
+        </button>
       </main>
     `;
   }
@@ -1151,6 +1282,7 @@
         body: JSON.stringify(payload),
       });
       state.cart.clear();
+      state.cartOpen = false;
       await refreshCampaign().catch(() => {});
       state.message = `Tu pedido fue recibido. El barman ya lo tiene en pantalla: ${response.order?.order_number || "OK"}.`;
       state.error = "";
@@ -1444,6 +1576,16 @@
       });
       return;
     }
+    if (target.closest("[data-cart-open]")) {
+      state.cartOpen = true;
+      render();
+      return;
+    }
+    if (target.closest("[data-cart-close]")) {
+      state.cartOpen = false;
+      render();
+      return;
+    }
     const category = target.closest("[data-category]");
     if (category) {
       state.category = category.getAttribute("data-category") || "Todos";
@@ -1496,6 +1638,11 @@
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.cartOpen) {
+      state.cartOpen = false;
+      render();
+      return;
+    }
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     if (target.id === "qrAccessCode025B" && event.key === "Enter") {
@@ -1505,6 +1652,7 @@
         state.message = "";
         render();
       });
+      return;
     }
   });
 
