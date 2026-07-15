@@ -91,6 +91,11 @@
     return (featured.length ? featured : products()).slice(0, 8);
   }
 
+  function categoryCount(category) {
+    if (category === "Todos") return products().length;
+    return products().filter((product) => String(product.category || "General") === category).length;
+  }
+
   function addToCart(productId) {
     const product = products().find((item) => String(item.id) === String(productId));
     if (!product || Number(product.stock || 0) <= 0) return;
@@ -327,7 +332,8 @@
         <div class="sl-section-head">
           <div>
             <div class="sl-eyebrow">Destacados</div>
-            <h2>${campaign() ? "Seleccion de la promo" : "Vitrina principal"}</h2>
+            <h2>${campaign() ? "Destacados de la promocion" : "Vitrina principal"}</h2>
+            ${campaign() ? `<p>La oferta se destaca aqui; debajo puedes explorar todo el catalogo.</p>` : ""}
           </div>
         </div>
         <div class="sl-featured-row">
@@ -353,7 +359,7 @@
         <div class="sl-tabs">
           ${categories.map((category) => `
             <button class="sl-tab ${category === state.category ? "active" : ""}" type="button" data-shoplink-category="${h(category)}">
-              ${h(category)}
+              <span>${h(category)}</span><b>${h(categoryCount(category))}</b>
             </button>
           `).join("")}
         </div>

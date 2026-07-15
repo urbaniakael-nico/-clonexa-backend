@@ -3018,6 +3018,22 @@ def _featured_products(products: list[dict[str, Any]], settings: dict[str, Any])
     return featured
 
 
+def _shoplink_public_categories(settings: dict[str, Any], products: list[dict[str, Any]]) -> list[str]:
+    configured = [_clean(category, 80) for category in settings.get("categories") or [] if _clean(category, 80)]
+    product_categories = sorted({_clean(product.get("category"), 80) for product in products if _clean(product.get("category"), 80)})
+    return list(dict.fromkeys([*configured, *product_categories]))
+
+
+def _shoplink_campaign_featured(campaign: dict[str, Any] | None, products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    product_ids = _campaign_product_ids(campaign.get("product_ids")) if campaign else []
+    if not product_ids:
+        return []
+    return [
+        product for product in products
+        if _campaign_product_match(product.get("id") or product.get("raw_id"), product_ids)
+    ]
+
+
 def _order_payload(payload: ShoplinkOrderIn) -> dict[str, Any]:
     data = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
     return {
@@ -3203,16 +3219,8 @@ async def public_shoplink(
     products = await _products(db, company["id"])
     campaign_row = await _active_shoplink_campaign_by_slug(db, company["id"], campaign) if campaign else None
     campaign_out = _shoplink_campaign_out(campaign_row, settings, products, [], include_private=False) if campaign_row else None
-    if campaign_out:
-        product_ids = _campaign_product_ids(campaign_row.get("product_ids"))
-        if product_ids:
-            products = [
-                product for product in products
-                if _campaign_product_match(product.get("id") or product.get("raw_id"), product_ids)
-            ]
-    configured_categories = [c for c in settings.get("categories") or [] if c]
-    product_categories = sorted({p["category"] for p in products if p.get("category")})
-    categories = product_categories if campaign_out else (configured_categories or product_categories)
+    categories = _shoplink_public_categories(settings, products)
+    campaign_featured = _shoplink_campaign_featured(campaign_row, products)
     return {
         "ok": True,
         "company": {"id": company["id"], "name": company["name"], "slug": company["slug"]},
@@ -3221,5 +3229,5 @@ async def public_shoplink(
         "campaign": campaign_out,
         "categories": categories,
         "products": products,
-        "featured": products[:8] if campaign_out else _featured_products(products, settings),
+        "featured": (campaign_featured or products[:8]) if campaign_out else _featured_products(products, settings),
     }

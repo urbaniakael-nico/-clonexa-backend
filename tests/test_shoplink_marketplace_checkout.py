@@ -83,6 +83,24 @@ def test_checkout_items_use_catalog_prices_instead_of_browser_prices():
     assert checkout_items[0]["unit_price"] == 540_000
 
 
+def test_campaign_keeps_full_catalog_categories_and_only_scopes_featured_products():
+    products = [
+        {"id": "shoplink:shoe-1", "name": "Metcon", "category": "TENIS"},
+        {"id": "shoplink:vitamin-1", "name": "Magnesio", "category": "VITAMINAS"},
+    ]
+    settings = {"categories": ["GORRAS", "TENIS", "RELOJES", "VITAMINAS"]}
+
+    categories = shoplink._shoplink_public_categories(settings, products)
+    featured = shoplink._shoplink_campaign_featured(
+        campaign(product_ids=["shoplink:shoe-1"]),
+        products,
+    )
+
+    assert categories == ["GORRAS", "TENIS", "RELOJES", "VITAMINAS"]
+    assert [product["name"] for product in featured] == ["Metcon"]
+    assert len(products) == 2
+
+
 def test_public_checkout_has_explicit_coupon_payment_and_mobile_marketplace_ui():
     assert "data-shoplink-apply-coupon" in PUBLIC_JS
     assert "/coupons/validate" in PUBLIC_JS
@@ -91,6 +109,8 @@ def test_public_checkout_has_explicit_coupon_payment_and_mobile_marketplace_ui()
     assert "data-shoplink-payment" in PUBLIC_JS
     assert "payment_method: state.paymentMethod" in PUBLIC_JS
     assert "data-shoplink-cart-open" in PUBLIC_JS
+    assert "categoryCount(category)" in PUBLIC_JS
     assert ".sl-cart-dock" in PUBLIC_CSS
-    assert "032C_FUTURE_MARKETPLACE_CHECKOUT" in PUBLIC_HTML
+    assert 'body[data-theme="retail_neon"]::before' in PUBLIC_CSS
+    assert "032D_FULL_CATALOG_NEON_MARKETPLACE" in PUBLIC_HTML
 
