@@ -11,7 +11,11 @@
     placing: false,
     order: null,
     checkoutError: "",
-    couponCode: "",
+    couponDraft: "",
+    coupon: { status: "idle", code: "", discountAmount: 0, message: "" },
+    paymentMethod: "",
+    cartOpen: false,
+    appliedCampaign: null,
   };
 
   const h = (value) =>
@@ -25,7 +29,7 @@
   const app = () => document.getElementById("shoplinkApp");
   const settings = () => state.data?.settings || {};
   const products = () => state.data?.products || [];
-  const campaign = () => state.data?.campaign || null;
+  const campaign = () => state.appliedCampaign || state.data?.campaign || null;
 
   function money(value, currency = "COP") {
     const number = Number(value || 0);
@@ -57,8 +61,10 @@
       ...options,
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText} ${text}`);
+      const raw = await res.text().catch(() => "");
+      let detail = raw;
+      try { detail = JSON.parse(raw)?.detail || raw; } catch (error) { /* respuesta no JSON */ }
+      throw new Error(detail || `${res.status} ${res.statusText}`);
     }
     return res.json();
   }
@@ -91,6 +97,7 @@
     const existing = state.cart.find((item) => item.id === product.id);
     if (existing) existing.qty += 1;
     else state.cart.push({ ...product, qty: 1 });
+    resetCouponAfterCartChange();
     state.order = null;
     state.checkoutError = "";
     render();
@@ -100,12 +107,21 @@
     const item = state.cart.find((row) => String(row.id) === String(productId));
     if (!item) return;
     item.qty = Math.max(1, Number(item.qty || 1) + delta);
+    resetCouponAfterCartChange();
     render();
   }
 
   function removeFromCart(productId) {
     state.cart = state.cart.filter((item) => String(item.id) !== String(productId));
+    resetCouponAfterCartChange();
     render();
+  }
+
+  function resetCouponAfterCartChange() {
+    if (state.coupon.status !== "idle" || state.coupon.code) {
+      state.coupon = { status: "idle", code: "", discountAmount: 0, message: "Vuelve a aplicar el cupon para actualizar el descuento." };
+      state.appliedCampaign = null;
+    }
   }
 
   function cartTotal() {
@@ -115,12 +131,12 @@
   function campaignDiscount() {
     const c = campaign();
     if (!c || !state.cart.length) return 0;
+    if (c.coupon_required) {
+      return state.coupon.status === "valid" ? Number(state.coupon.discountAmount || 0) : 0;
+    }
     const type = String(c.discount_type || "none");
     const value = Number(c.discount_value || 0);
     if (!value || type === "none") return 0;
-    const expected = String(c.coupon_code || "").trim().toUpperCase();
-    const provided = String(state.couponCode || "").trim().toUpperCase();
-    if (expected && expected !== provided) return 0;
     const subtotal = cartTotal();
     if (subtotal < Number(c.min_order || 0)) return 0;
     const selected = new Set((c.product_ids || []).map(String));
@@ -137,6 +153,23 @@
 
   function cartPayableTotal() {
     return Math.max(0, cartTotal() - campaignDiscount());
+  }
+
+  function cartItemsCount() {
+    return state.cart.reduce((total, item) => total + Number(item.qty || 1), 0);
+  }
+
+  function paymentMethods() {
+    const values = settings().payment_methods || ["Efectivo", "Transferencia", "Tarjeta"];
+    return values.filter((value) => String(value || "").trim());
+  }
+
+  function paymentIcon(method = "") {
+    const value = String(method).toLowerCase();
+    if (value.includes("efect")) return "$";
+    if (value.includes("transfer")) return "↗";
+    if (value.includes("tarjet")) return "▣";
+    return "•";
   }
 
   function normalizeWhatsappPhone(value = "") {
@@ -279,7 +312,7 @@
             <span>${h(products().length)} productos</span>
             <span>${h((data.categories || []).length)} categorias</span>
             <span>${s.checkout_enabled === false ? "Solo vitrina" : "Checkout web"}</span>
-            ${c?.coupon_code ? `<span>Cupon ${h(c.coupon_code)}</span>` : ""}
+            ${c?.coupon_required ? `<span>Cupon disponible</span>` : ""}
           </div>
         </div>
       </section>
@@ -366,75 +399,141 @@
     `;
   }
 
+  function renderCouponBox() {
+    const status = state.coupon.status;
+    const message = state.coupon.message;
+    return `
+      <section class="sl-checkout-section sl-coupon-box ${h(status)}">
+        <div class="sl-section-title">
+          <span class="sl-section-icon">%</span>
+          <div><strong>Cupon de descuento</strong><small>Escribe el codigo creado en la campaña</small></div>
+        </div>
+        <div class="sl-coupon-row">
+          <input data-shoplink-coupon value="${h(state.couponDraft)}" placeholder="EJ: MARATON" autocomplete="off" ${status === "checking" ? "disabled" : ""}>
+          <button type="button" data-shoplink-apply-coupon ${state.cart.length && state.couponDraft.trim() && status !== "checking" ? "" : "disabled"}>
+            ${status === "checking" ? "Validando..." : "Aplicar"}
+          </button>
+        </div>
+        ${message ? `<div class="sl-coupon-status"><span>${status === "valid" ? "✓" : status === "invalid" ? "!" : "i"}</span>${h(message)}${status === "valid" ? `<button type="button" data-shoplink-remove-coupon>Quitar</button>` : ""}</div>` : ""}
+      </section>
+    `;
+  }
+
   function renderCheckoutForm() {
     const s = settings();
     const c = campaign();
     if (s.checkout_enabled === false) {
       return `<div class="sl-empty">La tienda esta en modo vitrina. Los pedidos web estan desactivados.</div>`;
     }
+    const methods = paymentMethods();
     return `
-      <div class="sl-checkout">
-        ${c ? `<div class="sl-payment-note"><strong>${h(c.title || "Campana")}</strong><span>${h(c.discount_label || "Promo activa")}</span></div>` : ""}
-        <label>Nombre
-          <input data-shoplink-customer="customer_name" value="${h(state.customer.customer_name || "")}" placeholder="Tu nombre">
-        </label>
-        <label>Telefono
-          <input data-shoplink-customer="customer_phone" value="${h(state.customer.customer_phone || "")}" placeholder="+57...">
-        </label>
-        <label>Ciudad
-          <input data-shoplink-customer="customer_city" value="${h(state.customer.customer_city || "")}" placeholder="Ciudad">
-        </label>
-        <label>Direccion
-          <input data-shoplink-customer="customer_address" value="${h(state.customer.customer_address || "")}" placeholder="Direccion de entrega">
-        </label>
-        <label class="wide">Nota
-          <textarea data-shoplink-customer="customer_note" placeholder="Talla, color, referencia o comentario">${h(state.customer.customer_note || "")}</textarea>
-        </label>
-        ${c?.coupon_code ? `
-          <label class="wide">Cupon
-            <input data-shoplink-coupon value="${h(state.couponCode || c.coupon_code || "")}" placeholder="Codigo promocional">
-          </label>
-        ` : ""}
+      <div class="sl-checkout-flow">
+        <div class="sl-checkout-steps" aria-label="Progreso de compra">
+          <span class="done"><b>1</b>Carrito</span><i></i><span class="active"><b>2</b>Datos</span><i></i><span><b>3</b>Confirmar</span>
+        </div>
+        ${c ? `<div class="sl-promo-chip"><span>OFERTA</span><div><strong>${h(c.title || "Campaña activa")}</strong><small>${h(c.discount_label || "Beneficio disponible")}</small></div></div>` : ""}
+        ${renderCouponBox()}
+        <section class="sl-checkout-section">
+          <div class="sl-section-title">
+            <span class="sl-section-icon">⌂</span>
+            <div><strong>Datos de entrega</strong><small>Te contactaremos para coordinar el envio</small></div>
+          </div>
+          <div class="sl-checkout">
+            <label>Nombre completo
+              <input data-shoplink-customer="customer_name" value="${h(state.customer.customer_name || "")}" placeholder="Tu nombre">
+            </label>
+            <label>Telefono / WhatsApp
+              <input data-shoplink-customer="customer_phone" value="${h(state.customer.customer_phone || "")}" placeholder="+57 300 000 0000" inputmode="tel">
+            </label>
+            <label>Ciudad
+              <input data-shoplink-customer="customer_city" value="${h(state.customer.customer_city || "")}" placeholder="Ciudad">
+            </label>
+            <label>Direccion
+              <input data-shoplink-customer="customer_address" value="${h(state.customer.customer_address || "")}" placeholder="Direccion de entrega">
+            </label>
+            <label class="wide">Nota para el pedido
+              <textarea data-shoplink-customer="customer_note" placeholder="Talla, color, referencia o comentario">${h(state.customer.customer_note || "")}</textarea>
+            </label>
+          </div>
+        </section>
+        <section class="sl-checkout-section">
+          <div class="sl-section-title">
+            <span class="sl-section-icon">◇</span>
+            <div><strong>Como quieres pagar</strong><small>Selecciona una opcion para continuar</small></div>
+          </div>
+          <div class="sl-payment-methods">
+            ${methods.map((method) => `
+              <button class="${state.paymentMethod === method ? "selected" : ""}" type="button" data-shoplink-payment="${h(method)}" aria-pressed="${state.paymentMethod === method}">
+                <span>${h(paymentIcon(method))}</span><strong>${h(method)}</strong><i>${state.paymentMethod === method ? "✓" : ""}</i>
+              </button>
+            `).join("")}
+          </div>
+          ${s.delivery_notes ? `<p class="sl-delivery-note">${h(s.delivery_notes)}</p>` : ""}
+        </section>
         ${state.checkoutError ? `<div class="sl-error">${h(state.checkoutError)}</div>` : ""}
-        <button class="sl-btn" type="button" data-shoplink-place-order ${state.cart.length && !state.placing ? "" : "disabled"}>
-          ${state.placing ? "Enviando pedido..." : "Finalizar pedido"}
+        <button class="sl-btn sl-checkout-cta" type="button" data-shoplink-place-order ${state.cart.length && !state.placing ? "" : "disabled"}>
+          <span>${state.placing ? "Procesando pedido..." : "Confirmar pedido"}</span>
+          <strong>${h(money(cartPayableTotal(), s.currency))} →</strong>
         </button>
-      </div>
-      <div class="sl-payment-note">
-        <strong>Pagos</strong>
-        <span>${h((s.payment_methods || ["Efectivo", "Transferencia", "Tarjeta"]).join(" / "))}</span>
-        ${s.delivery_notes ? `<small>${h(s.delivery_notes)}</small>` : ""}
+        <div class="sl-trust-row"><span>✓ Compra protegida</span><span>✓ Factura automatica</span><span>✓ Soporte directo</span></div>
       </div>
     `;
+  }
+
+  function cartItemVisual(item) {
+    const image = productImages(item)[0];
+    return image
+      ? `<img src="${h(image)}" alt="${h(item.name || "Producto")}">`
+      : `<span>${h(String(item.name || "P").slice(0, 1).toUpperCase())}</span>`;
   }
 
   function renderCart() {
     const s = settings();
     const discount = campaignDiscount();
+    const subtotal = cartTotal();
     return `
-      <aside class="sl-cart">
-        <h2>Carrito</h2>
+      <aside class="sl-cart ${state.cartOpen ? "open" : ""}" aria-label="Carrito y pago">
+        <div class="sl-cart-head">
+          <div><span class="sl-eyebrow">Checkout seguro</span><h2>Tu carrito <b>${h(cartItemsCount())}</b></h2></div>
+          <button class="sl-cart-close" type="button" data-shoplink-cart-close aria-label="Cerrar carrito">×</button>
+        </div>
         <div class="sl-cart-list">
           ${state.cart.length ? state.cart.map((item) => `
-            <div class="sl-cart-item">
-              <div>
+            <article class="sl-cart-item">
+              <div class="sl-cart-thumb">${cartItemVisual(item)}</div>
+              <div class="sl-cart-copy">
                 <strong>${h(item.name)}</strong>
-                <small>${h(money(Number(item.price || 0) * Number(item.qty || 1), s.currency))}</small>
+                <small>${h([item.size, item.color].filter(Boolean).join(" · ") || item.category || "Producto")}</small>
+                <b>${h(money(Number(item.price || 0) * Number(item.qty || 1), s.currency))}</b>
               </div>
               <div class="sl-qty">
-                <button type="button" data-shoplink-qty="${h(item.id)}" data-delta="-1">-</button>
+                <button type="button" data-shoplink-qty="${h(item.id)}" data-delta="-1" aria-label="Restar">−</button>
                 <span>${h(item.qty)}</span>
-                <button type="button" data-shoplink-qty="${h(item.id)}" data-delta="1">+</button>
+                <button type="button" data-shoplink-qty="${h(item.id)}" data-delta="1" aria-label="Sumar">+</button>
               </div>
-              <button class="sl-remove" type="button" data-shoplink-remove="${h(item.id)}">Quitar</button>
-            </div>
-          `).join("") : `<div class="sl-empty">Agrega productos para iniciar tu pedido.</div>`}
+              <button class="sl-remove" type="button" data-shoplink-remove="${h(item.id)}" aria-label="Quitar ${h(item.name)}">×</button>
+            </article>
+          `).join("") : `<div class="sl-empty sl-cart-empty"><span>＋</span><strong>Tu carrito esta listo para estrenar</strong><small>Agrega productos y vuelve aqui para finalizar.</small></div>`}
         </div>
-        ${discount ? `<div class="sl-total"><span>Descuento</span><strong>-${h(money(discount, s.currency))}</strong></div>` : ""}
-        <div class="sl-total"><span>Total</span><strong>${h(money(cartPayableTotal(), s.currency))}</strong></div>
+        <section class="sl-order-summary">
+          <div><span>Subtotal</span><strong>${h(money(subtotal, s.currency))}</strong></div>
+          ${discount ? `<div class="discount"><span>Descuento aplicado</span><strong>-${h(money(discount, s.currency))}</strong></div>` : ""}
+          <div><span>Envio</span><strong>Por confirmar</strong></div>
+          <div class="total"><span>Total</span><strong>${h(money(cartPayableTotal(), s.currency))}</strong></div>
+        </section>
         ${state.order ? renderOrderSuccess() : renderCheckoutForm()}
-        <button class="sl-btn secondary" type="button" data-shoplink-clear ${state.cart.length ? "" : "disabled"}>Limpiar carrito</button>
+        <button class="sl-clear-cart" type="button" data-shoplink-clear ${state.cart.length ? "" : "disabled"}>Vaciar carrito</button>
       </aside>
+    `;
+  }
+
+  function renderMobileCartDock() {
+    if (!state.cart.length || state.order) return "";
+    return `
+      <button class="sl-cart-dock" type="button" data-shoplink-cart-open>
+        <span><b>${h(cartItemsCount())}</b> ${cartItemsCount() === 1 ? "producto" : "productos"}</span>
+        <strong>Ver carrito · ${h(money(cartPayableTotal(), settings().currency))}</strong>
+      </button>
     `;
   }
 
@@ -450,6 +549,8 @@
           ${renderProducts()}
           ${renderCart()}
         </div>
+        ${state.cartOpen ? `<button class="sl-cart-overlay" type="button" data-shoplink-cart-close aria-label="Cerrar carrito"></button>` : ""}
+        ${renderMobileCartDock()}
       </div>
     `;
   }
@@ -466,20 +567,66 @@
     `;
   }
 
+  async function validateCoupon() {
+    const code = state.couponDraft.trim().toUpperCase();
+    if (!code || !state.cart.length || state.coupon.status === "checking") return;
+    state.couponDraft = code;
+    state.coupon = { status: "checking", code: "", discountAmount: 0, message: "Comprobando beneficio..." };
+    state.checkoutError = "";
+    render();
+    try {
+      const companyId = companyIdFromUrl();
+      const result = await api(`/shoplink/public/${encodeURIComponent(companyId)}/coupons/validate`, {
+        method: "POST",
+        body: JSON.stringify({
+          campaign_slug: campaign()?.slug || campaignSlugFromUrl(),
+          coupon_code: code,
+          items: state.cart.map((item) => ({ product_id: item.id, qty: item.qty })),
+        }),
+      });
+      if (result.valid) {
+        state.coupon = {
+          status: "valid",
+          code: result.coupon_code || code,
+          discountAmount: Number(result.discount_amount || 0),
+          message: `${result.message || "Cupon aplicado."} Ahorras ${money(result.discount_amount, settings().currency)}.`,
+        };
+        state.appliedCampaign = result.campaign || state.appliedCampaign;
+      } else {
+        state.coupon = { status: "invalid", code: "", discountAmount: 0, message: result.message || "El cupon no es valido." };
+      }
+    } catch (error) {
+      state.coupon = { status: "invalid", code: "", discountAmount: 0, message: error.message || "No se pudo validar el cupon." };
+    } finally {
+      render();
+    }
+  }
+
   async function placeOrder() {
     if (!state.cart.length || state.placing) return;
-    state.placing = true;
-    state.checkoutError = "";
     document.querySelectorAll("[data-shoplink-customer]").forEach((input) => {
       state.customer[input.dataset.shoplinkCustomer] = input.value || "";
     });
+    if (!String(state.customer.customer_name || "").trim() || !String(state.customer.customer_phone || "").trim()) {
+      state.checkoutError = "Completa tu nombre y telefono para continuar.";
+      render();
+      return;
+    }
+    if (paymentMethods().length && !state.paymentMethod) {
+      state.checkoutError = "Selecciona como quieres pagar para confirmar el pedido.";
+      render();
+      return;
+    }
+    state.placing = true;
+    state.checkoutError = "";
     render();
     try {
       const companyId = companyIdFromUrl();
       const payload = {
         ...state.customer,
         campaign_slug: campaign()?.slug || campaignSlugFromUrl(),
-        coupon_code: state.couponCode || campaign()?.coupon_code || "",
+        coupon_code: state.coupon.status === "valid" ? state.coupon.code : "",
+        payment_method: state.paymentMethod,
         items: state.cart.map((item) => ({ product_id: item.id, qty: item.qty })),
       };
       const saved = await api(`/shoplink/public/${encodeURIComponent(companyId)}/orders`, {
@@ -538,6 +685,42 @@
       state.cart = [];
       state.order = null;
       state.checkoutError = "";
+      state.couponDraft = "";
+      state.coupon = { status: "idle", code: "", discountAmount: 0, message: "" };
+      state.appliedCampaign = null;
+      render();
+      return;
+    }
+
+    if (event.target.closest("[data-shoplink-apply-coupon]")) {
+      validateCoupon();
+      return;
+    }
+
+    if (event.target.closest("[data-shoplink-remove-coupon]")) {
+      state.couponDraft = "";
+      state.coupon = { status: "idle", code: "", discountAmount: 0, message: "" };
+      state.appliedCampaign = null;
+      render();
+      return;
+    }
+
+    const payment = event.target.closest("[data-shoplink-payment]");
+    if (payment) {
+      state.paymentMethod = payment.dataset.shoplinkPayment || "";
+      state.checkoutError = "";
+      render();
+      return;
+    }
+
+    if (event.target.closest("[data-shoplink-cart-open]")) {
+      state.cartOpen = true;
+      render();
+      return;
+    }
+
+    if (event.target.closest("[data-shoplink-cart-close]")) {
+      state.cartOpen = false;
       render();
       return;
     }
@@ -580,12 +763,28 @@
 
     const coupon = event.target.closest("[data-shoplink-coupon]");
     if (coupon) {
-      state.couponCode = coupon.value || "";
+      state.couponDraft = coupon.value || "";
+      const applyButton = document.querySelector("[data-shoplink-apply-coupon]");
+      if (applyButton) applyButton.disabled = !state.cart.length || !state.couponDraft.trim();
+      if (state.coupon.status === "invalid") {
+        state.coupon = { status: "idle", code: "", discountAmount: 0, message: "" };
+        document.querySelector(".sl-coupon-status")?.remove();
+      }
     }
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeImageZoom();
+    if (event.key === "Escape") {
+      closeImageZoom();
+      if (state.cartOpen) {
+        state.cartOpen = false;
+        render();
+      }
+    }
+    if (event.key === "Enter" && event.target.closest("[data-shoplink-coupon]")) {
+      event.preventDefault();
+      validateCoupon();
+    }
   });
 
   async function boot() {
@@ -597,7 +796,8 @@
     try {
       const campaignSlug = campaignSlugFromUrl();
       state.data = await api(`/shoplink/public/${encodeURIComponent(companyId)}${campaignSlug ? `?campaign=${encodeURIComponent(campaignSlug)}` : ""}`);
-      state.couponCode = state.data?.campaign?.coupon_code || "";
+      state.couponDraft = "";
+      state.paymentMethod = "";
       render();
     } catch (error) {
       renderError(error.message || "Error cargando ShopLink.");

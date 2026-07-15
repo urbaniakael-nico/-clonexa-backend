@@ -68,6 +68,13 @@ class ShoplinkOrderIn(BaseModel):
     customer_note: str | None = ""
     campaign_slug: str | None = ""
     coupon_code: str | None = ""
+    payment_method: str | None = ""
+    items: list[ShoplinkOrderItemIn] | None = None
+
+
+class ShoplinkCouponValidateIn(BaseModel):
+    campaign_slug: str | None = ""
+    coupon_code: str | None = ""
     items: list[ShoplinkOrderItemIn] | None = None
 
 
@@ -229,6 +236,7 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
             currency text NOT NULL DEFAULT 'COP',
             status text NOT NULL DEFAULT 'new',
             invoice_code text NOT NULL DEFAULT '',
+            payment_method text NOT NULL DEFAULT '',
             guide_number text NOT NULL DEFAULT '',
             guide_url text NOT NULL DEFAULT '',
             guide_note text NOT NULL DEFAULT '',
@@ -245,6 +253,7 @@ async def ensure_shoplink_storage(db: AsyncSession) -> None:
     """))
     for stmt in [
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS invoice_code text NOT NULL DEFAULT ''",
+        "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS payment_method text NOT NULL DEFAULT ''",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_number text NOT NULL DEFAULT ''",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_url text NOT NULL DEFAULT ''",
         "ALTER TABLE shoplink_orders ADD COLUMN IF NOT EXISTS guide_note text NOT NULL DEFAULT ''",
@@ -1028,6 +1037,7 @@ def _shoplink_owner_alert(
         f"Factura: {_clean(order.get('invoice_code'), 60)}",
         f"Cliente: {' - '.join([part for part in customer if part]) or 'Cliente'}",
         f"Entrega: {delivery or 'Por confirmar'}",
+        f"Pago: {_clean(order.get('payment_method'), 60) or 'Por confirmar'}",
         "Articulos:",
         *(item_lines or ["- Sin detalle"]),
         f"Total: {_format_invoice_money(order.get('total_amount'), order.get('currency') or settings.get('currency') or 'COP')}",
@@ -1088,6 +1098,7 @@ def _shoplink_order_out(row: dict[str, Any], company_id: str | None = None) -> d
         "campaign_slug": _clean(row.get("campaign_slug"), 100),
         "coupon_code": _clean(row.get("coupon_code"), 40),
         "discount_amount": float(row.get("discount_amount") or 0),
+        "payment_method": _clean(row.get("payment_method"), 60),
         "status": status,
         "status_label": _order_status_label(status),
         "guide_number": _clean(row.get("guide_number"), 120),
@@ -1400,6 +1411,7 @@ def _shoplink_campaign_out(
     settings: dict[str, Any],
     products: list[dict[str, Any]] | None = None,
     orders: list[dict[str, Any]] | None = None,
+    include_private: bool = True,
 ) -> dict[str, Any]:
     products = products or []
     orders = orders or []
@@ -1428,7 +1440,8 @@ def _shoplink_campaign_out(
         "description": _clean(row.get("description"), 700),
         "banner_url": _clean(row.get("banner_url"), 1000),
         "discount_label": _clean(row.get("discount_label"), 120),
-        "coupon_code": _clean(row.get("coupon_code"), 40),
+        "coupon_code": _clean(row.get("coupon_code"), 40) if include_private else "",
+        "coupon_required": bool(_clean(row.get("coupon_code"), 40)),
         "discount_type": _campaign_discount_type(row.get("discount_type")),
         "discount_value": float(row.get("discount_value") or 0),
         "min_order": float(row.get("min_order") or 0),
@@ -1595,6 +1608,50 @@ async def _active_shoplink_campaign_by_slug(db: AsyncSession, company_id: str, s
     return dict(row) if row else None
 
 
+async def _active_shoplink_campaign_by_coupon(db: AsyncSession, company_id: str, coupon_code: str) -> dict[str, Any] | None:
+    clean_coupon = _clean(coupon_code, 40).upper()
+    if not clean_coupon:
+        return None
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT *
+            FROM shoplink_campaigns
+            WHERE company_id = :company_id
+              AND upper(coupon_code) = :coupon_code
+              AND lower(status) = 'active'
+              AND landing_enabled IS TRUE
+              AND COALESCE(archived, false) IS NOT TRUE
+              AND (starts_at IS NULL OR starts_at <= now())
+              AND (ends_at IS NULL OR ends_at >= now())
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """),
+        {"company_id": company_id, "coupon_code": clean_coupon},
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def _shoplink_campaign_uses(db: AsyncSession, company_id: str, campaign_slug: str) -> int:
+    clean_slug = _slug(_clean(campaign_slug, 100))
+    if not clean_slug:
+        return 0
+    await ensure_shoplink_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT count(*)
+            FROM shoplink_orders
+            WHERE company_id = :company_id
+              AND campaign_slug = :campaign_slug
+              AND discount_amount > 0
+              AND lower(status) <> 'cancelled'
+        """),
+        {"company_id": company_id, "campaign_slug": clean_slug},
+    )
+    return int(result.scalar() or 0)
+
+
 async def _save_shoplink_campaign(
     db: AsyncSession,
     company_id: str,
@@ -1728,6 +1785,70 @@ def _campaign_discount_amount(campaign: dict[str, Any] | None, items: list[dict[
     return 0.0
 
 
+def _campaign_coupon_quote(
+    campaign: dict[str, Any] | None,
+    items: list[dict[str, Any]],
+    subtotal: float,
+    coupon_code: str,
+    uses: int = 0,
+) -> dict[str, Any]:
+    provided = _clean(coupon_code, 40).upper()
+    if not provided or not campaign:
+        return {"valid": False, "discount_amount": 0.0, "message": "El cupon no existe o ya no esta activo."}
+    expected = _clean(campaign.get("coupon_code"), 40).upper()
+    if not expected or expected != provided:
+        return {"valid": False, "discount_amount": 0.0, "message": "El cupon no existe o ya no esta activo."}
+    max_uses = max(0, int(campaign.get("max_uses") or 0))
+    if max_uses and uses >= max_uses:
+        return {"valid": False, "discount_amount": 0.0, "message": "Este cupon alcanzo su limite de usos."}
+    minimum = float(campaign.get("min_order") or 0)
+    if subtotal < minimum:
+        return {
+            "valid": False,
+            "discount_amount": 0.0,
+            "message": f"El cupon aplica desde una compra de {_format_invoice_money(minimum, 'COP')}.",
+        }
+    product_ids = _campaign_product_ids(campaign.get("product_ids"))
+    if product_ids and not any(_campaign_product_match(item.get("product_id"), product_ids) for item in items):
+        return {"valid": False, "discount_amount": 0.0, "message": "El cupon no aplica a los productos del carrito."}
+    discount = _campaign_discount_amount(campaign, items, subtotal, provided)
+    if discount <= 0:
+        return {"valid": False, "discount_amount": 0.0, "message": "Este cupon no tiene un descuento disponible."}
+    return {
+        "valid": True,
+        "discount_amount": discount,
+        "message": "Cupon aplicado correctamente.",
+    }
+
+
+def _shoplink_checkout_items(catalog: dict[str, dict[str, Any]], raw_items: list[Any] | None) -> tuple[list[dict[str, Any]], float]:
+    items: list[dict[str, Any]] = []
+    total = 0.0
+    for raw in raw_items or []:
+        data = raw.model_dump() if hasattr(raw, "model_dump") else (raw.dict() if hasattr(raw, "dict") else dict(raw or {}))
+        product = catalog.get(str(data.get("product_id") or ""))
+        if not product:
+            continue
+        qty = max(1, min(int(data.get("qty") or 1), 99))
+        if _money(product.get("stock")) <= 0:
+            continue
+        unit_price = _money(product.get("price"))
+        subtotal = unit_price * qty
+        total += subtotal
+        items.append({
+            "product_id": product["id"],
+            "name": product["name"],
+            "sku": product.get("sku") or "",
+            "category": product.get("category") or "General",
+            "size": product.get("size") or "",
+            "color": product.get("color") or "",
+            "qty": qty,
+            "unit_price": unit_price,
+            "subtotal": subtotal,
+        })
+    return items, total
+
+
 def _shoplink_invoice_html(company: dict[str, Any], settings: dict[str, Any], order: dict[str, Any]) -> str:
     customer = order.get("customer") or {}
     items = order.get("items") or []
@@ -1795,6 +1916,7 @@ def _shoplink_invoice_html(company: dict[str, Any], settings: dict[str, Any], or
       <div class="box">
         <h2>Entrega</h2>
         <p>Guia: {escape(order.get("guide_number") or "Pendiente")}</p>
+        <p>Pago: {escape(order.get("payment_method") or "Por confirmar")}</p>
         <p>{escape(order.get("guide_url") or "")}</p>
         <p>{escape(order.get("guide_note") or "")}</p>
       </div>
@@ -1845,6 +1967,7 @@ def _shoplink_invoice_pdf(company: dict[str, Any], settings: dict[str, Any], ord
         f"Telefono: {_clean(customer.get('phone'), 40)}",
         f"Ciudad: {_clean(customer.get('city'), 120)}",
         f"Direccion: {_clean(customer.get('address'), 220)}",
+        f"Pago: {_clean(order.get('payment_method'), 60) or 'Por confirmar'}",
     ]:
         pdf.drawString(54, y, line)
         y -= 14
@@ -2906,6 +3029,42 @@ def _order_payload(payload: ShoplinkOrderIn) -> dict[str, Any]:
     }
 
 
+@router.post("/public/{company_id}/coupons/validate")
+async def validate_shoplink_coupon(
+    company_id: UUID,
+    payload: ShoplinkCouponValidateIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    company = await _company(db, company_id)
+    settings = await _settings(db, company)
+    if not settings.get("public_enabled", True):
+        raise HTTPException(status_code=403, detail="Tienda publica desactivada.")
+    coupon_code = _clean(payload.coupon_code, 40).upper()
+    if not coupon_code:
+        raise HTTPException(status_code=400, detail="Escribe un codigo de cupon.")
+    products = await _products(db, company["id"])
+    catalog = {str(product["id"]): product for product in products}
+    items, subtotal = _shoplink_checkout_items(catalog, payload.items)
+    if not items:
+        raise HTTPException(status_code=400, detail="Agrega productos al carrito antes de aplicar el cupon.")
+    campaign_row = await _active_shoplink_campaign_by_coupon(db, company["id"], coupon_code)
+    uses = await _shoplink_campaign_uses(db, company["id"], campaign_row.get("slug")) if campaign_row else 0
+    quote_out = _campaign_coupon_quote(campaign_row, items, subtotal, coupon_code, uses)
+    campaign_out = (
+        _shoplink_campaign_out(campaign_row, settings, products, [], include_private=False)
+        if campaign_row else None
+    )
+    return {
+        "ok": True,
+        **quote_out,
+        "coupon_code": coupon_code if quote_out["valid"] else "",
+        "subtotal": subtotal,
+        "total_amount": max(0.0, subtotal - float(quote_out["discount_amount"] or 0)),
+        "campaign": campaign_out,
+        "campaign_slug": _clean(campaign_row.get("slug"), 100) if campaign_row and quote_out["valid"] else "",
+    }
+
+
 @router.post("/public/{company_id}/orders")
 async def create_shoplink_order(
     company_id: UUID,
@@ -2924,31 +3083,9 @@ async def create_shoplink_order(
     if not customer["name"] or not customer["phone"]:
         raise HTTPException(status_code=400, detail="Nombre y telefono son obligatorios.")
 
-    catalog = {str(product["id"]): product for product in await _products(db, company["id"])}
-    items = []
-    total = 0.0
-    for raw in payload.items or []:
-        data = raw.model_dump() if hasattr(raw, "model_dump") else raw.dict()
-        product = catalog.get(str(data.get("product_id") or ""))
-        if not product:
-            continue
-        qty = max(1, min(int(data.get("qty") or 1), 99))
-        if _money(product.get("stock")) <= 0:
-            continue
-        unit_price = _money(product.get("price"))
-        subtotal = unit_price * qty
-        total += subtotal
-        items.append({
-            "product_id": product["id"],
-            "name": product["name"],
-            "sku": product.get("sku") or "",
-            "category": product.get("category") or "General",
-            "size": product.get("size") or "",
-            "color": product.get("color") or "",
-            "qty": qty,
-            "unit_price": unit_price,
-            "subtotal": subtotal,
-        })
+    products = await _products(db, company["id"])
+    catalog = {str(product["id"]): product for product in products}
+    items, total = _shoplink_checkout_items(catalog, payload.items)
 
     if not items:
         raise HTTPException(status_code=400, detail="El pedido no tiene productos disponibles.")
@@ -2956,7 +3093,34 @@ async def create_shoplink_order(
     requested_campaign_slug = _slug(_clean(payload.campaign_slug, 100))
     campaign = await _active_shoplink_campaign_by_slug(db, company["id"], requested_campaign_slug) if requested_campaign_slug else None
     coupon_code = _clean(payload.coupon_code, 40).upper()
-    discount_amount = _campaign_discount_amount(campaign, items, total, coupon_code)
+    if coupon_code:
+        expected_coupon = _clean(campaign.get("coupon_code"), 40).upper() if campaign else ""
+        if not campaign or expected_coupon != coupon_code:
+            campaign = await _active_shoplink_campaign_by_coupon(db, company["id"], coupon_code)
+        uses = await _shoplink_campaign_uses(db, company["id"], campaign.get("slug")) if campaign else 0
+        coupon_quote = _campaign_coupon_quote(campaign, items, total, coupon_code, uses)
+        if not coupon_quote["valid"]:
+            raise HTTPException(status_code=422, detail=coupon_quote["message"])
+        discount_amount = float(coupon_quote["discount_amount"] or 0)
+    else:
+        campaign_uses = await _shoplink_campaign_uses(db, company["id"], campaign.get("slug")) if campaign else 0
+        max_uses = max(0, int(campaign.get("max_uses") or 0)) if campaign else 0
+        discount_amount = (
+            _campaign_discount_amount(campaign, items, total, "")
+            if not max_uses or campaign_uses < max_uses else 0.0
+        )
+    configured_methods = [
+        _clean(method, 60)
+        for method in (settings.get("payment_methods") or ["Efectivo", "Transferencia", "Tarjeta"])
+        if _clean(method, 60)
+    ]
+    requested_payment = _clean(payload.payment_method, 60)
+    payment_method = next(
+        (method for method in configured_methods if method.lower() == requested_payment.lower()),
+        "",
+    )
+    if configured_methods and not payment_method:
+        raise HTTPException(status_code=400, detail="Selecciona un metodo de pago valido.")
     total_after_discount = max(0.0, total - discount_amount)
     campaign_slug = _clean(campaign.get("slug"), 100) if campaign else ""
     order_id = str(uuid4())
@@ -2968,12 +3132,12 @@ async def create_shoplink_order(
         text("""
             INSERT INTO shoplink_orders (
               id, company_id, order_code, customer_json, items_json,
-              total_amount, currency, status, invoice_code, campaign_slug, coupon_code,
+              total_amount, currency, status, invoice_code, payment_method, campaign_slug, coupon_code,
               discount_amount, source, invoiced_at, updated_at
             )
             VALUES (
               :id, :company_id, :order_code, CAST(:customer AS jsonb), CAST(:items AS jsonb),
-              :total_amount, :currency, 'new', :invoice_code, :campaign_slug, :coupon_code,
+              :total_amount, :currency, 'new', :invoice_code, :payment_method, :campaign_slug, :coupon_code,
               :discount_amount, :source, now(), now()
             )
         """),
@@ -2982,6 +3146,7 @@ async def create_shoplink_order(
             "company_id": company["id"],
             "order_code": order_code,
             "invoice_code": invoice_code,
+            "payment_method": payment_method,
             "customer": json.dumps(customer, ensure_ascii=False),
             "items": json.dumps(items, ensure_ascii=False),
             "total_amount": total_after_discount,
@@ -3010,6 +3175,7 @@ async def create_shoplink_order(
         "discount_amount": discount_amount,
         "campaign_slug": campaign_slug,
         "coupon_code": coupon_code if discount_amount > 0 else "",
+        "payment_method": payment_method,
         "currency": currency,
         "items": items,
     }
@@ -3036,7 +3202,7 @@ async def public_shoplink(
         raise HTTPException(status_code=403, detail="Tienda pública desactivada.")
     products = await _products(db, company["id"])
     campaign_row = await _active_shoplink_campaign_by_slug(db, company["id"], campaign) if campaign else None
-    campaign_out = _shoplink_campaign_out(campaign_row, settings, products, []) if campaign_row else None
+    campaign_out = _shoplink_campaign_out(campaign_row, settings, products, [], include_private=False) if campaign_row else None
     if campaign_out:
         product_ids = _campaign_product_ids(campaign_row.get("product_ids"))
         if product_ids:
