@@ -386,7 +386,12 @@ async def _insert_attendance_event(
     event_label: str,
     status_after: str,
     detail: str = "",
+    metadata: dict[str, Any] | None = None,
+    source_ref: str | None = None,
 ) -> None:
+    event_metadata = {"source": "velvet_bot_v1"}
+    event_metadata.update(metadata or {})
+
     await db.execute(
         text("""
             INSERT INTO workforce_attendance_events (
@@ -432,9 +437,9 @@ async def _insert_attendance_event(
             "employee_name": employee["employee_name"],
             "employee_role": employee.get("employee_role") or "",
             "status_after": status_after,
-            "source_ref": f"velvet_bot_v1:{event_type}",
+            "source_ref": source_ref or f"velvet_bot_v1:{event_type}",
             "detail": detail,
-            "metadata_json": json.dumps({"source": "velvet_bot_v1"}, ensure_ascii=False),
+            "metadata_json": json.dumps(event_metadata, ensure_ascii=False),
         },
     )
 
@@ -470,6 +475,36 @@ async def _insert_attendance_event(
             "event_type": event_type,
         },
     )
+
+
+async def _active_reference_session(
+    db: AsyncSession,
+    *,
+    company_id: str,
+    employee_id: str,
+) -> dict[str, Any] | None:
+    result = await db.execute(
+        text("""
+            SELECT
+                id,
+                COALESCE(reference_id, '') AS reference_id,
+                COALESCE(reference_name, '') AS reference_name,
+                started_at
+            FROM reference_work_sessions
+            WHERE company_id = :company_id
+              AND employee_id = :employee_id
+              AND status = 'active'
+            ORDER BY started_at DESC
+            LIMIT 1
+        """),
+        {
+            "company_id": company_id,
+            "employee_id": employee_id,
+        },
+    )
+
+    row = result.mappings().first()
+    return dict(row) if row else None
 
 
 async def _open_reference_session(
@@ -958,6 +993,23 @@ async def webhook(
             await _send_message(chat_id, "Referencia no encontrada o inactiva.")
             return {"ok": True, "handled": "reference_missing"}
 
+        previous = await _active_reference_session(
+            db,
+            company_id=company_id,
+            employee_id=employee["employee_id"],
+        )
+        status_after = await _status(db, company_id=company_id, employee_id=employee["employee_id"])
+        if status_after not in {"working", "on_break"}:
+            status_after = "working"
+
+        if previous and _clean(previous.get("reference_id")) == _clean(ref.get("id")):
+            await _send_message(
+                chat_id,
+                f"ℹ️ Ya estás trabajando en la referencia: {ref['name']}.",
+                reply_markup=_main_menu(status_after),
+            )
+            return {"ok": True, "handled": "reference_unchanged"}
+
         await _open_reference_session(
             db,
             company_id=company_id,
@@ -967,12 +1019,35 @@ async def webhook(
             close_status="switched",
         )
 
+        previous_reference_id = _clean((previous or {}).get("reference_id"))
+        previous_reference_name = _clean((previous or {}).get("reference_name"))
+        update_id = _clean(info.get("update_id"))
+
+        await _insert_attendance_event(
+            db,
+            company_id=company_id,
+            employee=employee,
+            event_type="reference_switch",
+            event_label="Cambio de referencia",
+            status_after=status_after,
+            detail=f"Cambio de referencia: {previous_reference_name or 'Sin referencia'} → {ref['name']}",
+            metadata={
+                "reference_id": _clean(ref.get("id")),
+                "reference_name": _clean(ref.get("name")),
+                "previous_reference_id": previous_reference_id,
+                "previous_reference_name": previous_reference_name,
+                "previous_reference_session_id": _clean((previous or {}).get("id")),
+                "telegram_update_id": update_id,
+            },
+            source_ref=f"velvet_bot_v1:reference_switch:{update_id}" if update_id else None,
+        )
+
         await db.commit()
 
         await _send_message(
             chat_id,
             f"🔁 Cambio de referencia registrado: {ref['name']}.",
-            reply_markup=_main_menu("working"),
+            reply_markup=_main_menu(status_after),
         )
         return {"ok": True, "handled": "reference_switched"}
 
