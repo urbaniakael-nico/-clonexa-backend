@@ -8215,8 +8215,38 @@ function inventoryCreatePayload() {
     return `${cxProdSafeText018E(referenceName).trim().toLowerCase()}__${cxProdSafeText018E(size).trim().toLowerCase()}`;
   }
 
+  function cxProdRefNameKey018E(referenceName) {
+    return `name:${cxProdNorm018E(referenceName)}`;
+  }
+
+  function cxProdMergeTimeRow018E(current = {}, row = {}) {
+    if (!Object.keys(current).length) {
+      return {
+        ...row,
+        operators_count: Number(row.operators_count || 0),
+        active_sessions: Number(row.active_sessions || 0),
+        sessions_count: Number(row.sessions_count || 0),
+        total_effective_seconds: Number(row.total_effective_seconds || 0)
+      };
+    }
+
+    const seconds = Number(current.total_effective_seconds || 0) + Number(row.total_effective_seconds || 0);
+    return {
+      ...current,
+      reference_id: "",
+      size: "",
+      reference_scope: "name",
+      operators_count: Math.max(Number(current.operators_count || 0), Number(row.operators_count || 0)),
+      active_sessions: Number(current.active_sessions || 0) + Number(row.active_sessions || 0),
+      sessions_count: Number(current.sessions_count || 0) + Number(row.sessions_count || 0),
+      total_effective_seconds: seconds,
+      total_effective_label: cxProdSeconds018E(seconds)
+    };
+  }
+
   function cxProdBuildTimeMap018E(summary = {}) {
     const map = new Map();
+    const byName = new Map();
     const rows = Array.isArray(summary.time_by_reference) ? summary.time_by_reference : [];
 
     rows.forEach((row) => {
@@ -8224,13 +8254,18 @@ function inventoryCreatePayload() {
       const keyByName = cxProdRefKey018E(row.reference_name, row.size, "");
       map.set(keyById, row);
       map.set(keyByName, row);
+
+      const nameKey = cxProdRefNameKey018E(row.reference_name);
+      byName.set(nameKey, cxProdMergeTimeRow018E(byName.get(nameKey), row));
     });
 
+    byName.forEach((row, key) => map.set(key, row));
     return map;
   }
 
   function cxProdReferenceTime018E(row = {}, timeMap = new Map()) {
-    return timeMap.get(cxProdRefKey018E(row.name, row.size, row.id)) ||
+    return timeMap.get(cxProdRefNameKey018E(row.time_reference_name || row.name)) ||
+      timeMap.get(cxProdRefKey018E(row.name, row.size, row.id)) ||
       timeMap.get(cxProdRefKey018E(row.name, row.size, "")) ||
       {};
   }
@@ -8539,6 +8574,24 @@ function inventoryCreatePayload() {
         border: 1px solid rgba(255,255,255,.13);
         margin-top: 14px;
       }
+      .cx-prod-reference-table {
+        max-height: 704px;
+        overflow: auto;
+        scrollbar-gutter: stable;
+      }
+      .cx-prod-reference-table .cx-prod-grid {
+        grid-auto-rows: 64px;
+      }
+      .cx-prod-reference-table .cx-prod-cell {
+        min-height: 64px;
+        max-height: 64px;
+        overflow: hidden;
+      }
+      .cx-prod-reference-table .cx-prod-head {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+      }
       .cx-prod-grid {
         min-width: 1180px;
         display: grid;
@@ -8559,6 +8612,23 @@ function inventoryCreatePayload() {
         border-bottom: 1px solid rgba(255,255,255,.09);
         background: rgba(0,0,0,.08);
         font-weight: 850;
+      }
+      .cx-prod-variant-cell {
+        display: grid;
+        gap: 4px;
+      }
+      .cx-prod-variant-cell small,
+      .cx-prod-reference-scope {
+        display: block;
+        opacity: .7;
+        font-size: 11px;
+        line-height: 1.25;
+        font-weight: 850;
+      }
+      .cx-prod-variant-cell small {
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
       }
       .cx-prod-head {
         text-transform: uppercase;
@@ -8596,10 +8666,46 @@ function inventoryCreatePayload() {
   }
 
   function cxProdReferenceRows018E(summary, settings, filters = {}) {
+    const grouped = new Map();
+    (Array.isArray(summary.references) ? summary.references : []).forEach((row) => {
+      const key = cxProdRefNameKey018E(row.name);
+      const item = grouped.get(key) || {
+        name: row.name || "-",
+        time_reference_name: row.name || "",
+        variants: [],
+        initial_quantity: 0,
+        finished_quantity: 0,
+        pending_quantity: 0,
+        over_finished_quantity: 0,
+        bot_active: false,
+        archived: true,
+        activation_date: "",
+        archived_at: ""
+      };
+      item.variants.push(row);
+      item.initial_quantity += Number(row.initial_quantity || 0);
+      item.finished_quantity += Number(row.finished_quantity || 0);
+      item.pending_quantity += Number(row.pending_quantity || 0);
+      item.over_finished_quantity += Number(row.over_finished_quantity || 0);
+      item.bot_active = Boolean(item.bot_active || row.bot_active);
+      item.archived = Boolean(item.archived && row.archived);
+      if (cxProdDateMs018E(row.activation_date) > cxProdDateMs018E(item.activation_date)) item.activation_date = row.activation_date || "";
+      if (cxProdDateMs018E(row.archived_at) > cxProdDateMs018E(item.archived_at)) item.archived_at = row.archived_at || "";
+      grouped.set(key, item);
+    });
+
     const refs = cxProdReferenceSort018E(
-      (Array.isArray(summary.references) ? summary.references : [])
+      [...grouped.values()]
+        .map((row) => ({
+          ...row,
+          size: row.variants.map((variant) => variant.size || "-").join(" "),
+          progress_percent: row.initial_quantity > 0
+            ? (row.finished_quantity / row.initial_quantity) * 100
+            : 0,
+          status: row.archived ? cxProdT018E(settings, "archived") : cxProdT018E(settings, "active")
+        }))
         .filter((row) => cxProdRowMatches018E(
-          { ...row, status: row.archived ? cxProdT018E(settings, "archived") : cxProdT018E(settings, "active") },
+          row,
           filters.reference_q || "",
           ["name", "size", "status", "activation_date", "archived_at"]
         )),
@@ -8614,23 +8720,28 @@ function inventoryCreatePayload() {
     const rows = refs.map((row) => {
       const time = cxProdReferenceTime018E(row, timeMap);
       const progress = Number(row.progress_percent || 0);
-      const stateLabel = row.archived ? cxProdT018E(settings, "archived") : cxProdT018E(settings, "active");
+      const variants = [...row.variants].sort((a, b) => cxProdCompareText018E(a.size, b.size));
+      const variantNames = variants.map((variant) => variant.size || "-").join(" · ");
+      const variantDetail = variants
+        .map((variant) => `${variant.size || "-"}: ${cxProdNum018E(variant.finished_quantity || 0)}/${cxProdNum018E(variant.initial_quantity || 0)}`)
+        .join(" · ");
+      const collaboratorLabel = `${cxProdNum018E(time.operators_count || 0)} total · ${cxProdNum018E(time.active_sessions || 0)} activos`;
 
       return [
         cxProdTableCell018E(row.name || "-"),
-        cxProdTableCell018E(row.size || "-"),
+        `<div class="cx-prod-cell cx-prod-variant-cell"><strong>${h(variantNames)}</strong><small>${h(variantDetail)}</small></div>`,
         cxProdTableCell018E(cxProdNum018E(row.initial_quantity)),
         cxProdTableCell018E(cxProdNum018E(row.finished_quantity)),
         cxProdTableCell018E(cxProdNum018E(row.pending_quantity)),
         cxProdTableCell018E(cxProdNum018E(row.over_finished_quantity)),
         cxProdProgressCell018E(progress),
-        cxProdTableCell018E(time.total_effective_label || cxProdSeconds018E(time.total_effective_seconds || 0)),
-        cxProdTableCell018E(`${cxProdNum018E(time.operators_count || 0)} / ${stateLabel}`)
+        `<div class="cx-prod-cell"><strong>${h(time.total_effective_label || cxProdSeconds018E(time.total_effective_seconds || 0))}</strong><small class="cx-prod-reference-scope">Tiempo general de la referencia</small></div>`,
+        cxProdTableCell018E(collaboratorLabel)
       ].join("");
     }).join("");
 
     return `
-      <div class="cx-prod-table-wrap">
+      <div class="cx-prod-table-wrap cx-prod-reference-table">
         <div class="cx-prod-grid">
           ${cxProdTableCell018E(cxProdT018E(settings, "reference"), "cx-prod-head")}
           ${cxProdTableCell018E(cxProdT018E(settings, "size"), "cx-prod-head")}

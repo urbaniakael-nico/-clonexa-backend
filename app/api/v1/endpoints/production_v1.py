@@ -10,6 +10,7 @@ import io
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from sqlalchemy import text
@@ -19,6 +20,7 @@ from app.api.deps import get_db
 from app.api.v1.endpoints.payroll import calculate_period_snapshot
 
 router = APIRouter()
+BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")
 
 
 def clean(value: Any) -> str:
@@ -334,7 +336,8 @@ async def closures_rows(db: AsyncSession, company_id: str, start: date, end: dat
             COALESCE(source_channel, '') AS source_channel
         FROM reference_production_closures
         WHERE company_id::text = :company_id
-          AND closed_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
+          AND (closed_at AT TIME ZONE 'America/Bogota')::date
+              BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
         ORDER BY closed_at DESC
         LIMIT :limit
         """,
@@ -441,10 +444,9 @@ def _prod_format_seconds(seconds: int) -> str:
 
 
 def _prod_period_bounds_023r(start: date, end: date) -> tuple[datetime, datetime]:
-    return (
-        datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc),
-        datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
-    )
+    local_start = datetime.combine(start, datetime.min.time(), tzinfo=BUSINESS_TIMEZONE)
+    local_end = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=BUSINESS_TIMEZONE)
+    return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
 
 
 def _prod_identity_keys_023r(employee_id: str, telegram_user_id: str = "", employee_name: str = "") -> list[str]:
@@ -493,6 +495,10 @@ def _prod_ref_key(reference_id: str, reference_name: str, size: str) -> str:
         return f"id:{rid}"
 
     return f"name:{clean(reference_name).lower()}|size:{clean(size).lower()}"
+
+
+def _prod_reference_time_key(reference_name: str) -> str:
+    return f"name:{clean(reference_name).casefold()}"
 
 
 def _prod_operator_key(employee_id: str, employee_name: str, telegram_user_id: str, ref_key: str) -> str:
@@ -671,7 +677,8 @@ async def _prod_closure_totals(db: AsyncSession, company_id: str, start: date, e
             COALESCE(sum(quantity_finished), 0) AS quantity_finished
         FROM reference_production_closures
         WHERE company_id::text = :company_id
-          AND closed_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
+          AND (closed_at AT TIME ZONE 'America/Bogota')::date
+              BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
         GROUP BY reference_id, reference_name, size, employee_id, employee_name, telegram_user_id
         """,
         {
@@ -703,16 +710,27 @@ async def _prod_closure_totals(db: AsyncSession, company_id: str, start: date, e
         out: dict[str, int] = {}
         for row in rows:
             ref_key = _prod_ref_key(row.get("reference_id"), row.get("reference_name"), row.get("size"))
+            reference_time_key = _prod_reference_time_key(row.get("reference_name"))
             op_key = _prod_operator_key(
                 row.get("employee_id"),
                 row.get("employee_name"),
                 row.get("telegram_user_id"),
                 ref_key,
             )
+            operator_reference_time_key = _prod_operator_key(
+                row.get("employee_id"),
+                row.get("employee_name"),
+                row.get("telegram_user_id"),
+                reference_time_key,
+            )
 
             qty = intval(row.get("quantity_finished"))
             out[ref_key] = out.get(ref_key, 0) + qty
             out[op_key] = out.get(op_key, 0) + qty
+            if reference_time_key != ref_key:
+                out[reference_time_key] = out.get(reference_time_key, 0) + qty
+            if operator_reference_time_key != op_key:
+                out[operator_reference_time_key] = out.get(operator_reference_time_key, 0) + qty
 
         return out
 
@@ -970,7 +988,8 @@ async def _prod_closure_totals(db: AsyncSession, company_id: str, start: date, e
             COALESCE(sum(quantity_finished), 0) AS quantity_finished
         FROM reference_production_closures
         WHERE company_id::text = :company_id
-          AND closed_at::date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
+          AND (closed_at AT TIME ZONE 'America/Bogota')::date
+              BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
         GROUP BY reference_id, reference_name, size, employee_id, employee_name, telegram_user_id
         """,
         {
@@ -1004,16 +1023,27 @@ async def _prod_closure_totals(db: AsyncSession, company_id: str, start: date, e
 
         for row in rows:
             ref_key = _prod_ref_key(row.get("reference_id"), row.get("reference_name"), row.get("size"))
+            reference_time_key = _prod_reference_time_key(row.get("reference_name"))
             op_key = _prod_operator_key(
                 row.get("employee_id"),
                 row.get("employee_name"),
                 row.get("telegram_user_id"),
                 ref_key,
             )
+            operator_reference_time_key = _prod_operator_key(
+                row.get("employee_id"),
+                row.get("employee_name"),
+                row.get("telegram_user_id"),
+                reference_time_key,
+            )
 
             qty = intval(row.get("quantity_finished"))
             ref_out[ref_key] = ref_out.get(ref_key, 0) + qty
             op_out[op_key] = op_out.get(op_key, 0) + qty
+            if reference_time_key != ref_key:
+                ref_out[reference_time_key] = ref_out.get(reference_time_key, 0) + qty
+            if operator_reference_time_key != op_key:
+                op_out[operator_reference_time_key] = op_out.get(operator_reference_time_key, 0) + qty
 
         merged = {}
         merged.update(ref_out)
@@ -1400,14 +1430,19 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
 
         total_effective_seconds += effective_seconds
 
-        ref_key = _prod_ref_key(reference_id, reference_name, size)
+        # El bot marca una referencia por nombre y no solicita talla al iniciar
+        # o cambiar. Por eso el tiempo debe agruparse a nivel de referencia,
+        # mientras las cantidades cerradas sí permanecen separadas por talla.
+        ref_key = _prod_reference_time_key(reference_name)
         op_key = _prod_operator_key(employee_id, employee_name, telegram_user_id, ref_key)
 
         ref_item = by_reference.setdefault(ref_key, {
             "reference_key": ref_key,
-            "reference_id": reference_id,
+            "reference_id": "",
             "reference_name": reference_name,
-            "size": size,
+            "size": "",
+            "reference_scope": "name",
+            "source_reference_ids": set(),
             "operators": set(),
             "operators_count": 0,
             "sessions_count": 0,
@@ -1422,6 +1457,8 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
         })
 
         operator_identity = employee_id or telegram_user_id or employee_name
+        if reference_id:
+            ref_item["source_reference_ids"].add(reference_id)
         ref_item["operators"].add(operator_identity)
         ref_item["sessions_count"] += 1
         ref_item["active_sessions"] += 1 if is_active else 0
@@ -1433,9 +1470,11 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             "employee_name": employee_name,
             "telegram_user_id": telegram_user_id,
             "reference_key": ref_key,
-            "reference_id": reference_id,
+            "reference_id": "",
             "reference_name": reference_name,
-            "size": size,
+            "size": "",
+            "reference_scope": "name",
+            "source_reference_ids": set(),
             "sessions_count": 0,
             "active_sessions": 0,
             "effective_seconds": 0,
@@ -1448,6 +1487,8 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             "is_active": False,
         })
 
+        if reference_id:
+            op_item["source_reference_ids"].add(reference_id)
         op_item["sessions_count"] += 1
         op_item["active_sessions"] += 1 if is_active else 0
         op_item["effective_seconds"] += effective_seconds
@@ -1469,6 +1510,7 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
                 ref_item["total_effective_seconds"] += int(op_item.get("effective_seconds") or 0)
 
     for item in by_reference.values():
+        item["source_reference_ids"] = sorted(item.get("source_reference_ids") or set())
         item["operators_count"] = len(item.pop("operators", set()))
         item["total_effective_minutes"] = round(item["total_effective_seconds"] / 60, 2)
         item["total_effective_label"] = _prod_format_seconds(item["total_effective_seconds"])
@@ -1480,6 +1522,7 @@ async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: 
             item["seconds_per_unit_all_time"] = round(item["total_effective_seconds"] / item["finished_quantity_all_time"], 2)
 
     for item in by_operator_reference.values():
+        item["source_reference_ids"] = sorted(item.get("source_reference_ids") or set())
         item["effective_minutes"] = round(item["effective_seconds"] / 60, 2)
         item["effective_label"] = _prod_format_seconds(item["effective_seconds"])
 
