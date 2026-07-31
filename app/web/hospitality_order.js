@@ -71,6 +71,20 @@
     }
   }
 
+  function tableAccountMeta() {
+    const tableOrders = Number(state.tableAccount?.orders_count || 0);
+    return tableOrders
+      ? `${tableOrders} ${tableOrders === 1 ? "pedido registrado" : "pedidos registrados"}`
+      : "Aun no hay pedidos enviados";
+  }
+
+  function paintTableAccount() {
+    const total = document.getElementById("qrTableAccountTotal030B");
+    const meta = document.getElementById("qrTableAccountMeta030B");
+    if (total) total.textContent = money(state.tableAccount?.total || 0);
+    if (meta) meta.textContent = tableAccountMeta();
+  }
+
   function normalizeText(value) {
     return String(value || "")
       .normalize("NFD")
@@ -1260,7 +1274,6 @@
     const itemCount = cartItemCount();
     const total = cartTotal();
     const tableAccount = state.tableAccount || {};
-    const tableOrders = Number(tableAccount.orders_count || 0);
 
     app.innerHTML = `
       <main class="qr-shell">
@@ -1272,8 +1285,8 @@
           </div>
           <div class="qr-table-account" aria-live="polite" aria-label="Cuenta acumulada de la mesa">
             <span>Cuenta total de la mesa</span>
-            <strong>${h(money(tableAccount.total || 0))}</strong>
-            <small>${tableOrders ? `${h(tableOrders)} ${tableOrders === 1 ? "pedido registrado" : "pedidos registrados"}` : "Aun no hay pedidos enviados"}</small>
+            <strong id="qrTableAccountTotal030B">${h(money(tableAccount.total || 0))}</strong>
+            <small id="qrTableAccountMeta030B">${h(tableAccountMeta())}</small>
           </div>
           <div class="qr-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName)}">` : h(companyName.slice(0, 1).toUpperCase())}</div>
         </section>
@@ -1831,7 +1844,7 @@
         accounts_count: Number(data.account?.accounts_count || 0),
         last_activity: data.account?.last_activity || "",
       };
-      if (options.render !== false) render();
+      if (options.render !== false) paintTableAccount();
       return state.tableAccount;
     } catch (error) {
       const raw = String(error.message || "");
