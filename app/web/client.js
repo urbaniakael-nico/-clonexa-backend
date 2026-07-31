@@ -20426,6 +20426,7 @@ function inventoryCreatePayload() {
     const targetWrap = document.getElementById("hspTargetTableWrap030D");
     const targetSelect = document.getElementById("hspTargetTable030D");
     const tableInput = document.getElementById("hspTable024R");
+    const createButton = document.querySelector("[data-hsp-create]");
     const isTable = destination === "table";
     if (targetWrap) targetWrap.hidden = !isTable;
     if (targetSelect) targetSelect.disabled = !isTable;
@@ -20433,6 +20434,7 @@ function inventoryCreatePayload() {
       tableInput.value = isTable ? (targetSelect?.value || "") : "Barra";
       tableInput.readOnly = true;
     }
+    if (createButton) createButton.textContent = isTable ? "Agregar pedido a mesa" : "Crear venta barra";
   }
 
   function cxHspIsClosingPayment030A(value = "") {
@@ -21365,8 +21367,8 @@ function inventoryCreatePayload() {
                 <section class="hsp-box-024r hsp-form-box-024r">
                   <div class="hsp-intro-wrap-024r">
                     <div class="hsp-form-head-024r">
-                      <h2>Crear venta directa de barra</h2>
-                      <div class="hsp-note-024r">Registro manual del barman. No representa el flujo QR/mesa principal.</div>
+                      <h2>Crear venta manual</h2>
+                      <div class="hsp-note-024r">Vende en barra o carga productos directamente a la cuenta de una mesa.</div>
                     </div>
 
                     <div class="hsp-row-024r hsp-form-main-024r">

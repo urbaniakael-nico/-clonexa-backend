@@ -121,4 +121,5 @@ def test_manual_bar_form_can_charge_products_to_a_table_account():
     assert 'source: destination === "table" ? "table_manual" : "bar_manual"' in source
     assert 'table: manualTable' in source
     assert "El pedido activara la mesa" in source
+    assert 'createButton.textContent = isTable ? "Agregar pedido a mesa" : "Crear venta barra"' in source
     assert "030D_HOSPITALITY_LIVE_ORDERS" in html
