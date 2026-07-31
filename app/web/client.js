@@ -20316,6 +20316,10 @@ function inventoryCreatePayload() {
   /* CLONEXA_024R_HOSPITALITY_ORDERS_START */
   let cxHspInventory024R = [];
   let cxHspOrders024R = [];
+  let cxHspKnownOrderIds030B = new Set();
+  let cxHspOrderAlertsReady030B = false;
+  let cxHspAudioContext030B = null;
+  let cxHspSoundReady030B = false;
 
   function cxIsHospitalityOrdersCode024R(code = "") {
     const normalized = String(code || "")
@@ -20433,6 +20437,73 @@ function inventoryCreatePayload() {
     return "pending";
   }
 
+  function cxHspSyncAlertButton030B() {
+    const button = document.querySelector("[data-hsp-enable-alerts]");
+    if (!button) return;
+    button.classList.toggle("is-active", cxHspSoundReady030B);
+    button.setAttribute("aria-pressed", cxHspSoundReady030B ? "true" : "false");
+    button.innerHTML = cxHspSoundReady030B
+      ? `<span aria-hidden="true">&#128276;</span> Alertas activas`
+      : `<span aria-hidden="true">&#128276;</span> Activar sonido`;
+  }
+
+  async function cxHspEnableAlerts030B() {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      cxHspAudioContext030B = cxHspAudioContext030B || new AudioContext();
+      if (cxHspAudioContext030B.state === "suspended") await cxHspAudioContext030B.resume();
+      cxHspSoundReady030B = cxHspAudioContext030B.state === "running";
+    }
+    if ("Notification" in window && window.Notification.permission === "default") {
+      window.Notification.requestPermission().catch(() => {});
+    }
+    cxHspSyncAlertButton030B();
+    if (cxHspSoundReady030B) cxHspPlayNewOrderSound030B(true);
+    return cxHspSoundReady030B;
+  }
+
+  function cxHspPlayNewOrderSound030B(preview = false) {
+    const context = cxHspAudioContext030B;
+    if (!cxHspSoundReady030B || !context || context.state !== "running") return;
+    const start = context.currentTime;
+    const frequencies = preview ? [740] : [740, 988];
+    frequencies.forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const toneStart = start + (index * 0.16);
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, toneStart);
+      gain.gain.setValueAtTime(0.0001, toneStart);
+      gain.gain.exponentialRampToValueAtTime(preview ? 0.08 : 0.16, toneStart + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, toneStart + 0.14);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(toneStart);
+      oscillator.stop(toneStart + 0.15);
+    });
+  }
+
+  function cxHspNotifyNewOrders030B(orders = []) {
+    const fresh = (Array.isArray(orders) ? orders : []).filter((order) => String(order.source || "").toLowerCase() === "qr");
+    if (!fresh.length) return;
+    const tables = [...new Set(fresh.map((order) => order.table_number || "Mesa"))];
+    const title = fresh.length === 1 ? "Nuevo pedido QR" : `${fresh.length} pedidos QR nuevos`;
+    const detail = tables.slice(0, 3).join(" · ") + (tables.length > 3 ? "..." : "");
+    const host = document.getElementById("hspOrderAlerts030B");
+    if (host) {
+      const toast = document.createElement("div");
+      toast.className = "hsp-order-alert-030b";
+      toast.setAttribute("role", "alert");
+      toast.innerHTML = `<span class="hsp-order-alert-icon-030b" aria-hidden="true">&#128276;</span><span><strong>${h(title)}</strong><small>${h(detail)}${cxHspSoundReady030B ? "" : " · Activa el sonido en la cabecera"}</small></span>`;
+      host.appendChild(toast);
+      window.setTimeout(() => toast.remove(), 9000);
+    }
+    cxHspPlayNewOrderSound030B();
+    if (document.visibilityState === "hidden" && "Notification" in window && window.Notification.permission === "granted") {
+      new window.Notification(title, { body: detail, tag: "clonexa-hospitality-order" });
+    }
+  }
+
   function cxHspStyles024R() {
     if (document.getElementById("cxHspStyles024R")) return;
     const style = document.createElement("style");
@@ -20471,6 +20542,15 @@ function inventoryCreatePayload() {
         color:#08111f;
         box-shadow:0 12px 28px rgba(0,0,0,.16);
       }
+      .hsp-hero-024r .hsp-alert-control-030b{background:rgba(255,255,255,.09);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);box-shadow:none}
+      .hsp-hero-024r .hsp-alert-control-030b.is-active{background:linear-gradient(135deg,#22c55e,#8cf5b5);color:#052e16;border-color:transparent}
+      .hsp-order-alerts-030b{position:fixed;z-index:1400;right:18px;top:18px;width:min(390px,calc(100vw - 36px));display:grid;gap:9px;pointer-events:none}
+      .hsp-order-alert-030b{display:grid;grid-template-columns:42px minmax(0,1fr);gap:11px;align-items:center;padding:13px 14px;border-radius:17px;background:linear-gradient(145deg,rgba(34,197,94,.24),rgba(3,7,18,.96));border:1px solid rgba(134,239,172,.48);box-shadow:0 22px 54px rgba(0,0,0,.38);animation:hspOrderAlertIn030B .24s ease-out;color:#f8fafc}
+      .hsp-order-alert-icon-030b{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:#22c55e;color:#052e16;font-size:20px}
+      .hsp-order-alert-030b strong,.hsp-order-alert-030b small{display:block}
+      .hsp-order-alert-030b strong{font-size:15px}
+      .hsp-order-alert-030b small{margin-top:3px;color:rgba(255,255,255,.72);font-size:11px;font-weight:850}
+      @keyframes hspOrderAlertIn030B{from{opacity:0;transform:translateY(-10px) scale(.97)}to{opacity:1;transform:none}}
       .hsp-grid-024r{display:grid;grid-template-columns:1fr;gap:14px}
       .hsp-box-024r{
         background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035)),var(--hsp-card);
@@ -20968,8 +21048,17 @@ function inventoryCreatePayload() {
 
   async function cxHspLoadOrders024R() {
     const data = await cxHspApi024R("/orders?status=all&limit=220");
-    cxHspOrders024R = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
+    const nextOrders = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
+    const newOrders = cxHspOrderAlertsReady030B
+      ? nextOrders.filter((order) => order.id && !cxHspKnownOrderIds030B.has(String(order.id)))
+      : [];
+    nextOrders.forEach((order) => {
+      if (order.id) cxHspKnownOrderIds030B.add(String(order.id));
+    });
+    cxHspOrders024R = nextOrders;
+    cxHspOrderAlertsReady030B = true;
     cxHspRenderOrdersBoard024R(data.summary || {});
+    cxHspNotifyNewOrders030B(newOrders);
   }
 
   function cxHspGroup024R(status) {
@@ -21133,11 +21222,15 @@ function inventoryCreatePayload() {
     const company = state.company || {};
     let loadError = "";
     let summary = {};
+    cxHspOrderAlertsReady030B = false;
+    cxHspKnownOrderIds030B = new Set();
 
     try {
       await cxHspLoadInventory024R();
       const data = await cxHspApi024R("/orders?status=all&limit=220");
       cxHspOrders024R = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
+      cxHspKnownOrderIds030B = new Set(cxHspOrders024R.map((order) => String(order.id || "")).filter(Boolean));
+      cxHspOrderAlertsReady030B = true;
       summary = data.summary || {};
     } catch (error) {
       loadError = error.message || "No se pudo cargar Hospitality Pedidos.";
@@ -21164,12 +21257,14 @@ function inventoryCreatePayload() {
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 ${isClientModuleActive("inventory") ? `<button class="client-btn" type="button" data-hsp-open-inventory>Inventario</button>` : ""}
+                <button class="client-btn hsp-alert-control-030b" type="button" data-hsp-enable-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Activar sonido</button>
                 <button class="client-btn" type="button" data-hsp-refresh>Actualizar</button>
                 <button class="client-btn" type="button" data-hsp-open-closure>Generar cierre</button>
               </div>
             </header>
 
             <section id="hspOrdersRoot024R" class="hsp-shell-024r">
+              <div id="hspOrderAlerts030B" class="hsp-order-alerts-030b" aria-live="assertive" aria-atomic="false"></div>
               ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
               <div class="hsp-grid-024r">
                 <section class="hsp-box-024r">
@@ -21280,6 +21375,7 @@ function inventoryCreatePayload() {
 
     cxHspAddLine024R();
     cxHspRenderOrdersBoard024R(summary);
+    cxHspSyncAlertButton030B();
 
     if (window.__cxHspOrdersTimer024R) window.clearInterval(window.__cxHspOrdersTimer024R);
     window.__cxHspOrdersTimer024R = window.setInterval(async () => {
@@ -28907,6 +29003,20 @@ function inventoryCreatePayload() {
 
       if (target.closest("[data-hsp-open-inventory]")) {
         await renderInventoryModule();
+        return;
+      }
+
+      if (target.closest("[data-hsp-enable-alerts]")) {
+        try {
+          const enabled = await cxHspEnableAlerts030B();
+          cxHspShowMsg024R(
+            "hspGlobalMsg024R",
+            enabled ? "Alertas visuales y sonido activados para pedidos QR nuevos." : "Las alertas visuales estan activas, pero este navegador bloqueo el sonido.",
+            !enabled,
+          );
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo activar el sonido.", true);
+        }
         return;
       }
 

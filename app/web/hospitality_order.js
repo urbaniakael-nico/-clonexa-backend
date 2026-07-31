@@ -22,6 +22,7 @@
     campaignDismissed: false,
     campaignEndRefreshKey: "",
     access: { active: false, unlocked: false, code: "", expires_at: "" },
+    tableAccount: { total: 0, orders_count: 0, accounts_count: 0, last_activity: "" },
     qrMode: "hospitality",
     assemblyPublic: null,
     assemblyEvent: null,
@@ -189,6 +190,21 @@
         backdrop-filter:blur(20px) saturate(1.2);
       }
       .qr-hero{padding:22px;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}
+      .qr-hero.qr-hero-account{grid-template-columns:minmax(0,1fr) auto auto}
+      .qr-hero-copy{min-width:0}
+      .qr-table-account{
+        min-width:210px;
+        display:grid;
+        gap:3px;
+        padding:12px 15px;
+        border-radius:17px;
+        background:linear-gradient(135deg,color-mix(in srgb,var(--qr-primary) 22%,rgba(2,6,23,.72)),rgba(2,6,23,.62));
+        border:1px solid color-mix(in srgb,var(--qr-primary) 46%,var(--qr-line));
+        box-shadow:0 14px 34px rgba(0,0,0,.22);
+      }
+      .qr-table-account span{color:var(--qr-muted);font-size:10px;font-weight:1000;letter-spacing:.12em;text-transform:uppercase}
+      .qr-table-account strong{color:var(--qr-secondary);font-size:24px;line-height:1;font-weight:1000;white-space:nowrap}
+      .qr-table-account small{color:var(--qr-muted);font-size:10px;font-weight:850}
       .qr-hero-locked{padding:18px 20px}
       .qr-hero-locked h1{font-size:clamp(32px,7vw,54px)}
       .qr-logo{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;overflow:hidden;background:linear-gradient(135deg,var(--qr-primary),var(--qr-secondary));color:#111827;font-weight:1000}
@@ -451,6 +467,11 @@
         body:has(.qr-cart.open){overflow:hidden}
         .qr-shell{padding:max(10px,env(safe-area-inset-top)) 12px 24px;gap:16px}
         .qr-hero{grid-template-columns:minmax(0,1fr) auto;padding:16px;border-radius:20px}
+        .qr-hero.qr-hero-account{grid-template-columns:minmax(0,1fr) auto}
+        .qr-hero-account .qr-hero-copy{grid-column:1;grid-row:1}
+        .qr-hero-account .qr-logo{grid-column:2;grid-row:1}
+        .qr-hero-account .qr-table-account{grid-column:1/-1;grid-row:2;min-width:0;padding:11px 13px}
+        .qr-table-account strong{font-size:22px}
         .qr-hero h1{font-size:34px;line-height:1}
         .qr-hero .qr-muted{margin:8px 0 0;font-size:14px}
         .qr-logo{width:48px;height:48px;border-radius:14px}
@@ -1238,14 +1259,21 @@
       : `<div class="qr-empty">${state.inventory.length ? "No encontramos productos con ese filtro." : "No hay productos activos para esta mesa."}</div>`;
     const itemCount = cartItemCount();
     const total = cartTotal();
+    const tableAccount = state.tableAccount || {};
+    const tableOrders = Number(tableAccount.orders_count || 0);
 
     app.innerHTML = `
       <main class="qr-shell">
-        <section class="qr-hero">
-          <div>
+        <section class="qr-hero qr-hero-account">
+          <div class="qr-hero-copy">
             <p class="qr-eyebrow">Mesa QR</p>
             <h1>${h(state.table)}</h1>
             <p class="qr-muted">${h(companyName)} - arma tu pedido y queda en pendiente para el barman.</p>
+          </div>
+          <div class="qr-table-account" aria-live="polite" aria-label="Cuenta acumulada de la mesa">
+            <span>Cuenta total de la mesa</span>
+            <strong>${h(money(tableAccount.total || 0))}</strong>
+            <small>${tableOrders ? `${h(tableOrders)} ${tableOrders === 1 ? "pedido registrado" : "pedidos registrados"}` : "Aun no hay pedidos enviados"}</small>
           </div>
           <div class="qr-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName)}">` : h(companyName.slice(0, 1).toUpperCase())}</div>
         </section>
@@ -1380,6 +1408,7 @@
       });
       state.cart.clear();
       state.cartOpen = false;
+      await refreshTableAccount({ render: false }).catch(() => {});
       await refreshCampaign().catch(() => {});
       state.message = `Tu pedido fue recibido. El barman ya lo tiene en pantalla: ${response.order?.order_number || "OK"}.`;
       state.error = "";
@@ -1780,10 +1809,42 @@
       expires_at: data.access?.expires_at || "",
     };
     sessionStorage.setItem(accessStorageKey(), cleanCode);
+    if (!isAssemblyMode()) await refreshTableAccount({ render: false }).catch(() => {});
     state.error = "";
     if (!options.silent) state.message = isAssemblyMode() ? "Acceso activado. Completa tus datos para participar." : "Mesa activada. Ya puedes realizar tu pedido.";
     if (!options.silent) render();
     return data;
+  }
+
+  async function refreshTableAccount(options = {}) {
+    if (isAssemblyMode() || !state.access?.unlocked) return state.tableAccount;
+    const accessCode = state.access.code || sessionStorage.getItem(accessStorageKey()) || "";
+    if (!accessCode) return state.tableAccount;
+    try {
+      const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/account`, {
+        method: "POST",
+        body: JSON.stringify({ table: state.table, access_code: accessCode }),
+      });
+      state.tableAccount = {
+        total: Number(data.account?.total || 0),
+        orders_count: Number(data.account?.orders_count || 0),
+        accounts_count: Number(data.account?.accounts_count || 0),
+        last_activity: data.account?.last_activity || "",
+      };
+      if (options.render !== false) render();
+      return state.tableAccount;
+    } catch (error) {
+      const raw = String(error.message || "");
+      if (raw.includes("mesa_no_activada") || raw.includes("clave_de_mesa_invalida")) {
+        sessionStorage.removeItem(accessStorageKey());
+        state.access = { active: false, unlocked: false, code: "", expires_at: "" };
+        state.tableAccount = { total: 0, orders_count: 0, accounts_count: 0, last_activity: "" };
+        state.error = "La cuenta de esta mesa ya fue cerrada. Pide una nueva activacion para volver a ordenar.";
+        state.message = "";
+        if (options.render !== false) render();
+      }
+      throw error;
+    }
   }
 
   async function joinCampaign() {
@@ -1933,6 +1994,11 @@
   setInterval(() => {
     if ((!state.campaign && !state.scoreCampaign && !state.voteCampaign) || !state.access?.unlocked) return;
     refreshCampaignView().catch(() => {});
+  }, 6000);
+
+  setInterval(() => {
+    if (isAssemblyMode() || !state.access?.unlocked || document.visibilityState === "hidden") return;
+    refreshTableAccount().catch(() => {});
   }, 6000);
 
   setInterval(() => {
