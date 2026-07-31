@@ -229,6 +229,11 @@ def _table_key(value: Any) -> str:
     return " ".join(_norm(value or "mesa").split())
 
 
+def _order_type(table_number: Any, source: Any) -> str:
+    clean_source = _norm(source).replace(" ", "_")
+    return "bar_sale" if _table_key(table_number) == "barra" or clean_source in {"bar_manual", "barra"} else "table"
+
+
 def _access_code(value: Any) -> str:
     return "".join(ch for ch in _clean(value).upper() if ch.isalnum())[:12]
 
@@ -2853,7 +2858,7 @@ async def create_hospitality_order(
     items = await _build_order_items(db, company_id, payload.items)
     total = _money(sum(_num(item.get("subtotal")) for item in items))
     payment_method = _payment_method(payload.payment_method)
-    order_type = "bar_sale" if _table_key(table_number) == "barra" or source in {"bar_manual", "barra"} else "table"
+    order_type = _order_type(table_number, source)
     order_number = await _next_order_number(db, company_id)
     person = {
         "id": f"person_{uuid.uuid4()}",

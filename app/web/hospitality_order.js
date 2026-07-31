@@ -36,9 +36,31 @@
     loading: true,
     cartOpen: false,
     inventoryRecoveryAttempts: 0,
+    customerName: "",
     message: "",
     error: "",
   };
+
+  function customerStorageKey() {
+    return `clonexa_hospitality_customer_${String(state.companyId || "company")}`;
+  }
+
+  function storedCustomerName() {
+    try {
+      return String(window.localStorage.getItem(customerStorageKey()) || "").trim().slice(0, 180);
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function rememberCustomerName(value = "") {
+    const clean = String(value || "").trim().slice(0, 180);
+    state.customerName = clean;
+    try {
+      if (clean) window.localStorage.setItem(customerStorageKey(), clean);
+      else window.localStorage.removeItem(customerStorageKey());
+    } catch (_) {}
+  }
 
   const h = (value) =>
     String(value ?? "")
@@ -1350,7 +1372,8 @@
             </div>
             <label class="qr-field">
               <span>Nombre</span>
-              <input id="qrCustomer024S" placeholder="Ej: Javier" value="${h(document.getElementById("qrCustomer024S")?.value || "")}">
+              <input id="qrCustomer024S" name="name" autocomplete="name" placeholder="Ej: Javier" value="${h(document.getElementById("qrCustomer024S")?.value || state.customerName || "")}">
+              ${state.customerName ? `<small>Nombre recordado en este dispositivo</small>` : ""}
             </label>
             <div id="qrCartLines024S">${cartRows()}</div>
             <label class="qr-field">
@@ -1427,7 +1450,7 @@
       state.error = "";
       state.message = "Enviando pedido...";
       render();
-      const customer = document.getElementById("qrCustomer024S")?.value || "Cliente mesa";
+      const customer = document.getElementById("qrCustomer024S")?.value || state.customerName || "Cliente mesa";
       const songs = document.getElementById("qrSongs024S")?.value || "";
       const notes = document.getElementById("qrNotes024S")?.value || "";
       const payload = {
@@ -1450,6 +1473,7 @@
         method: "POST",
         body: JSON.stringify(payload),
       });
+      rememberCustomerName(customer);
       state.cart.clear();
       state.cartOpen = false;
       await refreshTableAccount({ render: false }).catch(() => {});
@@ -1635,6 +1659,7 @@
       ]);
       state.company = company || {};
       state.branding = branding.branding || branding || {};
+      state.customerName = storedCustomerName();
       applyAssemblyPublic(assemblyPublic || {});
       if (isAssemblyMode()) {
         state.inventory = [];
@@ -1794,6 +1819,10 @@
   document.addEventListener("input", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
+    if (target.id === "qrCustomer024S") {
+      rememberCustomerName(target.value);
+      return;
+    }
     if (target.id !== "qrSearch024X") return;
     state.search = target.value;
     state.error = "";

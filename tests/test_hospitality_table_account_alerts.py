@@ -83,12 +83,39 @@ def test_mobile_qr_recovers_the_existing_menu_without_cached_empty_responses():
     assert "v=030C_MENU_RECOVERY" in html
 
 
-def test_orders_panel_alerts_only_for_new_qr_orders_after_initial_load():
+def test_orders_and_dashboard_alert_for_new_table_orders_after_initial_load():
     source = Path("app/web/client.js").read_text(encoding="utf-8")
 
     assert "cxHspOrderAlertsReady030B" in source
     assert "!cxHspKnownOrderIds030B.has(String(order.id))" in source
-    assert 'String(order.source || "").toLowerCase() === "qr"' in source
+    assert '!["bar_manual", "barra"].includes(source)' in source
     assert "cxHspPlayNewOrderSound030B" in source
-    assert "Activar sonido" in source
+    assert "cxHspStartDashboardMonitor030D" in source
+    assert "hsp-dashboard-pending-banner-030d" in source
+    assert "pendingTables" in source
+    assert "Activar alertas" in source
     assert 'aria-live="assertive"' in source
+
+
+def test_mobile_qr_remembers_customer_name_on_the_same_device():
+    source = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
+    html = Path("app/web/hospitality_order.html").read_text(encoding="utf-8")
+
+    assert "clonexa_hospitality_customer_" in source
+    assert "storedCustomerName" in source
+    assert "rememberCustomerName(customer)" in source
+    assert 'target.id === "qrCustomer024S"' in source
+    assert "Nombre recordado en este dispositivo" in source
+    assert "030D_CUSTOMER_MEMORY" in html
+
+
+def test_manual_bar_form_can_charge_products_to_a_table_account():
+    source = Path("app/web/client.js").read_text(encoding="utf-8")
+    html = Path("app/web/client.html").read_text(encoding="utf-8")
+
+    assert 'id="hspSaleDestination030D"' in source
+    assert 'id="hspTargetTable030D"' in source
+    assert 'source: destination === "table" ? "table_manual" : "bar_manual"' in source
+    assert 'table: manualTable' in source
+    assert "El pedido activara la mesa" in source
+    assert "030D_HOSPITALITY_LIVE_ORDERS" in html
