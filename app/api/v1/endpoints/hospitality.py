@@ -2515,6 +2515,48 @@ async def verify_hospitality_table_access(
     return {"ok": True, "company_id": str(company_id), "table": table_number, "access": _table_access_payload(access, include_code=False)}
 
 
+@router.post("/companies/{company_id}/qr-tables/account")
+async def get_hospitality_table_account(
+    company_id: uuid.UUID,
+    payload: HospitalityTableAccessVerifyIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return the server-authoritative running account for one unlocked QR table."""
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    table_number = _clean(payload.table) or "Mesa"
+    await _require_table_access(db, company_id, table_number, payload.access_code)
+    result = await db.execute(
+        text(
+            """
+            SELECT COUNT(*) AS orders_count,
+                   COALESCE(SUM(total), 0) AS total,
+                   COALESCE(SUM(jsonb_array_length(people)), 0) AS accounts_count,
+                   MAX(updated_at) AS last_activity
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND archived_at IS NULL
+              AND status IN ('pendiente', 'alistando', 'entregado')
+            """
+        ),
+        {"company_id": str(company_id), "table_key": _table_key(table_number)},
+    )
+    row = result.mappings().first() or {}
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "table": table_number,
+        "account": {
+            "total": _money(row.get("total")),
+            "orders_count": int(row.get("orders_count") or 0),
+            "accounts_count": int(row.get("accounts_count") or 0),
+            "last_activity": _iso(row.get("last_activity")),
+        },
+    }
+
+
 @router.get("/companies/{company_id}/qr-tables")
 async def hospitality_qr_tables(
     company_id: uuid.UUID,

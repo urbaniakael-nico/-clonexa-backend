@@ -1,0 +1,81 @@
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+import uuid
+
+import pytest
+
+from app.api.v1.endpoints import hospitality
+
+
+class MappingResult:
+    def __init__(self, row):
+        self.row = row
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self.row
+
+
+@pytest.mark.asyncio
+async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypatch):
+    company_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            return_value=MappingResult(
+                {
+                    "orders_count": 3,
+                    "total": 42000,
+                    "accounts_count": 3,
+                    "last_activity": now,
+                }
+            )
+        )
+    )
+    monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
+    require_access = AsyncMock()
+    monkeypatch.setattr(hospitality, "_require_table_access", require_access)
+
+    response = await hospitality.get_hospitality_table_account(
+        company_id,
+        hospitality.HospitalityTableAccessVerifyIn(table="Mesa 8", access_code="ABCDE"),
+        db,
+    )
+
+    require_access.assert_awaited_once_with(db, company_id, "Mesa 8", "ABCDE")
+    statement = str(db.execute.await_args.args[0])
+    params = db.execute.await_args.args[1]
+    assert "status IN ('pendiente', 'alistando', 'entregado')" in statement
+    assert "SUM(total)" in statement
+    assert params["table_key"] == "mesa 8"
+    assert response["account"] == {
+        "total": 42000.0,
+        "orders_count": 3,
+        "accounts_count": 3,
+        "last_activity": now.isoformat(),
+    }
+
+
+def test_mobile_qr_renders_and_refreshes_the_server_table_total():
+    source = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
+
+    assert "Cuenta total de la mesa" in source
+    assert "/qr-tables/account`" in source
+    assert 'body: JSON.stringify({ table: state.table, access_code: accessCode })' in source
+    assert "refreshTableAccount({ render: false })" in source
+    assert "refreshTableAccount().catch" in source
+
+
+def test_orders_panel_alerts_only_for_new_qr_orders_after_initial_load():
+    source = Path("app/web/client.js").read_text(encoding="utf-8")
+
+    assert "cxHspOrderAlertsReady030B" in source
+    assert "!cxHspKnownOrderIds030B.has(String(order.id))" in source
+    assert 'String(order.source || "").toLowerCase() === "qr"' in source
+    assert "cxHspPlayNewOrderSound030B" in source
+    assert "Activar sonido" in source
+    assert 'aria-live="assertive"' in source
