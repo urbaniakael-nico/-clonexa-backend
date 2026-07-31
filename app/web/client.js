@@ -1200,7 +1200,7 @@
 
     return buildClientHeroKpis(modules, company)
       .map(([label, value, detail, action]) => `
-        <${action ? "button" : "div"} class="client-kpi${action ? " hsp-dashboard-kpi-030d" : ""}" ${action ? `type="button" data-client-module="${h(action)}"` : ""}>
+        <${action ? "button" : "div"} class="client-kpi${action ? " hsp-dashboard-kpi-030d" : ""}" data-client-kpi-label="${h(label)}" ${action ? `type="button" data-client-module="${h(action)}"` : ""}>
           <span>${h(label)}</span>
           <strong>${h(value)}</strong>
           ${detail ? `<small>${h(detail)}</small>` : ""}
@@ -30552,8 +30552,6 @@ function inventoryCreatePayload() {
     const moduleCodes = clientModuleCodes(modules);
     const hasHospitalityDashboard = clientHasHospitalityDashboard025I(moduleCodes);
     const hospitalityMetrics = state.dashboardMetrics?.hospitalityDashboard025I || {};
-    const pendingTables = Array.isArray(hospitalityMetrics.pendingTables) ? hospitalityMetrics.pendingTables : [];
-    const pendingCount = Number(hospitalityMetrics.pendingOrders || 0);
     if (hasHospitalityDashboard) cxHspStyles024R();
 
     $("app").innerHTML = `
@@ -30594,14 +30592,7 @@ function inventoryCreatePayload() {
                 ${renderClientHeroActions(modules)}
                 ${hasHospitalityDashboard ? `<button class="client-btn hsp-alert-control-030b" type="button" data-hsp-enable-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Activar alertas</button>` : ""}
               </div>
-              ${hasHospitalityDashboard && pendingCount > 0 ? `
-                <button class="hsp-dashboard-pending-banner-030d" type="button" data-client-module="orders">
-                  <span aria-hidden="true">&#128276;</span>
-                  <strong>${h(pendingCount)} ${pendingCount === 1 ? "pedido pendiente" : "pedidos pendientes"}</strong>
-                  <small>${h(pendingTables.join(" · ") || "Abre Pedidos para gestionarlos")}</small>
-                  <b>Abrir Pedidos &#8594;</b>
-                </button>
-              ` : ""}
+              ${hasHospitalityDashboard ? cxHspDashboardPendingBanner030D(hospitalityMetrics) : ""}
             </header>
 
             <section class="client-panel">
@@ -30751,6 +30742,47 @@ function inventoryCreatePayload() {
     return Array.isArray(rows) ? rows : [];
   }
 
+  function cxHspDashboardPendingBanner030D(metrics = {}) {
+    const pendingTables = Array.isArray(metrics.pendingTables) ? metrics.pendingTables : [];
+    const pendingCount = Number(metrics.pendingOrders || 0);
+    if (!pendingCount) return "";
+    return `
+      <button class="hsp-dashboard-pending-banner-030d" type="button" data-client-module="orders">
+        <span aria-hidden="true">&#128276;</span>
+        <strong>${h(pendingCount)} ${pendingCount === 1 ? "pedido pendiente" : "pedidos pendientes"}</strong>
+        <small>${h(pendingTables.join(" · ") || "Abre Pedidos para gestionarlos")}</small>
+        <b>Abrir Pedidos &#8594;</b>
+      </button>
+    `;
+  }
+
+  function cxHspPaintDashboardMetrics030D(metrics = {}) {
+    const pendingTables = Array.isArray(metrics.pendingTables) ? metrics.pendingTables : [];
+    const pendingDetail = pendingTables.length
+      ? pendingTables.slice(0, 3).join(" · ") + (pendingTables.length > 3 ? "…" : "")
+      : "Sin mesas pendientes";
+    const values = new Map([
+      ["Mesas activas", [String(Number(metrics.activeTables || 0)), ""]],
+      ["Stock bajo", [String(Number(metrics.lowStock || 0)), ""]],
+      ["Pedidos pendientes", [String(Number(metrics.pendingOrders || 0)), pendingDetail]],
+      ["Total abierto", [cxHspMoney024R(metrics.openTotal || 0), ""]],
+    ]);
+    document.querySelectorAll("[data-client-kpi-label]").forEach((kpi) => {
+      const patch = values.get(kpi.getAttribute("data-client-kpi-label") || "");
+      if (!patch) return;
+      const value = kpi.querySelector("strong");
+      const detail = kpi.querySelector("small");
+      if (value) value.textContent = patch[0];
+      if (detail && patch[1]) detail.textContent = patch[1];
+    });
+    const hero = document.querySelector("#clientDashboardRoot030D .client-hero");
+    const currentBanner = hero?.querySelector(".hsp-dashboard-pending-banner-030d");
+    const bannerHtml = cxHspDashboardPendingBanner030D(metrics);
+    if (currentBanner && !bannerHtml) currentBanner.remove();
+    else if (currentBanner && bannerHtml) currentBanner.outerHTML = bannerHtml;
+    else if (hero && bannerHtml) hero.insertAdjacentHTML("beforeend", bannerHtml);
+  }
+
   function cxHspStartDashboardMonitor030D() {
     const current = cxHspDashboardPendingItems030D();
     if (!cxHspDashboardAlertsReady030D) {
@@ -30772,7 +30804,7 @@ function inventoryCreatePayload() {
           if (order.id) cxHspDashboardKnownOrderIds030D.add(String(order.id));
         });
         state.dashboardMetrics = { ...(state.dashboardMetrics || {}), hospitalityDashboard025I: next };
-        render();
+        cxHspPaintDashboardMetrics030D(next);
         cxHspNotifyNewOrders030B(fresh);
       } catch (_) {}
     }, 5000);
