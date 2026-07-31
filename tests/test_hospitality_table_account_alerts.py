@@ -72,6 +72,17 @@ def test_mobile_qr_renders_and_refreshes_the_server_table_total():
     assert 'document.getElementById("qrTableAccountTotal030B")' in source
 
 
+def test_mobile_qr_recovers_the_existing_menu_without_cached_empty_responses():
+    source = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
+    html = Path("app/web/hospitality_order.html").read_text(encoding="utf-8")
+
+    assert "fetchHospitalityInventory" in source
+    assert 'cache: "no-store"' in source
+    assert "recoverHospitalityInventory" in source
+    assert "Reconectando el menu de la mesa" in source
+    assert "v=030C_MENU_RECOVERY" in html
+
+
 def test_orders_panel_alerts_only_for_new_qr_orders_after_initial_load():
     source = Path("app/web/client.js").read_text(encoding="utf-8")
 

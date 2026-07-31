@@ -35,6 +35,7 @@
     assemblyParticipantQuestions: {},
     loading: true,
     cartOpen: false,
+    inventoryRecoveryAttempts: 0,
     message: "",
     error: "",
   };
@@ -57,6 +58,36 @@
       throw new Error(`${res.status} ${res.statusText} ${text}`.trim());
     }
     return res.json();
+  }
+
+  async function fetchHospitalityInventory() {
+    const basePath = `/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`;
+    const first = await api(`${basePath}&fresh=${Date.now()}`, { cache: "no-store" });
+    let rows = Array.isArray(first.inventory) ? first.inventory : [];
+    if (rows.length) return rows;
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    const retry = await api(`${basePath}&fresh=${Date.now()}`, { cache: "no-store" });
+    rows = Array.isArray(retry.inventory) ? retry.inventory : [];
+    return rows;
+  }
+
+  async function recoverHospitalityInventory() {
+    if (isAssemblyMode() || state.inventory.length || state.inventoryRecoveryAttempts >= 3) return;
+    state.inventoryRecoveryAttempts += 1;
+    try {
+      const rows = await fetchHospitalityInventory();
+      if (rows.length) {
+        state.inventory = rows;
+        state.inventoryRecoveryAttempts = 0;
+        render();
+        return;
+      }
+    } catch (_) {}
+    if (!state.inventory.length && state.inventoryRecoveryAttempts < 3) {
+      window.setTimeout(() => recoverHospitalityInventory().catch(() => {}), 1200);
+    } else if (!state.inventory.length) {
+      render();
+    }
   }
 
   function money(value) {
@@ -1270,7 +1301,7 @@
             </article>
           `;
         }).join("")
-      : `<div class="qr-empty">${state.inventory.length ? "No encontramos productos con ese filtro." : "No hay productos activos para esta mesa."}</div>`;
+      : `<div class="qr-empty">${state.inventory.length ? "No encontramos productos con ese filtro." : (state.inventoryRecoveryAttempts < 3 ? "Reconectando el menu de la mesa..." : "No hay productos activos para esta mesa.")}</div>`;
     const itemCount = cartItemCount();
     const total = cartTotal();
     const tableAccount = state.tableAccount || {};
@@ -1614,11 +1645,8 @@
         state.voteCampaign = null;
         state.voteResponse = null;
       } else {
-        const [inventory, campaign] = await Promise.all([
-          api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`),
-          api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`).catch(() => ({})),
-        ]);
-        state.inventory = Array.isArray(inventory.inventory) ? inventory.inventory : [];
+        state.inventory = await fetchHospitalityInventory();
+        const campaign = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/loyalty-campaigns/active?table=${encodeURIComponent(state.table)}`).catch(() => ({}));
         state.campaign = campaign.campaign || null;
         state.participant = campaign.participant || null;
         state.scoreCampaign = campaign.score_campaign || null;
@@ -1647,6 +1675,9 @@
       state.error = error.message || "No se pudo cargar la mesa.";
     }
     render();
+    if (!isAssemblyMode() && !state.inventory.length) {
+      window.setTimeout(() => recoverHospitalityInventory().catch(() => {}), 700);
+    }
   }
 
   document.addEventListener("click", (event) => {
