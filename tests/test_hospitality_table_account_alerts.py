@@ -68,6 +68,8 @@ def test_mobile_qr_renders_and_refreshes_the_server_table_total():
     assert 'body: JSON.stringify({ table: state.table, access_code: accessCode })' in source
     assert "refreshTableAccount({ render: false })" in source
     assert "refreshTableAccount().catch" in source
+    assert "paintTableAccount()" in source
+    assert 'document.getElementById("qrTableAccountTotal030B")' in source
 
 
 def test_orders_panel_alerts_only_for_new_qr_orders_after_initial_load():
