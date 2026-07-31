@@ -95,6 +95,9 @@ def test_orders_and_dashboard_alert_for_new_table_orders_after_initial_load():
     assert "pendingTables" in source
     assert "Activar alertas" in source
     assert 'aria-live="assertive"' in source
+    monitor = source.split("function cxHspStartDashboardMonitor030D", 1)[1].split("async function loadClientDashboardMetrics", 1)[0]
+    assert "cxHspPaintDashboardMetrics030D(next)" in monitor
+    assert "render();" not in monitor
 
 
 def test_mobile_qr_remembers_customer_name_on_the_same_device():
