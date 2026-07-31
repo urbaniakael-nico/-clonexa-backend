@@ -9,6 +9,18 @@ from app.api.v1.endpoints import hospitality
 
 
 @pytest.mark.parametrize(
+    ("table", "source", "expected"),
+    [
+        ("Barra", "bar_manual", "bar_sale"),
+        ("Mesa 3", "table_manual", "table"),
+        ("Mesa 8", "qr", "table"),
+    ],
+)
+def test_order_type_keeps_manual_table_charges_in_the_table_flow(table, source, expected):
+    assert hospitality._order_type(table, source) == expected
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
         ("cash", "cash"),

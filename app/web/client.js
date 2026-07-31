@@ -575,7 +575,15 @@
         padding: 15px 16px;
         min-height: 96px;
         overflow: hidden;
+        color:inherit;
+        font:inherit;
+        text-align:left;
       }
+
+      button.client-kpi{width:100%;cursor:pointer;transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+      button.client-kpi:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--cx-primary,#38bdf8) 62%,#fff 12%)}
+      .hsp-dashboard-kpi-030d small{display:block;margin-top:7px;color:color-mix(in srgb,var(--cx-text,#fff) 72%,transparent);font-size:11px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .hsp-dashboard-kpi-030d strong:not(:empty){color:var(--cx-text,#fff)}
 
       .client-kpi span {
         display: block;
@@ -1054,10 +1062,14 @@
 
     if (clientHasHospitalityDashboard025I(codes)) {
       const hospitality = metrics.hospitalityDashboard025I || {};
+      const pendingTables = Array.isArray(hospitality.pendingTables) ? hospitality.pendingTables : [];
+      const pendingDetail = pendingTables.length
+        ? pendingTables.slice(0, 3).join(" · ") + (pendingTables.length > 3 ? "…" : "")
+        : "Sin mesas pendientes";
       return [
         ["Mesas activas", String(Number(hospitality.activeTables || 0))],
         ["Stock bajo", String(Number(hospitality.lowStock || 0))],
-        ["Pedido pendiente", String(Number(hospitality.pendingOrders || 0))],
+        ["Pedidos pendientes", String(Number(hospitality.pendingOrders || 0)), pendingDetail, "orders"],
         ["Total abierto", cxHspMoney024R(hospitality.openTotal || 0)],
       ];
     }
@@ -1187,11 +1199,12 @@
     }
 
     return buildClientHeroKpis(modules, company)
-      .map(([label, value]) => `
-        <div class="client-kpi">
+      .map(([label, value, detail, action]) => `
+        <${action ? "button" : "div"} class="client-kpi${action ? " hsp-dashboard-kpi-030d" : ""}" ${action ? `type="button" data-client-module="${h(action)}"` : ""}>
           <span>${h(label)}</span>
           <strong>${h(value)}</strong>
-        </div>
+          ${detail ? `<small>${h(detail)}</small>` : ""}
+        </${action ? "button" : "div"}>
       `)
       .join("");
   }
@@ -20320,6 +20333,40 @@ function inventoryCreatePayload() {
   let cxHspOrderAlertsReady030B = false;
   let cxHspAudioContext030B = null;
   let cxHspSoundReady030B = false;
+  let cxHspDashboardKnownOrderIds030D = new Set();
+  let cxHspDashboardAlertsReady030D = false;
+  let cxHspStoredAlertsArmed030D = false;
+
+  function cxHspAlertsStorageKey030D() {
+    return `clonexa_hospitality_alerts_${String(state.companyId || "company")}`;
+  }
+
+  function cxHspAlertsWereEnabled030D() {
+    try {
+      return window.localStorage.getItem(cxHspAlertsStorageKey030D()) === "enabled";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function cxHspRememberAlertsEnabled030D() {
+    try {
+      window.localStorage.setItem(cxHspAlertsStorageKey030D(), "enabled");
+    } catch (_) {}
+  }
+
+  function cxHspArmStoredAlerts030D() {
+    if (!cxHspAlertsWereEnabled030D() || cxHspSoundReady030B || cxHspStoredAlertsArmed030D) return;
+    cxHspStoredAlertsArmed030D = true;
+    const resume = () => {
+      window.removeEventListener("pointerdown", resume, true);
+      window.removeEventListener("keydown", resume, true);
+      cxHspStoredAlertsArmed030D = false;
+      cxHspEnableAlerts030B().catch(() => {});
+    };
+    window.addEventListener("pointerdown", resume, { once: true, capture: true });
+    window.addEventListener("keydown", resume, { once: true, capture: true });
+  }
 
   function cxIsHospitalityOrdersCode024R(code = "") {
     const normalized = String(code || "")
@@ -20366,6 +20413,26 @@ function inventoryCreatePayload() {
     if (["transfer", "transferencia", "transf"].includes(key)) return "transfer";
     if (["card", "tarjeta"].includes(key)) return "card";
     return "other";
+  }
+
+  function cxHspManualTableOptions030D() {
+    const config = cxHspQrConfigFromModules025N(activeClientModules());
+    const count = Math.max(1, Number(config.count || 12));
+    return Array.from({ length: count }, (_, index) => `Mesa ${index + 1}`);
+  }
+
+  function cxHspSyncSaleDestination030D() {
+    const destination = document.getElementById("hspSaleDestination030D")?.value || "bar";
+    const targetWrap = document.getElementById("hspTargetTableWrap030D");
+    const targetSelect = document.getElementById("hspTargetTable030D");
+    const tableInput = document.getElementById("hspTable024R");
+    const isTable = destination === "table";
+    if (targetWrap) targetWrap.hidden = !isTable;
+    if (targetSelect) targetSelect.disabled = !isTable;
+    if (tableInput) {
+      tableInput.value = isTable ? (targetSelect?.value || "") : "Barra";
+      tableInput.readOnly = true;
+    }
   }
 
   function cxHspIsClosingPayment030A(value = "") {
@@ -20458,7 +20525,10 @@ function inventoryCreatePayload() {
       window.Notification.requestPermission().catch(() => {});
     }
     cxHspSyncAlertButton030B();
-    if (cxHspSoundReady030B) cxHspPlayNewOrderSound030B(true);
+    if (cxHspSoundReady030B) {
+      cxHspRememberAlertsEnabled030D();
+      cxHspPlayNewOrderSound030B(true);
+    }
     return cxHspSoundReady030B;
   }
 
@@ -20484,10 +20554,13 @@ function inventoryCreatePayload() {
   }
 
   function cxHspNotifyNewOrders030B(orders = []) {
-    const fresh = (Array.isArray(orders) ? orders : []).filter((order) => String(order.source || "").toLowerCase() === "qr");
+    const fresh = (Array.isArray(orders) ? orders : []).filter((order) => {
+      const source = String(order.source || "").toLowerCase();
+      return !["bar_manual", "barra"].includes(source) && String(order.status || "pendiente") === "pendiente";
+    });
     if (!fresh.length) return;
     const tables = [...new Set(fresh.map((order) => order.table_number || "Mesa"))];
-    const title = fresh.length === 1 ? "Nuevo pedido QR" : `${fresh.length} pedidos QR nuevos`;
+    const title = fresh.length === 1 ? "Nuevo pedido pendiente" : `${fresh.length} pedidos pendientes nuevos`;
     const detail = tables.slice(0, 3).join(" · ") + (tables.length > 3 ? "..." : "");
     const host = document.getElementById("hspOrderAlerts030B");
     if (host) {
@@ -20499,7 +20572,7 @@ function inventoryCreatePayload() {
       window.setTimeout(() => toast.remove(), 9000);
     }
     cxHspPlayNewOrderSound030B();
-    if (document.visibilityState === "hidden" && "Notification" in window && window.Notification.permission === "granted") {
+    if ("Notification" in window && window.Notification.permission === "granted") {
       new window.Notification(title, { body: detail, tag: "clonexa-hospitality-order" });
     }
   }
@@ -20544,6 +20617,11 @@ function inventoryCreatePayload() {
       }
       .hsp-hero-024r .hsp-alert-control-030b{background:rgba(255,255,255,.09);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);box-shadow:none}
       .hsp-hero-024r .hsp-alert-control-030b.is-active{background:linear-gradient(135deg,#22c55e,#8cf5b5);color:#052e16;border-color:transparent}
+      .client-actions .hsp-alert-control-030b{background:rgba(255,255,255,.10);color:var(--cx-text,#fff);border:1px solid rgba(255,255,255,.18)}
+      .client-actions .hsp-alert-control-030b.is-active{background:linear-gradient(135deg,#22c55e,#8cf5b5);color:#052e16;border-color:transparent}
+      .hsp-dashboard-pending-banner-030d{width:100%;margin-top:14px;display:grid;grid-template-columns:38px auto 1fr auto;gap:10px;align-items:center;padding:11px 13px;border-radius:15px;background:linear-gradient(135deg,rgba(245,158,11,.22),rgba(239,68,68,.14));border:1px solid rgba(251,191,36,.42);color:var(--cx-text,#fff);text-align:left;cursor:pointer;font:inherit}
+      .hsp-dashboard-pending-banner-030d>span{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:#f59e0b;color:#231500}
+      .hsp-dashboard-pending-banner-030d strong{font-size:14px}.hsp-dashboard-pending-banner-030d small{color:rgba(255,255,255,.72);font-weight:800}.hsp-dashboard-pending-banner-030d b{font-size:12px;color:#fde68a}
       .hsp-order-alerts-030b{position:fixed;z-index:1400;right:18px;top:18px;width:min(390px,calc(100vw - 36px));display:grid;gap:9px;pointer-events:none}
       .hsp-order-alert-030b{display:grid;grid-template-columns:42px minmax(0,1fr);gap:11px;align-items:center;padding:13px 14px;border-radius:17px;background:linear-gradient(145deg,rgba(34,197,94,.24),rgba(3,7,18,.96));border:1px solid rgba(134,239,172,.48);box-shadow:0 22px 54px rgba(0,0,0,.38);animation:hspOrderAlertIn030B .24s ease-out;color:#f8fafc}
       .hsp-order-alert-icon-030b{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:#22c55e;color:#052e16;font-size:20px}
@@ -20573,6 +20651,9 @@ function inventoryCreatePayload() {
       .hsp-form-head-024r h2{font-size:17px;margin-bottom:6px}
       .hsp-form-head-024r .hsp-note-024r{margin-bottom:0}
       .hsp-form-main-024r{grid-template-columns:1fr;align-self:start}
+      .hsp-table-destination-030d{display:grid;grid-template-columns:1fr;gap:8px;padding:10px;border-radius:14px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.20)}
+      .hsp-table-destination-030d[hidden]{display:none}
+      .hsp-table-destination-030d small{color:#bae6fd;font-size:11px;font-weight:800;line-height:1.35}
       .hsp-products-wrap-024r{display:grid;gap:7px;align-content:start}
       .hsp-products-wrap-024r .hsp-field-024r label{margin-top:0}
       .hsp-product-actions-024u{margin-top:0}
@@ -20709,7 +20790,7 @@ function inventoryCreatePayload() {
       @media(max-width:1420px){.hsp-form-box-024r{grid-template-columns:minmax(190px,.72fr) minmax(500px,1.35fr) minmax(330px,1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(300px,.9fr) minmax(300px,1fr);align-items:end}.hsp-calc-screen-024r{grid-template-columns:1fr 1fr}.hsp-stats-024r{grid-template-columns:repeat(5,minmax(90px,1fr))}}
       @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(3,minmax(110px,1fr))}}
       @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
-      @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}.hsp-close-controls-030a{grid-template-columns:1fr}.hsp-close-help-030a{grid-column:auto}}
+      @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}.hsp-close-controls-030a{grid-template-columns:1fr}.hsp-close-help-030a{grid-column:auto}.hsp-dashboard-pending-banner-030d{grid-template-columns:38px 1fr}.hsp-dashboard-pending-banner-030d small,.hsp-dashboard-pending-banner-030d b{grid-column:2}}
     `;
     document.head.appendChild(style);
   }
@@ -21192,7 +21273,9 @@ function inventoryCreatePayload() {
     const songs = Array.isArray(order.songs) ? order.songs.filter(Boolean) : [];
     const typeLabel = order.type === "bar_sale"
       ? `<span class="hsp-pill-024r bar">Barra manual</span>`
-      : `<span class="hsp-pill-024r ${h(cxHspStatusClass024R(order.status))}">Mesa QR</span>`;
+      : String(order.source || "").toLowerCase() === "table_manual"
+        ? `<span class="hsp-pill-024r preparing">Mesa manual</span>`
+        : `<span class="hsp-pill-024r ${h(cxHspStatusClass024R(order.status))}">Mesa QR</span>`;
 
     return `
       <article class="hsp-card-024r">
@@ -21305,6 +21388,23 @@ function inventoryCreatePayload() {
                         <option value="other">Otro</option>
                       </select>
                     </div>
+                    <div class="hsp-field-024r">
+                      <label>Destino de los productos</label>
+                      <select id="hspSaleDestination030D">
+                        <option value="bar">Venta directa de barra</option>
+                        <option value="table">Agregar a la cuenta de una mesa</option>
+                      </select>
+                    </div>
+                    <div id="hspTargetTableWrap030D" class="hsp-table-destination-030d" hidden>
+                      <label class="hsp-field-024r">
+                        <span>Mesa que recibe el consumo</span>
+                        <select id="hspTargetTable030D" disabled>
+                          <option value="">Seleccionar mesa</option>
+                          ${cxHspManualTableOptions030D().map((table) => `<option value="${h(table)}">${h(table)}</option>`).join("")}
+                        </select>
+                      </label>
+                      <small>El pedido activara la mesa y aparecera abajo en Pendiente igual que un pedido enviado desde el QR.</small>
+                    </div>
                   </div>
 
                   <div class="hsp-products-wrap-024r">
@@ -21376,6 +21476,8 @@ function inventoryCreatePayload() {
     cxHspAddLine024R();
     cxHspRenderOrdersBoard024R(summary);
     cxHspSyncAlertButton030B();
+    cxHspSyncSaleDestination030D();
+    cxHspArmStoredAlerts030D();
 
     if (window.__cxHspOrdersTimer024R) window.clearInterval(window.__cxHspOrdersTimer024R);
     window.__cxHspOrdersTimer024R = window.setInterval(async () => {
@@ -21389,6 +21491,13 @@ function inventoryCreatePayload() {
       } catch (_) {}
     }, 5500);
   }
+
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement)) return;
+    if (!["hspSaleDestination030D", "hspTargetTable030D"].includes(target.id)) return;
+    cxHspSyncSaleDestination030D();
+  });
   /* CLONEXA_024R_HOSPITALITY_ORDERS_END */
   /* CLONEXA_024S_HOSPITALITY_QR_START */
   let cxHspQrTables024S = [];
@@ -29075,12 +29184,21 @@ function inventoryCreatePayload() {
             cxHspShowMsg024R("hspFormMsg024R", "Agrega al menos un producto.", true);
             return;
           }
+          const destination = document.getElementById("hspSaleDestination030D")?.value || "bar";
+          const targetTable = document.getElementById("hspTargetTable030D")?.value || "";
+          if (destination === "table" && !targetTable) {
+            cxHspShowMsg024R("hspFormMsg024R", "Selecciona la mesa a la que vas a cargar los productos.", true);
+            document.getElementById("hspTargetTable030D")?.focus();
+            return;
+          }
+          const manualTable = destination === "table" ? targetTable : "Barra";
+          const customerValue = document.getElementById("hspCustomer024R")?.value || "";
           const data = await cxHspApi024R("/orders", {
             method: "POST",
             body: JSON.stringify({
-              source: "bar_manual",
-              table: document.getElementById("hspTable024R")?.value || "Barra",
-              customer: document.getElementById("hspCustomer024R")?.value || "Cliente barra",
+              source: destination === "table" ? "table_manual" : "bar_manual",
+              table: manualTable,
+              customer: customerValue || (destination === "table" ? "Cliente mesa" : "Cliente barra"),
               payment_method: document.getElementById("hspPaymentMethod024V")?.value || "cash",
               items,
             }),
@@ -29095,10 +29213,20 @@ function inventoryCreatePayload() {
           if (table) table.value = "Barra";
           if (customer) customer.value = "";
           if (paymentMethod) paymentMethod.value = "cash";
+          const saleDestination = document.getElementById("hspSaleDestination030D");
+          const targetTableSelect = document.getElementById("hspTargetTable030D");
+          if (saleDestination) saleDestination.value = "bar";
+          if (targetTableSelect) targetTableSelect.value = "";
+          cxHspSyncSaleDestination030D();
           const paid = document.getElementById("hspPaymentReceived024R");
           if (paid) paid.value = "";
           cxHspUpdateCalculator024R();
-          cxHspShowMsg024R("hspFormMsg024R", `Venta barra creada: ${data.order?.order_number || "OK"}`);
+          cxHspShowMsg024R(
+            "hspFormMsg024R",
+            destination === "table"
+              ? `Pedido cargado a ${manualTable}: ${data.order?.order_number || "OK"}`
+              : `Venta barra creada: ${data.order?.order_number || "OK"}`,
+          );
           await cxHspLoadOrders024R();
         } catch (error) {
           cxHspShowMsg024R("hspFormMsg024R", error.message || "No se pudo crear el pedido.", true);
@@ -30421,9 +30549,16 @@ function inventoryCreatePayload() {
     applyBranding();
 
     const modules = visibleClientModules(activeClientModules());
+    const moduleCodes = clientModuleCodes(modules);
+    const hasHospitalityDashboard = clientHasHospitalityDashboard025I(moduleCodes);
+    const hospitalityMetrics = state.dashboardMetrics?.hospitalityDashboard025I || {};
+    const pendingTables = Array.isArray(hospitalityMetrics.pendingTables) ? hospitalityMetrics.pendingTables : [];
+    const pendingCount = Number(hospitalityMetrics.pendingOrders || 0);
+    if (hasHospitalityDashboard) cxHspStyles024R();
 
     $("app").innerHTML = `
-      <main class="client-shell">
+      <main id="clientDashboardRoot030D" class="client-shell">
+        ${hasHospitalityDashboard ? `<div id="hspOrderAlerts030B" class="hsp-order-alerts-030b" aria-live="assertive" aria-atomic="false"></div>` : ""}
         <div class="client-layout">
           <aside class="client-sidebar">
             <div class="client-logo">${logo(company, b)}</div>
@@ -30457,7 +30592,16 @@ function inventoryCreatePayload() {
 
               <div class="client-actions">
                 ${renderClientHeroActions(modules)}
+                ${hasHospitalityDashboard ? `<button class="client-btn hsp-alert-control-030b" type="button" data-hsp-enable-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Activar alertas</button>` : ""}
               </div>
+              ${hasHospitalityDashboard && pendingCount > 0 ? `
+                <button class="hsp-dashboard-pending-banner-030d" type="button" data-client-module="orders">
+                  <span aria-hidden="true">&#128276;</span>
+                  <strong>${h(pendingCount)} ${pendingCount === 1 ? "pedido pendiente" : "pedidos pendientes"}</strong>
+                  <small>${h(pendingTables.join(" · ") || "Abre Pedidos para gestionarlos")}</small>
+                  <b>Abrir Pedidos &#8594;</b>
+                </button>
+              ` : ""}
             </header>
 
             <section class="client-panel">
@@ -30489,6 +30633,11 @@ function inventoryCreatePayload() {
         </div>
       </main>
     `;
+    if (hasHospitalityDashboard) {
+      cxHspSyncAlertButton030B();
+      cxHspArmStoredAlerts030D();
+      cxHspStartDashboardMonitor030D();
+    }
   }
 
   function renderError(error) {
@@ -30581,15 +30730,52 @@ function inventoryCreatePayload() {
     ]);
 
     const tables = Array.isArray(qrData.tables) ? qrData.tables : [];
+    const orders = Array.isArray(ordersData.tables || ordersData.orders) ? (ordersData.tables || ordersData.orders) : [];
+    const pendingItems = orders.filter((order) => String(order.status || "").toLowerCase() === "pendiente");
+    const pendingTables = [...new Set(pendingItems.map((order) => String(order.table_number || "Mesa").trim()).filter(Boolean))];
     const activeTables = tables.filter((table) => Number(table.active_orders || 0) > 0).length;
     const openTotal = Number(qrData?.summary?.open_total ?? ordersData?.summary?.open_total ?? 0) || 0;
 
     return {
       activeTables,
       lowStock: Number(inventoryData?.summary?.low_stock || 0),
-      pendingOrders: Number(ordersData?.summary?.pending || 0),
+      pendingOrders: pendingItems.length,
+      pendingTables,
+      pendingOrderItems: pendingItems,
       openTotal,
     };
+  }
+
+  function cxHspDashboardPendingItems030D() {
+    const rows = state.dashboardMetrics?.hospitalityDashboard025I?.pendingOrderItems;
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  function cxHspStartDashboardMonitor030D() {
+    const current = cxHspDashboardPendingItems030D();
+    if (!cxHspDashboardAlertsReady030D) {
+      cxHspDashboardKnownOrderIds030D = new Set(current.map((order) => String(order.id || "")).filter(Boolean));
+      cxHspDashboardAlertsReady030D = true;
+    }
+    if (window.__cxHspDashboardTimer030D) window.clearInterval(window.__cxHspDashboardTimer030D);
+    window.__cxHspDashboardTimer030D = window.setInterval(async () => {
+      if (!document.getElementById("clientDashboardRoot030D")) {
+        window.clearInterval(window.__cxHspDashboardTimer030D);
+        window.__cxHspDashboardTimer030D = null;
+        return;
+      }
+      try {
+        const next = await loadHospitalityDashboardMetrics025I(state.companyId);
+        const pending = Array.isArray(next.pendingOrderItems) ? next.pendingOrderItems : [];
+        const fresh = pending.filter((order) => order.id && !cxHspDashboardKnownOrderIds030D.has(String(order.id)));
+        pending.forEach((order) => {
+          if (order.id) cxHspDashboardKnownOrderIds030D.add(String(order.id));
+        });
+        state.dashboardMetrics = { ...(state.dashboardMetrics || {}), hospitalityDashboard025I: next };
+        render();
+        cxHspNotifyNewOrders030B(fresh);
+      } catch (_) {}
+    }, 5000);
   }
 
   async function loadClientDashboardMetrics(companyId, modules = []) {
@@ -30676,6 +30862,8 @@ function inventoryCreatePayload() {
         activeTables: 0,
         lowStock: 0,
         pendingOrders: 0,
+        pendingTables: [],
+        pendingOrderItems: [],
         openTotal: 0,
       }));
     }
