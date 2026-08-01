@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -11,13 +12,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from twilio.rest import Client as TwilioClient
 
-from app.api.deps import get_db
+from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
 from app.services.auth_service import (
     create_access_token,
     decode_access_token,
@@ -25,12 +26,20 @@ from app.services.auth_service import (
     hash_password,
     verify_password,
 )
+from app.web.admin_v2_routes import _active_company_preview as active_admin_company_preview
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 
 router = APIRouter()
 MODULE_CODE = "marketplace_access"
 TOKEN_MINUTES = 60 * 24 * 30
 CODE_TTL_MINUTES = 5
+MAX_PUBLICATION_IMAGES = 5
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_VIDEO_BYTES = 25 * 1024 * 1024
+MAX_VIDEO_SECONDS = 30
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm", "video/quicktime"}
 
 
 class VerificationRequestIn(BaseModel):
@@ -63,6 +72,10 @@ class ProfileUpdateIn(BaseModel):
 class PasswordUpdateIn(BaseModel):
     current_password: str = Field(..., min_length=1, max_length=72)
     new_password: str = Field(..., min_length=8, max_length=72)
+
+
+class ChatMessageIn(BaseModel):
+    body: str = Field(..., min_length=1, max_length=1200)
 
 
 def utc_now() -> datetime:
@@ -146,6 +159,67 @@ async def ensure_marketplace_storage(db: AsyncSession) -> None:
     await db.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_marketplace_codes_lookup
         ON marketplace_verification_codes(company_id, phone, purpose, created_at DESC)
+    """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS marketplace_publications (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            user_id uuid NOT NULL REFERENCES marketplace_users(id) ON DELETE CASCADE,
+            title varchar(140) NOT NULL,
+            description text NOT NULL DEFAULT '',
+            specifications text NOT NULL DEFAULT '',
+            price numeric(16,2) NOT NULL DEFAULT 0,
+            offer_mode varchar(24) NOT NULL DEFAULT 'both',
+            status varchar(24) NOT NULL DEFAULT 'published',
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_marketplace_publications_company_status
+        ON marketplace_publications(company_id, status, created_at DESC)
+    """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS marketplace_publication_media (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            publication_id uuid NOT NULL REFERENCES marketplace_publications(id) ON DELETE CASCADE,
+            kind varchar(16) NOT NULL,
+            position integer NOT NULL DEFAULT 0,
+            content_type varchar(80) NOT NULL,
+            file_bytes bytea NOT NULL,
+            file_size integer NOT NULL,
+            duration_seconds numeric(8,2) NULL,
+            created_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_marketplace_media_publication
+        ON marketplace_publication_media(publication_id, kind, position)
+    """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS marketplace_conversations (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            publication_id uuid NOT NULL REFERENCES marketplace_publications(id) ON DELETE CASCADE,
+            buyer_user_id uuid NOT NULL REFERENCES marketplace_users(id) ON DELETE CASCADE,
+            seller_user_id uuid NOT NULL REFERENCES marketplace_users(id) ON DELETE CASCADE,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now(),
+            CONSTRAINT uq_marketplace_conversation UNIQUE (publication_id, buyer_user_id)
+        )
+    """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS marketplace_messages (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL REFERENCES marketplace_conversations(id) ON DELETE CASCADE,
+            sender_user_id uuid NOT NULL REFERENCES marketplace_users(id) ON DELETE CASCADE,
+            body text NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_marketplace_messages_conversation
+        ON marketplace_messages(conversation_id, created_at)
     """))
     await db.commit()
 
@@ -613,3 +687,419 @@ async def reset_marketplace_password(
     )
     await db.commit()
     return {"ok": True}
+
+
+def _clean(value: Any, limit: int = 255) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip())[:limit]
+
+
+def _money(value: Any) -> float:
+    try:
+        return max(0.0, round(float(value or 0), 2))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="valor_invalido")
+
+
+def _offer_mode(value: Any) -> str:
+    clean = _clean(value, 24).lower()
+    if clean not in {"money", "change", "both"}:
+        raise HTTPException(status_code=422, detail="modalidad_invalida")
+    return clean
+
+
+def _file_type(upload: UploadFile, allowed: set[str], kind: str) -> str:
+    content_type = str(upload.content_type or "").strip().lower()
+    if content_type in allowed:
+        return content_type
+    filename = str(upload.filename or "").lower()
+    suffixes = {
+        "image": {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"},
+        "video": {".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime"},
+    }
+    for suffix, fallback in suffixes[kind].items():
+        if filename.endswith(suffix):
+            return fallback
+    raise HTTPException(status_code=422, detail="imagen_invalida" if kind == "image" else "video_invalido")
+
+
+def _mp4_duration_seconds(content: bytes) -> float | None:
+    marker = content.find(b"mvhd")
+    if marker < 0 or marker + 32 > len(content):
+        return None
+    try:
+        version = content[marker + 4]
+        if version == 0:
+            timescale = int.from_bytes(content[marker + 16 : marker + 20], "big")
+            duration = int.from_bytes(content[marker + 20 : marker + 24], "big")
+        elif version == 1:
+            timescale = int.from_bytes(content[marker + 24 : marker + 28], "big")
+            duration = int.from_bytes(content[marker + 28 : marker + 36], "big")
+        else:
+            return None
+        return round(duration / timescale, 2) if timescale else None
+    except Exception:
+        return None
+
+
+async def _read_media(upload: UploadFile, kind: str, declared_duration: float = 0) -> dict[str, Any]:
+    allowed = ALLOWED_IMAGE_TYPES if kind == "image" else ALLOWED_VIDEO_TYPES
+    content_type = _file_type(upload, allowed, kind)
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="archivo_vacio")
+    limit = MAX_IMAGE_BYTES if kind == "image" else MAX_VIDEO_BYTES
+    if len(content) > limit:
+        raise HTTPException(status_code=422, detail="imagen_supera_5mb" if kind == "image" else "video_supera_25mb")
+    duration: float | None = None
+    if kind == "video":
+        duration = _mp4_duration_seconds(content) if content_type in {"video/mp4", "video/quicktime"} else None
+        duration = duration if duration is not None else float(declared_duration or 0)
+        if duration <= 0 or duration > MAX_VIDEO_SECONDS + 0.2:
+            raise HTTPException(status_code=422, detail="video_maximo_30_segundos")
+    return {"kind": kind, "content_type": content_type, "content": content, "size": len(content), "duration": duration}
+
+
+async def _publication_media(db: AsyncSession, company_id: uuid.UUID) -> dict[str, list[dict[str, Any]]]:
+    result = await db.execute(
+        text("""
+            SELECT m.id::text AS id, m.publication_id::text AS publication_id, m.kind,
+                   m.position, m.content_type, m.file_size, m.duration_seconds
+            FROM marketplace_publication_media m
+            JOIN marketplace_publications p ON p.id = m.publication_id
+            WHERE p.company_id = CAST(:company_id AS uuid)
+            ORDER BY m.publication_id, m.kind, m.position
+        """),
+        {"company_id": str(company_id)},
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for raw in result.mappings().all():
+        row = dict(raw)
+        publication_id = str(row.pop("publication_id"))
+        row["url"] = f"/api/v1/marketplace/publications/{publication_id}/media/{row['id']}"
+        if row.get("duration_seconds") is not None:
+            row["duration_seconds"] = float(row["duration_seconds"])
+        grouped.setdefault(publication_id, []).append(row)
+    return grouped
+
+
+def _publication_out(row: dict[str, Any], media: list[dict[str, Any]], request: Request | None = None, include_phone: bool = False) -> dict[str, Any]:
+    publication_id = str(row["id"])
+    company_id = str(row["company_id"])
+    result = {
+        "id": publication_id,
+        "company_id": company_id,
+        "title": row.get("title") or "Articulo",
+        "description": row.get("description") or "",
+        "specifications": row.get("specifications") or "",
+        "price": float(row.get("price") or 0),
+        "offer_mode": row.get("offer_mode") or "both",
+        "status": row.get("status") or "published",
+        "seller": {"id": str(row.get("user_id") or ""), "username": row.get("username") or "Usuario"},
+        "media": media,
+        "image_urls": [item["url"] for item in media if item.get("kind") == "image"],
+        "video_url": next((item["url"] for item in media if item.get("kind") == "video"), ""),
+        "created_at": row.get("created_at").isoformat() if isinstance(row.get("created_at"), datetime) else row.get("created_at"),
+    }
+    if include_phone:
+        result["seller"]["phone"] = row.get("phone") or ""
+    if request is not None:
+        origin = str(request.base_url).rstrip("/")
+        result["public_url"] = f"{origin}/mercado?company_id={company_id}&publication={publication_id}"
+    return result
+
+
+async def _publication_rows(db: AsyncSession, company_id: uuid.UUID, include_all: bool = False) -> list[dict[str, Any]]:
+    status_clause = "" if include_all else "AND p.status = 'published'"
+    result = await db.execute(
+        text(f"""
+            SELECT p.*, u.username, u.phone
+            FROM marketplace_publications p
+            JOIN marketplace_users u ON u.id = p.user_id
+            WHERE p.company_id = CAST(:company_id AS uuid) {status_clause}
+            ORDER BY p.created_at DESC
+            LIMIT 500
+        """),
+        {"company_id": str(company_id)},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def _require_marketplace_owner_panel(
+    company_id: uuid.UUID,
+    request: Request,
+    authorization: str | None,
+    db: AsyncSession,
+) -> None:
+    if await active_admin_v2_session(request, db) or active_admin_company_preview(request, company_id):
+        await require_enabled_module(db, company_id, MODULE_CODE)
+        return
+    await require_company_user_for_tenant(
+        db,
+        authorization,
+        company_id,
+        allowed_roles=ADMIN_ROLES | {"manager", "gerencia", "gerente", "supervisor"},
+        module_codes=MODULE_CODE,
+    )
+
+
+@router.get("/companies/{company_id}/publications")
+async def list_public_marketplace_publications(
+    company_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    await require_marketplace_company(db, company_id)
+    media = await _publication_media(db, company_id)
+    rows = await _publication_rows(db, company_id)
+    return {"ok": True, "publications": [_publication_out(row, media.get(str(row["id"]), [])) for row in rows]}
+
+
+@router.post("/companies/{company_id}/publications", status_code=status.HTTP_201_CREATED)
+async def create_marketplace_publication(
+    company_id: uuid.UUID,
+    request: Request,
+    title: str = Form(...),
+    description: str = Form(default=""),
+    specifications: str = Form(default=""),
+    price: float = Form(default=0),
+    offer_mode: str = Form(default="both"),
+    video_duration: float = Form(default=0),
+    images: list[UploadFile] = File(...),
+    video: UploadFile | None = File(default=None),
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    await require_marketplace_company(db, company_id)
+    user = await current_marketplace_user(db, company_id, authorization)
+    clean_title = _clean(title, 140)
+    if len(clean_title) < 3:
+        raise HTTPException(status_code=422, detail="titulo_requerido")
+    image_files = list(images or [])[: MAX_PUBLICATION_IMAGES + 1]
+    if not image_files:
+        raise HTTPException(status_code=422, detail="selecciona_una_foto")
+    if len(image_files) > MAX_PUBLICATION_IMAGES:
+        raise HTTPException(status_code=422, detail="maximo_5_fotos")
+    uploads = [await _read_media(item, "image") for item in image_files]
+    if video is not None and str(video.filename or "").strip():
+        uploads.append(await _read_media(video, "video", video_duration))
+    result = await db.execute(
+        text("""
+            INSERT INTO marketplace_publications
+                (company_id, user_id, title, description, specifications, price, offer_mode, status)
+            VALUES
+                (CAST(:company_id AS uuid), CAST(:user_id AS uuid), :title, :description,
+                 :specifications, :price, :offer_mode, 'published')
+            RETURNING *
+        """),
+        {
+            "company_id": str(company_id),
+            "user_id": str(user["id"]),
+            "title": clean_title,
+            "description": _clean(description, 2400),
+            "specifications": _clean(specifications, 2400),
+            "price": _money(price),
+            "offer_mode": _offer_mode(offer_mode),
+        },
+    )
+    publication = dict(result.mappings().first())
+    media_out: list[dict[str, Any]] = []
+    image_position = 0
+    for upload in uploads:
+        if upload["kind"] == "image":
+            image_position += 1
+            position = image_position
+        else:
+            position = 1
+        media_result = await db.execute(
+            text("""
+                INSERT INTO marketplace_publication_media
+                    (publication_id, kind, position, content_type, file_bytes, file_size, duration_seconds)
+                VALUES
+                    (CAST(:publication_id AS uuid), :kind, :position, :content_type, :file_bytes, :file_size, :duration)
+                RETURNING id::text AS id, kind, position, content_type, file_size, duration_seconds
+            """),
+            {"publication_id": str(publication["id"]), "kind": upload["kind"], "position": position,
+             "content_type": upload["content_type"], "file_bytes": upload["content"], "file_size": upload["size"], "duration": upload["duration"]},
+        )
+        item = dict(media_result.mappings().first())
+        item["url"] = f"/api/v1/marketplace/publications/{publication['id']}/media/{item['id']}"
+        if item.get("duration_seconds") is not None:
+            item["duration_seconds"] = float(item["duration_seconds"])
+        media_out.append(item)
+    await db.commit()
+    publication.update({"username": user["username"], "phone": user["phone"]})
+    return {"ok": True, "publication": _publication_out(publication, media_out, request=request)}
+
+
+@router.get("/publications/{publication_id}/media/{media_id}")
+async def get_marketplace_publication_media(
+    publication_id: uuid.UUID,
+    media_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await ensure_marketplace_storage(db)
+    result = await db.execute(
+        text("""
+            SELECT m.content_type, m.file_bytes
+            FROM marketplace_publication_media m
+            JOIN marketplace_publications p ON p.id = m.publication_id
+            WHERE m.id = CAST(:media_id AS uuid)
+              AND m.publication_id = CAST(:publication_id AS uuid)
+              AND p.status = 'published'
+            LIMIT 1
+        """),
+        {"media_id": str(media_id), "publication_id": str(publication_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="archivo_no_encontrado")
+    return Response(content=bytes(row["file_bytes"]), media_type=row["content_type"], headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/companies/{company_id}/manage/publications")
+async def manage_marketplace_publications(
+    company_id: uuid.UUID,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    await _require_marketplace_owner_panel(company_id, request, authorization, db)
+    media = await _publication_media(db, company_id)
+    rows = await _publication_rows(db, company_id, include_all=True)
+    return {"ok": True, "publications": [_publication_out(row, media.get(str(row["id"]), []), request=request, include_phone=True) for row in rows]}
+
+
+async def _conversation_for_user(db: AsyncSession, company_id: uuid.UUID, conversation_id: uuid.UUID, user_id: uuid.UUID) -> dict[str, Any]:
+    result = await db.execute(
+        text("""
+            SELECT c.*, p.title,
+                   buyer.username AS buyer_username, seller.username AS seller_username
+            FROM marketplace_conversations c
+            JOIN marketplace_publications p ON p.id = c.publication_id
+            JOIN marketplace_users buyer ON buyer.id = c.buyer_user_id
+            JOIN marketplace_users seller ON seller.id = c.seller_user_id
+            WHERE c.id = CAST(:conversation_id AS uuid)
+              AND c.company_id = CAST(:company_id AS uuid)
+              AND (c.buyer_user_id = CAST(:user_id AS uuid) OR c.seller_user_id = CAST(:user_id AS uuid))
+            LIMIT 1
+        """),
+        {"conversation_id": str(conversation_id), "company_id": str(company_id), "user_id": str(user_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="chat_no_encontrado")
+    return dict(row)
+
+
+@router.post("/companies/{company_id}/publications/{publication_id}/chat")
+async def open_marketplace_chat(
+    company_id: uuid.UUID,
+    publication_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    user = await current_marketplace_user(db, company_id, authorization)
+    seller_id = await db.scalar(
+        text("SELECT user_id FROM marketplace_publications WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid) AND status = 'published'"),
+        {"id": str(publication_id), "company_id": str(company_id)},
+    )
+    if not seller_id:
+        raise HTTPException(status_code=404, detail="publicacion_no_encontrada")
+    if str(seller_id) == str(user["id"]):
+        raise HTTPException(status_code=422, detail="no_puedes_chatear_contigo")
+    result = await db.execute(
+        text("""
+            INSERT INTO marketplace_conversations (company_id, publication_id, buyer_user_id, seller_user_id)
+            VALUES (CAST(:company_id AS uuid), CAST(:publication_id AS uuid), CAST(:buyer_id AS uuid), CAST(:seller_id AS uuid))
+            ON CONFLICT (publication_id, buyer_user_id) DO UPDATE SET updated_at = now()
+            RETURNING id::text AS id
+        """),
+        {"company_id": str(company_id), "publication_id": str(publication_id), "buyer_id": str(user["id"]), "seller_id": str(seller_id)},
+    )
+    conversation_id = result.scalar_one()
+    await db.commit()
+    return {"ok": True, "conversation_id": conversation_id}
+
+
+@router.get("/companies/{company_id}/auth/chats")
+async def list_marketplace_chats(
+    company_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    user = await current_marketplace_user(db, company_id, authorization)
+    result = await db.execute(
+        text("""
+            SELECT c.id::text AS id, c.publication_id::text AS publication_id, p.title,
+                   CASE WHEN c.buyer_user_id = CAST(:user_id AS uuid) THEN seller.username ELSE buyer.username END AS other_username,
+                   (SELECT body FROM marketplace_messages mm WHERE mm.conversation_id = c.id ORDER BY mm.created_at DESC LIMIT 1) AS last_message,
+                   c.updated_at
+            FROM marketplace_conversations c
+            JOIN marketplace_publications p ON p.id = c.publication_id
+            JOIN marketplace_users buyer ON buyer.id = c.buyer_user_id
+            JOIN marketplace_users seller ON seller.id = c.seller_user_id
+            WHERE c.company_id = CAST(:company_id AS uuid)
+              AND (c.buyer_user_id = CAST(:user_id AS uuid) OR c.seller_user_id = CAST(:user_id AS uuid))
+            ORDER BY c.updated_at DESC
+            LIMIT 100
+        """),
+        {"company_id": str(company_id), "user_id": str(user["id"])},
+    )
+    return {"ok": True, "chats": [dict(row) for row in result.mappings().all()]}
+
+
+@router.get("/companies/{company_id}/auth/chats/{conversation_id}/messages")
+async def list_marketplace_messages(
+    company_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    user = await current_marketplace_user(db, company_id, authorization)
+    conversation = await _conversation_for_user(db, company_id, conversation_id, user["id"])
+    result = await db.execute(
+        text("""
+            SELECT m.id::text AS id, m.sender_user_id::text AS sender_user_id, u.username, m.body, m.created_at
+            FROM marketplace_messages m
+            JOIN marketplace_users u ON u.id = m.sender_user_id
+            WHERE m.conversation_id = CAST(:conversation_id AS uuid)
+            ORDER BY m.created_at ASC LIMIT 500
+        """),
+        {"conversation_id": str(conversation_id)},
+    )
+    return {"ok": True, "conversation": {"id": str(conversation["id"]), "title": conversation["title"]}, "messages": [dict(row) for row in result.mappings().all()]}
+
+
+@router.post("/companies/{company_id}/auth/chats/{conversation_id}/messages", status_code=status.HTTP_201_CREATED)
+async def send_marketplace_message(
+    company_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    payload: ChatMessageIn,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    user = await current_marketplace_user(db, company_id, authorization)
+    await _conversation_for_user(db, company_id, conversation_id, user["id"])
+    body = _clean(payload.body, 1200)
+    if not body:
+        raise HTTPException(status_code=422, detail="mensaje_vacio")
+    result = await db.execute(
+        text("""
+            INSERT INTO marketplace_messages (conversation_id, sender_user_id, body)
+            VALUES (CAST(:conversation_id AS uuid), CAST(:sender_id AS uuid), :body)
+            RETURNING id::text AS id, sender_user_id::text AS sender_user_id, body, created_at
+        """),
+        {"conversation_id": str(conversation_id), "sender_id": str(user["id"]), "body": body},
+    )
+    await db.execute(text("UPDATE marketplace_conversations SET updated_at = now() WHERE id = CAST(:id AS uuid)"), {"id": str(conversation_id)})
+    message = dict(result.mappings().first())
+    message["username"] = user["username"]
+    await db.commit()
+    return {"ok": True, "message": message}

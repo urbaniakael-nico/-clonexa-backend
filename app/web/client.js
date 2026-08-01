@@ -773,7 +773,7 @@
     production_references: ["Referencias", "catalogo maestro comercial", "REF"],
     production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
-    marketplace_access: ["Acceso Marketplace", "registro por telefono y acceso publico", "MKT"],
+    marketplace_access: ["Publicaciones", "usuarios, anuncios y enlaces publicos", "PUB"],
     lan: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     landing: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     shoplink: ["ShopLink", "tienda web con carrito y pedidos", "SHL"],
@@ -28127,10 +28127,13 @@ function inventoryCreatePayload() {
     const company = state.company || {};
     const publicUrl = `${window.location.origin}/mercado?company_id=${encodeURIComponent(state.companyId || "")}`;
     let registeredUsers = 0;
+    let publications = [];
     let statusText = "Portal disponible";
     try {
       const payload = await api(`/marketplace/companies/${encodeURIComponent(state.companyId)}/public`);
       registeredUsers = Number(payload.marketplace?.registered_users || 0);
+      const activity = await api(`/marketplace/companies/${encodeURIComponent(state.companyId)}/manage/publications`);
+      publications = Array.isArray(activity.publications) ? activity.publications : [];
     } catch (error) {
       statusText = "No se pudo consultar el portal";
     }
@@ -28146,9 +28149,9 @@ function inventoryCreatePayload() {
           </aside>
           <section class="client-main">
             <header class="client-hero">
-              <div class="client-eyebrow">Marketplace · Modulo 1</div>
-              <h1 class="client-title">Acceso y usuarios</h1>
-              <p class="client-muted">La vitrina es publica. El registro por telefono solo se solicita cuando alguien quiere ofertar o publicar un articulo.</p>
+              <div class="client-eyebrow">Actividad de la app</div>
+              <h1 class="client-title">Publicaciones</h1>
+              <p class="client-muted">Consulta quién publicó, su teléfono verificado y el enlace directo de cada artículo.</p>
               <div class="client-actions">
                 <button class="client-btn" id="marketplaceOpen030H" type="button">Abrir marketplace</button>
                 <button class="client-btn" id="marketplaceCopy030H" type="button">Copiar enlace</button>
@@ -28157,22 +28160,28 @@ function inventoryCreatePayload() {
               </div>
             </header>
             <section class="client-kpi-grid">
+              <article class="client-kpi"><span>Publicaciones</span><strong>${h(publications.length)}</strong></article>
               <article class="client-kpi"><span>Usuarios verificados</span><strong>${h(registeredUsers)}</strong></article>
               <article class="client-kpi"><span>Navegacion publica</span><strong>Activa</strong></article>
-              <article class="client-kpi"><span>Registro</span><strong>SMS</strong></article>
               <article class="client-kpi"><span>Estado</span><strong>${h(statusText)}</strong></article>
             </section>
             <section class="client-panel">
-              <div class="client-eyebrow">Enlace publico</div>
-              <h2>Comparte esta vitrina</h2>
-              <p class="client-muted">Cualquier persona puede mirar los articulos. Para participar se verifica su telefono, crea usuario y contrasena, y la sesion queda guardada en el dispositivo.</p>
+              <div class="client-eyebrow">Vitrina pública</div>
+              <h2>Enlace principal</h2>
+              <p class="client-muted">Desde aquí las personas exploran, se registran, publican y conversan dentro de la misma app.</p>
               <div class="shoplink-url-026k" id="marketplaceUrl030H">${h(publicUrl)}</div>
-              <div class="shoplink-kpis-026k">
-                <div class="shoplink-kpi-026k"><b>1</b><span>perfil por telefono</span></div>
-                <div class="shoplink-kpi-026k"><b>30d</b><span>sesion persistente</span></div>
-                <div class="shoplink-kpi-026k"><b>0</b><span>datos publicos sensibles</span></div>
+              <p class="client-muted" id="marketplaceMessage030H">El teléfono solo se muestra en este panel del dueño.</p>
+            </section>
+            <section class="client-panel">
+              <div class="client-eyebrow">Registro</div>
+              <h2>Artículos publicados</h2>
+              <div class="shoplink-product-list-026k">
+                ${publications.length ? publications.map((item) => `
+                  <article class="shoplink-order-row-026k">
+                    <div><strong>${h(item.title || "Articulo")}</strong><small>${h(item.seller?.username || "Usuario")} · ${h(item.seller?.phone || "Sin telefono")}</small><small>${h(item.status || "published")} · ${h(item.offer_mode || "both")}</small></div>
+                    <div class="client-actions"><a class="client-btn" href="${h(item.public_url || publicUrl)}" target="_blank" rel="noopener">Abrir</a><button class="client-btn" type="button" data-marketplace-copy-publication="${h(item.public_url || publicUrl)}">Copiar link</button></div>
+                  </article>`).join("") : `<div class="client-empty">Aún no hay publicaciones. Cuando un usuario publique, aparecerá aquí con su teléfono y enlace.</div>`}
               </div>
-              <p class="client-muted" id="marketplaceMessage030H">Este primer modulo deja lista la identidad del usuario. Publicacion de articulos y ofertas se conectan en los siguientes modulos.</p>
             </section>
           </section>
         </div>
@@ -28184,6 +28193,11 @@ function inventoryCreatePayload() {
       catch { if (notice) notice.textContent = "Copia manualmente el enlace mostrado arriba."; }
     });
     document.getElementById("marketplaceRefresh030H")?.addEventListener("click", () => renderMarketplaceAccessModule030H());
+    document.querySelectorAll("[data-marketplace-copy-publication]").forEach((button) => button.addEventListener("click", async () => {
+      const notice = document.getElementById("marketplaceMessage030H");
+      try { await navigator.clipboard.writeText(button.getAttribute("data-marketplace-copy-publication") || publicUrl); if (notice) notice.textContent = "Enlace de la publicación copiado."; }
+      catch { if (notice) notice.textContent = "No se pudo copiar. Abre la publicación y copia el enlace del navegador."; }
+    }));
   }
 
   async function renderClientModulePlaceholder(code) {

@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#071811">
   <title>Cambios y compras</title>
   <link rel="stylesheet" href="/client-static/marketplace_public.css?v=030H_MARKETPLACE_ACCESS">
+  <link rel="stylesheet" href="/client-static/marketplace_public_app.css?v=030I_PUBLICATIONS_APP">
 </head>
 <body>
   <div class="market-glow market-glow-one"></div><div class="market-glow market-glow-two"></div>
@@ -48,11 +49,38 @@
         <label class="market-search"><span>⌕</span><input id="marketSearch" type="search" placeholder="Buscar gorras, consolas, tecnología..." aria-label="Buscar artículos"></label>
         <div class="market-chips" aria-label="Categorías"><button class="active" type="button">Todos</button><button type="button">Tecnología</button><button type="button">Moda</button><button type="button">Hogar</button></div>
       </div>
+      <div class="market-product-grid" id="marketProductGrid"></div>
       <div class="market-empty" id="marketEmpty">
         <div class="market-empty-icon">◇</div><h3>El primer artículo puede ser el tuyo</h3>
         <p>La vitrina ya está lista. Publica una gorra, un Play, un Xbox o cualquier artículo que quieras vender o cambiar.</p>
         <button class="market-btn primary" data-auth-action="publish" type="button">Publicar el primero</button>
       </div>
+    </section>
+
+    <section class="market-publish" id="publicar" hidden>
+      <div class="market-publish-head">
+        <button class="market-btn ghost" id="backToCatalog" type="button">← Volver a la vitrina</button>
+        <div><span class="market-eyebrow">Nueva publicación</span><h2>Muéstralo como se merece.</h2><p>Completa la información y el artículo aparecerá inmediatamente en la app.</p></div>
+      </div>
+      <form class="market-publish-form" id="publishForm">
+        <div class="market-publish-card">
+          <span class="market-step">01 · Información</span>
+          <label>Título del artículo<input name="title" minlength="3" maxlength="140" required placeholder="Ej: Xbox Series S en perfecto estado"></label>
+          <div class="market-form-split"><label>Valor del artículo<input name="price" type="number" min="0" step="1000" required placeholder="0"></label><label>¿Qué aceptas?<select name="offer_mode"><option value="both">Dinero o cambio</option><option value="money">Solo dinero</option><option value="change">Solo cambio</option></select></label></div>
+          <label>Descripción<textarea name="description" maxlength="2400" required placeholder="Cuenta cómo está, cuánto tiempo tiene y por qué lo vendes o cambias."></textarea></label>
+          <label>Especificaciones<textarea name="specifications" maxlength="2400" placeholder="Marca, modelo, color, medidas, accesorios incluidos..."></textarea></label>
+        </div>
+        <div class="market-publish-card">
+          <span class="market-step">02 · Fotos y video</span>
+          <label class="market-upload-zone">Hasta 5 fotos<input id="publicationImages" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple required><span>JPG, PNG o WEBP · máximo 5 MB cada una</span></label>
+          <div class="market-preview-grid" id="imagePreview"></div>
+          <label class="market-upload-zone">Video opcional de máximo 30 segundos<input id="publicationVideo" name="video" type="file" accept="video/mp4,video/webm,video/quicktime"><span>MP4, WEBM o MOV · máximo 25 MB</span></label>
+          <div class="market-video-status" id="videoStatus">Sin video seleccionado</div>
+          <input id="videoDuration" name="video_duration" type="hidden" value="0">
+          <button class="market-btn primary full market-publish-submit" type="submit">Publicar ahora</button>
+          <p class="market-message" id="publishMessage" aria-live="polite"></p>
+        </div>
+      </form>
     </section>
   </main>
 
@@ -98,12 +126,25 @@
       <span class="market-eyebrow">Perfil verificado</span><h2 id="accountTitle">Mi cuenta</h2>
       <div class="market-profile"><span id="profileAvatar">V</span><div><b id="profileName">Usuario</b><small id="profilePhone">Teléfono verificado</small></div></div>
       <form class="market-form" id="profileForm"><label>Nombre o usuario<input name="username" minlength="3" maxlength="40" required></label><button class="market-btn primary full" type="submit">Guardar nombre</button></form>
+      <button class="market-btn glass full" id="openChatsButton" type="button">Mis chats</button>
       <button class="market-btn ghost full" id="logoutButton" type="button">Cerrar sesión</button>
       <p class="market-message" id="accountMessage" aria-live="polite"></p>
     </section>
   </div>
 
+  <div class="market-modal" id="chatModal" hidden>
+    <button class="market-modal-backdrop" data-close-chat type="button" aria-label="Cerrar"></button>
+    <section class="market-modal-card market-chat-card" role="dialog" aria-modal="true" aria-labelledby="chatTitle">
+      <button class="market-close" data-close-chat type="button" aria-label="Cerrar">×</button>
+      <span class="market-eyebrow">Chat privado</span><h2 id="chatTitle">Conversaciones</h2>
+      <div class="market-chat-list" id="chatList"></div>
+      <div class="market-chat-messages" id="chatMessages"></div>
+      <form class="market-chat-form" id="chatForm" hidden><input name="body" maxlength="1200" autocomplete="off" required placeholder="Escribe un mensaje..."><button class="market-btn primary" type="submit">Enviar</button></form>
+      <p class="market-message" id="chatMessage" aria-live="polite"></p>
+    </section>
+  </div>
+
   <div class="market-toast" id="marketToast" hidden aria-live="polite"></div>
-  <script src="/client-static/marketplace_public.js?v=030H_MARKETPLACE_ACCESS"></script>
+  <script src="/client-static/marketplace_public.js?v=030I_PUBLICATIONS_APP"></script>
 </body>
 </html>
