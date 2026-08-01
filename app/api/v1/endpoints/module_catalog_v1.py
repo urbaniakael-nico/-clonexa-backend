@@ -243,13 +243,13 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "is_transversal": False,
     },
     "marketplace_access": {
-        "name": "Acceso Marketplace",
-        "description": "Registro publico por telefono, verificacion por mensaje, inicio de sesion y perfil para ofertar o publicar.",
+        "name": "Publicaciones",
+        "description": "Registro de anuncios publicados con usuario, telefono verificado, archivos y enlace publico.",
         "category": "marketplace",
         "category_label": "Marketplace",
-        "layer": "acceso publico",
+        "layer": "operacion marketplace",
         "module_type": "operational",
-        "badge": "MKT",
+        "badge": "PUB",
         "is_transversal": False,
     },
     "landing": {
