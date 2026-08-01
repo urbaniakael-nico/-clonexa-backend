@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#071811">
+  <title>Cambios y compras</title>
+  <link rel="stylesheet" href="/client-static/marketplace_public.css?v=030H_MARKETPLACE_ACCESS">
+</head>
+<body>
+  <div class="market-glow market-glow-one"></div><div class="market-glow market-glow-two"></div>
+  <header class="market-header">
+    <a class="market-brand" href="#inicio" aria-label="Ir al inicio">
+      <span class="market-brand-mark">V</span>
+      <span><b id="companyName">VIEJA GUARDIA</b><small>Cambios y compras</small></span>
+    </a>
+    <nav class="market-actions" aria-label="Cuenta">
+      <button class="market-btn ghost" id="accountButton" type="button">Ingresar</button>
+      <button class="market-btn primary" data-auth-action="publish" type="button">+ Publicar</button>
+    </nav>
+  </header>
+
+  <main id="inicio">
+    <section class="market-hero">
+      <div class="market-hero-copy">
+        <span class="market-eyebrow">Marketplace local · compra · venta · cambio</span>
+        <h1>Dale una segunda vida a lo que tienes.</h1>
+        <p>Explora artículos sin registrarte. Crea tu cuenta únicamente cuando quieras publicar o enviar una oferta.</p>
+        <div class="market-hero-actions">
+          <a class="market-btn primary large" href="#articulos">Explorar artículos</a>
+          <button class="market-btn glass large" data-auth-action="publish" type="button">Publicar un artículo</button>
+        </div>
+        <div class="market-trust"><span>✓ Teléfono verificado</span><span>✓ Perfiles privados</span><span>✓ Trato directo</span></div>
+      </div>
+      <div class="market-hero-visual" aria-hidden="true">
+        <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
+        <div class="hero-card hero-card-main"><span>↔</span><b>Intercambia</b><small>Lo que ya no usas</small></div>
+        <div class="hero-card hero-card-mini"><b>Oferta libre</b><small>Dinero o cambio</small></div>
+      </div>
+    </section>
+
+    <section class="market-catalog" id="articulos">
+      <div class="market-section-head">
+        <div><span class="market-eyebrow">Descubre</span><h2>Artículos disponibles</h2></div>
+        <div class="market-members"><b id="registeredUsers">0</b><span>miembros verificados</span></div>
+      </div>
+      <div class="market-toolbar">
+        <label class="market-search"><span>⌕</span><input id="marketSearch" type="search" placeholder="Buscar gorras, consolas, tecnología..." aria-label="Buscar artículos"></label>
+        <div class="market-chips" aria-label="Categorías"><button class="active" type="button">Todos</button><button type="button">Tecnología</button><button type="button">Moda</button><button type="button">Hogar</button></div>
+      </div>
+      <div class="market-empty" id="marketEmpty">
+        <div class="market-empty-icon">◇</div><h3>El primer artículo puede ser el tuyo</h3>
+        <p>La vitrina ya está lista. Publica una gorra, un Play, un Xbox o cualquier artículo que quieras vender o cambiar.</p>
+        <button class="market-btn primary" data-auth-action="publish" type="button">Publicar el primero</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="market-modal" id="authModal" hidden>
+    <button class="market-modal-backdrop" data-close-modal type="button" aria-label="Cerrar"></button>
+    <section class="market-modal-card" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <button class="market-close" data-close-modal type="button" aria-label="Cerrar">×</button>
+      <div class="market-modal-brand"><span class="market-brand-mark">V</span><div><b id="authTitle">Tu cuenta</b><small>Solo la necesitas para participar</small></div></div>
+      <div class="market-tabs" id="authTabs"><button class="active" data-auth-tab="login" type="button">Ingresar</button><button data-auth-tab="register" type="button">Crear cuenta</button></div>
+
+      <form class="market-form" id="loginForm" data-auth-panel="login">
+        <label>Usuario o teléfono<input name="identifier" autocomplete="username" required placeholder="Tu usuario o 300 000 0000"></label>
+        <label>Contraseña<input name="password" type="password" autocomplete="current-password" required placeholder="••••••••"></label>
+        <button class="market-btn primary full" type="submit">Ingresar</button>
+        <button class="market-link" data-auth-tab="reset" type="button">Olvidé mi contraseña</button>
+      </form>
+
+      <form class="market-form" id="registerForm" data-auth-panel="register" hidden>
+        <label>Nombre o usuario<input name="username" autocomplete="nickname" minlength="3" maxlength="40" required placeholder="Ej: Nico87"></label>
+        <label>Teléfono<input name="phone" autocomplete="tel" required placeholder="300 000 0000"></label>
+        <div class="market-code-row"><label>Código del mensaje<input name="verification_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="000000"></label><button class="market-btn glass" data-send-code="register" type="button">Enviar código</button></div>
+        <label>Crea una contraseña<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="Mínimo 8 caracteres"></label>
+        <button class="market-btn primary full" type="submit">Crear mi cuenta</button>
+        <small class="market-privacy">Tu número se usa para verificar la cuenta y nunca se muestra públicamente.</small>
+      </form>
+
+      <form class="market-form" id="resetForm" data-auth-panel="reset" hidden>
+        <p class="market-form-copy">Te enviaremos un código para recuperar el acceso.</p>
+        <label>Teléfono<input name="phone" autocomplete="tel" required placeholder="300 000 0000"></label>
+        <div class="market-code-row"><label>Código<input name="verification_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="000000"></label><button class="market-btn glass" data-send-code="reset" type="button">Enviar código</button></div>
+        <label>Nueva contraseña<input name="new_password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></label>
+        <button class="market-btn primary full" type="submit">Cambiar contraseña</button>
+        <button class="market-link" data-auth-tab="login" type="button">Volver a ingresar</button>
+      </form>
+      <p class="market-message" id="authMessage" aria-live="polite"></p>
+    </section>
+  </div>
+
+  <div class="market-modal" id="accountModal" hidden>
+    <button class="market-modal-backdrop" data-close-account type="button" aria-label="Cerrar"></button>
+    <section class="market-modal-card" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
+      <button class="market-close" data-close-account type="button" aria-label="Cerrar">×</button>
+      <span class="market-eyebrow">Perfil verificado</span><h2 id="accountTitle">Mi cuenta</h2>
+      <div class="market-profile"><span id="profileAvatar">V</span><div><b id="profileName">Usuario</b><small id="profilePhone">Teléfono verificado</small></div></div>
+      <form class="market-form" id="profileForm"><label>Nombre o usuario<input name="username" minlength="3" maxlength="40" required></label><button class="market-btn primary full" type="submit">Guardar nombre</button></form>
+      <button class="market-btn ghost full" id="logoutButton" type="button">Cerrar sesión</button>
+      <p class="market-message" id="accountMessage" aria-live="polite"></p>
+    </section>
+  </div>
+
+  <div class="market-toast" id="marketToast" hidden aria-live="polite"></div>
+  <script src="/client-static/marketplace_public.js?v=030H_MARKETPLACE_ACCESS"></script>
+</body>
+</html>

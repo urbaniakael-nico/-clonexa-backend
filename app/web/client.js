@@ -773,6 +773,7 @@
     production_references: ["Referencias", "catalogo maestro comercial", "REF"],
     production: ["Produccion", "referencias y costos", "PRD"],
     retail: ["Retail", "tiendas y ventas", "RTL"],
+    marketplace_access: ["Acceso Marketplace", "registro por telefono y acceso publico", "MKT"],
     lan: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     landing: ["Catalogo / Tienda publica", "tienda publica ShopLink", "LAN"],
     shoplink: ["ShopLink", "tienda web con carrito y pedidos", "SHL"],
@@ -28117,7 +28118,78 @@ function inventoryCreatePayload() {
     });
   }
 
+  function cxIsMarketplaceAccessCode030H(code = "") {
+    return cxNormalizeModuleToken017H(code) === "marketplace_access";
+  }
+
+  async function renderMarketplaceAccessModule030H() {
+    if (typeof cxShoplinkStyles026K === "function") cxShoplinkStyles026K();
+    const company = state.company || {};
+    const publicUrl = `${window.location.origin}/mercado?company_id=${encodeURIComponent(state.companyId || "")}`;
+    let registeredUsers = 0;
+    let statusText = "Portal disponible";
+    try {
+      const payload = await api(`/marketplace/companies/${encodeURIComponent(state.companyId)}/public`);
+      registeredUsers = Number(payload.marketplace?.registered_users || 0);
+    } catch (error) {
+      statusText = "No se pudo consultar el portal";
+    }
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("marketplace_access")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Marketplace · Modulo 1</div>
+              <h1 class="client-title">Acceso y usuarios</h1>
+              <p class="client-muted">La vitrina es publica. El registro por telefono solo se solicita cuando alguien quiere ofertar o publicar un articulo.</p>
+              <div class="client-actions">
+                <button class="client-btn" id="marketplaceOpen030H" type="button">Abrir marketplace</button>
+                <button class="client-btn" id="marketplaceCopy030H" type="button">Copiar enlace</button>
+                <button class="client-btn" id="marketplaceRefresh030H" type="button">Actualizar</button>
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+              </div>
+            </header>
+            <section class="client-kpi-grid">
+              <article class="client-kpi"><span>Usuarios verificados</span><strong>${h(registeredUsers)}</strong></article>
+              <article class="client-kpi"><span>Navegacion publica</span><strong>Activa</strong></article>
+              <article class="client-kpi"><span>Registro</span><strong>SMS</strong></article>
+              <article class="client-kpi"><span>Estado</span><strong>${h(statusText)}</strong></article>
+            </section>
+            <section class="client-panel">
+              <div class="client-eyebrow">Enlace publico</div>
+              <h2>Comparte esta vitrina</h2>
+              <p class="client-muted">Cualquier persona puede mirar los articulos. Para participar se verifica su telefono, crea usuario y contrasena, y la sesion queda guardada en el dispositivo.</p>
+              <div class="shoplink-url-026k" id="marketplaceUrl030H">${h(publicUrl)}</div>
+              <div class="shoplink-kpis-026k">
+                <div class="shoplink-kpi-026k"><b>1</b><span>perfil por telefono</span></div>
+                <div class="shoplink-kpi-026k"><b>30d</b><span>sesion persistente</span></div>
+                <div class="shoplink-kpi-026k"><b>0</b><span>datos publicos sensibles</span></div>
+              </div>
+              <p class="client-muted" id="marketplaceMessage030H">Este primer modulo deja lista la identidad del usuario. Publicacion de articulos y ofertas se conectan en los siguientes modulos.</p>
+            </section>
+          </section>
+        </div>
+      </main>`;
+    document.getElementById("marketplaceOpen030H")?.addEventListener("click", () => window.open(publicUrl, "_blank", "noopener"));
+    document.getElementById("marketplaceCopy030H")?.addEventListener("click", async () => {
+      const notice = document.getElementById("marketplaceMessage030H");
+      try { await navigator.clipboard.writeText(publicUrl); if (notice) notice.textContent = "Enlace copiado. Ya puedes compartirlo."; }
+      catch { if (notice) notice.textContent = "Copia manualmente el enlace mostrado arriba."; }
+    });
+    document.getElementById("marketplaceRefresh030H")?.addEventListener("click", () => renderMarketplaceAccessModule030H());
+  }
+
   async function renderClientModulePlaceholder(code) {
+    if (cxIsMarketplaceAccessCode030H(code)) {
+      return renderMarketplaceAccessModule030H();
+    }
     if (cxIsTransportPaymentsCode028R(code)) {
       return renderTransportPaymentsModule028R();
     }
@@ -30000,6 +30072,11 @@ function inventoryCreatePayload() {
         const activeModule = cxGetClientModuleByCode026K(code) || { code };
 
         if (!isClientModuleActive(code)) return;
+
+        if (cxIsMarketplaceAccessCode030H(code)) {
+          await renderMarketplaceAccessModule030H();
+          return;
+        }
 
         if (cxIsTransportCallsCode028A(code)) {
           await renderTransportCallsModule028A();

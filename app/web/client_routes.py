@@ -55,6 +55,11 @@ def register_client_portal(app: FastAPI) -> None:
         async def shoplink_public_page() -> HTMLResponse:
             return _read_html(web_dir / "shoplink_public.html")
 
+    if not any(getattr(route, "path", None) == "/mercado" for route in app.routes):
+        @app.get("/mercado", response_class=HTMLResponse, include_in_schema=False)
+        async def marketplace_public_page() -> HTMLResponse:
+            return _read_html(web_dir / "marketplace_public.html")
+
     # CLONEXA_019D_MINI_PANEL_ROUTES_START
     if not any(getattr(route, "path", None) == "/mini-panel/login" for route in app.routes):
         @app.get("/mini-panel/login", response_class=HTMLResponse, include_in_schema=False)
