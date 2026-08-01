@@ -37,6 +37,7 @@
     cartOpen: false,
     inventoryRecoveryAttempts: 0,
     customerName: "",
+    navigationGuarded: false,
     message: "",
     error: "",
   };
@@ -637,6 +638,58 @@
 
   function accessStorageKey() {
     return `clonexa_hsp_table_access_${state.companyId}_${normalizeText(state.table).replace(/[^a-z0-9]+/g, "_")}`;
+  }
+
+  function storedAccessCode() {
+    const key = accessStorageKey();
+    try {
+      const persistent = String(window.localStorage.getItem(key) || "").trim();
+      if (persistent) return persistent;
+    } catch (_) {}
+    try {
+      return String(window.sessionStorage.getItem(key) || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function rememberAccessCode(value = "") {
+    const clean = String(value || "").trim().toUpperCase().slice(0, 12);
+    if (!clean) return;
+    const key = accessStorageKey();
+    try { window.localStorage.setItem(key, clean); } catch (_) {}
+    try { window.sessionStorage.setItem(key, clean); } catch (_) {}
+  }
+
+  function forgetAccessCode() {
+    const key = accessStorageKey();
+    try { window.localStorage.removeItem(key); } catch (_) {}
+    try { window.sessionStorage.removeItem(key); } catch (_) {}
+  }
+
+  function isDefinitiveAccessError(error) {
+    const raw = normalizeText(error?.message || error);
+    return raw.includes("mesa_no_activada")
+      || raw.includes("clave_de_mesa_invalida")
+      || raw.includes("aun no tiene clave activa")
+      || raw.includes("clave incorrecta")
+      || raw.includes("cuenta de esta mesa ya fue cerrada");
+  }
+
+  function shouldGuardTableNavigation() {
+    return !isAssemblyMode() && state.access?.active === true && state.access?.unlocked === true;
+  }
+
+  function armTableNavigationGuard() {
+    if (!shouldGuardTableNavigation() || state.navigationGuarded) return;
+    try {
+      window.history.pushState({ clonexaTableGuard: true }, "", window.location.href);
+      state.navigationGuarded = true;
+    } catch (_) {}
+  }
+
+  function releaseTableNavigationGuard() {
+    state.navigationGuarded = false;
   }
 
   function accessGateHtml() {
@@ -1457,7 +1510,7 @@
         table: state.table,
         customer,
         source: "qr",
-        access_code: state.access.code || sessionStorage.getItem(accessStorageKey()) || "",
+        access_code: state.access.code || storedAccessCode(),
         songs,
         notes,
         items: items.map((item) => ({
@@ -1482,8 +1535,9 @@
       state.error = "";
       render();
     } catch (error) {
-      if (String(error.message || "").includes("403")) {
-        sessionStorage.removeItem(accessStorageKey());
+      if (isDefinitiveAccessError(error)) {
+        forgetAccessCode();
+        releaseTableNavigationGuard();
         state.access.unlocked = false;
         state.access.code = "";
       }
@@ -1685,13 +1739,15 @@
         code: "",
         expires_at: access.access?.expires_at || "",
       };
-      const storedCode = sessionStorage.getItem(accessStorageKey()) || "";
+      const storedCode = storedAccessCode();
       if (state.access.active && storedCode) {
         try {
           await verifyTableAccess(storedCode, { silent: true });
-        } catch (_) {
-          sessionStorage.removeItem(accessStorageKey());
+        } catch (error) {
+          if (isDefinitiveAccessError(error)) forgetAccessCode();
         }
+      } else if (!state.access.active && storedCode) {
+        forgetAccessCode();
       }
       state.loading = false;
       state.error = "";
@@ -1881,7 +1937,8 @@
       code: cleanCode,
       expires_at: data.access?.expires_at || "",
     };
-    sessionStorage.setItem(accessStorageKey(), cleanCode);
+    rememberAccessCode(cleanCode);
+    armTableNavigationGuard();
     if (!isAssemblyMode()) await refreshTableAccount({ render: false }).catch(() => {});
     state.error = "";
     if (!options.silent) state.message = isAssemblyMode() ? "Acceso activado. Completa tus datos para participar." : "Mesa activada. Ya puedes realizar tu pedido.";
@@ -1891,7 +1948,7 @@
 
   async function refreshTableAccount(options = {}) {
     if (isAssemblyMode() || !state.access?.unlocked) return state.tableAccount;
-    const accessCode = state.access.code || sessionStorage.getItem(accessStorageKey()) || "";
+    const accessCode = state.access.code || storedAccessCode();
     if (!accessCode) return state.tableAccount;
     try {
       const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/account`, {
@@ -1909,7 +1966,8 @@
     } catch (error) {
       const raw = String(error.message || "");
       if (raw.includes("mesa_no_activada") || raw.includes("clave_de_mesa_invalida")) {
-        sessionStorage.removeItem(accessStorageKey());
+        forgetAccessCode();
+        releaseTableNavigationGuard();
         state.access = { active: false, unlocked: false, code: "", expires_at: "" };
         state.tableAccount = { total: 0, orders_count: 0, accounts_count: 0, last_activity: "" };
         state.error = "La cuenta de esta mesa ya fue cerrada. Pide una nueva activacion para volver a ordenar.";
@@ -1958,7 +2016,7 @@
           team_name: teamName,
           score_a: Number.isFinite(scoreA) ? scoreA : 0,
           score_b: Number.isFinite(scoreB) ? scoreB : 0,
-          access_code: state.access.code || sessionStorage.getItem(accessStorageKey()) || "",
+          access_code: state.access.code || storedAccessCode(),
         }),
       });
       state.campaign = data.campaign || state.campaign;
@@ -2001,7 +2059,7 @@
           table: state.table,
           voter_name: voterName,
           answer_key: selected,
-          access_code: state.access.code || sessionStorage.getItem(accessStorageKey()) || "",
+          access_code: state.access.code || storedAccessCode(),
         }),
       });
       state.campaign = data.campaign || state.campaign;
@@ -2079,6 +2137,30 @@
     if (assemblyLiveHasFocus()) return;
     refreshAssemblyPublicView().catch(() => {});
   }, 6000);
+
+  window.addEventListener("popstate", () => {
+    if (!shouldGuardTableNavigation()) {
+      releaseTableNavigationGuard();
+      return;
+    }
+    state.navigationGuarded = false;
+    armTableNavigationGuard();
+    if (state.cartOpen) {
+      state.cartOpen = false;
+      state.error = "";
+      render();
+      return;
+    }
+    state.message = "La mesa sigue abierta. Puedes continuar ordenando; este acceso se cerrara cuando el bar cierre la mesa.";
+    state.error = "";
+    render();
+  });
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!shouldGuardTableNavigation()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
 
   render();
   load();
