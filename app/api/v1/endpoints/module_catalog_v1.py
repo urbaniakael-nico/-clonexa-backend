@@ -242,6 +242,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "RTL",
         "is_transversal": False,
     },
+    "marketplace_access": {
+        "name": "Acceso Marketplace",
+        "description": "Registro publico por telefono, verificacion por mensaje, inicio de sesion y perfil para ofertar o publicar.",
+        "category": "marketplace",
+        "category_label": "Marketplace",
+        "layer": "acceso publico",
+        "module_type": "operational",
+        "badge": "MKT",
+        "is_transversal": False,
+    },
     "landing": {
         "name": "Catálogo / Tienda pública",
         "description": "Tienda pública ShopLink con catálogo, categorías, carrito, checkout y pedidos web.",
