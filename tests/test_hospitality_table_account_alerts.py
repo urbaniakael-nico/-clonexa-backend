@@ -112,6 +112,24 @@ def test_mobile_qr_remembers_customer_name_on_the_same_device():
     assert "030D_CUSTOMER_MEMORY" in html
 
 
+def test_mobile_qr_keeps_table_access_until_the_backend_closes_the_table():
+    source = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
+    html = Path("app/web/hospitality_order.html").read_text(encoding="utf-8")
+
+    assert "clonexa_hsp_table_access_" in source
+    assert "function storedAccessCode()" in source
+    assert "window.localStorage.getItem(key)" in source
+    assert "window.localStorage.setItem(key, clean)" in source
+    assert "function forgetAccessCode()" in source
+    assert 'raw.includes("mesa_no_activada")' in source
+    assert 'raw.includes("clave_de_mesa_invalida")' in source
+    assert 'window.addEventListener("popstate"' in source
+    assert "window.history.pushState" in source
+    assert 'window.addEventListener("beforeunload"' in source
+    assert "!isAssemblyMode()" in source
+    assert "030G_TABLE_SESSION_LOCK" in html
+
+
 def test_manual_bar_form_can_charge_products_to_a_table_account():
     source = Path("app/web/client.js").read_text(encoding="utf-8")
     html = Path("app/web/client.html").read_text(encoding="utf-8")
