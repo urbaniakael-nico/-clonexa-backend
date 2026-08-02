@@ -162,6 +162,14 @@ def test_marketplace_owner_can_edit_own_publications():
     assert 'method:"PATCH"' in PUBLIC_JS
 
 
+def test_marketplace_async_forms_keep_stable_form_reference_and_backend_deduplicates_retries():
+    assert "const formElement = event.currentTarget" in PUBLIC_JS
+    assert "event.currentTarget.reset()" not in PUBLIC_JS
+    source = (ROOT / "app" / "api" / "v1" / "endpoints" / "marketplace.py").read_text(encoding="utf-8")
+    assert "interval '90 seconds'" in source
+    assert '"deduplicated": True' in source
+
+
 def test_marketplace_shared_links_respect_railway_forwarded_https():
     class RequestStub:
         headers = {"x-forwarded-proto": "https", "x-forwarded-host": "clonexa.example.com"}
