@@ -94,6 +94,10 @@ button.market-product-user:hover {
   box-shadow: var(--shadow);
 }
 
+.market-profile-cover > * {
+  min-width: 0;
+}
+
 .market-profile-avatar {
   display: grid;
   place-items: center;
@@ -112,6 +116,7 @@ button.market-product-user:hover {
   font-size: clamp(38px, 6vw, 68px);
   line-height: .95;
   letter-spacing: -.05em;
+  overflow-wrap: anywhere;
 }
 
 .market-profile-identity p {

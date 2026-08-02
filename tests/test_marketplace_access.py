@@ -9,6 +9,7 @@ from app.api.v1.endpoints.marketplace import (
     MAX_PUBLICATION_IMAGES,
     MAX_VIDEO_SECONDS,
     _mp4_duration_seconds,
+    _request_origin,
     infer_marketplace_category,
     normalize_marketplace_category,
     normalize_phone,
@@ -158,6 +159,14 @@ def test_marketplace_owner_can_edit_own_publications():
     assert 'id="myPublicationsList"' in PUBLIC_HTML
     assert "data-edit-publication" in PUBLIC_JS
     assert 'method:"PATCH"' in PUBLIC_JS
+
+
+def test_marketplace_shared_links_respect_railway_forwarded_https():
+    class RequestStub:
+        headers = {"x-forwarded-proto": "https", "x-forwarded-host": "clonexa.example.com"}
+        url = type("URL", (), {"scheme": "http", "netloc": "internal:8080"})()
+
+    assert _request_origin(RequestStub()) == "https://clonexa.example.com"
 
 
 def test_mp4_duration_reader_rejects_over_thirty_second_metadata():
