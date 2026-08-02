@@ -77,9 +77,10 @@ def test_public_marketplace_browses_without_login_but_gates_participation():
 
 
 def test_marketplace_registration_contains_required_fast_fields():
-    for field in ('name="username"', 'name="phone"', 'name="verification_code"', 'name="password"'):
+    for field in ('name="username"', 'name="phone"', 'name="password"'):
         assert field in PUBLIC_HTML
-    assert 'data-send-code="register"' in PUBLIC_HTML
+    assert 'name="verification_code"' not in PUBLIC_HTML
+    assert 'data-send-code="register"' not in PUBLIC_HTML
 
 
 def test_marketplace_public_route_and_company_panel_exist():

@@ -70,7 +70,7 @@
     $("#accountButton").textContent = user ? user.username : "Ingresar";
     if (!user) return;
     $("#profileName").textContent = user.username;
-    $("#profilePhone").textContent = `${user.phone_masked} · verificado`;
+    $("#profilePhone").textContent = `${user.phone_masked} · registrado`;
     $("#profileAvatar").textContent = (user.username || "V").charAt(0).toUpperCase();
     $("#profileForm [name=username]").value = user.username || "";
   }
@@ -219,19 +219,6 @@
     catch (error) { message($("#chatMessage"), error.message, true); } finally { submit.disabled = false; }
   });
 
-  $$('[data-send-code]').forEach((button) => button.addEventListener("click", async () => {
-    const purpose = button.dataset.sendCode;
-    const form = purpose === "reset" ? $("#resetForm") : $("#registerForm");
-    const phone = new FormData(form).get("phone");
-    if (!phone) return message($("#authMessage"), "Escribe primero tu teléfono.", true);
-    button.disabled = true; button.textContent = "Enviando...";
-    try {
-      const data = await request("/auth/verification/request", {method:"POST",body:JSON.stringify({phone,purpose})});
-      message($("#authMessage"), `Código enviado a ${data.phone_masked}.`);
-      let seconds = 45; const timer = setInterval(() => { seconds -= 1; button.textContent = seconds > 0 ? `Reenviar en ${seconds}s` : "Enviar código"; if (seconds <= 0) { clearInterval(timer); button.disabled = false; } }, 1000);
-    } catch (error) { message($("#authMessage"), error.message, true); button.disabled = false; button.textContent = "Enviar código"; }
-  }));
-
   $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); const submit = event.currentTarget.querySelector('[type=submit]'); submit.disabled = true;
     try { const data = await request("/auth/login", {method:"POST",body:JSON.stringify(Object.fromEntries(form))}); token = data.access_token; user = data.user; localStorage.setItem(tokenKey, token); updateAccount(); closeAuth(); await completePending(); }
@@ -239,12 +226,7 @@
   });
   $("#registerForm").addEventListener("submit", async (event) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); const submit = event.currentTarget.querySelector('[type=submit]'); submit.disabled = true;
-    try { const data = await request("/auth/register", {method:"POST",body:JSON.stringify(Object.fromEntries(form))}); token = data.access_token; user = data.user; localStorage.setItem(tokenKey, token); updateAccount(); closeAuth(); toast("Cuenta creada y teléfono verificado."); await completePending(); }
-    catch (error) { message($("#authMessage"), error.message, true); } finally { submit.disabled = false; }
-  });
-  $("#resetForm").addEventListener("submit", async (event) => {
-    event.preventDefault(); const submit = event.currentTarget.querySelector('[type=submit]'); submit.disabled = true;
-    try { await request("/auth/password-reset", {method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget)))}); setTab("login"); message($("#authMessage"), "Contraseña actualizada. Ya puedes ingresar."); }
+    try { const data = await request("/auth/register", {method:"POST",body:JSON.stringify(Object.fromEntries(form))}); token = data.access_token; user = data.user; localStorage.setItem(tokenKey, token); updateAccount(); closeAuth(); toast("Cuenta creada. Ya puedes publicar y chatear."); await completePending(); }
     catch (error) { message($("#authMessage"), error.message, true); } finally { submit.disabled = false; }
   });
   $("#profileForm").addEventListener("submit", async (event) => {

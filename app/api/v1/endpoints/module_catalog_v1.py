@@ -244,7 +244,7 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
     },
     "marketplace_access": {
         "name": "Publicaciones",
-        "description": "Registro de anuncios publicados con usuario, telefono verificado, archivos y enlace publico.",
+        "description": "Registro de anuncios publicados con usuario, telefono registrado, archivos y enlace publico.",
         "category": "marketplace",
         "category_label": "Marketplace",
         "layer": "operacion marketplace",

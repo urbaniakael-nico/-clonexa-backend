@@ -50,7 +50,6 @@ class VerificationRequestIn(BaseModel):
 class RegisterIn(BaseModel):
     username: str = Field(..., min_length=3, max_length=40)
     phone: str = Field(..., min_length=7, max_length=30)
-    verification_code: str = Field(..., min_length=6, max_length=6)
     password: str = Field(..., min_length=8, max_length=72)
 
 
@@ -142,6 +141,7 @@ async def ensure_marketplace_storage(db: AsyncSession) -> None:
         CREATE INDEX IF NOT EXISTS ix_marketplace_users_company_status
         ON marketplace_users(company_id, status, created_at DESC)
     """))
+    await db.execute(text("ALTER TABLE marketplace_users ALTER COLUMN phone_verified_at DROP NOT NULL"))
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS marketplace_verification_codes (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -412,7 +412,8 @@ async def marketplace_public_config(
         "marketplace": {
             "title": module_settings.get("public_title") or "Cambios y compras",
             "registered_users": int(count or 0),
-            "registration": "phone_code_password",
+            "registration": "phone_password",
+            "sms_enabled": False,
             "browsing_requires_login": False,
             "publishing_requires_login": True,
             "offers_require_login": True,
@@ -429,6 +430,7 @@ async def request_verification(
 ) -> dict[str, Any]:
     await ensure_marketplace_storage(db)
     company = await require_marketplace_company(db, company_id)
+    raise HTTPException(status_code=410, detail="verificacion_sms_temporalmente_deshabilitada")
     phone = normalize_phone(payload.phone)
     existing = await db.scalar(
         text("SELECT count(*) FROM marketplace_users WHERE company_id = CAST(:company_id AS uuid) AND phone = :phone"),
@@ -511,13 +513,12 @@ async def register_marketplace_user(
     row = duplicate.mappings().first()
     if row:
         raise HTTPException(status_code=409, detail="telefono_ya_registrado" if row.get("phone_exists") else "usuario_no_disponible")
-    await consume_verification_code(db, company_id, phone, "register", payload.verification_code)
     result = await db.execute(
         text("""
             INSERT INTO marketplace_users
                 (company_id, username, username_key, phone, password_hash, phone_verified_at)
             VALUES
-                (CAST(:company_id AS uuid), :username, :username_key, :phone, :password_hash, now())
+                (CAST(:company_id AS uuid), :username, :username_key, :phone, :password_hash, NULL)
             RETURNING id, company_id, username, username_key, phone, password_hash,
                       phone_verified_at, status, created_at
         """),
