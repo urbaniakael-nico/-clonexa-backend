@@ -61,7 +61,7 @@ MARKETPLACE_CATEGORY_KEYWORDS = {
     "artesanias": ("artesania", "hecho a mano", "tejido", "macrame", "ceramica", "manualidad"),
     "accesorios": ("accesorio", "bolso", "cartera", "gafas", "collar", "pulsera", "anillo", "cinturon", "maletin", "mochila"),
     "ropa": ("ropa", "camisa", "camiseta", "pantalon", "jean", "vestido", "chaqueta", "hoodie", "buzo", "falda", "short"),
-    "tecnologia": ("tecnologia", "celular", "telefono", "iphone", "android", "tablet", "ipad", "portatil", "laptop", "computador", "pc", "monitor", "televisor", "audifono", "parlante", "camara", "playstation", "xbox", "nintendo", "switch", "consola"),
+    "tecnologia": ("tecnologia", "celular", "telefono", "iphone", "android", "tablet", "ipad", "portatil", "laptop", "computador", "pc", "monitor", "televisor", "audifono", "parlante", "camara", "playstation", "play 4", "play 5", "ps4", "ps5", "xbox", "nintendo", "switch", "consola"),
 }
 
 

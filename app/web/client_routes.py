@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -57,7 +58,28 @@ def register_client_portal(app: FastAPI) -> None:
 
     if not any(getattr(route, "path", None) == "/mercado" for route in app.routes):
         @app.get("/mercado", response_class=HTMLResponse, include_in_schema=False)
-        async def marketplace_public_page() -> HTMLResponse:
+        async def marketplace_public_page(
+            company_id: str = "",
+            db: AsyncSession = Depends(get_db),
+        ) -> Response:
+            if not company_id:
+                result = await db.execute(text("""
+                    SELECT c.id::text AS id,
+                           COALESCE(cm.settings->>'public_default', 'false') = 'true' AS is_default
+                    FROM companies c
+                    JOIN company_modules cm ON cm.company_id = c.id AND cm.enabled IS TRUE
+                    JOIN modules m ON m.id = cm.module_id
+                    WHERE m.code = 'marketplace_access' AND m.is_active IS TRUE
+                      AND c.status = 'active'
+                    ORDER BY is_default DESC, c.created_at ASC
+                    LIMIT 2
+                """))
+                rows = result.mappings().all()
+                selected = next((row for row in rows if row.get("is_default")), None)
+                if selected is None and len(rows) == 1:
+                    selected = rows[0]
+                if selected is not None:
+                    return RedirectResponse(url=f"/mercado?company_id={selected['id']}", status_code=307)
             return _read_html(web_dir / "marketplace_public.html")
 
     # CLONEXA_019D_MINI_PANEL_ROUTES_START

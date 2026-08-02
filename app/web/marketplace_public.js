@@ -18,7 +18,7 @@
   let currentProfileId = "";
   let myPublications = [];
   const categoryDefs = [
-    ["tecnologia", "Tecnología", ["tecnologia","celular","telefono","iphone","android","tablet","ipad","portatil","laptop","computador","pc","monitor","televisor","audifono","parlante","camara","playstation","xbox","nintendo","switch","consola"]],
+    ["tecnologia", "Tecnología", ["tecnologia","celular","telefono","iphone","android","tablet","ipad","portatil","laptop","computador","pc","monitor","televisor","audifono","parlante","camara","playstation","play 4","play 5","ps4","ps5","xbox","nintendo","switch","consola"]],
     ["juegos_consola", "Juegos de consola", ["videojuego","juego ps","juego xbox","juego nintendo","fifa","ea fc","eafc","gta","call of duty","mario","pokemon","zelda","fortnite","minecraft"]],
     ["accesorios", "Accesorios", ["accesorio","bolso","cartera","gafas","collar","pulsera","anillo","cinturon","maletin","mochila"]],
     ["gorras", "Gorras", ["gorra","cachucha","sombrero","visera"]],
@@ -30,6 +30,8 @@
     ["otros", "Otros", []],
   ];
   const categoryLabels = Object.fromEntries(categoryDefs.map(([key, label]) => [key, label]));
+  const companyField = document.querySelector("#publishCompanyId");
+  if (companyField) companyField.value = companyId;
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
