@@ -187,6 +187,11 @@ def test_marketplace_async_forms_keep_stable_form_reference_and_backend_deduplic
     assert '"deduplicated": True' in source
 
 
+def test_marketplace_storage_migrations_are_serialized_for_parallel_public_loads():
+    source = (ROOT / "app" / "api" / "v1" / "endpoints" / "marketplace.py").read_text(encoding="utf-8")
+    assert "pg_advisory_xact_lock" in source
+
+
 def test_marketplace_shared_links_respect_railway_forwarded_https():
     class RequestStub:
         headers = {"x-forwarded-proto": "https", "x-forwarded-host": "clonexa.example.com"}

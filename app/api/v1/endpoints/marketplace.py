@@ -157,6 +157,9 @@ def verification_hash(company_id: uuid.UUID, phone: str, purpose: str, code: str
 
 
 async def ensure_marketplace_storage(db: AsyncSession) -> None:
+    # Public pages load config, session and publications concurrently. Serialize the
+    # idempotent DDL so simultaneous first requests cannot deadlock on ALTER TABLE.
+    await db.execute(text("SELECT pg_advisory_xact_lock(7812394056123)"))
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS marketplace_users (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
