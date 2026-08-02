@@ -26,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_HTML = (ROOT / "app" / "web" / "marketplace_public.html").read_text(encoding="utf-8")
 PUBLIC_JS = (ROOT / "app" / "web" / "marketplace_public.js").read_text(encoding="utf-8")
 CLIENT_JS = (ROOT / "app" / "web" / "client.js").read_text(encoding="utf-8")
+CLIENT_CSS = (ROOT / "app" / "web" / "client.css").read_text(encoding="utf-8")
+CLIENT_HTML = (ROOT / "app" / "web" / "client.html").read_text(encoding="utf-8")
 CLIENT_ROUTES = (ROOT / "app" / "web" / "client_routes.py").read_text(encoding="utf-8")
 
 
@@ -107,6 +109,7 @@ def test_publication_creation_and_chat_routes_are_registered():
     assert "/marketplace/companies/{company_id}/profiles/{profile_user_id}/reviews" in paths
     assert "/marketplace/companies/{company_id}/auth/publications" in paths
     assert "/marketplace/companies/{company_id}/publications/{publication_id}" in paths
+    assert "/marketplace/companies/{company_id}/public-qr.svg" in paths
 
 
 def test_publication_app_exposes_media_price_specs_and_chat():
@@ -207,6 +210,20 @@ def test_marketplace_short_link_resolves_tenant_and_preserves_company_on_native_
     assert 'id="publishCompanyId"' in PUBLIC_HTML
     assert 'name="company_id"' in PUBLIC_HTML
     assert "030L_ARTICLE_OFFERS" in PUBLIC_HTML
+
+
+def test_marketplace_owner_panel_exposes_qr_tenant_users_and_publication_urls():
+    source = (ROOT / "app" / "api" / "v1" / "endpoints" / "marketplace.py").read_text(encoding="utf-8")
+    assert "QrCodeWidget" in source
+    assert 'media_type="image/svg+xml"' in source
+    assert '"users": users' in source
+    assert 'id="marketplaceQrPanel031A"' in CLIENT_JS
+    assert "marketplaceShowQr031A" in CLIENT_JS
+    assert "registeredUserRows" in CLIENT_JS
+    assert "Perfil público" in CLIENT_JS
+    assert "data-marketplace-copy-publication" in CLIENT_JS
+    assert ".marketplace-qr-card-031a" in CLIENT_CSS
+    assert "031A_MARKETPLACE_QR_USERS" in CLIENT_HTML
 
 
 def test_mp4_duration_reader_rejects_over_thirty_second_metadata():

@@ -1313,6 +1313,34 @@ async def get_marketplace_publication_media(
     return Response(content=bytes(row["file_bytes"]), media_type=row["content_type"], headers={"Cache-Control": "public, max-age=86400"})
 
 
+@router.get("/companies/{company_id}/public-qr.svg")
+async def get_marketplace_public_qr(
+    company_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await ensure_marketplace_storage(db)
+    await require_marketplace_company(db, company_id)
+    from reportlab.graphics import renderSVG
+    from reportlab.graphics.barcode.qr import QrCodeWidget
+    from reportlab.graphics.shapes import Drawing
+
+    public_url = f"{_request_origin(request)}/mercado?company_id={company_id}"
+    widget = QrCodeWidget(public_url)
+    left, bottom, right, top = widget.getBounds()
+    width = max(1.0, right - left)
+    height = max(1.0, top - bottom)
+    size = 280
+    drawing = Drawing(size, size, transform=[size / width, 0, 0, size / height, 0, 0])
+    drawing.add(widget)
+    svg = renderSVG.drawToString(drawing)
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=3600", "Content-Disposition": "inline; filename=marketplace-qr.svg"},
+    )
+
+
 @router.get("/companies/{company_id}/manage/publications")
 async def manage_marketplace_publications(
     company_id: uuid.UUID,
@@ -1324,7 +1352,31 @@ async def manage_marketplace_publications(
     await _require_marketplace_owner_panel(company_id, request, authorization, db)
     media = await _publication_media(db, company_id)
     rows = await _publication_rows(db, company_id, include_all=True)
-    return {"ok": True, "publications": [_publication_out(row, media.get(str(row["id"]), []), request=request, include_phone=True) for row in rows]}
+    user_result = await db.execute(
+        text("""
+            SELECT u.id::text AS id, u.username, u.phone, u.status, u.created_at,
+                   COUNT(p.id)::integer AS publication_count
+            FROM marketplace_users u
+            LEFT JOIN marketplace_publications p ON p.user_id = u.id AND p.company_id = u.company_id
+            WHERE u.company_id = CAST(:company_id AS uuid) AND u.status = 'active'
+            GROUP BY u.id, u.username, u.phone, u.status, u.created_at
+            ORDER BY u.created_at DESC
+            LIMIT 500
+        """),
+        {"company_id": str(company_id)},
+    )
+    users = []
+    for raw in user_result.mappings().all():
+        user = dict(raw)
+        user["created_at"] = user["created_at"].isoformat() if isinstance(user.get("created_at"), datetime) else user.get("created_at")
+        user["profile_url"] = f"{_request_origin(request)}/mercado?company_id={company_id}&profile={user['id']}"
+        users.append(user)
+    return {
+        "ok": True,
+        "tenant": {"id": str(company_id)},
+        "users": users,
+        "publications": [_publication_out(row, media.get(str(row["id"]), []), request=request, include_phone=True) for row in rows],
+    }
 
 
 async def _conversation_for_user(db: AsyncSession, company_id: uuid.UUID, conversation_id: uuid.UUID, user_id: uuid.UUID) -> dict[str, Any]:
