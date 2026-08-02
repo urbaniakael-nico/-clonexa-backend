@@ -390,10 +390,11 @@
   $("#reviewForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!user) return openAuth(`review:${currentProfileId}`);
-    const submit = event.currentTarget.querySelector('[type="submit"]'); submit.disabled = true;
+    const formElement = event.currentTarget;
+    const submit = formElement.querySelector('[type="submit"]'); submit.disabled = true;
     try {
-      await request(`/profiles/${encodeURIComponent(currentProfileId)}/reviews`, {method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget)))});
-      event.currentTarget.reset(); toast("Tu calificación quedó publicada."); await openProfile(currentProfileId);
+      await request(`/profiles/${encodeURIComponent(currentProfileId)}/reviews`, {method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(formElement)))});
+      formElement.reset(); toast("Tu calificación quedó publicada."); await openProfile(currentProfileId);
     } catch (error) { message($("#reviewMessage"), error.message, true); }
     finally { submit.disabled = false; }
   });
@@ -417,14 +418,15 @@
   $("#publishForm").addEventListener("submit", async (event) => {
     event.preventDefault(); if (!user) return openAuth("publish");
     if (!videoReady) return message($("#publishMessage"), "Revisa el video antes de publicar.", true);
-    const submit = event.currentTarget.querySelector('[type=submit]'); submit.disabled = true; submit.textContent = "Publicando...";
+    const formElement = event.currentTarget;
+    const submit = formElement.querySelector('[type=submit]'); submit.disabled = true; submit.textContent = "Publicando...";
     try {
-      const formData = new FormData(event.currentTarget);
+      const formData = new FormData(formElement);
       const wasEditing = editingPublicationId;
       const data = wasEditing
         ? await request(`/publications/${encodeURIComponent(wasEditing)}`, {method:"PATCH",body:JSON.stringify({title:formData.get("title"),price:Number(formData.get("price") || 0),offer_mode:formData.get("offer_mode"),category:formData.get("category"),description:formData.get("description"),specifications:formData.get("specifications")})})
         : await request("/publications", {method:"POST",body:formData});
-      event.currentTarget.reset(); $("#imagePreview").innerHTML = ""; $("#videoStatus").textContent = "Sin video seleccionado";
+      formElement.reset(); $("#imagePreview").innerHTML = ""; $("#videoStatus").textContent = "Sin video seleccionado";
       setPublishMode(); await loadPublications(); toast(wasEditing ? "Publicación actualizada." : "Artículo publicado. Ya está visible en la app."); openCatalog(data.publication?.id || "");
     } catch (error) { message($("#publishMessage"), error.message, true); }
     finally { submit.disabled = false; submit.textContent = editingPublicationId ? "Guardar cambios" : "Publicar ahora"; }

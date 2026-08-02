@@ -1162,6 +1162,8 @@ async def create_marketplace_publication(
     clean_description = _clean(description, 2400)
     clean_specifications = _clean(specifications, 2400)
     clean_category = normalize_marketplace_category(category, clean_title, clean_description, clean_specifications)
+    clean_price = _money(price)
+    clean_offer_mode = _offer_mode(offer_mode)
     image_files = list(images or [])[: MAX_PUBLICATION_IMAGES + 1]
     if not image_files:
         raise HTTPException(status_code=422, detail="selecciona_una_foto")
@@ -1170,6 +1172,31 @@ async def create_marketplace_publication(
     uploads = [await _read_media(item, "image") for item in image_files]
     if video is not None and str(video.filename or "").strip():
         uploads.append(await _read_media(video, "video", video_duration))
+    duplicate_result = await db.execute(
+        text("""
+            SELECT p.*, u.username, u.phone
+            FROM marketplace_publications p
+            JOIN marketplace_users u ON u.id = p.user_id
+            WHERE p.company_id = CAST(:company_id AS uuid)
+              AND p.user_id = CAST(:user_id AS uuid)
+              AND p.status = 'published'
+              AND p.created_at > now() - interval '90 seconds'
+              AND lower(p.title) = lower(:title)
+              AND p.description = :description
+              AND p.specifications = :specifications
+              AND p.price = :price
+              AND p.offer_mode = :offer_mode
+            ORDER BY p.created_at DESC
+            LIMIT 1
+        """),
+        {"company_id": str(company_id), "user_id": str(user["id"]), "title": clean_title,
+         "description": clean_description, "specifications": clean_specifications,
+         "price": clean_price, "offer_mode": clean_offer_mode},
+    )
+    duplicate = duplicate_result.mappings().first()
+    if duplicate:
+        media = await _publication_media(db, company_id)
+        return {"ok": True, "deduplicated": True, "publication": _publication_out(dict(duplicate), media.get(str(duplicate["id"]), []), request=request)}
     result = await db.execute(
         text("""
             INSERT INTO marketplace_publications
@@ -1185,8 +1212,8 @@ async def create_marketplace_publication(
             "title": clean_title,
             "description": clean_description,
             "specifications": clean_specifications,
-            "price": _money(price),
-            "offer_mode": _offer_mode(offer_mode),
+            "price": clean_price,
+            "offer_mode": clean_offer_mode,
             "category": clean_category,
         },
     )
