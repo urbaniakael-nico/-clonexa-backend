@@ -517,6 +517,7 @@ async def consume_verification_code(
 @router.get("/companies/{company_id}/public")
 async def marketplace_public_config(
     company_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await ensure_marketplace_storage(db)
@@ -525,6 +526,26 @@ async def marketplace_public_config(
         text("SELECT count(*) FROM marketplace_users WHERE company_id = CAST(:company_id AS uuid) AND status = 'active'"),
         {"company_id": str(company_id)},
     )
+    public_user_result = await db.execute(
+        text("""
+            SELECT u.id::text AS id, u.username, u.created_at,
+                   COUNT(p.id) FILTER (WHERE p.status = 'published')::integer AS publication_count
+            FROM marketplace_users u
+            LEFT JOIN marketplace_publications p ON p.user_id = u.id AND p.company_id = u.company_id
+            WHERE u.company_id = CAST(:company_id AS uuid) AND u.status = 'active'
+            GROUP BY u.id, u.username, u.created_at
+            ORDER BY u.created_at DESC
+            LIMIT 500
+        """),
+        {"company_id": str(company_id)},
+    )
+    origin = _request_origin(request)
+    public_users = []
+    for raw in public_user_result.mappings().all():
+        user = dict(raw)
+        user["created_at"] = user["created_at"].isoformat() if isinstance(user.get("created_at"), datetime) else user.get("created_at")
+        user["profile_url"] = f"{origin}/mercado?company_id={company_id}&profile={user['id']}"
+        public_users.append(user)
     module_settings = company.get("module_settings") if isinstance(company.get("module_settings"), dict) else {}
     return {
         "ok": True,
@@ -532,6 +553,7 @@ async def marketplace_public_config(
         "marketplace": {
             "title": module_settings.get("public_title") or "Cambios y compras",
             "registered_users": int(count or 0),
+            "public_users": public_users,
             "registration": "phone_password",
             "sms_enabled": False,
             "browsing_requires_login": False,
