@@ -17,6 +17,8 @@
   let editingPublicationId = "";
   let currentProfileId = "";
   let myPublications = [];
+  let currentPublication = null;
+  let offerVideoReady = true;
   const categoryDefs = [
     ["tecnologia", "Tecnología", ["tecnologia","celular","telefono","iphone","android","tablet","ipad","portatil","laptop","computador","pc","monitor","televisor","audifono","parlante","camara","playstation","play 4","play 5","ps4","ps5","xbox","nintendo","switch","consola"]],
     ["juegos_consola", "Juegos de consola", ["videojuego","juego ps","juego xbox","juego nintendo","fifa","ea fc","eafc","gta","call of duty","mario","pokemon","zelda","fortnite","minecraft"]],
@@ -59,7 +61,8 @@
     maximo_5_fotos:"Puedes cargar máximo cinco fotos.", imagen_supera_5mb:"Cada foto debe pesar máximo 5 MB.", video_supera_25mb:"El video debe pesar máximo 25 MB.",
     video_maximo_30_segundos:"El video debe durar máximo 30 segundos.", titulo_requerido:"Escribe un título para el artículo.", selecciona_una_foto:"Selecciona al menos una foto.",
     no_puedes_chatear_contigo:"Esta publicación es tuya. Los mensajes de interesados aparecerán en Mis chats.", chat_no_encontrado:"No encontramos esta conversación.",
-    perfil_no_encontrado:"No encontramos este perfil.", no_puedes_calificarte:"No puedes calificar tu propio perfil.", publicacion_no_encontrada:"No encontramos esta publicación o no te pertenece.", categoria_invalida:"Selecciona una categoría válida."
+    perfil_no_encontrado:"No encontramos este perfil.", no_puedes_calificarte:"No puedes calificar tu propio perfil.", publicacion_no_encontrada:"No encontramos esta publicación o no te pertenece.", categoria_invalida:"Selecciona una categoría válida.",
+    no_puedes_ofertar_tu_publicacion:"No puedes enviar una oferta sobre tu propia publicación.", tipo_oferta_invalido:"Selecciona una opción válida.", tipo_oferta_no_aceptado:"El vendedor no acepta este tipo de propuesta.", monto_oferta_requerido:"Escribe un monto mayor a cero.", describe_el_cambio:"Describe claramente qué deseas dar a cambio.", maximo_3_fotos:"Puedes cargar máximo tres fotos."
   };
 
   async function request(path, options = {}) {
@@ -98,6 +101,16 @@
   function closeAuth() { $("#authModal").hidden = true; document.body.style.overflow = ""; }
   function closeAccount() { $("#accountModal").hidden = true; document.body.style.overflow = ""; }
   function closeChat() { $("#chatModal").hidden = true; document.body.style.overflow = ""; currentConversation = ""; }
+  function closePublication() {
+    if ($("#publicationModal").hidden) return;
+    $("#publicationModal").hidden = true;
+    $("#offerForm").hidden = true;
+    currentPublication = null;
+    document.body.style.overflow = "";
+    const url = new URL(location.href);
+    url.searchParams.delete("publication");
+    history.replaceState(null, "", `${url.pathname}${url.search}#articulos`);
+  }
   function updateAccount() {
     $("#accountButton").textContent = user ? user.username : "Ingresar";
     if (!user) return;
@@ -156,6 +169,11 @@
     const action = pendingAction; pendingAction = "";
     if (action === "publish") return openPublish();
     if (action.startsWith("chat:")) return openChatForPublication(action.slice(5));
+    if (action.startsWith("offer:")) {
+      const [, publicationId, offerType] = action.split(":");
+      openPublicationDetail(publicationId);
+      return showOfferForm(offerType);
+    }
     if (action.startsWith("review:")) return openProfile(action.slice(7));
   }
 
@@ -191,11 +209,68 @@
     const image = item.image_urls?.[0] || "";
     const mode = item.offer_mode === "money" ? "Solo venta" : item.offer_mode === "change" ? "Solo cambio" : "Venta o cambio";
     return `<article class="market-product" data-publication-card="${h(item.id)}">
-      <div class="market-product-media">${image ? `<img src="${h(image)}" alt="${h(item.title)}" loading="lazy">` : ""}<span class="market-product-badge">${h(mode)}</span></div>
+      <button class="market-product-media market-product-media-button" data-open-publication="${h(item.id)}" type="button" aria-label="Ver ${h(item.title)}">${image ? `<img src="${h(image)}" alt="${h(item.title)}" loading="lazy">` : ""}<span class="market-product-badge">${h(mode)}</span></button>
       <div class="market-product-body"><span class="market-product-category">${h(item.category_label || categoryLabels[item.category] || "Otros")}</span><button class="market-product-user" data-profile-user="${h(item.seller?.id || "")}" type="button">@${h(item.seller?.username || "usuario")}</button><h3>${h(item.title)}</h3>
       <p class="market-product-copy">${h(item.description || item.specifications || "Artículo disponible")}</p><strong class="market-product-price">${money(item.price)}</strong>
-      <div class="market-product-actions"><button class="market-btn primary" data-chat-publication="${h(item.id)}" type="button">Chat</button><button class="market-btn ghost" data-copy-publication="${h(item.id)}" type="button">Compartir</button></div></div>
+      <div class="market-product-actions"><button class="market-btn primary" data-open-publication="${h(item.id)}" type="button">Ver artículo</button></div></div>
     </article>`;
+  }
+
+  function detailMediaMarkup(item) {
+    if (!item) return '<span class="market-empty-icon">◇</span>';
+    if (item.kind === "video") return `<video src="${h(item.url)}" controls playsinline preload="metadata"></video>`;
+    return `<img src="${h(item.url)}" alt="Imagen del artículo">`;
+  }
+
+  function selectDetailMedia(index) {
+    const media = currentPublication?.media || [];
+    $("#detailMainMedia").innerHTML = detailMediaMarkup(media[index]);
+    $$('[data-detail-media]').forEach((button) => button.classList.toggle("active", Number(button.dataset.detailMedia) === index));
+  }
+
+  function openPublicationDetail(publicationId) {
+    const item = publications.find((publication) => String(publication.id) === String(publicationId));
+    if (!item) return toast("No encontramos este artículo.");
+    currentPublication = item;
+    const media = item.media || [];
+    $("#detailCategory").textContent = item.category_label || categoryLabels[item.category] || "Artículo";
+    $("#detailTitle").textContent = item.title || "Artículo disponible";
+    $("#detailSeller").textContent = `@${item.seller?.username || "usuario"}`;
+    $("#detailSeller").dataset.profileUser = item.seller?.id || "";
+    $("#detailPrice").textContent = money(item.price);
+    $("#detailDescription").textContent = item.description || "Sin descripción adicional.";
+    $("#detailSpecifications").textContent = item.specifications || "Consulta los detalles directamente con el vendedor.";
+    $("#detailThumbs").innerHTML = media.map((asset, index) => `<button class="${index === 0 ? "active" : ""}" data-detail-media="${index}" type="button" aria-label="Ver archivo ${index + 1}">${asset.kind === "video" ? `<video src="${h(asset.url)}" muted preload="metadata"></video>` : `<img src="${h(asset.url)}" alt="Vista ${index + 1}">`}</button>`).join("");
+    selectDetailMedia(0);
+    const isOwner = String(user?.id || "") === String(item.seller?.id || "");
+    $("#detailActions").hidden = isOwner;
+    $("#detailChatButton").hidden = isOwner;
+    $("#detailOwnerMessage").hidden = !isOwner;
+    $$('[data-offer-type]').forEach((button) => {
+      button.hidden = item.offer_mode !== "both" && item.offer_mode !== button.dataset.offerType;
+    });
+    $("#detailChatButton").dataset.publicationId = item.id;
+    $("#offerForm").hidden = true;
+    message($("#offerMessage"), "");
+    $("#publicationModal").hidden = false;
+    document.body.style.overflow = "hidden";
+    history.replaceState(null, "", `${location.pathname}?company_id=${encodeURIComponent(companyId)}&publication=${encodeURIComponent(item.id)}#articulo`);
+  }
+
+  function showOfferForm(offerType) {
+    if (!currentPublication) return;
+    if (!user) return openAuth(`offer:${currentPublication.id}:${offerType}`);
+    if (String(user.id) === String(currentPublication.seller?.id || "")) return toast(errors.no_puedes_ofertar_tu_publicacion);
+    const isChange = offerType === "change";
+    $("#offerType").value = isChange ? "change" : "money";
+    $("#offerFormTitle").textContent = isChange ? "Proponer un cambio" : "Ofertar dinero";
+    $("#moneyOfferFields").hidden = isChange;
+    $("#changeOfferFields").hidden = !isChange;
+    $("#offerForm").elements.amount.required = !isChange;
+    $("#offerForm").elements.description.required = isChange;
+    $("#offerForm").hidden = false;
+    message($("#offerMessage"), "");
+    $("#offerForm").scrollIntoView({behavior:"smooth",block:"nearest"});
   }
 
   function renderPublications() {
@@ -263,6 +338,7 @@
     try {
       const data = await request(`/publications/${encodeURIComponent(publicationId)}/chat`, {method:"POST",body:"{}"});
       currentConversation = data.conversation_id;
+      closePublication();
       $("#chatModal").hidden = false; document.body.style.overflow = "hidden";
       await loadChats(currentConversation);
     } catch (error) { toast(error.message); }
@@ -295,6 +371,7 @@
   $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeAuth));
   $$('[data-close-account]').forEach((button) => button.addEventListener("click", closeAccount));
   $$('[data-close-chat]').forEach((button) => button.addEventListener("click", closeChat));
+  $$('[data-close-publication]').forEach((button) => button.addEventListener("click", closePublication));
   $$('[data-auth-tab]').forEach((button) => button.addEventListener("click", () => setTab(button.dataset.authTab)));
   $("#backToCatalog").addEventListener("click", () => openCatalog());
   $("#backFromProfile").addEventListener("click", () => openCatalog());
@@ -316,25 +393,26 @@
   $("#marketProductGrid").addEventListener("click", async (event) => {
     const profile = event.target.closest("[data-profile-user]");
     if (profile) return openProfile(profile.dataset.profileUser || "");
-    const chat = event.target.closest("[data-chat-publication]");
-    if (chat) return openChatForPublication(chat.dataset.chatPublication || "");
-    const copy = event.target.closest("[data-copy-publication]");
-    if (copy) {
-      const url = `${location.origin}${location.pathname}?company_id=${encodeURIComponent(companyId)}&publication=${encodeURIComponent(copy.dataset.copyPublication || "")}`;
-      try { await navigator.clipboard.writeText(url); toast("Enlace de la publicación copiado."); } catch { toast(url); }
-    }
+    const open = event.target.closest("[data-open-publication]");
+    if (open) openPublicationDetail(open.dataset.openPublication || "");
   });
   $("#publicProfilePublications").addEventListener("click", async (event) => {
     const profile = event.target.closest("[data-profile-user]");
     if (profile) return openProfile(profile.dataset.profileUser || "");
-    const chat = event.target.closest("[data-chat-publication]");
-    if (chat) return openChatForPublication(chat.dataset.chatPublication || "");
-    const copy = event.target.closest("[data-copy-publication]");
-    if (copy) {
-      const url = `${location.origin}${location.pathname}?company_id=${encodeURIComponent(companyId)}&publication=${encodeURIComponent(copy.dataset.copyPublication || "")}`;
-      try { await navigator.clipboard.writeText(url); toast("Enlace de la publicación copiado."); } catch { toast(url); }
-    }
+    const open = event.target.closest("[data-open-publication]");
+    if (open) openPublicationDetail(open.dataset.openPublication || "");
   });
+  $("#detailSeller").addEventListener("click", (event) => { closePublication(); openProfile(event.currentTarget.dataset.profileUser || ""); });
+  $("#detailThumbs").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-detail-media]");
+    if (button) selectDetailMedia(Number(button.dataset.detailMedia || 0));
+  });
+  $("#detailActions").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-offer-type]");
+    if (button) showOfferForm(button.dataset.offerType || "money");
+  });
+  $("#detailChatButton").addEventListener("click", (event) => openChatForPublication(event.currentTarget.dataset.publicationId || ""));
+  $("#cancelOfferButton").addEventListener("click", () => { $("#offerForm").hidden = true; message($("#offerMessage"), ""); });
   $("#publicProfileReviews").addEventListener("click", (event) => {
     const profile = event.target.closest("[data-profile-user]");
     if (profile) openProfile(profile.dataset.profileUser || "");
@@ -415,6 +493,39 @@
     probe.onloadedmetadata = () => { URL.revokeObjectURL(probe.src); const duration = Number(probe.duration || 0); $("#videoDuration").value = duration.toFixed(2); videoReady = duration > 0 && duration <= 30.2; status.textContent = videoReady ? `${file.name} · ${Math.ceil(duration)} segundos` : "El video debe durar máximo 30 segundos."; status.className = `market-video-status ${videoReady ? "ok" : "error"}`; if (!videoReady) event.target.value = ""; };
     probe.onerror = () => { videoReady = false; event.target.value = ""; status.textContent = "No pudimos leer este video."; status.className = "market-video-status error"; };
   });
+  $("#offerImages").addEventListener("change", (event) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length > 3) { event.target.value = ""; $("#offerImagePreview").innerHTML = ""; return message($("#offerMessage"), "Puedes cargar máximo tres fotos.", true); }
+    if (files.some((file) => file.size > 5 * 1024 * 1024)) { event.target.value = ""; return message($("#offerMessage"), "Cada foto debe pesar máximo 5 MB.", true); }
+    $("#offerImagePreview").innerHTML = files.map((file) => `<img src="${URL.createObjectURL(file)}" alt="Vista previa del cambio">`).join("");
+    message($("#offerMessage"), files.length ? `${files.length} foto(s) lista(s).` : "");
+  });
+  $("#offerVideo").addEventListener("change", (event) => {
+    const file = event.target.files?.[0]; const status = $("#offerVideoStatus"); offerVideoReady = true; $("#offerVideoDuration").value = "0";
+    if (!file) { status.textContent = "Sin video seleccionado"; status.className = "market-video-status"; return; }
+    if (file.size > 25 * 1024 * 1024) { offerVideoReady = false; event.target.value = ""; status.textContent = "El video supera 25 MB."; status.className = "market-video-status error"; return; }
+    const probe = document.createElement("video"); probe.preload = "metadata"; probe.src = URL.createObjectURL(file);
+    probe.onloadedmetadata = () => { URL.revokeObjectURL(probe.src); const duration = Number(probe.duration || 0); $("#offerVideoDuration").value = duration.toFixed(2); offerVideoReady = duration > 0 && duration <= 30.2; status.textContent = offerVideoReady ? `${file.name} · ${Math.ceil(duration)} segundos` : "El video debe durar máximo 30 segundos."; status.className = `market-video-status ${offerVideoReady ? "ok" : "error"}`; if (!offerVideoReady) event.target.value = ""; };
+    probe.onerror = () => { offerVideoReady = false; event.target.value = ""; status.textContent = "No pudimos leer este video."; status.className = "market-video-status error"; };
+  });
+  $("#offerForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!user || !currentPublication) return;
+    if (!offerVideoReady) return message($("#offerMessage"), "Revisa el video antes de enviar.", true);
+    const formElement = event.currentTarget;
+    const submit = formElement.querySelector('[type="submit"]'); submit.disabled = true; submit.textContent = "Enviando...";
+    try {
+      const formData = new FormData(formElement);
+      if (formData.get("offer_type") === "money") { formData.delete("description"); formData.delete("images"); formData.delete("video"); formData.delete("video_duration"); }
+      else formData.delete("amount");
+      const data = await request(`/publications/${encodeURIComponent(currentPublication.id)}/offers`, {method:"POST",body:formData});
+      formElement.reset(); $("#offerImagePreview").innerHTML = ""; $("#offerVideoStatus").textContent = "Sin video seleccionado";
+      closePublication(); currentConversation = data.conversation_id;
+      toast("Propuesta enviada. El vendedor ya puede verla en el chat.");
+      $("#chatModal").hidden = false; await loadChats(currentConversation);
+    } catch (error) { message($("#offerMessage"), error.message, true); }
+    finally { submit.disabled = false; submit.textContent = "Enviar propuesta"; }
+  });
   $("#publishForm").addEventListener("submit", async (event) => {
     event.preventDefault(); if (!user) return openAuth("publish");
     if (!videoReady) return message($("#publishMessage"), "Revisa el video antes de publicar.", true);
@@ -432,9 +543,10 @@
     finally { submit.disabled = false; submit.textContent = editingPublicationId ? "Guardar cambios" : "Publicar ahora"; }
   });
 
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeAuth(); closeAccount(); closeChat(); } });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeAuth(); closeAccount(); closeChat(); closePublication(); } });
   Promise.all([loadConfig(), restoreSession(), loadPublications()]).then(() => {
     if (selectedProfile) openProfile(selectedProfile);
+    else if (selectedPublication) openPublicationDetail(selectedPublication);
     else if (location.hash === "#publicar" && user) openPublish();
   });
 })();

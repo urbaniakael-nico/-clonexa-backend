@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from app.api.v1.endpoints.marketplace import (
     MARKETPLACE_CATEGORIES,
+    MAX_OFFER_IMAGES,
     MAX_PUBLICATION_IMAGES,
     MAX_VIDEO_SECONDS,
     _mp4_duration_seconds,
@@ -99,6 +100,8 @@ def test_publication_creation_and_chat_routes_are_registered():
     assert "/marketplace/companies/{company_id}/publications" in paths
     assert "/marketplace/companies/{company_id}/manage/publications" in paths
     assert "/marketplace/companies/{company_id}/publications/{publication_id}/chat" in paths
+    assert "/marketplace/companies/{company_id}/publications/{publication_id}/offers" in paths
+    assert "/marketplace/companies/{company_id}/auth/offers/{offer_id}/media/{media_id}" in paths
     assert "/marketplace/companies/{company_id}/auth/chats/{conversation_id}/messages" in paths
     assert "/marketplace/companies/{company_id}/profiles/{profile_user_id}" in paths
     assert "/marketplace/companies/{company_id}/profiles/{profile_user_id}/reviews" in paths
@@ -111,9 +114,23 @@ def test_publication_app_exposes_media_price_specs_and_chat():
     assert MAX_VIDEO_SECONDS == 30
     for field in ('name="price"', 'name="category"', 'name="specifications"', 'name="images"', 'name="video"'):
         assert field in PUBLIC_HTML
-    assert 'data-chat-publication' in PUBLIC_JS
+    assert 'data-open-publication' in PUBLIC_JS
     assert 'request("/publications"' in PUBLIC_JS
     assert "marketplace_public_app.css" in PUBLIC_HTML
+
+
+def test_marketplace_article_detail_supports_money_and_change_offers():
+    assert MAX_OFFER_IMAGES == 3
+    for element_id in ('id="publicationModal"', 'id="offerForm"', 'id="moneyOfferFields"', 'id="changeOfferFields"'):
+        assert element_id in PUBLIC_HTML
+    assert 'data-offer-type="money"' in PUBLIC_HTML
+    assert 'data-offer-type="change"' in PUBLIC_HTML
+    assert 'id="offerImages"' in PUBLIC_HTML
+    assert 'id="offerVideo"' in PUBLIC_HTML
+    assert "openPublicationDetail(publicationId)" in PUBLIC_JS
+    assert 'request(`/publications/${encodeURIComponent(currentPublication.id)}/offers`' in PUBLIC_JS
+    assert "data-copy-publication" not in PUBLIC_JS
+    assert ">Compartir</button>" not in PUBLIC_JS
 
 
 @pytest.mark.parametrize(
@@ -184,7 +201,7 @@ def test_marketplace_short_link_resolves_tenant_and_preserves_company_on_native_
     assert 'status_code=307' in CLIENT_ROUTES
     assert 'id="publishCompanyId"' in PUBLIC_HTML
     assert 'name="company_id"' in PUBLIC_HTML
-    assert "030K_TENANT_RESOLVER" in PUBLIC_HTML
+    assert "030L_ARTICLE_OFFERS" in PUBLIC_HTML
 
 
 def test_mp4_duration_reader_rejects_over_thirty_second_metadata():

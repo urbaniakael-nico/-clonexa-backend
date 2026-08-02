@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/client-static/marketplace_public.css?v=030H_MARKETPLACE_ACCESS">
   <link rel="stylesheet" href="/client-static/marketplace_public_app.css?v=030I_PUBLICATIONS_APP">
   <link rel="stylesheet" href="/client-static/marketplace_categories.css?v=030J_SMART_CATEGORIES">
+  <link rel="stylesheet" href="/client-static/marketplace_offers.css?v=030L_ARTICLE_OFFERS">
 </head>
 <body>
   <div class="market-glow market-glow-one"></div><div class="market-glow market-glow-two"></div>
@@ -157,6 +158,48 @@
     </section>
   </div>
 
+  <div class="market-modal" id="publicationModal" hidden>
+    <button class="market-modal-backdrop" data-close-publication type="button" aria-label="Cerrar"></button>
+    <section class="market-modal-card market-publication-detail" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+      <button class="market-close" data-close-publication type="button" aria-label="Cerrar">×</button>
+      <div class="market-detail-layout">
+        <div class="market-detail-gallery">
+          <div class="market-detail-main-media" id="detailMainMedia"></div>
+          <div class="market-detail-thumbs" id="detailThumbs"></div>
+        </div>
+        <div class="market-detail-info">
+          <span class="market-eyebrow" id="detailCategory">Artículo</span>
+          <h2 id="detailTitle">Artículo disponible</h2>
+          <button class="market-product-user market-detail-seller" id="detailSeller" type="button">@usuario</button>
+          <strong class="market-detail-price" id="detailPrice">$ 0</strong>
+          <p id="detailDescription"></p>
+          <div class="market-detail-specs" id="detailSpecifications"></div>
+          <div class="market-detail-actions" id="detailActions">
+            <button class="market-btn primary" data-offer-type="money" type="button">Ofertar dinero</button>
+            <button class="market-btn glass" data-offer-type="change" type="button">Proponer cambio</button>
+          </div>
+          <button class="market-btn ghost full" id="detailChatButton" type="button">Abrir chat</button>
+          <p class="market-detail-owner" id="detailOwnerMessage" hidden>Esta publicación es tuya. Las propuestas llegarán a Mis chats.</p>
+        </div>
+      </div>
+      <form class="market-offer-form" id="offerForm" hidden>
+        <input name="offer_type" id="offerType" type="hidden" value="money">
+        <div class="market-offer-head"><div><span class="market-eyebrow">Nueva propuesta</span><h3 id="offerFormTitle">Ofertar dinero</h3></div><button class="market-link" id="cancelOfferButton" type="button">Cancelar</button></div>
+        <div id="moneyOfferFields"><label>Monto que deseas ofrecer<input name="amount" type="number" min="1000" step="1000" inputmode="numeric" placeholder="$ 0"></label></div>
+        <div class="market-change-fields" id="changeOfferFields" hidden>
+          <label>¿Qué deseas dar a cambio?<textarea name="description" maxlength="1200" placeholder="Describe el artículo, estado, referencia y lo que incluye..."></textarea></label>
+          <label class="market-upload-zone">Hasta 3 fotos<input id="offerImages" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple><span>JPG, PNG o WEBP · máximo 5 MB cada una</span></label>
+          <div class="market-preview-grid" id="offerImagePreview"></div>
+          <label class="market-upload-zone">Video opcional de máximo 30 segundos<input id="offerVideo" name="video" type="file" accept="video/mp4,video/webm,video/quicktime"><span>MP4, WEBM o MOV · máximo 25 MB</span></label>
+          <div class="market-video-status" id="offerVideoStatus">Sin video seleccionado</div>
+          <input id="offerVideoDuration" name="video_duration" type="hidden" value="0">
+        </div>
+        <button class="market-btn primary full" type="submit">Enviar propuesta</button>
+        <p class="market-message" id="offerMessage" aria-live="polite"></p>
+      </form>
+    </section>
+  </div>
+
   <div class="market-modal" id="chatModal" hidden>
     <button class="market-modal-backdrop" data-close-chat type="button" aria-label="Cerrar"></button>
     <section class="market-modal-card market-chat-card" role="dialog" aria-modal="true" aria-labelledby="chatTitle">
@@ -170,6 +213,6 @@
   </div>
 
   <div class="market-toast" id="marketToast" hidden aria-live="polite"></div>
-  <script src="/client-static/marketplace_public.js?v=030K_TENANT_RESOLVER"></script>
+  <script src="/client-static/marketplace_public.js?v=030L_ARTICLE_OFFERS"></script>
 </body>
 </html>
