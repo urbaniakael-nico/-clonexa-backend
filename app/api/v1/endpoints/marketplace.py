@@ -794,6 +794,14 @@ def _category_text(*values: Any) -> str:
     return re.sub(r"\s+", " ", "".join(char for char in folded if unicodedata.category(char) != "Mn"))
 
 
+def _request_origin(request: Request) -> str:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip()
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").split(",", 1)[0].strip()
+    scheme = forwarded_proto or request.url.scheme or "https"
+    host = forwarded_host or request.headers.get("host") or request.url.netloc
+    return f"{scheme}://{host}".rstrip("/")
+
+
 def infer_marketplace_category(*values: Any) -> str:
     content = _category_text(*values)
     tokens = set(content.split())
@@ -916,7 +924,7 @@ def _publication_out(row: dict[str, Any], media: list[dict[str, Any]], request: 
     if include_phone:
         result["seller"]["phone"] = row.get("phone") or ""
     if request is not None:
-        origin = str(request.base_url).rstrip("/")
+        origin = _request_origin(request)
         result["public_url"] = f"{origin}/mercado?company_id={company_id}&publication={publication_id}"
     return result
 
@@ -1018,7 +1026,7 @@ async def marketplace_public_profile(
     )
     media = await _publication_media(db, company_id)
     rows = await _publication_rows(db, company_id, user_id=profile_user_id)
-    origin = str(request.base_url).rstrip("/")
+    origin = _request_origin(request)
     return {
         "ok": True,
         "profile": {
