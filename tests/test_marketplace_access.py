@@ -217,13 +217,25 @@ def test_marketplace_owner_panel_exposes_qr_tenant_users_and_publication_urls():
     assert "QrCodeWidget" in source
     assert 'media_type="image/svg+xml"' in source
     assert '"users": users' in source
+    assert '"public_users": public_users' in source
     assert 'id="marketplaceQrPanel031A"' in CLIENT_JS
     assert "marketplaceShowQr031A" in CLIENT_JS
     assert "registeredUserRows" in CLIENT_JS
     assert "Perfil público" in CLIENT_JS
     assert "data-marketplace-copy-publication" in CLIENT_JS
     assert ".marketplace-qr-card-031a" in CLIENT_CSS
-    assert "031A_MARKETPLACE_QR_USERS" in CLIENT_HTML
+    assert "031B_MARKETPLACE_PUBLIC_DIRECTORY" in CLIENT_HTML
+
+
+def test_marketplace_public_directory_keeps_phone_private_and_supports_panel_fallback():
+    source = (ROOT / "app" / "api" / "v1" / "endpoints" / "marketplace.py").read_text(encoding="utf-8")
+    public_config = source.split('@router.get("/companies/{company_id}/public")', 1)[1].split('@router.post("/companies/{company_id}/auth/verification/request")', 1)[0]
+    assert '"public_users": public_users' in public_config
+    assert 'u.username, u.created_at' in public_config
+    assert 'u.phone' not in public_config
+    assert 'payload.marketplace?.public_users' in CLIENT_JS
+    assert '/publications`);' in CLIENT_JS
+    assert 'member.phone ? h(member.phone) : "Perfil público"' in CLIENT_JS
 
 
 def test_mp4_duration_reader_rejects_over_thirty_second_metadata():

@@ -28134,9 +28134,15 @@ function inventoryCreatePayload() {
     try {
       const payload = await api(`/marketplace/companies/${encodeURIComponent(state.companyId)}/public`);
       registeredUsers = Number(payload.marketplace?.registered_users || 0);
-      const activity = await api(`/marketplace/companies/${encodeURIComponent(state.companyId)}/manage/publications`);
-      publications = Array.isArray(activity.publications) ? activity.publications : [];
-      registeredUserRows = Array.isArray(activity.users) ? activity.users : [];
+      registeredUserRows = Array.isArray(payload.marketplace?.public_users) ? payload.marketplace.public_users : [];
+      try {
+        const activity = await api(`/marketplace/companies/${encodeURIComponent(state.companyId)}/manage/publications`);
+        publications = Array.isArray(activity.publications) ? activity.publications : [];
+        registeredUserRows = Array.isArray(activity.users) ? activity.users : registeredUserRows;
+      } catch (_) {
+        const activity = await api(`/marketplace/companies/${encodeURIComponent(state.companyId)}/publications`);
+        publications = Array.isArray(activity.publications) ? activity.publications : [];
+      }
     } catch (error) {
       statusText = "No se pudo consultar el portal";
     }
@@ -28195,7 +28201,7 @@ function inventoryCreatePayload() {
                   return `<article class="marketplace-user-card-031a">
                     <header class="marketplace-user-head-031a">
                       <span>${h(String(member.username || "U").charAt(0).toUpperCase())}</span>
-                      <div><strong>${h(member.username || "Usuario")}</strong><small>${h(member.phone || "Sin teléfono")}</small></div>
+                      <div><strong>${h(member.username || "Usuario")}</strong><small>${member.phone ? h(member.phone) : "Perfil público"}</small></div>
                       <b>${h(memberPublications.length)} publicación${memberPublications.length === 1 ? "" : "es"}</b>
                     </header>
                     <div class="marketplace-tenant-meta-031a"><span>Tenant</span><strong>${h(company.name || "Empresa")}</strong><small>${h(state.companyId || "")}</small></div>
