@@ -28178,7 +28178,7 @@ function inventoryCreatePayload() {
               <div class="shoplink-product-list-026k">
                 ${publications.length ? publications.map((item) => `
                   <article class="shoplink-order-row-026k">
-                    <div><strong>${h(item.title || "Articulo")}</strong><small>${h(item.seller?.username || "Usuario")} · ${h(item.seller?.phone || "Sin telefono")}</small><small>${h(item.status || "published")} · ${h(item.offer_mode || "both")}</small></div>
+                    <div><strong>${h(item.title || "Articulo")}</strong><small>${h(item.seller?.username || "Usuario")} · ${h(item.seller?.phone || "Sin telefono")}</small><small>${h(item.category_label || "Otros")} · ${h(item.status || "published")} · ${h(item.offer_mode || "both")}</small></div>
                     <div class="client-actions"><a class="client-btn" href="${h(item.public_url || publicUrl)}" target="_blank" rel="noopener">Abrir</a><button class="client-btn" type="button" data-marketplace-copy-publication="${h(item.public_url || publicUrl)}">Copiar link</button></div>
                   </article>`).join("") : `<div class="client-empty">Aún no hay publicaciones. Cuando un usuario publique, aparecerá aquí con su teléfono y enlace.</div>`}
               </div>

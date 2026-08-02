@@ -40,6 +40,29 @@ MAX_VIDEO_BYTES = 25 * 1024 * 1024
 MAX_VIDEO_SECONDS = 30
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm", "video/quicktime"}
+MARKETPLACE_CATEGORIES = {
+    "tecnologia": "Tecnología",
+    "juegos_consola": "Juegos de consola",
+    "accesorios": "Accesorios",
+    "gorras": "Gorras",
+    "tenis": "Tenis",
+    "ropa": "Ropa",
+    "herramientas": "Herramientas",
+    "relojes": "Relojes",
+    "artesanias": "Artesanías",
+    "otros": "Otros",
+}
+MARKETPLACE_CATEGORY_KEYWORDS = {
+    "juegos_consola": ("videojuego", "juego ps", "juego xbox", "juego nintendo", "fifa", "ea fc", "eafc", "gta", "call of duty", "mario", "pokemon", "zelda", "fortnite", "minecraft"),
+    "relojes": ("reloj", "smartwatch", "watch", "cronografo"),
+    "gorras": ("gorra", "cachucha", "sombrero", "visera"),
+    "tenis": ("tenis", "sneaker", "zapatilla", "zapato", "calzado", "botas"),
+    "herramientas": ("herramienta", "taladro", "martillo", "destornillador", "llave inglesa", "pulidora", "sierra", "multimetro"),
+    "artesanias": ("artesania", "hecho a mano", "tejido", "macrame", "ceramica", "manualidad"),
+    "accesorios": ("accesorio", "bolso", "cartera", "gafas", "collar", "pulsera", "anillo", "cinturon", "maletin", "mochila"),
+    "ropa": ("ropa", "camisa", "camiseta", "pantalon", "jean", "vestido", "chaqueta", "hoodie", "buzo", "falda", "short"),
+    "tecnologia": ("tecnologia", "celular", "telefono", "iphone", "android", "tablet", "ipad", "portatil", "laptop", "computador", "pc", "monitor", "televisor", "audifono", "parlante", "camara", "playstation", "xbox", "nintendo", "switch", "consola"),
+}
 
 
 class VerificationRequestIn(BaseModel):
@@ -66,6 +89,7 @@ class ResetPasswordIn(BaseModel):
 
 class ProfileUpdateIn(BaseModel):
     username: str = Field(..., min_length=3, max_length=40)
+    bio: str = Field(default="", max_length=280)
 
 
 class PasswordUpdateIn(BaseModel):
@@ -75,6 +99,20 @@ class PasswordUpdateIn(BaseModel):
 
 class ChatMessageIn(BaseModel):
     body: str = Field(..., min_length=1, max_length=1200)
+
+
+class PublicationUpdateIn(BaseModel):
+    title: str = Field(..., min_length=3, max_length=140)
+    description: str = Field(default="", max_length=2400)
+    specifications: str = Field(default="", max_length=2400)
+    price: float = Field(default=0, ge=0)
+    offer_mode: str = Field(default="both", max_length=24)
+    category: str = Field(default="auto", max_length=32)
+
+
+class ProfileReviewIn(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    comment: str = Field(..., min_length=2, max_length=600)
 
 
 def utc_now() -> datetime:
@@ -124,6 +162,7 @@ async def ensure_marketplace_storage(db: AsyncSession) -> None:
             company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
             username varchar(40) NOT NULL,
             username_key varchar(40) NOT NULL,
+            bio varchar(280) NOT NULL DEFAULT '',
             phone varchar(20) NOT NULL,
             password_hash text NOT NULL,
             phone_verified_at timestamptz NOT NULL DEFAULT now(),
@@ -170,14 +209,35 @@ async def ensure_marketplace_storage(db: AsyncSession) -> None:
             specifications text NOT NULL DEFAULT '',
             price numeric(16,2) NOT NULL DEFAULT 0,
             offer_mode varchar(24) NOT NULL DEFAULT 'both',
+            category varchar(32) NULL,
             status varchar(24) NOT NULL DEFAULT 'published',
             created_at timestamptz NOT NULL DEFAULT now(),
             updated_at timestamptz NOT NULL DEFAULT now()
         )
     """))
+    await db.execute(text("ALTER TABLE marketplace_users ADD COLUMN IF NOT EXISTS bio varchar(280) NOT NULL DEFAULT ''"))
+    await db.execute(text("ALTER TABLE marketplace_publications ADD COLUMN IF NOT EXISTS category varchar(32) NULL"))
+    uncategorized = await db.execute(text("""
+        SELECT id::text AS id, title, description, specifications
+        FROM marketplace_publications
+        WHERE category IS NULL OR btrim(category) = ''
+    """))
+    for raw in uncategorized.mappings().all():
+        row = dict(raw)
+        inferred = infer_marketplace_category(row.get("title"), row.get("description"), row.get("specifications"))
+        await db.execute(
+            text("UPDATE marketplace_publications SET category = :category WHERE id = CAST(:id AS uuid)"),
+            {"category": inferred, "id": row["id"]},
+        )
+    await db.execute(text("ALTER TABLE marketplace_publications ALTER COLUMN category SET DEFAULT 'otros'"))
+    await db.execute(text("ALTER TABLE marketplace_publications ALTER COLUMN category SET NOT NULL"))
     await db.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_marketplace_publications_company_status
         ON marketplace_publications(company_id, status, created_at DESC)
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_marketplace_publications_company_category
+        ON marketplace_publications(company_id, category, created_at DESC)
     """))
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS marketplace_publication_media (
@@ -221,6 +281,24 @@ async def ensure_marketplace_storage(db: AsyncSession) -> None:
         CREATE INDEX IF NOT EXISTS ix_marketplace_messages_conversation
         ON marketplace_messages(conversation_id, created_at)
     """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS marketplace_profile_reviews (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            profile_user_id uuid NOT NULL REFERENCES marketplace_users(id) ON DELETE CASCADE,
+            reviewer_user_id uuid NOT NULL REFERENCES marketplace_users(id) ON DELETE CASCADE,
+            rating integer NOT NULL CHECK (rating BETWEEN 1 AND 5),
+            comment varchar(600) NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now(),
+            CONSTRAINT uq_marketplace_profile_review UNIQUE (profile_user_id, reviewer_user_id),
+            CONSTRAINT ck_marketplace_profile_review_distinct CHECK (profile_user_id <> reviewer_user_id)
+        )
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_marketplace_profile_reviews_profile
+        ON marketplace_profile_reviews(company_id, profile_user_id, updated_at DESC)
+    """))
     await db.commit()
 
 
@@ -250,6 +328,7 @@ def public_user(row: dict[str, Any]) -> dict[str, Any]:
         "id": str(row["id"]),
         "company_id": str(row["company_id"]),
         "username": row.get("username") or "Usuario",
+        "bio": row.get("bio") or "",
         "phone_masked": mask_phone(row.get("phone") or ""),
         "phone_verified": row.get("phone_verified_at") is not None,
         "status": row.get("status") or "active",
@@ -306,7 +385,7 @@ async def current_marketplace_user(
         raise HTTPException(status_code=401, detail="sesion_invalida")
     result = await db.execute(
         text("""
-            SELECT id, company_id, username, username_key, phone, password_hash,
+            SELECT id, company_id, username, username_key, bio, phone, password_hash,
                    phone_verified_at, status, failed_login_attempts, locked_until,
                    last_login_at, created_at, updated_at
             FROM marketplace_users
@@ -551,7 +630,7 @@ async def login_marketplace_user(
     _, username_key = normalize_username(identifier)
     result = await db.execute(
         text("""
-            SELECT id, company_id, username, username_key, phone, password_hash,
+            SELECT id, company_id, username, username_key, bio, phone, password_hash,
                    phone_verified_at, status, failed_login_attempts, locked_until,
                    last_login_at, created_at, updated_at
             FROM marketplace_users
@@ -629,11 +708,12 @@ async def update_marketplace_profile(
         raise HTTPException(status_code=409, detail="usuario_no_disponible")
     result = await db.execute(
         text("""
-            UPDATE marketplace_users SET username = :username, username_key = :username_key, updated_at = now()
+            UPDATE marketplace_users SET username = :username, username_key = :username_key,
+                bio = :bio, updated_at = now()
             WHERE id = CAST(:user_id AS uuid)
-            RETURNING id, company_id, username, phone, phone_verified_at, status, created_at
+            RETURNING id, company_id, username, bio, phone, phone_verified_at, status, created_at
         """),
-        {"username": username, "username_key": username_key, "user_id": str(user["id"])},
+        {"username": username, "username_key": username_key, "bio": _clean(payload.bio, 280), "user_id": str(user["id"])},
     )
     fresh = dict(result.mappings().first())
     await db.commit()
@@ -705,6 +785,35 @@ def _offer_mode(value: Any) -> str:
     clean = _clean(value, 24).lower()
     if clean not in {"money", "change", "both"}:
         raise HTTPException(status_code=422, detail="modalidad_invalida")
+    return clean
+
+
+def _category_text(*values: Any) -> str:
+    raw = " ".join(str(value or "") for value in values).lower()
+    folded = unicodedata.normalize("NFD", raw)
+    return re.sub(r"\s+", " ", "".join(char for char in folded if unicodedata.category(char) != "Mn"))
+
+
+def infer_marketplace_category(*values: Any) -> str:
+    content = _category_text(*values)
+    tokens = set(content.split())
+    best_category = "otros"
+    best_score = 0
+    for category, keywords in MARKETPLACE_CATEGORY_KEYWORDS.items():
+        matches = [keyword for keyword in keywords if (keyword in content if len(keyword) > 3 else keyword in tokens)]
+        score = sum(2 if " " in keyword else 1 for keyword in matches)
+        if score > best_score:
+            best_category = category
+            best_score = score
+    return best_category
+
+
+def normalize_marketplace_category(value: Any, *content: Any) -> str:
+    clean = _clean(value, 32).lower()
+    if clean in {"", "auto", "automatica", "automatico"}:
+        return infer_marketplace_category(*content)
+    if clean not in MARKETPLACE_CATEGORIES:
+        raise HTTPException(status_code=422, detail="categoria_invalida")
     return clean
 
 
@@ -794,6 +903,8 @@ def _publication_out(row: dict[str, Any], media: list[dict[str, Any]], request: 
         "specifications": row.get("specifications") or "",
         "price": float(row.get("price") or 0),
         "offer_mode": row.get("offer_mode") or "both",
+        "category": row.get("category") or "otros",
+        "category_label": MARKETPLACE_CATEGORIES.get(row.get("category") or "otros", "Otros"),
         "status": row.get("status") or "published",
         "seller": {"id": str(row.get("user_id") or ""), "username": row.get("username") or "Usuario"},
         "media": media,
@@ -801,6 +912,7 @@ def _publication_out(row: dict[str, Any], media: list[dict[str, Any]], request: 
         "video_url": next((item["url"] for item in media if item.get("kind") == "video"), ""),
         "created_at": row.get("created_at").isoformat() if isinstance(row.get("created_at"), datetime) else row.get("created_at"),
     }
+    result["seller"]["profile_url"] = f"/mercado?company_id={company_id}&profile={result['seller']['id']}"
     if include_phone:
         result["seller"]["phone"] = row.get("phone") or ""
     if request is not None:
@@ -809,18 +921,24 @@ def _publication_out(row: dict[str, Any], media: list[dict[str, Any]], request: 
     return result
 
 
-async def _publication_rows(db: AsyncSession, company_id: uuid.UUID, include_all: bool = False) -> list[dict[str, Any]]:
+async def _publication_rows(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    include_all: bool = False,
+    user_id: uuid.UUID | None = None,
+) -> list[dict[str, Any]]:
     status_clause = "" if include_all else "AND p.status = 'published'"
+    user_clause = "AND p.user_id = CAST(:user_id AS uuid)" if user_id else ""
     result = await db.execute(
         text(f"""
             SELECT p.*, u.username, u.phone
             FROM marketplace_publications p
             JOIN marketplace_users u ON u.id = p.user_id
-            WHERE p.company_id = CAST(:company_id AS uuid) {status_clause}
+            WHERE p.company_id = CAST(:company_id AS uuid) {status_clause} {user_clause}
             ORDER BY p.created_at DESC
             LIMIT 500
         """),
-        {"company_id": str(company_id)},
+        {"company_id": str(company_id), "user_id": str(user_id) if user_id else ""},
     )
     return [dict(row) for row in result.mappings().all()]
 
@@ -853,7 +971,162 @@ async def list_public_marketplace_publications(
     await require_marketplace_company(db, company_id)
     media = await _publication_media(db, company_id)
     rows = await _publication_rows(db, company_id)
-    return {"ok": True, "publications": [_publication_out(row, media.get(str(row["id"]), [])) for row in rows]}
+    return {"ok": True, "publications": [_publication_out(row, media.get(str(row["id"]), []), request=request) for row in rows]}
+
+
+@router.get("/companies/{company_id}/profiles/{profile_user_id}")
+async def marketplace_public_profile(
+    company_id: uuid.UUID,
+    profile_user_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    await require_marketplace_company(db, company_id)
+    profile_result = await db.execute(
+        text("""
+            SELECT id::text AS id, company_id::text AS company_id, username, bio, created_at
+            FROM marketplace_users
+            WHERE id = CAST(:user_id AS uuid) AND company_id = CAST(:company_id AS uuid) AND status = 'active'
+            LIMIT 1
+        """),
+        {"user_id": str(profile_user_id), "company_id": str(company_id)},
+    )
+    profile = profile_result.mappings().first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="perfil_no_encontrado")
+    rating_result = await db.execute(
+        text("""
+            SELECT COALESCE(round(avg(rating)::numeric, 1), 0) AS rating, count(*) AS review_count
+            FROM marketplace_profile_reviews
+            WHERE company_id = CAST(:company_id AS uuid) AND profile_user_id = CAST(:user_id AS uuid)
+        """),
+        {"company_id": str(company_id), "user_id": str(profile_user_id)},
+    )
+    rating = dict(rating_result.mappings().first())
+    reviews_result = await db.execute(
+        text("""
+            SELECT r.id::text AS id, r.rating, r.comment, r.updated_at,
+                   u.id::text AS reviewer_user_id, u.username AS reviewer_username
+            FROM marketplace_profile_reviews r
+            JOIN marketplace_users u ON u.id = r.reviewer_user_id
+            WHERE r.company_id = CAST(:company_id AS uuid) AND r.profile_user_id = CAST(:user_id AS uuid)
+            ORDER BY r.updated_at DESC
+            LIMIT 100
+        """),
+        {"company_id": str(company_id), "user_id": str(profile_user_id)},
+    )
+    media = await _publication_media(db, company_id)
+    rows = await _publication_rows(db, company_id, user_id=profile_user_id)
+    origin = str(request.base_url).rstrip("/")
+    return {
+        "ok": True,
+        "profile": {
+            "id": str(profile["id"]),
+            "username": profile.get("username") or "Usuario",
+            "bio": profile.get("bio") or "",
+            "created_at": profile.get("created_at").isoformat() if isinstance(profile.get("created_at"), datetime) else profile.get("created_at"),
+            "rating": float(rating.get("rating") or 0),
+            "review_count": int(rating.get("review_count") or 0),
+            "public_url": f"{origin}/mercado?company_id={company_id}&profile={profile_user_id}",
+        },
+        "reviews": [
+            {
+                **dict(item),
+                "updated_at": item.get("updated_at").isoformat() if isinstance(item.get("updated_at"), datetime) else item.get("updated_at"),
+            }
+            for item in reviews_result.mappings().all()
+        ],
+        "publications": [_publication_out(row, media.get(str(row["id"]), []), request=request) for row in rows],
+    }
+
+
+@router.post("/companies/{company_id}/profiles/{profile_user_id}/reviews", status_code=status.HTTP_201_CREATED)
+async def review_marketplace_profile(
+    company_id: uuid.UUID,
+    profile_user_id: uuid.UUID,
+    payload: ProfileReviewIn,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    reviewer = await current_marketplace_user(db, company_id, authorization)
+    if str(reviewer["id"]) == str(profile_user_id):
+        raise HTTPException(status_code=422, detail="no_puedes_calificarte")
+    target_exists = await db.scalar(
+        text("SELECT count(*) FROM marketplace_users WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid) AND status = 'active'"),
+        {"id": str(profile_user_id), "company_id": str(company_id)},
+    )
+    if not target_exists:
+        raise HTTPException(status_code=404, detail="perfil_no_encontrado")
+    comment = _clean(payload.comment, 600)
+    result = await db.execute(
+        text("""
+            INSERT INTO marketplace_profile_reviews
+                (company_id, profile_user_id, reviewer_user_id, rating, comment)
+            VALUES
+                (CAST(:company_id AS uuid), CAST(:profile_user_id AS uuid), CAST(:reviewer_user_id AS uuid), :rating, :comment)
+            ON CONFLICT (profile_user_id, reviewer_user_id) DO UPDATE
+            SET rating = EXCLUDED.rating, comment = EXCLUDED.comment, updated_at = now()
+            RETURNING id::text AS id, rating, comment, updated_at
+        """),
+        {"company_id": str(company_id), "profile_user_id": str(profile_user_id), "reviewer_user_id": str(reviewer["id"]), "rating": payload.rating, "comment": comment},
+    )
+    review = dict(result.mappings().first())
+    await db.commit()
+    return {"ok": True, "review": review}
+
+
+@router.get("/companies/{company_id}/auth/publications")
+async def marketplace_my_publications(
+    company_id: uuid.UUID,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    user = await current_marketplace_user(db, company_id, authorization)
+    media = await _publication_media(db, company_id)
+    rows = await _publication_rows(db, company_id, include_all=True, user_id=uuid.UUID(str(user["id"])))
+    return {"ok": True, "publications": [_publication_out(row, media.get(str(row["id"]), []), request=request) for row in rows]}
+
+
+@router.patch("/companies/{company_id}/publications/{publication_id}")
+async def update_marketplace_publication(
+    company_id: uuid.UUID,
+    publication_id: uuid.UUID,
+    payload: PublicationUpdateIn,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    user = await current_marketplace_user(db, company_id, authorization)
+    clean_title = _clean(payload.title, 140)
+    clean_description = _clean(payload.description, 2400)
+    clean_specifications = _clean(payload.specifications, 2400)
+    category = normalize_marketplace_category(payload.category, clean_title, clean_description, clean_specifications)
+    result = await db.execute(
+        text("""
+            UPDATE marketplace_publications
+            SET title = :title, description = :description, specifications = :specifications,
+                price = :price, offer_mode = :offer_mode, category = :category, updated_at = now()
+            WHERE id = CAST(:publication_id AS uuid) AND company_id = CAST(:company_id AS uuid)
+              AND user_id = CAST(:user_id AS uuid)
+            RETURNING *
+        """),
+        {"title": clean_title, "description": clean_description, "specifications": clean_specifications,
+         "price": _money(payload.price), "offer_mode": _offer_mode(payload.offer_mode), "category": category,
+         "publication_id": str(publication_id), "company_id": str(company_id), "user_id": str(user["id"])},
+    )
+    publication = result.mappings().first()
+    if not publication:
+        raise HTTPException(status_code=404, detail="publicacion_no_encontrada")
+    await db.commit()
+    media = await _publication_media(db, company_id)
+    row = dict(publication)
+    row.update({"username": user["username"], "phone": user["phone"]})
+    return {"ok": True, "publication": _publication_out(row, media.get(str(publication_id), []), request=request)}
 
 
 @router.post("/companies/{company_id}/publications", status_code=status.HTTP_201_CREATED)
@@ -865,6 +1138,7 @@ async def create_marketplace_publication(
     specifications: str = Form(default=""),
     price: float = Form(default=0),
     offer_mode: str = Form(default="both"),
+    category: str = Form(default="auto"),
     video_duration: float = Form(default=0),
     images: list[UploadFile] = File(...),
     video: UploadFile | None = File(default=None),
@@ -877,6 +1151,9 @@ async def create_marketplace_publication(
     clean_title = _clean(title, 140)
     if len(clean_title) < 3:
         raise HTTPException(status_code=422, detail="titulo_requerido")
+    clean_description = _clean(description, 2400)
+    clean_specifications = _clean(specifications, 2400)
+    clean_category = normalize_marketplace_category(category, clean_title, clean_description, clean_specifications)
     image_files = list(images or [])[: MAX_PUBLICATION_IMAGES + 1]
     if not image_files:
         raise HTTPException(status_code=422, detail="selecciona_una_foto")
@@ -888,20 +1165,21 @@ async def create_marketplace_publication(
     result = await db.execute(
         text("""
             INSERT INTO marketplace_publications
-                (company_id, user_id, title, description, specifications, price, offer_mode, status)
+                (company_id, user_id, title, description, specifications, price, offer_mode, category, status)
             VALUES
                 (CAST(:company_id AS uuid), CAST(:user_id AS uuid), :title, :description,
-                 :specifications, :price, :offer_mode, 'published')
+                 :specifications, :price, :offer_mode, :category, 'published')
             RETURNING *
         """),
         {
             "company_id": str(company_id),
             "user_id": str(user["id"]),
             "title": clean_title,
-            "description": _clean(description, 2400),
-            "specifications": _clean(specifications, 2400),
+            "description": clean_description,
+            "specifications": clean_specifications,
             "price": _money(price),
             "offer_mode": _offer_mode(offer_mode),
+            "category": clean_category,
         },
     )
     publication = dict(result.mappings().first())
