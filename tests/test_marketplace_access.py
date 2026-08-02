@@ -123,6 +123,7 @@ def test_publication_app_exposes_media_price_specs_and_chat():
         ("Taladro inalámbrico con batería", "herramientas"),
         ("Juego PS5 FIFA 26", "juegos_consola"),
         ("Xbox Series S consola", "tecnologia"),
+        ("Play 4 con dos controles", "tecnologia"),
         ("Reloj cronógrafo para hombre", "relojes"),
         ("Objeto especial sin descripción", "otros"),
     ],
@@ -167,6 +168,15 @@ def test_marketplace_shared_links_respect_railway_forwarded_https():
         url = type("URL", (), {"scheme": "http", "netloc": "internal:8080"})()
 
     assert _request_origin(RequestStub()) == "https://clonexa.example.com"
+
+
+def test_marketplace_short_link_resolves_tenant_and_preserves_company_on_native_submit():
+    assert "RedirectResponse" in CLIENT_ROUTES
+    assert "m.code = 'marketplace_access'" in CLIENT_ROUTES
+    assert 'status_code=307' in CLIENT_ROUTES
+    assert 'id="publishCompanyId"' in PUBLIC_HTML
+    assert 'name="company_id"' in PUBLIC_HTML
+    assert "030K_TENANT_RESOLVER" in PUBLIC_HTML
 
 
 def test_mp4_duration_reader_rejects_over_thirty_second_metadata():

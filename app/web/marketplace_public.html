@@ -79,6 +79,7 @@
         <div><span class="market-eyebrow" id="publishEyebrow">Nueva publicación</span><h2 id="publishTitle">Muéstralo como se merece.</h2><p id="publishCopy">Completa la información y el artículo aparecerá inmediatamente en la app.</p></div>
       </div>
       <form class="market-publish-form" id="publishForm">
+        <input id="publishCompanyId" name="company_id" type="hidden" value="">
         <div class="market-publish-card">
           <span class="market-step">01 · Información</span>
           <label>Título del artículo<input name="title" minlength="3" maxlength="140" required placeholder="Ej: Xbox Series S en perfecto estado"></label>
@@ -169,6 +170,6 @@
   </div>
 
   <div class="market-toast" id="marketToast" hidden aria-live="polite"></div>
-  <script src="/client-static/marketplace_public.js?v=030I_PUBLICATIONS_APP"></script>
+  <script src="/client-static/marketplace_public.js?v=030K_TENANT_RESOLVER"></script>
 </body>
 </html>
