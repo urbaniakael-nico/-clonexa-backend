@@ -5,9 +5,12 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1.endpoints.marketplace import (
+    MARKETPLACE_CATEGORIES,
     MAX_PUBLICATION_IMAGES,
     MAX_VIDEO_SECONDS,
     _mp4_duration_seconds,
+    infer_marketplace_category,
+    normalize_marketplace_category,
     normalize_phone,
     normalize_username,
     validate_password,
@@ -96,16 +99,65 @@ def test_publication_creation_and_chat_routes_are_registered():
     assert "/marketplace/companies/{company_id}/manage/publications" in paths
     assert "/marketplace/companies/{company_id}/publications/{publication_id}/chat" in paths
     assert "/marketplace/companies/{company_id}/auth/chats/{conversation_id}/messages" in paths
+    assert "/marketplace/companies/{company_id}/profiles/{profile_user_id}" in paths
+    assert "/marketplace/companies/{company_id}/profiles/{profile_user_id}/reviews" in paths
+    assert "/marketplace/companies/{company_id}/auth/publications" in paths
+    assert "/marketplace/companies/{company_id}/publications/{publication_id}" in paths
 
 
 def test_publication_app_exposes_media_price_specs_and_chat():
     assert MAX_PUBLICATION_IMAGES == 5
     assert MAX_VIDEO_SECONDS == 30
-    for field in ('name="price"', 'name="specifications"', 'name="images"', 'name="video"'):
+    for field in ('name="price"', 'name="category"', 'name="specifications"', 'name="images"', 'name="video"'):
         assert field in PUBLIC_HTML
     assert 'data-chat-publication' in PUBLIC_JS
     assert 'request("/publications"' in PUBLIC_JS
     assert "marketplace_public_app.css" in PUBLIC_HTML
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ("Gorra New Era original", "gorras"),
+        ("Taladro inalámbrico con batería", "herramientas"),
+        ("Juego PS5 FIFA 26", "juegos_consola"),
+        ("Xbox Series S consola", "tecnologia"),
+        ("Reloj cronógrafo para hombre", "relojes"),
+        ("Objeto especial sin descripción", "otros"),
+    ],
+)
+def test_marketplace_category_inference(content, expected):
+    assert infer_marketplace_category(content) == expected
+
+
+def test_marketplace_category_can_be_selected_or_inferred():
+    assert "juegos_consola" in MARKETPLACE_CATEGORIES
+    assert normalize_marketplace_category("ropa", "Taladro") == "ropa"
+    assert normalize_marketplace_category("auto", "Camiseta deportiva") == "ropa"
+    with pytest.raises(HTTPException):
+        normalize_marketplace_category("categoria_inventada", "Articulo")
+
+
+def test_marketplace_catalog_renders_category_sections_and_filters():
+    assert 'id="marketCategoryChips"' in PUBLIC_HTML
+    assert 'value="juegos_consola"' in PUBLIC_HTML
+    assert "renderCategoryChips" in PUBLIC_JS
+    assert "market-category-section" in PUBLIC_JS
+    assert "suggestCategory" in PUBLIC_JS
+
+
+def test_marketplace_profiles_are_public_shareable_and_reviewable():
+    for element_id in ('id="profileView"', 'id="publicProfilePublications"', 'id="reviewForm"', 'id="shareProfileButton"'):
+        assert element_id in PUBLIC_HTML
+    assert "openProfile(profileUserId)" in PUBLIC_JS
+    assert "data-profile-user" in PUBLIC_JS
+    assert 'request(`/profiles/${encodeURIComponent(currentProfileId)}/reviews`' in PUBLIC_JS
+
+
+def test_marketplace_owner_can_edit_own_publications():
+    assert 'id="myPublicationsList"' in PUBLIC_HTML
+    assert "data-edit-publication" in PUBLIC_JS
+    assert 'method:"PATCH"' in PUBLIC_JS
 
 
 def test_mp4_duration_reader_rejects_over_thirty_second_metadata():

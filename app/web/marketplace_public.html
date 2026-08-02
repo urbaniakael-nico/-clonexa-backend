@@ -7,6 +7,7 @@
   <title>Cambios y compras</title>
   <link rel="stylesheet" href="/client-static/marketplace_public.css?v=030H_MARKETPLACE_ACCESS">
   <link rel="stylesheet" href="/client-static/marketplace_public_app.css?v=030I_PUBLICATIONS_APP">
+  <link rel="stylesheet" href="/client-static/marketplace_categories.css?v=030J_SMART_CATEGORIES">
 </head>
 <body>
   <div class="market-glow market-glow-one"></div><div class="market-glow market-glow-two"></div>
@@ -47,9 +48,9 @@
       </div>
       <div class="market-toolbar">
         <label class="market-search"><span>⌕</span><input id="marketSearch" type="search" placeholder="Buscar gorras, consolas, tecnología..." aria-label="Buscar artículos"></label>
-        <div class="market-chips" aria-label="Categorías"><button class="active" type="button">Todos</button><button type="button">Tecnología</button><button type="button">Moda</button><button type="button">Hogar</button></div>
+        <div class="market-chips" id="marketCategoryChips" aria-label="Categorías"><button class="active" data-market-category="todos" type="button">Todos</button></div>
       </div>
-      <div class="market-product-grid" id="marketProductGrid"></div>
+      <div class="market-category-sections" id="marketProductGrid"></div>
       <div class="market-empty" id="marketEmpty">
         <div class="market-empty-icon">◇</div><h3>El primer artículo puede ser el tuyo</h3>
         <p>La vitrina ya está lista. Publica una gorra, un Play, un Xbox o cualquier artículo que quieras vender o cambiar.</p>
@@ -57,15 +58,46 @@
       </div>
     </section>
 
+    <section class="market-public-profile" id="profileView" hidden>
+      <button class="market-btn ghost" id="backFromProfile" type="button">← Volver a la vitrina</button>
+      <div class="market-profile-cover">
+        <div class="market-profile-avatar" id="publicProfileAvatar">V</div>
+        <div class="market-profile-identity"><span class="market-eyebrow">Perfil público</span><h2 id="publicProfileName">Usuario</h2><p id="publicProfileBio">Miembro de la comunidad.</p></div>
+        <div class="market-profile-reputation"><strong id="publicProfileRating">Nuevo</strong><span id="publicProfileReviewCount">Sin calificaciones</span><button class="market-btn glass" id="shareProfileButton" type="button">Compartir perfil</button></div>
+      </div>
+      <div class="market-profile-layout">
+        <section class="market-profile-feed"><div class="market-category-head"><div><span class="market-eyebrow">Publicaciones</span><h3>Artículos de este usuario</h3></div><span id="publicProfilePublicationCount">0 artículos</span></div><div class="market-product-grid" id="publicProfilePublications"></div></section>
+        <aside class="market-review-panel"><span class="market-eyebrow">Reputación</span><h3>Calificaciones y comentarios</h3><div class="market-review-list" id="publicProfileReviews"></div>
+          <form class="market-review-form" id="reviewForm"><label>Tu calificación<select name="rating" required><option value="5">★★★★★ · Excelente</option><option value="4">★★★★☆ · Muy bueno</option><option value="3">★★★☆☆ · Bueno</option><option value="2">★★☆☆☆ · Regular</option><option value="1">★☆☆☆☆ · Malo</option></select></label><label>Comentario<textarea name="comment" minlength="2" maxlength="600" required placeholder="Cuenta cómo fue tu experiencia..."></textarea></label><button class="market-btn primary full" type="submit">Publicar opinión</button><p class="market-message" id="reviewMessage" aria-live="polite"></p></form>
+        </aside>
+      </div>
+    </section>
+
     <section class="market-publish" id="publicar" hidden>
       <div class="market-publish-head">
         <button class="market-btn ghost" id="backToCatalog" type="button">← Volver a la vitrina</button>
-        <div><span class="market-eyebrow">Nueva publicación</span><h2>Muéstralo como se merece.</h2><p>Completa la información y el artículo aparecerá inmediatamente en la app.</p></div>
+        <div><span class="market-eyebrow" id="publishEyebrow">Nueva publicación</span><h2 id="publishTitle">Muéstralo como se merece.</h2><p id="publishCopy">Completa la información y el artículo aparecerá inmediatamente en la app.</p></div>
       </div>
       <form class="market-publish-form" id="publishForm">
         <div class="market-publish-card">
           <span class="market-step">01 · Información</span>
           <label>Título del artículo<input name="title" minlength="3" maxlength="140" required placeholder="Ej: Xbox Series S en perfecto estado"></label>
+          <label>Categoría
+            <select name="category" id="publicationCategory" required>
+              <option value="auto">Detectar automáticamente</option>
+              <option value="tecnologia">Tecnología</option>
+              <option value="juegos_consola">Juegos de consola</option>
+              <option value="accesorios">Accesorios</option>
+              <option value="gorras">Gorras</option>
+              <option value="tenis">Tenis</option>
+              <option value="ropa">Ropa</option>
+              <option value="herramientas">Herramientas</option>
+              <option value="relojes">Relojes</option>
+              <option value="artesanias">Artesanías</option>
+              <option value="otros">Otros</option>
+            </select>
+            <small class="market-category-hint" id="categoryHint">Escribe el título y te sugerimos dónde publicarlo.</small>
+          </label>
           <div class="market-form-split"><label>Valor del artículo<input name="price" type="number" min="0" step="1000" required placeholder="0"></label><label>¿Qué aceptas?<select name="offer_mode"><option value="both">Dinero o cambio</option><option value="money">Solo dinero</option><option value="change">Solo cambio</option></select></label></div>
           <label>Descripción<textarea name="description" maxlength="2400" required placeholder="Cuenta cómo está, cuánto tiempo tiene y por qué lo vendes o cambias."></textarea></label>
           <label>Especificaciones<textarea name="specifications" maxlength="2400" placeholder="Marca, modelo, color, medidas, accesorios incluidos..."></textarea></label>
@@ -78,6 +110,7 @@
           <div class="market-video-status" id="videoStatus">Sin video seleccionado</div>
           <input id="videoDuration" name="video_duration" type="hidden" value="0">
           <button class="market-btn primary full market-publish-submit" type="submit">Publicar ahora</button>
+          <button class="market-btn ghost full" id="cancelEditPublication" type="button" hidden>Cancelar edición</button>
           <p class="market-message" id="publishMessage" aria-live="polite"></p>
         </div>
       </form>
@@ -114,8 +147,10 @@
       <button class="market-close" data-close-account type="button" aria-label="Cerrar">×</button>
       <span class="market-eyebrow">Perfil verificado</span><h2 id="accountTitle">Mi cuenta</h2>
       <div class="market-profile"><span id="profileAvatar">V</span><div><b id="profileName">Usuario</b><small id="profilePhone">Teléfono registrado</small></div></div>
-      <form class="market-form" id="profileForm"><label>Nombre o usuario<input name="username" minlength="3" maxlength="40" required></label><button class="market-btn primary full" type="submit">Guardar nombre</button></form>
+      <form class="market-form" id="profileForm"><label>Nombre o usuario<input name="username" minlength="3" maxlength="40" required></label><label>Descripción pública<textarea name="bio" maxlength="280" placeholder="Cuéntale a la comunidad qué publicas..."></textarea></label><button class="market-btn primary full" type="submit">Guardar perfil</button></form>
+      <button class="market-btn primary full" id="openPublicProfileButton" type="button">Ver y compartir mi perfil</button>
       <button class="market-btn glass full" id="openChatsButton" type="button">Mis chats</button>
+      <div class="market-account-publications"><b>Mis publicaciones</b><div id="myPublicationsList"></div></div>
       <button class="market-btn ghost full" id="logoutButton" type="button">Cerrar sesión</button>
       <p class="market-message" id="accountMessage" aria-live="polite"></p>
     </section>
