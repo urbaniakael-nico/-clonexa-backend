@@ -31,7 +31,7 @@
           <a class="market-btn primary large" href="#articulos">Explorar artículos</a>
           <button class="market-btn glass large" data-auth-action="publish" type="button">Publicar un artículo</button>
         </div>
-        <div class="market-trust"><span>✓ Teléfono verificado</span><span>✓ Perfiles privados</span><span>✓ Trato directo</span></div>
+        <div class="market-trust"><span>✓ Registro gratuito</span><span>✓ Perfiles privados</span><span>✓ Trato directo</span></div>
       </div>
       <div class="market-hero-visual" aria-hidden="true">
         <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
@@ -95,25 +95,14 @@
         <label>Usuario o teléfono<input name="identifier" autocomplete="username" required placeholder="Tu usuario o 300 000 0000"></label>
         <label>Contraseña<input name="password" type="password" autocomplete="current-password" required placeholder="••••••••"></label>
         <button class="market-btn primary full" type="submit">Ingresar</button>
-        <button class="market-link" data-auth-tab="reset" type="button">Olvidé mi contraseña</button>
       </form>
 
       <form class="market-form" id="registerForm" data-auth-panel="register" hidden>
         <label>Nombre o usuario<input name="username" autocomplete="nickname" minlength="3" maxlength="40" required placeholder="Ej: Nico87"></label>
         <label>Teléfono<input name="phone" autocomplete="tel" required placeholder="300 000 0000"></label>
-        <div class="market-code-row"><label>Código del mensaje<input name="verification_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="000000"></label><button class="market-btn glass" data-send-code="register" type="button">Enviar código</button></div>
         <label>Crea una contraseña<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="Mínimo 8 caracteres"></label>
         <button class="market-btn primary full" type="submit">Crear mi cuenta</button>
-        <small class="market-privacy">Tu número se usa para verificar la cuenta y nunca se muestra públicamente.</small>
-      </form>
-
-      <form class="market-form" id="resetForm" data-auth-panel="reset" hidden>
-        <p class="market-form-copy">Te enviaremos un código para recuperar el acceso.</p>
-        <label>Teléfono<input name="phone" autocomplete="tel" required placeholder="300 000 0000"></label>
-        <div class="market-code-row"><label>Código<input name="verification_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="000000"></label><button class="market-btn glass" data-send-code="reset" type="button">Enviar código</button></div>
-        <label>Nueva contraseña<input name="new_password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></label>
-        <button class="market-btn primary full" type="submit">Cambiar contraseña</button>
-        <button class="market-link" data-auth-tab="login" type="button">Volver a ingresar</button>
+        <small class="market-privacy">Tu número queda registrado para tu cuenta y nunca se muestra públicamente.</small>
       </form>
       <p class="market-message" id="authMessage" aria-live="polite"></p>
     </section>
@@ -124,7 +113,7 @@
     <section class="market-modal-card" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
       <button class="market-close" data-close-account type="button" aria-label="Cerrar">×</button>
       <span class="market-eyebrow">Perfil verificado</span><h2 id="accountTitle">Mi cuenta</h2>
-      <div class="market-profile"><span id="profileAvatar">V</span><div><b id="profileName">Usuario</b><small id="profilePhone">Teléfono verificado</small></div></div>
+      <div class="market-profile"><span id="profileAvatar">V</span><div><b id="profileName">Usuario</b><small id="profilePhone">Teléfono registrado</small></div></div>
       <form class="market-form" id="profileForm"><label>Nombre o usuario<input name="username" minlength="3" maxlength="40" required></label><button class="market-btn primary full" type="submit">Guardar nombre</button></form>
       <button class="market-btn glass full" id="openChatsButton" type="button">Mis chats</button>
       <button class="market-btn ghost full" id="logoutButton" type="button">Cerrar sesión</button>

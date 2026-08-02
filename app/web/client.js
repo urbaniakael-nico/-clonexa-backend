@@ -28151,7 +28151,7 @@ function inventoryCreatePayload() {
             <header class="client-hero">
               <div class="client-eyebrow">Actividad de la app</div>
               <h1 class="client-title">Publicaciones</h1>
-              <p class="client-muted">Consulta quién publicó, su teléfono verificado y el enlace directo de cada artículo.</p>
+              <p class="client-muted">Consulta quién publicó, su teléfono registrado y el enlace directo de cada artículo.</p>
               <div class="client-actions">
                 <button class="client-btn" id="marketplaceOpen030H" type="button">Abrir marketplace</button>
                 <button class="client-btn" id="marketplaceCopy030H" type="button">Copiar enlace</button>
@@ -28161,7 +28161,7 @@ function inventoryCreatePayload() {
             </header>
             <section class="client-kpi-grid">
               <article class="client-kpi"><span>Publicaciones</span><strong>${h(publications.length)}</strong></article>
-              <article class="client-kpi"><span>Usuarios verificados</span><strong>${h(registeredUsers)}</strong></article>
+              <article class="client-kpi"><span>Usuarios registrados</span><strong>${h(registeredUsers)}</strong></article>
               <article class="client-kpi"><span>Navegacion publica</span><strong>Activa</strong></article>
               <article class="client-kpi"><span>Estado</span><strong>${h(statusText)}</strong></article>
             </section>
