@@ -35,6 +35,7 @@ MODULE_CODE = "marketplace_access"
 TOKEN_MINUTES = 60 * 24 * 30
 CODE_TTL_MINUTES = 5
 MAX_PUBLICATION_IMAGES = 5
+MAX_OFFER_IMAGES = 3
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_VIDEO_BYTES = 25 * 1024 * 1024
 MAX_VIDEO_SECONDS = 30
@@ -280,6 +281,43 @@ async def ensure_marketplace_storage(db: AsyncSession) -> None:
     await db.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_marketplace_messages_conversation
         ON marketplace_messages(conversation_id, created_at)
+    """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS marketplace_offers (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            publication_id uuid NOT NULL REFERENCES marketplace_publications(id) ON DELETE CASCADE,
+            buyer_user_id uuid NOT NULL REFERENCES marketplace_users(id) ON DELETE CASCADE,
+            seller_user_id uuid NOT NULL REFERENCES marketplace_users(id) ON DELETE CASCADE,
+            conversation_id uuid NOT NULL REFERENCES marketplace_conversations(id) ON DELETE CASCADE,
+            offer_type varchar(16) NOT NULL CHECK (offer_type IN ('money', 'change')),
+            amount numeric(16,2) NULL,
+            description text NOT NULL DEFAULT '',
+            status varchar(24) NOT NULL DEFAULT 'pending',
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_marketplace_offers_participants
+        ON marketplace_offers(company_id, seller_user_id, buyer_user_id, created_at DESC)
+    """))
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS marketplace_offer_media (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            offer_id uuid NOT NULL REFERENCES marketplace_offers(id) ON DELETE CASCADE,
+            kind varchar(16) NOT NULL,
+            position integer NOT NULL DEFAULT 0,
+            content_type varchar(80) NOT NULL,
+            file_bytes bytea NOT NULL,
+            file_size integer NOT NULL,
+            duration_seconds numeric(8,2) NULL,
+            created_at timestamptz NOT NULL DEFAULT now()
+        )
+    """))
+    await db.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_marketplace_offer_media_offer
+        ON marketplace_offer_media(offer_id, kind, position)
     """))
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS marketplace_profile_reviews (
@@ -1337,6 +1375,167 @@ async def open_marketplace_chat(
     conversation_id = result.scalar_one()
     await db.commit()
     return {"ok": True, "conversation_id": conversation_id}
+
+
+@router.post("/companies/{company_id}/publications/{publication_id}/offers", status_code=status.HTTP_201_CREATED)
+async def create_marketplace_offer(
+    company_id: uuid.UUID,
+    publication_id: uuid.UUID,
+    offer_type: str = Form(...),
+    amount: str = Form(default=""),
+    description: str = Form(default=""),
+    images: list[UploadFile] | None = File(default=None),
+    video: UploadFile | None = File(default=None),
+    video_duration: float = Form(default=0),
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_marketplace_storage(db)
+    user = await current_marketplace_user(db, company_id, authorization)
+    publication_result = await db.execute(
+        text("""
+            SELECT id::text AS id, user_id::text AS seller_id, title, offer_mode
+            FROM marketplace_publications
+            WHERE id = CAST(:publication_id AS uuid)
+              AND company_id = CAST(:company_id AS uuid)
+              AND status = 'published'
+            LIMIT 1
+        """),
+        {"publication_id": str(publication_id), "company_id": str(company_id)},
+    )
+    publication = publication_result.mappings().first()
+    if not publication:
+        raise HTTPException(status_code=404, detail="publicacion_no_encontrada")
+    if str(publication["seller_id"]) == str(user["id"]):
+        raise HTTPException(status_code=422, detail="no_puedes_ofertar_tu_publicacion")
+
+    clean_type = _clean(offer_type, 16).lower()
+    if clean_type not in {"money", "change"}:
+        raise HTTPException(status_code=422, detail="tipo_oferta_invalido")
+    publication_mode = str(publication["offer_mode"] or "both")
+    if publication_mode != "both" and publication_mode != clean_type:
+        raise HTTPException(status_code=422, detail="tipo_oferta_no_aceptado")
+
+    clean_description = _clean(description, 1200)
+    clean_amount: float | None = None
+    media_uploads: list[dict[str, Any]] = []
+    if clean_type == "money":
+        clean_amount = _money(amount)
+        if clean_amount <= 0:
+            raise HTTPException(status_code=422, detail="monto_oferta_requerido")
+    else:
+        if len(clean_description) < 3:
+            raise HTTPException(status_code=422, detail="describe_el_cambio")
+        image_files = list(images or [])[: MAX_OFFER_IMAGES + 1]
+        if len(image_files) > MAX_OFFER_IMAGES:
+            raise HTTPException(status_code=422, detail="maximo_3_fotos")
+        media_uploads = [await _read_media(item, "image") for item in image_files]
+        if video is not None and str(video.filename or "").strip():
+            media_uploads.append(await _read_media(video, "video", video_duration))
+
+    conversation_result = await db.execute(
+        text("""
+            INSERT INTO marketplace_conversations (company_id, publication_id, buyer_user_id, seller_user_id)
+            VALUES (CAST(:company_id AS uuid), CAST(:publication_id AS uuid), CAST(:buyer_id AS uuid), CAST(:seller_id AS uuid))
+            ON CONFLICT (publication_id, buyer_user_id) DO UPDATE SET updated_at = now()
+            RETURNING id::text AS id
+        """),
+        {"company_id": str(company_id), "publication_id": str(publication_id),
+         "buyer_id": str(user["id"]), "seller_id": str(publication["seller_id"])},
+    )
+    conversation_id = conversation_result.scalar_one()
+    offer_result = await db.execute(
+        text("""
+            INSERT INTO marketplace_offers
+                (company_id, publication_id, buyer_user_id, seller_user_id, conversation_id,
+                 offer_type, amount, description, status)
+            VALUES
+                (CAST(:company_id AS uuid), CAST(:publication_id AS uuid), CAST(:buyer_id AS uuid),
+                 CAST(:seller_id AS uuid), CAST(:conversation_id AS uuid), :offer_type, :amount,
+                 :description, 'pending')
+            RETURNING id::text AS id, offer_type, amount, description, status, created_at
+        """),
+        {"company_id": str(company_id), "publication_id": str(publication_id),
+         "buyer_id": str(user["id"]), "seller_id": str(publication["seller_id"]),
+         "conversation_id": conversation_id, "offer_type": clean_type,
+         "amount": clean_amount, "description": clean_description},
+    )
+    offer = dict(offer_result.mappings().first())
+    media_out: list[dict[str, Any]] = []
+    for position, upload in enumerate(media_uploads):
+        media_result = await db.execute(
+            text("""
+                INSERT INTO marketplace_offer_media
+                    (offer_id, kind, position, content_type, file_bytes, file_size, duration_seconds)
+                VALUES
+                    (CAST(:offer_id AS uuid), :kind, :position, :content_type, :file_bytes, :file_size, :duration)
+                RETURNING id::text AS id, kind, position, content_type, file_size, duration_seconds
+            """),
+            {"offer_id": offer["id"], "kind": upload["kind"], "position": position,
+             "content_type": upload["content_type"], "file_bytes": upload["content"],
+             "file_size": upload["size"], "duration": upload["duration"]},
+        )
+        item = dict(media_result.mappings().first())
+        item["url"] = f"/api/v1/marketplace/companies/{company_id}/auth/offers/{offer['id']}/media/{item['id']}"
+        media_out.append(item)
+
+    if clean_type == "money":
+        summary = f"Oferta de dinero: $ {clean_amount:,.0f}"
+    else:
+        attachments = []
+        image_count = sum(1 for item in media_out if item["kind"] == "image")
+        if image_count:
+            attachments.append(f"{image_count} foto(s)")
+        if any(item["kind"] == "video" for item in media_out):
+            attachments.append("video")
+        suffix = f" · Adjunta: {', '.join(attachments)}" if attachments else ""
+        summary = f"Propuesta de cambio: {clean_description}{suffix}"
+    await db.execute(
+        text("""
+            INSERT INTO marketplace_messages (conversation_id, sender_user_id, body)
+            VALUES (CAST(:conversation_id AS uuid), CAST(:sender_id AS uuid), :body)
+        """),
+        {"conversation_id": conversation_id, "sender_id": str(user["id"]), "body": summary},
+    )
+    await db.execute(
+        text("UPDATE marketplace_conversations SET updated_at = now() WHERE id = CAST(:id AS uuid)"),
+        {"id": conversation_id},
+    )
+    await db.commit()
+    if offer.get("amount") is not None:
+        offer["amount"] = float(offer["amount"])
+    offer["media"] = media_out
+    return {"ok": True, "conversation_id": conversation_id, "offer": offer}
+
+
+@router.get("/companies/{company_id}/auth/offers/{offer_id}/media/{media_id}")
+async def get_marketplace_offer_media(
+    company_id: uuid.UUID,
+    offer_id: uuid.UUID,
+    media_id: uuid.UUID,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await ensure_marketplace_storage(db)
+    user = await current_marketplace_user(db, company_id, authorization)
+    result = await db.execute(
+        text("""
+            SELECT m.content_type, m.file_bytes
+            FROM marketplace_offer_media m
+            JOIN marketplace_offers o ON o.id = m.offer_id
+            WHERE m.id = CAST(:media_id AS uuid)
+              AND m.offer_id = CAST(:offer_id AS uuid)
+              AND o.company_id = CAST(:company_id AS uuid)
+              AND (o.buyer_user_id = CAST(:user_id AS uuid) OR o.seller_user_id = CAST(:user_id AS uuid))
+            LIMIT 1
+        """),
+        {"media_id": str(media_id), "offer_id": str(offer_id),
+         "company_id": str(company_id), "user_id": str(user["id"])},
+    )
+    media = result.mappings().first()
+    if not media:
+        raise HTTPException(status_code=404, detail="archivo_no_encontrado")
+    return Response(content=bytes(media["file_bytes"]), media_type=str(media["content_type"]))
 
 
 @router.get("/companies/{company_id}/auth/chats")
