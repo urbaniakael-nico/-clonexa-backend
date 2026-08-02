@@ -28126,7 +28126,9 @@ function inventoryCreatePayload() {
     if (typeof cxShoplinkStyles026K === "function") cxShoplinkStyles026K();
     const company = state.company || {};
     const publicUrl = `${window.location.origin}/mercado?company_id=${encodeURIComponent(state.companyId || "")}`;
+    const qrUrl = `/api/v1/marketplace/companies/${encodeURIComponent(state.companyId || "")}/public-qr.svg`;
     let registeredUsers = 0;
+    let registeredUserRows = [];
     let publications = [];
     let statusText = "Portal disponible";
     try {
@@ -28134,6 +28136,7 @@ function inventoryCreatePayload() {
       registeredUsers = Number(payload.marketplace?.registered_users || 0);
       const activity = await api(`/marketplace/companies/${encodeURIComponent(state.companyId)}/manage/publications`);
       publications = Array.isArray(activity.publications) ? activity.publications : [];
+      registeredUserRows = Array.isArray(activity.users) ? activity.users : [];
     } catch (error) {
       statusText = "No se pudo consultar el portal";
     }
@@ -28154,7 +28157,7 @@ function inventoryCreatePayload() {
               <p class="client-muted">Consulta quién publicó, su teléfono registrado y el enlace directo de cada artículo.</p>
               <div class="client-actions">
                 <button class="client-btn" id="marketplaceOpen030H" type="button">Abrir marketplace</button>
-                <button class="client-btn" id="marketplaceCopy030H" type="button">Copiar enlace</button>
+                <button class="client-btn" id="marketplaceShowQr031A" type="button">Ver QR</button>
                 <button class="client-btn" id="marketplaceRefresh030H" type="button">Actualizar</button>
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
               </div>
@@ -28165,33 +28168,54 @@ function inventoryCreatePayload() {
               <article class="client-kpi"><span>Navegacion publica</span><strong>Activa</strong></article>
               <article class="client-kpi"><span>Estado</span><strong>${h(statusText)}</strong></article>
             </section>
-            <section class="client-panel">
+            <section class="client-panel" id="marketplaceQrPanel031A">
               <div class="client-eyebrow">Vitrina pública</div>
-              <h2>Enlace principal</h2>
-              <p class="client-muted">Desde aquí las personas exploran, se registran, publican y conversan dentro de la misma app.</p>
-              <div class="shoplink-url-026k" id="marketplaceUrl030H">${h(publicUrl)}</div>
-              <p class="client-muted" id="marketplaceMessage030H">El teléfono solo se muestra en este panel del dueño.</p>
+              <h2>Acceso por QR</h2>
+              <p class="client-muted">Las personas escanean este código desde su celular y entran directamente al marketplace de ${h(company.name || "la empresa")}.</p>
+              <div class="marketplace-qr-layout-031a">
+                <div class="marketplace-qr-card-031a">
+                  <img src="${h(qrUrl)}" alt="QR del marketplace de ${h(company.name || "la empresa")}" width="280" height="280">
+                  <strong>Escanea para abrir el marketplace</strong>
+                  <a class="client-btn" href="${h(qrUrl)}" download="marketplace-qr.svg">Descargar QR</a>
+                </div>
+                <div class="marketplace-qr-copy-031a">
+                  <span class="client-eyebrow">Destino del QR</span>
+                  <div class="shoplink-url-026k" id="marketplaceUrl030H">${h(publicUrl)}</div>
+                  <p class="client-muted" id="marketplaceMessage030H">El QR siempre dirige a este enlace. El teléfono solo se muestra en este panel del dueño.</p>
+                </div>
+              </div>
             </section>
             <section class="client-panel">
               <div class="client-eyebrow">Registro</div>
-              <h2>Artículos publicados</h2>
-              <div class="shoplink-product-list-026k">
-                ${publications.length ? publications.map((item) => `
-                  <article class="shoplink-order-row-026k">
-                    <div><strong>${h(item.title || "Articulo")}</strong><small>${h(item.seller?.username || "Usuario")} · ${h(item.seller?.phone || "Sin telefono")}</small><small>${h(item.category_label || "Otros")} · ${h(item.status || "published")} · ${h(item.offer_mode || "both")}</small></div>
-                    <div class="client-actions"><a class="client-btn" href="${h(item.public_url || publicUrl)}" target="_blank" rel="noopener">Abrir</a><button class="client-btn" type="button" data-marketplace-copy-publication="${h(item.public_url || publicUrl)}">Copiar link</button></div>
-                  </article>`).join("") : `<div class="client-empty">Aún no hay publicaciones. Cuando un usuario publique, aparecerá aquí con su teléfono y enlace.</div>`}
+              <h2>Usuarios registrados y publicaciones</h2>
+              <p class="client-muted">Cada usuario pertenece a este tenant. Aquí puedes consultar su nombre, teléfono y las URL de todo lo que publica.</p>
+              <div class="marketplace-user-list-031a">
+                ${registeredUserRows.length ? registeredUserRows.map((member) => {
+                  const memberPublications = publications.filter((item) => String(item.seller?.id || "") === String(member.id || ""));
+                  return `<article class="marketplace-user-card-031a">
+                    <header class="marketplace-user-head-031a">
+                      <span>${h(String(member.username || "U").charAt(0).toUpperCase())}</span>
+                      <div><strong>${h(member.username || "Usuario")}</strong><small>${h(member.phone || "Sin teléfono")}</small></div>
+                      <b>${h(memberPublications.length)} publicación${memberPublications.length === 1 ? "" : "es"}</b>
+                    </header>
+                    <div class="marketplace-tenant-meta-031a"><span>Tenant</span><strong>${h(company.name || "Empresa")}</strong><small>${h(state.companyId || "")}</small></div>
+                    <div class="marketplace-member-links-031a">
+                      <div><span>Perfil público</span><a href="${h(member.profile_url || publicUrl)}" target="_blank" rel="noopener">${h(member.profile_url || publicUrl)}</a></div>
+                      ${memberPublications.length ? memberPublications.map((item) => `<div class="marketplace-publication-link-031a">
+                        <span>${h(item.title || "Artículo")}</span>
+                        <a href="${h(item.public_url || publicUrl)}" target="_blank" rel="noopener">${h(item.public_url || publicUrl)}</a>
+                        <div class="client-actions"><a class="client-btn" href="${h(item.public_url || publicUrl)}" target="_blank" rel="noopener">Abrir</a><button class="client-btn" type="button" data-marketplace-copy-publication="${h(item.public_url || publicUrl)}">Copiar URL</button></div>
+                      </div>`).join("") : `<div class="client-empty">Este usuario todavía no ha publicado artículos.</div>`}
+                    </div>
+                  </article>`;
+                }).join("") : `<div class="client-empty">Aún no hay usuarios registrados en este tenant.</div>`}
               </div>
             </section>
           </section>
         </div>
       </main>`;
     document.getElementById("marketplaceOpen030H")?.addEventListener("click", () => window.open(publicUrl, "_blank", "noopener"));
-    document.getElementById("marketplaceCopy030H")?.addEventListener("click", async () => {
-      const notice = document.getElementById("marketplaceMessage030H");
-      try { await navigator.clipboard.writeText(publicUrl); if (notice) notice.textContent = "Enlace copiado. Ya puedes compartirlo."; }
-      catch { if (notice) notice.textContent = "Copia manualmente el enlace mostrado arriba."; }
-    });
+    document.getElementById("marketplaceShowQr031A")?.addEventListener("click", () => document.getElementById("marketplaceQrPanel031A")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     document.getElementById("marketplaceRefresh030H")?.addEventListener("click", () => renderMarketplaceAccessModule030H());
     document.querySelectorAll("[data-marketplace-copy-publication]").forEach((button) => button.addEventListener("click", async () => {
       const notice = document.getElementById("marketplaceMessage030H");
