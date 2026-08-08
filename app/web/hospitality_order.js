@@ -1383,7 +1383,7 @@
               <div class="qr-product-top">
                 <div class="qr-product-copy">
                   <div class="qr-product-name">${h(item.name)}</div>
-                  <div class="qr-stock">${h(productCategory(item))} · Stock ${h(item.stock ?? 0)}</div>
+                  <div class="qr-stock">${h(productCategory(item))}</div>
                 </div>
                 ${quantity > 0 ? `<span class="qr-selected-badge">✓ ${h(quantity)} en tu pedido</span>` : ""}
               </div>

@@ -36,6 +36,7 @@ async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypa
             )
         )
     )
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
     monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
     require_access = AsyncMock()
     monkeypatch.setattr(hospitality, "_require_table_access", require_access)
@@ -88,12 +89,13 @@ def test_orders_and_dashboard_alert_for_new_table_orders_after_initial_load():
 
     assert "cxHspOrderAlertsReady030B" in source
     assert "!cxHspKnownOrderIds030B.has(String(order.id))" in source
-    assert '!["bar_manual", "barra"].includes(source)' in source
+    assert "!cxHspIsBarOnlyOrder031D(order)" in source
     assert "cxHspPlayNewOrderSound030B" in source
     assert "cxHspStartDashboardMonitor030D" in source
     assert "hsp-dashboard-pending-banner-030d" in source
     assert "pendingTables" in source
-    assert "Activar alertas" in source
+    assert "Alerta visual" in source
+    assert "Sonido" in source
     assert 'aria-live="assertive"' in source
     monitor = source.split("function cxHspStartDashboardMonitor030D", 1)[1].split("async function loadClientDashboardMetrics", 1)[0]
     assert "cxHspPaintDashboardMetrics030D(next)" in monitor
@@ -130,17 +132,21 @@ def test_mobile_qr_keeps_table_access_until_the_backend_closes_the_table():
     assert "030G_TABLE_SESSION_LOCK" in html
 
 
-def test_manual_bar_form_can_charge_products_to_a_table_account():
+def test_bar_accounts_have_independent_cards_and_product_loading():
     source = Path("app/web/client.js").read_text(encoding="utf-8")
     html = Path("app/web/client.html").read_text(encoding="utf-8")
+    backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
 
-    assert 'id="hspSaleDestination030D"' in source
-    assert 'id="hspTargetTable030D"' in source
-    assert 'source: destination === "table" ? "table_manual" : "bar_manual"' in source
-    assert 'table: manualTable' in source
-    assert "El pedido activara la mesa" in source
-    assert 'createButton.textContent = isTable ? "Agregar pedido a mesa" : "Crear venta barra"' in source
-    assert "030D_HOSPITALITY_LIVE_ORDERS" in html
+    assert 'id="hspBarAccounts031D"' in source
+    assert "Cuentas independientes" in source
+    assert "data-hsp-bar-create" in source
+    assert "data-hsp-bar-add" in source
+    assert "data-hsp-bar-close" in source
+    assert "cxHspIsBarAccount031D" in source
+    assert 'router.post("/companies/{company_id}/bar-accounts"' in backend
+    assert 'router.post("/companies/{company_id}/bar-accounts/{account_id}/items")' in backend
+    assert "'bar_account', 'bar_account'" in backend
+    assert "031D_BAR_ACCOUNTS_ALERTS_ARCHIVE" in html
 
 
 def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender():
@@ -169,5 +175,57 @@ def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender()
     assert "data-hsp-song-status" in panel
     assert "Marcar sonando" in panel
     assert "Marcar reproducida" in panel
+    assert "data-hsp-song-archive" in panel
+    assert 'router.post("/companies/{company_id}/song-requests/{request_id}/archive")' in backend
+    assert "CAST(:next_status AS VARCHAR)" in backend
+    assert "pg_advisory_xact_lock" in backend
     assert "031C_FREE_SONG_REQUESTS" in public_html
     assert "031C_FREE_SONG_REQUESTS" in panel_html
+
+
+def test_qr_hides_stock_and_panel_has_independent_alert_switches_and_new_kpis():
+    public = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
+    public_html = Path("app/web/hospitality_order.html").read_text(encoding="utf-8")
+    panel = Path("app/web/client.js").read_text(encoding="utf-8")
+
+    product_card = public.split("const productCards =", 1)[1].split("const itemCount =", 1)[0]
+    assert "Stock ${" not in product_card
+    assert "· Stock" not in product_card
+    assert "031D_HIDE_QR_STOCK" in public_html
+    assert "data-hsp-toggle-visual-alerts" in panel
+    assert "data-hsp-toggle-sound-alerts" in panel
+    assert "Próximo en acabar" in panel
+    assert "Cantidad disponible" in panel
+    assert "Mesas abiertas" in panel
+
+
+@pytest.mark.asyncio
+async def test_song_status_query_uses_one_explicit_parameter_type(monkeypatch):
+    company_id = uuid.uuid4()
+    request_id = uuid.uuid4()
+    current = {
+        "id": request_id,
+        "company_id": company_id,
+        "status": "pendiente",
+        "song": "Juan Gabriel",
+    }
+    updated = {**current, "status": "sonando"}
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[MappingResult(current), MappingResult(updated)]),
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
+
+    response = await hospitality.update_hospitality_song_request_status(
+        company_id,
+        request_id,
+        hospitality.HospitalitySongRequestStatusIn(status="sonando"),
+        db,
+    )
+
+    statement = str(db.execute.await_args_list[1].args[0])
+    params = db.execute.await_args_list[1].args[1]
+    assert statement.count("CAST(:next_status AS VARCHAR)") == 3
+    assert ":status" not in statement
+    assert params["next_status"] == "sonando"
+    assert response["song_request"]["status"] == "sonando"
