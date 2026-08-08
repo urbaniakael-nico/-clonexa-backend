@@ -20335,6 +20335,8 @@ function inventoryCreatePayload() {
   let cxHspOrderAlertsReady030B = false;
   let cxHspAudioContext030B = null;
   let cxHspSoundReady030B = false;
+  let cxHspVisualAlertsOn031D = true;
+  let cxHspSoundAlertsOn031D = false;
   let cxHspDashboardKnownOrderIds030D = new Set();
   let cxHspDashboardAlertsReady030D = false;
   let cxHspStoredAlertsArmed030D = false;
@@ -20343,17 +20345,42 @@ function inventoryCreatePayload() {
     return `clonexa_hospitality_alerts_${String(state.companyId || "company")}`;
   }
 
-  function cxHspAlertsWereEnabled030D() {
+  function cxHspVisualAlertsStorageKey031D() {
+    return `${cxHspAlertsStorageKey030D()}_visual`;
+  }
+
+  function cxHspSoundAlertsStorageKey031D() {
+    return `${cxHspAlertsStorageKey030D()}_sound`;
+  }
+
+  function cxHspLoadAlertPreferences031D() {
     try {
-      return window.localStorage.getItem(cxHspAlertsStorageKey030D()) === "enabled";
+      const visual = window.localStorage.getItem(cxHspVisualAlertsStorageKey031D());
+      const sound = window.localStorage.getItem(cxHspSoundAlertsStorageKey031D());
+      cxHspVisualAlertsOn031D = visual !== "disabled";
+      cxHspSoundAlertsOn031D = sound === "enabled" || (sound == null && window.localStorage.getItem(cxHspAlertsStorageKey030D()) === "enabled");
     } catch (_) {
-      return false;
+      cxHspVisualAlertsOn031D = true;
+      cxHspSoundAlertsOn031D = false;
     }
+  }
+
+  function cxHspAlertsWereEnabled030D() {
+    return cxHspSoundAlertsOn031D;
   }
 
   function cxHspRememberAlertsEnabled030D() {
     try {
       window.localStorage.setItem(cxHspAlertsStorageKey030D(), "enabled");
+      window.localStorage.setItem(cxHspSoundAlertsStorageKey031D(), "enabled");
+    } catch (_) {}
+  }
+
+  function cxHspRememberAlertPreference031D(kind, enabled) {
+    try {
+      const key = kind === "visual" ? cxHspVisualAlertsStorageKey031D() : cxHspSoundAlertsStorageKey031D();
+      window.localStorage.setItem(key, enabled ? "enabled" : "disabled");
+      if (kind === "sound" && !enabled) window.localStorage.setItem(cxHspAlertsStorageKey030D(), "disabled");
     } catch (_) {}
   }
 
@@ -20509,13 +20536,17 @@ function inventoryCreatePayload() {
   }
 
   function cxHspSyncAlertButton030B() {
-    const button = document.querySelector("[data-hsp-enable-alerts]");
-    if (!button) return;
-    button.classList.toggle("is-active", cxHspSoundReady030B);
-    button.setAttribute("aria-pressed", cxHspSoundReady030B ? "true" : "false");
-    button.innerHTML = cxHspSoundReady030B
-      ? `<span aria-hidden="true">&#128276;</span> Alertas activas`
-      : `<span aria-hidden="true">&#128276;</span> Activar sonido`;
+    document.querySelectorAll("[data-hsp-toggle-visual-alerts]").forEach((button) => {
+      button.classList.toggle("is-active", cxHspVisualAlertsOn031D);
+      button.setAttribute("aria-pressed", cxHspVisualAlertsOn031D ? "true" : "false");
+      button.innerHTML = `<span aria-hidden="true">&#128994;</span> Alerta visual <b>${cxHspVisualAlertsOn031D ? "ON" : "OFF"}</b>`;
+    });
+    document.querySelectorAll("[data-hsp-toggle-sound-alerts]").forEach((button) => {
+      const active = cxHspSoundAlertsOn031D && cxHspSoundReady030B;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", cxHspSoundAlertsOn031D ? "true" : "false");
+      button.innerHTML = `<span aria-hidden="true">&#128276;</span> Sonido <b>${active ? "ON" : "OFF"}</b>`;
+    });
   }
 
   async function cxHspEnableAlerts030B() {
@@ -20525,9 +20556,6 @@ function inventoryCreatePayload() {
       if (cxHspAudioContext030B.state === "suspended") await cxHspAudioContext030B.resume();
       cxHspSoundReady030B = cxHspAudioContext030B.state === "running";
     }
-    if ("Notification" in window && window.Notification.permission === "default") {
-      window.Notification.requestPermission().catch(() => {});
-    }
     cxHspSyncAlertButton030B();
     if (cxHspSoundReady030B) {
       cxHspRememberAlertsEnabled030D();
@@ -20536,9 +20564,37 @@ function inventoryCreatePayload() {
     return cxHspSoundReady030B;
   }
 
+  async function cxHspToggleVisualAlerts031D() {
+    cxHspVisualAlertsOn031D = !cxHspVisualAlertsOn031D;
+    cxHspRememberAlertPreference031D("visual", cxHspVisualAlertsOn031D);
+    if (cxHspVisualAlertsOn031D && "Notification" in window && window.Notification.permission === "default") {
+      await window.Notification.requestPermission().catch(() => {});
+    }
+    cxHspSyncAlertButton030B();
+    return cxHspVisualAlertsOn031D;
+  }
+
+  async function cxHspToggleSoundAlerts031D() {
+    if (cxHspSoundAlertsOn031D) {
+      cxHspSoundAlertsOn031D = false;
+      cxHspRememberAlertPreference031D("sound", false);
+      cxHspSyncAlertButton030B();
+      return false;
+    }
+    cxHspSoundAlertsOn031D = true;
+    cxHspRememberAlertPreference031D("sound", true);
+    const ready = await cxHspEnableAlerts030B();
+    if (!ready) {
+      cxHspSoundAlertsOn031D = false;
+      cxHspRememberAlertPreference031D("sound", false);
+    }
+    cxHspSyncAlertButton030B();
+    return ready;
+  }
+
   function cxHspPlayNewOrderSound030B(preview = false) {
     const context = cxHspAudioContext030B;
-    if (!cxHspSoundReady030B || !context || context.state !== "running") return;
+    if (!cxHspSoundAlertsOn031D || !cxHspSoundReady030B || !context || context.state !== "running") return;
     const start = context.currentTime;
     const frequencies = preview ? [740] : [740, 988];
     frequencies.forEach((frequency, index) => {
@@ -20559,8 +20615,7 @@ function inventoryCreatePayload() {
 
   function cxHspNotifyNewOrders030B(orders = []) {
     const fresh = (Array.isArray(orders) ? orders : []).filter((order) => {
-      const source = String(order.source || "").toLowerCase();
-      return !["bar_manual", "barra"].includes(source) && String(order.status || "pendiente") === "pendiente";
+      return !cxHspIsBarOnlyOrder031D(order) && String(order.status || "pendiente") === "pendiente";
     });
     if (!fresh.length) return;
     const songRequests = fresh.filter((order) => String(order.source || "").toLowerCase() === "qr_song");
@@ -20571,16 +20626,16 @@ function inventoryCreatePayload() {
     const songDetail = songRequests.length === 1 ? ` · ${songRequests[0].song || "Canción solicitada"}` : "";
     const detail = tables.slice(0, 3).join(" · ") + (tables.length > 3 ? "..." : "") + songDetail;
     const host = document.getElementById("hspOrderAlerts030B");
-    if (host) {
+    if (host && cxHspVisualAlertsOn031D) {
       const toast = document.createElement("div");
       toast.className = "hsp-order-alert-030b";
       toast.setAttribute("role", "alert");
-      toast.innerHTML = `<span class="hsp-order-alert-icon-030b" aria-hidden="true">&#128276;</span><span><strong>${h(title)}</strong><small>${h(detail)}${cxHspSoundReady030B ? "" : " · Activa el sonido en la cabecera"}</small></span>`;
+      toast.innerHTML = `<span class="hsp-order-alert-icon-030b" aria-hidden="true">&#128276;</span><span><strong>${h(title)}</strong><small>${h(detail)}${cxHspSoundAlertsOn031D && cxHspSoundReady030B ? "" : " · Sonido OFF"}</small></span>`;
       host.appendChild(toast);
       window.setTimeout(() => toast.remove(), 9000);
     }
     cxHspPlayNewOrderSound030B();
-    if ("Notification" in window && window.Notification.permission === "granted") {
+    if (cxHspVisualAlertsOn031D && "Notification" in window && window.Notification.permission === "granted") {
       new window.Notification(title, { body: detail, tag: "clonexa-hospitality-order" });
     }
   }
@@ -20684,6 +20739,20 @@ function inventoryCreatePayload() {
       .hsp-calculator-024r input,.hsp-calculator-024r select{width:100%;box-sizing:border-box;background:rgba(255,255,255,.08);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:11px;padding:10px 11px;font-size:14px;font-weight:950;outline:none}
       .hsp-calculator-024r input:focus,.hsp-calculator-024r select:focus{border-color:color-mix(in srgb,var(--hsp-primary) 72%,#fff 10%);box-shadow:0 0 0 3px color-mix(in srgb,var(--hsp-primary) 20%,transparent)}
       .hsp-form-box-024r .hsp-msg-024r{grid-column:1 / -1;margin-top:0}
+      .hsp-operations-grid-031d{display:grid;grid-template-columns:minmax(0,1fr) minmax(290px,360px);gap:14px;align-items:start}
+      .hsp-bar-workspace-031d{display:grid;gap:14px;min-width:0}
+      .hsp-bar-head-031d{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap}
+      .hsp-bar-create-031d{display:grid;grid-template-columns:minmax(160px,1fr) minmax(120px,.55fr) auto;gap:9px;align-items:end;min-width:min(100%,620px)}
+      .hsp-bar-create-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase;letter-spacing:.08em}
+      .hsp-bar-create-031d input,.hsp-bar-card-031d input,.hsp-bar-card-031d select{width:100%;min-width:0;box-sizing:border-box;background:rgba(3,7,18,.62);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:11px;padding:10px 11px;font-weight:900;outline:none}
+      .hsp-bar-cards-031d{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px}
+      .hsp-bar-card-031d{display:grid;gap:11px;padding:14px;border-radius:17px;background:linear-gradient(155deg,color-mix(in srgb,var(--hsp-primary) 12%,rgba(3,7,18,.70)),rgba(3,7,18,.46));border:1px solid color-mix(in srgb,var(--hsp-primary) 32%,var(--hsp-line));box-shadow:0 14px 34px rgba(0,0,0,.18)}
+      .hsp-bar-card-head-031d{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.hsp-bar-card-head-031d h3{margin:0;font-size:19px}.hsp-bar-card-head-031d small{display:block;color:var(--hsp-muted);margin-top:3px;font-weight:800}
+      .hsp-bar-add-031d{display:grid;grid-template-columns:minmax(0,1fr) 72px auto;gap:7px;align-items:end}.hsp-bar-add-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase}
+      .hsp-bar-items-031d{display:grid;border:1px solid rgba(255,255,255,.09);border-radius:13px;overflow:hidden}.hsp-bar-item-031d{display:flex;justify-content:space-between;gap:10px;padding:9px 10px;background:rgba(3,7,18,.28);border-top:1px solid rgba(255,255,255,.07);font-weight:850}.hsp-bar-item-031d:first-child{border-top:0}.hsp-bar-item-031d small{display:block;color:var(--hsp-muted);margin-top:2px}
+      .hsp-bar-total-031d{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:13px;background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.24);font-size:17px;font-weight:1000}
+      .hsp-bar-close-031d{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end}.hsp-bar-close-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase}.hsp-bar-change-031d{color:#86efac;font-size:11px;font-weight:900;min-height:16px}
+      .hsp-song-queue-031c{max-height:620px;overflow:auto;position:sticky;top:12px}
       .hsp-field-024r label{display:block;color:var(--hsp-muted);font-size:11px;font-weight:950;margin:9px 0 6px;text-transform:uppercase;letter-spacing:.10em}
       .hsp-field-024r input,.hsp-field-024r select,.hsp-field-024r textarea,
       .hsp-line-024r input,.hsp-line-024r select{
@@ -20747,7 +20816,7 @@ function inventoryCreatePayload() {
       .hsp-btn-024r.red{background:rgba(239,68,68,.95);color:#fff}
       .hsp-btn-024r.purple{background:linear-gradient(135deg,var(--hsp-primary),#a78bfa);color:#130b2e}
       .hsp-line-024r .hsp-btn-024r.red{width:34px;height:34px;min-height:34px;padding:0;border-radius:11px}
-      .hsp-stats-024r{display:grid;grid-template-columns:repeat(5,minmax(110px,1fr));gap:10px}
+      .hsp-stats-024r{display:grid;grid-template-columns:repeat(4,minmax(110px,1fr));gap:10px}
       .hsp-stat-024r{background:rgba(3,7,18,.34);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:13px}
       .hsp-stat-024r span{color:var(--hsp-muted);font-size:10px;text-transform:uppercase;font-weight:950;letter-spacing:.08em}
       .hsp-stat-024r b{font-size:24px;line-height:1.05;display:block;margin-top:7px;color:var(--cx-text,#fff)}
@@ -20805,9 +20874,9 @@ function inventoryCreatePayload() {
       .hsp-closure-chip-024u span{display:block;color:var(--hsp-muted);font-size:10px;text-transform:uppercase;font-weight:950;letter-spacing:.08em}
       .hsp-closure-chip-024u b{display:block;margin-top:6px;font-size:18px;color:var(--cx-text,#fff)}
       .hsp-closure-actions-024u{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px}
-      @media(max-width:1420px){.hsp-form-box-024r{grid-template-columns:minmax(190px,.72fr) minmax(500px,1.35fr) minmax(330px,1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(300px,.9fr) minmax(300px,1fr);align-items:end}.hsp-calc-screen-024r{grid-template-columns:1fr 1fr}.hsp-stats-024r{grid-template-columns:repeat(5,minmax(90px,1fr))}}
-      @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(3,minmax(110px,1fr))}}
-      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
+      @media(max-width:1420px){.hsp-form-box-024r{grid-template-columns:minmax(190px,.72fr) minmax(500px,1.35fr) minmax(330px,1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(300px,.9fr) minmax(300px,1fr);align-items:end}.hsp-calc-screen-024r{grid-template-columns:1fr 1fr}.hsp-stats-024r{grid-template-columns:repeat(4,minmax(90px,1fr))}}
+      @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-operations-grid-031d{grid-template-columns:1fr}.hsp-song-queue-031c{position:static;max-height:none}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(2,minmax(110px,1fr))}}
+      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-bar-create-031d,.hsp-bar-add-031d,.hsp-bar-close-031d,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
       @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}.hsp-close-controls-030a{grid-template-columns:1fr}.hsp-close-help-030a{grid-column:auto}.hsp-dashboard-pending-banner-030d{grid-template-columns:38px 1fr}.hsp-dashboard-pending-banner-030d small,.hsp-dashboard-pending-banner-030d b{grid-column:2}}
     `;
     document.head.appendChild(style);
@@ -21170,11 +21239,12 @@ function inventoryCreatePayload() {
 
   function cxHspSongRequestCard031C(request = {}) {
     const status = String(request.status || "pendiente");
-    const action = status === "pendiente"
+    const statusAction = status === "pendiente"
       ? `<button class="hsp-btn-024r yellow" type="button" data-hsp-song-status="${h(request.id)}" data-hsp-song-next="sonando">Marcar sonando</button>`
       : status === "sonando"
         ? `<button class="hsp-btn-024r green" type="button" data-hsp-song-status="${h(request.id)}" data-hsp-song-next="reproducida">Marcar reproducida</button>`
         : "";
+    const archiveAction = `<button class="hsp-btn-024r secondary" type="button" data-hsp-song-archive="${h(request.id)}">Archivar</button>`;
     return `
       <article class="hsp-song-card-031c">
         <div class="hsp-song-card-head-031c">
@@ -21182,18 +21252,108 @@ function inventoryCreatePayload() {
           <span class="hsp-pill-024r music">${h(status)}</span>
         </div>
         <div class="hsp-song-title-031c">♫ ${h(request.song || "Canción solicitada")}</div>
-        <div class="hsp-actions-024r">${action}</div>
+        <div class="hsp-actions-024r">${statusAction}${archiveAction}</div>
       </article>`;
   }
 
   function cxHspRenderSongRequests031C() {
-    const active = cxHspSongRequests031C.filter((request) => ["pendiente", "sonando"].includes(String(request.status || "")));
+    const active = cxHspSongRequests031C.filter((request) => ["pendiente", "sonando", "reproducida"].includes(String(request.status || "")) && !request.archived_at);
     if (!active.length) return `<div class="hsp-empty-024r">Sin solicitudes musicales pendientes</div>`;
     return active.map(cxHspSongRequestCard031C).join("");
   }
 
+  function cxHspIsBarAccount031D(order = {}) {
+    return String(order.source || "").toLowerCase() === "bar_account";
+  }
+
+  function cxHspIsBarOnlyOrder031D(order = {}) {
+    const source = String(order.source || "").toLowerCase();
+    const type = String(order.type || order.order_type || "").toLowerCase();
+    return cxHspIsBarAccount031D(order)
+      || ["bar_manual", "barra"].includes(source)
+      || ["bar_sale", "bar_account"].includes(type);
+  }
+
+  function cxHspOpenBarAccounts031D() {
+    return cxHspOrders024R.filter((order) => (
+      cxHspIsBarAccount031D(order)
+      && String(order.status || "") === "entregado"
+      && !order.archived_at
+    ));
+  }
+
+  function cxHspBarItems031D(account = {}) {
+    const items = Array.isArray(account.items) ? account.items : [];
+    if (!items.length) return `<div class="hsp-empty-024r">Cuenta lista. Agrega el primer producto.</div>`;
+    return items.map((item) => `
+      <div class="hsp-bar-item-031d">
+        <span>${h(item.name || "Producto")}<small>${h(item.quantity || 0)} x ${h(cxHspMoney024R(item.unit_price || 0))}</small></span>
+        <strong>${h(cxHspMoney024R(item.subtotal || (Number(item.quantity || 0) * Number(item.unit_price || 0))))}</strong>
+      </div>
+    `).join("");
+  }
+
+  function cxHspBarAccountCard031D(account = {}) {
+    const accountId = String(account.id || "");
+    const metadata = account.metadata && typeof account.metadata === "object" ? account.metadata : {};
+    const reference = String(metadata.reference || account.table_number || "Barra").replace(/^Barra\s*[·-]?\s*/i, "") || "Barra";
+    return `
+      <article class="hsp-bar-card-031d" data-hsp-bar-card="${h(accountId)}" data-hsp-bar-total="${h(Number(account.total || 0))}">
+        <div class="hsp-bar-card-head-031d">
+          <div>
+            <h3>${h(account.customer_name || "Cuenta de barra")}</h3>
+            <small>${h(reference)} · ${h(account.order_number || "Cuenta abierta")}</small>
+          </div>
+          <span class="hsp-pill-024r bar">Abierta</span>
+        </div>
+        <div class="hsp-bar-items-031d">${cxHspBarItems031D(account)}</div>
+        <div class="hsp-bar-total-031d"><span>Total cuenta</span><strong>${h(cxHspMoney024R(account.total || 0))}</strong></div>
+        <div class="hsp-bar-add-031d">
+          <label><span>Producto</span><select data-hsp-bar-product>${cxHspProductOptions024R()}</select></label>
+          <label><span>Cantidad</span><input data-hsp-bar-qty type="number" min="1" step="1" value="1" /></label>
+          <button class="hsp-btn-024r green" type="button" data-hsp-bar-add="${h(accountId)}">Agregar</button>
+        </div>
+        <div class="hsp-bar-close-031d">
+          <label><span>Modo de pago</span><select data-hsp-bar-payment>
+            <option value="">Seleccionar</option>
+            <option value="cash">Efectivo</option>
+            <option value="transfer">Transferencia</option>
+            <option value="card">Tarjeta</option>
+          </select></label>
+          <label><span>Recibido</span><input data-hsp-bar-received type="number" min="0" step="100" placeholder="0" /><small class="hsp-bar-change-031d" data-hsp-bar-change></small></label>
+          <button class="hsp-btn-024r red" type="button" data-hsp-bar-close="${h(accountId)}">Cerrar cuenta</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function cxHspRenderBarAccounts031D() {
+    const accounts = cxHspOpenBarAccounts031D();
+    if (!accounts.length) return `<div class="hsp-empty-024r">No hay cuentas de barra abiertas. Crea una para empezar a cargar consumos.</div>`;
+    return accounts.map(cxHspBarAccountCard031D).join("");
+  }
+
+  function cxHspUpdateBarChange031D(card) {
+    if (!card) return;
+    const total = Number(card.getAttribute("data-hsp-bar-total") || 0) || 0;
+    const received = Number(card.querySelector("[data-hsp-bar-received]")?.value || 0) || 0;
+    const label = card.querySelector("[data-hsp-bar-change]");
+    if (!label) return;
+    if (!received) {
+      label.textContent = "";
+      return;
+    }
+    const change = received - total;
+    label.textContent = change >= 0
+      ? `Devolver ${cxHspMoney024R(change)}`
+      : `Faltan ${cxHspMoney024R(Math.abs(change))}`;
+  }
+
   function cxHspGroup024R(status) {
-    return cxHspOrders024R.filter((order) => String(order.status || "") === status);
+    return cxHspOrders024R.filter((order) => (
+      String(order.status || "") === status
+      && !cxHspIsBarOnlyOrder031D(order)
+    ));
   }
 
   function cxHspRenderOrdersBoard024R(summary = {}) {
@@ -21218,20 +21378,25 @@ function inventoryCreatePayload() {
     fill("hspServed024R", cxHspRenderGroup024R(groups.entregado, "entregado"));
     fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado, "cerrado"));
     fill("hspSongRequests031C", cxHspRenderSongRequests031C());
+    fill("hspBarAccounts031D", cxHspRenderBarAccounts031D());
 
-    text("hspSPending024R", summary.pending ?? groups.pendiente.length);
-    text("hspSPreparing024R", summary.preparing ?? groups.alistando.length);
-    text("hspSServed024R", summary.served ?? groups.entregado.length);
-    text("hspSClosed024R", summary.closed ?? groups.cerrado.length);
-    text("hspSTotal024R", cxHspMoney024R(summary.open_total ?? cxHspOrders024R.filter((order) => ["pendiente", "alistando", "entregado"].includes(order.status)).reduce((sum, order) => sum + Number(order.total || 0), 0)));
+    const activeOrders = cxHspOrders024R.filter((order) => ["pendiente", "alistando", "entregado"].includes(String(order.status || "")) && !order.archived_at);
+    const openTableKeys = new Set(activeOrders.filter((order) => !cxHspIsBarOnlyOrder031D(order)).map(cxHspTableKey024Y));
+    const nextProduct = cxHspInventory024R
+      .filter((item) => Number(item.stock ?? 0) > 0)
+      .sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0))[0]
+      || cxHspInventory024R.slice().sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0))[0]
+      || {};
+    text("hspSNextProduct031D", nextProduct.name || "Sin inventario");
+    text("hspSNextQty031D", Number(nextProduct.stock || 0));
+    text("hspSOpenTables031D", openTableKeys.size);
+    text("hspSTotal024R", cxHspMoney024R(activeOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)));
 
     text("hspCPending024R", groups.pendiente.length);
     text("hspCPreparing024R", groups.alistando.length);
     text("hspCServed024R", cxHspMergedTableCards024Y(groups.entregado).length);
     text("hspCClosed024R", groups.cerrado.length);
-    text("hspSongCount031C", cxHspSongRequests031C.filter((request) => ["pendiente", "sonando"].includes(String(request.status || ""))).length);
-    cxHspRenderCalculatorOptions024R();
-    cxHspUpdateCalculator024R();
+    text("hspSongCount031C", cxHspSongRequests031C.filter((request) => ["pendiente", "sonando", "reproducida"].includes(String(request.status || "")) && !request.archived_at).length);
   }
 
   function cxHspRenderGroup024R(list = [], status = "") {
@@ -21354,6 +21519,7 @@ function inventoryCreatePayload() {
 
   async function renderHospitalityOrdersModule024R() {
     cxHspStyles024R();
+    cxHspLoadAlertPreferences031D();
     const company = state.company || {};
     let loadError = "";
     let summary = {};
@@ -21397,7 +21563,8 @@ function inventoryCreatePayload() {
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 ${isClientModuleActive("inventory") ? `<button class="client-btn" type="button" data-hsp-open-inventory>Inventario</button>` : ""}
-                <button class="client-btn hsp-alert-control-030b" type="button" data-hsp-enable-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Activar sonido</button>
+                <button class="client-btn hsp-alert-control-030b" type="button" data-hsp-toggle-visual-alerts aria-pressed="true"><span aria-hidden="true">&#128994;</span> Alerta visual <b>ON</b></button>
+                <button class="client-btn hsp-alert-control-030b" type="button" data-hsp-toggle-sound-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Sonido <b>OFF</b></button>
                 <button class="client-btn" type="button" data-hsp-refresh>Actualizar</button>
                 <button class="client-btn" type="button" data-hsp-open-closure>Generar cierre</button>
               </div>
@@ -21410,109 +21577,42 @@ function inventoryCreatePayload() {
                 <section class="hsp-box-024r">
                   <h2>Resumen operativo</h2>
                   <div class="hsp-stats-024r">
-                    <div class="hsp-stat-024r"><span>Pendientes</span><b id="hspSPending024R">0</b></div>
-                    <div class="hsp-stat-024r"><span>Alistando</span><b id="hspSPreparing024R">0</b></div>
-                    <div class="hsp-stat-024r"><span>Entregados</span><b id="hspSServed024R">0</b></div>
-                    <div class="hsp-stat-024r"><span>Cerrados</span><b id="hspSClosed024R">0</b></div>
+                    <div class="hsp-stat-024r"><span>Próximo en acabar</span><b id="hspSNextProduct031D">Sin inventario</b></div>
+                    <div class="hsp-stat-024r"><span>Cantidad disponible</span><b id="hspSNextQty031D">0</b></div>
+                    <div class="hsp-stat-024r"><span>Mesas abiertas</span><b id="hspSOpenTables031D">0</b></div>
                     <div class="hsp-stat-024r"><span>Total abierto</span><b id="hspSTotal024R">$0</b></div>
                   </div>
                   <div id="hspGlobalMsg024R" class="hsp-msg-024r"></div>
                 </section>
 
-                <section class="hsp-box-024r hsp-form-box-024r">
-                  <div class="hsp-intro-wrap-024r">
-                    <div class="hsp-form-head-024r">
-                      <h2>Crear venta manual</h2>
-                      <div class="hsp-note-024r">Vende en barra o carga productos directamente a la cuenta de una mesa.</div>
-                    </div>
-
-                    <div class="hsp-row-024r hsp-form-main-024r">
-                      <div class="hsp-field-024r">
-                        <label>Referencia</label>
-                        <input id="hspTable024R" placeholder="Ej: Barra / Mesa 1" value="Barra" />
-                      </div>
-                      <div class="hsp-field-024r">
-                        <label>Cliente</label>
-                        <input id="hspCustomer024R" placeholder="Ej: Cliente barra" />
-                      </div>
-                    </div>
-                    <div class="hsp-field-024r">
-                      <label>Modo de pago</label>
-                      <select id="hspPaymentMethod024V">
-                        <option value="cash">Efectivo</option>
-                        <option value="transfer">Transferencia</option>
-                        <option value="card">Tarjeta</option>
-                        <option value="other">Otro</option>
-                      </select>
-                    </div>
-                    <div class="hsp-field-024r">
-                      <label>Destino de los productos</label>
-                      <select id="hspSaleDestination030D">
-                        <option value="bar">Venta directa de barra</option>
-                        <option value="table">Agregar a la cuenta de una mesa</option>
-                      </select>
-                    </div>
-                    <div id="hspTargetTableWrap030D" class="hsp-table-destination-030d" hidden>
-                      <label class="hsp-field-024r">
-                        <span>Mesa que recibe el consumo</span>
-                        <select id="hspTargetTable030D" disabled>
-                          <option value="">Seleccionar mesa</option>
-                          ${cxHspManualTableOptions030D().map((table) => `<option value="${h(table)}">${h(table)}</option>`).join("")}
-                        </select>
-                      </label>
-                      <small>El pedido activara la mesa y aparecera abajo en Pendiente igual que un pedido enviado desde el QR.</small>
-                    </div>
-                  </div>
-
-                  <div class="hsp-products-wrap-024r">
-                    <div class="hsp-field-024r"><label>Productos</label></div>
-                    <div id="hspProductLines024R"></div>
-                    <div class="hsp-actions-024r hsp-product-actions-024u">
-                      <button class="hsp-btn-024r secondary" type="button" data-hsp-add-line>+ Producto</button>
-                      <button class="hsp-btn-024r green" type="button" data-hsp-create>Crear venta barra</button>
-                    </div>
-                  </div>
-
-                  <div class="hsp-calculator-024r">
-                    <h3>Devolucion de pago</h3>
-                    <label class="hsp-field-024r">
-                      <span>Cuenta / punto</span>
-                      <select id="hspPaymentOrder024R">
-                        <option value="">Escoger cuenta / punto</option>
-                        ${cxHspOpenOrdersForCalc024R().map((order) => `<option value="${h(order.id)}">${h(cxHspCalcOrderLabel024R(order))}</option>`).join("")}
-                      </select>
-                    </label>
-                    <label class="hsp-field-024r">
-                      <span>Modo de pago</span>
-                      <select id="hspPaymentMethodForAccount024V">
-                        <option value="cash">Efectivo</option>
-                        <option value="transfer">Transferencia</option>
-                        <option value="card">Tarjeta</option>
-                        <option value="other">Otro</option>
-                      </select>
-                    </label>
-                    <div class="hsp-calc-screen-024r">
-                      <div class="hsp-calc-line-024r"><span>Total venta</span><strong id="hspCalcTotal024R">$0</strong></div>
-                      <label class="hsp-field-024r">
-                        <span>Recibido</span>
-                        <input id="hspPaymentReceived024R" type="number" min="0" step="100" placeholder="0" />
-                      </label>
-                      <div class="hsp-calc-line-024r return"><span>Devolver</span><strong id="hspCalcChange024R">$0</strong></div>
-                      <div class="hsp-calc-line-024r missing"><span>Faltante</span><strong id="hspCalcMissing024R">$0</strong></div>
-                    </div>
-                  </div>
-
-                  <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
-                </section>
               </div>
 
-              <section class="hsp-box-024r hsp-song-queue-031c">
-                <div class="hsp-song-queue-head-031c">
-                  <div><div class="client-eyebrow">Música por mesa</div><h2>Solicitudes musicales</h2></div>
-                  <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
-                </div>
-                <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>
-              </section>
+              <div class="hsp-operations-grid-031d">
+                <section class="hsp-box-024r hsp-bar-workspace-031d">
+                  <div class="hsp-bar-head-031d">
+                    <div>
+                      <div class="client-eyebrow">Operación de barra</div>
+                      <h2>Cuentas independientes</h2>
+                      <div class="hsp-note-024r">Crea una cuenta por cliente y agrega consumos directamente desde su tarjeta.</div>
+                    </div>
+                    <div class="hsp-bar-create-031d">
+                      <label><span>Nombre de la cuenta</span><input id="hspBarCustomer031D" placeholder="Ej: Juan / Barra 2" /></label>
+                      <label><span>Referencia</span><input id="hspBarReference031D" placeholder="Ej: Punto 1" /></label>
+                      <button class="hsp-btn-024r green" type="button" data-hsp-bar-create>Crear cuenta</button>
+                    </div>
+                  </div>
+                  <div id="hspBarAccounts031D" class="hsp-bar-cards-031d"></div>
+                  <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
+                </section>
+
+                <section class="hsp-box-024r hsp-song-queue-031c">
+                  <div class="hsp-song-queue-head-031c">
+                    <div><div class="client-eyebrow">Música por mesa</div><h2>Solicitudes musicales</h2></div>
+                    <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
+                  </div>
+                  <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>
+                </section>
+              </div>
 
               <section class="hsp-kanban-024r">
                 <div class="hsp-col-024r">
@@ -21538,10 +21638,8 @@ function inventoryCreatePayload() {
       </main>
     `;
 
-    cxHspAddLine024R();
     cxHspRenderOrdersBoard024R(summary);
     cxHspSyncAlertButton030B();
-    cxHspSyncSaleDestination030D();
     cxHspArmStoredAlerts030D();
 
     if (window.__cxHspOrdersTimer024R) window.clearInterval(window.__cxHspOrdersTimer024R);
@@ -21845,7 +21943,7 @@ function inventoryCreatePayload() {
             </div>
             <div class="hsp-qr-print-step-025h">
               <b>2</b>
-              <div><strong>${isVotingMode ? "Participa" : "Arma tu pedido"}</strong><span>${isVotingMode ? "Coloca tus datos y responde las votaciones activas." : "Coloca tu nombre, selecciona articulo, cantidad y si deseas canciones."}</span></div>
+              <div><strong>${isVotingMode ? "Participa" : "Arma tu pedido"}</strong><span>${isVotingMode ? "Coloca tus datos y responde las votaciones activas." : "Coloca tu nombre, selecciona articulo y cantidad."}</span></div>
             </div>
             <div class="hsp-qr-print-step-025h">
               <b>3</b>
@@ -29295,16 +29393,25 @@ function inventoryCreatePayload() {
         return;
       }
 
-      if (target.closest("[data-hsp-enable-alerts]")) {
+      if (target.closest("[data-hsp-toggle-visual-alerts]")) {
         try {
-          const enabled = await cxHspEnableAlerts030B();
+          const enabled = await cxHspToggleVisualAlerts031D();
           cxHspShowMsg024R(
             "hspGlobalMsg024R",
-            enabled ? "Alertas visuales y sonido activados para pedidos QR nuevos." : "Las alertas visuales estan activas, pero este navegador bloqueo el sonido.",
-            !enabled,
+            enabled ? "Alertas visuales ON." : "Alertas visuales OFF.",
           );
         } catch (error) {
-          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo activar el sonido.", true);
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cambiar la alerta visual.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-toggle-sound-alerts]")) {
+        try {
+          const enabled = await cxHspToggleSoundAlerts031D();
+          cxHspShowMsg024R("hspGlobalMsg024R", enabled ? "Sonido ON." : "Sonido OFF.");
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cambiar el sonido.", true);
         }
         return;
       }
@@ -29316,6 +29423,94 @@ function inventoryCreatePayload() {
           cxHspShowMsg024R("hspGlobalMsg024R", "Pedidos actualizados.");
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo actualizar.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-bar-create]")) {
+        const customerInput = document.getElementById("hspBarCustomer031D");
+        const referenceInput = document.getElementById("hspBarReference031D");
+        const customer = String(customerInput?.value || "").trim();
+        if (!customer) {
+          cxHspShowMsg024R("hspFormMsg024R", "Escribe el nombre de la cuenta de barra.", true);
+          customerInput?.focus();
+          return;
+        }
+        try {
+          const data = await cxHspApi024R("/bar-accounts", {
+            method: "POST",
+            body: JSON.stringify({ customer, reference: String(referenceInput?.value || "").trim() }),
+          });
+          if (customerInput) customerInput.value = "";
+          if (referenceInput) referenceInput.value = "";
+          await cxHspLoadOrders024R();
+          cxHspShowMsg024R("hspFormMsg024R", `Cuenta creada: ${data.account?.order_number || customer}.`);
+        } catch (error) {
+          cxHspShowMsg024R("hspFormMsg024R", error.message || "No se pudo crear la cuenta de barra.", true);
+        }
+        return;
+      }
+
+      const hspBarAdd = target.closest("[data-hsp-bar-add]");
+      if (hspBarAdd) {
+        const card = hspBarAdd.closest("[data-hsp-bar-card]");
+        const accountId = hspBarAdd.getAttribute("data-hsp-bar-add") || "";
+        const productId = card?.querySelector("[data-hsp-bar-product]")?.value || "";
+        const quantity = Number(card?.querySelector("[data-hsp-bar-qty]")?.value || 0);
+        const inventory = cxHspInventory024R.find((item) => String(item.id || "") === String(productId)) || {};
+        if (!productId || !inventory.name || quantity < 1) {
+          cxHspShowMsg024R("hspFormMsg024R", "Selecciona un producto y una cantidad válida.", true);
+          return;
+        }
+        try {
+          hspBarAdd.disabled = true;
+          await cxHspApi024R(`/bar-accounts/${encodeURIComponent(accountId)}/items`, {
+            method: "POST",
+            body: JSON.stringify({
+              items: [{
+                inventory_item_id: productId,
+                product_id: productId,
+                sku: inventory.sku || "",
+                name: inventory.name,
+                quantity,
+                unit_price: Number(inventory.unit_price ?? inventory.sale_price ?? inventory.price ?? 0) || 0,
+              }],
+            }),
+          });
+          await cxHspLoadInventory024R();
+          await cxHspLoadOrders024R();
+          cxHspShowMsg024R("hspFormMsg024R", `${inventory.name} agregado a la cuenta.`);
+        } catch (error) {
+          cxHspShowMsg024R("hspFormMsg024R", error.message || "No se pudo agregar el producto.", true);
+        } finally {
+          hspBarAdd.disabled = false;
+        }
+        return;
+      }
+
+      const hspBarClose = target.closest("[data-hsp-bar-close]");
+      if (hspBarClose) {
+        const card = hspBarClose.closest("[data-hsp-bar-card]");
+        const accountId = hspBarClose.getAttribute("data-hsp-bar-close") || "";
+        const paymentMethod = card?.querySelector("[data-hsp-bar-payment]")?.value || "";
+        if (!cxHspIsClosingPayment030A(paymentMethod)) {
+          cxHspShowMsg024R("hspFormMsg024R", "Selecciona efectivo, transferencia o tarjeta para cerrar la cuenta.", true);
+          card?.querySelector("[data-hsp-bar-payment]")?.focus();
+          return;
+        }
+        if (!confirm("Cerrar esta cuenta de barra y registrar el pago?")) return;
+        try {
+          hspBarClose.disabled = true;
+          await cxHspApi024R(`/orders/${encodeURIComponent(accountId)}/close-table`, {
+            method: "POST",
+            body: JSON.stringify({ payment_method: cxHspPaymentMethod024V(paymentMethod) }),
+          });
+          await cxHspLoadOrders024R();
+          cxHspShowMsg024R("hspFormMsg024R", "Cuenta de barra cerrada y pago registrado.");
+        } catch (error) {
+          cxHspShowMsg024R("hspFormMsg024R", error.message || "No se pudo cerrar la cuenta de barra.", true);
+        } finally {
+          hspBarClose.disabled = false;
         }
         return;
       }
@@ -29442,6 +29637,22 @@ function inventoryCreatePayload() {
           await cxHspLoadOrders024R();
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo actualizar la solicitud musical.", true);
+        }
+        return;
+      }
+
+      const hspSongArchive = target.closest("[data-hsp-song-archive]");
+      if (hspSongArchive) {
+        try {
+          const id = hspSongArchive.getAttribute("data-hsp-song-archive");
+          await cxHspApi024R(`/song-requests/${encodeURIComponent(id)}/archive`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          await cxHspLoadOrders024R();
+          cxHspShowMsg024R("hspGlobalMsg024R", "Solicitud archivada. Sigue almacenada para Canciones más pedidas.");
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo archivar la solicitud musical.", true);
         }
         return;
       }
@@ -30753,7 +30964,10 @@ function inventoryCreatePayload() {
     const moduleCodes = clientModuleCodes(modules);
     const hasHospitalityDashboard = clientHasHospitalityDashboard025I(moduleCodes);
     const hospitalityMetrics = state.dashboardMetrics?.hospitalityDashboard025I || {};
-    if (hasHospitalityDashboard) cxHspStyles024R();
+    if (hasHospitalityDashboard) {
+      cxHspStyles024R();
+      cxHspLoadAlertPreferences031D();
+    }
 
     $("app").innerHTML = `
       <main id="clientDashboardRoot030D" class="client-shell">
@@ -30791,7 +31005,7 @@ function inventoryCreatePayload() {
 
               <div class="client-actions">
                 ${renderClientHeroActions(modules)}
-                ${hasHospitalityDashboard ? `<button class="client-btn hsp-alert-control-030b" type="button" data-hsp-enable-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Activar alertas</button>` : ""}
+                ${hasHospitalityDashboard ? `<button class="client-btn hsp-alert-control-030b" type="button" data-hsp-toggle-visual-alerts aria-pressed="true"><span aria-hidden="true">&#128994;</span> Visual <b>ON</b></button><button class="client-btn hsp-alert-control-030b" type="button" data-hsp-toggle-sound-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Sonido <b>OFF</b></button>` : ""}
               </div>
               ${hasHospitalityDashboard ? cxHspDashboardPendingBanner030D(hospitalityMetrics) : ""}
             </header>
@@ -31196,6 +31410,11 @@ function inventoryCreatePayload() {
   document.addEventListener("input", (event) => {
     const target = event.target;
     if (!target || !target.closest || !target.closest("#hspOrdersRoot024R")) return;
+    const barReceived = target.closest("[data-hsp-bar-received]");
+    if (barReceived) {
+      cxHspUpdateBarChange031D(barReceived.closest("[data-hsp-bar-card]"));
+      return;
+    }
     if (target.matches("#hspPaymentReceived024R")) {
       cxHspUpdateCalculator024R();
     }

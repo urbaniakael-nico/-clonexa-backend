@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -21,6 +22,9 @@ from app.api.deps import get_db
 
 router = APIRouter()
 
+_storage_lock = asyncio.Lock()
+_storage_ready = False
+
 STATUS_PENDING = "pendiente"
 STATUS_PREPARING = "alistando"
 STATUS_SERVED = "entregado"
@@ -28,7 +32,7 @@ STATUS_CLOSED = "cerrado"
 ACTIVE_STATUSES = {STATUS_PENDING, STATUS_PREPARING, STATUS_SERVED}
 PAYMENT_METHODS = {"cash", "transfer", "card", "other"}
 CLOSING_PAYMENT_METHODS = {"cash", "transfer", "card"}
-SONG_REQUEST_STATUSES = {"pendiente", "sonando", "reproducida"}
+SONG_REQUEST_STATUSES = {"pendiente", "sonando", "reproducida", "archivada"}
 PAYMENT_LABELS = {
     "cash": "Efectivo",
     "transfer": "Transferencia",
@@ -81,6 +85,23 @@ class HospitalitySongRequestIn(BaseModel):
 
 class HospitalitySongRequestStatusIn(BaseModel):
     status: str = Field(..., max_length=40)
+
+
+class HospitalityBarAccountIn(BaseModel):
+    customer: str = Field(..., min_length=1, max_length=180)
+    reference: str | None = Field(default="", max_length=80)
+
+
+class HospitalityBarAccountItemsIn(BaseModel):
+    items: list[HospitalityOrderItemIn] = Field(default_factory=list)
+
+    @field_validator("items")
+    @classmethod
+    def clean_items(cls, value: list[HospitalityOrderItemIn]) -> list[HospitalityOrderItemIn]:
+        rows = [item for item in (value or []) if _num(item.quantity) > 0 and (_clean(item.name) or _clean(item.product_id) or _clean(item.inventory_item_id))]
+        if not rows:
+            raise ValueError("Agrega al menos un producto.")
+        return rows[:40]
 
 
 class HospitalityStatusIn(BaseModel):
@@ -293,7 +314,7 @@ def _songs(value: str | list[str] | None) -> list[str]:
     return [_clean(item)[:120] for item in raw if _clean(item)][:3]
 
 
-async def _ensure_storage(db: AsyncSession) -> None:
+async def _initialize_storage(db: AsyncSession) -> None:
     await db.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto;"))
     await db.execute(
         text(
@@ -587,6 +608,24 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_table_access_company_table ON hospitality_table_access(company_id, table_key, status, expires_at DESC);"))
 
 
+async def _ensure_storage(db: AsyncSession) -> None:
+    """Initialize once per process and serialize DDL across concurrent workers."""
+    global _storage_ready
+    if _storage_ready:
+        return
+    async with _storage_lock:
+        if _storage_ready:
+            return
+        try:
+            await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('clonexa:hospitality:storage:v5'))"))
+            await _initialize_storage(db)
+            await db.commit()
+            _storage_ready = True
+        except Exception:
+            await db.rollback()
+            raise
+
+
 async def _company_exists(db: AsyncSession, company_id: uuid.UUID) -> bool:
     row = await db.execute(text("SELECT id FROM companies WHERE id = :company_id LIMIT 1"), {"company_id": str(company_id)})
     return row.first() is not None
@@ -743,6 +782,7 @@ def _song_request_payload(row: Any) -> dict[str, Any]:
         "source": data.get("source") or "qr_song",
         "playing_at": _iso(data.get("playing_at")),
         "played_at": _iso(data.get("played_at")),
+        "archived_at": _iso(data.get("archived_at")),
         "created_at": _iso(data.get("created_at")),
         "updated_at": _iso(data.get("updated_at")),
     }
@@ -970,6 +1010,30 @@ async def _hospitality_report_payload(db: AsyncSession, company_id: uuid.UUID, p
     )
     closures = [_closure_payload(row) for row in result.mappings().all()]
     aggregated = _hsp_aggregate(closures, period_mode)
+    song_result = await db.execute(
+        text(
+            """
+            SELECT song, created_at
+            FROM hospitality_song_requests
+            WHERE company_id = :company_id
+            ORDER BY created_at ASC
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    period_buckets = {row["key"]: row for row in aggregated["periods"]}
+    for song_request in song_result.mappings().all():
+        song = _clean(song_request.get("song"))
+        created_at = song_request.get("created_at")
+        if not song or not isinstance(created_at, datetime):
+            continue
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        bucket = period_buckets.get(_hsp_period_key(created_at, period_mode))
+        if not bucket:
+            continue
+        _hsp_add_rank(bucket["songs"], song, {"count": 1})
+        _hsp_add_rank(aggregated["totals"]["songs"], song, {"count": 1})
     totals = aggregated["totals"]
     avg_ticket = (totals["total"] / totals["orders"]) if totals["orders"] else 0
     return {
@@ -1570,11 +1634,6 @@ async def _create_day_closure(
             song_row["count"] += 1
 
     for song_request in song_request_rows:
-        clean_song = _clean(song_request.get("song"))
-        if clean_song:
-            song_key = clean_song.lower()
-            song_row = song_map.setdefault(song_key, {"song": clean_song, "count": 0})
-            song_row["count"] += 1
         created_at = song_request.get("created_at")
         if isinstance(created_at, datetime):
             if created_at.tzinfo is None:
@@ -2961,18 +3020,170 @@ async def update_hospitality_song_request_status(
         text(
             """
             UPDATE hospitality_song_requests
-            SET status = :status,
-                playing_at = CASE WHEN :status = 'sonando' THEN COALESCE(playing_at, NOW()) ELSE playing_at END,
-                played_at = CASE WHEN :status = 'reproducida' THEN COALESCE(played_at, NOW()) ELSE played_at END,
+            SET status = CAST(:next_status AS VARCHAR),
+                playing_at = CASE WHEN CAST(:next_status AS VARCHAR) = 'sonando' THEN COALESCE(playing_at, NOW()) ELSE playing_at END,
+                played_at = CASE WHEN CAST(:next_status AS VARCHAR) = 'reproducida' THEN COALESCE(played_at, NOW()) ELSE played_at END,
                 updated_at = NOW()
             WHERE id = :request_id AND company_id = :company_id
             RETURNING *
             """
         ),
-        {"status": next_status, "request_id": str(request_id), "company_id": str(company_id)},
+        {"next_status": next_status, "request_id": str(request_id), "company_id": str(company_id)},
     )
     await db.commit()
     return {"ok": True, "song_request": _song_request_payload(result.mappings().first())}
+
+
+@router.post("/companies/{company_id}/song-requests/{request_id}/archive")
+async def archive_hospitality_song_request(
+    company_id: uuid.UUID,
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    result = await db.execute(
+        text(
+            """
+            UPDATE hospitality_song_requests
+            SET status = 'archivada',
+                archived_at = COALESCE(archived_at, NOW()),
+                updated_at = NOW()
+            WHERE id = :request_id
+              AND company_id = :company_id
+              AND archived_at IS NULL
+            RETURNING *
+            """
+        ),
+        {"request_id": str(request_id), "company_id": str(company_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="solicitud_musical_no_encontrada")
+    await db.commit()
+    return {"ok": True, "song_request": _song_request_payload(row)}
+
+
+@router.post("/companies/{company_id}/bar-accounts", status_code=status.HTTP_201_CREATED)
+async def create_hospitality_bar_account(
+    company_id: uuid.UUID,
+    payload: HospitalityBarAccountIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    customer_name = _clean(payload.customer)[:180]
+    reference = _clean(payload.reference)[:80]
+    if not customer_name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Escribe el nombre de la cuenta de barra.")
+    table_number = f"Barra - {reference or customer_name}"[:120]
+    account_number = f"BAR-{_now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
+    person = {
+        "id": f"person_{uuid.uuid4()}",
+        "name": customer_name,
+        "customer_key": _customer_key(customer_name),
+        "total": 0.0,
+        "items": [],
+    }
+    result = await db.execute(
+        text(
+            """
+            INSERT INTO hospitality_orders (
+                company_id, order_number, table_number, table_key, order_type, source, payment_method,
+                status, customer_name, people, items, songs, notes, total, inventory_deducted,
+                served_at, metadata, created_at, updated_at
+            )
+            VALUES (
+                :company_id, :order_number, :table_number, :table_key, 'bar_account', 'bar_account', 'other',
+                'entregado', :customer_name, CAST(:people AS jsonb), '[]'::jsonb, '[]'::jsonb, '', 0, TRUE,
+                NOW(), CAST(:metadata AS jsonb), NOW(), NOW()
+            )
+            RETURNING *
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "order_number": account_number,
+            "table_number": table_number,
+            "table_key": _table_key(table_number),
+            "customer_name": customer_name,
+            "people": json.dumps([person], ensure_ascii=False),
+            "metadata": json.dumps({"bar_account": True, "reference": reference}, ensure_ascii=False),
+        },
+    )
+    await db.commit()
+    account = _payload(result.mappings().first())
+    return {"ok": True, "account": account, "order": account}
+
+
+@router.post("/companies/{company_id}/bar-accounts/{account_id}/items")
+async def add_hospitality_bar_account_items(
+    company_id: uuid.UUID,
+    account_id: uuid.UUID,
+    payload: HospitalityBarAccountItemsIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    account = await _fetch_order(db, company_id, account_id)
+    if _norm(account.get("source")) != "bar account" or _status(account.get("status")) != STATUS_SERVED or account.get("archived_at"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="cuenta_de_barra_no_disponible")
+
+    new_items = await _build_order_items(db, company_id, payload.items)
+    await _deduct_inventory(
+        db,
+        company_id,
+        {
+            "id": account.get("id"),
+            "order_number": account.get("order_number"),
+            "table_number": account.get("table_number"),
+            "items": new_items,
+            "inventory_deducted": False,
+        },
+    )
+    combined_items = [*(account.get("items") or []), *new_items]
+    total = _money(sum(_num(item.get("subtotal")) for item in combined_items))
+    people = account.get("people") or []
+    person_id = (people[0].get("id") if people and isinstance(people[0], dict) else None) or f"person_{uuid.uuid4()}"
+    updated_people = [
+        {
+            "id": person_id,
+            "name": account.get("customer_name") or "Cliente barra",
+            "customer_key": _customer_key(account.get("customer_name")),
+            "total": total,
+            "items": combined_items,
+        }
+    ]
+    result = await db.execute(
+        text(
+            """
+            UPDATE hospitality_orders
+            SET items = CAST(:items AS jsonb),
+                people = CAST(:people AS jsonb),
+                total = :total,
+                updated_at = NOW()
+            WHERE id = :account_id
+              AND company_id = :company_id
+              AND source = 'bar_account'
+              AND status = 'entregado'
+              AND archived_at IS NULL
+            RETURNING *
+            """
+        ),
+        {
+            "items": json.dumps(combined_items, ensure_ascii=False),
+            "people": json.dumps(updated_people, ensure_ascii=False),
+            "total": total,
+            "account_id": str(account_id),
+            "company_id": str(company_id),
+        },
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="cuenta_de_barra_no_disponible")
+    await db.commit()
+    saved = _payload(row)
+    return {"ok": True, "account": saved, "order": saved}
 
 
 @router.get("/companies/{company_id}/day-closures")
