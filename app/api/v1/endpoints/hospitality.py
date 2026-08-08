@@ -1495,11 +1495,12 @@ async def _deduct_inventory(db: AsyncSession, company_id: uuid.UUID, order: dict
         row = await db.execute(
             text(
                 """
-                SELECT id, current_stock
+                SELECT id, current_stock, min_stock, status
                 FROM inventory_items
                 WHERE id = :item_id
                   AND company_id = :company_id
                 LIMIT 1
+                FOR UPDATE
                 """
             ),
             {"item_id": item_id, "company_id": str(company_id)},
@@ -1509,21 +1510,34 @@ async def _deduct_inventory(db: AsyncSession, company_id: uuid.UUID, order: dict
             continue
 
         before = _money(inventory["current_stock"])
+        minimum = _money(inventory.get("min_stock"))
+        if _norm(inventory.get("status")) != "active":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{item.get('name') or 'Producto'} está inactivo por stock mínimo.",
+            )
         if before < qty:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Stock insuficiente para {item.get('name')}. Disponible: {before}.")
 
         after = _money(before - qty)
+        deactivate_at_minimum = after <= minimum
         await db.execute(
             text(
                 """
                 UPDATE inventory_items
                 SET current_stock = :after,
+                    status = CASE WHEN :deactivate_at_minimum THEN 'inactive' ELSE status END,
                     updated_at = NOW()
                 WHERE id = :item_id
                   AND company_id = :company_id
                 """
             ),
-            {"after": after, "item_id": item_id, "company_id": str(company_id)},
+            {
+                "after": after,
+                "deactivate_at_minimum": deactivate_at_minimum,
+                "item_id": item_id,
+                "company_id": str(company_id),
+            },
         )
 
         movement_exists = await db.execute(text("SELECT to_regclass('public.inventory_movements')"))
@@ -2852,6 +2866,22 @@ async def hospitality_inventory_lite(
     columns = {str(row["column_name"]) for row in columns_result.mappings().all()}
     price_columns = [name for name in ("unit_value", "unit_price", "sale_price", "price", "valor_unitario") if name in columns]
     price_expr = "COALESCE(" + ", ".join(price_columns + ["0"]) + ")" if price_columns else "0"
+
+    if {"current_stock", "min_stock", "status"}.issubset(columns):
+        updated_at_expr = ", updated_at = NOW()" if "updated_at" in columns else ""
+        await db.execute(
+            text(
+                f"""
+                UPDATE inventory_items
+                SET status = 'inactive'{updated_at_expr}
+                WHERE company_id = :company_id
+                  AND COALESCE(status, 'active') = 'active'
+                  AND COALESCE(current_stock, 0) <= COALESCE(min_stock, 0)
+                """
+            ),
+            {"company_id": str(company_id)},
+        )
+        await db.commit()
 
     result = await db.execute(
         text(
