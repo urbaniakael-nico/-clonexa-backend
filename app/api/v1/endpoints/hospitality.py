@@ -1009,7 +1009,6 @@ async def _hospitality_report_payload(db: AsyncSession, company_id: uuid.UUID, p
         {"company_id": str(company_id)},
     )
     closures = [_closure_payload(row) for row in result.mappings().all()]
-    aggregated = _hsp_aggregate(closures, period_mode)
     song_result = await db.execute(
         text(
             """
@@ -1021,8 +1020,21 @@ async def _hospitality_report_payload(db: AsyncSession, company_id: uuid.UUID, p
         ),
         {"company_id": str(company_id)},
     )
+    song_requests = list(song_result.mappings().all())
+    direct_song_dates = [
+        date
+        for date in (_hsp_report_date(row.get("created_at")) for row in song_requests)
+        if date
+    ]
+    first_direct_song_at = min(direct_song_dates) if direct_song_dates else None
+    if first_direct_song_at:
+        for closure in closures:
+            closure_at = _hsp_report_date(closure.get("closed_at") or closure.get("created_at"))
+            if closure_at and closure_at >= first_direct_song_at:
+                closure["songs"] = []
+    aggregated = _hsp_aggregate(closures, period_mode)
     period_buckets = {row["key"]: row for row in aggregated["periods"]}
-    for song_request in song_result.mappings().all():
+    for song_request in song_requests:
         song = _clean(song_request.get("song"))
         created_at = song_request.get("created_at")
         if not song or not isinstance(created_at, datetime):
@@ -3209,7 +3221,25 @@ async def list_hospitality_day_closures(
         {"company_id": str(company_id), "limit": limit},
     )
     closures = [_closure_payload(row) for row in result.mappings().all()]
-    return {"ok": True, "company_id": str(company_id), "closures": closures}
+    song_result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_song_requests
+            WHERE company_id = :company_id
+            ORDER BY created_at DESC
+            LIMIT :song_limit
+            """
+        ),
+        {"company_id": str(company_id), "song_limit": min(max(limit * 20, 200), 4000)},
+    )
+    song_requests = [_song_request_payload(row) for row in song_result.mappings().all()]
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "closures": closures,
+        "song_requests": song_requests,
+    }
 
 
 @router.get("/companies/{company_id}/dashboard.pdf")

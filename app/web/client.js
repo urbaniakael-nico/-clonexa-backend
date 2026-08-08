@@ -22104,6 +22104,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_024S_HOSPITALITY_QR_END */
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_START */
   let cxHspDashClosures024W = [];
+  let cxHspDashSongRequests031D = [];
   let cxHspDashMode024W = "months";
 
   function cxIsHospitalityDashboardCode024W(code = "") {
@@ -22169,8 +22170,11 @@ function inventoryCreatePayload() {
     return dates[0] || new Date();
   }
 
-  function cxHspDashPeriodDefs024W(mode = cxHspDashMode024W, closures = cxHspDashClosures024W) {
-    const anchor = cxHspDashLatestDate024W(closures);
+  function cxHspDashPeriodDefs024W(mode = cxHspDashMode024W, closures = cxHspDashClosures024W, songRequests = cxHspDashSongRequests031D) {
+    const anchor = cxHspDashLatestDate024W([
+      ...closures,
+      ...songRequests.map((request) => ({ created_at: request.created_at })),
+    ]);
     if (mode === "weeks") {
       const currentStart = cxHspDashWeekStart024W(anchor);
       return Array.from({ length: 12 }, (_, index) => {
@@ -22224,10 +22228,12 @@ function inventoryCreatePayload() {
     map[cleanKey] = row;
   }
 
-  function cxHspDashAggregate024W(mode = cxHspDashMode024W, closures = cxHspDashClosures024W) {
-    const defs = cxHspDashPeriodDefs024W(mode, closures);
+  function cxHspDashAggregate024W(mode = cxHspDashMode024W, closures = cxHspDashClosures024W, songRequests = cxHspDashSongRequests031D) {
+    const defs = cxHspDashPeriodDefs024W(mode, closures, songRequests);
     const buckets = Object.fromEntries(defs.map((def) => [def.key, cxHspDashEmptyBucket024W(def)]));
     const totals = cxHspDashEmptyBucket024W({ key: "total", label: "Trimestre", subtitle: "" });
+    const directSongDates = songRequests.map((request) => cxHspDashDate024W(request.created_at)).filter(Boolean);
+    const firstDirectSongAt = directSongDates.length ? new Date(Math.min(...directSongDates.map((date) => date.getTime()))) : null;
 
     closures.forEach((closure) => {
       const date = cxHspDashDate024W(closure.closed_at || closure.created_at);
@@ -22252,10 +22258,23 @@ function inventoryCreatePayload() {
           total: item.total,
           orders: item.orders,
         }));
-        (closure.songs || []).forEach((item) => cxHspDashAddMap024W(target.songs, item.song, {
-          count: item.count,
-        }));
+        if (!firstDirectSongAt || date < firstDirectSongAt) {
+          (closure.songs || []).forEach((item) => cxHspDashAddMap024W(target.songs, item.song, {
+            count: item.count,
+          }));
+        }
       });
+    });
+
+    songRequests.forEach((request) => {
+      const date = cxHspDashDate024W(request.created_at);
+      const song = String(request.song || "").trim();
+      if (!date || !song) return;
+      const key = mode === "weeks" ? cxHspDashWeekKey024W(date) : cxHspDashMonthKey024W(date);
+      const bucket = buckets[key];
+      if (!bucket) return;
+      cxHspDashAddMap024W(bucket.songs, song, { count: 1 });
+      cxHspDashAddMap024W(totals.songs, song, { count: 1 });
     });
 
     return { periods: defs.map((def) => buckets[def.key]), totals };
@@ -22319,6 +22338,7 @@ function inventoryCreatePayload() {
   async function cxHspDashLoad024W() {
     const data = await cxHspDashApi024W("/day-closures?limit=200");
     cxHspDashClosures024W = Array.isArray(data.closures) ? data.closures : [];
+    cxHspDashSongRequests031D = Array.isArray(data.song_requests) ? data.song_requests : [];
     return cxHspDashClosures024W;
   }
 
@@ -22400,7 +22420,7 @@ function inventoryCreatePayload() {
     const topSong = cxHspDashTop024W(totals.songs, "count", 1)[0];
     const avgTicket = totals.orders ? totals.total / totals.orders : 0;
 
-    root.innerHTML = cxHspDashClosures024W.length ? `
+    root.innerHTML = (cxHspDashClosures024W.length || cxHspDashSongRequests031D.length) ? `
       <section class="hspdash-panel-024w">
         <div class="hspdash-head-024w">
           <h2>Comparativo trimestral</h2>
@@ -22455,6 +22475,7 @@ function inventoryCreatePayload() {
     } catch (error) {
       loadError = error.message || "No se pudieron cargar los cierres de Hospitality.";
       cxHspDashClosures024W = [];
+      cxHspDashSongRequests031D = [];
     }
 
     $("app").innerHTML = `
