@@ -193,6 +193,8 @@ class InventoryItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     unit: Mapped[str] = mapped_column(String(40), nullable=False, default="unit")
     cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    entry_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), default=0)
+    sale_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), default=0)
     min_stock: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
 
