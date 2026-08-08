@@ -20340,6 +20340,22 @@ function inventoryCreatePayload() {
   let cxHspDashboardKnownOrderIds030D = new Set();
   let cxHspDashboardAlertsReady030D = false;
   let cxHspStoredAlertsArmed030D = false;
+  let cxHspInteractionHoldUntil031G = 0;
+
+  function cxHspHoldInteraction031G(durationMs = 90000) {
+    cxHspInteractionHoldUntil031G = Math.max(
+      cxHspInteractionHoldUntil031G,
+      Date.now() + Math.max(0, Number(durationMs || 0)),
+    );
+  }
+
+  function cxHspAutoRefreshHeld031G() {
+    return Date.now() < cxHspInteractionHoldUntil031G;
+  }
+
+  function cxHspIsInteractiveTarget031G(target) {
+    return target instanceof Element && Boolean(target.closest("#hspOrdersRoot024R"));
+  }
 
   function cxHspAlertsStorageKey030D() {
     return `clonexa_hospitality_alerts_${String(state.companyId || "company")}`;
@@ -21277,8 +21293,15 @@ function inventoryCreatePayload() {
     cxHspInventory024R = Array.isArray(data.inventory) ? data.inventory : [];
   }
 
-  async function cxHspLoadOrders024R() {
+  async function cxHspLoadOrders024R(options = {}) {
+    const autoRefresh = options?.auto === true;
+    if (autoRefresh && cxHspAutoRefreshHeld031G()) return;
+    const requestStartedAt = Date.now();
     const data = await cxHspApi024R("/orders?status=all&limit=220");
+    if (
+      autoRefresh
+      && (cxHspAutoRefreshHeld031G() || cxHspInteractionHoldUntil031G > requestStartedAt)
+    ) return;
     const nextOrders = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
     const nextSongRequests = Array.isArray(data.song_requests) ? data.song_requests : [];
     const newOrders = cxHspOrderAlertsReady030B
@@ -21730,13 +21753,26 @@ function inventoryCreatePayload() {
         return;
       }
       try {
-        await cxHspLoadOrders024R();
+        await cxHspLoadOrders024R({ auto: true });
       } catch (_) {}
     }, 5500);
   }
 
+  document.addEventListener("pointerdown", (event) => {
+    if (cxHspIsInteractiveTarget031G(event.target)) cxHspHoldInteraction031G();
+  }, true);
+
+  document.addEventListener("focusin", (event) => {
+    if (cxHspIsInteractiveTarget031G(event.target)) cxHspHoldInteraction031G();
+  });
+
+  document.addEventListener("input", (event) => {
+    if (cxHspIsInteractiveTarget031G(event.target)) cxHspHoldInteraction031G();
+  });
+
   document.addEventListener("change", (event) => {
     const target = event.target;
+    if (cxHspIsInteractiveTarget031G(target)) cxHspHoldInteraction031G();
     if (!(target instanceof HTMLSelectElement)) return;
     if (target.id === "hspBarDestination031F") {
       cxHspSyncBarDestination031F();

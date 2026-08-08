@@ -162,6 +162,29 @@ def test_bar_accounts_have_independent_cards_and_product_loading():
     assert "031F_SMART_BAR_TABLES" in html
 
 
+def test_hospitality_auto_refresh_waits_90_seconds_while_the_operator_is_editing():
+    source = Path("app/web/client.js").read_text(encoding="utf-8")
+
+    assert "cxHspInteractionHoldUntil031G" in source
+    assert "function cxHspHoldInteraction031G(durationMs = 90000)" in source
+    assert 'document.addEventListener("pointerdown"' in source
+    assert 'document.addEventListener("focusin"' in source
+    assert "cxHspInteractionHoldUntil031G > requestStartedAt" in source
+    assert "cxHspLoadOrders024R({ auto: true })" in source
+
+
+def test_hospitality_deactivates_inventory_at_the_configured_minimum():
+    backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
+
+    deduct = backend.split("async def _deduct_inventory", 1)[1].split("async def _create_day_closure", 1)[0]
+    inventory_lite = backend.split("async def hospitality_inventory_lite", 1)[1].split('@router.get("/companies/{company_id}/orders")', 1)[0]
+    assert "SELECT id, current_stock, min_stock, status" in deduct
+    assert "deactivate_at_minimum = after <= minimum" in deduct
+    assert "status = CASE WHEN :deactivate_at_minimum THEN 'inactive' ELSE status END" in deduct
+    assert "COALESCE(current_stock, 0) <= COALESCE(min_stock, 0)" in inventory_lite
+    assert "SET status = 'inactive'" in inventory_lite
+
+
 def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender():
     public = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
     public_html = Path("app/web/hospitality_order.html").read_text(encoding="utf-8")
