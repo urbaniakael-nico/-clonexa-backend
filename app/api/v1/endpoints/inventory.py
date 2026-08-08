@@ -209,6 +209,9 @@ class InventoryItemCreate(BaseModel):
     size: str | None = None
     item_size: str | None = None
     color: str | None = None
+    entry_price: float | int | str | None = None
+    purchase_price: float | int | str | None = None
+    cost_price: float | int | str | None = None
     unit_value: float | int | str | None = None
     unit_price: float | int | str | None = None
     price: float | int | str | None = None
@@ -228,6 +231,9 @@ class InventoryItemUpdate(BaseModel):
     size: str | None = None
     item_size: str | None = None
     color: str | None = None
+    entry_price: float | int | str | None = None
+    purchase_price: float | int | str | None = None
+    cost_price: float | int | str | None = None
     unit_value: float | int | str | None = None
     unit_price: float | int | str | None = None
     price: float | int | str | None = None
@@ -236,6 +242,14 @@ class InventoryItemUpdate(BaseModel):
     min_stock: float | int | str | None = None
     minimum_stock: float | int | str | None = None
     status: str | None = None
+
+
+class InventoryBulkItemUpdate(InventoryItemUpdate):
+    id: UUID
+
+
+class InventoryBulkUpdate(BaseModel):
+    items: list[InventoryBulkItemUpdate]
 
 
 class InventoryEntryPayload(BaseModel):
@@ -281,6 +295,8 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
             name_reference text NOT NULL DEFAULT '',
             item_size varchar(120) NULL,
             color varchar(120) NULL,
+            entry_price numeric(14, 2) NOT NULL DEFAULT 0,
+            sale_price numeric(14, 2) NOT NULL DEFAULT 0,
             unit_value numeric(14, 2) NOT NULL DEFAULT 0,
             min_stock numeric(14, 2) NOT NULL DEFAULT 0,
             current_stock numeric(14, 2) NOT NULL DEFAULT 0,
@@ -318,6 +334,8 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS name_reference text NOT NULL DEFAULT ''",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS item_size varchar(120) NULL",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS color varchar(120) NULL",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS entry_price numeric(14, 2) NOT NULL DEFAULT 0",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS sale_price numeric(14, 2) NOT NULL DEFAULT 0",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS unit_value numeric(14, 2) NOT NULL DEFAULT 0",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS min_stock numeric(14, 2) NOT NULL DEFAULT 0",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS current_stock numeric(14, 2) NOT NULL DEFAULT 0",
@@ -331,6 +349,8 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
         "UPDATE inventory_items SET sku = COALESCE(NULLIF(sku, ''), NULLIF(name_reference, ''), NULLIF(name, ''), NULLIF(reference, ''), id::text) WHERE sku IS NULL OR trim(sku) = ''",
         "UPDATE inventory_items SET name = COALESCE(NULLIF(name, ''), NULLIF(name_reference, ''), NULLIF(sku, ''), NULLIF(reference, ''), id::text) WHERE name IS NULL OR trim(name) = ''",
         "UPDATE inventory_items SET reference = COALESCE(NULLIF(reference, ''), NULLIF(name_reference, ''), NULLIF(sku, ''), NULLIF(name, ''), id::text) WHERE reference IS NULL OR trim(reference) = ''",
+        "UPDATE inventory_items SET sale_price = COALESCE(NULLIF(sale_price, 0), unit_value, 0) WHERE COALESCE(sale_price, 0) = 0",
+        "UPDATE inventory_items SET unit_value = COALESCE(NULLIF(sale_price, 0), unit_value, 0) WHERE COALESCE(unit_value, 0) = 0",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS movement_type varchar(60) NOT NULL DEFAULT 'entry'",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS quantity_delta numeric(14, 2) NOT NULL DEFAULT 0",
         "ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS quantity numeric(14, 2) NOT NULL DEFAULT 0",
@@ -408,20 +428,28 @@ def inventory_item_out(row: dict[str, Any]) -> dict[str, Any]:
 
     current_stock = _float(row.get("current_stock"))
     min_stock = _float(row.get("min_stock"))
-    unit_value = _float(row.get("unit_value") or row.get("unit_price") or row.get("sale_price") or row.get("price") or 0)
+    entry_price = _float(row.get("entry_price") or row.get("purchase_price") or row.get("cost_price") or 0)
+    sale_price = _float(row.get("sale_price") or row.get("unit_value") or row.get("unit_price") or row.get("price") or 0)
     status = row.get("status") or "active"
     alert_low = status == "active" and current_stock <= min_stock
-    stock_value = round(current_stock * unit_value, 2)
+    entry_stock_value = round(current_stock * entry_price, 2)
+    sale_stock_value = round(current_stock * sale_price, 2)
     return {
         "id": str(row.get("id")),
         "company_id": str(row.get("company_id")),
         "name_reference": row.get("name_reference") or "",
         "size": row.get("item_size") or "",
         "color": row.get("color") or "",
-        "unit_value": unit_value,
-        "unit_price": unit_value,
-        "price": unit_value,
-        "stock_value": stock_value,
+        "entry_price": entry_price,
+        "purchase_price": entry_price,
+        "cost_price": entry_price,
+        "sale_price": sale_price,
+        "unit_value": sale_price,
+        "unit_price": sale_price,
+        "price": sale_price,
+        "entry_stock_value": entry_stock_value,
+        "sale_stock_value": sale_stock_value,
+        "stock_value": sale_stock_value,
         "min_stock": min_stock,
         "current_stock": current_stock,
         "status": status,
@@ -438,7 +466,8 @@ def inventory_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     low_stock = [row for row in active if bool(row.get("alert_low"))]
     zero_stock = [row for row in active if _float(row.get("current_stock")) <= 0]
     total_stock = sum(_float(row.get("current_stock")) for row in rows)
-    total_value = sum(_float(row.get("stock_value")) for row in rows)
+    total_entry_value = sum(_float(row.get("entry_stock_value")) for row in rows)
+    total_sale_value = sum(_float(row.get("sale_stock_value") or row.get("stock_value")) for row in rows)
     return {
         "total": len(rows),
         "active": len(active),
@@ -446,7 +475,9 @@ def inventory_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "low_stock": len(low_stock),
         "zero_stock": len(zero_stock),
         "total_stock_units": total_stock,
-        "total_stock_value": round(total_value, 2),
+        "total_entry_value": round(total_entry_value, 2),
+        "total_sale_value": round(total_sale_value, 2),
+        "total_stock_value": round(total_sale_value, 2),
     }
 
 
@@ -510,22 +541,23 @@ async def create_inventory_item(
     initial_qty = _to_decimal(payload.initial_quantity)
     min_stock_source = payload.min_stock if payload.min_stock is not None else payload.minimum_stock
     min_stock = _to_decimal(min_stock_source)
-    unit_value = _to_decimal(_first_present(payload.unit_value, payload.unit_price, payload.price, payload.sale_price, payload.value))
+    entry_price = _to_decimal(_first_present(payload.entry_price, payload.purchase_price, payload.cost_price))
+    sale_price = _to_decimal(_first_present(payload.sale_price, payload.unit_value, payload.unit_price, payload.price, payload.value))
     if initial_qty < 0:
         raise HTTPException(status_code=422, detail="La cantidad inicial no puede ser negativa.")
     if min_stock < 0:
         raise HTTPException(status_code=422, detail="El mínimo no puede ser negativo.")
 
-    if unit_value < 0:
-        raise HTTPException(status_code=422, detail="El valor no puede ser negativo.")
+    if entry_price < 0 or sale_price < 0:
+        raise HTTPException(status_code=422, detail="Los precios no pueden ser negativos.")
 
     result = await db.execute(
         text("""
             INSERT INTO inventory_items (
-                id, company_id, sku, name, reference, name_reference, item_size, color, unit_value, min_stock, current_stock, status, created_at, updated_at
+                id, company_id, sku, name, reference, name_reference, item_size, color, entry_price, sale_price, unit_value, min_stock, current_stock, status, created_at, updated_at
             )
             VALUES (
-                :id, :company_id, :sku, :name, :reference, :name_reference, :item_size, :color, :unit_value, :min_stock, :current_stock, 'active', now(), now()
+                :id, :company_id, :sku, :name, :reference, :name_reference, :item_size, :color, :entry_price, :sale_price, :sale_price, :min_stock, :current_stock, 'active', now(), now()
             )
             RETURNING *
         """),
@@ -538,7 +570,8 @@ async def create_inventory_item(
             "name_reference": name,
             "item_size": (payload.size or payload.item_size or "").strip() or None,
             "color": (payload.color or "").strip() or None,
-            "unit_value": unit_value,
+            "entry_price": entry_price,
+            "sale_price": sale_price,
             "min_stock": min_stock,
             "current_stock": initial_qty,
         },
@@ -567,24 +600,29 @@ async def create_inventory_item(
     return inventory_item_out(item)
 
 
-@router.patch("/items/{item_id}")
-async def update_inventory_item(
+async def _update_inventory_item_record(
+    db: AsyncSession,
     item_id: UUID,
     payload: InventoryItemUpdate,
-    db: AsyncSession = Depends(get_db),
+    company_id: UUID | None = None,
 ) -> dict[str, Any]:
-    await ensure_inventory_storage(db)
-
     status = payload.status.strip().lower() if payload.status else None
     if status and status not in VALID_ITEM_STATUSES:
         raise HTTPException(status_code=422, detail="Estado inválido.")
 
-    unit_value = None
-    unit_value_source = _first_present(payload.unit_value, payload.unit_price, payload.price, payload.sale_price, payload.value)
-    if unit_value_source is not None:
-        unit_value = _to_decimal(unit_value_source)
-        if unit_value < 0:
-            raise HTTPException(status_code=422, detail="El valor no puede ser negativo.")
+    entry_price = None
+    entry_price_source = _first_present(payload.entry_price, payload.purchase_price, payload.cost_price)
+    if entry_price_source is not None:
+        entry_price = _to_decimal(entry_price_source)
+        if entry_price < 0:
+            raise HTTPException(status_code=422, detail="El precio de entrada no puede ser negativo.")
+
+    sale_price = None
+    sale_price_source = _first_present(payload.sale_price, payload.unit_value, payload.unit_price, payload.price, payload.value)
+    if sale_price_source is not None:
+        sale_price = _to_decimal(sale_price_source)
+        if sale_price < 0:
+            raise HTTPException(status_code=422, detail="El precio de salida no puede ser negativo.")
 
     min_stock = None
     min_stock_source = payload.min_stock if payload.min_stock is not None else payload.minimum_stock
@@ -593,8 +631,9 @@ async def update_inventory_item(
         if min_stock < 0:
             raise HTTPException(status_code=422, detail="El mínimo no puede ser negativo.")
 
+    company_filter = " AND company_id = :company_id" if company_id is not None else ""
     result = await db.execute(
-        text("""
+        text(f"""
             UPDATE inventory_items
             SET
               sku = COALESCE(NULLIF(:name_reference, ''), sku),
@@ -603,11 +642,13 @@ async def update_inventory_item(
               name_reference = COALESCE(NULLIF(:name_reference, ''), name_reference),
               item_size = :item_size,
               color = :color,
-              unit_value = COALESCE(:unit_value, unit_value),
+              entry_price = COALESCE(:entry_price, entry_price),
+              sale_price = COALESCE(:sale_price, sale_price),
+              unit_value = COALESCE(:sale_price, unit_value),
               min_stock = COALESCE(:min_stock, min_stock),
               status = COALESCE(:status, status),
               updated_at = now()
-            WHERE id = :item_id
+            WHERE id = :item_id{company_filter}
             RETURNING *
         """),
         {
@@ -615,17 +656,55 @@ async def update_inventory_item(
             "name_reference": (payload.name_reference or payload.name or payload.reference or "").strip() if (payload.name_reference is not None or payload.name is not None or payload.reference is not None) else "",
             "item_size": (payload.size or payload.item_size or "").strip() if (payload.size is not None or payload.item_size is not None) else None,
             "color": (payload.color or "").strip() if payload.color is not None else None,
-            "unit_value": unit_value,
+            "entry_price": entry_price,
+            "sale_price": sale_price,
             "min_stock": min_stock,
             "status": status,
+            **({"company_id": str(company_id)} if company_id is not None else {}),
         },
     )
     row = result.mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Material no encontrado.")
 
-    await db.commit()
     return inventory_item_out(dict(row))
+
+
+@router.patch("/companies/{company_id}/items/bulk")
+async def bulk_update_inventory_items(
+    company_id: UUID,
+    payload: InventoryBulkUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_inventory_storage(db)
+    if not payload.items:
+        raise HTTPException(status_code=422, detail="No hay materiales para guardar.")
+    if len(payload.items) > 1000:
+        raise HTTPException(status_code=422, detail="El guardado masivo admite máximo 1000 materiales.")
+
+    updated = [
+        await _update_inventory_item_record(db, item.id, item, company_id=company_id)
+        for item in payload.items
+    ]
+    await db.commit()
+    return {
+        "company_id": str(company_id),
+        "updated": len(updated),
+        "items": updated,
+        "summary": inventory_summary(updated),
+    }
+
+
+@router.patch("/items/{item_id}")
+async def update_inventory_item(
+    item_id: UUID,
+    payload: InventoryItemUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await ensure_inventory_storage(db)
+    row = await _update_inventory_item_record(db, item_id, payload)
+    await db.commit()
+    return row
 
 
 

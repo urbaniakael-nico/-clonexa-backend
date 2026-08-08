@@ -1475,7 +1475,7 @@ def build_hospitality_reorder_pdf(payload: dict[str, Any]) -> bytes:
         ),
         Spacer(1, 8 * mm),
     ]
-    table_data: list[list[Any]] = [["PRODUCTO / SKU", "STOCK", "MIN.", "PEDIR", "VALOR UNIT.", "TOTAL"]]
+    table_data: list[list[Any]] = [["PRODUCTO / SKU", "STOCK", "MIN.", "PEDIR", "PRECIO ENTRADA", "TOTAL"]]
     if rows:
         for row in rows:
             table_data.append(
@@ -1532,7 +1532,7 @@ def build_hospitality_reorder_pdf(payload: dict[str, Any]) -> bytes:
                 ),
             ),
             Spacer(1, 5 * mm),
-            Paragraph("Nota: el valor unitario usa el valor registrado actualmente en inventario. El costo de entrada especifico se integrara proximamente; este documento no contabiliza una compra ni modifica existencias.", note_style),
+            Paragraph("Nota: los totales usan el precio de entrada registrado en Inventario. Este documento no contabiliza una compra ni modifica existencias.", note_style),
         ]
     )
     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
@@ -1540,13 +1540,19 @@ def build_hospitality_reorder_pdf(payload: dict[str, Any]) -> bytes:
 
 
 async def _hospitality_reorder_payload(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    # Reuse the inventory compatibility upgrade before reading the two price fields.
+    # The local import avoids coupling router import order at application startup.
+    from app.api.v1.endpoints.inventory import ensure_inventory_storage
+
+    await ensure_inventory_storage(db)
     exists = await db.execute(text("SELECT to_regclass('public.inventory_items')"))
     rows: list[dict[str, Any]] = []
     if exists.scalar():
         result = await db.execute(
             text(
                 """
-                SELECT id, sku, name, reference, name_reference, current_stock, min_stock, unit_value, status
+                SELECT id, sku, name, reference, name_reference, current_stock, min_stock,
+                       entry_price, sale_price, unit_value, status
                 FROM inventory_items
                 WHERE company_id = :company_id
                 ORDER BY COALESCE(current_stock, 0) ASC,
@@ -1561,7 +1567,8 @@ async def _hospitality_reorder_payload(db: AsyncSession, company_id: uuid.UUID) 
             minimum = _money(raw.get("min_stock"))
             target = max(minimum * 2, 1)
             suggested = _money(max(target - current, 0)) if current <= minimum else 0.0
-            unit_value = _money(raw.get("unit_value"))
+            entry_price = _money(raw.get("entry_price"))
+            sale_price = _money(raw.get("sale_price") or raw.get("unit_value"))
             rows.append(
                 {
                     "id": str(raw.get("id")),
@@ -1571,8 +1578,10 @@ async def _hospitality_reorder_payload(db: AsyncSession, company_id: uuid.UUID) 
                     "min_stock": minimum,
                     "status": raw.get("status") or "active",
                     "suggested_quantity": suggested,
-                    "unit_value": unit_value,
-                    "line_total": _money(suggested * unit_value),
+                    "entry_price": entry_price,
+                    "sale_price": sale_price,
+                    "unit_value": entry_price,
+                    "line_total": _money(suggested * entry_price),
                 }
             )
     order_items = [row for row in rows if _num(row.get("suggested_quantity")) > 0]
@@ -1585,7 +1594,7 @@ async def _hospitality_reorder_payload(db: AsyncSession, company_id: uuid.UUID) 
         "order_items": order_items,
         "suggested_units": _money(sum(_num(row.get("suggested_quantity")) for row in order_items)),
         "estimated_total": _money(sum(_num(row.get("line_total")) for row in order_items)),
-        "pricing_note": "El costo de entrada especifico se integrara proximamente.",
+        "pricing_note": "Los totales usan el precio de entrada registrado en Inventario.",
     }
 
 
@@ -3193,7 +3202,7 @@ async def hospitality_inventory_lite(
         )
     )
     columns = {str(row["column_name"]) for row in columns_result.mappings().all()}
-    price_columns = [name for name in ("unit_value", "unit_price", "sale_price", "price", "valor_unitario") if name in columns]
+    price_columns = [name for name in ("sale_price", "unit_value", "unit_price", "price", "valor_unitario") if name in columns]
     price_expr = "COALESCE(" + ", ".join(price_columns + ["0"]) + ")" if price_columns else "0"
 
     if {"current_stock", "min_stock", "status"}.issubset(columns):

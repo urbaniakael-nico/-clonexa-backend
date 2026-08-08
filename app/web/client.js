@@ -4631,7 +4631,7 @@
       }
       .cx-inv-form {
         display:grid;
-        grid-template-columns: repeat(5, minmax(140px, 1fr)) auto;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         gap:12px;
         align-items:end;
         margin: 18px 0 22px;
@@ -4677,7 +4677,7 @@
         box-shadow: 0 18px 48px rgba(0,0,0,.20);
       }
       .cx-inv-table {
-        min-width: 1160px;
+        min-width: 1480px;
         width:100%;
         border-collapse: collapse;
       }
@@ -5052,6 +5052,8 @@ function inventoryCreatePayload() {
       color: String(document.getElementById("inventoryCreateColor")?.value || "").trim(),
       initial_quantity: inventoryNumber(document.getElementById("inventoryCreateQty")?.value || 0),
       min_stock: inventoryNumber(document.getElementById("inventoryCreateMin")?.value || 0),
+      entry_price: inventoryNumber(document.getElementById("inventoryCreateEntryPrice")?.value || 0),
+      sale_price: inventoryNumber(document.getElementById("inventoryCreateSalePrice")?.value || 0),
     };
   }
 
@@ -5130,6 +5132,12 @@ function inventoryCreatePayload() {
       const min = document.getElementById("inventoryCreateMin");
       if (min) min.value = "0";
 
+      const entryPrice = document.getElementById("inventoryCreateEntryPrice");
+      if (entryPrice) entryPrice.value = "0";
+
+      const salePrice = document.getElementById("inventoryCreateSalePrice");
+      if (salePrice) salePrice.value = "0";
+
       if (createInvoiceInput) {
         createInvoiceInput.value = "";
         const label = createInvoiceInput.closest(".cx-inv-invoice-picker");
@@ -5162,6 +5170,8 @@ function inventoryCreatePayload() {
       size: String(row.querySelector('[data-inventory-field="size"]')?.value || "").trim(),
       color: String(row.querySelector('[data-inventory-field="color"]')?.value || "").trim(),
       min_stock: inventoryNumber(row.querySelector('[data-inventory-field="min_stock"]')?.value || 0),
+      entry_price: inventoryNumber(row.querySelector('[data-inventory-field="entry_price"]')?.value || 0),
+      sale_price: inventoryNumber(row.querySelector('[data-inventory-field="sale_price"]')?.value || 0),
       status: String(row.querySelector('[data-inventory-field="status"]')?.value || "active"),
     };
   }
@@ -5179,6 +5189,27 @@ function inventoryCreatePayload() {
 
     await renderInventoryModule();
     setTimeout(() => showInventoryNotice(entrySaved ? "Material actualizado. Entrada registrada y stock actualizado." : "Material actualizado."), 80);
+  }
+
+  async function updateAllInventoryItems() {
+    const companyId = state.companyId || new URLSearchParams(window.location.search).get("company_id") || "";
+    if (!companyId) throw new Error("No se pudo identificar la empresa.");
+
+    const rows = Array.from(document.querySelectorAll("[data-inventory-row]"));
+    if (!rows.length) throw new Error("No hay materiales para guardar.");
+
+    const items = rows.map((row) => ({
+      id: String(row.dataset.inventoryRow || ""),
+      ...inventoryRowPayload(row),
+    }));
+
+    await api(`/inventory/companies/${encodeURIComponent(companyId)}/items/bulk`, {
+      method: "PATCH",
+      body: JSON.stringify({ items }),
+    });
+
+    await renderInventoryModule();
+    setTimeout(() => showInventoryNotice(`${items.length} material(es) guardados correctamente.`), 80);
   }
 
   async function addInventoryEntry(itemId, options = {}) {
@@ -5296,6 +5327,14 @@ function inventoryCreatePayload() {
             <label>Mínimo alerta</label>
             <input id="inventoryCreateMin" type="number" min="0" step="0.01" value="0">
           </div>
+          <div class="cx-inv-field">
+            <label>Precio de entrada</label>
+            <input id="inventoryCreateEntryPrice" type="number" min="0" step="100" value="0" placeholder="Costo de compra">
+          </div>
+          <div class="cx-inv-field">
+            <label>Precio de salida</label>
+            <input id="inventoryCreateSalePrice" type="number" min="0" step="100" value="0" placeholder="Precio de venta">
+          </div>
         <div class="cx-inv-create-invoice-wrap">
           <label class="cx-inv-invoice-picker" data-inventory-create-invoice-label>
             <input data-inventory-create-invoice type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
@@ -5323,6 +5362,8 @@ function inventoryCreatePayload() {
         <td><input data-inventory-field="color" value="${h(row.color || "")}"></td>
         <td><span class="cx-inv-stock ${low ? "low" : ""}">${h(inventoryQtyLabel(row.current_stock))}</span></td>
         <td><input data-inventory-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
+        <td><input data-inventory-field="entry_price" type="number" min="0" step="100" value="${h(row.entry_price ?? 0)}"></td>
+        <td><input data-inventory-field="sale_price" type="number" min="0" step="100" value="${h(row.sale_price ?? row.unit_value ?? 0)}"></td>
         <td><span class="cx-inv-status ${h(status)}">${h(inventoryStatusLabel(status))}</span>${low ? `<br><small class="client-muted">Stock bajo</small>` : ""}</td>
         <td>
           <select data-inventory-field="status">
@@ -5355,8 +5396,11 @@ function inventoryCreatePayload() {
       <section class="client-panel">
         <div class="client-eyebrow">Modificar material</div>
         <h2>Buscar y actualizar</h2>
-        <p class="client-muted">El stock actual es solo lectura. Para sumar stock usa “Ingresar” y CLONEXA crea movimiento de inventario.</p>
-        <input class="cx-inv-search" data-inventory-search placeholder="🔎 Buscar por nombre, referencia, tamaño o color...">
+        <p class="client-muted">Edita datos y precios directamente aquí. “Guardar todo” conserva todas las filas de una vez; las entradas de stock se registran individualmente con “Ingresar”.</p>
+        <div class="client-actions" style="justify-content:space-between;align-items:center;margin-bottom:14px">
+          <input class="cx-inv-search" data-inventory-search placeholder="🔎 Buscar por nombre, referencia, tamaño o color...">
+          <button class="client-btn" type="button" data-inventory-save-all>Guardar todo</button>
+        </div>
 
         <div class="cx-inv-table-wrap">
           <table class="cx-inv-table">
@@ -5367,6 +5411,8 @@ function inventoryCreatePayload() {
                 <th>Color</th>
                 <th>Stock actual</th>
                 <th>Mínimo alerta</th>
+                <th>Precio entrada</th>
+                <th>Precio salida</th>
                 <th>Alerta</th>
                 <th>Estado</th>
                 <th>Ingresar cantidad</th>
@@ -5375,7 +5421,7 @@ function inventoryCreatePayload() {
               </tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="10">No hay materiales en inventario.</td></tr>`}
+              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="12">No hay materiales en inventario.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -5477,7 +5523,7 @@ function inventoryCreatePayload() {
             <header class="client-hero">
               <div class="client-eyebrow">Modulo Inventario</div>
               <h1 class="client-title">Inventario</h1>
-              <p class="client-muted">Catálogo operativo, mínimos y stock actual de solo lectura. Materiales descontará o devolverá stock en la siguiente integración.</p>
+              <p class="client-muted">Fuente única de productos, existencias, mínimos y precios de entrada y salida.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
                 <button class="client-btn" type="button" data-inventory-refresh>Actualizar</button>
@@ -5581,7 +5627,7 @@ function inventoryCreatePayload() {
       .cx-stock-kpi-024t span{display:block;color:rgba(255,255,255,.66);font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:1000}
       .cx-stock-kpi-024t b{display:block;margin-top:6px;color:var(--cx-text,#fff);font-size:22px;line-height:1.05}
       .cx-stock-table-wrap-024t{overflow:auto;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:rgba(3,7,18,.26)}
-      .cx-stock-table-024t{width:100%;border-collapse:collapse;min-width:980px}
+      .cx-stock-table-024t{width:100%;border-collapse:collapse;min-width:1480px}
       .cx-stock-table-024t th,.cx-stock-table-024t td{padding:12px 11px;border-bottom:1px solid rgba(255,255,255,.09);text-align:left;vertical-align:middle}
       .cx-stock-table-024t th{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:rgba(255,255,255,.62);font-weight:1000;background:rgba(255,255,255,.04)}
       .cx-stock-product-024t strong{display:block;font-size:15px;line-height:1.12;color:var(--cx-text,#fff)}
@@ -5663,15 +5709,18 @@ function inventoryCreatePayload() {
     const inactive = rows.filter((row) => String(row.status || "active").toLowerCase() === "inactive");
     const low = active.filter((row) => cxStockAlertClass024T(row) === "low");
     const out = active.filter((row) => cxStockAlertClass024T(row) === "out");
-    const value = rows.reduce((sum, row) => sum + inventoryNumber(row.stock_value || (inventoryNumber(row.current_stock) * inventoryNumber(row.unit_value || row.price))), 0);
-    return { active: active.length, inactive: inactive.length, low: low.length, out: out.length, value };
+    const entryValue = rows.reduce((sum, row) => sum + inventoryNumber(row.entry_stock_value ?? (inventoryNumber(row.current_stock) * inventoryNumber(row.entry_price))), 0);
+    const saleValue = rows.reduce((sum, row) => sum + inventoryNumber(row.sale_stock_value ?? row.stock_value ?? (inventoryNumber(row.current_stock) * inventoryNumber(row.sale_price ?? row.unit_value ?? row.price))), 0);
+    return { active: active.length, inactive: inactive.length, low: low.length, out: out.length, entryValue, saleValue, value: saleValue };
   }
 
   function cxStockRow024T(row = {}) {
     const alertClass = cxStockAlertClass024T(row);
     const status = String(row.status || "active").toLowerCase();
-    const unitValue = inventoryNumber(row.unit_value ?? row.unit_price ?? row.price ?? 0);
-    const stockValue = inventoryNumber(row.stock_value || (inventoryNumber(row.current_stock) * unitValue));
+    const entryPrice = inventoryNumber(row.entry_price ?? 0);
+    const salePrice = inventoryNumber(row.sale_price ?? row.unit_value ?? row.unit_price ?? row.price ?? 0);
+    const entryStockValue = inventoryNumber(row.entry_stock_value ?? (inventoryNumber(row.current_stock) * entryPrice));
+    const saleStockValue = inventoryNumber(row.sale_stock_value ?? row.stock_value ?? (inventoryNumber(row.current_stock) * salePrice));
     return `
       <tr data-stock-row="${h(row.id)}">
         <td class="cx-stock-product-024t">
@@ -5679,32 +5728,16 @@ function inventoryCreatePayload() {
           <small>${h([row.size, row.color].filter(Boolean).join(" / ") || "Sin tamano/color")}</small>
         </td>
         <td><span class="cx-stock-qty-024t">${h(inventoryQtyLabel(row.current_stock))}</span></td>
-        <td><input data-stock-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
-        <td><input data-stock-field="unit_value" type="number" min="0" step="100" value="${h(unitValue)}"></td>
-        <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(stockValue))}</span></td>
+        <td><span class="cx-stock-qty-024t">${h(inventoryQtyLabel(row.min_stock))}</span></td>
+        <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(entryPrice))}</span></td>
+        <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(salePrice))}</span></td>
+        <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(entryStockValue))}</span></td>
+        <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(saleStockValue))}</span></td>
         <td><span class="cx-stock-chip-024t ${h(alertClass)}">${h(cxStockAlertLabel024T(row))}</span></td>
-        <td>
-          <select data-stock-field="status">
-            <option value="active" ${status !== "inactive" ? "selected" : ""}>Activo</option>
-            <option value="inactive" ${status === "inactive" ? "selected" : ""}>Inactivo</option>
-          </select>
-        </td>
-        <td><button class="cx-stock-btn-024t secondary" type="button" data-stock-save="${h(row.id)}">Guardar</button></td>
+        <td><span class="cx-stock-chip-024t ${status === "inactive" ? "inactive" : "ok"}">${h(inventoryStatusLabel(status))}</span></td>
+        <td>${isClientModuleActive("inventory") ? `<button class="cx-stock-btn-024t secondary" type="button" data-stock-open-inventory="${h(row.id)}">Editar en Inventario</button>` : `<span class="client-muted">Solo lectura</span>`}</td>
       </tr>
     `;
-  }
-
-  async function cxStockSave024T(itemId) {
-    const row = document.querySelector(`[data-stock-row="${CSS.escape(String(itemId))}"]`);
-    if (!row) return;
-    await api(`/inventory/items/${encodeURIComponent(itemId)}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        unit_value: inventoryNumber(row.querySelector('[data-stock-field="unit_value"]')?.value || 0),
-        min_stock: inventoryNumber(row.querySelector('[data-stock-field="min_stock"]')?.value || 0),
-        status: String(row.querySelector('[data-stock-field="status"]')?.value || "active"),
-      }),
-    });
   }
 
   function cxStockShowMsg024T(message = "", isError = false) {
@@ -5751,7 +5784,7 @@ function inventoryCreatePayload() {
             <header class="client-hero cx-stock-hero-024t">
               <div class="client-eyebrow">Modulo Stock</div>
               <h1 class="client-title">Stock</h1>
-              <p class="client-muted">Vista operativa del inventario: cantidades, valor, alertas y estado del producto.</p>
+              <p class="client-muted">Vista fija del inventario: cantidades, mínimos, precios y valorización. Las modificaciones se realizan únicamente en Inventario.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 ${isClientModuleActive("inventory") ? `<button class="client-btn" type="button" data-stock-open-inventory>Inventario</button>` : ""}
@@ -5765,10 +5798,10 @@ function inventoryCreatePayload() {
               <section class="cx-stock-panel-024t">
                 <div class="cx-stock-kpis-024t">
                   <div class="cx-stock-kpi-024t"><span>Activos</span><b>${h(summary.active)}</b></div>
-                  <div class="cx-stock-kpi-024t"><span>Bajo minimo</span><b>${h(summary.low)}</b></div>
+                  <div class="cx-stock-kpi-024t"><span>Valor entrada</span><b>${h(cxStockMoney024T(summary.entryValue))}</b></div>
                   <div class="cx-stock-kpi-024t"><span>Sin stock</span><b>${h(summary.out)}</b></div>
                   <div class="cx-stock-kpi-024t"><span>Inactivos</span><b>${h(summary.inactive)}</b></div>
-                  <div class="cx-stock-kpi-024t"><span>Valor stock</span><b>${h(cxStockMoney024T(summary.value))}</b></div>
+                  <div class="cx-stock-kpi-024t"><span>Valor salida</span><b>${h(cxStockMoney024T(summary.saleValue))}</b></div>
                 </div>
               </section>
 
@@ -5810,15 +5843,17 @@ function inventoryCreatePayload() {
                         <th>Producto</th>
                         <th>Cantidad</th>
                         <th>Minimo</th>
-                        <th>Valor</th>
-                        <th>Valor stock</th>
+                        <th>Precio entrada</th>
+                        <th>Precio salida</th>
+                        <th>Total entrada</th>
+                        <th>Total salida</th>
                         <th>Alerta</th>
                         <th>Estado</th>
                         <th>Accion</th>
                       </tr>
                     </thead>
                     <tbody>
-                      ${rows.length ? rows.map(cxStockRow024T).join("") : `<tr><td colspan="8"><div class="cx-stock-empty-024t">No hay productos con este filtro.</div></td></tr>`}
+                      ${rows.length ? rows.map(cxStockRow024T).join("") : `<tr><td colspan="10"><div class="cx-stock-empty-024t">No hay productos con este filtro.</div></td></tr>`}
                     </tbody>
                   </table>
                 </div>
@@ -31045,25 +31080,20 @@ function inventoryCreatePayload() {
         return;
       }
 
-      if (target.closest("[data-stock-open-inventory]")) {
+      const stockInventoryBtn = target.closest("[data-stock-open-inventory]");
+      if (stockInventoryBtn) {
+        setInventoryMode("modify");
         await renderInventoryModule();
+        const itemId = String(stockInventoryBtn.dataset.stockOpenInventory || "");
+        if (itemId) {
+          const inventoryRow = document.querySelector(`[data-inventory-row="${CSS.escape(itemId)}"]`);
+          inventoryRow?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
         return;
       }
 
       if (target.closest("[data-stock-refresh]") || target.closest("[data-stock-apply]")) {
         await renderStockModule024T(cxStockReadFilters024T());
-        return;
-      }
-
-      const stockSaveBtn = target.closest("[data-stock-save]");
-      if (stockSaveBtn) {
-        try {
-          await cxStockSave024T(stockSaveBtn.dataset.stockSave);
-          await renderStockModule024T(cxStockReadFilters024T());
-          setTimeout(() => cxStockShowMsg024T("Stock actualizado."), 80);
-        } catch (error) {
-          cxStockShowMsg024T(error.message || "No se pudo actualizar Stock.", true);
-        }
         return;
       }
 
@@ -31084,6 +31114,15 @@ function inventoryCreatePayload() {
           await createInventoryItem();
         } catch (error) {
           showInventoryNotice(error.message || "No se pudo crear el material.", "error");
+        }
+        return;
+      }
+
+      if (target.closest("[data-inventory-save-all]")) {
+        try {
+          await updateAllInventoryItems();
+        } catch (error) {
+          showInventoryNotice(error.message || "No se pudo guardar el inventario.", "error");
         }
         return;
       }
