@@ -20330,6 +20330,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_024R_HOSPITALITY_ORDERS_START */
   let cxHspInventory024R = [];
   let cxHspOrders024R = [];
+  let cxHspSongRequests031C = [];
   let cxHspKnownOrderIds030B = new Set();
   let cxHspOrderAlertsReady030B = false;
   let cxHspAudioContext030B = null;
@@ -20562,9 +20563,13 @@ function inventoryCreatePayload() {
       return !["bar_manual", "barra"].includes(source) && String(order.status || "pendiente") === "pendiente";
     });
     if (!fresh.length) return;
+    const songRequests = fresh.filter((order) => String(order.source || "").toLowerCase() === "qr_song");
     const tables = [...new Set(fresh.map((order) => order.table_number || "Mesa"))];
-    const title = fresh.length === 1 ? "Nuevo pedido pendiente" : `${fresh.length} pedidos pendientes nuevos`;
-    const detail = tables.slice(0, 3).join(" · ") + (tables.length > 3 ? "..." : "");
+    const title = songRequests.length === fresh.length
+      ? (fresh.length === 1 ? "Nueva solicitud musical" : `${fresh.length} solicitudes musicales nuevas`)
+      : (fresh.length === 1 ? "Nuevo pedido pendiente" : `${fresh.length} novedades de mesas`);
+    const songDetail = songRequests.length === 1 ? ` · ${songRequests[0].song || "Canción solicitada"}` : "";
+    const detail = tables.slice(0, 3).join(" · ") + (tables.length > 3 ? "..." : "") + songDetail;
     const host = document.getElementById("hspOrderAlerts030B");
     if (host) {
       const toast = document.createElement("div");
@@ -20772,6 +20777,16 @@ function inventoryCreatePayload() {
       .hsp-account-row-024y{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:950;color:var(--cx-text,#fff)}
       .hsp-account-row-024y small{display:block;color:var(--hsp-muted);font-size:10px;font-weight:850;margin-top:2px}
       .hsp-songs-024r,.hsp-notes-024r{background:color-mix(in srgb,var(--hsp-primary) 14%,transparent);border:1px solid color-mix(in srgb,var(--hsp-primary) 34%,transparent);color:var(--cx-text,#fff);border-radius:14px;padding:10px 12px;margin:10px 0;white-space:pre-wrap;font-weight:850}
+      .hsp-song-queue-031c{display:grid;gap:10px}
+      .hsp-song-queue-head-031c{display:flex;align-items:center;justify-content:space-between;gap:12px}
+      .hsp-song-queue-head-031c h2{margin:0}
+      .hsp-song-list-031c{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+      .hsp-song-card-031c{display:grid;gap:10px;padding:13px;border-radius:16px;background:linear-gradient(145deg,color-mix(in srgb,var(--hsp-primary) 15%,rgba(3,7,18,.72)),rgba(3,7,18,.48));border:1px solid color-mix(in srgb,var(--hsp-primary) 38%,var(--hsp-line));box-shadow:0 12px 28px rgba(0,0,0,.17)}
+      .hsp-song-card-head-031c{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+      .hsp-song-card-head-031c strong{display:block;font-size:18px;color:var(--cx-text,#fff)}
+      .hsp-song-card-head-031c small{display:block;margin-top:3px;color:var(--hsp-muted);font-size:11px;font-weight:850}
+      .hsp-song-title-031c{padding:11px 12px;border-radius:13px;background:rgba(3,7,18,.42);border:1px solid rgba(255,255,255,.10);font-size:17px;font-weight:1000;color:var(--hsp-secondary)}
+      .hsp-pill-024r.music{background:linear-gradient(135deg,var(--hsp-primary),#c4b5fd);color:#160b2e}
       .hsp-empty-024r{color:var(--hsp-muted);border:1px dashed rgba(255,255,255,.18);padding:22px;border-radius:14px;text-align:center;font-size:14px;font-weight:850}
       .hsp-msg-024r{display:none;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;white-space:pre-wrap;font-weight:850}
       .hsp-msg-024r.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3);color:#fecaca}
@@ -21133,16 +21148,48 @@ function inventoryCreatePayload() {
   async function cxHspLoadOrders024R() {
     const data = await cxHspApi024R("/orders?status=all&limit=220");
     const nextOrders = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
+    const nextSongRequests = Array.isArray(data.song_requests) ? data.song_requests : [];
     const newOrders = cxHspOrderAlertsReady030B
       ? nextOrders.filter((order) => order.id && !cxHspKnownOrderIds030B.has(String(order.id)))
+      : [];
+    const newSongRequests = cxHspOrderAlertsReady030B
+      ? nextSongRequests.filter((request) => request.id && !cxHspKnownOrderIds030B.has(`song:${String(request.id)}`))
       : [];
     nextOrders.forEach((order) => {
       if (order.id) cxHspKnownOrderIds030B.add(String(order.id));
     });
+    nextSongRequests.forEach((request) => {
+      if (request.id) cxHspKnownOrderIds030B.add(`song:${String(request.id)}`);
+    });
     cxHspOrders024R = nextOrders;
+    cxHspSongRequests031C = nextSongRequests;
     cxHspOrderAlertsReady030B = true;
     cxHspRenderOrdersBoard024R(data.summary || {});
-    cxHspNotifyNewOrders030B(newOrders);
+    cxHspNotifyNewOrders030B([...newOrders, ...newSongRequests]);
+  }
+
+  function cxHspSongRequestCard031C(request = {}) {
+    const status = String(request.status || "pendiente");
+    const action = status === "pendiente"
+      ? `<button class="hsp-btn-024r yellow" type="button" data-hsp-song-status="${h(request.id)}" data-hsp-song-next="sonando">Marcar sonando</button>`
+      : status === "sonando"
+        ? `<button class="hsp-btn-024r green" type="button" data-hsp-song-status="${h(request.id)}" data-hsp-song-next="reproducida">Marcar reproducida</button>`
+        : "";
+    return `
+      <article class="hsp-song-card-031c">
+        <div class="hsp-song-card-head-031c">
+          <div><strong>${h(request.table_number || "Mesa")}</strong><small>${h(request.customer_name || "Cliente mesa")}</small></div>
+          <span class="hsp-pill-024r music">${h(status)}</span>
+        </div>
+        <div class="hsp-song-title-031c">♫ ${h(request.song || "Canción solicitada")}</div>
+        <div class="hsp-actions-024r">${action}</div>
+      </article>`;
+  }
+
+  function cxHspRenderSongRequests031C() {
+    const active = cxHspSongRequests031C.filter((request) => ["pendiente", "sonando"].includes(String(request.status || "")));
+    if (!active.length) return `<div class="hsp-empty-024r">Sin solicitudes musicales pendientes</div>`;
+    return active.map(cxHspSongRequestCard031C).join("");
   }
 
   function cxHspGroup024R(status) {
@@ -21170,6 +21217,7 @@ function inventoryCreatePayload() {
     fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando, "alistando"));
     fill("hspServed024R", cxHspRenderGroup024R(groups.entregado, "entregado"));
     fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado, "cerrado"));
+    fill("hspSongRequests031C", cxHspRenderSongRequests031C());
 
     text("hspSPending024R", summary.pending ?? groups.pendiente.length);
     text("hspSPreparing024R", summary.preparing ?? groups.alistando.length);
@@ -21181,6 +21229,7 @@ function inventoryCreatePayload() {
     text("hspCPreparing024R", groups.alistando.length);
     text("hspCServed024R", cxHspMergedTableCards024Y(groups.entregado).length);
     text("hspCClosed024R", groups.cerrado.length);
+    text("hspSongCount031C", cxHspSongRequests031C.filter((request) => ["pendiente", "sonando"].includes(String(request.status || ""))).length);
     cxHspRenderCalculatorOptions024R();
     cxHspUpdateCalculator024R();
   }
@@ -21315,12 +21364,17 @@ function inventoryCreatePayload() {
       await cxHspLoadInventory024R();
       const data = await cxHspApi024R("/orders?status=all&limit=220");
       cxHspOrders024R = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
-      cxHspKnownOrderIds030B = new Set(cxHspOrders024R.map((order) => String(order.id || "")).filter(Boolean));
+      cxHspSongRequests031C = Array.isArray(data.song_requests) ? data.song_requests : [];
+      cxHspKnownOrderIds030B = new Set([
+        ...cxHspOrders024R.map((order) => String(order.id || "")).filter(Boolean),
+        ...cxHspSongRequests031C.map((request) => request.id ? `song:${String(request.id)}` : "").filter(Boolean),
+      ]);
       cxHspOrderAlertsReady030B = true;
       summary = data.summary || {};
     } catch (error) {
       loadError = error.message || "No se pudo cargar Hospitality Pedidos.";
       cxHspOrders024R = [];
+      cxHspSongRequests031C = [];
       cxHspInventory024R = [];
     }
 
@@ -21451,6 +21505,14 @@ function inventoryCreatePayload() {
                   <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
                 </section>
               </div>
+
+              <section class="hsp-box-024r hsp-song-queue-031c">
+                <div class="hsp-song-queue-head-031c">
+                  <div><div class="client-eyebrow">Música por mesa</div><h2>Solicitudes musicales</h2></div>
+                  <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
+                </div>
+                <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>
+              </section>
 
               <section class="hsp-kanban-024r">
                 <div class="hsp-col-024r">
@@ -29364,6 +29426,22 @@ function inventoryCreatePayload() {
           await cxHspLoadOrders024R();
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cambiar el estado.", true);
+        }
+        return;
+      }
+
+      const hspSongStatus = target.closest("[data-hsp-song-status]");
+      if (hspSongStatus) {
+        try {
+          const id = hspSongStatus.getAttribute("data-hsp-song-status");
+          const next = hspSongStatus.getAttribute("data-hsp-song-next");
+          await cxHspApi024R(`/song-requests/${encodeURIComponent(id)}/status`, {
+            method: "PATCH",
+            body: JSON.stringify({ status: next }),
+          });
+          await cxHspLoadOrders024R();
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo actualizar la solicitud musical.", true);
         }
         return;
       }

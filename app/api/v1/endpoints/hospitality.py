@@ -28,6 +28,7 @@ STATUS_CLOSED = "cerrado"
 ACTIVE_STATUSES = {STATUS_PENDING, STATUS_PREPARING, STATUS_SERVED}
 PAYMENT_METHODS = {"cash", "transfer", "card", "other"}
 CLOSING_PAYMENT_METHODS = {"cash", "transfer", "card"}
+SONG_REQUEST_STATUSES = {"pendiente", "sonando", "reproducida"}
 PAYMENT_LABELS = {
     "cash": "Efectivo",
     "transfer": "Transferencia",
@@ -69,6 +70,17 @@ class HospitalityOrderCreateIn(BaseModel):
         if not rows:
             raise ValueError("Agrega al menos un producto.")
         return rows[:80]
+
+
+class HospitalitySongRequestIn(BaseModel):
+    table: str | None = Field(default="Mesa", max_length=120)
+    customer: str | None = Field(default="Cliente mesa", max_length=180)
+    access_code: str | None = Field(default="", max_length=12)
+    song: str = Field(..., min_length=1, max_length=220)
+
+
+class HospitalitySongRequestStatusIn(BaseModel):
+    status: str = Field(..., max_length=40)
 
 
 class HospitalityStatusIn(BaseModel):
@@ -337,6 +349,29 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_orders_company_status ON hospitality_orders(company_id, status, created_at DESC);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_orders_company_table ON hospitality_orders(company_id, table_key, created_at DESC);"))
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS hospitality_song_requests (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                table_number VARCHAR(120) NOT NULL DEFAULT 'Mesa',
+                table_key VARCHAR(120) NOT NULL DEFAULT 'mesa',
+                customer_name VARCHAR(180) NOT NULL DEFAULT 'Cliente mesa',
+                song VARCHAR(220) NOT NULL,
+                status VARCHAR(40) NOT NULL DEFAULT 'pendiente',
+                source VARCHAR(60) NOT NULL DEFAULT 'qr_song',
+                playing_at TIMESTAMPTZ NULL,
+                played_at TIMESTAMPTZ NULL,
+                archived_at TIMESTAMPTZ NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+    )
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_song_requests_company_status ON hospitality_song_requests(company_id, status, created_at DESC);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_song_requests_company_table ON hospitality_song_requests(company_id, table_key, created_at DESC);"))
     await db.execute(
         text(
             """
@@ -692,6 +727,24 @@ def _payload(row: Any) -> dict[str, Any]:
         "served_at": _iso(data.get("served_at")),
         "closed_at": _iso(data.get("closed_at")),
         "archived_at": _iso(data.get("archived_at")),
+    }
+
+
+def _song_request_payload(row: Any) -> dict[str, Any]:
+    data = dict(row)
+    return {
+        "id": str(data.get("id")),
+        "company_id": str(data.get("company_id")),
+        "table_number": data.get("table_number") or "Mesa",
+        "table_key": data.get("table_key") or "mesa",
+        "customer_name": data.get("customer_name") or "Cliente mesa",
+        "song": data.get("song") or "",
+        "status": data.get("status") or "pendiente",
+        "source": data.get("source") or "qr_song",
+        "playing_at": _iso(data.get("playing_at")),
+        "played_at": _iso(data.get("played_at")),
+        "created_at": _iso(data.get("created_at")),
+        "updated_at": _iso(data.get("updated_at")),
     }
 
 
@@ -1442,7 +1495,20 @@ async def _create_day_closure(
         {"company_id": str(company_id)},
     )
     raw_rows = result.mappings().all()
-    if not raw_rows:
+    song_request_result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_song_requests
+            WHERE company_id = :company_id
+              AND archived_at IS NULL
+            ORDER BY created_at ASC
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    song_request_rows = song_request_result.mappings().all()
+    if not raw_rows and not song_request_rows:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="no_hay_pedidos_para_cerrar")
 
     orders = [_payload(row) for row in raw_rows]
@@ -1502,6 +1568,18 @@ async def _create_day_closure(
             song_key = clean_song.lower()
             song_row = song_map.setdefault(song_key, {"song": clean_song, "count": 0})
             song_row["count"] += 1
+
+    for song_request in song_request_rows:
+        clean_song = _clean(song_request.get("song"))
+        if clean_song:
+            song_key = clean_song.lower()
+            song_row = song_map.setdefault(song_key, {"song": clean_song, "count": 0})
+            song_row["count"] += 1
+        created_at = song_request.get("created_at")
+        if isinstance(created_at, datetime):
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            opened_at = created_at if opened_at is None or created_at < opened_at else opened_at
 
     cash_total = _money(payload.cash_total)
     transfer_total = _money(payload.transfer_total)
@@ -1597,6 +1675,18 @@ async def _create_day_closure(
                 ensure_ascii=False,
             ),
         },
+    )
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_song_requests
+            SET archived_at = COALESCE(archived_at, NOW()),
+                updated_at = NOW()
+            WHERE company_id = :company_id
+              AND archived_at IS NULL
+            """
+        ),
+        {"company_id": str(company_id)},
     )
     return closure
 
@@ -2756,6 +2846,28 @@ async def list_hospitality_orders(
         params,
     )
     orders = [_payload(row) for row in result.mappings().all()]
+    song_where = ["company_id = :company_id"]
+    song_params: dict[str, Any] = {"company_id": str(company_id), "limit": limit}
+    if not include_archived:
+        song_where.append("archived_at IS NULL")
+    if _norm(status_filter) == "active":
+        song_where.append("status IN ('pendiente', 'sonando')")
+    elif _norm(status_filter) not in {"all", "todos"} and _norm(status_filter) in SONG_REQUEST_STATUSES:
+        song_where.append("status = :song_status")
+        song_params["song_status"] = _norm(status_filter)
+    song_result = await db.execute(
+        text(
+            f"""
+            SELECT *
+            FROM hospitality_song_requests
+            WHERE {' AND '.join(song_where)}
+            ORDER BY created_at DESC
+            LIMIT :limit
+            """
+        ),
+        song_params,
+    )
+    song_requests = [_song_request_payload(row) for row in song_result.mappings().all()]
     counts = {STATUS_PENDING: 0, STATUS_PREPARING: 0, STATUS_SERVED: 0, STATUS_CLOSED: 0}
     total_open = 0.0
     for order in orders:
@@ -2769,6 +2881,7 @@ async def list_hospitality_orders(
         "include_archived": include_archived,
         "orders": orders,
         "tables": orders,
+        "song_requests": song_requests,
         "summary": {
             "pending": counts[STATUS_PENDING],
             "preparing": counts[STATUS_PREPARING],
@@ -2778,6 +2891,88 @@ async def list_hospitality_orders(
             "total": len(orders),
         },
     }
+
+
+@router.post("/companies/{company_id}/song-requests", status_code=status.HTTP_201_CREATED)
+async def create_hospitality_song_request(
+    company_id: uuid.UUID,
+    payload: HospitalitySongRequestIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    table_number = _clean(payload.table) or "Mesa"
+    customer_name = _clean(payload.customer) or "Cliente mesa"
+    song = _clean(payload.song)[:220]
+    if not song:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Escribe la canción o artista que deseas escuchar.")
+    await _require_table_access(db, company_id, table_number, payload.access_code)
+
+    result = await db.execute(
+        text(
+            """
+            INSERT INTO hospitality_song_requests (
+                company_id, table_number, table_key, customer_name, song, status, source,
+                created_at, updated_at
+            )
+            VALUES (
+                :company_id, :table_number, :table_key, :customer_name, :song,
+                'pendiente', 'qr_song', NOW(), NOW()
+            )
+            RETURNING *
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "table_number": table_number,
+            "table_key": _table_key(table_number),
+            "customer_name": customer_name,
+            "song": song,
+        },
+    )
+    await db.commit()
+    request_row = _song_request_payload(result.mappings().first())
+    return {"ok": True, "song_request": request_row}
+
+
+@router.patch("/companies/{company_id}/song-requests/{request_id}/status")
+async def update_hospitality_song_request_status(
+    company_id: uuid.UUID,
+    request_id: uuid.UUID,
+    payload: HospitalitySongRequestStatusIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    current_result = await db.execute(
+        text("SELECT * FROM hospitality_song_requests WHERE id = :request_id AND company_id = :company_id LIMIT 1"),
+        {"request_id": str(request_id), "company_id": str(company_id)},
+    )
+    current = current_result.mappings().first()
+    if not current:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="solicitud_musical_no_encontrada")
+    current_status = _norm(current.get("status") or "pendiente")
+    next_status = _norm(payload.status)
+    allowed = {"pendiente": {"sonando", "reproducida"}, "sonando": {"reproducida"}, "reproducida": set()}
+    if next_status not in allowed.get(current_status, set()):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Transicion no permitida: {current_status} -> {next_status}")
+    result = await db.execute(
+        text(
+            """
+            UPDATE hospitality_song_requests
+            SET status = :status,
+                playing_at = CASE WHEN :status = 'sonando' THEN COALESCE(playing_at, NOW()) ELSE playing_at END,
+                played_at = CASE WHEN :status = 'reproducida' THEN COALESCE(played_at, NOW()) ELSE played_at END,
+                updated_at = NOW()
+            WHERE id = :request_id AND company_id = :company_id
+            RETURNING *
+            """
+        ),
+        {"status": next_status, "request_id": str(request_id), "company_id": str(company_id)},
+    )
+    await db.commit()
+    return {"ok": True, "song_request": _song_request_payload(result.mappings().first())}
 
 
 @router.get("/companies/{company_id}/day-closures")
