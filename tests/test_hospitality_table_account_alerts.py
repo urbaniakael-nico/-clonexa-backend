@@ -142,11 +142,24 @@ def test_bar_accounts_have_independent_cards_and_product_loading():
     assert "data-hsp-bar-create" in source
     assert "data-hsp-bar-add" in source
     assert "data-hsp-bar-close" in source
+    assert 'id="hspBarProductSearch031F"' in source
+    assert 'list="hspBarInventoryList031F"' in source
+    assert "cxHspFindInventoryBySearch031F" in source
+    assert 'id="hspBarDestination031F"' in source
+    assert 'id="hspBarTargetTable031F"' in source
+    assert 'source: "table_manual"' in source
+    assert "data-hsp-close-received" in source
+    assert "cxHspUpdateCloseChange030F" in source
+    assert "hspBarReference031D" not in source
+    assert "Sin canciones solicitadas" not in source
     assert "cxHspIsBarAccount031D" in source
     assert 'router.post("/companies/{company_id}/bar-accounts"' in backend
     assert 'router.post("/companies/{company_id}/bar-accounts/{account_id}/items")' in backend
     assert "'bar_account', 'bar_account'" in backend
+    assert "initial_items = await _build_order_items" in backend
+    assert 'items: list[HospitalityOrderItemIn]' in backend
     assert "031D_BAR_ACCOUNTS_ALERTS_ARCHIVE" in html
+    assert "031F_SMART_BAR_TABLES" in html
 
 
 def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender():

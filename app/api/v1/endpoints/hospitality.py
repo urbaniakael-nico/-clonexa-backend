@@ -90,6 +90,7 @@ class HospitalitySongRequestStatusIn(BaseModel):
 class HospitalityBarAccountIn(BaseModel):
     customer: str = Field(..., min_length=1, max_length=180)
     reference: str | None = Field(default="", max_length=80)
+    items: list[HospitalityOrderItemIn] = Field(default_factory=list)
 
 
 class HospitalityBarAccountItemsIn(BaseModel):
@@ -3089,14 +3090,16 @@ async def create_hospitality_bar_account(
     reference = _clean(payload.reference)[:80]
     if not customer_name:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Escribe el nombre de la cuenta de barra.")
+    initial_items = await _build_order_items(db, company_id, payload.items) if payload.items else []
+    initial_total = _money(sum(_num(item.get("subtotal")) for item in initial_items))
     table_number = f"Barra - {reference or customer_name}"[:120]
     account_number = f"BAR-{_now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
     person = {
         "id": f"person_{uuid.uuid4()}",
         "name": customer_name,
         "customer_key": _customer_key(customer_name),
-        "total": 0.0,
-        "items": [],
+        "total": initial_total,
+        "items": initial_items,
     }
     result = await db.execute(
         text(
@@ -3108,7 +3111,7 @@ async def create_hospitality_bar_account(
             )
             VALUES (
                 :company_id, :order_number, :table_number, :table_key, 'bar_account', 'bar_account', 'other',
-                'entregado', :customer_name, CAST(:people AS jsonb), '[]'::jsonb, '[]'::jsonb, '', 0, TRUE,
+                'entregado', :customer_name, CAST(:people AS jsonb), CAST(:items AS jsonb), '[]'::jsonb, '', :total, TRUE,
                 NOW(), CAST(:metadata AS jsonb), NOW(), NOW()
             )
             RETURNING *
@@ -3121,11 +3124,25 @@ async def create_hospitality_bar_account(
             "table_key": _table_key(table_number),
             "customer_name": customer_name,
             "people": json.dumps([person], ensure_ascii=False),
+            "items": json.dumps(initial_items, ensure_ascii=False),
+            "total": initial_total,
             "metadata": json.dumps({"bar_account": True, "reference": reference}, ensure_ascii=False),
         },
     )
-    await db.commit()
     account = _payload(result.mappings().first())
+    if initial_items:
+        await _deduct_inventory(
+            db,
+            company_id,
+            {
+                "id": account.get("id"),
+                "order_number": account_number,
+                "table_number": table_number,
+                "items": initial_items,
+                "inventory_deducted": False,
+            },
+        )
+    await db.commit()
     return {"ok": True, "account": account, "order": account}
 
 
