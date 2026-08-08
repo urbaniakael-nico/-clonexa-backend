@@ -179,6 +179,10 @@ def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender()
     assert 'router.post("/companies/{company_id}/song-requests/{request_id}/archive")' in backend
     assert "CAST(:next_status AS VARCHAR)" in backend
     assert "pg_advisory_xact_lock" in backend
+    assert '"song_requests": song_requests' in backend
+    assert "cxHspDashSongRequests031D" in panel
+    assert "firstDirectSongAt" in panel
+    assert "031E_DASHBOARD_SONG_ARCHIVE" in panel_html
     assert "031C_FREE_SONG_REQUESTS" in public_html
     assert "031C_FREE_SONG_REQUESTS" in panel_html
 
