@@ -17391,14 +17391,19 @@ function inventoryCreatePayload() {
     const norm = cxAssistantNorm027A(text);
     if (!norm || norm.includes("whatsapp") || norm.includes("wsp")) return false;
     const hasQr = /\bqr\b/.test(norm) || norm.includes("mesa qr") || norm.includes("mesas qr");
-    const hasMesa = /\bmesa\s*#?\s*\d+\b/.test(norm) || /\bmesas?\b/.test(norm);
-    const action = ["activar", "habilitar", "clave", "libre", "libres", "ocupado", "ocupada", "ocupados", "ocupadas", "imprimir", "impresion", "estado", "status", "abrir"].some((word) => norm.includes(word));
+    const hasMesa = /\bmesa\s*#?\s*\d+\b/.test(norm) || /\bmesas?\b/.test(norm) || /\bbarra\b/.test(norm);
+    const action = ["activar", "habilitar", "cerrar", "desactivar", "liberar", "clave", "libre", "libres", "ocupado", "ocupada", "ocupados", "ocupadas", "imprimir", "impresion", "estado", "status", "abrir"].some((word) => norm.includes(word));
     return hasQr || (hasMesa && action);
   }
 
   function cxAssistantQrActivationIntent028D(text = "") {
     const norm = cxAssistantNorm027A(text);
     return ["activar", "habilitar", "generar", "clave", "nueva clave"].some((word) => norm.includes(word));
+  }
+
+  function cxAssistantQrCloseIntent031H(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return ["cerrar mesa", "cerrar qr", "cerrar barra", "desactivar mesa", "desactivar qr", "desactivar barra", "liberar mesa", "liberar barra", "mesa por error"].some((word) => norm.includes(word));
   }
 
   function cxAssistantQrPrintIntent028D(text = "") {
@@ -17459,6 +17464,7 @@ function inventoryCreatePayload() {
         </div>
         <div class="cxai-chip-wrap-027a">
           ${occupied ? "" : `<button class="cxai-chip-027a primary" type="button" data-cxai-qr-activate-028d="${h(row.label || "")}">Activar QR</button>`}
+          ${row.access_active && !occupied ? `<button class="cxai-chip-027a" type="button" data-cxai-qr-close-031h="${h(row.label || "")}">Cerrar mesa</button>` : ""}
           <button class="cxai-chip-027a" type="button" data-cxai-qr-print-028d="${h(row.label || "")}">Imprimir QR</button>
           <a class="cxai-download-027a" href="${h(row.order_url || "#")}" target="_blank" rel="noopener">Abrir QR</a>
         </div>
@@ -17486,16 +17492,18 @@ function inventoryCreatePayload() {
     `;
   }
 
-  function cxAssistantQrQuestion028D() {
+  function cxAssistantQrQuestion028D(action = "activate") {
+    const closing = action === "close";
     return `
-      <div>Que QR o mesa quieres activar?</div>
-      <div class="cxai-summary-027a">Ej: mesa 1, mesa 2, QR 5 o Barra. Puedes escribir ocupados, libres, atras o cancelar.</div>
+      <div>Que QR o mesa quieres ${closing ? "cerrar" : "activar"}?</div>
+      <div class="cxai-summary-027a">Ej: mesa 1, mesa 2, QR 5 o Barra. ${closing ? "Solo se cierra si no tiene pedidos activos." : "Puedes consultar ocupados o libres."} Tambien puedes escribir atras o cancelar.</div>
     `;
   }
 
   function cxAssistantBackQrFlow028D(chat) {
-    chat.flow = { kind: "qr_access", step: "table", data: {} };
-    cxAssistantPush027A(chat, "assistant", cxAssistantQrQuestion028D(), true);
+    const action = chat.flow?.data?.action || "activate";
+    chat.flow = { kind: "qr_access", step: "table", data: { action } };
+    cxAssistantPush027A(chat, "assistant", cxAssistantQrQuestion028D(action), true);
   }
 
   async function cxAssistantActivateQr028D(chat, text = "") {
@@ -17543,6 +17551,32 @@ function inventoryCreatePayload() {
     );
   }
 
+  async function cxAssistantCloseQr031H(chat, text = "") {
+    const { rows } = await cxAssistantQrLoad028D();
+    const row = cxAssistantQrFindRow028D(rows, text);
+    if (!row) {
+      chat.flow = { kind: "qr_access", step: "table", data: { action: "close" } };
+      cxAssistantPush027A(chat, "assistant", cxAssistantQrQuestion028D("close"), true);
+      return;
+    }
+    if (cxAssistantLooksReorderQuery031H(clean)) {
+      chat.flow = null;
+      await cxAssistantReplyReorder031H(chat);
+      return;
+    }
+    if (Number(row.active_orders || 0) > 0) {
+      chat.flow = null;
+      cxAssistantPush027A(chat, "assistant", `${h(row.label || "Mesa")} tiene ${h(row.active_orders || 0)} pedido(s) activos por ${h(cxHspMoney024R(row.open_total || 0))}. Debes cerrarlos normalmente o cancelarlos como merma antes de liberar la mesa.`, true);
+      return;
+    }
+    await cxHspQrApi024S("/qr-tables/access/close", {
+      method: "POST",
+      body: JSON.stringify({ table: row.label || text }),
+    });
+    chat.flow = null;
+    cxAssistantPush027A(chat, "assistant", `${h(row.label || "Mesa")} cerrada. La proxima persona debera activar nuevamente el acceso QR.`, true);
+  }
+
   async function cxAssistantPushQrStatus028D(chat, text = "") {
     const { rows, summary } = await cxAssistantQrLoad028D();
     const row = cxAssistantQrFindRow028D(rows, text);
@@ -17550,6 +17584,10 @@ function inventoryCreatePayload() {
   }
 
   async function cxAssistantHandleQrFlow028D(chat, clean) {
+    if (chat.flow?.data?.action === "close" || cxAssistantQrCloseIntent031H(clean)) {
+      await cxAssistantCloseQr031H(chat, clean);
+      return;
+    }
     if (cxAssistantQrActivationIntent028D(clean) || cxAssistantQrTableSeed028D(clean).label) {
       await cxAssistantActivateQr028D(chat, clean);
       return;
@@ -17563,6 +17601,16 @@ function inventoryCreatePayload() {
       return false;
     }
     try {
+      if (cxAssistantQrCloseIntent031H(text)) {
+        const seed = cxAssistantQrTableSeed028D(text);
+        if (!seed.label) {
+          chat.flow = { kind: "qr_access", step: "table", data: { action: "close" } };
+          cxAssistantPush027A(chat, "assistant", cxAssistantQrQuestion028D("close"), true);
+          return true;
+        }
+        await cxAssistantCloseQr031H(chat, text);
+        return true;
+      }
       if (cxAssistantQrActivationIntent028D(text)) {
         const seed = cxAssistantQrTableSeed028D(text);
         if (!seed.label) {
@@ -17592,6 +17640,50 @@ function inventoryCreatePayload() {
     cxHspQrPaint024S();
     cxHspQrPaintPrintPanel025H(true);
     document.getElementById("hspQrPrintPanel025H")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function cxAssistantLooksReorderQuery031H(text = "") {
+    const norm = cxAssistantNorm027A(text);
+    return ["pedido nuevo", "nuevo pedido", "orden de compra", "pedido de compra", "pedido reposicion", "pedido de reposicion", "reponer inventario"].some((phrase) => norm.includes(phrase));
+  }
+
+  async function cxAssistantReplyReorder031H(chat) {
+    if (!cxAssistantInventoryHasAccess027W() && !cxAssistantStockHasAccess028A()) {
+      cxAssistantPush027A(chat, "assistant", "Inventario no esta activo para esta empresa; no puedo calcular el pedido de reposicion.");
+      return false;
+    }
+    try {
+      cxAssistantPush027A(chat, "assistant", "Calculando existencias y pedido sugerido...");
+      cxAssistantRenderMessages027A();
+      const data = await cxHspQrApi024S("/reorder-suggestion");
+      const stockRows = Array.isArray(data.items) ? data.items : [];
+      const orderRows = Array.isArray(data.order_items) ? data.order_items : [];
+      const stockHtml = stockRows.length
+        ? stockRows.slice(0, 30).map((row, index) => `<div>${h(index + 1)}. ${h(row.name || "Producto")}: <strong>${h(inventoryQtyLabel(row.current_stock || 0))}</strong> · min ${h(inventoryQtyLabel(row.min_stock || 0))} · ${h(inventoryStatusLabel(row.status || "active"))}</div>`).join("")
+        : "<div>No hay articulos registrados en inventario.</div>";
+      const orderHtml = orderRows.length
+        ? orderRows.slice(0, 30).map((row) => `<div>${h(row.name || "Producto")}: pedir <strong>${h(inventoryQtyLabel(row.suggested_quantity || 0))}</strong> x ${h(cxHspMoney024R(row.unit_value || 0))} = ${h(cxHspMoney024R(row.line_total || 0))}</div>`).join("")
+        : "<div>No hay articulos bajo el minimo configurado.</div>";
+      const pdfUrl = `${API}/hospitality/companies/${encodeURIComponent(state.companyId)}/reorder-suggestion.pdf`;
+      cxAssistantPush027A(chat, "assistant", `
+        <div><strong>Pedido nuevo / reposicion</strong></div>
+        <div class="cxai-summary-027a"><div><strong>Existencias de menor a mayor</strong></div>${stockHtml}</div>
+        <div class="cxai-summary-027a"><div><strong>Lista sugerida</strong></div>${orderHtml}</div>
+        <div class="cxai-summary-027a">
+          <div><strong>Unidades a pedir:</strong> ${h(inventoryQtyLabel(data.suggested_units || 0))}</div>
+          <div><strong>Total con valor registrado:</strong> ${h(cxHspMoney024R(data.estimated_total || 0))}</div>
+          <div>El costo de entrada especifico se integrara proximamente.</div>
+        </div>
+        <div class="cxai-chip-wrap-027a">
+          <a class="cxai-download-027a" href="${h(pdfUrl)}" target="_blank" rel="noopener">Exportar orden PDF</a>
+          <button class="cxai-chip-027a" type="button" data-cxai-reorder-031h>Actualizar pedido</button>
+        </div>
+      `, true);
+      return true;
+    } catch (error) {
+      cxAssistantPush027A(chat, "assistant", error.message || "No pude calcular el pedido de reposicion.");
+      return false;
+    }
   }
 
   const CX_ASSISTANT_SHOPLINK_STEPS_028E = [
@@ -18206,6 +18298,8 @@ function inventoryCreatePayload() {
       cxAssistantStartFlow027A(chat, "account");
     } else if (norm.includes("cotiz") || norm.includes("presupuesto")) {
       cxAssistantStartFlow027A(chat, "quote");
+    } else if (cxAssistantLooksReorderQuery031H(clean)) {
+      await cxAssistantReplyReorder031H(chat);
     } else if (cxAssistantLooksHospitalityQuery028B(clean)) {
       await cxAssistantReplyHospitality028B(chat, clean);
     } else if (cxAssistantLooksLoyaltyQuery028C(clean)) {
@@ -18358,6 +18452,10 @@ function inventoryCreatePayload() {
           await cxAssistantProcessText027A("agregar articulo stock", chat.activeCode);
           return;
         }
+        if (target.closest("[data-cxai-reorder-031h]")) {
+          await cxAssistantProcessText027A("pedido nuevo", chat.activeCode);
+          return;
+        }
         if (target.closest("[data-cxai-hsp-report-028b]")) {
           await cxAssistantProcessText027A("reporte hospitality", chat.activeCode);
           return;
@@ -18393,6 +18491,12 @@ function inventoryCreatePayload() {
         if (qrActivate) {
           const label = qrActivate.getAttribute("data-cxai-qr-activate-028d") || "";
           await cxAssistantProcessText027A(label ? `activar ${label}` : "activar qr", chat.activeCode);
+          return;
+        }
+        const qrClose = target.closest("[data-cxai-qr-close-031h]");
+        if (qrClose) {
+          const label = qrClose.getAttribute("data-cxai-qr-close-031h") || "";
+          await cxAssistantProcessText027A(label ? `cerrar ${label}` : "cerrar mesa", chat.activeCode);
           return;
         }
         const qrPrint = target.closest("[data-cxai-qr-print-028d]");
@@ -21785,6 +21889,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_024S_HOSPITALITY_QR_START */
   let cxHspQrTables024S = [];
   let cxHspQrSummary024S = {};
+  let cxHspQrLosses031H = [];
   let cxHspQrCount024S = 12;
   let cxHspQrPrintSelection025H = "";
 
@@ -21942,6 +22047,19 @@ function inventoryCreatePayload() {
         justify-content:center;
       }
       .hsp-qr-btn-024s.secondary{background:rgba(255,255,255,.09);color:var(--cx-text,#fff);border:1px solid var(--qr-line)}
+      .hsp-qr-options-031h{grid-column:1/-1;position:relative}
+      .hsp-qr-options-031h summary{list-style:none;min-height:40px;border:1px solid var(--qr-line);border-radius:13px;padding:9px 12px;background:rgba(3,7,18,.46);color:var(--cx-text,#fff);font-weight:1000;cursor:pointer;display:flex;align-items:center;justify-content:space-between}
+      .hsp-qr-options-031h summary::-webkit-details-marker{display:none}
+      .hsp-qr-options-031h summary::after{content:"⌄";font-size:18px;line-height:1}
+      .hsp-qr-options-031h[open] summary::after{transform:rotate(180deg)}
+      .hsp-qr-options-menu-031h{display:grid;gap:8px;margin-top:8px;padding:10px;border:1px solid var(--qr-line);border-radius:14px;background:rgba(3,7,18,.92);box-shadow:0 18px 40px rgba(0,0,0,.28)}
+      .hsp-qr-option-note-031h{font-size:11px;line-height:1.35;color:var(--qr-muted)}
+      .hsp-qr-danger-031h{min-height:38px;border:1px solid rgba(248,113,113,.38);border-radius:12px;padding:8px 10px;background:rgba(127,29,29,.22);color:#fecaca;font-weight:950;cursor:pointer;text-align:left}
+      .hsp-qr-danger-031h:disabled{opacity:.5;cursor:not-allowed}
+      .hsp-qr-loss-panel-031h{display:none;gap:10px}
+      .hsp-qr-loss-panel-031h.open{display:grid}
+      .hsp-qr-loss-card-031h{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px 14px;border:1px solid rgba(248,113,113,.28);border-radius:14px;background:rgba(127,29,29,.12)}
+      .hsp-qr-loss-card-031h strong{color:#fecaca}.hsp-qr-loss-card-031h span{color:var(--qr-muted);font-size:12px;line-height:1.35}
       .hsp-qr-btn-024s:disabled{cursor:not-allowed;opacity:.72;background:rgba(34,197,94,.13);color:#bbf7d0;border:1px solid rgba(34,197,94,.34)}
       .hsp-qr-empty-024s{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:22px;text-align:center;color:var(--qr-muted);font-weight:850}
       .hsp-qr-msg-024s{display:none;padding:11px 13px;border-radius:13px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:900}
@@ -22021,6 +22139,7 @@ function inventoryCreatePayload() {
     const data = await cxHspQrApi024S(`/qr-tables?count=${encodeURIComponent(safeCount)}&include_bar=${includeBar}&base_url=${encodeURIComponent(base)}&mode=${mode}`);
     cxHspQrTables024S = Array.isArray(data.tables) ? data.tables : [];
     cxHspQrSummary024S = data.summary || {};
+    cxHspQrLosses031H = Array.isArray(data.losses) ? data.losses : [];
     return data;
   }
 
@@ -22107,6 +22226,12 @@ function inventoryCreatePayload() {
   function cxHspQrCard024S(row = {}) {
     const live = Number(row.active_orders || 0) > 0;
     const accessActive = row.access_active === true;
+    const openOrders = Array.isArray(row.open_orders) ? row.open_orders : [];
+    const cancelActions = openOrders.map((order) => `
+      <button class="hsp-qr-danger-031h" type="button" data-hsp-qr-cancel-order="${h(order.id || "")}" data-hsp-qr-cancel-table="${h(row.label || "Mesa")}" data-hsp-qr-cancel-number="${h(order.order_number || "Pedido")}">
+        Cancelar ${h(order.order_number || "pedido")} · ${h(cxHspMoney024R(order.total || 0))}
+      </button>
+    `).join("");
     return `
       <article class="hsp-qr-card-024s">
         <div class="hsp-qr-card-head-024s">
@@ -22131,9 +22256,32 @@ function inventoryCreatePayload() {
           <a class="hsp-qr-btn-024s" href="${h(row.order_url || "#")}" target="_blank" rel="noopener">Abrir</a>
           <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-copy="${h(row.order_url || "")}">Copiar</button>
           <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-activate="${h(row.label || "Mesa")}" ${accessActive ? "disabled" : ""}>${accessActive ? "Activa hasta cerrar" : "Activar mesa"}</button>
+          <details class="hsp-qr-options-031h">
+            <summary>Opciones</summary>
+            <div class="hsp-qr-options-menu-031h">
+              <button class="hsp-qr-danger-031h" type="button" data-hsp-qr-close-access="${h(row.label || "Mesa")}" ${!accessActive || live ? "disabled" : ""}>Cerrar mesa abierta por error</button>
+              <div class="hsp-qr-option-note-031h">El cierre manual solo se habilita cuando no existen pedidos activos.</div>
+              ${cancelActions || `<div class="hsp-qr-option-note-031h">No hay pedidos para cancelar en esta mesa.</div>`}
+              <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-show-losses>Ver merma / perdida</button>
+            </div>
+          </details>
         </div>
       </article>
     `;
+  }
+
+  function cxHspQrLossesHtml031H() {
+    if (!cxHspQrLosses031H.length) return `<div class="hsp-qr-empty-024s">No hay pedidos cancelados pendientes de cierre diario.</div>`;
+    return cxHspQrLosses031H.map((order) => {
+      const reason = order.metadata?.loss_reason || "Pedido cancelado / merma";
+      const products = (Array.isArray(order.items) ? order.items : []).map((item) => `${item.name || "Producto"} x ${item.quantity || 0}`).join(", ");
+      return `
+        <article class="hsp-qr-loss-card-031h">
+          <div><strong>${h(order.order_number || "Pedido cancelado")} · ${h(order.table_number || "Mesa")}</strong><br><span>${h(products || "Sin detalle")} · ${h(reason)}</span></div>
+          <strong>${h(cxHspMoney024R(order.total || 0))}</strong>
+        </article>
+      `;
+    }).join("");
   }
 
   function cxHspQrPaint024S() {
@@ -22149,6 +22297,10 @@ function inventoryCreatePayload() {
     setText("hspQrCount024S", cxHspQrSummary024S.qr_count ?? cxHspQrTables024S.length);
     setText("hspQrOpen024S", cxHspQrSummary024S.open_accounts ?? 0);
     setText("hspQrTotal024S", cxHspMoney024R(cxHspQrSummary024S.open_total || 0));
+    setText("hspQrLossCount031H", cxHspQrSummary024S.loss_orders ?? cxHspQrLosses031H.length);
+    setText("hspQrLossTotal031H", cxHspMoney024R(cxHspQrSummary024S.loss_total || 0));
+    const lossList = document.getElementById("hspQrLossList031H");
+    if (lossList) lossList.innerHTML = cxHspQrLossesHtml031H();
     cxHspQrPaintPrintPanel025H();
   }
 
@@ -22171,6 +22323,7 @@ function inventoryCreatePayload() {
       loadError = error.message || "No se pudieron cargar las mesas QR.";
       cxHspQrTables024S = [];
       cxHspQrSummary024S = {};
+      cxHspQrLosses031H = [];
     }
 
     $("app").innerHTML = `
@@ -22204,10 +22357,15 @@ function inventoryCreatePayload() {
                   <div class="hsp-qr-stat-024s"><span>QR activos</span><b id="hspQrCount024S">0</b></div>
                   <div class="hsp-qr-stat-024s"><span>Cuentas abiertas</span><b id="hspQrOpen024S">0</b></div>
                   <div class="hsp-qr-stat-024s"><span>Total abierto</span><b id="hspQrTotal024S">$0</b></div>
+                  <div class="hsp-qr-stat-024s"><span>Merma / perdida</span><b><span id="hspQrLossCount031H">0</span> · <span id="hspQrLossTotal031H">$0</span></b></div>
                 </div>
               </section>
 
               <div id="hspQrMsg024S" class="hsp-qr-msg-024s"></div>
+              <section id="hspQrLossPanel031H" class="hsp-qr-panel-024s hsp-qr-loss-panel-031h">
+                <div><div class="client-eyebrow">Control operativo</div><h2>Merma / perdida</h2><p class="client-muted">Los pedidos cancelados no suman ventas y quedan disponibles para el cierre diario.</p></div>
+                <div id="hspQrLossList031H"></div>
+              </section>
               <section id="hspQrPrintPanel025H" class="hsp-qr-print-panel-025h"></section>
 
               <section class="hsp-qr-panel-024s">
@@ -29962,6 +30120,54 @@ function inventoryCreatePayload() {
           cxHspQrShowMsg024S("Mesas QR actualizadas.");
         } catch (error) {
           cxHspQrShowMsg024S(error.message || "No se pudieron actualizar las mesas QR.", true);
+        }
+        return;
+      }
+
+      if (target.closest("[data-hsp-qr-show-losses]")) {
+        const panel = document.getElementById("hspQrLossPanel031H");
+        panel?.classList.toggle("open");
+        panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
+      const qrCloseAccess = target.closest("[data-hsp-qr-close-access]");
+      if (qrCloseAccess) {
+        const table = qrCloseAccess.getAttribute("data-hsp-qr-close-access") || "Mesa";
+        if (!window.confirm(`Cerrar ${table}? Usa esta opcion solo si la mesa fue activada por error y no tiene pedidos.`)) return;
+        try {
+          await cxHspQrApi024S("/qr-tables/access/close", {
+            method: "POST",
+            body: JSON.stringify({ table }),
+          });
+          await cxHspQrLoad024S(cxHspQrCount024S);
+          cxHspQrPaint024S();
+          cxHspQrShowMsg024S(`${table} cerrada. El QR vuelve a requerir activacion.`);
+        } catch (error) {
+          const message = String(error.message || "No se pudo cerrar la mesa.");
+          cxHspQrShowMsg024S(message.includes("mesa_tiene_pedidos_activos") ? "No se puede cerrar: la mesa tiene pedidos activos. Cierra o cancela cada pedido primero." : message, true);
+        }
+        return;
+      }
+
+      const qrCancelOrder = target.closest("[data-hsp-qr-cancel-order]");
+      if (qrCancelOrder) {
+        const orderId = qrCancelOrder.getAttribute("data-hsp-qr-cancel-order") || "";
+        const orderNumber = qrCancelOrder.getAttribute("data-hsp-qr-cancel-number") || "Pedido";
+        const table = qrCancelOrder.getAttribute("data-hsp-qr-cancel-table") || "Mesa";
+        const reason = window.prompt(`Motivo de cancelacion para ${orderNumber} en ${table}. Se registrara como merma/perdida y no sumara a ventas.`, "Pedido cancelado / merma");
+        if (reason === null) return;
+        try {
+          await cxHspQrApi024S(`/orders/${encodeURIComponent(orderId)}/cancel`, {
+            method: "POST",
+            body: JSON.stringify({ reason: reason.trim() || "Pedido cancelado / merma" }),
+          });
+          await cxHspQrLoad024S(cxHspQrCount024S);
+          cxHspQrPaint024S();
+          document.getElementById("hspQrLossPanel031H")?.classList.add("open");
+          cxHspQrShowMsg024S(`${orderNumber} cancelado y registrado en merma / perdida.`);
+        } catch (error) {
+          cxHspQrShowMsg024S(error.message || "No se pudo cancelar el pedido.", true);
         }
         return;
       }

@@ -29,6 +29,7 @@ STATUS_PENDING = "pendiente"
 STATUS_PREPARING = "alistando"
 STATUS_SERVED = "entregado"
 STATUS_CLOSED = "cerrado"
+STATUS_CANCELLED = "cancelado"
 ACTIVE_STATUSES = {STATUS_PENDING, STATUS_PREPARING, STATUS_SERVED}
 PAYMENT_METHODS = {"cash", "transfer", "card", "other"}
 CLOSING_PAYMENT_METHODS = {"cash", "transfer", "card"}
@@ -180,6 +181,14 @@ class HospitalityTableAccessVerifyIn(BaseModel):
     access_code: str | None = Field(default="", max_length=12)
 
 
+class HospitalityTableAccessCloseIn(BaseModel):
+    table: str | None = Field(default="Mesa", max_length=120)
+
+
+class HospitalityCancelIn(BaseModel):
+    reason: str | None = Field(default="Pedido cancelado / merma", max_length=500)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -223,6 +232,10 @@ def _status(value: Any) -> str:
         "delivered": STATUS_SERVED,
         "closed": STATUS_CLOSED,
         "cerrado": STATUS_CLOSED,
+        "cancelled": STATUS_CANCELLED,
+        "canceled": STATUS_CANCELLED,
+        "cancelado": STATUS_CANCELLED,
+        "merma": STATUS_CANCELLED,
     }
     return aliases.get(raw, STATUS_PENDING)
 
@@ -340,6 +353,7 @@ async def _initialize_storage(db: AsyncSession) -> None:
                 preparing_at TIMESTAMPTZ NULL,
                 served_at TIMESTAMPTZ NULL,
                 closed_at TIMESTAMPTZ NULL,
+                cancelled_at TIMESTAMPTZ NULL,
                 archived_at TIMESTAMPTZ NULL,
                 metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -365,6 +379,7 @@ async def _initialize_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS preparing_at TIMESTAMPTZ NULL;"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS served_at TIMESTAMPTZ NULL;"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ NULL;"))
+    await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ NULL;"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ NULL;"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;"))
     await db.execute(text("ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
@@ -766,6 +781,7 @@ def _payload(row: Any) -> dict[str, Any]:
         "preparing_at": _iso(data.get("preparing_at")),
         "served_at": _iso(data.get("served_at")),
         "closed_at": _iso(data.get("closed_at")),
+        "cancelled_at": _iso(data.get("cancelled_at")),
         "archived_at": _iso(data.get("archived_at")),
     }
 
@@ -1371,6 +1387,208 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+def build_hospitality_reorder_pdf(payload: dict[str, Any]) -> bytes:
+    """Build an invoice-style purchase-order suggestion for Hospitality."""
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_RIGHT
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(f"Motor PDF no disponible. Falta reportlab: {exc}") from exc
+
+    company = payload.get("company") if isinstance(payload.get("company"), dict) else {}
+    rows = payload.get("order_items") if isinstance(payload.get("order_items"), list) else []
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=34 * mm,
+        bottomMargin=18 * mm,
+        title="CLONEXA - Orden de pedido",
+        author="CLONEXA Hospitality",
+    )
+    styles = getSampleStyleSheet()
+    try:
+        primary = colors.HexColor(_clean(company.get("primary_color")) or "#22c55e")
+    except Exception:
+        primary = colors.HexColor("#22c55e")
+    dark = colors.HexColor("#0f172a")
+    muted = colors.HexColor("#64748b")
+    line = colors.HexColor("#dbe3ef")
+    soft = colors.HexColor("#f1f5f9")
+    logo = _hsp_report_logo_reader(company.get("logo_url"))
+
+    title_style = ParagraphStyle("OrderTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=20, leading=24, textColor=dark, spaceAfter=4)
+    subtitle_style = ParagraphStyle("OrderSubtitle", parent=styles["Normal"], fontName="Helvetica", fontSize=8.5, leading=12, textColor=muted)
+    right_style = ParagraphStyle("OrderRight", parent=subtitle_style, alignment=TA_RIGHT)
+    note_style = ParagraphStyle("OrderNote", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=11, textColor=muted)
+    cell_style = ParagraphStyle("OrderCell", parent=styles["Normal"], fontName="Helvetica", fontSize=7.5, leading=9, textColor=dark)
+    cell_bold = ParagraphStyle("OrderCellBold", parent=cell_style, fontName="Helvetica-Bold")
+
+    def header_footer(canvas, document) -> None:
+        canvas.saveState()
+        page_w, page_h = letter
+        canvas.setFillColor(dark)
+        canvas.rect(0, page_h - 27 * mm, page_w, 27 * mm, stroke=0, fill=1)
+        canvas.setFillColor(primary)
+        canvas.rect(0, page_h - 29 * mm, page_w, 2 * mm, stroke=0, fill=1)
+        if logo is not None:
+            try:
+                canvas.drawImage(logo, 18 * mm, page_h - 22 * mm, width=28 * mm, height=14 * mm, preserveAspectRatio=True, mask="auto")
+            except Exception:
+                logo_fallback = True
+            else:
+                logo_fallback = False
+        else:
+            logo_fallback = True
+        if logo_fallback:
+            canvas.setFillColor(primary)
+            canvas.roundRect(18 * mm, page_h - 22 * mm, 18 * mm, 14 * mm, 3 * mm, stroke=0, fill=1)
+            canvas.setFillColor(dark)
+            canvas.setFont("Helvetica-Bold", 11)
+            canvas.drawCentredString(27 * mm, page_h - 17 * mm, "CX")
+        canvas.setFillColor(colors.white)
+        canvas.setFont("Helvetica-Bold", 13)
+        canvas.drawRightString(page_w - 18 * mm, page_h - 14 * mm, "ORDEN DE PEDIDO")
+        canvas.setFont("Helvetica", 7.5)
+        canvas.drawRightString(page_w - 18 * mm, page_h - 20 * mm, _clean(company.get("name")) or "CLONEXA")
+        canvas.setFillColor(muted)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(18 * mm, 10 * mm, "Documento operativo generado por CLONEXA Hospitality")
+        canvas.drawRightString(page_w - 18 * mm, 10 * mm, f"Pagina {document.page}")
+        canvas.restoreState()
+
+    generated_at = _clean(payload.get("generated_at"))[:19].replace("T", " ")
+    story: list[Any] = [
+        Table(
+            [
+                [Paragraph(_clean(company.get("name")) or "Empresa", title_style), Paragraph(f"<b>Fecha:</b> {generated_at}<br/><b>Estado:</b> Borrador operativo", right_style)],
+                [Paragraph("Pedido de reposicion sugerido por existencias, ordenado de menor a mayor.", subtitle_style), ""],
+            ],
+            colWidths=[112 * mm, 52 * mm],
+            style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]),
+        ),
+        Spacer(1, 8 * mm),
+    ]
+    table_data: list[list[Any]] = [["PRODUCTO / SKU", "STOCK", "MIN.", "PEDIR", "VALOR UNIT.", "TOTAL"]]
+    if rows:
+        for row in rows:
+            table_data.append(
+                [
+                    Paragraph(f"<b>{_clean(row.get('name')) or 'Producto'}</b><br/><font color='#64748b'>{_clean(row.get('sku')) or 'Sin codigo'}</font>", cell_style),
+                    Paragraph(str(_money(row.get("current_stock"))), cell_style),
+                    Paragraph(str(_money(row.get("min_stock"))), cell_style),
+                    Paragraph(str(_money(row.get("suggested_quantity"))), cell_bold),
+                    Paragraph(_hsp_money_text(row.get("unit_value")), cell_style),
+                    Paragraph(_hsp_money_text(row.get("line_total")), cell_bold),
+                ]
+            )
+    else:
+        table_data.append([Paragraph("No hay articulos bajo el minimo configurado.", cell_style), "", "", "", "", ""])
+    order_table = Table(table_data, colWidths=[61 * mm, 18 * mm, 18 * mm, 18 * mm, 25 * mm, 27 * mm], repeatRows=1)
+    order_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), dark),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 7),
+                ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, soft]),
+                ("GRID", (0, 0), (-1, -1), 0.35, line),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    story.extend(
+        [
+            order_table,
+            Spacer(1, 6 * mm),
+            Table(
+                [
+                    [Paragraph("Articulos sugeridos", cell_style), Paragraph(str(len(rows)), cell_bold)],
+                    [Paragraph("Unidades sugeridas", cell_style), Paragraph(str(_money(payload.get("suggested_units"))), cell_bold)],
+                    [Paragraph("Valor total registrado", cell_bold), Paragraph(_hsp_money_text(payload.get("estimated_total")), cell_bold)],
+                ],
+                colWidths=[116 * mm, 51 * mm],
+                style=TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), soft),
+                        ("BOX", (0, 0), (-1, -1), 0.6, line),
+                        ("INNERGRID", (0, 0), (-1, -1), 0.35, line),
+                        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                        ("TOPPADDING", (0, 0), (-1, -1), 7),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                    ]
+                ),
+            ),
+            Spacer(1, 5 * mm),
+            Paragraph("Nota: el valor unitario usa el valor registrado actualmente en inventario. El costo de entrada especifico se integrara proximamente; este documento no contabiliza una compra ni modifica existencias.", note_style),
+        ]
+    )
+    doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+    return buffer.getvalue()
+
+
+async def _hospitality_reorder_payload(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    exists = await db.execute(text("SELECT to_regclass('public.inventory_items')"))
+    rows: list[dict[str, Any]] = []
+    if exists.scalar():
+        result = await db.execute(
+            text(
+                """
+                SELECT id, sku, name, reference, name_reference, current_stock, min_stock, unit_value, status
+                FROM inventory_items
+                WHERE company_id = :company_id
+                ORDER BY COALESCE(current_stock, 0) ASC,
+                         lower(COALESCE(NULLIF(name_reference, ''), NULLIF(name, ''), NULLIF(reference, ''), sku, id::text))
+                LIMIT 500
+                """
+            ),
+            {"company_id": str(company_id)},
+        )
+        for raw in result.mappings().all():
+            current = _money(raw.get("current_stock"))
+            minimum = _money(raw.get("min_stock"))
+            target = max(minimum * 2, 1)
+            suggested = _money(max(target - current, 0)) if current <= minimum else 0.0
+            unit_value = _money(raw.get("unit_value"))
+            rows.append(
+                {
+                    "id": str(raw.get("id")),
+                    "sku": raw.get("sku") or "",
+                    "name": raw.get("name_reference") or raw.get("name") or raw.get("reference") or raw.get("sku") or str(raw.get("id")),
+                    "current_stock": current,
+                    "min_stock": minimum,
+                    "status": raw.get("status") or "active",
+                    "suggested_quantity": suggested,
+                    "unit_value": unit_value,
+                    "line_total": _money(suggested * unit_value),
+                }
+            )
+    order_items = [row for row in rows if _num(row.get("suggested_quantity")) > 0]
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "company": await _hospitality_company_identity(db, company_id),
+        "generated_at": _now().isoformat(),
+        "items": rows,
+        "order_items": order_items,
+        "suggested_units": _money(sum(_num(row.get("suggested_quantity")) for row in order_items)),
+        "estimated_total": _money(sum(_num(row.get("line_total")) for row in order_items)),
+        "pricing_note": "El costo de entrada especifico se integrara proximamente.",
+    }
+
+
 def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     data = dict(row)
     now = _now()
@@ -1603,23 +1821,48 @@ async def _create_day_closure(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="no_hay_pedidos_para_cerrar")
 
     orders = [_payload(row) for row in raw_rows]
-    total_sold = _money(sum(_num(order.get("total")) for order in orders))
+    revenue_orders = [order for order in orders if _status(order.get("status")) != STATUS_CANCELLED]
+    cancelled_orders = [order for order in orders if _status(order.get("status")) == STATUS_CANCELLED]
+    total_sold = _money(sum(_num(order.get("total")) for order in revenue_orders))
+    loss_total = _money(sum(_num(order.get("total")) for order in cancelled_orders))
     method_totals = {method: 0.0 for method in PAYMENT_METHODS}
     product_map: dict[str, dict[str, Any]] = {}
+    loss_product_map: dict[str, dict[str, Any]] = {}
     table_map: dict[str, dict[str, Any]] = {}
     song_map: dict[str, dict[str, Any]] = {}
     opened_at: datetime | None = None
     closed_at = _now()
 
     for raw, order in zip(raw_rows, orders):
-        method = _payment_method(order.get("payment_method"))
-        method_totals[method] = _money(method_totals.get(method, 0) + _num(order.get("total")))
-
         created_at = raw.get("created_at")
         if isinstance(created_at, datetime):
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=timezone.utc)
             opened_at = created_at if opened_at is None or created_at < opened_at else opened_at
+
+        if _status(order.get("status")) == STATUS_CANCELLED:
+            for item in order.get("items") or []:
+                qty = _money(item.get("quantity"))
+                subtotal = _money(item.get("subtotal") or qty * _num(item.get("unit_price")))
+                loss_key = _clean(item.get("inventory_item_id") or item.get("product_id") or item.get("sku") or item.get("name")).lower()
+                if not loss_key:
+                    continue
+                loss_row = loss_product_map.setdefault(
+                    loss_key,
+                    {
+                        "name": _clean(item.get("name")) or "Producto",
+                        "sku": _clean(item.get("sku")),
+                        "quantity": 0.0,
+                        "unit_price": _money(item.get("unit_price")),
+                        "total": 0.0,
+                    },
+                )
+                loss_row["quantity"] = _money(loss_row["quantity"] + qty)
+                loss_row["total"] = _money(loss_row["total"] + subtotal)
+            continue
+
+        method = _payment_method(order.get("payment_method"))
+        method_totals[method] = _money(method_totals.get(method, 0) + _num(order.get("total")))
 
         table_name = _clean(order.get("table_number")) or "Barra"
         table_key = _table_key(table_name)
@@ -1680,6 +1923,7 @@ async def _create_day_closure(
             other_total = total_sold
 
     products = sorted(product_map.values(), key=lambda row: (_num(row.get("total")), _num(row.get("quantity"))), reverse=True)
+    loss_products = sorted(loss_product_map.values(), key=lambda row: (_num(row.get("total")), _num(row.get("quantity"))), reverse=True)
     tables = sorted(table_map.values(), key=lambda row: _num(row.get("total")), reverse=True)
     songs = sorted(song_map.values(), key=lambda row: int(row.get("count") or 0), reverse=True)
     worked_minutes = 0
@@ -1701,6 +1945,9 @@ async def _create_day_closure(
         "top_product": products[0] if products else None,
         "top_table": tables[0] if tables else None,
         "top_song": songs[0] if songs else None,
+        "loss_orders": len(cancelled_orders),
+        "loss_total": loss_total,
+        "loss_products": loss_products,
         "worked_minutes": worked_minutes,
         "worked_hours": round(worked_minutes / 60, 2) if worked_minutes else 0,
     }
@@ -1727,7 +1974,7 @@ async def _create_day_closure(
             "closure_number": closure_number,
             "opened_at": opened_at,
             "closed_by": _clean(payload.closed_by)[:180],
-            "orders_count": len(orders),
+            "orders_count": len(revenue_orders),
             "total_sold": total_sold,
             "cash_total": cash_total,
             "transfer_total": transfer_total,
@@ -2681,6 +2928,61 @@ async def activate_hospitality_table_access(
     }
 
 
+@router.post("/companies/{company_id}/qr-tables/access/close")
+async def close_hospitality_table_access(
+    company_id: uuid.UUID,
+    payload: HospitalityTableAccessCloseIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Close a table opened by mistake, but never bypass active orders."""
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    table_number = _clean(payload.table) or "Mesa"
+    table_key = _table_key(table_number)
+    active_result = await db.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND archived_at IS NULL
+              AND status IN ('pendiente', 'alistando', 'entregado')
+            """
+        ),
+        {"company_id": str(company_id), "table_key": table_key},
+    )
+    active_orders = int(active_result.scalar() or 0)
+    if active_orders > 0:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="mesa_tiene_pedidos_activos")
+
+    result = await db.execute(
+        text(
+            """
+            UPDATE hospitality_table_access
+            SET status = 'closed',
+                updated_at = NOW()
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND status = 'active'
+            RETURNING id
+            """
+        ),
+        {"company_id": str(company_id), "table_key": table_key},
+    )
+    closed = result.first() is not None
+    await db.commit()
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "table": table_number,
+        "closed": closed,
+        "status": "closed",
+    }
+
+
 @router.post("/companies/{company_id}/qr-tables/access/verify")
 async def verify_hospitality_table_access(
     company_id: uuid.UUID,
@@ -2755,29 +3057,52 @@ async def hospitality_qr_tables(
     rows = await db.execute(
         text(
             """
-            SELECT table_key,
-                   MIN(table_number) AS table_number,
-                   COUNT(*) AS active_orders,
-                   COALESCE(SUM(total), 0) AS open_total,
-                   MAX(updated_at) AS last_activity
+            SELECT *
             FROM hospitality_orders
             WHERE company_id = :company_id
               AND archived_at IS NULL
               AND status IN ('pendiente', 'alistando', 'entregado')
-            GROUP BY table_key
+            ORDER BY created_at DESC
+            LIMIT 500
             """
         ),
         {"company_id": str(company_id)},
     )
-    activity = {
-        _table_key(row["table_key"]): {
-            "table_number": row["table_number"] or "",
-            "active_orders": int(row["active_orders"] or 0),
-            "open_total": _money(row["open_total"]),
-            "last_activity": _iso(row["last_activity"]),
-        }
-        for row in rows.mappings().all()
-    }
+    activity: dict[str, dict[str, Any]] = {}
+    for raw in rows.mappings().all():
+        order = _payload(raw)
+        key = _table_key(order.get("table_key") or order.get("table_number"))
+        bucket = activity.setdefault(
+            key,
+            {
+                "table_number": order.get("table_number") or "",
+                "active_orders": 0,
+                "open_total": 0.0,
+                "last_activity": "",
+                "open_orders": [],
+            },
+        )
+        bucket["active_orders"] += 1
+        bucket["open_total"] = _money(bucket["open_total"] + _num(order.get("total")))
+        if not bucket["last_activity"]:
+            bucket["last_activity"] = order.get("updated_at") or ""
+        bucket["open_orders"].append(order)
+
+    loss_result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND archived_at IS NULL
+              AND status = 'cancelado'
+            ORDER BY cancelled_at DESC NULLS LAST, updated_at DESC
+            LIMIT 100
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    losses = [_payload(row) for row in loss_result.mappings().all()]
 
     access_rows = await db.execute(
         text(
@@ -2820,6 +3145,7 @@ async def hospitality_qr_tables(
                 "admin_url": f"{base}/client?company_id={company_id}",
                 "active_orders": int(stats.get("active_orders") or 0),
                 "open_total": _money(stats.get("open_total")),
+                "open_orders": stats.get("open_orders") or [],
                 "last_activity": stats.get("last_activity") or "",
                 "access_active": bool(access.get("active")),
                 "access_code": access.get("access_code") or "",
@@ -2832,10 +3158,13 @@ async def hospitality_qr_tables(
         "company_id": str(company_id),
         "base_url": base,
         "tables": tables,
+        "losses": losses,
         "summary": {
             "qr_count": len(tables),
             "open_accounts": sum(int(row["active_orders"] or 0) for row in tables),
             "open_total": _money(sum(_num(row["open_total"]) for row in tables)),
+            "loss_orders": len(losses),
+            "loss_total": _money(sum(_num(row.get("total")) for row in losses)),
         },
     }
 
@@ -2970,12 +3299,15 @@ async def list_hospitality_orders(
         song_params,
     )
     song_requests = [_song_request_payload(row) for row in song_result.mappings().all()]
-    counts = {STATUS_PENDING: 0, STATUS_PREPARING: 0, STATUS_SERVED: 0, STATUS_CLOSED: 0}
+    counts = {STATUS_PENDING: 0, STATUS_PREPARING: 0, STATUS_SERVED: 0, STATUS_CLOSED: 0, STATUS_CANCELLED: 0}
     total_open = 0.0
+    loss_total = 0.0
     for order in orders:
         counts[_status(order.get("status"))] = counts.get(_status(order.get("status")), 0) + 1
         if order.get("status") in ACTIVE_STATUSES:
             total_open += _money(order.get("total"))
+        elif order.get("status") == STATUS_CANCELLED:
+            loss_total += _money(order.get("total"))
 
     return {
         "ok": True,
@@ -2989,7 +3321,9 @@ async def list_hospitality_orders(
             "preparing": counts[STATUS_PREPARING],
             "served": counts[STATUS_SERVED],
             "closed": counts[STATUS_CLOSED],
+            "cancelled": counts[STATUS_CANCELLED],
             "open_total": _money(total_open),
+            "loss_total": _money(loss_total),
             "total": len(orders),
         },
     }
@@ -3308,6 +3642,35 @@ async def export_hospitality_dashboard_pdf(
     )
 
 
+@router.get("/companies/{company_id}/reorder-suggestion")
+async def get_hospitality_reorder_suggestion(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    return await _hospitality_reorder_payload(db, company_id)
+
+
+@router.get("/companies/{company_id}/reorder-suggestion.pdf")
+async def export_hospitality_reorder_pdf(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    payload = await _hospitality_reorder_payload(db, company_id)
+    pdf_bytes = build_hospitality_reorder_pdf(payload)
+    filename = f"orden_pedido_{_now().date().isoformat()}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/companies/{company_id}/day-closures", status_code=status.HTTP_201_CREATED)
 async def create_hospitality_day_closure(
     company_id: uuid.UUID,
@@ -3501,3 +3864,51 @@ async def close_hospitality_order(
     await db.commit()
     saved = await _fetch_order(db, company_id, order_id)
     return {"ok": True, "order": saved, "table": saved}
+
+
+@router.post("/companies/{company_id}/orders/{order_id}/cancel")
+async def cancel_hospitality_order(
+    company_id: uuid.UUID,
+    order_id: uuid.UUID,
+    payload: HospitalityCancelIn | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Cancel an order without recognizing revenue and retain it as loss/waste."""
+    await _ensure_storage(db)
+    order = await _fetch_order(db, company_id, order_id)
+    current = _status(order.get("status"))
+    if current == STATUS_CANCELLED:
+        return {"ok": True, "already_cancelled": True, "order": order, "table": order}
+    if current not in ACTIVE_STATUSES:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="pedido_no_se_puede_cancelar")
+
+    reason = _clean(payload.reason if payload else None) or "Pedido cancelado / merma"
+    cancellation_metadata = {
+        "loss": True,
+        "loss_reason": reason[:500],
+        "cancelled_from_status": current,
+        "inventory_was_deducted": bool(order.get("inventory_deducted")),
+    }
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_orders
+            SET status = 'cancelado',
+                payment_method = 'other',
+                cancelled_at = COALESCE(cancelled_at, NOW()),
+                metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb),
+                updated_at = NOW()
+            WHERE id = :order_id
+              AND company_id = :company_id
+            """
+        ),
+        {
+            "order_id": str(order_id),
+            "company_id": str(company_id),
+            "metadata": json.dumps(cancellation_metadata, ensure_ascii=False),
+        },
+    )
+    await _close_table_access_if_idle(db, company_id, order.get("table_key") or order.get("table_number") or "")
+    await db.commit()
+    saved = await _fetch_order(db, company_id, order_id)
+    return {"ok": True, "loss_registered": True, "order": saved, "table": saved}
