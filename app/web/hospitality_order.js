@@ -37,6 +37,8 @@
     cartOpen: false,
     inventoryRecoveryAttempts: 0,
     customerName: "",
+    songDraft: "",
+    songSending: false,
     navigationGuarded: false,
     message: "",
     error: "",
@@ -273,6 +275,25 @@
       .qr-table-account span{color:var(--qr-muted);font-size:10px;font-weight:1000;letter-spacing:.12em;text-transform:uppercase}
       .qr-table-account strong{color:var(--qr-secondary);font-size:24px;line-height:1;font-weight:1000;white-space:nowrap}
       .qr-table-account small{color:var(--qr-muted);font-size:10px;font-weight:850}
+      .qr-song-request{
+        display:grid;
+        grid-template-columns:minmax(190px,.72fr) minmax(0,1.55fr);
+        gap:14px;
+        align-items:center;
+        padding:14px 16px;
+        border-radius:20px;
+        background:linear-gradient(135deg,color-mix(in srgb,var(--qr-primary) 16%,rgba(2,6,23,.86)),rgba(2,6,23,.76));
+        border:1px solid color-mix(in srgb,var(--qr-primary) 38%,var(--qr-line));
+        box-shadow:0 16px 42px rgba(0,0,0,.22);
+      }
+      .qr-song-copy{min-width:0}
+      .qr-song-copy span{display:block;color:var(--qr-primary);font-size:10px;font-weight:1000;letter-spacing:.13em;text-transform:uppercase}
+      .qr-song-copy strong{display:block;margin-top:3px;font-size:20px;line-height:1.05}
+      .qr-song-copy small{display:block;margin-top:5px;color:var(--qr-muted);font-size:11px;font-weight:800;line-height:1.25}
+      .qr-song-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center}
+      .qr-song-form input{width:100%;min-width:0;min-height:48px;border:1px solid var(--qr-line);border-radius:14px;background:rgba(2,6,23,.64);color:var(--qr-text);padding:12px 14px;outline:none;font-weight:900}
+      .qr-song-form input::placeholder{color:rgba(255,255,255,.44)}
+      .qr-song-form .qr-btn{min-height:48px;white-space:nowrap}
       .qr-hero-locked{padding:18px 20px}
       .qr-hero-locked h1{font-size:clamp(32px,7vw,54px)}
       .qr-logo{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;overflow:hidden;background:linear-gradient(135deg,var(--qr-primary),var(--qr-secondary));color:#111827;font-weight:1000}
@@ -540,6 +561,9 @@
         .qr-hero-account .qr-logo{grid-column:2;grid-row:1}
         .qr-hero-account .qr-table-account{grid-column:1/-1;grid-row:2;min-width:0;padding:11px 13px}
         .qr-table-account strong{font-size:22px}
+        .qr-song-request{grid-template-columns:1fr;padding:13px;gap:10px;border-radius:18px}
+        .qr-song-form{grid-template-columns:1fr auto}
+        .qr-song-copy strong{font-size:18px}
         .qr-hero h1{font-size:34px;line-height:1}
         .qr-hero .qr-muted{margin:8px 0 0;font-size:14px}
         .qr-logo{width:48px;height:48px;border-radius:14px}
@@ -1380,6 +1404,7 @@
     const itemCount = cartItemCount();
     const total = cartTotal();
     const tableAccount = state.tableAccount || {};
+    const songDraft = document.getElementById("qrSongRequest031C")?.value || state.songDraft || "";
 
     app.innerHTML = `
       <main class="qr-shell">
@@ -1395,6 +1420,18 @@
             <small id="qrTableAccountMeta030B">${h(tableAccountMeta())}</small>
           </div>
           <div class="qr-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName)}">` : h(companyName.slice(0, 1).toUpperCase())}</div>
+        </section>
+
+        <section class="qr-song-request" aria-label="Solicitud musical independiente">
+          <div class="qr-song-copy">
+            <span>Solicitud musical</span>
+            <strong>¿Qué deseas escuchar?</strong>
+            <small>Pide una canción cuando quieras, sin necesidad de agregar productos al carrito.</small>
+          </div>
+          <div class="qr-song-form">
+            <input id="qrSongRequest031C" maxlength="220" autocomplete="off" placeholder="Ej: Música de plancha, Simplemente amigos, Juan Gabriel" value="${h(songDraft)}">
+            <button class="qr-btn" type="button" data-submit-song ${state.songSending ? "disabled" : ""}>${state.songSending ? "Enviando..." : "Pedir canción"}</button>
+          </div>
         </section>
 
         ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
@@ -1429,10 +1466,6 @@
               ${state.customerName ? `<small>Nombre recordado en este dispositivo</small>` : ""}
             </label>
             <div id="qrCartLines024S">${cartRows()}</div>
-            <label class="qr-field">
-              <span>Canciones</span>
-              <input id="qrSongs024S" placeholder="Ej: Salsa choque, Provenza" value="${h(document.getElementById("qrSongs024S")?.value || "")}">
-            </label>
             <label class="qr-field">
               <span>Notas</span>
               <textarea id="qrNotes024S" placeholder="Sin hielo, poco dulce...">${h(document.getElementById("qrNotes024S")?.value || "")}</textarea>
@@ -1484,6 +1517,54 @@
     render();
   }
 
+  async function submitSongRequest() {
+    if (!state.access?.unlocked) {
+      state.error = "Activa la mesa con la clave antes de pedir una canción.";
+      state.message = "";
+      render();
+      return;
+    }
+    const song = String(document.getElementById("qrSongRequest031C")?.value || state.songDraft || "").trim();
+    if (!song) {
+      state.error = "Escribe la canción o el artista que deseas escuchar.";
+      state.message = "";
+      document.getElementById("qrSongRequest031C")?.focus();
+      return;
+    }
+    if (state.songSending) return;
+    state.songDraft = song;
+    state.songSending = true;
+    state.error = "";
+    state.message = "";
+    render();
+    try {
+      await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/song-requests`, {
+        method: "POST",
+        body: JSON.stringify({
+          table: state.table,
+          customer: state.customerName || "Cliente mesa",
+          access_code: state.access.code || storedAccessCode(),
+          song,
+        }),
+      });
+      state.songDraft = "";
+      state.message = `Solicitud musical enviada: ${song}.`;
+      state.error = "";
+    } catch (error) {
+      if (isDefinitiveAccessError(error)) {
+        forgetAccessCode();
+        releaseTableNavigationGuard();
+        state.access.unlocked = false;
+        state.access.code = "";
+      }
+      state.error = error.message || "No se pudo enviar la solicitud musical.";
+      state.message = "";
+    } finally {
+      state.songSending = false;
+      render();
+    }
+  }
+
   async function submitOrder() {
     if (!state.access?.unlocked) {
       state.error = "Activa la mesa con la clave antes de enviar pedidos.";
@@ -1504,14 +1585,12 @@
       state.message = "Enviando pedido...";
       render();
       const customer = document.getElementById("qrCustomer024S")?.value || state.customerName || "Cliente mesa";
-      const songs = document.getElementById("qrSongs024S")?.value || "";
       const notes = document.getElementById("qrNotes024S")?.value || "";
       const payload = {
         table: state.table,
         customer,
         source: "qr",
         access_code: state.access.code || storedAccessCode(),
-        songs,
         notes,
         items: items.map((item) => ({
           inventory_item_id: item.id,
@@ -1869,6 +1948,10 @@
     }
     if (target.closest("[data-submit-order]")) {
       submitOrder();
+      return;
+    }
+    if (target.closest("[data-submit-song]")) {
+      submitSongRequest();
     }
   });
 
@@ -1877,6 +1960,10 @@
     if (!(target instanceof HTMLInputElement)) return;
     if (target.id === "qrCustomer024S") {
       rememberCustomerName(target.value);
+      return;
+    }
+    if (target.id === "qrSongRequest031C") {
+      state.songDraft = target.value;
       return;
     }
     if (target.id !== "qrSearch024X") return;
@@ -1908,6 +1995,10 @@
         render();
       });
       return;
+    }
+    if (target.id === "qrSongRequest031C" && event.key === "Enter") {
+      event.preventDefault();
+      submitSongRequest();
     }
   });
 

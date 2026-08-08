@@ -141,3 +141,33 @@ def test_manual_bar_form_can_charge_products_to_a_table_account():
     assert "El pedido activara la mesa" in source
     assert 'createButton.textContent = isTable ? "Agregar pedido a mesa" : "Crear venta barra"' in source
     assert "030D_HOSPITALITY_LIVE_ORDERS" in html
+
+
+def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender():
+    public = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
+    public_html = Path("app/web/hospitality_order.html").read_text(encoding="utf-8")
+    panel = Path("app/web/client.js").read_text(encoding="utf-8")
+    panel_html = Path("app/web/client.html").read_text(encoding="utf-8")
+    backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
+
+    assert "¿Qué deseas escuchar?" in public
+    assert "Música de plancha, Simplemente amigos, Juan Gabriel" in public
+    assert 'id="qrSongRequest031C"' in public
+    assert "data-submit-song" in public
+    assert "/song-requests`" in public
+    assert "qrSongs024S" not in public
+    assert "Salsa choque" not in public
+    assert "Provenza" not in public
+
+    assert 'router.post("/companies/{company_id}/song-requests"' in backend
+    assert 'router.patch("/companies/{company_id}/song-requests/{request_id}/status")' in backend
+    assert "CREATE TABLE IF NOT EXISTS hospitality_song_requests" in backend
+    assert '"song_requests": song_requests' in backend
+
+    assert "Solicitudes musicales" in panel
+    assert "Nueva solicitud musical" in panel
+    assert "data-hsp-song-status" in panel
+    assert "Marcar sonando" in panel
+    assert "Marcar reproducida" in panel
+    assert "031C_FREE_SONG_REQUESTS" in public_html
+    assert "031C_FREE_SONG_REQUESTS" in panel_html
