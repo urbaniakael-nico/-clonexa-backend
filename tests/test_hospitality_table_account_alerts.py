@@ -305,7 +305,17 @@ def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender()
     assert "data-hsp-song-search" in panel
     assert "hsp-song-table-head-031h" in panel
     assert "max-height:310px;overflow-y:auto" in panel
-    assert "031J_GLOBAL_ALERTS_SONG_QUEUE_RESERVED_STOCK" in panel_html
+    assert "031K_LIVE_SONG_QUEUE_CLEAN_PANEL" in panel_html
+    assert "cxHspPaintSongQueue031K(songs)" in panel
+    song_card = panel.split("function cxHspSongRequestCard031C", 1)[1].split("function cxHspRenderSongRequests031C", 1)[0]
+    song_list = panel.split("function cxHspRenderSongRequests031C", 1)[1].split("function cxHspPaintSongQueue031K", 1)[0]
+    assert "customer_name" not in song_card
+    assert "created_at" not in song_card
+    assert "hsp-song-time-031h" not in song_card
+    assert "Mesa / cliente" not in song_list
+    assert "<span>Hora</span>" not in song_list
+    assert "<span>Mesa</span>" in song_list
+    assert "overflow-wrap:anywhere;white-space:normal" in panel
     assert 'router.post("/companies/{company_id}/song-requests/{request_id}/archive")' in backend
     assert "CAST(:next_status AS VARCHAR)" in backend
     assert "pg_advisory_xact_lock" in backend
