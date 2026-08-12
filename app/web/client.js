@@ -20480,6 +20480,11 @@ function inventoryCreatePayload() {
   let cxHspDashboardAlertsReady030D = false;
   let cxHspStoredAlertsArmed030D = false;
   let cxHspInteractionHoldUntil031G = 0;
+  let cxHspSongSearch031H = "";
+  let cxHspGlobalMonitorReady031H = false;
+  let cxHspGlobalMonitorBusy031H = false;
+  let cxHspGlobalActiveTableKeys031H = new Set();
+  let cxHspDesktopPermissionArmed031H = false;
 
   function cxHspHoldInteraction031G(durationMs = 90000) {
     cxHspInteractionHoldUntil031G = Math.max(
@@ -20804,13 +20809,19 @@ function inventoryCreatePayload() {
     });
     if (!fresh.length) return;
     const songRequests = fresh.filter((order) => String(order.source || "").toLowerCase() === "qr_song");
+    const tableEvents = fresh.filter((order) => String(order.source || "").toLowerCase() === "qr_table");
+    const orderEvents = fresh.filter((order) => !songRequests.includes(order) && !tableEvents.includes(order));
     const tables = [...new Set(fresh.map((order) => order.table_number || "Mesa"))];
-    const title = songRequests.length === fresh.length
+    const title = tableEvents.length === fresh.length
+      ? (fresh.length === 1 ? "Nueva mesa activa" : `${fresh.length} mesas activas nuevas`)
+      : songRequests.length === fresh.length
       ? (fresh.length === 1 ? "Nueva solicitud musical" : `${fresh.length} solicitudes musicales nuevas`)
-      : (fresh.length === 1 ? "Nuevo pedido pendiente" : `${fresh.length} novedades de mesas`);
+      : orderEvents.length === fresh.length
+        ? (fresh.length === 1 ? "Nuevo pedido pendiente" : `${fresh.length} pedidos pendientes nuevos`)
+        : `${fresh.length} novedades de mesas`;
     const songDetail = songRequests.length === 1 ? ` · ${songRequests[0].song || "Canción solicitada"}` : "";
     const detail = tables.slice(0, 3).join(" · ") + (tables.length > 3 ? "..." : "") + songDetail;
-    const host = document.getElementById("hspOrderAlerts030B");
+    const host = cxHspEnsureAlertHost031H();
     if (host && cxHspVisualAlertsOn031D) {
       const toast = document.createElement("div");
       toast.className = "hsp-order-alert-030b";
@@ -20823,6 +20834,93 @@ function inventoryCreatePayload() {
     if (cxHspVisualAlertsOn031D && "Notification" in window && window.Notification.permission === "granted") {
       new window.Notification(title, { body: detail, tag: "clonexa-hospitality-order" });
     }
+  }
+
+  function cxHspEnsureAlertHost031H() {
+    let host = document.getElementById("hspOrderAlerts030B");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "hspOrderAlerts030B";
+      host.className = "hsp-order-alerts-030b";
+      host.setAttribute("aria-live", "assertive");
+      host.setAttribute("aria-atomic", "false");
+      document.body.appendChild(host);
+    }
+    return host;
+  }
+
+  function cxHspArmDesktopNotifications031H() {
+    if (
+      cxHspDesktopPermissionArmed031H
+      || !cxHspVisualAlertsOn031D
+      || !("Notification" in window)
+      || window.Notification.permission !== "default"
+    ) return;
+    cxHspDesktopPermissionArmed031H = true;
+    const requestPermission = () => {
+      window.removeEventListener("pointerdown", requestPermission, true);
+      window.removeEventListener("keydown", requestPermission, true);
+      cxHspDesktopPermissionArmed031H = false;
+      window.Notification.requestPermission().catch(() => {});
+    };
+    window.addEventListener("pointerdown", requestPermission, { once: true, capture: true });
+    window.addEventListener("keydown", requestPermission, { once: true, capture: true });
+  }
+
+  async function cxHspPollGlobalAlerts031H() {
+    if (cxHspGlobalMonitorBusy031H || !state.companyId) return;
+    cxHspGlobalMonitorBusy031H = true;
+    try {
+      const config = cxHspQrConfigFromModules025N(activeClientModules());
+      const [ordersData, qrData] = await Promise.all([
+        cxHspApi024R("/orders?status=active&limit=500"),
+        cxHspApi024R(`/qr-tables?count=${encodeURIComponent(config.count || 12)}&include_bar=${config.includeBar ? "true" : "false"}`),
+      ]);
+      const orders = Array.isArray(ordersData.tables || ordersData.orders) ? (ordersData.tables || ordersData.orders) : [];
+      const songs = Array.isArray(ordersData.song_requests) ? ordersData.song_requests : [];
+      const activeTables = (Array.isArray(qrData.tables) ? qrData.tables : [])
+        .filter((table) => Boolean(table.access_active))
+        .map((table) => ({
+          id: `table:${String(table.table_key || table.label || "")}`,
+          table_key: String(table.table_key || table.label || ""),
+          table_number: table.label || "Mesa",
+          source: "qr_table",
+          status: "pendiente",
+        }));
+
+      const fresh = [];
+      if (cxHspGlobalMonitorReady031H) {
+        orders.forEach((order) => {
+          const id = String(order.id || "");
+          if (id && !cxHspKnownOrderIds030B.has(id)) fresh.push(order);
+        });
+        songs.forEach((request) => {
+          const id = request.id ? `song:${String(request.id)}` : "";
+          if (id && !cxHspKnownOrderIds030B.has(id)) fresh.push(request);
+        });
+        activeTables.forEach((table) => {
+          if (table.table_key && !cxHspGlobalActiveTableKeys031H.has(table.table_key)) fresh.push(table);
+        });
+      }
+
+      orders.forEach((order) => { if (order.id) cxHspKnownOrderIds030B.add(String(order.id)); });
+      songs.forEach((request) => { if (request.id) cxHspKnownOrderIds030B.add(`song:${String(request.id)}`); });
+      cxHspGlobalActiveTableKeys031H = new Set(activeTables.map((table) => table.table_key).filter(Boolean));
+      cxHspGlobalMonitorReady031H = true;
+      cxHspNotifyNewOrders030B(fresh);
+    } catch (_) {
+      // Retry silently on the next cycle without interrupting the active module.
+    } finally {
+      cxHspGlobalMonitorBusy031H = false;
+    }
+  }
+
+  function cxHspStartGlobalMonitor031H() {
+    cxHspEnsureAlertHost031H();
+    cxHspArmDesktopNotifications031H();
+    if (window.__cxHspGlobalAlertsTimer031H) window.clearInterval(window.__cxHspGlobalAlertsTimer031H);
+    void cxHspPollGlobalAlerts031H();
+    window.__cxHspGlobalAlertsTimer031H = window.setInterval(cxHspPollGlobalAlerts031H, 5000);
   }
 
   function cxHspStyles024R() {
@@ -20937,7 +21035,7 @@ function inventoryCreatePayload() {
       .hsp-bar-items-031d{display:grid;border:1px solid rgba(255,255,255,.09);border-radius:13px;overflow:hidden}.hsp-bar-item-031d{display:flex;justify-content:space-between;gap:10px;padding:9px 10px;background:rgba(3,7,18,.28);border-top:1px solid rgba(255,255,255,.07);font-weight:850}.hsp-bar-item-031d:first-child{border-top:0}.hsp-bar-item-031d small{display:block;color:var(--hsp-muted);margin-top:2px}
       .hsp-bar-total-031d{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:13px;background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.24);font-size:17px;font-weight:1000}
       .hsp-bar-close-031d{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end}.hsp-bar-close-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase}.hsp-bar-change-031d{color:#86efac;font-size:11px;font-weight:900;min-height:16px}
-      .hsp-song-queue-031c{max-height:620px;overflow:auto;position:sticky;top:12px}
+      .hsp-song-queue-031c{position:sticky;top:12px;min-width:0}
       .hsp-field-024r label{display:block;color:var(--hsp-muted);font-size:11px;font-weight:950;margin:9px 0 6px;text-transform:uppercase;letter-spacing:.10em}
       .hsp-field-024r input,.hsp-field-024r select,.hsp-field-024r textarea,
       .hsp-line-024r input,.hsp-line-024r select{
@@ -21031,15 +21129,20 @@ function inventoryCreatePayload() {
       .hsp-account-row-024y{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:950;color:var(--cx-text,#fff)}
       .hsp-account-row-024y small{display:block;color:var(--hsp-muted);font-size:10px;font-weight:850;margin-top:2px}
       .hsp-songs-024r,.hsp-notes-024r{background:color-mix(in srgb,var(--hsp-primary) 14%,transparent);border:1px solid color-mix(in srgb,var(--hsp-primary) 34%,transparent);color:var(--cx-text,#fff);border-radius:14px;padding:10px 12px;margin:10px 0;white-space:pre-wrap;font-weight:850}
-      .hsp-song-queue-031c{display:grid;gap:10px}
-      .hsp-song-queue-head-031c{display:flex;align-items:center;justify-content:space-between;gap:12px}
+      .hsp-song-queue-031c{display:grid;gap:9px}
+      .hsp-song-queue-head-031c{display:flex;align-items:center;justify-content:space-between;gap:10px}
       .hsp-song-queue-head-031c h2{margin:0}
-      .hsp-song-list-031c{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
-      .hsp-song-card-031c{display:grid;gap:10px;padding:13px;border-radius:16px;background:linear-gradient(145deg,color-mix(in srgb,var(--hsp-primary) 15%,rgba(3,7,18,.72)),rgba(3,7,18,.48));border:1px solid color-mix(in srgb,var(--hsp-primary) 38%,var(--hsp-line));box-shadow:0 12px 28px rgba(0,0,0,.17)}
-      .hsp-song-card-head-031c{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-      .hsp-song-card-head-031c strong{display:block;font-size:18px;color:var(--cx-text,#fff)}
-      .hsp-song-card-head-031c small{display:block;margin-top:3px;color:var(--hsp-muted);font-size:11px;font-weight:850}
-      .hsp-song-title-031c{padding:11px 12px;border-radius:13px;background:rgba(3,7,18,.42);border:1px solid rgba(255,255,255,.10);font-size:17px;font-weight:1000;color:var(--hsp-secondary)}
+      .hsp-song-search-031h{width:100%;box-sizing:border-box;background:rgba(3,7,18,.62);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:11px;padding:9px 11px;font-size:12px;font-weight:850;outline:none}
+      .hsp-song-search-031h:focus{border-color:var(--hsp-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--hsp-primary) 18%,transparent)}
+      .hsp-song-list-031c{display:grid;gap:0;max-height:310px;overflow-y:auto;border:1px solid rgba(255,255,255,.11);border-radius:13px;background:rgba(3,7,18,.30)}
+      .hsp-song-table-head-031h,.hsp-song-row-031h{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(86px,.65fr) 64px 72px;gap:8px;align-items:center;padding:8px 10px}
+      .hsp-song-table-head-031h{position:sticky;top:0;z-index:1;background:color-mix(in srgb,var(--hsp-card) 94%,#020617);color:var(--hsp-muted);font-size:9px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid rgba(255,255,255,.10)}
+      .hsp-song-row-031h{min-height:38px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;font-weight:850}
+      .hsp-song-row-031h:first-of-type{border-top:0}.hsp-song-row-031h:hover{background:color-mix(in srgb,var(--hsp-primary) 9%,transparent)}
+      .hsp-song-title-031c{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--hsp-secondary);font-size:12px;font-weight:1000}
+      .hsp-song-meta-031h{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--cx-text,#fff)}
+      .hsp-song-meta-031h small{display:block;color:var(--hsp-muted);font-size:9px;overflow:hidden;text-overflow:ellipsis}
+      .hsp-song-time-031h{color:var(--hsp-muted);font-size:10px}.hsp-song-archive-031h{min-height:29px!important;padding:5px 8px!important;border-radius:9px!important;font-size:10px}
       .hsp-pill-024r.music{background:linear-gradient(135deg,var(--hsp-primary),#c4b5fd);color:#160b2e}
       .hsp-empty-024r{color:var(--hsp-muted);border:1px dashed rgba(255,255,255,.18);padding:22px;border-radius:14px;text-align:center;font-size:14px;font-weight:850}
       .hsp-msg-024r{display:none;margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.24);color:#bae6fd;white-space:pre-wrap;font-weight:850}
@@ -21060,7 +21163,7 @@ function inventoryCreatePayload() {
       .hsp-closure-chip-024u b{display:block;margin-top:6px;font-size:18px;color:var(--cx-text,#fff)}
       .hsp-closure-actions-024u{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px}
       @media(max-width:1420px){.hsp-form-box-024r{grid-template-columns:minmax(190px,.72fr) minmax(500px,1.35fr) minmax(330px,1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(300px,.9fr) minmax(300px,1fr);align-items:end}.hsp-calc-screen-024r{grid-template-columns:1fr 1fr}.hsp-stats-024r{grid-template-columns:repeat(4,minmax(90px,1fr))}.hsp-bar-create-031d{grid-template-columns:repeat(3,minmax(0,1fr))}}
-      @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-operations-grid-031d{grid-template-columns:1fr}.hsp-song-queue-031c{position:static;max-height:none}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(2,minmax(110px,1fr))}}
+      @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-operations-grid-031d{grid-template-columns:1fr}.hsp-song-queue-031c{position:static}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(2,minmax(110px,1fr))}}
       @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-bar-create-031d,.hsp-bar-add-031d,.hsp-bar-close-031d,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
       @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}.hsp-close-controls-030a{grid-template-columns:1fr}.hsp-close-help-030a{grid-column:auto}.hsp-dashboard-pending-banner-030d{grid-template-columns:38px 1fr}.hsp-dashboard-pending-banner-030d small,.hsp-dashboard-pending-banner-030d b{grid-column:2}}
     `;
@@ -21443,48 +21546,35 @@ function inventoryCreatePayload() {
     ) return;
     const nextOrders = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
     const nextSongRequests = Array.isArray(data.song_requests) ? data.song_requests : [];
-    const newOrders = cxHspOrderAlertsReady030B
-      ? nextOrders.filter((order) => order.id && !cxHspKnownOrderIds030B.has(String(order.id)))
-      : [];
-    const newSongRequests = cxHspOrderAlertsReady030B
-      ? nextSongRequests.filter((request) => request.id && !cxHspKnownOrderIds030B.has(`song:${String(request.id)}`))
-      : [];
-    nextOrders.forEach((order) => {
-      if (order.id) cxHspKnownOrderIds030B.add(String(order.id));
-    });
-    nextSongRequests.forEach((request) => {
-      if (request.id) cxHspKnownOrderIds030B.add(`song:${String(request.id)}`);
-    });
     cxHspOrders024R = nextOrders;
     cxHspSongRequests031C = nextSongRequests;
     cxHspOrderAlertsReady030B = true;
     cxHspRenderOrdersBoard024R(data.summary || {});
-    cxHspNotifyNewOrders030B([...newOrders, ...newSongRequests]);
   }
 
   function cxHspSongRequestCard031C(request = {}) {
-    const status = String(request.status || "pendiente");
-    const statusAction = status === "pendiente"
-      ? `<button class="hsp-btn-024r yellow" type="button" data-hsp-song-status="${h(request.id)}" data-hsp-song-next="sonando">Marcar sonando</button>`
-      : status === "sonando"
-        ? `<button class="hsp-btn-024r green" type="button" data-hsp-song-status="${h(request.id)}" data-hsp-song-next="reproducida">Marcar reproducida</button>`
-        : "";
-    const archiveAction = `<button class="hsp-btn-024r secondary" type="button" data-hsp-song-archive="${h(request.id)}">Archivar</button>`;
+    const createdAt = request.created_at ? new Date(request.created_at) : null;
+    const time = createdAt && !Number.isNaN(createdAt.getTime())
+      ? createdAt.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })
+      : "--:--";
     return `
-      <article class="hsp-song-card-031c">
-        <div class="hsp-song-card-head-031c">
-          <div><strong>${h(request.table_number || "Mesa")}</strong><small>${h(request.customer_name || "Cliente mesa")}</small></div>
-          <span class="hsp-pill-024r music">${h(status)}</span>
-        </div>
+      <article class="hsp-song-row-031h">
         <div class="hsp-song-title-031c">♫ ${h(request.song || "Canción solicitada")}</div>
-        <div class="hsp-actions-024r">${statusAction}${archiveAction}</div>
+        <div class="hsp-song-meta-031h">${h(request.table_number || "Mesa")}<small>${h(request.customer_name || "Cliente mesa")}</small></div>
+        <time class="hsp-song-time-031h">${h(time)}</time>
+        <button class="hsp-btn-024r secondary hsp-song-archive-031h" type="button" data-hsp-song-archive="${h(request.id)}">Archivar</button>
       </article>`;
   }
 
   function cxHspRenderSongRequests031C() {
-    const active = cxHspSongRequests031C.filter((request) => ["pendiente", "sonando", "reproducida"].includes(String(request.status || "")) && !request.archived_at);
-    if (!active.length) return `<div class="hsp-empty-024r">Sin solicitudes musicales pendientes</div>`;
-    return active.map(cxHspSongRequestCard031C).join("");
+    const query = String(cxHspSongSearch031H || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const active = cxHspSongRequests031C.filter((request) => {
+      if (!["pendiente", "sonando", "reproducida"].includes(String(request.status || "")) || request.archived_at) return false;
+      const haystack = `${request.song || ""} ${request.table_number || ""} ${request.customer_name || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      return !query || haystack.includes(query);
+    });
+    if (!active.length) return `<div class="hsp-empty-024r">${query ? "No hay canciones que coincidan con la búsqueda" : "Sin solicitudes musicales pendientes"}</div>`;
+    return `<div class="hsp-song-table-head-031h"><span>Canción</span><span>Mesa / cliente</span><span>Hora</span><span>Acción</span></div>${active.map(cxHspSongRequestCard031C).join("")}`;
   }
 
   function cxHspIsBarAccount031D(order = {}) {
@@ -21851,6 +21941,7 @@ function inventoryCreatePayload() {
                     <div><div class="client-eyebrow">Música por mesa</div><h2>Solicitudes musicales</h2></div>
                     <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
                   </div>
+                  <input class="hsp-song-search-031h" type="search" data-hsp-song-search placeholder="Buscar canción, mesa o cliente..." value="${h(cxHspSongSearch031H)}" />
                   <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>
                 </section>
               </div>
@@ -21883,6 +21974,7 @@ function inventoryCreatePayload() {
     cxHspSyncAlertButton030B();
     cxHspSyncBarDestination031F();
     cxHspArmStoredAlerts030D();
+    cxHspStartGlobalMonitor031H();
 
     if (window.__cxHspOrdersTimer024R) window.clearInterval(window.__cxHspOrdersTimer024R);
     window.__cxHspOrdersTimer024R = window.setInterval(async () => {
@@ -21907,6 +21999,12 @@ function inventoryCreatePayload() {
 
   document.addEventListener("input", (event) => {
     if (cxHspIsInteractiveTarget031G(event.target)) cxHspHoldInteraction031G();
+    const songSearch = event.target instanceof Element ? event.target.closest("[data-hsp-song-search]") : null;
+    if (songSearch) {
+      cxHspSongSearch031H = songSearch.value || "";
+      const list = document.getElementById("hspSongRequests031C");
+      if (list) list.innerHTML = cxHspRenderSongRequests031C();
+    }
   });
 
   document.addEventListener("change", (event) => {
@@ -29986,22 +30084,6 @@ function inventoryCreatePayload() {
         return;
       }
 
-      const hspSongStatus = target.closest("[data-hsp-song-status]");
-      if (hspSongStatus) {
-        try {
-          const id = hspSongStatus.getAttribute("data-hsp-song-status");
-          const next = hspSongStatus.getAttribute("data-hsp-song-next");
-          await cxHspApi024R(`/song-requests/${encodeURIComponent(id)}/status`, {
-            method: "PATCH",
-            body: JSON.stringify({ status: next }),
-          });
-          await cxHspLoadOrders024R();
-        } catch (error) {
-          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo actualizar la solicitud musical.", true);
-        }
-        return;
-      }
-
       const hspSongArchive = target.closest("[data-hsp-song-archive]");
       if (hspSongArchive) {
         try {
@@ -31455,6 +31537,7 @@ function inventoryCreatePayload() {
     if (hasHospitalityDashboard) {
       cxHspSyncAlertButton030B();
       cxHspArmStoredAlerts030D();
+      cxHspStartGlobalMonitor031H();
       cxHspStartDashboardMonitor030D();
     }
   }
@@ -31633,7 +31716,8 @@ function inventoryCreatePayload() {
         });
         state.dashboardMetrics = { ...(state.dashboardMetrics || {}), hospitalityDashboard025I: next };
         cxHspPaintDashboardMetrics030D(next);
-        cxHspNotifyNewOrders030B(fresh);
+        // The global Hospitality monitor owns notifications on every module;
+        // this dashboard loop only refreshes KPIs and the pending banner.
       } catch (_) {}
     }, 5000);
   }
