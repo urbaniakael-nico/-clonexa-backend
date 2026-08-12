@@ -88,7 +88,7 @@ def test_orders_and_dashboard_alert_for_new_table_orders_after_initial_load():
     source = Path("app/web/client.js").read_text(encoding="utf-8")
 
     assert "cxHspOrderAlertsReady030B" in source
-    assert "!cxHspKnownOrderIds030B.has(String(order.id))" in source
+    assert "!cxHspKnownOrderIds030B.has(id)" in source
     assert "!cxHspIsBarOnlyOrder031D(order)" in source
     assert "cxHspPlayNewOrderSound030B" in source
     assert "cxHspStartDashboardMonitor030D" in source
@@ -183,6 +183,96 @@ def test_hospitality_deactivates_inventory_at_the_configured_minimum():
     assert "status = CASE WHEN :deactivate_at_minimum THEN 'inactive' ELSE status END" in deduct
     assert "COALESCE(current_stock, 0) <= COALESCE(min_stock, 0)" in inventory_lite
     assert "SET status = 'inactive'" in inventory_lite
+    assert "allow_inactive_reserved: bool = False" in deduct
+    assert 'and not allow_inactive_reserved' in deduct
+    assert "await _deduct_inventory(db, company_id, order, allow_inactive_reserved=True)" in backend
+    assert "Reserve stock as soon as an order is accepted" in backend
+    assert "SET inventory_deducted = TRUE" in backend
+
+
+@pytest.mark.asyncio
+async def test_legacy_accepted_order_can_finish_after_minimum_auto_deactivation():
+    company_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    order_id = uuid.uuid4()
+
+    class ScalarOrMappingResult:
+        def __init__(self, *, scalar_value=None, row=None):
+            self.scalar_value = scalar_value
+            self.row = row
+
+        def scalar(self):
+            return self.scalar_value
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.row
+
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                ScalarOrMappingResult(scalar_value="inventory_items"),
+                ScalarOrMappingResult(row={"id": item_id, "current_stock": 4, "min_stock": 4, "status": "inactive"}),
+                ScalarOrMappingResult(),
+                ScalarOrMappingResult(scalar_value=None),
+            ]
+        )
+    )
+    order = {
+        "id": str(order_id),
+        "order_number": "QR-TEST-1",
+        "table_number": "Mesa 8",
+        "inventory_deducted": False,
+        "items": [{"inventory_item_id": str(item_id), "name": "Cerveza Costeña", "quantity": 1}],
+    }
+
+    await hospitality._deduct_inventory(db, company_id, order, allow_inactive_reserved=True)
+
+    update_call = db.execute.await_args_list[2]
+    assert "SET current_stock = :after" in str(update_call.args[0])
+    assert update_call.args[1]["after"] == 3
+    assert update_call.args[1]["deactivate_at_minimum"] is True
+
+
+@pytest.mark.asyncio
+async def test_legacy_accepted_order_still_refuses_negative_inventory():
+    company_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+
+    class ScalarOrMappingResult:
+        def __init__(self, *, scalar_value=None, row=None):
+            self.scalar_value = scalar_value
+            self.row = row
+
+        def scalar(self):
+            return self.scalar_value
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.row
+
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                ScalarOrMappingResult(scalar_value="inventory_items"),
+                ScalarOrMappingResult(row={"id": item_id, "current_stock": 0, "min_stock": 4, "status": "inactive"}),
+            ]
+        )
+    )
+    order = {
+        "inventory_deducted": False,
+        "items": [{"inventory_item_id": str(item_id), "name": "Cerveza Costeña", "quantity": 1}],
+    }
+
+    with pytest.raises(hospitality.HTTPException) as exc:
+        await hospitality._deduct_inventory(db, company_id, order, allow_inactive_reserved=True)
+
+    assert exc.value.status_code == 409
+    assert "Stock insuficiente" in exc.value.detail
 
 
 def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender():
@@ -208,10 +298,14 @@ def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender()
 
     assert "Solicitudes musicales" in panel
     assert "Nueva solicitud musical" in panel
-    assert "data-hsp-song-status" in panel
-    assert "Marcar sonando" in panel
-    assert "Marcar reproducida" in panel
+    assert "data-hsp-song-status" not in panel
+    assert "Marcar sonando" not in panel
+    assert "Marcar reproducida" not in panel
     assert "data-hsp-song-archive" in panel
+    assert "data-hsp-song-search" in panel
+    assert "hsp-song-table-head-031h" in panel
+    assert "max-height:310px;overflow-y:auto" in panel
+    assert "031J_GLOBAL_ALERTS_SONG_QUEUE_RESERVED_STOCK" in panel_html
     assert 'router.post("/companies/{company_id}/song-requests/{request_id}/archive")' in backend
     assert "CAST(:next_status AS VARCHAR)" in backend
     assert "pg_advisory_xact_lock" in backend
@@ -234,6 +328,10 @@ def test_qr_hides_stock_and_panel_has_independent_alert_switches_and_new_kpis():
     assert "031D_HIDE_QR_STOCK" in public_html
     assert "data-hsp-toggle-visual-alerts" in panel
     assert "data-hsp-toggle-sound-alerts" in panel
+    assert "cxHspStartGlobalMonitor031H" in panel
+    assert "cxHspPollGlobalAlerts031H" in panel
+    assert 'source: "qr_table"' in panel
+    assert "Nueva mesa activa" in panel
     assert "Próximo en acabar" in panel
     assert "Cantidad disponible" in panel
     assert "Mesas abiertas" in panel

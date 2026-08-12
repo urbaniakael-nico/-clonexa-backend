@@ -1698,7 +1698,13 @@ async def _fetch_order(db: AsyncSession, company_id: uuid.UUID, order_id: uuid.U
     return _payload(row)
 
 
-async def _deduct_inventory(db: AsyncSession, company_id: uuid.UUID, order: dict[str, Any]) -> None:
+async def _deduct_inventory(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    order: dict[str, Any],
+    *,
+    allow_inactive_reserved: bool = False,
+) -> None:
     if order.get("inventory_deducted"):
         return
 
@@ -1738,7 +1744,7 @@ async def _deduct_inventory(db: AsyncSession, company_id: uuid.UUID, order: dict
 
         before = _money(inventory["current_stock"])
         minimum = _money(inventory.get("min_stock"))
-        if _norm(inventory.get("status")) != "active":
+        if _norm(inventory.get("status")) != "active" and not allow_inactive_reserved:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"{item.get('name') or 'Producto'} está inactivo por stock mínimo.",
@@ -3756,8 +3762,25 @@ async def create_hospitality_order(
             "metadata": json.dumps({"source_product": "bar-bot-completo.zip", "payment_label": PAYMENT_LABELS.get(payment_method, "Otro")}, ensure_ascii=False),
         },
     )
-    await db.commit()
     order = _payload(result.mappings().first())
+    # Reserve stock as soon as an order is accepted. Once it reaches the
+    # bartender, a later automatic minimum-stock deactivation must not leave
+    # the already confirmed order trapped between preparing and served.
+    await _deduct_inventory(db, company_id, order)
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_orders
+            SET inventory_deducted = TRUE,
+                updated_at = NOW()
+            WHERE id = :order_id
+              AND company_id = :company_id
+            """
+        ),
+        {"order_id": order["id"], "company_id": str(company_id)},
+    )
+    await db.commit()
+    order["inventory_deducted"] = True
     return {"ok": True, "order": order, "table": order}
 
 
@@ -3784,7 +3807,10 @@ async def update_hospitality_order_status(
     closing_payment_method = _closing_payment_method(payload.payment_method) if next_status == STATUS_CLOSED else None
 
     if next_status == STATUS_SERVED:
-        await _deduct_inventory(db, company_id, order)
+        # Legacy orders created before reservation may reference an item that
+        # is inactive only because it reached its minimum. Honor the accepted
+        # order when actual on-hand stock is still sufficient.
+        await _deduct_inventory(db, company_id, order, allow_inactive_reserved=True)
 
     params = {
         "order_id": str(order_id),
