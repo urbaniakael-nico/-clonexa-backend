@@ -20873,12 +20873,13 @@ function inventoryCreatePayload() {
     try {
       const config = cxHspQrConfigFromModules025N(activeClientModules());
       const [ordersData, qrData] = await Promise.all([
-        cxHspApi024R("/orders?status=active&limit=500"),
+        cxHspApi024R("/orders?status=all&limit=500"),
         cxHspApi024R(`/qr-tables?count=${encodeURIComponent(config.count || 12)}&include_bar=${config.includeBar ? "true" : "false"}`),
       ]);
       const orders = Array.isArray(ordersData.tables || ordersData.orders) ? (ordersData.tables || ordersData.orders) : [];
       const songs = Array.isArray(ordersData.song_requests) ? ordersData.song_requests : [];
       cxHspPaintSongQueue031K(songs);
+      cxHspPaintLiveOrders031L(orders);
       const activeTables = (Array.isArray(qrData.tables) ? qrData.tables : [])
         .filter((table) => Boolean(table.access_active))
         .map((table) => ({
@@ -20921,7 +20922,7 @@ function inventoryCreatePayload() {
     cxHspArmDesktopNotifications031H();
     if (window.__cxHspGlobalAlertsTimer031H) window.clearInterval(window.__cxHspGlobalAlertsTimer031H);
     void cxHspPollGlobalAlerts031H();
-    window.__cxHspGlobalAlertsTimer031H = window.setInterval(cxHspPollGlobalAlerts031H, 5000);
+    window.__cxHspGlobalAlertsTimer031H = window.setInterval(cxHspPollGlobalAlerts031H, 2000);
   }
 
   function cxHspStyles024R() {
@@ -21582,6 +21583,51 @@ function inventoryCreatePayload() {
         ["pendiente", "sonando", "reproducida"].includes(String(request.status || "")) && !request.archived_at
       )).length);
     }
+  }
+
+  function cxHspPaintLiveOrders031L(orders = cxHspOrders024R) {
+    if (!document.getElementById("hspOrdersRoot024R")) return;
+    const nextOrders = Array.isArray(orders) ? orders.filter((order) => !order.archived_at) : [];
+    const signature = (rows) => JSON.stringify(rows.map((order) => [
+      String(order.id || ""),
+      String(order.status || ""),
+      String(order.updated_at || ""),
+      Number(order.total || 0),
+    ]));
+    if (signature(nextOrders) === signature(cxHspOrders024R)) return;
+    cxHspOrders024R = nextOrders;
+    const groups = {
+      pendiente: cxHspGroup024R("pendiente"),
+      alistando: cxHspGroup024R("alistando"),
+      entregado: cxHspGroup024R("entregado"),
+      cerrado: cxHspGroup024R("cerrado"),
+    };
+    const fill = (id, html) => {
+      const node = document.getElementById(id);
+      if (node) node.innerHTML = html;
+    };
+    const text = (id, value) => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = String(value);
+    };
+
+    fill("hspPending024R", cxHspRenderGroup024R(groups.pendiente, "pendiente"));
+    fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando, "alistando"));
+    fill("hspServed024R", cxHspRenderGroup024R(groups.entregado, "entregado"));
+    fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado, "cerrado"));
+
+    const activeOrders = cxHspOrders024R.filter((order) => (
+      ["pendiente", "alistando", "entregado"].includes(String(order.status || "")) && !order.archived_at
+    ));
+    const openTableKeys = new Set(
+      activeOrders.filter((order) => !cxHspIsBarOnlyOrder031D(order)).map(cxHspTableKey024Y),
+    );
+    text("hspSOpenTables031D", openTableKeys.size);
+    text("hspSTotal024R", cxHspMoney024R(activeOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)));
+    text("hspCPending024R", groups.pendiente.length);
+    text("hspCPreparing024R", groups.alistando.length);
+    text("hspCServed024R", cxHspMergedTableCards024Y(groups.entregado).length);
+    text("hspCClosed024R", groups.cerrado.length);
   }
 
   function cxHspIsBarAccount031D(order = {}) {

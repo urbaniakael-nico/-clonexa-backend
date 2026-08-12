@@ -305,8 +305,19 @@ def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender()
     assert "data-hsp-song-search" in panel
     assert "hsp-song-table-head-031h" in panel
     assert "max-height:310px;overflow-y:auto" in panel
-    assert "031K_LIVE_SONG_QUEUE_CLEAN_PANEL" in panel_html
+    assert "031L_LIVE_QR_ORDERS_KANBAN" in panel_html
     assert "cxHspPaintSongQueue031K(songs)" in panel
+    assert "cxHspPaintLiveOrders031L(orders)" in panel
+    live_orders = panel.split("function cxHspPaintLiveOrders031L", 1)[1].split("function cxHspIsBarAccount031D", 1)[0]
+    assert 'fill("hspPending024R"' in live_orders
+    assert 'fill("hspPreparing024R"' in live_orders
+    assert 'fill("hspServed024R"' in live_orders
+    assert 'fill("hspClosed024R"' in live_orders
+    assert 'text("hspSOpenTables031D"' in live_orders
+    assert 'text("hspSTotal024R"' in live_orders
+    assert "if (signature(nextOrders) === signature(cxHspOrders024R)) return" in live_orders
+    assert 'cxHspApi024R("/orders?status=all&limit=500")' in panel
+    assert "window.setInterval(cxHspPollGlobalAlerts031H, 2000)" in panel
     song_card = panel.split("function cxHspSongRequestCard031C", 1)[1].split("function cxHspRenderSongRequests031C", 1)[0]
     song_list = panel.split("function cxHspRenderSongRequests031C", 1)[1].split("function cxHspPaintSongQueue031K", 1)[0]
     assert "customer_name" not in song_card
