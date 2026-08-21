@@ -111,17 +111,24 @@ def test_qr_options_and_assistant_workflows_are_connected():
     assert "031H_QR_OPTIONS_REORDER" in html
 
 
-def test_hospitality_qr_can_be_saved_as_a_scalable_image():
+def test_hospitality_qr_can_be_saved_as_a_labeled_png_for_paint():
     panel = Path("app/web/client.js").read_text(encoding="utf-8")
     backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
     html = Path("app/web/client.html").read_text(encoding="utf-8")
 
     assert "cxHspQrImage032C" in panel
+    assert "cxHspQrSavePng032D" in panel
     assert "data-hsp-qr-save-image" in panel
-    assert "imagen SVG de alta definicion" in panel
+    assert "Guardar imagen PNG" in panel
+    assert "canvas.width = 2000" in panel
+    assert "canvas.height = 2400" in panel
+    assert "context.fillText(label, 1000, 275)" in panel
+    assert '"image/png"' in panel
+    assert ".png`" in panel
+    assert "lista para abrir en Paint" in panel
     assert 'router.get("/companies/{company_id}/qr-tables/image.svg")' in backend
     assert "build_hospitality_qr_svg" in backend
-    assert "031M_QR_SCALABLE_IMAGE" in html
+    assert "031N_QR_LABELED_PNG" in html
 
 
 def test_hospitality_qr_svg_has_large_canvas_and_quiet_zone():

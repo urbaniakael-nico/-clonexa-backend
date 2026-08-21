@@ -22342,6 +22342,97 @@ function inventoryCreatePayload() {
     return `${API}/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/image.svg?${params.toString()}`;
   }
 
+  function cxHspQrPngFileToken032D(value = "qr") {
+    return String(value || "qr")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "qr";
+  }
+
+  function cxHspQrFitCanvasText032D(context, text, maxWidth, initialSize, weight = 900) {
+    let size = initialSize;
+    do {
+      context.font = `${weight} ${size}px Arial, Helvetica, sans-serif`;
+      if (context.measureText(text).width <= maxWidth) return size;
+      size -= 4;
+    } while (size > 42);
+    return size;
+  }
+
+  async function cxHspQrSavePng032D(row = {}) {
+    const label = String(row.label || "Mesa").trim() || "Mesa";
+    const company = state.company || {};
+    const companyName = String(company.name || company.company_name || "CLONEXA").trim() || "CLONEXA";
+    const branding = normalizeBranding(state.branding || {});
+    const accent = validHex(branding.primaryColor || branding.primary_color || "", "#111827");
+    const response = await fetch(cxHspQrImage032C(row), { headers: authHeaders() });
+    if (!response.ok) throw new Error("No se pudo preparar la imagen del QR.");
+
+    const sourceBlob = await response.blob();
+    const sourceUrl = URL.createObjectURL(sourceBlob);
+    try {
+      const image = new Image();
+      image.decoding = "async";
+      const loaded = new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("No se pudo leer el QR generado."));
+      });
+      image.src = sourceUrl;
+      await loaded;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 2000;
+      canvas.height = 2400;
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("El navegador no pudo crear la imagen PNG.");
+
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = accent;
+      context.fillRect(0, 0, canvas.width, 34);
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+
+      context.fillStyle = "#475569";
+      cxHspQrFitCanvasText032D(context, companyName.toUpperCase(), 1680, 64, 800);
+      context.fillText(companyName.toUpperCase(), 1000, 135);
+
+      context.fillStyle = "#0f172a";
+      cxHspQrFitCanvasText032D(context, label, 1680, 168, 900);
+      context.fillText(label, 1000, 275);
+
+      context.strokeStyle = "#cbd5e1";
+      context.lineWidth = 4;
+      context.strokeRect(132, 388, 1736, 1736);
+      context.imageSmoothingEnabled = false;
+      context.drawImage(image, 200, 456, 1600, 1600);
+
+      context.fillStyle = "#0f172a";
+      context.font = "900 54px Arial, Helvetica, sans-serif";
+      context.fillText("ESCANEA PARA ABRIR EL MENU", 1000, 2210);
+      context.fillStyle = "#64748b";
+      context.font = "700 34px Arial, Helvetica, sans-serif";
+      context.fillText("QR de pedido · imagen lista para imprimir", 1000, 2285);
+
+      const pngBlob = await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("No se pudo exportar el PNG.")), "image/png", 1);
+      });
+      const downloadUrl = URL.createObjectURL(pngBlob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `qr-${cxHspQrPngFileToken032D(companyName)}-${cxHspQrPngFileToken032D(label)}.png`;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 2500);
+    } finally {
+      URL.revokeObjectURL(sourceUrl);
+    }
+  }
+
   function cxHspQrPrintRow025H(label = "") {
     const key = String(label || cxHspQrPrintSelection025H || "").trim();
     return cxHspQrTables024S.find((row) => String(row.label || "") === key) || cxHspQrTables024S[0] || {};
@@ -22411,11 +22502,11 @@ function inventoryCreatePayload() {
           <select id="hspQrPrintSelect025H" class="hsp-qr-print-select-025h" data-hsp-qr-print-select>${options}</select>
         </label>
         <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-activate ${row.access_active ? "disabled" : ""}>${row.access_active ? "Activa hasta cerrar mesa" : "Generar clave"}</button>
-        <a class="hsp-qr-btn-024s secondary" href="${h(cxHspQrImage032C(row, true))}" data-hsp-qr-save-image download>Guardar QR</a>
+        <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-save-image="${h(row.label || "Mesa")}">Guardar imagen PNG</button>
         <button class="hsp-qr-btn-024s" type="button" data-hsp-qr-print-template>Imprimir plantilla</button>
         <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-close>Cerrar</button>
       </div>
-      <p class="hsp-qr-save-note-032c">Guardar QR descarga una imagen SVG de alta definicion: puedes cambiar su tamano al imprimir sin perder calidad ni alterar el enlace de la mesa.</p>
+      <p class="hsp-qr-save-note-032c">Guardar imagen PNG crea una tarjeta de 2000 × 2400 px con el nombre de la empresa y la mesa. Se abre directamente en Paint o cualquier editor de imagenes.</p>
       ${cxHspQrPrintTemplate025H(row)}
     `;
   }
@@ -22451,7 +22542,7 @@ function inventoryCreatePayload() {
         </div>
         <div class="hsp-qr-actions-024s">
           <a class="hsp-qr-btn-024s" href="${h(row.order_url || "#")}" target="_blank" rel="noopener">Abrir</a>
-          <a class="hsp-qr-btn-024s secondary" href="${h(cxHspQrImage032C(row, true))}" data-hsp-qr-save-image download>Guardar QR</a>
+          <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-save-image="${h(row.label || "Mesa")}">Guardar imagen PNG</button>
           <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-copy="${h(row.order_url || "")}">Copiar</button>
           <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-activate="${h(row.label || "Mesa")}" ${accessActive ? "disabled" : ""}>${accessActive ? "Activa hasta cerrar" : "Activar mesa"}</button>
           <details class="hsp-qr-options-031h">
@@ -30524,6 +30615,25 @@ function inventoryCreatePayload() {
         }
         cxHspQrPaintPrintPanel025H(true);
         document.getElementById("hspQrPrintPanel025H")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
+      const qrSaveImage = target.closest("[data-hsp-qr-save-image]");
+      if (qrSaveImage) {
+        const label = qrSaveImage.getAttribute("data-hsp-qr-save-image") || cxHspQrPrintSelection025H || "Mesa";
+        const row = cxHspQrPrintRow025H(label);
+        const originalText = qrSaveImage.textContent;
+        qrSaveImage.disabled = true;
+        qrSaveImage.textContent = "Preparando PNG...";
+        try {
+          await cxHspQrSavePng032D(row);
+          cxHspQrShowMsg024S(`${row.label || label}: imagen PNG guardada y lista para abrir en Paint.`);
+        } catch (error) {
+          cxHspQrShowMsg024S(error.message || "No se pudo guardar la imagen PNG.", true);
+        } finally {
+          qrSaveImage.disabled = false;
+          qrSaveImage.textContent = originalText;
+        }
         return;
       }
 
