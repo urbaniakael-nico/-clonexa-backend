@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -301,6 +301,37 @@ def _public_base_url(request: Request, fallback: str | None = None) -> str:
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
     return f"{proto}://{host}".rstrip("/")
+
+
+def build_hospitality_qr_svg(order_url: str, *, size: int = 1024, margin: int = 64) -> bytes:
+    """Build a lossless, scalable QR image with a protected quiet zone."""
+    from reportlab.graphics import renderSVG
+    from reportlab.graphics.barcode.qr import QrCodeWidget
+    from reportlab.graphics.shapes import Drawing, Group, Rect
+    from reportlab.lib import colors
+
+    clean_url = _clean(order_url)
+    if not clean_url:
+        raise ValueError("order_url_required")
+
+    canvas_size = min(4096, max(512, int(size or 1024)))
+    quiet_zone = min(canvas_size // 5, max(32, int(margin or 64)))
+    widget = QrCodeWidget(clean_url)
+    left, bottom, right, top = widget.getBounds()
+    source_width = max(1.0, right - left)
+    source_height = max(1.0, top - bottom)
+    usable_size = max(1.0, canvas_size - (quiet_zone * 2))
+    scale = min(usable_size / source_width, usable_size / source_height)
+    offset_x = (canvas_size - (source_width * scale)) / 2 - (left * scale)
+    offset_y = (canvas_size - (source_height * scale)) / 2 - (bottom * scale)
+
+    drawing = Drawing(canvas_size, canvas_size)
+    drawing.add(Rect(0, 0, canvas_size, canvas_size, fillColor=colors.white, strokeColor=None))
+    qr_group = Group(transform=[scale, 0, 0, scale, offset_x, offset_y])
+    qr_group.add(widget)
+    drawing.add(qr_group)
+    svg = renderSVG.drawToString(drawing)
+    return svg.encode("utf-8") if isinstance(svg, str) else bytes(svg)
 
 
 def _json(value: Any, fallback: Any) -> Any:
@@ -3182,6 +3213,36 @@ async def hospitality_qr_tables(
             "loss_total": _money(sum(_num(row.get("total")) for row in losses)),
         },
     }
+
+
+@router.get("/companies/{company_id}/qr-tables/image.svg")
+async def hospitality_qr_table_image(
+    company_id: uuid.UUID,
+    request: Request,
+    table: str = Query(default="Mesa", min_length=1, max_length=120),
+    base_url: str | None = Query(default=None, max_length=260),
+    download: bool = Query(default=False),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Return the exact table URL as a scalable QR image suitable for large-format printing."""
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    label = _clean(table)[:120] or "Mesa"
+    base = _public_base_url(request, base_url)
+    order_url = f"{base}/ordenar?company_id={company_id}&mesa={quote(label)}"
+    file_token = "-".join(part for part in _norm(label).split() if part) or "mesa"
+    file_token = "".join(character for character in file_token if character.isascii() and (character.isalnum() or character == "-")) or "mesa"
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=build_hospitality_qr_svg(order_url),
+        media_type="image/svg+xml",
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": f'{disposition}; filename="qr-{file_token}.svg"',
+            "X-QR-Target": order_url,
+        },
+    )
 
 
 @router.get("/companies/{company_id}/inventory-lite")

@@ -22252,7 +22252,8 @@ function inventoryCreatePayload() {
       .hsp-qr-msg-024s.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.30);color:#fecaca}
       .hsp-qr-print-panel-025h{display:none;gap:14px}
       .hsp-qr-print-panel-025h.open{display:grid}
-      .hsp-qr-print-controls-025h{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:10px;align-items:end}
+      .hsp-qr-print-controls-025h{display:grid;grid-template-columns:minmax(220px,1fr) repeat(4,auto);gap:10px;align-items:end}
+      .hsp-qr-save-note-032c{margin:0;color:var(--qr-muted);font-size:12px;font-weight:850;line-height:1.4}
       .hsp-qr-print-select-025h{
         width:100%;
         min-height:44px;
@@ -22281,9 +22282,9 @@ function inventoryCreatePayload() {
       .hsp-qr-print-code-025h{display:grid;gap:6px;text-align:right}
       .hsp-qr-print-code-025h span{font-size:12px;font-weight:1000;text-transform:uppercase;color:#64748b;letter-spacing:.10em}
       .hsp-qr-print-code-025h strong{font-size:34px;letter-spacing:.15em;color:#0f172a}
-      .hsp-qr-print-main-025h{display:grid;grid-template-columns:260px minmax(0,1fr);gap:22px;align-items:center}
+      .hsp-qr-print-main-025h{display:grid;grid-template-columns:320px minmax(0,1fr);gap:22px;align-items:center}
       .hsp-qr-print-qr-025h{border:2px solid #111827;border-radius:22px;padding:16px;display:grid;place-items:center;background:#fff}
-      .hsp-qr-print-qr-025h img{width:220px;height:220px;display:block}
+      .hsp-qr-print-qr-025h img{width:280px;height:280px;display:block}
       .hsp-qr-print-steps-025h{display:grid;gap:12px}
       .hsp-qr-print-step-025h{display:grid;grid-template-columns:38px 1fr;gap:12px;align-items:start;padding:12px;border:1px solid #d1d5db;border-radius:16px}
       .hsp-qr-print-step-025h b{width:34px;height:34px;border-radius:999px;display:grid;place-items:center;background:#111827;color:#fff;font-weight:1000}
@@ -22310,7 +22311,9 @@ function inventoryCreatePayload() {
         body.hsp-qr-print-mode-025h .hsp-qr-print-panel-025h{display:block!important;position:absolute!important;inset:0!important;padding:0!important;background:#fff!important;border:0!important;box-shadow:none!important}
         body.hsp-qr-print-mode-025h .hsp-qr-print-controls-025h,
         body.hsp-qr-print-mode-025h .hsp-qr-print-actions-025h{display:none!important}
-        body.hsp-qr-print-mode-025h .hsp-qr-print-sheet-025h{box-shadow:none!important;border-radius:0!important;max-width:none!important;min-height:100vh!important;padding:24mm!important}
+        body.hsp-qr-print-mode-025h .hsp-qr-print-sheet-025h{box-shadow:none!important;border-radius:0!important;max-width:none!important;min-height:100vh!important;padding:14mm!important}
+        body.hsp-qr-print-mode-025h .hsp-qr-print-main-025h{grid-template-columns:90mm minmax(0,1fr)!important}
+        body.hsp-qr-print-mode-025h .hsp-qr-print-qr-025h img{width:82mm!important;height:82mm!important}
       }
     `;
     document.head.appendChild(style);
@@ -22329,8 +22332,14 @@ function inventoryCreatePayload() {
     return data;
   }
 
-  function cxHspQrImage024S(url = "") {
-    return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=${encodeURIComponent(url)}`;
+  function cxHspQrImage032C(row = {}, download = false) {
+    const config = cxHspQrConfigFromModules025N(activeClientModules());
+    const params = new URLSearchParams({
+      table: row.label || "Mesa",
+      base_url: config.baseUrl || window.location.origin || "",
+      download: download ? "true" : "false",
+    });
+    return `${API}/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/image.svg?${params.toString()}`;
   }
 
   function cxHspQrPrintRow025H(label = "") {
@@ -22359,7 +22368,7 @@ function inventoryCreatePayload() {
         </header>
         <div class="hsp-qr-print-main-025h">
           <div class="hsp-qr-print-qr-025h">
-            <img src="${h(cxHspQrImage024S(row.order_url || ""))}" alt="QR ${h(label)}">
+            <img src="${h(cxHspQrImage032C(row))}" alt="QR ${h(label)}">
           </div>
           <div class="hsp-qr-print-steps-025h">
             <div class="hsp-qr-print-step-025h">
@@ -22402,9 +22411,11 @@ function inventoryCreatePayload() {
           <select id="hspQrPrintSelect025H" class="hsp-qr-print-select-025h" data-hsp-qr-print-select>${options}</select>
         </label>
         <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-activate ${row.access_active ? "disabled" : ""}>${row.access_active ? "Activa hasta cerrar mesa" : "Generar clave"}</button>
+        <a class="hsp-qr-btn-024s secondary" href="${h(cxHspQrImage032C(row, true))}" data-hsp-qr-save-image download>Guardar QR</a>
         <button class="hsp-qr-btn-024s" type="button" data-hsp-qr-print-template>Imprimir plantilla</button>
         <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-print-close>Cerrar</button>
       </div>
+      <p class="hsp-qr-save-note-032c">Guardar QR descarga una imagen SVG de alta definicion: puedes cambiar su tamano al imprimir sin perder calidad ni alterar el enlace de la mesa.</p>
       ${cxHspQrPrintTemplate025H(row)}
     `;
   }
@@ -22428,7 +22439,7 @@ function inventoryCreatePayload() {
           <span class="hsp-qr-pill-024s ${live ? "live" : ""}">${live ? `${h(row.active_orders)} abierta(s)` : "Libre"}</span>
         </div>
         <div class="hsp-qr-image-024s">
-          <img src="${h(cxHspQrImage024S(row.order_url || ""))}" alt="QR ${h(row.label || "Mesa")}" loading="lazy">
+          <img src="${h(cxHspQrImage032C(row))}" alt="QR ${h(row.label || "Mesa")}" loading="lazy">
         </div>
         <div class="hsp-qr-stats-024s" style="grid-template-columns:1fr 1fr">
           <div class="hsp-qr-stat-024s"><span>Cuentas</span><b>${h(row.active_orders || 0)}</b></div>
@@ -22440,6 +22451,7 @@ function inventoryCreatePayload() {
         </div>
         <div class="hsp-qr-actions-024s">
           <a class="hsp-qr-btn-024s" href="${h(row.order_url || "#")}" target="_blank" rel="noopener">Abrir</a>
+          <a class="hsp-qr-btn-024s secondary" href="${h(cxHspQrImage032C(row, true))}" data-hsp-qr-save-image download>Guardar QR</a>
           <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-copy="${h(row.order_url || "")}">Copiar</button>
           <button class="hsp-qr-btn-024s secondary" type="button" data-hsp-qr-activate="${h(row.label || "Mesa")}" ${accessActive ? "disabled" : ""}>${accessActive ? "Activa hasta cerrar" : "Activar mesa"}</button>
           <details class="hsp-qr-options-031h">
