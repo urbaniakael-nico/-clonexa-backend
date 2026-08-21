@@ -334,6 +334,105 @@ def build_hospitality_qr_svg(order_url: str, *, size: int = 1024, margin: int = 
     return svg.encode("utf-8") if isinstance(svg, str) else bytes(svg)
 
 
+def build_hospitality_qr_png(
+    order_url: str,
+    *,
+    company_name: str = "CLONEXA",
+    table_label: str = "Mesa",
+    accent: str = "#111827",
+) -> bytes:
+    """Build a Paint-compatible 300 DPI PNG card with a pixel-perfect QR matrix."""
+    import reportlab
+    from PIL import Image, ImageColor, ImageDraw, ImageFont, PngImagePlugin
+    from reportlab.graphics.barcode.qr import QrCodeWidget
+
+    clean_url = _clean(order_url)
+    if not clean_url:
+        raise ValueError("order_url_required")
+
+    company = _clean(company_name)[:120] or "CLONEXA"
+    label = _clean(table_label)[:120] or "Mesa"
+    try:
+        accent_rgb = ImageColor.getrgb(_clean(accent))
+    except ValueError:
+        accent_rgb = ImageColor.getrgb("#111827")
+
+    width, height = 2000, 2400
+    image = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, width, 34), fill=accent_rgb)
+
+    font_dir = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
+    bold_font_path = os.path.join(font_dir, "VeraBd.ttf")
+    regular_font_path = os.path.join(font_dir, "Vera.ttf")
+
+    def fitted_font(text_value: str, max_width: int, initial_size: int, *, bold: bool = True) -> ImageFont.FreeTypeFont:
+        font_path = bold_font_path if bold else regular_font_path
+        size = initial_size
+        while size > 42:
+            font = ImageFont.truetype(font_path, size)
+            left, _, right, _ = draw.textbbox((0, 0), text_value, font=font)
+            if right - left <= max_width:
+                return font
+            size -= 4
+        return ImageFont.truetype(font_path, 42)
+
+    company_text = company.upper()
+    company_font = fitted_font(company_text, 1680, 64)
+    label_font = fitted_font(label, 1680, 168)
+    draw.text((width // 2, 135), company_text, font=company_font, fill="#475569", anchor="mm")
+    draw.text((width // 2, 275), label, font=label_font, fill="#0f172a", anchor="mm")
+
+    widget = QrCodeWidget(clean_url)
+    widget.qr.make()
+    modules = widget.qr.modules or []
+    module_count = len(modules)
+    if not module_count:
+        raise ValueError("qr_matrix_empty")
+
+    quiet_modules = 4
+    available = 1600
+    module_pixels = max(1, available // (module_count + (quiet_modules * 2)))
+    matrix_pixels = module_pixels * (module_count + (quiet_modules * 2))
+    qr_left = (width - matrix_pixels) // 2
+    qr_top = 450
+    frame = 34
+    draw.rounded_rectangle(
+        (qr_left - frame, qr_top - frame, qr_left + matrix_pixels + frame, qr_top + matrix_pixels + frame),
+        radius=30,
+        fill="white",
+        outline="#cbd5e1",
+        width=4,
+    )
+    matrix_left = qr_left + (quiet_modules * module_pixels)
+    matrix_top = qr_top + (quiet_modules * module_pixels)
+    for row_index, row in enumerate(modules):
+        for column_index, enabled in enumerate(row):
+            if enabled:
+                x = matrix_left + (column_index * module_pixels)
+                y = matrix_top + (row_index * module_pixels)
+                draw.rectangle((x, y, x + module_pixels - 1, y + module_pixels - 1), fill="black")
+
+    footer_font = ImageFont.truetype(bold_font_path, 54)
+    detail_font = ImageFont.truetype(regular_font_path, 34)
+    draw.text((width // 2, 2195), "ESCANEA PARA ABRIR EL MENU", font=footer_font, fill="#0f172a", anchor="mm")
+    draw.text(
+        (width // 2, 2285),
+        "QR de pedido - imagen lista para imprimir",
+        font=detail_font,
+        fill="#64748b",
+        anchor="mm",
+    )
+
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_text("QR Target", clean_url)
+    metadata.add_text("Company", company)
+    metadata.add_text("Table", label)
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True, dpi=(300, 300), pnginfo=metadata)
+    return output.getvalue()
+
+
 def _json(value: Any, fallback: Any) -> Any:
     if value is None:
         return fallback
@@ -3240,6 +3339,47 @@ async def hospitality_qr_table_image(
         headers={
             "Cache-Control": "private, max-age=300",
             "Content-Disposition": f'{disposition}; filename="qr-{file_token}.svg"',
+            "X-QR-Target": order_url,
+        },
+    )
+
+
+@router.get("/companies/{company_id}/qr-tables/image.png")
+async def hospitality_qr_table_png(
+    company_id: uuid.UUID,
+    request: Request,
+    table: str = Query(default="Mesa", min_length=1, max_length=120),
+    base_url: str | None = Query(default=None, max_length=260),
+    company_name: str | None = Query(default=None, max_length=120),
+    accent: str | None = Query(default="#111827", max_length=24),
+    download: bool = Query(default=True),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Return a labeled high-resolution PNG that opens in Paint and other image editors."""
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    label = _clean(table)[:120] or "Mesa"
+    base = _public_base_url(request, base_url)
+    order_url = f"{base}/ordenar?company_id={company_id}&mesa={quote(label)}"
+    file_token = "-".join(part for part in _norm(label).split() if part) or "mesa"
+    file_token = "".join(
+        character
+        for character in file_token
+        if character.isascii() and (character.isalnum() or character == "-")
+    ) or "mesa"
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=build_hospitality_qr_png(
+            order_url,
+            company_name=_clean(company_name) or "CLONEXA",
+            table_label=label,
+            accent=_clean(accent) or "#111827",
+        ),
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": f'{disposition}; filename="qr-{file_token}.png"',
             "X-QR-Target": order_url,
         },
     )
