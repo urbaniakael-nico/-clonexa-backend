@@ -1,9 +1,11 @@
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
 
 import pytest
+from PIL import Image
 from starlette.requests import Request
 
 from app.api.v1.endpoints import hospitality
@@ -117,18 +119,32 @@ def test_hospitality_qr_can_be_saved_as_a_labeled_png_for_paint():
     html = Path("app/web/client.html").read_text(encoding="utf-8")
 
     assert "cxHspQrImage032C" in panel
-    assert "cxHspQrSavePng032D" in panel
+    assert "cxHspQrPngUrl032E" in panel
     assert "data-hsp-qr-save-image" in panel
     assert "Guardar imagen PNG" in panel
-    assert "canvas.width = 2000" in panel
-    assert "canvas.height = 2400" in panel
-    assert "context.fillText(label, 1000, 275)" in panel
-    assert '"image/png"' in panel
-    assert ".png`" in panel
-    assert "lista para abrir en Paint" in panel
-    assert 'router.get("/companies/{company_id}/qr-tables/image.svg")' in backend
-    assert "build_hospitality_qr_svg" in backend
-    assert "031N_QR_LABELED_PNG" in html
+    assert "qr-tables/image.png" in panel
+    assert "2000 × 2400 px, 300 DPI" in panel
+    assert 'router.get("/companies/{company_id}/qr-tables/image.png")' in backend
+    assert "build_hospitality_qr_png" in backend
+    assert "031O_QR_LABELED_PNG_DOWNLOAD" in html
+
+
+def test_hospitality_qr_png_is_high_resolution_and_contains_table_metadata():
+    target = "https://clonexa.example/ordenar?company_id=demo&mesa=Mesa%203"
+    png = hospitality.build_hospitality_qr_png(
+        target,
+        company_name='"The Time Machine"',
+        table_label="Mesa 3",
+        accent="#a39b00",
+    )
+
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    image = Image.open(BytesIO(png))
+    assert image.size == (2000, 2400)
+    assert image.info["Table"] == "Mesa 3"
+    assert image.info["Company"] == '"The Time Machine"'
+    assert image.info["QR Target"] == target
+    assert image.info["dpi"][0] == pytest.approx(300, rel=0.01)
 
 
 def test_hospitality_qr_svg_has_large_canvas_and_quiet_zone():
@@ -174,6 +190,44 @@ async def test_hospitality_qr_download_preserves_exact_table_target(monkeypatch)
     assert response.media_type == "image/svg+xml"
     assert response.headers["x-qr-target"] == target
     assert response.headers["content-disposition"] == 'attachment; filename="qr-mesa-3.svg"'
+
+
+@pytest.mark.asyncio
+async def test_hospitality_qr_png_download_is_named_for_the_table(monkeypatch):
+    company_id = uuid.uuid4()
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "scheme": "https",
+            "server": ("clonexa.example", 443),
+            "client": ("127.0.0.1", 50000),
+            "query_string": b"",
+        }
+    )
+    monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
+
+    response = await hospitality.hospitality_qr_table_png(
+        company_id,
+        request,
+        table="Mesa 3",
+        base_url="https://clonexa.example",
+        company_name='"The Time Machine"',
+        accent="#a39b00",
+        download=True,
+        db=SimpleNamespace(),
+    )
+
+    target = f"https://clonexa.example/ordenar?company_id={company_id}&mesa=Mesa%203"
+    image = Image.open(BytesIO(response.body))
+    assert response.status_code == 200
+    assert response.media_type == "image/png"
+    assert response.headers["x-qr-target"] == target
+    assert response.headers["content-disposition"] == 'attachment; filename="qr-mesa-3.png"'
+    assert image.size == (2000, 2400)
+    assert image.info["Table"] == "Mesa 3"
 
 
 def test_reorder_pdf_contains_invoice_style_order_content():
