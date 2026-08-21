@@ -22598,6 +22598,8 @@ function inventoryCreatePayload() {
   let cxHspDashClosures024W = [];
   let cxHspDashSongRequests031D = [];
   let cxHspDashMode024W = "months";
+  let cxHspDashPdfOpen032F = false;
+  let cxHspDashPdfPeriod032F = "daily";
 
   function cxIsHospitalityDashboardCode024W(code = "") {
     const normalized = String(code || "")
@@ -22613,14 +22615,12 @@ function inventoryCreatePayload() {
     return api(`/hospitality/companies/${encodeURIComponent(state.companyId)}${path}`, options);
   }
 
-  function cxHspDashPdfUrl028B(mode = cxHspDashMode024W) {
+  function cxHspDashPdfUrl028B(mode = cxHspDashMode024W, range = {}) {
     const params = new URLSearchParams();
-    params.set("period", mode === "weeks" ? "weekly" : "monthly");
+    params.set("period", mode === "days" || mode === "daily" ? "daily" : mode === "weeks" || mode === "weekly" ? "weekly" : "monthly");
+    if (range.startDate) params.set("start_date", range.startDate);
+    if (range.endDate) params.set("end_date", range.endDate);
     return `${API}/hospitality/companies/${encodeURIComponent(state.companyId)}/dashboard.pdf?${params.toString()}`;
-  }
-
-  function cxHspDashDownloadPdf028B(mode = cxHspDashMode024W) {
-    window.open(cxHspDashPdfUrl028B(mode), "_blank", "noopener");
   }
 
   function cxHspDashNum024W(value) {
@@ -22635,6 +22635,10 @@ function inventoryCreatePayload() {
 
   function cxHspDashMonthKey024W(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function cxHspDashDayKey024W(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
 
   function cxHspDashWeekStart024W(date) {
@@ -22662,11 +22666,136 @@ function inventoryCreatePayload() {
     return dates[0] || new Date();
   }
 
+  function cxHspDashPdfAnchor032F() {
+    return cxHspDashLatestDate024W([
+      ...cxHspDashClosures024W,
+      ...cxHspDashSongRequests031D.map((request) => ({ created_at: request.created_at })),
+    ]);
+  }
+
+  function cxHspDashDefaultPdfRange032F(period = cxHspDashPdfPeriod032F) {
+    const anchor = cxHspDashPdfAnchor032F();
+    if (period === "weekly") {
+      const start = cxHspDashWeekStart024W(anchor);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      return { startDate: cxHspDashDayKey024W(start), endDate: cxHspDashDayKey024W(end) };
+    }
+    if (period === "monthly") {
+      return { startMonth: cxHspDashMonthKey024W(anchor), endMonth: cxHspDashMonthKey024W(anchor) };
+    }
+    return { startDate: cxHspDashDayKey024W(anchor), endDate: cxHspDashDayKey024W(anchor) };
+  }
+
+  function cxHspDashPdfFields032F(period = cxHspDashPdfPeriod032F) {
+    const defaults = cxHspDashDefaultPdfRange032F(period);
+    if (period === "weekly") {
+      return `
+        <label>Desde<input id="hspDashPdfStart032F" type="date" value="${h(defaults.startDate)}"></label>
+        <label>Hasta<input id="hspDashPdfEnd032F" type="date" value="${h(defaults.endDate)}"></label>
+      `;
+    }
+    if (period === "monthly") {
+      return `
+        <label>Mes inicial<input id="hspDashPdfMonth032F" type="month" value="${h(defaults.startMonth)}"></label>
+        <label>Mes final<input id="hspDashPdfMonthEnd032F" type="month" value="${h(defaults.endMonth)}"></label>
+      `;
+    }
+    return `<label>Dia a imprimir<input id="hspDashPdfStart032F" type="date" value="${h(defaults.startDate)}"></label>`;
+  }
+
+  function cxHspDashPaintPdf032F() {
+    const panel = document.getElementById("hspDashPdfPanel032F");
+    if (!panel) return;
+    panel.hidden = !cxHspDashPdfOpen032F;
+    if (!cxHspDashPdfOpen032F) {
+      panel.innerHTML = "";
+      return;
+    }
+    panel.innerHTML = `
+      <div class="hspdash-pdf-head-032f">
+        <div><span>INFORME DE GESTION</span><h2>Imprimir Hospitality por periodo</h2></div>
+        <button class="client-btn" type="button" data-hsp-dash-pdf-close>Cerrar</button>
+      </div>
+      <p>El PDF incluye ventas, metodos de pago, pedidos, mesas, productos, canciones y cierres del rango seleccionado.</p>
+      <div class="hspdash-pdf-form-032f">
+        <label>Tipo de informe
+          <select id="hspDashPdfPeriod032F">
+            <option value="daily" ${cxHspDashPdfPeriod032F === "daily" ? "selected" : ""}>Diario</option>
+            <option value="weekly" ${cxHspDashPdfPeriod032F === "weekly" ? "selected" : ""}>Semanal</option>
+            <option value="monthly" ${cxHspDashPdfPeriod032F === "monthly" ? "selected" : ""}>Mensual</option>
+          </select>
+        </label>
+        <div id="hspDashPdfFields032F" class="hspdash-pdf-fields-032f">${cxHspDashPdfFields032F()}</div>
+        <button class="client-btn hspdash-pdf-generate-032f" type="button" data-hsp-dash-pdf-generate>Generar PDF</button>
+      </div>
+      <div id="hspDashPdfMsg032F" class="hspdash-pdf-msg-032f" aria-live="polite"></div>
+    `;
+    document.getElementById("hspDashPdfPeriod032F")?.addEventListener("change", (event) => {
+      cxHspDashPdfPeriod032F = event.currentTarget.value || "daily";
+      const fields = document.getElementById("hspDashPdfFields032F");
+      if (fields) fields.innerHTML = cxHspDashPdfFields032F(cxHspDashPdfPeriod032F);
+    });
+  }
+
+  function cxHspDashReadPdfRange032F() {
+    if (cxHspDashPdfPeriod032F === "monthly") {
+      const startMonth = document.getElementById("hspDashPdfMonth032F")?.value || "";
+      const endMonth = document.getElementById("hspDashPdfMonthEnd032F")?.value || "";
+      if (!/^\d{4}-\d{2}$/.test(startMonth) || !/^\d{4}-\d{2}$/.test(endMonth)) throw new Error("Selecciona el rango mensual completo.");
+      const [year, monthNumber] = endMonth.split("-").map(Number);
+      const end = new Date(year, monthNumber, 0);
+      const startDate = `${startMonth}-01`;
+      const endDate = cxHspDashDayKey024W(end);
+      if (endDate < startDate) throw new Error("El mes final debe ser igual o posterior al inicial.");
+      return { startDate, endDate };
+    }
+    const startDate = document.getElementById("hspDashPdfStart032F")?.value || "";
+    const endDate = cxHspDashPdfPeriod032F === "weekly"
+      ? document.getElementById("hspDashPdfEnd032F")?.value || ""
+      : startDate;
+    if (!startDate || !endDate) throw new Error("Selecciona el rango completo que deseas imprimir.");
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
+    if (end < start) throw new Error("La fecha final debe ser igual o posterior a la inicial.");
+    if ((end - start) / 86400000 > 366) throw new Error("El rango no puede superar 366 dias.");
+    return { startDate, endDate };
+  }
+
+  function cxHspDashGeneratePdf032F() {
+    const message = document.getElementById("hspDashPdfMsg032F");
+    try {
+      const range = cxHspDashReadPdfRange032F();
+      const reportWindow = window.open(cxHspDashPdfUrl028B(cxHspDashPdfPeriod032F, range), "_blank", "noopener");
+      if (!reportWindow) throw new Error("El navegador bloqueo la descarga. Habilita ventanas emergentes e intenta de nuevo.");
+      if (message) {
+        message.className = "hspdash-pdf-msg-032f ok";
+        message.textContent = "Informe generado con el periodo seleccionado.";
+      }
+    } catch (error) {
+      if (message) {
+        message.className = "hspdash-pdf-msg-032f error";
+        message.textContent = error.message || "No se pudo generar el informe.";
+      }
+    }
+  }
+
   function cxHspDashPeriodDefs024W(mode = cxHspDashMode024W, closures = cxHspDashClosures024W, songRequests = cxHspDashSongRequests031D) {
     const anchor = cxHspDashLatestDate024W([
       ...closures,
       ...songRequests.map((request) => ({ created_at: request.created_at })),
     ]);
+    if (mode === "days") {
+      return Array.from({ length: 14 }, (_, index) => {
+        const date = new Date(anchor);
+        date.setDate(anchor.getDate() - (13 - index));
+        return {
+          key: cxHspDashDayKey024W(date),
+          label: `${String(date.getDate()).padStart(2, "0")} ${cxHspDashShortMonth024W(date)}`,
+          subtitle: String(date.getFullYear()),
+        };
+      });
+    }
     if (mode === "weeks") {
       const currentStart = cxHspDashWeekStart024W(anchor);
       return Array.from({ length: 12 }, (_, index) => {
@@ -22730,7 +22859,7 @@ function inventoryCreatePayload() {
     closures.forEach((closure) => {
       const date = cxHspDashDate024W(closure.closed_at || closure.created_at);
       if (!date) return;
-      const key = mode === "weeks" ? cxHspDashWeekKey024W(date) : cxHspDashMonthKey024W(date);
+      const key = mode === "days" ? cxHspDashDayKey024W(date) : mode === "weeks" ? cxHspDashWeekKey024W(date) : cxHspDashMonthKey024W(date);
       const bucket = buckets[key];
       if (!bucket) return;
       [bucket, totals].forEach((target) => {
@@ -22762,7 +22891,7 @@ function inventoryCreatePayload() {
       const date = cxHspDashDate024W(request.created_at);
       const song = String(request.song || "").trim();
       if (!date || !song) return;
-      const key = mode === "weeks" ? cxHspDashWeekKey024W(date) : cxHspDashMonthKey024W(date);
+      const key = mode === "days" ? cxHspDashDayKey024W(date) : mode === "weeks" ? cxHspDashWeekKey024W(date) : cxHspDashMonthKey024W(date);
       const bucket = buckets[key];
       if (!bucket) return;
       cxHspDashAddMap024W(bucket.songs, song, { count: 1 });
@@ -22821,8 +22950,21 @@ function inventoryCreatePayload() {
       .hspdash-table-024w th,.hspdash-table-024w td{padding:11px 12px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;font-size:12px;font-weight:850}
       .hspdash-table-024w th{color:var(--hd-muted);text-transform:uppercase;letter-spacing:.08em;font-size:10px;background:rgba(3,7,18,.26)}
       .hspdash-empty-024w{border:1px dashed rgba(255,255,255,.18);border-radius:16px;padding:28px;text-align:center;color:var(--hd-muted);font-weight:900}
+      .hspdash-pdf-panel-032f{margin-bottom:14px;padding:18px 20px;border:1px solid color-mix(in srgb,var(--hd-primary) 58%,transparent);border-radius:20px;background:linear-gradient(135deg,color-mix(in srgb,var(--hd-primary) 13%,rgba(3,7,18,.94)),rgba(3,7,18,.94));box-shadow:0 20px 55px rgba(0,0,0,.24)}
+      .hspdash-pdf-panel-032f[hidden]{display:none}
+      .hspdash-pdf-head-032f{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+      .hspdash-pdf-head-032f span{display:block;color:var(--hd-primary);font-size:10px;font-weight:1000;letter-spacing:.12em}
+      .hspdash-pdf-head-032f h2{margin:5px 0 0;font-size:23px;color:var(--cx-text,#fff)}
+      .hspdash-pdf-panel-032f p{margin:9px 0 15px;color:var(--hd-muted);font-weight:800}
+      .hspdash-pdf-form-032f{display:grid;grid-template-columns:minmax(190px,.7fr) minmax(280px,1.4fr) auto;gap:12px;align-items:end}
+      .hspdash-pdf-fields-032f{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:10px}
+      .hspdash-pdf-form-032f label{display:grid;gap:6px;color:var(--hd-muted);font-size:10px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em}
+      .hspdash-pdf-form-032f input,.hspdash-pdf-form-032f select{width:100%;min-height:45px;border:1px solid var(--hd-line);border-radius:12px;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);padding:10px 12px;font:inherit;font-weight:900;color-scheme:dark}
+      .hspdash-pdf-generate-032f{min-height:45px;background:linear-gradient(135deg,var(--hd-primary),var(--hd-secondary));color:#101827}
+      .hspdash-pdf-msg-032f{min-height:18px;margin-top:10px;font-size:12px;font-weight:900}.hspdash-pdf-msg-032f.ok{color:#4ade80}.hspdash-pdf-msg-032f.error{color:#fb7185}
       @media(max-width:1180px){.hspdash-grid-024w,.hspdash-rank-grid-024w{grid-template-columns:1fr}.hspdash-kpis-024w{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      @media(max-width:680px){.hspdash-kpis-024w{grid-template-columns:1fr}.hspdash-hero-024w .client-title{font-size:32px}.hspdash-head-024w{align-items:flex-start;flex-direction:column}}
+      @media(max-width:900px){.hspdash-pdf-form-032f{grid-template-columns:1fr}.hspdash-pdf-fields-032f{grid-template-columns:1fr 1fr}}
+      @media(max-width:680px){.hspdash-kpis-024w{grid-template-columns:1fr}.hspdash-hero-024w .client-title{font-size:32px}.hspdash-head-024w,.hspdash-pdf-head-032f{align-items:flex-start;flex-direction:column}.hspdash-pdf-fields-032f{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
   }
@@ -22907,6 +23049,7 @@ function inventoryCreatePayload() {
     const root = document.getElementById("hspDashRoot024W");
     if (!root) return;
     const { periods, totals } = cxHspDashAggregate024W(cxHspDashMode024W, cxHspDashClosures024W);
+    const comparisonTitle = cxHspDashMode024W === "days" ? "Comparativo diario" : cxHspDashMode024W === "weeks" ? "Comparativo semanal" : "Comparativo mensual";
     const topProduct = cxHspDashTop024W(totals.products, "total", 1)[0];
     const topTable = cxHspDashTop024W(totals.tables, "total", 1)[0];
     const topSong = cxHspDashTop024W(totals.songs, "count", 1)[0];
@@ -22915,10 +23058,11 @@ function inventoryCreatePayload() {
     root.innerHTML = (cxHspDashClosures024W.length || cxHspDashSongRequests031D.length) ? `
       <section class="hspdash-panel-024w">
         <div class="hspdash-head-024w">
-          <h2>Comparativo trimestral</h2>
+          <h2>${comparisonTitle}</h2>
           <div class="hspdash-tabs-024w">
-            <button class="hspdash-tab-024w ${cxHspDashMode024W === "months" ? "active" : ""}" type="button" data-hsp-dash-mode="months">Meses</button>
+            <button class="hspdash-tab-024w ${cxHspDashMode024W === "days" ? "active" : ""}" type="button" data-hsp-dash-mode="days">Diario</button>
             <button class="hspdash-tab-024w ${cxHspDashMode024W === "weeks" ? "active" : ""}" type="button" data-hsp-dash-mode="weeks">Semanas</button>
+            <button class="hspdash-tab-024w ${cxHspDashMode024W === "months" ? "active" : ""}" type="button" data-hsp-dash-mode="months">Meses</button>
           </div>
         </div>
         <div class="hspdash-kpis-024w">
@@ -22985,15 +23129,17 @@ function inventoryCreatePayload() {
             <header class="client-hero hspdash-hero-024w">
               <div class="client-eyebrow">Modulo Hospitality</div>
               <h1 class="client-title">Hospitality</h1>
-              <p class="client-muted">Analisis de cierres, pagos, consumo por mesa, productos, canciones y comparativos trimestrales.</p>
+              <p class="client-muted">Analisis diario, semanal y mensual de cierres, pagos, consumo por mesa, productos y canciones.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 <button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
                 <button class="client-btn" type="button" data-client-module="qr">Mesa QR</button>
-                <button class="client-btn" type="button" data-hsp-dash-pdf>PDF</button>
+                <button class="client-btn" type="button" data-hsp-dash-pdf>Informe PDF</button>
                 <button class="client-btn" type="button" data-hsp-dash-refresh>Actualizar</button>
               </div>
             </header>
+
+            <section id="hspDashPdfPanel032F" class="hspdash-pdf-panel-032f" hidden></section>
 
             <section class="hspdash-shell-024w">
               ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
@@ -23004,6 +23150,7 @@ function inventoryCreatePayload() {
       </main>
     `;
     cxHspDashPaint024W();
+    cxHspDashPaintPdf032F();
   }
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_END */
   /* CLONEXA_024Z_HOSPITALITY_LOYALTY_START */
@@ -30389,7 +30536,23 @@ function inventoryCreatePayload() {
       }
 
       if (target.closest("[data-hsp-dash-pdf]")) {
-        cxHspDashDownloadPdf028B(cxHspDashMode024W);
+        cxHspDashPdfOpen032F = !cxHspDashPdfOpen032F;
+        if (cxHspDashPdfOpen032F) {
+          cxHspDashPdfPeriod032F = cxHspDashMode024W === "days" ? "daily" : cxHspDashMode024W === "weeks" ? "weekly" : "monthly";
+        }
+        cxHspDashPaintPdf032F();
+        document.getElementById("hspDashPdfPanel032F")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        return;
+      }
+
+      if (target.closest("[data-hsp-dash-pdf-close]")) {
+        cxHspDashPdfOpen032F = false;
+        cxHspDashPaintPdf032F();
+        return;
+      }
+
+      if (target.closest("[data-hsp-dash-pdf-generate]")) {
+        cxHspDashGeneratePdf032F();
         return;
       }
 

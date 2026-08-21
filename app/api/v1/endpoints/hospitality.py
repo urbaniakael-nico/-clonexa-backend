@@ -7,10 +7,12 @@ import json
 import os
 import secrets
 import uuid
+from datetime import date as calendar_date
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
@@ -970,6 +972,7 @@ async def _hospitality_company_identity(db: AsyncSession, company_id: uuid.UUID)
     fallback = {
         "name": "CLONEXA",
         "slug": "",
+        "timezone": "America/Bogota",
         "logo_url": "",
         "primary_color": "#22c55e",
         "secondary_color": "#22d3ee",
@@ -986,7 +989,7 @@ async def _hospitality_company_identity(db: AsyncSession, company_id: uuid.UUID)
         result = await db.execute(
             text(
                 """
-                SELECT c.name, c.slug, c.settings_json,
+                SELECT c.name, c.slug, c.timezone, c.settings_json,
                        b.logo_url, b.primary_color, b.secondary_color, b.success_color
                 FROM companies c
                 LEFT JOIN company_branding b ON b.company_id = c.id
@@ -998,7 +1001,7 @@ async def _hospitality_company_identity(db: AsyncSession, company_id: uuid.UUID)
         )
     else:
         result = await db.execute(
-            text("SELECT name, slug, settings_json FROM companies WHERE id = :company_id LIMIT 1"),
+            text("SELECT name, slug, timezone, settings_json FROM companies WHERE id = :company_id LIMIT 1"),
             {"company_id": str(company_id)},
         )
     row = dict(result.mappings().first() or {})
@@ -1024,16 +1027,40 @@ def _hsp_report_date(value: Any) -> datetime | None:
         return None
 
 
-def _hsp_week_start(value: datetime) -> datetime:
-    start = value.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+def _hsp_report_zone(timezone_name: Any = "America/Bogota") -> ZoneInfo:
+    try:
+        return ZoneInfo(_clean(timezone_name) or "America/Bogota")
+    except Exception:
+        return ZoneInfo("America/Bogota")
+
+
+def _hsp_local_date(value: datetime, timezone_name: Any = "America/Bogota") -> calendar_date:
+    source = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return source.astimezone(_hsp_report_zone(timezone_name)).date()
+
+
+def _hsp_week_start(value: datetime, timezone_name: Any = "America/Bogota") -> datetime:
+    start = value.astimezone(_hsp_report_zone(timezone_name)).replace(hour=0, minute=0, second=0, microsecond=0)
     return start - timedelta(days=start.isoweekday() - 1)
 
 
-def _hsp_period_key(value: datetime, period: str) -> str:
+def _hsp_period_mode(period: Any) -> str:
+    normalized = _norm(period)
+    if normalized in {"daily", "days", "day", "diario", "dia", "dias"}:
+        return "daily"
+    if normalized in {"weekly", "weeks", "week", "semanal", "semana", "semanas"}:
+        return "weekly"
+    return "monthly"
+
+
+def _hsp_period_key(value: datetime, period: str, timezone_name: Any = "America/Bogota") -> str:
+    local_date = _hsp_local_date(value, timezone_name)
+    if period == "daily":
+        return local_date.isoformat()
     if period == "weekly":
-        start = _hsp_week_start(value)
-        return start.strftime("%Y-%m-%d")
-    return value.strftime("%Y-%m")
+        start = local_date - timedelta(days=local_date.isoweekday() - 1)
+        return start.isoformat()
+    return local_date.strftime("%Y-%m")
 
 
 def _hsp_month_label(value: datetime) -> str:
@@ -1041,11 +1068,61 @@ def _hsp_month_label(value: datetime) -> str:
     return months[value.month - 1]
 
 
-def _hsp_period_defs(period: str, closures: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    dates = [date for date in (_hsp_report_date(row.get("closed_at") or row.get("created_at")) for row in closures) if date]
-    anchor = max(dates) if dates else _now()
+def _hsp_period_defs(
+    period: str,
+    closures: list[dict[str, Any]],
+    start_date: calendar_date | None = None,
+    end_date: calendar_date | None = None,
+    timezone_name: Any = "America/Bogota",
+) -> list[dict[str, Any]]:
+    dates = [value for value in (_hsp_report_date(row.get("closed_at") or row.get("created_at")) for row in closures) if value]
+    anchor = _hsp_local_date(max(dates), timezone_name) if dates else _hsp_local_date(_now(), timezone_name)
+    if start_date and end_date:
+        if period == "daily":
+            count = (end_date - start_date).days + 1
+            return [
+                {
+                    "key": (start_date + timedelta(days=index)).isoformat(),
+                    "label": f"{(start_date + timedelta(days=index)).day:02d} {_hsp_month_label(start_date + timedelta(days=index))}",
+                    "subtitle": str((start_date + timedelta(days=index)).year),
+                }
+                for index in range(count)
+            ]
+        if period == "weekly":
+            first = start_date - timedelta(days=start_date.isoweekday() - 1)
+            last = end_date - timedelta(days=end_date.isoweekday() - 1)
+            count = ((last - first).days // 7) + 1
+            definitions = []
+            for index in range(count):
+                start = first + timedelta(days=index * 7)
+                end = start + timedelta(days=6)
+                definitions.append(
+                    {
+                        "key": start.isoformat(),
+                        "label": f"{start.day:02d} {_hsp_month_label(start)}",
+                        "subtitle": f"{end.day:02d} {_hsp_month_label(end)}",
+                    }
+                )
+            return definitions
+        first = start_date.replace(day=1)
+        last = end_date.replace(day=1)
+        definitions = []
+        cursor = first
+        while cursor <= last:
+            definitions.append({"key": cursor.strftime("%Y-%m"), "label": _hsp_month_label(cursor), "subtitle": str(cursor.year)})
+            cursor = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
+        return definitions
+    if period == "daily":
+        return [
+            {
+                "key": (anchor - timedelta(days=13 - index)).isoformat(),
+                "label": f"{(anchor - timedelta(days=13 - index)).day:02d} {_hsp_month_label(anchor - timedelta(days=13 - index))}",
+                "subtitle": str((anchor - timedelta(days=13 - index)).year),
+            }
+            for index in range(14)
+        ]
     if period == "weekly":
-        current = _hsp_week_start(anchor)
+        current = anchor - timedelta(days=anchor.isoweekday() - 1)
         defs = []
         for index in range(12):
             start = current - timedelta(days=(11 - index) * 7)
@@ -1058,13 +1135,13 @@ def _hsp_period_defs(period: str, closures: list[dict[str, Any]]) -> list[dict[s
                 }
             )
         return defs
-    first = datetime(anchor.year, anchor.month, 1, tzinfo=timezone.utc)
+    first = anchor.replace(day=1)
     defs = []
     for index in range(3):
         month_index = first.month - (2 - index)
         year = first.year + (month_index - 1) // 12
         month = (month_index - 1) % 12 + 1
-        date_value = datetime(year, month, 1, tzinfo=timezone.utc)
+        date_value = calendar_date(year, month, 1)
         defs.append({"key": date_value.strftime("%Y-%m"), "label": _hsp_month_label(date_value), "subtitle": str(year)})
     return defs
 
@@ -1111,8 +1188,14 @@ def _hsp_money_text(value: Any) -> str:
     return "$ " + f"{int(round(_num(value))):,}".replace(",", ".")
 
 
-def _hsp_aggregate(closures: list[dict[str, Any]], period: str) -> dict[str, Any]:
-    definitions = _hsp_period_defs(period, closures)
+def _hsp_aggregate(
+    closures: list[dict[str, Any]],
+    period: str,
+    start_date: calendar_date | None = None,
+    end_date: calendar_date | None = None,
+    timezone_name: Any = "America/Bogota",
+) -> dict[str, Any]:
+    definitions = _hsp_period_defs(period, closures, start_date, end_date, timezone_name)
     buckets = {definition["key"]: _hsp_empty_bucket(definition) for definition in definitions}
     totals = _hsp_empty_bucket({"key": "total", "label": "Total", "subtitle": ""})
     included: list[dict[str, Any]] = []
@@ -1120,7 +1203,12 @@ def _hsp_aggregate(closures: list[dict[str, Any]], period: str) -> dict[str, Any
         date_value = _hsp_report_date(closure.get("closed_at") or closure.get("created_at"))
         if not date_value:
             continue
-        bucket = buckets.get(_hsp_period_key(date_value, period))
+        local_date = _hsp_local_date(date_value, timezone_name)
+        if start_date and local_date < start_date:
+            continue
+        if end_date and local_date > end_date:
+            continue
+        bucket = buckets.get(_hsp_period_key(date_value, period, timezone_name))
         if not bucket:
             continue
         included.append(closure)
@@ -1142,8 +1230,24 @@ def _hsp_aggregate(closures: list[dict[str, Any]], period: str) -> dict[str, Any
     return {"periods": [buckets[item["key"]] for item in definitions], "totals": totals, "closures": included}
 
 
-async def _hospitality_report_payload(db: AsyncSession, company_id: uuid.UUID, period: str) -> dict[str, Any]:
-    period_mode = "weekly" if _norm(period) in {"weekly", "weeks", "week", "semanal", "semana", "semanas"} else "monthly"
+async def _hospitality_report_payload(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    period: str,
+    start_date: calendar_date | None = None,
+    end_date: calendar_date | None = None,
+) -> dict[str, Any]:
+    if start_date and not end_date:
+        end_date = start_date
+    if end_date and not start_date:
+        start_date = end_date
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="La fecha final debe ser igual o posterior a la fecha inicial.")
+    if start_date and end_date and (end_date - start_date).days > 366:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El rango del informe no puede superar 366 dias.")
+    period_mode = _hsp_period_mode(period)
+    company = await _hospitality_company_identity(db, company_id)
+    timezone_name = company.get("timezone") or "America/Bogota"
     result = await db.execute(
         text(
             """
@@ -1179,7 +1283,7 @@ async def _hospitality_report_payload(db: AsyncSession, company_id: uuid.UUID, p
             closure_at = _hsp_report_date(closure.get("closed_at") or closure.get("created_at"))
             if closure_at and closure_at >= first_direct_song_at:
                 closure["songs"] = []
-    aggregated = _hsp_aggregate(closures, period_mode)
+    aggregated = _hsp_aggregate(closures, period_mode, start_date, end_date, timezone_name)
     period_buckets = {row["key"]: row for row in aggregated["periods"]}
     for song_request in song_requests:
         song = _clean(song_request.get("song"))
@@ -1188,7 +1292,12 @@ async def _hospitality_report_payload(db: AsyncSession, company_id: uuid.UUID, p
             continue
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
-        bucket = period_buckets.get(_hsp_period_key(created_at, period_mode))
+        local_date = _hsp_local_date(created_at, timezone_name)
+        if start_date and local_date < start_date:
+            continue
+        if end_date and local_date > end_date:
+            continue
+        bucket = period_buckets.get(_hsp_period_key(created_at, period_mode, timezone_name))
         if not bucket:
             continue
         _hsp_add_rank(bucket["songs"], song, {"count": 1})
@@ -1197,9 +1306,18 @@ async def _hospitality_report_payload(db: AsyncSession, company_id: uuid.UUID, p
     avg_ticket = (totals["total"] / totals["orders"]) if totals["orders"] else 0
     return {
         "company_id": str(company_id),
-        "company": await _hospitality_company_identity(db, company_id),
+        "company": company,
         "period": period_mode,
-        "period_label": "Semanal" if period_mode == "weekly" else "Mensual",
+        "period_label": {"daily": "Diario", "weekly": "Semanal", "monthly": "Mensual"}[period_mode],
+        "range_start": start_date.isoformat() if start_date else None,
+        "range_end": end_date.isoformat() if end_date else None,
+        "range_label": (
+            start_date.strftime("%d/%m/%Y")
+            if start_date and end_date and start_date == end_date
+            else f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
+            if start_date and end_date
+            else {"daily": "Ultimos 14 dias", "weekly": "Ultimas 12 semanas", "monthly": "Ultimos 3 meses"}[period_mode]
+        ),
         "generated_at": _now().isoformat(),
         "periods": aggregated["periods"],
         "totals": totals,
@@ -1334,6 +1452,8 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
         c.drawRightString(page_w - margin, page_h - 40, f"HOSPITALITY {payload.get('period_label', '').upper()}")
         c.setFont("Helvetica", 8)
         c.drawRightString(page_w - margin, page_h - 57, f"Generado: {clean_text(payload.get('generated_at'))[:19]}")
+        c.setFont("Helvetica-Bold", 7)
+        c.drawRightString(page_w - margin, page_h - 70, f"Rango: {clean_text(payload.get('range_label') or 'Sin rango')}")
         footer()
         y = page_h - 116
 
@@ -3843,14 +3963,19 @@ async def list_hospitality_day_closures(
 async def export_hospitality_dashboard_pdf(
     company_id: uuid.UUID,
     period: str = Query(default="monthly"),
+    start_date: calendar_date | None = Query(default=None),
+    end_date: calendar_date | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
-    payload = await _hospitality_report_payload(db, company_id, period)
+    payload = await _hospitality_report_payload(db, company_id, period, start_date, end_date)
     pdf_bytes = build_hospitality_dashboard_pdf(payload)
-    filename = f"clonexa_hospitality_{payload.get('period', 'monthly')}_{_now().date().isoformat()}.pdf"
+    range_slug = payload.get("range_start") or _now().date().isoformat()
+    if payload.get("range_end") and payload.get("range_end") != range_slug:
+        range_slug = f"{range_slug}_{payload.get('range_end')}"
+    filename = f"clonexa_hospitality_{payload.get('period', 'monthly')}_{range_slug}.pdf"
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
