@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
+from starlette.requests import Request
 
 from app.api.v1.endpoints import hospitality
 
@@ -108,6 +109,64 @@ def test_qr_options_and_assistant_workflows_are_connected():
     assert "cxAssistantReplyReorder031H" in panel
     assert "reorder-suggestion.pdf" in panel
     assert "031H_QR_OPTIONS_REORDER" in html
+
+
+def test_hospitality_qr_can_be_saved_as_a_scalable_image():
+    panel = Path("app/web/client.js").read_text(encoding="utf-8")
+    backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
+    html = Path("app/web/client.html").read_text(encoding="utf-8")
+
+    assert "cxHspQrImage032C" in panel
+    assert "data-hsp-qr-save-image" in panel
+    assert "imagen SVG de alta definicion" in panel
+    assert 'router.get("/companies/{company_id}/qr-tables/image.svg")' in backend
+    assert "build_hospitality_qr_svg" in backend
+    assert "031M_QR_SCALABLE_IMAGE" in html
+
+
+def test_hospitality_qr_svg_has_large_canvas_and_quiet_zone():
+    svg = hospitality.build_hospitality_qr_svg(
+        "https://clonexa.example/ordenar?company_id=demo&mesa=Mesa%203"
+    )
+
+    assert svg.startswith(b"<?xml")
+    assert b"<svg" in svg
+    assert b'width="1024"' in svg
+    assert b'height="1024"' in svg
+    assert len(svg) > 5000
+
+
+@pytest.mark.asyncio
+async def test_hospitality_qr_download_preserves_exact_table_target(monkeypatch):
+    company_id = uuid.uuid4()
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "scheme": "https",
+            "server": ("clonexa.example", 443),
+            "client": ("127.0.0.1", 50000),
+            "query_string": b"",
+        }
+    )
+    monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
+
+    response = await hospitality.hospitality_qr_table_image(
+        company_id,
+        request,
+        table="Mesa 3",
+        base_url="https://clonexa.example",
+        download=True,
+        db=SimpleNamespace(),
+    )
+
+    target = f"https://clonexa.example/ordenar?company_id={company_id}&mesa=Mesa%203"
+    assert response.status_code == 200
+    assert response.media_type == "image/svg+xml"
+    assert response.headers["x-qr-target"] == target
+    assert response.headers["content-disposition"] == 'attachment; filename="qr-mesa-3.svg"'
 
 
 def test_reorder_pdf_contains_invoice_style_order_content():
