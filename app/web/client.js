@@ -21034,7 +21034,7 @@ function inventoryCreatePayload() {
       .hsp-bar-card-031d{display:grid;gap:11px;padding:14px;border-radius:17px;background:linear-gradient(155deg,color-mix(in srgb,var(--hsp-primary) 12%,rgba(3,7,18,.70)),rgba(3,7,18,.46));border:1px solid color-mix(in srgb,var(--hsp-primary) 32%,var(--hsp-line));box-shadow:0 14px 34px rgba(0,0,0,.18)}
       .hsp-bar-card-head-031d{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.hsp-bar-card-head-031d h3{margin:0;font-size:19px}.hsp-bar-card-head-031d small{display:block;color:var(--hsp-muted);margin-top:3px;font-weight:800}
       .hsp-bar-add-031d{display:grid;grid-template-columns:minmax(0,1fr) 72px auto;gap:7px;align-items:end}.hsp-bar-add-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase}.hsp-bar-search-help-031f{color:var(--hsp-muted);font-size:10px;font-weight:800;text-transform:none;letter-spacing:0}
-      .hsp-bar-items-031d{display:grid;border:1px solid rgba(255,255,255,.09);border-radius:13px;overflow:hidden}.hsp-bar-item-031d{display:flex;justify-content:space-between;gap:10px;padding:9px 10px;background:rgba(3,7,18,.28);border-top:1px solid rgba(255,255,255,.07);font-weight:850}.hsp-bar-item-031d:first-child{border-top:0}.hsp-bar-item-031d small{display:block;color:var(--hsp-muted);margin-top:2px}
+      .hsp-bar-items-031d{display:grid;border:1px solid rgba(255,255,255,.09);border-radius:13px;overflow:hidden}.hsp-bar-item-031d{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:10px;background:rgba(3,7,18,.28);border-top:1px solid rgba(255,255,255,.07);font-weight:850}.hsp-bar-item-031d:first-child{border-top:0}.hsp-bar-item-031d small{display:block;color:var(--hsp-muted);margin-top:2px}.hsp-bar-item-031d>span{min-width:0}.hsp-bar-item-031d>span:first-child{overflow:hidden;text-overflow:ellipsis}.hsp-bar-qty-031q{padding:5px 8px;border-radius:999px;background:color-mix(in srgb,var(--hsp-primary) 18%,rgba(3,7,18,.56));border:1px solid color-mix(in srgb,var(--hsp-primary) 38%,transparent);color:var(--cx-text,#fff);font-size:11px;white-space:nowrap}.hsp-bar-line-total-031q{white-space:nowrap;font-size:15px}
       .hsp-bar-total-031d{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:13px;background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.24);font-size:17px;font-weight:1000}
       .hsp-bar-close-031d{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end}.hsp-bar-close-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase}.hsp-bar-change-031d{color:#86efac;font-size:11px;font-weight:900;min-height:16px}
       .hsp-song-queue-031c{position:sticky;top:12px;min-width:0}
@@ -21650,13 +21650,40 @@ function inventoryCreatePayload() {
     ));
   }
 
+  function cxHspGroupBarItems031Q(items = []) {
+    const grouped = new Map();
+    (Array.isArray(items) ? items : []).forEach((rawItem, index) => {
+      const item = rawItem && typeof rawItem === "object" ? rawItem : {};
+      const identity = String(
+        item.inventory_item_id || item.product_id || item.sku || item.name || item.id || `line-${index}`,
+      ).trim().toLowerCase();
+      const quantity = Number(item.quantity || 0) || 0;
+      const subtotal = Number(item.subtotal || (quantity * Number(item.unit_price || 0))) || 0;
+      if (!grouped.has(identity)) {
+        grouped.set(identity, { ...item, quantity, subtotal });
+        return;
+      }
+      const current = grouped.get(identity);
+      current.quantity += quantity;
+      current.subtotal += subtotal;
+      if (current.quantity) current.unit_price = current.subtotal / current.quantity;
+    });
+    return Array.from(grouped.values());
+  }
+
+  function cxHspBarQuantity031Q(value = 0) {
+    const number = Number(value || 0) || 0;
+    return number.toLocaleString("es-CO", { maximumFractionDigits: 2 });
+  }
+
   function cxHspBarItems031D(account = {}) {
-    const items = Array.isArray(account.items) ? account.items : [];
+    const items = cxHspGroupBarItems031Q(account.items);
     if (!items.length) return `<div class="hsp-empty-024r">Cuenta lista. Agrega el primer producto.</div>`;
     return items.map((item) => `
       <div class="hsp-bar-item-031d">
-        <span>${h(item.name || "Producto")}<small>${h(item.quantity || 0)} x ${h(cxHspMoney024R(item.unit_price || 0))}</small></span>
-        <strong>${h(cxHspMoney024R(item.subtotal || (Number(item.quantity || 0) * Number(item.unit_price || 0))))}</strong>
+        <span>${h(item.name || "Producto")}<small>Precio unitario ${h(cxHspMoney024R(item.unit_price || 0))}</small></span>
+        <b class="hsp-bar-qty-031q">Cantidad ${h(cxHspBarQuantity031Q(item.quantity))}</b>
+        <strong class="hsp-bar-line-total-031q">${h(cxHspMoney024R(item.subtotal || (Number(item.quantity || 0) * Number(item.unit_price || 0))))}</strong>
       </div>
     `).join("");
   }

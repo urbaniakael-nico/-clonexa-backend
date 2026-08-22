@@ -162,6 +162,62 @@ def test_bar_accounts_have_independent_cards_and_product_loading():
     assert "031F_SMART_BAR_TABLES" in html
 
 
+def test_repeated_bar_products_are_merged_into_one_quantity_and_total():
+    items = [
+        {"id": "line-1", "inventory_item_id": "aguila", "name": "CERVEZA Aguila", "quantity": 1, "unit_price": 5000, "subtotal": 5000},
+        {"id": "line-2", "inventory_item_id": "poker", "name": "CERVEZA Poker", "quantity": 2, "unit_price": 5000, "subtotal": 10000},
+        {"id": "line-3", "inventory_item_id": "aguila", "name": "CERVEZA Aguila", "quantity": 3, "unit_price": 5000, "subtotal": 15000},
+        {"id": "line-4", "inventory_item_id": "aguila", "name": "CERVEZA Aguila", "quantity": 2, "unit_price": 5000, "subtotal": 10000},
+    ]
+
+    merged = hospitality._merge_hospitality_items(items)
+
+    assert len(merged) == 2
+    assert merged[0]["name"] == "CERVEZA Aguila"
+    assert merged[0]["quantity"] == 6
+    assert merged[0]["unit_price"] == 5000
+    assert merged[0]["subtotal"] == 30000
+    assert merged[1]["name"] == "CERVEZA Poker"
+    assert merged[1]["quantity"] == 2
+    assert merged[1]["subtotal"] == 10000
+    assert sum(item["subtotal"] for item in merged) == 40000
+
+
+def test_existing_bar_accounts_are_grouped_when_returned_to_the_panel():
+    payload = hospitality._payload(
+        {
+            "id": uuid.uuid4(),
+            "company_id": uuid.uuid4(),
+            "source": "bar_account",
+            "status": "entregado",
+            "items": [
+                {"inventory_item_id": "light", "name": "CERVEZA Aguila Light", "quantity": 1, "unit_price": 6000, "subtotal": 6000},
+                {"inventory_item_id": "light", "name": "CERVEZA Aguila Light", "quantity": 2, "unit_price": 6000, "subtotal": 12000},
+            ],
+            "people": [],
+            "songs": [],
+            "metadata": {},
+            "total": 18000,
+        }
+    )
+
+    assert payload["total"] == 18000
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["quantity"] == 3
+    assert payload["items"][0]["subtotal"] == 18000
+
+
+def test_bar_account_panel_shows_one_grouped_line_with_quantity_badge():
+    source = Path("app/web/client.js").read_text(encoding="utf-8")
+    html = Path("app/web/client.html").read_text(encoding="utf-8")
+
+    assert "cxHspGroupBarItems031Q" in source
+    assert "cxHspBarQuantity031Q" in source
+    assert "Cantidad ${h(cxHspBarQuantity031Q(item.quantity))}" in source
+    assert "hsp-bar-line-total-031q" in source
+    assert "031Q_BAR_ITEM_AGGREGATION" in html
+
+
 def test_hospitality_auto_refresh_waits_90_seconds_while_the_operator_is_editing():
     source = Path("app/web/client.js").read_text(encoding="utf-8")
 
