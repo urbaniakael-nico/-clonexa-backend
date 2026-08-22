@@ -21126,6 +21126,12 @@ function inventoryCreatePayload() {
       .hsp-items-024r{display:grid;gap:0}
       .hsp-item-024r{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:850}
       .hsp-item-024r small{color:var(--hsp-muted);font-weight:800}
+      .hsp-closed-card-031r{display:grid;gap:11px;background:linear-gradient(180deg,rgba(148,163,184,.13),rgba(255,255,255,.035));border:1px solid rgba(148,163,184,.28);border-radius:17px;padding:12px;margin-bottom:10px;box-shadow:0 12px 28px rgba(0,0,0,.17)}
+      .hsp-closed-head-031r{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.hsp-closed-head-031r small{display:block;color:var(--hsp-muted);font-size:11px;font-weight:900;margin-top:4px}
+      .hsp-closed-list-031r{display:grid;max-height:340px;overflow-y:auto;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(3,7,18,.28)}
+      .hsp-closed-row-031r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 11px;border-top:1px solid rgba(255,255,255,.08)}.hsp-closed-row-031r:first-child{border-top:0}
+      .hsp-closed-reference-031r{min-width:0;display:grid;gap:3px}.hsp-closed-reference-031r span{color:var(--hsp-muted);font-size:9px;font-weight:1000;letter-spacing:.08em;text-transform:uppercase}.hsp-closed-reference-031r strong{overflow-wrap:anywhere;font-size:12px;color:var(--cx-text,#fff)}
+      .hsp-closed-money-031r{text-align:right;display:grid;gap:3px}.hsp-closed-money-031r strong{font-size:14px;white-space:nowrap;color:var(--cx-text,#fff)}.hsp-closed-money-031r small{font-size:10px;color:var(--hsp-muted);font-weight:900}
       .hsp-merged-note-024y{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;color:var(--hsp-muted);font-size:11px;font-weight:900}
       .hsp-section-title-024y{margin:10px 0 6px;color:var(--hsp-muted);font-size:10px;text-transform:uppercase;font-weight:1000;letter-spacing:.10em}
       .hsp-account-row-024y{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:950;color:var(--cx-text,#fff)}
@@ -21627,7 +21633,7 @@ function inventoryCreatePayload() {
     text("hspCPending024R", groups.pendiente.length);
     text("hspCPreparing024R", groups.alistando.length);
     text("hspCServed024R", cxHspMergedTableCards024Y(groups.entregado).length);
-    text("hspCClosed024R", groups.cerrado.length);
+    text("hspCClosed024R", cxHspClosedTableGroups031R(groups.cerrado).length);
   }
 
   function cxHspIsBarAccount031D(order = {}) {
@@ -21799,14 +21805,69 @@ function inventoryCreatePayload() {
     text("hspCPending024R", groups.pendiente.length);
     text("hspCPreparing024R", groups.alistando.length);
     text("hspCServed024R", cxHspMergedTableCards024Y(groups.entregado).length);
-    text("hspCClosed024R", groups.cerrado.length);
+    text("hspCClosed024R", cxHspClosedTableGroups031R(groups.cerrado).length);
     text("hspSongCount031C", cxHspSongRequests031C.filter((request) => ["pendiente", "sonando", "reproducida"].includes(String(request.status || "")) && !request.archived_at).length);
   }
 
   function cxHspRenderGroup024R(list = [], status = "") {
+    if (status === "cerrado") {
+      const closedTables = cxHspClosedTableGroups031R(list);
+      if (!closedTables.length) return `<div class="hsp-empty-024r">Sin pedidos</div>`;
+      return closedTables.map(cxHspClosedTableCard031R).join("");
+    }
     const renderList = status === "entregado" ? cxHspMergedTableCards024Y(list) : list;
     if (!renderList.length) return `<div class="hsp-empty-024r">Sin pedidos</div>`;
     return renderList.map(cxHspOrderCard024R).join("");
+  }
+
+  function cxHspClosedReference031R(order = {}, index = 0) {
+    const metadata = order.metadata && typeof order.metadata === "object" ? order.metadata : {};
+    const invoice = order.invoice_number || metadata.invoice_number || metadata.invoice || metadata.invoice_reference;
+    return {
+      label: invoice ? "Factura" : (String(order.source || "").toLowerCase() === "table_manual" ? "Consecutivo manual" : "QR / consecutivo"),
+      value: invoice || order.order_number || `Cierre ${index + 1}`,
+    };
+  }
+
+  function cxHspClosedTableGroups031R(list = []) {
+    return cxHspGroupAccounts024Y(Array.isArray(list) ? list : []).map((group) => ({
+      ...group,
+      __closed_table: true,
+      status: "cerrado",
+      closures: group.orders.map((order, index) => ({
+        ...order,
+        closure_reference: cxHspClosedReference031R(order, index),
+      })),
+    }));
+  }
+
+  function cxHspClosedTableCard031R(group = {}) {
+    const closures = (Array.isArray(group.closures) ? group.closures : []).map((order) => {
+      const reference = order.closure_reference || cxHspClosedReference031R(order);
+      return `
+        <div class="hsp-closed-row-031r" data-hsp-closed-order="${h(order.id || "")}">
+          <div class="hsp-closed-reference-031r">
+            <span>${h(reference.label)}</span>
+            <strong>${h(reference.value)}</strong>
+          </div>
+          <div class="hsp-closed-money-031r">
+            <strong>${h(cxHspMoney024R(order.total || 0))}</strong>
+            <small>${h(order.payment_label || cxHspPaymentLabel024V(order.payment_method))}</small>
+          </div>
+        </div>`;
+    }).join("");
+    const closureCount = Number(group.count || group.closures?.length || 0);
+    return `
+      <article class="hsp-closed-card-031r" data-hsp-closed-table="${h(group.table_key || group.table_number || "mesa")}">
+        <div class="hsp-closed-head-031r">
+          <div>
+            <div class="hsp-mesa-024r">${h(group.table_number || "Mesa")}</div>
+            <small>Cierres registrados: ${h(closureCount)}</small>
+          </div>
+          <span class="hsp-pill-024r closed">cerrado</span>
+        </div>
+        <div class="hsp-closed-list-031r">${closures}</div>
+      </article>`;
   }
 
   function cxHspMergedOrderCard024Y(order = {}) {
