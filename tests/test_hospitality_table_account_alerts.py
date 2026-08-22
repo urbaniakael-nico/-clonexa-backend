@@ -218,6 +218,32 @@ def test_bar_account_panel_shows_one_grouped_line_with_quantity_badge():
     assert "031Q_BAR_ITEM_AGGREGATION" in html
 
 
+def test_closed_orders_are_grouped_once_per_table_without_changing_report_data():
+    source = Path("app/web/client.js").read_text(encoding="utf-8")
+    html = Path("app/web/client.html").read_text(encoding="utf-8")
+    backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
+
+    closed_renderer = source.split("function cxHspRenderGroup024R", 1)[1].split("function cxHspMergedOrderCard024Y", 1)[0]
+    assert 'status === "cerrado"' in closed_renderer
+    assert "cxHspClosedTableGroups031R(list)" in closed_renderer
+    assert "closedTables.map(cxHspClosedTableCard031R)" in closed_renderer
+    assert 'data-hsp-closed-table=' in closed_renderer
+    assert 'data-hsp-closed-order=' in closed_renderer
+    assert "Cierres registrados:" in closed_renderer
+    assert "QR / consecutivo" in closed_renderer
+    assert "Consecutivo manual" in closed_renderer
+    assert "Factura" in closed_renderer
+    assert "cxHspPaymentLabel024V(order.payment_method)" in closed_renderer
+    assert 'text("hspCClosed024R", cxHspClosedTableGroups031R(groups.cerrado).length)' in source
+    assert "031R_CLOSED_TABLE_HISTORY" in html
+
+    # La API conserva cada cierre individual para reportes, PDF y exportaciones.
+    list_endpoint = backend.split('async def list_hospitality_orders(', 1)[1].split('@router.post("/companies/{company_id}/song-requests"', 1)[0]
+    assert 'orders = [_payload(row) for row in result.mappings().all()]' in list_endpoint
+    assert '"orders": orders' in list_endpoint
+    assert '"closed": counts[STATUS_CLOSED]' in list_endpoint
+
+
 def test_hospitality_auto_refresh_waits_90_seconds_while_the_operator_is_editing():
     source = Path("app/web/client.js").read_text(encoding="utf-8")
 
