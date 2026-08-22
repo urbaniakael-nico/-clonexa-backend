@@ -883,12 +883,58 @@ async def _build_order_items(
     return rows
 
 
+def _merge_hospitality_items(items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Collapse repeated product lines while preserving quantity and revenue."""
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for raw_item in items or []:
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        identity = (
+            _clean(item.get("inventory_item_id"))
+            or _clean(item.get("product_id"))
+            or _clean(item.get("sku"))
+            or _norm(item.get("name"))
+            or _clean(item.get("id"))
+        ).lower()
+        key = identity or f"line:{len(order)}"
+        quantity = _money(item.get("quantity"))
+        subtotal = _money(item.get("subtotal"))
+        if not subtotal and quantity:
+            subtotal = _money(quantity * _num(item.get("unit_price")))
+        if key not in merged:
+            item["quantity"] = quantity
+            item["subtotal"] = subtotal
+            merged[key] = item
+            order.append(key)
+            continue
+        target = merged[key]
+        target["quantity"] = _money(_num(target.get("quantity")) + quantity)
+        target["subtotal"] = _money(_num(target.get("subtotal")) + subtotal)
+        if _num(target.get("quantity")):
+            target["unit_price"] = _money(_num(target.get("subtotal")) / _num(target.get("quantity")))
+    return [merged[key] for key in order]
+
+
 def _payload(row: Any) -> dict[str, Any]:
     data = dict(row)
     people = _json(data.get("people"), [])
     items = _json(data.get("items"), [])
     songs = _json(data.get("songs"), [])
     metadata = _json(data.get("metadata"), {})
+    if _norm(data.get("source")) == "bar account":
+        items = _merge_hospitality_items(items if isinstance(items, list) else [])
+        if isinstance(people, list):
+            people = [
+                {
+                    **person,
+                    "items": _merge_hospitality_items(person.get("items") if isinstance(person, dict) else []),
+                }
+                if isinstance(person, dict)
+                else person
+                for person in people
+            ]
     return {
         "id": str(data.get("id")),
         "company_id": str(data.get("company_id")),
@@ -3791,6 +3837,7 @@ async def create_hospitality_bar_account(
     if not customer_name:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Escribe el nombre de la cuenta de barra.")
     initial_items = await _build_order_items(db, company_id, payload.items) if payload.items else []
+    initial_items = _merge_hospitality_items(initial_items)
     initial_total = _money(sum(_num(item.get("subtotal")) for item in initial_items))
     table_number = f"Barra - {reference or customer_name}"[:120]
     account_number = f"BAR-{_now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
@@ -3870,7 +3917,7 @@ async def add_hospitality_bar_account_items(
             "inventory_deducted": False,
         },
     )
-    combined_items = [*(account.get("items") or []), *new_items]
+    combined_items = _merge_hospitality_items([*(account.get("items") or []), *new_items])
     total = _money(sum(_num(item.get("subtotal")) for item in combined_items))
     people = account.get("people") or []
     person_id = (people[0].get("id") if people and isinstance(people[0], dict) else None) or f"person_{uuid.uuid4()}"
