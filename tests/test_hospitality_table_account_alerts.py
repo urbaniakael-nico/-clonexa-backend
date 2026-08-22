@@ -20,6 +20,17 @@ class MappingResult:
         return self.row
 
 
+class MappingListResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self.rows
+
+
 @pytest.mark.asyncio
 async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypatch):
     company_id = uuid.uuid4()
@@ -404,7 +415,7 @@ def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender()
     assert "if (signature(nextOrders) === signature(cxHspOrders024R)) return" in live_orders
     assert 'cxHspApi024R("/orders?status=all&limit=500")' in panel
     assert "window.setInterval(cxHspPollGlobalAlerts031H, 2000)" in panel
-    song_card = panel.split("function cxHspSongRequestCard031C", 1)[1].split("function cxHspRenderSongRequests031C", 1)[0]
+    song_card = panel.split("function cxHspSongRequestCard031C", 1)[1].split("function cxHspActiveSongRequests031T", 1)[0]
     song_list = panel.split("function cxHspRenderSongRequests031C", 1)[1].split("function cxHspPaintSongQueue031K", 1)[0]
     assert "customer_name" not in song_card
     assert "created_at" not in song_card
@@ -474,3 +485,78 @@ async def test_song_status_query_uses_one_explicit_parameter_type(monkeypatch):
     assert ":status" not in statement
     assert params["next_status"] == "sonando"
     assert response["song_request"]["status"] == "sonando"
+
+
+@pytest.mark.asyncio
+async def test_bulk_song_archive_selects_the_oldest_requests_with_the_requested_limit(monkeypatch):
+    company_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "id": uuid.uuid4(),
+            "company_id": company_id,
+            "table_number": "Mesa 2",
+            "song": "Canción antigua 1",
+            "status": "archivada",
+            "archived_at": now,
+            "created_at": now,
+            "updated_at": now,
+        },
+        {
+            "id": uuid.uuid4(),
+            "company_id": company_id,
+            "table_number": "Mesa 7",
+            "song": "Canción antigua 2",
+            "status": "archivada",
+            "archived_at": now,
+            "created_at": now,
+            "updated_at": now,
+        },
+    ]
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=MappingListResult(rows)),
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
+
+    response = await hospitality.archive_hospitality_song_requests_bulk(
+        company_id,
+        hospitality.HospitalitySongRequestBulkArchiveIn(count=10),
+        db,
+    )
+
+    statement = str(db.execute.await_args.args[0])
+    params = db.execute.await_args.args[1]
+    assert "ORDER BY created_at ASC, id ASC" in statement
+    assert "LIMIT :limit" in statement
+    assert "FOR UPDATE SKIP LOCKED" in statement
+    assert "status IN ('pendiente', 'sonando', 'reproducida')" in statement
+    assert params["limit"] == 10
+    assert response["archived_count"] == 2
+    assert [row["song"] for row in response["song_requests"]] == ["Canción antigua 1", "Canción antigua 2"]
+    db.commit.assert_awaited_once()
+
+
+def test_song_queue_keeps_scroll_shows_newest_first_and_supports_bulk_archive():
+    panel = Path("app/web/client.js").read_text(encoding="utf-8")
+    panel_html = Path("app/web/client.html").read_text(encoding="utf-8")
+    backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
+
+    queue = panel.split("function cxHspActiveSongRequests031T", 1)[1].split(
+        "function cxHspPaintLiveOrders031L", 1
+    )[0]
+    assert "return timeB - timeA" in queue
+    assert "previousScrollTop" in queue
+    assert "songQueueSignature031T" in queue
+    assert "options.preserveScroll !== false" in queue
+    assert "window.requestAnimationFrame(restoreScroll)" in queue
+    assert 'fill("hspSongRequests031C", cxHspRenderSongRequests031C())' not in panel
+    assert "{ force: true, preserveScroll: false }" in panel
+
+    for count in (5, 10, 15, 20):
+        assert f'data-hsp-song-archive-bulk="{count}"' in panel
+    assert 'data-hsp-song-archive-bulk="all"' in panel
+    assert 'cxHspApi024R("/song-requests/archive-bulk"' in panel
+    assert 'router.post("/companies/{company_id}/song-requests/archive-bulk")' in backend
+    assert "ORDER BY created_at ASC, id ASC" in backend
+    assert "031T_SONG_QUEUE_SCROLL_BULK_ARCHIVE" in panel_html

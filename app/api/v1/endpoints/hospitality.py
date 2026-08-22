@@ -90,6 +90,10 @@ class HospitalitySongRequestStatusIn(BaseModel):
     status: str = Field(..., max_length=40)
 
 
+class HospitalitySongRequestBulkArchiveIn(BaseModel):
+    count: int | None = Field(default=None, ge=1, le=500)
+
+
 class HospitalityBarAccountIn(BaseModel):
     customer: str = Field(..., min_length=1, max_length=180)
     reference: str | None = Field(default="", max_length=80)
@@ -3820,6 +3824,52 @@ async def archive_hospitality_song_request(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="solicitud_musical_no_encontrada")
     await db.commit()
     return {"ok": True, "song_request": _song_request_payload(row)}
+
+
+@router.post("/companies/{company_id}/song-requests/archive-bulk")
+async def archive_hospitality_song_requests_bulk(
+    company_id: uuid.UUID,
+    payload: HospitalitySongRequestBulkArchiveIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    limit_sql = "LIMIT :limit" if payload.count is not None else ""
+    params: dict[str, Any] = {"company_id": str(company_id)}
+    if payload.count is not None:
+        params["limit"] = int(payload.count)
+    result = await db.execute(
+        text(
+            f"""
+            WITH oldest AS (
+                SELECT id
+                FROM hospitality_song_requests
+                WHERE company_id = :company_id
+                  AND archived_at IS NULL
+                  AND status IN ('pendiente', 'sonando', 'reproducida')
+                ORDER BY created_at ASC, id ASC
+                {limit_sql}
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE hospitality_song_requests AS request
+            SET status = 'archivada',
+                archived_at = COALESCE(request.archived_at, NOW()),
+                updated_at = NOW()
+            FROM oldest
+            WHERE request.id = oldest.id
+              AND request.company_id = :company_id
+            RETURNING request.*
+            """
+        ),
+        params,
+    )
+    rows = result.mappings().all()
+    await db.commit()
+    archived = [_song_request_payload(row) for row in rows]
+    return {
+        "ok": True,
+        "archived_count": len(archived),
+        "song_requests": archived,
+    }
 
 
 @router.post("/companies/{company_id}/bar-accounts", status_code=status.HTTP_201_CREATED)
