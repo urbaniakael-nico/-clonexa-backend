@@ -21143,6 +21143,9 @@ function inventoryCreatePayload() {
       .hsp-song-queue-head-031c h2{margin:0}
       .hsp-song-search-031h{width:100%;box-sizing:border-box;background:rgba(3,7,18,.62);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:11px;padding:9px 11px;font-size:12px;font-weight:850;outline:none}
       .hsp-song-search-031h:focus{border-color:var(--hsp-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--hsp-primary) 18%,transparent)}
+      .hsp-song-bulk-031t{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 9px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(3,7,18,.24)}
+      .hsp-song-bulk-031t>span{color:var(--hsp-muted);font-size:9px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em}.hsp-song-bulk-actions-031t{display:flex;gap:5px;flex-wrap:wrap}
+      .hsp-song-bulk-btn-031t{min-width:34px;min-height:28px;padding:5px 8px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.08);color:var(--cx-text,#fff);font:inherit;font-size:10px;font-weight:1000;cursor:pointer}.hsp-song-bulk-btn-031t:hover{border-color:var(--hsp-primary);background:color-mix(in srgb,var(--hsp-primary) 18%,rgba(3,7,18,.52))}.hsp-song-bulk-btn-031t.all{color:#fecaca;border-color:rgba(248,113,113,.28)}
       .hsp-song-list-031c{display:grid;gap:0;max-height:310px;overflow-y:auto;border:1px solid rgba(255,255,255,.11);border-radius:13px;background:rgba(3,7,18,.30)}
       .hsp-song-table-head-031h,.hsp-song-row-031h{display:grid;grid-template-columns:minmax(0,1fr) minmax(74px,.24fr) 72px;gap:8px;align-items:center;padding:8px 10px}
       .hsp-song-table-head-031h{position:sticky;top:0;z-index:1;background:color-mix(in srgb,var(--hsp-card) 94%,#020617);color:var(--hsp-muted);font-size:9px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid rgba(255,255,255,.10)}
@@ -21569,10 +21572,23 @@ function inventoryCreatePayload() {
       </article>`;
   }
 
+  function cxHspActiveSongRequests031T() {
+    return cxHspSongRequests031C
+      .filter((request) => (
+        ["pendiente", "sonando", "reproducida"].includes(String(request.status || ""))
+        && !request.archived_at
+      ))
+      .sort((a, b) => {
+        const timeA = Date.parse(a.created_at || a.updated_at || "") || 0;
+        const timeB = Date.parse(b.created_at || b.updated_at || "") || 0;
+        if (timeA !== timeB) return timeB - timeA;
+        return String(b.id || "").localeCompare(String(a.id || ""));
+      });
+  }
+
   function cxHspRenderSongRequests031C() {
     const query = String(cxHspSongSearch031H || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-    const active = cxHspSongRequests031C.filter((request) => {
-      if (!["pendiente", "sonando", "reproducida"].includes(String(request.status || "")) || request.archived_at) return false;
+    const active = cxHspActiveSongRequests031T().filter((request) => {
       const haystack = `${request.song || ""} ${request.table_number || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
       return !query || haystack.includes(query);
     });
@@ -21580,15 +21596,36 @@ function inventoryCreatePayload() {
     return `<div class="hsp-song-table-head-031h"><span>Canción</span><span>Mesa</span><span>Acción</span></div>${active.map(cxHspSongRequestCard031C).join("")}`;
   }
 
-  function cxHspPaintSongQueue031K(requests = cxHspSongRequests031C) {
+  function cxHspPaintSongQueue031K(requests = cxHspSongRequests031C, options = {}) {
     cxHspSongRequests031C = Array.isArray(requests) ? requests : [];
     const list = document.getElementById("hspSongRequests031C");
-    if (list) list.innerHTML = cxHspRenderSongRequests031C();
+    if (list) {
+      const previousScrollTop = Number(list.scrollTop || 0);
+      const signature = JSON.stringify([
+        String(cxHspSongSearch031H || ""),
+        ...cxHspActiveSongRequests031T().map((request) => [
+          String(request.id || ""),
+          String(request.song || ""),
+          String(request.table_number || ""),
+          String(request.status || ""),
+          String(request.updated_at || request.created_at || ""),
+        ]),
+      ]);
+      if (options.force === true || list.dataset.songQueueSignature031T !== signature) {
+        list.innerHTML = cxHspRenderSongRequests031C();
+        list.dataset.songQueueSignature031T = signature;
+        if (options.preserveScroll !== false) {
+          const restoreScroll = () => {
+            list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight));
+          };
+          restoreScroll();
+          window.requestAnimationFrame(restoreScroll);
+        }
+      }
+    }
     const count = document.getElementById("hspSongCount031C");
     if (count) {
-      count.textContent = String(cxHspSongRequests031C.filter((request) => (
-        ["pendiente", "sonando", "reproducida"].includes(String(request.status || "")) && !request.archived_at
-      )).length);
+      count.textContent = String(cxHspActiveSongRequests031T().length);
     }
   }
 
@@ -21788,7 +21825,7 @@ function inventoryCreatePayload() {
     fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando, "alistando"));
     fill("hspServed024R", cxHspRenderGroup024R(groups.entregado, "entregado"));
     fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado, "cerrado"));
-    fill("hspSongRequests031C", cxHspRenderSongRequests031C());
+    cxHspPaintSongQueue031K(cxHspSongRequests031C);
     fill("hspBarAccounts031D", cxHspRenderBarAccounts031D());
 
     const activeOrders = cxHspOrders024R.filter((order) => ["pendiente", "alistando", "entregado"].includes(String(order.status || "")) && !order.archived_at);
@@ -22087,6 +22124,16 @@ function inventoryCreatePayload() {
                     <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
                   </div>
                   <input class="hsp-song-search-031h" type="search" data-hsp-song-search placeholder="Buscar canción o mesa..." value="${h(cxHspSongSearch031H)}" />
+                  <div class="hsp-song-bulk-031t">
+                    <span>Archivar más antiguas</span>
+                    <div class="hsp-song-bulk-actions-031t">
+                      <button class="hsp-song-bulk-btn-031t" type="button" data-hsp-song-archive-bulk="5">5</button>
+                      <button class="hsp-song-bulk-btn-031t" type="button" data-hsp-song-archive-bulk="10">10</button>
+                      <button class="hsp-song-bulk-btn-031t" type="button" data-hsp-song-archive-bulk="15">15</button>
+                      <button class="hsp-song-bulk-btn-031t" type="button" data-hsp-song-archive-bulk="20">20</button>
+                      <button class="hsp-song-bulk-btn-031t all" type="button" data-hsp-song-archive-bulk="all">Todo</button>
+                    </div>
+                  </div>
                   <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>
                 </section>
               </div>
@@ -22147,8 +22194,7 @@ function inventoryCreatePayload() {
     const songSearch = event.target instanceof Element ? event.target.closest("[data-hsp-song-search]") : null;
     if (songSearch) {
       cxHspSongSearch031H = songSearch.value || "";
-      const list = document.getElementById("hspSongRequests031C");
-      if (list) list.innerHTML = cxHspRenderSongRequests031C();
+      cxHspPaintSongQueue031K(cxHspSongRequests031C, { force: true, preserveScroll: false });
     }
   });
 
@@ -30416,6 +30462,34 @@ function inventoryCreatePayload() {
           cxHspShowMsg024R("hspGlobalMsg024R", "Solicitud archivada. Sigue almacenada para Canciones más pedidas.");
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo archivar la solicitud musical.", true);
+        }
+        return;
+      }
+
+      const hspSongArchiveBulk = target.closest("[data-hsp-song-archive-bulk]");
+      if (hspSongArchiveBulk) {
+        const rawCount = hspSongArchiveBulk.getAttribute("data-hsp-song-archive-bulk") || "";
+        const count = rawCount === "all" ? null : Number(rawCount);
+        if (count !== null && ![5, 10, 15, 20].includes(count)) return;
+        const targetLabel = count === null
+          ? "todas las solicitudes musicales pendientes"
+          : `las ${count} solicitudes musicales más antiguas`;
+        if (!window.confirm(`¿Archivar ${targetLabel}? Seguirán almacenadas para Canciones más pedidas.`)) return;
+        try {
+          hspSongArchiveBulk.disabled = true;
+          const data = await cxHspApi024R("/song-requests/archive-bulk", {
+            method: "POST",
+            body: JSON.stringify({ count }),
+          });
+          await cxHspLoadOrders024R();
+          cxHspShowMsg024R(
+            "hspGlobalMsg024R",
+            `${Number(data.archived_count || 0)} solicitudes archivadas. Siguen almacenadas para Canciones más pedidas.`,
+          );
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudieron archivar las solicitudes musicales.", true);
+        } finally {
+          hspSongArchiveBulk.disabled = false;
         }
         return;
       }
