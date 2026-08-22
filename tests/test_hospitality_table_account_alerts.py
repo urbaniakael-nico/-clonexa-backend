@@ -31,6 +31,14 @@ class MappingListResult:
         return self.rows
 
 
+class ScalarResult:
+    def __init__(self, value):
+        self.value = value
+
+    def scalar(self):
+        return self.value
+
+
 @pytest.mark.asyncio
 async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypatch):
     company_id = uuid.uuid4()
@@ -560,3 +568,137 @@ def test_song_queue_keeps_scroll_shows_newest_first_and_supports_bulk_archive():
     assert 'router.post("/companies/{company_id}/song-requests/archive-bulk")' in backend
     assert "ORDER BY created_at ASC, id ASC" in backend
     assert "031T_SONG_QUEUE_SCROLL_BULK_ARCHIVE" in panel_html
+
+
+@pytest.mark.asyncio
+async def test_pending_order_editor_restores_reserved_stock_when_quantity_decreases():
+    company_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                ScalarResult("inventory_items"),
+                MappingResult({"id": item_id, "current_stock": 10, "min_stock": 3, "status": "inactive"}),
+                ScalarResult(None),
+                SimpleNamespace(),
+            ]
+        )
+    )
+    order = {
+        "id": str(uuid.uuid4()),
+        "order_number": "QR-TEST-1",
+        "table_number": "Mesa 6",
+        "inventory_deducted": True,
+        "items": [{"inventory_item_id": str(item_id), "name": "Agua", "quantity": 2}],
+    }
+    new_items = [{"inventory_item_id": str(item_id), "name": "Agua", "quantity": 1}]
+
+    await hospitality._adjust_pending_order_inventory(db, company_id, order, new_items)
+
+    update_statement = str(db.execute.await_args_list[3].args[0])
+    update_params = db.execute.await_args_list[3].args[1]
+    assert "UPDATE inventory_items" in update_statement
+    assert update_params["after"] == 11
+    assert update_params["next_status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_pending_order_items_update_is_locked_and_rejected_after_preparing(monkeypatch):
+    company_id = uuid.uuid4()
+    order_id = uuid.uuid4()
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=MappingResult({"id": order_id, "company_id": company_id, "status": "alistando"})),
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
+
+    with pytest.raises(hospitality.HTTPException) as exc:
+        await hospitality.update_pending_hospitality_order_items(
+            company_id,
+            order_id,
+            hospitality.HospitalityPendingOrderItemsIn(items=[]),
+            db,
+        )
+
+    assert exc.value.status_code == 409
+    assert "solo se puede modificar mientras está pendiente" in exc.value.detail
+    assert "FOR UPDATE" in str(db.execute.await_args.args[0])
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pending_order_items_update_recalculates_people_total_and_inventory(monkeypatch):
+    company_id = uuid.uuid4()
+    order_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    current = {
+        "id": order_id,
+        "company_id": company_id,
+        "order_number": "QR-TEST-2",
+        "status": "pendiente",
+        "customer_name": "Cliente mesa",
+        "people": [{"id": "person_1", "name": "Cliente mesa", "items": [], "total": 5000}],
+        "items": [],
+        "total": 5000,
+        "inventory_deducted": True,
+    }
+    new_items = [{
+        "id": "line_new",
+        "inventory_item_id": str(item_id),
+        "product_id": str(item_id),
+        "name": "Cerveza",
+        "quantity": 3,
+        "unit": "unidad",
+        "unit_price": 5000,
+        "subtotal": 15000,
+    }]
+    saved = {**current, "items": new_items, "total": 15000}
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[MappingResult(current), SimpleNamespace()]),
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
+    monkeypatch.setattr(hospitality, "_build_order_items", AsyncMock(return_value=new_items))
+    adjust_inventory = AsyncMock()
+    monkeypatch.setattr(hospitality, "_adjust_pending_order_inventory", adjust_inventory)
+    monkeypatch.setattr(hospitality, "_fetch_order", AsyncMock(return_value=saved))
+
+    response = await hospitality.update_pending_hospitality_order_items(
+        company_id,
+        order_id,
+        hospitality.HospitalityPendingOrderItemsIn(
+            items=[hospitality.HospitalityOrderItemIn(inventory_item_id=str(item_id), quantity=3, name="Cerveza", unit_price=5000)]
+        ),
+        db,
+    )
+
+    adjust_inventory.assert_awaited_once_with(db, company_id, hospitality._payload(current), new_items)
+    update_params = db.execute.await_args_list[1].args[1]
+    people = hospitality.json.loads(update_params["people"])
+    assert update_params["total"] == 15000
+    assert people[0]["total"] == 15000
+    assert people[0]["items"] == new_items
+    assert response["removed"] is False
+    db.commit.assert_awaited_once()
+
+
+def test_pending_order_editor_is_only_rendered_for_pending_orders():
+    panel = Path("app/web/client.js").read_text(encoding="utf-8")
+    panel_html = Path("app/web/client.html").read_text(encoding="utf-8")
+    backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
+    renderer = panel.split("function cxHspOrderCard024R", 1)[1].split("async function renderHospitalityOrdersModule024R", 1)[0]
+
+    assert 'order.status === "pendiente"' in renderer
+    assert "cxHspPendingItemEditor031U(item)" in renderer
+    assert 'order.status === "alistando"' in renderer
+    assert "data-hsp-pending-save" in renderer
+    assert "data-hsp-pending-item-remove" in panel
+    assert "Modificar producto" in panel
+    assert "Modificar cantidad" in panel
+    assert '`/orders/${encodeURIComponent(orderId)}/items`' in panel
+    assert '@router.patch("/companies/{company_id}/orders/{order_id}/items")' in backend
+    assert "_adjust_pending_order_inventory" in backend
+    assert "FOR UPDATE" in backend.split("async def update_pending_hospitality_order_items", 1)[1].split(
+        '@router.patch("/companies/{company_id}/orders/{order_id}/status")', 1
+    )[0]
+    assert "031U_PENDING_ORDER_EDITOR" in panel_html
