@@ -682,23 +682,73 @@ async def test_pending_order_items_update_recalculates_people_total_and_inventor
     db.commit.assert_awaited_once()
 
 
-def test_pending_order_editor_is_only_rendered_for_pending_orders():
+@pytest.mark.asyncio
+async def test_deleting_only_pending_item_cancels_order_and_restores_stock(monkeypatch):
+    company_id = uuid.uuid4()
+    order_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    current = {
+        "id": order_id,
+        "company_id": company_id,
+        "order_number": "QR-ONLY-ITEM",
+        "status": "pendiente",
+        "customer_name": "Cliente mesa",
+        "people": [{"id": "person_1", "name": "Cliente mesa", "items": [], "total": 5000}],
+        "items": [{"inventory_item_id": str(item_id), "name": "Agua", "quantity": 1, "unit_price": 5000}],
+        "total": 5000,
+        "inventory_deducted": True,
+    }
+    saved = {**current, "items": [], "total": 0, "status": "cancelado"}
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[MappingResult(current), SimpleNamespace()]),
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
+    monkeypatch.setattr(hospitality, "_build_order_items", AsyncMock(return_value=[]))
+    adjust_inventory = AsyncMock()
+    monkeypatch.setattr(hospitality, "_adjust_pending_order_inventory", adjust_inventory)
+    monkeypatch.setattr(hospitality, "_fetch_order", AsyncMock(return_value=saved))
+
+    response = await hospitality.update_pending_hospitality_order_items(
+        company_id,
+        order_id,
+        hospitality.HospitalityPendingOrderItemsIn(items=[]),
+        db,
+    )
+
+    adjust_inventory.assert_awaited_once_with(db, company_id, hospitality._payload(current), [])
+    update_params = db.execute.await_args_list[1].args[1]
+    assert update_params["removed"] is True
+    assert update_params["total"] == 0
+    assert response["removed"] is True
+    assert response["order"]["status"] == "cancelado"
+    db.commit.assert_awaited_once()
+
+
+def test_pending_order_item_menu_is_only_rendered_for_pending_orders():
     panel = Path("app/web/client.js").read_text(encoding="utf-8")
     panel_html = Path("app/web/client.html").read_text(encoding="utf-8")
     backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
     renderer = panel.split("function cxHspOrderCard024R", 1)[1].split("async function renderHospitalityOrdersModule024R", 1)[0]
 
     assert 'order.status === "pendiente"' in renderer
-    assert "cxHspPendingItemEditor031U(item)" in renderer
+    assert "cxHspPendingItemRow031V(item)" in renderer
     assert 'order.status === "alistando"' in renderer
-    assert "data-hsp-pending-save" in renderer
-    assert "data-hsp-pending-item-remove" in panel
-    assert "Modificar producto" in panel
-    assert "Modificar cantidad" in panel
+    assert "data-hsp-pending-save" not in panel
+    assert "data-hsp-pending-item-edit" in panel
+    assert "data-hsp-pending-item-delete" in panel
+    assert "data-hsp-pending-item-save" in panel
+    assert "data-hsp-pending-item-cancel" in panel
+    assert 'data-hsp-pending-editor hidden' in panel
+    assert "Corregir producto" in panel
+    assert "Corregir cantidad" in panel
+    assert "cxHspSavePendingCard031V(card, orderId, row)" in panel
+    assert '.filter((row) => row !== excludedRow)' in panel
+    assert "row === editedRow ? cxHspPendingItemPayload031U(row) : cxHspOriginalPendingItemPayload031V(row)" in panel
     assert '`/orders/${encodeURIComponent(orderId)}/items`' in panel
     assert '@router.patch("/companies/{company_id}/orders/{order_id}/items")' in backend
     assert "_adjust_pending_order_inventory" in backend
     assert "FOR UPDATE" in backend.split("async def update_pending_hospitality_order_items", 1)[1].split(
         '@router.patch("/companies/{company_id}/orders/{order_id}/status")', 1
     )[0]
-    assert "031U_PENDING_ORDER_EDITOR" in panel_html
+    assert "031V_PENDING_ITEM_ACTION_MENU" in panel_html

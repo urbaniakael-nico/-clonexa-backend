@@ -21126,12 +21126,17 @@ function inventoryCreatePayload() {
       .hsp-items-024r{display:grid;gap:0}
       .hsp-item-024r{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:850}
       .hsp-item-024r small{color:var(--hsp-muted);font-weight:800}
-      .hsp-pending-item-031u{display:grid;grid-template-columns:minmax(130px,1fr) 66px 86px 34px;gap:6px;align-items:end;padding:8px;border-top:1px solid rgba(255,255,255,.08)}
-      .hsp-pending-item-031u label{display:grid;gap:4px;min-width:0;color:var(--hsp-muted);font-size:8px;font-weight:1000;text-transform:uppercase;letter-spacing:.06em}
-      .hsp-pending-item-031u select,.hsp-pending-item-031u input{width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--hsp-line);border-radius:9px;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);padding:7px 8px;font:inherit;font-size:10px;font-weight:900;outline:none}
-      .hsp-pending-item-031u select:focus,.hsp-pending-item-031u input:focus{border-color:var(--hsp-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--hsp-primary) 16%,transparent)}
-      .hsp-pending-subtotal-031u{align-self:center;text-align:right;color:var(--cx-text,#fff);font-size:11px;font-weight:1000;white-space:nowrap}.hsp-pending-subtotal-031u small{display:block;font-size:8px;text-transform:uppercase}
-      .hsp-pending-remove-031u{width:34px;min-height:34px!important;padding:5px!important;border-radius:9px!important}.hsp-pending-actions-031u{display:flex;gap:7px;flex-wrap:wrap}
+      .hsp-person-pending-031v{overflow:visible}.hsp-pending-line-031v{position:relative;border-top:1px solid rgba(255,255,255,.08)}
+      .hsp-pending-line-031v:first-child{border-top:0}.hsp-pending-line-031v>.hsp-item-024r{border-top:0;align-items:center}
+      .hsp-pending-description-031v{min-width:0}.hsp-pending-description-031v b{display:block;overflow-wrap:anywhere;color:var(--cx-text,#fff)}
+      .hsp-pending-side-031v{display:flex;align-items:center;justify-content:flex-end;gap:7px;white-space:nowrap}.hsp-pending-side-031v>strong{color:var(--cx-text,#fff)}
+      .hsp-pending-menu-031v{position:relative}.hsp-pending-menu-031v>summary{list-style:none;display:grid;place-items:center;width:28px;height:28px;border:1px solid rgba(255,255,255,.16);border-radius:9px;background:rgba(255,255,255,.07);color:var(--cx-text,#fff);font-size:17px;font-weight:1000;line-height:1;cursor:pointer;transition:.18s ease}
+      .hsp-pending-menu-031v>summary::-webkit-details-marker{display:none}.hsp-pending-menu-031v>summary:hover,.hsp-pending-menu-031v[open]>summary{border-color:var(--hsp-primary);background:color-mix(in srgb,var(--hsp-primary) 18%,rgba(3,7,18,.7))}.hsp-pending-menu-031v[open]>summary{transform:rotate(180deg)}
+      .hsp-pending-menu-actions-031v{position:absolute;z-index:8;right:0;top:34px;display:grid;gap:4px;width:124px;padding:6px;border:1px solid rgba(255,255,255,.15);border-radius:11px;background:color-mix(in srgb,var(--hsp-card) 96%,#020617);box-shadow:0 16px 34px rgba(0,0,0,.38)}
+      .hsp-pending-menu-actions-031v button{min-height:31px;border:0;border-radius:8px;background:rgba(255,255,255,.07);color:var(--cx-text,#fff);font:inherit;font-size:10px;font-weight:1000;text-align:left;padding:7px 9px;cursor:pointer}.hsp-pending-menu-actions-031v button:hover{background:color-mix(in srgb,var(--hsp-primary) 20%,rgba(255,255,255,.07))}.hsp-pending-menu-actions-031v button.danger{color:#fecaca}.hsp-pending-menu-actions-031v button.danger:hover{background:rgba(239,68,68,.18)}
+      .hsp-pending-editor-031v{display:grid;grid-template-columns:minmax(130px,1fr) 66px 82px;gap:7px;align-items:end;padding:9px 10px 11px;background:color-mix(in srgb,var(--hsp-primary) 7%,rgba(3,7,18,.38))}.hsp-pending-editor-031v[hidden]{display:none!important}
+      .hsp-pending-editor-031v label{display:grid;gap:4px;min-width:0;color:var(--hsp-muted);font-size:8px;font-weight:1000;text-transform:uppercase;letter-spacing:.06em}.hsp-pending-editor-031v select,.hsp-pending-editor-031v input{width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--hsp-line);border-radius:9px;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);padding:7px 8px;font:inherit;font-size:10px;font-weight:900;outline:none}.hsp-pending-editor-031v select:focus,.hsp-pending-editor-031v input:focus{border-color:var(--hsp-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--hsp-primary) 16%,transparent)}
+      .hsp-pending-subtotal-031u{align-self:center;text-align:right;color:var(--cx-text,#fff);font-size:11px;font-weight:1000;white-space:nowrap}.hsp-pending-subtotal-031u small{display:block;font-size:8px;text-transform:uppercase}.hsp-pending-editor-actions-031v{grid-column:1 / -1;display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}.hsp-pending-editor-actions-031v .hsp-btn-024r{min-height:32px;padding:6px 10px;font-size:10px}.hsp-pending-actions-031u{display:flex;gap:7px;flex-wrap:wrap}
       .hsp-closed-card-031r{display:grid;gap:11px;background:linear-gradient(180deg,rgba(148,163,184,.13),rgba(255,255,255,.035));border:1px solid rgba(148,163,184,.28);border-radius:17px;padding:12px;margin-bottom:10px;box-shadow:0 12px 28px rgba(0,0,0,.17)}
       .hsp-closed-head-031r{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.hsp-closed-head-031r small{display:block;color:var(--hsp-muted);font-size:11px;font-weight:900;margin-top:4px}
       .hsp-closed-table-total-031s{text-align:right;display:grid;gap:2px;justify-items:end}.hsp-closed-table-total-031s span{color:var(--hsp-muted);font-size:9px;font-weight:1000;letter-spacing:.08em;text-transform:uppercase}.hsp-closed-table-total-031s strong{color:var(--cx-text,#fff);font-size:19px;line-height:1.1;white-space:nowrap}
@@ -21181,7 +21186,7 @@ function inventoryCreatePayload() {
       .hsp-closure-actions-024u{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px}
       @media(max-width:1420px){.hsp-form-box-024r{grid-template-columns:minmax(190px,.72fr) minmax(500px,1.35fr) minmax(330px,1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(300px,.9fr) minmax(300px,1fr);align-items:end}.hsp-calc-screen-024r{grid-template-columns:1fr 1fr}.hsp-stats-024r{grid-template-columns:repeat(4,minmax(90px,1fr))}.hsp-bar-create-031d{grid-template-columns:repeat(3,minmax(0,1fr))}}
       @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-operations-grid-031d{grid-template-columns:1fr}.hsp-song-queue-031c{position:static}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(2,minmax(110px,1fr))}}
-      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-bar-create-031d,.hsp-bar-add-031d,.hsp-bar-close-031d,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}.hsp-pending-item-031u{grid-template-columns:minmax(0,1fr) 62px 78px 34px}}
+      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-bar-create-031d,.hsp-bar-add-031d,.hsp-bar-close-031d,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}.hsp-pending-editor-031v{grid-template-columns:minmax(0,1fr) 62px 76px}}
       @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}.hsp-close-controls-030a{grid-template-columns:1fr}.hsp-close-help-030a{grid-column:auto}.hsp-dashboard-pending-banner-030d{grid-template-columns:38px 1fr}.hsp-dashboard-pending-banner-030d small,.hsp-dashboard-pending-banner-030d b{grid-column:2}}
     `;
     document.head.appendChild(style);
@@ -21970,7 +21975,7 @@ function inventoryCreatePayload() {
   function cxHspPendingProductOptions031U(item = {}) {
     const selectedId = String(item.inventory_item_id || item.product_id || "");
     const currentExists = cxHspInventory024R.some((inventory) => String(inventory.id || "") === selectedId);
-    const currentOption = selectedId && !currentExists
+    const currentOption = !currentExists
       ? `<option value="${h(selectedId)}" selected>${h(item.name || "Producto actual")} · pedido actual</option>`
       : "";
     return `${currentOption}${cxHspInventory024R.map((inventory) => `
@@ -21980,20 +21985,39 @@ function inventoryCreatePayload() {
     `).join("")}`;
   }
 
-  function cxHspPendingItemEditor031U(item = {}) {
+  function cxHspPendingItemRow031V(item = {}) {
     const originalId = String(item.inventory_item_id || item.product_id || "");
     return `
-      <div class="hsp-pending-item-031u" data-hsp-pending-item-row
+      <div class="hsp-pending-line-031v" data-hsp-pending-item-row
         data-original-product="${h(originalId)}"
         data-original-name="${h(item.name || "Producto")}"
         data-original-sku="${h(item.sku || "")}"
         data-original-unit="${h(item.unit || "unidad")}"
         data-original-price="${h(Number(item.unit_price || 0))}"
+        data-original-quantity="${h(Number(item.quantity || 1))}"
         data-original-note="${h(item.note || "")}">
-        <label><span>Producto</span><select class="hsp-pending-product-031u" aria-label="Modificar producto">${cxHspPendingProductOptions031U(item)}</select></label>
-        <label><span>Cantidad</span><input class="hsp-pending-qty-031u" aria-label="Modificar cantidad" type="number" min="1" step="1" value="${h(Number(item.quantity || 1))}" /></label>
-        <div class="hsp-pending-subtotal-031u"><small>Total</small><strong data-hsp-pending-subtotal>${h(cxHspMoney024R(item.subtotal || 0))}</strong></div>
-        <button class="hsp-btn-024r red hsp-pending-remove-031u" type="button" data-hsp-pending-item-remove title="Eliminar producto" aria-label="Eliminar producto">×</button>
+        <div class="hsp-item-024r">
+          <span class="hsp-pending-description-031v"><b>${h(item.name || "Producto")}</b><small>${h(item.quantity || 1)} x ${h(cxHspMoney024R(item.unit_price || 0))}</small></span>
+          <div class="hsp-pending-side-031v">
+            <strong>${h(cxHspMoney024R(item.subtotal || 0))}</strong>
+            <details class="hsp-pending-menu-031v">
+              <summary aria-label="Opciones de ${h(item.name || "producto")}" title="Modificar o eliminar producto">⌄</summary>
+              <span class="hsp-pending-menu-actions-031v">
+                <button type="button" data-hsp-pending-item-edit>Modificar</button>
+                <button class="danger" type="button" data-hsp-pending-item-delete>Eliminar</button>
+              </span>
+            </details>
+          </div>
+        </div>
+        <div class="hsp-pending-editor-031v" data-hsp-pending-editor hidden>
+          <label><span>Producto</span><select class="hsp-pending-product-031u" aria-label="Corregir producto">${cxHspPendingProductOptions031U(item)}</select></label>
+          <label><span>Cantidad</span><input class="hsp-pending-qty-031u" aria-label="Corregir cantidad" type="number" min="1" step="1" value="${h(Number(item.quantity || 1))}" /></label>
+          <div class="hsp-pending-subtotal-031u"><small>Nuevo total</small><strong data-hsp-pending-subtotal>${h(cxHspMoney024R(item.subtotal || 0))}</strong></div>
+          <div class="hsp-pending-editor-actions-031v">
+            <button class="hsp-btn-024r secondary" type="button" data-hsp-pending-item-cancel>Cancelar</button>
+            <button class="hsp-btn-024r green" type="button" data-hsp-pending-item-save>Guardar cambio</button>
+          </div>
+        </div>
       </div>`;
   }
 
@@ -22016,11 +22040,48 @@ function inventoryCreatePayload() {
     };
   }
 
+  function cxHspOriginalPendingItemPayload031V(row) {
+    const productId = String(row?.dataset.originalProduct || "");
+    return {
+      inventory_item_id: productId || null,
+      product_id: productId || null,
+      sku: row?.dataset.originalSku || "",
+      name: row?.dataset.originalName || "Producto",
+      quantity: Math.max(1, Number(row?.dataset.originalQuantity || 1)),
+      unit: row?.dataset.originalUnit || "unidad",
+      unit_price: Number(row?.dataset.originalPrice || 0),
+      note: row?.dataset.originalNote || "",
+    };
+  }
+
   function cxHspRefreshPendingItemTotal031U(row) {
     if (!row) return;
     const item = cxHspPendingItemPayload031U(row);
     const total = row.querySelector("[data-hsp-pending-subtotal]");
     if (total) total.textContent = cxHspMoney024R(Number(item.quantity || 0) * Number(item.unit_price || 0));
+  }
+
+  function cxHspResetPendingItem031V(row) {
+    if (!row) return;
+    const product = row.querySelector(".hsp-pending-product-031u");
+    const quantity = row.querySelector(".hsp-pending-qty-031u");
+    if (product) product.value = row.dataset.originalProduct || "";
+    if (quantity) quantity.value = String(Math.max(1, Number(row.dataset.originalQuantity || 1)));
+    cxHspRefreshPendingItemTotal031U(row);
+  }
+
+  async function cxHspSavePendingCard031V(card, orderId, excludedRow = null, editedRow = null) {
+    const rows = Array.from(card?.querySelectorAll("[data-hsp-pending-item-row]") || [])
+      .filter((row) => row !== excludedRow);
+    const items = rows
+      .map((row) => row === editedRow ? cxHspPendingItemPayload031U(row) : cxHspOriginalPendingItemPayload031V(row))
+      .filter((item) => item.name && Number(item.quantity || 0) > 0);
+    const data = await cxHspApi024R(`/orders/${encodeURIComponent(orderId)}/items`, {
+      method: "PATCH",
+      body: JSON.stringify({ items }),
+    });
+    await Promise.all([cxHspLoadInventory024R(), cxHspLoadOrders024R()]);
+    return data;
   }
 
   function cxHspOrderCard024R(order = {}) {
@@ -22029,7 +22090,7 @@ function inventoryCreatePayload() {
     const people = (Array.isArray(order.people) ? order.people : []).map((person) => {
       const items = (Array.isArray(person.items) ? person.items : []).map((item) => (
         order.status === "pendiente"
-          ? cxHspPendingItemEditor031U(item)
+          ? cxHspPendingItemRow031V(item)
           : `
             <div class="hsp-item-024r">
               <span>${h(item.name)}<br><small>${h(item.quantity)} x ${h(cxHspMoney024R(item.unit_price))}</small></span>
@@ -22038,7 +22099,7 @@ function inventoryCreatePayload() {
       )).join("");
 
       return `
-        <div class="hsp-person-024r">
+        <div class="hsp-person-024r${order.status === "pendiente" ? " hsp-person-pending-031v" : ""}">
           <div class="hsp-person-head-024r">
             <span>${h(person.name || "Cliente")}</span>
             <span>${h(cxHspMoney024R(person.total))}</span>
@@ -22051,7 +22112,6 @@ function inventoryCreatePayload() {
     let actions = "";
     if (order.status === "pendiente") {
       actions = `<div class="hsp-pending-actions-031u">
-        <button class="hsp-btn-024r secondary" type="button" data-hsp-pending-save="${h(order.id)}">Guardar cambios</button>
         <button class="hsp-btn-024r yellow" type="button" data-hsp-status="${h(order.id)}" data-hsp-next="alistando">Alistando</button>
       </div>`;
     } else if (order.status === "alistando") {
@@ -30453,35 +30513,77 @@ function inventoryCreatePayload() {
         return;
       }
 
-      const hspPendingItemRemove = target.closest("[data-hsp-pending-item-remove]");
-      if (hspPendingItemRemove) {
-        hspPendingItemRemove.closest("[data-hsp-pending-item-row]")?.remove();
+      const hspPendingItemEdit = target.closest("[data-hsp-pending-item-edit]");
+      if (hspPendingItemEdit) {
+        const row = hspPendingItemEdit.closest("[data-hsp-pending-item-row]");
+        const card = row?.closest("[data-hsp-order-card]");
+        card?.querySelectorAll("[data-hsp-pending-editor]").forEach((editor) => {
+          if (editor !== row?.querySelector("[data-hsp-pending-editor]")) {
+            cxHspResetPendingItem031V(editor.closest("[data-hsp-pending-item-row]"));
+            editor.hidden = true;
+          }
+        });
+        row?.querySelector(".hsp-pending-menu-031v")?.removeAttribute("open");
+        const editor = row?.querySelector("[data-hsp-pending-editor]");
+        if (editor) editor.hidden = false;
+        row?.querySelector(".hsp-pending-product-031u")?.focus();
         return;
       }
 
-      const hspPendingSave = target.closest("[data-hsp-pending-save]");
-      if (hspPendingSave) {
-        const orderId = hspPendingSave.getAttribute("data-hsp-pending-save") || "";
-        const card = hspPendingSave.closest("[data-hsp-order-card]");
-        const rows = Array.from(card?.querySelectorAll("[data-hsp-pending-item-row]") || []);
-        const items = rows.map(cxHspPendingItemPayload031U).filter((item) => item.name && Number(item.quantity || 0) > 0);
+      const hspPendingItemCancel = target.closest("[data-hsp-pending-item-cancel]");
+      if (hspPendingItemCancel) {
+        const row = hspPendingItemCancel.closest("[data-hsp-pending-item-row]");
+        cxHspResetPendingItem031V(row);
+        const editor = row?.querySelector("[data-hsp-pending-editor]");
+        if (editor) editor.hidden = true;
+        return;
+      }
+
+      const hspPendingItemSave = target.closest("[data-hsp-pending-item-save]");
+      if (hspPendingItemSave) {
+        const card = hspPendingItemSave.closest("[data-hsp-order-card]");
+        const orderId = card?.getAttribute("data-hsp-order-card") || "";
         try {
-          hspPendingSave.disabled = true;
-          const data = await cxHspApi024R(`/orders/${encodeURIComponent(orderId)}/items`, {
-            method: "PATCH",
-            body: JSON.stringify({ items }),
-          });
-          await Promise.all([cxHspLoadInventory024R(), cxHspLoadOrders024R()]);
-          cxHspShowMsg024R(
-            "hspGlobalMsg024R",
-            data.removed
-              ? "Pedido eliminado antes de alistar y stock restaurado."
-              : "Pedido pendiente actualizado y stock conciliado.",
+          hspPendingItemSave.disabled = true;
+          await cxHspSavePendingCard031V(
+            card,
+            orderId,
+            null,
+            hspPendingItemSave.closest("[data-hsp-pending-item-row]"),
           );
+          cxHspShowMsg024R("hspGlobalMsg024R", "Producto del pedido actualizado y stock conciliado.");
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo modificar el pedido pendiente.", true);
         } finally {
-          hspPendingSave.disabled = false;
+          hspPendingItemSave.disabled = false;
+        }
+        return;
+      }
+
+      const hspPendingItemDelete = target.closest("[data-hsp-pending-item-delete]");
+      if (hspPendingItemDelete) {
+        const row = hspPendingItemDelete.closest("[data-hsp-pending-item-row]");
+        const card = row?.closest("[data-hsp-order-card]");
+        const orderId = card?.getAttribute("data-hsp-order-card") || "";
+        const productName = row?.dataset.originalName || "este producto";
+        const onlyItem = (card?.querySelectorAll("[data-hsp-pending-item-row]").length || 0) === 1;
+        const prompt = onlyItem
+          ? `¿Eliminar ${productName}? Es el único producto y el pedido pendiente desaparecerá.`
+          : `¿Eliminar ${productName} de este pedido?`;
+        if (!confirm(prompt)) return;
+        try {
+          hspPendingItemDelete.disabled = true;
+          const data = await cxHspSavePendingCard031V(card, orderId, row);
+          cxHspShowMsg024R(
+            "hspGlobalMsg024R",
+            data.removed
+              ? "Pedido pendiente eliminado y stock restaurado."
+              : "Producto eliminado del pedido y stock conciliado.",
+          );
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo eliminar el producto.", true);
+        } finally {
+          hspPendingItemDelete.disabled = false;
         }
         return;
       }
