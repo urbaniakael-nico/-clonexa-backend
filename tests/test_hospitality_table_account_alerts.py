@@ -752,3 +752,4 @@ def test_pending_order_item_menu_is_only_rendered_for_pending_orders():
         '@router.patch("/companies/{company_id}/orders/{order_id}/status")', 1
     )[0]
     assert "031V_PENDING_ITEM_ACTION_MENU" in panel_html
+    assert "031W_PENDING_EDITOR_CARD_FIT" in panel_html
