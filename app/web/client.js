@@ -21127,7 +21127,8 @@ function inventoryCreatePayload() {
       .hsp-item-024r{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:850}
       .hsp-item-024r small{color:var(--hsp-muted);font-weight:800}
       .hsp-closed-card-031r{display:grid;gap:11px;background:linear-gradient(180deg,rgba(148,163,184,.13),rgba(255,255,255,.035));border:1px solid rgba(148,163,184,.28);border-radius:17px;padding:12px;margin-bottom:10px;box-shadow:0 12px 28px rgba(0,0,0,.17)}
-      .hsp-closed-head-031r{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.hsp-closed-head-031r small{display:block;color:var(--hsp-muted);font-size:11px;font-weight:900;margin-top:4px}
+      .hsp-closed-head-031r{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.hsp-closed-head-031r small{display:block;color:var(--hsp-muted);font-size:11px;font-weight:900;margin-top:4px}
+      .hsp-closed-table-total-031s{text-align:right;display:grid;gap:2px;justify-items:end}.hsp-closed-table-total-031s span{color:var(--hsp-muted);font-size:9px;font-weight:1000;letter-spacing:.08em;text-transform:uppercase}.hsp-closed-table-total-031s strong{color:var(--cx-text,#fff);font-size:19px;line-height:1.1;white-space:nowrap}
       .hsp-closed-list-031r{display:grid;max-height:340px;overflow-y:auto;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(3,7,18,.28)}
       .hsp-closed-row-031r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 11px;border-top:1px solid rgba(255,255,255,.08)}.hsp-closed-row-031r:first-child{border-top:0}
       .hsp-closed-reference-031r{min-width:0;display:grid;gap:3px}.hsp-closed-reference-031r span{color:var(--hsp-muted);font-size:9px;font-weight:1000;letter-spacing:.08em;text-transform:uppercase}.hsp-closed-reference-031r strong{overflow-wrap:anywhere;font-size:12px;color:var(--cx-text,#fff)}
@@ -21864,7 +21865,10 @@ function inventoryCreatePayload() {
             <div class="hsp-mesa-024r">${h(group.table_number || "Mesa")}</div>
             <small>Cierres registrados: ${h(closureCount)}</small>
           </div>
-          <span class="hsp-pill-024r closed">cerrado</span>
+          <div class="hsp-closed-table-total-031s">
+            <span>Total cierres</span>
+            <strong>${h(cxHspMoney024R(group.total || 0))}</strong>
+          </div>
         </div>
         <div class="hsp-closed-list-031r">${closures}</div>
       </article>`;

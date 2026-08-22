@@ -234,8 +234,12 @@ def test_closed_orders_are_grouped_once_per_table_without_changing_report_data()
     assert "Consecutivo manual" in closed_renderer
     assert "Factura" in closed_renderer
     assert "cxHspPaymentLabel024V(order.payment_method)" in closed_renderer
+    assert "hsp-closed-table-total-031s" in closed_renderer
+    assert "Total cierres" in closed_renderer
+    assert "cxHspMoney024R(group.total || 0)" in closed_renderer
     assert 'text("hspCClosed024R", cxHspClosedTableGroups031R(groups.cerrado).length)' in source
     assert "031R_CLOSED_TABLE_HISTORY" in html
+    assert "031S_CLOSED_TABLE_TOTAL" in html
 
     # La API conserva cada cierre individual para reportes, PDF y exportaciones.
     list_endpoint = backend.split('async def list_hospitality_orders(', 1)[1].split('@router.post("/companies/{company_id}/song-requests"', 1)[0]
