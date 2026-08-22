@@ -21126,6 +21126,12 @@ function inventoryCreatePayload() {
       .hsp-items-024r{display:grid;gap:0}
       .hsp-item-024r{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:850}
       .hsp-item-024r small{color:var(--hsp-muted);font-weight:800}
+      .hsp-pending-item-031u{display:grid;grid-template-columns:minmax(130px,1fr) 66px 86px 34px;gap:6px;align-items:end;padding:8px;border-top:1px solid rgba(255,255,255,.08)}
+      .hsp-pending-item-031u label{display:grid;gap:4px;min-width:0;color:var(--hsp-muted);font-size:8px;font-weight:1000;text-transform:uppercase;letter-spacing:.06em}
+      .hsp-pending-item-031u select,.hsp-pending-item-031u input{width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--hsp-line);border-radius:9px;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);padding:7px 8px;font:inherit;font-size:10px;font-weight:900;outline:none}
+      .hsp-pending-item-031u select:focus,.hsp-pending-item-031u input:focus{border-color:var(--hsp-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--hsp-primary) 16%,transparent)}
+      .hsp-pending-subtotal-031u{align-self:center;text-align:right;color:var(--cx-text,#fff);font-size:11px;font-weight:1000;white-space:nowrap}.hsp-pending-subtotal-031u small{display:block;font-size:8px;text-transform:uppercase}
+      .hsp-pending-remove-031u{width:34px;min-height:34px!important;padding:5px!important;border-radius:9px!important}.hsp-pending-actions-031u{display:flex;gap:7px;flex-wrap:wrap}
       .hsp-closed-card-031r{display:grid;gap:11px;background:linear-gradient(180deg,rgba(148,163,184,.13),rgba(255,255,255,.035));border:1px solid rgba(148,163,184,.28);border-radius:17px;padding:12px;margin-bottom:10px;box-shadow:0 12px 28px rgba(0,0,0,.17)}
       .hsp-closed-head-031r{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.hsp-closed-head-031r small{display:block;color:var(--hsp-muted);font-size:11px;font-weight:900;margin-top:4px}
       .hsp-closed-table-total-031s{text-align:right;display:grid;gap:2px;justify-items:end}.hsp-closed-table-total-031s span{color:var(--hsp-muted);font-size:9px;font-weight:1000;letter-spacing:.08em;text-transform:uppercase}.hsp-closed-table-total-031s strong{color:var(--cx-text,#fff);font-size:19px;line-height:1.1;white-space:nowrap}
@@ -21175,7 +21181,7 @@ function inventoryCreatePayload() {
       .hsp-closure-actions-024u{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px}
       @media(max-width:1420px){.hsp-form-box-024r{grid-template-columns:minmax(190px,.72fr) minmax(500px,1.35fr) minmax(330px,1fr);align-items:start}.hsp-calculator-024r{grid-column:1 / -1;grid-template-columns:minmax(300px,.9fr) minmax(300px,1fr);align-items:end}.hsp-calc-screen-024r{grid-template-columns:1fr 1fr}.hsp-stats-024r{grid-template-columns:repeat(4,minmax(90px,1fr))}.hsp-bar-create-031d{grid-template-columns:repeat(3,minmax(0,1fr))}}
       @media(max-width:1180px){.hsp-form-box-024r{grid-template-columns:1fr 1fr}.hsp-products-wrap-024r,.hsp-calculator-024r{grid-column:1 / -1}.hsp-extra-wrap-024r{grid-column:auto}.hsp-submit-wrap-024r{grid-column:auto}.hsp-operations-grid-031d{grid-template-columns:1fr}.hsp-song-queue-031c{position:static}.hsp-kanban-024r{grid-template-columns:repeat(2,minmax(0,1fr))}.hsp-stats-024r{grid-template-columns:repeat(2,minmax(110px,1fr))}}
-      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-bar-create-031d,.hsp-bar-add-031d,.hsp-bar-close-031d,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}}
+      @media(max-width:760px){.hsp-form-box-024r,.hsp-row-024r,.hsp-line-024r,.hsp-stats-024r,.hsp-extra-wrap-024r,.hsp-calculator-024r,.hsp-bar-create-031d,.hsp-bar-add-031d,.hsp-bar-close-031d,.hsp-closure-grid-024u,.hsp-closure-summary-024u{grid-template-columns:1fr}.hsp-extra-wrap-024r,.hsp-submit-wrap-024r,.hsp-products-wrap-024r,.hsp-calculator-024r,.hsp-song-field-024r,.hsp-note-field-024r{grid-column:auto}.hsp-kanban-024r{grid-template-columns:1fr}.hsp-item-select-024r{grid-column:auto}.hsp-line-024r .hsp-btn-024r.red{width:100%}.hsp-pending-item-031u{grid-template-columns:minmax(0,1fr) 62px 78px 34px}}
       @media(max-width:640px){.hsp-hero-024r .client-title{font-size:32px}.hsp-close-controls-030a{grid-template-columns:1fr}.hsp-close-help-030a{grid-column:auto}.hsp-dashboard-pending-banner-030d{grid-template-columns:38px 1fr}.hsp-dashboard-pending-banner-030d small,.hsp-dashboard-pending-banner-030d b{grid-column:2}}
     `;
     document.head.appendChild(style);
@@ -21961,16 +21967,75 @@ function inventoryCreatePayload() {
     `;
   }
 
+  function cxHspPendingProductOptions031U(item = {}) {
+    const selectedId = String(item.inventory_item_id || item.product_id || "");
+    const currentExists = cxHspInventory024R.some((inventory) => String(inventory.id || "") === selectedId);
+    const currentOption = selectedId && !currentExists
+      ? `<option value="${h(selectedId)}" selected>${h(item.name || "Producto actual")} · pedido actual</option>`
+      : "";
+    return `${currentOption}${cxHspInventory024R.map((inventory) => `
+      <option value="${h(inventory.id || "")}" ${String(inventory.id || "") === selectedId ? "selected" : ""}>
+        ${h(inventory.name || "Producto")} · ${h(cxHspMoney024R(inventory.unit_price ?? inventory.sale_price ?? inventory.price ?? 0))}
+      </option>
+    `).join("")}`;
+  }
+
+  function cxHspPendingItemEditor031U(item = {}) {
+    const originalId = String(item.inventory_item_id || item.product_id || "");
+    return `
+      <div class="hsp-pending-item-031u" data-hsp-pending-item-row
+        data-original-product="${h(originalId)}"
+        data-original-name="${h(item.name || "Producto")}"
+        data-original-sku="${h(item.sku || "")}"
+        data-original-unit="${h(item.unit || "unidad")}"
+        data-original-price="${h(Number(item.unit_price || 0))}"
+        data-original-note="${h(item.note || "")}">
+        <label><span>Producto</span><select class="hsp-pending-product-031u" aria-label="Modificar producto">${cxHspPendingProductOptions031U(item)}</select></label>
+        <label><span>Cantidad</span><input class="hsp-pending-qty-031u" aria-label="Modificar cantidad" type="number" min="1" step="1" value="${h(Number(item.quantity || 1))}" /></label>
+        <div class="hsp-pending-subtotal-031u"><small>Total</small><strong data-hsp-pending-subtotal>${h(cxHspMoney024R(item.subtotal || 0))}</strong></div>
+        <button class="hsp-btn-024r red hsp-pending-remove-031u" type="button" data-hsp-pending-item-remove title="Eliminar producto" aria-label="Eliminar producto">×</button>
+      </div>`;
+  }
+
+  function cxHspPendingItemPayload031U(row) {
+    const productId = row?.querySelector(".hsp-pending-product-031u")?.value || "";
+    const originalId = String(row?.dataset.originalProduct || "");
+    const inventory = cxHspInventory024R.find((item) => String(item.id || "") === String(productId)) || null;
+    const isOriginal = String(productId) === originalId;
+    return {
+      inventory_item_id: productId || null,
+      product_id: productId || null,
+      sku: inventory?.sku || (isOriginal ? row?.dataset.originalSku || "" : ""),
+      name: inventory?.name || (isOriginal ? row?.dataset.originalName || "Producto" : ""),
+      quantity: Math.max(1, Number(row?.querySelector(".hsp-pending-qty-031u")?.value || 1)),
+      unit: isOriginal ? row?.dataset.originalUnit || "unidad" : "unidad",
+      unit_price: inventory
+        ? Number(inventory.unit_price ?? inventory.sale_price ?? inventory.price ?? 0) || 0
+        : Number(row?.dataset.originalPrice || 0),
+      note: isOriginal ? row?.dataset.originalNote || "" : "",
+    };
+  }
+
+  function cxHspRefreshPendingItemTotal031U(row) {
+    if (!row) return;
+    const item = cxHspPendingItemPayload031U(row);
+    const total = row.querySelector("[data-hsp-pending-subtotal]");
+    if (total) total.textContent = cxHspMoney024R(Number(item.quantity || 0) * Number(item.unit_price || 0));
+  }
+
   function cxHspOrderCard024R(order = {}) {
     if (order.__merged_table) return cxHspMergedOrderCard024Y(order);
 
     const people = (Array.isArray(order.people) ? order.people : []).map((person) => {
-      const items = (Array.isArray(person.items) ? person.items : []).map((item) => `
-        <div class="hsp-item-024r">
-          <span>${h(item.name)}<br><small>${h(item.quantity)} x ${h(cxHspMoney024R(item.unit_price))}</small></span>
-          <strong>${h(cxHspMoney024R(item.subtotal))}</strong>
-        </div>
-      `).join("");
+      const items = (Array.isArray(person.items) ? person.items : []).map((item) => (
+        order.status === "pendiente"
+          ? cxHspPendingItemEditor031U(item)
+          : `
+            <div class="hsp-item-024r">
+              <span>${h(item.name)}<br><small>${h(item.quantity)} x ${h(cxHspMoney024R(item.unit_price))}</small></span>
+              <strong>${h(cxHspMoney024R(item.subtotal))}</strong>
+            </div>`
+      )).join("");
 
       return `
         <div class="hsp-person-024r">
@@ -21985,7 +22050,10 @@ function inventoryCreatePayload() {
 
     let actions = "";
     if (order.status === "pendiente") {
-      actions = `<button class="hsp-btn-024r yellow" type="button" data-hsp-status="${h(order.id)}" data-hsp-next="alistando">Alistando</button>`;
+      actions = `<div class="hsp-pending-actions-031u">
+        <button class="hsp-btn-024r secondary" type="button" data-hsp-pending-save="${h(order.id)}">Guardar cambios</button>
+        <button class="hsp-btn-024r yellow" type="button" data-hsp-status="${h(order.id)}" data-hsp-next="alistando">Alistando</button>
+      </div>`;
     } else if (order.status === "alistando") {
       actions = `<button class="hsp-btn-024r green" type="button" data-hsp-status="${h(order.id)}" data-hsp-next="entregado">Entregado</button>`;
     } else if (order.status === "entregado") {
@@ -21999,7 +22067,7 @@ function inventoryCreatePayload() {
         : `<span class="hsp-pill-024r ${h(cxHspStatusClass024R(order.status))}">Mesa QR</span>`;
 
     return `
-      <article class="hsp-card-024r">
+      <article class="hsp-card-024r" data-hsp-order-card="${h(order.id || "")}">
         <div class="hsp-card-head-024r">
           <div>
             <div class="hsp-mesa-024r">${h(order.table_number || "Mesa")}</div>
@@ -22196,6 +22264,10 @@ function inventoryCreatePayload() {
       cxHspSongSearch031H = songSearch.value || "";
       cxHspPaintSongQueue031K(cxHspSongRequests031C, { force: true, preserveScroll: false });
     }
+    const pendingEditorInput = event.target instanceof Element
+      ? event.target.closest(".hsp-pending-product-031u,.hsp-pending-qty-031u")
+      : null;
+    if (pendingEditorInput) cxHspRefreshPendingItemTotal031U(pendingEditorInput.closest("[data-hsp-pending-item-row]"));
   });
 
   document.addEventListener("change", (event) => {
@@ -22204,6 +22276,10 @@ function inventoryCreatePayload() {
     if (!(target instanceof HTMLSelectElement)) return;
     if (target.id === "hspBarDestination031F") {
       cxHspSyncBarDestination031F();
+      return;
+    }
+    if (target.matches(".hsp-pending-product-031u,.hsp-pending-qty-031u")) {
+      cxHspRefreshPendingItemTotal031U(target.closest("[data-hsp-pending-item-row]"));
       return;
     }
     if (!["hspSaleDestination030D", "hspTargetTable030D"].includes(target.id)) return;
@@ -30374,6 +30450,39 @@ function inventoryCreatePayload() {
       const hspRemoveLine = target.closest("[data-hsp-remove-line]");
       if (hspRemoveLine) {
         hspRemoveLine.closest(".hsp-line-024r")?.remove();
+        return;
+      }
+
+      const hspPendingItemRemove = target.closest("[data-hsp-pending-item-remove]");
+      if (hspPendingItemRemove) {
+        hspPendingItemRemove.closest("[data-hsp-pending-item-row]")?.remove();
+        return;
+      }
+
+      const hspPendingSave = target.closest("[data-hsp-pending-save]");
+      if (hspPendingSave) {
+        const orderId = hspPendingSave.getAttribute("data-hsp-pending-save") || "";
+        const card = hspPendingSave.closest("[data-hsp-order-card]");
+        const rows = Array.from(card?.querySelectorAll("[data-hsp-pending-item-row]") || []);
+        const items = rows.map(cxHspPendingItemPayload031U).filter((item) => item.name && Number(item.quantity || 0) > 0);
+        try {
+          hspPendingSave.disabled = true;
+          const data = await cxHspApi024R(`/orders/${encodeURIComponent(orderId)}/items`, {
+            method: "PATCH",
+            body: JSON.stringify({ items }),
+          });
+          await Promise.all([cxHspLoadInventory024R(), cxHspLoadOrders024R()]);
+          cxHspShowMsg024R(
+            "hspGlobalMsg024R",
+            data.removed
+              ? "Pedido eliminado antes de alistar y stock restaurado."
+              : "Pedido pendiente actualizado y stock conciliado.",
+          );
+        } catch (error) {
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo modificar el pedido pendiente.", true);
+        } finally {
+          hspPendingSave.disabled = false;
+        }
         return;
       }
 

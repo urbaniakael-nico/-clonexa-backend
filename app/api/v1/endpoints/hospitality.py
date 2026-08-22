@@ -79,6 +79,20 @@ class HospitalityOrderCreateIn(BaseModel):
         return rows[:80]
 
 
+class HospitalityPendingOrderItemsIn(BaseModel):
+    items: list[HospitalityOrderItemIn] = Field(default_factory=list)
+
+    @field_validator("items")
+    @classmethod
+    def clean_items(cls, value: list[HospitalityOrderItemIn]) -> list[HospitalityOrderItemIn]:
+        return [
+            item
+            for item in (value or [])
+            if _num(item.quantity) > 0
+            and (_clean(item.name) or _clean(item.product_id) or _clean(item.inventory_item_id))
+        ][:80]
+
+
 class HospitalitySongRequestIn(BaseModel):
     table: str | None = Field(default="Mesa", max_length=120)
     customer: str | None = Field(default="Cliente mesa", max_length=180)
@@ -2097,6 +2111,131 @@ async def _deduct_inventory(
                     "after": after,
                     "source_ref": order.get("order_number") or order.get("id"),
                     "notes": f"{order.get('table_number') or 'Mesa'} / {item.get('name') or 'Producto'}",
+                },
+            )
+
+
+def _hospitality_item_quantities(items: list[dict[str, Any]] | None) -> dict[str, float]:
+    quantities: dict[str, float] = {}
+    for item in items or []:
+        item_id = _clean(item.get("inventory_item_id") or item.get("product_id"))
+        try:
+            item_id = str(uuid.UUID(item_id))
+        except Exception:
+            continue
+        quantity = _money(item.get("quantity"))
+        if quantity <= 0:
+            continue
+        quantities[item_id] = _money(quantities.get(item_id, 0) + quantity)
+    return quantities
+
+
+async def _adjust_pending_order_inventory(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    order: dict[str, Any],
+    new_items: list[dict[str, Any]],
+) -> None:
+    """Reconcile stock reserved by a pending order before it reaches preparation."""
+    exists = await db.execute(text("SELECT to_regclass('public.inventory_items')"))
+    if not exists.scalar():
+        return
+
+    old_items = (order.get("items") or []) if order.get("inventory_deducted") else []
+    old_quantities = _hospitality_item_quantities(old_items)
+    new_quantities = _hospitality_item_quantities(new_items)
+    item_ids = sorted(set(old_quantities) | set(new_quantities))
+    locked: dict[str, dict[str, Any]] = {}
+
+    for item_id in item_ids:
+        result = await db.execute(
+            text(
+                """
+                SELECT id, current_stock, min_stock, status
+                FROM inventory_items
+                WHERE id = :item_id
+                  AND company_id = :company_id
+                LIMIT 1
+                FOR UPDATE
+                """
+            ),
+            {"item_id": item_id, "company_id": str(company_id)},
+        )
+        row = result.mappings().first()
+        if row:
+            locked[item_id] = dict(row)
+
+    for item_id, inventory in locked.items():
+        delta = _money(new_quantities.get(item_id, 0) - old_quantities.get(item_id, 0))
+        if delta <= 0:
+            continue
+        before = _money(inventory.get("current_stock"))
+        if _norm(inventory.get("status")) != "active":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El producto seleccionado ya está inactivo por stock mínimo.",
+            )
+        if before < delta:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Stock insuficiente para modificar el pedido. Disponible adicional: {before}.",
+            )
+
+    movement_exists = await db.execute(text("SELECT to_regclass('public.inventory_movements')"))
+    has_movements = bool(movement_exists.scalar())
+    item_names = {
+        _clean(item.get("inventory_item_id") or item.get("product_id")): _clean(item.get("name"))
+        for item in (order.get("items") or []) + list(new_items or [])
+    }
+    for item_id, inventory in locked.items():
+        delta = _money(new_quantities.get(item_id, 0) - old_quantities.get(item_id, 0))
+        if not delta:
+            continue
+        before = _money(inventory.get("current_stock"))
+        minimum = _money(inventory.get("min_stock"))
+        after = _money(before - delta)
+        next_status = "inactive" if after <= minimum else "active"
+        await db.execute(
+            text(
+                """
+                UPDATE inventory_items
+                SET current_stock = :after,
+                    status = :next_status,
+                    updated_at = NOW()
+                WHERE id = :item_id
+                  AND company_id = :company_id
+                """
+            ),
+            {
+                "after": after,
+                "next_status": next_status,
+                "item_id": item_id,
+                "company_id": str(company_id),
+            },
+        )
+        if has_movements:
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO inventory_movements (
+                        id, company_id, item_id, movement_type, quantity_delta,
+                        stock_before, stock_after, source_module, source_ref, notes, created_at, updated_at
+                    )
+                    VALUES (
+                        :id, :company_id, :item_id, 'hospitality_order_edit', :quantity_delta,
+                        :before, :after, 'hospitality_orders', :source_ref, :notes, NOW(), NOW()
+                    )
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "company_id": str(company_id),
+                    "item_id": item_id,
+                    "quantity_delta": -delta,
+                    "before": before,
+                    "after": after,
+                    "source_ref": order.get("order_number") or order.get("id"),
+                    "notes": f"Edición pendiente / {order.get('table_number') or 'Mesa'} / {item_names.get(item_id) or 'Producto'}",
                 },
             )
 
@@ -4205,6 +4344,88 @@ async def create_hospitality_order(
     await db.commit()
     order["inventory_deducted"] = True
     return {"ok": True, "order": order, "table": order}
+
+
+@router.patch("/companies/{company_id}/orders/{order_id}/items")
+async def update_pending_hospitality_order_items(
+    company_id: uuid.UUID,
+    order_id: uuid.UUID,
+    payload: HospitalityPendingOrderItemsIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _ensure_storage(db)
+    current_result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_orders
+            WHERE id = :order_id
+              AND company_id = :company_id
+            LIMIT 1
+            FOR UPDATE
+            """
+        ),
+        {"order_id": str(order_id), "company_id": str(company_id)},
+    )
+    current_row = current_result.mappings().first()
+    if not current_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="pedido_no_encontrado")
+    order = _payload(current_row)
+    if _status(order.get("status")) != STATUS_PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El pedido solo se puede modificar mientras está pendiente.",
+        )
+
+    items = _merge_hospitality_items(await _build_order_items(db, company_id, payload.items))
+    await _adjust_pending_order_inventory(db, company_id, order, items)
+    total = _money(sum(_num(item.get("subtotal")) for item in items))
+    removed = not items
+    current_people = order.get("people") if isinstance(order.get("people"), list) else []
+    first_person = dict(current_people[0]) if current_people and isinstance(current_people[0], dict) else {}
+    person = {
+        **first_person,
+        "id": first_person.get("id") or f"person_{uuid.uuid4()}",
+        "name": first_person.get("name") or order.get("customer_name") or "Cliente mesa",
+        "customer_key": first_person.get("customer_key") or _customer_key(order.get("customer_name") or "Cliente mesa"),
+        "total": total,
+        "items": items,
+    }
+    edit_metadata = {
+        "pending_order_edited": True,
+        "pending_order_removed": removed,
+        "pending_order_previous_total": _money(order.get("total")),
+        "pending_order_edited_at": _now().isoformat(),
+    }
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_orders
+            SET items = CAST(:items AS jsonb),
+                people = CAST(:people AS jsonb),
+                total = :total,
+                status = CASE WHEN :removed THEN 'cancelado' ELSE status END,
+                cancelled_at = CASE WHEN :removed THEN COALESCE(cancelled_at, NOW()) ELSE cancelled_at END,
+                inventory_deducted = TRUE,
+                metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb),
+                updated_at = NOW()
+            WHERE id = :order_id
+              AND company_id = :company_id
+            """
+        ),
+        {
+            "items": json.dumps(items, ensure_ascii=False),
+            "people": json.dumps([person], ensure_ascii=False),
+            "total": total,
+            "removed": removed,
+            "metadata": json.dumps(edit_metadata, ensure_ascii=False),
+            "order_id": str(order_id),
+            "company_id": str(company_id),
+        },
+    )
+    await db.commit()
+    saved = await _fetch_order(db, company_id, order_id)
+    return {"ok": True, "removed": removed, "order": saved, "table": saved}
 
 
 @router.patch("/companies/{company_id}/orders/{order_id}/status")
