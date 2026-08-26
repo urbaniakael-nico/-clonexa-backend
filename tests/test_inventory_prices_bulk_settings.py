@@ -92,6 +92,23 @@ def test_inventory_ui_has_both_prices_and_mass_save():
     assert '@router.patch("/companies/{company_id}/items/bulk")' in INVENTORY_BACKEND
 
 
+def test_inventory_modify_search_is_fuzzy_and_history_links_to_product_editor():
+    smart_search = CLIENT_JS.split("/* CX_031X_INVENTORY_SMART_SEARCH_START */", 1)[1].split(
+        "/* CX_031X_INVENTORY_SMART_SEARCH_END */", 1
+    )[0]
+
+    assert "function inventoryNormalizeSearch" in smart_search
+    assert "function inventorySearchDistance" in smart_search
+    assert "function inventorySearchScore" in smart_search
+    assert "a[i - 1] === b[j - 2]" in smart_search
+    assert "row.dataset.inventorySearchText" in smart_search
+    assert "ranked.sort" in smart_search
+    assert 'data-inventory-search-text="${h([row.name_reference' in CLIENT_JS
+    assert "data-inventory-edit-item" in CLIENT_JS
+    assert "listo para modificar" in CLIENT_JS
+    assert "Sin factura</span>" in CLIENT_JS
+
+
 def test_stock_is_read_only_and_shows_entry_and_sale_totals():
     stock = CLIENT_JS.split("/* CLONEXA_024T_STOCK_PANEL_START */", 1)[1].split(
         "/* CLONEXA_024T_STOCK_PANEL_END */", 1
