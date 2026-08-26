@@ -4667,6 +4667,14 @@
         margin: 8px 0 18px;
         outline:none;
       }
+      .cx-inv-search-status {
+        display: inline-flex;
+        align-items: center;
+        min-height: 34px;
+        color: rgba(255,255,255,.68);
+        font-size: 12px;
+        font-weight: 900;
+      }
       .cx-inv-table-wrap {
         width:100%;
         max-width:100%;
@@ -4697,6 +4705,10 @@
       }
       .cx-inv-table td {
         font-weight: 850;
+      }
+      .cx-inv-table tr.cx-inv-row-editing td {
+        background: rgba(0,255,136,.10);
+        box-shadow: inset 0 1px rgba(0,255,136,.28), inset 0 -1px rgba(0,255,136,.28);
       }
       .cx-inv-table input,
       .cx-inv-table select {
@@ -4905,6 +4917,26 @@
         text-decoration: none;
         font-weight: 1000;
       }
+      .cx-inv-history-file-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+      .cx-inv-history-edit {
+        border: 1px solid rgba(255,255,255,.17);
+        background: rgba(255,255,255,.09);
+        color: inherit;
+        border-radius: 10px;
+        padding: 7px 9px;
+        font-size: 11px;
+        font-weight: 1000;
+        cursor: pointer;
+      }
+      .cx-inv-history-edit:hover {
+        border-color: var(--cx-secondary, #00ff88);
+        background: rgba(0,255,136,.14);
+      }
       @media (max-width: 1100px) {
         .cx-inv-form { grid-template-columns: 1fr; }
         .cx-inv-table { min-width: 980px; }
@@ -4927,6 +4959,128 @@
   function inventoryStatusLabel(status = "") {
     return String(status || "active").toLowerCase() === "inactive" ? "Inactivo" : "Activo";
   }
+
+  /* CX_031X_INVENTORY_SMART_SEARCH_START */
+  function inventoryNormalizeSearch(value = "") {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  function inventorySearchDistance(left = "", right = "") {
+    const a = inventoryNormalizeSearch(left);
+    const b = inventoryNormalizeSearch(right);
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+
+    const matrix = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+    for (let i = 0; i <= a.length; i += 1) matrix[i][0] = i;
+    for (let j = 0; j <= b.length; j += 1) matrix[0][j] = j;
+
+    for (let i = 1; i <= a.length; i += 1) {
+      for (let j = 1; j <= b.length; j += 1) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j - 1] + cost
+        );
+        if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+          matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1);
+        }
+      }
+    }
+    return matrix[a.length][b.length];
+  }
+
+  function inventorySearchScore(searchValue = "", query = "") {
+    const target = inventoryNormalizeSearch(searchValue);
+    const normalizedQuery = inventoryNormalizeSearch(query);
+    if (!normalizedQuery) return 0;
+    if (!target) return Number.POSITIVE_INFINITY;
+    if (target === normalizedQuery) return 0;
+    if (target.startsWith(normalizedQuery)) return 1;
+    if (target.includes(normalizedQuery)) return 2;
+
+    const targetTokens = target.split(" ").filter(Boolean);
+    const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+    let total = 0;
+
+    for (const queryToken of queryTokens) {
+      let best = Number.POSITIVE_INFINITY;
+      for (const targetToken of targetTokens) {
+        if (targetToken === queryToken) best = Math.min(best, 0);
+        else if (targetToken.startsWith(queryToken)) best = Math.min(best, 1);
+        else if (targetToken.includes(queryToken)) best = Math.min(best, 2);
+        else if (queryToken.length >= 3) {
+          const distance = inventorySearchDistance(targetToken, queryToken);
+          const allowed = queryToken.length >= 7 ? 2 : 1;
+          if (distance <= allowed) best = Math.min(best, 10 + distance);
+        }
+      }
+      if (!Number.isFinite(best)) return Number.POSITIVE_INFINITY;
+      total += best;
+    }
+    return total;
+  }
+
+  function inventoryRowSearchValue(row) {
+    if (!row) return "";
+    const fieldValues = Array.from(row.querySelectorAll("[data-inventory-field]"))
+      .map((field) => String(field.value || ""));
+    return [row.dataset.inventorySearchText || "", ...fieldValues].join(" ");
+  }
+
+  function applyInventorySmartSearch(query = "") {
+    const normalizedQuery = inventoryNormalizeSearch(query);
+    const tbody = document.querySelector(".cx-inv-table tbody");
+    const rows = Array.from(document.querySelectorAll("[data-inventory-row]"));
+    const status = document.querySelector("[data-inventory-search-status]");
+    window.__cxInventorySearchQuery = String(query || "");
+    if (!tbody || !rows.length) {
+      if (status) status.textContent = normalizedQuery ? "Sin coincidencias." : "";
+      return [];
+    }
+
+    const ranked = rows.map((row, position) => ({
+      row,
+      position: Number(row.dataset.inventoryOrder || position),
+      score: inventorySearchScore(inventoryRowSearchValue(row), normalizedQuery),
+      label: inventoryNormalizeSearch(row.dataset.inventoryLabel || ""),
+    }));
+
+    ranked.sort((left, right) => {
+      const leftMatch = Number.isFinite(left.score);
+      const rightMatch = Number.isFinite(right.score);
+      if (leftMatch !== rightMatch) return leftMatch ? -1 : 1;
+      if (left.score !== right.score) return left.score - right.score;
+      const byLabel = left.label.localeCompare(right.label, "es");
+      return byLabel || left.position - right.position;
+    });
+
+    const matches = [];
+    ranked.forEach(({ row, score }) => {
+      const visible = !normalizedQuery || Number.isFinite(score);
+      row.style.display = visible ? "" : "none";
+      tbody.appendChild(row);
+      if (visible) matches.push(row);
+    });
+
+    if (status) {
+      status.textContent = normalizedQuery
+        ? matches.length
+          ? `${matches.length} coincidencia(s), ordenadas por relevancia.`
+          : "Sin coincidencias. Prueba otra palabra."
+        : `${rows.length} producto(s) disponibles para modificar.`;
+    }
+    return matches;
+  }
+  /* CX_031X_INVENTORY_SMART_SEARCH_END */
 
   function inventoryMode() {
     return window.__cxInventoryMode || "create";
@@ -5348,7 +5502,7 @@ function inventoryCreatePayload() {
     `;
   }
 
-  function renderInventoryRow(row = {}) {
+  function renderInventoryRow(row = {}, index = 0) {
     const pendingInvoice = getInventoryPendingInvoice(row?.id);
     const invoicePickerClass = pendingInvoice ? "cx-inv-invoice-picker has-file" : "cx-inv-invoice-picker";
     const invoicePickerText = pendingInvoice ? "Factura adjunta" : "Adjuntar factura";
@@ -5356,7 +5510,7 @@ function inventoryCreatePayload() {
     const status = String(row.status || "active").toLowerCase();
     const low = !!row.alert_low;
     return `
-      <tr data-inventory-row="${h(row.id)}">
+      <tr data-inventory-row="${h(row.id)}" data-inventory-order="${h(index)}" data-inventory-label="${h(row.name_reference || "Material")}" data-inventory-search-text="${h([row.name_reference, row.size, row.color, row.sku, row.reference].filter(Boolean).join(" "))}">
         <td><input data-inventory-field="name_reference" value="${h(row.name_reference || "")}"></td>
         <td><input data-inventory-field="size" value="${h(row.size || "")}"></td>
         <td><input data-inventory-field="color" value="${h(row.color || "")}"></td>
@@ -5398,9 +5552,10 @@ function inventoryCreatePayload() {
         <h2>Buscar y actualizar</h2>
         <p class="client-muted">Edita datos y precios directamente aquí. “Guardar todo” conserva todas las filas de una vez; las entradas de stock se registran individualmente con “Ingresar”.</p>
         <div class="client-actions" style="justify-content:space-between;align-items:center;margin-bottom:14px">
-          <input class="cx-inv-search" data-inventory-search placeholder="🔎 Buscar por nombre, referencia, tamaño o color...">
+          <input class="cx-inv-search" data-inventory-search value="${h(window.__cxInventorySearchQuery || "")}" placeholder="🔎 Escribe light, poker, referencia, tamaño o color..." autocomplete="off">
           <button class="client-btn" type="button" data-inventory-save-all>Guardar todo</button>
         </div>
+        <div class="cx-inv-search-status" data-inventory-search-status aria-live="polite"></div>
 
         <div class="cx-inv-table-wrap">
           <table class="cx-inv-table">
@@ -5440,6 +5595,10 @@ function inventoryCreatePayload() {
   function renderInventoryMovementRow(row = {}) {
     const qty = Number(row.quantity_delta ?? row.quantity ?? 0);
     const invoiceUrl = String(row.invoice_file_url || "");
+    const itemId = String(row.item_id || "").trim();
+    const editButton = itemId
+      ? `<button class="cx-inv-history-edit" type="button" data-inventory-edit-item="${h(itemId)}" aria-label="Modificar ${h(row.name_reference || "material")}">Modificar</button>`
+      : "";
     return `
       <div class="cx-inv-history-cell">${h(inventoryMovementDate(row.created_at))}</div>
       <div class="cx-inv-history-cell">
@@ -5451,7 +5610,10 @@ function inventoryCreatePayload() {
       <div class="cx-inv-history-cell">${h(inventoryQtyLabel(row.stock_after || 0))}</div>
       <div class="cx-inv-history-cell">${h(row.notes || "-")}</div>
       <div class="cx-inv-history-cell">
-        ${invoiceUrl ? `<a class="cx-inv-file-link" href="${h(invoiceUrl)}" target="_blank" rel="noopener">Ver factura</a><br><small class="client-muted">${h(row.invoice_original_name || "")}</small>` : `<span class="client-muted">Sin factura</span>`}
+        <div class="cx-inv-history-file-actions">
+          ${invoiceUrl ? `<a class="cx-inv-file-link" href="${h(invoiceUrl)}" target="_blank" rel="noopener">Ver factura</a><small class="client-muted">${h(row.invoice_original_name || "")}</small>` : `<span class="client-muted">Sin factura</span>`}
+          ${editButton}
+        </div>
       </div>
     `;
   }
@@ -5554,6 +5716,7 @@ function inventoryCreatePayload() {
         </div>
       </main>
     `;
+    if (mode === "modify") applyInventorySmartSearch(window.__cxInventorySearchQuery || "");
   }
 
   /* CX_019E_R1_INVENTORY_HISTORY_ARCHIVE_CLIENT */
@@ -31805,6 +31968,28 @@ function inventoryCreatePayload() {
         return;
       }
 
+      const inventoryHistoryEditBtn = target.closest("[data-inventory-edit-item]");
+      if (inventoryHistoryEditBtn) {
+        const itemId = String(inventoryHistoryEditBtn.dataset.inventoryEditItem || "");
+        const inventoryRow = document.querySelector(`[data-inventory-row="${CSS.escape(itemId)}"]`);
+        if (!inventoryRow) {
+          showInventoryNotice("No se encontró el producto asociado a este movimiento.", "error");
+          return;
+        }
+        const searchInput = document.querySelector("[data-inventory-search]");
+        const label = String(inventoryRow.dataset.inventoryLabel || "").trim();
+        if (searchInput) searchInput.value = label;
+        applyInventorySmartSearch(label);
+        document.querySelectorAll(".cx-inv-row-editing").forEach((row) => row.classList.remove("cx-inv-row-editing"));
+        inventoryRow.classList.add("cx-inv-row-editing");
+        inventoryRow.scrollIntoView({ behavior: "smooth", block: "center", inline: "start" });
+        window.clearTimeout(window.__cxInventoryEditHighlightTimer);
+        window.__cxInventoryEditHighlightTimer = window.setTimeout(() => inventoryRow.classList.remove("cx-inv-row-editing"), 5000);
+        window.setTimeout(() => inventoryRow.querySelector('[data-inventory-field="name_reference"]')?.focus(), 350);
+        showInventoryNotice(`${label || "Producto"} listo para modificar. Guarda la fila o usa Guardar todo.`);
+        return;
+      }
+
       const inventoryModeBtn = target.closest("[data-inventory-mode]");
       if (inventoryModeBtn) {
         setInventoryMode(String(inventoryModeBtn.dataset.inventoryMode || "create"));
@@ -32043,11 +32228,7 @@ function inventoryCreatePayload() {
 
       const inventoryInput = event.target.closest("[data-inventory-search]");
       if (inventoryInput) {
-        const query = String(inventoryInput.value || "").toLowerCase().trim();
-        document.querySelectorAll("[data-inventory-row]").forEach((row) => {
-          const text = String(row.textContent || "").toLowerCase();
-          row.style.display = !query || text.includes(query) ? "" : "none";
-        });
+        applyInventorySmartSearch(inventoryInput.value || "");
         return;
       }
 
