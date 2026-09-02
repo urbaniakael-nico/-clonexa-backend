@@ -1294,6 +1294,254 @@ def _hsp_aggregate(
     return {"periods": [buckets[item["key"]] for item in definitions], "totals": totals, "closures": included}
 
 
+def _hsp_event_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return _aware(value)
+    return _hsp_report_date(value)
+
+
+def _hsp_event_access_end(access: dict[str, Any], next_started_at: datetime | None = None) -> datetime | None:
+    started_at = _hsp_event_datetime(access.get("activated_at") or access.get("created_at"))
+    updated_at = _hsp_event_datetime(access.get("updated_at"))
+    expires_at = _hsp_event_datetime(access.get("expires_at"))
+    is_active = _norm(access.get("status")) == "active"
+    closes_with_table = bool(access.get("closes_with_table"))
+    if is_active:
+        ended_at = None
+    elif closes_with_table:
+        ended_at = updated_at or expires_at
+    else:
+        candidates = [value for value in (updated_at, expires_at) if value]
+        ended_at = min(candidates) if candidates else None
+    if next_started_at and (ended_at is None or next_started_at < ended_at):
+        ended_at = next_started_at
+    if started_at and ended_at and ended_at < started_at:
+        return started_at
+    return ended_at
+
+
+def _hsp_event_order_end(order: dict[str, Any]) -> datetime | None:
+    return next(
+        (
+            value
+            for value in (
+                _hsp_event_datetime(order.get("closed_at")),
+                _hsp_event_datetime(order.get("cancelled_at")),
+                _hsp_event_datetime(order.get("archived_at")),
+                _hsp_event_datetime(order.get("updated_at")),
+                _hsp_event_datetime(order.get("served_at")),
+                _hsp_event_datetime(order.get("created_at")),
+            )
+            if value
+        ),
+        None,
+    )
+
+
+def _hsp_event_payment(orders: list[dict[str, Any]]) -> tuple[str, str]:
+    methods = {_payment_method(order.get("payment_method")) for order in orders}
+    if len(methods) == 1:
+        method = next(iter(methods))
+        return method, PAYMENT_LABELS.get(method, "Otro")
+    if len(methods) > 1:
+        return "mixed", "Mixto"
+    return "other", "Otro"
+
+
+def _hsp_event_payload(
+    orders: list[dict[str, Any]],
+    *,
+    event_id: Any,
+    event_type: str,
+    location: str,
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
+    activation_number: int | None = None,
+    historical: bool = False,
+    active: bool = False,
+) -> dict[str, Any]:
+    valid_orders = [order for order in orders if _status(order.get("status")) != STATUS_CANCELLED]
+    order_starts = [_hsp_event_datetime(order.get("created_at")) for order in valid_orders]
+    order_starts = [value for value in order_starts if value]
+    order_ends = [_hsp_event_order_end(order) for order in valid_orders]
+    order_ends = [value for value in order_ends if value]
+    started_at = started_at or (min(order_starts) if order_starts else None)
+    if not active:
+        latest_order_end = max(order_ends) if order_ends else None
+        if latest_order_end and (ended_at is None or latest_order_end > ended_at):
+            ended_at = latest_order_end
+
+    raw_items = [item for order in valid_orders for item in (order.get("items") or []) if isinstance(item, dict)]
+    items = _merge_hospitality_items(raw_items)
+    total = _money(sum(_num(order.get("total")) for order in valid_orders))
+    method, payment_label = _hsp_event_payment(valid_orders)
+    customer_names = []
+    for order in valid_orders:
+        customer = _clean(order.get("customer_name"))
+        if customer and customer not in customer_names and _norm(customer) not in {"cliente mesa", "cliente barra"}:
+            customer_names.append(customer)
+    customer_name = customer_names[0] if customer_names else ("Cliente barra" if event_type == "bar" else "")
+    label = customer_name if event_type == "bar" else location
+
+    return {
+        "id": str(event_id or ""),
+        "type": event_type,
+        "label": label or location or "Evento",
+        "location": location or ("Barra" if event_type == "bar" else "Mesa"),
+        "customer_name": customer_name,
+        "activation_number": activation_number,
+        "historical": bool(historical),
+        "active": bool(active),
+        "started_at": _iso(started_at),
+        "ended_at": None if active else _iso(ended_at),
+        "orders_count": len(valid_orders),
+        "order_numbers": [order.get("order_number") for order in valid_orders if order.get("order_number")],
+        "items": items,
+        "items_quantity": _money(sum(_num(item.get("quantity")) for item in items)),
+        "total": total,
+        "payment_method": method,
+        "payment_label": payment_label,
+    }
+
+
+def _hsp_event_search_rows(
+    raw_orders: list[dict[str, Any]],
+    raw_accesses: list[dict[str, Any]],
+    event_date: calendar_date,
+    timezone_name: Any = "America/Bogota",
+) -> list[dict[str, Any]]:
+    """Rebuild QR and bar consumption sessions from already captured records."""
+    zone = _hsp_report_zone(timezone_name)
+    day_start = datetime(event_date.year, event_date.month, event_date.day, tzinfo=zone).astimezone(timezone.utc)
+    day_end = day_start + timedelta(days=1)
+    orders = [
+        _payload(order)
+        for order in raw_orders
+        if _status(dict(order).get("status")) != STATUS_CANCELLED
+    ]
+    table_orders: list[dict[str, Any]] = []
+    bar_orders: list[dict[str, Any]] = []
+    for order in orders:
+        source = _norm(order.get("source")).replace(" ", "_")
+        is_bar = _order_type(order.get("table_number"), source) == "bar_sale" or source == "bar_account"
+        (bar_orders if is_bar else table_orders).append(order)
+
+    events: list[dict[str, Any]] = []
+    consumed_ids: set[str] = set()
+    access_groups: dict[str, list[dict[str, Any]]] = {}
+    for raw_access in raw_accesses:
+        access = dict(raw_access)
+        access_groups.setdefault(_table_key(access.get("table_key") or access.get("table_number")), []).append(access)
+
+    for table_key, accesses in access_groups.items():
+        accesses.sort(key=lambda row: _hsp_event_datetime(row.get("activated_at") or row.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc))
+        for index, access in enumerate(accesses):
+            started_at = _hsp_event_datetime(access.get("activated_at") or access.get("created_at"))
+            if not started_at:
+                continue
+            next_started_at = (
+                _hsp_event_datetime(accesses[index + 1].get("activated_at") or accesses[index + 1].get("created_at"))
+                if index + 1 < len(accesses)
+                else None
+            )
+            ended_at = _hsp_event_access_end(access, next_started_at)
+            matching: list[dict[str, Any]] = []
+            for order in table_orders:
+                if _table_key(order.get("table_key") or order.get("table_number")) != table_key:
+                    continue
+                created_at = _hsp_event_datetime(order.get("created_at"))
+                if not created_at or created_at < started_at:
+                    continue
+                if next_started_at and created_at >= next_started_at:
+                    continue
+                if ended_at and created_at > ended_at + timedelta(minutes=5):
+                    continue
+                matching.append(order)
+            if not matching:
+                continue
+            actual_end = ended_at or max((_hsp_event_order_end(order) or started_at for order in matching), default=started_at)
+            overlaps_day = started_at < day_end and actual_end >= day_start
+            order_on_day = any(
+                day_start <= (_hsp_event_datetime(order.get("created_at")) or day_start - timedelta(days=2)) < day_end
+                for order in matching
+            )
+            if not overlaps_day and not order_on_day:
+                continue
+            active = _norm(access.get("status")) == "active"
+            events.append(
+                _hsp_event_payload(
+                    matching,
+                    event_id=access.get("id"),
+                    event_type="qr",
+                    location=_clean(access.get("table_number")) or matching[0].get("table_number") or "Mesa",
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    activation_number=int(access.get("activation_number") or index + 1),
+                    active=active,
+                )
+            )
+            consumed_ids.update(str(order.get("id")) for order in matching if order.get("id"))
+
+    # Legacy fallback: historical orders captured before an access row existed are
+    # grouped by table and by a two-hour inactivity gap, so retroactive data is not lost.
+    unmatched_by_table: dict[str, list[dict[str, Any]]] = {}
+    for order in table_orders:
+        if str(order.get("id")) in consumed_ids:
+            continue
+        created_at = _hsp_event_datetime(order.get("created_at"))
+        ended_at = _hsp_event_order_end(order) or created_at
+        if not created_at or not ended_at or created_at >= day_end or ended_at < day_start:
+            continue
+        unmatched_by_table.setdefault(_table_key(order.get("table_key") or order.get("table_number")), []).append(order)
+
+    for fallback_orders in unmatched_by_table.values():
+        fallback_orders.sort(key=lambda order: _hsp_event_datetime(order.get("created_at")) or day_start)
+        groups: list[list[dict[str, Any]]] = []
+        for order in fallback_orders:
+            created_at = _hsp_event_datetime(order.get("created_at")) or day_start
+            previous_end = max((_hsp_event_order_end(item) or created_at for item in groups[-1]), default=created_at) if groups else None
+            if not groups or (previous_end and created_at > previous_end + timedelta(hours=2)):
+                groups.append([order])
+            else:
+                groups[-1].append(order)
+        for index, group in enumerate(groups, start=1):
+            location = _clean(group[0].get("table_number")) or "Mesa"
+            events.append(
+                _hsp_event_payload(
+                    group,
+                    event_id=f"legacy-{_table_key(location)}-{event_date.isoformat()}-{index}",
+                    event_type="qr",
+                    location=location,
+                    activation_number=index,
+                    historical=True,
+                )
+            )
+
+    # Each named bar account is already stored as one cumulative order/event.
+    for order in bar_orders:
+        started_at = _hsp_event_datetime(order.get("created_at"))
+        ended_at = _hsp_event_order_end(order)
+        if not started_at or started_at >= day_end or (ended_at and ended_at < day_start):
+            continue
+        events.append(
+            _hsp_event_payload(
+                [order],
+                event_id=order.get("id"),
+                event_type="bar",
+                location="Barra",
+                started_at=started_at,
+                ended_at=ended_at,
+                active=_status(order.get("status")) in {STATUS_PENDING, STATUS_PREPARING, STATUS_SERVED} and not order.get("archived_at"),
+            )
+        )
+
+    return sorted(
+        events,
+        key=lambda event: _hsp_event_datetime(event.get("started_at")) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+
+
 async def _hospitality_report_payload(
     db: AsyncSession,
     company_id: uuid.UUID,
@@ -4192,6 +4440,82 @@ async def list_hospitality_day_closures(
         "company_id": str(company_id),
         "closures": closures,
         "song_requests": song_requests,
+    }
+
+
+@router.get("/companies/{company_id}/events")
+async def list_hospitality_events(
+    company_id: uuid.UUID,
+    event_date: calendar_date = Query(..., alias="date"),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return retroactive consumption events without changing closures or reports."""
+    await _ensure_storage(db)
+    if not await _company_exists(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+
+    company = await _hospitality_company_identity(db, company_id)
+    timezone_name = company.get("timezone") or "America/Bogota"
+    zone = _hsp_report_zone(timezone_name)
+    local_start = datetime(event_date.year, event_date.month, event_date.day, tzinfo=zone)
+    scan_start = (local_start - timedelta(days=1)).astimezone(timezone.utc)
+    scan_end = (local_start + timedelta(days=2)).astimezone(timezone.utc)
+
+    access_result = await db.execute(
+        text(
+            """
+            WITH ranked_access AS (
+                SELECT access.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY access.table_key
+                           ORDER BY access.activated_at ASC, access.id ASC
+                       ) AS activation_number
+                FROM hospitality_table_access access
+                WHERE access.company_id = :company_id
+            )
+            SELECT *
+            FROM ranked_access
+            WHERE activated_at < :scan_end
+              AND (
+                    status = 'active'
+                    OR COALESCE(updated_at, expires_at, activated_at) >= :scan_start
+                    OR expires_at >= :scan_start
+                  )
+            ORDER BY table_key ASC, activated_at ASC
+            """
+        ),
+        {"company_id": str(company_id), "scan_start": scan_start, "scan_end": scan_end},
+    )
+    accesses = [dict(row) for row in access_result.mappings().all()]
+
+    order_result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND created_at < :scan_end
+              AND COALESCE(closed_at, cancelled_at, archived_at, updated_at, created_at) >= :scan_start
+            ORDER BY created_at ASC
+            """
+        ),
+        {"company_id": str(company_id), "scan_start": scan_start, "scan_end": scan_end},
+    )
+    orders = [dict(row) for row in order_result.mappings().all()]
+    events = _hsp_event_search_rows(orders, accesses, event_date, timezone_name)
+    total = _money(sum(_num(event.get("total")) for event in events))
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "date": event_date.isoformat(),
+        "timezone": timezone_name,
+        "events": events,
+        "summary": {
+            "events": len(events),
+            "qr_events": sum(1 for event in events if event.get("type") == "qr"),
+            "bar_events": sum(1 for event in events if event.get("type") == "bar"),
+            "total": total,
+        },
     }
 
 

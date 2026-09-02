@@ -23037,6 +23037,12 @@ function inventoryCreatePayload() {
   let cxHspDashMode024W = "months";
   let cxHspDashPdfOpen032F = false;
   let cxHspDashPdfPeriod032F = "daily";
+  let cxHspDashEventDate033B = "";
+  let cxHspDashEvents033B = [];
+  let cxHspDashEventSummary033B = {};
+  let cxHspDashEventTimezone033B = "America/Bogota";
+  let cxHspDashEventLoading033B = false;
+  let cxHspDashEventError033B = "";
 
   function cxIsHospitalityDashboardCode024W(code = "") {
     const normalized = String(code || "")
@@ -23102,6 +23108,120 @@ function inventoryCreatePayload() {
       .sort((a, b) => b - a);
     return dates[0] || new Date();
   }
+
+  /* CLONEXA_033B_HOSPITALITY_EVENT_SEARCH_START */
+  function cxHspDashDefaultEventDate033B() {
+    return cxHspDashDayKey024W(cxHspDashLatestDate024W(cxHspDashClosures024W));
+  }
+
+  function cxHspDashEventTime033B(value, fallback = "-") {
+    const date = cxHspDashDate024W(value);
+    if (!date) return fallback;
+    try {
+      return new Intl.DateTimeFormat("es-CO", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: cxHspDashEventTimezone033B || "America/Bogota",
+      }).format(date);
+    } catch (_error) {
+      return date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+    }
+  }
+
+  async function cxHspDashLoadEvents033B(dateValue = cxHspDashEventDate033B) {
+    const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(dateValue || ""))
+      ? String(dateValue)
+      : cxHspDashDefaultEventDate033B();
+    cxHspDashEventDate033B = selectedDate;
+    cxHspDashEventLoading033B = true;
+    cxHspDashEventError033B = "";
+    try {
+      const data = await cxHspDashApi024W(`/events?date=${encodeURIComponent(selectedDate)}`);
+      cxHspDashEvents033B = Array.isArray(data.events) ? data.events : [];
+      cxHspDashEventSummary033B = data.summary && typeof data.summary === "object" ? data.summary : {};
+      cxHspDashEventTimezone033B = data.timezone || "America/Bogota";
+    } catch (error) {
+      cxHspDashEvents033B = [];
+      cxHspDashEventSummary033B = {};
+      cxHspDashEventError033B = error.message || "No se pudieron reconstruir los eventos del día.";
+    } finally {
+      cxHspDashEventLoading033B = false;
+    }
+  }
+
+  function cxHspDashEventItems033B(items = []) {
+    if (!items.length) return `<div class="hspdash-event-noitems-033b">Sin consumos registrados.</div>`;
+    return items.map((item) => {
+      const quantity = cxHspDashNum024W(item.quantity);
+      const subtotal = cxHspDashNum024W(item.subtotal || (quantity * cxHspDashNum024W(item.unit_price)));
+      return `
+        <div class="hspdash-event-item-033b">
+          <span title="${h(item.name || item.sku || "Producto")}">${h(item.name || item.sku || "Producto")}</span>
+          <small>${h(quantity)} × ${h(cxHspMoney024R(item.unit_price || 0))}</small>
+          <b>${h(cxHspMoney024R(subtotal))}</b>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function cxHspDashEventCard033B(event = {}) {
+    const isBar = event.type === "bar";
+    const title = isBar ? (event.customer_name || event.label || "Cliente barra") : (event.location || event.label || "Mesa QR");
+    const activation = isBar
+      ? "Cuenta de barra"
+      : `Activación ${h(event.activation_number || 1)}${event.historical ? " · reconstruida" : ""}`;
+    const ended = event.active ? "Activa ahora" : cxHspDashEventTime033B(event.ended_at, "Sin cierre registrado");
+    const range = `${cxHspDashEventTime033B(event.started_at)} – ${ended}`;
+    const numbers = (event.order_numbers || []).filter(Boolean).join(" · ");
+    return `
+      <article class="hspdash-event-card-033b">
+        <header>
+          <div class="hspdash-event-title-033b">
+            <span class="hspdash-event-kind-033b ${isBar ? "bar" : "qr"}">${isBar ? "BARRA" : "QR"}</span>
+            <div><h3>${h(title)}</h3><small>${activation} · ${h(range)}</small></div>
+          </div>
+          <div class="hspdash-event-total-033b"><span>Total</span><b>${h(cxHspMoney024R(event.total || 0))}</b></div>
+        </header>
+        <div class="hspdash-event-items-033b">${cxHspDashEventItems033B(event.items || [])}</div>
+        <footer>
+          <span>${h(event.orders_count || 0)} pedido(s) · ${h(event.payment_label || "Otro")}</span>
+          ${numbers ? `<span title="${h(numbers)}">${h(numbers)}</span>` : ""}
+        </footer>
+      </article>
+    `;
+  }
+
+  function cxHspDashRenderEventSearch033B() {
+    const summary = cxHspDashEventSummary033B || {};
+    return `
+      <section class="hspdash-panel-024w hspdash-events-033b">
+        <div class="hspdash-head-024w hspdash-event-head-033b">
+          <div><span class="hspdash-event-eyebrow-033b">HISTÓRICO RETROACTIVO</span><h2>BÚSQUEDA DE EVENTOS</h2></div>
+          <span class="hspdash-event-count-033b">${h(summary.events || cxHspDashEvents033B.length || 0)} evento(s)</span>
+        </div>
+        <div class="hspdash-event-controls-033b">
+          <label>Selecciona el día<input type="date" value="${h(cxHspDashEventDate033B || cxHspDashDefaultEventDate033B())}" data-hsp-dash-event-date></label>
+          <button class="client-btn" type="button" data-hsp-dash-event-search>Buscar</button>
+        </div>
+        <div class="hspdash-event-summary-033b">
+          <span>Mesas QR <b>${h(summary.qr_events || 0)}</b></span>
+          <span>Barra <b>${h(summary.bar_events || 0)}</b></span>
+          <span>Total del día <b>${h(cxHspMoney024R(summary.total || 0))}</b></span>
+        </div>
+        <div class="hspdash-event-list-033b">
+          ${cxHspDashEventLoading033B
+            ? `<div class="hspdash-empty-024w">Reconstruyendo consumos del día...</div>`
+            : cxHspDashEventError033B
+              ? `<div class="personal-toast error">${h(cxHspDashEventError033B)}</div>`
+              : cxHspDashEvents033B.length
+                ? cxHspDashEvents033B.map(cxHspDashEventCard033B).join("")
+                : `<div class="hspdash-empty-024w">No hay consumos capturados para este día.</div>`}
+        </div>
+      </section>
+    `;
+  }
+  /* CLONEXA_033B_HOSPITALITY_EVENT_SEARCH_END */
 
   function cxHspDashPdfAnchor032F() {
     return cxHspDashLatestDate024W([
@@ -23399,9 +23519,33 @@ function inventoryCreatePayload() {
       .hspdash-pdf-form-032f input,.hspdash-pdf-form-032f select{width:100%;min-height:45px;border:1px solid var(--hd-line);border-radius:12px;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);padding:10px 12px;font:inherit;font-weight:900;color-scheme:dark}
       .hspdash-pdf-generate-032f{min-height:45px;background:linear-gradient(135deg,var(--hd-primary),var(--hd-secondary));color:#101827}
       .hspdash-pdf-msg-032f{min-height:18px;margin-top:10px;font-size:12px;font-weight:900}.hspdash-pdf-msg-032f.ok{color:#4ade80}.hspdash-pdf-msg-032f.error{color:#fb7185}
+      .hspdash-side-stack-033b{display:grid;gap:14px;min-width:0}
+      .hspdash-events-033b{min-width:0}
+      .hspdash-event-head-033b>div{min-width:0}.hspdash-event-eyebrow-033b{display:block;color:var(--hd-primary);font-size:9px;font-weight:1000;letter-spacing:.12em;margin-bottom:4px}
+      .hspdash-event-count-033b{white-space:nowrap;padding:7px 10px;border-radius:999px;background:linear-gradient(135deg,var(--hd-primary),var(--hd-secondary));color:#101827;font-size:11px;font-weight:1000}
+      .hspdash-event-controls-033b{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:9px;align-items:end}
+      .hspdash-event-controls-033b label{display:grid;gap:5px;color:var(--hd-muted);font-size:9px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em}
+      .hspdash-event-controls-033b input{width:100%;min-height:42px;border:1px solid var(--hd-line);border-radius:11px;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);padding:8px 10px;font:inherit;font-weight:900;color-scheme:dark}
+      .hspdash-event-controls-033b .client-btn{min-height:42px;padding-inline:15px;background:linear-gradient(135deg,var(--hd-primary),var(--hd-secondary));color:#101827}
+      .hspdash-event-summary-033b{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:10px 0}
+      .hspdash-event-summary-033b span{display:grid;gap:3px;padding:8px 9px;border-radius:11px;background:rgba(3,7,18,.28);border:1px solid rgba(255,255,255,.09);color:var(--hd-muted);font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
+      .hspdash-event-summary-033b b{color:var(--cx-text,#fff);font-size:12px;letter-spacing:0;text-transform:none}
+      .hspdash-event-list-033b{display:grid;gap:9px;max-height:570px;overflow:auto;scrollbar-gutter:stable;padding-right:3px}
+      .hspdash-event-card-033b{display:grid;gap:9px;padding:11px;border:1px solid rgba(255,255,255,.12);border-radius:15px;background:rgba(3,7,18,.34)}
+      .hspdash-event-card-033b>header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+      .hspdash-event-title-033b{display:flex;align-items:flex-start;gap:8px;min-width:0}.hspdash-event-title-033b>div{min-width:0}
+      .hspdash-event-title-033b h3{margin:0;color:var(--cx-text,#fff);font-size:15px;line-height:1.15;overflow-wrap:anywhere}
+      .hspdash-event-title-033b small{display:block;margin-top:4px;color:var(--hd-muted);font-size:10px;font-weight:850}
+      .hspdash-event-kind-033b{flex:0 0 auto;border-radius:999px;padding:5px 7px;font-size:8px;font-weight:1000;letter-spacing:.08em;color:#07111f}.hspdash-event-kind-033b.qr{background:#38bdf8}.hspdash-event-kind-033b.bar{background:#4ade80}
+      .hspdash-event-total-033b{flex:0 0 auto;text-align:right}.hspdash-event-total-033b span{display:block;color:var(--hd-muted);font-size:8px;font-weight:1000;text-transform:uppercase}.hspdash-event-total-033b b{display:block;margin-top:3px;color:var(--cx-text,#fff);font-size:16px}
+      .hspdash-event-items-033b{display:grid;border:1px solid rgba(255,255,255,.08);border-radius:11px;overflow:hidden}
+      .hspdash-event-item-033b{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:7px 9px;border-bottom:1px solid rgba(255,255,255,.07)}.hspdash-event-item-033b:last-child{border-bottom:0}
+      .hspdash-event-item-033b span{min-width:0;overflow-wrap:anywhere;color:var(--cx-text,#fff);font-size:11px;font-weight:900}.hspdash-event-item-033b small{color:var(--hd-muted);font-size:9px;font-weight:850;white-space:nowrap}.hspdash-event-item-033b b{font-size:10px;white-space:nowrap}
+      .hspdash-event-noitems-033b{padding:9px;color:var(--hd-muted);font-size:10px;font-weight:850;text-align:center}
+      .hspdash-event-card-033b>footer{display:flex;justify-content:space-between;gap:8px;min-width:0;color:var(--hd-muted);font-size:9px;font-weight:850}.hspdash-event-card-033b>footer span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       @media(max-width:1180px){.hspdash-grid-024w,.hspdash-rank-grid-024w{grid-template-columns:1fr}.hspdash-kpis-024w{grid-template-columns:repeat(2,minmax(0,1fr))}}
       @media(max-width:900px){.hspdash-pdf-form-032f{grid-template-columns:1fr}.hspdash-pdf-fields-032f{grid-template-columns:1fr 1fr}}
-      @media(max-width:680px){.hspdash-kpis-024w{grid-template-columns:1fr}.hspdash-hero-024w .client-title{font-size:32px}.hspdash-head-024w,.hspdash-pdf-head-032f{align-items:flex-start;flex-direction:column}.hspdash-pdf-fields-032f{grid-template-columns:1fr}}
+      @media(max-width:680px){.hspdash-kpis-024w{grid-template-columns:1fr}.hspdash-hero-024w .client-title{font-size:32px}.hspdash-head-024w,.hspdash-pdf-head-032f{align-items:flex-start;flex-direction:column}.hspdash-pdf-fields-032f{grid-template-columns:1fr}.hspdash-event-summary-033b{grid-template-columns:1fr}.hspdash-event-card-033b>header{align-items:stretch}.hspdash-event-item-033b{grid-template-columns:minmax(0,1fr) auto}.hspdash-event-item-033b b{grid-column:2}.hspdash-event-controls-033b{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
   }
@@ -23410,6 +23554,8 @@ function inventoryCreatePayload() {
     const data = await cxHspDashApi024W("/day-closures?limit=200");
     cxHspDashClosures024W = Array.isArray(data.closures) ? data.closures : [];
     cxHspDashSongRequests031D = Array.isArray(data.song_requests) ? data.song_requests : [];
+    if (!cxHspDashEventDate033B) cxHspDashEventDate033B = cxHspDashDefaultEventDate033B();
+    await cxHspDashLoadEvents033B(cxHspDashEventDate033B);
     return cxHspDashClosures024W;
   }
 
@@ -23492,7 +23638,7 @@ function inventoryCreatePayload() {
     const topSong = cxHspDashTop024W(totals.songs, "count", 1)[0];
     const avgTicket = totals.orders ? totals.total / totals.orders : 0;
 
-    root.innerHTML = (cxHspDashClosures024W.length || cxHspDashSongRequests031D.length) ? `
+    root.innerHTML = (cxHspDashClosures024W.length || cxHspDashSongRequests031D.length || cxHspDashEventDate033B) ? `
       <section class="hspdash-panel-024w">
         <div class="hspdash-head-024w">
           <h2>${comparisonTitle}</h2>
@@ -23515,15 +23661,18 @@ function inventoryCreatePayload() {
           <div class="hspdash-head-024w"><h2>Grafica de venta</h2></div>
           ${cxHspDashRenderChart024W(periods)}
         </section>
-        <section class="hspdash-panel-024w">
-          <div class="hspdash-head-024w"><h2>Metodos de pago</h2></div>
-          <div class="hspdash-list-024w">
-            <div class="hspdash-row-024w"><span>Efectivo</span><b>${h(cxHspMoney024R(totals.cash))}</b></div>
-            <div class="hspdash-row-024w"><span>Transferencia</span><b>${h(cxHspMoney024R(totals.transfer))}</b></div>
-            <div class="hspdash-row-024w"><span>Tarjeta</span><b>${h(cxHspMoney024R(totals.card))}</b></div>
-            <div class="hspdash-row-024w"><span>Otro</span><b>${h(cxHspMoney024R(totals.other))}</b></div>
-          </div>
-        </section>
+        <div class="hspdash-side-stack-033b">
+          <section class="hspdash-panel-024w">
+            <div class="hspdash-head-024w"><h2>Metodos de pago</h2></div>
+            <div class="hspdash-list-024w">
+              <div class="hspdash-row-024w"><span>Efectivo</span><b>${h(cxHspMoney024R(totals.cash))}</b></div>
+              <div class="hspdash-row-024w"><span>Transferencia</span><b>${h(cxHspMoney024R(totals.transfer))}</b></div>
+              <div class="hspdash-row-024w"><span>Tarjeta</span><b>${h(cxHspMoney024R(totals.card))}</b></div>
+              <div class="hspdash-row-024w"><span>Otro</span><b>${h(cxHspMoney024R(totals.other))}</b></div>
+            </div>
+          </section>
+          ${cxHspDashRenderEventSearch033B()}
+        </div>
       </section>
 
       <section class="hspdash-panel-024w">
@@ -30277,11 +30426,16 @@ function inventoryCreatePayload() {
   /* CLONEXA_022F_CLIENT_REGISTRO_VENTA_CONSOLIDADO_END */
 
 
-  document.addEventListener("change", (event) => {
+  document.addEventListener("change", async (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (target.id === "asmVoteType025U") {
       cxAssemblyToggleVoteOptions025X();
+    }
+    if (target.matches("[data-hsp-dash-event-date]")) {
+      cxHspDashEventDate033B = target.value || cxHspDashDefaultEventDate033B();
+      await cxHspDashLoadEvents033B(cxHspDashEventDate033B);
+      cxHspDashPaint024W();
     }
   });
 
@@ -31060,6 +31214,14 @@ function inventoryCreatePayload() {
       const hspDashMode = target.closest("[data-hsp-dash-mode]");
       if (hspDashMode) {
         cxHspDashMode024W = hspDashMode.getAttribute("data-hsp-dash-mode") || "months";
+        cxHspDashPaint024W();
+        return;
+      }
+
+      if (target.closest("[data-hsp-dash-event-search]")) {
+        const input = document.querySelector("[data-hsp-dash-event-date]");
+        cxHspDashEventDate033B = input?.value || cxHspDashDefaultEventDate033B();
+        await cxHspDashLoadEvents033B(cxHspDashEventDate033B);
         cxHspDashPaint024W();
         return;
       }
