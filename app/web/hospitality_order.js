@@ -22,7 +22,8 @@
     campaignDismissed: false,
     campaignEndRefreshKey: "",
     access: { active: false, unlocked: false, code: "", expires_at: "" },
-    tableAccount: { total: 0, orders_count: 0, accounts_count: 0, last_activity: "" },
+    tableAccount: { total: 0, orders_count: 0, accounts_count: 0, last_activity: "", items: [] },
+    tableBreakdownOpen: false,
     qrMode: "hospitality",
     assemblyPublic: null,
     assemblyEvent: null,
@@ -134,11 +135,35 @@
       : "Aun no hay pedidos enviados";
   }
 
+  function tableAccountItemsHtml() {
+    const items = Array.isArray(state.tableAccount?.items) ? state.tableAccount.items : [];
+    if (!items.length) {
+      return `<div class="qr-table-breakdown-empty">Aún no hay productos en la cuenta.</div>`;
+    }
+    return items.map((item) => {
+      const quantity = Number(item.quantity || 0);
+      const subtotal = Number(item.subtotal || (quantity * Number(item.unit_price || 0)) || 0);
+      return `
+        <div class="qr-table-breakdown-row">
+          <span><b>${h(quantity)}</b> × ${h(item.name || item.sku || "Producto")}</span>
+          <strong>${h(money(subtotal))}</strong>
+        </div>
+      `;
+    }).join("");
+  }
+
   function paintTableAccount() {
     const total = document.getElementById("qrTableAccountTotal030B");
     const meta = document.getElementById("qrTableAccountMeta030B");
+    const breakdown = document.getElementById("qrTableAccountBreakdown033C");
+    const breakdownMeta = document.getElementById("qrTableBreakdownMeta033C");
     if (total) total.textContent = money(state.tableAccount?.total || 0);
     if (meta) meta.textContent = tableAccountMeta();
+    if (breakdown) breakdown.innerHTML = tableAccountItemsHtml();
+    if (breakdownMeta) {
+      const itemCount = Array.isArray(state.tableAccount?.items) ? state.tableAccount.items.length : 0;
+      breakdownMeta.textContent = itemCount ? `${itemCount} producto${itemCount === 1 ? "" : "s"}` : "Ver productos";
+    }
   }
 
   function normalizeText(value) {
@@ -265,16 +290,34 @@
       .qr-table-account{
         min-width:210px;
         display:grid;
-        gap:3px;
+        grid-template-columns:minmax(0,1.15fr) minmax(150px,.85fr);
+        gap:12px;
+        align-items:stretch;
+        position:relative;
         padding:12px 15px;
         border-radius:17px;
         background:linear-gradient(135deg,color-mix(in srgb,var(--qr-primary) 22%,rgba(2,6,23,.72)),rgba(2,6,23,.62));
         border:1px solid color-mix(in srgb,var(--qr-primary) 46%,var(--qr-line));
         box-shadow:0 14px 34px rgba(0,0,0,.22);
       }
-      .qr-table-account span{color:var(--qr-muted);font-size:10px;font-weight:1000;letter-spacing:.12em;text-transform:uppercase}
-      .qr-table-account strong{color:var(--qr-secondary);font-size:24px;line-height:1;font-weight:1000;white-space:nowrap}
-      .qr-table-account small{color:var(--qr-muted);font-size:10px;font-weight:850}
+      .qr-table-account-total{display:grid;gap:3px;align-content:center;min-width:0}
+      .qr-table-account-total>span{color:var(--qr-muted);font-size:10px;font-weight:1000;letter-spacing:.12em;text-transform:uppercase}
+      .qr-table-account-total>strong{color:var(--qr-secondary);font-size:24px;line-height:1;font-weight:1000;white-space:nowrap}
+      .qr-table-account-total>small{color:var(--qr-muted);font-size:10px;font-weight:850}
+      .qr-table-breakdown{min-width:0;position:static}
+      .qr-table-breakdown summary{height:100%;min-height:64px;display:grid;align-content:center;gap:4px;position:relative;padding:10px 34px 10px 12px;border:1px solid rgba(255,255,255,.13);border-radius:13px;background:rgba(255,255,255,.06);cursor:pointer;list-style:none;color:var(--qr-text);font-size:12px;font-weight:1000;line-height:1.1}
+      .qr-table-breakdown summary::-webkit-details-marker{display:none}
+      .qr-table-breakdown summary::after{content:"⌄";position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--qr-secondary);font-size:20px;line-height:1;transition:transform .18s ease}
+      .qr-table-breakdown[open] summary{border-color:color-mix(in srgb,var(--qr-primary) 56%,var(--qr-line));background:color-mix(in srgb,var(--qr-primary) 16%,rgba(2,6,23,.82))}
+      .qr-table-breakdown[open] summary::after{transform:translateY(-50%) rotate(180deg)}
+      .qr-table-breakdown summary small{color:var(--qr-muted);font-size:9px;font-weight:850}
+      .qr-table-breakdown-panel{position:absolute;z-index:80;top:calc(100% + 8px);left:0;right:0;display:grid;max-height:300px;overflow:auto;padding:8px;border:1px solid color-mix(in srgb,var(--qr-primary) 48%,var(--qr-line));border-radius:16px;background:color-mix(in srgb,var(--qr-card) 94%,#020617);box-shadow:0 24px 70px rgba(0,0,0,.56)}
+      .qr-table-breakdown-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border-bottom:1px solid rgba(255,255,255,.09)}
+      .qr-table-breakdown-row:last-child{border-bottom:0}
+      .qr-table-breakdown-row span{min-width:0;color:var(--qr-text);font-size:12px;font-weight:850;line-height:1.25;overflow-wrap:anywhere}
+      .qr-table-breakdown-row span b{color:var(--qr-secondary);font-size:13px}
+      .qr-table-breakdown-row strong{color:var(--qr-text);font-size:12px;white-space:nowrap}
+      .qr-table-breakdown-empty{padding:15px 10px;color:var(--qr-muted);font-size:11px;font-weight:850;text-align:center}
       .qr-song-request{
         display:grid;
         grid-template-columns:minmax(190px,.72fr) minmax(0,1.55fr);
@@ -559,8 +602,10 @@
         .qr-hero.qr-hero-account{grid-template-columns:minmax(0,1fr) auto}
         .qr-hero-account .qr-hero-copy{grid-column:1;grid-row:1}
         .qr-hero-account .qr-logo{grid-column:2;grid-row:1}
-        .qr-hero-account .qr-table-account{grid-column:1/-1;grid-row:2;min-width:0;padding:11px 13px}
-        .qr-table-account strong{font-size:22px}
+        .qr-hero-account .qr-table-account{grid-column:1/-1;grid-row:2;min-width:0;padding:10px 11px;grid-template-columns:minmax(0,1.12fr) minmax(132px,.88fr);gap:8px}
+        .qr-table-account-total>strong{font-size:22px}
+        .qr-table-breakdown summary{min-height:61px;padding:8px 30px 8px 10px;font-size:11px}
+        .qr-table-breakdown-panel{top:calc(100% + 7px);max-height:min(310px,48vh)}
         .qr-song-request{grid-template-columns:1fr;padding:13px;gap:10px;border-radius:18px}
         .qr-song-form{grid-template-columns:1fr auto}
         .qr-song-copy strong{font-size:18px}
@@ -1415,9 +1460,15 @@
             <p class="qr-muted">${h(companyName)} - arma tu pedido y queda en pendiente para el barman.</p>
           </div>
           <div class="qr-table-account" aria-live="polite" aria-label="Cuenta acumulada de la mesa">
-            <span>Cuenta total de la mesa</span>
-            <strong id="qrTableAccountTotal030B">${h(money(tableAccount.total || 0))}</strong>
-            <small id="qrTableAccountMeta030B">${h(tableAccountMeta())}</small>
+            <div class="qr-table-account-total">
+              <span>Cuenta total de la mesa</span>
+              <strong id="qrTableAccountTotal030B">${h(money(tableAccount.total || 0))}</strong>
+              <small id="qrTableAccountMeta030B">${h(tableAccountMeta())}</small>
+            </div>
+            <details class="qr-table-breakdown" data-table-breakdown ${state.tableBreakdownOpen ? "open" : ""}>
+              <summary>Desglose del pedido<small id="qrTableBreakdownMeta033C">${Array.isArray(tableAccount.items) && tableAccount.items.length ? `${h(tableAccount.items.length)} producto${tableAccount.items.length === 1 ? "" : "s"}` : "Ver productos"}</small></summary>
+              <div id="qrTableAccountBreakdown033C" class="qr-table-breakdown-panel">${tableAccountItemsHtml()}</div>
+            </details>
           </div>
           <div class="qr-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName)}">` : h(companyName.slice(0, 1).toUpperCase())}</div>
         </section>
@@ -1979,6 +2030,13 @@
     }
   });
 
+  document.addEventListener("toggle", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLDetailsElement && target.matches("[data-table-breakdown]")) {
+      state.tableBreakdownOpen = target.open;
+    }
+  }, true);
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && state.cartOpen) {
       state.cartOpen = false;
@@ -2051,6 +2109,7 @@
         orders_count: Number(data.account?.orders_count || 0),
         accounts_count: Number(data.account?.accounts_count || 0),
         last_activity: data.account?.last_activity || "",
+        items: Array.isArray(data.account?.items) ? data.account.items : [],
       };
       if (options.render !== false) paintTableAccount();
       return state.tableAccount;
@@ -2060,7 +2119,7 @@
         forgetAccessCode();
         releaseTableNavigationGuard();
         state.access = { active: false, unlocked: false, code: "", expires_at: "" };
-        state.tableAccount = { total: 0, orders_count: 0, accounts_count: 0, last_activity: "" };
+        state.tableAccount = { total: 0, orders_count: 0, accounts_count: 0, last_activity: "", items: [] };
         state.error = "La cuenta de esta mesa ya fue cerrada. Pide una nueva activacion para volver a ordenar.";
         state.message = "";
         if (options.render !== false) render();

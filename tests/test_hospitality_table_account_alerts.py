@@ -51,6 +51,33 @@ async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypa
                     "total": 42000,
                     "accounts_count": 3,
                     "last_activity": now,
+                    "order_items": [
+                        [
+                            {
+                                "inventory_item_id": "aguila",
+                                "name": "CERVEZA Aguila",
+                                "quantity": 1,
+                                "unit_price": 5000,
+                                "subtotal": 5000,
+                            }
+                        ],
+                        [
+                            {
+                                "inventory_item_id": "aguila",
+                                "name": "CERVEZA Aguila",
+                                "quantity": 3,
+                                "unit_price": 5000,
+                                "subtotal": 15000,
+                            },
+                            {
+                                "inventory_item_id": "trident",
+                                "name": "Chicles Trident",
+                                "quantity": 2,
+                                "unit_price": 2000,
+                                "subtotal": 4000,
+                            },
+                        ],
+                    ],
                 }
             )
         )
@@ -77,6 +104,22 @@ async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypa
         "orders_count": 3,
         "accounts_count": 3,
         "last_activity": now.isoformat(),
+        "items": [
+            {
+                "inventory_item_id": "aguila",
+                "name": "CERVEZA Aguila",
+                "quantity": 4.0,
+                "unit_price": 5000.0,
+                "subtotal": 20000.0,
+            },
+            {
+                "inventory_item_id": "trident",
+                "name": "Chicles Trident",
+                "quantity": 2.0,
+                "unit_price": 2000,
+                "subtotal": 4000.0,
+            },
+        ],
     }
 
 
@@ -90,6 +133,19 @@ def test_mobile_qr_renders_and_refreshes_the_server_table_total():
     assert "refreshTableAccount().catch" in source
     assert "paintTableAccount()" in source
     assert 'document.getElementById("qrTableAccountTotal030B")' in source
+
+
+def test_mobile_qr_splits_total_and_expandable_product_breakdown():
+    source = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
+    html = Path("app/web/hospitality_order.html").read_text(encoding="utf-8")
+
+    assert "Desglose del pedido" in source
+    assert "data-table-breakdown" in source
+    assert "qr-table-account-total" in source
+    assert "qr-table-breakdown-panel" in source
+    assert "tableAccountItemsHtml" in source
+    assert 'items: Array.isArray(data.account?.items) ? data.account.items : []' in source
+    assert "033C_TABLE_ORDER_BREAKDOWN" in html
 
 
 def test_mobile_qr_recovers_the_existing_menu_without_cached_empty_responses():

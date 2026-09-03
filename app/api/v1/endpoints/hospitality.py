@@ -3718,7 +3718,8 @@ async def get_hospitality_table_account(
             SELECT COUNT(*) AS orders_count,
                    COALESCE(SUM(total), 0) AS total,
                    COALESCE(SUM(jsonb_array_length(people)), 0) AS accounts_count,
-                   MAX(updated_at) AS last_activity
+                   MAX(updated_at) AS last_activity,
+                   COALESCE(jsonb_agg(items ORDER BY created_at), '[]'::jsonb) AS order_items
             FROM hospitality_orders
             WHERE company_id = :company_id
               AND table_key = :table_key
@@ -3729,6 +3730,13 @@ async def get_hospitality_table_account(
         {"company_id": str(company_id), "table_key": _table_key(table_number)},
     )
     row = result.mappings().first() or {}
+    item_groups = _json(row.get("order_items"), [])
+    raw_items: list[dict[str, Any]] = []
+    for group in item_groups if isinstance(item_groups, list) else []:
+        if isinstance(group, list):
+            raw_items.extend(item for item in group if isinstance(item, dict))
+        elif isinstance(group, dict):
+            raw_items.append(group)
     return {
         "ok": True,
         "company_id": str(company_id),
@@ -3738,6 +3746,7 @@ async def get_hospitality_table_account(
             "orders_count": int(row.get("orders_count") or 0),
             "accounts_count": int(row.get("accounts_count") or 0),
             "last_activity": _iso(row.get("last_activity")),
+            "items": _merge_hospitality_items(raw_items),
         },
     }
 
