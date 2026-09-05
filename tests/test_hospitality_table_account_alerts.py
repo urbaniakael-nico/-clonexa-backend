@@ -718,6 +718,8 @@ async def test_pending_order_items_update_recalculates_people_total_and_inventor
     adjust_inventory = AsyncMock()
     monkeypatch.setattr(hospitality, "_adjust_pending_order_inventory", adjust_inventory)
     monkeypatch.setattr(hospitality, "_fetch_order", AsyncMock(return_value=saved))
+    close_idle = AsyncMock()
+    monkeypatch.setattr(hospitality, "_close_table_access_if_idle", close_idle)
 
     response = await hospitality.update_pending_hospitality_order_items(
         company_id,
@@ -735,6 +737,7 @@ async def test_pending_order_items_update_recalculates_people_total_and_inventor
     assert people[0]["total"] == 15000
     assert people[0]["items"] == new_items
     assert response["removed"] is False
+    close_idle.assert_not_awaited()
     db.commit.assert_awaited_once()
 
 
@@ -748,6 +751,8 @@ async def test_deleting_only_pending_item_cancels_order_and_restores_stock(monke
         "company_id": company_id,
         "order_number": "QR-ONLY-ITEM",
         "status": "pendiente",
+        "table_key": "mesa 6",
+        "table_number": "Mesa 6",
         "customer_name": "Cliente mesa",
         "people": [{"id": "person_1", "name": "Cliente mesa", "items": [], "total": 5000}],
         "items": [{"inventory_item_id": str(item_id), "name": "Agua", "quantity": 1, "unit_price": 5000}],
@@ -764,6 +769,8 @@ async def test_deleting_only_pending_item_cancels_order_and_restores_stock(monke
     adjust_inventory = AsyncMock()
     monkeypatch.setattr(hospitality, "_adjust_pending_order_inventory", adjust_inventory)
     monkeypatch.setattr(hospitality, "_fetch_order", AsyncMock(return_value=saved))
+    close_idle = AsyncMock()
+    monkeypatch.setattr(hospitality, "_close_table_access_if_idle", close_idle)
 
     response = await hospitality.update_pending_hospitality_order_items(
         company_id,
@@ -778,6 +785,7 @@ async def test_deleting_only_pending_item_cancels_order_and_restores_stock(monke
     assert update_params["total"] == 0
     assert response["removed"] is True
     assert response["order"]["status"] == "cancelado"
+    close_idle.assert_awaited_once_with(db, company_id, "mesa 6")
     db.commit.assert_awaited_once()
 
 

@@ -771,6 +771,35 @@ async def _initialize_storage(db: AsyncSession) -> None:
             """
         )
     )
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_table_access AS access
+            SET status = 'closed',
+                updated_at = (
+                    SELECT MAX(closure.closed_at)
+                    FROM hospitality_day_closures AS closure
+                    WHERE closure.company_id = access.company_id
+                      AND closure.closed_at >= access.activated_at
+                )
+            WHERE access.status = 'active'
+              AND EXISTS (
+                    SELECT 1
+                    FROM hospitality_day_closures AS closure
+                    WHERE closure.company_id = access.company_id
+                      AND closure.closed_at >= access.activated_at
+                  )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM hospitality_orders AS orders
+                    WHERE orders.company_id = access.company_id
+                      AND orders.table_key = access.table_key
+                      AND orders.archived_at IS NULL
+                      AND orders.status IN ('pendiente', 'alistando', 'entregado')
+                  )
+            """
+        )
+    )
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_table_access_company_table ON hospitality_table_access(company_id, table_key, status, expires_at DESC);"))
 
 
@@ -2723,6 +2752,7 @@ async def _create_day_closure(
         ),
         {"company_id": str(company_id)},
     )
+    closure["closed_table_accesses"] = await _close_all_idle_table_accesses(db, company_id)
     return closure
 
 
@@ -3102,7 +3132,26 @@ async def _require_table_access(db: AsyncSession, company_id: uuid.UUID, table: 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="clave_de_mesa_invalida")
 
 
-async def _close_table_access_if_idle(db: AsyncSession, company_id: uuid.UUID, table_key: str) -> None:
+async def _close_table_access_if_idle(db: AsyncSession, company_id: uuid.UUID, table_key: str) -> bool:
+    normalized_table_key = _table_key(table_key)
+    access_result = await db.execute(
+        text(
+            """
+            SELECT id
+            FROM hospitality_table_access
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND status = 'active'
+            ORDER BY activated_at DESC
+            LIMIT 1
+            FOR UPDATE
+            """
+        ),
+        {"company_id": str(company_id), "table_key": normalized_table_key},
+    )
+    if access_result.first() is None:
+        return False
+
     result = await db.execute(
         text(
             """
@@ -3114,12 +3163,12 @@ async def _close_table_access_if_idle(db: AsyncSession, company_id: uuid.UUID, t
               AND status IN ('pendiente', 'alistando', 'entregado')
             """
         ),
-        {"company_id": str(company_id), "table_key": _table_key(table_key)},
+        {"company_id": str(company_id), "table_key": normalized_table_key},
     )
     active_count = int(result.scalar() or 0)
     if active_count > 0:
-        return
-    await db.execute(
+        return False
+    closed_result = await db.execute(
         text(
             """
             UPDATE hospitality_table_access
@@ -3128,10 +3177,38 @@ async def _close_table_access_if_idle(db: AsyncSession, company_id: uuid.UUID, t
             WHERE company_id = :company_id
               AND table_key = :table_key
               AND status = 'active'
+            RETURNING id
             """
         ),
-        {"company_id": str(company_id), "table_key": _table_key(table_key)},
+        {"company_id": str(company_id), "table_key": normalized_table_key},
     )
+    return closed_result.first() is not None
+
+
+async def _close_all_idle_table_accesses(db: AsyncSession, company_id: uuid.UUID) -> int:
+    """Close every active QR access that no longer has an open order."""
+    result = await db.execute(
+        text(
+            """
+            UPDATE hospitality_table_access AS access
+            SET status = 'closed',
+                updated_at = NOW()
+            WHERE access.company_id = :company_id
+              AND access.status = 'active'
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM hospitality_orders AS orders
+                    WHERE orders.company_id = access.company_id
+                      AND orders.table_key = access.table_key
+                      AND orders.archived_at IS NULL
+                      AND orders.status IN ('pendiente', 'alistando', 'entregado')
+                  )
+            RETURNING access.id
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    return len(result.all())
 
 
 @router.get("/companies/{company_id}/health")
@@ -4590,9 +4667,29 @@ async def create_hospitality_day_closure(
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
-    closure = await _create_day_closure(db, company_id, payload)
+    try:
+        closure = await _create_day_closure(db, company_id, payload)
+    except HTTPException as error:
+        if error.status_code != status.HTTP_409_CONFLICT or error.detail != "no_hay_pedidos_para_cerrar":
+            raise
+        closed_table_accesses = await _close_all_idle_table_accesses(db, company_id)
+        if closed_table_accesses <= 0:
+            raise
+        await db.commit()
+        return {
+            "ok": True,
+            "company_id": str(company_id),
+            "closure": None,
+            "reconciled_only": True,
+            "closed_table_accesses": closed_table_accesses,
+        }
     await db.commit()
-    return {"ok": True, "company_id": str(company_id), "closure": closure}
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "closure": closure,
+        "closed_table_accesses": int(closure.get("closed_table_accesses") or 0),
+    }
 
 
 @router.post("/companies/{company_id}/orders", status_code=status.HTTP_201_CREATED)
@@ -4756,6 +4853,12 @@ async def update_pending_hospitality_order_items(
             "company_id": str(company_id),
         },
     )
+    if removed:
+        await _close_table_access_if_idle(
+            db,
+            company_id,
+            order.get("table_key") or order.get("table_number") or "",
+        )
     await db.commit()
     saved = await _fetch_order(db, company_id, order_id)
     return {"ok": True, "removed": removed, "order": saved, "table": saved}
@@ -4890,6 +4993,12 @@ async def cancel_hospitality_order(
     order = await _fetch_order(db, company_id, order_id)
     current = _status(order.get("status"))
     if current == STATUS_CANCELLED:
+        await _close_table_access_if_idle(
+            db,
+            company_id,
+            order.get("table_key") or order.get("table_number") or "",
+        )
+        await db.commit()
         return {"ok": True, "already_cancelled": True, "order": order, "table": order}
     if current not in ACTIVE_STATUSES:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="pedido_no_se_puede_cancelar")

@@ -28,6 +28,14 @@ class ScalarResult:
         return self.value
 
 
+class RowsResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def all(self):
+        return self.rows
+
+
 def future(hours=2):
     return datetime.now(timezone.utc) + timedelta(hours=hours)
 
@@ -56,10 +64,23 @@ def test_persistent_table_access_remains_active_after_legacy_expiration():
     assert payload["closes_with_table"] is True
 
 
-def test_day_closure_does_not_close_active_table_access():
+def test_day_closure_reconciles_idle_table_access_after_archiving_orders():
     source = inspect.getsource(hospitality._create_day_closure)
 
-    assert "UPDATE hospitality_table_access" not in source
+    archive_position = source.index("UPDATE hospitality_orders")
+    reconcile_position = source.index("_close_all_idle_table_accesses")
+
+    assert reconcile_position > archive_position
+
+
+def test_storage_repairs_legacy_orphan_qr_access_at_the_historical_closure_time():
+    source = inspect.getsource(hospitality._initialize_storage)
+
+    assert "UPDATE hospitality_table_access AS access" in source
+    assert "SELECT MAX(closure.closed_at)" in source
+    assert "closure.closed_at >= access.activated_at" in source
+    assert "orders.archived_at IS NULL" in source
+    assert "orders.status IN ('pendiente', 'alistando', 'entregado')" in source
 
 
 @pytest.mark.asyncio
@@ -93,22 +114,87 @@ async def test_activating_an_active_table_reuses_the_same_key(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_table_access_stays_open_while_the_table_has_active_orders():
-    db = SimpleNamespace(execute=AsyncMock(return_value=ScalarResult(1)))
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                MappingResult({"id": uuid.uuid4()}),
+                ScalarResult(1),
+            ]
+        )
+    )
 
-    await hospitality._close_table_access_if_idle(db, uuid.uuid4(), "Mesa 4")
+    closed = await hospitality._close_table_access_if_idle(db, uuid.uuid4(), "Mesa 4")
 
-    assert db.execute.await_count == 1
+    assert closed is False
+    assert db.execute.await_count == 2
+    assert "FOR UPDATE" in str(db.execute.await_args_list[0].args[0])
 
 
 @pytest.mark.asyncio
 async def test_table_access_closes_after_the_last_order_is_closed():
-    db = SimpleNamespace(execute=AsyncMock(side_effect=[ScalarResult(0), SimpleNamespace()]))
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                MappingResult({"id": uuid.uuid4()}),
+                ScalarResult(0),
+                MappingResult({"id": uuid.uuid4()}),
+            ]
+        )
+    )
 
-    await hospitality._close_table_access_if_idle(db, uuid.uuid4(), "Mesa 4")
+    closed = await hospitality._close_table_access_if_idle(db, uuid.uuid4(), "Mesa 4")
 
-    assert db.execute.await_count == 2
-    statement = str(db.execute.await_args_list[1].args[0])
+    assert closed is True
+    assert db.execute.await_count == 3
+    statement = str(db.execute.await_args_list[2].args[0])
     assert "SET status = 'closed'" in statement
+
+
+@pytest.mark.asyncio
+async def test_day_closure_reconciliation_closes_only_idle_qr_tables():
+    company_id = uuid.uuid4()
+    db = SimpleNamespace(execute=AsyncMock(return_value=RowsResult([(uuid.uuid4(),), (uuid.uuid4(),)])))
+
+    closed = await hospitality._close_all_idle_table_accesses(db, company_id)
+
+    assert closed == 2
+    statement = str(db.execute.await_args.args[0])
+    params = db.execute.await_args.args[1]
+    assert "UPDATE hospitality_table_access AS access" in statement
+    assert "NOT EXISTS" in statement
+    assert "orders.archived_at IS NULL" in statement
+    assert "orders.status IN ('pendiente', 'alistando', 'entregado')" in statement
+    assert params == {"company_id": str(company_id)}
+
+
+@pytest.mark.asyncio
+async def test_generate_closure_without_orders_can_reconcile_orphan_qr_tables(monkeypatch):
+    company_id = uuid.uuid4()
+    db = SimpleNamespace(commit=AsyncMock())
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
+    monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        hospitality,
+        "_create_day_closure",
+        AsyncMock(
+            side_effect=hospitality.HTTPException(
+                status_code=409,
+                detail="no_hay_pedidos_para_cerrar",
+            )
+        ),
+    )
+    monkeypatch.setattr(hospitality, "_close_all_idle_table_accesses", AsyncMock(return_value=4))
+
+    response = await hospitality.create_hospitality_day_closure(
+        company_id,
+        hospitality.HospitalityClosureCreateIn(),
+        db,
+    )
+
+    assert response["reconciled_only"] is True
+    assert response["closed_table_accesses"] == 4
+    assert response["closure"] is None
+    db.commit.assert_awaited_once()
 
 
 def campaign_row(company_id, campaign_id, campaign_type):

@@ -30817,7 +30817,12 @@ function inventoryCreatePayload() {
           });
           document.getElementById("hspClosureModal024U")?.remove();
           await cxHspLoadOrders024R();
-          cxHspShowMsg024R("hspGlobalMsg024R", `Cierre guardado: ${data.closure?.closure_number || "OK"}. Jornada lista para empezar de nuevo.`);
+          const closedQrTables = Number(data.closed_table_accesses || data.closure?.closed_table_accesses || 0);
+          const closureNumber = data.closure?.closure_number || "";
+          const closureMessage = closureNumber
+            ? `Cierre guardado: ${closureNumber}. Jornada limpia y ${closedQrTables} mesa(s) QR cerrada(s).`
+            : `Jornada revisada: ${closedQrTables} mesa(s) QR abierta(s) fueron cerradas.`;
+          cxHspShowMsg024R("hspGlobalMsg024R", closureMessage);
         } catch (error) {
           cxHspShowMsg024R("hspClosureMsg024U", error.message || "No se pudo generar el cierre.", true);
         }
@@ -31032,10 +31037,14 @@ function inventoryCreatePayload() {
             .map((id) => id.trim())
             .filter(Boolean);
           if (!ids.length) return;
-          await Promise.all(ids.map((id) => cxHspApi024R(`/orders/${encodeURIComponent(id)}/close-table`, {
-            method: "POST",
-            body: JSON.stringify({ payment_method }),
-          })));
+          // Close grouped table orders in sequence. The final request can then
+          // verify that no sibling order remains active and invalidate the QR.
+          for (const id of ids) {
+            await cxHspApi024R(`/orders/${encodeURIComponent(id)}/close-table`, {
+              method: "POST",
+              body: JSON.stringify({ payment_method }),
+            });
+          }
           await cxHspLoadOrders024R();
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cerrar la mesa fusionada.", true);

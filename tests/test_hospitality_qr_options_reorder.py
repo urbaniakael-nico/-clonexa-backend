@@ -81,6 +81,29 @@ async def test_cancelled_order_is_registered_as_loss_and_closes_idle_access(monk
     assert response["order"]["status"] == "cancelado"
 
 
+@pytest.mark.asyncio
+async def test_retrying_an_already_cancelled_order_repairs_idle_qr_access(monkeypatch):
+    company_id = uuid.uuid4()
+    order_id = uuid.uuid4()
+    cancelled = {
+        "id": str(order_id),
+        "status": "cancelado",
+        "table_key": "mesa 3",
+        "table_number": "Mesa 3",
+    }
+    db = SimpleNamespace(commit=AsyncMock())
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
+    monkeypatch.setattr(hospitality, "_fetch_order", AsyncMock(return_value=cancelled))
+    close_idle = AsyncMock(return_value=True)
+    monkeypatch.setattr(hospitality, "_close_table_access_if_idle", close_idle)
+
+    response = await hospitality.cancel_hospitality_order(company_id, order_id, None, db)
+
+    assert response["already_cancelled"] is True
+    close_idle.assert_awaited_once_with(db, company_id, "mesa 3")
+    db.commit.assert_awaited_once()
+
+
 def test_day_closure_excludes_cancelled_orders_from_revenue():
     backend = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
     closure = backend.split("async def _create_day_closure", 1)[1].split("async def _active_loyalty_campaign", 1)[0]
@@ -111,6 +134,20 @@ def test_qr_options_and_assistant_workflows_are_connected():
     assert "cxAssistantReplyReorder031H" in panel
     assert "reorder-suggestion.pdf" in panel
     assert "031H_QR_OPTIONS_REORDER" in html
+
+
+def test_grouped_table_close_is_sequential_and_day_close_reports_qr_cleanup():
+    panel = Path("app/web/client.js").read_text(encoding="utf-8")
+    html = Path("app/web/client.html").read_text(encoding="utf-8")
+    close_flow = panel.split('target.closest("[data-hsp-close-ids]")', 1)[1].split(
+        'target.closest("[data-hsp-close]")', 1
+    )[0]
+
+    assert "for (const id of ids)" in close_flow
+    assert "Promise.all(ids.map" not in close_flow
+    assert "closed_table_accesses" in panel
+    assert "mesa(s) QR cerrada(s)" in panel
+    assert "033D_QR_CLOSE_RECONCILIATION" in html
 
 
 def test_hospitality_qr_can_be_saved_as_a_labeled_png_for_paint():
