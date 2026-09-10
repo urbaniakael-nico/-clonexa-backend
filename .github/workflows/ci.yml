@@ -29,11 +29,11 @@ jobs:
       - name: Python syntax check
         run: python -m compileall app tests
 
-      - name: Run health test
+      - name: Run health and Hospitality sales tests
         env:
           DATABASE_URL: postgresql+asyncpg://clonexa:clonexa@localhost:5432/clonexa
           JWT_SECRET_KEY: ci-test-secret
-        run: python -m pytest tests/test_health.py
+        run: python -m pytest tests/test_health.py tests/test_hospitality_live_sales.py tests/test_hospitality_period_reports.py
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -51,3 +51,4 @@ jobs:
         run: |
           node --check app/web/client.js
           node --check app/web/mini_panel.js
+          node --test tests/hospitality_live_sales_client.test.cjs

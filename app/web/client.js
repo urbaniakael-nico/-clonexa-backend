@@ -23032,9 +23032,12 @@ function inventoryCreatePayload() {
   }
   /* CLONEXA_024S_HOSPITALITY_QR_END */
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_START */
-  let cxHspDashClosures024W = [];
-  let cxHspDashSongRequests031D = [];
-  let cxHspDashMode024W = "months";
+  let cxHspDashMode024W = "days";
+  let cxHspDashAnalytics033E = null;
+  let cxHspDashLoading033E = false;
+  let cxHspDashPainted033E = "";
+  let cxHspDashMonitor033E = null;
+  let cxHspDashResume033E = null;
   let cxHspDashPdfOpen032F = false;
   let cxHspDashPdfPeriod032F = "daily";
   let cxHspDashEventDate033B = "";
@@ -23101,17 +23104,19 @@ function inventoryCreatePayload() {
     return date.toLocaleDateString("es-CO", { month: "short" }).replace(".", "");
   }
 
-  function cxHspDashLatestDate024W(closures = []) {
-    const dates = closures
-      .map((row) => cxHspDashDate024W(row.closed_at || row.created_at))
-      .filter(Boolean)
-      .sort((a, b) => b - a);
-    return dates[0] || new Date();
+  // CLONEXA_033E_HOSPITALITY_LIVE_SALES: the calendar follows the tenant's day.
+  function cxHspDashToday033E() {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: cxHspDashAnalytics033E?.timezone || "America/Bogota",
+      year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return new Date(`${value.year}-${value.month}-${value.day}T12:00:00`);
   }
 
   /* CLONEXA_033B_HOSPITALITY_EVENT_SEARCH_START */
   function cxHspDashDefaultEventDate033B() {
-    return cxHspDashDayKey024W(cxHspDashLatestDate024W(cxHspDashClosures024W));
+    return cxHspDashAnalytics033E?.today || cxHspDashDayKey024W(cxHspDashToday033E());
   }
 
   function cxHspDashEventTime033B(value, fallback = "-") {
@@ -23224,10 +23229,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_033B_HOSPITALITY_EVENT_SEARCH_END */
 
   function cxHspDashPdfAnchor032F() {
-    return cxHspDashLatestDate024W([
-      ...cxHspDashClosures024W,
-      ...cxHspDashSongRequests031D.map((request) => ({ created_at: request.created_at })),
-    ]);
+    return cxHspDashToday033E();
   }
 
   function cxHspDashDefaultPdfRange032F(period = cxHspDashPdfPeriod032F) {
@@ -23337,11 +23339,8 @@ function inventoryCreatePayload() {
     }
   }
 
-  function cxHspDashPeriodDefs024W(mode = cxHspDashMode024W, closures = cxHspDashClosures024W, songRequests = cxHspDashSongRequests031D) {
-    const anchor = cxHspDashLatestDate024W([
-      ...closures,
-      ...songRequests.map((request) => ({ created_at: request.created_at })),
-    ]);
+  function cxHspDashPeriodDefs024W(mode = cxHspDashMode024W) {
+    const anchor = cxHspDashToday033E();
     if (mode === "days") {
       return Array.from({ length: 14 }, (_, index) => {
         const date = new Date(anchor);
@@ -23406,56 +23405,16 @@ function inventoryCreatePayload() {
     map[cleanKey] = row;
   }
 
-  function cxHspDashAggregate024W(mode = cxHspDashMode024W, closures = cxHspDashClosures024W, songRequests = cxHspDashSongRequests031D) {
-    const defs = cxHspDashPeriodDefs024W(mode, closures, songRequests);
-    const buckets = Object.fromEntries(defs.map((def) => [def.key, cxHspDashEmptyBucket024W(def)]));
-    const totals = cxHspDashEmptyBucket024W({ key: "total", label: "Trimestre", subtitle: "" });
-    const directSongDates = songRequests.map((request) => cxHspDashDate024W(request.created_at)).filter(Boolean);
-    const firstDirectSongAt = directSongDates.length ? new Date(Math.min(...directSongDates.map((date) => date.getTime()))) : null;
-
-    closures.forEach((closure) => {
-      const date = cxHspDashDate024W(closure.closed_at || closure.created_at);
-      if (!date) return;
-      const key = mode === "days" ? cxHspDashDayKey024W(date) : mode === "weeks" ? cxHspDashWeekKey024W(date) : cxHspDashMonthKey024W(date);
-      const bucket = buckets[key];
-      if (!bucket) return;
-      [bucket, totals].forEach((target) => {
-        target.closures += 1;
-        target.orders += cxHspDashNum024W(closure.orders_count);
-        target.total += cxHspDashNum024W(closure.total_sold);
-        target.cash += cxHspDashNum024W(closure.cash_total);
-        target.transfer += cxHspDashNum024W(closure.transfer_total);
-        target.card += cxHspDashNum024W(closure.card_total);
-        target.other += cxHspDashNum024W(closure.other_total);
-        target.workedMinutes += cxHspDashNum024W(closure.summary?.worked_minutes);
-        (closure.products || []).forEach((item) => cxHspDashAddMap024W(target.products, item.name || item.sku, {
-          quantity: item.quantity,
-          total: item.total,
-        }));
-        (closure.tables || []).forEach((item) => cxHspDashAddMap024W(target.tables, item.table, {
-          total: item.total,
-          orders: item.orders,
-        }));
-        if (!firstDirectSongAt || date < firstDirectSongAt) {
-          (closure.songs || []).forEach((item) => cxHspDashAddMap024W(target.songs, item.song, {
-            count: item.count,
-          }));
-        }
-      });
-    });
-
-    songRequests.forEach((request) => {
-      const date = cxHspDashDate024W(request.created_at);
-      const song = String(request.song || "").trim();
-      if (!date || !song) return;
-      const key = mode === "days" ? cxHspDashDayKey024W(date) : mode === "weeks" ? cxHspDashWeekKey024W(date) : cxHspDashMonthKey024W(date);
-      const bucket = buckets[key];
-      if (!bucket) return;
-      cxHspDashAddMap024W(bucket.songs, song, { count: 1 });
-      cxHspDashAddMap024W(totals.songs, song, { count: 1 });
-    });
-
-    return { periods: defs.map((def) => buckets[def.key]), totals };
+  function cxHspDashAggregate024W(mode = cxHspDashMode024W) {
+    const snapshot = cxHspDashAnalytics033E?.analytics?.[mode];
+    if (!snapshot) {
+      return {
+        periods: cxHspDashPeriodDefs024W(mode).map(cxHspDashEmptyBucket024W),
+        totals: cxHspDashEmptyBucket024W({ key: "total" }),
+      };
+    }
+    const bucket = (row) => ({ ...row, workedMinutes: row.worked_minutes || 0 });
+    return { periods: snapshot.periods.map(bucket), totals: bucket(snapshot.totals) };
   }
 
   function cxHspDashTop024W(map = {}, metric = "total", limit = 5) {
@@ -23492,8 +23451,10 @@ function inventoryCreatePayload() {
       .hspdash-kpi-024w small{display:block;margin-top:6px;color:var(--hd-muted);font-size:12px;font-weight:850}
       .hspdash-chart-024w{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;align-items:end;min-height:260px;padding:12px;background:rgba(3,7,18,.24);border:1px solid rgba(255,255,255,.09);border-radius:18px}
       .hspdash-barwrap-024w{display:grid;grid-template-rows:1fr auto;gap:8px;min-height:232px}
-      .hspdash-bartrack-024w{position:relative;display:flex;align-items:flex-end;min-height:190px;border-radius:15px;background:rgba(255,255,255,.055);overflow:hidden;border:1px solid rgba(255,255,255,.08)}
-      .hspdash-bar-024w{width:100%;min-height:6%;border-radius:15px 15px 0 0;background:linear-gradient(180deg,var(--hd-secondary),var(--hd-primary));display:flex;align-items:flex-start;justify-content:center;padding-top:9px;color:#101827;font-size:12px;font-weight:1000;text-align:center}
+      .hspdash-bartrack-024w{position:relative;display:flex;align-items:flex-end;height:190px;border-radius:15px;background:rgba(255,255,255,.055);overflow:hidden;border:1px solid rgba(255,255,255,.08)}
+      .hspdash-bar-024w{width:100%;min-height:0;border-radius:15px 15px 0 0;background:linear-gradient(180deg,var(--hd-secondary),var(--hd-primary));display:flex;align-items:flex-start;justify-content:center;padding-top:9px;color:#101827;font-size:12px;font-weight:1000;text-align:center}
+      .hspdash-barvalue-033e{position:absolute;top:8px;left:4px;right:4px;z-index:1;padding:6px 2px;border-radius:8px;background:rgba(9,13,23,.88);color:#fff;font-size:12px;font-weight:1000;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums}
+      .hspdash-live-033e{margin:8px 0 0;color:var(--hd-muted);font-size:12px;font-weight:800}.hspdash-live-033e.error{color:#fda4af}
       .hspdash-barlabel-024w{display:grid;gap:2px;text-align:center;color:var(--cx-text,#fff);font-weight:1000}
       .hspdash-barlabel-024w small{color:var(--hd-muted);font-size:11px;font-weight:850}
       .hspdash-grid-024w{display:grid;grid-template-columns:1.1fr .9fr;gap:14px;align-items:start}
@@ -23550,13 +23511,72 @@ function inventoryCreatePayload() {
     document.head.appendChild(style);
   }
 
-  async function cxHspDashLoad024W() {
-    const data = await cxHspDashApi024W("/day-closures?limit=200");
-    cxHspDashClosures024W = Array.isArray(data.closures) ? data.closures : [];
-    cxHspDashSongRequests031D = Array.isArray(data.song_requests) ? data.song_requests : [];
-    if (!cxHspDashEventDate033B) cxHspDashEventDate033B = cxHspDashDefaultEventDate033B();
-    await cxHspDashLoadEvents033B(cxHspDashEventDate033B);
-    return cxHspDashClosures024W;
+  async function cxHspDashLoad024W({ events = true } = {}) {
+    if (cxHspDashLoading033E) return;
+    cxHspDashLoading033E = true;
+    const companyId = state.companyId;
+    try {
+      const data = await cxHspDashApi024W("/analytics", { cache: "no-store" });
+      if (companyId !== state.companyId) return;
+      if (!data.analytics?.days || !data.analytics?.weeks || !data.analytics?.months) {
+        throw new Error("No se pudieron cargar las ventas de Hospitality.");
+      }
+      cxHspDashAnalytics033E = data;
+      cxHspDashEventTimezone033B = data.timezone || "America/Bogota";
+      if (!cxHspDashEventDate033B) cxHspDashEventDate033B = data.today;
+      if (events) await cxHspDashLoadEvents033B(cxHspDashEventDate033B);
+      return data;
+    } finally {
+      cxHspDashLoading033E = false;
+    }
+  }
+
+  function cxHspDashStatus033E(error = "") {
+    const status = document.getElementById("hspDashLiveStatus033E");
+    if (!status) return;
+    const updated = cxHspDashAnalytics033E?.generated_at;
+    status.textContent = error
+      ? `Sin conexión · se conservan los últimos datos. ${error}`
+      : updated
+        ? `Actualización automática cada 10 s · Última: ${cxHspDashEventTime033B(updated)}`
+        : "Cargando ventas...";
+    status.classList.toggle("error", Boolean(error));
+  }
+
+  function cxHspDashStopMonitor033E() {
+    if (cxHspDashMonitor033E) window.clearInterval(cxHspDashMonitor033E);
+    cxHspDashMonitor033E = null;
+    if (cxHspDashResume033E) {
+      document.removeEventListener("visibilitychange", cxHspDashResume033E);
+      window.removeEventListener("focus", cxHspDashResume033E);
+    }
+    cxHspDashResume033E = null;
+  }
+
+  function cxHspDashStartMonitor033E() {
+    cxHspDashStopMonitor033E();
+    const companyId = state.companyId;
+    const refresh = async () => {
+      const root = document.getElementById("hspDashRoot024W");
+      if (!root || companyId !== state.companyId) {
+        cxHspDashStopMonitor033E();
+        return;
+      }
+      if (document.hidden || cxHspDashLoading033E) return;
+      try {
+        await cxHspDashLoad024W({ events: false });
+        if (root !== document.getElementById("hspDashRoot024W") || companyId !== state.companyId) return;
+        const editing = root.contains(document.activeElement) && document.activeElement?.matches("input,select,textarea");
+        if (!editing && cxHspDashPainted033E !== JSON.stringify(cxHspDashAnalytics033E?.analytics)) cxHspDashPaint024W();
+        cxHspDashStatus033E();
+      } catch (error) {
+        cxHspDashStatus033E(error.message || "Reintentando automáticamente.");
+      }
+    };
+    cxHspDashMonitor033E = window.setInterval(refresh, 10000);
+    cxHspDashResume033E = refresh;
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
   }
 
   function cxHspDashRankCard024W(title, rows = [], metric = "total", formatter = cxHspMoney024R) {
@@ -23580,13 +23600,15 @@ function inventoryCreatePayload() {
     return `
       <div class="hspdash-chart-024w">
         ${periods.map((row) => {
-          const height = Math.max(6, Math.round((cxHspDashNum024W(row.total) / max) * 100));
+          const value = cxHspDashNum024W(row.total);
+          const height = value > 0 ? Math.max(1, (value / max) * 100) : 0;
           return `
-            <div class="hspdash-barwrap-024w">
+            <div class="hspdash-barwrap-024w" data-hsp-sales-period="${h(row.key)}">
               <div class="hspdash-bartrack-024w">
-                <div class="hspdash-bar-024w" style="height:${height}%">${h(cxHspMoney024R(row.total))}</div>
+                <strong class="hspdash-barvalue-033e">${h(cxHspMoney024R(row.total))}</strong>
+                <div class="hspdash-bar-024w" style="height:${height}%" aria-hidden="true"></div>
               </div>
-              <div class="hspdash-barlabel-024w">${h(row.label)}<small>${h(row.subtitle)} · ${h(row.closures)} cierre(s)</small></div>
+              <div class="hspdash-barlabel-024w">${h(row.label)}<small>${h(row.subtitle)} · ${h(row.orders)} pedido(s)</small></div>
             </div>
           `;
         }).join("")}
@@ -23631,14 +23653,19 @@ function inventoryCreatePayload() {
   function cxHspDashPaint024W() {
     const root = document.getElementById("hspDashRoot024W");
     if (!root) return;
-    const { periods, totals } = cxHspDashAggregate024W(cxHspDashMode024W, cxHspDashClosures024W);
+    if (!cxHspDashAnalytics033E) {
+      root.innerHTML = `<div class="hspdash-empty-024w">Las ventas aún no se han cargado. Se reintentará automáticamente.</div>`;
+      return;
+    }
+    const { periods, totals } = cxHspDashAggregate024W(cxHspDashMode024W);
     const comparisonTitle = cxHspDashMode024W === "days" ? "Comparativo diario" : cxHspDashMode024W === "weeks" ? "Comparativo semanal" : "Comparativo mensual";
     const topProduct = cxHspDashTop024W(totals.products, "total", 1)[0];
     const topTable = cxHspDashTop024W(totals.tables, "total", 1)[0];
     const topSong = cxHspDashTop024W(totals.songs, "count", 1)[0];
     const avgTicket = totals.orders ? totals.total / totals.orders : 0;
 
-    root.innerHTML = (cxHspDashClosures024W.length || cxHspDashSongRequests031D.length || cxHspDashEventDate033B) ? `
+    const eventScroll = root.querySelector(".hspdash-event-list-033b")?.scrollTop || 0;
+    root.innerHTML = `
       <section class="hspdash-panel-024w">
         <div class="hspdash-head-024w">
           <h2>${comparisonTitle}</h2>
@@ -23685,19 +23712,27 @@ function inventoryCreatePayload() {
         ${cxHspDashRankCard024W("Mesas con mas consumo", cxHspDashTop024W(totals.tables, "total", 6), "total", cxHspMoney024R)}
         ${cxHspDashRankCard024W("Canciones mas pedidas", cxHspDashTop024W(totals.songs, "count", 6), "count", (value) => `${value}`)}
       </section>
-    ` : `<div class="hspdash-empty-024w">Aun no hay cierres guardados. Genera un cierre desde Pedidos para alimentar Hospitality.</div>`;
+    `;
+    const eventList = root.querySelector(".hspdash-event-list-033b");
+    if (eventList) eventList.scrollTop = eventScroll;
+    cxHspDashPainted033E = JSON.stringify(cxHspDashAnalytics033E?.analytics);
+    cxHspDashStatus033E();
   }
 
   async function renderHospitalityDashboardModule024W() {
     cxHspDashStyles024W();
     const company = state.company || {};
+    if (cxHspDashAnalytics033E?.company_id !== state.companyId) {
+      cxHspDashAnalytics033E = null;
+      cxHspDashEventDate033B = "";
+      cxHspDashEvents033B = [];
+      cxHspDashEventSummary033B = {};
+    }
     let loadError = "";
     try {
       await cxHspDashLoad024W();
     } catch (error) {
       loadError = error.message || "No se pudieron cargar los cierres de Hospitality.";
-      cxHspDashClosures024W = [];
-      cxHspDashSongRequests031D = [];
     }
 
     $("app").innerHTML = `
@@ -23715,7 +23750,7 @@ function inventoryCreatePayload() {
             <header class="client-hero hspdash-hero-024w">
               <div class="client-eyebrow">Modulo Hospitality</div>
               <h1 class="client-title">Hospitality</h1>
-              <p class="client-muted">Analisis diario, semanal y mensual de cierres, pagos, consumo por mesa, productos y canciones.</p>
+              <p class="client-muted">Ventas de cuentas cerradas por fecha de registro del pedido. Incluye días sin ventas y conserva los cierres diarios.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 <button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
@@ -23725,10 +23760,10 @@ function inventoryCreatePayload() {
               </div>
             </header>
 
+            <p id="hspDashLiveStatus033E" class="hspdash-live-033e" role="status"></p>
             <section id="hspDashPdfPanel032F" class="hspdash-pdf-panel-032f" hidden></section>
 
             <section class="hspdash-shell-024w">
-              ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
               <div id="hspDashRoot024W"></div>
             </section>
           </section>
@@ -23737,6 +23772,8 @@ function inventoryCreatePayload() {
     `;
     cxHspDashPaint024W();
     cxHspDashPaintPdf032F();
+    cxHspDashStatus033E(loadError);
+    cxHspDashStartMonitor033E();
   }
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_END */
   /* CLONEXA_024Z_HOSPITALITY_LOYALTY_START */
@@ -31240,8 +31277,7 @@ function inventoryCreatePayload() {
           await cxHspDashLoad024W();
           cxHspDashPaint024W();
         } catch (error) {
-          const root = document.getElementById("hspDashRoot024W");
-          if (root) root.innerHTML = `<div class="personal-toast error">${h(error.message || "No se pudo actualizar Hospitality.")}</div>`;
+          cxHspDashStatus033E(error.message || "No se pudo actualizar Hospitality.");
         }
         return;
       }
