@@ -12,8 +12,8 @@ function fn(name) {
   return next < 0 ? tail : tail.slice(0, next);
 }
 
-test('zero and small sales values are outside the variable-height fill', () => {
-  const context = vm.createContext({ h: String, cxHspMoney024R: n => `$ ${n}` });
+test('zero and small sales values stay inside the yellow fill', () => {
+  const context = vm.createContext({ h: String, cxHspMoney024R: n => `$ ${n}`, cxHspDashShiftRange033F: () => 'Jornada' });
   vm.runInContext(fn('cxHspDashNum024W') + fn('cxHspDashRenderChart024W'), context);
   const html = context.cxHspDashRenderChart024W([
     { key: '2026-09-07', label: '07 sept', subtitle: '2026', total: 0, orders: 0 },
@@ -21,10 +21,20 @@ test('zero and small sales values are outside the variable-height fill', () => {
     { key: '2026-09-09', label: '09 sept', subtitle: '2026', total: 3557000, orders: 10 },
   ]);
   for (const total of [0, 15000, 3557000]) {
-    assert.ok(html.includes(`<strong class="hspdash-barvalue-033e">$ ${total}</strong>`));
+    assert.match(html, new RegExp(`<div class="hspdash-bar-024w" style="height:[^\"]+"><strong class="hspdash-barvalue-033e">\\$ ${total}</strong></div>`));
   }
-  assert.match(html, /height:0%" aria-hidden="true"><\/div>/);
-  assert.doesNotMatch(html, /hspdash-bar-024w[^>]*>\$/);
+  assert.match(source, /\.hspdash-bar-024w\{[^}]*min-height:32px/);
+  assert.doesNotMatch(html, /aria-hidden="true"/);
+});
+
+test('shift caption displays both dates in company timezone and ongoing status', () => {
+  const context = vm.createContext({cxHspDashEventTimezone033B: 'America/Bogota'});
+  vm.runInContext(fn('cxHspDashDate024W') + fn('cxHspDashShiftRange033F'), context);
+  const shifts = [{opened_at:'2026-09-07T23:00:00Z', closed_at:'2026-09-08T09:00:00Z'}];
+  assert.match(context.cxHspDashShiftRange033F({shifts}), /0?7\/0?9.*18:00.*0?8\/0?9.*04:00/);
+  shifts[0].is_open = true;
+  assert.match(context.cxHspDashShiftRange033F({shifts}), /0?7\/0?9.*18:00.*En curso/);
+  assert.equal(context.cxHspDashShiftRange033F({}), 'Sin jornada registrada');
 });
 
 test('monitor refreshes without overlap, resumes, preserves data on errors and stops after navigation', async () => {

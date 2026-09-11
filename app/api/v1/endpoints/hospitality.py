@@ -1251,6 +1251,7 @@ def _hsp_empty_bucket(definition: dict[str, Any]) -> dict[str, Any]:
         "card": 0.0,
         "other": 0.0,
         "worked_minutes": 0.0,
+        "shifts": [],
         "products": {},
         "tables": {},
         "songs": {},
@@ -1292,7 +1293,7 @@ def _hsp_aggregate(
     totals = _hsp_empty_bucket({"key": "total", "label": "Total", "subtitle": ""})
     included: list[dict[str, Any]] = []
     for closure in closures:
-        date_value = _hsp_report_date(closure.get("closed_at") or closure.get("created_at"))
+        date_value = _hsp_report_date(closure.get("opened_at") or closure.get("closed_at") or closure.get("created_at"))
         if not date_value:
             continue
         local_date = _hsp_local_date(date_value, timezone_name)
@@ -1305,7 +1306,11 @@ def _hsp_aggregate(
             continue
         included.append(closure)
         for target in (bucket, totals):
-            target["closures"] += 1
+            target["closures"] += 0 if closure.get("is_open") else 1
+            target["shifts"].append({
+                "id": closure.get("id"), "opened_at": closure.get("opened_at"),
+                "closed_at": closure.get("closed_at"), "is_open": bool(closure.get("is_open")),
+            })
             target["orders"] += int(closure.get("orders_count") or 0)
             target["total"] += _num(closure.get("total_sold"))
             target["cash"] += _num(closure.get("cash_total"))
@@ -1322,77 +1327,161 @@ def _hsp_aggregate(
     return {"periods": [buckets[item["key"]] for item in definitions], "totals": totals, "closures": included}
 
 
+def _hsp_shift_records(
+    orders: list[dict[str, Any]],
+    closures: list[dict[str, Any]],
+    song_requests: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """One record per actual opening-to-closing shift, never per midnight.
+
+    Finalized closures own their totals and payment reconciliation. Unarchived
+    orders form the ongoing shift; closing it replaces that provisional record.
+    """
+    shifts = []
+    now = _now()
+    closure_ids = set()
+    linked_orders = set()
+    for closure in closures:
+        closure_id = str(closure.get("id") or closure.get("closure_number") or closure.get("closed_at"))
+        if closure_id in closure_ids:
+            continue
+        closure_ids.add(closure_id)
+        linked_orders.update(str(value) for value in closure.get("order_ids") or [])
+        row = {**closure, "summary": dict(closure.get("summary") or {})}
+        opened = _hsp_event_datetime(row.get("opened_at") or row.get("closed_at") or row.get("created_at"))
+        closed = _hsp_event_datetime(row.get("closed_at"))
+        row["opened_at"] = _iso(opened)
+        if opened and closed:
+            row["summary"]["worked_minutes"] = max(0, int((closed - opened).total_seconds() // 60))
+        shifts.append(row)
+
+    pending = {}
+    for order in orders:
+        key = str(order.get("id") or "")
+        if key in linked_orders or order.get("archived_at") or _json(order.get("metadata"), {}).get("closure_id"):
+            continue
+        created = _hsp_event_datetime(order.get("created_at"))
+        if created and created <= now:
+            pending[key] = order
+    live_songs = [row for row in song_requests if not row.get("archived_at")]
+    starts = [value for row in [*pending.values(), *live_songs]
+              if (value := _hsp_event_datetime(row.get("created_at"))) and value <= now]
+    if starts:
+        opened = min(starts)
+        bucket = _hsp_empty_bucket({})
+        for order in pending.values():
+            if _status(order.get("status")) == STATUS_CANCELLED:
+                continue
+            total = _money(order.get("total"))
+            bucket["orders"] += 1
+            bucket["total"] = _money(bucket["total"] + total)
+            method = _payment_method(order.get("payment_method"))
+            bucket[method] = _money(bucket[method] + total)
+            _hsp_add_rank(bucket["tables"], order.get("table_number"), {"orders": 1, "total": total})
+            for item in _json(order.get("items"), []):
+                quantity = _num(item.get("quantity"))
+                subtotal = item.get("subtotal")
+                if subtotal is None:
+                    subtotal = quantity * _num(item.get("unit_price"))
+                _hsp_add_rank(bucket["products"], item.get("name") or item.get("sku"), {
+                    "quantity": quantity, "total": _money(subtotal),
+                })
+        shifts.append({
+            "id": "ongoing", "closure_number": "EN CURSO", "is_open": True,
+            "opened_at": _iso(opened), "closed_at": None,
+            "total_sold": bucket["total"], "orders_count": bucket["orders"],
+            **{f"{method}_total": bucket[method] for method in PAYMENT_METHODS},
+            "products": list(bucket["products"].values()),
+            "tables": [{**row, "table": row["name"]} for row in bucket["tables"].values()],
+            "songs": [], "summary": {"worked_minutes": max(0, int((now - opened).total_seconds() // 60))},
+        })
+
+    # Assign independent song requests to their closing transaction/shift once.
+    direct_dates = [value for row in song_requests if (value := _hsp_event_datetime(row.get("created_at")))]
+    first_direct = min(direct_dates) if direct_dates else None
+    for shift in shifts:
+        closed = _hsp_event_datetime(shift.get("closed_at"))
+        if first_direct and closed and closed >= first_direct:
+            shift["songs"] = []
+    for song in song_requests:
+        created = _hsp_event_datetime(song.get("created_at"))
+        archived = _hsp_event_datetime(song.get("archived_at"))
+        if not created or created > now or not _clean(song.get("song")):
+            continue
+        candidates = []
+        for shift in shifts:
+            opened = _hsp_event_datetime(shift.get("opened_at"))
+            closed = _hsp_event_datetime(shift.get("closed_at"))
+            if shift.get("is_open"):
+                if not archived and opened and created >= opened:
+                    candidates.append(shift)
+            elif opened and closed and opened <= created <= closed:
+                candidates.append(shift)
+        if candidates:
+            target = min(candidates, key=lambda row: (
+                0 if archived and (closed := _hsp_event_datetime(row.get("closed_at"))) and abs((archived - closed).total_seconds()) < 1 else 1,
+                _hsp_event_datetime(row.get("closed_at")) or now,
+            ))
+            target["songs"].append({"song": song["song"], "count": 1})
+    return shifts
+
+
 def _hsp_sales_aggregate(
     orders: list[dict[str, Any]],
     closures: list[dict[str, Any]],
     song_requests: list[dict[str, Any]],
     period: str,
     timezone_name: str,
+    start_date: calendar_date | None = None,
+    end_date: calendar_date | None = None,
 ) -> dict[str, Any]:
-    """Sales follow the order's local registration date, independently of day closing.
+    return _hsp_aggregate(
+        _hsp_shift_records(orders, closures, song_requests),
+        period, start_date, end_date, timezone_name,
+    )
 
-    Archived orders included in a day closure remain sales even if that legacy
-    closure left their status as served. Each order is counted exactly once.
-    """
-    direct_dates = [value for row in song_requests if (value := _hsp_event_datetime(row.get("created_at")))]
-    first_direct = min(direct_dates) if direct_dates else None
-    historical_closures = []
-    for closure in closures:
-        closure_at = _hsp_event_datetime(closure.get("closed_at") or closure.get("created_at"))
-        historical_closures.append({
-            **closure,
-            "songs": [] if first_direct and closure_at and closure_at >= first_direct else closure.get("songs", []),
-        })
-    result = _hsp_aggregate(historical_closures, period, timezone_name=timezone_name)
-    buckets = {row["key"]: row for row in result["periods"]}
-    today = _hsp_local_date(_now(), timezone_name)
-    for target in [*result["periods"], result["totals"]]:
-        for field in ("orders", "total", "cash", "transfer", "card", "other"):
-            target[field] = 0
-        for field in ("products", "tables"):
-            target[field] = {}
 
-    seen = set()
-    for order in orders:
-        order_id = str(order.get("id") or "")
-        metadata = _json(order.get("metadata"), {})
-        if order_id in seen or _status(order.get("status")) == STATUS_CANCELLED:
-            continue
-        if _status(order.get("status")) != STATUS_CLOSED and not metadata.get("closure_id"):
-            continue
-        created_at = _hsp_event_datetime(order.get("created_at"))
-        if not created_at or _hsp_local_date(created_at, timezone_name) > today:
-            continue
-        bucket = buckets.get(_hsp_period_key(created_at, period, timezone_name))
-        if not bucket:
-            continue
-        seen.add(order_id)
-        total = _money(order.get("total"))
-        method = _payment_method(order.get("payment_method"))
-        for target in (bucket, result["totals"]):
-            target["orders"] += 1
-            target["total"] = _money(target["total"] + total)
-            target[method] = _money(target[method] + total)
-            _hsp_add_rank(target["tables"], order.get("table_number"), {"orders": 1, "total": total})
-            for item in _json(order.get("items"), []):
-                quantity = _num(item.get("quantity"))
-                subtotal = item.get("subtotal")
-                if subtotal is None:
-                    subtotal = quantity * _num(item.get("unit_price"))
-                _hsp_add_rank(target["products"], item.get("name") or item.get("sku"), {
-                    "quantity": quantity, "total": _money(subtotal),
-                })
-
-    for request in song_requests:
-        created_at = _hsp_event_datetime(request.get("created_at"))
-        song = _clean(request.get("song"))
-        if not created_at or not song or _hsp_local_date(created_at, timezone_name) > today:
-            continue
-        bucket = buckets.get(_hsp_period_key(created_at, period, timezone_name))
-        if bucket:
-            for target in (bucket, result["totals"]):
-                _hsp_add_rank(target["songs"], song, {"count": 1})
-    return {"periods": result["periods"], "totals": result["totals"]}
+async def _hsp_load_shift_sources(db: AsyncSession, company_id: uuid.UUID, since: datetime):
+    # One statement keeps orders and closures in the same PostgreSQL snapshot.
+    # A concurrent closure cannot briefly remove sales or count them twice.
+    params = {"company_id": str(company_id), "since": since}
+    result = await db.execute(text("""
+        WITH shifts AS (
+        SELECT c.*, COALESCE(c.opened_at, (
+            SELECT MIN(o.created_at) FROM hospitality_orders o
+            WHERE o.company_id = c.company_id
+              AND (o.metadata->>'closure_id' = c.id::text
+                   OR c.order_ids @> jsonb_build_array(o.id::text))
+        ), c.closed_at) AS shift_opened_at
+        FROM hospitality_day_closures c
+        WHERE c.company_id = :company_id AND c.closed_at >= :since
+        ORDER BY c.closed_at
+        ), live_orders AS (
+        SELECT id, created_at, status, metadata, total, payment_method, table_number, items, archived_at
+        FROM hospitality_orders
+        WHERE company_id = :company_id AND archived_at IS NULL
+        ORDER BY created_at, id
+        ), requests AS (
+        SELECT id, song, created_at, archived_at FROM hospitality_song_requests
+        WHERE company_id = :company_id AND (created_at >= :since OR archived_at IS NULL)
+        ORDER BY created_at
+        )
+        SELECT 'closure' AS kind, to_jsonb(shifts) AS data FROM shifts
+        UNION ALL SELECT 'order', to_jsonb(live_orders) FROM live_orders
+        UNION ALL SELECT 'song', to_jsonb(requests) FROM requests
+    """), params)
+    orders, closures, songs = [], [], []
+    for source in result.mappings().all():
+        row = _json(source["data"], {})
+        if source["kind"] == "closure":
+            closure = _closure_payload(row)
+            closure["opened_at"] = _iso(row.get("shift_opened_at"))
+            closures.append(closure)
+        elif source["kind"] == "order":
+            orders.append(row)
+        else:
+            songs.append(row)
+    return orders, closures, songs
 
 
 def _hsp_event_datetime(value: Any) -> datetime | None:
@@ -1661,60 +1750,10 @@ async def _hospitality_report_payload(
     period_mode = _hsp_period_mode(period)
     company = await _hospitality_company_identity(db, company_id)
     timezone_name = company.get("timezone") or "America/Bogota"
-    result = await db.execute(
-        text(
-            """
-            SELECT *
-            FROM hospitality_day_closures
-            WHERE company_id = :company_id
-            ORDER BY closed_at DESC
-            """
-        ),
-        {"company_id": str(company_id)},
-    )
-    closures = [_closure_payload(row) for row in result.mappings().all()]
-    song_result = await db.execute(
-        text(
-            """
-            SELECT song, created_at
-            FROM hospitality_song_requests
-            WHERE company_id = :company_id
-            ORDER BY created_at ASC
-            """
-        ),
-        {"company_id": str(company_id)},
-    )
-    song_requests = list(song_result.mappings().all())
-    direct_song_dates = [
-        date
-        for date in (_hsp_report_date(row.get("created_at")) for row in song_requests)
-        if date
-    ]
-    first_direct_song_at = min(direct_song_dates) if direct_song_dates else None
-    if first_direct_song_at:
-        for closure in closures:
-            closure_at = _hsp_report_date(closure.get("closed_at") or closure.get("created_at"))
-            if closure_at and closure_at >= first_direct_song_at:
-                closure["songs"] = []
-    aggregated = _hsp_aggregate(closures, period_mode, start_date, end_date, timezone_name)
-    period_buckets = {row["key"]: row for row in aggregated["periods"]}
-    for song_request in song_requests:
-        song = _clean(song_request.get("song"))
-        created_at = song_request.get("created_at")
-        if not song or not isinstance(created_at, datetime):
-            continue
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        local_date = _hsp_local_date(created_at, timezone_name)
-        if start_date and local_date < start_date:
-            continue
-        if end_date and local_date > end_date:
-            continue
-        bucket = period_buckets.get(_hsp_period_key(created_at, period_mode, timezone_name))
-        if not bucket:
-            continue
-        _hsp_add_rank(bucket["songs"], song, {"count": 1})
-        _hsp_add_rank(aggregated["totals"]["songs"], song, {"count": 1})
+    since_date = start_date or (_hsp_local_date(_now(), timezone_name) - timedelta(days=120))
+    since = datetime.combine(since_date, datetime.min.time(), _hsp_report_zone(timezone_name))
+    orders, closures, song_requests = await _hsp_load_shift_sources(db, company_id, since)
+    aggregated = _hsp_sales_aggregate(orders, closures, song_requests, period_mode, timezone_name, start_date, end_date)
     totals = aggregated["totals"]
     avg_ticket = (totals["total"] / totals["orders"]) if totals["orders"] else 0
     return {
@@ -1739,9 +1778,9 @@ async def _hospitality_report_payload(
             {"label": "Total vendido", "value": _hsp_money_text(totals["total"]), "detail": f"{totals['closures']} cierre(s)"},
             {"label": "Ticket promedio", "value": _hsp_money_text(avg_ticket), "detail": f"{totals['orders']} pedido(s)"},
             {"label": "Cierres", "value": totals["closures"], "detail": "Incluidos en el periodo"},
-            {"label": "Pedidos", "value": totals["orders"], "detail": "Cuentas cerradas"},
+            {"label": "Pedidos", "value": totals["orders"], "detail": "Incluidos en las jornadas"},
             {"label": "Mesa lider", "value": (_hsp_top(totals["tables"], "total", 1)[0].get("name") if totals["tables"] else "-"), "detail": _hsp_money_text((_hsp_top(totals["tables"], "total", 1)[0].get("total") if totals["tables"] else 0))},
-            {"label": "Horas operadas", "value": _hsp_hours(totals["worked_minutes"]), "detail": "Desde cierres"},
+            {"label": "Horas operadas", "value": _hsp_hours(totals["worked_minutes"]), "detail": "Apertura a cierre"},
         ],
         "top_products": _hsp_top(totals["products"], "total", 20),
         "top_tables": _hsp_top(totals["tables"], "total", 20),
@@ -1860,7 +1899,7 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
         c.setFont("Helvetica-Bold", 18)
         c.drawString(margin + 68, page_h - 42, fit(company.get("name") or "CLONEXA", 330, "Helvetica-Bold", 18))
         c.setFont("Helvetica", 8)
-        c.drawString(margin + 68, page_h - 58, "Dashboard Hospitality exportado en PDF")
+        c.drawString(margin + 68, page_h - 58, "Jornadas completas por fecha de apertura")
         c.setFont("Helvetica-Bold", 18)
         c.drawRightString(page_w - margin, page_h - 40, f"HOSPITALITY {payload.get('period_label', '').upper()}")
         c.setFont("Helvetica", 8)
@@ -1921,29 +1960,31 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
 
     def bars(periods: list[dict[str, Any]]) -> None:
         nonlocal y
-        section("Grafica de venta", "Total por periodo")
-        ensure(120)
+        section("Grafica de venta", "Jornadas por fecha de apertura")
         max_total = max([_num(row.get("total")) for row in periods] + [1])
-        chart_h = 112
-        row_y = y - 18
         for row in periods:
+            ensure(24)
+            row_y = y - 14
             label_w = 92
-            bar_w = page_w - margin * 2 - label_w - 100
-            pct = max(0.02, min(1, _num(row.get("total")) / max_total))
+            bar_w = page_w - margin * 2 - label_w
+            value = _hsp_money_text(row.get("total"))
+            fill_w = max(c.stringWidth(value, "Helvetica-Bold", 7) + 16,
+                         bar_w * max(0, min(1, _num(row.get("total")) / max_total)))
             c.setFillColor(muted)
             c.setFont("Helvetica-Bold", 7)
             c.drawString(margin, row_y, fit(f"{row.get('label')} {row.get('subtitle')}", label_w - 4, "Helvetica-Bold", 7))
             c.setFillColor(colors.HexColor("#e5e7eb"))
-            c.roundRect(margin + label_w, row_y - 3, bar_w, 8, 4, stroke=0, fill=1)
+            c.roundRect(margin + label_w, row_y - 5, bar_w, 16, 4, stroke=0, fill=1)
             c.setFillColor(primary)
-            c.roundRect(margin + label_w, row_y - 3, bar_w * pct, 8, 4, stroke=0, fill=1)
+            c.roundRect(margin + label_w, row_y - 5, fill_w, 16, 4, stroke=0, fill=1)
             c.setFillColor(dark)
-            c.drawRightString(page_w - margin, row_y, _hsp_money_text(row.get("total")))
-            row_y -= 15
-        y -= min(chart_h, 24 + len(periods) * 15)
+            c.drawString(margin + label_w + 8, row_y, value)
+            y -= 24
+        y -= 12
 
     def table(title: str, columns: list[tuple[str, str, float]], rows: list[dict[str, Any]], font_size: float = 6.2) -> None:
         nonlocal y
+        ensure(80)
         section(title, f"{len(rows)} registro(s)")
         total_weight = sum(col[2] for col in columns) or 1
         widths = [(page_w - margin * 2) * col[2] / total_weight for col in columns]
@@ -2027,12 +2068,13 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
     table("Mesas con mas consumo", [("name", "Mesa", 1.6), ("orders", "Pedidos", .8), ("total", "Total", 1)], [{"name": r.get("name"), "orders": r.get("orders"), "total": _hsp_money_text(r.get("total"))} for r in payload.get("top_tables") or []])
     table("Canciones mas pedidas", [("name", "Cancion", 1.8), ("count", "Solicitudes", .8)], [{"name": r.get("name"), "count": r.get("count")} for r in payload.get("top_songs") or []])
     table(
-        "Cierres incluidos",
-        [("number", "Cierre", 1), ("closed_at", "Fecha", 1.2), ("closed_by", "Responsable", 1.2), ("orders", "Pedidos", .7), ("total", "Total", 1), ("cash", "Efectivo", 1), ("transfer", "Transf.", 1), ("card", "Tarjeta", 1), ("other", "Otro", 1), ("notes", "Notas", 1.4)],
+        "Jornadas incluidas",
+        [("number", "Cierre", 1), ("opened_at", "Apertura", 1.3), ("closed_at", "Cierre", 1.3), ("closed_by", "Responsable", 1.2), ("orders", "Pedidos", .7), ("total", "Total", 1), ("cash", "Efectivo", 1), ("transfer", "Transf.", 1), ("card", "Tarjeta", 1), ("other", "Otro", 1), ("notes", "Notas", 1.4)],
         [
             {
                 "number": row.get("closure_number"),
-                "closed_at": clean_text(row.get("closed_at"))[:16],
+                "opened_at": _hsp_event_datetime(row.get("opened_at")).astimezone(_hsp_report_zone(company.get("timezone"))).strftime("%d/%m/%Y %H:%M") if row.get("opened_at") else "-",
+                "closed_at": _hsp_event_datetime(row.get("closed_at")).astimezone(_hsp_report_zone(company.get("timezone"))).strftime("%d/%m/%Y %H:%M") if row.get("closed_at") else "En curso",
                 "closed_by": row.get("closed_by") or "Panel",
                 "orders": row.get("orders_count"),
                 "total": _hsp_money_text(row.get("total_sold")),
@@ -4572,44 +4614,21 @@ async def hospitality_sales_analytics(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
     timezone_name = str(_hsp_report_zone(company.get("timezone")))
     today = _hsp_local_date(_now(), timezone_name)
-    # Covers the complete 14-day, 12-week and 3-month windows, without row caps.
+    # Include whole shifts closing after the scan boundary; filter by opening later.
     start = datetime.combine(today - timedelta(days=120), datetime.min.time(), _hsp_report_zone(timezone_name))
-    end = datetime.combine(today + timedelta(days=1), datetime.min.time(), _hsp_report_zone(timezone_name))
-    params = {"company_id": str(company_id), "start": start, "end": end}
-    orders_result = await db.execute(text("""
-        SELECT id, created_at, status, metadata, total, payment_method, table_number, items
-        FROM hospitality_orders
-        WHERE company_id = :company_id
-          AND created_at >= :start AND created_at < :end
-          AND status <> 'cancelado'
-          AND (status = 'cerrado' OR metadata->>'closure_id' IS NOT NULL)
-        ORDER BY created_at, id
-    """), params)
-    orders = [dict(row) for row in orders_result.mappings().all()]
-    closures_result = await db.execute(text("""
-        SELECT * FROM hospitality_day_closures
-        WHERE company_id = :company_id
-          AND closed_at >= :start AND closed_at < :end
-        ORDER BY closed_at
-    """), params)
-    closures = [_closure_payload(row) for row in closures_result.mappings().all()]
-    songs_result = await db.execute(text("""
-        SELECT song, created_at FROM hospitality_song_requests
-        WHERE company_id = :company_id
-          AND created_at >= :start AND created_at < :end
-        ORDER BY created_at
-    """), params)
-    songs = [dict(row) for row in songs_result.mappings().all()]
+    orders, closures, songs = await _hsp_load_shift_sources(db, company_id, start)
+    shifts = _hsp_shift_records(orders, closures, songs)
+    analytics = {}
+    for mode, period in (("days", "daily"), ("weeks", "weekly"), ("months", "monthly")):
+        aggregated = _hsp_aggregate(shifts, period, timezone_name=timezone_name)
+        analytics[mode] = {key: aggregated[key] for key in ("periods", "totals")}
     return {
         "ok": True,
         "company_id": str(company_id),
         "timezone": timezone_name,
         "today": today.isoformat(),
         "generated_at": _now().isoformat(),
-        "analytics": {
-            mode: _hsp_sales_aggregate(orders, closures, songs, period, timezone_name)
-            for mode, period in (("days", "daily"), ("weeks", "weekly"), ("months", "monthly"))
-        },
+        "analytics": analytics,
     }
 
 

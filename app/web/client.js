@@ -23260,7 +23260,7 @@ function inventoryCreatePayload() {
         <label>Mes final<input id="hspDashPdfMonthEnd032F" type="month" value="${h(defaults.endMonth)}"></label>
       `;
     }
-    return `<label>Dia a imprimir<input id="hspDashPdfStart032F" type="date" value="${h(defaults.startDate)}"></label>`;
+    return `<label>Dia de apertura<input id="hspDashPdfStart032F" type="date" value="${h(defaults.startDate)}"></label>`;
   }
 
   function cxHspDashPaintPdf032F() {
@@ -23276,7 +23276,7 @@ function inventoryCreatePayload() {
         <div><span>INFORME DE GESTION</span><h2>Imprimir Hospitality por periodo</h2></div>
         <button class="client-btn" type="button" data-hsp-dash-pdf-close>Cerrar</button>
       </div>
-      <p>El PDF incluye ventas, metodos de pago, pedidos, mesas, productos, canciones y cierres del rango seleccionado.</p>
+      <p>El PDF incluye cada jornada completa, desde su apertura hasta el cierre. Selecciona el día de apertura, aunque el cierre sea al día siguiente.</p>
       <div class="hspdash-pdf-form-032f">
         <label>Tipo de informe
           <select id="hspDashPdfPeriod032F">
@@ -23452,8 +23452,9 @@ function inventoryCreatePayload() {
       .hspdash-chart-024w{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;align-items:end;min-height:260px;padding:12px;background:rgba(3,7,18,.24);border:1px solid rgba(255,255,255,.09);border-radius:18px}
       .hspdash-barwrap-024w{display:grid;grid-template-rows:1fr auto;gap:8px;min-height:232px}
       .hspdash-bartrack-024w{position:relative;display:flex;align-items:flex-end;height:190px;border-radius:15px;background:rgba(255,255,255,.055);overflow:hidden;border:1px solid rgba(255,255,255,.08)}
-      .hspdash-bar-024w{width:100%;min-height:0;border-radius:15px 15px 0 0;background:linear-gradient(180deg,var(--hd-secondary),var(--hd-primary));display:flex;align-items:flex-start;justify-content:center;padding-top:9px;color:#101827;font-size:12px;font-weight:1000;text-align:center}
-      .hspdash-barvalue-033e{position:absolute;top:8px;left:4px;right:4px;z-index:1;padding:6px 2px;border-radius:8px;background:rgba(9,13,23,.88);color:#fff;font-size:12px;font-weight:1000;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums}
+      .hspdash-bar-024w{box-sizing:border-box;width:100%;min-height:32px;border-radius:15px 15px 0 0;background:linear-gradient(180deg,var(--hd-secondary),var(--hd-primary));display:flex;align-items:flex-start;justify-content:center;padding-top:9px;color:#101827;font-size:12px;font-weight:1000;text-align:center}
+      .hspdash-barvalue-033e{display:block;color:#171800;font-size:12px;font-weight:1000;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;line-height:16px}
+      .hspdash-shift-range-033f{display:block;color:var(--hd-muted);font-size:10px;font-weight:700;line-height:1.45;margin-top:4px}
       .hspdash-live-033e{margin:8px 0 0;color:var(--hd-muted);font-size:12px;font-weight:800}.hspdash-live-033e.error{color:#fda4af}
       .hspdash-barlabel-024w{display:grid;gap:2px;text-align:center;color:var(--cx-text,#fff);font-weight:1000}
       .hspdash-barlabel-024w small{color:var(--hd-muted);font-size:11px;font-weight:850}
@@ -23595,6 +23596,22 @@ function inventoryCreatePayload() {
     `;
   }
 
+  function cxHspDashShiftRange033F(row = {}) {
+    const shifts = Array.isArray(row.shifts) ? row.shifts : [];
+    if (!shifts.length) return "Sin jornada registrada";
+    const starts = shifts.map((shift) => cxHspDashDate024W(shift.opened_at)).filter(Boolean);
+    const ends = shifts.map((shift) => cxHspDashDate024W(shift.closed_at)).filter(Boolean);
+    if (!starts.length) return "";
+    const format = (date) => new Intl.DateTimeFormat("es-CO", {
+      timeZone: cxHspDashEventTimezone033B || "America/Bogota", day: "2-digit", month: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(date);
+    const start = format(new Date(Math.min(...starts.map(Number))));
+    const end = shifts.some((shift) => shift.is_open) ? "En curso"
+      : ends.length ? format(new Date(Math.max(...ends.map(Number)))) : "Sin cierre";
+    return `${start} → ${end}${shifts.length > 1 ? ` · ${shifts.length} jornadas` : ""}`;
+  }
+
   function cxHspDashRenderChart024W(periods = []) {
     const max = Math.max(...periods.map((row) => cxHspDashNum024W(row.total)), 1);
     return `
@@ -23605,10 +23622,9 @@ function inventoryCreatePayload() {
           return `
             <div class="hspdash-barwrap-024w" data-hsp-sales-period="${h(row.key)}">
               <div class="hspdash-bartrack-024w">
-                <strong class="hspdash-barvalue-033e">${h(cxHspMoney024R(row.total))}</strong>
-                <div class="hspdash-bar-024w" style="height:${height}%" aria-hidden="true"></div>
+                <div class="hspdash-bar-024w" style="height:${height}%"><strong class="hspdash-barvalue-033e">${h(cxHspMoney024R(row.total))}</strong></div>
               </div>
-              <div class="hspdash-barlabel-024w">${h(row.label)}<small>${h(row.subtitle)} · ${h(row.orders)} pedido(s)</small></div>
+              <div class="hspdash-barlabel-024w">${h(row.label)}<small>${h(row.subtitle)} · ${h(row.orders)} pedido(s)</small><small class="hspdash-shift-range-033f">${h(cxHspDashShiftRange033F(row))}</small></div>
             </div>
           `;
         }).join("")}
@@ -23631,7 +23647,7 @@ function inventoryCreatePayload() {
               const avg = row.orders ? row.total / row.orders : 0;
               return `
                 <tr>
-                  <td>${h(row.label)} ${h(row.subtitle)}</td>
+                  <td>${h(row.label)} ${h(row.subtitle)}<small class="hspdash-shift-range-033f">${h(cxHspDashShiftRange033F(row))}</small></td>
                   <td>${h(cxHspMoney024R(row.total))}</td>
                   <td>${h(cxHspMoney024R(row.cash))}</td>
                   <td>${h(cxHspMoney024R(row.transfer))}</td>
@@ -23750,7 +23766,7 @@ function inventoryCreatePayload() {
             <header class="client-hero hspdash-hero-024w">
               <div class="client-eyebrow">Modulo Hospitality</div>
               <h1 class="client-title">Hospitality</h1>
-              <p class="client-muted">Ventas de cuentas cerradas por fecha de registro del pedido. Incluye días sin ventas y conserva los cierres diarios.</p>
+              <p class="client-muted">Jornadas completas por fecha de apertura: las ventas después de medianoche permanecen en la misma jornada hasta el cierre.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 <button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
