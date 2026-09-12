@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -40,47 +41,59 @@ class ScalarResult:
 
 
 @pytest.mark.asyncio
-async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypatch):
+async def test_qr_table_account_keeps_independent_people_and_products(monkeypatch):
     company_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
+    aguila = {
+        "inventory_item_id": "aguila",
+        "name": "CERVEZA Aguila",
+        "quantity": 1,
+        "unit_price": 5000,
+        "subtotal": 5000,
+    }
+    trident = {
+        "inventory_item_id": "trident",
+        "name": "Chicles Trident",
+        "quantity": 2,
+        "unit_price": 2000,
+        "subtotal": 4000,
+    }
+    rows = [
+        {
+            "id": uuid.uuid4(),
+            "company_id": company_id,
+            "order_number": "QR-001",
+            "table_number": "Mesa 8",
+            "table_key": "mesa 8",
+            "source": "qr",
+            "status": "pendiente",
+            "customer_name": "Alex",
+            "people": [{"account_id": "phone-a", "name": "Alex", "total": 5000, "items": [aguila]}],
+            "items": [aguila],
+            "metadata": {"account_id": "phone-a"},
+            "total": 5000,
+            "created_at": now,
+            "updated_at": now,
+        },
+        {
+            "id": uuid.uuid4(),
+            "company_id": company_id,
+            "order_number": "QR-002",
+            "table_number": "Mesa 8",
+            "table_key": "mesa 8",
+            "source": "qr",
+            "status": "entregado",
+            "customer_name": "Alex",
+            "people": [{"account_id": "phone-b", "name": "Alex", "total": 4000, "items": [trident]}],
+            "items": [trident],
+            "metadata": {"account_id": "phone-b"},
+            "total": 4000,
+            "created_at": now,
+            "updated_at": now,
+        },
+    ]
     db = SimpleNamespace(
-        execute=AsyncMock(
-            return_value=MappingResult(
-                {
-                    "orders_count": 3,
-                    "total": 42000,
-                    "accounts_count": 3,
-                    "last_activity": now,
-                    "order_items": [
-                        [
-                            {
-                                "inventory_item_id": "aguila",
-                                "name": "CERVEZA Aguila",
-                                "quantity": 1,
-                                "unit_price": 5000,
-                                "subtotal": 5000,
-                            }
-                        ],
-                        [
-                            {
-                                "inventory_item_id": "aguila",
-                                "name": "CERVEZA Aguila",
-                                "quantity": 3,
-                                "unit_price": 5000,
-                                "subtotal": 15000,
-                            },
-                            {
-                                "inventory_item_id": "trident",
-                                "name": "Chicles Trident",
-                                "quantity": 2,
-                                "unit_price": 2000,
-                                "subtotal": 4000,
-                            },
-                        ],
-                    ],
-                }
-            )
-        )
+        execute=AsyncMock(return_value=MappingListResult(rows))
     )
     monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
     monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
@@ -89,7 +102,7 @@ async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypa
 
     response = await hospitality.get_hospitality_table_account(
         company_id,
-        hospitality.HospitalityTableAccessVerifyIn(table="Mesa 8", access_code="ABCDE"),
+        hospitality.HospitalityTableAccessVerifyIn(table="Mesa 8", access_code="ABCDE", account_id="phone-b"),
         db,
     )
 
@@ -97,30 +110,94 @@ async def test_qr_table_account_uses_all_open_orders_for_the_same_table(monkeypa
     statement = str(db.execute.await_args.args[0])
     params = db.execute.await_args.args[1]
     assert "status IN ('pendiente', 'alistando', 'entregado')" in statement
-    assert "SUM(total)" in statement
+    assert "ORDER BY created_at ASC" in statement
     assert params["table_key"] == "mesa 8"
-    assert response["account"] == {
-        "total": 42000.0,
-        "orders_count": 3,
-        "accounts_count": 3,
-        "last_activity": now.isoformat(),
-        "items": [
-            {
-                "inventory_item_id": "aguila",
-                "name": "CERVEZA Aguila",
-                "quantity": 4.0,
-                "unit_price": 5000.0,
-                "subtotal": 20000.0,
-            },
-            {
-                "inventory_item_id": "trident",
-                "name": "Chicles Trident",
-                "quantity": 2.0,
-                "unit_price": 2000,
-                "subtotal": 4000.0,
-            },
-        ],
+    account = response["account"]
+    assert account["total"] == 9000.0
+    assert account["orders_count"] == 2
+    assert account["accounts_count"] == 2
+    assert account["current_total"] == 4000.0
+    assert account["current_account"]["account_id"] == "phone-b"
+    assert [person["account_id"] for person in account["accounts"]] == ["phone-b", "phone-a"]
+    assert [(item["name"], item["quantity"], item["subtotal"]) for item in account["accounts"][0]["items"]] == [
+        ("Chicles Trident", 2.0, 4000.0)
+    ]
+    assert [(item["name"], item["quantity"], item["subtotal"]) for item in account["accounts"][1]["items"]] == [
+        ("CERVEZA Aguila", 1.0, 5000.0)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_qr_order_persists_the_device_account_id(monkeypatch):
+    company_id = uuid.uuid4()
+    order_id = uuid.uuid4()
+    item = {
+        "inventory_item_id": "aguila",
+        "product_id": "aguila",
+        "name": "Aguila",
+        "quantity": 1,
+        "unit_price": 5000,
+        "subtotal": 5000,
     }
+    stored_person = {
+        "id": "phone-a",
+        "account_id": "phone-a",
+        "name": "Persona 1",
+        "customer_key": "persona 1",
+        "total": 5000,
+        "items": [item],
+    }
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                MappingResult(
+                    {
+                        "id": order_id,
+                        "company_id": company_id,
+                        "order_number": "QR-101",
+                        "table_number": "Mesa 3",
+                        "table_key": "mesa 3",
+                        "source": "qr",
+                        "status": "pendiente",
+                        "customer_name": "Persona 1",
+                        "people": [stored_person],
+                        "items": [item],
+                        "metadata": {"account_id": "phone-a"},
+                        "total": 5000,
+                    }
+                ),
+                MappingResult(None),
+            ]
+        ),
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
+    monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
+    monkeypatch.setattr(hospitality, "_require_table_access", AsyncMock())
+    monkeypatch.setattr(hospitality, "_build_order_items", AsyncMock(return_value=[item]))
+    monkeypatch.setattr(hospitality, "_next_order_number", AsyncMock(return_value="QR-101"))
+    monkeypatch.setattr(hospitality, "_deduct_inventory", AsyncMock())
+
+    response = await hospitality.create_hospitality_order(
+        company_id,
+        hospitality.HospitalityOrderCreateIn(
+            table="Mesa 3",
+            customer="Persona 1",
+            source="qr",
+            access_code="ABCDE",
+            account_id="phone-a",
+            items=[hospitality.HospitalityOrderItemIn(**item)],
+        ),
+        db,
+    )
+
+    insert_params = db.execute.await_args_list[0].args[1]
+    people = json.loads(insert_params["people"])
+    metadata = json.loads(insert_params["metadata"])
+    assert people[0]["id"] == "phone-a"
+    assert people[0]["account_id"] == "phone-a"
+    assert metadata["account_id"] == "phone-a"
+    assert response["order"]["people"][0]["account_id"] == "phone-a"
 
 
 def test_mobile_qr_renders_and_refreshes_the_server_table_total():
@@ -128,7 +205,8 @@ def test_mobile_qr_renders_and_refreshes_the_server_table_total():
 
     assert "Cuenta total de la mesa" in source
     assert "/qr-tables/account`" in source
-    assert 'body: JSON.stringify({ table: state.table, access_code: accessCode })' in source
+    assert 'body: JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId() })' in source
+    assert "account_id: tableCustomerAccountId()" in source
     assert "refreshTableAccount({ render: false })" in source
     assert "refreshTableAccount().catch" in source
     assert "paintTableAccount()" in source
@@ -145,7 +223,26 @@ def test_mobile_qr_splits_total_and_expandable_product_breakdown():
     assert "qr-table-breakdown-panel" in source
     assert "tableAccountItemsHtml" in source
     assert 'items: Array.isArray(data.account?.items) ? data.account.items : []' in source
+    assert 'accounts: Array.isArray(data.account?.accounts) ? data.account.accounts : []' in source
+    assert "qr-person-account" in source
+    assert "Tu cuenta" in source
     assert "033C_TABLE_ORDER_BREAKDOWN" in html
+    assert "033H_SHARED_TABLE_ACCOUNTS" in html
+
+
+def test_orders_group_shared_table_accounts_by_device_and_show_each_product_list():
+    source = Path("app/web/client.js").read_text(encoding="utf-8")
+    html = Path("app/web/client.html").read_text(encoding="utf-8")
+
+    merged = source.split("function cxHspMergedTableCards024Y", 1)[1].split("function cxHspOpenOrdersForCalc024R", 1)[0]
+    renderer = source.split("function cxHspMergedOrderCard024Y", 1)[1].split("function cxHspPendingProductOptions031U", 1)[0]
+    assert 'const accountId = String(person.account_id || "").trim()' in merged
+    assert "personRow.items.set" in merged
+    assert "items: [...person.items.values()]" in merged
+    assert 'details class="hsp-account-row-024y"' in renderer
+    assert "personProducts" in renderer
+    assert "Ver productos" in renderer
+    assert "033H_SHARED_TABLE_ACCOUNTS" in html
 
 
 def test_mobile_qr_recovers_the_existing_menu_without_cached_empty_responses():
@@ -181,7 +278,9 @@ def test_mobile_qr_remembers_customer_name_on_the_same_device():
     source = Path("app/web/hospitality_order.js").read_text(encoding="utf-8")
     html = Path("app/web/hospitality_order.html").read_text(encoding="utf-8")
 
-    assert "clonexa_hospitality_customer_" in source
+    assert "clonexa_hospitality_account_" in source
+    assert "function tableCustomerAccountId()" in source
+    assert 'return `${accountIdentityStorageKey()}_customer`' in source
     assert "storedCustomerName" in source
     assert "rememberCustomerName(customer)" in source
     assert 'target.id === "qrCustomer024S"' in source

@@ -22,7 +22,7 @@
     campaignDismissed: false,
     campaignEndRefreshKey: "",
     access: { active: false, unlocked: false, code: "", expires_at: "" },
-    tableAccount: { total: 0, orders_count: 0, accounts_count: 0, last_activity: "", items: [] },
+    tableAccount: { total: 0, orders_count: 0, accounts_count: 0, last_activity: "", items: [], accounts: [], current_account: null, current_total: 0 },
     tableBreakdownOpen: false,
     qrMode: "hospitality",
     assemblyPublic: null,
@@ -38,6 +38,8 @@
     cartOpen: false,
     inventoryRecoveryAttempts: 0,
     customerName: "",
+    accountId: "",
+    accountScope: "",
     songDraft: "",
     songSending: false,
     navigationGuarded: false,
@@ -46,7 +48,30 @@
   };
 
   function customerStorageKey() {
-    return `clonexa_hospitality_customer_${String(state.companyId || "company")}`;
+    return `${accountIdentityStorageKey()}_customer`;
+  }
+
+  function accountIdentityStorageKey(accessCode = "") {
+    const code = String(accessCode || state.access?.code || storedAccessCode() || "inactive").trim().toUpperCase();
+    const table = normalizeText(state.table).replace(/[^a-z0-9]+/g, "_") || "mesa";
+    return `clonexa_hospitality_account_${String(state.companyId || "company")}_${table}_${code}`;
+  }
+
+  function tableCustomerAccountId() {
+    const scope = accountIdentityStorageKey();
+    if (state.accountId && state.accountScope === scope) return state.accountId;
+    let accountId = "";
+    try { accountId = String(window.localStorage.getItem(scope) || "").trim().slice(0, 120); } catch (_) {}
+    if (!accountId) {
+      const randomPart = globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+      accountId = `qr_account_${randomPart}`.slice(0, 120);
+      try { window.localStorage.setItem(scope, accountId); } catch (_) {}
+    }
+    state.accountId = accountId;
+    state.accountScope = scope;
+    return accountId;
   }
 
   function storedCustomerName() {
@@ -130,16 +155,19 @@
 
   function tableAccountMeta() {
     const tableOrders = Number(state.tableAccount?.orders_count || 0);
+    const accounts = Number(state.tableAccount?.accounts_count || 0);
     return tableOrders
-      ? `${tableOrders} ${tableOrders === 1 ? "pedido registrado" : "pedidos registrados"}`
+      ? `${accounts} ${accounts === 1 ? "cuenta" : "cuentas"} · ${tableOrders} ${tableOrders === 1 ? "pedido" : "pedidos"}`
       : "Aun no hay pedidos enviados";
   }
 
-  function tableAccountItemsHtml() {
-    const items = Array.isArray(state.tableAccount?.items) ? state.tableAccount.items : [];
-    if (!items.length) {
-      return `<div class="qr-table-breakdown-empty">Aún no hay productos en la cuenta.</div>`;
-    }
+  function tableBreakdownMeta() {
+    const accounts = Number(state.tableAccount?.accounts_count || 0);
+    if (accounts) return `${accounts} ${accounts === 1 ? "cuenta" : "cuentas"}`;
+    return "Ver cuentas";
+  }
+
+  function tableAccountProductRows(items = []) {
     return items.map((item) => {
       const quantity = Number(item.quantity || 0);
       const subtotal = Number(item.subtotal || (quantity * Number(item.unit_price || 0)) || 0);
@@ -152,6 +180,33 @@
     }).join("");
   }
 
+  function tableAccountItemsHtml() {
+    const accounts = Array.isArray(state.tableAccount?.accounts) ? state.tableAccount.accounts : [];
+    if (accounts.length) {
+      return accounts.map((account) => {
+        const items = Array.isArray(account.items) ? account.items : [];
+        const current = account.is_current === true;
+        return `
+          <section class="qr-person-account${current ? " current" : ""}">
+            <div class="qr-person-account-head">
+              <span>
+                <strong>${h(account.name || "Cliente")}</strong>
+                <small>${h(account.orders_count || 0)} pedido(s)${current ? " · Tu cuenta" : ""}</small>
+              </span>
+              <b>${h(money(account.total || 0))}</b>
+            </div>
+            <div class="qr-person-account-items">
+              ${tableAccountProductRows(items) || `<div class="qr-table-breakdown-empty">Sin productos registrados.</div>`}
+            </div>
+          </section>
+        `;
+      }).join("");
+    }
+    const items = Array.isArray(state.tableAccount?.items) ? state.tableAccount.items : [];
+    if (!items.length) return `<div class="qr-table-breakdown-empty">Aún no hay productos en la cuenta.</div>`;
+    return tableAccountProductRows(items);
+  }
+
   function paintTableAccount() {
     const total = document.getElementById("qrTableAccountTotal030B");
     const meta = document.getElementById("qrTableAccountMeta030B");
@@ -160,10 +215,7 @@
     if (total) total.textContent = money(state.tableAccount?.total || 0);
     if (meta) meta.textContent = tableAccountMeta();
     if (breakdown) breakdown.innerHTML = tableAccountItemsHtml();
-    if (breakdownMeta) {
-      const itemCount = Array.isArray(state.tableAccount?.items) ? state.tableAccount.items.length : 0;
-      breakdownMeta.textContent = itemCount ? `${itemCount} producto${itemCount === 1 ? "" : "s"}` : "Ver productos";
-    }
+    if (breakdownMeta) breakdownMeta.textContent = tableBreakdownMeta();
   }
 
   function normalizeText(value) {
@@ -312,6 +364,15 @@
       .qr-table-breakdown[open] summary::after{transform:translateY(-50%) rotate(180deg)}
       .qr-table-breakdown summary small{color:var(--qr-muted);font-size:9px;font-weight:850}
       .qr-table-breakdown-panel{position:absolute;z-index:80;top:calc(100% + 8px);left:0;right:0;display:grid;max-height:300px;overflow:auto;padding:8px;border:1px solid color-mix(in srgb,var(--qr-primary) 48%,var(--qr-line));border-radius:16px;background:color-mix(in srgb,var(--qr-card) 94%,#020617);box-shadow:0 24px 70px rgba(0,0,0,.56)}
+      .qr-person-account{display:grid;border:1px solid rgba(255,255,255,.11);border-radius:13px;background:rgba(2,6,23,.42);overflow:hidden;margin-bottom:8px}
+      .qr-person-account:last-child{margin-bottom:0}
+      .qr-person-account.current{border-color:color-mix(in srgb,var(--qr-secondary) 64%,var(--qr-line));box-shadow:inset 3px 0 0 var(--qr-secondary)}
+      .qr-person-account-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 11px;background:rgba(255,255,255,.055)}
+      .qr-person-account-head span{min-width:0;display:grid;gap:2px}
+      .qr-person-account-head strong{color:var(--qr-text);font-size:13px;overflow-wrap:anywhere}
+      .qr-person-account-head small{color:var(--qr-muted);font-size:9px;font-weight:900}
+      .qr-person-account-head>b{color:var(--qr-secondary);font-size:13px;white-space:nowrap}
+      .qr-person-account-items{display:grid;padding:0 3px}
       .qr-table-breakdown-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border-bottom:1px solid rgba(255,255,255,.09)}
       .qr-table-breakdown-row:last-child{border-bottom:0}
       .qr-table-breakdown-row span{min-width:0;color:var(--qr-text);font-size:12px;font-weight:850;line-height:1.25;overflow-wrap:anywhere}
@@ -1466,7 +1527,7 @@
               <small id="qrTableAccountMeta030B">${h(tableAccountMeta())}</small>
             </div>
             <details class="qr-table-breakdown" data-table-breakdown ${state.tableBreakdownOpen ? "open" : ""}>
-              <summary>Desglose del pedido<small id="qrTableBreakdownMeta033C">${Array.isArray(tableAccount.items) && tableAccount.items.length ? `${h(tableAccount.items.length)} producto${tableAccount.items.length === 1 ? "" : "s"}` : "Ver productos"}</small></summary>
+              <summary>Desglose del pedido<small id="qrTableBreakdownMeta033C">${h(tableBreakdownMeta())}</small></summary>
               <div id="qrTableAccountBreakdown033C" class="qr-table-breakdown-panel">${tableAccountItemsHtml()}</div>
             </details>
           </div>
@@ -1640,6 +1701,7 @@
       const payload = {
         table: state.table,
         customer,
+        account_id: tableCustomerAccountId(),
         source: "qr",
         access_code: state.access.code || storedAccessCode(),
         notes,
@@ -2087,6 +2149,8 @@
       expires_at: data.access?.expires_at || "",
     };
     rememberAccessCode(cleanCode);
+    tableCustomerAccountId();
+    state.customerName = storedCustomerName();
     armTableNavigationGuard();
     if (!isAssemblyMode()) await refreshTableAccount({ render: false }).catch(() => {});
     state.error = "";
@@ -2102,7 +2166,7 @@
     try {
       const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/account`, {
         method: "POST",
-        body: JSON.stringify({ table: state.table, access_code: accessCode }),
+        body: JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId() }),
       });
       state.tableAccount = {
         total: Number(data.account?.total || 0),
@@ -2110,6 +2174,9 @@
         accounts_count: Number(data.account?.accounts_count || 0),
         last_activity: data.account?.last_activity || "",
         items: Array.isArray(data.account?.items) ? data.account.items : [],
+        accounts: Array.isArray(data.account?.accounts) ? data.account.accounts : [],
+        current_account: data.account?.current_account || null,
+        current_total: Number(data.account?.current_total || 0),
       };
       if (options.render !== false) paintTableAccount();
       return state.tableAccount;
@@ -2119,7 +2186,7 @@
         forgetAccessCode();
         releaseTableNavigationGuard();
         state.access = { active: false, unlocked: false, code: "", expires_at: "" };
-        state.tableAccount = { total: 0, orders_count: 0, accounts_count: 0, last_activity: "", items: [] };
+        state.tableAccount = { total: 0, orders_count: 0, accounts_count: 0, last_activity: "", items: [], accounts: [], current_account: null, current_total: 0 };
         state.error = "La cuenta de esta mesa ya fue cerrada. Pide una nueva activacion para volver a ordenar.";
         state.message = "";
         if (options.render !== false) render();

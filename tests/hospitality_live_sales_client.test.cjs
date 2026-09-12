@@ -106,3 +106,50 @@ test('changing the search date discards the old response and replaces every pane
   assert.equal(vm.runInContext('cxHspDashEventSummary033B.total', context), 251000);
   assert.equal(vm.runInContext('cxHspDashEvents033B[0].total', context), 251000);
 });
+
+test('shared QR table keeps same-name device accounts and their products separate', () => {
+  const context = vm.createContext({});
+  vm.runInContext(
+    fn('cxHspPaymentLabel024V') +
+    fn('cxHspPaymentMethod024V') +
+    fn('cxHspNormKey024Y') +
+    fn('cxHspTableKey024Y') +
+    fn('cxHspItemKey024Y') +
+    fn('cxHspItemSubtotal024Y') +
+    fn('cxHspGroupAccounts024Y') +
+    fn('cxHspMergedTableCards024Y'),
+    context,
+  );
+  const orders = [
+    {
+      id: 'o1', table_number: 'Mesa 3', status: 'entregado', total: 5000, order_number: 'QR-1',
+      people: [{ account_id: 'phone-a', customer_key: 'alex', name: 'Alex', total: 5000,
+        items: [{ product_id: 'aguila', name: 'Aguila', quantity: 1, unit_price: 5000, subtotal: 5000 }] }],
+      items: [{ product_id: 'aguila', name: 'Aguila', quantity: 1, unit_price: 5000, subtotal: 5000 }],
+    },
+    {
+      id: 'o2', table_number: 'Mesa 3', status: 'entregado', total: 10000, order_number: 'QR-2',
+      people: [{ account_id: 'phone-a', customer_key: 'alex', name: 'Alex', total: 10000,
+        items: [{ product_id: 'aguila', name: 'Aguila', quantity: 2, unit_price: 5000, subtotal: 10000 }] }],
+      items: [{ product_id: 'aguila', name: 'Aguila', quantity: 2, unit_price: 5000, subtotal: 10000 }],
+    },
+    {
+      id: 'o3', table_number: 'Mesa 3', status: 'entregado', total: 20000, order_number: 'QR-3',
+      people: [{ account_id: 'phone-b', customer_key: 'alex', name: 'Alex', total: 20000,
+        items: [{ product_id: 'stella', name: 'Stella', quantity: 2, unit_price: 10000, subtotal: 20000 }] }],
+      items: [{ product_id: 'stella', name: 'Stella', quantity: 2, unit_price: 10000, subtotal: 20000 }],
+    },
+  ];
+  const merged = context.cxHspMergedTableCards024Y(orders)[0];
+  assert.equal(merged.total, 35000);
+  assert.equal(merged.people_summary.length, 2);
+  const phoneA = merged.people_summary.find(person => person.account_id === 'phone-a');
+  const phoneB = merged.people_summary.find(person => person.account_id === 'phone-b');
+  assert.equal(phoneA.total, 15000);
+  assert.equal(phoneA.orders, 2);
+  assert.equal(phoneA.items.length, 1);
+  assert.equal(phoneA.items[0].name, 'Aguila');
+  assert.equal(phoneA.items[0].quantity, 3);
+  assert.equal(phoneB.total, 20000);
+  assert.equal(phoneB.items[0].name, 'Stella');
+});

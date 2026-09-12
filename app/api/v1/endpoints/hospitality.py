@@ -63,6 +63,7 @@ class HospitalityOrderItemIn(BaseModel):
 class HospitalityOrderCreateIn(BaseModel):
     table: str | None = Field(default="Barra", max_length=120)
     customer: str | None = Field(default="Cliente barra", max_length=180)
+    account_id: str | None = Field(default="", max_length=120)
     source: str | None = Field(default="client", max_length=60)
     payment_method: str | None = Field(default="other", max_length=40)
     access_code: str | None = Field(default="", max_length=12)
@@ -199,6 +200,7 @@ class HospitalityTableAccessIn(BaseModel):
 class HospitalityTableAccessVerifyIn(BaseModel):
     table: str | None = Field(default="Mesa", max_length=120)
     access_code: str | None = Field(default="", max_length=12)
+    account_id: str | None = Field(default="", max_length=120)
 
 
 class HospitalityTableAccessCloseIn(BaseModel):
@@ -962,6 +964,92 @@ def _merge_hospitality_items(items: list[dict[str, Any]] | None) -> list[dict[st
         if _num(target.get("quantity")):
             target["unit_price"] = _money(_num(target.get("subtotal")) / _num(target.get("quantity")))
     return [merged[key] for key in order]
+
+
+def _hospitality_table_account(
+    rows: list[dict[str, Any]] | None,
+    current_account_id: str | None = "",
+) -> dict[str, Any]:
+    """Build one table total plus independent QR accounts from open orders."""
+    current_key = _clean(current_account_id).lower()
+    accounts: dict[str, dict[str, Any]] = {}
+    all_items: list[dict[str, Any]] = []
+    table_total = 0.0
+    last_activity = ""
+    orders_count = 0
+
+    for raw_row in rows or []:
+        order = _payload(raw_row)
+        orders_count += 1
+        table_total += _num(order.get("total"))
+        updated_at = _clean(order.get("updated_at") or order.get("created_at"))
+        if updated_at > last_activity:
+            last_activity = updated_at
+
+        order_items = [item for item in (order.get("items") or []) if isinstance(item, dict)]
+        all_items.extend(order_items)
+        metadata = order.get("metadata") if isinstance(order.get("metadata"), dict) else {}
+        order_people = order.get("people") if isinstance(order.get("people"), list) else []
+        if not order_people:
+            order_people = [
+                {
+                    "name": order.get("customer_name") or "Cliente",
+                    "total": order.get("total"),
+                    "items": order_items,
+                }
+            ]
+
+        for person in order_people:
+            if not isinstance(person, dict):
+                continue
+            account_id = _clean(person.get("account_id") or metadata.get("account_id"))
+            customer_name = _clean(person.get("name") or order.get("customer_name")) or "Cliente"
+            legacy_key = _clean(person.get("customer_key")) or _customer_key(customer_name)
+            grouping_key = f"account:{account_id.lower()}" if account_id else f"legacy:{legacy_key}"
+            if grouping_key not in accounts:
+                accounts[grouping_key] = {
+                    "id": account_id or grouping_key,
+                    "account_id": account_id,
+                    "name": customer_name,
+                    "customer_key": legacy_key,
+                    "total": 0.0,
+                    "orders_count": 0,
+                    "order_numbers": [],
+                    "last_activity": "",
+                    "items": [],
+                    "is_current": bool(account_id and account_id.lower() == current_key),
+                }
+            account = accounts[grouping_key]
+            person_items = [item for item in (person.get("items") or order_items) if isinstance(item, dict)]
+            person_total = _num(person.get("total"))
+            if not person_total:
+                person_total = sum(_num(item.get("subtotal")) for item in person_items)
+            account["total"] = _num(account.get("total")) + person_total
+            account["orders_count"] = int(account.get("orders_count") or 0) + 1
+            account["items"].extend(person_items)
+            if order.get("order_number"):
+                account["order_numbers"].append(order["order_number"])
+            if updated_at > _clean(account.get("last_activity")):
+                account["last_activity"] = updated_at
+
+    account_rows: list[dict[str, Any]] = []
+    for account in accounts.values():
+        account["total"] = _money(account.get("total"))
+        account["items"] = _merge_hospitality_items(account.get("items"))
+        account_rows.append(account)
+    account_rows.sort(key=lambda account: (not bool(account.get("is_current")), -_num(account.get("total")), _norm(account.get("name"))))
+    current_account = next((account for account in account_rows if account.get("is_current")), None)
+
+    return {
+        "total": _money(table_total),
+        "orders_count": orders_count,
+        "accounts_count": len(account_rows),
+        "last_activity": last_activity,
+        "items": _merge_hospitality_items(all_items),
+        "accounts": account_rows,
+        "current_account": current_account,
+        "current_total": _money(current_account.get("total")) if current_account else 0.0,
+    }
 
 
 def _payload(row: Any) -> dict[str, Any]:
@@ -3973,39 +4061,26 @@ async def get_hospitality_table_account(
     result = await db.execute(
         text(
             """
-            SELECT COUNT(*) AS orders_count,
-                   COALESCE(SUM(total), 0) AS total,
-                   COALESCE(SUM(jsonb_array_length(people)), 0) AS accounts_count,
-                   MAX(updated_at) AS last_activity,
-                   COALESCE(jsonb_agg(items ORDER BY created_at), '[]'::jsonb) AS order_items
+            SELECT *
             FROM hospitality_orders
             WHERE company_id = :company_id
               AND table_key = :table_key
               AND archived_at IS NULL
               AND status IN ('pendiente', 'alistando', 'entregado')
+            ORDER BY created_at ASC
             """
         ),
         {"company_id": str(company_id), "table_key": _table_key(table_number)},
     )
-    row = result.mappings().first() or {}
-    item_groups = _json(row.get("order_items"), [])
-    raw_items: list[dict[str, Any]] = []
-    for group in item_groups if isinstance(item_groups, list) else []:
-        if isinstance(group, list):
-            raw_items.extend(item for item in group if isinstance(item, dict))
-        elif isinstance(group, dict):
-            raw_items.append(group)
+    account = _hospitality_table_account(
+        [dict(row) for row in result.mappings().all()],
+        payload.account_id,
+    )
     return {
         "ok": True,
         "company_id": str(company_id),
         "table": table_number,
-        "account": {
-            "total": _money(row.get("total")),
-            "orders_count": int(row.get("orders_count") or 0),
-            "accounts_count": int(row.get("accounts_count") or 0),
-            "last_activity": _iso(row.get("last_activity")),
-            "items": _merge_hospitality_items(raw_items),
-        },
+        "account": account,
     }
 
 
@@ -4859,6 +4934,7 @@ async def create_hospitality_order(
     table_number = _clean(payload.table) or "Barra"
     customer_name = _clean(payload.customer) or "Cliente barra"
     source = _clean(payload.source) or "client"
+    account_id = _clean(payload.account_id)[:120] if _norm(source) == "qr" else ""
     if _norm(source) == "qr":
         await _require_table_access(db, company_id, table_number, payload.access_code)
 
@@ -4868,7 +4944,8 @@ async def create_hospitality_order(
     order_type = _order_type(table_number, source)
     order_number = await _next_order_number(db, company_id)
     person = {
-        "id": f"person_{uuid.uuid4()}",
+        "id": account_id or f"person_{uuid.uuid4()}",
+        "account_id": account_id,
         "name": customer_name,
         "customer_key": _customer_key(customer_name),
         "total": total,
@@ -4905,7 +4982,14 @@ async def create_hospitality_order(
             "songs": json.dumps(_songs(payload.songs), ensure_ascii=False),
             "notes": _clean(payload.notes),
             "total": total,
-            "metadata": json.dumps({"source_product": "bar-bot-completo.zip", "payment_label": PAYMENT_LABELS.get(payment_method, "Otro")}, ensure_ascii=False),
+            "metadata": json.dumps(
+                {
+                    "source_product": "bar-bot-completo.zip",
+                    "payment_label": PAYMENT_LABELS.get(payment_method, "Otro"),
+                    "account_id": account_id,
+                },
+                ensure_ascii=False,
+            ),
         },
     )
     order = _payload(result.mappings().first())

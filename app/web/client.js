@@ -21309,8 +21309,17 @@ function inventoryCreatePayload() {
       .hsp-closed-money-031r{text-align:right;display:grid;gap:3px}.hsp-closed-money-031r strong{font-size:14px;white-space:nowrap;color:var(--cx-text,#fff)}.hsp-closed-money-031r small{font-size:10px;color:var(--hsp-muted);font-weight:900}
       .hsp-merged-note-024y{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;color:var(--hsp-muted);font-size:11px;font-weight:900}
       .hsp-section-title-024y{margin:10px 0 6px;color:var(--hsp-muted);font-size:10px;text-transform:uppercase;font-weight:1000;letter-spacing:.10em}
-      .hsp-account-row-024y{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid rgba(255,255,255,.08);font-weight:950;color:var(--cx-text,#fff)}
-      .hsp-account-row-024y small{display:block;color:var(--hsp-muted);font-size:10px;font-weight:850;margin-top:2px}
+      .hsp-account-row-024y{border-top:1px solid rgba(255,255,255,.08);color:var(--cx-text,#fff)}
+      .hsp-account-row-024y:first-child{border-top:0}
+      .hsp-account-row-024y>summary{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 11px;list-style:none;cursor:pointer;font-weight:950}
+      .hsp-account-row-024y>summary::-webkit-details-marker{display:none}
+      .hsp-account-row-024y>summary span{min-width:0}
+      .hsp-account-row-024y>summary small{display:block;color:var(--hsp-muted);font-size:10px;font-weight:850;margin-top:2px}
+      .hsp-account-total-033h{display:flex;align-items:center;gap:9px;white-space:nowrap}
+      .hsp-account-total-033h i{font-style:normal;color:var(--hsp-primary);font-size:17px;transition:transform .18s ease}
+      .hsp-account-row-024y[open] .hsp-account-total-033h i{transform:rotate(180deg)}
+      .hsp-account-products-033h{margin:0 9px 10px;padding:3px 8px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(3,7,18,.32)}
+      .hsp-account-orders-033h{padding:0 11px 9px;color:var(--hsp-muted);font-size:9px;font-weight:850;overflow-wrap:anywhere}
       .hsp-songs-024r,.hsp-notes-024r{background:color-mix(in srgb,var(--hsp-primary) 14%,transparent);border:1px solid color-mix(in srgb,var(--hsp-primary) 34%,transparent);color:var(--cx-text,#fff);border-radius:14px;padding:10px 12px;margin:10px 0;white-space:pre-wrap;font-weight:850}
       .hsp-song-queue-031c{display:grid;gap:9px}
       .hsp-song-queue-head-031c{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -21520,15 +21529,45 @@ function inventoryCreatePayload() {
 
         orderPeople.forEach((person) => {
           const personName = person.name || "Cliente";
-          const personKey = cxHspNormKey024Y(person.customer_key || personName);
+          const accountId = String(person.account_id || "").trim();
+          const personKey = accountId
+            ? `account:${cxHspNormKey024Y(accountId)}`
+            : `legacy:${cxHspNormKey024Y(person.customer_key || personName)}`;
           if (!peopleMap.has(personKey)) {
-            peopleMap.set(personKey, { name: personName, total: 0, orders: 0 });
+            peopleMap.set(personKey, {
+              account_id: accountId,
+              name: personName,
+              total: 0,
+              orders: 0,
+              order_numbers: [],
+              items: new Map(),
+            });
           }
           const personRow = peopleMap.get(personKey);
           const personItems = Array.isArray(person.items) ? person.items : [];
           const personTotal = Number(person.total || 0) || personItems.reduce((sum, item) => sum + cxHspItemSubtotal024Y(item), 0);
           personRow.total += personTotal;
           personRow.orders += 1;
+          if (order.order_number) personRow.order_numbers.push(order.order_number);
+          personItems.forEach((item) => {
+            const key = cxHspItemKey024Y(item);
+            if (!personRow.items.has(key)) {
+              personRow.items.set(key, {
+                name: item.name || item.sku || "Producto",
+                quantity: 0,
+                total: 0,
+                unit_price: Number(item.unit_price || 0) || 0,
+                mixed_price: false,
+              });
+            }
+            const product = personRow.items.get(key);
+            const qty = Number(item.quantity || 0) || 0;
+            const unit = Number(item.unit_price || 0) || 0;
+            if (product.unit_price && unit && Number(product.unit_price) !== unit) product.mixed_price = true;
+            if (!product.unit_price && unit) product.unit_price = unit;
+            product.quantity += qty;
+            product.total += cxHspItemSubtotal024Y(item);
+          });
         });
 
         (Array.isArray(order.items) ? order.items : []).forEach((item) => {
@@ -21565,7 +21604,12 @@ function inventoryCreatePayload() {
         orders_count: group.count,
         total: group.total,
         product_summary: [...productMap.values()].sort((a, b) => Number(b.total || 0) - Number(a.total || 0)),
-        people_summary: [...peopleMap.values()].sort((a, b) => Number(b.total || 0) - Number(a.total || 0)),
+        people_summary: [...peopleMap.values()]
+          .map((person) => ({
+            ...person,
+            items: [...person.items.values()].sort((a, b) => Number(b.total || 0) - Number(a.total || 0)),
+          }))
+          .sort((a, b) => Number(b.total || 0) - Number(a.total || 0)),
       };
     });
   }
@@ -22097,12 +22141,29 @@ function inventoryCreatePayload() {
       `;
     }).join("");
 
-    const people = (Array.isArray(order.people_summary) ? order.people_summary : []).map((person) => `
-      <div class="hsp-account-row-024y">
-        <span>${h(person.name || "Cliente")}<small>${h(person.orders || 1)} pedido(s)</small></span>
-        <strong>${h(cxHspMoney024R(person.total || 0))}</strong>
-      </div>
-    `).join("");
+    const people = (Array.isArray(order.people_summary) ? order.people_summary : []).map((person) => {
+      const personProducts = (Array.isArray(person.items) ? person.items : []).map((item) => {
+        const qty = Number(item.quantity || 0);
+        const priceLabel = item.mixed_price ? `${h(qty)} und` : `${h(qty)} x ${h(cxHspMoney024R(item.unit_price || 0))}`;
+        return `
+          <div class="hsp-item-024r">
+            <span>${h(item.name || "Producto")}<br><small>${priceLabel}</small></span>
+            <strong>${h(cxHspMoney024R(item.total || 0))}</strong>
+          </div>
+        `;
+      }).join("");
+      const references = Array.isArray(person.order_numbers) ? person.order_numbers : [];
+      return `
+        <details class="hsp-account-row-024y">
+          <summary>
+            <span>${h(person.name || "Cliente")}<small>${h(person.orders || 1)} pedido(s) · Ver productos</small></span>
+            <span class="hsp-account-total-033h"><strong>${h(cxHspMoney024R(person.total || 0))}</strong><i>⌄</i></span>
+          </summary>
+          <div class="hsp-account-products-033h">${personProducts || `<div class="hsp-empty-024r">Sin productos</div>`}</div>
+          ${references.length ? `<div class="hsp-account-orders-033h">Pedidos: ${h(references.join(" · "))}</div>` : ""}
+        </details>
+      `;
+    }).join("");
 
     return `
       <article class="hsp-card-024r">
