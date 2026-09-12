@@ -56,14 +56,14 @@ test('monitor refreshes without overlap, resumes, preserves data on errors and s
     cxHspDashApi024W: async () => { calls++; return await new Promise((resolve, reject) => { pending = { resolve, reject }; }); },
     cxHspDashPaint024W: () => { paints++; }, cxHspDashStatus033E: value => { errorText = value || ''; },
   });
-  vm.runInContext(`let cxHspDashLoading033E=false, cxHspDashAnalytics033E=null, cxHspDashEventDate033B='', cxHspDashEventTimezone033B='', cxHspDashPainted033E='', cxHspDashMonitor033E=null, cxHspDashResume033E=null;` +
+  vm.runInContext(`let cxHspDashPending033G=null, cxHspDashEvents033B=[], cxHspDashEventSummary033B={}, cxHspDashEventError033B="", cxHspDashLoading033E=false, cxHspDashAnalytics033E=null, cxHspDashEventDate033B='', cxHspDashEventTimezone033B='', cxHspDashPainted033E='', cxHspDashMonitor033E=null, cxHspDashResume033E=null;` +
     fn('cxHspDashLoad024W') + fn('cxHspDashStopMonitor033E') + fn('cxHspDashStartMonitor033E'), context);
   context.cxHspDashStartMonitor033E();
   assert.equal(interval, 10000);
   const first = tick();
   await tick();
   assert.equal(calls, 1);
-  pending.resolve({ today: '2026-09-10', analytics: { days: {}, weeks: {}, months: {} } });
+  pending.resolve({ today: '2026-09-10', analytics: { days: {}, weeks: {}, months: {} }, event_search: {date:'2026-09-10', events:[], summary:{reconciled:true}} });
   await first;
   assert.equal(paints, 1);
   const failed = tick(); pending.reject(new Error('offline')); await failed;
@@ -72,9 +72,37 @@ test('monitor refreshes without overlap, resumes, preserves data on errors and s
   hidden = true; await tick(); assert.equal(calls, 2);
   hidden = false;
   const resumed = events.get('visibilitychange')();
-  pending.resolve({ today: '2026-09-11', analytics: { days: {}, weeks: {}, months: {} } }); await resumed;
+  pending.resolve({ today: '2026-09-11', analytics: { days: {}, weeks: {}, months: {} }, event_search: {date:'2026-09-10', events:[], summary:{reconciled:true}} }); await resumed;
   assert.equal(calls, 3);
   root = null; await tick();
   assert.equal(events.size, 0);
   assert.equal(vm.runInContext('cxHspDashMonitor033E', context), null);
+});
+
+test('changing the search date discards the old response and replaces every panel together', async () => {
+  const requests = [];
+  const context = vm.createContext({
+    state: {companyId:'tenant'},
+    cxHspDashApi024W: url => new Promise(resolve => requests.push({url, resolve})),
+  });
+  vm.runInContext(`let cxHspDashPending033G=null, cxHspDashLoading033E=false, cxHspDashAnalytics033E=null,
+    cxHspDashEventDate033B='2026-09-09', cxHspDashEvents033B=[], cxHspDashEventSummary033B={},
+    cxHspDashEventTimezone033B='', cxHspDashEventLoading033B=false, cxHspDashEventError033B='';` +
+    fn('cxHspDashLoad024W') + fn('cxHspDashLoadEvents033B'), context);
+  const snapshot = (date, total) => ({today:'2026-09-11', analytics:{days:{total}, weeks:{}, months:{}},
+    event_search:{date, events:[{total}], summary:{total, reconciled:true}}});
+  const old = context.cxHspDashLoad024W();
+  const search = context.cxHspDashLoadEvents033B('2026-09-10');
+  assert.equal(requests.length, 1);
+  requests[0].resolve(snapshot('2026-09-09', 100));
+  await old;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests.length, 2);
+  assert.match(requests[1].url, /event_date=2026-09-10/);
+  assert.equal(vm.runInContext('cxHspDashAnalytics033E', context), null);
+  requests[1].resolve(snapshot('2026-09-10', 251000));
+  await search;
+  assert.equal(vm.runInContext('cxHspDashAnalytics033E.analytics.days.total', context), 251000);
+  assert.equal(vm.runInContext('cxHspDashEventSummary033B.total', context), 251000);
+  assert.equal(vm.runInContext('cxHspDashEvents033B[0].total', context), 251000);
 });

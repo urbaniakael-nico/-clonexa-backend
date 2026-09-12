@@ -1390,6 +1390,7 @@ def _hsp_shift_records(
             "id": "ongoing", "closure_number": "EN CURSO", "is_open": True,
             "opened_at": _iso(opened), "closed_at": None,
             "total_sold": bucket["total"], "orders_count": bucket["orders"],
+            "order_ids": list(pending),
             **{f"{method}_total": bucket[method] for method in PAYMENT_METHODS},
             "products": list(bucket["products"].values()),
             "tables": [{**row, "table": row["name"]} for row in bucket["tables"].values()],
@@ -1441,10 +1442,15 @@ def _hsp_sales_aggregate(
     )
 
 
-async def _hsp_load_shift_sources(db: AsyncSession, company_id: uuid.UUID, since: datetime):
+async def _hsp_load_shift_sources(
+    db: AsyncSession, company_id: uuid.UUID, since: datetime,
+    event_date: calendar_date | None = None, timezone_name: str = "America/Bogota",
+):
     # One statement keeps orders and closures in the same PostgreSQL snapshot.
     # A concurrent closure cannot briefly remove sales or count them twice.
-    params = {"company_id": str(company_id), "since": since}
+    detail_start = datetime.combine(event_date, datetime.min.time(), _hsp_report_zone(timezone_name)) if event_date else since
+    params = {"company_id": str(company_id), "since": since, "load_events": event_date is not None,
+              "detail_start": detail_start, "detail_end": detail_start + timedelta(days=1)}
     result = await db.execute(text("""
         WITH shifts AS (
         SELECT c.*, COALESCE(c.opened_at, (
@@ -1457,10 +1463,21 @@ async def _hsp_load_shift_sources(db: AsyncSession, company_id: uuid.UUID, since
         WHERE c.company_id = :company_id AND c.closed_at >= :since
         ORDER BY c.closed_at
         ), live_orders AS (
-        SELECT id, created_at, status, metadata, total, payment_method, table_number, items, archived_at
+        SELECT *
         FROM hospitality_orders
         WHERE company_id = :company_id AND archived_at IS NULL
         ORDER BY created_at, id
+        ), historical_orders AS (
+        SELECT o.* FROM hospitality_orders o
+        WHERE :load_events AND o.company_id = :company_id
+          AND EXISTS (
+              SELECT 1 FROM shifts s
+              WHERE s.shift_opened_at >= :detail_start AND s.shift_opened_at < :detail_end
+                AND (o.metadata->>'closure_id' = s.id::text OR s.order_ids @> jsonb_build_array(o.id::text))
+          )
+        ), accesses AS (
+        SELECT a.*, ROW_NUMBER() OVER (PARTITION BY a.table_key ORDER BY a.activated_at, a.id) AS activation_number
+        FROM hospitality_table_access a WHERE :load_events AND a.company_id = :company_id
         ), requests AS (
         SELECT id, song, created_at, archived_at FROM hospitality_song_requests
         WHERE company_id = :company_id AND (created_at >= :since OR archived_at IS NULL)
@@ -1468,9 +1485,11 @@ async def _hsp_load_shift_sources(db: AsyncSession, company_id: uuid.UUID, since
         )
         SELECT 'closure' AS kind, to_jsonb(shifts) AS data FROM shifts
         UNION ALL SELECT 'order', to_jsonb(live_orders) FROM live_orders
+        UNION ALL SELECT 'order', to_jsonb(historical_orders) FROM historical_orders
+        UNION ALL SELECT 'access', to_jsonb(accesses) FROM accesses
         UNION ALL SELECT 'song', to_jsonb(requests) FROM requests
     """), params)
-    orders, closures, songs = [], [], []
+    orders, closures, songs, accesses = [], [], [], []
     for source in result.mappings().all():
         row = _json(source["data"], {})
         if source["kind"] == "closure":
@@ -1479,9 +1498,11 @@ async def _hsp_load_shift_sources(db: AsyncSession, company_id: uuid.UUID, since
             closures.append(closure)
         elif source["kind"] == "order":
             orders.append(row)
+        elif source["kind"] == "access":
+            accesses.append(row)
         else:
             songs.append(row)
-    return orders, closures, songs
+    return orders, closures, songs, accesses
 
 
 def _hsp_event_datetime(value: Any) -> datetime | None:
@@ -1585,6 +1606,7 @@ def _hsp_event_payload(
         "started_at": _iso(started_at),
         "ended_at": None if active else _iso(ended_at),
         "orders_count": len(valid_orders),
+        "order_ids": [str(order["id"]) for order in valid_orders if order.get("id")],
         "order_numbers": [order.get("order_number") for order in valid_orders if order.get("order_number")],
         "items": items,
         "items_quantity": _money(sum(_num(item.get("quantity")) for item in items)),
@@ -1599,14 +1621,16 @@ def _hsp_event_search_rows(
     raw_accesses: list[dict[str, Any]],
     event_date: calendar_date,
     timezone_name: Any = "America/Bogota",
+    *, filter_calendar: bool = True,
 ) -> list[dict[str, Any]]:
     """Rebuild QR and bar consumption sessions from already captured records."""
     zone = _hsp_report_zone(timezone_name)
     day_start = datetime(event_date.year, event_date.month, event_date.day, tzinfo=zone).astimezone(timezone.utc)
     day_end = day_start + timedelta(days=1)
+    unique_orders = {str(dict(order).get("id")): order for order in raw_orders}
     orders = [
         _payload(order)
-        for order in raw_orders
+        for order in unique_orders.values()
         if _status(dict(order).get("status")) != STATUS_CANCELLED
     ]
     table_orders: list[dict[str, Any]] = []
@@ -1637,6 +1661,8 @@ def _hsp_event_search_rows(
             ended_at = _hsp_event_access_end(access, next_started_at)
             matching: list[dict[str, Any]] = []
             for order in table_orders:
+                if str(order.get("id")) in consumed_ids:
+                    continue
                 if _table_key(order.get("table_key") or order.get("table_number")) != table_key:
                     continue
                 created_at = _hsp_event_datetime(order.get("created_at"))
@@ -1655,7 +1681,7 @@ def _hsp_event_search_rows(
                 day_start <= (_hsp_event_datetime(order.get("created_at")) or day_start - timedelta(days=2)) < day_end
                 for order in matching
             )
-            if not overlaps_day and not order_on_day:
+            if filter_calendar and not overlaps_day and not order_on_day:
                 continue
             active = _norm(access.get("status")) == "active"
             events.append(
@@ -1680,7 +1706,7 @@ def _hsp_event_search_rows(
             continue
         created_at = _hsp_event_datetime(order.get("created_at"))
         ended_at = _hsp_event_order_end(order) or created_at
-        if not created_at or not ended_at or created_at >= day_end or ended_at < day_start:
+        if not created_at or not ended_at or (filter_calendar and (created_at >= day_end or ended_at < day_start)):
             continue
         unmatched_by_table.setdefault(_table_key(order.get("table_key") or order.get("table_number")), []).append(order)
 
@@ -1711,7 +1737,7 @@ def _hsp_event_search_rows(
     for order in bar_orders:
         started_at = _hsp_event_datetime(order.get("created_at"))
         ended_at = _hsp_event_order_end(order)
-        if not started_at or started_at >= day_end or (ended_at and ended_at < day_start):
+        if not started_at or (filter_calendar and (started_at >= day_end or (ended_at and ended_at < day_start))):
             continue
         events.append(
             _hsp_event_payload(
@@ -1730,6 +1756,47 @@ def _hsp_event_search_rows(
         key=lambda event: _hsp_event_datetime(event.get("started_at")) or datetime.min.replace(tzinfo=timezone.utc),
         reverse=True,
     )
+
+
+def _hsp_shift_event_search(
+    orders: list[dict[str, Any]], accesses: list[dict[str, Any]], shifts: list[dict[str, Any]],
+    event_date: calendar_date, timezone_name: str,
+) -> dict[str, Any]:
+    """Detail exactly the same shift/order membership used by charts and reports."""
+    selected = _hsp_aggregate(shifts, "daily", event_date, event_date, timezone_name)
+    events, consumed = [], set()
+    for shift in selected["closures"]:
+        ids = {str(value) for value in shift.get("order_ids") or []}
+        members = []
+        for order in orders:
+            key = str(order.get("id"))
+            owner = _json(order.get("metadata"), {}).get("closure_id")
+            if key not in consumed and (key in ids or (not shift.get("is_open") and str(owner) == str(shift.get("id")))):
+                members.append(order)
+                consumed.add(key)
+        for event in _hsp_event_search_rows(members, accesses, event_date, timezone_name, filter_calendar=False):
+            event["id"] = f"{shift['id']}:{event['id']}"
+            event["shift_id"] = shift["id"]
+            event["opening_date"] = event_date.isoformat()
+            event["shift_opened_at"] = shift.get("opened_at")
+            event["shift_closed_at"] = shift.get("closed_at")
+            if not shift.get("is_open"):
+                event["active"] = False
+            events.append(event)
+    totals = selected["totals"]
+    total = _money(sum(_num(event["total"]) for event in events))
+    count = sum(event["orders_count"] for event in events)
+    return {
+        "date": event_date.isoformat(), "timezone": timezone_name, "events": events,
+        "summary": {
+            "events": len(events), "qr_events": sum(event["type"] == "qr" for event in events),
+            "bar_events": sum(event["type"] == "bar" for event in events), "total": total, "orders": count,
+            "shifts": totals["shifts"], "worked_minutes": totals["worked_minutes"],
+            "expected_total": totals["total"], "expected_orders": totals["orders"],
+            "reconciled": total == _money(totals["total"]) and count == totals["orders"],
+            **{method: totals[method] for method in PAYMENT_METHODS},
+        },
+    }
 
 
 async def _hospitality_report_payload(
@@ -1752,7 +1819,7 @@ async def _hospitality_report_payload(
     timezone_name = company.get("timezone") or "America/Bogota"
     since_date = start_date or (_hsp_local_date(_now(), timezone_name) - timedelta(days=120))
     since = datetime.combine(since_date, datetime.min.time(), _hsp_report_zone(timezone_name))
-    orders, closures, song_requests = await _hsp_load_shift_sources(db, company_id, since)
+    orders, closures, song_requests, _ = await _hsp_load_shift_sources(db, company_id, since)
     aggregated = _hsp_sales_aggregate(orders, closures, song_requests, period_mode, timezone_name, start_date, end_date)
     totals = aggregated["totals"]
     avg_ticket = (totals["total"] / totals["orders"]) if totals["orders"] else 0
@@ -4603,6 +4670,7 @@ async def add_hospitality_bar_account_items(
 async def hospitality_sales_analytics(
     company_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    event_date: calendar_date | None = None,
 ) -> dict[str, Any]:
     await _ensure_storage(db)
     company_result = await db.execute(
@@ -4616,7 +4684,9 @@ async def hospitality_sales_analytics(
     today = _hsp_local_date(_now(), timezone_name)
     # Include whole shifts closing after the scan boundary; filter by opening later.
     start = datetime.combine(today - timedelta(days=120), datetime.min.time(), _hsp_report_zone(timezone_name))
-    orders, closures, songs = await _hsp_load_shift_sources(db, company_id, start)
+    selected_date = event_date or today
+    start = min(start, datetime.combine(selected_date, datetime.min.time(), _hsp_report_zone(timezone_name)))
+    orders, closures, songs, accesses = await _hsp_load_shift_sources(db, company_id, start, selected_date, timezone_name)
     shifts = _hsp_shift_records(orders, closures, songs)
     analytics = {}
     for mode, period in (("days", "daily"), ("weeks", "weekly"), ("months", "monthly")):
@@ -4629,6 +4699,7 @@ async def hospitality_sales_analytics(
         "today": today.isoformat(),
         "generated_at": _now().isoformat(),
         "analytics": analytics,
+        "event_search": _hsp_shift_event_search(orders, accesses, shifts, selected_date, timezone_name),
     }
 
 
@@ -4682,74 +4753,10 @@ async def list_hospitality_events(
     event_date: calendar_date = Query(..., alias="date"),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Return retroactive consumption events without changing closures or reports."""
-    await _ensure_storage(db)
-    if not await _company_exists(db, company_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    """Events are selected by shift opening date, exactly like financial reports."""
+    snapshot = await hospitality_sales_analytics(company_id, db, event_date)
+    return {"ok": True, "company_id": str(company_id), **snapshot["event_search"]}
 
-    company = await _hospitality_company_identity(db, company_id)
-    timezone_name = company.get("timezone") or "America/Bogota"
-    zone = _hsp_report_zone(timezone_name)
-    local_start = datetime(event_date.year, event_date.month, event_date.day, tzinfo=zone)
-    scan_start = (local_start - timedelta(days=1)).astimezone(timezone.utc)
-    scan_end = (local_start + timedelta(days=2)).astimezone(timezone.utc)
-
-    access_result = await db.execute(
-        text(
-            """
-            WITH ranked_access AS (
-                SELECT access.*,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY access.table_key
-                           ORDER BY access.activated_at ASC, access.id ASC
-                       ) AS activation_number
-                FROM hospitality_table_access access
-                WHERE access.company_id = :company_id
-            )
-            SELECT *
-            FROM ranked_access
-            WHERE activated_at < :scan_end
-              AND (
-                    status = 'active'
-                    OR COALESCE(updated_at, expires_at, activated_at) >= :scan_start
-                    OR expires_at >= :scan_start
-                  )
-            ORDER BY table_key ASC, activated_at ASC
-            """
-        ),
-        {"company_id": str(company_id), "scan_start": scan_start, "scan_end": scan_end},
-    )
-    accesses = [dict(row) for row in access_result.mappings().all()]
-
-    order_result = await db.execute(
-        text(
-            """
-            SELECT *
-            FROM hospitality_orders
-            WHERE company_id = :company_id
-              AND created_at < :scan_end
-              AND COALESCE(closed_at, cancelled_at, archived_at, updated_at, created_at) >= :scan_start
-            ORDER BY created_at ASC
-            """
-        ),
-        {"company_id": str(company_id), "scan_start": scan_start, "scan_end": scan_end},
-    )
-    orders = [dict(row) for row in order_result.mappings().all()]
-    events = _hsp_event_search_rows(orders, accesses, event_date, timezone_name)
-    total = _money(sum(_num(event.get("total")) for event in events))
-    return {
-        "ok": True,
-        "company_id": str(company_id),
-        "date": event_date.isoformat(),
-        "timezone": timezone_name,
-        "events": events,
-        "summary": {
-            "events": len(events),
-            "qr_events": sum(1 for event in events if event.get("type") == "qr"),
-            "bar_events": sum(1 for event in events if event.get("type") == "bar"),
-            "total": total,
-        },
-    }
 
 
 @router.get("/companies/{company_id}/dashboard.pdf")

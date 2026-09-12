@@ -23035,6 +23035,7 @@ function inventoryCreatePayload() {
   let cxHspDashMode024W = "days";
   let cxHspDashAnalytics033E = null;
   let cxHspDashLoading033E = false;
+  let cxHspDashPending033G = null;
   let cxHspDashPainted033E = "";
   let cxHspDashMonitor033E = null;
   let cxHspDashResume033E = null;
@@ -23142,14 +23143,10 @@ function inventoryCreatePayload() {
     cxHspDashEventLoading033B = true;
     cxHspDashEventError033B = "";
     try {
-      const data = await cxHspDashApi024W(`/events?date=${encodeURIComponent(selectedDate)}`);
-      cxHspDashEvents033B = Array.isArray(data.events) ? data.events : [];
-      cxHspDashEventSummary033B = data.summary && typeof data.summary === "object" ? data.summary : {};
-      cxHspDashEventTimezone033B = data.timezone || "America/Bogota";
+      if (cxHspDashPending033G) await cxHspDashPending033G.catch(() => {});
+      await cxHspDashLoad024W();
     } catch (error) {
-      cxHspDashEvents033B = [];
-      cxHspDashEventSummary033B = {};
-      cxHspDashEventError033B = error.message || "No se pudieron reconstruir los eventos del día.";
+      cxHspDashEventError033B = error.message || "No se pudo cargar la jornada.";
     } finally {
       cxHspDashEventLoading033B = false;
     }
@@ -23205,15 +23202,17 @@ function inventoryCreatePayload() {
           <div><span class="hspdash-event-eyebrow-033b">HISTÓRICO RETROACTIVO</span><h2>BÚSQUEDA DE EVENTOS</h2></div>
           <span class="hspdash-event-count-033b">${h(summary.events || cxHspDashEvents033B.length || 0)} evento(s)</span>
         </div>
+        <p class="client-muted">Misma jornada de la gráfica y los KPI, incluidas las ventas después de medianoche.</p>
         <div class="hspdash-event-controls-033b">
-          <label>Selecciona el día<input type="date" value="${h(cxHspDashEventDate033B || cxHspDashDefaultEventDate033B())}" data-hsp-dash-event-date></label>
+          <label>Día de apertura de la jornada<input type="date" value="${h(cxHspDashEventDate033B || cxHspDashDefaultEventDate033B())}" data-hsp-dash-event-date></label>
           <button class="client-btn" type="button" data-hsp-dash-event-search>Buscar</button>
         </div>
         <div class="hspdash-event-summary-033b">
           <span>Mesas QR <b>${h(summary.qr_events || 0)}</b></span>
           <span>Barra <b>${h(summary.bar_events || 0)}</b></span>
-          <span>Total del día <b>${h(cxHspMoney024R(summary.total || 0))}</b></span>
+          <span>Total de la jornada <b>${h(cxHspMoney024R(summary.total || 0))}</b></span>
         </div>
+        <p class="hspdash-shift-range-033f">${h(summary.orders || 0)} pedido(s) · ${h(cxHspDashShiftRange033F(summary))}</p>
         <div class="hspdash-event-list-033b">
           ${cxHspDashEventLoading033B
             ? `<div class="hspdash-empty-024w">Reconstruyendo consumos del día...</div>`
@@ -23512,23 +23511,32 @@ function inventoryCreatePayload() {
     document.head.appendChild(style);
   }
 
-  async function cxHspDashLoad024W({ events = true } = {}) {
-    if (cxHspDashLoading033E) return;
+  async function cxHspDashLoad024W() {
+    if (cxHspDashLoading033E) return cxHspDashPending033G;
     cxHspDashLoading033E = true;
     const companyId = state.companyId;
-    try {
-      const data = await cxHspDashApi024W("/analytics", { cache: "no-store" });
-      if (companyId !== state.companyId) return;
-      if (!data.analytics?.days || !data.analytics?.weeks || !data.analytics?.months) {
+    const selectedDate = cxHspDashEventDate033B;
+    cxHspDashPending033G = (async () => {
+      const query = selectedDate ? `?event_date=${encodeURIComponent(selectedDate)}` : "";
+      const data = await cxHspDashApi024W(`/analytics${query}`, { cache: "no-store" });
+      if (companyId !== state.companyId || selectedDate !== cxHspDashEventDate033B) return;
+      if (!data.analytics?.days || !data.analytics?.weeks || !data.analytics?.months || !data.event_search) {
         throw new Error("No se pudieron cargar las ventas de Hospitality.");
       }
       cxHspDashAnalytics033E = data;
       cxHspDashEventTimezone033B = data.timezone || "America/Bogota";
-      if (!cxHspDashEventDate033B) cxHspDashEventDate033B = data.today;
-      if (events) await cxHspDashLoadEvents033B(cxHspDashEventDate033B);
+      cxHspDashEventDate033B = data.event_search.date;
+      cxHspDashEvents033B = data.event_search.events;
+      cxHspDashEventSummary033B = data.event_search.summary;
+      cxHspDashEventError033B = data.event_search.summary.reconciled === false
+        ? "El detalle de pedidos no coincide con el cierre guardado. Requiere revisión." : "";
       return data;
+    })();
+    try {
+      return await cxHspDashPending033G;
     } finally {
       cxHspDashLoading033E = false;
+      cxHspDashPending033G = null;
     }
   }
 
@@ -23565,10 +23573,10 @@ function inventoryCreatePayload() {
       }
       if (document.hidden || cxHspDashLoading033E) return;
       try {
-        await cxHspDashLoad024W({ events: false });
+        await cxHspDashLoad024W();
         if (root !== document.getElementById("hspDashRoot024W") || companyId !== state.companyId) return;
         const editing = root.contains(document.activeElement) && document.activeElement?.matches("input,select,textarea");
-        if (!editing && cxHspDashPainted033E !== JSON.stringify(cxHspDashAnalytics033E?.analytics)) cxHspDashPaint024W();
+        if (!editing && cxHspDashPainted033E !== JSON.stringify([cxHspDashAnalytics033E?.analytics, cxHspDashAnalytics033E?.event_search])) cxHspDashPaint024W();
         cxHspDashStatus033E();
       } catch (error) {
         cxHspDashStatus033E(error.message || "Reintentando automáticamente.");
@@ -23706,7 +23714,7 @@ function inventoryCreatePayload() {
         </section>
         <div class="hspdash-side-stack-033b">
           <section class="hspdash-panel-024w">
-            <div class="hspdash-head-024w"><h2>Metodos de pago</h2></div>
+            <div class="hspdash-head-024w"><h2>Metodos de pago</h2><small>Total del periodo de la gráfica</small></div>
             <div class="hspdash-list-024w">
               <div class="hspdash-row-024w"><span>Efectivo</span><b>${h(cxHspMoney024R(totals.cash))}</b></div>
               <div class="hspdash-row-024w"><span>Transferencia</span><b>${h(cxHspMoney024R(totals.transfer))}</b></div>
@@ -23731,7 +23739,7 @@ function inventoryCreatePayload() {
     `;
     const eventList = root.querySelector(".hspdash-event-list-033b");
     if (eventList) eventList.scrollTop = eventScroll;
-    cxHspDashPainted033E = JSON.stringify(cxHspDashAnalytics033E?.analytics);
+    cxHspDashPainted033E = JSON.stringify([cxHspDashAnalytics033E?.analytics, cxHspDashAnalytics033E?.event_search]);
     cxHspDashStatus033E();
   }
 

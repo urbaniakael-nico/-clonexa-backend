@@ -33,7 +33,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://clonexa:clonexa@localhost:5432/clonexa
           JWT_SECRET_KEY: ci-test-secret
-        run: python -m pytest tests/test_health.py tests/test_hospitality_live_sales.py tests/test_hospitality_period_reports.py
+        run: python -m pytest tests/test_health.py tests/test_hospitality_live_sales.py tests/test_hospitality_event_search.py tests/test_hospitality_period_reports.py
 
       - name: Set up Node
         uses: actions/setup-node@v4
