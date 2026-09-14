@@ -77,8 +77,10 @@ OCCUPATION_DEFAULTS: dict[str, list[dict[str, str]]] = {
 
 
 class SalesConfigIn(BaseModel):
-    occupation: str | None = Field(default="technology", max_length=80)
+    occupation: str | None = Field(default=None, max_length=80)
     custom_categories: list[str] | None = Field(default=None)
+    catalog_source: str | None = Field(default=None, max_length=40)
+    inventory_include_inactive: bool | None = Field(default=None)
 
 
 class SaleItemIn(BaseModel):
@@ -541,6 +543,18 @@ def _occupation(value: Any) -> str:
     return "custom"
 
 
+def _catalog_source(value: Any) -> str:
+    return "inventory" if _norm(value) in {"inventory", "inventario"} else "references"
+
+
+def _bool_setting(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return _norm(value) in {"1", "true", "yes", "si", "on", "active", "activo"}
+
+
 def _category_icon(category: str) -> str:
     normalized = _norm(category)
     if "celular" in normalized or "telefono" in normalized or "phone" in normalized:
@@ -578,12 +592,21 @@ async def _settings(conn: asyncpg.Connection, company_id: uuid.UUID) -> dict[str
         company_id,
     )
     if not row:
-        return {"occupation": "technology", "settings": {}, "custom_categories": []}
+        return {
+            "occupation": "technology",
+            "settings": {},
+            "custom_categories": [],
+            "catalog_source": "references",
+            "inventory_include_inactive": False,
+        }
     settings = _json(row["settings"], {})
+    settings = settings if isinstance(settings, dict) else {}
     return {
         "occupation": _occupation(row["occupation"]),
-        "settings": settings if isinstance(settings, dict) else {},
-        "custom_categories": settings.get("custom_categories") if isinstance(settings, dict) and isinstance(settings.get("custom_categories"), list) else [],
+        "settings": settings,
+        "custom_categories": settings.get("custom_categories") if isinstance(settings.get("custom_categories"), list) else [],
+        "catalog_source": _catalog_source(settings.get("catalog_source")),
+        "inventory_include_inactive": _bool_setting(settings.get("inventory_include_inactive")),
     }
 
 
@@ -835,6 +858,135 @@ async def _reference_categories(conn: asyncpg.Connection, company_id: uuid.UUID)
             "count": int(row["total"] or 0),
             "icon": _category_icon(row["category"]),
             "source": "references",
+        }
+        for row in rows
+    ]
+
+
+async def _inventory_categories(
+    conn: asyncpg.Connection,
+    company_id: uuid.UUID,
+    include_inactive: bool = False,
+) -> list[dict[str, Any]]:
+    table = await conn.fetchval("SELECT to_regclass('public.inventory_items')")
+    if not table:
+        return []
+
+    status_filter = "" if include_inactive else "AND COALESCE(status, 'active') = 'active'"
+    total = await conn.fetchval(
+        f"""
+        SELECT COUNT(*)
+        FROM inventory_items
+        WHERE company_id = $1::uuid
+          {status_filter}
+        """,
+        company_id,
+    )
+    count = int(total or 0)
+    if count <= 0:
+        return []
+    return [
+        {
+            "category": "Inventario",
+            "slug": "inventario",
+            "count": count,
+            "icon": "📦",
+            "source": "inventory",
+        }
+    ]
+
+
+async def _inventory_references(
+    conn: asyncpg.Connection,
+    company_id: uuid.UUID,
+    category: str | None = None,
+    q: str | None = None,
+    limit: int = 40,
+    include_inactive: bool = False,
+) -> list[dict[str, Any]]:
+    table = await conn.fetchval("SELECT to_regclass('public.inventory_items')")
+    if not table:
+        return []
+
+    category_clean = _clean(category)
+    if category_clean and _norm(category_clean) != "inventario":
+        return []
+
+    where = ["company_id = $1::uuid"]
+    args: list[Any] = [company_id]
+    idx = 2
+    if not include_inactive:
+        where.append("COALESCE(status, 'active') = 'active'")
+
+    search = _clean(q)
+    if search:
+        where.append(
+            f"""(
+                id::text ILIKE ${idx}
+                OR COALESCE(name_reference, '') ILIKE ${idx}
+                OR COALESCE(name, '') ILIKE ${idx}
+                OR COALESCE(reference, '') ILIKE ${idx}
+                OR COALESCE(sku, '') ILIKE ${idx}
+                OR COALESCE(item_size, '') ILIKE ${idx}
+                OR COALESCE(color, '') ILIKE ${idx}
+            )"""
+        )
+        args.append(f"%{search}%")
+        idx += 1
+
+    args.append(limit)
+    rows = await conn.fetch(
+        f"""
+        SELECT
+            id,
+            company_id,
+            COALESCE(
+                NULLIF(name_reference, ''),
+                NULLIF(name, ''),
+                NULLIF(reference, ''),
+                NULLIF(sku, ''),
+                id::text
+            ) AS item_name,
+            COALESCE(item_size, '') AS item_size,
+            COALESCE(color, '') AS color,
+            COALESCE(sku, '') AS sku,
+            COALESCE(NULLIF(sale_price, 0), unit_value, 0)::float AS unit_price,
+            COALESCE(current_stock, 0)::float AS current_stock,
+            COALESCE(status, 'active') AS status
+        FROM inventory_items
+        WHERE {" AND ".join(where)}
+        ORDER BY item_name ASC, item_size ASC, color ASC
+        LIMIT ${idx}
+        """,
+        *args,
+    )
+
+    return [
+        {
+            "id": str(row["id"]),
+            "name": _clean(row["item_name"]),
+            "category": "Inventario",
+            "size": _clean(row["item_size"]),
+            "color": _clean(row["color"]),
+            "sku": _clean(row["sku"]),
+            "barcode": _clean(row["sku"]),
+            "unit_price": float(row["unit_price"] or 0),
+            "initial_quantity": float(row["current_stock"] or 0),
+            "current_stock": float(row["current_stock"] or 0),
+            "status": _clean(row["status"] or "active").lower(),
+            "available": _clean(row["status"] or "active").lower() == "active",
+            "channel": "inventory",
+            "system_active": True,
+            "source": "inventory",
+            "label": " · ".join(
+                part
+                for part in [
+                    _clean(row["item_name"]),
+                    _clean(row["item_size"]),
+                    _clean(row["color"]),
+                ]
+                if part
+            ),
         }
         for row in rows
     ]
@@ -1176,6 +1328,8 @@ async def get_sales_config(company_id: uuid.UUID) -> dict[str, Any]:
             "company_id": str(company_id),
             "occupation": config["occupation"],
             "custom_categories": config["custom_categories"],
+            "catalog_source": config["catalog_source"],
+            "inventory_include_inactive": config["inventory_include_inactive"],
         }
     finally:
         await conn.close()
@@ -1188,9 +1342,19 @@ async def save_sales_config(company_id: uuid.UUID, payload: SalesConfigIn) -> di
         await _ensure_storage(conn)
         if not await _company_exists(conn, company_id):
             raise HTTPException(status_code=404, detail="Empresa no encontrada.")
-        occupation = _occupation(payload.occupation)
-        custom_categories = [_clean(item) for item in (payload.custom_categories or []) if _clean(item)]
-        settings = {"custom_categories": custom_categories}
+        current = await _settings(conn, company_id)
+        occupation = _occupation(payload.occupation or current["occupation"])
+        custom_categories = (
+            [_clean(item) for item in payload.custom_categories if _clean(item)]
+            if payload.custom_categories is not None
+            else list(current["custom_categories"])
+        )
+        settings = dict(current.get("settings") or {})
+        settings["custom_categories"] = custom_categories
+        if payload.catalog_source is not None:
+            settings["catalog_source"] = _catalog_source(payload.catalog_source)
+        if payload.inventory_include_inactive is not None:
+            settings["inventory_include_inactive"] = bool(payload.inventory_include_inactive)
         await conn.execute(
             """
             INSERT INTO mini_panel_sales_settings (company_id, occupation, settings, created_at, updated_at)
@@ -1206,6 +1370,8 @@ async def save_sales_config(company_id: uuid.UUID, payload: SalesConfigIn) -> di
             "company_id": str(company_id),
             "occupation": occupation,
             "custom_categories": custom_categories,
+            "catalog_source": _catalog_source(settings.get("catalog_source")),
+            "inventory_include_inactive": _bool_setting(settings.get("inventory_include_inactive")),
             "saved": True,
         }
     finally:
@@ -1223,13 +1389,21 @@ async def list_sales_categories(
         await _ensure_storage(conn)
         await _require_access(conn, company_id, authorization)
         config = await _settings(conn, company_id)
-        categories = await _reference_categories(conn, company_id)
-        if not categories:
+        if config["catalog_source"] == "inventory":
+            categories = await _inventory_categories(
+                conn,
+                company_id,
+                include_inactive=config["inventory_include_inactive"],
+            )
+        else:
+            categories = await _reference_categories(conn, company_id)
+        if not categories and config["catalog_source"] == "references":
             categories = _fallback_categories(config["occupation"], config.get("custom_categories"))
         return {
             "company_id": str(company_id),
             "panel_type": _panel(panel_type),
             "occupation": config["occupation"],
+            "catalog_source": config["catalog_source"],
             "count": len(categories),
             "items": categories,
         }
@@ -1250,9 +1424,26 @@ async def list_sales_references(
         await _ensure_storage(conn)
         await _require_access(conn, company_id, authorization)
 
+        config = await _settings(conn, company_id)
+        if config["catalog_source"] == "inventory":
+            items = await _inventory_references(
+                conn,
+                company_id,
+                category=category,
+                q=q,
+                limit=limit,
+                include_inactive=config["inventory_include_inactive"],
+            )
+            return {
+                "company_id": str(company_id),
+                "catalog_source": "inventory",
+                "count": len(items),
+                "items": items,
+            }
+
         table = await conn.fetchval("SELECT to_regclass('public.product_references')")
         if not table:
-            return {"company_id": str(company_id), "count": 0, "items": []}
+            return {"company_id": str(company_id), "catalog_source": "references", "count": 0, "items": []}
 
         where = [
             "company_id = $1::text",
@@ -1316,7 +1507,7 @@ async def list_sales_references(
             for row in rows
         ]
 
-        return {"company_id": str(company_id), "count": len(items), "items": items}
+        return {"company_id": str(company_id), "catalog_source": "references", "count": len(items), "items": items}
     finally:
         await conn.close()
 

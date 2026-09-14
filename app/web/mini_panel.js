@@ -6112,11 +6112,13 @@ function moduleCard(title, description, tag, code = "") {
     let categories = [];
     let sales = [];
     let salesData = {};
+    let catalogSource = "references";
     let loadError = "";
 
     try {
       const cats = await salesApi022F(`/categories?panel_type=${encodeURIComponent(panelType)}`);
       categories = Array.isArray(cats.items) ? cats.items : [];
+      catalogSource = String(cats.catalog_source || "references");
       salesData = await salesApi022F(`/sales?panel_type=${encodeURIComponent(panelType)}`);
       sales = Array.isArray(salesData.items) ? salesData.items : [];
     } catch (error) {
@@ -6141,7 +6143,7 @@ function moduleCard(title, description, tag, code = "") {
           <div class="sr-card-022f sr-panel-022f">
             <div class="sr-kicker-022f">Categorías</div>
             <h2>Selecciona una categoría</h2>
-            <p class="sr-muted-022f">Las referencias salen del módulo Referencias con canal Sistema o Ambos.</p>
+            <p class="sr-muted-022f">${catalogSource === "inventory" ? "Los productos corresponden al Inventario de esta empresa." : "Las referencias salen del módulo Referencias con canal Sistema o Ambos."}</p>
             ${loadError ? `<div class="sr-message-022f" style="color:#ff9aae">${h(loadError)}</div>` : ""}
 
             <div class="sr-search-row-022i">
@@ -6897,6 +6899,21 @@ function moduleCard(title, description, tag, code = "") {
         border-color:#ff39d0;
         background:rgba(255,57,208,.16);
       }
+      .sr-ref-022f:disabled{
+        opacity:.58;
+        cursor:not-allowed;
+        border-color:rgba(255,165,90,.24);
+      }
+      .sr-ref-unavailable-030a{
+        display:inline-flex;
+        margin-left:8px;
+        padding:3px 8px;
+        border-radius:999px;
+        background:rgba(255,165,90,.14);
+        color:#ffc38f;
+        font-size:11px;
+        font-weight:900;
+      }
       .sr-ref-popular-022j{
         display:inline-flex;
         align-items:center;
@@ -7064,8 +7081,12 @@ function moduleCard(title, description, tag, code = "") {
       const popularMap = salesPopularMap022J(sales, category);
       return (displayItems || []).map((item) => {
         const popularity = salesReferencePopularity022J(item, popularMap);
+        const available = item.available !== false;
+        const stockLabel = item.source === "inventory"
+          ? `Stock ${Number(item.current_stock || 0)} · ${available ? "Activo" : "Inactivo"}`
+          : "";
         return `
-          <button class="sr-ref-022f" type="button"
+          <button class="sr-ref-022f" type="button" ${available ? "" : "disabled aria-disabled=\"true\""}
             data-sr-ref-022f="${h(item.id || "")}"
             data-sr-ref-name="${h(item.name || "")}"
             data-sr-ref-category="${h(item.category || category || "")}"
@@ -7073,8 +7094,8 @@ function moduleCard(title, description, tag, code = "") {
             data-sr-ref-color="${h(item.color || "")}"
             data-sr-ref-barcode="${h(item.barcode || item.code || item.sku || item.id || "")}"
           data-sr-ref-unit-price="${h(item.unit_price ?? item.price ?? 0)}">
-            <strong>${h(item.name || "Referencia")}${popularity ? `<span class="sr-ref-popular-022j">${h(popularity)} ped.</span>` : ""}</strong><br>
-            <small>${h([item.category, item.size, item.color].filter(Boolean).join(" · "))}</small>
+            <strong>${h(item.name || "Referencia")}${popularity ? `<span class="sr-ref-popular-022j">${h(popularity)} ped.</span>` : ""}${available ? "" : `<span class="sr-ref-unavailable-030a">Sin disponibilidad</span>`}</strong><br>
+            <small>${h([item.category, item.size, item.color, stockLabel].filter(Boolean).join(" · "))}</small>
           </button>
         `;
       }).join("") || `<div class="sr-muted-022f">Sin referencias para esta búsqueda.</div>`;
@@ -7180,7 +7201,7 @@ function moduleCard(title, description, tag, code = "") {
       if (list) list.innerHTML = renderRefButtons(nextRefs, q);
       if (topLabel) topLabel.textContent = String(q || "").trim() ? "Resultados de búsqueda" : "Top 10 más pedidos";
       bindRefs();
-      if (autoPick && nextRefs.length) root.querySelector("[data-sr-ref-022f]")?.click();
+      if (autoPick && nextRefs.length) root.querySelector("[data-sr-ref-022f]:not(:disabled)")?.click();
     }
 
     function bindRefs() {
