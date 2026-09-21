@@ -21041,6 +21041,7 @@ function inventoryCreatePayload() {
       ]);
       const orders = Array.isArray(ordersData.tables || ordersData.orders) ? (ordersData.tables || ordersData.orders) : [];
       const songs = Array.isArray(ordersData.song_requests) ? ordersData.song_requests : [];
+      cxHspStoreQrTables034B(qrData);
       cxHspPaintSongQueue031K(songs);
       cxHspPaintLiveOrders031L(orders);
       const activeTables = (Array.isArray(qrData.tables) ? qrData.tables : [])
@@ -21766,9 +21767,12 @@ function inventoryCreatePayload() {
 
   async function cxHspLoadOrders024R(options = {}) {
     const autoRefresh = options?.auto === true;
-    if (autoRefresh && cxHspAutoRefreshHeld031G()) return;
+    if (autoRefresh && (cxHspAutoRefreshHeld031G() || cxHspBoardDirty034B())) return;
     const requestStartedAt = Date.now();
-    const data = await cxHspApi024R("/orders?status=all&limit=220");
+    const [data] = await Promise.all([
+      cxHspApi024R("/orders?status=all&limit=220"),
+      cxHspRefreshQrTables034B().catch(() => null),
+    ]);
     if (
       autoRefresh
       && (cxHspAutoRefreshHeld031G() || cxHspInteractionHoldUntil031G > requestStartedAt)
@@ -21857,6 +21861,8 @@ function inventoryCreatePayload() {
       Number(order.total || 0),
     ]));
     if (signature(nextOrders) === signature(cxHspOrders024R)) return;
+    // Do not repaint over a payment or product the barman is still typing; retry next poll.
+    if (cxHspAutoRefreshHeld031G() || cxHspBoardDirty034B()) return;
     cxHspOrders024R = nextOrders;
     const groups = {
       pendiente: cxHspGroup024R("pendiente"),
@@ -21873,10 +21879,7 @@ function inventoryCreatePayload() {
       if (node) node.textContent = String(value);
     };
 
-    fill("hspPending024R", cxHspRenderGroup024R(groups.pendiente, "pendiente"));
-    fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando, "alistando"));
-    fill("hspServed024R", cxHspRenderGroup024R(groups.entregado, "entregado"));
-    fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado, "cerrado"));
+    cxHspPaintTableBoard034B();
 
     const activeOrders = cxHspOrders024R.filter((order) => (
       ["pendiente", "alistando", "entregado"].includes(String(order.status || "")) && !order.archived_at
@@ -22022,6 +22025,279 @@ function inventoryCreatePayload() {
     ));
   }
 
+  let cxHspQrTables034B = [];
+  let cxHspQrTablesAt034B = 0;
+
+  function cxHspStoreQrTables034B(data = {}) {
+    if (Array.isArray(data?.tables)) {
+      cxHspQrTables034B = data.tables;
+      cxHspQrTablesAt034B = Date.now();
+    }
+  }
+
+  async function cxHspRefreshQrTables034B(force = false) {
+    if (!force && cxHspQrTables034B.length && Date.now() - cxHspQrTablesAt034B < 10000) return;
+    const config = cxHspQrConfigFromModules025N(activeClientModules());
+    const data = await cxHspApi024R(`/qr-tables?count=${encodeURIComponent(config.count || 12)}&include_bar=false`);
+    cxHspStoreQrTables034B(data);
+  }
+
+  function cxHspBoardDirty034B() {
+    const root = document.getElementById("hspOrdersRoot024R");
+    if (!root) return false;
+    const typed = Array.from(root.querySelectorAll("[data-hsp-quick-add-search],[data-hsp-close-received],[data-hsp-bar-product-search],#hspBarCustomer031D,#hspBarProductSearch031F"))
+      .some((field) => String(field.value || "").trim() !== "");
+    const payment = Array.from(root.querySelectorAll("[data-hsp-close-payment],[data-hsp-bar-payment]"))
+      .some((field) => String(field.value || "") !== "");
+    return typed || payment;
+  }
+
+  function cxHspIsFormField034B(target) {
+    return target instanceof Element && Boolean(target.closest("input,select,textarea"));
+  }
+
+  function cxHspTableSlots034B() {
+    const open = cxHspOrders024R.filter((order) => (
+      ["pendiente", "alistando", "entregado"].includes(String(order.status || ""))
+      && !order.archived_at
+      && !cxHspIsBarOnlyOrder031D(order)
+    ));
+    const byKey = new Map();
+    open.forEach((order) => {
+      const key = cxHspTableKey024Y(order);
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key).push(order);
+    });
+    const slots = [];
+    const seen = new Set();
+    cxHspQrTables034B.forEach((table) => {
+      const key = cxHspNormKey024Y(table.table_key || table.label || "");
+      if (!key || seen.has(key) || (key === "barra" && !byKey.has(key))) return;
+      seen.add(key);
+      slots.push({ key, label: table.label || "Mesa", qr: table, orders: byKey.get(key) || [] });
+    });
+    // Tables outside the configured list (custom names, higher numbers) must never be hidden.
+    byKey.forEach((orders, key) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      slots.push({ key, label: orders[0]?.table_number || "Mesa", qr: null, orders });
+    });
+    return slots;
+  }
+
+  function cxHspTableStart034B(slot = {}) {
+    if (slot.qr?.access_active && slot.qr?.access_activated_at) return slot.qr.access_activated_at;
+    const times = (slot.orders || [])
+      .map((order) => Date.parse(order.created_at || ""))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    return times.length ? new Date(Math.min(...times)).toISOString() : "";
+  }
+
+  function cxHspOrderTime034B(order = {}) {
+    const time = Date.parse(order.created_at || "");
+    if (!Number.isFinite(time)) return "";
+    return new Date(time).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function cxHspOrderCustomers034B(order = {}) {
+    const names = (Array.isArray(order.people) ? order.people : [])
+      .map((person) => String(person?.name || "").trim())
+      .filter(Boolean);
+    return names.length ? names.join(", ") : (order.customer_name || "Cliente");
+  }
+
+  function cxHspNewOrderBlock034B(order = {}) {
+    const items = (Array.isArray(order.items) ? order.items : []).map((item) => `
+      <div class="hsp-new-item-034b">
+        <span><b>${h(item.quantity)} x</b> ${h(item.name || "Producto")}</span>
+        <strong>${h(cxHspMoney024R(item.subtotal || Number(item.quantity || 0) * Number(item.unit_price || 0)))}</strong>
+      </div>`).join("");
+    const status = String(order.status || "pendiente");
+    return `
+      <div class="hsp-new-order-034b">
+        <div class="hsp-new-order-head-034b">
+          <span>Nuevo pedido · ${h(cxHspOrderCustomers034B(order))}</span>
+          <small>${h(cxHspOrderTime034B(order))}</small>
+        </div>
+        ${items || `<div class="hsp-empty-024r">Sin productos</div>`}
+        ${order.notes ? `<div class="hsp-new-note-034b">${h(order.notes)}</div>` : ""}
+        <div class="hsp-new-actions-034b">
+          ${status === "pendiente" ? `<button class="hsp-btn-024r secondary" type="button" data-hsp-reject="${h(order.id)}">Cancelar</button>` : ""}
+          <button class="hsp-btn-024r green" type="button" data-hsp-deliver="${h(order.id)}" data-hsp-deliver-status="${h(status)}">Entregado</button>
+        </div>
+      </div>`;
+  }
+
+  function cxHspTableQuickAdd034B(orderId = "", tableLabel = "") {
+    return `
+      <div class="hsp-quick-add-034a hsp-table-add-034b" data-hsp-quick-add-row>
+        <input data-hsp-quick-add-search list="hspBarInventoryList031F" autocomplete="off" placeholder="Agregar: poker, águila..." aria-label="Producto a agregar" />
+        <input data-hsp-quick-add-qty type="number" min="1" step="1" value="1" aria-label="Cantidad" />
+        <button class="hsp-btn-024r green" type="button" data-hsp-quick-add="${h(orderId)}" data-hsp-quick-add-table="${h(tableLabel)}" aria-label="Agregar a ${h(tableLabel)}">+</button>
+      </div>`;
+  }
+
+  function cxHspTableCard034B(slot = {}) {
+    const orders = Array.isArray(slot.orders) ? slot.orders : [];
+    const pending = orders
+      .filter((order) => ["pendiente", "alistando"].includes(String(order.status || "")))
+      .sort((a, b) => (Date.parse(a.created_at || "") || 0) - (Date.parse(b.created_at || "") || 0));
+    const served = orders
+      .filter((order) => String(order.status || "") === "entregado")
+      .sort((a, b) => (Date.parse(b.created_at || "") || 0) - (Date.parse(a.created_at || "") || 0));
+    const merged = served.length ? cxHspMergedTableCards024Y(served)[0] : null;
+    const active = orders.length > 0 || Boolean(slot.qr?.access_active);
+    const start = active ? cxHspTableStart034B(slot) : "";
+    const tableTotal = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+    const stateClass = pending.length ? "is-new" : (active ? "is-active" : "is-free");
+    const targetOrderId = served[0]?.id || "";
+
+    const products = (merged?.product_summary || []).map((item) => `
+      <div class="hsp-table-line-034b">
+        <span>${h(item.quantity)} x ${h(item.name)}</span>
+        <strong>${h(cxHspMoney024R(item.total || 0))}</strong>
+      </div>`).join("");
+    const people = (merged?.people_summary || []).map((person) => `
+      <details class="hsp-table-person-034b">
+        <summary><span>${h(person.name || "Cliente")}</span><strong>${h(cxHspMoney024R(person.total || 0))}</strong></summary>
+        ${(Array.isArray(person.items) ? person.items : []).map((item) => `
+          <div class="hsp-table-line-034b sub"><span>${h(item.quantity)} x ${h(item.name || "Producto")}</span><strong>${h(cxHspMoney024R(item.total || 0))}</strong></div>`).join("")}
+      </details>`).join("");
+
+    let footer = "";
+    if (served.length && !pending.length) {
+      footer = cxHspCloseControls030A({
+        __merged_table: true,
+        id: merged?.id || `table:${slot.key}`,
+        order_ids: served.map((order) => order.id),
+        total: merged?.total || 0,
+      });
+    } else if (served.length && pending.length) {
+      footer = `<div class="hsp-table-hint-034b">Entrega el pedido nuevo para poder cerrar la mesa.</div>`;
+    }
+
+    return `
+      <article class="hsp-table-card-034b ${stateClass}" data-hsp-table-card="${h(slot.key)}">
+        <header class="hsp-table-top-034b">
+          <div class="hsp-table-name-034b">${h(slot.label || "Mesa")}</div>
+          ${start
+            ? `<div class="hsp-table-timer-034b" title="Tiempo con la mesa activa"><span aria-hidden="true">⏱</span><b data-hsp-timer-start="${h(start)}">0:00</b></div>`
+            : `<div class="hsp-table-state-034b">${active ? "Activa" : "Libre"}</div>`}
+        </header>
+        ${active ? `<div class="hsp-table-total-034b"><span>Total mesa</span><strong>${h(cxHspMoney024R(tableTotal))}</strong></div>` : ""}
+        ${pending.map(cxHspNewOrderBlock034B).join("")}
+        ${products ? `<div class="hsp-table-lines-034b">${products}</div>` : ""}
+        ${people ? `<div class="hsp-table-people-034b">${people}</div>` : ""}
+        ${cxHspTableQuickAdd034B(targetOrderId, slot.label || "")}
+        ${footer}
+      </article>`;
+  }
+
+  function cxHspClosedStrip034B() {
+    const closed = cxHspOrders024R.filter((order) => String(order.status || "") === "cerrado" && !order.archived_at);
+    const groups = cxHspClosedTableGroups031R(closed);
+    const node = document.getElementById("hspCClosed034B");
+    if (node) node.textContent = String(groups.length);
+    if (!groups.length) return `<div class="hsp-empty-024r">Todavía no hay mesas cerradas en esta jornada.</div>`;
+    return groups.map((group) => `
+      <div class="hsp-closed-chip-034b">
+        <b>${h(group.table_number || "Mesa")}</b>
+        <strong>${h(cxHspMoney024R(group.total || 0))}</strong>
+        <small>${h(group.payment_label || "")} · ${h(group.count || 1)} pedido(s)</small>
+      </div>`).join("");
+  }
+
+  function cxHspTickTimers034B() {
+    document.querySelectorAll("[data-hsp-timer-start]").forEach((node) => {
+      const start = Date.parse(node.getAttribute("data-hsp-timer-start") || "");
+      if (!Number.isFinite(start)) return;
+      const total = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      const seconds = total % 60;
+      node.textContent = hours
+        ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+        : `${minutes}:${String(seconds).padStart(2, "0")}`;
+    });
+  }
+
+  function cxHspPaintTableBoard034B() {
+    cxHspTableBoardStyles034B();
+    const grid = document.getElementById("hspTablesGrid034B");
+    if (grid) {
+      const slots = cxHspTableSlots034B();
+      grid.innerHTML = slots.length
+        ? slots.map(cxHspTableCard034B).join("")
+        : `<div class="hsp-empty-024r">No hay mesas configuradas. Revisa la cantidad de mesas en el módulo QR.</div>`;
+    }
+    const strip = document.getElementById("hspClosedStrip034B");
+    if (strip) strip.innerHTML = cxHspClosedStrip034B();
+    cxHspTickTimers034B();
+    if (!window.__cxHspTimerTick034B) window.__cxHspTimerTick034B = window.setInterval(cxHspTickTimers034B, 1000);
+  }
+
+  async function cxHspDeliverOrder034B(orderId = "", status = "pendiente") {
+    if (!orderId) return;
+    let current = String(status || "pendiente");
+    if (current === "pendiente") {
+      await cxHspApi024R(`/orders/${encodeURIComponent(orderId)}/status`, { method: "PATCH", body: JSON.stringify({ status: "alistando" }) });
+      current = "alistando";
+    }
+    if (current === "alistando") {
+      await cxHspApi024R(`/orders/${encodeURIComponent(orderId)}/status`, { method: "PATCH", body: JSON.stringify({ status: "entregado" }) });
+    }
+  }
+
+  function cxHspTableBoardStyles034B() {
+    if (document.getElementById("hspTableBoardStyles034B")) return;
+    const style = document.createElement("style");
+    style.id = "hspTableBoardStyles034B";
+    style.textContent = `
+      .hsp-tables-board-034b,.hsp-closed-board-034b{margin-top:14px}
+      .hsp-tables-head-034b{display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+      .hsp-tables-head-034b h2{margin:2px 0 0;display:flex;align-items:center;gap:8px}
+      .hsp-tables-legend-034b{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;font-weight:900;color:var(--hsp-muted,#aab)}
+      .hsp-tables-legend-034b span{display:inline-flex;align-items:center;gap:5px}
+      .hsp-tables-legend-034b span::before{content:"";width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.18)}
+      .hsp-tables-legend-034b .active::before{background:#22c55e}
+      .hsp-tables-legend-034b .new::before{background:linear-gradient(135deg,#ff7a18,#ff2d95)}
+      .hsp-tables-grid-034b{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;align-items:start}
+      .hsp-table-card-034b{display:grid;gap:9px;padding:12px;border-radius:16px;border:1px solid rgba(255,255,255,.11);background:rgba(3,7,18,.32);transition:border-color .2s,box-shadow .2s,opacity .2s}
+      .hsp-table-card-034b.is-free{opacity:.62}
+      .hsp-table-card-034b.is-free:hover,.hsp-table-card-034b.is-free:focus-within{opacity:1}
+      .hsp-table-card-034b.is-active{border-color:rgba(34,197,94,.45)}
+      .hsp-table-card-034b.is-new{border-color:#ff5a5f;animation:hspGlow034B 1.6s ease-in-out infinite}
+      @keyframes hspGlow034B{0%,100%{box-shadow:0 0 0 2px rgba(255,122,24,.55),0 0 22px rgba(255,122,24,.35)}50%{box-shadow:0 0 0 2px rgba(255,45,149,.7),0 0 30px rgba(255,45,149,.45)}}
+      @media (prefers-reduced-motion:reduce){.hsp-table-card-034b.is-new{animation:none;box-shadow:0 0 0 2px #ff2d95}}
+      .hsp-table-top-034b{display:flex;justify-content:space-between;align-items:center;gap:8px}
+      .hsp-table-name-034b{font-size:18px;font-weight:1000;color:var(--cx-text,#fff)}
+      .hsp-table-state-034b{font-size:10px;font-weight:1000;text-transform:uppercase;letter-spacing:.06em;color:var(--hsp-muted,#aab)}
+      .hsp-table-timer-034b{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;background:rgba(34,197,94,.14);color:#86efac;font-size:12px;font-weight:1000;font-variant-numeric:tabular-nums}
+      .hsp-table-card-034b.is-new .hsp-table-timer-034b{background:rgba(255,45,149,.16);color:#ffb3d9}
+      .hsp-table-total-034b{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:11px;background:rgba(34,197,94,.1);font-weight:1000}
+      .hsp-table-total-034b strong{font-size:16px}
+      .hsp-new-order-034b{display:grid;gap:6px;padding:9px 10px;border-radius:12px;background:linear-gradient(135deg,rgba(255,122,24,.2),rgba(255,45,149,.2));border:1px solid rgba(255,45,149,.55)}
+      .hsp-new-order-head-034b{display:flex;justify-content:space-between;gap:6px;font-size:11px;font-weight:1000;text-transform:uppercase;letter-spacing:.04em;color:#ffd0e6}
+      .hsp-new-item-034b{display:flex;justify-content:space-between;gap:8px;font-size:14px;font-weight:900;color:#fff}
+      .hsp-new-note-034b{font-size:11px;color:#ffe4f1}
+      .hsp-new-actions-034b{display:flex;justify-content:flex-end;gap:6px}
+      .hsp-new-actions-034b .hsp-btn-024r{min-height:34px}
+      .hsp-table-lines-034b,.hsp-table-people-034b{display:grid;gap:4px}
+      .hsp-table-line-034b{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:800}
+      .hsp-table-line-034b.sub{padding-left:10px;font-size:11px;color:var(--hsp-muted,#aab)}
+      .hsp-table-person-034b summary{display:flex;justify-content:space-between;cursor:pointer;font-size:12px;font-weight:900;padding:5px 0;border-top:1px dashed rgba(255,255,255,.1);list-style:none}
+      .hsp-table-person-034b summary::-webkit-details-marker{display:none}
+      .hsp-table-add-034b{display:grid;grid-template-columns:minmax(0,1fr) 56px 42px;gap:6px;align-items:center}
+      .hsp-table-add-034b input{width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--hsp-line,rgba(255,255,255,.14));border-radius:9px;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);padding:8px;font:inherit;font-size:12px;font-weight:800}
+      .hsp-table-add-034b .hsp-btn-024r{min-height:36px;padding:0;font-size:18px}
+      .hsp-table-hint-034b{font-size:11px;font-weight:900;color:#ffb3d9}
+      .hsp-closed-strip-034b{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+      .hsp-closed-chip-034b{flex:0 0 auto;display:grid;gap:2px;min-width:130px;padding:9px 11px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(3,7,18,.32)}
+      .hsp-closed-chip-034b small{color:var(--hsp-muted,#aab);font-size:10px}
+    `;
+    document.head.appendChild(style);
+  }
+
   function cxHspRenderOrdersBoard024R(summary = {}) {
     const groups = {
       pendiente: cxHspGroup024R("pendiente"),
@@ -22039,10 +22315,7 @@ function inventoryCreatePayload() {
       if (node) node.textContent = String(value);
     };
 
-    fill("hspPending024R", cxHspRenderGroup024R(groups.pendiente, "pendiente"));
-    fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando, "alistando"));
-    fill("hspServed024R", cxHspRenderGroup024R(groups.entregado, "entregado"));
-    fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado, "cerrado"));
+    cxHspPaintTableBoard034B();
     cxHspPaintSongQueue031K(cxHspSongRequests031C);
     fill("hspBarAccounts031D", cxHspRenderBarAccounts031D());
 
@@ -22324,9 +22597,10 @@ function inventoryCreatePayload() {
     const orderId = button?.getAttribute("data-hsp-quick-add") || "";
     const productInput = row?.querySelector("[data-hsp-quick-add-search]");
     const qtyInput = row?.querySelector("[data-hsp-quick-add-qty]");
+    const tableLabel = button?.getAttribute("data-hsp-quick-add-table") || "";
     const inventory = cxHspFindInventoryBySearch031F(productInput?.value || "");
     const quantity = Number(qtyInput?.value || 0);
-    if (!orderId || !inventory?.id || quantity < 1) {
+    if ((!orderId && !tableLabel) || !inventory?.id || quantity < 1) {
       cxHspShowMsg024R("hspGlobalMsg024R", "Elige un artículo de las sugerencias y una cantidad válida.", true);
       productInput?.focus();
       return;
@@ -22334,10 +22608,22 @@ function inventoryCreatePayload() {
     const item = cxHspOrderItemFromInventory031F(inventory, quantity);
     try {
       button.disabled = true;
-      await cxHspApi024R(`/orders/${encodeURIComponent(orderId)}/items`, {
-        method: "POST",
-        body: JSON.stringify({ items: [item] }),
-      });
+      if (orderId) {
+        await cxHspApi024R(`/orders/${encodeURIComponent(orderId)}/items`, {
+          method: "POST",
+          body: JSON.stringify({ items: [item] }),
+        });
+      } else {
+        // Barman loads on a table with nothing delivered yet: it goes straight in as delivered.
+        const created = await cxHspApi024R("/orders", {
+          method: "POST",
+          body: JSON.stringify({ source: "table_manual", table: tableLabel, customer: "Carga barra", payment_method: "other", items: [item] }),
+        });
+        const order = created?.order || created?.table || {};
+        await cxHspDeliverOrder034B(order.id, order.status || "pendiente");
+      }
+      if (productInput) productInput.value = "";
+      if (qtyInput) qtyInput.value = "1";
       cxHspInteractionHoldUntil031G = 0;
       await Promise.all([cxHspLoadInventory024R(), cxHspLoadOrders024R()]);
       cxHspShowMsg024R("hspGlobalMsg024R", `${item.quantity} x ${item.name} agregado a la mesa.`);
@@ -22424,6 +22710,7 @@ function inventoryCreatePayload() {
 
     try {
       await cxHspLoadInventory024R();
+      await cxHspRefreshQrTables034B(true).catch(() => null);
       const data = await cxHspApi024R("/orders?status=all&limit=220");
       cxHspOrders024R = Array.isArray(data.tables || data.orders) ? (data.tables || data.orders) : [];
       cxHspSongRequests031C = Array.isArray(data.song_requests) ? data.song_requests : [];
@@ -22531,23 +22818,24 @@ function inventoryCreatePayload() {
                 </section>
               </div>
 
-              <section class="hsp-kanban-024r">
-                <div class="hsp-col-024r">
-                  <div class="hsp-col-title-024r">Pendiente <span class="hsp-pill-024r pending" id="hspCPending024R">0</span></div>
-                  <div id="hspPending024R"></div>
+              <section class="hsp-box-024r hsp-tables-board-034b">
+                <div class="hsp-tables-head-034b">
+                  <div>
+                    <div class="client-eyebrow">Recepción de pedidos</div>
+                    <h2>Mesas</h2>
+                  </div>
+                  <div class="hsp-tables-legend-034b"><span>Libre</span><span class="active">Activa</span><span class="new">Pedido nuevo</span></div>
                 </div>
-                <div class="hsp-col-024r">
-                  <div class="hsp-col-title-024r">Alistando <span class="hsp-pill-024r preparing" id="hspCPreparing024R">0</span></div>
-                  <div id="hspPreparing024R"></div>
+                <div id="hspTablesGrid034B" class="hsp-tables-grid-034b"></div>
+              </section>
+              <section class="hsp-box-024r hsp-closed-board-034b">
+                <div class="hsp-tables-head-034b">
+                  <div>
+                    <div class="client-eyebrow">Para el cierre de jornada</div>
+                    <h2>Mesas cerradas <span class="hsp-pill-024r closed" id="hspCClosed034B">0</span></h2>
+                  </div>
                 </div>
-                <div class="hsp-col-024r">
-                  <div class="hsp-col-title-024r">Entregado <span class="hsp-pill-024r served" id="hspCServed024R">0</span></div>
-                  <div id="hspServed024R"></div>
-                </div>
-                <div class="hsp-col-024r">
-                  <div class="hsp-col-title-024r">Cerrado <span class="hsp-pill-024r closed" id="hspCClosed024R">0</span></div>
-                  <div id="hspClosed024R"></div>
-                </div>
+                <div id="hspClosedStrip034B" class="hsp-closed-strip-034b"></div>
               </section>
             </section>
           </section>
@@ -22575,11 +22863,18 @@ function inventoryCreatePayload() {
   }
 
   document.addEventListener("pointerdown", (event) => {
-    if (cxHspIsInteractiveTarget031G(event.target)) cxHspHoldInteraction031G();
+    if (cxHspIsInteractiveTarget031G(event.target) && cxHspIsFormField034B(event.target)) cxHspHoldInteraction031G();
   }, true);
 
   document.addEventListener("focusin", (event) => {
-    if (cxHspIsInteractiveTarget031G(event.target)) cxHspHoldInteraction031G();
+    if (cxHspIsInteractiveTarget031G(event.target) && cxHspIsFormField034B(event.target)) cxHspHoldInteraction031G();
+  });
+
+  document.addEventListener("focusout", (event) => {
+    if (!cxHspIsInteractiveTarget031G(event.target) || !cxHspIsFormField034B(event.target)) return;
+    const next = event.relatedTarget;
+    if (cxHspIsInteractiveTarget031G(next) && cxHspIsFormField034B(next)) return;
+    cxHspInteractionHoldUntil031G = Math.min(cxHspInteractionHoldUntil031G, Date.now() + 1500);
   });
 
   document.addEventListener("input", (event) => {
@@ -30906,6 +31201,38 @@ function inventoryCreatePayload() {
           );
         } catch (error) {
           cxHspShowMsg024R("hspFormMsg024R", error.message || "No se pudo registrar el consumo.", true);
+        }
+        return;
+      }
+
+      const hspDeliver = target.closest("[data-hsp-deliver]");
+      if (hspDeliver) {
+        try {
+          hspDeliver.disabled = true;
+          await cxHspDeliverOrder034B(hspDeliver.getAttribute("data-hsp-deliver") || "", hspDeliver.getAttribute("data-hsp-deliver-status") || "pendiente");
+          cxHspInteractionHoldUntil031G = 0;
+          await Promise.all([cxHspLoadInventory024R(), cxHspLoadOrders024R()]);
+        } catch (error) {
+          hspDeliver.disabled = false;
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo marcar como entregado.", true);
+        }
+        return;
+      }
+
+      const hspReject = target.closest("[data-hsp-reject]");
+      if (hspReject) {
+        if (!window.confirm("¿Cancelar este pedido nuevo? Se devuelve el stock y no se cobra.")) return;
+        try {
+          hspReject.disabled = true;
+          await cxHspApi024R(`/orders/${encodeURIComponent(hspReject.getAttribute("data-hsp-reject") || "")}/items`, {
+            method: "PATCH",
+            body: JSON.stringify({ items: [] }),
+          });
+          cxHspInteractionHoldUntil031G = 0;
+          await Promise.all([cxHspLoadInventory024R(), cxHspLoadOrders024R()]);
+        } catch (error) {
+          hspReject.disabled = false;
+          cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cancelar el pedido.", true);
         }
         return;
       }

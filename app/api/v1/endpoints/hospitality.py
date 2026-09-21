@@ -4194,6 +4194,7 @@ async def hospitality_qr_tables(
                 "access_active": bool(access.get("active")),
                 "access_code": access.get("access_code") or "",
                 "access_expires_at": access.get("expires_at") or "",
+                "access_activated_at": access.get("activated_at") or "",
             }
         )
 

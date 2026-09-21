@@ -569,10 +569,9 @@ def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender()
     assert "cxHspPaintSongQueue031K(songs)" in panel
     assert "cxHspPaintLiveOrders031L(orders)" in panel
     live_orders = panel.split("function cxHspPaintLiveOrders031L", 1)[1].split("function cxHspIsBarAccount031D", 1)[0]
-    assert 'fill("hspPending024R"' in live_orders
-    assert 'fill("hspPreparing024R"' in live_orders
-    assert 'fill("hspServed024R"' in live_orders
-    assert 'fill("hspClosed024R"' in live_orders
+    # 034B: live orders repaint the per-table board instead of status columns.
+    assert "cxHspPaintTableBoard034B()" in live_orders
+    assert "cxHspBoardDirty034B()" in live_orders
     assert 'text("hspSOpenTables031D"' in live_orders
     assert 'text("hspSTotal024R"' in live_orders
     assert "if (signature(nextOrders) === signature(cxHspOrders024R)) return" in live_orders
