@@ -22189,6 +22189,7 @@ function inventoryCreatePayload() {
         </div>
         <div class="hsp-section-title-024y">Cuentas por persona</div>
         <div class="hsp-person-024r">${people || `<div class="hsp-empty-024r">Sin personas</div>`}</div>
+        ${cxHspQuickAddRow034A(Array.isArray(order.order_ids) && order.order_ids.length ? order.order_ids[order.order_ids.length - 1] : "")}
         <div class="hsp-actions-024r">
           ${cxHspCloseControls030A(order)}
         </div>
@@ -22308,6 +22309,45 @@ function inventoryCreatePayload() {
     return data;
   }
 
+  function cxHspQuickAddRow034A(orderId = "") {
+    if (!orderId) return "";
+    return `
+      <div class="hsp-bar-add-031d hsp-quick-add-034a" data-hsp-quick-add-row>
+        <label><span>Agregar a esta mesa</span><input data-hsp-quick-add-search list="hspBarInventoryList031F" autocomplete="off" placeholder="Escribe: poker, águila..." /></label>
+        <label><span>Cant.</span><input data-hsp-quick-add-qty type="number" min="1" step="1" value="1" /></label>
+        <button class="hsp-btn-024r green" type="button" data-hsp-quick-add="${h(orderId)}">+ Agregar</button>
+      </div>`;
+  }
+
+  async function cxHspQuickAdd034A(button) {
+    const row = button?.closest("[data-hsp-quick-add-row]");
+    const orderId = button?.getAttribute("data-hsp-quick-add") || "";
+    const productInput = row?.querySelector("[data-hsp-quick-add-search]");
+    const qtyInput = row?.querySelector("[data-hsp-quick-add-qty]");
+    const inventory = cxHspFindInventoryBySearch031F(productInput?.value || "");
+    const quantity = Number(qtyInput?.value || 0);
+    if (!orderId || !inventory?.id || quantity < 1) {
+      cxHspShowMsg024R("hspGlobalMsg024R", "Elige un artículo de las sugerencias y una cantidad válida.", true);
+      productInput?.focus();
+      return;
+    }
+    const item = cxHspOrderItemFromInventory031F(inventory, quantity);
+    try {
+      button.disabled = true;
+      await cxHspApi024R(`/orders/${encodeURIComponent(orderId)}/items`, {
+        method: "POST",
+        body: JSON.stringify({ items: [item] }),
+      });
+      cxHspInteractionHoldUntil031G = 0;
+      await Promise.all([cxHspLoadInventory024R(), cxHspLoadOrders024R()]);
+      cxHspShowMsg024R("hspGlobalMsg024R", `${item.quantity} x ${item.name} agregado a la mesa.`);
+    } catch (error) {
+      cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo agregar el artículo.", true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function cxHspOrderCard024R(order = {}) {
     if (order.__merged_table) return cxHspMergedOrderCard024Y(order);
 
@@ -22367,6 +22407,7 @@ function inventoryCreatePayload() {
         <div class="hsp-total-024r"><span>Total mesa</span><span>${h(cxHspMoney024R(order.total))}</span></div>
         <div class="hsp-people-024r">${people || `<div class="hsp-empty-024r">Sin detalle</div>`}</div>
         ${order.notes ? `<div class="hsp-notes-024r"><b>Notas:</b><br>${h(order.notes)}</div>` : ""}
+        ${["pendiente", "alistando", "entregado"].includes(String(order.status || "")) ? cxHspQuickAddRow034A(order.id) : ""}
         <div class="hsp-actions-024r">${actions}</div>
       </article>
     `;
@@ -22552,6 +22593,17 @@ function inventoryCreatePayload() {
       ? event.target.closest(".hsp-pending-product-031u,.hsp-pending-qty-031u")
       : null;
     if (pendingEditorInput) cxHspRefreshPendingItemTotal031U(pendingEditorInput.closest("[data-hsp-pending-item-row]"));
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const field = event.target instanceof Element
+      ? event.target.closest("[data-hsp-quick-add-search],[data-hsp-quick-add-qty]")
+      : null;
+    if (!field) return;
+    event.preventDefault();
+    const button = field.closest("[data-hsp-quick-add-row]")?.querySelector("[data-hsp-quick-add]");
+    if (button && !button.disabled) cxHspQuickAdd034A(button);
   });
 
   document.addEventListener("change", (event) => {
@@ -30855,6 +30907,12 @@ function inventoryCreatePayload() {
         } catch (error) {
           cxHspShowMsg024R("hspFormMsg024R", error.message || "No se pudo registrar el consumo.", true);
         }
+        return;
+      }
+
+      const hspQuickAdd = target.closest("[data-hsp-quick-add]");
+      if (hspQuickAdd) {
+        await cxHspQuickAdd034A(hspQuickAdd);
         return;
       }
 

@@ -5102,6 +5102,117 @@ async def update_pending_hospitality_order_items(
     return {"ok": True, "removed": removed, "order": saved, "table": saved}
 
 
+QUICK_ADD_PERSON_ID = "person_barra_quick_add"
+QUICK_ADD_PERSON_NAME = "Carga barra"
+QUICK_ADD_OPEN_STATUSES = {STATUS_PENDING, STATUS_PREPARING, STATUS_SERVED}
+
+
+def _append_quick_add_person(people: list[Any] | None, new_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add barman-loaded items to a dedicated person so per-customer QR accounts stay intact."""
+    rows = [dict(person) for person in (people or []) if isinstance(person, dict)]
+    target = next((person for person in rows if person.get("id") == QUICK_ADD_PERSON_ID), None)
+    if target is None:
+        target = {
+            "id": QUICK_ADD_PERSON_ID,
+            "name": QUICK_ADD_PERSON_NAME,
+            "customer_key": _customer_key(QUICK_ADD_PERSON_NAME),
+            "total": 0,
+            "items": [],
+        }
+        rows.append(target)
+    target["items"] = _merge_hospitality_items([*(target.get("items") or []), *new_items])
+    target["total"] = _money(sum(_num(item.get("subtotal")) for item in target["items"]))
+    return rows
+
+
+@router.post("/companies/{company_id}/orders/{order_id}/items")
+async def add_hospitality_order_items(
+    company_id: uuid.UUID,
+    order_id: uuid.UUID,
+    payload: HospitalityBarAccountItemsIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Append items to an open table order without rewriting what is already there.
+
+    The order row is locked, so a QR submission and a barman quick-add hitting the
+    same order at the same moment are serialized instead of overwriting each other.
+    """
+    await _ensure_storage(db)
+    current_result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_orders
+            WHERE id = :order_id
+              AND company_id = :company_id
+            LIMIT 1
+            FOR UPDATE
+            """
+        ),
+        {"order_id": str(order_id), "company_id": str(company_id)},
+    )
+    current_row = current_result.mappings().first()
+    if not current_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="pedido_no_encontrado")
+    order = _payload(current_row)
+    if _status(order.get("status")) not in QUICK_ADD_OPEN_STATUSES or order.get("archived_at"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La mesa ya no está abierta. Actualiza el tablero.",
+        )
+
+    new_items = await _build_order_items(db, company_id, payload.items)
+    if order.get("inventory_deducted"):
+        # Stock for the existing lines was already taken; take only the new lines.
+        await _deduct_inventory(
+            db,
+            company_id,
+            {
+                "id": order.get("id"),
+                "order_number": order.get("order_number"),
+                "table_number": order.get("table_number"),
+                "items": new_items,
+                "inventory_deducted": False,
+            },
+        )
+    # Otherwise the whole order (new lines included) is deducted when it is served.
+
+    combined_items = _merge_hospitality_items([*(order.get("items") or []), *new_items])
+    total = _money(sum(_num(item.get("subtotal")) for item in combined_items))
+    people = _append_quick_add_person(order.get("people"), new_items)
+    metadata = {
+        "quick_add_last_at": _now().isoformat(),
+        "quick_add_last_items": [
+            {"name": item.get("name"), "quantity": item.get("quantity")} for item in new_items
+        ],
+    }
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_orders
+            SET items = CAST(:items AS jsonb),
+                people = CAST(:people AS jsonb),
+                total = :total,
+                metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb),
+                updated_at = NOW()
+            WHERE id = :order_id
+              AND company_id = :company_id
+            """
+        ),
+        {
+            "items": json.dumps(combined_items, ensure_ascii=False),
+            "people": json.dumps(people, ensure_ascii=False),
+            "total": total,
+            "metadata": json.dumps(metadata, ensure_ascii=False),
+            "order_id": str(order_id),
+            "company_id": str(company_id),
+        },
+    )
+    await db.commit()
+    saved = await _fetch_order(db, company_id, order_id)
+    return {"ok": True, "added": new_items, "order": saved, "table": saved}
+
+
 @router.patch("/companies/{company_id}/orders/{order_id}/status")
 async def update_hospitality_order_status(
     company_id: uuid.UUID,
