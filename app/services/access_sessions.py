@@ -194,6 +194,95 @@ async def close_access_session(
     return bool(getattr(result, "rowcount", 0))
 
 
+async def close_other_sessions_for_subject(
+    db: AsyncSession,
+    *,
+    company_id: UUID | str,
+    scope: str,
+    subject_id: UUID | str,
+    reason: str = "Sesion cerrada desde otro dispositivo.",
+) -> int:
+    """One-device-at-a-time login: close every OTHER active session of this same
+    user (subject_id) in this scope, without touching sessions of other users
+    of the same company/scope. Used by the mesero/cocina/caja login only, so it
+    never changes the shared, company-wide session policy other mini panels use.
+    """
+    await ensure_access_sessions_storage(db)
+    result = await db.execute(
+        text("""
+            UPDATE clonexa_access_sessions
+            SET status = 'closed',
+                closed_at = COALESCE(closed_at, NOW()),
+                closed_reason = :reason,
+                last_seen_at = NOW()
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND scope = :scope
+              AND subject_id = CAST(:subject_id AS uuid)
+              AND status = 'active'
+        """),
+        {
+            "company_id": str(company_id),
+            "scope": str(scope),
+            "subject_id": str(subject_id),
+            "reason": str(reason or "closed")[:160],
+        },
+    )
+    await db.commit()
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
+async def ip_allowed_for_scope(
+    db: AsyncSession,
+    company_id: UUID | str,
+    scope: str,
+    ip_value: str,
+) -> bool:
+    """Mirrors app.main's page-load IP guard (companies.settings_json.security.
+    ip_allowlist), but callable from inside an endpoint so mesero/cocina/caja
+    routes enforce it themselves and do not rely only on the page middleware.
+    """
+    result = await db.execute(
+        text("SELECT settings_json FROM companies WHERE id = CAST(:company_id AS uuid)"),
+        {"company_id": str(company_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        return True
+
+    store = _json(row.get("settings_json"))
+    security = store.get("security") if isinstance(store.get("security"), dict) else {}
+    policy = security.get("ip_allowlist") if isinstance(security.get("ip_allowlist"), dict) else {}
+    if not policy.get("enabled"):
+        return True
+
+    scopes = policy.get("scopes") if isinstance(policy.get("scopes"), dict) else {}
+    scoped = scopes.get(scope) if isinstance(scopes.get(scope), dict) else {}
+    allowed_ips = scoped.get("allowed_ips") if isinstance(scoped.get("allowed_ips"), list) else []
+    if not scoped.get("enabled") or not allowed_ips:
+        return True
+
+    import ipaddress
+
+    try:
+        candidate = ipaddress.ip_address(ip_value)
+    except ValueError:
+        return False
+
+    for entry in allowed_ips:
+        text_value = str(entry or "").strip()
+        if not text_value:
+            continue
+        try:
+            if "/" in text_value:
+                if candidate in ipaddress.ip_network(text_value, strict=False):
+                    return True
+            elif candidate == ipaddress.ip_address(text_value):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 async def close_company_access_sessions(
     db: AsyncSession,
     company_id: UUID | str,
@@ -306,7 +395,7 @@ async def validate_access_session(
     await ensure_access_sessions_storage(db)
     result = await db.execute(
         text("""
-            SELECT session_key, company_id::text AS company_id, scope, status, subject_label
+            SELECT session_key, company_id::text AS company_id, scope, status, subject_label, closed_reason
             FROM clonexa_access_sessions
             WHERE session_key = :session_key
         """),
@@ -323,7 +412,10 @@ async def validate_access_session(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesion no pertenece a este panel.")
 
     if str(row.get("status") or "").lower() != "active":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesion cerrada desde Admin V2.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(row.get("closed_reason") or "").strip() or "Sesion cerrada desde Admin V2.",
+        )
 
     try:
         await db.execute(

@@ -94,4 +94,35 @@ def register_client_portal(app: FastAPI) -> None:
             return _read_html(web_dir / "mini_panel.html")
     # CLONEXA_019D_MINI_PANEL_ROUTES_END
 
+    # CLONEXA_026K_WAITER_ORDERING_ROUTES_START
+    # Fase 1 mesero -> cocina -> caja: dedicated pages per role (not the
+    # generic mini_panel.js shell), so the other 7 mini panel types keep
+    # working unchanged. Still under /mini-panel/*, so the existing IP
+    # allowlist middleware (app/main.py) covers these for free.
+    _WAITER_ORDERING_PAGES = {
+        "/mini-panel/mesero": "hsp_waiter.html",
+        "/mini-panel/mesero/login": "hsp_waiter.html",
+        "/mini-panel/cocina": "hsp_kitchen.html",
+        "/mini-panel/cocina/login": "hsp_kitchen.html",
+        "/mini-panel/caja": "hsp_cashier.html",
+        "/mini-panel/caja/login": "hsp_cashier.html",
+    }
+    for _path, _file in _WAITER_ORDERING_PAGES.items():
+        if any(getattr(route, "path", None) == _path for route in app.routes):
+            continue
+
+        def _make_waiter_ordering_page(file_name: str):
+            async def _page() -> HTMLResponse:
+                return _read_html(web_dir / file_name)
+            return _page
+
+        app.add_api_route(
+            _path,
+            _make_waiter_ordering_page(_file),
+            methods=["GET"],
+            response_class=HTMLResponse,
+            include_in_schema=False,
+        )
+    # CLONEXA_026K_WAITER_ORDERING_ROUTES_END
+
     app.state.clonexa_client_portal_registered = True

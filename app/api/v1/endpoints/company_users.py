@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant
+from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 from app.api.v1.endpoints.employees import (
     add_attendance_event,
@@ -42,7 +42,12 @@ from app.services.auth_service import (
     hash_password,
     verify_password,
 )
-from app.services.access_sessions import ensure_access_sessions_storage, register_access_session
+from app.services.access_sessions import (
+    close_other_sessions_for_subject,
+    ensure_access_sessions_storage,
+    ip_allowed_for_scope,
+    register_access_session,
+)
 from app.api.v1.endpoints.transport_calls import ensure_transport_calls_storage
 
 router = APIRouter()
@@ -139,6 +144,16 @@ def _cx_panel_type_019d(value: Any) -> str:
         "otro": "other",
         "otros": "other",
         "other": "other",
+        "mesero": "mesero",
+        "meseros": "mesero",
+        "mesera": "mesero",
+        "waiter": "mesero",
+        "cocina": "cocina",
+        "kitchen": "cocina",
+        "caja": "caja",
+        "cajero": "caja",
+        "cajera": "caja",
+        "cashier": "caja",
     }
     clean = aliases.get(panel_type, panel_type)
     if clean not in MINI_PANEL_ALLOWED_TYPES_019C:
@@ -155,6 +170,9 @@ def _cx_minipanel_type_label_019d(panel_type: str) -> str:
         "call_center": "Call Center",
         "external": "Externo",
         "other": "Otros",
+        "mesero": "Mesero",
+        "cocina": "Cocina",
+        "caja": "Caja",
     }.get(panel_type, panel_type)
 
 
@@ -271,6 +289,10 @@ async def mini_panel_login(
     panel_type = _cx_panel_type_019d(payload.panel_type)
     company = await _cx_company_or_404_019d(db, company_id)
 
+    if panel_type in WAITER_ORDERING_PANEL_TYPES_026K:
+        await _cx_require_waiter_ordering_module_026k(db, company_id)
+        await _cx_require_local_network_026k(db, company_id, request)
+
     user = await _cx_find_minipanel_login_user_019d(
         db,
         company_id,
@@ -292,6 +314,17 @@ async def mini_panel_login(
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(user)
+
+    if panel_type in WAITER_ORDERING_PANEL_TYPES_026K:
+        # One device at a time per mesero/cocina/caja user: logging in here
+        # closes this same user's other sessions (not the whole company's).
+        await close_other_sessions_for_subject(
+            db,
+            company_id=company_id,
+            scope="mini_panel",
+            subject_id=user.id,
+            reason="Tu sesion se abrio en otro dispositivo.",
+        )
 
     expires_in_minutes = get_access_token_expire_minutes()
     session_key = await register_access_session(
@@ -352,8 +385,78 @@ async def mini_panel_session(
 # CLONEXA_019D_MINIPANEL_LOGIN_BACKEND_END
 
 
-MINI_PANEL_ALLOWED_TYPES_019C = {"sales", "store", "inventory", "logistics", "call_center", "external", "other"}
+MINI_PANEL_ALLOWED_TYPES_019C = {
+    "sales", "store", "inventory", "logistics", "call_center", "external", "other",
+    "mesero", "cocina", "caja",
+}
 SALES_ROLE_TOKENS_019C = {"vendedor", "ventas", "sales", "comercial", "asesor_comercial", "asesor comercial"}
+
+# CLONEXA_026K_WAITER_ORDERING_START
+# Fase 1 mesero -> cocina -> caja: these three panel types only work for a
+# company with the "waiter_ordering" module enabled, and their login/creation
+# must be validated on the server (module + local-network IP), never only by
+# the page they load. Reusing the generic mini-panel machinery for auth/link/
+# limits, this is the minimal gate layered on top of it.
+WAITER_ORDERING_PANEL_TYPES_026K = {"mesero", "cocina", "caja"}
+WAITER_ORDERING_DEFAULT_LIMITS_026K = {"mesero": 10, "cocina": 2, "caja": 1}
+
+
+def _cx_client_ip_026k(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For") or ""
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:120]
+    if request.client and request.client.host:
+        return request.client.host[:120]
+    return ""
+
+
+async def _cx_require_waiter_ordering_module_026k(db: AsyncSession, company_id: UUID) -> None:
+    await require_enabled_module(db, company_id, "waiter_ordering")
+
+
+async def _cx_require_local_network_026k(db: AsyncSession, company_id: UUID, request: Request) -> None:
+    ip_value = _cx_client_ip_026k(request)
+    if await ip_allowed_for_scope(db, company_id, "mini_panel", ip_value):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Conectate al WiFi del restaurante.")
+
+
+async def _cx_waiter_ordering_module_settings_026k(db: AsyncSession, company_id: UUID) -> Dict[str, Any]:
+    result = await db.execute(
+        text(
+            """
+            SELECT cm.settings
+            FROM company_modules cm
+            JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = CAST(:company_id AS uuid)
+              AND m.code = 'waiter_ordering'
+              AND cm.enabled IS TRUE
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    row = result.mappings().first()
+    settings = row["settings"] if row else None
+    return settings if isinstance(settings, dict) else {}
+
+
+async def _cx_waiter_ordering_user_limit_026k(db: AsyncSession, company_id: UUID, panel_type: str) -> int:
+    settings = await _cx_waiter_ordering_module_settings_026k(db, company_id)
+    key = {"mesero": "waiter_user_limit", "cocina": "kitchen_user_limit", "caja": "cashier_user_limit"}.get(panel_type)
+    default = WAITER_ORDERING_DEFAULT_LIMITS_026K.get(panel_type, 10)
+    try:
+        value = int(settings.get(key)) if key and settings.get(key) is not None else default
+    except (TypeError, ValueError):
+        value = default
+    return max(1, min(50, value))
+
+
+async def _cx_count_minipanel_users_of_type_026k(db: AsyncSession, company_id: UUID, panel_type: str) -> int:
+    result = await db.execute(select(CompanyUser).where(CompanyUser.company_id == company_id))
+    users = result.scalars().all()
+    return sum(1 for user in users if _cx_is_minipanel_user_019c(user, panel_type))
+# CLONEXA_026K_WAITER_ORDERING_END
 STORE_ROLE_TOKENS_023S = {
     "cajero",
     "cajera",
@@ -764,6 +867,16 @@ async def _cx_create_minipanel_user_from_employee_026j(
     existing = await _cx_find_minipanel_user_019c(db, company_id, payload.employee_id, clean_type)
     if existing:
         return _cx_minipanel_user_payload_019c(existing)
+
+    if clean_type in WAITER_ORDERING_PANEL_TYPES_026K:
+        await _cx_require_waiter_ordering_module_026k(db, company_id)
+        limit = await _cx_waiter_ordering_user_limit_026k(db, company_id, clean_type)
+        current_count = await _cx_count_minipanel_users_of_type_026k(db, company_id, clean_type)
+        if current_count >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Limite de usuarios de {_cx_minipanel_type_label_019d(clean_type)} alcanzado ({limit}).",
+            )
 
     temp_password = generate_temporary_password()
     now = datetime.now(timezone.utc)

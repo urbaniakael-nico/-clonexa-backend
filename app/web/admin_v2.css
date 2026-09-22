@@ -1750,6 +1750,62 @@ p {
   font-size: 18px;
 }
 
+/* CLONEXA_026K_WAITER_ORDERING_ADMIN_START */
+.cx-wo-category-list-026k,
+.cx-wo-cocina-list-026k {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.cx-wo-category-row-026k {
+  display: grid;
+  grid-template-columns: 44px minmax(120px, 1fr) 140px minmax(160px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--cx-border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.03);
+}
+
+.cx-wo-cat-thumb-026k {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background-size: cover;
+  background-position: center;
+  background-color: rgba(255,255,255,.06);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+
+.cx-wo-cocina-row-026k {
+  display: grid;
+  grid-template-columns: 160px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--cx-border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.03);
+}
+
+.cx-wo-cocina-stations-026k {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .cx-wo-category-row-026k,
+  .cx-wo-cocina-row-026k {
+    grid-template-columns: 1fr;
+  }
+}
+/* CLONEXA_026K_WAITER_ORDERING_ADMIN_END */
+
 .cx-qr-note-025n {
   margin: 0;
   padding: 10px 12px;

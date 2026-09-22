@@ -42,6 +42,7 @@ for _module_name, _prefix, _tags in [
     ("mini_panel_requests", "/mini-panel-requests", ["mini_panel_requests"]),
     ("day_closing", "/day-closing", ["day_closing"]),
     ("hospitality", "/hospitality", ["hospitality"]),
+    ("waiter_ordering", "/companies", ["waiter_ordering"]),
     ("field", "/field", ["field"]),
     ("landing_analytics", "/landing-analytics", ["landing_analytics"]),
     ("assemblies", "/assemblies", ["assemblies"]),

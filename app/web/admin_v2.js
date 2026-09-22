@@ -14,6 +14,8 @@
     companyAccessPolicies: new Map(),
     companySessionPolicies: new Map(),
     companyAccessSessions: new Map(),
+    companyWaiterOrderingCategories: new Map(),
+    companyWaiterOrderingCocinaUsers: new Map(),
     adminV2Sessions: null,
     companyActivity: new Map(),
     companyResetPreviews: new Map(),
@@ -2687,6 +2689,227 @@
   }
   /* CLONEXA_025N_QR_CONFIG_V2_END */
 
+  /* CLONEXA_026K_WAITER_ORDERING_ADMIN_START */
+  // Fase 1 mesero -> cocina -> caja. Renders nothing unless the company
+  // already has the "waiter_ordering" module (only ASADERO EL SOCIO today),
+  // so no other company's admin view changes.
+  function cxFindCompanyWaiterOrderingModule026K(companyId) {
+    const rows = safeArray(state.companyModules.get(companyId)).map(normalizeModule);
+    return rows.find((row) => cxQrNorm025N(row.code) === "waiter_ordering" && row.enabled !== false) || null;
+  }
+
+  function cxWaiterOrderingSettings026K(moduleRow) {
+    const settings = moduleRow && typeof moduleRow.settings === "object" && moduleRow.settings ? moduleRow.settings : {};
+    return {
+      stations: Array.isArray(settings.stations) && settings.stations.length ? settings.stations : ["parrilla", "freidora", "bebidas", "otros"],
+      kitchen_user_limit: Number(settings.kitchen_user_limit) > 0 ? Number(settings.kitchen_user_limit) : 2,
+      cashier_user_limit: Number(settings.cashier_user_limit) > 0 ? Number(settings.cashier_user_limit) : 1,
+      waiter_user_limit: Number(settings.waiter_user_limit) > 0 ? Number(settings.waiter_user_limit) : 10,
+      timer_thresholds: {
+        green_max_minutes: Number(settings.timer_thresholds?.green_max_minutes) > 0 ? Number(settings.timer_thresholds.green_max_minutes) : 10,
+        yellow_max_minutes: Number(settings.timer_thresholds?.yellow_max_minutes) > 0 ? Number(settings.timer_thresholds.yellow_max_minutes) : 20,
+      },
+    };
+  }
+
+  function cxRenderCompanyWaiterOrderingConfig026K(company) {
+    const moduleRow = cxFindCompanyWaiterOrderingModule026K(company.id);
+    if (!moduleRow) return "";
+    const settings = cxWaiterOrderingSettings026K(moduleRow);
+    const categories = state.companyWaiterOrderingCategories?.get(company.id);
+    const cocinaUsers = state.companyWaiterOrderingCocinaUsers?.get(company.id);
+
+    return `
+      <section class="cx-mini-card cx-wo-config-026k" style="margin-top:12px">
+        <div class="cx-card-head">
+          <div>
+            <strong>Pedidos por mesero (Fase 1)</strong>
+            <p>Estaciones de cocina, cupos de mesero/cocina/caja y colores del cronometro.</p>
+          </div>
+          <span class="cx-badge cx-badge-live">Activo</span>
+        </div>
+
+        <form class="cx-form cx-wo-form-026k" id="companyWaiterOrderingForm026K" data-company-id="${escapeHtml(company.id)}">
+          <label>Estaciones (una por linea)
+            <textarea name="stations" rows="4">${escapeHtml((settings.stations || []).join("\n"))}</textarea>
+          </label>
+          <div class="cx-qr-grid-025n">
+            <label>Cupo mesero
+              <input name="waiter_user_limit" type="number" min="1" max="50" value="${escapeHtml(settings.waiter_user_limit)}">
+            </label>
+            <label>Cupo cocina
+              <input name="kitchen_user_limit" type="number" min="1" max="50" value="${escapeHtml(settings.kitchen_user_limit)}">
+            </label>
+            <label>Cupo caja
+              <input name="cashier_user_limit" type="number" min="1" max="50" value="${escapeHtml(settings.cashier_user_limit)}">
+            </label>
+            <label>Cronometro verde hasta (min)
+              <input name="green_max_minutes" type="number" min="1" max="180" value="${escapeHtml(settings.timer_thresholds.green_max_minutes)}">
+            </label>
+            <label>Cronometro amarillo hasta (min)
+              <input name="yellow_max_minutes" type="number" min="1" max="240" value="${escapeHtml(settings.timer_thresholds.yellow_max_minutes)}">
+            </label>
+          </div>
+          <button class="cx-btn cx-btn-primary" type="submit">Guardar configuracion</button>
+        </form>
+
+        <div class="cx-wo-categories-026k" style="margin-top:16px">
+          <strong>Categorias: imagen y estacion</strong>
+          ${!categories || categories.loading ? `<div class="cx-empty-state">Cargando categorias...</div>` : `
+            <div class="cx-wo-category-list-026k">
+              ${(categories.categories || []).map((cat) => `
+                <form class="cx-wo-category-row-026k" data-cx-wo-category="${escapeHtml(cat.key)}" data-company-id="${escapeHtml(company.id)}">
+                  <span class="cx-wo-cat-thumb-026k" style="background-image:url('${API}/companies/${encodeURIComponent(company.id)}/waiter-ordering/categories/${encodeURIComponent(cat.key)}/image')">${cat.has_image ? "" : "🍽️"}</span>
+                  <span class="cx-wo-cat-label-026k">${escapeHtml(cat.label)}</span>
+                  <select name="station">
+                    <option value="">Sin estacion</option>
+                    ${settings.stations.map((st) => `<option value="${escapeHtml(st)}" ${cat.station === st ? "selected" : ""}>${escapeHtml(st)}</option>`).join("")}
+                  </select>
+                  <input name="quick_notes" placeholder="Notas rapidas separadas por coma" value="${escapeHtml((cat.quick_notes || []).join(", "))}">
+                  <input type="file" name="image" accept="image/png,image/jpeg,image/webp">
+                  <button class="cx-btn" type="submit">Guardar</button>
+                </form>
+              `).join("") || `<div class="cx-empty-state">Sin categorias detectadas todavia (agrega inventario primero).</div>`}
+            </div>
+          `}
+        </div>
+
+        <div class="cx-wo-cocina-users-026k" style="margin-top:16px">
+          <strong>Estaciones por usuario de cocina</strong>
+          ${!cocinaUsers || cocinaUsers.loading ? `<div class="cx-empty-state">Cargando usuarios de cocina...</div>` : `
+            <div class="cx-wo-cocina-list-026k">
+              ${(cocinaUsers.users || []).map((user) => `
+                <form class="cx-wo-cocina-row-026k" data-cx-wo-cocina-user="${escapeHtml(user.id)}" data-company-id="${escapeHtml(company.id)}">
+                  <span class="cx-wo-cocina-name-026k">${escapeHtml(user.full_name || user.email)}</span>
+                  <div class="cx-wo-cocina-stations-026k">
+                    ${settings.stations.map((st) => `
+                      <label class="cx-reset-scope">
+                        <input type="checkbox" name="stations" value="${escapeHtml(st)}" ${(user.stations || []).includes(st) ? "checked" : ""}>
+                        <span>${escapeHtml(st)}</span>
+                      </label>
+                    `).join("")}
+                  </div>
+                  <button class="cx-btn" type="submit">Guardar</button>
+                </form>
+              `).join("") || `<div class="cx-empty-state">Sin usuarios de cocina creados todavia.</div>`}
+            </div>
+          `}
+        </div>
+      </section>
+    `;
+  }
+
+  async function loadCompanyWaiterOrderingCategories026K(companyId, force = false) {
+    if (!force && state.companyWaiterOrderingCategories.has(companyId)) {
+      return state.companyWaiterOrderingCategories.get(companyId);
+    }
+    try {
+      const data = await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/waiter-ordering/categories`);
+      state.companyWaiterOrderingCategories.set(companyId, data || { categories: [] });
+      return data;
+    } catch (error) {
+      const fallback = { categories: [], error: error.message };
+      state.companyWaiterOrderingCategories.set(companyId, fallback);
+      return fallback;
+    }
+  }
+
+  async function loadCompanyWaiterOrderingCocinaUsers026K(companyId, force = false) {
+    if (!force && state.companyWaiterOrderingCocinaUsers.has(companyId)) {
+      return state.companyWaiterOrderingCocinaUsers.get(companyId);
+    }
+    try {
+      const users = await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/mini-panel-users?panel_type=cocina`);
+      const normalized = (Array.isArray(users) ? users : []).map((user) => ({
+        ...user,
+        stations: Array.isArray(user?.mini_panel?.stations) ? user.mini_panel.stations : [],
+      }));
+      const payload = { users: normalized };
+      state.companyWaiterOrderingCocinaUsers.set(companyId, payload);
+      return payload;
+    } catch (error) {
+      const fallback = { users: [], error: error.message };
+      state.companyWaiterOrderingCocinaUsers.set(companyId, fallback);
+      return fallback;
+    }
+  }
+
+  async function cxSaveCompanyWaiterOrderingConfig026K(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const data = Object.fromEntries(new FormData(form).entries());
+    const stations = String(data.stations || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    const payload = {
+      stations: stations.length ? stations : ["parrilla", "freidora", "bebidas", "otros"],
+      waiter_user_limit: Math.max(1, Math.min(50, Number(data.waiter_user_limit) || 10)),
+      kitchen_user_limit: Math.max(1, Math.min(50, Number(data.kitchen_user_limit) || 2)),
+      cashier_user_limit: Math.max(1, Math.min(50, Number(data.cashier_user_limit) || 1)),
+      timer_thresholds: {
+        green_max_minutes: Math.max(1, Math.min(180, Number(data.green_max_minutes) || 10)),
+        yellow_max_minutes: Math.max(1, Math.min(240, Number(data.yellow_max_minutes) || 20)),
+      },
+    };
+
+    try {
+      await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/modules/waiter_ordering/activate`, {
+        method: "POST",
+        body: JSON.stringify({ settings: payload }),
+      });
+      await loadCompanyModules(companyId);
+      showToast("Configuracion de pedidos por mesero guardada.");
+      const company = state.companies.find((item) => String(item.id) === String(companyId));
+      if (company && state.selectedCompanyId === companyId) renderCompanyDetailTab(company);
+    } catch (error) {
+      showToast(`No se pudo guardar: ${error.message}`, "error");
+    }
+  }
+
+  async function cxSaveCompanyWaiterOrderingCategory026K(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const key = form.getAttribute("data-cx-wo-category");
+    const data = new FormData(form);
+    const quickNotes = String(data.get("quick_notes") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    try {
+      await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/waiter-ordering/categories/${encodeURIComponent(key)}`, {
+        method: "PUT",
+        body: JSON.stringify({ station: data.get("station") || "", quick_notes: quickNotes }),
+      });
+      const imageFile = form.querySelector("input[name='image']")?.files?.[0];
+      if (imageFile) {
+        const imageForm = new FormData();
+        imageForm.append("image", imageFile);
+        await fetch(`${API}/companies/${encodeURIComponent(companyId)}/waiter-ordering/categories/${encodeURIComponent(key)}/image`, {
+          method: "POST",
+          body: imageForm,
+        });
+      }
+      await loadCompanyWaiterOrderingCategories026K(companyId, true);
+      showToast("Categoria actualizada.");
+      const company = state.companies.find((item) => String(item.id) === String(companyId));
+      if (company && state.selectedCompanyId === companyId) renderCompanyDetailTab(company);
+    } catch (error) {
+      showToast(`No se pudo guardar la categoria: ${error.message}`, "error");
+    }
+  }
+
+  async function cxSaveCompanyWaiterOrderingCocinaStations026K(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const userId = form.getAttribute("data-cx-wo-cocina-user");
+    const stations = Array.from(form.querySelectorAll("input[name='stations']:checked")).map((el) => el.value);
+    try {
+      await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/waiter-ordering/cocina-users/${encodeURIComponent(userId)}/stations`, {
+        method: "PUT",
+        body: JSON.stringify({ stations }),
+      });
+      showToast("Estaciones actualizadas.");
+    } catch (error) {
+      showToast(`No se pudo guardar: ${error.message}`, "error");
+    }
+  }
+  /* CLONEXA_026K_WAITER_ORDERING_ADMIN_END */
+
   function cxFindPackageByCodeOrName(value) {
     const target = String(value || "").trim().toLowerCase();
     if (!target) return null;
@@ -2700,17 +2923,19 @@
     const current = packageForCompany(company);
     const pkg = cxFindPackageByCodeOrName(current);
     const qrConfig = cxRenderCompanyQrConfig025N(company);
+    const waiterOrderingConfig = cxRenderCompanyWaiterOrderingConfig026K(company);
     if (!pkg) {
       return `
         <div style="margin-top:12px">
           <div class="cx-empty-state">Selecciona y activa un paquete para ver sus capacidades heredadas.</div>
           ${qrConfig}
+          ${waiterOrderingConfig}
         </div>
       `;
     }
 
     const settings = state.packageMiniPanelSettings.get(pkg.id) || cxPackageMiniPanelDefaultSettings();
-    return `<div style="margin-top:12px">${cxRenderPackageCapabilitiesSummary(pkg, settings)}${qrConfig}</div>`;
+    return `<div style="margin-top:12px">${cxRenderPackageCapabilitiesSummary(pkg, settings)}${qrConfig}${waiterOrderingConfig}</div>`;
   }
 
   function cxBindPackageBuilderEvents() {
@@ -5498,6 +5723,25 @@
     }
 
     if (tab === "paquete") {
+      if (cxFindCompanyWaiterOrderingModule026K(company.id)) {
+        if (!state.companyWaiterOrderingCategories.has(company.id)) {
+          state.companyWaiterOrderingCategories.set(company.id, { categories: [], loading: true });
+          loadCompanyWaiterOrderingCategories026K(company.id, true).then(() => {
+            if (state.selectedCompanyId === company.id && state.activeDetailTab === "paquete") {
+              renderCompanyDetailTab(company);
+            }
+          });
+        }
+        if (!state.companyWaiterOrderingCocinaUsers.has(company.id)) {
+          state.companyWaiterOrderingCocinaUsers.set(company.id, { users: [], loading: true });
+          loadCompanyWaiterOrderingCocinaUsers026K(company.id, true).then(() => {
+            if (state.selectedCompanyId === company.id && state.activeDetailTab === "paquete") {
+              renderCompanyDetailTab(company);
+            }
+          });
+        }
+      }
+
       const detectedPackageCode = packageForCompany(company);
       const currentPkg = cxFindPackageByCodeOrName(detectedPackageCode);
       const needsPackageCapabilities = currentPkg && !state.packageMiniPanelSettings.has(currentPkg.id);
@@ -6691,6 +6935,18 @@
 
       if (event.target.matches("#companyQrConfigForm025N") && state.selectedCompanyId) {
         await cxSaveCompanyQrConfig025N(state.selectedCompanyId, event);
+      }
+
+      if (event.target.matches("#companyWaiterOrderingForm026K") && state.selectedCompanyId) {
+        await cxSaveCompanyWaiterOrderingConfig026K(state.selectedCompanyId, event);
+      }
+
+      if (event.target.matches("[data-cx-wo-category]")) {
+        await cxSaveCompanyWaiterOrderingCategory026K(event.target.getAttribute("data-company-id"), event);
+      }
+
+      if (event.target.matches("[data-cx-wo-cocina-user]")) {
+        await cxSaveCompanyWaiterOrderingCocinaStations026K(event.target.getAttribute("data-company-id"), event);
       }
 
       if (event.target.matches("#createUserForm") && state.selectedCompanyId) {

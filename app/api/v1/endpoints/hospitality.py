@@ -53,11 +53,23 @@ class HospitalityOrderItemIn(BaseModel):
     unit: str | None = Field(default="unidad", max_length=80)
     unit_price: float = Field(default=0, ge=0)
     note: str | None = Field(default="", max_length=500)
+    # Fase 1 mesero -> cocina -> caja (opcionales; toda orden que no los envie
+    # queda exactamente igual que hoy). `station` la resuelve el llamador
+    # (waiter_ordering.py) a partir de la categoria, no el cliente.
+    observations: str | None = Field(default="", max_length=300)
+    quick_notes: list[str] = Field(default_factory=list)
+    station: str | None = Field(default="", max_length=80)
+    ready: bool = Field(default=False)
 
     @field_validator("name")
     @classmethod
     def clean_name(cls, value: str | None) -> str:
         return _clean(value)[:220]
+
+    @field_validator("quick_notes")
+    @classmethod
+    def clean_quick_notes(cls, value: list[str] | None) -> list[str]:
+        return [_clean(item)[:80] for item in (value or []) if _clean(item)][:8]
 
 
 class HospitalityOrderCreateIn(BaseModel):
@@ -70,6 +82,10 @@ class HospitalityOrderCreateIn(BaseModel):
     notes: str | None = Field(default="", max_length=900)
     songs: str | list[str] | None = Field(default=None)
     items: list[HospitalityOrderItemIn] = Field(default_factory=list)
+    # Fase 1 mesero -> cocina -> caja (opcionales; sin ellos el pedido se crea
+    # exactamente igual que hoy, sin "waiter" en metadata).
+    waiter_id: str | None = Field(default="", max_length=120)
+    waiter_name: str | None = Field(default="", max_length=180)
 
     @field_validator("items")
     @classmethod
@@ -926,6 +942,11 @@ async def _build_order_items(
                 "unit_price": unit_price,
                 "subtotal": _money(quantity * unit_price),
                 "note": _clean(item.note),
+                "observations": _clean(getattr(item, "observations", "")),
+                "quick_notes": list(getattr(item, "quick_notes", None) or []),
+                "station": _clean(getattr(item, "station", "")),
+                "ready": bool(getattr(item, "ready", False)),
+                "ready_at": None,
                 "created_at": _now().isoformat(),
             }
         )
@@ -4988,6 +5009,11 @@ async def create_hospitality_order(
                     "source_product": "bar-bot-completo.zip",
                     "payment_label": PAYMENT_LABELS.get(payment_method, "Otro"),
                     "account_id": account_id,
+                    **(
+                        {"waiter": {"id": _clean(payload.waiter_id), "name": _clean(payload.waiter_name)}}
+                        if _clean(payload.waiter_id) or _clean(payload.waiter_name)
+                        else {}
+                    ),
                 },
                 ensure_ascii=False,
             ),
