@@ -34,8 +34,9 @@ async def test_create_waiter_order_resolves_price_station_and_waiter_identity(mo
     )
     monkeypatch.setattr(
         waiter_ordering, "_category_rows",
-        AsyncMock(return_value={"cerveza": {"key": "cerveza", "station": "bebidas", "quick_notes": []}}),
+        AsyncMock(return_value={"cerveza": {"key": "cerveza", "station": "bebidas", "quick_notes": [], "requires_term": False}}),
     )
+    monkeypatch.setattr(waiter_ordering, "_portion_membership", AsyncMock(return_value={}))
     create_order = AsyncMock(return_value={"ok": True, "order": {"id": "order-1"}})
     monkeypatch.setattr(waiter_ordering, "create_hospitality_order", create_order)
 
@@ -68,6 +69,7 @@ async def test_create_waiter_order_rejects_a_product_outside_the_catalog(monkeyp
     monkeypatch.setattr(waiter_ordering, "ensure_waiter_ordering_storage", AsyncMock())
     monkeypatch.setattr(waiter_ordering, "hospitality_inventory_lite", AsyncMock(return_value={"inventory": []}))
     monkeypatch.setattr(waiter_ordering, "_category_rows", AsyncMock(return_value={}))
+    monkeypatch.setattr(waiter_ordering, "_portion_membership", AsyncMock(return_value={}))
 
     payload = waiter_ordering.WaiterOrderCreateIn(
         table="Mesa 5",

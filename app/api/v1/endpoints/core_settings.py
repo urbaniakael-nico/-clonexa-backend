@@ -10,9 +10,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.company_users import require_company_user_not_role
 
 
 router = APIRouter()
+
+# Fase 2: en empresas con waiter_ordering (hoy solo Asadero El Socio), el rol
+# "administrador" no puede ver ni editar Ajustes de empresa. No-op para el
+# resto de empresas (sin el módulo activo).
+_NOT_ADMINISTRADOR = require_company_user_not_role({"administrador"})
 
 
 class CoreSettingsIn(BaseModel):
@@ -113,6 +119,7 @@ def _row_payload(row: dict[str, Any]) -> dict[str, Any]:
 async def get_company_core_settings(
     company_id: str,
     db: AsyncSession = Depends(get_db),
+    _not_admin: None = Depends(_NOT_ADMINISTRADOR),
 ) -> dict[str, Any]:
     company_id = _company_uuid(company_id)
     await _ensure_company_exists(db, company_id)
@@ -149,6 +156,7 @@ async def update_company_core_settings(
     company_id: str,
     payload: CoreSettingsIn,
     db: AsyncSession = Depends(get_db),
+    _not_admin: None = Depends(_NOT_ADMINISTRADOR),
 ) -> dict[str, Any]:
     company_id = _company_uuid(company_id)
     await _ensure_company_exists(db, company_id)

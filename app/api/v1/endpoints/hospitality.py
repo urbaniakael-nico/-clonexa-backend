@@ -60,6 +60,9 @@ class HospitalityOrderItemIn(BaseModel):
     quick_notes: list[str] = Field(default_factory=list)
     station: str | None = Field(default="", max_length=80)
     ready: bool = Field(default=False)
+    # Fase 2: termino de coccion (crudo/medio/3-4/bien cocinado), solo
+    # aplicable cuando la categoria del producto tiene requires_term=true.
+    term: str | None = Field(default="", max_length=40)
 
     @field_validator("name")
     @classmethod
@@ -947,6 +950,7 @@ async def _build_order_items(
                 "station": _clean(getattr(item, "station", "")),
                 "ready": bool(getattr(item, "ready", False)),
                 "ready_at": None,
+                "term": _clean(getattr(item, "term", "")),
                 "created_at": _now().isoformat(),
             }
         )

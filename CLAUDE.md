@@ -26,6 +26,10 @@ Backend FastAPI + Postgres, desplegado en Railway (proyecto `merry-simplicity`, 
 
 - Los revision id de alembic deben tener máximo 32 caracteres.
 
+## Espacio en base de datos
+
+- La base tiene 500 MB y hoy usa ~235 MB. Antes de guardar cualquier dato pesado nuevo (imágenes, archivos, adjuntos), avísame primero: el siguiente paso es un bucket de objetos, no más bytes en Postgres.
+
 ## Flujo de commit y push (autonomía condicionada)
 
 Tengo autonomía para hacer commit y push a `main`, con una condición obligatoria:

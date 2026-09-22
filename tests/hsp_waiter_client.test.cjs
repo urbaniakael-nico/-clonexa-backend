@@ -39,3 +39,50 @@ test('cartTotal is zero for an empty cart', () => {
   const ctx = context([]);
   assert.equal(ctx.cartTotal(), 0);
 });
+
+function formatHMSContext() {
+  const ctx = vm.createContext({ Math, Number, String });
+  vm.runInContext(fn('formatHMS'), ctx);
+  return ctx;
+}
+
+test('formatHMS shows only minutes under an hour', () => {
+  const ctx = formatHMSContext();
+  assert.equal(ctx.formatHMS(65), '1m');
+  assert.equal(ctx.formatHMS(0), '0m');
+});
+
+test('formatHMS shows hours and padded minutes past an hour', () => {
+  const ctx = formatHMSContext();
+  assert.equal(ctx.formatHMS(3661), '1h 01m');
+  assert.equal(ctx.formatHMS(7200), '2h 00m');
+});
+
+test('addOrUpdateCartLine pushes a new line when no editIndex, replaces in place otherwise', () => {
+  const ctx = vm.createContext({ JSON });
+  vm.runInContext(
+    'var state = { cart: [{ name: "Carne" }] };\n' +
+      'function persistCart(){ state._persisted = JSON.stringify(state.cart); }\n' +
+      fn('addOrUpdateCartLine'),
+    ctx,
+  );
+  ctx.addOrUpdateCartLine({ name: 'Papas' });
+  assert.equal(ctx.state.cart.length, 2);
+  assert.equal(ctx.state.cart[1].name, 'Papas');
+
+  ctx.addOrUpdateCartLine({ name: 'Carne editada' }, 0);
+  assert.equal(ctx.state.cart.length, 2);
+  assert.equal(ctx.state.cart[0].name, 'Carne editada');
+});
+
+test('removeCartLine removes exactly the requested index', () => {
+  const ctx = vm.createContext({ JSON });
+  vm.runInContext(
+    'var state = { cart: [{ name: "A" }, { name: "B" }, { name: "C" }] };\n' +
+      'function persistCart(){}\n' +
+      fn('removeCartLine'),
+    ctx,
+  );
+  ctx.removeCartLine(1);
+  assert.deepEqual(Array.from(ctx.state.cart, (c) => c.name), ['A', 'C']);
+});

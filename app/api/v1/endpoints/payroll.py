@@ -13,8 +13,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.company_users import require_company_user_not_role
 
 router = APIRouter()
+
+# Fase 2 (2026-09-23): "administrador" of a company with waiter_ordering
+# enabled cannot use Nomina, server-side (see require_company_user_not_role
+# in company_users.py). For every other company this dependency is a no-op
+# -- the endpoint stays exactly as open as it is today.
+_NOT_ADMINISTRADOR = require_company_user_not_role({"administrador"})
 
 
 MONEY = Decimal("0.01")
@@ -1010,6 +1017,7 @@ async def calculate_payroll_period(
     company_id: UUID,
     payload: dict | None = None,
     db: AsyncSession = Depends(get_db),
+    _not_admin: None = Depends(_NOT_ADMINISTRADOR),
 ) -> dict:
     await ensure_payroll_storage(db)
 
@@ -1028,6 +1036,7 @@ async def calculate_payroll_period(
 async def list_payroll_periods(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _not_admin: None = Depends(_NOT_ADMINISTRADOR),
 ) -> list[dict]:
     await ensure_payroll_storage(db)
 
@@ -1061,6 +1070,7 @@ async def get_payroll_period(
     company_id: UUID,
     period_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _not_admin: None = Depends(_NOT_ADMINISTRADOR),
 ) -> dict:
     await ensure_payroll_storage(db)
 
@@ -1141,6 +1151,7 @@ async def close_payroll_period(
     company_id: UUID,
     payload: dict | None = None,
     db: AsyncSession = Depends(get_db),
+    _not_admin: None = Depends(_NOT_ADMINISTRADOR),
 ) -> dict:
     await ensure_payroll_storage(db)
 

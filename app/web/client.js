@@ -61,6 +61,22 @@
     return headers;
   }
 
+  /* CLONEXA_029R_ROLE_FROM_TOKEN_START */
+  // Cosmetic only: hides nav buttons for a role. The real 403 lock lives
+  // server-side (require_company_user_not_role), so a stale/decoded-wrong
+  // token here just means the button shows and the request 403s.
+  function currentClientRole() {
+    const token = authToken();
+    if (!token || token.split(".").length !== 3) return "";
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      return String(payload.role || "").trim().toLowerCase();
+    } catch (_) {
+      return "";
+    }
+  }
+  /* CLONEXA_029R_ROLE_FROM_TOKEN_END */
+
   function authQueryParam(prefix = "&") {
     const token = authToken();
     return token ? `${prefix}access_token=${encodeURIComponent(token)}` : "";
@@ -1493,7 +1509,12 @@
   }
 
   function renderClientNav(activeCode = "dashboard") {
-    const modules = visibleClientModules(activeClientModules());
+    let modules = visibleClientModules(activeClientModules());
+    // Fase 2 waiter_ordering: rol "administrador" no ve Nómina (candado real
+    // es el 403 del servidor; esto solo evita mostrar un botón que fallaría).
+    if (currentClientRole() === "administrador") {
+      modules = modules.filter((module) => module.code !== "payroll");
+    }
     const buttons = [`<button class="${activeCode === "dashboard" ? "active" : ""}" type="button" data-client-back-dashboard>Dashboard</button>`];
 
     modules.forEach((module) => {

@@ -16,6 +16,8 @@
     companyAccessSessions: new Map(),
     companyWaiterOrderingCategories: new Map(),
     companyWaiterOrderingCocinaUsers: new Map(),
+    companyWaiterOrderingMeseroUsers: new Map(),
+    companyWaiterOrderingPortions: new Map(),
     adminV2Sessions: null,
     companyActivity: new Map(),
     companyResetPreviews: new Map(),
@@ -2709,6 +2711,7 @@
         green_max_minutes: Number(settings.timer_thresholds?.green_max_minutes) > 0 ? Number(settings.timer_thresholds.green_max_minutes) : 10,
         yellow_max_minutes: Number(settings.timer_thresholds?.yellow_max_minutes) > 0 ? Number(settings.timer_thresholds.yellow_max_minutes) : 20,
       },
+      shift_max_hours: Number(settings.shift_max_hours) > 0 ? Number(settings.shift_max_hours) : 12,
     };
   }
 
@@ -2749,6 +2752,9 @@
             <label>Cronometro amarillo hasta (min)
               <input name="yellow_max_minutes" type="number" min="1" max="240" value="${escapeHtml(settings.timer_thresholds.yellow_max_minutes)}">
             </label>
+            <label>Cierre automatico de turno (horas)
+              <input name="shift_max_hours" type="number" min="1" max="48" step="0.5" value="${escapeHtml(settings.shift_max_hours)}">
+            </label>
           </div>
           <button class="cx-btn cx-btn-primary" type="submit">Guardar configuracion</button>
         </form>
@@ -2766,6 +2772,10 @@
                     ${settings.stations.map((st) => `<option value="${escapeHtml(st)}" ${cat.station === st ? "selected" : ""}>${escapeHtml(st)}</option>`).join("")}
                   </select>
                   <input name="quick_notes" placeholder="Notas rapidas separadas por coma" value="${escapeHtml((cat.quick_notes || []).join(", "))}">
+                  <label class="cx-reset-scope">
+                    <input type="checkbox" name="requires_term" ${cat.requires_term ? "checked" : ""}>
+                    <span>Requiere termino de coccion</span>
+                  </label>
                   <input type="file" name="image" accept="image/png,image/jpeg,image/webp">
                   <button class="cx-btn" type="submit">Guardar</button>
                 </form>
@@ -2795,9 +2805,211 @@
             </div>
           `}
         </div>
+
+        ${cxRenderMeseroGoals030S(company)}
+        ${cxRenderPortionGroups030S(company)}
+        ${cxRenderProductImage030S(company)}
       </section>
     `;
   }
+
+  /* CLONEXA_030S_WAITER_ORDERING_FASE2_ADMIN_START */
+  // Fase 2 additions to the same admin panel: mesero daily sales goal,
+  // product-image upload and portion-group management. Renders nothing
+  // unless the company already has waiter_ordering (checked by the caller,
+  // cxRenderCompanyWaiterOrderingConfig026K, before this ever runs).
+
+  function cxRenderMeseroGoals030S(company) {
+    const meseroUsers = state.companyWaiterOrderingMeseroUsers?.get(company.id);
+    return `
+      <div class="cx-wo-mesero-goals-030s" style="margin-top:16px">
+        <strong>Meta diaria de venta por mesero</strong>
+        ${!meseroUsers || meseroUsers.loading ? `<div class="cx-empty-state">Cargando meseros...</div>` : `
+          <div class="cx-wo-mesero-list-030s">
+            ${(meseroUsers.users || []).map((user) => `
+              <form class="cx-wo-mesero-goal-row-030s" data-cx-wo-mesero-goal="${escapeHtml(user.id)}" data-company-id="${escapeHtml(company.id)}">
+                <span>${escapeHtml(user.full_name || user.email)}</span>
+                <input name="daily_goal" type="number" min="0" step="1000" value="${escapeHtml(user.daily_goal || 0)}">
+                <button class="cx-btn" type="submit">Guardar</button>
+              </form>
+            `).join("") || `<div class="cx-empty-state">Sin meseros creados todavia.</div>`}
+          </div>
+        `}
+      </div>
+    `;
+  }
+
+  function cxRenderProductImage030S(company) {
+    return `
+      <div class="cx-wo-product-image-030s" style="margin-top:16px">
+        <strong>Imagen de producto</strong>
+        <p class="cx-empty-state" style="padding:0 0 8px">Busca el producto por nombre (autocompletado desde el inventario) y sube su foto.</p>
+        <form class="cx-wo-product-image-form-030s" data-cx-wo-product-image data-company-id="${escapeHtml(company.id)}">
+          ${cxProductPickerField030S(company, "inventory_item_id")}
+          <input type="file" name="image" accept="image/png,image/jpeg,image/webp" required>
+          <button class="cx-btn" type="submit">Subir imagen</button>
+        </form>
+      </div>
+    `;
+  }
+
+  function cxProductPickerField030S(company, inputName) {
+    const listId = `cxWoProducts030S_${company.id}`;
+    return `
+      <input name="${escapeHtml(inputName)}" list="${listId}" placeholder="Escribe el nombre del producto..." required data-cx-wo-product-picker="${escapeHtml(company.id)}">
+      <datalist id="${listId}"></datalist>
+    `;
+  }
+
+  async function cxEnsureProductPickerOptions030S(companyId) {
+    try {
+      const data = await cxJsonRequest(`/hospitality/companies/${encodeURIComponent(companyId)}/inventory-lite?limit=500`);
+      const items = Array.isArray(data.inventory) ? data.inventory : [];
+      document.querySelectorAll(`#cxWoProducts030S_${CSS.escape(companyId)}`).forEach((list) => {
+        list.innerHTML = items.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join("");
+      });
+    } catch (_) {
+      // Best-effort autocomplete; the field still accepts a pasted id.
+    }
+  }
+
+  function cxRenderPortionGroups030S(company) {
+    const portions = state.companyWaiterOrderingPortions?.get(company.id);
+    const groups = (portions && portions.groups) || [];
+    return `
+      <div class="cx-wo-portions-030s" style="margin-top:16px">
+        <strong>Grupos de porciones</strong>
+        <p class="cx-empty-state" style="padding:0 0 8px">Cada porcion es un producto independiente de inventario (su propio stock y precio); aqui solo se agrupan bajo un mismo nombre con botones de porcion.</p>
+        ${!portions || portions.loading ? `<div class="cx-empty-state">Cargando grupos...</div>` : `
+          <div class="cx-wo-portion-groups-030s">
+            ${groups.map((group) => `
+              <div class="cx-wo-portion-group-030s"><strong>${escapeHtml(group.group_label)}</strong>
+                <span class="cx-empty-state">${(group.members || []).map((m) => `${escapeHtml(m.portion_label)}`).join(", ")}</span>
+              </div>
+            `).join("") || `<div class="cx-empty-state">Sin grupos de porciones todavia.</div>`}
+          </div>
+        `}
+        <form class="cx-wo-portion-form-030s" data-cx-wo-portion-save data-company-id="${escapeHtml(company.id)}">
+          <input name="group_key" placeholder="Clave del grupo (ej: pollo_asado)" required>
+          <input name="group_label" placeholder="Nombre visible (ej: Pollo Asado)" required>
+          <textarea name="members" rows="4" placeholder="Una porcion por linea: id_de_inventario | etiqueta | posicion&#10;ej: 3f2c... | 1/4 | 0"></textarea>
+          <button class="cx-btn cx-btn-primary" type="submit">Guardar grupo</button>
+        </form>
+      </div>
+    `;
+  }
+
+  async function loadCompanyWaiterOrderingMeseroUsers030S(companyId, force = false) {
+    if (!force && state.companyWaiterOrderingMeseroUsers.has(companyId)) {
+      return state.companyWaiterOrderingMeseroUsers.get(companyId);
+    }
+    try {
+      const users = await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/mini-panel-users?panel_type=mesero`);
+      const normalized = (Array.isArray(users) ? users : []).map((user) => ({
+        ...user,
+        daily_goal: Number(user?.mini_panel?.daily_goal) || 0,
+      }));
+      const payload = { users: normalized };
+      state.companyWaiterOrderingMeseroUsers.set(companyId, payload);
+      return payload;
+    } catch (error) {
+      const fallback = { users: [], error: error.message };
+      state.companyWaiterOrderingMeseroUsers.set(companyId, fallback);
+      return fallback;
+    }
+  }
+
+  async function loadCompanyWaiterOrderingPortions030S(companyId, force = false) {
+    if (!force && state.companyWaiterOrderingPortions.has(companyId)) {
+      return state.companyWaiterOrderingPortions.get(companyId);
+    }
+    try {
+      const data = await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/waiter-ordering/portions`);
+      state.companyWaiterOrderingPortions.set(companyId, data || { groups: [] });
+      return data;
+    } catch (error) {
+      const fallback = { groups: [], error: error.message };
+      state.companyWaiterOrderingPortions.set(companyId, fallback);
+      return fallback;
+    }
+  }
+
+  async function cxSaveMeseroDailyGoal030S(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const userId = form.getAttribute("data-cx-wo-mesero-goal");
+    const dailyGoal = Math.max(0, Number(new FormData(form).get("daily_goal")) || 0);
+    try {
+      await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/waiter-ordering/mesero-users/${encodeURIComponent(userId)}/daily-goal`, {
+        method: "PUT",
+        body: JSON.stringify({ daily_goal: dailyGoal }),
+      });
+      showToast("Meta diaria actualizada.");
+    } catch (error) {
+      showToast(`No se pudo guardar: ${error.message}`, "error");
+    }
+  }
+
+  async function cxSaveProductImage030S(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const data = new FormData(form);
+    const inventoryItemId = String(data.get("inventory_item_id") || "").trim();
+    const imageFile = data.get("image");
+    if (!inventoryItemId || !imageFile || !imageFile.size) {
+      showToast("Elige un producto y una imagen.", "error");
+      return;
+    }
+    try {
+      const imageForm = new FormData();
+      imageForm.append("image", imageFile);
+      const response = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/waiter-ordering/products/${encodeURIComponent(inventoryItemId)}/image`, {
+        method: "POST",
+        body: imageForm,
+      });
+      if (!response.ok) throw new Error(await response.text().catch(() => `${response.status}`));
+      showToast("Imagen del producto guardada.");
+      form.reset();
+    } catch (error) {
+      showToast(`No se pudo subir la imagen: ${error.message}`, "error");
+    }
+  }
+
+  async function cxSaveWaiterOrderingPortionGroup030S(companyId, event) {
+    event.preventDefault();
+    const form = event.target;
+    const data = new FormData(form);
+    const groupKey = String(data.get("group_key") || "").trim();
+    const groupLabel = String(data.get("group_label") || "").trim();
+    const members = String(data.get("members") || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [inventoryItemId, portionLabel, position] = line.split("|").map((part) => (part || "").trim());
+        return { inventory_item_id: inventoryItemId, portion_label: portionLabel, position: Number(position) || 0 };
+      })
+      .filter((member) => member.inventory_item_id && member.portion_label);
+
+    if (!groupKey || !groupLabel || !members.length) {
+      showToast("Completa la clave, el nombre y al menos una porcion.", "error");
+      return;
+    }
+
+    try {
+      await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/waiter-ordering/portions/${encodeURIComponent(groupKey)}`, {
+        method: "PUT",
+        body: JSON.stringify({ group_label: groupLabel, members }),
+      });
+      await loadCompanyWaiterOrderingPortions030S(companyId, true);
+      showToast("Grupo de porciones guardado.");
+      const company = state.companies.find((item) => String(item.id) === String(companyId));
+      if (company && state.selectedCompanyId === companyId) renderCompanyDetailTab(company);
+    } catch (error) {
+      showToast(`No se pudo guardar el grupo: ${error.message}`, "error");
+    }
+  }
+  /* CLONEXA_030S_WAITER_ORDERING_FASE2_ADMIN_END */
 
   async function loadCompanyWaiterOrderingCategories026K(companyId, force = false) {
     if (!force && state.companyWaiterOrderingCategories.has(companyId)) {
@@ -2848,6 +3060,7 @@
         green_max_minutes: Math.max(1, Math.min(180, Number(data.green_max_minutes) || 10)),
         yellow_max_minutes: Math.max(1, Math.min(240, Number(data.yellow_max_minutes) || 20)),
       },
+      shift_max_hours: Math.max(1, Math.min(48, Number(data.shift_max_hours) || 12)),
     };
 
     try {
@@ -2873,7 +3086,7 @@
     try {
       await cxJsonRequest(`/companies/${encodeURIComponent(companyId)}/waiter-ordering/categories/${encodeURIComponent(key)}`, {
         method: "PUT",
-        body: JSON.stringify({ station: data.get("station") || "", quick_notes: quickNotes }),
+        body: JSON.stringify({ station: data.get("station") || "", quick_notes: quickNotes, requires_term: data.get("requires_term") === "on" }),
       });
       const imageFile = form.querySelector("input[name='image']")?.files?.[0];
       if (imageFile) {
@@ -5740,6 +5953,23 @@
             }
           });
         }
+        if (!state.companyWaiterOrderingMeseroUsers.has(company.id)) {
+          state.companyWaiterOrderingMeseroUsers.set(company.id, { users: [], loading: true });
+          loadCompanyWaiterOrderingMeseroUsers030S(company.id, true).then(() => {
+            if (state.selectedCompanyId === company.id && state.activeDetailTab === "paquete") {
+              renderCompanyDetailTab(company);
+            }
+          });
+        }
+        if (!state.companyWaiterOrderingPortions.has(company.id)) {
+          state.companyWaiterOrderingPortions.set(company.id, { groups: [], loading: true });
+          loadCompanyWaiterOrderingPortions030S(company.id, true).then(() => {
+            if (state.selectedCompanyId === company.id && state.activeDetailTab === "paquete") {
+              renderCompanyDetailTab(company);
+            }
+          });
+        }
+        cxEnsureProductPickerOptions030S(company.id);
       }
 
       const detectedPackageCode = packageForCompany(company);
@@ -6947,6 +7177,18 @@
 
       if (event.target.matches("[data-cx-wo-cocina-user]")) {
         await cxSaveCompanyWaiterOrderingCocinaStations026K(event.target.getAttribute("data-company-id"), event);
+      }
+
+      if (event.target.matches("[data-cx-wo-mesero-goal]")) {
+        await cxSaveMeseroDailyGoal030S(event.target.getAttribute("data-company-id"), event);
+      }
+
+      if (event.target.matches("[data-cx-wo-product-image]")) {
+        await cxSaveProductImage030S(event.target.getAttribute("data-company-id"), event);
+      }
+
+      if (event.target.matches("[data-cx-wo-portion-save]")) {
+        await cxSaveWaiterOrderingPortionGroup030S(event.target.getAttribute("data-company-id"), event);
       }
 
       if (event.target.matches("#createUserForm") && state.selectedCompanyId) {

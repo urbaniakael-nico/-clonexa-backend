@@ -51,3 +51,19 @@ test('minutesOpen tolerates a missing/invalid created_at instead of throwing', (
   assert.equal(ctx.minutesOpen(''), 0);
   assert.equal(ctx.minutesOpen(undefined), 0);
 });
+
+function itemLineContext() {
+  const ctx = vm.createContext({ String });
+  vm.runInContext(fn('itemLine'), ctx);
+  return ctx;
+}
+
+test('itemLine uppercases the product and appends the cooking term with a dash', () => {
+  const ctx = itemLineContext();
+  assert.equal(ctx.itemLine({ name: 'Pollo 1/2 Asado', term: 'Bien cocinado' }), 'POLLO 1/2 ASADO — BIEN COCINADO');
+});
+
+test('itemLine has no trailing dash when the category has no cooking term', () => {
+  const ctx = itemLineContext();
+  assert.equal(ctx.itemLine({ name: 'Cerveza Aguila', term: '' }), 'CERVEZA AGUILA');
+});

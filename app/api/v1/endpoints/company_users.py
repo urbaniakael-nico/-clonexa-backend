@@ -150,6 +150,8 @@ def _cx_panel_type_019d(value: Any) -> str:
         "waiter": "mesero",
         "cocina": "cocina",
         "kitchen": "cocina",
+        "parrillero": "cocina",
+        "parrillera": "cocina",
         "caja": "caja",
         "cajero": "caja",
         "cajera": "caja",
@@ -457,6 +459,33 @@ async def _cx_count_minipanel_users_of_type_026k(db: AsyncSession, company_id: U
     users = result.scalars().all()
     return sum(1 for user in users if _cx_is_minipanel_user_019c(user, panel_type))
 # CLONEXA_026K_WAITER_ORDERING_END
+
+
+# CLONEXA_027P_FASE2_ROLE_GATE_START
+# Fase 2: full-portal roles (dueno/gerente/administrador). "administrador"
+# is blocked from Nomina/Ajustes -- in the server, not just hidden from the
+# nav. Only activates for a company with "waiter_ordering" enabled (today,
+# only ASADERO EL SOCIO): for every other company these endpoints keep
+# behaving exactly as they do today (no auth at all) -- closing that for
+# everyone is a separate, larger step in the ongoing sweep with its own
+# sign-off before push.
+def require_company_user_not_role(forbidden_roles: set[str]):
+    async def _dependency(
+        company_id: UUID,
+        authorization: Optional[str] = Header(default=None),
+        db: AsyncSession = Depends(get_db),
+    ) -> None:
+        try:
+            await require_enabled_module(db, company_id, "waiter_ordering")
+        except HTTPException:
+            return  # module not enabled here -> endpoint stays exactly as it is today
+        user = await require_company_user_for_tenant(db, authorization, company_id)
+        role = str(getattr(user, "role", "") or "").strip().lower()
+        if role in forbidden_roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="role_not_allowed")
+
+    return _dependency
+# CLONEXA_027P_FASE2_ROLE_GATE_END
 STORE_ROLE_TOKENS_023S = {
     "cajero",
     "cajera",
@@ -1671,6 +1700,86 @@ async def _cx_mp_create_session_019f(
     return await _cx_mp_fetch_session_by_id_019f(db, session_id)
 
 
+# CLONEXA_028Q_SHIFT_AUTOCLOSE_START
+# Fase 2: a work session left open (active or on break) past a configurable
+# max (default 12h) auto-closes as closed_reason='cierre_automatico' the
+# next time it is loaded -- there was no auto-close of any kind before this
+# (confirmed: no cron, no staleness check anywhere), which is how shifts
+# reached 185+ hours open. Only wired for a company with "waiter_ordering"
+# enabled (today, only ASADERO EL SOCIO): require_enabled_module raises for
+# every other company, so their sessions -- however old -- are never
+# touched here, regardless of panel_type.
+async def _cx_mp_shift_max_hours_028q(db: AsyncSession, company_id: UUID) -> float | None:
+    try:
+        await require_enabled_module(db, company_id, "waiter_ordering")
+    except HTTPException:
+        return None
+    settings = await _cx_waiter_ordering_module_settings_026k(db, company_id)
+    try:
+        value = float(settings.get("shift_max_hours") or 12)
+    except (TypeError, ValueError):
+        value = 12.0
+    return max(0.5, value)
+
+
+async def _cx_mp_autoclose_if_stale_028q(
+    db: AsyncSession,
+    company_id: UUID,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+    panel_type: str,
+    row: Dict[str, Any],
+) -> Dict[str, Any]:
+    if str(row.get("status") or "") not in {"active", "break"}:
+        return row
+
+    max_hours = await _cx_mp_shift_max_hours_028q(db, company_id)
+    if max_hours is None:
+        return row
+
+    started_at = _cx_mp_dt_019f(row.get("started_at"))
+    if not started_at:
+        return row
+
+    now = datetime.now(timezone.utc)
+    elapsed_hours = (now - started_at).total_seconds() / 3600.0
+    if elapsed_hours < max_hours:
+        return row
+
+    active_delta = 0
+    break_delta = 0
+    if str(row.get("status") or "") == "active":
+        active_delta = _cx_mp_seconds_between_019f(row.get("active_started_at"), now)
+    else:
+        break_delta = _cx_mp_seconds_between_019f(row.get("current_break_started_at"), now)
+
+    await db.execute(
+        text("""
+            UPDATE mini_panel_work_sessions
+            SET status = 'finished',
+                ended_at = :now,
+                active_seconds = COALESCE(active_seconds, 0) + :active_delta,
+                break_seconds = COALESCE(break_seconds, 0) + :break_delta,
+                active_started_at = NULL,
+                current_break_started_at = NULL,
+                closed_reason = 'cierre_automatico',
+                updated_at = :now
+            WHERE id = CAST(:id AS uuid)
+        """),
+        {
+            "id": str(row["id"]),
+            "active_delta": active_delta,
+            "break_delta": break_delta,
+            "now": now,
+        },
+    )
+    await db.commit()
+    # A fresh session starts right away so the mesero/cocina/caja panel the
+    # user is actively looking at keeps working without them doing anything.
+    return await _cx_mp_create_session_019f(db, company_id, user, mini_panel, panel_type)
+# CLONEXA_028Q_SHIFT_AUTOCLOSE_END
+
+
 async def _cx_mp_get_or_create_session_019f(
     db: AsyncSession,
     company_id: UUID,
@@ -2204,6 +2313,7 @@ async def mini_panel_operational_session_019f(
     company, user, mini_panel = await _cx_mp_auth_context_019f(db, company_id, panel_type, authorization)
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_get_or_create_session_019f(db, company_id, user, mini_panel, clean_type)
+    row = await _cx_mp_autoclose_if_stale_028q(db, company_id, user, mini_panel, clean_type, row)
     await _cx_mp_sync_attendance_023j(db, company_id, user, mini_panel, row)
     await db.commit()
     return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)}

@@ -54,6 +54,19 @@
     return h;
   }
 
+  // Cosmetic only: hides the "Ajustes" button for role "administrador". The
+  // real lock is the server's require_company_user_not_role 403.
+  function currentRole() {
+    const t = token();
+    if (!t || t.split(".").length !== 3) return "";
+    try {
+      const payload = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      return String(payload.role || "").trim().toLowerCase();
+    } catch (_) {
+      return "";
+    }
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(`${API}${path}`, {
       ...options,
@@ -345,11 +358,13 @@
     const sidebar = findSidebar();
     if (!sidebar) return;
 
+    const hideSettings = currentRole() === "administrador";
+
     const box = document.createElement("div");
     box.id = "clxCoreActions";
     box.className = "clx-core-actions";
     box.innerHTML = `
-      <button class="clx-core-action-btn" id="clxOpenCoreSettings" type="button">⚙ Ajustes</button>
+      ${hideSettings ? "" : '<button class="clx-core-action-btn" id="clxOpenCoreSettings" type="button">⚙ Ajustes</button>'}
       <button class="clx-core-action-btn clx-core-logout" id="clxCoreLogout" type="button">⏻ Cerrar sesión</button>
     `;
 

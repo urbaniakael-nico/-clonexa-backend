@@ -291,3 +291,26 @@ async def test_kitchen_board_with_no_stations_assigned_sees_everything(monkeypat
     result = await waiter_ordering.waiter_ordering_kitchen_board(uuid.uuid4(), db=SimpleNamespace(), user=no_station_user)
 
     assert len(result["comandas"][0]["items"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_kitchen_board_shows_the_oldest_comanda_first(monkeypatch):
+    # list_hospitality_orders (shared with the rest of Hospitality) returns
+    # newest-first; the kitchen board must re-sort to oldest-first so no
+    # ticket waits behind a newer one.
+    newer = {
+        "id": "order-new", "table_number": "Mesa 9", "status": "pendiente", "notes": "",
+        "created_at": "2026-09-22T10:30:00Z", "metadata": {},
+        "items": [{"id": "line_1", "name": "Papas", "station": "", "quantity": 1}],
+    }
+    older = {
+        "id": "order-old", "table_number": "Mesa 2", "status": "pendiente", "notes": "",
+        "created_at": "2026-09-22T10:00:00Z", "metadata": {},
+        "items": [{"id": "line_2", "name": "Carne", "station": "", "quantity": 1}],
+    }
+    monkeypatch.setattr(waiter_ordering, "list_hospitality_orders", AsyncMock(return_value={"orders": [newer, older]}))
+    monkeypatch.setattr(waiter_ordering, "_module_settings", AsyncMock(return_value={}))
+
+    result = await waiter_ordering.waiter_ordering_kitchen_board(uuid.uuid4(), db=SimpleNamespace(), user=SimpleNamespace(settings_json={}))
+
+    assert [c["order_id"] for c in result["comandas"]] == ["order-old", "order-new"]
