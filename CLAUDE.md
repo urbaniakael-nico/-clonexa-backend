@@ -42,6 +42,7 @@ Tengo autonomía para hacer commit y push a `main`, con una condición obligator
 
 - Nunca guardar tokens, contraseñas ni archivos `.env` en el repo.
 - Nunca usar `git push --force` ni reescribir el historial de `main`.
+- Todo endpoint nuevo debe exigir sesión válida desde el primer día (Admin V2, usuario de empresa, o el rol de mini panel que corresponda — mesero, cocina, caja, etc.), validado en el servidor, no solo en la pantalla. Nunca agregar un endpoint sin autenticación: estamos cerrando un barrido de ~360 endpoints que quedaron abiertos por no seguir esto desde el inicio.
 
 ## Idioma
 
