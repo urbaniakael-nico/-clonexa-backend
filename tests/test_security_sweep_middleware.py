@@ -16,8 +16,10 @@ is pure measurement:
 
 These tests hit the real ASGI app via TestClient (no live DB in this repo),
 monkeypatching only the DB-touching leaves (_clonexa_company_is_archived,
-_clonexa_has_valid_session, _clonexa_live_company_ids) so the middleware's
-own control flow runs for real.
+_clonexa_has_valid_session) so the middleware's own control flow runs for
+real. _clonexa_live_company_ids is a fixed set (no DB, no cache) on purpose,
+per the 2026-09-23 follow-up: Velvet's id is known, so it no longer depends
+on a name lookup.
 """
 import logging
 import uuid
@@ -32,6 +34,7 @@ client = TestClient(app_main.app)
 
 ASADERO_ID = "7625872c-f941-4479-a27b-f8443be953c5"
 TIME_MACHINE_ID = "21a3065e-38ee-4fc3-96ed-ae1707a3b8e4"
+VELVET_ID = "d63cf68c-be5b-4a30-aee4-341973018db1"
 
 
 def _cid() -> str:
@@ -66,27 +69,26 @@ def test_company_id_is_none_when_not_determinable():
     assert app_main._clonexa_company_id_from_request(FakeRequest()) is None
 
 
-@pytest.mark.asyncio
-async def test_live_company_ids_always_includes_the_two_fixed_ids(monkeypatch):
-    async def fake_execute(*args, **kwargs):
-        class R:
-            def scalars(self_inner):
-                class S:
-                    def all(self_inner2):
-                        return []
-                return S()
-        return R()
+def test_live_company_ids_is_true_for_exactly_the_three_active_companies():
+    ids = app_main._clonexa_live_company_ids()
+    assert ids == {ASADERO_ID, TIME_MACHINE_ID, VELVET_ID}
+    for company_id in (ASADERO_ID, TIME_MACHINE_ID, VELVET_ID):
+        assert company_id in ids
 
-    monkeypatch.setattr(app_main, "_clonexa_live_company_ids_cache", {"ids": None, "at": 0.0})
-    fake_db = type("DB", (), {"execute": fake_execute})()
-    monkeypatch.setattr(
-        app_main, "AsyncSessionLocal",
-        lambda: type("Ctx", (), {"__aenter__": AsyncMock(return_value=fake_db), "__aexit__": AsyncMock(return_value=False)})(),
-    )
 
-    ids = await app_main._clonexa_live_company_ids()
-    assert ASADERO_ID in ids
-    assert TIME_MACHINE_ID in ids
+def test_live_company_ids_is_false_for_any_other_company():
+    for _ in range(5):
+        assert _cid() not in app_main._clonexa_live_company_ids()
+    demo_id = "00000000-0000-0000-0000-000000000000"
+    assert demo_id not in app_main._clonexa_live_company_ids()
+
+
+def test_live_company_ids_no_longer_needs_the_database():
+    # 2026-09-23 follow-up: fixed ids only, not a name lookup -- confirmed
+    # by the function being plain sync (no DB round trip possible).
+    import inspect
+
+    assert not inspect.iscoroutinefunction(app_main._clonexa_live_company_ids)
 
 
 def test_audit_origin_prefers_the_token_scope():
@@ -146,7 +148,6 @@ async def test_audit_middleware_does_not_log_when_a_valid_session_exists(monkeyp
 @pytest.mark.asyncio
 async def test_audit_middleware_logs_when_there_is_no_valid_session(monkeypatch, caplog):
     monkeypatch.setattr(app_main, "_clonexa_has_valid_session", AsyncMock(return_value=False))
-    monkeypatch.setattr(app_main, "_clonexa_live_company_ids", AsyncMock(return_value={ASADERO_ID}))
     monkeypatch.setattr(
         app_main, "AsyncSessionLocal",
         lambda: type("Ctx", (), {"__aenter__": AsyncMock(return_value=object()), "__aexit__": AsyncMock(return_value=False)})(),
@@ -173,7 +174,6 @@ async def test_audit_middleware_logs_when_there_is_no_valid_session(monkeypatch,
 @pytest.mark.asyncio
 async def test_audit_middleware_flags_a_demo_company_as_not_live(monkeypatch, caplog):
     monkeypatch.setattr(app_main, "_clonexa_has_valid_session", AsyncMock(return_value=False))
-    monkeypatch.setattr(app_main, "_clonexa_live_company_ids", AsyncMock(return_value={ASADERO_ID}))
     monkeypatch.setattr(
         app_main, "AsyncSessionLocal",
         lambda: type("Ctx", (), {"__aenter__": AsyncMock(return_value=object()), "__aexit__": AsyncMock(return_value=False)})(),

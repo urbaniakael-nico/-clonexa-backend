@@ -3,7 +3,6 @@ from __future__ import annotations
 import ipaddress
 import logging
 import os
-import time
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -323,34 +322,19 @@ async def _clonexa_archived_company_guard(request, call_next):
 # locking any of them down.
 # ---------------------------------------------------------------------------
 
-_CLONEXA_LIVE_COMPANY_FIXED_IDS = {
+_CLONEXA_LIVE_COMPANY_IDS = {
     "7625872c-f941-4479-a27b-f8443be953c5",  # ASADERO EL SOCIO
     "21a3065e-38ee-4fc3-96ed-ae1707a3b8e4",  # The Time Machine
+    "d63cf68c-be5b-4a30-aee4-341973018db1",  # Velvet
 }
-_clonexa_live_company_ids_cache: dict[str, object] = {"ids": None, "at": 0.0}
 
 
-async def _clonexa_live_company_ids() -> set[str]:
-    """The handful of active companies whose traffic we actually care about
-    right now; every other company_id in the audit log is demo/test noise
-    that can be ignored while triaging."""
-    now = time.monotonic()
-    cached = _clonexa_live_company_ids_cache.get("ids")
-    if cached is not None and now - float(_clonexa_live_company_ids_cache.get("at") or 0.0) < 300:
-        return cached  # type: ignore[return-value]
-
-    ids = set(_CLONEXA_LIVE_COMPANY_FIXED_IDS)
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Company.id).where(Company.name.ilike("%velvet%")))
-            for row in result.scalars().all():
-                ids.add(str(row))
-    except Exception as exc:
-        logging.getLogger("clonexa.auth_audit").warning("No se pudo resolver la empresa Velvet: %s", exc)
-
-    _clonexa_live_company_ids_cache["ids"] = ids
-    _clonexa_live_company_ids_cache["at"] = now
-    return ids
+def _clonexa_live_company_ids() -> set[str]:
+    """The 3 active companies whose traffic we actually care about right
+    now; every other company_id in the audit log is demo/test noise that
+    can be ignored while triaging. Fixed ids on purpose (not a name lookup)
+    so this never depends on a company's name or a cached query."""
+    return _CLONEXA_LIVE_COMPANY_IDS
 
 
 def _clonexa_token_from_request(request) -> str | None:
@@ -429,7 +413,7 @@ async def _clonexa_auth_audit_middleware(request, call_next):
             has_session = await _clonexa_has_valid_session(request, db, token)
         if not has_session:
             company_id = _clonexa_company_id_from_request(request)
-            live_ids = await _clonexa_live_company_ids()
+            live_ids = _clonexa_live_company_ids()
             empresa_viva = bool(company_id) and str(company_id) in live_ids
             origin = _clonexa_audit_origin(request, _clonexa_token_scope_hint(token))
             logging.getLogger("clonexa.auth_audit").info(
