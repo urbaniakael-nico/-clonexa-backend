@@ -237,6 +237,14 @@ def test_panel_type_aliases_mesero_cocina_caja_without_colliding_with_store():
     assert company_users._cx_panel_type_019d("tiendas") == "store"
 
 
+def test_parrillero_role_aliases_to_the_kitchen_panel_when_creating_its_mini_panel_user():
+    # Workforce's role field can be "parrillero"/"parrillera" (Fase 2's
+    # restaurant-only role list); the mini panel account they get still
+    # needs to open the cocina board, same as anyone typed "cocina" directly.
+    assert company_users._cx_panel_type_019d("parrillero") == "cocina"
+    assert company_users._cx_panel_type_019d("parrillera") == "cocina"
+
+
 # ---------------------------------------------------------------------------
 # Kitchen board: a cocina user only sees comandas for their own stations
 # ---------------------------------------------------------------------------

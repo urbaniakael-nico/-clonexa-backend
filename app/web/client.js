@@ -1754,26 +1754,56 @@
     return response.json();
   }
 
-  function personalRoleOptions(selected = "operator") {
-    const roles = [
-      ["admin_empresa", "Admin empresa"],
-      ["supervisor", "Supervisor"],
-      ["agente_call", "Agente call"],
-      ["agente_externo", "Agente externo"],
-      ["tesoreria", "Tesoreria"],
-      ["gerencia", "Gerencia"],
-      ["tecnico", "Tecnico"],
-      ["operario", "Operario"],
-      ["vendedor", "Vendedor"],
-      ["barman", "Barman"],
-      ["mesero", "Mesero"],
-      ["cajero", "Cajero"],
-      ["inventario", "Inventario"],
-      ["operator", "Operador"],
-    ];
+  // Fase 2 waiter_ordering: a company with the module active (today only
+  // Asadero El Socio) gets a restaurant-only role list here; every other
+  // company keeps the full generic list exactly as before. The alias
+  // parrillero -> panel de cocina lives server-side (_cx_panel_type_019d in
+  // company_users.py) and is untouched by this -- Employee.role is a free
+  // text field independent of the mini-panel account's own panel_type.
+  const CX_PERSONAL_ROLES_DEFAULT_030S = [
+    ["admin_empresa", "Admin empresa"],
+    ["supervisor", "Supervisor"],
+    ["agente_call", "Agente call"],
+    ["agente_externo", "Agente externo"],
+    ["tesoreria", "Tesoreria"],
+    ["gerencia", "Gerencia"],
+    ["tecnico", "Tecnico"],
+    ["operario", "Operario"],
+    ["vendedor", "Vendedor"],
+    ["barman", "Barman"],
+    ["mesero", "Mesero"],
+    ["cajero", "Cajero"],
+    ["inventario", "Inventario"],
+    ["operator", "Operador"],
+  ];
 
-    return roles.map(([value, label]) => `
-      <option value="${h(value)}" ${String(selected || "operator") === value ? "selected" : ""}>${h(label)}</option>
+  const CX_PERSONAL_ROLES_WAITER_ORDERING_030S = [
+    ["dueno", "Dueño"],
+    ["gerente", "Gerente"],
+    ["administrador", "Administrador"],
+    ["mesero", "Mesero"],
+    ["parrillero", "Parrillero"],
+    ["cajero", "Cajero"],
+  ];
+
+  function personalRoleFallbackLabel030S(value) {
+    return String(value || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function personalRoleOptions(selected = "operator") {
+    const roles = isClientModuleActive("waiter_ordering")
+      ? CX_PERSONAL_ROLES_WAITER_ORDERING_030S
+      : CX_PERSONAL_ROLES_DEFAULT_030S;
+    const value = String(selected || "operator");
+    // A role saved before the company's list changed (or from a company
+    // that later got a restricted list) must not disappear on edit -- keep
+    // it selectable so saving the row again doesn't silently overwrite it.
+    const options = roles.some(([roleValue]) => roleValue === value)
+      ? roles
+      : [...roles, [value, personalRoleFallbackLabel030S(value)]];
+
+    return options.map(([roleValue, label]) => `
+      <option value="${h(roleValue)}" ${value === roleValue ? "selected" : ""}>${h(label)}</option>
     `).join("");
   }
 
