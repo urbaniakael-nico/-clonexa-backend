@@ -35572,6 +35572,39 @@ function inventoryCreatePayload() {
     }
   }
 
+  // This module is its own IIFE (no access to the outer client.js closure's
+  // authToken()), but must send the same session the rest of the client
+  // portal already uses -- otherwise every fetch here goes out with no
+  // Authorization header, which is how GET/PUT client-settings ended up
+  // reachable with no credentials at all.
+  function cxAuthToken() {
+    const keys = ["clonexa_access_token", "clonexa_token", "clonexa_client_token", "access_token", "token", "auth_token", "jwt"];
+    const stores = [window.localStorage, window.sessionStorage].filter(Boolean);
+    for (const store of stores) {
+      for (const key of keys) {
+        const value = store.getItem(key);
+        if (!value) continue;
+        if (value.trim().startsWith("{")) {
+          try {
+            const data = JSON.parse(value);
+            const nested = data.access_token || data.token || data.jwt;
+            if (nested) return nested;
+          } catch (_) {}
+        } else {
+          return value;
+        }
+      }
+    }
+    return "";
+  }
+
+  function cxAuthHeaders(base = {}) {
+    const headers = { ...(base || {}) };
+    const token = cxAuthToken();
+    if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  }
+
   function cxText(value) {
     return String(value ?? "");
   }
@@ -35642,7 +35675,7 @@ function inventoryCreatePayload() {
     if (!companyId) return {};
 
     settingsPromise = fetch(`${API}/companies/${encodeURIComponent(companyId)}/client-settings`, {
-      headers: { "Accept": "application/json" }
+      headers: cxAuthHeaders({ "Accept": "application/json" })
     })
       .then(async (response) => {
         if (!response.ok) return {};
@@ -35673,10 +35706,10 @@ function inventoryCreatePayload() {
 
     const response = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/client-settings`, {
       method: "PUT",
-      headers: {
+      headers: cxAuthHeaders({
         "Accept": "application/json",
         "Content-Type": "application/json"
-      },
+      }),
       body: JSON.stringify({
         payroll_regular_hours_limit: hours,
         payroll: { ordinary_hours_limit: hours }

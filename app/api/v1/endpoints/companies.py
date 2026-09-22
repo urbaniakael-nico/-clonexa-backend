@@ -1182,13 +1182,14 @@ async def delete_company_as_archive(
 
 
 @router.get("/{company_id}/client-settings")
-async def get_company_client_settings(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    # SECURITY NOTE (2026-09-22 audit): intentionally left open for now.
-    # client.js calls this from at least one code path (cxFetchSettings /
-    # cxSavePayrollHours) that sends no Authorization header at all, unlike
-    # its other calls to this same endpoint. Gating it now would 401 that
-    # flow (it edits payroll overtime hours) until that caller is also
-    # fixed to attach a token. Reported to the user; not fixed in this pass.
+async def get_company_client_settings(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_user),
+) -> Dict[str, Any]:
+    # Fixed 2026-09-22: previously had no auth at all. cxFetchSettings (in
+    # client.js) now sends this company's own session token (cxAuthHeaders),
+    # same as every other client-settings caller.
     company = await _get_company_or_404(db, company_id)
     return _read_client_settings(company)
 
@@ -1198,7 +1199,12 @@ async def update_company_client_settings(
     company_id: UUID,
     payload: CompanyClientSettingsRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_company_user_admin_access),
 ) -> Dict[str, Any]:
+    # Stricter than the GET on purpose: this includes payroll overtime
+    # hours (cxSavePayrollHours), a company-wide payroll rule, so writing it
+    # requires an admin session (Admin V2 or that company's own admin role),
+    # not just any logged-in staff member.
     company = await _get_company_or_404(db, company_id)
     result = _write_client_settings(company, payload)
     await db.commit()

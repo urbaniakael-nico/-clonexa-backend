@@ -4,15 +4,24 @@ URL) could read or rewrite that company's IP allowlist, session policy,
 active sessions, status (including archiving/deleting it), branding, and
 more. Flagged specifically for /access-policy; this file locks down every
 endpoint in companies.py that has no legitimate non-admin caller, and
-documents (without touching) the two that still do.
+documents (without touching) the one that still does.
 
-Includes the follow-up fix: GET /companies (list ALL companies, no filter)
-had no auth either, and every tenant's /client portal leaned on that to
-boot (client.js's loadByCompanyId listed every company just to find its own
-row by id) -- which also meant any company could see every other company's
-name/slug/status/settings. list_companies is now admin-only; client.js was
-changed to call the scoped GET /companies/{id} instead, which now accepts
-either an Admin V2 session or that company's own logged-in staff.
+Includes two follow-up fixes:
+- GET /companies (list ALL companies, no filter) had no auth either, and
+  every tenant's /client portal leaned on that to boot (client.js's
+  loadByCompanyId listed every company just to find its own row by id) --
+  which also meant any company could see every other company's
+  name/slug/status/settings. list_companies is now admin-only; client.js
+  calls the scoped GET /companies/{id} instead, which accepts either an
+  Admin V2 session or that company's own logged-in staff.
+- GET/PUT /{id}/client-settings also had no auth: client.js's
+  cxFetchSettings/cxSavePayrollHours (a separate IIFE with no access to the
+  main one's authToken()) sent no Authorization header at all, so anyone
+  could read or rewrite a company's payroll overtime hours with no
+  credentials. Both ends fixed together: client.js now sends its session
+  token there too (cxAuthHeaders), GET accepts any of that company's
+  logged-in staff, and PUT (payroll hours is a company-wide rule) requires
+  an admin session specifically.
 
 These tests hit the real ASGI app with fastapi.testclient.TestClient and no
 credentials at all, so they prove the fix at the actual HTTP boundary -- not
@@ -64,6 +73,8 @@ def _cid() -> str:
         ("get", f"{API}/{{cid}}/experience"),
         ("put", f"{API}/{{cid}}/experience/branding"),
         ("put", f"{API}/{{cid}}/branding"),
+        ("get", f"{API}/{{cid}}/client-settings"),
+        ("put", f"{API}/{{cid}}/client-settings"),
     ],
 )
 def test_admin_endpoint_rejects_a_request_with_no_credentials(method, path):
@@ -122,13 +133,15 @@ def test_get_company_branding_stays_open_the_public_qr_page_depends_on_it():
     assert "require_company_user_admin_access" not in names
 
 
-def test_client_settings_stays_open_pending_a_client_js_fix():
-    for method in ("GET", "PUT"):
-        route = _route("/api/v1/companies/{company_id}/client-settings", method)
-        names = _dependant_names(route)
-        assert "require_admin_v2_api_session" not in names
-        assert "require_admin_v2_or_tenant_company_user" not in names
-        assert "require_company_user_admin_access" not in names
+def test_client_settings_get_is_lenient_any_tenant_staff_put_is_admin_only():
+    get_route = _route("/api/v1/companies/{company_id}/client-settings", "GET")
+    assert "require_admin_v2_or_tenant_company_user" in _dependant_names(get_route)
+
+    put_route = _route("/api/v1/companies/{company_id}/client-settings", "PUT")
+    put_names = _dependant_names(put_route)
+    assert "require_company_user_admin_access" in put_names
+    # Stricter than the GET on purpose (payroll hours is a company-wide rule).
+    assert "require_admin_v2_or_tenant_company_user" not in put_names
 
 
 def test_list_companies_is_now_admin_only():
@@ -187,7 +200,41 @@ async def test_dual_check_falls_back_to_tenant_company_user(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# client.js no longer lists every company to find its own row.
+# Saving payroll hours (and reading client-settings) still works end to end
+# with a valid session -- only the "no credentials at all" path changed.
+# ---------------------------------------------------------------------------
+
+def _fake_company(company_id):
+    return SimpleNamespace(id=company_id, settings_json={}, timezone="America/Bogota")
+
+
+@pytest.mark.asyncio
+async def test_get_client_settings_still_works_with_a_valid_session(monkeypatch):
+    company_id = uuid.uuid4()
+    monkeypatch.setattr(companies, "_get_company_or_404", AsyncMock(return_value=_fake_company(company_id)))
+
+    result = await companies.get_company_client_settings(company_id, db=SimpleNamespace(), _actor=None)
+
+    assert result["company_id"] == str(company_id)
+    assert result["payroll_regular_hours_limit"] == 48  # default, nothing saved yet
+
+
+@pytest.mark.asyncio
+async def test_save_payroll_hours_still_works_with_a_valid_admin_session(monkeypatch):
+    company_id = uuid.uuid4()
+    company = _fake_company(company_id)
+    monkeypatch.setattr(companies, "_get_company_or_404", AsyncMock(return_value=company))
+    db = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+
+    payload = companies.CompanyClientSettingsRequest(payroll_regular_hours_limit=44, payroll={"ordinary_hours_limit": 44})
+    result = await companies.update_company_client_settings(company_id, payload, db=db, _admin=None)
+
+    assert result["payroll_regular_hours_limit"] == 44
+    db.commit.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# client.js: the frontend sides of both fixes.
 # ---------------------------------------------------------------------------
 
 def test_client_js_no_longer_lists_every_company_to_boot_its_own_dashboard():
@@ -197,3 +244,19 @@ def test_client_js_no_longer_lists_every_company_to_boot_its_own_dashboard():
     body = source.split("async function loadByCompanyId", 1)[1].split("\n  async function ", 1)[0]
     assert 'api("/companies")' not in body
     assert "api(`/companies/${encodeURIComponent(companyId)}`)" in body
+
+
+def test_client_js_payroll_settings_module_now_sends_the_session_token():
+    from pathlib import Path
+
+    source = Path("app/web/client.js").read_text(encoding="utf-8")
+    start = source.index("CX_017I_PAYROLL_SETTINGS_FINAL_START")
+    stop = source.index("CX_017I_PAYROLL_SETTINGS_FINAL_END", start)
+    module = source[start:stop]
+
+    assert "function cxAuthHeaders" in module
+    # Both fetch calls in this module must go through cxAuthHeaders now.
+    fetch_calls = [line for line in module.splitlines() if "fetch(`${API}" in line]
+    assert len(fetch_calls) == 2
+    assert 'headers: { "Accept": "application/json" }' not in module
+    assert module.count("cxAuthHeaders(") >= 2
