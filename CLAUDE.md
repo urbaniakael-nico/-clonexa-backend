@@ -22,6 +22,10 @@ Backend FastAPI + Postgres, desplegado en Railway (proyecto `merry-simplicity`, 
 - Toda función nueva o cambio visual debe ir detrás de un interruptor por empresa, apagado por defecto, y activarse solo para la empresa que lo pidió.
 - Los arreglos de seguridad y errores pueden aplicar a todas, pero debes avisarme antes de hacer push indicando que afectan a todas las empresas.
 
+## Migraciones (alembic)
+
+- Los revision id de alembic deben tener máximo 32 caracteres.
+
 ## Flujo de commit y push (autonomía condicionada)
 
 Tengo autonomía para hacer commit y push a `main`, con una condición obligatoria:
@@ -32,6 +36,7 @@ Tengo autonomía para hacer commit y push a `main`, con una condición obligator
 - Si algo falla: NO hacer push. Corregir primero o reportar al usuario.
 - Cada cambio nuevo debe venir con sus pruebas.
 - Después de cada push, resumir en español qué cambió y el hash del commit.
+- Después de cada push, recuérdame verificar el despliegue en Railway.
 
 ## Reglas de seguridad
 

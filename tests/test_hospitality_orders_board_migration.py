@@ -5,7 +5,7 @@ from pathlib import Path
 
 MIGRATION_PATH = (
     Path(__file__).resolve().parent.parent
-    / "migrations" / "versions" / "021b_hsp_orders_board_time_machine.py"
+    / "migrations" / "versions" / "021b_hsp_board_ttm.py"
 )
 
 
@@ -42,7 +42,7 @@ class FakeOp:
 
 
 def load_migration():
-    spec = importlib.util.spec_from_file_location("hsp_orders_board_time_machine", MIGRATION_PATH)
+    spec = importlib.util.spec_from_file_location("hsp_board_ttm", MIGRATION_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -55,7 +55,7 @@ def test_target_company_is_the_time_machine_only():
 
 def test_revision_chains_onto_the_latest_migration():
     module = load_migration()
-    assert module.revision == "021b_hsp_orders_board_time_machine"
+    assert module.revision == "021b_hsp_board_ttm"
     assert module.down_revision == "021a_mini_panel_quotes_module"
 
 

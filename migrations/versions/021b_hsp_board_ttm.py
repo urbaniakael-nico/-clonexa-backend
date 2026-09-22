@@ -1,6 +1,6 @@
 """hsp orders board time machine
 
-Revision ID: 021b_hsp_orders_board_time_machine
+Revision ID: 021b_hsp_board_ttm
 Revises: 021a_mini_panel_quotes_module
 Create Date: 2026-09-22
 
@@ -17,7 +17,7 @@ from typing import Any
 import sqlalchemy as sa
 from alembic import op
 
-revision = "021b_hsp_orders_board_time_machine"
+revision = "021b_hsp_board_ttm"
 down_revision = "021a_mini_panel_quotes_module"
 branch_labels = None
 depends_on = None
