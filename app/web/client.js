@@ -33421,10 +33421,15 @@ function inventoryCreatePayload() {
   }
 
   async function loadByCompanyId(companyId) {
-    const companies = await api("/companies");
-    const company = Array.isArray(companies)
-      ? companies.find((item) => item.id === companyId || item.company_id === companyId)
-      : null;
+    // 2026-09-22: used to fetch /companies (every company, no auth) just to
+    // find this one by id -- besides needing no login, that leaked every
+    // other company's name/slug/status to any visitor. Scoped lookup only.
+    let company = null;
+    try {
+      company = await api(`/companies/${encodeURIComponent(companyId)}`);
+    } catch (error) {
+      company = null;
+    }
 
     if (!company) {
       throw new Error(`Empresa no encontrada: ${companyId}`);

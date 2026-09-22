@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_company_user_for_tenant
+from app.api.v1.endpoints.company_users import require_company_user_admin_access
 from app.models.core import Company
 from app.services.access_sessions import (
     close_access_session,
@@ -22,6 +23,39 @@ from app.services.access_sessions import (
 
 
 router = APIRouter()
+
+
+# CLONEXA_SEC_2026_09_22_ADMIN_GUARD_START
+# These endpoints manage every company's status, security policy (IP
+# allowlist, session limits) and active sessions from Admin V2. They had no
+# auth at all: anyone who knew a company_id (visible in the portal's own
+# URL) could read or rewrite another company's IP allowlist. Guarded with
+# the same Admin V2 session already used by the neighboring company_users.py
+# admin endpoints (require_company_user_admin_access), imported lazily to
+# avoid a module import cycle at load time.
+async def require_admin_v2_api_session(request: Request, db: AsyncSession = Depends(get_db)) -> None:
+    from app.web.admin_v2_routes import _active_session as _admin_v2_session_active
+
+    if not await _admin_v2_session_active(request, db):
+        raise HTTPException(status_code=401, detail="Sesion de Admin V2 requerida.")
+
+
+async def require_admin_v2_or_tenant_company_user(
+    company_id: UUID,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Admin V2, or any logged-in staff member of that exact company (their
+    own /client token from POST /auth/login) -- for endpoints a company's own
+    users legitimately need (e.g. loading their own basic profile), not just
+    superadmin-only ones."""
+    from app.web.admin_v2_routes import _active_session as _admin_v2_session_active
+
+    if await _admin_v2_session_active(request, db):
+        return
+    await require_company_user_for_tenant(db, authorization, company_id)
+# CLONEXA_SEC_2026_09_22_ADMIN_GUARD_END
 ALLOWED_COMPANY_STATUSES = {"active", "inactive", "archived"}
 ALLOWED_THEME_MODES = {"dark", "light", "corporate", "classic"}
 ALLOWED_BRANDING_FONTS = {"Inter", "Manrope", "Sora", "Space Grotesk", "Rajdhani", "Orbitron", "Poppins", "Montserrat"}
@@ -906,7 +940,15 @@ def _normalize_branding_extra_fields(data: dict) -> dict:
 
 @router.get("")
 @router.get("/")
-async def list_companies(db: AsyncSession = Depends(get_db)) -> list[Dict[str, Any]]:
+async def list_companies(
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
+) -> list[Dict[str, Any]]:
+    # Fixed 2026-09-22: this used to have no auth at all, and every tenant's
+    # /client portal leaned on that to boot (loadByCompanyId listed every
+    # company just to find its own row -- meaning any company could also see
+    # every other company's name/slug/status/settings). client.js now calls
+    # the scoped GET /companies/{id} instead, so this can be admin-only.
     order_column = Company.created_at.desc() if _has_column("created_at") else Company.name.asc()
     result = await db.execute(select(Company).order_by(order_column))
     return [_company_payload(company) for company in result.scalars().all()]
@@ -914,7 +956,11 @@ async def list_companies(db: AsyncSession = Depends(get_db)) -> list[Dict[str, A
 
 @router.post("")
 @router.post("/")
-async def create_company(payload: CompanyCreateRequest, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def create_company(
+    payload: CompanyCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
+) -> Dict[str, Any]:
     name = str(payload.name or "").strip()
     slug = str(payload.slug or "").strip().lower()
     if not name:
@@ -961,6 +1007,7 @@ async def operational_reset_company(
     company_id: UUID,
     payload: CompanyOperationalResetRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     scopes = _normalise_reset_scopes(payload.scopes)
@@ -1055,12 +1102,24 @@ async def operational_reset_company(
 
 
 @router.get("/{company_id}")
-async def get_company(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def get_company(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_user),
+) -> Dict[str, Any]:
+    # Admin V2 or that company's own logged-in staff (client.js's
+    # loadByCompanyId uses this to load its own profile) -- not admin-only,
+    # since a company's own users legitimately need to read this.
     return _company_payload(await _get_company_or_404(db, company_id))
 
 
 @router.patch("/{company_id}")
-async def patch_company(company_id: UUID, payload: CompanyStatusRequest, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def patch_company(
+    company_id: UUID,
+    payload: CompanyStatusRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
+) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     _apply_company_status(company, payload.status)
     await db.commit()
@@ -1069,7 +1128,12 @@ async def patch_company(company_id: UUID, payload: CompanyStatusRequest, db: Asy
 
 
 @router.patch("/{company_id}/status")
-async def update_company_status(company_id: UUID, payload: CompanyStatusRequest, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def update_company_status(
+    company_id: UUID,
+    payload: CompanyStatusRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
+) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     _apply_company_status(company, payload.status)
     await db.commit()
@@ -1078,7 +1142,11 @@ async def update_company_status(company_id: UUID, payload: CompanyStatusRequest,
 
 
 @router.patch("/{company_id}/archive")
-async def archive_company(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def archive_company(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
+) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     _apply_company_status(company, "archived")
     await db.commit()
@@ -1087,7 +1155,11 @@ async def archive_company(company_id: UUID, db: AsyncSession = Depends(get_db)) 
 
 
 @router.patch("/{company_id}/restore")
-async def restore_company(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def restore_company(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
+) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     _apply_company_status(company, "active")
     await db.commit()
@@ -1096,7 +1168,11 @@ async def restore_company(company_id: UUID, db: AsyncSession = Depends(get_db)) 
 
 
 @router.delete("/{company_id}")
-async def delete_company_as_archive(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def delete_company_as_archive(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
+) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     _apply_company_status(company, "archived")
     await db.commit()
@@ -1107,6 +1183,12 @@ async def delete_company_as_archive(company_id: UUID, db: AsyncSession = Depends
 
 @router.get("/{company_id}/client-settings")
 async def get_company_client_settings(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    # SECURITY NOTE (2026-09-22 audit): intentionally left open for now.
+    # client.js calls this from at least one code path (cxFetchSettings /
+    # cxSavePayrollHours) that sends no Authorization header at all, unlike
+    # its other calls to this same endpoint. Gating it now would 401 that
+    # flow (it edits payroll overtime hours) until that caller is also
+    # fixed to attach a token. Reported to the user; not fixed in this pass.
     company = await _get_company_or_404(db, company_id)
     return _read_client_settings(company)
 
@@ -1129,6 +1211,7 @@ async def get_company_access_policy(
     company_id: UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     policy = _read_company_access_policy(company)
@@ -1145,6 +1228,7 @@ async def update_company_access_policy(
     payload: CompanyAccessPolicyRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     policy = _write_company_access_policy(company, payload)
@@ -1161,6 +1245,7 @@ async def update_company_access_policy(
 async def get_company_session_policy(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     policy = _read_company_session_policy(company)
@@ -1175,6 +1260,7 @@ async def update_company_session_policy(
     company_id: UUID,
     payload: CompanySessionPolicyRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     policy = _write_company_session_policy(company, payload)
@@ -1192,6 +1278,7 @@ async def get_company_access_sessions(
     scope: Optional[str] = None,
     include_closed: bool = False,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     return {
@@ -1211,6 +1298,7 @@ async def close_company_sessions(
     company_id: UUID,
     payload: CompanyAccessSessionCloseRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     closed = await close_company_access_sessions(
@@ -1227,6 +1315,7 @@ async def close_company_session(
     company_id: UUID,
     session_key: str,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     sessions = await list_access_sessions(db, company_id=company.id, include_closed=True, limit=250)
@@ -1238,13 +1327,22 @@ async def close_company_session(
 
 
 @router.get("/{company_id}/experience")
-async def get_company_experience(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def get_company_experience(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_company_user_admin_access),
+) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     return _experience_payload(company)
 
 
 @router.get("/{company_id}/branding")
 async def get_company_branding(company_id: UUID, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    # Deliberately left public: hospitality_order.js (the unauthenticated
+    # QR ordering page guests use) reads this to show the restaurant's own
+    # logo/colors before any login exists. Low sensitivity (no guest or
+    # order data), so this stays open by design -- see the 2026-09-22
+    # security audit notes for the reasoning.
     company = await _get_company_or_404(db, company_id)
     branding = _read_company_branding(company)
     return {"company_id": str(company.id), "branding": branding, **branding}
@@ -1255,6 +1353,7 @@ async def update_company_experience_branding(
     company_id: UUID,
     payload: CompanyBrandingRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     _write_company_branding(company, payload.model_dump(exclude_none=True))
@@ -1268,6 +1367,7 @@ async def update_company_branding(
     company_id: UUID,
     payload: CompanyBrandingRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
     company = await _get_company_or_404(db, company_id)
     _write_company_branding(company, payload.model_dump(exclude_none=True))
