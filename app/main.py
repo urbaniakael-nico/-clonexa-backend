@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
+import time
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import FastAPI
@@ -216,6 +219,232 @@ async def _clonexa_legacy_admin_redirect(request, call_next):
     if request.url.path.rstrip("/") == "/admin":
         return RedirectResponse(url="/admin-v2", status_code=308)
     return await call_next(request)
+
+
+# CLONEXA_SEC_2026_09_23_SWEEP_START
+# 2026-09-23 security sweep: of ~443 endpoints, ~360 across whole modules
+# (hospitality, employees, inventory, mini_panel_sales, marketplace,
+# shoplink, company_experience, references_v1, bots, materials, assemblies)
+# require no authentication, with no global filter covering them. We are
+# NOT closing any of that yet -- PASO 1 only measures live traffic (who is
+# actually calling these with no session, and from where) before deciding
+# what's safe to lock down without breaking a live company. PASO 2 is the
+# one narrow, safe cut agreed on: an archived company's data endpoints
+# should not keep answering.
+#
+# Registration order matters here: the archived-company guard (PASO 2) is
+# registered FIRST so the audit middleware (PASO 1), registered SECOND,
+# ends up as the outermost middleware and observes every /api/v1/* request
+# -- including ones PASO 2 goes on to block with a 403 -- before either one
+# decides anything.
+
+def _clonexa_company_id_from_request(request) -> str | None:
+    from_path = _clonexa_company_id_from_path(request.url.path)
+    if from_path:
+        return from_path
+    return request.query_params.get("company_id") or request.query_params.get("companyId")
+
+
+# ---------------------------------------------------------------------------
+# PASO 2 (registered first / innermost): archived companies stop answering
+# on data endpoints. companies.py's own management endpoints stay reachable
+# so Admin V2 can still see and un-archive the company. Inactive companies
+# are NOT touched here.
+# ---------------------------------------------------------------------------
+
+_CLONEXA_COMPANY_MGMT_TAILS = {
+    "",
+    "status",
+    "archive",
+    "restore",
+    "operational-reset",
+    "client-settings",
+    "access-policy",
+    "session-policy",
+    "access-sessions",
+    "experience",
+    "experience/branding",
+    "branding",
+}
+
+
+def _clonexa_is_company_management_path(path: str) -> bool:
+    clean = path.rstrip("/") or "/"
+    if clean == "/api/v1/companies":
+        return True
+    prefix = "/api/v1/companies/"
+    if not path.startswith(prefix):
+        return False
+    remainder = path[len(prefix):].strip("/")
+    if not remainder:
+        return True
+    _company_id, _, tail = remainder.partition("/")
+    if tail.startswith("access-sessions"):
+        return True
+    return tail in _CLONEXA_COMPANY_MGMT_TAILS
+
+
+async def _clonexa_company_is_archived(company_id: str) -> bool:
+    try:
+        company_uuid = UUID(str(company_id))
+    except (TypeError, ValueError):
+        return False
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Company.status).where(Company.id == company_uuid))
+            status_value = result.scalar_one_or_none()
+    except Exception as exc:
+        logging.getLogger("clonexa.archived_guard").warning("No se pudo verificar estado de empresa: %s", exc)
+        return False
+    return str(status_value or "").strip().lower() == "archived"
+
+
+@app.middleware("http")
+async def _clonexa_archived_company_guard(request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/v1/") or _clonexa_is_company_management_path(path):
+        return await call_next(request)
+
+    company_id = _clonexa_company_id_from_request(request)
+    if not company_id:
+        return await call_next(request)
+
+    if await _clonexa_company_is_archived(company_id):
+        return JSONResponse({"detail": "Empresa archivada."}, status_code=403)
+
+    return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# PASO 1 (registered second / outermost): measure only, never block. Logs
+# one grep-able line for any /api/v1/* request that arrives with no valid
+# session, so we can see which of the ~360 unauthenticated endpoints real
+# traffic (especially from the 3 live companies) actually depends on before
+# locking any of them down.
+# ---------------------------------------------------------------------------
+
+_CLONEXA_LIVE_COMPANY_FIXED_IDS = {
+    "7625872c-f941-4479-a27b-f8443be953c5",  # ASADERO EL SOCIO
+    "21a3065e-38ee-4fc3-96ed-ae1707a3b8e4",  # The Time Machine
+}
+_clonexa_live_company_ids_cache: dict[str, object] = {"ids": None, "at": 0.0}
+
+
+async def _clonexa_live_company_ids() -> set[str]:
+    """The handful of active companies whose traffic we actually care about
+    right now; every other company_id in the audit log is demo/test noise
+    that can be ignored while triaging."""
+    now = time.monotonic()
+    cached = _clonexa_live_company_ids_cache.get("ids")
+    if cached is not None and now - float(_clonexa_live_company_ids_cache.get("at") or 0.0) < 300:
+        return cached  # type: ignore[return-value]
+
+    ids = set(_CLONEXA_LIVE_COMPANY_FIXED_IDS)
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Company.id).where(Company.name.ilike("%velvet%")))
+            for row in result.scalars().all():
+                ids.add(str(row))
+    except Exception as exc:
+        logging.getLogger("clonexa.auth_audit").warning("No se pudo resolver la empresa Velvet: %s", exc)
+
+    _clonexa_live_company_ids_cache["ids"] = ids
+    _clonexa_live_company_ids_cache["at"] = now
+    return ids
+
+
+def _clonexa_token_from_request(request) -> str | None:
+    authorization = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+    if not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    return token or None
+
+
+def _clonexa_token_scope_hint(token: str | None) -> str | None:
+    if not token:
+        return None
+    try:
+        from app.services.auth_service import decode_access_token
+
+        payload = decode_access_token(token)
+        scope = payload.get("scope")
+        return str(scope) if scope else None
+    except Exception:
+        return None
+
+
+async def _clonexa_has_valid_session(request, db, token: str | None) -> bool:
+    """Admin V2 cookie session, or a company/mini-panel JWT that actually
+    validates (signature, expiry and -- if it carries one -- an active
+    session row). Never raises: any failure just means "no valid session"."""
+    try:
+        from app.web.admin_v2_routes import _active_session as _clonexa_admin_v2_active
+
+        if await _clonexa_admin_v2_active(request, db):
+            return True
+    except Exception:
+        pass
+
+    if not token:
+        return False
+    try:
+        from app.services.auth_service import get_current_company_user
+
+        await get_current_company_user(db, token)
+        return True
+    except Exception:
+        return False
+
+
+def _clonexa_audit_origin(request, token_scope: str | None) -> str:
+    if token_scope in {"client", "mini_panel"}:
+        return token_scope
+    referer = request.headers.get("referer") or request.headers.get("Referer") or ""
+    try:
+        ref_path = urlparse(referer).path
+    except Exception:
+        ref_path = ""
+    scope = _clonexa_access_scope(ref_path)
+    if scope == "ordering_qr":
+        return "qr_publico"
+    if scope in {"client", "mini_panel"}:
+        return scope
+    return "desconocido"
+
+
+def _clonexa_auth_audit_enabled() -> bool:
+    return os.getenv("CLONEXA_AUTH_AUDIT", "true").strip().lower() not in {"0", "false", "off", "no"}
+
+
+@app.middleware("http")
+async def _clonexa_auth_audit_middleware(request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/v1/") or not _clonexa_auth_audit_enabled():
+        return await call_next(request)
+
+    try:
+        token = _clonexa_token_from_request(request)
+        async with AsyncSessionLocal() as db:
+            has_session = await _clonexa_has_valid_session(request, db, token)
+        if not has_session:
+            company_id = _clonexa_company_id_from_request(request)
+            live_ids = await _clonexa_live_company_ids()
+            empresa_viva = bool(company_id) and str(company_id) in live_ids
+            origin = _clonexa_audit_origin(request, _clonexa_token_scope_hint(token))
+            logging.getLogger("clonexa.auth_audit").info(
+                "AUTH_AUDIT path=%s method=%s company_id=%s empresa_viva=%s origen=%s",
+                path,
+                request.method,
+                company_id or "-",
+                str(empresa_viva).lower(),
+                origin,
+            )
+    except Exception as exc:
+        logging.getLogger("clonexa.auth_audit").warning("Fallo no bloqueante en auditoria de auth: %s", exc)
+
+    return await call_next(request)
+# CLONEXA_SEC_2026_09_23_SWEEP_END
 
 
 app.add_middleware(
