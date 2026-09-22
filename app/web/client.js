@@ -21879,7 +21879,7 @@ function inventoryCreatePayload() {
       if (node) node.textContent = String(value);
     };
 
-    cxHspPaintTableBoard034B();
+    cxHspPaintOrdersBoard034D();
 
     const activeOrders = cxHspOrders024R.filter((order) => (
       ["pendiente", "alistando", "entregado"].includes(String(order.status || "")) && !order.archived_at
@@ -22236,6 +22236,89 @@ function inventoryCreatePayload() {
     if (!window.__cxHspTimerTick034B) window.__cxHspTimerTick034B = window.setInterval(cxHspTickTimers034B, 1000);
   }
 
+  // Per-company switch: "mesas" opts into the table board, anything else (including
+  // a missing setting) keeps the original kanban columns so a visual change never
+  // reaches a tenant that did not ask for it.
+  function cxHspOrdersBoardMode034D() {
+    return cxHspQrConfigFromModules025N(activeClientModules()).ordersBoard === "mesas" ? "mesas" : "kanban";
+  }
+
+  function cxHspPaintKanbanBoard034D() {
+    const groups = {
+      pendiente: cxHspGroup024R("pendiente"),
+      alistando: cxHspGroup024R("alistando"),
+      entregado: cxHspGroup024R("entregado"),
+      cerrado: cxHspGroup024R("cerrado"),
+    };
+    const fill = (id, html) => {
+      const node = document.getElementById(id);
+      if (node) node.innerHTML = html;
+    };
+    fill("hspPending024R", cxHspRenderGroup024R(groups.pendiente, "pendiente"));
+    fill("hspPreparing024R", cxHspRenderGroup024R(groups.alistando, "alistando"));
+    fill("hspServed024R", cxHspRenderGroup024R(groups.entregado, "entregado"));
+    fill("hspClosed024R", cxHspRenderGroup024R(groups.cerrado, "cerrado"));
+  }
+
+  function cxHspPaintOrdersBoard034D() {
+    if (cxHspOrdersBoardMode034D() === "mesas") {
+      cxHspPaintTableBoard034B();
+      return;
+    }
+    cxHspPaintKanbanBoard034D();
+  }
+
+  function cxHspTablesBoardSection034D() {
+    return `
+      <section class="hsp-box-024r hsp-tables-board-034b">
+        <div class="hsp-tables-head-034b">
+          <div>
+            <div class="client-eyebrow">Recepción de pedidos</div>
+            <h2>Mesas</h2>
+          </div>
+          <div class="hsp-tables-legend-034b"><span>Libre</span><span class="active">Activa</span><span class="new">Pedido nuevo</span></div>
+        </div>
+        <div id="hspTablesGrid034B" class="hsp-tables-grid-034b"></div>
+      </section>
+      <section class="hsp-box-024r hsp-closed-board-034b">
+        <div class="hsp-tables-head-034b">
+          <div>
+            <div class="client-eyebrow">Para el cierre de jornada</div>
+            <h2>Mesas cerradas <span class="hsp-pill-024r closed" id="hspCClosed034B">0</span></h2>
+          </div>
+        </div>
+        <div id="hspClosedStrip034B" class="hsp-closed-strip-034b"></div>
+      </section>
+    `;
+  }
+
+  function cxHspKanbanBoardSection034D() {
+    return `
+      <section class="hsp-kanban-024r">
+        <div class="hsp-col-024r">
+          <div class="hsp-col-title-024r">Pendiente <span class="hsp-pill-024r pending" id="hspCPending024R">0</span></div>
+          <div id="hspPending024R"></div>
+        </div>
+        <div class="hsp-col-024r">
+          <div class="hsp-col-title-024r">Alistando <span class="hsp-pill-024r preparing" id="hspCPreparing024R">0</span></div>
+          <div id="hspPreparing024R"></div>
+        </div>
+        <div class="hsp-col-024r">
+          <div class="hsp-col-title-024r">Entregado <span class="hsp-pill-024r served" id="hspCServed024R">0</span></div>
+          <div id="hspServed024R"></div>
+        </div>
+        <div class="hsp-col-024r">
+          <div class="hsp-col-title-024r">Cerrado <span class="hsp-pill-024r closed" id="hspCClosed024R">0</span></div>
+          <div id="hspClosed024R"></div>
+        </div>
+      </section>
+    `;
+  }
+
+  function cxHspOrdersBoardSection034D() {
+    return cxHspOrdersBoardMode034D() === "mesas" ? cxHspTablesBoardSection034D() : cxHspKanbanBoardSection034D();
+  }
+
   async function cxHspDeliverOrder034B(orderId = "", status = "pendiente") {
     if (!orderId) return;
     let current = String(status || "pendiente");
@@ -22365,7 +22448,7 @@ function inventoryCreatePayload() {
       if (node) node.textContent = String(value);
     };
 
-    cxHspPaintTableBoard034B();
+    cxHspPaintOrdersBoard034D();
     cxHspPaintSongQueue031K(cxHspSongRequests031C);
     fill("hspBarAccounts031D", cxHspRenderBarAccounts031D());
 
@@ -22868,25 +22951,7 @@ function inventoryCreatePayload() {
                 </section>
               </div>
 
-              <section class="hsp-box-024r hsp-tables-board-034b">
-                <div class="hsp-tables-head-034b">
-                  <div>
-                    <div class="client-eyebrow">Recepción de pedidos</div>
-                    <h2>Mesas</h2>
-                  </div>
-                  <div class="hsp-tables-legend-034b"><span>Libre</span><span class="active">Activa</span><span class="new">Pedido nuevo</span></div>
-                </div>
-                <div id="hspTablesGrid034B" class="hsp-tables-grid-034b"></div>
-              </section>
-              <section class="hsp-box-024r hsp-closed-board-034b">
-                <div class="hsp-tables-head-034b">
-                  <div>
-                    <div class="client-eyebrow">Para el cierre de jornada</div>
-                    <h2>Mesas cerradas <span class="hsp-pill-024r closed" id="hspCClosed034B">0</span></h2>
-                  </div>
-                </div>
-                <div id="hspClosedStrip034B" class="hsp-closed-strip-034b"></div>
-              </section>
+              ${cxHspOrdersBoardSection034D()}
             </section>
           </section>
         </div>
@@ -23010,12 +23075,14 @@ function inventoryCreatePayload() {
     const count = Math.min(maxCapacity, cxHspQrClamp025N(raw.table_count || raw.count || raw.visible_count || maxCapacity, maxCapacity));
     const mode = String(raw.mode || "hospitality");
     const includeBar = typeof raw.include_bar === "boolean" ? raw.include_bar : mode === "hospitality";
+    const ordersBoard = String(raw.orders_board || "kanban").toLowerCase() === "mesas" ? "mesas" : "kanban";
 
     return {
       mode,
       count,
       maxCapacity,
       includeBar,
+      ordersBoard,
       baseUrl: cxHspQrCleanBase025N(raw.base_url || raw.public_base_url || window.location.origin || ""),
     };
   }

@@ -2533,12 +2533,14 @@
       cxClampQrOption025N(raw.table_count || raw.count || raw.visible_count || maxCapacity, maxCapacity)
     );
     const includeBar = typeof raw.include_bar === "boolean" ? raw.include_bar : modeDef.includeBar;
+    const ordersBoard = String(raw.orders_board || "kanban").toLowerCase() === "mesas" ? "mesas" : "kanban";
 
     return {
       mode,
       max_capacity: maxCapacity,
       table_count: count,
       include_bar: includeBar,
+      orders_board: ordersBoard,
       base_url: cxCleanQrBaseUrl025N(raw.base_url || raw.public_base_url || window.location.origin || ""),
       updated_at: raw.updated_at || "",
     };
@@ -2611,6 +2613,12 @@
             <label>URL publica base
               <input name="base_url" type="url" value="${escapeHtml(settings.base_url)}" placeholder="https://clonexa-backend-production.up.railway.app">
             </label>
+            <label>Tablero de pedidos
+              <select name="orders_board">
+                <option value="kanban" ${settings.orders_board === "kanban" ? "selected" : ""}>Columnas</option>
+                <option value="mesas" ${settings.orders_board === "mesas" ? "selected" : ""}>Mesas</option>
+              </select>
+            </label>
           </div>
 
           <label class="cx-qr-check-025n">
@@ -2639,11 +2647,13 @@
     const maxCapacity = cxClampQrOption025N(raw.max_capacity, 10);
     const tableCount = Math.min(maxCapacity, cxClampQrOption025N(raw.table_count, maxCapacity));
     const includeBar = raw.include_bar === "on";
+    const ordersBoard = raw.orders_board === "mesas" ? "mesas" : "kanban";
     const payload = {
       mode: modeDef.code,
       max_capacity: maxCapacity,
       table_count: tableCount,
       include_bar: includeBar,
+      orders_board: ordersBoard,
       base_url: cxCleanQrBaseUrl025N(raw.base_url || window.location.origin || ""),
       updated_at: new Date().toISOString(),
     };

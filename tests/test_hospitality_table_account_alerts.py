@@ -569,8 +569,9 @@ def test_song_request_is_independent_from_the_qr_cart_and_visible_to_bartender()
     assert "cxHspPaintSongQueue031K(songs)" in panel
     assert "cxHspPaintLiveOrders031L(orders)" in panel
     live_orders = panel.split("function cxHspPaintLiveOrders031L", 1)[1].split("function cxHspIsBarAccount031D", 1)[0]
-    # 034B: live orders repaint the per-table board instead of status columns.
-    assert "cxHspPaintTableBoard034B()" in live_orders
+    # 034D: live orders repaint through the per-company board switch (kanban by
+    # default, per-table board only for companies with orders_board = "mesas").
+    assert "cxHspPaintOrdersBoard034D()" in live_orders
     assert "cxHspBoardDirty034B()" in live_orders
     assert 'text("hspSOpenTables031D"' in live_orders
     assert 'text("hspSTotal024R"' in live_orders

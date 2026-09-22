@@ -17,6 +17,11 @@ Backend FastAPI + Postgres, desplegado en Railway (proyecto `merry-simplicity`, 
 - Toda consulta SQL debe filtrar por `company_id`.
 - Nunca devolver datos de otro tenant.
 
+## Interruptor por empresa (obligatorio)
+
+- Toda función nueva o cambio visual debe ir detrás de un interruptor por empresa, apagado por defecto, y activarse solo para la empresa que lo pidió.
+- Los arreglos de seguridad y errores pueden aplicar a todas, pero debes avisarme antes de hacer push indicando que afectan a todas las empresas.
+
 ## Flujo de commit y push (autonomía condicionada)
 
 Tengo autonomía para hacer commit y push a `main`, con una condición obligatoria:
