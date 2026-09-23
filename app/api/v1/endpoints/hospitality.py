@@ -852,6 +852,47 @@ async def _company_exists(db: AsyncSession, company_id: uuid.UUID) -> bool:
     return row.first() is not None
 
 
+# Rediseño "carta de bar" de la pantalla QR del cliente (header limpio,
+# cuenta y canción compactas, categorías con icono, CONFIRMA TU PEDIDO y
+# aviso de pedido enviado). Interruptor por empresa en los ajustes del
+# módulo QR, apagado por defecto: hoy solo The Time Machine (migración
+# 021m). Va al nivel superior de settings y no dentro de qr_config porque
+# el formulario QR de Admin V2 reescribe qr_config completo al guardar.
+QR_BAR_MENU_SETTING = "qr_bar_menu"
+
+
+async def _qr_customer_ui(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    result = await db.execute(
+        text(
+            """
+            SELECT cm.settings
+            FROM company_modules cm
+            JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = :company_id
+              AND m.code IN ('qr', 'mesa_qr', 'mesas_qr', 'qr_mesas', 'hospitality_qr', 'voting_qr')
+            ORDER BY cm.enabled DESC, cm.updated_at DESC
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    row = result.mappings().first()
+    settings = _json(row["settings"], {}) if row else {}
+    settings = settings if isinstance(settings, dict) else {}
+    return {"bar_menu": settings.get(QR_BAR_MENU_SETTING) is True}
+
+
+async def _qr_company_name(db: AsyncSession, company_id: uuid.UUID) -> str:
+    # The QR page is public and GET /companies/{id} now requires a session,
+    # so the (low-sensitivity) display name travels with the access status.
+    result = await db.execute(
+        text("SELECT name FROM companies WHERE id = :company_id LIMIT 1"),
+        {"company_id": str(company_id)},
+    )
+    row = result.first()
+    return str(row[0] or "") if row else ""
+
+
 async def _next_order_number(db: AsyncSession, company_id: uuid.UUID) -> str:
     today = _now().strftime("%Y%m%d")
     row = await db.execute(
@@ -3937,7 +3978,14 @@ async def get_hospitality_table_access(
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
     access = await _fetch_active_table_access(db, company_id, table)
-    return {"ok": True, "company_id": str(company_id), "table": _clean(table), "access": _table_access_payload(access, include_code=False)}
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "table": _clean(table),
+        "access": _table_access_payload(access, include_code=False),
+        "company_name": await _qr_company_name(db, company_id),
+        "ui": await _qr_customer_ui(db, company_id),
+    }
 
 
 @router.post("/companies/{company_id}/qr-tables/access", status_code=status.HTTP_201_CREATED)

@@ -42,6 +42,22 @@
     [["gaseosa", "bebida", "refresco", "soda", "jugo", "limonada", "agua", "cola", "coca", "pepsi", "postobon", "colombiana", "sprite", "hit", "natural"], "🥤"],
   ];
   const DEFAULT_MENU_EMOJI = "🍽️";
+  // Carta de bar (pantalla QR con qr_bar_menu): iconos más específicos para
+  // lo que vende un bar. Solo se consulta con { bar: true }, antes de la
+  // tabla general, así el panel mesero de las otras empresas no cambia.
+  const BAR_MENU_EMOJIS = [
+    [["aguardiente", "antioqueno", "nectar", "blanco"], "🍶"],
+    [["ron", "medellin", "caldas", "bacardi", "whisky", "whiskey", "buchanans", "chivas", "old", "tequila", "brandy"], "🥃"],
+    [["vodka", "ginebra", "gin", "martini"], "🍸"],
+    [["coctel", "coctail", "mojito", "margarita", "pina", "daiquiri", "cuba"], "🍹"],
+    [["champana", "champagne", "espumoso"], "🍾"],
+    [["agua", "hielo"], "💧"],
+    [["energizante", "redbull", "vive", "monster", "speed"], "⚡"],
+    [["jugo", "limonada", "natural"], "🧃"],
+    [["cigarrillo", "cigarro", "cigarrillos", "tabaco", "marlboro", "lucky", "boston", "belmont", "pielroja", "vape", "vaper"], "🚬"],
+    [["snack", "snacks", "pasaboca", "pasabocas", "mani", "papita", "papitas", "chito", "chitos", "dorito", "doritos", "tostacos", "detodito", "crispeta", "crispetas"], "🍿"],
+    [["dulce", "dulces", "chicle", "chicles", "confite", "confites", "chocolatina", "bombon"], "🍬"],
+  ];
 
   // .replace(/x/g) instead of .replaceAll: replaceAll throws on the older
   // Android WebViews some phones still run.
@@ -63,7 +79,7 @@
     }
   }
 
-  function menuEmoji(text) {
+  function menuEmoji(text, opts = {}) {
     const first = String(text || "")
       .normalize("NFD")
       .replace(/[̀-ͯ]/g, "")
@@ -73,7 +89,8 @@
       .split(/\s+/)[0] || "";
     if (!first) return DEFAULT_MENU_EMOJI;
     const candidates = [first, first.replace(/es$/, ""), first.replace(/s$/, "")];
-    for (const [words, emoji] of MENU_EMOJIS) {
+    const tables = opts.bar ? [...BAR_MENU_EMOJIS, ...MENU_EMOJIS] : MENU_EMOJIS;
+    for (const [words, emoji] of tables) {
       if (candidates.some((word) => words.includes(word))) return emoji;
     }
     return DEFAULT_MENU_EMOJI;
@@ -88,7 +105,7 @@
         : `products/${encodeURIComponent(item.image_item_id || item.id)}/image`;
       return { type: "image", url: `/api/v1/companies/${encodeURIComponent(companyId)}/waiter-ordering/${path}` };
     }
-    if (opts.emojis) return { type: "emoji", emoji: menuEmoji(kind === "category" ? item.label || item.key : item.name) };
+    if (opts.emojis) return { type: "emoji", emoji: menuEmoji(kind === "category" ? item.label || item.key : item.name, opts) };
     return kind === "category" ? { type: "emoji", emoji: DEFAULT_MENU_EMOJI } : { type: "none" };
   }
 
@@ -488,6 +505,7 @@
   window.CxMenuKit = {
     TERM_STOPS,
     MENU_EMOJIS,
+    BAR_MENU_EMOJIS,
     DEFAULT_MENU_EMOJI,
     h,
     money,

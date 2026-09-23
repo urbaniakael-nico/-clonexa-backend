@@ -45,6 +45,12 @@
     navigationGuarded: false,
     message: "",
     error: "",
+    // Carta de bar (qr_bar_menu, por empresa, apagado por defecto).
+    ui: { bar_menu: false },
+    barAccountOpen: false,
+    barSongOpen: false,
+    songNotice: "",
+    sentOrder: null,
   };
 
   function customerStorageKey() {
@@ -829,7 +835,7 @@
       <section class="qr-access-gate">
         <div class="qr-access-top">
           <p class="qr-eyebrow">${assembly ? "Acceso de participante" : "Acceso de mesa"}</p>
-          <h2>Ingresa clave de activacion</h2>
+          <h2>${barMenuOn() ? "Ingresa la clave de activación" : "Ingresa clave de activacion"}</h2>
           <p class="qr-muted">${active ? (assembly ? "Escribe la clave entregada por el operador para abrir el formulario de la asamblea." : "Escribe la clave que te entrego el personal del bar para abrir el menu de pedidos.") : (assembly ? "Si aun no tienes clave, pide al operador activar este participante QR." : "Si aun no tienes clave, pide al personal del bar activar esta mesa.")}</p>
         </div>
         <div class="qr-access-form">
@@ -1418,6 +1424,311 @@
     if (host) host.innerHTML = `${campaignHtml025G()}${scorePoolHtml025G()}${votePollHtml025O()}`;
   }
 
+  // ---- Carta de bar (qr_bar_menu) --------------------------------------
+  // Rediseño de la pantalla del cliente pedido por The Time Machine. Solo se
+  // usa cuando la empresa tiene el interruptor encendido (llega en
+  // GET qr-tables/access -> ui.bar_menu) y el kit de menú compartido cargó;
+  // las demás empresas siguen con la pantalla de siempre.
+  function barMenuOn() {
+    return !isAssemblyMode() && state.ui?.bar_menu === true && !!window.CxMenuKit;
+  }
+
+  function barTableTitle() {
+    const clean = String(state.table || "").trim();
+    if (!clean) return "Mesa";
+    return /^mesa\b/i.test(clean) ? clean : `Mesa ${clean}`;
+  }
+
+  // Nunca mostrar al cliente un error técnico ("401 Unauthorized {...}").
+  function barFriendlyError(message) {
+    const text = String(message || "").trim();
+    if (!text) return "";
+    if (/^\d{3}\b/.test(text) || /detail|token|unauthorized|forbidden|failed to fetch|networkerror/i.test(text)) {
+      return "No pudimos conectar con el bar. Revisa tu conexión e intenta de nuevo.";
+    }
+    return text;
+  }
+
+  function barHeaderHtml(companyName) {
+    const b = brand();
+    const initial = (String(companyName || "").trim().slice(0, 1) || "C").toUpperCase();
+    return `
+      <header class="qrb-head">
+        <h1>${h(barTableTitle())}</h1>
+        <div class="qr-logo qrb-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName || "Logo")}">` : h(initial)}</div>
+      </header>`;
+  }
+
+  function barCategoryList() {
+    return productCategories()
+      .filter((item) => item.name !== "Todos")
+      .map((item) => ({ key: item.name, label: item.name, count: item.count, has_image: false }));
+  }
+
+  function barCategoryGridHtml() {
+    const kit = window.CxMenuKit;
+    const categories = barCategoryList();
+    if (!categories.length) {
+      return `<div class="qr-empty">${state.inventoryRecoveryAttempts < 3 ? "Reconectando el menu de la mesa..." : "No hay productos activos para esta mesa."}</div>`;
+    }
+    return `
+      <div class="qrb-cats">
+        ${categories.map((cat) => `
+          <button class="qrb-cat" type="button" data-bar-cat="${h(cat.key)}">
+            <span class="qrb-cat-icon" aria-hidden="true">${kit.menuEmoji(cat.label, { bar: true })}</span>
+            <strong>${h(cat.label)}</strong>
+            <small>${h(cat.count)} ${cat.count === 1 ? "producto" : "productos"}</small>
+          </button>`).join("")}
+      </div>`;
+  }
+
+  function barProductsHtml(products) {
+    const kit = window.CxMenuKit;
+    if (!products.length) return `<div class="qr-empty">No encontramos productos con ese filtro.</div>`;
+    return `
+      <div class="qrb-products">
+        ${products.map((item) => {
+          const quantity = Number(state.cart.get(String(item.id))?.quantity || 0);
+          return `
+            <article class="qrb-product ${quantity > 0 ? "is-selected" : ""}">
+              <span class="qrb-product-icon" aria-hidden="true">${kit.menuEmoji(item.name, { bar: true })}</span>
+              <div class="qrb-product-copy">
+                <strong>${h(item.name)}</strong>
+                <span>${Number(item.price || 0) > 0 ? h(money(item.price)) : "Por confirmar"}</span>
+              </div>
+              ${quantity > 0 ? `
+                <div class="qr-inline-qty" aria-label="Cantidad de ${h(item.name)}">
+                  <button type="button" data-dec="${h(item.id)}" aria-label="Quitar una unidad">−</button>
+                  <strong aria-live="polite">${h(quantity)}</strong>
+                  <button type="button" data-inc="${h(item.id)}" aria-label="Agregar una unidad">+</button>
+                </div>
+              ` : `<button class="qrb-add" type="button" data-add="${h(item.id)}" aria-label="Agregar ${h(item.name)}">+</button>`}
+            </article>`;
+        }).join("")}
+      </div>`;
+  }
+
+  function barMenuHtml() {
+    const query = normalizeText(state.search);
+    let body;
+    let title = "Carta";
+    let back = "";
+    if (query) {
+      const matches = state.inventory.filter((item) => normalizeText(`${item.name || ""} ${item.sku || ""} ${productCategory(item)}`).includes(query));
+      title = "Resultados";
+      body = barProductsHtml(matches);
+    } else if (state.category && state.category !== "Todos" && barCategoryList().some((cat) => cat.key === state.category)) {
+      title = state.category;
+      back = `<button class="qrb-back" type="button" data-bar-cat-back>← Categorías</button>`;
+      body = barProductsHtml(state.inventory.filter((item) => productCategory(item) === state.category));
+    } else {
+      state.category = "Todos";
+      body = barCategoryGridHtml();
+    }
+    return `
+      <section class="qrb-menu" aria-label="Carta">
+        <input id="qrSearch024X" class="qr-search qrb-search" placeholder="🔎 Buscar producto" value="${h(state.search)}" autocomplete="off">
+        <div class="qrb-menu-head">${back}<h2>${h(title)}</h2></div>
+        ${body}
+      </section>`;
+  }
+
+  function barPendingHtml(itemCount) {
+    if (!itemCount) return "";
+    return `
+      <div class="qrb-pending" role="status" aria-live="polite">
+        ⚠️ Tienes ${h(itemCount)} ${itemCount === 1 ? "producto" : "productos"} sin enviar. Toca <strong>CONFIRMA TU PEDIDO</strong> para enviarlos a la barra.
+      </div>`;
+  }
+
+  function barSentHtml() {
+    const sent = state.sentOrder;
+    if (!sent) return "";
+    return `
+      <div class="qrb-sent-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="qrbSentTitle">
+        <div class="qrb-sent">
+          <div class="qrb-sent-icon" aria-hidden="true">✅</div>
+          <h2 id="qrbSentTitle">¡Pedido enviado a la barra!</h2>
+          ${sent.number ? `<p class="qrb-sent-number">Pedido ${h(sent.number)}</p>` : ""}
+          <ul>${sent.items.map((item) => `<li><strong>${h(item.quantity)} ×</strong> ${h(item.name)}</li>`).join("")}</ul>
+          <button class="qrb-confirm" type="button" data-bar-sent-close>Entendido</button>
+        </div>
+      </div>`;
+  }
+
+  function barSongSent(song) {
+    state.message = "";
+    state.songNotice = song;
+    state.barSongOpen = true;
+    const input = document.getElementById("qrSongRequest031C");
+    if (input) input.value = "";
+    window.setTimeout(() => {
+      if (state.songNotice !== song) return;
+      state.songNotice = "";
+      const notice = document.getElementById("qrbSongNotice");
+      if (notice) notice.remove();
+    }, 6000);
+  }
+
+  function renderBarLocked() {
+    injectBarStyles();
+    const companyName = state.company.name || state.company.company_name || "";
+    const friendly = barFriendlyError(state.error);
+    app.innerHTML = `
+      <main class="qr-shell qr-shell-locked qrb-shell">
+        ${barHeaderHtml(companyName)}
+        ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
+        ${friendly ? `<div class="qr-msg err">${h(friendly)}</div>` : ""}
+        ${accessGateHtml()}
+      </main>
+    `;
+    setTimeout(() => document.getElementById("qrAccessCode025B")?.focus(), 0);
+  }
+
+  function renderBar() {
+    injectBarStyles();
+    const companyName = state.company.name || state.company.company_name || "";
+    const itemCount = cartItemCount();
+    const total = cartTotal();
+    const tableAccount = state.tableAccount || {};
+    const songInput = document.getElementById("qrSongRequest031C");
+    const songDraft = state.songNotice ? "" : (songInput?.value || state.songDraft || "");
+    const friendly = barFriendlyError(state.error);
+
+    app.innerHTML = `
+      <main class="qr-shell qrb-shell ${itemCount > 0 ? "has-pending" : ""}">
+        ${barHeaderHtml(companyName)}
+
+        <details class="qrb-line" data-bar-line="account" ${state.barAccountOpen ? "open" : ""}>
+          <summary><span>🧾 Cuenta total de la mesa</span><strong id="qrTableAccountTotal030B">${h(money(tableAccount.total || 0))}</strong></summary>
+          <div class="qrb-line-body">
+            <small id="qrTableAccountMeta030B">${h(tableAccountMeta())}</small>
+            <div id="qrTableAccountBreakdown033C" class="qr-table-breakdown-panel">${tableAccountItemsHtml()}</div>
+          </div>
+        </details>
+
+        <details class="qrb-line" data-bar-line="song" ${state.barSongOpen ? "open" : ""}>
+          <summary><span>🎵 ¿Qué deseas escuchar?</span><em>Pedir canción</em></summary>
+          <div class="qrb-line-body">
+            ${state.songNotice ? `<div id="qrbSongNotice" class="qrb-song-notice" role="status">🎶 Tu canción fue enviada: <strong>${h(state.songNotice)}</strong></div>` : ""}
+            <div class="qr-song-form">
+              <input id="qrSongRequest031C" maxlength="220" autocomplete="off" placeholder="Canción o artista" value="${h(songDraft)}">
+              <button class="qr-btn" type="button" data-submit-song ${state.songSending ? "disabled" : ""}>${state.songSending ? "Enviando..." : "Enviar"}</button>
+            </div>
+          </div>
+        </details>
+
+        ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
+        ${friendly ? `<div class="qr-msg err">${h(friendly)}</div>` : ""}
+        <div id="qrCampaignHost025F">${campaignHtml025G()}${scorePoolHtml025G()}${votePollHtml025O()}</div>
+
+        ${barMenuHtml()}
+
+        <button class="qr-cart-overlay ${state.cartOpen ? "open" : ""}" type="button" data-cart-close aria-label="Cerrar pedido" aria-hidden="${state.cartOpen ? "false" : "true"}" ${state.cartOpen ? "" : "disabled"}></button>
+        <aside class="qr-cart ${state.cartOpen ? "open" : ""}" aria-label="Tu pedido">
+          <div class="qr-cart-head">
+            <div>
+              <h2>Revisa tu pedido</h2>
+              <p>${h(itemCount)} ${itemCount === 1 ? "producto sin enviar" : "productos sin enviar"}</p>
+            </div>
+            <button class="qr-cart-close" type="button" data-cart-close aria-label="Cerrar pedido">×</button>
+          </div>
+          <label class="qr-field">
+            <span>Nombre</span>
+            <input id="qrCustomer024S" name="name" autocomplete="name" placeholder="Ej: Javier" value="${h(document.getElementById("qrCustomer024S")?.value || state.customerName || "")}">
+          </label>
+          <div id="qrCartLines024S">${cartRows()}</div>
+          <label class="qr-field">
+            <span>Notas</span>
+            <textarea id="qrNotes024S" placeholder="Sin hielo, bien fría...">${h(document.getElementById("qrNotes024S")?.value || "")}</textarea>
+          </label>
+          <div class="qr-cart-footer">
+            <div class="qr-total"><span>Total</span><strong>${total > 0 ? h(money(total)) : "Por confirmar"}</strong></div>
+            <button class="qrb-confirm" type="button" data-submit-order ${itemCount ? "" : "disabled"}>Enviar a la barra ✓</button>
+            <button class="qr-btn secondary" type="button" data-clear-cart>Vaciar pedido</button>
+          </div>
+        </aside>
+
+        <div class="qrb-dock">
+          ${barPendingHtml(itemCount)}
+          <button class="qrb-confirm qrb-dock-btn ${itemCount > 0 ? "has-items" : ""}" type="button" data-cart-open aria-live="polite">
+            <span>CONFIRMA TU PEDIDO</span>
+            <small>${itemCount > 0 ? `${h(itemCount)} ${itemCount === 1 ? "producto" : "productos"} · ${total > 0 ? h(money(total)) : "por confirmar"}` : "Elige tus productos en la carta"}</small>
+          </button>
+        </div>
+        ${barSentHtml()}
+      </main>
+    `;
+  }
+
+  function injectBarStyles() {
+    if (document.getElementById("hspQrBarStyles047A")) return;
+    const style = document.createElement("style");
+    style.id = "hspQrBarStyles047A";
+    style.textContent = `
+      .qrb-shell{gap:10px;padding-bottom:150px;align-content:start}
+      .qrb-shell #qrCampaignHost025F:empty{display:none}
+      .qrb-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 2px}
+      .qrb-head h1{margin:0;font-size:34px;font-weight:1000;letter-spacing:-.02em}
+      .qrb-logo{width:64px;height:64px;border-radius:18px;font-size:28px}
+      .qrb-line{border:1px solid var(--qr-line);border-radius:16px;background:rgba(15,23,42,.72)}
+      .qrb-line summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;cursor:pointer;font-weight:900;min-height:48px}
+      .qrb-line summary::-webkit-details-marker{display:none}
+      .qrb-line summary::after{content:"▾";opacity:.7;transition:transform .15s}
+      .qrb-line[open] summary::after{transform:rotate(180deg)}
+      .qrb-line summary span{flex:1;min-width:0}
+      .qrb-line summary strong{font-size:18px;color:var(--qr-secondary)}
+      .qrb-line summary em{font-style:normal;font-size:13px;opacity:.75}
+      .qrb-line-body{padding:0 14px 14px;display:grid;gap:10px}
+      .qrb-line-body > small{color:var(--qr-muted)}
+      .qrb-song-notice{padding:12px 14px;border-radius:12px;background:#15803d;color:#fff;font-weight:900}
+      .qrb-menu{display:grid;gap:12px}
+      .qrb-search{width:100%;min-height:48px;font-size:16px}
+      .qrb-menu-head{display:flex;align-items:center;gap:10px}
+      .qrb-menu-head h2{margin:0;font-size:22px}
+      .qrb-back{min-height:40px;padding:0 12px;border-radius:999px;border:1px solid var(--qr-line);background:rgba(255,255,255,.08);color:inherit;font-weight:900;cursor:pointer}
+      .qrb-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+      .qrb-cat{display:grid;justify-items:center;gap:4px;padding:16px 8px;border-radius:18px;border:1px solid var(--qr-line);background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.03));color:inherit;cursor:pointer;min-height:140px;align-content:center}
+      .qrb-cat-icon{font-size:52px;line-height:1.1}
+      .qrb-cat strong{font-size:16px;text-align:center}
+      .qrb-cat small{color:var(--qr-muted);font-size:12px}
+      .qrb-products{display:grid;gap:8px}
+      .qrb-product{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 12px;border-radius:16px;border:1px solid var(--qr-line);background:rgba(15,23,42,.72)}
+      .qrb-product.is-selected{border-color:#22c55e;box-shadow:0 0 0 1px #22c55e inset}
+      .qrb-product-icon{font-size:34px}
+      .qrb-product-copy{display:grid;gap:2px;min-width:0}
+      .qrb-product-copy strong{font-size:16px;overflow-wrap:anywhere}
+      .qrb-product-copy span{color:var(--qr-secondary);font-weight:900}
+      .qrb-add{width:48px;height:48px;border-radius:14px;border:none;background:var(--qr-primary);color:#111827;font-size:26px;font-weight:1000;cursor:pointer}
+      .qrb-confirm{min-height:56px;width:100%;border:none;border-radius:16px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;font-weight:1000;font-size:18px;letter-spacing:.02em;cursor:pointer;box-shadow:0 12px 30px rgba(34,197,94,.35)}
+      .qrb-confirm:disabled{opacity:.55;cursor:default}
+      .qrb-dock{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;gap:8px;padding:10px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(180deg,transparent,rgba(5,3,12,.92) 30%)}
+      .qrb-dock-btn{display:grid;gap:2px;justify-items:center;max-width:720px;margin:0 auto}
+      .qrb-dock-btn:not(.has-items){background:linear-gradient(135deg,#475569,#334155);box-shadow:none}
+      .qrb-dock-btn span{font-size:19px}
+      .qrb-dock-btn small{font-size:13px;font-weight:800;opacity:.92}
+      .qrb-pending{max-width:720px;width:100%;margin:0 auto;padding:10px 12px;border-radius:12px;background:#f59e0b;color:#1a1206;font-weight:800;font-size:14px}
+      .qrb-shell{max-width:760px}
+      .qrb-shell .qr-cart-overlay{display:block;position:fixed;inset:0;z-index:999;background:rgba(2,6,23,.72);border:0;opacity:0;pointer-events:none;transition:opacity .22s ease}
+      .qrb-shell .qr-cart-overlay.open{opacity:1;pointer-events:auto}
+      .qrb-shell .qr-cart{position:fixed;z-index:1000;left:0;right:0;bottom:0;top:auto;max-width:760px;margin:0 auto;max-height:min(86svh,760px);overflow:auto;border-radius:24px 24px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));transform:translateY(105%);visibility:hidden;transition:transform .24s ease,visibility .24s ease}
+      .qrb-shell .qr-cart.open{transform:translateY(0);visibility:visible}
+      .qrb-shell .qr-cart-close{display:grid;place-items:center}
+      .qrb-sent-backdrop{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.72)}
+      .qrb-sent{width:min(440px,100%);max-height:calc(100vh - 32px);overflow:auto;display:grid;gap:10px;padding:24px 20px;border-radius:24px;background:#0f172a;border:2px solid #22c55e;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+      .qrb-sent-icon{font-size:56px}
+      .qrb-sent h2{margin:0;font-size:26px;font-weight:1000}
+      .qrb-sent-number{margin:0;color:var(--qr-muted)}
+      .qrb-sent ul{list-style:none;margin:0;padding:0;display:grid;gap:6px;text-align:left}
+      .qrb-sent li{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.07);font-size:16px}
+      @media (max-width:520px){
+        .qrb-head h1{font-size:28px}
+        .qrb-cats{grid-template-columns:repeat(2,minmax(0,1fr))}
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   function render() {
     injectStyles();
     const b = brand();
@@ -1431,6 +1742,11 @@
 
     if (state.loading) {
       app.innerHTML = `<main class="qr-shell"><section class="qr-hero"><div><p class="qr-eyebrow">${h(assemblyAccessLabel())}</p><h1>${h(state.table)}</h1><p class="qr-muted">Cargando acceso...</p></div></section></main>`;
+      return;
+    }
+
+    if (!state.access?.unlocked && barMenuOn()) {
+      renderBarLocked();
       return;
     }
 
@@ -1470,6 +1786,11 @@
           ${assemblyPublicFormHtml()}
         </main>
       `;
+      return;
+    }
+
+    if (barMenuOn()) {
+      renderBar();
       return;
     }
 
@@ -1662,6 +1983,7 @@
       state.songDraft = "";
       state.message = `Solicitud musical enviada: ${song}.`;
       state.error = "";
+      if (barMenuOn()) barSongSent(song);
     } catch (error) {
       if (isDefinitiveAccessError(error)) {
         forgetAccessCode();
@@ -1719,12 +2041,20 @@
         body: JSON.stringify(payload),
       });
       rememberCustomerName(customer);
+      if (barMenuOn()) {
+        state.sentOrder = {
+          number: response.order?.order_number || "",
+          items: items.map((item) => ({ name: item.name, quantity: item.quantity })),
+        };
+      }
       state.cart.clear();
       state.cartOpen = false;
       await refreshTableAccount({ render: false }).catch(() => {});
       await refreshCampaign().catch(() => {});
-      state.message = `Tu pedido fue recibido. El barman ya lo tiene en pantalla: ${response.order?.order_number || "OK"}.`;
+      state.message = barMenuOn() ? "" : `Tu pedido fue recibido. El barman ya lo tiene en pantalla: ${response.order?.order_number || "OK"}.`;
       state.error = "";
+      const notesInput = document.getElementById("qrNotes024S");
+      if (barMenuOn() && notesInput) notesInput.value = "";
       render();
     } catch (error) {
       if (isDefinitiveAccessError(error)) {
@@ -1898,13 +2228,14 @@
   async function load() {
     try {
       const [company, branding, access, assemblyPublic] = await Promise.all([
-        api(`/companies/${encodeURIComponent(state.companyId)}`),
+        api(`/companies/${encodeURIComponent(state.companyId)}`).catch(() => ({})),
         api(`/companies/${encodeURIComponent(state.companyId)}/branding`).catch(() => ({})),
         api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/access?table=${encodeURIComponent(state.table)}`).catch(() => ({})),
         api(`/assemblies/companies/${encodeURIComponent(state.companyId)}/public?participant=${encodeURIComponent(state.table)}`).catch(() => ({})),
       ]);
-      state.company = company || {};
+      state.company = company && (company.name || company.company_name) ? company : { name: access.company_name || "" };
       state.branding = branding.branding || branding || {};
+      state.ui = { bar_menu: access.ui?.bar_menu === true };
       state.customerName = storedCustomerName();
       applyAssemblyPublic(assemblyPublic || {});
       if (isAssemblyMode()) {
@@ -2029,6 +2360,26 @@
       render();
       return;
     }
+    const barCategory = target.closest("[data-bar-cat]");
+    if (barCategory) {
+      state.category = barCategory.getAttribute("data-bar-cat") || "Todos";
+      state.search = "";
+      state.error = "";
+      render();
+      window.scrollTo?.(0, 0);
+      return;
+    }
+    if (target.closest("[data-bar-cat-back]")) {
+      state.category = "Todos";
+      state.search = "";
+      render();
+      return;
+    }
+    if (target.closest("[data-bar-sent-close]")) {
+      state.sentOrder = null;
+      render();
+      return;
+    }
     const category = target.closest("[data-category]");
     if (category) {
       state.category = category.getAttribute("data-category") || "Todos";
@@ -2096,6 +2447,10 @@
     const target = event.target;
     if (target instanceof HTMLDetailsElement && target.matches("[data-table-breakdown]")) {
       state.tableBreakdownOpen = target.open;
+    }
+    if (target instanceof HTMLDetailsElement && target.matches("[data-bar-line]")) {
+      if (target.getAttribute("data-bar-line") === "account") state.barAccountOpen = target.open;
+      if (target.getAttribute("data-bar-line") === "song") state.barSongOpen = target.open;
     }
   }, true);
 
