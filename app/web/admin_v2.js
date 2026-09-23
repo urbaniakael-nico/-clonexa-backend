@@ -2712,7 +2712,42 @@
         yellow_max_minutes: Number(settings.timer_thresholds?.yellow_max_minutes) > 0 ? Number(settings.timer_thresholds.yellow_max_minutes) : 20,
       },
       shift_max_hours: Number(settings.shift_max_hours) > 0 ? Number(settings.shift_max_hours) : 12,
+      segments: cxWaiterOrderingSegments031T(settings.segments),
     };
+  }
+
+  // Mesero/cocina/caja as first-class Admin V2 mini panel segments (general
+  // capability: any future company can turn these on from here). Off by
+  // default -- a missing/absent key means disabled, never assumed enabled.
+  const CX_WO_SEGMENT_TYPES_031T = [
+    { type: "mesero", label: "Meseros" },
+    { type: "cocina", label: "Cocina" },
+    { type: "caja", label: "Caja" },
+  ];
+
+  function cxReadWaiterOrderingSegmentsFromForm031T(data) {
+    const segments = {};
+    CX_WO_SEGMENT_TYPES_031T.forEach(({ type }) => {
+      const modules = String(data[`segment_${type}_modules`] || "").split(",").map((s) => s.trim()).filter(Boolean);
+      segments[type] = {
+        enabled: data[`segment_${type}_enabled`] === "on",
+        modules,
+      };
+    });
+    return segments;
+  }
+
+  function cxWaiterOrderingSegments031T(rawSegments) {
+    const source = rawSegments && typeof rawSegments === "object" ? rawSegments : {};
+    const segments = {};
+    CX_WO_SEGMENT_TYPES_031T.forEach(({ type }) => {
+      const raw = source[type] && typeof source[type] === "object" ? source[type] : {};
+      segments[type] = {
+        enabled: raw.enabled === true,
+        modules: Array.isArray(raw.modules) ? raw.modules : [],
+      };
+    });
+    return segments;
   }
 
   function cxRenderCompanyWaiterOrderingConfig026K(company) {
@@ -2756,7 +2791,23 @@
               <input name="shift_max_hours" type="number" min="1" max="48" step="0.5" value="${escapeHtml(settings.shift_max_hours)}">
             </label>
           </div>
-          <button class="cx-btn cx-btn-primary" type="submit">Guardar configuracion</button>
+
+          <div class="cx-wo-segments-031t" style="margin-top:14px">
+            <strong>Segmentos de mini panel</strong>
+            <p class="cx-empty-state" style="padding:4px 0 10px">Actívalos para que aparezcan en el portal del tenant (pantalla Mini Paneles) con su propio link y su generador de usuario y clave por persona de Workforce. Desactivados no dejan crear usuarios nuevos de ese segmento.</p>
+            ${CX_WO_SEGMENT_TYPES_031T.map(({ type, label }) => `
+              <div class="cx-wo-segment-row-031t">
+                <label class="cx-reset-scope">
+                  <input type="checkbox" name="segment_${type}_enabled" ${settings.segments[type].enabled ? "checked" : ""}>
+                  <span>${escapeHtml(label)}</span>
+                </label>
+                <input name="segment_${type}_modules" placeholder="Modulos asignados (opcional, separados por coma)" value="${escapeHtml((settings.segments[type].modules || []).join(", "))}">
+                <code class="cx-wo-segment-link-031t">/mini-panel/${type}?company_id=${escapeHtml(company.id)}</code>
+              </div>
+            `).join("")}
+          </div>
+
+          <button class="cx-btn cx-btn-primary" type="submit" style="margin-top:12px">Guardar configuracion</button>
         </form>
 
         <div class="cx-wo-categories-026k" style="margin-top:16px">
@@ -3061,6 +3112,7 @@
         yellow_max_minutes: Math.max(1, Math.min(240, Number(data.yellow_max_minutes) || 20)),
       },
       shift_max_hours: Math.max(1, Math.min(48, Number(data.shift_max_hours) || 12)),
+      segments: cxReadWaiterOrderingSegmentsFromForm031T(data),
     };
 
     try {
@@ -5836,7 +5888,7 @@
                   data-module-code="${escapeHtml(module.code)}"
                   data-action="deactivate"
                 >
-                  ${escapeHtml(meta.badge)} ? ${escapeHtml(meta.name)} ?
+                  ${escapeHtml(meta.badge)} · ${escapeHtml(meta.name)}
                 </button>
               `;
             }).join("") : `

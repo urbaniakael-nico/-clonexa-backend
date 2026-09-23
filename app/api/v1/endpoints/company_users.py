@@ -461,6 +461,23 @@ async def _cx_count_minipanel_users_of_type_026k(db: AsyncSession, company_id: U
 # CLONEXA_026K_WAITER_ORDERING_END
 
 
+# CLONEXA_031T_WAITER_ORDERING_SEGMENTS_START
+# Mesero/cocina/caja are now first-class Admin V2 "mini panel segments"
+# (settings.segments.{type}.enabled), same shape as any other mini panel
+# segment: activate checkbox, max users (still waiter_user_limit/
+# kitchen_user_limit/cashier_user_limit, unchanged), assigned modules, link.
+# Off by default for every company (missing key = disabled) -- a company
+# getting waiter_ordering enabled for the first time still needs each
+# segment explicitly turned on in Admin V2. Only gates CREATING a new mini
+# panel user for that segment, not an already-issued login: the module-level
+# require_enabled_module gate already fully blocks every other company.
+def _cx_waiter_ordering_segment_enabled_031t(settings: Dict[str, Any], panel_type: str) -> bool:
+    segments = settings.get("segments") if isinstance(settings.get("segments"), dict) else {}
+    segment = segments.get(panel_type) if isinstance(segments.get(panel_type), dict) else {}
+    return segment.get("enabled") is True
+# CLONEXA_031T_WAITER_ORDERING_SEGMENTS_END
+
+
 # CLONEXA_027P_FASE2_ROLE_GATE_START
 # Fase 2: full-portal roles (dueno/gerente/administrador). "administrador"
 # is blocked from Nomina/Ajustes -- in the server, not just hidden from the
@@ -899,6 +916,12 @@ async def _cx_create_minipanel_user_from_employee_026j(
 
     if clean_type in WAITER_ORDERING_PANEL_TYPES_026K:
         await _cx_require_waiter_ordering_module_026k(db, company_id)
+        segment_settings = await _cx_waiter_ordering_module_settings_026k(db, company_id)
+        if not _cx_waiter_ordering_segment_enabled_031t(segment_settings, clean_type):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El segmento de {_cx_minipanel_type_label_019d(clean_type)} no esta activado en Admin V2.",
+            )
         limit = await _cx_waiter_ordering_user_limit_026k(db, company_id, clean_type)
         current_count = await _cx_count_minipanel_users_of_type_026k(db, company_id, clean_type)
         if current_count >= limit:

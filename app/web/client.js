@@ -9324,6 +9324,36 @@ function inventoryCreatePayload() {
         fr: "Lien de base pour les mini panneaux personnalises.",
         pt: "Link base para mini paineis personalizados."
       }
+    },
+    // Restaurant segments (Fase 2, general capability): only appear for a
+    // company with waiter_ordering enabled AND that specific segment turned
+    // on in Admin V2 -- see cxWaiterOrderingMiniPanelSegments030S().
+    mesero: {
+      label: { es: "Meseros", en: "Waiters", fr: "Serveurs", pt: "Garcons" },
+      description: {
+        es: "Acceso al panel de toma de pedidos para meseros.",
+        en: "Access to the order-taking panel for waiters.",
+        fr: "Acces au panneau de prise de commandes pour les serveurs.",
+        pt: "Acesso ao painel de pedidos para garcons."
+      }
+    },
+    cocina: {
+      label: { es: "Cocina", en: "Kitchen", fr: "Cuisine", pt: "Cozinha" },
+      description: {
+        es: "Acceso al tablero de comandas para cocina y parrilla.",
+        en: "Access to the kitchen/grill order board.",
+        fr: "Acces au tableau des commandes pour la cuisine.",
+        pt: "Acesso ao painel de comandas da cozinha."
+      }
+    },
+    caja: {
+      label: { es: "Caja", en: "Cashier", fr: "Caisse", pt: "Caixa" },
+      description: {
+        es: "Acceso al panel de cierre de mesa y cobro.",
+        en: "Access to the table-closing and checkout panel.",
+        fr: "Acces au panneau de cloture et paiement.",
+        pt: "Acesso ao painel de fechamento e cobranca."
+      }
     }
   };
 
@@ -9674,13 +9704,33 @@ function inventoryCreatePayload() {
       otro: "other",
       otros: "other",
       other: "other",
+      // Mirrors _cx_panel_type_019d (company_users.py): "mesero"/"cocina"/
+      // "caja" already pass through unchanged even without an entry here
+      // (raw itself is the fallback below), but parrillero/cajero and
+      // friends need the explicit alias so labels/segment lookups resolve
+      // to the right panel code instead of a literal unregistered string.
+      mesero: "mesero",
+      meseros: "mesero",
+      mesera: "mesero",
+      waiter: "mesero",
+      cocina: "cocina",
+      kitchen: "cocina",
+      parrillero: "cocina",
+      parrillera: "cocina",
+      caja: "caja",
+      cajero: "caja",
+      cajera: "caja",
+      cashier: "caja",
     };
 
     return aliases[raw] || raw || "other";
   }
 
   function cxMiniPanelMaxUsers026J(panel = {}, type = "") {
-    const fallback = type === "call_center" ? 30 : (type === "external" ? 20 : (type === "inventory" ? 5 : 10));
+    const restaurantDefaults = { mesero: 10, cocina: 2, caja: 1 };
+    const fallback = type in restaurantDefaults
+      ? restaurantDefaults[type]
+      : (type === "call_center" ? 30 : (type === "external" ? 20 : (type === "inventory" ? 5 : 10)));
     const parsed = Number(panel.max_users ?? panel.users_allowed);
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
     return Math.min(50, Math.max(1, Math.round(parsed)));
@@ -9850,6 +9900,52 @@ function inventoryCreatePayload() {
     return { selectedPackage: directPackage || null, packageSettings: null };
   }
 
+  // Fase 2, general capability: mesero/cocina/caja mini panel segments are
+  // driven by the per-company "waiter_ordering" module settings (Admin V2's
+  // segment checkboxes -- see settings.segments.{type}.enabled), NOT by the
+  // shared-package mini_panel system, because a package can be assigned to
+  // many companies at once and these must default off per company (only
+  // Asadero El Socio has them on today). activeClientModules() is already
+  // populated app-wide for nav rendering, so this needs no extra request.
+  function cxWaiterOrderingMiniPanelSegments030S() {
+    const moduleRow = activeClientModules().find((item) => item.code === "waiter_ordering");
+    if (!moduleRow) return {};
+    const raw = moduleRow.raw && typeof moduleRow.raw === "object" ? moduleRow.raw : {};
+    const moduleSettings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    const segments = moduleSettings.segments && typeof moduleSettings.segments === "object" ? moduleSettings.segments : {};
+    const limitKeys = { mesero: "waiter_user_limit", cocina: "kitchen_user_limit", caja: "cashier_user_limit" };
+    const defaults = { mesero: 10, cocina: 2, caja: 1 };
+
+    const panels = {};
+    ["mesero", "cocina", "caja"].forEach((type) => {
+      const segment = segments[type] && typeof segments[type] === "object" ? segments[type] : {};
+      if (segment.enabled !== true) return;
+      const rawLimit = Number(moduleSettings[limitKeys[type]]);
+      const maxUsers = rawLimit > 0 ? rawLimit : defaults[type];
+      panels[type] = {
+        code: type,
+        enabled: true,
+        label: cxMiniPanelTypeLabel019B(type, {}, {}),
+        login_template: `/mini-panel/${type}?company_id={company_id}`,
+        modules: Array.isArray(segment.modules) ? segment.modules : [],
+        max_users: maxUsers,
+        users_allowed: maxUsers,
+      };
+    });
+    return panels;
+  }
+
+  function cxMergeWaiterOrderingSegments030S(base, waiterSegments) {
+    if (!waiterSegments || !Object.keys(waiterSegments).length) return base;
+    const basePanels = base && base.panels && typeof base.panels === "object" ? base.panels
+      : (base && base.types && typeof base.types === "object" ? base.types : {});
+    return {
+      ...(base || {}),
+      enabled: true,
+      panels: { ...basePanels, ...waiterSegments },
+    };
+  }
+
   async function cxLoadMiniPanelPackage019B(force = false) {
     const company = state.company || {};
     const settings = await cxMiniPanelClientSettings019B(force);
@@ -9857,6 +9953,8 @@ function inventoryCreatePayload() {
     let selectedPackage = null;
     let packageSettings = null;
     let error = "";
+    const waiterSegments = cxWaiterOrderingMiniPanelSegments030S();
+    const hasWaiterSegments = Object.keys(waiterSegments).length > 0;
 
     try {
       const companyConfig = await cxLoadMiniPanelCompanyConfig026J(force);
@@ -9869,7 +9967,7 @@ function inventoryCreatePayload() {
             code: "company_modules",
             name: "Admin V2",
           },
-          packageSettings: companyConfig,
+          packageSettings: cxMergeWaiterOrderingSegments030S(companyConfig, waiterSegments),
           error
         };
       }
@@ -9894,6 +9992,13 @@ function inventoryCreatePayload() {
       }
     } catch (err) {
       error = err.message || cxMiniPanelText019B(settings, "error");
+    }
+
+    if (hasWaiterSegments) {
+      packageSettings = cxMergeWaiterOrderingSegments030S(packageSettings, waiterSegments);
+      if (!selectedPackage) {
+        selectedPackage = { id: "waiter_ordering", code: "waiter_ordering", name: "Pedidos por mesero" };
+      }
     }
 
     return {
@@ -9985,7 +10090,8 @@ function inventoryCreatePayload() {
     cxSalesEnsureStyles019C();
 
     const company = state.company || {};
-    const moduleActive = ["mini_panel", "mini_paneles", "creacion_minipanel", "creacion_mini_panel"].some((code) => isClientModuleActive(code));
+    const moduleActive = Object.keys(cxWaiterOrderingMiniPanelSegments030S()).length > 0
+      || ["mini_panel", "mini_paneles", "creacion_minipanel", "creacion_mini_panel"].some((code) => isClientModuleActive(code));
     const data = await cxLoadMiniPanelPackage019B(force);
     const settings = data.settings || {};
     const selectedPackage = data.selectedPackage;
@@ -25056,6 +25162,10 @@ function inventoryCreatePayload() {
     call_center: ["agente_call", "agente_call_center", "asesor_call", "call_center", "callcenter", "llamadas", "telefono", "operador", "operario"],
     external: ["agente_externo", "asesor_externo", "externo", "externos", "external", "supervisor", "tesoreria"],
     other: ["admin", "administrador", "supervisor", "tesoreria", "gerencia", "gerente", "operador", "operario"],
+    // Fase 2 restaurant roles (personalRoleOptions' waiter_ordering list).
+    mesero: ["mesero", "mesera", "waiter"],
+    cocina: ["cocina", "parrillero", "parrillera", "kitchen"],
+    caja: ["caja", "cajero", "cajera", "cashier"],
   };
 
   function cxMiniPanelEmployeeKey026J(employee = {}) {

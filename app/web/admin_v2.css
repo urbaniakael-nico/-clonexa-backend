@@ -1806,6 +1806,62 @@ p {
 }
 /* CLONEXA_026K_WAITER_ORDERING_ADMIN_END */
 
+/* CLONEXA_031T_WAITER_ORDERING_SEGMENTS_START */
+.cx-wo-segment-row-031t {
+  display: grid;
+  grid-template-columns: 140px 1fr minmax(200px, auto);
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--cx-border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.03);
+  margin-bottom: 8px;
+}
+
+.cx-wo-segment-link-031t {
+  font-size: 12px;
+  opacity: .72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cx-wo-mesero-goal-row-030s {
+  display: grid;
+  grid-template-columns: 1fr 140px auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--cx-border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.03);
+  margin-bottom: 8px;
+}
+
+.cx-wo-product-image-form-030s,
+.cx-wo-portion-form-030s {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.cx-wo-portion-group-030s {
+  padding: 10px;
+  border: 1px solid var(--cx-border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.03);
+  margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .cx-wo-segment-row-031t,
+  .cx-wo-mesero-goal-row-030s {
+    grid-template-columns: 1fr;
+  }
+}
+/* CLONEXA_031T_WAITER_ORDERING_SEGMENTS_END */
+
 .cx-qr-note-025n {
   margin: 0;
   padding: 10px 12px;

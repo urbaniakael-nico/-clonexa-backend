@@ -145,6 +145,8 @@ async def test_creating_a_cocina_user_past_the_limit_is_rejected(monkeypatch):
     monkeypatch.setattr(company_users, "_cx_employee_or_404_019c", AsyncMock(return_value=employee))
     monkeypatch.setattr(company_users, "_cx_find_minipanel_user_019c", AsyncMock(return_value=None))
     monkeypatch.setattr(company_users, "_cx_require_waiter_ordering_module_026k", AsyncMock())
+    monkeypatch.setattr(company_users, "_cx_waiter_ordering_segment_enabled_031t", lambda settings, panel_type: True)
+    monkeypatch.setattr(company_users, "_cx_waiter_ordering_module_settings_026k", AsyncMock(return_value={}))
     monkeypatch.setattr(company_users, "_cx_waiter_ordering_user_limit_026k", AsyncMock(return_value=2))
     monkeypatch.setattr(company_users, "_cx_count_minipanel_users_of_type_026k", AsyncMock(return_value=2))
 
@@ -165,6 +167,8 @@ async def test_mesero_limit_is_independent_from_cocina_and_caja(monkeypatch):
     monkeypatch.setattr(company_users, "_cx_employee_or_404_019c", AsyncMock(return_value=employee))
     monkeypatch.setattr(company_users, "_cx_find_minipanel_user_019c", AsyncMock(return_value=None))
     monkeypatch.setattr(company_users, "_cx_require_waiter_ordering_module_026k", AsyncMock())
+    monkeypatch.setattr(company_users, "_cx_waiter_ordering_segment_enabled_031t", lambda settings, panel_type: True)
+    monkeypatch.setattr(company_users, "_cx_waiter_ordering_module_settings_026k", AsyncMock(return_value={}))
 
     async def fake_limit(db, cid, panel_type):
         return {"mesero": 10, "cocina": 2, "caja": 1}[panel_type]
@@ -175,6 +179,71 @@ async def test_mesero_limit_is_independent_from_cocina_and_caja(monkeypatch):
 
     monkeypatch.setattr(company_users, "_cx_waiter_ordering_user_limit_026k", fake_limit)
     monkeypatch.setattr(company_users, "_cx_count_minipanel_users_of_type_026k", fake_count)
+
+    db = _db()
+    db.add = lambda obj: None
+    payload = company_users.SalesMiniPanelUserCreateRequest(employee_id=employee_id)
+
+    result = await company_users._cx_create_minipanel_user_from_employee_026j(
+        company_id=company_id, payload=payload, panel_type="mesero", db=db, source="workforce",
+    )
+    assert result["panel_type"] == "mesero"
+
+
+# ---------------------------------------------------------------------------
+# Mesero/cocina/caja Admin V2 "mini panel segments" (settings.segments):
+# off by default, must be explicitly turned on to create a new user for that
+# segment. Never blocks an existing user's login (that gate is untouched).
+# ---------------------------------------------------------------------------
+
+def test_segment_enabled_helper_defaults_to_false_for_a_brand_new_company():
+    assert company_users._cx_waiter_ordering_segment_enabled_031t({}, "mesero") is False
+    assert company_users._cx_waiter_ordering_segment_enabled_031t({"segments": {}}, "mesero") is False
+    assert company_users._cx_waiter_ordering_segment_enabled_031t(
+        {"segments": {"mesero": {"enabled": False}}}, "mesero",
+    ) is False
+
+
+def test_segment_enabled_helper_reads_its_own_type_only():
+    settings = {"segments": {"mesero": {"enabled": True}, "cocina": {"enabled": False}}}
+    assert company_users._cx_waiter_ordering_segment_enabled_031t(settings, "mesero") is True
+    assert company_users._cx_waiter_ordering_segment_enabled_031t(settings, "cocina") is False
+    assert company_users._cx_waiter_ordering_segment_enabled_031t(settings, "caja") is False
+
+
+@pytest.mark.asyncio
+async def test_creating_a_mesero_user_is_rejected_when_the_segment_is_off(monkeypatch):
+    company_id = uuid.uuid4()
+    employee_id = uuid.uuid4()
+    employee = SimpleNamespace(id=employee_id, full_name="Ana", role="mesero", employee_type="mesero")
+
+    monkeypatch.setattr(company_users, "_cx_employee_or_404_019c", AsyncMock(return_value=employee))
+    monkeypatch.setattr(company_users, "_cx_find_minipanel_user_019c", AsyncMock(return_value=None))
+    monkeypatch.setattr(company_users, "_cx_require_waiter_ordering_module_026k", AsyncMock())
+    monkeypatch.setattr(company_users, "_cx_waiter_ordering_module_settings_026k", AsyncMock(return_value={"segments": {}}))
+
+    payload = company_users.SalesMiniPanelUserCreateRequest(employee_id=employee_id)
+    with pytest.raises(HTTPException) as exc:
+        await company_users._cx_create_minipanel_user_from_employee_026j(
+            company_id=company_id, payload=payload, panel_type="mesero", db=_db(), source="workforce",
+        )
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_creating_a_mesero_user_succeeds_once_the_segment_is_on(monkeypatch):
+    company_id = uuid.uuid4()
+    employee_id = uuid.uuid4()
+    employee = SimpleNamespace(id=employee_id, full_name="Ana", role="mesero", employee_type="mesero")
+
+    monkeypatch.setattr(company_users, "_cx_employee_or_404_019c", AsyncMock(return_value=employee))
+    monkeypatch.setattr(company_users, "_cx_find_minipanel_user_019c", AsyncMock(return_value=None))
+    monkeypatch.setattr(company_users, "_cx_require_waiter_ordering_module_026k", AsyncMock())
+    monkeypatch.setattr(
+        company_users, "_cx_waiter_ordering_module_settings_026k",
+        AsyncMock(return_value={"segments": {"mesero": {"enabled": True}}, "waiter_user_limit": 5}),
+    )
+    monkeypatch.setattr(company_users, "_cx_count_minipanel_users_of_type_026k", AsyncMock(return_value=0))
 
     db = _db()
     db.add = lambda obj: None
