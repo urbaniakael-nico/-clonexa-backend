@@ -29,7 +29,14 @@
     operational: null,
     ventasHoy: null,
     misMesas: [],
+    // Cantidad por botones: empty unless the company turned it on (the
+    // server sends [] otherwise), so the old number field stays as is.
+    quantityButtons: [],
+    avisos: [],
+    avisosEnabled: true,
   };
+
+  const AVISOS_POLL_MS = 8000;
 
   function h(value) {
     return String(value ?? "")
@@ -193,6 +200,7 @@
     try {
       const data = await waiterApi("/menu");
       state.menu = Array.isArray(data.categories) ? data.categories : [];
+      state.quantityButtons = Array.isArray(data.quantity_buttons) ? data.quantity_buttons : [];
     } catch (error) {
       state.error = error.message || "No se pudo cargar el menú.";
     }
@@ -224,6 +232,60 @@
     }
   }
 
+  // "Mesa X lista para llevar": only this mesero's own orders, shown on any
+  // screen until he taps OK. The server answers enabled=false for a company
+  // without the kitchen columns switch, and polling stops for good.
+  async function loadAvisos() {
+    if (!state.avisosEnabled || !token()) return;
+    try {
+      const data = await waiterApi("/mesero/avisos");
+      if (data.enabled === false) {
+        state.avisosEnabled = false;
+        return;
+      }
+      const incoming = Array.isArray(data.avisos) ? data.avisos : [];
+      const known = new Set(state.avisos.map((a) => a.order_id));
+      const hasNew = incoming.some((a) => !known.has(a.order_id));
+      state.avisos = incoming;
+      if (hasNew && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      renderAvisos();
+    } catch (_) {
+      // transient: keep the last notices on screen
+    }
+  }
+
+  async function dismissAviso(orderId) {
+    state.avisos = state.avisos.filter((a) => a.order_id !== orderId);
+    renderAvisos();
+    try {
+      await waiterApi(`/mesero/avisos/${encodeURIComponent(orderId)}/visto`, { method: "POST" });
+    } catch (_) {
+      // it will simply show up again on the next poll
+    }
+  }
+
+  function avisosMarkup(avisos) {
+    if (!avisos.length) return "";
+    return `
+      <div class="wtr-avisos" role="alert">
+        ${avisos.map((a) => `
+          <div class="wtr-aviso">
+            <span>🔔 ${h(a.message)}</span>
+            <button type="button" data-wtr-aviso-ok="${h(a.order_id)}">OK</button>
+          </div>`).join("")}
+      </div>`;
+  }
+
+  function renderAvisos() {
+    const current = document.getElementById("wtrAvisos");
+    if (current) current.remove();
+    if (state.screen === "login" || !state.avisos.length) return;
+    const holder = document.createElement("div");
+    holder.id = "wtrAvisos";
+    holder.innerHTML = avisosMarkup(state.avisos);
+    document.body.appendChild(holder);
+  }
+
   async function refreshHomeWidgets() {
     await Promise.all([loadOperational(), loadVentasHoy(), loadMisMesas()]);
     if (state.screen === "home") render();
@@ -245,6 +307,98 @@
       method: "POST",
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword, confirm_password: confirmPassword }),
     });
+  }
+
+  function orderItemPayload(item) {
+    const payload = {
+      inventory_item_id: item.inventory_item_id,
+      quantity: item.quantity,
+      observations: item.observations,
+      quick_notes: item.quick_notes,
+      term: item.term || "",
+    };
+    // The server re-resolves item + price from the fraction; the price the
+    // mesero saw is only a preview of that same calculation.
+    if (item.fraction) payload.fraction = item.fraction;
+    return payload;
+  }
+
+  // "1/4" -> 0.25, "2" -> 2, "Medio" -> 0.5, "Familiar" -> null. Twin of
+  // waiter_ordering._portion_label_fraction on the server.
+  function portionFraction(label) {
+    const words = { entero: "1", entera: "1", completo: "1", completa: "1", unidad: "1", medio: "1/2", media: "1/2", mitad: "1/2", cuarto: "1/4" };
+    const first = String(label || "").trim().toLowerCase().split(/\s+/)[0] || "";
+    const raw = (words[first] || first).replace(",", ".");
+    if (!raw) return null;
+    let value;
+    if (raw.includes("/")) {
+      const [num, den] = raw.split("/");
+      value = Number(num) / Number(den);
+    } else {
+      value = Number(raw);
+    }
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  // Buttons shown in the sheet: the configured fractions (price and
+  // availability straight from the server's menu preview), plus -- for an
+  // Admin V2 portion group -- any portion that isn't one of those fractions
+  // (e.g. "Familiar"), so nothing configured becomes unreachable.
+  function quantityChoices(product) {
+    const choices = (product.quantity_options || []).map((option) => ({
+      label: option.label,
+      price: option.price,
+      available: option.available !== false && option.price !== null && option.price !== undefined,
+      fraction: option.label,
+      inventory_item_id: product.quantity_ref_id || product.id,
+    }));
+    if (product.is_portioned) {
+      const buttonValues = choices.map((c) => portionFraction(c.label));
+      (product.portions || []).forEach((portion) => {
+        const value = portionFraction(portion.label);
+        if (value !== null && buttonValues.some((v) => v !== null && Math.abs(v - value) < 1e-9)) return;
+        choices.push({
+          label: portion.label,
+          price: portion.price,
+          available: true,
+          fraction: "",
+          inventory_item_id: portion.inventory_item_id,
+        });
+      });
+    }
+    return choices;
+  }
+
+  function defaultChoiceIndex(choices, prefill) {
+    if (prefill) {
+      const same = choices.findIndex((c) => c.available && c.label === (prefill.fraction || prefill.portion_label));
+      if (same >= 0) return same;
+    }
+    const whole = choices.findIndex((c) => c.available && portionFraction(c.label) === 1);
+    if (whole >= 0) return whole;
+    return choices.findIndex((c) => c.available);
+  }
+
+  function choiceCartLine(product, choice, common) {
+    return {
+      inventory_item_id: choice.inventory_item_id,
+      menu_product_id: product.id,
+      name: product.name,
+      unit_price: Number(choice.price || 0),
+      quantity: 1,
+      fraction: choice.fraction || "",
+      quantity_label: choice.label,
+      portion_label: choice.fraction ? "" : choice.label,
+      ...common,
+    };
+  }
+
+  function findMenuProduct(productId) {
+    for (const category of state.menu) {
+      const product = (category.products || []).find((item) => item.id === productId);
+      if (product) return { product, category };
+    }
+    return null;
   }
 
   function cartTotal() {
@@ -272,13 +426,7 @@
         method: "POST",
         body: JSON.stringify({
           table: state.table,
-          items: state.cart.map((item) => ({
-            inventory_item_id: item.inventory_item_id,
-            quantity: item.quantity,
-            observations: item.observations,
-            quick_notes: item.quick_notes,
-            term: item.term || "",
-          })),
+          items: state.cart.map(orderItemPayload),
         }),
       });
       state.lastOrderOk = `Pedido enviado a Mesa ${state.table}.`;
@@ -426,6 +574,7 @@
   }
 
   function cartLineLabel(item) {
+    if (item.quantity_label) return `${h(item.quantity_label)} · ${h(item.name)}`;
     const parts = [`${h(item.quantity)} x ${h(item.name)}`];
     return parts.join("");
   }
@@ -474,6 +623,7 @@
     else if (state.screen === "products") html = screenProducts();
     else if (state.screen === "cart") html = screenCart();
     root.innerHTML = html;
+    renderAvisos();
     if (state.error && state.screen !== "login") {
       const banner = document.createElement("div");
       banner.className = "wtr-alert wtr-alert-floating";
@@ -493,6 +643,9 @@
 
   document.addEventListener("click", (event) => {
     const target = event.target;
+
+    const avisoOk = target.closest("[data-wtr-aviso-ok]");
+    if (avisoOk) { dismissAviso(avisoOk.getAttribute("data-wtr-aviso-ok")); return; }
 
     const logout = target.closest("[data-wtr-logout]");
     if (logout) {
@@ -564,6 +717,11 @@
       const index = Number(editBtn.getAttribute("data-wtr-edit"));
       const line = state.cart[index];
       if (line) {
+        const found = line.menu_product_id && state.quantityButtons.length ? findMenuProduct(line.menu_product_id) : null;
+        if (found) {
+          openConfigureSheet(found.product, found.category, null, line, index);
+          return;
+        }
         const category = state.menu.find((cat) => cat.key === state.category) || findCategoryForLine(line);
         openConfigureSheet({ id: line.inventory_item_id, name: line.name, price: line.unit_price }, category, line.portion_label || null, line, index);
       }
@@ -578,7 +736,8 @@
       const category = state.menu.find((cat) => cat.key === state.category);
       const product = (category ? category.products : []).find((item) => item.id === productBtn.getAttribute("data-wtr-product"));
       if (!product) return;
-      if (product.is_portioned) openPortionSheet(product, category);
+      if (state.quantityButtons.length && Array.isArray(product.quantity_options)) openConfigureSheet(product, category, null);
+      else if (product.is_portioned) openPortionSheet(product, category);
       else openConfigureSheet(product, category, null);
     }
   });
@@ -656,13 +815,27 @@
     const initialTermIndex = requiresTerm && prefill && prefill.term
       ? Math.max(0, TERM_STOPS.indexOf(prefill.term))
       : 0;
+    const choices = state.quantityButtons.length && Array.isArray(product.quantity_options) ? quantityChoices(product) : null;
+    let choiceIndex = choices ? defaultChoiceIndex(choices, prefill) : -1;
 
     const sheet = document.createElement("div");
     sheet.className = "wtr-sheet-backdrop";
     sheet.innerHTML = `
       <div class="wtr-sheet">
         <h2>${h(product.name)}</h2>
-        <label>Cantidad<input id="wtrSheetQty" type="number" min="1" step="1" value="${prefill ? Number(prefill.quantity || 1) : 1}" /></label>
+        ${choices ? `
+          <div class="wtr-qty-block">
+            <span class="wtr-term-caption">Cantidad</span>
+            <div class="wtr-qty-grid">
+              ${choices.map((choice, i) => `
+                <button type="button" class="wtr-qty-btn ${i === choiceIndex ? "is-active" : ""}" data-qty-index="${i}" ${choice.available ? "" : "disabled"}>
+                  <span>${h(choice.label)}</span>
+                  <strong>${choice.available ? h(money(choice.price)) : "Sin precio"}</strong>
+                </button>`).join("")}
+            </div>
+            <div class="wtr-qty-preview">Vas a cobrar <strong id="wtrQtyPrice">${choiceIndex >= 0 ? h(money(choices[choiceIndex].price)) : "—"}</strong></div>
+          </div>` : `
+        <label>Cantidad<input id="wtrSheetQty" type="number" min="1" step="1" value="${prefill ? Number(prefill.quantity || 1) : 1}" /></label>`}
         ${requiresTerm ? `
           <div class="wtr-term-block">
             <span class="wtr-term-caption">Término de cocción</span>
@@ -703,11 +876,33 @@
       });
     }
 
+    const addButton = sheet.querySelector("[data-sheet-add]");
+    if (choices) {
+      addButton.disabled = choiceIndex < 0;
+      sheet.querySelectorAll("[data-qty-index]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (btn.disabled) return;
+          choiceIndex = Number(btn.getAttribute("data-qty-index"));
+          sheet.querySelectorAll("[data-qty-index]").forEach((el) => el.classList.toggle("is-active", el === btn));
+          sheet.querySelector("#wtrQtyPrice").textContent = money(choices[choiceIndex].price);
+          addButton.disabled = false;
+        });
+      });
+    }
+
     sheet.querySelector("[data-sheet-cancel]").addEventListener("click", () => sheet.remove());
-    sheet.querySelector("[data-sheet-add]").addEventListener("click", () => {
-      const qty = Math.max(1, Number(sheet.querySelector("#wtrSheetQty").value || 1));
+    addButton.addEventListener("click", () => {
       const obs = String(sheet.querySelector("#wtrSheetObs").value || "");
       const term = requiresTerm ? TERM_STOPS[Number(sheet.querySelector("#wtrSheetTerm").value || 0)] : "";
+      const common = { term, observations: obs, quick_notes: Array.from(selectedNotes) };
+      if (choices) {
+        if (choiceIndex < 0) return;
+        addOrUpdateCartLine(choiceCartLine(product, choices[choiceIndex], common), editIndex);
+        sheet.remove();
+        render();
+        return;
+      }
+      const qty = Math.max(1, Number(sheet.querySelector("#wtrSheetQty").value || 1));
       addOrUpdateCartLine(
         {
           inventory_item_id: product.id,
@@ -715,9 +910,7 @@
           unit_price: product.price,
           quantity: qty,
           portion_label: portionLabel || "",
-          term,
-          observations: obs,
-          quick_notes: Array.from(selectedNotes),
+          ...common,
         },
         editIndex,
       );
@@ -811,11 +1004,32 @@
     .wtr-portion-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
     .wtr-portion-btn{display:grid;gap:4px;padding:14px;border-radius:16px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;font-weight:900}
     .wtr-portion-btn strong{color:#ffd166}
+    .wtr-qty-block{display:grid;gap:8px}
+    .wtr-qty-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px}
+    .wtr-qty-btn{display:grid;gap:4px;justify-items:center;padding:12px 6px;border-radius:16px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;font-weight:900;cursor:pointer}
+    .wtr-qty-btn span{font-size:20px}
+    .wtr-qty-btn strong{font-size:12px;color:#ffd166}
+    .wtr-qty-btn.is-active{background:linear-gradient(135deg,#ff7a18,#ff2d95);border-color:transparent}
+    .wtr-qty-btn.is-active strong{color:#fff}
+    .wtr-qty-btn:disabled{opacity:.35;cursor:not-allowed}
+    .wtr-qty-preview{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:12px;background:rgba(255,209,102,.1);font-size:13px;font-weight:800;color:#c9c3e6}
+    .wtr-qty-preview strong{font-size:20px;color:#ffd166}
+    .wtr-avisos{position:fixed;top:10px;left:10px;right:10px;z-index:70;display:grid;gap:8px}
+    .wtr-aviso{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-radius:16px;background:#16a34a;color:#fff;font-size:17px;font-weight:900;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+    .wtr-aviso button{min-height:40px;padding:0 16px;border-radius:12px;border:none;background:rgba(0,0,0,.25);color:#fff;font-weight:900;font-size:15px}
   `;
   document.head.appendChild(style);
 
   let homeRefreshHandle = null;
+  let avisosHandle = null;
   function startHomeRefresh() {
+    if (!avisosHandle) {
+      loadAvisos();
+      avisosHandle = window.setInterval(() => {
+        if (state.avisosEnabled) loadAvisos();
+        else { window.clearInterval(avisosHandle); }
+      }, AVISOS_POLL_MS);
+    }
     if (homeRefreshHandle) return;
     homeRefreshHandle = window.setInterval(() => {
       if (state.screen === "home") refreshHomeWidgets();

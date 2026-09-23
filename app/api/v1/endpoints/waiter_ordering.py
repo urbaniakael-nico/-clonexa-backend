@@ -18,6 +18,8 @@ import json
 import re
 import unicodedata
 import uuid
+from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile, status
@@ -37,15 +39,19 @@ from app.api.v1.endpoints.hospitality import (
     HospitalityOrderItemIn,
     HospitalityStatusIn,
     STATUS_CLOSED,
+    STATUS_PENDING,
+    STATUS_PREPARING,
     STATUS_SERVED,
     _adjust_pending_order_inventory,
     _build_order_items,
     _clean,
     _fetch_order,
+    _hsp_report_zone,
     _money,
     _now,
     _num,
     _payload,
+    _status,
     create_hospitality_order,
     hospitality_inventory_lite,
     list_hospitality_orders,
@@ -550,6 +556,156 @@ def _merge_portions_into_products(
     return list(portion_groups.values()) + singles
 
 
+# ---------------------------------------------------------------------------
+# Cantidad por botones (1/4, 1/2, 3/4, 1, 2 -- configurable per company in
+# the waiter_ordering module settings, off by default). Price rule, always
+# resolved on the server:
+#   1. The product belongs to an Admin V2 portion group that has a member
+#      whose label is that exact fraction -> that member's own inventory item
+#      and own configured price.
+#   2. Otherwise -> the fraction of the base product's price ("1"/"entero"
+#      member for a group, the product itself when ungrouped), rounded to
+#      the currency unit. Stock is deducted as that fraction of the product.
+# ---------------------------------------------------------------------------
+
+QUANTITY_BUTTONS_FLAG = "quantity_buttons_enabled"
+QUANTITY_BUTTONS_KEY = "quantity_buttons"
+DEFAULT_QUANTITY_BUTTONS = ["1/4", "1/2", "3/4", "1", "2"]
+MAX_FRACTION = Decimal("50")
+
+_FRACTION_WORDS = {
+    "entero": "1", "entera": "1", "completo": "1", "completa": "1", "unidad": "1",
+    "medio": "1/2", "media": "1/2", "mitad": "1/2",
+    "cuarto": "1/4",
+}
+
+
+def _parse_fraction(label: Any) -> Decimal | None:
+    """"1/4" -> 0.25, "2" -> 2, "1.5" -> 1.5. None for anything else."""
+    raw = _clean(str(label or "")).lower().replace(",", ".").replace(" ", "")
+    if not raw:
+        return None
+    try:
+        if "/" in raw:
+            num, den = raw.split("/", 1)
+            value = Decimal(num) / Decimal(den)
+        else:
+            value = Decimal(raw)
+    except (InvalidOperation, ZeroDivisionError, ValueError):
+        return None
+    if not value.is_finite() or value <= 0 or value > MAX_FRACTION:
+        return None
+    return value
+
+
+def _portion_label_fraction(label: Any) -> Decimal | None:
+    """Fraction a portion-group member's label stands for: "1/4", "1/4 pollo",
+    "Medio", "Entero"... None when the label is not a fraction (e.g.
+    "Familiar"), so it is never mistaken for one."""
+    words = _clean(str(label or "")).lower().split()
+    if not words:
+        return None
+    first = unicodedata.normalize("NFKD", words[0]).encode("ascii", "ignore").decode("ascii")
+    return _parse_fraction(_FRACTION_WORDS.get(first, first))
+
+
+def _round_currency(value: Decimal) -> float:
+    return float(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _quantity_buttons_config(module_settings: dict[str, Any]) -> list[str]:
+    """Configured buttons when the company turned the feature on, else []."""
+    if module_settings.get(QUANTITY_BUTTONS_FLAG) is not True:
+        return []
+    raw = module_settings.get(QUANTITY_BUTTONS_KEY)
+    labels = raw if isinstance(raw, list) and raw else DEFAULT_QUANTITY_BUTTONS
+    clean: list[str] = []
+    for label in labels:
+        text_label = _clean(str(label))[:10]
+        if _parse_fraction(text_label) is not None and text_label not in clean:
+            clean.append(text_label)
+    return clean[:8]
+
+
+def _group_members(
+    group_key: str,
+    by_id: dict[str, dict[str, Any]],
+    portion_map: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    members = [
+        {**by_id[item_id], "_portion_label": membership["portion_label"], "_position": membership["position"]}
+        for item_id, membership in portion_map.items()
+        if membership["group_key"] == group_key and item_id in by_id
+    ]
+    members.sort(key=lambda member: member["_position"])
+    return members
+
+
+def _resolve_fraction(
+    product: dict[str, Any],
+    fraction_label: str,
+    by_id: dict[str, dict[str, Any]],
+    portion_map: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Which inventory item, quantity and price one button press means.
+    None when the fraction can't be priced for this product (a portion group
+    with neither that exact portion nor a whole "1" member to divide)."""
+    fraction = _parse_fraction(fraction_label)
+    if fraction is None:
+        return None
+
+    base = product
+    membership = portion_map.get(str(product.get("id")))
+    if membership:
+        members = _group_members(membership["group_key"], by_id, portion_map)
+        exact = next((m for m in members if _portion_label_fraction(m["_portion_label"]) == fraction), None)
+        if exact:
+            price = _money(exact.get("price"))
+            return {
+                "product": exact,
+                "quantity": 1.0,
+                "unit_price": price,
+                "line_total": price,
+                "quantity_label": "",
+                "from_portion": True,
+            }
+        base = next((m for m in members if _portion_label_fraction(m["_portion_label"]) == Decimal("1")), None)
+        if base is None:
+            return None
+
+    unit_price = _money(base.get("price"))
+    line_total = _round_currency(Decimal(str(unit_price)) * fraction)
+    return {
+        "product": base,
+        "quantity": float(fraction),
+        "unit_price": unit_price,
+        "line_total": line_total,
+        "quantity_label": _clean(fraction_label)[:10],
+        "from_portion": False,
+    }
+
+
+def _quantity_options(
+    product: dict[str, Any],
+    buttons: list[str],
+    by_id: dict[str, dict[str, Any]],
+    portion_map: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Menu preview so the mesero sees the exact price before adding. Uses
+    the very same _resolve_fraction the order endpoint charges with."""
+    options = []
+    for label in buttons:
+        resolved = _resolve_fraction(product, label, by_id, portion_map)
+        options.append(
+            {
+                "label": label,
+                "available": resolved is not None,
+                "price": resolved["line_total"] if resolved else None,
+            }
+        )
+    return options
+
+
 @router.get("/{company_id}/waiter-ordering/menu")
 async def waiter_ordering_menu(
     company_id: uuid.UUID,
@@ -575,6 +731,16 @@ async def waiter_ordering_menu(
         product["has_image"] = str(product.get("id")) in products_with_image
     merged_products = _merge_portions_into_products(active_products, portion_map)
 
+    quantity_buttons = _quantity_buttons_config(await _module_settings(db, company_id))
+    if quantity_buttons:
+        by_id = {str(item.get("id")): item for item in active_products}
+        for product in merged_products:
+            # A portion-group card has no inventory id of its own: any member
+            # resolves to the same group server-side, so send the first one.
+            ref_id = product["portions"][0]["inventory_item_id"] if product.get("is_portioned") else str(product.get("id"))
+            product["quantity_ref_id"] = ref_id
+            product["quantity_options"] = _quantity_options(by_id[ref_id], quantity_buttons, by_id, portion_map)
+
     grouped: dict[str, dict[str, Any]] = {}
     for product in merged_products:
         key = _category_key(product.get("name"))
@@ -587,7 +753,12 @@ async def waiter_ordering_menu(
         )
         bucket["products"].append(product)
 
-    return {"ok": True, "company_id": str(company_id), "categories": list(grouped.values())}
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "categories": list(grouped.values()),
+        "quantity_buttons": quantity_buttons,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +773,10 @@ class WaiterOrderItemIn(BaseModel):
     observations: str | None = Field(default="", max_length=300)
     quick_notes: list[str] = Field(default_factory=list)
     term: str | None = Field(default="", max_length=40)
+    # Cantidad por botones: "1/4", "1/2", ... When set, the server picks the
+    # inventory item and price (see _resolve_fraction); `quantity` then
+    # counts how many of that fraction (the mesero app always sends 1).
+    fraction: str | None = Field(default=None, max_length=10)
 
     @field_validator("quick_notes")
     @classmethod
@@ -635,12 +810,25 @@ async def create_waiter_order(
     by_id = {str(row.get("id")): row for row in (inventory.get("inventory") or [])}
     categories = await _category_rows(db, company_id)
     portion_map = await _portion_membership(db, company_id)
+    quantity_buttons: list[str] | None = None
 
     order_items: list[HospitalityOrderItemIn] = []
     for item in payload.items:
         product = by_id.get(_clean(item.inventory_item_id))
         if not product:
             raise HTTPException(status_code=422, detail="Producto no disponible en el catalogo.")
+        fraction_label = _clean(item.fraction)
+        resolved = None
+        if fraction_label:
+            if quantity_buttons is None:
+                quantity_buttons = _quantity_buttons_config(await _module_settings(db, company_id))
+            allowed = {_parse_fraction(label) for label in quantity_buttons}
+            if _parse_fraction(fraction_label) not in allowed:
+                raise HTTPException(status_code=422, detail="Esa cantidad no esta habilitada para esta empresa.")
+            resolved = _resolve_fraction(product, fraction_label, by_id, portion_map)
+            if resolved is None:
+                raise HTTPException(status_code=422, detail=f"No hay precio configurado para {fraction_label} de este producto.")
+            product = resolved["product"]
         # A portion's own inventory name (e.g. "Pollo 1/4") may not start
         # with the same word as its group's display label -- resolve the
         # category from the group label when this item belongs to one, so
@@ -650,16 +838,25 @@ async def create_waiter_order(
         category_source = membership["group_label"] if membership else product.get("name")
         category = categories.get(_category_key(category_source))
         term = _clean(item.term) if (category or {}).get("requires_term") else ""
+        if resolved:
+            count = Decimal(str(item.quantity))
+            price_fields = {
+                "quantity": float(Decimal(str(resolved["quantity"])) * count),
+                "unit_price": resolved["unit_price"],
+                "line_total": _money(Decimal(str(resolved["line_total"])) * count),
+                "quantity_label": resolved["quantity_label"] if count == 1 else "",
+            }
+        else:
+            price_fields = {"quantity": item.quantity, "unit_price": _money(product.get("price"))}
         order_items.append(
             HospitalityOrderItemIn(
                 inventory_item_id=str(product["id"]),
                 name=str(product.get("name") or ""),
-                quantity=item.quantity,
-                unit_price=_money(product.get("price")),
                 observations=item.observations,
                 quick_notes=item.quick_notes,
                 station=(category or {}).get("station", ""),
                 term=term,
+                **price_fields,
             )
         )
 
@@ -775,6 +972,126 @@ async def _module_settings(db: AsyncSession, company_id: uuid.UUID) -> dict[str,
 DEFAULT_TIMER_THRESHOLDS = {"green_max_minutes": 10, "yellow_max_minutes": 20}
 
 
+# Tablero de cocina en 3 columnas + "Entregado" (opt-in per company via the
+# module setting below, off by default). How "entregado" is kept apart from
+# the cashier: Hospitality's own order status "entregado" is what the caja
+# charges (close-table only accepts status == entregado), so "Comanda lista"
+# moves the order to that status exactly like before. The kitchen's own
+# "Entregado" button never touches the status: it only stamps
+# metadata.kitchen.delivered_at, which takes the comanda off the board and
+# into the day's history while the caja still sees and charges the table.
+KITCHEN_COLUMNS_FLAG = "kitchen_board_columns"
+
+
+async def _feature_enabled(db: AsyncSession, company_id: uuid.UUID, flag: str) -> bool:
+    return (await _module_settings(db, company_id)).get(flag) is True
+
+
+async def _require_feature(db: AsyncSession, company_id: uuid.UUID, flag: str) -> dict[str, Any]:
+    settings = await _module_settings(db, company_id)
+    if settings.get(flag) is not True:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="funcion_no_habilitada")
+    return settings
+
+
+def _kitchen_meta(order: dict[str, Any]) -> dict[str, Any]:
+    meta = (order.get("metadata") or {}).get("kitchen")
+    return meta if isinstance(meta, dict) else {}
+
+
+def _station_set(user: CompanyUser) -> tuple[list[str], set[str]]:
+    settings = _cocina_user_settings(user)
+    mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
+    stations = mini_panel.get("stations") if isinstance(mini_panel.get("stations"), list) else []
+    return stations, {_clean(item).lower() for item in stations if _clean(item)}
+
+
+def _comanda(order: dict[str, Any], station_set: set[str]) -> dict[str, Any] | None:
+    items = [
+        item for item in (order.get("items") or [])
+        if not station_set or _clean(item.get("station")).lower() in station_set
+    ]
+    if not items:
+        return None
+    kitchen = _kitchen_meta(order)
+    return {
+        "order_id": order.get("id"),
+        "table_number": order.get("table_number"),
+        "status": order.get("status"),
+        "waiter": (order.get("metadata") or {}).get("waiter") or {},
+        "notes": order.get("notes"),
+        "created_at": order.get("created_at"),
+        "preparing_at": order.get("preparing_at"),
+        "ready_at": kitchen.get("ready_at"),
+        "delivered_at": kitchen.get("delivered_at"),
+        "items": items,
+    }
+
+
+def _local_day_start(module_settings: dict[str, Any]) -> datetime:
+    """Start of today in the company's timezone (America/Bogota by default),
+    as an aware UTC datetime -- so "hoy" doesn't roll over at 7pm local."""
+    zone = _hsp_report_zone(module_settings.get("timezone") or "America/Bogota")
+    local_now = datetime.now(timezone.utc).astimezone(zone)
+    return local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+
+async def _patch_kitchen_meta(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    order_id: uuid.UUID | str,
+    patch: dict[str, Any],
+    extra_where: str = "",
+    extra_params: dict[str, Any] | None = None,
+) -> int:
+    """Merge `patch` into metadata.kitchen only -- never rewrites the rest of
+    metadata (waiter, corrections, voided_by...) that other flows own."""
+    result = await db.execute(
+        text(
+            f"""
+            UPDATE hospitality_orders
+            SET metadata = jsonb_set(
+                    COALESCE(metadata, '{{}}'::jsonb),
+                    '{{kitchen}}',
+                    COALESCE(metadata->'kitchen', '{{}}'::jsonb) || CAST(:patch AS jsonb)
+                ),
+                updated_at = NOW()
+            WHERE id = :order_id AND company_id = :company_id {extra_where}
+            """
+        ),
+        {
+            "patch": json.dumps(patch, ensure_ascii=False),
+            "order_id": str(order_id),
+            "company_id": str(company_id),
+            **(extra_params or {}),
+        },
+    )
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
+async def _ready_unclaimed_orders(db: AsyncSession, company_id: uuid.UUID, since: datetime) -> list[dict[str, Any]]:
+    """Column 3 "Listo": marked ready by the kitchen, not yet delivered. Also
+    keeps a comanda the caja already charged (cerrado) until the kitchen
+    presses Entregado -- charging must never make it vanish unseen."""
+    result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND status IN ('entregado', 'cerrado')
+              AND metadata->'kitchen'->>'ready_at' IS NOT NULL
+              AND metadata->'kitchen'->>'delivered_at' IS NULL
+              AND created_at >= :since
+            ORDER BY created_at ASC
+            LIMIT 200
+            """
+        ),
+        {"company_id": str(company_id), "since": since},
+    )
+    return [_payload(row) for row in result.mappings().all()]
+
+
 @router.get("/{company_id}/waiter-ordering/kitchen")
 async def waiter_ordering_kitchen_board(
     company_id: uuid.UUID,
@@ -785,32 +1102,18 @@ async def waiter_ordering_kitchen_board(
     timer_thresholds = module_settings.get("timer_thresholds")
     if not isinstance(timer_thresholds, dict):
         timer_thresholds = DEFAULT_TIMER_THRESHOLDS
+    columns_enabled = module_settings.get(KITCHEN_COLUMNS_FLAG) is True
 
-    settings = _cocina_user_settings(user)
-    mini_panel = settings.get("mini_panel") if isinstance(settings.get("mini_panel"), dict) else {}
-    stations = mini_panel.get("stations") if isinstance(mini_panel.get("stations"), list) else []
-    station_set = {_clean(item).lower() for item in stations if _clean(item)}
+    stations, station_set = _station_set(user)
 
     data = await list_hospitality_orders(company_id, status_filter="active", include_archived=False, limit=500, db=db)
     comandas = []
     for order in data.get("orders") or []:
-        if order.get("status") not in {"pendiente", "alistando"}:
+        if order.get("status") not in {STATUS_PENDING, STATUS_PREPARING}:
             continue
-        items = [
-            item for item in (order.get("items") or [])
-            if not station_set or _clean(item.get("station")).lower() in station_set
-        ]
-        if not items:
-            continue
-        comandas.append({
-            "order_id": order.get("id"),
-            "table_number": order.get("table_number"),
-            "status": order.get("status"),
-            "waiter": (order.get("metadata") or {}).get("waiter") or {},
-            "notes": order.get("notes"),
-            "created_at": order.get("created_at"),
-            "items": items,
-        })
+        comanda = _comanda(order, station_set)
+        if comanda:
+            comandas.append(comanda)
 
     # list_hospitality_orders (shared with the rest of Hospitality, where
     # newest-first is the right default) sorts created_at DESC -- the kitchen
@@ -818,13 +1121,25 @@ async def waiter_ordering_kitchen_board(
     # a newer one.
     comandas.sort(key=lambda comanda: str(comanda.get("created_at") or ""))
 
-    return {
+    response: dict[str, Any] = {
         "ok": True,
         "company_id": str(company_id),
         "stations": stations,
         "comandas": comandas,
         "timer_thresholds": timer_thresholds,
+        "columns_enabled": columns_enabled,
     }
+    if columns_enabled:
+        ready_rows = await _ready_unclaimed_orders(db, company_id, datetime.now(timezone.utc) - timedelta(hours=24))
+        listos = [c for c in (_comanda(order, station_set) for order in ready_rows) if c]
+        listos.sort(key=lambda comanda: str(comanda.get("ready_at") or comanda.get("created_at") or ""))
+        response["columns"] = {
+            "nuevo": [c for c in comandas if c["status"] == STATUS_PENDING],
+            "preparando": [c for c in comandas if c["status"] == STATUS_PREPARING],
+            "listo": listos,
+        }
+        response["counts"] = {key: len(rows) for key, rows in response["columns"].items()}
+    return response
 
 
 @router.patch("/{company_id}/waiter-ordering/orders/{order_id}/items/{item_id}/ready")
@@ -856,14 +1171,131 @@ async def mark_waiter_order_item_ready(
     return {"ok": True, "order": saved}
 
 
-@router.patch("/{company_id}/waiter-ordering/orders/{order_id}/ready")
-async def mark_waiter_order_ready(
+@router.patch("/{company_id}/waiter-ordering/orders/{order_id}/start")
+async def start_waiter_order(
     company_id: uuid.UUID,
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _user: CompanyUser = Depends(_require_cocina),
 ) -> dict[str, Any]:
-    return await update_hospitality_order_status(company_id, order_id, HospitalityStatusIn(status=STATUS_SERVED), db)
+    """Column 1 -> 2: "Empezar" (pendiente -> alistando). Idempotent."""
+    await _require_feature(db, company_id, KITCHEN_COLUMNS_FLAG)
+    order = await _fetch_order(db, company_id, order_id)
+    current = _status(order.get("status"))
+    if current == STATUS_PREPARING:
+        return {"ok": True, "order": order, "already": True}
+    if current != STATUS_PENDING:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Esta comanda ya no esta en Pedido nuevo.")
+    return await update_hospitality_order_status(company_id, order_id, HospitalityStatusIn(status=STATUS_PREPARING), db)
+
+
+def _table_ready_message(table_number: Any) -> str:
+    table = _clean(str(table_number or "")) or "?"
+    prefix = "" if table.lower().startswith("mesa") else "Mesa "
+    return f"{prefix}{table} lista para llevar"
+
+
+@router.patch("/{company_id}/waiter-ordering/orders/{order_id}/ready")
+async def mark_waiter_order_ready(
+    company_id: uuid.UUID,
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_cocina),
+) -> dict[str, Any]:
+    """"Comanda lista": -> entregado (the status the caja charges), plus a
+    "Mesa X lista para llevar" notice for the mesero who took the order.
+
+    Hospitality only allows pendiente -> alistando -> entregado, so a comanda
+    still in pendiente walks through alistando first (it used to jump
+    straight to entregado and fail with "Transicion no permitida")."""
+    order = await _fetch_order(db, company_id, order_id)
+    current = _status(order.get("status"))
+    if current == STATUS_PENDING:
+        await update_hospitality_order_status(company_id, order_id, HospitalityStatusIn(status=STATUS_PREPARING), db)
+        current = STATUS_PREPARING
+    if current == STATUS_PREPARING:
+        result = await update_hospitality_order_status(company_id, order_id, HospitalityStatusIn(status=STATUS_SERVED), db)
+    elif current == STATUS_SERVED:
+        result = {"ok": True, "order": order, "table": order}
+    else:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Esta comanda ya no esta activa en cocina.")
+
+    if not _kitchen_meta(order).get("ready_at"):
+        waiter = (order.get("metadata") or {}).get("waiter") or {}
+        await _patch_kitchen_meta(
+            db,
+            company_id,
+            order_id,
+            {
+                "ready_at": _now().isoformat(),
+                "ready_by": {"id": str(user.id), "name": user.full_name or ""},
+                "notice": {
+                    "waiter_id": str(waiter.get("id") or ""),
+                    "message": _table_ready_message(order.get("table_number")),
+                },
+            },
+        )
+        await db.commit()
+        result = {**result, "order": await _fetch_order(db, company_id, order_id)}
+    return result
+
+
+@router.patch("/{company_id}/waiter-ordering/orders/{order_id}/delivered")
+async def mark_waiter_order_delivered(
+    company_id: uuid.UUID,
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_cocina),
+) -> dict[str, Any]:
+    """Column 3 -> history. Status is NOT changed: the table stays open
+    (entregado) for the caja to charge exactly as today."""
+    await _require_feature(db, company_id, KITCHEN_COLUMNS_FLAG)
+    order = await _lock_order_for_edit(db, company_id, order_id)
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="pedido_no_encontrado")
+    kitchen = _kitchen_meta(order)
+    if kitchen.get("delivered_at"):
+        await db.commit()
+        return {"ok": True, "order": order, "already": True}
+    if not kitchen.get("ready_at") or _status(order.get("status")) not in {STATUS_SERVED, STATUS_CLOSED}:
+        await db.commit()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Marca primero la comanda como lista.")
+    await _patch_kitchen_meta(
+        db,
+        company_id,
+        order_id,
+        {"delivered_at": _now().isoformat(), "delivered_by": {"id": str(user.id), "name": user.full_name or ""}},
+    )
+    await db.commit()
+    return {"ok": True, "order": await _fetch_order(db, company_id, order_id)}
+
+
+@router.get("/{company_id}/waiter-ordering/kitchen/entregadas")
+async def waiter_ordering_kitchen_delivered_today(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_cocina),
+) -> dict[str, Any]:
+    """Historial del dia: comandas the kitchen delivered since local midnight."""
+    module_settings = await _require_feature(db, company_id, KITCHEN_COLUMNS_FLAG)
+    since = _local_day_start(module_settings)
+    _stations, station_set = _station_set(user)
+    result = await db.execute(
+        text(
+            """
+            SELECT *
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND metadata->'kitchen'->>'delivered_at' IS NOT NULL
+              AND CAST(metadata->'kitchen'->>'delivered_at' AS timestamptz) >= :since
+            ORDER BY CAST(metadata->'kitchen'->>'delivered_at' AS timestamptz) DESC
+            LIMIT 300
+            """
+        ),
+        {"company_id": str(company_id), "since": since},
+    )
+    comandas = [c for c in (_comanda(_payload(row), station_set) for row in result.mappings().all()) if c]
+    return {"ok": True, "company_id": str(company_id), "since": since.isoformat(), "comandas": comandas}
 
 
 # ---------------------------------------------------------------------------
@@ -1122,6 +1554,75 @@ async def waiter_my_tables(
             }
         )
     return {"ok": True, "tables": result}
+
+
+@router.get("/{company_id}/waiter-ordering/mesero/avisos")
+async def waiter_ready_notices(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_mesero),
+) -> dict[str, Any]:
+    """"Mesa X lista para llevar" notices for THIS mesero only (the one whose
+    id the order was stamped with at creation), not yet dismissed."""
+    if not await _feature_enabled(db, company_id, KITCHEN_COLUMNS_FLAG):
+        return {"ok": True, "enabled": False, "avisos": []}
+    result = await db.execute(
+        text(
+            """
+            SELECT id, table_number, metadata
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND metadata->'kitchen'->'notice'->>'waiter_id' = :user_id
+              AND metadata->'kitchen'->>'ready_at' IS NOT NULL
+              AND metadata->'kitchen'->>'waiter_seen_at' IS NULL
+              AND status <> 'cancelado'
+              AND created_at >= :since
+            ORDER BY created_at ASC
+            LIMIT 50
+            """
+        ),
+        {
+            "company_id": str(company_id),
+            "user_id": str(user.id),
+            "since": datetime.now(timezone.utc) - timedelta(hours=24),
+        },
+    )
+    avisos = []
+    for row in result.mappings().all():
+        metadata = row["metadata"] if isinstance(row["metadata"], dict) else json.loads(row["metadata"] or "{}")
+        kitchen = metadata.get("kitchen") if isinstance(metadata.get("kitchen"), dict) else {}
+        notice = kitchen.get("notice") if isinstance(kitchen.get("notice"), dict) else {}
+        avisos.append(
+            {
+                "order_id": str(row["id"]),
+                "table_number": row["table_number"] or "",
+                "message": notice.get("message") or _table_ready_message(row["table_number"]),
+                "ready_at": kitchen.get("ready_at"),
+            }
+        )
+    return {"ok": True, "enabled": True, "avisos": avisos}
+
+
+@router.post("/{company_id}/waiter-ordering/mesero/avisos/{order_id}/visto")
+async def dismiss_waiter_ready_notice(
+    company_id: uuid.UUID,
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_mesero),
+) -> dict[str, Any]:
+    await _require_feature(db, company_id, KITCHEN_COLUMNS_FLAG)
+    updated = await _patch_kitchen_meta(
+        db,
+        company_id,
+        order_id,
+        {"waiter_seen_at": _now().isoformat()},
+        extra_where="AND metadata->'kitchen'->'notice'->>'waiter_id' = :user_id",
+        extra_params={"user_id": str(user.id)},
+    )
+    await db.commit()
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="aviso_no_encontrado")
+    return {"ok": True, "order_id": str(order_id)}
 
 
 # ---------------------------------------------------------------------------

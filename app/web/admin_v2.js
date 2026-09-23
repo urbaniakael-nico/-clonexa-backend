@@ -2713,7 +2713,30 @@
       },
       shift_max_hours: Number(settings.shift_max_hours) > 0 ? Number(settings.shift_max_hours) : 12,
       segments: cxWaiterOrderingSegments031T(settings.segments),
+      ...cxWaiterOrderingKitchenQtySettings042K(settings),
     };
+  }
+
+  // Cocina en 3 columnas + cantidad por botones: both off unless the key is
+  // literally true, same rule as the server (waiter_ordering.py).
+  const CX_WO_DEFAULT_QTY_BUTTONS_042K = ["1/4", "1/2", "3/4", "1", "2"];
+
+  function cxWaiterOrderingKitchenQtySettings042K(settings) {
+    const source = settings && typeof settings === "object" ? settings : {};
+    return {
+      kitchen_board_columns: source.kitchen_board_columns === true,
+      quantity_buttons_enabled: source.quantity_buttons_enabled === true,
+      quantity_buttons: Array.isArray(source.quantity_buttons) && source.quantity_buttons.length
+        ? source.quantity_buttons.map(String)
+        : CX_WO_DEFAULT_QTY_BUTTONS_042K.slice(),
+    };
+  }
+
+  function cxReadQuantityButtons042K(raw) {
+    const valid = /^(\d+(\.\d+)?|\d+\/[1-9]\d*)$/;
+    const labels = String(raw || "").split(",").map((s) => s.trim()).filter((s) => valid.test(s));
+    const unique = labels.filter((label, i) => labels.indexOf(label) === i).slice(0, 8);
+    return unique.length ? unique : CX_WO_DEFAULT_QTY_BUTTONS_042K.slice();
   }
 
   // Mesero/cocina/caja as first-class Admin V2 mini panel segments (general
@@ -2805,6 +2828,22 @@
                 <code class="cx-wo-segment-link-031t">/mini-panel/${type}?company_id=${escapeHtml(company.id)}</code>
               </div>
             `).join("")}
+          </div>
+
+          <div class="cx-wo-kitchen-qty-042k" style="margin-top:14px">
+            <strong>Cocina y cantidades</strong>
+            <label class="cx-reset-scope">
+              <input type="checkbox" name="kitchen_board_columns" ${settings.kitchen_board_columns ? "checked" : ""}>
+              <span>Cocina en 3 columnas (Pedido nuevo / Preparando / Listo), boton Entregado y aviso "Mesa X lista para llevar" al mesero</span>
+            </label>
+            <label class="cx-reset-scope">
+              <input type="checkbox" name="quantity_buttons_enabled" ${settings.quantity_buttons_enabled ? "checked" : ""}>
+              <span>Mesero elige la cantidad con botones</span>
+            </label>
+            <label>Botones de cantidad (separados por coma)
+              <input name="quantity_buttons" value="${escapeHtml(settings.quantity_buttons.join(", "))}" placeholder="1/4, 1/2, 3/4, 1, 2">
+            </label>
+            <p class="cx-empty-state" style="padding:4px 0 0">Si el producto tiene esa porcion configurada abajo, se cobra su precio; si no, la fraccion del precio del producto redondeada al peso.</p>
           </div>
 
           <button class="cx-btn cx-btn-primary" type="submit" style="margin-top:12px">Guardar configuracion</button>
@@ -3113,6 +3152,9 @@
       },
       shift_max_hours: Math.max(1, Math.min(48, Number(data.shift_max_hours) || 12)),
       segments: cxReadWaiterOrderingSegmentsFromForm031T(data),
+      kitchen_board_columns: data.kitchen_board_columns === "on",
+      quantity_buttons_enabled: data.quantity_buttons_enabled === "on",
+      quantity_buttons: cxReadQuantityButtons042K(data.quantity_buttons),
     };
 
     try {

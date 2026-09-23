@@ -181,6 +181,7 @@ async def test_menu_mis_mesas_and_ventas_hoy_succeed_for_a_real_mesero_account(m
     monkeypatch.setattr(waiter_ordering, "hospitality_inventory_lite", AsyncMock(return_value={"inventory": []}))
     monkeypatch.setattr(waiter_ordering, "_category_rows", AsyncMock(return_value={}))
     monkeypatch.setattr(waiter_ordering, "_portion_membership", AsyncMock(return_value={}))
+    monkeypatch.setattr(waiter_ordering, "_module_settings", AsyncMock(return_value={}))
     menu = await waiter_ordering.waiter_ordering_menu(ASADERO_ID, db=db, _user=mesero_user)
     assert menu["ok"] is True
 

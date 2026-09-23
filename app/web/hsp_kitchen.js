@@ -15,7 +15,19 @@
     comandas: [],
     thresholds: { green_max_minutes: 10, yellow_max_minutes: 20 },
     stations: [],
+    // Tablero en 3 columnas: only when the company has the switch on (the
+    // server says so in columns_enabled); otherwise the classic board.
+    columnsEnabled: false,
+    columns: { nuevo: [], preparando: [], listo: [] },
+    view: "board",
+    history: [],
   };
+
+  const COLUMNS = [
+    { key: "nuevo", title: "Pedido nuevo" },
+    { key: "preparando", title: "Preparando" },
+    { key: "listo", title: "Listo" },
+  ];
 
   let pollHandle = null;
 
@@ -87,10 +99,54 @@
       state.comandas = Array.isArray(data.comandas) ? data.comandas : [];
       state.thresholds = data.timer_thresholds || state.thresholds;
       state.stations = Array.isArray(data.stations) ? data.stations : [];
-      render();
+      state.columnsEnabled = data.columns_enabled === true;
+      state.columns = boardColumns(data);
+      if (state.view === "board" || !state.columnsEnabled) render();
     } catch (_) {
       // keep last board on transient errors; the 401 handler already redirects on session kick
     }
+  }
+
+  // Oldest first inside every column: new/preparing by when the order came
+  // in, Listo by when the kitchen finished it.
+  function boardColumns(data) {
+    const cols = (data && data.columns) || {};
+    const byTime = (key) => (a, b) => String(a[key] || a.created_at || "").localeCompare(String(b[key] || b.created_at || ""));
+    return {
+      nuevo: (Array.isArray(cols.nuevo) ? cols.nuevo : []).slice().sort(byTime("created_at")),
+      preparando: (Array.isArray(cols.preparando) ? cols.preparando : []).slice().sort(byTime("created_at")),
+      listo: (Array.isArray(cols.listo) ? cols.listo : []).slice().sort(byTime("ready_at")),
+    };
+  }
+
+  function columnAction(columnKey) {
+    if (columnKey === "nuevo") return { label: "EMPEZAR", path: "start", cls: "ktc-btn-start" };
+    if (columnKey === "preparando") return { label: "COMANDA LISTA", path: "ready", cls: "ktc-btn-primary" };
+    if (columnKey === "listo") return { label: "ENTREGADO", path: "delivered", cls: "ktc-btn-deliver" };
+    return null;
+  }
+
+  async function advanceComanda(orderId, path, button) {
+    button.disabled = true;
+    try {
+      await waiterApi(`/orders/${encodeURIComponent(orderId)}/${path}`, { method: "PATCH" });
+      await refreshBoard();
+    } catch (error) {
+      button.disabled = false;
+      state.error = error.message || "No se pudo mover la comanda.";
+      render();
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      const data = await waiterApi("/kitchen/entregadas");
+      state.history = Array.isArray(data.comandas) ? data.comandas : [];
+    } catch (error) {
+      state.history = [];
+      state.error = error.message || "No se pudo cargar el historial.";
+    }
+    render();
   }
 
   function startPolling() {
@@ -169,6 +225,11 @@
     return term ? `${name} — ${term}` : name;
   }
 
+  // "1/4" for a fraction line (cantidad por botones), otherwise "2×".
+  function itemQuantity(item) {
+    return item.quantity_label ? String(item.quantity_label) : `${item.quantity}×`;
+  }
+
   function comandaCard(comanda) {
     const minutes = minutesOpen(comanda.created_at);
     const cls = timerClass(minutes);
@@ -187,7 +248,7 @@
           ${(comanda.items || []).map((item) => `
             <div class="ktc-item ${item.ready ? "is-ready" : ""}">
               <div class="ktc-item-main">
-                <b>${h(item.quantity)}× ${h(itemLine(item))}</b>
+                <b>${h(itemQuantity(item))} ${h(itemLine(item))}</b>
                 ${item.observations ? `<div class="ktc-note">⚠ ${h(item.observations)}</div>` : ""}
                 ${(item.quick_notes || []).length ? `<div class="ktc-note">⚠ ${item.quick_notes.map(h).join(" · ")}</div>` : ""}
               </div>
@@ -203,6 +264,71 @@
       </article>`;
   }
 
+  function columnCard(comanda, columnKey) {
+    const action = columnAction(columnKey);
+    const isListo = columnKey === "listo";
+    const minutes = minutesOpen(isListo ? comanda.ready_at : comanda.created_at);
+    const cls = isListo ? "ktc-card-listo" : timerClass(minutes);
+    const waiterName = comanda.waiter && comanda.waiter.name ? comanda.waiter.name : "";
+    return `
+      <article class="ktc-card ktc-card-col ${cls}">
+        <header>
+          <div class="ktc-table">${h(comanda.table_number || "Mesa")}</div>
+          <div class="ktc-meta">
+            ${waiterName ? `<span class="ktc-waiter">${h(waiterName)}</span>` : ""}
+            <span class="ktc-timer">${isListo ? "lista hace " : ""}${Math.floor(minutes)} min</span>
+          </div>
+        </header>
+        <div class="ktc-items">
+          ${(comanda.items || []).map((item) => `
+            <div class="ktc-item ${item.ready && columnKey === "preparando" ? "is-ready" : ""}">
+              <div class="ktc-item-main">
+                <b>${h(itemQuantity(item))} ${h(itemLine(item))}</b>
+                ${item.observations ? `<div class="ktc-note">⚠ ${h(item.observations)}</div>` : ""}
+                ${(item.quick_notes || []).length ? `<div class="ktc-note">⚠ ${item.quick_notes.map(h).join(" · ")}</div>` : ""}
+              </div>
+              ${columnKey === "preparando" && !item.ready
+                ? `<button type="button" class="ktc-btn ktc-btn-mini" data-ktc-item-ready="${h(comanda.order_id)}" data-item-id="${h(item.id)}">LISTO</button>`
+                : ""}
+            </div>`).join("")}
+        </div>
+        ${comanda.notes ? `<div class="ktc-order-note">⚠ ${h(comanda.notes)}</div>` : ""}
+        ${action ? `<button type="button" class="ktc-btn ${action.cls}" data-ktc-advance="${h(comanda.order_id)}" data-ktc-path="${action.path}">${action.label}</button>` : ""}
+      </article>`;
+  }
+
+  function screenColumns() {
+    return `
+      <div class="ktc-columns">
+        ${COLUMNS.map((col) => {
+          const rows = state.columns[col.key] || [];
+          return `
+            <section class="ktc-column ktc-column-${col.key}">
+              <h2>${h(col.title)} <span class="ktc-count">${rows.length}</span></h2>
+              ${rows.map((comanda) => columnCard(comanda, col.key)).join("") || `<div class="ktc-empty">Nada aquí.</div>`}
+            </section>`;
+        }).join("")}
+      </div>`;
+  }
+
+  function historyTime(value) {
+    const date = new Date(value || "");
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function screenHistory() {
+    return `
+      <div class="ktc-history">
+        ${state.history.map((comanda) => `
+          <div class="ktc-history-row">
+            <strong>${h(comanda.table_number || "Mesa")}</strong>
+            <span>${(comanda.items || []).map((item) => `${h(itemQuantity(item))} ${h(item.name)}`).join(" · ")}</span>
+            <span class="ktc-history-meta">${comanda.waiter && comanda.waiter.name ? `${h(comanda.waiter.name)} · ` : ""}entregada ${h(historyTime(comanda.delivered_at))}</span>
+          </div>`).join("") || `<div class="ktc-empty">Todavía no hay comandas entregadas hoy.</div>`}
+      </div>`;
+  }
+
   function screenBoard() {
     return `
       <section class="ktc-shell">
@@ -213,11 +339,17 @@
             <span class="ktc-dot ktc-timer-yellow"></span> ${h(state.thresholds.green_max_minutes)}-${h(state.thresholds.yellow_max_minutes)}
             <span class="ktc-dot ktc-timer-red"></span> &gt; ${h(state.thresholds.yellow_max_minutes)} min
           </div>
+          ${state.columnsEnabled ? `
+            <button class="ktc-btn ktc-btn-tab" type="button" data-ktc-view="${state.view === "history" ? "board" : "history"}">
+              ${state.view === "history" ? "Volver al tablero" : "Entregadas hoy"}
+            </button>` : ""}
           <button class="ktc-logout" type="button" data-ktc-logout aria-label="Salir">⏻</button>
         </header>
-        <div class="ktc-board">
+        ${state.columnsEnabled
+          ? (state.view === "history" ? screenHistory() : screenColumns())
+          : `<div class="ktc-board">
           ${state.comandas.map(comandaCard).join("") || `<div class="ktc-empty">Sin comandas pendientes en tus estaciones.</div>`}
-        </div>
+        </div>`}
       </section>`;
   }
 
@@ -255,6 +387,20 @@
     const itemReady = target.closest("[data-ktc-item-ready]");
     if (itemReady) {
       markItemReady(itemReady.getAttribute("data-ktc-item-ready"), itemReady.getAttribute("data-item-id"), itemReady);
+      return;
+    }
+
+    const advance = target.closest("[data-ktc-advance]");
+    if (advance && !advance.disabled) {
+      advanceComanda(advance.getAttribute("data-ktc-advance"), advance.getAttribute("data-ktc-path"), advance);
+      return;
+    }
+
+    const viewBtn = target.closest("[data-ktc-view]");
+    if (viewBtn) {
+      state.view = viewBtn.getAttribute("data-ktc-view") === "history" ? "history" : "board";
+      if (state.view === "history") loadHistory();
+      else render();
       return;
     }
 
@@ -313,6 +459,23 @@
     .ktc-ready-pill{padding:6px 14px;border-radius:999px;background:rgba(34,197,94,.22);color:#86efac;font-size:13px;font-weight:1000}
     .ktc-order-note{padding:8px 10px;border-radius:10px;font-size:14px;font-weight:900;color:#1a1206;background:#ffd166}
     .ktc-empty{grid-column:1/-1;text-align:center;padding:40px;color:#8f8aa8}
+    .ktc-btn-tab{min-height:40px;padding:0 14px;font-size:13px}
+    .ktc-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:14px;align-items:start}
+    @media (max-width:900px){.ktc-columns{grid-template-columns:1fr}}
+    .ktc-column{display:grid;gap:12px;align-content:start;min-width:0;padding:12px;border-radius:20px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)}
+    .ktc-column h2{margin:0;display:flex;align-items:center;justify-content:space-between;font-size:18px;text-transform:uppercase;letter-spacing:.06em}
+    .ktc-count{min-width:40px;height:40px;padding:0 10px;border-radius:999px;display:inline-grid;place-items:center;font-size:20px;font-weight:1000;background:rgba(255,255,255,.1)}
+    .ktc-column-nuevo .ktc-count{background:#2563eb}
+    .ktc-column-preparando .ktc-count{background:#d97706}
+    .ktc-column-listo .ktc-count{background:#16a34a}
+    .ktc-card-col .ktc-table{font-size:34px}
+    .ktc-card.ktc-card-listo{border-color:#16a34a}
+    .ktc-btn-start{border:none;width:100%;min-height:60px;font-size:18px;background:linear-gradient(135deg,#3b82f6,#2563eb)}
+    .ktc-btn-deliver{border:none;width:100%;min-height:60px;font-size:18px;background:linear-gradient(135deg,#a855f7,#7c3aed)}
+    .ktc-history{display:grid;gap:10px;padding:16px}
+    .ktc-history-row{display:grid;gap:4px;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+    .ktc-history-row strong{font-size:22px}
+    .ktc-history-meta{font-size:12px;color:#a5b4fc;font-weight:800}
   `;
   document.head.appendChild(style);
 

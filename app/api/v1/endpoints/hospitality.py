@@ -63,6 +63,11 @@ class HospitalityOrderItemIn(BaseModel):
     # Fase 2: termino de coccion (crudo/medio/3-4/bien cocinado), solo
     # aplicable cuando la categoria del producto tiene requires_term=true.
     term: str | None = Field(default="", max_length=40)
+    # Cantidad por botones (waiter_ordering, opt-in por empresa): el llamador
+    # fija el total ya redondeado de la linea (ej. 3/4 de pollo) y la
+    # etiqueta visible ("3/4"). Sin estos campos la linea queda igual que hoy.
+    line_total: float | None = Field(default=None, ge=0)
+    quantity_label: str | None = Field(default="", max_length=20)
 
     @field_validator("name")
     @classmethod
@@ -933,27 +938,30 @@ async def _build_order_items(
         if not name:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Producto sin nombre.")
 
-        rows.append(
-            {
-                "id": f"line_{uuid.uuid4()}",
-                "product_id": inventory_id,
-                "inventory_item_id": inventory_id,
-                "sku": sku,
-                "name": name[:220],
-                "quantity": quantity,
-                "unit": _clean(item.unit) or "unidad",
-                "unit_price": unit_price,
-                "subtotal": _money(quantity * unit_price),
-                "note": _clean(item.note),
-                "observations": _clean(getattr(item, "observations", "")),
-                "quick_notes": list(getattr(item, "quick_notes", None) or []),
-                "station": _clean(getattr(item, "station", "")),
-                "ready": bool(getattr(item, "ready", False)),
-                "ready_at": None,
-                "term": _clean(getattr(item, "term", "")),
-                "created_at": _now().isoformat(),
-            }
-        )
+        line_total = getattr(item, "line_total", None)
+        row = {
+            "id": f"line_{uuid.uuid4()}",
+            "product_id": inventory_id,
+            "inventory_item_id": inventory_id,
+            "sku": sku,
+            "name": name[:220],
+            "quantity": quantity,
+            "unit": _clean(item.unit) or "unidad",
+            "unit_price": unit_price,
+            "subtotal": _money(line_total) if line_total is not None else _money(quantity * unit_price),
+            "note": _clean(item.note),
+            "observations": _clean(getattr(item, "observations", "")),
+            "quick_notes": list(getattr(item, "quick_notes", None) or []),
+            "station": _clean(getattr(item, "station", "")),
+            "ready": bool(getattr(item, "ready", False)),
+            "ready_at": None,
+            "term": _clean(getattr(item, "term", "")),
+            "created_at": _now().isoformat(),
+        }
+        quantity_label = _clean(getattr(item, "quantity_label", ""))
+        if quantity_label:
+            row["quantity_label"] = quantity_label[:20]
+        rows.append(row)
     return rows
 
 
