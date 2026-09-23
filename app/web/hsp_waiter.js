@@ -478,10 +478,13 @@
   let sessionKeeperHandle = null;
 
   async function refreshToken() {
-    if (!token()) return;
+    const sent = token();
+    if (!sent) return;
     try {
       const data = await mpApi(`/mini-panel-refresh?panel_type=${PANEL_TYPE}`, { method: "POST" });
-      if (data && data.access_token) setToken(data.access_token);
+      // Only if nothing changed meanwhile: a renewal answering after a 401
+      // or a logout must never bring the closed session back.
+      if (data && data.access_token && token() === sent) setToken(data.access_token);
     } catch (_) {
       // 409 turno_cerrado / offline: keep the current token; a real 401
       // was already handled by api().

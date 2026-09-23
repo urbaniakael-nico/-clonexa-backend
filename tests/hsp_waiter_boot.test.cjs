@@ -165,3 +165,13 @@ test('the login form sends a stable device id', async () => {
   assert.match(body.device_id, /^[A-Za-z0-9_-]{8,80}$/);
   assert.equal(b.local.getItem('clonexa_mini_panel_device_id'), body.device_id);
 });
+
+test('a token renewal answering after a 401 does not revive the closed session', async () => {
+  const b = boot({
+    local: withSavedSession(),
+    routes: (url, o) => (url.includes('/waiter-ordering/menu') ? [401, { detail: 'Tu sesion se abrio en otro dispositivo.' }] : happyRoutes(url, o)),
+  });
+  await flush(); await flush(); await flush();
+  assert.match(b.root.innerHTML, /otro dispositivo/);
+  assert.equal(b.local.getItem('clonexa_waiter_token_c1'), null);
+});
