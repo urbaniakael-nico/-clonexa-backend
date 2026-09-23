@@ -23,7 +23,9 @@ function element(tag = 'div') {
     setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k]; },
     appendChild(child) { this.children.push(child); child.parent = this; return child; },
     remove() { if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); },
-    querySelector() { return null; }, querySelectorAll() { return []; }, addEventListener() {},
+    // Sheets wire their own buttons: hand back an inert element.
+    querySelector() { return { addEventListener() {}, textContent: '', value: '', classList: { toggle() {} } }; },
+    querySelectorAll() { return []; }, addEventListener() {},
   };
 }
 
@@ -208,4 +210,48 @@ test('choosing "Mesa 11" titles the screen "Mesa 11" and each category shows its
   assert.doesNotMatch(html, /wtr-emoji">🥩</);
   b.click('data-wtr-cat', 'pollo');
   assert.match(b.root.innerHTML, /wtr-prod-emoji">🍗</);
+});
+
+function menuWithPortions() {
+  return (url, o) => {
+    if (url.includes('/waiter-ordering/menu')) {
+      return [200, {
+        quantity_buttons: ['1/4', '1/2', '3/4', '1', '2'],
+        categories: [{ key: 'menu', label: 'Menu', has_image: false, products: [
+          { id: 'pollo', name: 'POLLO Asado', price: 40000, allows_portions: true, quantity_ref_id: 'pollo',
+            quantity_options: [{ label: '1/4', available: true, price: 10000 }, { label: '1', available: true, price: 40000 }] },
+          { id: 'gaseosa', name: 'GASEOSA Coca Cola', price: 4500, allows_portions: false },
+        ] }],
+      }];
+    }
+    return happyRoutes(url, o);
+  };
+}
+
+async function openProduct(productId) {
+  const b = boot({ local: withSavedSession(), routes: menuWithPortions() });
+  await flush(); await flush();
+  b.click('data-wtr-new-order');
+  b.click('data-wtr-table', 'Mesa 2');
+  b.click('data-wtr-cat', 'menu');
+  b.click('data-wtr-product', productId);
+  const sheet = b.body.children.filter((c) => /wtr-sheet/.test(c.innerHTML)).pop();
+  return sheet ? sheet.innerHTML : '';
+}
+
+test('a product that allows portions shows the fraction buttons', async () => {
+  const html = await openProduct('pollo');
+  assert.match(html, /data-qty-index="0"/);
+  assert.match(html, /<span>1\/4<\/span>/);
+  assert.doesNotMatch(html, /wtr-stepper/);
+});
+
+test('a product without portions shows only a whole-unit selector with its price', async () => {
+  const html = await openProduct('gaseosa');
+  assert.match(html, /wtr-stepper/);
+  assert.match(html, /data-qty-step="1"/);
+  assert.match(html, /id="wtrStepQty">1</);
+  assert.match(html, /Vas a cobrar <strong id="wtrQtyPrice">\$\s?4\.500/);
+  assert.doesNotMatch(html, /data-qty-index/);
+  assert.doesNotMatch(html, /1\/4/);
 });

@@ -4,12 +4,13 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
 
@@ -242,6 +243,8 @@ class InventoryItemUpdate(BaseModel):
     min_stock: float | int | str | None = None
     minimum_stock: float | int | str | None = None
     status: str | None = None
+    # "Permite porciones" (1/4, 1/2... in the mesero panel). None = unchanged.
+    allows_portions: bool | None = None
 
 
 class InventoryBulkItemUpdate(InventoryItemUpdate):
@@ -342,6 +345,8 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS status varchar(40) NOT NULL DEFAULT 'active'",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS allows_portions boolean NOT NULL DEFAULT false",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS deleted_at timestamptz NULL",
         "ALTER TABLE inventory_items ALTER COLUMN sku SET DEFAULT ''",
         "ALTER TABLE inventory_items ALTER COLUMN name SET DEFAULT ''",
         "ALTER TABLE inventory_items ALTER COLUMN reference SET DEFAULT ''",
@@ -453,6 +458,7 @@ def inventory_item_out(row: dict[str, Any]) -> dict[str, Any]:
         "min_stock": min_stock,
         "current_stock": current_stock,
         "status": status,
+        "allows_portions": bool(row.get("allows_portions")),
         "alert_low": alert_low,
         "alert_status": "inactive" if status != "active" else "out" if current_stock <= 0 else "low" if alert_low else "ok",
         "created_at": iso("created_at"),
@@ -492,7 +498,9 @@ async def list_inventory_items(
     await ensure_inventory_storage(db)
 
     limit = max(1, min(int(limit or 500), 1000))
-    filters = ["company_id = :company_id"]
+    # Deleted products (kept only for history, see delete_inventory_item)
+    # never show up in the inventory list.
+    filters = ["company_id = :company_id", "COALESCE(status, 'active') <> 'deleted'"]
     params: dict[str, Any] = {"company_id": str(company_id), "limit": limit}
 
     if not include_inactive:
@@ -647,8 +655,10 @@ async def _update_inventory_item_record(
               unit_value = COALESCE(:sale_price, unit_value),
               min_stock = COALESCE(:min_stock, min_stock),
               status = COALESCE(:status, status),
+              allows_portions = COALESCE(:allows_portions, allows_portions),
               updated_at = now()
             WHERE id = :item_id{company_filter}
+              AND COALESCE(status, 'active') <> 'deleted'
             RETURNING *
         """),
         {
@@ -660,6 +670,7 @@ async def _update_inventory_item_record(
             "sale_price": sale_price,
             "min_stock": min_stock,
             "status": status,
+            "allows_portions": payload.allows_portions,
             **({"company_id": str(company_id)} if company_id is not None else {}),
         },
     )
@@ -897,3 +908,132 @@ async def disable_inventory_item(
 
     await db.commit()
     return inventory_item_out(dict(row))
+
+
+# ---------------------------------------------------------------------------
+# CX_045B_INVENTORY_DELETE_START
+# Eliminar producto. Two paths, decided on the server:
+#   - no history at all (no stock movement, not in any hospitality order,
+#     not in any material request/delivery) -> the row is really deleted;
+#   - any history -> soft delete: status 'deleted' + deleted_at. The row
+#     stays, so movements, past orders and reports keep resolving it, but it
+#     disappears from every product list and can no longer be edited.
+# Unlike the older inventory endpoints (still open, part of the security
+# sweep), this one requires a valid session from day one: Admin V2, or a
+# user of THIS company with an admin/owner role.
+# ---------------------------------------------------------------------------
+
+INVENTORY_DELETE_ROLES = ADMIN_ROLES | {
+    "manager", "gerencia", "gerente", "dueno", "dueño", "owner", "propietario", "administrador",
+}
+
+
+async def require_inventory_admin_045b(
+    company_id: UUID,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> str:
+    """Who is deleting (for the audit trail). Raises 401/403 otherwise."""
+    if await active_admin_v2_session(request, db):
+        return "Admin V2"
+    user = await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=INVENTORY_DELETE_ROLES)
+    return str(getattr(user, "full_name", "") or getattr(user, "email", "") or "usuario")
+
+
+async def _table_exists_045b(db: AsyncSession, table: str) -> bool:
+    result = await db.execute(text("SELECT to_regclass(:name) IS NOT NULL"), {"name": f"public.{table}"})
+    return bool(result.scalar())
+
+
+async def inventory_item_history_045b(db: AsyncSession, company_id: UUID, item_id: UUID) -> list[str]:
+    """Why this product can't be physically deleted ([] = it can)."""
+    reasons: list[str] = []
+    params = {"company_id": str(company_id), "item_id": str(item_id)}
+    moved = await db.execute(
+        text("SELECT COUNT(*) FROM inventory_movements WHERE company_id = :company_id AND item_id = :item_id"),
+        params,
+    )
+    if int(moved.scalar() or 0) > 0:
+        reasons.append("movimientos de inventario")
+    if await _table_exists_045b(db, "hospitality_orders"):
+        ordered = await db.execute(
+            text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM hospitality_orders
+                    WHERE company_id = :company_id
+                      AND (items @> CAST(:by_inventory AS jsonb) OR items @> CAST(:by_product AS jsonb))
+                )
+            """),
+            {
+                **params,
+                "by_inventory": f'[{{"inventory_item_id": "{item_id}"}}]',
+                "by_product": f'[{{"product_id": "{item_id}"}}]',
+            },
+        )
+        if ordered.scalar():
+            reasons.append("pedidos historicos")
+    for table in ("material_requests", "material_order_units"):
+        if await _table_exists_045b(db, table):
+            used = await db.execute(
+                text(f"SELECT EXISTS (SELECT 1 FROM {table} WHERE inventory_item_id = CAST(:item_id AS uuid))"),
+                params,
+            )
+            if used.scalar():
+                reasons.append("solicitudes o entregas de materiales")
+                break
+    return reasons
+
+
+@router.delete("/companies/{company_id}/items/{item_id}")
+async def delete_inventory_item(
+    company_id: UUID,
+    item_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: str = Depends(require_inventory_admin_045b),
+) -> dict[str, Any]:
+    await ensure_inventory_storage(db)
+    found = await db.execute(
+        text("""
+            SELECT id, name_reference, status FROM inventory_items
+            WHERE id = :item_id AND company_id = :company_id
+              AND COALESCE(status, 'active') <> 'deleted'
+            FOR UPDATE
+        """),
+        {"item_id": str(item_id), "company_id": str(company_id)},
+    )
+    row = found.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Material no encontrado.")
+
+    reasons = await inventory_item_history_045b(db, company_id, item_id)
+    params = {"item_id": str(item_id), "company_id": str(company_id)}
+    if reasons:
+        await db.execute(
+            text("""
+                UPDATE inventory_items
+                SET status = 'deleted', deleted_at = now(), updated_at = now()
+                WHERE id = :item_id AND company_id = :company_id
+            """),
+            params,
+        )
+        mode = "hidden"
+    else:
+        for table in ("hospitality_product_portions", "hospitality_product_images"):
+            if await _table_exists_045b(db, table):
+                await db.execute(
+                    text(f"DELETE FROM {table} WHERE company_id = :company_id AND inventory_item_id = CAST(:item_id AS uuid)"),
+                    params,
+                )
+        await db.execute(text("DELETE FROM inventory_items WHERE id = :item_id AND company_id = :company_id"), params)
+        mode = "deleted"
+    await db.commit()
+    return {
+        "ok": True,
+        "item_id": str(item_id),
+        "name_reference": row["name_reference"] or "",
+        "mode": mode,
+        "history": reasons,
+        "by": actor,
+    }
+# CX_045B_INVENTORY_DELETE_END

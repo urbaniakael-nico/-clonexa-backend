@@ -792,6 +792,13 @@
     };
   }
 
+  // Whole units only, 1..99 (a product without portions is never sold as a
+  // fraction; the server rejects it too).
+  function stepQuantity(current, delta) {
+    const value = Math.round(Number(current) || 1) + Number(delta || 0);
+    return Math.max(1, Math.min(99, value));
+  }
+
   function findMenuProduct(productId) {
     for (const category of state.menu) {
       const product = (category.products || []).find((item) => item.id === productId);
@@ -1268,6 +1275,10 @@
       : 0;
     const choices = state.quantityButtons.length && Array.isArray(product.quantity_options) ? quantityChoices(product) : null;
     let choiceIndex = choices ? defaultChoiceIndex(choices, prefill) : -1;
+    // Products sold by the unit (no "Permite porciones": carne, gaseosa...)
+    // get a simple 1, 2, 3 selector with the price, never fractions.
+    const unitStepper = !choices && state.quantityButtons.length > 0;
+    let stepQty = stepQuantity(prefill ? Number(prefill.quantity || 1) : 1, 0);
 
     const sheet = document.createElement("div");
     sheet.className = "wtr-sheet-backdrop";
@@ -1286,7 +1297,17 @@
             </div>
             <div class="wtr-qty-preview">Vas a cobrar <strong id="wtrQtyPrice">${choiceIndex >= 0 ? h(money(choices[choiceIndex].price)) : "—"}</strong></div>
           </div>` : `
-        <label>Cantidad<input id="wtrSheetQty" type="number" min="1" step="1" value="${prefill ? Number(prefill.quantity || 1) : 1}" /></label>`}
+        ${unitStepper ? `
+          <div class="wtr-qty-block">
+            <span class="wtr-term-caption">Cantidad</span>
+            <div class="wtr-stepper">
+              <button type="button" class="wtr-step-btn" data-qty-step="-1" aria-label="Menos">−</button>
+              <strong id="wtrStepQty">${stepQty}</strong>
+              <button type="button" class="wtr-step-btn" data-qty-step="1" aria-label="Más">+</button>
+            </div>
+            <div class="wtr-qty-preview">Vas a cobrar <strong id="wtrQtyPrice">${h(money(Number(product.price || 0) * stepQty))}</strong></div>
+          </div>` : `
+        <label>Cantidad<input id="wtrSheetQty" type="number" min="1" step="1" value="${prefill ? Number(prefill.quantity || 1) : 1}" /></label>`}`}
         ${requiresTerm ? `
           <div class="wtr-term-block">
             <span class="wtr-term-caption">Término de cocción</span>
@@ -1328,6 +1349,15 @@
     }
 
     const addButton = sheet.querySelector("[data-sheet-add]");
+    if (unitStepper) {
+      sheet.querySelectorAll("[data-qty-step]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          stepQty = stepQuantity(stepQty, Number(btn.getAttribute("data-qty-step")));
+          sheet.querySelector("#wtrStepQty").textContent = String(stepQty);
+          sheet.querySelector("#wtrQtyPrice").textContent = money(Number(product.price || 0) * stepQty);
+        });
+      });
+    }
     if (choices) {
       addButton.disabled = choiceIndex < 0;
       sheet.querySelectorAll("[data-qty-index]").forEach((btn) => {
@@ -1353,7 +1383,9 @@
         render();
         return;
       }
-      const qty = Math.max(1, Number(sheet.querySelector("#wtrSheetQty").value || 1));
+      const qty = unitStepper
+        ? stepQty
+        : stepQuantity(Number(sheet.querySelector("#wtrSheetQty").value || 1), 0);
       addOrUpdateCartLine(
         {
           inventory_item_id: product.id,
@@ -1465,6 +1497,9 @@
     .wtr-qty-btn.is-active{background:linear-gradient(135deg,#ff7a18,#ff2d95);border-color:transparent}
     .wtr-qty-btn.is-active strong{color:#fff}
     .wtr-qty-btn:disabled{opacity:.35;cursor:not-allowed}
+    .wtr-stepper{display:flex;align-items:center;justify-content:center;gap:18px}
+    .wtr-step-btn{width:56px;height:56px;border-radius:16px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#fff;font-size:28px;font-weight:900;cursor:pointer}
+    .wtr-stepper strong{min-width:48px;text-align:center;font-size:30px;font-weight:1000}
     .wtr-qty-preview{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:12px;background:rgba(255,209,102,.1);font-size:13px;font-weight:800;color:#c9c3e6}
     .wtr-qty-preview strong{font-size:20px;color:#ffd166}
     .wtr-avisos{position:fixed;top:10px;left:10px;right:10px;z-index:70;display:grid;gap:8px}

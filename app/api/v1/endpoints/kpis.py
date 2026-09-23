@@ -438,6 +438,7 @@ async def inventory_kpis(db: AsyncSession, company_id: UUID, start: datetime, en
                   COALESCE(SUM({stock_expr}),0)::float AS total_stock_units
                 FROM inventory_items
                 WHERE company_id = CAST(:company_id AS uuid)
+                  {"AND COALESCE(status, 'active') <> 'deleted'" if "status" in cols else ""}
                 """,
                 {"company_id": str(company_id)},
             )

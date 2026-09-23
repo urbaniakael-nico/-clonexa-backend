@@ -370,6 +370,7 @@ async def inventory_item_rows(db: AsyncSession, company_id: UUID) -> list[dict[s
             updated_at
         FROM inventory_items
         WHERE company_id = CAST(:company_id AS uuid)
+          AND COALESCE(status, 'active') <> 'deleted'
         ORDER BY name_reference ASC
         LIMIT 1500
         """,

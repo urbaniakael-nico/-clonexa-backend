@@ -872,7 +872,7 @@ async def _inventory_categories(
     if not table:
         return []
 
-    status_filter = "" if include_inactive else "AND COALESCE(status, 'active') = 'active'"
+    status_filter = "AND COALESCE(status, 'active') <> 'deleted'" if include_inactive else "AND COALESCE(status, 'active') = 'active'"
     total = await conn.fetchval(
         f"""
         SELECT COUNT(*)
@@ -917,6 +917,8 @@ async def _inventory_references(
     idx = 2
     if not include_inactive:
         where.append("COALESCE(status, 'active') = 'active'")
+    else:
+        where.append("COALESCE(status, 'active') <> 'deleted'")
 
     search = _clean(q)
     if search:

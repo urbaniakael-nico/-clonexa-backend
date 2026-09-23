@@ -700,6 +700,25 @@ def _resolve_fraction(
     }
 
 
+def _allows_portions(
+    product: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+    portion_map: dict[str, dict[str, Any]],
+) -> bool:
+    """Inventory "Permite porciones" (off by default). For an Admin V2
+    portion group it is enough that one of its portions allows it."""
+    if product.get("allows_portions"):
+        return True
+    membership = portion_map.get(str(product.get("id")))
+    if not membership:
+        return False
+    return any(
+        bool(by_id[item_id].get("allows_portions"))
+        for item_id, other in portion_map.items()
+        if other["group_key"] == membership["group_key"] and item_id in by_id
+    )
+
+
 def _quantity_options(
     product: dict[str, Any],
     buttons: list[str],
@@ -754,8 +773,13 @@ async def waiter_ordering_menu(
             # A portion-group card has no inventory id of its own: any member
             # resolves to the same group server-side, so send the first one.
             ref_id = product["portions"][0]["inventory_item_id"] if product.get("is_portioned") else str(product.get("id"))
-            product["quantity_ref_id"] = ref_id
-            product["quantity_options"] = _quantity_options(by_id[ref_id], quantity_buttons, by_id, portion_map)
+            product["allows_portions"] = _allows_portions(by_id[ref_id], by_id, portion_map)
+            # Fraction buttons only where the product allows portions (pollo);
+            # carne, gaseosa... are sold in whole units (the panel shows a
+            # simple 1, 2, 3 selector for them).
+            if product["allows_portions"]:
+                product["quantity_ref_id"] = ref_id
+                product["quantity_options"] = _quantity_options(by_id[ref_id], quantity_buttons, by_id, portion_map)
 
     grouped: dict[str, dict[str, Any]] = {}
     for product in merged_products:
@@ -834,7 +858,12 @@ async def _priced_order_items(db: AsyncSession, company_id: uuid.UUID, items: li
             raise HTTPException(status_code=422, detail="Producto no disponible en el catalogo.")
         fraction_label = _clean(getattr(item, "fraction", None))
         resolved = None
+        allows_portions = _allows_portions(product, by_id, portion_map)
+        if not fraction_label and not allows_portions and Decimal(str(item.quantity)) % 1 != 0:
+            raise HTTPException(status_code=422, detail=f"{product.get('name') or 'Este producto'} se vende por unidades enteras.")
         if fraction_label:
+            if not allows_portions:
+                raise HTTPException(status_code=422, detail=f"{product.get('name') or 'Este producto'} no se vende por porciones.")
             if quantity_buttons is None:
                 quantity_buttons = _quantity_buttons_config(await _module_settings(db, company_id))
             allowed = {_parse_fraction(label) for label in quantity_buttons}

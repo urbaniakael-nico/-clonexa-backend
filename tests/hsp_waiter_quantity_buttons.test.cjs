@@ -134,3 +134,13 @@ test('the ready notice reads "Mesa X lista para llevar" and escapes the text', (
   assert.equal(ctx.avisosMarkup([]), '');
   assert.doesNotMatch(ctx.avisosMarkup([{ order_id: 'x', message: '<img src=x>' }]), /<img/);
 });
+
+test('the whole-unit selector never goes below 1, above 99, or to a fraction', () => {
+  const ctx = vm.createContext({ Math, Number });
+  vm.runInContext(fn('stepQuantity'), ctx);
+  assert.equal(ctx.stepQuantity(1, -1), 1);
+  assert.equal(ctx.stepQuantity(2, 1), 3);
+  assert.equal(ctx.stepQuantity(99, 1), 99);
+  assert.equal(ctx.stepQuantity(1.5, 0), 2);
+  assert.equal(ctx.stepQuantity('abc', 0), 1);
+});

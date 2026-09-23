@@ -2083,6 +2083,7 @@ async def _inventory_candidates(db: AsyncSession, company_id: str) -> list[dict[
               {stock_expr}::float AS stock
             FROM inventory_items
             WHERE company_id::text = :company_id
+              {"AND COALESCE(status, 'active') <> 'deleted'" if "status" in cols else ""}
             ORDER BY lower({name_expr})
             LIMIT 500
         """),

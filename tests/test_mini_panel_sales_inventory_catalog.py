@@ -94,7 +94,10 @@ async def test_inventory_categories_are_scoped_to_requested_company() -> None:
     ]
     count_query, count_args = conn.fetchval_calls[-1]
     assert "company_id = $1::uuid" in count_query
-    assert "status" not in count_query
+    # include_inactive keeps inactive products, but never deleted ones
+    # (inventory.delete_inventory_item's soft delete).
+    assert "= 'active'" not in count_query
+    assert "<> 'deleted'" in count_query
     assert count_args == (TARGET_COMPANY_ID,)
 
 

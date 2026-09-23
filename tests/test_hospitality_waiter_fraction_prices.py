@@ -1,5 +1,8 @@
 """Cantidad por botones (1/4, 1/2, 3/4, 1, 2) in the mesero panel.
 
+Every product here has "Permite porciones" on (allows_portions); products
+without it are covered in test_hospitality_waiter_whole_units.py.
+
 Price rule, resolved on the server (the client never sends money):
 - product in an Admin V2 portion group with that exact portion -> that
   portion's own inventory item and configured price;
@@ -17,18 +20,18 @@ from app.api.v1.endpoints import hospitality, waiter_ordering
 
 ENABLED = {"quantity_buttons_enabled": True, "quantity_buttons": ["1/4", "1/2", "3/4", "1", "2"]}
 
-CARNE = {"id": "carne", "name": "CARNE Asada", "price": 25000, "active": True}
-ODD = {"id": "odd", "name": "CHORIZO Grande", "price": 12345, "active": True}
+CARNE = {"id": "carne", "name": "CARNE Asada", "price": 25000, "active": True, "allows_portions": True}
+ODD = {"id": "odd", "name": "CHORIZO Grande", "price": 12345, "active": True, "allows_portions": True}
 # Admin V2 portion group "Pollo": 1/2 has its own configured price (cheaper
 # than half of the whole), 1/4 is NOT configured.
-POLLO_ENTERO = {"id": "pollo-1", "name": "POLLO Entero", "price": 40000, "active": True}
-POLLO_MEDIO = {"id": "pollo-12", "name": "POLLO 1/2", "price": 19000, "active": True}
+POLLO_ENTERO = {"id": "pollo-1", "name": "POLLO Entero", "price": 40000, "active": True, "allows_portions": True}
+POLLO_MEDIO = {"id": "pollo-12", "name": "POLLO 1/2", "price": 19000, "active": True, "allows_portions": True}
 PORTIONS = {
     "pollo-1": {"group_key": "pollo", "group_label": "Pollo", "portion_label": "Entero", "position": 0},
     "pollo-12": {"group_key": "pollo", "group_label": "Pollo", "portion_label": "1/2", "position": 1},
 }
 # A group with no whole ("1") member can only sell what it has configured.
-COSTILLA_MEDIA = {"id": "cost-12", "name": "COSTILLA 1/2", "price": 30000, "active": True}
+COSTILLA_MEDIA = {"id": "cost-12", "name": "COSTILLA 1/2", "price": 30000, "active": True, "allows_portions": True}
 COSTILLA_PORTIONS = {"cost-12": {"group_key": "costilla", "group_label": "Costilla", "portion_label": "1/2", "position": 0}}
 
 INVENTORY = [CARNE, ODD, POLLO_ENTERO, POLLO_MEDIO, COSTILLA_MEDIA]

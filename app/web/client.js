@@ -4994,17 +4994,18 @@
          invoice + Ingresar) and the row actions each sit on ONE line, so a
          row is one input tall. Same inputs, buttons and data-* hooks as
          before: every existing handler keeps working unchanged. */
-      .cx-inv-table { table-layout: fixed; min-width: 1130px; width: 100%; }
-      .cx-inv-table col.cx-inv-w-name { width: auto; }
-      .cx-inv-table col.cx-inv-w-short { width: 58px; }
-      .cx-inv-table col.cx-inv-w-num { width: 78px; }
-      .cx-inv-table col.cx-inv-w-status { width: 106px; }
-      .cx-inv-table col.cx-inv-w-entry { width: 214px; }
-      .cx-inv-table col.cx-inv-w-actions { width: 150px; }
+      /* 045B: column widths come from inventoryColumnPlan045B (longest value
+         of each column), the name column takes whatever is left over. */
+      .cx-inv-table { table-layout: fixed; width: 100%; }
+      .cx-inv-table td.cx-inv-col-name input { text-overflow: clip; }
+      .cx-inv-portions-045b { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 900; cursor: pointer; white-space: nowrap; }
+      .cx-inv-table .cx-inv-portions-045b input { width: 18px; height: 18px; padding: 0; }
+      .cx-inv-more-menu-045a { display: grid; gap: 6px; }
+      .cx-inv-action.cx-inv-action-danger-045b { color: #fecaca; border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.14); }
       .cx-inv-table th, .cx-inv-table td { padding: 7px 8px; }
       .cx-inv-table th { font-size: 10px; letter-spacing: .06em; white-space: normal; line-height: 1.25; }
       .cx-inv-table input, .cx-inv-table select { min-width: 0; padding: 7px 8px; border-radius: 10px; font-size: 13px; }
-      .cx-inv-table td.cx-inv-col-name input { font-size: 14px; text-overflow: ellipsis; }
+      .cx-inv-table td.cx-inv-col-name input { font-size: 14px; }
       .cx-inv-table th.cx-inv-col-name, .cx-inv-table td.cx-inv-col-name {
         position: sticky; left: 0; z-index: 2;
         background: var(--cx-bg, var(--bg, #0b0913));
@@ -5422,9 +5423,12 @@ function inventoryCreatePayload() {
       size: String(row.querySelector('[data-inventory-field="size"]')?.value || "").trim(),
       color: String(row.querySelector('[data-inventory-field="color"]')?.value || "").trim(),
       min_stock: inventoryNumber(row.querySelector('[data-inventory-field="min_stock"]')?.value || 0),
-      entry_price: inventoryNumber(row.querySelector('[data-inventory-field="entry_price"]')?.value || 0),
-      sale_price: inventoryNumber(row.querySelector('[data-inventory-field="sale_price"]')?.value || 0),
+      entry_price: inventoryMoneyValue045B(row.querySelector('[data-inventory-field="entry_price"]')?.value || 0),
+      sale_price: inventoryMoneyValue045B(row.querySelector('[data-inventory-field="sale_price"]')?.value || 0),
       status: String(row.querySelector('[data-inventory-field="status"]')?.value || "active"),
+      ...(row.querySelector('[data-inventory-field="allows_portions"]')
+        ? { allows_portions: !!row.querySelector('[data-inventory-field="allows_portions"]').checked }
+        : {}),
     };
   }
 
@@ -5600,6 +5604,74 @@ function inventoryCreatePayload() {
     `;
   }
 
+  /* CX_045B_INVENTORY_READABLE_START
+     Inventory table that never cuts text: every column is as wide as its
+     longest value (estimated per character class, on the safe side), the
+     table scrolls sideways when that doesn't fit, prices show thousands
+     separators ("29.000") and are parsed back when saving. */
+  function inventoryMoneyLabel045B(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n)) return "0";
+    try {
+      return n.toLocaleString("es-CO", { maximumFractionDigits: 2 });
+    } catch (_) {
+      return String(n);
+    }
+  }
+
+  // "29.000" -> 29000, "1.234,5" -> 1234.5, "29000" -> 29000, "12.5" -> 12.5
+  function inventoryMoneyValue045B(value) {
+    const raw = String(value ?? "").replace(/[\s$]/g, "");
+    if (!raw) return 0;
+    let normalized = raw;
+    if (raw.includes(",")) normalized = raw.replace(/\./g, "").replace(",", ".");
+    else if (/^\d{1,3}(\.\d{3})+$/.test(raw)) normalized = raw.replace(/\./g, "");
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function inventoryShowsPortions045B() {
+    try {
+      return isClientModuleActive("waiter_ordering");
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Rendered width of a text in px for the bold UI font, per character
+  // class; deliberately generous so a value is never cut.
+  function inventoryTextWidth045B(text, fontPx) {
+    let em = 0;
+    for (const ch of String(text || "")) {
+      if (/[MWmw@%]/.test(ch)) em += 0.98;
+      else if (/[iljtfrI!.,:;'|1]/.test(ch)) em += 0.42;
+      else if (ch === " ") em += 0.32;
+      else if (/[A-ZÁÉÍÓÚÑÜ0-9]/.test(ch)) em += 0.76;
+      else if (/[a-záéíóúñü]/.test(ch)) em += 0.62;
+      else em += 0.8;
+    }
+    return Math.ceil(em * fontPx);
+  }
+
+  function inventoryColumnPlan045B(rows = [], withPortions = false) {
+    const widest = (values, fontPx, minPx) => Math.max(minPx, ...values.map((v) => inventoryTextWidth045B(v, fontPx)));
+    const list = Array.isArray(rows) ? rows : [];
+    const plan = [
+      { key: "name", px: widest(list.map((r) => r.name_reference || ""), 14, 150) + 38 },
+      { key: "size", px: widest(list.map((r) => r.size || ""), 13, 44) + 36 },
+      { key: "color", px: widest(list.map((r) => r.color || ""), 13, 40) + 36 },
+      { key: "stock", px: widest(list.map((r) => `${inventoryQtyLabel(r.current_stock)}${r.alert_low ? " ⚠" : ""}`), 13, 30) + 40 },
+      { key: "min", px: widest(list.map((r) => String(r.min_stock ?? 0)), 13, 30) + 52 },
+      { key: "entry_price", px: widest(list.map((r) => inventoryMoneyLabel045B(r.entry_price ?? 0)), 13, 44) + 36 },
+      { key: "sale_price", px: widest(list.map((r) => inventoryMoneyLabel045B(r.sale_price ?? r.unit_value ?? 0)), 13, 44) + 36 },
+      { key: "status", px: inventoryTextWidth045B("Inactivo", 13) + 56 },
+    ];
+    if (withPortions) plan.push({ key: "portions", px: 84 });
+    plan.push({ key: "entry", px: 214 }, { key: "actions", px: 150 });
+    return plan;
+  }
+  /* CX_045B_INVENTORY_READABLE_END */
+
   function renderInventoryRow(row = {}, index = 0) {
     const pendingInvoice = getInventoryPendingInvoice(row?.id);
     const invoicePickerClass = pendingInvoice ? "cx-inv-invoice-picker has-file" : "cx-inv-invoice-picker";
@@ -5614,14 +5686,21 @@ function inventoryCreatePayload() {
         <td class="cx-inv-col-short"><input data-inventory-field="color" value="${h(row.color || "")}"></td>
         <td class="cx-inv-col-num"><span class="cx-inv-stock ${low ? "low" : ""}"${low ? ` title="Stock bajo"` : ""}>${h(inventoryQtyLabel(row.current_stock))}${low ? ` <span aria-label="Stock bajo">⚠</span>` : ""}</span></td>
         <td class="cx-inv-col-num"><input data-inventory-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
-        <td class="cx-inv-col-num"><input data-inventory-field="entry_price" type="number" min="0" step="100" value="${h(row.entry_price ?? 0)}"></td>
-        <td class="cx-inv-col-num"><input data-inventory-field="sale_price" type="number" min="0" step="100" value="${h(row.sale_price ?? row.unit_value ?? 0)}"></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="entry_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.entry_price ?? 0))}"></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="sale_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.sale_price ?? row.unit_value ?? 0))}"></td>
         <td class="cx-inv-col-status">
           <select data-inventory-field="status" class="cx-inv-status-select ${h(status)}">
             <option value="active" ${status !== "inactive" ? "selected" : ""}>Activo</option>
             <option value="inactive" ${status === "inactive" ? "selected" : ""}>Inactivo</option>
           </select>
         </td>
+        ${inventoryShowsPortions045B() ? `
+        <td class="cx-inv-col-portions">
+          <label class="cx-inv-portions-045b" title="Permite porciones (1/4, 1/2, 3/4) en el panel del mesero">
+            <input type="checkbox" data-inventory-field="allows_portions" ${row.allows_portions ? "checked" : ""}>
+            <span>${row.allows_portions ? "Sí" : "No"}</span>
+          </label>
+        </td>` : ""}
         <td class="cx-inv-col-entry">
           <div class="cx-inv-entry-line">
             <input data-inventory-entry-qty="${h(row.id)}" type="number" min="0" step="0.01" placeholder="Cant." title="Cantidad a ingresar">
@@ -5639,6 +5718,7 @@ function inventoryCreatePayload() {
               <summary class="cx-inv-action" aria-label="Más acciones" title="Más acciones">⋯</summary>
               <div class="cx-inv-more-menu-045a">
                 <button class="cx-inv-action" type="button" data-inventory-disable="${h(row.id)}">Deshabilitar</button>
+                <button class="cx-inv-action cx-inv-action-danger-045b" type="button" data-inventory-delete="${h(row.id)}" data-inventory-delete-name="${h(row.name_reference || "este producto")}">Eliminar</button>
               </div>
             </details>
           </div>
@@ -5648,6 +5728,8 @@ function inventoryCreatePayload() {
   }
 
   function renderInventoryModifyPanel(rows = [], movements = []) {
+    const withPortions = inventoryShowsPortions045B();
+    const columnPlan = inventoryColumnPlan045B(rows, withPortions);
     return `
       <section class="client-panel">
         <div class="client-eyebrow">Modificar material</div>
@@ -5660,11 +5742,9 @@ function inventoryCreatePayload() {
         <div class="cx-inv-search-status" data-inventory-search-status aria-live="polite"></div>
 
         <div class="cx-inv-table-wrap">
-          <table class="cx-inv-table">
+          <table class="cx-inv-table" style="min-width:${h(columnPlan.reduce((sum, col) => sum + col.px, 0))}px">
             <colgroup>
-              <col class="cx-inv-w-name"><col class="cx-inv-w-short"><col class="cx-inv-w-short">
-              <col class="cx-inv-w-num"><col class="cx-inv-w-num"><col class="cx-inv-w-num"><col class="cx-inv-w-num">
-              <col class="cx-inv-w-status"><col class="cx-inv-w-entry"><col class="cx-inv-w-actions">
+              ${columnPlan.map((col) => `<col class="cx-inv-w-${col.key}"${col.key === "name" ? "" : ` style="width:${col.px}px"`}>`).join("")}
             </colgroup>
             <thead>
               <tr>
@@ -5676,12 +5756,13 @@ function inventoryCreatePayload() {
                 <th>Precio entrada</th>
                 <th>Precio salida</th>
                 <th>Estado</th>
+                ${withPortions ? `<th title="Permite porciones (1/4, 1/2, 3/4) en el panel del mesero">Porciones</th>` : ""}
                 <th>Ingresar cantidad</th>
                 <th class="cx-inv-col-actions">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="10">No hay materiales en inventario.</td></tr>`}
+              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="${columnPlan.length}">No hay materiales en inventario.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -33778,9 +33859,55 @@ function inventoryCreatePayload() {
     document.querySelectorAll(".cx-inv-more-045a[open]").forEach((menu) => {
       if (menu !== inside) menu.removeAttribute("open");
     });
-    if (inside && event.target.closest("[data-inventory-disable]")) inside.removeAttribute("open");
+    if (inside && event.target.closest("[data-inventory-disable], [data-inventory-delete]")) inside.removeAttribute("open");
   });
   /* CX_045A_INVENTORY_MORE_MENU_LISTENER_END */
+
+  /* CX_045B_INVENTORY_DELETE_LISTENER_START */
+  function inventoryDeleteMessage045B(result, name) {
+    const label = String(name || "El producto");
+    if (result && result.mode === "hidden") {
+      const why = Array.isArray(result.history) && result.history.length ? result.history.join(", ") : "historial";
+      return `${label} eliminado de las listas. Se conserva en la base porque tiene ${why}.`;
+    }
+    return `${label} eliminado.`;
+  }
+
+  async function deleteInventoryItem045B(itemId, name) {
+    const companyId = state.companyId || new URLSearchParams(window.location.search).get("company_id") || "";
+    if (!companyId || !itemId) return;
+    if (!window.confirm(`¿Eliminar ${name}? Esta acción no se puede deshacer.`)) return;
+    try {
+      const result = await api(`/inventory/companies/${encodeURIComponent(companyId)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+      await renderInventoryModule();
+      setTimeout(() => showInventoryNotice(inventoryDeleteMessage045B(result, name)), 80);
+    } catch (error) {
+      const text = String(error && error.message || "");
+      const denied = /\b(401|403)\b/.test(text);
+      showInventoryNotice(denied ? "Solo un administrador de la empresa puede eliminar productos." : "No se pudo eliminar el producto.", "error");
+    }
+  }
+
+  document.addEventListener("click", (event) => {
+    const button = event.target && event.target.closest ? event.target.closest("[data-inventory-delete]") : null;
+    if (!button) return;
+    event.preventDefault();
+    deleteInventoryItem045B(button.getAttribute("data-inventory-delete"), button.getAttribute("data-inventory-delete-name") || "este producto");
+  });
+
+  // Prices keep their thousands separators while editing.
+  document.addEventListener("focusout", (event) => {
+    const input = event.target && event.target.closest ? event.target.closest("[data-inventory-money]") : null;
+    if (input) input.value = inventoryMoneyLabel045B(inventoryMoneyValue045B(input.value));
+  });
+
+  document.addEventListener("change", (event) => {
+    const box = event.target && event.target.closest ? event.target.closest('[data-inventory-field="allows_portions"]') : null;
+    const label = box && box.closest(".cx-inv-portions-045b");
+    const text = label && label.querySelector("span");
+    if (text) text.textContent = box.checked ? "Sí" : "No";
+  });
+  /* CX_045B_INVENTORY_DELETE_LISTENER_END */
 
   /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_LISTENER_START */
   document.addEventListener("change", (event) => {

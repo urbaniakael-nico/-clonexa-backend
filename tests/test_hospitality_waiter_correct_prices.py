@@ -17,7 +17,7 @@ from app.api.v1.endpoints import hospitality, waiter_ordering
 CATALOG = [
     {"id": "carne", "name": "CARNE Asada", "price": 25000},
     {"id": "cerveza", "name": "CERVEZA Aguila", "price": 5000},
-    {"id": "odd", "name": "CHORIZO Grande", "price": 12345},
+    {"id": "odd", "name": "CHORIZO Grande", "price": 12345, "allows_portions": True},
 ]
 
 

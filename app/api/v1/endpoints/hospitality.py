@@ -2448,6 +2448,7 @@ async def _hospitality_reorder_payload(db: AsyncSession, company_id: uuid.UUID) 
                        entry_price, sale_price, unit_value, status
                 FROM inventory_items
                 WHERE company_id = :company_id
+                  AND COALESCE(status, 'active') <> 'deleted'
                 ORDER BY COALESCE(current_stock, 0) ASC,
                          lower(COALESCE(NULLIF(name_reference, ''), NULLIF(name, ''), NULLIF(reference, ''), sku, id::text))
                 LIMIT 500
@@ -4344,6 +4345,7 @@ async def hospitality_inventory_lite(
     columns = {str(row["column_name"]) for row in columns_result.mappings().all()}
     price_columns = [name for name in ("sale_price", "unit_value", "unit_price", "price", "valor_unitario") if name in columns]
     price_expr = "COALESCE(" + ", ".join(price_columns + ["0"]) + ")" if price_columns else "0"
+    portions_expr = "COALESCE(allows_portions, false)" if "allows_portions" in columns else "false"
 
     if {"current_stock", "min_stock", "status"}.issubset(columns):
         updated_at_expr = ", updated_at = NOW()" if "updated_at" in columns else ""
@@ -4365,7 +4367,7 @@ async def hospitality_inventory_lite(
         text(
             f"""
             SELECT id, sku, name, reference, name_reference, current_stock, status,
-                   {price_expr} AS unit_price
+                   {price_expr} AS unit_price, {portions_expr} AS allows_portions
             FROM inventory_items
             WHERE company_id = :company_id
               AND COALESCE(status, 'active') = 'active'
@@ -4384,6 +4386,7 @@ async def hospitality_inventory_lite(
             "unit_price": _money(row["unit_price"]),
             "stock": _money(row["current_stock"]),
             "active": (row["status"] or "active") == "active",
+            "allows_portions": bool(row["allows_portions"]),
         }
         for row in result.mappings().all()
     ]
