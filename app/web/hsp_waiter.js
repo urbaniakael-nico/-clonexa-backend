@@ -39,11 +39,82 @@
     quantityButtons: [],
     avisos: [],
     avisosEnabled: true,
+    menuEmojis: false,
     offline: false,
     offlineReason: "",
   };
 
   const AVISOS_POLL_MS = 8000;
+
+  // ---------------------------------------------------------------------
+  // Emoji por categoria / producto (switch menu_emojis). Tabla de
+  // correspondencia: la primera palabra del nombre (sin tildes, singular o
+  // plural) contra estas palabras. Para ampliar, agrega una fila. Una foto
+  // subida en Admin V2 siempre reemplaza al emoji.
+  // ---------------------------------------------------------------------
+  const MENU_EMOJIS = [
+    [["pollo", "alita", "ala", "pechuga", "muslo", "broaster"], "🍗"],
+    [["carne", "res", "churrasco", "costilla", "asado", "lomo", "punta", "sobrebarriga", "bife", "filete", "chuleta", "parrilla", "parrillada", "picada", "chuzo"], "🥩"],
+    [["cerdo", "lechona", "tocino", "chicharron", "panceta", "bondiola"], "🥓"],
+    [["hamburguesa", "burger"], "🍔"],
+    [["perro", "hotdog", "salchicha", "chorizo", "salchipapa"], "🌭"],
+    [["papa", "francesa", "yuca", "patacon", "platano", "maduro"], "🍟"],
+    [["arepa"], "🫓"],
+    [["empanada"], "🥟"],
+    [["arroz", "paella"], "🍚"],
+    [["sopa", "caldo", "sancocho", "consome", "crema", "ajiaco", "mondongo"], "🍲"],
+    [["pescado", "mojarra", "trucha", "tilapia", "bagre", "salmon", "robalo", "marisco", "camaron"], "🐟"],
+    [["ensalada", "verdura"], "🥗"],
+    [["pizza"], "🍕"],
+    [["taco", "burrito", "quesadilla"], "🌮"],
+    [["sandwich", "sanduche", "emparedado"], "🥪"],
+    [["huevo", "desayuno", "calentado"], "🍳"],
+    [["pan", "pandebono", "almojabana", "bunuelo"], "🥖"],
+    [["postre", "torta", "pastel", "tres", "brownie", "flan", "cheesecake", "gelatina"], "🍰"],
+    [["helado", "malteada", "sundae"], "🍨"],
+    [["cerveza", "pola", "michelada", "aguila", "poker", "club", "corona", "costena", "costenita"], "🍺"],
+    [["vino", "sangria"], "🍷"],
+    [["aguardiente", "ron", "whisky", "tequila", "vodka", "licor", "coctel", "shot", "trago"], "🥃"],
+    [["cafe", "tinto", "capuchino", "aromatica", "te", "chocolate"], "☕"],
+    [["gaseosa", "bebida", "refresco", "soda", "jugo", "limonada", "agua", "cola", "coca", "pepsi", "postobon", "colombiana", "sprite", "hit", "natural"], "🥤"],
+  ];
+  const DEFAULT_MENU_EMOJI = "🍽️";
+
+  function menuEmoji(text) {
+    const first = String(text || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9ñ\s]/g, " ")
+      .trim()
+      .split(/\s+/)[0] || "";
+    if (!first) return DEFAULT_MENU_EMOJI;
+    const candidates = [first, first.replace(/es$/, ""), first.replace(/s$/, "")];
+    for (const [words, emoji] of MENU_EMOJIS) {
+      if (candidates.some((word) => words.includes(word))) return emoji;
+    }
+    return DEFAULT_MENU_EMOJI;
+  }
+
+  // Photo (Admin V2) > emoji (switch on) > nothing, like before the switch.
+  function tileArt(kind, item) {
+    if (item.has_image) {
+      const path = kind === "category"
+        ? `categories/${encodeURIComponent(item.key)}/image`
+        : `products/${encodeURIComponent(item.image_item_id || item.id)}/image`;
+      return { type: "image", url: `/api/v1/companies/${encodeURIComponent(companyId)}/waiter-ordering/${path}` };
+    }
+    if (state.menuEmojis) return { type: "emoji", emoji: menuEmoji(kind === "category" ? item.label || item.key : item.name) };
+    return kind === "category" ? { type: "emoji", emoji: DEFAULT_MENU_EMOJI } : { type: "none" };
+  }
+
+  // Table labels already come as "Mesa 11" from the QR tables; only a bare
+  // number gets the word added -- never "Mesa Mesa 11".
+  function tableTitle(label) {
+    const clean = String(label ?? "").trim();
+    if (!clean) return "Mesa";
+    return /^mesa\b/i.test(clean) ? clean : `Mesa ${clean}`;
+  }
 
   // .replace(/x/g) instead of .replaceAll: replaceAll throws on the older
   // Android WebViews some waiters' phones still run, and h() is called on
@@ -523,6 +594,7 @@
       const data = await waiterApi("/menu");
       state.menu = Array.isArray(data.categories) ? data.categories : [];
       state.quantityButtons = Array.isArray(data.quantity_buttons) ? data.quantity_buttons : [];
+      state.menuEmojis = data.menu_emojis === true;
     } catch (error) {
       state.error = error.message || "No se pudo cargar el menú.";
     }
@@ -756,7 +828,7 @@
           items: state.cart.map(orderItemPayload),
         }),
       });
-      state.lastOrderOk = `Pedido enviado a Mesa ${state.table}.`;
+      state.lastOrderOk = `Pedido enviado a ${tableTitle(state.table)}.`;
       state.cart = [];
       state.category = null;
       clearPersistedCart();
@@ -838,7 +910,7 @@
         <div class="wtr-mesas-list">
           ${state.misMesas.length ? state.misMesas.map((t) => `
             <button class="wtr-mesa-row" type="button" data-wtr-mesa="${h(t.table_number)}">
-              <span>Mesa ${h(t.table_number)}</span>
+              <span>${h(tableTitle(t.table_number))}</span>
               <span class="wtr-mesa-status ${t.status === "listo_para_llevar" ? "is-ready" : "is-sent"}">
                 ${t.status === "listo_para_llevar" ? "Lista para llevar" : "Enviado a cocina"}
               </span>
@@ -863,11 +935,16 @@
   function screenCategories() {
     return `
       <section class="wtr-shell">
-        ${header(`Mesa ${h(state.table)}`)}
+        ${header(tableTitle(state.table))}
         <div class="wtr-grid-cat">
           ${state.menu.map((cat) => `
             <button class="wtr-cat-tile" type="button" data-wtr-cat="${h(cat.key)}">
-              <div class="wtr-cat-img" style="background-image:url('/api/v1/companies/${encodeURIComponent(companyId)}/waiter-ordering/categories/${encodeURIComponent(cat.key)}/image')">${cat.has_image ? "" : "🍽️"}</div>
+              ${(() => {
+                const art = tileArt("category", cat);
+                return art.type === "image"
+                  ? `<div class="wtr-cat-img" style="background-image:url('${art.url}')"></div>`
+                  : `<div class="wtr-cat-img wtr-emoji">${art.emoji}</div>`;
+              })()}
               <span>${h(cat.label)}</span>
             </button>`).join("") || `<div class="wtr-empty">Sin categorías todavía.</div>`}
         </div>
@@ -884,7 +961,12 @@
         <div class="wtr-grid-prod">
           ${products.map((product) => `
             <button class="wtr-prod-tile" type="button" data-wtr-product="${h(product.id)}">
-              ${product.has_image ? `<div class="wtr-prod-img" style="background-image:url('/api/v1/companies/${encodeURIComponent(companyId)}/waiter-ordering/products/${encodeURIComponent(product.id)}/image')"></div>` : ""}
+              ${(() => {
+                const art = tileArt("product", product);
+                if (art.type === "image") return `<div class="wtr-prod-img" style="background-image:url('${art.url}')"></div>`;
+                if (art.type === "emoji") return `<div class="wtr-prod-emoji">${art.emoji}</div>`;
+                return "";
+              })()}
               <span>${h(product.name)}</span>
               ${product.is_portioned
                 ? `<strong>Elegir porción</strong>`
@@ -1343,6 +1425,8 @@
     .wtr-grid-prod{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:16px}
     .wtr-prod-tile{min-height:76px;display:grid;gap:6px;align-content:center;border-radius:18px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#fff;padding:12px;text-align:left;overflow:hidden}
     .wtr-prod-img{height:70px;margin:-12px -12px 4px;background-size:cover;background-position:center}
+    .wtr-cat-img.wtr-emoji{font-size:56px;line-height:1}
+    .wtr-prod-emoji{font-size:40px;line-height:1}
     .wtr-prod-tile strong{color:#ffd166}
     .wtr-btn-cart{position:fixed;left:16px;right:16px;bottom:16px}
     .wtr-cart-list{display:grid;gap:10px;padding:16px}

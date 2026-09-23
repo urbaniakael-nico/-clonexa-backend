@@ -4736,7 +4736,6 @@
         box-shadow: 0 18px 48px rgba(0,0,0,.20);
       }
       .cx-inv-table {
-        min-width: 1480px;
         width:100%;
         border-collapse: collapse;
       }
@@ -4988,9 +4987,57 @@
         border-color: var(--cx-secondary, #00ff88);
         background: rgba(0,255,136,.14);
       }
+      /* CX_045A_INVENTORY_COMPACT_START
+         Compact inventory table: the name column takes all the width left
+         by the narrow fixed columns (and stays pinned while scrolling
+         sideways on small screens), numbers get narrow columns, the stock entry (quantity +
+         invoice + Ingresar) and the row actions each sit on ONE line, so a
+         row is one input tall. Same inputs, buttons and data-* hooks as
+         before: every existing handler keeps working unchanged. */
+      .cx-inv-table { table-layout: fixed; min-width: 1130px; width: 100%; }
+      .cx-inv-table col.cx-inv-w-name { width: auto; }
+      .cx-inv-table col.cx-inv-w-short { width: 58px; }
+      .cx-inv-table col.cx-inv-w-num { width: 78px; }
+      .cx-inv-table col.cx-inv-w-status { width: 106px; }
+      .cx-inv-table col.cx-inv-w-entry { width: 214px; }
+      .cx-inv-table col.cx-inv-w-actions { width: 150px; }
+      .cx-inv-table th, .cx-inv-table td { padding: 7px 8px; }
+      .cx-inv-table th { font-size: 10px; letter-spacing: .06em; white-space: normal; line-height: 1.25; }
+      .cx-inv-table input, .cx-inv-table select { min-width: 0; padding: 7px 8px; border-radius: 10px; font-size: 13px; }
+      .cx-inv-table td.cx-inv-col-name input { font-size: 14px; text-overflow: ellipsis; }
+      .cx-inv-table th.cx-inv-col-name, .cx-inv-table td.cx-inv-col-name {
+        position: sticky; left: 0; z-index: 2;
+        background: var(--cx-bg, var(--bg, #0b0913));
+        box-shadow: 1px 0 rgba(255,255,255,.10);
+      }
+      .cx-inv-table tr.cx-inv-row-editing td.cx-inv-col-name {
+        background-image: linear-gradient(rgba(0,255,136,.10), rgba(0,255,136,.10));
+      }
+      .cx-inv-table .cx-inv-stock { padding: 5px 9px; font-size: 13px; white-space: nowrap; }
+      .cx-inv-status-select.active { color: #39f28a; }
+      .cx-inv-status-select.inactive { color: #b9b9c6; }
+      .cx-inv-entry-line, .cx-inv-table .cx-inv-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; }
+      .cx-inv-entry-line input { flex: 1 1 auto; width: auto; }
+      .cx-inv-table .cx-inv-action { padding: 7px 10px; border-radius: 10px; font-size: 12px; white-space: nowrap; flex: none; }
+      .cx-inv-invoice-picker.cx-inv-invoice-compact {
+        min-width: 0; width: 36px; height: 34px; padding: 0; flex: none; position: relative;
+      }
+      .cx-inv-invoice-compact > span {
+        position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+      }
+      .cx-inv-invoice-compact::before { content: "📎"; font-size: 16px; }
+      .cx-inv-invoice-compact.has-file::before { content: "✅"; }
+      .cx-inv-more-045a { position: relative; flex: none; }
+      .cx-inv-more-045a > summary { list-style: none; width: 34px; text-align: center; padding: 7px 0; font-size: 16px; line-height: 1; }
+      .cx-inv-more-045a > summary::-webkit-details-marker { display: none; }
+      .cx-inv-more-menu-045a {
+        position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5;
+        padding: 6px; border-radius: 12px; border: 1px solid rgba(255,255,255,.16);
+        background: var(--cx-bg, var(--bg, #0b0913)); box-shadow: 0 12px 30px rgba(0,0,0,.45);
+      }
+      /* CX_045A_INVENTORY_COMPACT_END */
       @media (max-width: 1100px) {
         .cx-inv-form { grid-template-columns: 1fr; }
-        .cx-inv-table { min-width: 980px; }
       }
     `;
     document.head.appendChild(style);
@@ -5562,34 +5609,38 @@ function inventoryCreatePayload() {
     const low = !!row.alert_low;
     return `
       <tr data-inventory-row="${h(row.id)}" data-inventory-order="${h(index)}" data-inventory-label="${h(row.name_reference || "Material")}" data-inventory-search-text="${h([row.name_reference, row.size, row.color, row.sku, row.reference].filter(Boolean).join(" "))}">
-        <td><input data-inventory-field="name_reference" value="${h(row.name_reference || "")}"></td>
-        <td><input data-inventory-field="size" value="${h(row.size || "")}"></td>
-        <td><input data-inventory-field="color" value="${h(row.color || "")}"></td>
-        <td><span class="cx-inv-stock ${low ? "low" : ""}">${h(inventoryQtyLabel(row.current_stock))}</span></td>
-        <td><input data-inventory-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
-        <td><input data-inventory-field="entry_price" type="number" min="0" step="100" value="${h(row.entry_price ?? 0)}"></td>
-        <td><input data-inventory-field="sale_price" type="number" min="0" step="100" value="${h(row.sale_price ?? row.unit_value ?? 0)}"></td>
-        <td><span class="cx-inv-status ${h(status)}">${h(inventoryStatusLabel(status))}</span>${low ? `<br><small class="client-muted">Stock bajo</small>` : ""}</td>
-        <td>
-          <select data-inventory-field="status">
+        <td class="cx-inv-col-name"><input data-inventory-field="name_reference" value="${h(row.name_reference || "")}" title="${h(row.name_reference || "")}"></td>
+        <td class="cx-inv-col-short"><input data-inventory-field="size" value="${h(row.size || "")}"></td>
+        <td class="cx-inv-col-short"><input data-inventory-field="color" value="${h(row.color || "")}"></td>
+        <td class="cx-inv-col-num"><span class="cx-inv-stock ${low ? "low" : ""}"${low ? ` title="Stock bajo"` : ""}>${h(inventoryQtyLabel(row.current_stock))}${low ? ` <span aria-label="Stock bajo">⚠</span>` : ""}</span></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="entry_price" type="number" min="0" step="100" value="${h(row.entry_price ?? 0)}"></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="sale_price" type="number" min="0" step="100" value="${h(row.sale_price ?? row.unit_value ?? 0)}"></td>
+        <td class="cx-inv-col-status">
+          <select data-inventory-field="status" class="cx-inv-status-select ${h(status)}">
             <option value="active" ${status !== "inactive" ? "selected" : ""}>Activo</option>
             <option value="inactive" ${status === "inactive" ? "selected" : ""}>Inactivo</option>
           </select>
         </td>
-        <td>
-          <input data-inventory-entry-qty="${h(row.id)}" type="number" min="0" step="0.01" placeholder="Cantidad">
+        <td class="cx-inv-col-entry">
+          <div class="cx-inv-entry-line">
+            <input data-inventory-entry-qty="${h(row.id)}" type="number" min="0" step="0.01" placeholder="Cant." title="Cantidad a ingresar">
+            <label class="${invoicePickerClass} cx-inv-invoice-compact"${invoicePickerTitle} aria-label="Adjuntar factura">
+              <input data-inventory-entry-invoice="${h(row.id)}" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
+              <span>${invoicePickerText}</span>
+            </label>
+            <button class="cx-inv-action" type="button" data-inventory-entry="${h(row.id)}">Ingresar</button>
+          </div>
         </td>
-        <td>
-          <label class="${invoicePickerClass}"${invoicePickerTitle}>
-            <input data-inventory-entry-invoice="${h(row.id)}" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
-            <span>${invoicePickerText}</span>
-          </label>
-        </td>
-        <td>
+        <td class="cx-inv-col-actions">
           <div class="cx-inv-actions">
             <button class="cx-inv-action primary" type="button" data-inventory-update="${h(row.id)}">Guardar</button>
-            <button class="cx-inv-action" type="button" data-inventory-entry="${h(row.id)}">Ingresar</button>
-            <button class="cx-inv-action" type="button" data-inventory-disable="${h(row.id)}">Deshabilitar</button>
+            <details class="cx-inv-more-045a">
+              <summary class="cx-inv-action" aria-label="Más acciones" title="Más acciones">⋯</summary>
+              <div class="cx-inv-more-menu-045a">
+                <button class="cx-inv-action" type="button" data-inventory-disable="${h(row.id)}">Deshabilitar</button>
+              </div>
+            </details>
           </div>
         </td>
       </tr>
@@ -5610,24 +5661,27 @@ function inventoryCreatePayload() {
 
         <div class="cx-inv-table-wrap">
           <table class="cx-inv-table">
+            <colgroup>
+              <col class="cx-inv-w-name"><col class="cx-inv-w-short"><col class="cx-inv-w-short">
+              <col class="cx-inv-w-num"><col class="cx-inv-w-num"><col class="cx-inv-w-num"><col class="cx-inv-w-num">
+              <col class="cx-inv-w-status"><col class="cx-inv-w-entry"><col class="cx-inv-w-actions">
+            </colgroup>
             <thead>
               <tr>
-                <th>Nombre / referencia</th>
+                <th class="cx-inv-col-name">Nombre / referencia</th>
                 <th>Tamaño</th>
                 <th>Color</th>
                 <th>Stock actual</th>
                 <th>Mínimo alerta</th>
                 <th>Precio entrada</th>
                 <th>Precio salida</th>
-                <th>Alerta</th>
                 <th>Estado</th>
                 <th>Ingresar cantidad</th>
-                <th>Factura</th>
-                <th>Acciones</th>
+                <th class="cx-inv-col-actions">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="12">No hay materiales en inventario.</td></tr>`}
+              ${rows.length ? rows.map(renderInventoryRow).join("") : `<tr><td colspan="10">No hay materiales en inventario.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -33717,6 +33771,16 @@ function inventoryCreatePayload() {
     if (label) label.title = "";
   });
   /* CX_023R_R9_CREATE_INVOICE_LISTENER_END */
+
+  /* CX_045A_INVENTORY_MORE_MENU_LISTENER_START */
+  document.addEventListener("click", (event) => {
+    const inside = event.target && event.target.closest ? event.target.closest(".cx-inv-more-045a") : null;
+    document.querySelectorAll(".cx-inv-more-045a[open]").forEach((menu) => {
+      if (menu !== inside) menu.removeAttribute("open");
+    });
+    if (inside && event.target.closest("[data-inventory-disable]")) inside.removeAttribute("open");
+  });
+  /* CX_045A_INVENTORY_MORE_MENU_LISTENER_END */
 
   /* CX_023R_INVENTORY_INVOICE_VISUAL_STATE_LISTENER_START */
   document.addEventListener("change", (event) => {

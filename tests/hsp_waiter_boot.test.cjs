@@ -175,3 +175,37 @@ test('a token renewal answering after a 401 does not revive the closed session',
   assert.match(b.root.innerHTML, /otro dispositivo/);
   assert.equal(b.local.getItem('clonexa_waiter_token_c1'), null);
 });
+
+test('choosing "Mesa 11" titles the screen "Mesa 11" and each category shows its emoji', async () => {
+  const b = boot({
+    local: withSavedSession(),
+    routes: (url, o) => {
+      if (url.includes('/waiter-ordering/menu')) {
+        return [200, {
+          menu_emojis: true,
+          quantity_buttons: [],
+          categories: [
+            { key: 'pollo', label: 'Pollo', has_image: false, products: [{ id: 'p1', name: 'POLLO Asado', price: 1 }] },
+            { key: 'gaseosa', label: 'Gaseosa', has_image: false, products: [] },
+            { key: 'combo', label: 'Combo', has_image: false, products: [] },
+            { key: 'carne', label: 'Carne', has_image: true, products: [] },
+          ],
+        }];
+      }
+      return happyRoutes(url, o);
+    },
+  });
+  await flush(); await flush();
+  b.click('data-wtr-new-order');
+  b.click('data-wtr-table', 'Mesa 11');
+  const html = b.root.innerHTML;
+  assert.match(html, /<h1>Mesa 11<\/h1>/);
+  assert.doesNotMatch(html, /Mesa Mesa/);
+  assert.match(html, /wtr-emoji">🍗</);
+  assert.match(html, /wtr-emoji">🥤</);
+  assert.match(html, /wtr-emoji">🍽️</);                        // no match -> default
+  assert.match(html, /categories\/carne\/image/);               // photo replaces the emoji
+  assert.doesNotMatch(html, /wtr-emoji">🥩</);
+  b.click('data-wtr-cat', 'pollo');
+  assert.match(b.root.innerHTML, /wtr-prod-emoji">🍗</);
+});

@@ -2727,6 +2727,7 @@
       kitchen_board_columns: source.kitchen_board_columns === true,
       cashier_direct_sale: source.cashier_direct_sale === true,
       kitchen_roster: source.kitchen_roster === true,
+      menu_emojis: source.menu_emojis === true,
       quantity_buttons_enabled: source.quantity_buttons_enabled === true,
       quantity_buttons: Array.isArray(source.quantity_buttons) && source.quantity_buttons.length
         ? source.quantity_buttons.map(String)
@@ -2837,6 +2838,10 @@
             <label class="cx-reset-scope">
               <input type="checkbox" name="kitchen_board_columns" ${settings.kitchen_board_columns ? "checked" : ""}>
               <span>Cocina en 3 columnas (Pedido nuevo / Preparando / Listo), boton Entregado y aviso "Mesa X lista para llevar" al mesero</span>
+            </label>
+            <label class="cx-reset-scope">
+              <input type="checkbox" name="menu_emojis" ${settings.menu_emojis ? "checked" : ""}>
+              <span>Mesero: emoji automatico por categoria y producto (una foto subida abajo lo reemplaza)</span>
             </label>
             <label class="cx-reset-scope">
               <input type="checkbox" name="kitchen_roster" ${settings.kitchen_roster ? "checked" : ""}>
@@ -3165,6 +3170,7 @@
       kitchen_board_columns: data.kitchen_board_columns === "on",
       cashier_direct_sale: data.cashier_direct_sale === "on",
       kitchen_roster: data.kitchen_roster === "on",
+      menu_emojis: data.menu_emojis === "on",
       quantity_buttons_enabled: data.quantity_buttons_enabled === "on",
       quantity_buttons: cxReadQuantityButtons042K(data.quantity_buttons),
     };

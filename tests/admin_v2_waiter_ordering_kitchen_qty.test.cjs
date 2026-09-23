@@ -64,3 +64,9 @@ test('kitchen roster is off unless explicitly true', () => {
   assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ kitchen_roster: 1 }).kitchen_roster, false);
   assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ kitchen_roster: true }).kitchen_roster, true);
 });
+
+test('menu emojis are off unless explicitly true', () => {
+  const ctx = context();
+  assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({}).menu_emojis, false);
+  assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ menu_emojis: true }).menu_emojis, true);
+});

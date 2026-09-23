@@ -595,7 +595,8 @@
           body: JSON.stringify({ payment_method: paymentMethod }),
         });
       }
-      state.toast = `Mesa ${table.table_number} cobrada.`;
+      const label = String(table.table_number || "").trim();
+      state.toast = `${/^(mesa|venta)\b/i.test(label) ? label : `Mesa ${label}`} cobrada.`;
       resetToTables();
       await refreshTables();
     } catch (error) {

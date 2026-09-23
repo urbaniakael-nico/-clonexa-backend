@@ -555,11 +555,18 @@ def _merge_portions_into_products(
                 "position": membership["position"],
                 "price": product.get("price"),
                 "stock": product.get("stock"),
+                "has_image": bool(product.get("has_image")),
             }
         )
 
     for group in portion_groups.values():
         group["portions"].sort(key=lambda item: item["position"])
+        # The group card has no inventory id of its own: show the photo of
+        # the first portion that has one (uploaded per product in Admin V2).
+        with_image = next((portion for portion in group["portions"] if portion.get("has_image")), None)
+        group["has_image"] = bool(with_image)
+        if with_image:
+            group["image_item_id"] = with_image["inventory_item_id"]
 
     return list(portion_groups.values()) + singles
 
@@ -739,7 +746,8 @@ async def waiter_ordering_menu(
         product["has_image"] = str(product.get("id")) in products_with_image
     merged_products = _merge_portions_into_products(active_products, portion_map)
 
-    quantity_buttons = _quantity_buttons_config(await _module_settings(db, company_id))
+    module_settings = await _module_settings(db, company_id)
+    quantity_buttons = _quantity_buttons_config(module_settings)
     if quantity_buttons:
         by_id = {str(item.get("id")): item for item in active_products}
         for product in merged_products:
@@ -766,6 +774,8 @@ async def waiter_ordering_menu(
         "company_id": str(company_id),
         "categories": list(grouped.values()),
         "quantity_buttons": quantity_buttons,
+        # Emoji per category/product in the mesero panel (off by default).
+        "menu_emojis": module_settings.get("menu_emojis") is True,
     }
 
 
