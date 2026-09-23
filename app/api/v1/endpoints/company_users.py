@@ -935,12 +935,22 @@ async def _cx_create_minipanel_user_from_employee_026j(
     username = _cx_operational_username_019c(employee, clean_type)
     email = _cx_operational_email_019c(company_id, clean_type, payload.employee_id)
 
+    # BUGFIX (production): waiter_ordering.py's _require_mesero/_require_cocina/
+    # _require_caja gate on the literal CompanyUser.role being "mesero"/
+    # "cocina"/"caja" (see require_role in app/api/deps.py). This function used
+    # to hardcode role="operator" for every mini panel type, which is fine for
+    # sales/store/etc (nothing role-gates those per-type) but meant a mesero/
+    # cocina/caja account created here could NEVER pass its own panel's auth --
+    # every waiter-ordering request 403'd with role_not_allowed regardless of
+    # a valid session. Role must match the panel type for these three.
+    role = clean_type if clean_type in WAITER_ORDERING_PANEL_TYPES_026K else "operator"
+
     user = CompanyUser(
         company_id=company_id,
         email=email,
         password_hash=hash_password(temp_password),
         full_name=str(getattr(employee, "full_name", "") or username),
-        role="operator",
+        role=role,
         status="active",
         must_change_password=True,
         failed_login_attempts=0,

@@ -253,3 +253,34 @@ async def test_creating_a_mesero_user_succeeds_once_the_segment_is_on(monkeypatc
         company_id=company_id, payload=payload, panel_type="mesero", db=db, source="workforce",
     )
     assert result["panel_type"] == "mesero"
+
+
+@pytest.mark.asyncio
+async def test_created_waiter_ordering_users_get_a_role_matching_their_own_panel_type(monkeypatch):
+    """Regression: this used to hardcode role="operator" for every mini
+    panel type, which made mesero/cocina/caja accounts unable to pass their
+    own endpoints' auth (require_role checks the literal role). Sales/store
+    keep "operator" -- nothing role-gates those per type."""
+    monkeypatch.setattr(company_users, "_cx_find_minipanel_user_019c", AsyncMock(return_value=None))
+    monkeypatch.setattr(company_users, "_cx_require_waiter_ordering_module_026k", AsyncMock())
+    monkeypatch.setattr(
+        company_users, "_cx_waiter_ordering_module_settings_026k",
+        AsyncMock(return_value={"segments": {"mesero": {"enabled": True}, "cocina": {"enabled": True}, "caja": {"enabled": True}}}),
+    )
+    monkeypatch.setattr(company_users, "_cx_count_minipanel_users_of_type_026k", AsyncMock(return_value=0))
+    monkeypatch.setattr(company_users, "_cx_employee_is_sales_019c", lambda emp: True)
+
+    for panel_type, expected_role in (("mesero", "mesero"), ("cocina", "cocina"), ("caja", "caja"), ("sales", "operator")):
+        employee_id = uuid.uuid4()
+        employee = SimpleNamespace(id=employee_id, full_name="Ana", role="vendedor", employee_type="vendedor")
+        monkeypatch.setattr(company_users, "_cx_employee_or_404_019c", AsyncMock(return_value=employee))
+
+        captured = {}
+        db = _db()
+        db.add = lambda obj: captured.setdefault("user", obj)
+        payload = company_users.SalesMiniPanelUserCreateRequest(employee_id=employee_id)
+
+        await company_users._cx_create_minipanel_user_from_employee_026j(
+            company_id=uuid.uuid4(), payload=payload, panel_type=panel_type, db=db, source="workforce",
+        )
+        assert captured["user"].role == expected_role, f"panel_type={panel_type}"
