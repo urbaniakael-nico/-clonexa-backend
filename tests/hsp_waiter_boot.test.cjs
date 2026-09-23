@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 
 const source = readFileSync('app/web/hsp_waiter.js', 'utf8');
+const { kitSource } = require('./_menu_kit.cjs');
 
 class FakeStorage {
   constructor() { this.data = new Map(); }
@@ -77,6 +78,7 @@ function boot({ local = new FakeStorage(), session = new FakeStorage(), routes }
     FormData: class { get(k) { return k === 'username' ? 'laura' : 'x'; } },
     URLSearchParams, Intl, JSON, Math, Date, Array, Number, String, Promise, Set, Map, Uint8Array, Error,
   });
+  vm.runInContext(kitSource, ctx);   // hsp_waiter.html loads the kit first
   vm.runInContext(source, ctx);
   const click = (attr, value = '') => {
     const target = {

@@ -43,6 +43,7 @@ for _module_name, _prefix, _tags in [
     ("day_closing", "/day-closing", ["day_closing"]),
     ("hospitality", "/hospitality", ["hospitality"]),
     ("waiter_ordering", "/companies", ["waiter_ordering"]),
+    ("sale_document", "/companies", ["sale_document"]),
     ("field", "/field", ["field"]),
     ("landing_analytics", "/landing-analytics", ["landing_analytics"]),
     ("assemblies", "/assemblies", ["assemblies"]),

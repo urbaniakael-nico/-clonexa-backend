@@ -24,7 +24,7 @@ function saved() {
 test('boots into the open tables from a saved session and renews the token', async () => {
   const b = boot({ local: saved(), routes });
   await flush(); await flush();
-  assert.match(b.root.innerHTML, /Mesa 3/);
+  assert.match(b.root.innerHTML, /<small>Mesa<\/small><b>3<\/b>/);   // big table number on its card
   assert.equal(b.local.getItem('clonexa_cashier_token_c1'), 'renewed');
   assert.deepEqual(b.errors, []);
 });
@@ -50,7 +50,7 @@ test('back from a table returns to the tables list instead of leaving', async ()
   const b = boot({ local: saved(), routes });
   await flush(); await flush();
   b.click('data-csh-open-table', 'mesa 3');
-  assert.match(b.root.innerHTML, /CUENTA - NO ES FACTURA/);
+  assert.match(b.root.innerHTML, /Imprimir cuenta/);
   b.history.back();
   assert.match(b.root.innerHTML, /Mesas abiertas/);
   assert.equal(b.history.exited, false);
@@ -65,7 +65,7 @@ test('a reload while viewing a table comes back to that table', async () => {
   b.click('data-csh-open-table', 'mesa 3');
   const reloaded = boot({ local: b.local, session: b.session, history: b.history, routes });
   await flush(); await flush();
-  assert.match(reloaded.root.innerHTML, /CUENTA - NO ES FACTURA/);
+  assert.match(reloaded.root.innerHTML, /Imprimir cuenta/);
 });
 
 test('a WiFi drop shows the offline bar and does not log out', async () => {
@@ -100,8 +100,8 @@ test('login sends a stable device id and a wrong password is not a lost session'
   assert.match(b.root.innerHTML, /Usuario o clave inválidos/);
 });
 
-test('h() no longer uses String.replaceAll', () => {
-  const start = source.indexOf('\n  function h(');
-  const body = source.slice(start, source.indexOf('\n  }\n', start));
-  assert.doesNotMatch(body, /replaceAll/);
+test('no String.replaceAll anywhere in the caja (h() comes from the shared kit)', () => {
+  const { kitSource } = require('./_menu_kit.cjs');
+  assert.doesNotMatch(source, /\.replaceAll\(/);
+  assert.doesNotMatch(kitSource, /\.replaceAll\(/);
 });

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 
 const source = readFileSync('app/web/hsp_waiter.js', 'utf8');
+const { loadKit } = require('./_menu_kit.cjs');
 
 function fn(name) {
   const start = source.search(new RegExp(`\\n  (?:async )?function ${name}\\(`));
@@ -14,11 +15,9 @@ function fn(name) {
 }
 
 function context(cart = []) {
-  const ctx = vm.createContext({ Intl, Math, Number, String, JSON });
-  vm.runInContext(
-    `var state = { cart: ${JSON.stringify(cart)} };\n` + fn('money') + '\n' + fn('cartTotal'),
-    ctx,
-  );
+  const Kit = loadKit();
+  const ctx = vm.createContext({ Intl, Math, Number, String, JSON, Kit, money: Kit.money });
+  vm.runInContext(`var state = { cart: ${JSON.stringify(cart)} };\n` + fn('cartTotal'), ctx);
   return ctx;
 }
 

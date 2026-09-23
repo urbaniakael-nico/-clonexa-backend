@@ -31,8 +31,14 @@
     // server answers /caja/config); otherwise the panel is exactly as before.
     directSale: false,
     knownTables: [],
-    sale: { items: [], table: "", toKitchen: false, category: "", search: "" },
+    sale: { items: [], table: "", toKitchen: false, category: "" },
     saleBusy: false,
+    quantityButtons: [],
+    menuEmojis: false,
+    printing: false,
+    // Last table/sale charged, so its cuenta can still be printed from the
+    // tables list once it disappeared from it.
+    lastCharged: null,
     stack: ["tables"],
     offline: false,
     offlineReason: "",
@@ -40,25 +46,11 @@
 
   let pollHandle = null;
 
-  // .replace(/x/g) instead of .replaceAll: replaceAll throws on older
-  // Android WebViews and h() runs on every render.
-  function h(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
-
-  function money(value) {
-    const number = Number(value || 0);
-    try {
-      return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(number);
-    } catch (_) {
-      return `$${Math.round(number).toLocaleString("es-CO")}`;
-    }
-  }
+  // Shared with the mesero panel (hsp_menu_kit.js) and the printable
+  // document (sale_document.js); both load before this file.
+  const Kit = window.CxMenuKit;
+  const SaleDoc = window.CxSaleDocument;
+  const { h, money, tableTitle } = Kit;
 
   // ---------------------------------------------------------------------
   // Storage: same fix as the mesero panel. The session lives in
@@ -409,40 +401,58 @@
     safeRender();
   }
 
-  // Every sellable item of the active catalog, flat: an Admin V2 portion
-  // group becomes one entry per portion (its own inventory item and price),
-  // so nothing is sent with a group id the server can't price.
-  function saleProducts(menu) {
-    const rows = [];
-    (menu || []).forEach((category) => {
-      (category.products || []).forEach((product) => {
-        if (product.is_portioned) {
-          (product.portions || []).forEach((portion) => {
-            rows.push({ id: portion.inventory_item_id, name: `${product.name} ${portion.label}`, price: Number(portion.price || 0), category: category.key, categoryLabel: category.label });
-          });
-        } else {
-          rows.push({ id: product.id, name: product.name, price: Number(product.price || 0), category: category.key, categoryLabel: category.label });
-        }
-      });
-    });
-    return rows;
-  }
-
-  function filterSaleProducts(products, category, search) {
-    const q = String(search || "").trim().toLowerCase();
-    return products.filter((p) => (!category || p.category === category) && (!q || String(p.name).toLowerCase().includes(q)));
-  }
-
-  function saleAddItem(sale, product, delta) {
-    const line = sale.items.find((item) => item.inventory_item_id === product.id);
-    if (line) line.quantity += delta;
-    else if (delta > 0) sale.items.push({ inventory_item_id: product.id, name: product.name, price: product.price, quantity: delta });
-    sale.items = sale.items.filter((item) => item.quantity > 0);
-    return sale;
+  // ---------------------------------------------------------------------
+  // Nueva venta: the SAME flow as the mesero panel (categories with photo or
+  // emoji -> products -> product sheet with fractions only where the
+  // product allows portions, observations -> cart), built from the shared
+  // kit. The caja keeps its own: destino, "Enviar a cocina" and cobro.
+  // ---------------------------------------------------------------------
+  function kitOptions(attr) {
+    return { companyId, emojis: state.menuEmojis, attr };
   }
 
   function saleTotal(sale) {
-    return sale.items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0);
+    return Kit.cartTotal(sale.items);
+  }
+
+  function saleCategory() {
+    return state.menu.find((cat) => cat.key === state.sale.category) || null;
+  }
+
+  function openSaleItemSheet(product, category, portionLabel, prefill, editIndex) {
+    Kit.openItemSheet({
+      product,
+      category,
+      portionLabel,
+      prefill,
+      quantityButtons: state.quantityButtons,
+      addLabel: "Agregar a la venta",
+      menuProductId: Kit.findMenuProduct(state.menu, product.id) ? product.id : undefined,
+      onAdd: (line) => {
+        if (editIndex === null || editIndex === undefined) state.sale.items.push(line);
+        else state.sale.items[editIndex] = line;
+        safeRender();
+      },
+    });
+  }
+
+  function openSaleProduct(productId) {
+    const category = saleCategory();
+    const product = (category ? category.products || [] : []).find((item) => item.id === productId);
+    if (!product) return;
+    if (Kit.productOpenMode(product, state.quantityButtons) === "portions") {
+      Kit.openPortionSheet(product, (portionProduct, label) => openSaleItemSheet(portionProduct, category, label));
+    } else {
+      openSaleItemSheet(product, category, null);
+    }
+  }
+
+  function editSaleLine(index) {
+    const line = state.sale.items[index];
+    if (!line) return;
+    const found = line.menu_product_id ? Kit.findMenuProduct(state.menu, line.menu_product_id) : null;
+    if (found) openSaleItemSheet(found.product, found.category, null, line, index);
+    else openSaleItemSheet({ id: line.inventory_item_id, name: line.name, price: line.unit_price }, null, line.portion_label || null, line, index);
   }
 
   // What the bottom of the sale screen offers: an independent sale that is
@@ -458,7 +468,7 @@
       table: sale.table || "",
       send_to_kitchen: Boolean(sale.toKitchen),
       payment_method: saleMode(sale) === "charge" ? paymentMethod : null,
-      items: sale.items.map((item) => ({ inventory_item_id: item.inventory_item_id, quantity: item.quantity })),
+      items: sale.items.map(Kit.orderItemPayload),
     };
   }
 
@@ -469,8 +479,13 @@
   }
 
   function openSale(table) {
-    state.sale = { items: [], table: table || "", toKitchen: false, category: "", search: "" };
+    state.sale = { items: [], table: table || "", toKitchen: false, category: "" };
     goto("sale");
+  }
+
+  function openSaleCategory(key) {
+    state.sale.category = key || "";
+    goto("sale_products");
   }
 
   async function submitSale(paymentMethod) {
@@ -481,7 +496,10 @@
     try {
       const result = await waiterApi("/caja/ventas", { method: "POST", body: JSON.stringify(salePayload(sale, paymentMethod)) });
       state.toast = saleDoneMessage(result, sale);
-      state.sale = { items: [], table: "", toKitchen: false, category: "", search: "" };
+      if (result && result.charged && result.order && result.order.id) {
+        state.lastCharged = { order_ids: [result.order.id], label: result.label || "Venta" };
+      }
+      state.sale = { items: [], table: "", toKitchen: false, category: "" };
       resetToTables();
       await refreshTables();
     } catch (error) {
@@ -497,6 +515,8 @@
     try {
       const data = await waiterApi("/menu");
       state.menu = Array.isArray(data.categories) ? data.categories : [];
+      state.quantityButtons = Array.isArray(data.quantity_buttons) ? data.quantity_buttons : [];
+      state.menuEmojis = data.menu_emojis === true;
     } catch (_) {
       state.menu = [];
     }
@@ -522,11 +542,11 @@
         const waiter = order.metadata && order.metadata.waiter ? order.metadata.waiter.name : "";
         if (waiter && !bucket.waiter) bucket.waiter = waiter;
       });
-      state.tables = Array.from(groups.values()).sort((a, b) => String(a.table_number).localeCompare(String(b.table_number)));
+      state.tables = sortTablesByAge(Array.from(groups.values()), Date.now());
       state.tablesLoaded = true;
-      // Never redraw the sale screen from the 4s poll: it would close the
-      // destination list or steal focus from the search box mid-typing.
-      if (state.screen !== "sale") safeRender();
+      // Never redraw the sale screens from the 4s poll: it would close the
+      // destination list or a product sheet mid-choice.
+      if (!/^sale/.test(state.screen)) safeRender();
     } catch (_) {
       // keep last board on transient errors
     }
@@ -547,10 +567,100 @@
     return state.tables.find((t) => t.key === state.activeTableKey) || null;
   }
 
-  function tableStatusLabel(table) {
-    const hasPending = table.orders.some((o) => o.status === "pendiente" || o.status === "alistando");
-    if (hasPending) return "En cocina";
-    return "Lista para cobrar";
+  // ---------------------------------------------------------------------
+  // Mesas abiertas: one card per table with its timer (since its first
+  // order), mesero, total and the real state of its comandas:
+  //   - "En preparación": some comanda still pendiente/alistando.
+  //   - "Listo para cobrar": everything left the kitchen (status entregado)
+  //     but not all of it was marked Entregado at the table yet.
+  //   - "Entregado": every comanda reached the table (kitchen "Entregado",
+  //     or it never went through the kitchen, e.g. a caja sale).
+  // Oldest table first.
+  // ---------------------------------------------------------------------
+  const TABLE_STATES = {
+    preparing: "En preparación",
+    ready: "Listo para cobrar",
+    delivered: "Entregado",
+  };
+
+  function orderReachedTable(order) {
+    const kitchen = (order.metadata && order.metadata.kitchen) || {};
+    return Boolean(kitchen.delivered_at) || !kitchen.ready_at;
+  }
+
+  function tableState(table) {
+    const orders = table.orders || [];
+    if (orders.some((o) => o.status === "pendiente" || o.status === "alistando")) return "preparing";
+    return orders.every(orderReachedTable) ? "delivered" : "ready";
+  }
+
+  function tableStartedMs(table) {
+    const times = (table.orders || []).map((o) => Date.parse(o.created_at || "")).filter(Number.isFinite);
+    return times.length ? Math.min(...times) : Number.POSITIVE_INFINITY;
+  }
+
+  function sortTablesByAge(tables, nowMs) {
+    return tables.slice().sort((a, b) => tableStartedMs(a) - tableStartedMs(b) || String(a.table_number).localeCompare(String(b.table_number)));
+  }
+
+  function elapsedLabel(startedMs, nowMs) {
+    if (!Number.isFinite(startedMs)) return "—";
+    const minutes = Math.max(0, Math.floor((nowMs - startedMs) / 60000));
+    if (minutes < 1) return "< 1 min";
+    if (minutes < 60) return `${minutes} min`;
+    return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
+  }
+
+  // "Mesa 11" -> caption "Mesa", big "11"; "Venta 012" -> "Venta", "012".
+  function tableNumberParts(label) {
+    const clean = String(label || "").trim();
+    const match = clean.match(/^(mesa|venta)\s+(.+)$/i);
+    if (match) return { caption: match[1][0].toUpperCase() + match[1].slice(1).toLowerCase(), number: match[2] };
+    return { caption: /^\d+$/.test(clean) ? "Mesa" : "", number: clean || "—" };
+  }
+
+  function tableCardHtml(table, nowMs) {
+    const parts = tableNumberParts(table.table_number);
+    const stateKey = tableState(table);
+    return `
+      <button class="csh-card csh-card-${stateKey}" type="button" data-csh-open-table="${h(table.key)}">
+        <div class="csh-card-top">
+          <div class="csh-card-number">${parts.caption ? `<small>${h(parts.caption)}</small>` : ""}<b>${h(parts.number)}</b></div>
+          <span class="csh-card-timer">⏱ ${h(elapsedLabel(tableStartedMs(table), nowMs))}</span>
+        </div>
+        <span class="csh-card-state">${h(TABLE_STATES[stateKey])}</span>
+        <div class="csh-card-waiter">${table.waiter ? `Mesero: ${h(table.waiter)}` : "Sin mesero"}</div>
+        <strong class="csh-card-total">${h(money(table.total))}</strong>
+      </button>`;
+  }
+
+  // "3/4", "2×": the portion/fraction label when there is one.
+  function lineQuantity(item) {
+    if (item.quantity_label) return String(item.quantity_label);
+    const qty = Number(item.quantity || 0);
+    return `${Number.isInteger(qty) ? qty : qty.toFixed(2)}×`;
+  }
+
+  function lineAmount(item) {
+    const subtotal = Number(item.subtotal);
+    return Number.isFinite(subtotal) && item.subtotal !== undefined && item.subtotal !== null
+      ? subtotal
+      : Number(item.unit_price || 0) * Number(item.quantity || 0);
+  }
+
+  async function printAccount(orderIds) {
+    if (!orderIds || !orderIds.length || state.printing) return;
+    state.printing = true;
+    safeRender();
+    try {
+      const data = await waiterApi("/caja/documento", { method: "POST", body: JSON.stringify({ order_ids: orderIds }) });
+      if (data && data.document && SaleDoc) SaleDoc.printDocument(data.document);
+    } catch (error) {
+      state.error = error.message || "No se pudo preparar la cuenta para imprimir.";
+    } finally {
+      state.printing = false;
+      safeRender();
+    }
   }
 
   async function addProductToTable(product, quantity) {
@@ -597,6 +707,7 @@
       }
       const label = String(table.table_number || "").trim();
       state.toast = `${/^(mesa|venta)\b/i.test(label) ? label : `Mesa ${label}`} cobrada.`;
+      state.lastCharged = { order_ids: served.map((o) => o.id), label: /^(mesa|venta)\b/i.test(label) ? label : `Mesa ${label}` };
       resetToTables();
       await refreshTables();
     } catch (error) {
@@ -634,65 +745,80 @@
       </section>`;
   }
 
-  function screenSale() {
-    const sale = state.sale;
-    const products = saleProducts(state.menu);
-    const categories = [];
-    products.forEach((p) => { if (!categories.some((c) => c.key === p.category)) categories.push({ key: p.category, label: p.categoryLabel }); });
-    const visible = filterSaleProducts(products, sale.category, sale.search);
-    const tableOptions = Array.from(new Set(state.tables.map((t) => String(t.table_number)).concat(state.knownTables)))
+  function saleTableOptions() {
+    return Array.from(new Set(state.tables.map((t) => String(t.table_number)).concat(state.knownTables)))
       .filter((label) => !/^venta /i.test(label));
+  }
+
+  function saleHeaderHtml(title) {
+    const sale = state.sale;
+    return `
+      <header class="csh-header">
+        <button class="csh-back" type="button" data-csh-back aria-label="Volver">‹</button>
+        <h1>${h(title)}</h1>
+      </header>
+      <div class="csh-sale-dest">
+        <label>Destino
+          <select id="cshSaleTable" data-csh-sale-table>
+            <option value="" ${sale.table ? "" : "selected"}>Venta independiente</option>
+            ${saleTableOptions().map((label) => `<option value="${h(label)}" ${sale.table === label ? "selected" : ""}>${h(label)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="csh-check"><input type="checkbox" data-csh-sale-kitchen ${sale.toKitchen ? "checked" : ""}> Enviar a cocina</label>
+      </div>`;
+  }
+
+  function saleCartHtml() {
+    const sale = state.sale;
     const mode = saleMode(sale);
     return `
-      <section class="csh-shell">
-        <header class="csh-header">
-          <button class="csh-back" type="button" data-csh-back aria-label="Volver">‹</button>
-          <h1>Nueva venta</h1>
-        </header>
-        <div class="csh-sale-dest">
-          <label>Destino
-            <select id="cshSaleTable" data-csh-sale-table>
-              <option value="" ${sale.table ? "" : "selected"}>Venta independiente</option>
-              ${tableOptions.map((label) => `<option value="${h(label)}" ${sale.table === label ? "selected" : ""}>${h(label)}</option>`).join("")}
-            </select>
-          </label>
-          <label class="csh-check"><input type="checkbox" data-csh-sale-kitchen ${sale.toKitchen ? "checked" : ""}> Enviar a cocina</label>
-        </div>
-        <div class="csh-sale-filters">
-          <input id="cshSaleSearch" placeholder="Buscar producto..." value="${h(sale.search)}" data-csh-sale-search />
-          <div class="csh-chips">
-            <button type="button" class="csh-chip ${sale.category ? "" : "is-active"}" data-csh-sale-cat="">Todo</button>
-            ${categories.map((c) => `<button type="button" class="csh-chip ${sale.category === c.key ? "is-active" : ""}" data-csh-sale-cat="${h(c.key)}">${h(c.label)}</button>`).join("")}
-          </div>
-        </div>
-        <div class="csh-sale-grid">
-          ${visible.map((p) => `
-            <button type="button" class="csh-sale-prod" data-csh-sale-add="${h(p.id)}">
-              <span>${h(p.name)}</span><strong>${h(money(p.price))}</strong>
-            </button>`).join("") || `<div class="csh-empty">No hay productos activos en el inventario${sale.search ? " con esa búsqueda" : ""}.</div>`}
-        </div>
-        <div class="csh-sale-cart">
-          ${sale.items.map((item) => `
-            <div class="csh-cart-row">
-              <div><b>${h(item.name)}</b><div class="csh-note">${h(money(item.price))} c/u</div></div>
-              <div class="csh-qty">
-                <button type="button" class="csh-btn csh-btn-mini" data-csh-sale-dec="${h(item.inventory_item_id)}">−</button>
-                <b>${h(item.quantity)}</b>
-                <button type="button" class="csh-btn csh-btn-mini" data-csh-sale-inc="${h(item.inventory_item_id)}">+</button>
-              </div>
-            </div>`).join("") || `<div class="csh-empty">Toca un producto para agregarlo.</div>`}
-          <div class="csh-cart-total"><span>Total</span><strong>${h(money(saleTotal(sale)))}</strong></div>
-          ${mode === "charge" ? `
-            <div class="csh-pay-block">
-              <div class="csh-pay-title">Cobrar venta (método de pago obligatorio)</div>
-              <div class="csh-pay-options">
-                ${PAYMENT_METHODS.map((pm) => `<button class="csh-btn csh-btn-primary" type="button" data-csh-sale-pay="${pm.value}" ${state.saleBusy || !sale.items.length ? "disabled" : ""}>${h(pm.label)}</button>`).join("")}
-              </div>
-            </div>` : `
-            <button class="csh-btn csh-btn-primary csh-sale-send" type="button" data-csh-sale-send ${state.saleBusy || !sale.items.length ? "disabled" : ""}>
-              ${state.saleBusy ? "Enviando..." : mode === "kitchen" ? "Enviar a cocina" : `Agregar a ${h(sale.table)}`}
+      <aside class="csh-sale-cart">
+        <div class="csh-sale-cart-title">Venta${sale.table ? ` · ${h(sale.table)}` : ""}</div>
+        ${sale.items.map((item, index) => `
+          <div class="csh-line">
+            <button type="button" class="csh-line-main" data-csh-sale-edit="${index}">
+              <b>${Kit.cartLineLabel(item)}</b>
+              ${item.term ? `<small>${h(item.term)}</small>` : ""}
+              ${item.observations ? `<small>${h(item.observations)}</small>` : ""}
+              ${item.quick_notes && item.quick_notes.length ? `<small>${item.quick_notes.map(h).join(" · ")}</small>` : ""}
             </button>
-            ${mode === "kitchen" && !sale.table ? `<div class="csh-hint">Se cobra cuando cocina la marque lista.</div>` : ""}`}
+            <strong>${h(money(Number(item.unit_price || 0) * Number(item.quantity || 0)))}</strong>
+            <button type="button" class="csh-line-remove" data-csh-sale-remove="${index}" aria-label="Quitar">✕</button>
+          </div>`).join("") || `<div class="csh-empty">Elige una categoría y agrega productos.</div>`}
+        <div class="csh-cart-total"><span>Total</span><strong>${h(money(saleTotal(sale)))}</strong></div>
+        ${mode === "charge" ? `
+          <div class="csh-pay-block">
+            <div class="csh-pay-title">Cobrar venta (método de pago obligatorio)</div>
+            <div class="csh-pay-options">
+              ${PAYMENT_METHODS.map((pm) => `<button class="csh-btn csh-btn-primary" type="button" data-csh-sale-pay="${pm.value}" ${state.saleBusy || !sale.items.length ? "disabled" : ""}>${h(pm.label)}</button>`).join("")}
+            </div>
+          </div>` : `
+          <button class="csh-btn csh-btn-primary csh-sale-send" type="button" data-csh-sale-send ${state.saleBusy || !sale.items.length ? "disabled" : ""}>
+            ${state.saleBusy ? "Enviando..." : mode === "kitchen" ? "Enviar a cocina" : `Agregar a ${h(sale.table)}`}
+          </button>
+          ${mode === "kitchen" && !sale.table ? `<div class="csh-hint">Se cobra cuando cocina la marque lista.</div>` : ""}`}
+      </aside>`;
+  }
+
+  function screenSale() {
+    return `
+      <section class="csh-shell">
+        ${saleHeaderHtml("Nueva venta")}
+        <div class="csh-sale-layout">
+          <div class="csh-sale-menu">${Kit.categoryGridHtml(state.menu, kitOptions("data-csh-cat"))}</div>
+          ${saleCartHtml()}
+        </div>
+      </section>`;
+  }
+
+  function screenSaleProducts() {
+    const category = saleCategory();
+    return `
+      <section class="csh-shell">
+        ${saleHeaderHtml(category ? category.label : "Productos")}
+        <div class="csh-sale-layout">
+          <div class="csh-sale-menu">${Kit.productGridHtml(category ? category.products : [], kitOptions("data-csh-product"))}</div>
+          ${saleCartHtml()}
         </div>
       </section>`;
   }
@@ -707,16 +833,13 @@
           <button class="csh-logout" type="button" data-csh-logout aria-label="Salir">⏻</button>
         </header>
         ${state.toast ? `<div class="csh-toast">${h(state.toast)}</div>` : ""}
+        ${state.lastCharged ? `
+          <div class="csh-last">
+            <span>Última cobrada: <b>${h(state.lastCharged.label)}</b></span>
+            <button class="csh-btn csh-btn-mini" type="button" data-csh-print-last ${state.printing ? "disabled" : ""}>🖨 Imprimir cuenta</button>
+          </div>` : ""}
         <div class="csh-grid-tables">
-          ${state.tables.map((table) => `
-            <button class="csh-tile" type="button" data-csh-open-table="${h(table.key)}">
-              <div class="csh-tile-top">
-                <b>${h(table.table_number)}</b>
-                <span class="csh-status">${h(tableStatusLabel(table))}</span>
-              </div>
-              <div class="csh-tile-mid">${table.waiter ? `Mesero: ${h(table.waiter)}` : ""}</div>
-              <strong>${h(money(table.total))}</strong>
-            </button>`).join("") || `<div class="csh-empty">No hay mesas abiertas.</div>`}
+          ${state.tables.map((table) => tableCardHtml(table, Date.now())).join("") || `<div class="csh-empty">No hay mesas abiertas.</div>`}
         </div>
       </section>`;
   }
@@ -735,30 +858,45 @@
     }
     const allItems = table.orders.flatMap((o) => o.items || []);
     const canCharge = table.orders.some((o) => o.status === "entregado");
+    const stateKey = tableState(table);
     return `
       <section class="csh-shell">
         <header class="csh-header">
           <button class="csh-back" type="button" data-csh-back aria-label="Volver">‹</button>
-          <h1>${h(table.table_number)}</h1>
+          <h1>${h(tableTitle(table.table_number))}</h1>
+          <span class="csh-card-state csh-state-${stateKey}">${h(TABLE_STATES[stateKey])}</span>
           <button class="csh-logout" type="button" data-csh-logout aria-label="Salir">⏻</button>
         </header>
-        <div class="csh-account-label">CUENTA - NO ES FACTURA</div>
-        <div class="csh-cart-list">
-          ${allItems.map((item) => `
-            <div class="csh-cart-row">
-              <div><b>${h(item.quantity)} x ${h(item.name)}</b>${item.observations ? `<div class="csh-note">${h(item.observations)}</div>` : ""}</div>
-              <strong>${h(money((item.unit_price || 0) * (item.quantity || 0)))}</strong>
-            </div>`).join("") || `<div class="csh-empty">Sin productos todavía.</div>`}
+        <div class="csh-detail">
+          <div class="csh-detail-meta">
+            <span>⏱ ${h(elapsedLabel(tableStartedMs(table), Date.now()))}</span>
+            ${table.waiter ? `<span>Mesero: ${h(table.waiter)}</span>` : ""}
+            <span>${h(table.orders.length)} comanda${table.orders.length === 1 ? "" : "s"}</span>
+          </div>
+          <table class="csh-detail-lines">
+            <thead><tr><th>Cant.</th><th>Producto</th><th>Valor</th></tr></thead>
+            <tbody>
+              ${allItems.map((item) => `
+                <tr>
+                  <td>${h(lineQuantity(item))}</td>
+                  <td>${h(item.name)}${item.term ? ` <small>· ${h(item.term)}</small>` : ""}${item.observations ? `<div class="csh-note">${h(item.observations)}</div>` : ""}</td>
+                  <td>${h(money(lineAmount(item)))}</td>
+                </tr>`).join("") || `<tr><td colspan="3" class="csh-empty">Sin productos todavía.</td></tr>`}
+            </tbody>
+            <tfoot><tr><td colspan="2">Total</td><td>${h(money(table.total))}</td></tr></tfoot>
+          </table>
+          <div class="csh-detail-actions">
+            <button class="csh-btn" type="button" data-csh-add-product>+ Agregar producto</button>
+            <button class="csh-btn" type="button" data-csh-print ${state.printing || !allItems.length ? "disabled" : ""}>🖨 Imprimir cuenta</button>
+          </div>
+          ${canCharge ? `
+            <div class="csh-pay-block">
+              <div class="csh-pay-title">Datos de cobro · método de pago obligatorio</div>
+              <div class="csh-pay-options">
+                ${PAYMENT_METHODS.map((pm) => `<button class="csh-btn csh-btn-primary" type="button" data-csh-pay="${pm.value}" ${state.paying ? "disabled" : ""}>${h(pm.label)}</button>`).join("")}
+              </div>
+            </div>` : `<div class="csh-hint">Entrega el pedido pendiente antes de cobrar.</div>`}
         </div>
-        <div class="csh-cart-total"><span>Total</span><strong>${h(money(table.total))}</strong></div>
-        <button class="csh-btn" type="button" data-csh-add-product>+ Agregar producto</button>
-        ${canCharge ? `
-          <div class="csh-pay-block">
-            <div class="csh-pay-title">Cobrar mesa (método de pago obligatorio)</div>
-            <div class="csh-pay-options">
-              ${PAYMENT_METHODS.map((pm) => `<button class="csh-btn csh-btn-primary" type="button" data-csh-pay="${pm.value}" ${state.paying ? "disabled" : ""}>${h(pm.label)}</button>`).join("")}
-            </div>
-          </div>` : `<div class="csh-hint">Entrega el pedido pendiente antes de cobrar.</div>`}
       </section>`;
   }
 
@@ -790,6 +928,7 @@
     else if (state.screen === "tables") html = screenTables();
     else if (state.screen === "table") html = screenTable();
     else if (state.screen === "sale") html = screenSale();
+    else if (state.screen === "sale_products") html = screenSaleProducts();
     root.innerHTML = html;
     if (state.error && state.screen !== "login") {
       const banner = document.createElement("div");
@@ -810,19 +949,6 @@
     } else if (target.closest("[data-csh-sale-kitchen]")) {
       state.sale.toKitchen = Boolean(target.checked);
       safeRender();
-    }
-  });
-
-  document.addEventListener("input", (event) => {
-    const target = event.target;
-    if (!target || !target.closest || !target.closest("[data-csh-sale-search]")) return;
-    state.sale.search = String(target.value || "");
-    safeRender();
-    const input = document.getElementById("cshSaleSearch");
-    if (input && input.focus) {
-      input.focus();
-      const end = input.value.length;
-      if (input.setSelectionRange) input.setSelectionRange(end, end);
     }
   });
 
@@ -897,23 +1023,41 @@
       return;
     }
 
-    const saleCat = target.closest("[data-csh-sale-cat]");
+    const saleCat = target.closest("[data-csh-cat]");
     if (saleCat) {
-      state.sale.category = saleCat.getAttribute("data-csh-sale-cat") || "";
+      openSaleCategory(saleCat.getAttribute("data-csh-cat") || "");
+      return;
+    }
+
+    const saleProduct = target.closest("[data-csh-product]");
+    if (saleProduct) {
+      openSaleProduct(saleProduct.getAttribute("data-csh-product") || "");
+      return;
+    }
+
+    const saleRemove = target.closest("[data-csh-sale-remove]");
+    if (saleRemove) {
+      state.sale.items.splice(Number(saleRemove.getAttribute("data-csh-sale-remove")), 1);
       safeRender();
       return;
     }
 
-    const saleAdd = target.closest("[data-csh-sale-add]") || target.closest("[data-csh-sale-inc]");
-    const saleDec = target.closest("[data-csh-sale-dec]");
-    if (saleAdd || saleDec) {
-      const id = saleAdd
-        ? saleAdd.getAttribute("data-csh-sale-add") || saleAdd.getAttribute("data-csh-sale-inc")
-        : saleDec.getAttribute("data-csh-sale-dec");
-      const product = saleProducts(state.menu).find((p) => p.id === id)
-        || state.sale.items.map((i) => ({ id: i.inventory_item_id, name: i.name, price: i.price })).find((p) => p.id === id);
-      if (product) saleAddItem(state.sale, product, saleDec ? -1 : 1);
-      safeRender();
+    const saleEdit = target.closest("[data-csh-sale-edit]");
+    if (saleEdit) {
+      editSaleLine(Number(saleEdit.getAttribute("data-csh-sale-edit")));
+      return;
+    }
+
+    const printBtn = target.closest("[data-csh-print]");
+    if (printBtn && !printBtn.disabled) {
+      const table = activeTable();
+      if (table) printAccount(table.orders.map((o) => o.id));
+      return;
+    }
+
+    const printLast = target.closest("[data-csh-print-last]");
+    if (printLast && !printLast.disabled) {
+      if (state.lastCharged) printAccount(state.lastCharged.order_ids);
       return;
     }
 
@@ -989,7 +1133,7 @@
     .csh-header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:16px;background:rgba(8,7,18,.92);backdrop-filter:blur(6px);border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
     .csh-header h1{flex:1;margin:0;font-size:20px}
     .csh-back,.csh-logout{width:40px;height:40px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;font-size:18px}
-    .csh-grid-tables{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;padding:16px}
+    .csh-grid-tables{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;padding:16px}
     .csh-tile{display:grid;gap:6px;text-align:left;border-radius:18px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#fff;padding:14px}
     .csh-tile-top{display:flex;justify-content:space-between;align-items:center}
     .csh-status{font-size:10px;font-weight:900;text-transform:uppercase;color:#a5b4fc}
@@ -1015,17 +1159,39 @@
     .csh-sale-dest select{padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:#120e20;color:#fff;font-size:15px}
     .csh-check{display:flex !important;align-items:center;gap:8px;font-size:14px !important;padding:12px;border-radius:12px;background:rgba(255,255,255,.05)}
     .csh-check input{width:20px;height:20px}
-    .csh-sale-filters{display:grid;gap:10px;padding:12px 16px}
-    .csh-sale-filters input{padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(3,7,18,.6);color:#fff;font-size:15px}
-    .csh-chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
-    .csh-chip{flex:none;padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;font-weight:800;font-size:13px}
-    .csh-chip.is-active{background:linear-gradient(135deg,#ff7a18,#ff2d95);border-color:transparent}
-    .csh-sale-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:0 16px 12px;max-height:42vh;overflow-y:auto}
-    .csh-sale-prod{display:grid;gap:6px;text-align:left;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#fff;font-weight:800;min-height:72px}
-    .csh-sale-prod strong{color:#ffd166}
-    .csh-sale-cart{display:grid;gap:10px;padding:0 16px 24px}
-    .csh-sale-cart .csh-cart-total{padding:0}
+    .csh-sale-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);gap:0;align-items:start;padding-right:16px}
+    @media (max-width:860px){.csh-sale-layout{grid-template-columns:1fr;padding:0 16px}}
+    .csh-sale-cart{position:sticky;top:72px;display:grid;gap:10px;min-width:0;margin:16px 0;padding:16px;border-radius:20px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)}
+    .csh-sale-cart-title{font-size:13px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#c9c3e6}
+    .csh-line{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+    .csh-line-main{display:grid;gap:2px;text-align:left;background:none;border:none;color:#fff;padding:0;cursor:pointer;font:inherit}
+    .csh-line-main small{color:#ffb3d9;font-size:11px}
+    .csh-line-remove{width:30px;height:30px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff}
+    .csh-card{display:grid;gap:6px;text-align:left;border-radius:20px;border:2px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#fff;padding:14px;cursor:pointer}
+    .csh-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+    .csh-card-number{display:grid;line-height:1}
+    .csh-card-number small{font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#a5b4fc}
+    .csh-card-number b{font-size:40px;font-weight:1000;letter-spacing:-.02em}
+    .csh-card-timer{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums;color:#fde68a;white-space:nowrap}
+    .csh-card-state{justify-self:start;white-space:nowrap;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;background:rgba(255,255,255,.1)}
+    .csh-card-preparing{border-color:#d97706}.csh-card-preparing .csh-card-state,.csh-state-preparing{background:rgba(217,119,6,.25);color:#fde68a}
+    .csh-card-ready{border-color:#16a34a}.csh-card-ready .csh-card-state,.csh-state-ready{background:rgba(34,197,94,.22);color:#86efac}
+    .csh-card-delivered{border-color:#6366f1}.csh-card-delivered .csh-card-state,.csh-state-delivered{background:rgba(99,102,241,.25);color:#c7d2fe}
+    .csh-card-waiter{font-size:12px;color:#c9c3e6}
+    .csh-card-total{font-size:20px;color:#ffd166}
+    .csh-last{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 16px 10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.05);font-size:13px}
+    .csh-detail{display:grid;gap:12px;padding:12px 16px 24px;max-width:820px}
+    .csh-detail-meta{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;font-weight:800;color:#c9c3e6}
+    .csh-detail-lines{width:100%;border-collapse:collapse;font-size:14px}
+    .csh-detail-lines th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8f8aa8;border-bottom:1px solid rgba(255,255,255,.12);padding:6px 4px}
+    .csh-detail-lines td{padding:7px 4px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:top}
+    .csh-detail-lines td:first-child{width:56px;font-weight:900;color:#ffd166;white-space:nowrap}
+    .csh-detail-lines td:last-child,.csh-detail-lines th:last-child{text-align:right;white-space:nowrap}
+    .csh-detail-lines tfoot td{font-size:18px;font-weight:1000;border-bottom:none;padding-top:10px}
+    .csh-detail-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .csh-detail .csh-pay-block,.csh-detail .csh-hint{margin:0}    .csh-sale-cart .csh-cart-total{padding:0}
     .csh-sale-cart .csh-pay-block{margin:0}
+    .csh-sale-cart .csh-pay-options{grid-template-columns:1fr}
     .csh-qty{display:flex;align-items:center;gap:10px}
     .csh-qty .csh-btn-mini{width:40px;padding:0;font-size:18px}
     .csh-sale-send{width:100%;min-height:56px;font-size:16px}
@@ -1036,6 +1202,7 @@
     .csh-sheet-item{display:flex;justify-content:space-between;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#fff}
   `;
   document.head.appendChild(style);
+  if (Kit) Kit.injectStyles();
 
   window.addEventListener("popstate", (event) => {
     try {

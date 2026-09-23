@@ -316,8 +316,8 @@ test('a wrong password on the login form is not treated as a lost session', asyn
 });
 
 test('the panel escapes text without String.replaceAll (older Android WebViews)', () => {
-  assert.doesNotMatch(fn('h'), /replaceAll/);
-  const ctx = vm.createContext({ String });
-  vm.runInContext(fn('h'), ctx);
-  assert.equal(ctx.h('<b>"Mesa" & \'1\'</b>'), '&lt;b&gt;&quot;Mesa&quot; &amp; &#039;1&#039;&lt;/b&gt;');
+  const { kitSource, loadKit } = require('./_menu_kit.cjs');
+  assert.doesNotMatch(kitSource, /\.replaceAll\(/);
+  assert.doesNotMatch(source, /\.replaceAll\(/);
+  assert.equal(loadKit().h('<b>"Mesa" & \'1\'</b>'), '&lt;b&gt;&quot;Mesa&quot; &amp; &#039;1&#039;&lt;/b&gt;');
 });

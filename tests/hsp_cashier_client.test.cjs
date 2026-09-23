@@ -13,9 +13,14 @@ function fn(name) {
   return (next < 0 ? tail : tail.slice(0, next)) + '\n';
 }
 
+const { loadKit } = require('./_menu_kit.cjs');
+
+// money() comes from the shared menu kit (hsp_menu_kit.js) since the caja
+// reuses the mesero's components.
 function context() {
   const ctx = vm.createContext({ Intl, Math, Number, String });
-  vm.runInContext(fn('money') + '\n' + fn('normKey'), ctx);
+  vm.runInContext(fn('normKey'), ctx);
+  ctx.money = loadKit().money;
   return ctx;
 }
 

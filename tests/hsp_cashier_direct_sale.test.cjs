@@ -1,41 +1,58 @@
-// Caja: facturacion directa. The whole hsp_cashier.js booted in a fake
-// browser: the active catalog shows up (portion groups as one product per
-// portion), an independent sale is charged on the spot with the chosen
-// method, "Enviar a cocina" / "a una mesa" send one button instead, and
-// the panel is unchanged for a company without the switch.
+// Caja (waiter_ordering): "Nueva venta" with the SAME visual flow as the
+// mesero panel (categories with photo/emoji -> products -> product sheet
+// from the shared kit -> cart), keeping the caja's destino, "Enviar a
+// cocina" and cobro; table cards with timer and real state; a compact table
+// detail; and "Imprimir cuenta" with the configured CUENTA DE COBRO.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
 const { source, FakeStorage, boot, flush } = require('./_cashier_boot.cjs');
 
-function fn(name) {
-  const start = source.search(new RegExp(`\\n  (?:async )?function ${name}\\(`));
-  assert.ok(start >= 0, name);
-  const tail = source.slice(start + 3);
-  const next = tail.search(/\n  (?:async )?function |\n  let |\n  const |\n  document\./);
-  return (next < 0 ? tail : tail.slice(0, next)) + '\n';
-}
-
 const MENU = {
+  quantity_buttons: ['1/4', '1/2', '3/4', '1', '2'],
+  menu_emojis: true,
   categories: [
-    { key: 'carnes', label: 'Carnes', products: [
-      { id: 'carne', name: 'CARNE Asada', price: 25000 },
-      { id: 'pollo', name: 'Pollo', is_portioned: true, portions: [
-        { inventory_item_id: 'pollo-1', label: 'Entero', price: 40000 },
-        { inventory_item_id: 'pollo-12', label: '1/2', price: 19000 },
-      ] },
+    { key: 'pollo', label: 'Pollo', has_image: false, requires_term: false, quick_notes: ['Sin sal'], products: [
+      { id: 'pollo', name: 'POLLO Asado', price: 40000, allows_portions: true, quantity_ref_id: 'pollo',
+        quantity_options: [{ label: '1/4', available: true, price: 10000 }, { label: '1', available: true, price: 40000 }] },
     ] },
-    { key: 'bebidas', label: 'Bebidas', products: [{ id: 'gaseosa', name: 'GASEOSA Postobon', price: 4000 }] },
+    { key: 'gaseosa', label: 'Gaseosa', has_image: true, products: [{ id: 'gaseosa', name: 'GASEOSA Coca Cola', price: 4500, allows_portions: false }] },
   ],
 };
 
-function routesWith({ directSale = true, sale = [201, { ok: true, charged: true, label: 'Venta 007' }] } = {}) {
+const T0 = Date.now();
+const ago = (minutes) => new Date(T0 - minutes * 60000).toISOString();
+
+const ORDERS = [
+  // Mesa 7: opened 50 min ago, one comanda still in the kitchen.
+  { id: 'o71', table_key: 'mesa 7', table_number: 'Mesa 7', status: 'entregado', total: 30000, created_at: ago(50),
+    metadata: { waiter: { name: 'Laura' }, kitchen: { ready_at: ago(40), delivered_at: ago(35) } },
+    items: [{ name: 'POLLO Asado', quantity: 0.75, quantity_label: '3/4', unit_price: 40000, subtotal: 30000, observations: 'bien asado' }] },
+  { id: 'o72', table_key: 'mesa 7', table_number: 'Mesa 7', status: 'alistando', total: 9000, created_at: ago(5),
+    metadata: { waiter: { name: 'Laura' } }, items: [{ name: 'GASEOSA Coca Cola', quantity: 2, unit_price: 4500, subtotal: 9000 }] },
+  // Mesa 2: 12 min, out of the kitchen but not delivered to the table yet.
+  { id: 'o21', table_key: 'mesa 2', table_number: 'Mesa 2', status: 'entregado', total: 40000, created_at: ago(12),
+    metadata: { waiter: { name: 'Pedro' }, kitchen: { ready_at: ago(2) } }, items: [{ name: 'POLLO Asado', quantity: 1, unit_price: 40000, subtotal: 40000 }] },
+  // Mesa 9: 80 min, everything at the table.
+  { id: 'o91', table_key: 'mesa 9', table_number: 'Mesa 9', status: 'entregado', total: 4500, created_at: ago(80),
+    metadata: { waiter: { name: 'Ana' }, kitchen: { ready_at: ago(70), delivered_at: ago(65) } }, items: [{ name: 'GASEOSA', quantity: 1, unit_price: 4500, subtotal: 4500 }] },
+];
+
+const DOCUMENT = {
+  title: 'CUENTA DE COBRO', not_invoice_notice: 'NO ES FACTURA DE VENTA', dian_pending_notice: '',
+  number: 'CC-000042', number_label: 'Consecutivo interno', issued_at: new Date(T0).toISOString(),
+  issuer: { trade_name: 'El Socio', nit: '900123', regime: 'No responsable de IVA', logo_url: '', legal_name: '', address: 'Cra 1', phone: '300' },
+  table: 'Mesa 7', waiter: 'Laura', lines: [{ qty: '3/4', name: 'POLLO Asado', subtotal: 30000, observations: 'bien asado' }],
+  subtotal: 39000, iva: 0, total: 39000, iva_percent: 0, footer: 'Gracias por su visita', withholdings: '', resolution: '', payment_label: '',
+};
+
+function routesWith({ directSale = true, sale = [201, { ok: true, charged: true, label: 'Venta 007', order: { id: 'v7' } }], orders = ORDERS } = {}) {
   return (url) => {
-    if (url.includes('/orders?status=active')) return [200, { orders: [{ id: 'o1', table_key: 'mesa 3', table_number: 'Mesa 3', status: 'entregado', total: 1, items: [] }] }];
+    if (url.includes('/orders?status=active')) return [200, { orders }];
     if (url.includes('/waiter-ordering/menu')) return [200, MENU];
     if (url.includes('/caja/config')) return [200, { direct_sale: directSale }];
     if (url.includes('/qr-tables')) return [200, { tables: [{ label: 'Mesa 1' }, { label: 'Mesa 3' }] }];
     if (url.includes('/caja/ventas')) return sale;
+    if (url.includes('/caja/documento')) return [200, { ok: true, document: DOCUMENT }];
     if (url.includes('/mini-panel-refresh')) return [200, { access_token: 'renewed' }];
     return [404, {}];
   };
@@ -52,113 +69,170 @@ function change(b, attr, props) {
   (b.listeners.document.change || []).forEach((cb) => cb({ target }));
 }
 
-async function openNewSale(routes) {
+function lastSheet(b) {
+  return b.body.children.filter((c) => c.className === 'wtr-sheet-backdrop').pop();
+}
+
+async function ready(routes = routesWith()) {
   const b = boot({ local: saved(), routes });
   await flush(); await flush(); await flush();
-  b.click('data-csh-new-sale');
   return b;
 }
 
-test('the whole active catalog appears, each portion as its own product', () => {
-  const ctx = vm.createContext({ String, Number, Array });
-  vm.runInContext(fn('saleProducts') + fn('filterSaleProducts'), ctx);
-  const products = ctx.saleProducts(MENU.categories);
-  assert.deepEqual(JSON.parse(JSON.stringify(products.map((p) => [p.id, p.name, p.price]))), [
-    ['carne', 'CARNE Asada', 25000],
-    ['pollo-1', 'Pollo Entero', 40000],
-    ['pollo-12', 'Pollo 1/2', 19000],
-    ['gaseosa', 'GASEOSA Postobon', 4000],
-  ]);
-  assert.equal(JSON.stringify(ctx.filterSaleProducts(products, 'bebidas', '').map((p) => p.id)), '["gaseosa"]');
-  assert.equal(JSON.stringify(ctx.filterSaleProducts(products, '', 'pollo').map((p) => p.id)), '["pollo-1","pollo-12"]');
+// ---------------------------------------------------------------------------
+// Nueva venta = mesero flow (shared kit)
+// ---------------------------------------------------------------------------
+
+test('Nueva venta starts with the category grid of the mesero, emoji or photo', async () => {
+  const b = await ready();
+  b.click('data-csh-new-sale');
+  const html = b.root.innerHTML;
+  assert.match(html, /class="wtr-grid-cat"/);                       // the kit's grid
+  assert.match(html, /data-csh-cat="pollo"/);
+  assert.match(html, /wtr-emoji">🍗</);                               // emoji
+  assert.match(html, /categories\/gaseosa\/image/);                   // photo replaces it
+  assert.match(html, /Venta independiente/);
+  assert.match(html, /Enviar a cocina/);
 });
 
-test('"Nueva venta" lists the products and charges an independent sale on the spot', async () => {
-  const b = await openNewSale(routesWith());
-  assert.match(b.root.innerHTML, /Nueva venta/);
-  assert.match(b.root.innerHTML, /Pollo 1\/2/);
-  assert.match(b.root.innerHTML, /GASEOSA Postobon/);
+test('a product with portions opens the kit sheet with its fraction buttons', async () => {
+  const b = await ready();
+  b.click('data-csh-new-sale');
+  b.click('data-csh-cat', 'pollo');
+  assert.match(b.root.innerHTML, /class="wtr-grid-prod"/);
+  b.click('data-csh-product', 'pollo');
+  const sheet = lastSheet(b);
+  assert.match(sheet.innerHTML, /data-qty-index="0"/);
+  assert.match(sheet.innerHTML, /<span>1\/4<\/span>/);
+  assert.match(sheet.innerHTML, /Observaciones/);
+  assert.match(sheet.innerHTML, /Sin sal/);                            // quick notes of the category
+  assert.match(sheet.innerHTML, /Agregar a la venta/);
+});
 
-  b.click('data-csh-sale-add', 'gaseosa');
-  b.click('data-csh-sale-add', 'gaseosa');
-  b.click('data-csh-sale-add', 'pollo-12');
-  assert.match(b.root.innerHTML, /data-csh-sale-pay="cash"/);   // charge right here
-  assert.match(b.root.innerHTML, /\$\s?27\.000/);                // 2x4000 + 19000
+test('a product without portions gets the whole-unit selector, and the sale is charged on the spot', async () => {
+  const b = await ready();
+  b.click('data-csh-new-sale');
+  b.click('data-csh-cat', 'gaseosa');
+  b.click('data-csh-product', 'gaseosa');
+  const sheet = lastSheet(b);
+  assert.match(sheet.innerHTML, /wtr-stepper/);
+  assert.doesNotMatch(sheet.innerHTML, /data-qty-index/);
+  sheet.querySelector('[data-sheet-add]').fire('click');
+  assert.match(b.root.innerHTML, /1 x GASEOSA Coca Cola/);
+  assert.match(b.root.innerHTML, /data-csh-sale-pay="cash"/);          // independent + no kitchen -> charge here
 
   b.click('data-csh-sale-pay', 'cash');
   await flush(); await flush();
-  const call = b.calls.find((c) => c.url.includes('/caja/ventas'));
-  assert.deepEqual(JSON.parse(call.options.body), {
+  const body = JSON.parse(b.calls.find((c) => c.url.includes('/caja/ventas')).options.body);
+  assert.deepEqual(body, {
     table: '', send_to_kitchen: false, payment_method: 'cash',
-    items: [{ inventory_item_id: 'gaseosa', quantity: 2 }, { inventory_item_id: 'pollo-12', quantity: 1 }],
+    items: [{ inventory_item_id: 'gaseosa', quantity: 1, observations: '', quick_notes: [], term: '' }],
   });
   assert.match(b.root.innerHTML, /Venta 007 cobrada/);
-  assert.match(b.root.innerHTML, /Mesas abiertas/);
+  assert.match(b.root.innerHTML, /Última cobrada: <b>Venta 007<\/b>/);
 });
 
-test('the request never carries a price', async () => {
-  const b = await openNewSale(routesWith());
-  b.click('data-csh-sale-add', 'carne');
-  b.click('data-csh-sale-pay', 'card');
-  await flush();
-  const body = JSON.parse(b.calls.find((c) => c.url.includes('/caja/ventas')).options.body);
-  assert.equal(JSON.stringify(body).includes('25000'), false);
-});
-
-test('"Enviar a cocina" replaces the payment buttons with a single send', async () => {
-  const b = await openNewSale(routesWith({ sale: [201, { ok: true, charged: false, label: 'Venta 008' }] }));
-  b.click('data-csh-sale-add', 'carne');
+test('a fraction line goes to the server as the fraction, never as a price (inventory deducted like the mesero)', async () => {
+  const b = await ready(routesWith({ sale: [201, { ok: true, charged: false, label: 'Mesa 3', order: { id: 'x' } }] }));
+  b.click('data-csh-new-sale');
+  change(b, 'data-csh-sale-table', { value: 'Mesa 3' });
   change(b, 'data-csh-sale-kitchen', { checked: true });
-  assert.doesNotMatch(b.root.innerHTML, /data-csh-sale-pay=/);
-  assert.match(b.root.innerHTML, /Se cobra cuando cocina la marque lista/);
-  b.click('data-csh-sale-send');
-  await flush(); await flush();
-  const body = JSON.parse(b.calls.find((c) => c.url.includes('/caja/ventas')).options.body);
-  assert.equal(body.send_to_kitchen, true);
-  assert.equal(body.payment_method, null);
-  assert.match(b.root.innerHTML, /Venta 008 enviado a cocina/);
-});
-
-test('adding to a table from the table screen targets that table', async () => {
-  const b = boot({ local: saved(), routes: routesWith({ sale: [201, { ok: true, charged: false, label: 'Mesa 3' }] }) });
-  await flush(); await flush(); await flush();
-  b.click('data-csh-open-table', 'mesa 3');
-  b.click('data-csh-add-product');
-  assert.match(b.root.innerHTML, /<option value="Mesa 3" selected>/);
-  b.click('data-csh-sale-add', 'gaseosa');
-  assert.match(b.root.innerHTML, /Agregar a Mesa 3/);
+  b.click('data-csh-cat', 'pollo');
+  b.click('data-csh-product', 'pollo');
+  lastSheet(b).querySelector('[data-sheet-add]').fire('click');     // default choice: "1"
+  assert.match(b.root.innerHTML, /1 · POLLO Asado/);
+  assert.match(b.root.innerHTML, /Enviar a cocina/);
   b.click('data-csh-sale-send');
   await flush(); await flush();
   const body = JSON.parse(b.calls.find((c) => c.url.includes('/caja/ventas')).options.body);
   assert.equal(body.table, 'Mesa 3');
-  assert.equal(body.send_to_kitchen, false);
+  assert.equal(body.send_to_kitchen, true);
+  assert.equal(body.payment_method, null);
+  assert.deepEqual(body.items, [{ inventory_item_id: 'pollo', quantity: 1, observations: '', quick_notes: [], term: '', fraction: '1' }]);
+  assert.equal(JSON.stringify(body).includes('40000'), false);
 });
 
-test('the quantity buttons add and remove, and the phone back leaves the sale', async () => {
-  const b = await openNewSale(routesWith());
-  b.click('data-csh-sale-add', 'gaseosa');
-  b.click('data-csh-sale-inc', 'gaseosa');
-  assert.match(b.root.innerHTML, /<b>2<\/b>/);
-  b.click('data-csh-sale-dec', 'gaseosa');
-  b.click('data-csh-sale-dec', 'gaseosa');
-  assert.match(b.root.innerHTML, /Toca un producto para agregarlo/);
+test('cart lines can be removed, and the phone back walks products -> categories -> tables', async () => {
+  const b = await ready();
+  b.click('data-csh-new-sale');
+  b.click('data-csh-cat', 'gaseosa');
+  b.click('data-csh-product', 'gaseosa');
+  lastSheet(b).querySelector('[data-sheet-add]').fire('click');
+  b.click('data-csh-sale-remove', '0');
+  assert.match(b.root.innerHTML, /Elige una categoría y agrega productos/);
+  b.history.back();
+  assert.match(b.root.innerHTML, /class="wtr-grid-cat"/);
   b.history.back();
   assert.match(b.root.innerHTML, /Mesas abiertas/);
   assert.equal(b.history.exited, false);
 });
 
-test('a failed sale stays on screen to retry', async () => {
-  const b = await openNewSale(routesWith({ sale: [422, { detail: 'Selecciona un metodo de pago valido.' }] }));
-  b.click('data-csh-sale-add', 'gaseosa');
-  b.click('data-csh-sale-pay', 'cash');
-  await flush(); await flush();
-  assert.match(b.root.innerHTML, /Nueva venta/);
-  assert.match(b.root.innerHTML, /GASEOSA Postobon/);
+test('the caja reuses the mesero components instead of copying them', () => {
+  for (const name of ['menuEmoji', 'quantityChoices', 'openItemSheet', 'categoryGridHtml', 'stepQuantity']) {
+    assert.doesNotMatch(source, new RegExp(`function ${name}\\(`), name);
+  }
+  assert.match(source, /Kit\.openItemSheet\(/);
+  assert.match(source, /Kit\.categoryGridHtml\(/);
+  assert.match(source, /Kit\.productGridHtml\(/);
 });
 
-test('without the company switch the panel has no "Nueva venta"', async () => {
-  const b = boot({ local: saved(), routes: routesWith({ directSale: false }) });
-  await flush(); await flush(); await flush();
+// ---------------------------------------------------------------------------
+// Mesas abiertas: cards
+// ---------------------------------------------------------------------------
+
+test('each card shows the big number, timer, mesero, total and real state, oldest first', async () => {
+  const b = await ready();
+  const html = b.root.innerHTML;
+  const order = ['mesa 9', 'mesa 7', 'mesa 2'].map((key) => html.indexOf(`data-csh-open-table="${key}"`));
+  assert.ok(order[0] < order[1] && order[1] < order[2], 'oldest table first');
+
+  const card = (key) => html.slice(html.indexOf(`data-csh-open-table="${key}"`), html.indexOf('</button>', html.indexOf(`data-csh-open-table="${key}"`)));
+  assert.match(card('mesa 7'), /<small>Mesa<\/small><b>7<\/b>/);
+  assert.match(card('mesa 7'), /⏱ 50 min/);
+  assert.match(card('mesa 7'), /Mesero: Laura/);
+  assert.match(card('mesa 7'), /\$\s?39\.000/);
+  assert.match(card('mesa 7'), /En preparación/);                       // one comanda still in the kitchen
+  assert.match(card('mesa 2'), /Listo para cobrar/);                    // out of the kitchen, not at the table
+  assert.match(card('mesa 9'), /Entregado/);                            // everything at the table
+  assert.match(card('mesa 9'), /⏱ 1 h 20 min/);
+});
+
+// ---------------------------------------------------------------------------
+// Table detail + print
+// ---------------------------------------------------------------------------
+
+test('the table detail lists quantity/portion, product and value, and the total', async () => {
+  const b = await ready();
+  b.click('data-csh-open-table', 'mesa 7');
+  const html = b.root.innerHTML;
+  assert.match(html, /<h1>Mesa 7<\/h1>/);
+  assert.match(html, /<td>3\/4<\/td>\s*<td>POLLO Asado/);
+  assert.match(html, /bien asado/);
+  assert.match(html, /<td>2×<\/td>\s*<td>GASEOSA Coca Cola/);
+  assert.match(html, /<tfoot><tr><td colspan="2">Total<\/td><td>\$\s?39\.000<\/td>/);
+  assert.match(html, /Datos de cobro/);
+  assert.match(html, /data-csh-print/);
+});
+
+test('Imprimir cuenta asks the server for the document and prints a CUENTA DE COBRO that is NOT a factura', async () => {
+  const b = await ready();
+  b.click('data-csh-open-table', 'mesa 7');
+  b.click('data-csh-print');
+  await flush(); await flush();
+  const request = b.calls.find((c) => c.url.includes('/caja/documento'));
+  assert.deepEqual(JSON.parse(request.options.body), { order_ids: ['o71', 'o72'] });
+  const frame = b.body.children.find((c) => c.tagName === 'iframe');
+  assert.ok(frame, 'print frame');
+  assert.match(frame.written, /CUENTA DE COBRO/);
+  assert.match(frame.written, /NO ES FACTURA DE VENTA/);
+  assert.match(frame.written, /CC-000042/);
+  assert.match(frame.written, /El Socio/);
+  assert.match(frame.written, /Gracias por su visita/);
+  assert.match(frame.written, /@page\{size:80mm auto/);
+});
+
+test('without the company switch the caja has no "Nueva venta"', async () => {
+  const b = await ready(routesWith({ directSale: false }));
   assert.doesNotMatch(b.root.innerHTML, /Nueva venta/);
   assert.equal(b.calls.some((c) => c.url.includes('/qr-tables')), false);
 });

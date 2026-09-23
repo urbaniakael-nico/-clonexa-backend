@@ -751,6 +751,7 @@
 
   const MODULE_UI = {
     core: ["Core", "base operativa", "COR"],
+    waiter_ordering: ["Documento de venta", "cuenta de cobro de la caja", "DOC"],
     workforce: ["Workforce", "personal operativo", "WRK"],
     field: ["Field Ops", "operacion en campo", "FLD"],
     transport_calls: ["Call Center / Llamadas", "registro y control de llamadas", "CALL"],
@@ -30564,7 +30565,217 @@ function inventoryCreatePayload() {
     }));
   }
 
+  /* CLONEXA_046A_SALE_DOCUMENT_MODULE_START
+     Portal module of waiter_ordering ("Pedidos por mesero"): it used to be
+     the generic "se construira" placeholder; now it configures the document
+     the caja hands out. Only for companies with waiter_ordering active. The
+     document is ALWAYS a "CUENTA DE COBRO / NO ES FACTURA DE VENTA" (the
+     server decides it, see sale_document.py); the DIAN switch only keeps the
+     legal data ready and shows that the authorized provider is missing. The
+     preview is built by the server with the same builder the caja prints
+     with, and rendered by sale_document.js (same file the caja uses). */
+  const SALE_DOC_REGIMES_046A = [
+    ["no_responsable_iva", "No responsable de IVA"],
+    ["responsable_iva", "Responsable de IVA"],
+    ["regimen_simple", "Régimen Simple de Tributación"],
+  ];
+
+  function cxIsSaleDocumentCode046A(code = "") {
+    const normalized = String(code || "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (!["waiter_ordering", "documento_de_venta", "documento_venta", "sale_document"].includes(normalized)) return false;
+    return isClientModuleActive("waiter_ordering");
+  }
+
+  function cxSaleDocFormPayload046A(form) {
+    const data = new FormData(form);
+    const text = (name) => String(data.get(name) || "").trim();
+    return {
+      logo_url: text("logo_url"),
+      trade_name: text("trade_name"),
+      legal_name: text("legal_name"),
+      nit: text("nit"),
+      address: text("address"),
+      phone: text("phone"),
+      regime: text("regime") || "no_responsable_iva",
+      iva_percent: Math.max(0, Math.min(100, Number(text("iva_percent").replace(",", ".")) || 0)),
+      prices_include_iva: data.get("prices_include_iva") === "on",
+      withholdings: text("withholdings"),
+      prefix: text("prefix").toUpperCase(),
+      numbering_start: Math.max(1, Math.floor(Number(text("numbering_start")) || 1)),
+      resolution: text("resolution"),
+      footer: text("footer"),
+      dian_electronic_enabled: data.get("dian_electronic_enabled") === "on",
+      dian_resolution_number: text("dian_resolution_number"),
+      dian_resolution_date: text("dian_resolution_date"),
+      dian_range_from: text("dian_range_from"),
+      dian_range_to: text("dian_range_to"),
+      dian_valid_until: text("dian_valid_until"),
+    };
+  }
+
+  function cxSaleDocPreviewHtml046A(preview) {
+    if (!preview || !window.CxSaleDocument) return `<div class="client-muted">Guarda la configuración para ver la vista previa.</div>`;
+    return `<iframe class="cx-saledoc-preview-046a" title="Vista previa de la cuenta de cobro" srcdoc="${h(window.CxSaleDocument.documentHtml(preview))}"></iframe>`;
+  }
+
+  function cxSaleDocFormHtml046A(data) {
+    const c = data.config || {};
+    const field = (name, label, value, attrs = "") => `
+      <label class="cx-saledoc-field-046a">${h(label)}<input name="${name}" value="${h(value ?? "")}" ${attrs}></label>`;
+    return `
+      <form class="cx-saledoc-form-046a" data-saledoc-form-046a>
+        <fieldset>
+          <legend>Emisor</legend>
+          ${field("trade_name", "Nombre comercial", c.trade_name, `placeholder="${h(data.company_name || "")}"`)}
+          ${field("legal_name", "Razón social", c.legal_name)}
+          ${field("nit", "NIT", c.nit, 'placeholder="900.123.456-7"')}
+          ${field("address", "Dirección", c.address)}
+          ${field("phone", "Teléfono", c.phone)}
+          <label class="cx-saledoc-field-046a">Logo (dirección https://)
+            <input name="logo_url" value="${h(c.logo_url || "")}" placeholder="${h(data.branding_logo_url || "https://...")}">
+            <small class="client-muted">Vacío = se usa el logo del branding de la empresa.</small>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Impuestos</legend>
+          <label class="cx-saledoc-field-046a">Régimen
+            <select name="regime">${SALE_DOC_REGIMES_046A.map(([value, label]) => `<option value="${value}" ${c.regime === value ? "selected" : ""}>${h(label)}</option>`).join("")}</select>
+          </label>
+          ${field("iva_percent", "IVA (%)", c.iva_percent ?? 0, 'type="number" min="0" max="100" step="0.01"')}
+          <label class="cx-saledoc-check-046a"><input type="checkbox" name="prices_include_iva" ${c.prices_include_iva !== false ? "checked" : ""}> Los precios ya incluyen el IVA</label>
+          <label class="cx-saledoc-field-046a cx-saledoc-wide-046a">Retenciones (texto)
+            <textarea name="withholdings" rows="2" placeholder="Ej: No somos autorretenedores">${h(c.withholdings || "")}</textarea>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Numeración</legend>
+          ${field("prefix", "Prefijo", c.prefix, 'maxlength="10" placeholder="CC"')}
+          ${field("numbering_start", "Empezar en", c.numbering_start ?? 1, 'type="number" min="1" step="1"')}
+          <div class="cx-saledoc-next-046a">Próximo número: <b>${h(data.next_number || "")}</b> <small class="client-muted">(consecutivo interno)</small></div>
+          ${field("resolution", "Resolución / nota legal", c.resolution)}
+          <label class="cx-saledoc-field-046a cx-saledoc-wide-046a">Pie de página
+            <textarea name="footer" rows="3" placeholder="Ej: Gracias por su visita">${h(c.footer || "")}</textarea>
+          </label>
+        </fieldset>
+        <fieldset class="cx-saledoc-dian-046a">
+          <legend>Facturación electrónica DIAN</legend>
+          <label class="cx-saledoc-check-046a"><input type="checkbox" name="dian_electronic_enabled" ${c.dian_electronic_enabled ? "checked" : ""}> Habilitado como facturador electrónico ante la DIAN</label>
+          ${c.dian_electronic_enabled ? `<div class="cx-saledoc-alert-046a">${h(data.dian_pending_notice || "Falta integrar el proveedor tecnológico autorizado por la DIAN.")}</div>` : `
+          <div class="client-muted">Apagado: la caja entrega una <b>CUENTA DE COBRO</b> con la leyenda <b>NO ES FACTURA DE VENTA</b> y consecutivo interno.</div>`}
+          ${field("dian_resolution_number", "N.º de resolución DIAN", c.dian_resolution_number)}
+          ${field("dian_resolution_date", "Fecha de resolución", c.dian_resolution_date, 'type="date"')}
+          ${field("dian_range_from", "Rango desde", c.dian_range_from)}
+          ${field("dian_range_to", "Rango hasta", c.dian_range_to)}
+          ${field("dian_valid_until", "Vigente hasta", c.dian_valid_until, 'type="date"')}
+          <small class="client-muted">Estos datos quedan guardados para cuando se integre el proveedor autorizado. Hoy no se envía nada a la DIAN.</small>
+        </fieldset>
+        <div class="client-actions"><button class="client-btn" type="submit">Guardar configuración</button></div>
+      </form>`;
+  }
+
+  function cxSaleDocStyles046A() {
+    if (document.getElementById("cxSaleDocStyles046A")) return;
+    const style = document.createElement("style");
+    style.id = "cxSaleDocStyles046A";
+    style.textContent = `
+      .cx-saledoc-layout-046a{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}
+      @media (max-width:1100px){.cx-saledoc-layout-046a{grid-template-columns:1fr}}
+      .cx-saledoc-form-046a{display:grid;gap:14px}
+      .cx-saledoc-form-046a fieldset{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:0;padding:14px;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.12)}
+      .cx-saledoc-form-046a legend{padding:0 6px;font-weight:1000;letter-spacing:.06em;text-transform:uppercase;font-size:12px}
+      .cx-saledoc-field-046a{display:grid;gap:6px;font-size:12px;font-weight:900}
+      .cx-saledoc-field-046a input,.cx-saledoc-field-046a select,.cx-saledoc-field-046a textarea{border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.2);color:inherit;border-radius:12px;padding:10px;font:inherit;font-weight:800}
+      .cx-saledoc-wide-046a{grid-column:1/-1}
+      .cx-saledoc-check-046a{display:flex;align-items:center;gap:8px;font-weight:900;grid-column:1/-1}
+      .cx-saledoc-next-046a{align-self:end;font-size:13px}
+      .cx-saledoc-dian-046a .client-muted{grid-column:1/-1}
+      .cx-saledoc-alert-046a{grid-column:1/-1;padding:10px 12px;border-radius:12px;background:rgba(245,158,11,.16);border:1px solid rgba(245,158,11,.45);color:#fde68a;font-weight:900}
+      .cx-saledoc-legal-046a{padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);font-weight:800;margin-bottom:14px}
+      .cx-saledoc-preview-046a{width:100%;min-height:620px;border:0;border-radius:14px;background:#fff}
+      .cx-saledoc-aside-046a{position:sticky;top:16px;display:grid;gap:8px}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function renderSaleDocumentModule046A(notice = "") {
+    if (!isClientModuleActive("waiter_ordering")) {
+      render();
+      return;
+    }
+    cxSaleDocStyles046A();
+    const company = state.company || {};
+    let data = null;
+    let loadError = "";
+    try {
+      data = await api(`/companies/${encodeURIComponent(state.companyId)}/waiter-ordering/sale-document/config`);
+    } catch (error) {
+      loadError = /\b(401|403)\b/.test(String(error && error.message))
+        ? "Solo un administrador de la empresa puede configurar el documento de venta."
+        : "No se pudo cargar la configuración del documento de venta.";
+    }
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("waiter_ordering")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Pedidos por mesero</div>
+              <h1 class="client-title">Documento de venta</h1>
+              <p class="client-muted">Datos del documento que entrega la caja al cobrar una mesa o una venta, y que se imprime con "Imprimir cuenta".</p>
+              <div class="client-actions"><button class="client-btn" type="button" data-client-back-dashboard>Volver</button></div>
+            </header>
+            ${notice ? `<div class="personal-toast">${h(notice)}</div>` : ""}
+            ${loadError ? `<div class="personal-toast error">${h(loadError)}</div>` : ""}
+            ${data ? `
+              <div class="cx-saledoc-legal-046a">
+                El documento se titula <b>${h(data.title)}</b> y lleva visible <b>${h(data.not_invoice_notice)}</b>:
+                mientras la empresa no esté habilitada ante la DIAN y conectada a un proveedor autorizado, no puede llamarse factura ni parecerlo.
+              </div>
+              <div class="cx-saledoc-layout-046a">
+                ${cxSaleDocFormHtml046A(data)}
+                <aside class="cx-saledoc-aside-046a">
+                  <strong>Vista previa (ejemplo)</strong>
+                  ${cxSaleDocPreviewHtml046A(data.preview)}
+                </aside>
+              </div>` : ""}
+          </section>
+        </div>
+      </main>`;
+  }
+
+  document.addEventListener("submit", async (event) => {
+    const form = event.target && event.target.closest ? event.target.closest("[data-saledoc-form-046a]") : null;
+    if (!form) return;
+    event.preventDefault();
+    try {
+      await api(`/companies/${encodeURIComponent(state.companyId)}/waiter-ordering/sale-document/config`, {
+        method: "PUT",
+        body: JSON.stringify(cxSaleDocFormPayload046A(form)),
+      });
+      await renderSaleDocumentModule046A("Configuración del documento de venta guardada.");
+    } catch (error) {
+      const text = String(error && error.message || "");
+      const detail = text.includes("422") ? " Revisa el prefijo (letras, números y guion) y que el logo sea una dirección https://." : "";
+      await renderSaleDocumentModule046A(`No se pudo guardar.${detail}`);
+    }
+  });
+  /* CLONEXA_046A_SALE_DOCUMENT_MODULE_END */
+
   async function renderClientModulePlaceholder(code) {
+    if (typeof cxIsSaleDocumentCode046A === "function" && cxIsSaleDocumentCode046A(code)) {
+      return renderSaleDocumentModule046A();
+    }
     if (cxIsMarketplaceAccessCode030H(code)) {
       return renderMarketplaceAccessModule030H();
     }

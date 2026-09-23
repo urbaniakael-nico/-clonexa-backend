@@ -4,34 +4,21 @@
 const { readFileSync } = require('node:fs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
 
 const source = readFileSync('app/web/hsp_waiter.js', 'utf8');
 
-function fn(name) {
-  const start = source.search(new RegExp(`\\n  (?:async )?function ${name}\\(`));
-  assert.ok(start >= 0, name);
-  const tail = source.slice(start + 3);
-  const next = tail.search(/\n  (?:async )?function |\n  let |\n  const |\n  document\./);
-  return (next < 0 ? tail : tail.slice(0, next)) + '\n';
-}
+const { loadKit } = require('./_menu_kit.cjs');
 
-function constBlock(name) {
-  const start = source.indexOf(`\n  const ${name} = `);
-  assert.ok(start >= 0, name);
-  const end = source.indexOf(';\n', start);
-  return source.slice(start, end + 2).replace(`const ${name}`, `var ${name}`);
-}
-
+// The emoji table, tileArt and tableTitle live in hsp_menu_kit.js (shared by
+// the mesero and caja panels).
 function context(menuEmojis = true) {
-  const ctx = vm.createContext({ String, Array });
-  vm.runInContext(
-    `var companyId = "c1"; var state = { menuEmojis: ${menuEmojis} };\n`
-      + constBlock('MENU_EMOJIS') + constBlock('DEFAULT_MENU_EMOJI')
-      + fn('menuEmoji') + fn('tileArt') + fn('tableTitle'),
-    ctx,
-  );
-  return ctx;
+  const Kit = loadKit();
+  return {
+    MENU_EMOJIS: Kit.MENU_EMOJIS,
+    menuEmoji: Kit.menuEmoji,
+    tableTitle: Kit.tableTitle,
+    tileArt: (kind, item) => Kit.tileArt(kind, item, { companyId: 'c1', emojis: menuEmojis }),
+  };
 }
 
 test('each kind of food gets its own emoji', () => {

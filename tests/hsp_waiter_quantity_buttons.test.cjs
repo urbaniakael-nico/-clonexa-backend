@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 
 const source = readFileSync('app/web/hsp_waiter.js', 'utf8');
+const { loadKit } = require('./_menu_kit.cjs');
 
 function fn(name) {
   const start = source.search(new RegExp(`\\n  (?:async )?function ${name}\\(`));
@@ -13,15 +14,20 @@ function fn(name) {
   return (next < 0 ? tail : tail.slice(0, next)) + '\n';
 }
 
+// Quantity buttons, cart-line math and the order payload live in
+// hsp_menu_kit.js (shared with the caja); avisosMarkup stays in the mesero.
 function context(extraState = {}) {
-  const ctx = vm.createContext({ Intl, Math, Number, String, JSON, Array });
-  vm.runInContext(
-    `var state = ${JSON.stringify({ cart: [], menu: [], quantityButtons: [], ...extraState })};\n`
-      + ['h', 'money', 'cartTotal', 'orderItemPayload', 'portionFraction', 'quantityChoices',
-        'defaultChoiceIndex', 'choiceCartLine', 'findMenuProduct', 'cartLineLabel', 'avisosMarkup'].map(fn).join('\n'),
-    ctx,
-  );
-  return ctx;
+  const Kit = loadKit();
+  const state = { cart: [], menu: [], quantityButtons: [], ...extraState };
+  const waiterCtx = vm.createContext({ h: Kit.h, String });
+  vm.runInContext(fn('avisosMarkup'), waiterCtx);
+  return {
+    ...Kit,
+    state,
+    cartTotal: () => Kit.cartTotal(state.cart),
+    findMenuProduct: (id) => Kit.findMenuProduct(state.menu, id),
+    avisosMarkup: waiterCtx.avisosMarkup,
+  };
 }
 
 // Menu product exactly as waiter_ordering_menu returns it with the switch on.
@@ -136,8 +142,7 @@ test('the ready notice reads "Mesa X lista para llevar" and escapes the text', (
 });
 
 test('the whole-unit selector never goes below 1, above 99, or to a fraction', () => {
-  const ctx = vm.createContext({ Math, Number });
-  vm.runInContext(fn('stepQuantity'), ctx);
+  const ctx = loadKit();
   assert.equal(ctx.stepQuantity(1, -1), 1);
   assert.equal(ctx.stepQuantity(2, 1), 3);
   assert.equal(ctx.stepQuantity(99, 1), 99);
