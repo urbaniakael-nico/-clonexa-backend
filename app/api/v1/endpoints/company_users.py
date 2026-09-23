@@ -364,6 +364,9 @@ async def mini_panel_login(
         expires_minutes=expires_in_minutes,
     )
 
+    if panel_type == "cocina":
+        await _cx_kitchen_autostart_on_login_044d(db, company_id, user)
+
     session = await _cx_minipanel_session_payload_019d(db, company, user, panel_type)
     session.update({
         "access_token": token,
@@ -371,6 +374,29 @@ async def mini_panel_login(
         "expires_in": expires_in_minutes * 60,
     })
     return session
+
+
+async def _cx_kitchen_autostart_on_login_044d(db: AsyncSession, company_id: UUID, user: CompanyUser) -> None:
+    """Entering the kitchen panel starts counting that cook's shift for
+    Workforce/nomina (only with the company's kitchen_roster switch on). A
+    failure here is logged and never blocks the login itself."""
+    try:
+        settings = await _cx_waiter_ordering_module_settings_026k(db, company_id)
+        if settings.get("kitchen_roster") is not True:
+            return
+        mini_panel = _cx_store_member_mini_panel_023w(user)
+        employee_id = str(mini_panel.get("employee_id") or "").strip()
+        if not employee_id:
+            return
+        await cx_kitchen_roster_action_044d(db, company_id, employee_id, "iniciar", user)
+    except Exception as exc:  # noqa: BLE001 - attendance must never block a login
+        import logging
+
+        logging.getLogger("clonexa.kitchen_roster").warning("No se pudo iniciar el turno de cocina al entrar: %s", exc)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
 @router.post("/{company_id}/mini-panel-refresh")
@@ -2180,40 +2206,23 @@ async def _cx_store_team_target_023w(
     return company, current_user, current_mini_panel, slot, target_user, target_mini_panel
 
 
-async def _cx_mp_apply_operational_action_023w(
+async def _cx_mp_apply_action_to_row_044d(
     db: AsyncSession,
     company: Company,
     user: CompanyUser,
     mini_panel: Dict[str, Any],
-    panel_type: str,
-    action: str,
-    *,
-    allow_missing: bool = False,
-) -> Dict[str, Any] | None:
-    clean_action = str(action or "").strip().lower()
-    clean_type = _cx_panel_type_019d(panel_type)
-
-    if clean_action == "start":
-        row = await _cx_mp_get_or_create_session_019f(db, company.id, user, mini_panel, clean_type)
-        await _cx_mp_sync_attendance_023j(db, company.id, user, mini_panel, row)
-        await db.commit()
-        return await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)
-
-    if clean_action not in {"pause", "resume", "finish"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Accion de turno invalida.")
-
-    row = await _cx_mp_fetch_open_session_019f(db, company.id, user.id, clean_type)
-    if not row:
-        if allow_missing:
-            return None
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesion operativa activa.")
-
+    row: Dict[str, Any],
+    clean_action: str,
+) -> Dict[str, Any]:
+    """pause / resume / finish one OPEN work session row and mirror it to
+    Workforce attendance (CRM + nomina). Returns the updated row. Shared by
+    the per-login shift actions and the kitchen "Registro entrada" roster."""
     current_status = str(row.get("status") or "").lower()
     now = datetime.now(timezone.utc)
 
     if clean_action == "pause":
         if current_status == "break":
-            return await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)
+            return row
         active_delta = _cx_mp_seconds_between_019f(row.get("active_started_at"), now)
         await db.execute(
             text("""
@@ -2230,7 +2239,7 @@ async def _cx_mp_apply_operational_action_023w(
         event_type = "break_start"
     elif clean_action == "resume":
         if current_status == "active":
-            return await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)
+            return row
         break_delta = _cx_mp_seconds_between_019f(row.get("current_break_started_at"), now)
         await db.execute(
             text("""
@@ -2273,7 +2282,286 @@ async def _cx_mp_apply_operational_action_023w(
     updated = await _cx_mp_fetch_session_by_id_019f(db, str(row["id"]))
     await _cx_mp_sync_attendance_023j(db, company.id, user, mini_panel, updated, event_type=event_type, event_at=now)
     await db.commit()
+    return updated
+
+
+async def _cx_mp_apply_operational_action_023w(
+    db: AsyncSession,
+    company: Company,
+    user: CompanyUser,
+    mini_panel: Dict[str, Any],
+    panel_type: str,
+    action: str,
+    *,
+    allow_missing: bool = False,
+) -> Dict[str, Any] | None:
+    clean_action = str(action or "").strip().lower()
+    clean_type = _cx_panel_type_019d(panel_type)
+
+    if clean_action == "start":
+        row = await _cx_mp_get_or_create_session_019f(db, company.id, user, mini_panel, clean_type)
+        await _cx_mp_sync_attendance_023j(db, company.id, user, mini_panel, row)
+        await db.commit()
+        return await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)
+
+    if clean_action not in {"pause", "resume", "finish"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Accion de turno invalida.")
+
+    row = await _cx_mp_fetch_open_session_019f(db, company.id, user.id, clean_type)
+    if not row:
+        if allow_missing:
+            return None
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesion operativa activa.")
+
+    updated = await _cx_mp_apply_action_to_row_044d(db, company, user, mini_panel, row, clean_action)
     return await _cx_mp_operational_response_023p(db, company, user, mini_panel, updated)
+
+
+# CLONEXA_044D_KITCHEN_ROSTER_START
+# Cocina "Registro entrada": every Workforce person assigned to the kitchen
+# (role cocina/cocinero/parrillero/chef, or linked to a cocina login) gets
+# Iniciar / Pausar / Salir turno on the kitchen tablet. Their shift is a
+# normal mini_panel_work_sessions row (panel_type 'cocina') keyed by
+# employee_id -- which is exactly what Workforce attendance, CRM live status
+# and payroll already read -- so each person shows up on their own. A cook
+# without a mini panel login has user_id NULL; one with a login shares the
+# very same row his own login uses. Every button press is recorded in
+# action_log (who pressed it, from which kitchen login, when).
+KITCHEN_ROLE_WORDS_044D = ("cocin", "parrill", "chef", "kitchen")
+_kitchen_roster_storage_ready_044d = False
+
+
+async def _cx_kitchen_roster_ensure_044d(db: AsyncSession) -> None:
+    global _kitchen_roster_storage_ready_044d
+    if _kitchen_roster_storage_ready_044d:
+        return
+    await _cx_mp_work_ensure_019f(db)
+    await db.execute(text("ALTER TABLE mini_panel_work_sessions ALTER COLUMN user_id DROP NOT NULL"))
+    await db.execute(text(
+        "ALTER TABLE mini_panel_work_sessions ADD COLUMN IF NOT EXISTS action_log jsonb NOT NULL DEFAULT '[]'::jsonb"
+    ))
+    await db.commit()
+    _kitchen_roster_storage_ready_044d = True
+
+
+def _cx_is_kitchen_role_044d(role: Any) -> bool:
+    import unicodedata
+
+    raw = unicodedata.normalize("NFKD", str(role or "")).encode("ascii", "ignore").decode("ascii").lower()
+    return any(word in raw for word in KITCHEN_ROLE_WORDS_044D)
+
+
+async def _cx_kitchen_logins_by_employee_044d(db: AsyncSession, company_id: UUID) -> Dict[str, CompanyUser]:
+    result = await db.execute(select(CompanyUser).where(CompanyUser.company_id == company_id))
+    users: Dict[str, CompanyUser] = {}
+    for user in result.scalars().all():
+        mini_panel = _cx_store_member_mini_panel_023w(user)
+        employee_id = str(mini_panel.get("employee_id") or "").strip()
+        if mini_panel.get("enabled") is True and str(mini_panel.get("type") or "") == "cocina" and employee_id:
+            users[employee_id] = user
+    return users
+
+
+async def _cx_kitchen_roster_people_044d(
+    db: AsyncSession, company_id: UUID,
+) -> tuple[list[Employee], Dict[str, CompanyUser]]:
+    logins = await _cx_kitchen_logins_by_employee_044d(db, company_id)
+    result = await db.execute(select(Employee).where(Employee.company_id == company_id))
+    people = [
+        employee for employee in result.scalars().all()
+        if str(employee.status or "active").strip().lower() not in {"archived", "inactive", "inactivo", "retirado"}
+        and (_cx_is_kitchen_role_044d(employee.role) or _cx_is_kitchen_role_044d(employee.employee_type) or str(employee.id) in logins)
+    ]
+    people.sort(key=lambda employee: str(employee.full_name or "").lower())
+    return people, logins
+
+
+async def _cx_kitchen_open_sessions_044d(
+    db: AsyncSession, company_id: UUID, employee_ids: list[str],
+) -> Dict[str, Dict[str, Any]]:
+    uuids = _cx_uuid_list_023w(employee_ids)
+    if not uuids:
+        return {}
+    params: Dict[str, Any] = {"company_id": str(company_id)}
+    placeholders = []
+    for index, value in enumerate(uuids):
+        params[f"e_{index}"] = str(value)
+        placeholders.append(f"CAST(:e_{index} AS uuid)")
+    result = await db.execute(
+        text(f"""
+            SELECT DISTINCT ON (employee_id) *
+            FROM mini_panel_work_sessions
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND panel_type = 'cocina'
+              AND employee_id IN ({', '.join(placeholders)})
+              AND status IN ('active', 'break')
+            ORDER BY employee_id, started_at DESC
+        """),
+        params,
+    )
+    return {str(row["employee_id"]): dict(row) for row in result.mappings().all()}
+
+
+def _cx_kitchen_member_payload_044d(
+    employee: Employee, login: CompanyUser | None, row: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    session = _cx_mp_operational_payload_019f(row) if row else None
+    state = "off"
+    if session:
+        state = "on_break" if session["status"] == "break" else "working"
+    return {
+        "employee_id": str(employee.id),
+        "full_name": str(employee.full_name or "Colaborador"),
+        "role": str(employee.role or ""),
+        "has_login": bool(login),
+        "state": state,
+        "session": session,
+    }
+
+
+class _AutoCloseOperator044D:
+    id = ""
+    email = ""
+    full_name = "Cierre automatico"
+
+
+async def _cx_kitchen_autoclose_stale_044d(
+    db: AsyncSession, company_id: UUID, sessions: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """A forgotten "Salir turno" must not keep counting payroll hours: past
+    the company's shift_max_hours the shift is finished automatically, the
+    same limit the per-login shifts already use."""
+    max_hours = await _cx_mp_shift_max_hours_028q(db, company_id)
+    if not max_hours or not sessions:
+        return sessions
+    now = datetime.now(timezone.utc)
+    company = None
+    still_open: Dict[str, Dict[str, Any]] = {}
+    for employee_id, row in sessions.items():
+        started_at = _cx_mp_dt_019f(row.get("started_at"))
+        if started_at and (now - started_at).total_seconds() / 3600.0 >= max_hours:
+            company = company or await _cx_company_or_404_019d(db, company_id)
+            await _cx_mp_apply_action_to_row_044d(
+                db, company, _AutoCloseOperator044D(), {"type": "cocina", "employee_id": employee_id}, row, "finish",
+            )
+            continue
+        still_open[employee_id] = row
+    return still_open
+
+
+async def cx_kitchen_roster_payload_044d(db: AsyncSession, company_id: UUID) -> Dict[str, Any]:
+    await _cx_kitchen_roster_ensure_044d(db)
+    people, logins = await _cx_kitchen_roster_people_044d(db, company_id)
+    sessions = await _cx_kitchen_open_sessions_044d(db, company_id, [str(p.id) for p in people])
+    sessions = await _cx_kitchen_autoclose_stale_044d(db, company_id, sessions)
+    return {
+        "members": [
+            _cx_kitchen_member_payload_044d(person, logins.get(str(person.id)), sessions.get(str(person.id)))
+            for person in people
+        ],
+    }
+
+
+async def _cx_kitchen_create_session_044d(
+    db: AsyncSession, company_id: UUID, employee_id: str, login: CompanyUser | None,
+) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    session_id = str(uuid4())
+    await db.execute(
+        text("""
+            INSERT INTO mini_panel_work_sessions (
+                id, company_id, user_id, employee_id, panel_type, status, location_label,
+                started_at, active_started_at, active_seconds, break_seconds, created_at, updated_at
+            )
+            VALUES (
+                CAST(:id AS uuid), CAST(:company_id AS uuid),
+                CAST(:user_id AS uuid), CAST(:employee_id AS uuid),
+                'cocina', 'active', 'Cocina', :now, :now, 0, 0, :now, :now
+            )
+        """),
+        {
+            "id": session_id,
+            "company_id": str(company_id),
+            "user_id": str(login.id) if login else None,
+            "employee_id": str(employee_id),
+            "now": now,
+        },
+    )
+    await db.commit()
+    return await _cx_mp_fetch_session_by_id_019f(db, session_id)
+
+
+KITCHEN_ACTIONS_044D = {
+    "iniciar": "start", "start": "start", "reanudar": "start", "resume": "start",
+    "pausar": "pause", "pause": "pause",
+    "salir": "finish", "salir_turno": "finish", "finish": "finish",
+}
+
+
+async def cx_kitchen_roster_action_044d(
+    db: AsyncSession,
+    company_id: UUID,
+    employee_id: str,
+    action: str,
+    operator: CompanyUser,
+) -> Dict[str, Any]:
+    """Iniciar (start, or resume from a pause) / Pausar / Salir turno for one
+    person of the kitchen roster, pressed on the kitchen tablet by
+    `operator` (the logged-in cocina account, recorded in action_log)."""
+    clean_action = KITCHEN_ACTIONS_044D.get(str(action or "").strip().lower())
+    if not clean_action:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Accion de turno invalida.")
+    await _cx_kitchen_roster_ensure_044d(db)
+    people, logins = await _cx_kitchen_roster_people_044d(db, company_id)
+    employee = next((p for p in people if str(p.id) == str(employee_id)), None)
+    if not employee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esta persona no esta asignada a cocina.")
+    login = logins.get(str(employee.id))
+    company = await _cx_company_or_404_019d(db, company_id)
+    mini_panel = {"type": "cocina", "employee_id": str(employee.id)}
+    row = (await _cx_kitchen_open_sessions_044d(db, company_id, [str(employee.id)])).get(str(employee.id))
+    now = datetime.now(timezone.utc)
+
+    if clean_action == "start":
+        if row and str(row.get("status")) == "break":
+            row = await _cx_mp_apply_action_to_row_044d(db, company, operator, mini_panel, row, "resume")
+            logged = "reanudar"
+        elif row:
+            logged = ""  # already working: nothing to do, nothing to log
+        else:
+            row = await _cx_kitchen_create_session_044d(db, company_id, str(employee.id), login)
+            await _cx_mp_sync_attendance_023j(db, company_id, operator, mini_panel, row, event_type="start_shift", event_at=now)
+            await db.commit()
+            logged = "iniciar"
+    else:
+        if not row:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Esta persona no tiene un turno abierto.")
+        row = await _cx_mp_apply_action_to_row_044d(db, company, operator, mini_panel, row, clean_action)
+        logged = "pausar" if clean_action == "pause" else "salir_turno"
+
+    if logged:
+        await db.execute(
+            text("""
+                UPDATE mini_panel_work_sessions
+                SET action_log = COALESCE(action_log, '[]'::jsonb) || CAST(:entry AS jsonb)
+                WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid)
+            """),
+            {
+                "entry": json.dumps([{
+                    "action": logged,
+                    "at": now.isoformat(),
+                    "by_user_id": str(operator.id),
+                    "by_name": operator.full_name or "",
+                }], ensure_ascii=False),
+                "id": str(row["id"]),
+                "company_id": str(company_id),
+            },
+        )
+        await db.commit()
+
+    open_row = None if clean_action == "finish" else row
+    return _cx_kitchen_member_payload_044d(employee, login, open_row)
+# CLONEXA_044D_KITCHEN_ROSTER_END
 
 
 async def _cx_store_finish_other_team_sessions_023w(

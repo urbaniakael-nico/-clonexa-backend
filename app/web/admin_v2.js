@@ -2726,6 +2726,7 @@
     return {
       kitchen_board_columns: source.kitchen_board_columns === true,
       cashier_direct_sale: source.cashier_direct_sale === true,
+      kitchen_roster: source.kitchen_roster === true,
       quantity_buttons_enabled: source.quantity_buttons_enabled === true,
       quantity_buttons: Array.isArray(source.quantity_buttons) && source.quantity_buttons.length
         ? source.quantity_buttons.map(String)
@@ -2836,6 +2837,10 @@
             <label class="cx-reset-scope">
               <input type="checkbox" name="kitchen_board_columns" ${settings.kitchen_board_columns ? "checked" : ""}>
               <span>Cocina en 3 columnas (Pedido nuevo / Preparando / Listo), boton Entregado y aviso "Mesa X lista para llevar" al mesero</span>
+            </label>
+            <label class="cx-reset-scope">
+              <input type="checkbox" name="kitchen_roster" ${settings.kitchen_roster ? "checked" : ""}>
+              <span>Cocina: "Registro entrada" (iniciar / pausar / salir turno por persona, enlazado a Workforce y nomina; el turno empieza al entrar al panel)</span>
             </label>
             <label class="cx-reset-scope">
               <input type="checkbox" name="cashier_direct_sale" ${settings.cashier_direct_sale ? "checked" : ""}>
@@ -3159,6 +3164,7 @@
       segments: cxReadWaiterOrderingSegmentsFromForm031T(data),
       kitchen_board_columns: data.kitchen_board_columns === "on",
       cashier_direct_sale: data.cashier_direct_sale === "on",
+      kitchen_roster: data.kitchen_roster === "on",
       quantity_buttons_enabled: data.quantity_buttons_enabled === "on",
       quantity_buttons: cxReadQuantityButtons042K(data.quantity_buttons),
     };

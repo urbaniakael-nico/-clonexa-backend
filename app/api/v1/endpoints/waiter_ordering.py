@@ -32,7 +32,11 @@ from app.models.auth import CompanyUser
 from app.services import media_storage
 from app.services.access_sessions import ip_allowed_for_scope
 
-from app.api.v1.endpoints.company_users import require_company_user_admin_access
+from app.api.v1.endpoints.company_users import (
+    cx_kitchen_roster_action_044d,
+    cx_kitchen_roster_payload_044d,
+    require_company_user_admin_access,
+)
 from app.api.v1.endpoints.hospitality import (
     ACTIVE_STATUSES,
     HospitalityCloseIn,
@@ -1262,6 +1266,7 @@ async def waiter_ordering_kitchen_board(
         "comandas": comandas,
         "timer_thresholds": timer_thresholds,
         "columns_enabled": columns_enabled,
+        "roster_enabled": module_settings.get(KITCHEN_ROSTER_FLAG) is True,
     }
     if columns_enabled:
         ready_rows = await _ready_unclaimed_orders(db, company_id, datetime.now(timezone.utc) - timedelta(hours=24))
@@ -1402,6 +1407,36 @@ async def mark_waiter_order_delivered(
     )
     await db.commit()
     return {"ok": True, "order": await _fetch_order(db, company_id, order_id)}
+
+
+# Registro entrada (switch kitchen_roster, off by default): the kitchen
+# tablet lists everyone assigned to cocina with Iniciar / Pausar / Salir
+# turno; each person's shift feeds Workforce attendance (CRM) and payroll
+# on its own. See company_users.cx_kitchen_roster_* for the storage.
+KITCHEN_ROSTER_FLAG = "kitchen_roster"
+
+
+@router.get("/{company_id}/waiter-ordering/kitchen-team")
+async def kitchen_team(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: CompanyUser = Depends(_require_cocina),
+) -> dict[str, Any]:
+    await _require_feature(db, company_id, KITCHEN_ROSTER_FLAG)
+    return {"ok": True, **(await cx_kitchen_roster_payload_044d(db, company_id))}
+
+
+@router.post("/{company_id}/waiter-ordering/kitchen-team/{employee_id}/{action}")
+async def kitchen_team_action(
+    company_id: uuid.UUID,
+    employee_id: uuid.UUID,
+    action: str,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_cocina),
+) -> dict[str, Any]:
+    await _require_feature(db, company_id, KITCHEN_ROSTER_FLAG)
+    member = await cx_kitchen_roster_action_044d(db, company_id, str(employee_id), action, user)
+    return {"ok": True, "member": member}
 
 
 @router.get("/{company_id}/waiter-ordering/kitchen/entregadas")

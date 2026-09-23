@@ -21,6 +21,10 @@
     columns: { nuevo: [], preparando: [], listo: [] },
     view: "board",
     history: [],
+    // Registro entrada: only with the company's kitchen_roster switch on.
+    rosterEnabled: false,
+    roster: [],
+    rosterLoadedAt: 0,
   };
 
   const COLUMNS = [
@@ -100,8 +104,11 @@
       state.thresholds = data.timer_thresholds || state.thresholds;
       state.stations = Array.isArray(data.stations) ? data.stations : [];
       state.columnsEnabled = data.columns_enabled === true;
+      state.rosterEnabled = data.roster_enabled === true;
       state.columns = boardColumns(data);
-      if (state.view === "board" || !state.columnsEnabled) render();
+      if (state.view === "board") render();
+      else if (state.view === "roster" && Date.now() - state.rosterLoadedAt > 15000) loadRoster();
+      else if (state.view === "roster") render();   // keeps the shift timers ticking
     } catch (_) {
       // keep last board on transient errors; the 401 handler already redirects on session kick
     }
@@ -136,6 +143,59 @@
       state.error = error.message || "No se pudo mover la comanda.";
       render();
     }
+  }
+
+  async function loadRoster() {
+    try {
+      const data = await waiterApi("/kitchen-team");
+      state.roster = Array.isArray(data.members) ? data.members : [];
+      state.rosterLoadedAt = Date.now();
+    } catch (error) {
+      state.error = error.message || "No se pudo cargar el registro de entrada.";
+    }
+    render();
+  }
+
+  async function rosterAction(employeeId, action, button) {
+    button.disabled = true;
+    try {
+      const data = await waiterApi(`/kitchen-team/${encodeURIComponent(employeeId)}/${action}`, { method: "POST" });
+      const member = data.member;
+      if (member) state.roster = state.roster.map((m) => (m.employee_id === member.employee_id ? member : m));
+      render();
+    } catch (error) {
+      button.disabled = false;
+      state.error = error.message || "No se pudo actualizar el turno.";
+      render();
+    }
+  }
+
+  // Which buttons each person gets: Iniciar when out (or to come back from
+  // a pause), Pausar while working, Salir turno whenever a shift is open.
+  function rosterButtons(member) {
+    if (member.state === "working") return ["pausar", "salir"];
+    if (member.state === "on_break") return ["iniciar", "salir"];
+    return ["iniciar"];
+  }
+
+  // Worked time, live: the server's active_seconds plus what has run since
+  // it answered while the person is working.
+  function workedSeconds(member, nowMs) {
+    const session = member.session;
+    if (!session) return 0;
+    let seconds = Number(session.active_seconds || 0);
+    if (member.state === "working") {
+      const serverTime = Date.parse(session.server_time || "");
+      if (Number.isFinite(serverTime)) seconds += Math.max(0, (nowMs - serverTime) / 1000);
+    }
+    return Math.floor(seconds);
+  }
+
+  function formatWorked(seconds) {
+    const total = Math.max(0, Math.floor(Number(seconds || 0)));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    return `${hours}h ${String(minutes).padStart(2, "0")}m`;
   }
 
   async function loadHistory() {
@@ -329,6 +389,30 @@
       </div>`;
   }
 
+  function screenRoster() {
+    const labels = { iniciar: "INICIAR", pausar: "PAUSAR", salir: "SALIR TURNO" };
+    const states = { working: "Trabajando", on_break: "En pausa", off: "Fuera de turno" };
+    const now = Date.now();
+    return `
+      <div class="ktc-roster">
+        ${state.roster.map((member) => `
+          <div class="ktc-roster-row ktc-roster-${h(member.state)}">
+            <div class="ktc-roster-who">
+              <strong>${h(member.full_name)}</strong>
+              <span>${h(member.role || "Cocina")}</span>
+            </div>
+            <div class="ktc-roster-state">
+              <span class="ktc-roster-chip">${h(states[member.state] || member.state)}</span>
+              ${member.session ? `<span class="ktc-roster-time">${h(formatWorked(workedSeconds(member, now)))}</span>` : ""}
+            </div>
+            <div class="ktc-roster-actions">
+              ${rosterButtons(member).map((action) => `
+                <button type="button" class="ktc-btn ktc-roster-btn ktc-roster-${action}" data-ktc-roster="${h(member.employee_id)}" data-ktc-roster-action="${action}">${labels[action]}</button>`).join("")}
+            </div>
+          </div>`).join("") || `<div class="ktc-empty">No hay personas asignadas a cocina en Workforce.</div>`}
+      </div>`;
+  }
+
   function screenBoard() {
     return `
       <section class="ktc-shell">
@@ -339,15 +423,19 @@
             <span class="ktc-dot ktc-timer-yellow"></span> ${h(state.thresholds.green_max_minutes)}-${h(state.thresholds.yellow_max_minutes)}
             <span class="ktc-dot ktc-timer-red"></span> &gt; ${h(state.thresholds.yellow_max_minutes)} min
           </div>
-          ${state.columnsEnabled ? `
-            <button class="ktc-btn ktc-btn-tab" type="button" data-ktc-view="${state.view === "history" ? "board" : "history"}">
-              ${state.view === "history" ? "Volver al tablero" : "Entregadas hoy"}
-            </button>` : ""}
+          ${state.view !== "board" ? `
+            <button class="ktc-btn ktc-btn-tab" type="button" data-ktc-view="board">Volver al tablero</button>` : ""}
+          ${state.columnsEnabled && state.view !== "history" ? `
+            <button class="ktc-btn ktc-btn-tab" type="button" data-ktc-view="history">Entregadas hoy</button>` : ""}
+          ${state.rosterEnabled && state.view !== "roster" ? `
+            <button class="ktc-btn ktc-btn-tab" type="button" data-ktc-view="roster">Registro entrada</button>` : ""}
           <button class="ktc-logout" type="button" data-ktc-logout aria-label="Salir">⏻</button>
         </header>
-        ${state.columnsEnabled
-          ? (state.view === "history" ? screenHistory() : screenColumns())
-          : `<div class="ktc-board">
+        ${state.view === "roster" && state.rosterEnabled
+          ? screenRoster()
+          : state.columnsEnabled
+            ? (state.view === "history" ? screenHistory() : screenColumns())
+            : `<div class="ktc-board">
           ${state.comandas.map(comandaCard).join("") || `<div class="ktc-empty">Sin comandas pendientes en tus estaciones.</div>`}
         </div>`}
       </section>`;
@@ -398,9 +486,17 @@
 
     const viewBtn = target.closest("[data-ktc-view]");
     if (viewBtn) {
-      state.view = viewBtn.getAttribute("data-ktc-view") === "history" ? "history" : "board";
+      const view = viewBtn.getAttribute("data-ktc-view");
+      state.view = view === "history" || view === "roster" ? view : "board";
       if (state.view === "history") loadHistory();
+      else if (state.view === "roster") loadRoster();
       else render();
+      return;
+    }
+
+    const rosterBtn = target.closest("[data-ktc-roster]");
+    if (rosterBtn && !rosterBtn.disabled) {
+      rosterAction(rosterBtn.getAttribute("data-ktc-roster"), rosterBtn.getAttribute("data-ktc-roster-action"), rosterBtn);
       return;
     }
 
@@ -472,6 +568,24 @@
     .ktc-card.ktc-card-listo{border-color:#16a34a}
     .ktc-btn-start{border:none;width:100%;min-height:60px;font-size:18px;background:linear-gradient(135deg,#3b82f6,#2563eb)}
     .ktc-btn-deliver{border:none;width:100%;min-height:60px;font-size:18px;background:linear-gradient(135deg,#a855f7,#7c3aed)}
+    .ktc-roster{display:grid;gap:10px;padding:16px}
+    .ktc-roster-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:14px 16px;border-radius:18px;background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.08)}
+    @media (max-width:700px){.ktc-roster-row{grid-template-columns:1fr}}
+    .ktc-roster-row.ktc-roster-working{border-color:#16a34a}
+    .ktc-roster-row.ktc-roster-on_break{border-color:#d97706}
+    .ktc-roster-who{display:grid;gap:2px;min-width:0}
+    .ktc-roster-who strong{font-size:20px}
+    .ktc-roster-who span{font-size:12px;color:#a5b4fc;font-weight:800;text-transform:capitalize}
+    .ktc-roster-state{display:grid;gap:4px;justify-items:end}
+    .ktc-roster-chip{padding:4px 12px;border-radius:999px;font-size:12px;font-weight:900;background:rgba(255,255,255,.1)}
+    .ktc-roster-working .ktc-roster-chip{background:rgba(34,197,94,.22);color:#86efac}
+    .ktc-roster-on_break .ktc-roster-chip{background:rgba(217,119,6,.25);color:#fde68a}
+    .ktc-roster-time{font-size:20px;font-weight:1000;font-variant-numeric:tabular-nums}
+    .ktc-roster-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .ktc-roster-btn{min-height:52px;padding:0 18px;font-size:15px;border:none}
+    .ktc-roster-iniciar{background:linear-gradient(135deg,#22c55e,#16a34a)}
+    .ktc-roster-pausar{background:linear-gradient(135deg,#f59e0b,#d97706)}
+    .ktc-roster-salir{background:linear-gradient(135deg,#ef4444,#b91c1c)}
     .ktc-history{display:grid;gap:10px;padding:16px}
     .ktc-history-row{display:grid;gap:4px;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
     .ktc-history-row strong{font-size:22px}

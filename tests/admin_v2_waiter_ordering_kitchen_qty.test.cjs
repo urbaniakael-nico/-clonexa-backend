@@ -57,3 +57,10 @@ test('caja direct sale is off unless explicitly true', () => {
   assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ cashier_direct_sale: 'yes' }).cashier_direct_sale, false);
   assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ cashier_direct_sale: true }).cashier_direct_sale, true);
 });
+
+test('kitchen roster is off unless explicitly true', () => {
+  const ctx = context();
+  assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({}).kitchen_roster, false);
+  assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ kitchen_roster: 1 }).kitchen_roster, false);
+  assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ kitchen_roster: true }).kitchen_roster, true);
+});
