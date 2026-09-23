@@ -15,18 +15,16 @@ function fn(name) {
 }
 
 // Quantity buttons, cart-line math and the order payload live in
-// hsp_menu_kit.js (shared with the caja); avisosMarkup stays in the mesero.
+// hsp_menu_kit.js (shared with the caja). The "lista para llevar" notice is
+// covered in hsp_panel_alerts.test.cjs.
 function context(extraState = {}) {
   const Kit = loadKit();
   const state = { cart: [], menu: [], quantityButtons: [], ...extraState };
-  const waiterCtx = vm.createContext({ h: Kit.h, String });
-  vm.runInContext(fn('avisosMarkup'), waiterCtx);
   return {
     ...Kit,
     state,
     cartTotal: () => Kit.cartTotal(state.cart),
     findMenuProduct: (id) => Kit.findMenuProduct(state.menu, id),
-    avisosMarkup: waiterCtx.avisosMarkup,
   };
 }
 
@@ -130,15 +128,6 @@ test('editing a cart line finds its menu product again', () => {
   const ctx = context({ menu: [{ key: 'carne', products: [CARNE] }, { key: 'pollo', products: [POLLO] }] });
   assert.equal(ctx.findMenuProduct('pollo').category.key, 'pollo');
   assert.equal(ctx.findMenuProduct('nope'), null);
-});
-
-test('the ready notice reads "Mesa X lista para llevar" and escapes the text', () => {
-  const ctx = context();
-  const html = ctx.avisosMarkup([{ order_id: 'o1', message: 'Mesa 7 lista para llevar' }]);
-  assert.match(html, /Mesa 7 lista para llevar/);
-  assert.match(html, /data-wtr-aviso-ok="o1"/);
-  assert.equal(ctx.avisosMarkup([]), '');
-  assert.doesNotMatch(ctx.avisosMarkup([{ order_id: 'x', message: '<img src=x>' }]), /<img/);
 });
 
 test('the whole-unit selector never goes below 1, above 99, or to a fraction', () => {

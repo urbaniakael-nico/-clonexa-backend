@@ -1756,10 +1756,23 @@ async def waiter_my_tables(
             {
                 "table_number": bucket["table_number"],
                 "total": bucket["total"],
-                "status": "enviado_a_cocina" if bucket["has_pending"] else "listo_para_llevar",
+                "status": _my_table_status(bucket["orders"]),
             }
         )
     return {"ok": True, "tables": result}
+
+
+def _my_table_status(orders: list[dict[str, Any]]) -> str:
+    """Mesero's view of one of his tables:
+    - enviado_a_cocina: some comanda still pendiente/alistando;
+    - entregada: the kitchen marked every comanda "Entregado" (food is at the
+      table) -- nothing left for the mesero, it only waits for the caja;
+    - listo_para_llevar: out of the kitchen, still to be carried."""
+    if any(order.get("status") in {"pendiente", "alistando"} for order in orders):
+        return "enviado_a_cocina"
+    if orders and all(_kitchen_meta(order).get("delivered_at") for order in orders):
+        return "entregada"
+    return "listo_para_llevar"
 
 
 @router.get("/{company_id}/waiter-ordering/mesero/avisos")

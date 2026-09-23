@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const source = readFileSync('app/web/hsp_cashier.js', 'utf8');
 const { kitSource } = require('./_menu_kit.cjs');
 const saleDocSource = readFileSync('app/web/sale_document.js', 'utf8');
+const alertsSource = readFileSync('app/web/hsp_alerts.js', 'utf8');
 
 class FakeStorage {
   constructor() { this.data = new Map(); }
@@ -96,6 +97,7 @@ function boot({ local = new FakeStorage(), session = new FakeStorage(), history 
     URLSearchParams, Intl, JSON, Math, Date, Array, Number, String, Promise, Map, Set, Uint8Array, Error,
   });
   // hsp_cashier.html loads the shared menu kit and the document renderer first.
+  vm.runInContext(alertsSource, ctx);
   vm.runInContext(kitSource, ctx);
   vm.runInContext(saleDocSource, ctx);
   vm.runInContext(source, ctx);

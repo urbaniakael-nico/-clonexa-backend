@@ -51,6 +51,9 @@
   const Kit = window.CxMenuKit;
   const SaleDoc = window.CxSaleDocument;
   const { h, money, tableTitle } = Kit;
+  // Sound + vibration + on-screen card until closed (hsp_alerts.js).
+  const Alerts = window.CxAlerts ? window.CxAlerts.create("caja") : null;
+  let alertMemory = null;   // what the last poll saw (null = first load)
 
   // ---------------------------------------------------------------------
   // Storage: same fix as the mesero panel. The session lives in
@@ -488,14 +491,14 @@
     goto("sale_products");
   }
 
-  async function submitSale(paymentMethod) {
+  async function submitSale(paymentMethod, cash) {
     const sale = state.sale;
     if (!sale.items.length || state.saleBusy) return;
     state.saleBusy = true;
     safeRender();
     try {
       const result = await waiterApi("/caja/ventas", { method: "POST", body: JSON.stringify(salePayload(sale, paymentMethod)) });
-      state.toast = saleDoneMessage(result, sale);
+      state.toast = `${saleDoneMessage(result, sale)}${cash && result && result.charged ? ` Cambio: ${money(cash.change)}.` : ""}`;
       if (result && result.charged && result.order && result.order.id) {
         state.lastCharged = { order_ids: [result.order.id], label: result.label || "Venta" };
       }
@@ -544,6 +547,9 @@
       });
       state.tables = sortTablesByAge(Array.from(groups.values()), Date.now());
       state.tablesLoaded = true;
+      const detected = cajaAlerts(alertMemory, state.tables);
+      alertMemory = detected.memory;
+      if (Alerts) detected.alerts.forEach((alert) => Alerts.notify(alert));
       // Never redraw the sale screens from the 4s poll: it would close the
       // destination list or a product sheet mid-choice.
       if (!/^sale/.test(state.screen)) safeRender();
@@ -569,29 +575,149 @@
 
   // ---------------------------------------------------------------------
   // Mesas abiertas: one card per table with its timer (since its first
-  // order), mesero, total and the real state of its comandas:
+  // order), mesero, total and its state FOR THE CAJA:
   //   - "En preparación": some comanda still pendiente/alistando.
-  //   - "Listo para cobrar": everything left the kitchen (status entregado)
-  //     but not all of it was marked Entregado at the table yet.
-  //   - "Entregado": every comanda reached the table (kitchen "Entregado",
-  //     or it never went through the kitchen, e.g. a caja sale).
+  //   - "Listo para cobrar": everything left the kitchen -- whether or not
+  //     the kitchen already marked it Entregado at the table. It stays like
+  //     this until the caja confirms the payment method and closes it; only
+  //     then it leaves the board. The caja never shows "Entregado".
   // Oldest table first.
   // ---------------------------------------------------------------------
   const TABLE_STATES = {
     preparing: "En preparación",
     ready: "Listo para cobrar",
-    delivered: "Entregado",
   };
-
-  function orderReachedTable(order) {
-    const kitchen = (order.metadata && order.metadata.kitchen) || {};
-    return Boolean(kitchen.delivered_at) || !kitchen.ready_at;
-  }
 
   function tableState(table) {
     const orders = table.orders || [];
-    if (orders.some((o) => o.status === "pendiente" || o.status === "alistando")) return "preparing";
-    return orders.every(orderReachedTable) ? "delivered" : "ready";
+    return orders.some((o) => o.status === "pendiente" || o.status === "alistando") ? "preparing" : "ready";
+  }
+
+  // What changed since the last poll, for the caja alerts:
+  //   - new_sale: an order that wasn't there before (from a mesero or the QR;
+  //     the caja's own sales are not announced back to it);
+  //   - to_charge: a table that went from "En preparación" to "Listo para
+  //     cobrar".
+  // The first load only records what is already on screen.
+  function cajaAlerts(memory, tables) {
+    const orderIds = [];
+    const states = {};
+    tables.forEach((table) => {
+      states[table.key] = tableState(table);
+      (table.orders || []).forEach((order) => {
+        if (!(order.metadata && order.metadata.cashier_sale)) orderIds.push(order.id);
+      });
+    });
+    const alerts = [];
+    if (memory) {
+      tables.forEach((table) => {
+        const fresh = (table.orders || []).filter((o) => orderIds.includes(o.id) && !memory.orderIds.has(o.id));
+        if (fresh.length) {
+          alerts.push({
+            kind: "new_sale",
+            title: `Venta nueva · ${tableTitle(table.table_number)}`,
+            message: `${table.waiter ? `${table.waiter} · ` : ""}${money(fresh.reduce((sum, o) => sum + Number(o.total || 0), 0))}`,
+          });
+        }
+        if (states[table.key] === "ready" && memory.states[table.key] === "preparing") {
+          alerts.push({ kind: "to_charge", title: `${tableTitle(table.table_number)} lista para cobrar`, message: money(table.total) });
+        }
+      });
+    }
+    const seen = new Set(memory ? memory.orderIds : []);
+    orderIds.forEach((id) => seen.add(id));
+    return { alerts, memory: { orderIds: seen, states } };
+  }
+
+  // ---------------------------------------------------------------------
+  // Cobro en efectivo: amount received, change in big letters while typing,
+  // quick Colombian bills, "monto exacto", and "Enviar" locked (with how
+  // much is missing) until the amount covers the total. Only for Efectivo:
+  // Transferencia and Tarjeta charge directly.
+  // ---------------------------------------------------------------------
+  const CASH_BILLS = [10000, 20000, 50000, 100000];
+
+  function parseCash(value) {
+    const digits = String(value ?? "").replace(/[^0-9]/g, "");
+    return digits ? Number(digits) : 0;
+  }
+
+  function cashChange(total, received) {
+    const due = Math.round(Number(total || 0));
+    const got = Math.round(Number(received || 0));
+    return got >= due ? { ok: true, change: got - due, missing: 0 } : { ok: false, change: 0, missing: due - got };
+  }
+
+  function cashStatusHtml(total, received) {
+    const result = cashChange(total, received);
+    if (result.ok) return `<span>Cambio</span><strong>${h(money(result.change))}</strong>`;
+    return `<span>Faltan</span><strong class="csh-cash-missing">${h(money(result.missing))}</strong>`;
+  }
+
+  function openCashSheet({ total, label, onConfirm }) {
+    let received = 0;
+    const sheet = document.createElement("div");
+    sheet.className = "csh-sheet-backdrop csh-cash-backdrop";
+    sheet.innerHTML = `
+      <div class="csh-sheet csh-cash">
+        <h2>Cobro en efectivo · ${h(label)}</h2>
+        <div class="csh-cash-total"><span>Total a cobrar</span><strong>${h(money(total))}</strong></div>
+        <label class="csh-cash-label">Monto recibido
+          <input id="cshCashReceived" inputmode="numeric" autocomplete="off" placeholder="0" />
+        </label>
+        <div class="csh-cash-bills">
+          ${CASH_BILLS.map((bill) => `<button type="button" class="csh-btn" data-cash-bill="${bill}">+ ${h(money(bill))}</button>`).join("")}
+          <button type="button" class="csh-btn" data-cash-exact>Monto exacto</button>
+          <button type="button" class="csh-btn csh-btn-mini" data-cash-clear>Borrar</button>
+        </div>
+        <div class="csh-cash-change" id="cshCashChange">${cashStatusHtml(total, 0)}</div>
+        <div class="csh-cash-actions">
+          <button type="button" class="csh-btn" data-sheet-cancel>Cancelar</button>
+          <button type="button" class="csh-btn csh-btn-primary" data-cash-send disabled>Enviar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(sheet);
+
+    const input = sheet.querySelector("#cshCashReceived");
+    const status = sheet.querySelector("#cshCashChange");
+    const send = sheet.querySelector("[data-cash-send]");
+    const update = (fromTyping) => {
+      if (!fromTyping) input.value = received ? money(received).replace(/[^0-9.]/g, "") : "";
+      status.innerHTML = cashStatusHtml(total, received);
+      send.disabled = !cashChange(total, received).ok;
+      send.textContent = send.disabled ? `Faltan ${money(cashChange(total, received).missing)}` : "Enviar";
+    };
+    input.addEventListener("input", () => {
+      received = parseCash(input.value);
+      update(true);
+    });
+    CASH_BILLS.forEach((bill) => {
+      sheet.querySelector(`[data-cash-bill="${bill}"]`).addEventListener("click", () => {
+        received += bill;
+        update(false);
+      });
+    });
+    sheet.querySelector("[data-cash-exact]").addEventListener("click", () => {
+      received = Math.round(Number(total || 0));
+      update(false);
+    });
+    sheet.querySelector("[data-cash-clear]").addEventListener("click", () => {
+      received = 0;
+      update(false);
+    });
+    sheet.querySelector("[data-sheet-cancel]").addEventListener("click", () => sheet.remove());
+    send.addEventListener("click", () => {
+      const result = cashChange(total, received);
+      if (!result.ok) return;
+      sheet.remove();
+      onConfirm({ received, change: result.change });
+    });
+    update(false);
+    return sheet;
+  }
+
+  function chargeableTotal(table) {
+    return (table.orders || []).filter((o) => o.status === "entregado").reduce((sum, o) => sum + Number(o.total || 0), 0);
   }
 
   function tableStartedMs(table) {
@@ -692,7 +818,7 @@
     }
   }
 
-  async function chargeTable(paymentMethod) {
+  async function chargeTable(paymentMethod, cash) {
     const table = activeTable();
     if (!table) return;
     state.paying = true;
@@ -706,7 +832,7 @@
         });
       }
       const label = String(table.table_number || "").trim();
-      state.toast = `${/^(mesa|venta)\b/i.test(label) ? label : `Mesa ${label}`} cobrada.`;
+      state.toast = `${/^(mesa|venta)\b/i.test(label) ? label : `Mesa ${label}`} cobrada.${cash ? ` Cambio: ${money(cash.change)}.` : ""}`;
       state.lastCharged = { order_ids: served.map((o) => o.id), label: /^(mesa|venta)\b/i.test(label) ? label : `Mesa ${label}` };
       resetToTables();
       await refreshTables();
@@ -1063,7 +1189,12 @@
 
     const salePay = target.closest("[data-csh-sale-pay]");
     if (salePay && !salePay.disabled) {
-      submitSale(salePay.getAttribute("data-csh-sale-pay"));
+      const method = salePay.getAttribute("data-csh-sale-pay");
+      if (method === "cash") {
+        openCashSheet({ total: saleTotal(state.sale), label: "Venta", onConfirm: (cash) => submitSale("cash", cash) });
+      } else {
+        submitSale(method);
+      }
       return;
     }
 
@@ -1075,7 +1206,13 @@
 
     const payBtn = target.closest("[data-csh-pay]");
     if (payBtn && !payBtn.disabled) {
-      chargeTable(payBtn.getAttribute("data-csh-pay"));
+      const method = payBtn.getAttribute("data-csh-pay");
+      const table = activeTable();
+      if (method === "cash" && table) {
+        openCashSheet({ total: chargeableTotal(table), label: tableTitle(table.table_number), onConfirm: (cash) => chargeTable("cash", cash) });
+      } else {
+        chargeTable(method);
+      }
     }
   }
 
@@ -1176,7 +1313,19 @@
     .csh-card-state{justify-self:start;white-space:nowrap;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;background:rgba(255,255,255,.1)}
     .csh-card-preparing{border-color:#d97706}.csh-card-preparing .csh-card-state,.csh-state-preparing{background:rgba(217,119,6,.25);color:#fde68a}
     .csh-card-ready{border-color:#16a34a}.csh-card-ready .csh-card-state,.csh-state-ready{background:rgba(34,197,94,.22);color:#86efac}
-    .csh-card-delivered{border-color:#6366f1}.csh-card-delivered .csh-card-state,.csh-state-delivered{background:rgba(99,102,241,.25);color:#c7d2fe}
+    .csh-cash{max-width:560px;margin:0 auto;width:100%}
+    .csh-cash-total{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;font-weight:900;color:#c9c3e6}
+    .csh-cash-total strong{font-size:26px;color:#fff}
+    .csh-cash-label{display:grid;gap:6px;font-size:13px;font-weight:900;color:#c9c3e6}
+    .csh-cash-label input{font-size:30px !important;font-weight:1000;text-align:right;padding:14px !important}
+    .csh-cash-bills{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+    .csh-cash-change{display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px;border-radius:16px;background:rgba(34,197,94,.14);font-weight:900}
+    .csh-cash-change span{font-size:16px;color:#bbf7d0}
+    .csh-cash-change strong{font-size:44px;line-height:1;color:#86efac;font-variant-numeric:tabular-nums}
+    .csh-cash-change strong.csh-cash-missing{color:#fca5a5}
+    .csh-cash-actions{display:grid;grid-template-columns:1fr 2fr;gap:10px}
+    .csh-cash-actions .csh-btn{min-height:56px;font-size:17px}
+    .csh-cash-actions .csh-btn-primary:disabled{opacity:.55;cursor:not-allowed}
     .csh-card-waiter{font-size:12px;color:#c9c3e6}
     .csh-card-total{font-size:20px;color:#ffd166}
     .csh-last{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 16px 10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.05);font-size:13px}
@@ -1203,6 +1352,7 @@
   `;
   document.head.appendChild(style);
   if (Kit) Kit.injectStyles();
+  if (Alerts) Alerts.install();
 
   window.addEventListener("popstate", (event) => {
     try {

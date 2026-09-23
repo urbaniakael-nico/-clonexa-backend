@@ -121,14 +121,19 @@ test('a product without portions gets the whole-unit selector, and the sale is c
   assert.match(b.root.innerHTML, /1 x GASEOSA Coca Cola/);
   assert.match(b.root.innerHTML, /data-csh-sale-pay="cash"/);          // independent + no kitchen -> charge here
 
-  b.click('data-csh-sale-pay', 'cash');
+  b.click('data-csh-sale-pay', 'cash');                                 // Efectivo -> calculadora de cambio
+  const cash = b.body.children.find((c) => /csh-cash-backdrop/.test(c.className));
+  assert.ok(cash, 'cash calculator');
+  assert.equal(b.calls.some((c) => c.url.includes('/caja/ventas')), false);   // nothing charged yet
+  cash.querySelector('[data-cash-bill="10000"]').fire('click');
+  cash.querySelector('[data-cash-send]').fire('click');
   await flush(); await flush();
   const body = JSON.parse(b.calls.find((c) => c.url.includes('/caja/ventas')).options.body);
   assert.deepEqual(body, {
     table: '', send_to_kitchen: false, payment_method: 'cash',
     items: [{ inventory_item_id: 'gaseosa', quantity: 1, observations: '', quick_notes: [], term: '' }],
   });
-  assert.match(b.root.innerHTML, /Venta 007 cobrada/);
+  assert.match(b.root.innerHTML, /Venta 007 cobrada\. Cambio: \$\s?5\.500\./);   // 10.000 - 4.500
   assert.match(b.root.innerHTML, /Última cobrada: <b>Venta 007<\/b>/);
 });
 
@@ -193,8 +198,9 @@ test('each card shows the big number, timer, mesero, total and real state, oldes
   assert.match(card('mesa 7'), /\$\s?39\.000/);
   assert.match(card('mesa 7'), /En preparación/);                       // one comanda still in the kitchen
   assert.match(card('mesa 2'), /Listo para cobrar/);                    // out of the kitchen, not at the table
-  assert.match(card('mesa 9'), /Entregado/);                            // everything at the table
+  assert.match(card('mesa 9'), /Listo para cobrar/);                    // kitchen marked Entregado: still to charge
   assert.match(card('mesa 9'), /⏱ 1 h 20 min/);
+  assert.doesNotMatch(html, /Entregado/i);                              // the caja never shows "Entregado"
 });
 
 // ---------------------------------------------------------------------------

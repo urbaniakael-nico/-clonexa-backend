@@ -24,8 +24,19 @@ function element(tag = 'div') {
     setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k]; },
     appendChild(child) { this.children.push(child); child.parent = this; return child; },
     remove() { if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); },
-    // Sheets wire their own buttons: hand back an inert element.
-    querySelector() { return { addEventListener() {}, textContent: '', value: '', classList: { toggle() {} } }; },
+    // Sheets and alert cards wire their own buttons: one stub node per
+    // selector, whose listeners a test can fire.
+    _q: {},
+    querySelector(sel) {
+      if (!this._q[sel]) {
+        this._q[sel] = {
+          listeners: {}, textContent: '', value: '', disabled: false, classList: { toggle() {} },
+          addEventListener(type, cb) { (this.listeners[type] = this.listeners[type] || []).push(cb); },
+          fire(type) { (this.listeners[type] || []).forEach((cb) => cb({ target: this })); },
+        };
+      }
+      return this._q[sel];
+    },
     querySelectorAll() { return []; }, addEventListener() {},
   };
 }
@@ -78,7 +89,8 @@ function boot({ local = new FakeStorage(), session = new FakeStorage(), routes }
     FormData: class { get(k) { return k === 'username' ? 'laura' : 'x'; } },
     URLSearchParams, Intl, JSON, Math, Date, Array, Number, String, Promise, Set, Map, Uint8Array, Error,
   });
-  vm.runInContext(kitSource, ctx);   // hsp_waiter.html loads the kit first
+  vm.runInContext(readFileSync('app/web/hsp_alerts.js', 'utf8'), ctx);   // hsp_waiter.html loads alerts + kit first
+  vm.runInContext(kitSource, ctx);
   vm.runInContext(source, ctx);
   const click = (attr, value = '') => {
     const target = {
@@ -256,4 +268,41 @@ test('a product without portions shows only a whole-unit selector with its price
   assert.match(html, /Vas a cobrar <strong id="wtrQtyPrice">\$\s?4\.500/);
   assert.doesNotMatch(html, /data-qty-index/);
   assert.doesNotMatch(html, /1\/4/);
+});
+
+test('a "lista para llevar" notice pops up as an alert until the mesero closes it', async () => {
+  const b = boot({
+    local: withSavedSession(),
+    routes: (url, o) => (url.includes('/mesero/avisos') && !url.includes('/visto')
+      ? [200, { enabled: true, avisos: [{ order_id: 'o7', table_number: 'Mesa 7', message: 'Mesa 7 lista para llevar' }] }]
+      : url.includes('/visto') ? [200, { ok: true }] : happyRoutes(url, o)),
+  });
+  await flush(); await flush();
+  const stack = b.body.children.find((c) => c.id === 'cxAlertStack');
+  assert.ok(stack, 'alert stack');
+  assert.equal(stack.children.length, 1);
+  assert.match(stack.children[0].innerHTML, /Mesa 7 lista para llevar/);
+  assert.match(stack.children[0].className, /cx-alert-ready/);
+  stack.children[0].querySelector('[data-cx-alert-close]').fire('click');
+  await flush();
+  assert.equal(stack.children.length, 0);
+  assert.ok(b.calls.some((c) => c.url.includes('/mesero/avisos/o7/visto') && c.options.method === 'POST'));
+});
+
+test('Mis mesas shows a finished check when the kitchen delivered everything', async () => {
+  const b = boot({
+    local: withSavedSession(),
+    routes: (url, o) => (url.includes('/mis-mesas')
+      ? [200, { tables: [
+        { table_number: 'Mesa 7', total: 39000, status: 'entregada' },
+        { table_number: 'Mesa 2', total: 9000, status: 'listo_para_llevar' },
+        { table_number: 'Mesa 4', total: 5000, status: 'enviado_a_cocina' },
+      ] }]
+      : happyRoutes(url, o)),
+  });
+  await flush(); await flush();
+  const html = b.root.innerHTML;
+  assert.match(html, /<span class="wtr-mesa-status is-done">✓ Entregada · sin acción, espera cobro<\/span>/);
+  assert.match(html, /is-ready">Lista para llevar/);
+  assert.match(html, /is-sent">Enviado a cocina/);
 });

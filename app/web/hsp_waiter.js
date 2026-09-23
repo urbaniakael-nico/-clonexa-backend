@@ -16,6 +16,9 @@
   // loaded before this file. The caja panel uses the very same kit.
   const Kit = window.CxMenuKit;
   const { h, money, tableTitle, orderItemPayload } = Kit;
+  // Sound + vibration + on-screen card until closed (hsp_alerts.js).
+  const Alerts = window.CxAlerts ? window.CxAlerts.create("mesero") : null;
+  const shownAvisos = new Map();   // order_id -> alert card on screen
 
   const state = {
     screen: "login",
@@ -554,11 +557,7 @@
         state.avisosEnabled = false;
         return;
       }
-      const incoming = Array.isArray(data.avisos) ? data.avisos : [];
-      const known = new Set(state.avisos.map((a) => a.order_id));
-      const hasNew = incoming.some((a) => !known.has(a.order_id));
-      state.avisos = incoming;
-      if (hasNew && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      state.avisos = Array.isArray(data.avisos) ? data.avisos : [];
       renderAvisos();
     } catch (_) {
       // transient: keep the last notices on screen
@@ -575,26 +574,29 @@
     }
   }
 
-  function avisosMarkup(avisos) {
-    if (!avisos.length) return "";
-    return `
-      <div class="wtr-avisos" role="alert">
-        ${avisos.map((a) => `
-          <div class="wtr-aviso">
-            <span>🔔 ${h(a.message)}</span>
-            <button type="button" data-wtr-aviso-ok="${h(a.order_id)}">OK</button>
-          </div>`).join("")}
-      </div>`;
-  }
-
+  // "Mesa X lista para llevar": each new notice sounds, vibrates and stays
+  // on screen until the mesero closes it (closing = seen on the server). A
+  // notice dismissed elsewhere (another poll, logout) leaves the screen.
   function renderAvisos() {
-    const current = document.getElementById("wtrAvisos");
-    if (current) current.remove();
-    if (state.screen === "login" || !state.avisos.length) return;
-    const holder = document.createElement("div");
-    holder.id = "wtrAvisos";
-    holder.innerHTML = avisosMarkup(state.avisos);
-    document.body.appendChild(holder);
+    if (!Alerts) return;
+    const current = new Set(state.screen === "login" ? [] : state.avisos.map((a) => a.order_id));
+    shownAvisos.forEach((card, orderId) => {
+      if (!current.has(orderId)) {
+        card.remove();
+        shownAvisos.delete(orderId);
+      }
+    });
+    if (state.screen === "login") return;
+    state.avisos.forEach((aviso) => {
+      if (shownAvisos.has(aviso.order_id)) return;
+      const card = Alerts.notify({
+        kind: "ready",
+        title: aviso.message,
+        message: "Recógela en cocina y llévala a la mesa.",
+        onClose: () => dismissAviso(aviso.order_id),
+      });
+      shownAvisos.set(aviso.order_id, card);
+    });
   }
 
   async function refreshHomeWidgets() {
@@ -731,12 +733,18 @@
           ${state.misMesas.length ? state.misMesas.map((t) => `
             <button class="wtr-mesa-row" type="button" data-wtr-mesa="${h(t.table_number)}">
               <span>${h(tableTitle(t.table_number))}</span>
-              <span class="wtr-mesa-status ${t.status === "listo_para_llevar" ? "is-ready" : "is-sent"}">
-                ${t.status === "listo_para_llevar" ? "Lista para llevar" : "Enviado a cocina"}
-              </span>
+              <span class="wtr-mesa-status ${mesaStatusView(t.status).cls}">${h(mesaStatusView(t.status).label)}</span>
             </button>`).join("") : `<div class="wtr-empty">Todavía no tienes mesas activas.</div>`}
         </div>
       </section>`;
+  }
+
+  // Mis mesas. "entregada": the kitchen delivered everything -> check, no
+  // action left for the mesero (the table only waits for the caja).
+  function mesaStatusView(status) {
+    if (status === "entregada") return { cls: "is-done", label: "✓ Entregada · sin acción, espera cobro" };
+    if (status === "listo_para_llevar") return { cls: "is-ready", label: "Lista para llevar" };
+    return { cls: "is-sent", label: "Enviado a cocina" };
   }
 
   function screenTable() {
@@ -889,9 +897,6 @@
       resetToHome();
       return;
     }
-
-    const avisoOk = target.closest("[data-wtr-aviso-ok]");
-    if (avisoOk) { dismissAviso(avisoOk.getAttribute("data-wtr-aviso-ok")); return; }
 
     const logout = target.closest("[data-wtr-logout]");
     if (logout) {
@@ -1086,6 +1091,8 @@
     .wtr-mesa-status{font-size:12px;font-weight:900;padding:4px 10px;border-radius:999px}
     .wtr-mesa-status.is-sent{background:rgba(250,204,21,.18);color:#fde68a}
     .wtr-mesa-status.is-ready{background:rgba(34,197,94,.18);color:#bbf7d0}
+    .wtr-mesa-status.is-done{background:rgba(148,163,184,.18);color:#e2e8f0}
+    .wtr-mesa-row:has(.is-done){opacity:.72}
     .wtr-grid-tables{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;padding:16px}
     .wtr-tile{min-height:72px;border-radius:18px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;font-size:16px;font-weight:900}
     .wtr-btn-cart{position:fixed;left:16px;right:16px;bottom:16px}
@@ -1097,16 +1104,14 @@
     .wtr-cart-remove{width:32px;height:32px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;display:grid;place-items:center}
     .wtr-cart-total{display:flex;justify-content:space-between;padding:0 16px;font-size:18px;font-weight:900;margin-bottom:14px}
     .wtr-shell > .wtr-btn-primary{margin:0 16px;width:calc(100% - 32px)}
-    .wtr-avisos{position:fixed;top:10px;left:10px;right:10px;z-index:70;display:grid;gap:8px}
-    .wtr-aviso{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-radius:16px;background:#16a34a;color:#fff;font-size:17px;font-weight:900;box-shadow:0 10px 30px rgba(0,0,0,.45)}
     .wtr-net{position:fixed;left:0;right:0;bottom:0;z-index:80;padding:12px 16px;background:#b45309;color:#fff;font-size:14px;font-weight:900;text-align:center;box-shadow:0 -6px 20px rgba(0,0,0,.4)}
     .wtr-recover{display:grid;place-items:center;padding:24px}
     .wtr-recover-card{max-width:360px;display:grid;gap:12px;padding:22px;border-radius:20px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);text-align:center}
     .wtr-recover-card p{margin:0;color:#c9c3e6}
-    .wtr-aviso button{min-height:40px;padding:0 16px;border-radius:12px;border:none;background:rgba(0,0,0,.25);color:#fff;font-weight:900;font-size:15px}
   `;
   document.head.appendChild(style);
   Kit.injectStyles();
+  if (Alerts) Alerts.install();
 
   let homeRefreshHandle = null;
   let avisosHandle = null;

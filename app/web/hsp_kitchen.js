@@ -34,6 +34,25 @@
   ];
 
   let pollHandle = null;
+  // "Pedido nuevo": sound + vibration + card until closed (hsp_alerts.js).
+  const Alerts = window.CxAlerts ? window.CxAlerts.create("cocina") : null;
+  let seenComandas = null;   // null = first load: nothing is announced
+
+  function comandaSummary(comanda) {
+    return (comanda.items || [])
+      .map((item) => `${item.quantity_label || `${item.quantity}×`} ${item.name}`)
+      .join(" · ");
+  }
+
+  // New comandas since the last poll, announced once each.
+  function newComandaAlerts(comandas) {
+    const ids = comandas.map((c) => c.order_id);
+    const fresh = window.CxAlerts ? window.CxAlerts.newIds(seenComandas, ids) : [];
+    seenComandas = new Set([...(seenComandas || []), ...ids]);
+    return comandas
+      .filter((c) => fresh.includes(c.order_id))
+      .map((c) => ({ kind: "new_order", title: `Pedido nuevo · ${c.table_number || "Mesa"}`, message: comandaSummary(c) }));
+  }
 
   function h(value) {
     return String(value ?? "")
@@ -106,6 +125,8 @@
       state.columnsEnabled = data.columns_enabled === true;
       state.rosterEnabled = data.roster_enabled === true;
       state.columns = boardColumns(data);
+      const alerts = newComandaAlerts(state.comandas);
+      if (Alerts) alerts.forEach((alert) => Alerts.notify(alert));
       if (state.view === "board") render();
       else if (state.view === "roster" && Date.now() - state.rosterLoadedAt > 15000) loadRoster();
       else if (state.view === "roster") render();   // keeps the shift timers ticking
@@ -592,6 +613,7 @@
     .ktc-history-meta{font-size:12px;color:#a5b4fc;font-weight:800}
   `;
   document.head.appendChild(style);
+  if (Alerts) Alerts.install();
 
   if (!companyId) {
     root.innerHTML = `<section style="min-height:100vh;display:grid;place-items:center;background:#080712;color:#fff"><p>Falta company_id en el enlace.</p></section>`;
