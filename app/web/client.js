@@ -9582,9 +9582,9 @@ function inventoryCreatePayload() {
       }
 
       .cx-mini-person-row {
-        display: grid;
-        grid-template-columns: minmax(180px, 1.15fr) minmax(120px, .7fr) minmax(220px, 1.2fr) minmax(150px, .75fr);
-        gap: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 16px;
         align-items: center;
         border: 1px solid rgba(255,255,255,.12);
         background: rgba(0,0,0,.17);
@@ -9592,11 +9592,40 @@ function inventoryCreatePayload() {
         padding: 14px;
       }
 
+      .cx-mini-person-row > div {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .cx-mini-person-row > div:first-child {
+        flex: 1 1 160px;
+      }
+
+      .cx-mini-person-credentials {
+        flex: 1 1 200px;
+      }
+
       .cx-mini-person-actions {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
-        justify-content: flex-end;
+        flex: 0 0 auto;
+        justify-content: flex-start;
+      }
+
+      .cx-mini-person-new-credential {
+        flex: 1 1 100%;
+        border: 1px solid rgba(0,255,160,.28);
+        background: rgba(0,255,160,.08);
+        border-radius: 14px;
+        padding: 12px;
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+      }
+
+      .cx-mini-person-new-credential small {
+        color: rgba(255,255,255,.7);
       }
 
       .cx-mini-credential {
@@ -9605,11 +9634,6 @@ function inventoryCreatePayload() {
         border-radius: 18px;
         padding: 14px;
         margin-top: 14px;
-      }
-
-      @media (max-width: 1100px) {
-        .cx-mini-person-row { grid-template-columns: 1fr; }
-        .cx-mini-person-actions { justify-content: flex-start; }
       }
     `;
     document.head.appendChild(style);
@@ -25245,6 +25269,12 @@ function inventoryCreatePayload() {
     panel.insertAdjacentElement("beforebegin", notice);
   }
 
+  // In-memory only (never persisted): the plaintext temp password the
+  // server just handed back for this person/segment. A reload or a normal
+  // navigation away from this screen clears it, matching "se muestra una
+  // sola vez" -- the server itself only ever stores the hash.
+  const cxMiniPanelRowCredentials026J = new Map();
+
   function cxMiniPanelPersonRow026J(employee, assigned, item, maxReached = false) {
     const type = cxMiniPanelType026J(item.code);
     const employeeId = cxMiniPanelEmployeeKey026J(employee);
@@ -25253,7 +25283,16 @@ function inventoryCreatePayload() {
     const link = assigned && assigned.link ? assigned.link : (item.link || cxMiniPanelLink019B(type, item));
     const roleLabel = employee.role || employee.employee_type || "Sin rol";
     const statusLabel = assigned ? (assigned.status || "active") : "pendiente";
-    const disabled = !assigned && (maxReached || !link);
+    const credential = cxMiniPanelRowCredentials026J.get(`${type}:${employeeId}`) || null;
+
+    let actionHtml;
+    if (assigned) {
+      actionHtml = `<button class="client-btn" type="button" data-minipanel-user-reset="${h(assignedId)}" data-minipanel-user-name="${h(assignedUser)}">Regenerar clave</button>`;
+    } else if (maxReached) {
+      actionHtml = `<button class="client-btn" type="button" disabled>Limite del plan alcanzado</button>`;
+    } else {
+      actionHtml = `<button class="client-btn" type="button" data-minipanel-user-create="${h(employeeId)}" data-minipanel-user-type="${h(type)}" data-minipanel-user-link="${h(link)}" ${!link ? "disabled" : ""}>Generar usuario y clave</button>`;
+    }
 
     return `
       <div class="cx-mini-person-row">
@@ -25264,19 +25303,26 @@ function inventoryCreatePayload() {
         <div>
           <span class="cx-sales-chip">${h(roleLabel)}</span>
         </div>
-        <div>
+        <div class="cx-mini-person-credentials">
           <div class="cx-sales-muted">Usuario mini panel</div>
           <strong>${h(assignedUser || "Sin usuario")}</strong>
           <div class="cx-sales-muted">Estado: ${h(statusLabel)}</div>
         </div>
         <div class="cx-mini-person-actions">
-          ${
-            assigned
-              ? `<button class="client-btn" type="button" data-minipanel-user-reset="${h(assignedId)}" data-minipanel-user-name="${h(assignedUser)}">Regenerar clave</button>`
-              : `<button class="client-btn" type="button" data-minipanel-user-create="${h(employeeId)}" data-minipanel-user-type="${h(type)}" data-minipanel-user-link="${h(link)}" ${disabled ? "disabled" : ""}>Generar usuario</button>`
-          }
-          ${maxReached && !assigned ? `<span class="cx-sales-muted">Maximo alcanzado</span>` : ""}
+          ${actionHtml}
         </div>
+        ${credential ? `
+          <div class="cx-mini-person-new-credential">
+            <div>Usuario: <strong>${h(credential.username || credential.email || "")}</strong></div>
+            ${credential.temporary_password ? `
+              <div>
+                Clave temporal: <strong>${h(credential.temporary_password)}</strong>
+                <button type="button" class="client-btn" data-minipanel-copy-credential="${h(credential.username || credential.email || "")} / ${h(credential.temporary_password)}">Copiar</button>
+              </div>
+              <small>Esta clave se muestra una sola vez. El acceso a este segmento es solo por el link de esta tarjeta (${h(link)}).</small>
+            ` : `<small>Usuario ya activo. Usa Regenerar clave para entregar una clave nueva.</small>`}
+          </div>
+        ` : ""}
       </div>
     `;
   }
@@ -31186,32 +31232,43 @@ function inventoryCreatePayload() {
     }
   });
 
+  async function cxMiniPanelCopyToClipboard026J(value, button) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const input = document.createElement("textarea");
+        input.value = value;
+        input.setAttribute("readonly", "readonly");
+        input.style.position = "fixed";
+        input.style.opacity = "0";
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        input.remove();
+      }
+      if (button) {
+        const previous = button.textContent;
+        button.textContent = "Copiado";
+        setTimeout(() => { button.textContent = previous; }, 1400);
+      }
+    } catch (error) {
+      alert(value);
+    }
+  }
+
   document.addEventListener("click", async (event) => {
       const target = event.target;
 
       const miniPanelCopyBtn = target.closest("[data-minipanel-copy-link]");
       if (miniPanelCopyBtn) {
-        const value = String(miniPanelCopyBtn.dataset.minipanelCopyLink || "");
-        try {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(value);
-          } else {
-            const input = document.createElement("textarea");
-            input.value = value;
-            input.setAttribute("readonly", "readonly");
-            input.style.position = "fixed";
-            input.style.opacity = "0";
-            document.body.appendChild(input);
-            input.select();
-            document.execCommand("copy");
-            input.remove();
-          }
-          const previous = miniPanelCopyBtn.textContent;
-          miniPanelCopyBtn.textContent = "Copiado";
-          setTimeout(() => { miniPanelCopyBtn.textContent = previous; }, 1400);
-        } catch (error) {
-          alert(value);
-        }
+        await cxMiniPanelCopyToClipboard026J(String(miniPanelCopyBtn.dataset.minipanelCopyLink || ""), miniPanelCopyBtn);
+        return;
+      }
+
+      const miniPanelCopyCredentialBtn = target.closest("[data-minipanel-copy-credential]");
+      if (miniPanelCopyCredentialBtn) {
+        await cxMiniPanelCopyToClipboard026J(String(miniPanelCopyCredentialBtn.dataset.minipanelCopyCredential || ""), miniPanelCopyCredentialBtn);
         return;
       }
 
@@ -31235,6 +31292,10 @@ function inventoryCreatePayload() {
           miniPanelCreateBtn.textContent = "Generando...";
           const created = await cxCreateMiniPanelUser026J(panelType, employeeId, link);
           window.__cxMiniPanelLastCreated026J = created || null;
+          if (created) {
+            const createdType = cxMiniPanelType026J(created.panel_type || panelType);
+            cxMiniPanelRowCredentials026J.set(`${createdType}:${employeeId}`, created);
+          }
           await renderMiniPanelLinksModule019B(true);
           const username = created?.username || created?.email || "usuario generado";
           const tempPassword = created?.temporary_password || "";
@@ -31269,6 +31330,10 @@ function inventoryCreatePayload() {
           miniPanelResetBtn.textContent = "Regenerando...";
           const updated = await cxResetSalesMiniPanelPassword019DR2(userId);
           window.__cxMiniPanelLastCreated026J = updated || null;
+          if (updated && updated.employee_id) {
+            const updatedType = cxMiniPanelType026J(updated.panel_type || "");
+            cxMiniPanelRowCredentials026J.set(`${updatedType}:${String(updated.employee_id)}`, updated);
+          }
           await renderMiniPanelLinksModule019B(true);
           const username = updated?.username || updated?.email || "usuario";
           const tempPassword = updated?.temporary_password || "";
