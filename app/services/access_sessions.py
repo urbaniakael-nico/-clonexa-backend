@@ -16,6 +16,13 @@ SESSION_POLICY_SCOPES = {
 }
 SESSION_POLICY_MODES = {"replace_oldest", "reject_new"}
 
+# Mesero/cocina/caja have their own rule: one device per user (see
+# close_other_sessions_for_subject). The company-wide mini panel cap must not
+# count them nor evict them: with replace_oldest, the 6th person logging in
+# used to close whichever mini panel session was oldest -- often a mesero in
+# the middle of his shift.
+SINGLE_DEVICE_PANEL_TYPES = ("mesero", "cocina", "caja")
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -150,6 +157,7 @@ async def _active_session_keys(db: AsyncSession, company_id: UUID | str | None, 
                 WHERE company_id = CAST(:company_id AS uuid)
                   AND scope = :scope
                   AND status = 'active'
+                  AND COALESCE(metadata_json->>'panel_type', '') NOT IN ('mesero', 'cocina', 'caja')
                 ORDER BY last_seen_at ASC, created_at ASC
             """),
             {"company_id": str(company_id), "scope": scope},
@@ -201,15 +209,30 @@ async def close_other_sessions_for_subject(
     scope: str,
     subject_id: UUID | str,
     reason: str = "Sesion cerrada desde otro dispositivo.",
+    keep_device_id: str | None = None,
 ) -> int:
     """One-device-at-a-time login: close every OTHER active session of this same
     user (subject_id) in this scope, without touching sessions of other users
     of the same company/scope. Used by the mesero/cocina/caja login only, so it
     never changes the shared, company-wide session policy other mini panels use.
+
+    keep_device_id: logging in again from the SAME phone/browser (a second
+    tab, a reload that lost its token) must not kick that phone's own open
+    panel -- only a login from a different device does.
     """
     await ensure_access_sessions_storage(db)
+    device_filter = ""
+    params = {
+        "company_id": str(company_id),
+        "scope": str(scope),
+        "subject_id": str(subject_id),
+        "reason": str(reason or "closed")[:160],
+    }
+    if keep_device_id:
+        device_filter = "AND COALESCE(metadata_json->>'device_id', '') <> :device_id"
+        params["device_id"] = str(keep_device_id)
     result = await db.execute(
-        text("""
+        text(f"""
             UPDATE clonexa_access_sessions
             SET status = 'closed',
                 closed_at = COALESCE(closed_at, NOW()),
@@ -219,13 +242,9 @@ async def close_other_sessions_for_subject(
               AND scope = :scope
               AND subject_id = CAST(:subject_id AS uuid)
               AND status = 'active'
+              {device_filter}
         """),
-        {
-            "company_id": str(company_id),
-            "scope": str(scope),
-            "subject_id": str(subject_id),
-            "reason": str(reason or "closed")[:160],
-        },
+        params,
     )
     await db.commit()
     return int(getattr(result, "rowcount", 0) or 0)
@@ -330,7 +349,8 @@ async def register_access_session(
     if clean_scope not in {"client", "mini_panel", "admin_v2"}:
         raise HTTPException(status_code=400, detail="session_scope_invalid")
 
-    if enforce_policy and company_id and clean_scope in SESSION_POLICY_SCOPES:
+    single_device = str((metadata or {}).get("panel_type") or "") in SINGLE_DEVICE_PANEL_TYPES
+    if enforce_policy and company_id and clean_scope in SESSION_POLICY_SCOPES and not single_device:
         policy = await read_company_session_policy(db, company_id)
         scoped = policy.get("scopes", {}).get(clean_scope, {})
         if policy.get("enabled") and scoped.get("enabled"):

@@ -32,6 +32,7 @@ from app.services.auth_service import (
     company_user_out_payload,
     create_access_token,
     create_company_user,
+    decode_access_token,
     get_access_token_expire_minutes,
     get_current_company_user,
     list_company_users,
@@ -107,6 +108,14 @@ class MiniPanelLoginRequest(BaseModel):
     username: str
     password: str
     panel_type: str
+    # Random id the mesero/cocina/caja browser keeps in localStorage, so a
+    # re-login from the same phone doesn't count as "otro dispositivo".
+    device_id: Optional[str] = None
+
+
+def _cx_clean_device_id_044a(value: Any) -> str:
+    raw = str(value or "").strip()
+    return raw[:80] if re.fullmatch(r"[A-Za-z0-9_-]{8,80}", raw) else ""
 
 
 def _cx_bearer_token_019d(authorization: Optional[str]) -> str:
@@ -317,15 +326,18 @@ async def mini_panel_login(
     await db.commit()
     await db.refresh(user)
 
+    device_id = _cx_clean_device_id_044a(payload.device_id) if panel_type in WAITER_ORDERING_PANEL_TYPES_026K else ""
     if panel_type in WAITER_ORDERING_PANEL_TYPES_026K:
         # One device at a time per mesero/cocina/caja user: logging in here
-        # closes this same user's other sessions (not the whole company's).
+        # closes this same user's other sessions (not the whole company's),
+        # except the ones already open on this same device.
         await close_other_sessions_for_subject(
             db,
             company_id=company_id,
             scope="mini_panel",
             subject_id=user.id,
             reason="Tu sesion se abrio en otro dispositivo.",
+            keep_device_id=device_id or None,
         )
 
     expires_in_minutes = get_access_token_expire_minutes()
@@ -336,7 +348,7 @@ async def mini_panel_login(
         subject_id=user.id,
         subject_label=f"{user.full_name or user.email or 'mini panel'} / {panel_type}",
         request=request,
-        metadata={"panel_type": panel_type},
+        metadata={"panel_type": panel_type, **({"device_id": device_id} if device_id else {})},
     )
     token = create_access_token(
         {
@@ -359,6 +371,50 @@ async def mini_panel_login(
         "expires_in": expires_in_minutes * 60,
     })
     return session
+
+
+@router.post("/{company_id}/mini-panel-refresh")
+async def mini_panel_refresh_044a(
+    company_id: UUID,
+    panel_type: str,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Renew a mesero/cocina/caja token while the shift is open, so the panel
+    stays logged in the whole turno. Needs the current, still-valid token
+    (signature, expiry and an ACTIVE session row -- a kicked or closed
+    session can never be renewed) and keeps the same session id, so the
+    one-device rule keeps working exactly as before."""
+    clean_type = _cx_panel_type_019d(panel_type)
+    if clean_type not in WAITER_ORDERING_PANEL_TYPES_026K:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Renovacion no disponible para este panel.")
+    await _cx_require_waiter_ordering_module_026k(db, company_id)
+    await _cx_require_local_network_026k(db, company_id, request)
+    _company, user, _mini_panel = await _cx_mp_auth_context_019f(db, company_id, clean_type, authorization)
+
+    claims = decode_access_token(_cx_bearer_token_019d(authorization))
+    if claims.get("scope") != "mini_panel" or claims.get("panel_type") != clean_type or not claims.get("sid"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token no renovable.")
+
+    if not await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="turno_cerrado")
+
+    expires_in_minutes = get_access_token_expire_minutes()
+    token = create_access_token(
+        {
+            "sub": str(user.id),
+            "user_id": str(user.id),
+            "company_id": str(company_id),
+            "role": user.role,
+            "mini_panel": True,
+            "panel_type": clean_type,
+            "scope": "mini_panel",
+            "sid": claims["sid"],
+        },
+        expires_minutes=expires_in_minutes,
+    )
+    return {"ok": True, "access_token": token, "token_type": "bearer", "expires_in": expires_in_minutes * 60}
 
 
 @router.get("/{company_id}/mini-panel-session")

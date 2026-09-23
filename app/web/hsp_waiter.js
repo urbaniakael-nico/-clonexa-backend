@@ -7,6 +7,11 @@
   const PANEL_TYPE = "mesero";
   const storageKey = `clonexa_waiter_token_${companyId}`;
   const cartKey = `clonexa_waiter_cart_${companyId}`;
+  const profileKey = `clonexa_waiter_profile_${companyId}`;
+  const navKey = `clonexa_waiter_nav_${companyId}`;
+  const deviceKey = "clonexa_mini_panel_device_id";
+  const TOKEN_REFRESH_MS = 25 * 60 * 1000;
+  const RECONNECT_MS = 5000;
   const TERM_STOPS = ["Crudo", "Medio", "3/4", "Bien cocinado"];
 
   const state = {
@@ -34,17 +39,22 @@
     quantityButtons: [],
     avisos: [],
     avisosEnabled: true,
+    offline: false,
+    offlineReason: "",
   };
 
   const AVISOS_POLL_MS = 8000;
 
+  // .replace(/x/g) instead of .replaceAll: replaceAll throws on the older
+  // Android WebViews some waiters' phones still run, and h() is called on
+  // every render -- one missing method there froze the whole panel.
   function h(value) {
     return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
   function money(value) {
@@ -64,60 +74,217 @@
     return `${m}m`;
   }
 
+  // ---------------------------------------------------------------------
+  // Storage. The session lives in localStorage, NOT sessionStorage: a phone
+  // browser that unloads the tab in the background (a call, the screen
+  // locking) or the mesero reopening the link in a new tab used to come
+  // back with no token -> login again -> the single-device rule kicked his
+  // own open panel. Every access is wrapped: private modes can throw.
+  // ---------------------------------------------------------------------
+  function storeGet(area, key) {
+    try {
+      return window[area].getItem(key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function storeSet(area, key, value) {
+    try {
+      if (value === null || value === undefined || value === "") window[area].removeItem(key);
+      else window[area].setItem(key, value);
+    } catch (_) {}
+  }
+
+  function storeJson(area, key) {
+    try {
+      const raw = storeGet(area, key);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function token() {
-    return sessionStorage.getItem(storageKey) || "";
+    const saved = storeGet("localStorage", storageKey);
+    if (saved) return saved;
+    // One-time move of a token saved by the previous version of this panel.
+    const legacy = storeGet("sessionStorage", storageKey);
+    if (legacy) {
+      storeSet("localStorage", storageKey, legacy);
+      storeSet("sessionStorage", storageKey, "");
+    }
+    return legacy || "";
   }
 
   function setToken(value) {
-    if (value) sessionStorage.setItem(storageKey, value);
-    else sessionStorage.removeItem(storageKey);
+    storeSet("localStorage", storageKey, value || "");
+    storeSet("sessionStorage", storageKey, "");
+  }
+
+  function deviceId() {
+    let id = storeGet("localStorage", deviceKey);
+    if (id && /^[A-Za-z0-9_-]{8,80}$/.test(id)) return id;
+    let random = "";
+    try {
+      const bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      random = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    } catch (_) {
+      random = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+    }
+    id = `d${random}`.slice(0, 40);
+    storeSet("localStorage", deviceKey, id);
+    return id;
+  }
+
+  function persistProfile() {
+    storeSet("localStorage", profileKey, JSON.stringify({ companyName: state.companyName, mesero: state.mesero, username: state.username || "" }));
+  }
+
+  function restoreProfile() {
+    const data = storeJson("localStorage", profileKey) || {};
+    state.companyName = data.companyName || state.companyName;
+    state.mesero = data.mesero || state.mesero;
+    state.username = data.username || state.username || "";
   }
 
   // ---------------------------------------------------------------------
-  // Cart resilience: mirrored to sessionStorage on every change so a failed
-  // send (or a reload) never loses what the mesero already built.
+  // Cart resilience: mirrored to localStorage on every change so a failed
+  // send, a reload, a killed tab or a dropped WiFi never loses what the
+  // mesero already built. Tagged with its owner so another mesero logging
+  // in on the same phone doesn't inherit it.
   // ---------------------------------------------------------------------
   function persistCart() {
-    try {
-      sessionStorage.setItem(cartKey, JSON.stringify({ table: state.table, cart: state.cart }));
-    } catch (_) {}
+    storeSet("localStorage", cartKey, JSON.stringify({ table: state.table, cart: state.cart, owner: state.username || "" }));
   }
 
-  function restoreCart() {
-    try {
-      const raw = sessionStorage.getItem(cartKey);
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (data && Array.isArray(data.cart) && data.cart.length) {
-        state.table = data.table || "";
-        state.cart = data.cart;
-      }
-    } catch (_) {}
+  function restoreCart(expectedOwner) {
+    const data = storeJson("localStorage", cartKey) || storeJson("sessionStorage", cartKey);
+    if (!data || !Array.isArray(data.cart) || !data.cart.length) return;
+    if (expectedOwner && data.owner && data.owner !== expectedOwner) {
+      clearPersistedCart();
+      return;
+    }
+    state.table = data.table || "";
+    state.cart = data.cart;
   }
 
   function clearPersistedCart() {
+    storeSet("localStorage", cartKey, "");
+    storeSet("sessionStorage", cartKey, "");
+  }
+
+  // Navigation stack per tab (sessionStorage, like the browser history it
+  // mirrors), so a reload lands back on the same screen.
+  function persistNav() {
+    storeSet("sessionStorage", navKey, JSON.stringify({ stack: state.stack, category: state.category, table: state.table }));
+  }
+
+  function restoreNav() {
+    const data = storeJson("sessionStorage", navKey);
+    if (!data || !Array.isArray(data.stack) || !data.stack.length || data.stack[0] !== "home") return null;
+    return data;
+  }
+
+  // ---------------------------------------------------------------------
+  // Connection: a dropped WiFi (or leaving the restaurant's network) shows
+  // a "sin conexión" bar and retries by itself -- it never logs the mesero
+  // out and never touches the cart.
+  // ---------------------------------------------------------------------
+  let reconnectHandle = null;
+
+  function markOffline(reason) {
+    const changed = !state.offline || state.offlineReason !== reason;
+    state.offline = true;
+    state.offlineReason = reason || "network";
+    if (changed) renderConnection();
+    if (!reconnectHandle) reconnectHandle = window.setInterval(tryReconnect, RECONNECT_MS);
+  }
+
+  function markOnline() {
+    if (!state.offline) return;
+    state.offline = false;
+    state.offlineReason = "";
+    if (reconnectHandle) window.clearInterval(reconnectHandle);
+    reconnectHandle = null;
+    renderConnection();
+    if (!state.menu.length) loadMenu().then(safeRender);
+    refreshHomeWidgets();
+  }
+
+  async function tryReconnect() {
+    if (!token()) return;
     try {
-      sessionStorage.removeItem(cartKey);
-    } catch (_) {}
+      await loadOperationalStrict();
+    } catch (_) {
+      // still offline: the interval keeps trying
+    }
+  }
+
+  function connectionMessage(reason) {
+    if (reason === "wifi") return "Sin conexión al WiFi del restaurante. Reintentando… Tu pedido está guardado.";
+    return "Sin conexión. Reintentando… Tu pedido está guardado.";
+  }
+
+  function renderConnection() {
+    const current = document.getElementById("wtrNet");
+    if (current) current.remove();
+    if (!state.offline || state.screen === "login") return;
+    const bar = document.createElement("div");
+    bar.id = "wtrNet";
+    bar.className = "wtr-net";
+    bar.setAttribute("role", "status");
+    bar.textContent = connectionMessage(state.offlineReason);
+    document.body.appendChild(bar);
+  }
+
+  // Any 401 on an authenticated call means the session is really gone
+  // (kicked by a login on another device, closed from Admin V2, expired):
+  // back to login, keeping the cart so nothing typed is lost.
+  function sessionLostMessage(message) {
+    if (/otro dispositivo/i.test(String(message))) return "Tu sesión se abrió en otro dispositivo.";
+    return "Tu sesión terminó. Vuelve a entrar: tu pedido sigue guardado.";
+  }
+
+  function handleSessionLost(message) {
+    setToken("");
+    stopSessionKeeper();
+    state.session = null;
+    state.offline = false;
+    renderConnection();
+    state.screen = "login";
+    state.error = sessionLostMessage(message);
+    safeRender();
   }
 
   async function api(path, options = {}) {
     const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
     const tok = token();
     if (tok) headers.Authorization = `Bearer ${tok}`;
-    const response = await fetch(path, { ...options, headers });
+    let response;
+    try {
+      response = await fetch(path, { ...options, headers });
+    } catch (_) {
+      // Network down (WiFi dropped, airplane mode...): not a session problem.
+      markOffline("network");
+      throw new Error("Sin conexión. Reintentando…");
+    }
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = data.detail || data.message || "Solicitud rechazada.";
-      if (response.status === 401 && /otro dispositivo/i.test(String(message))) {
-        setToken("");
-        state.session = null;
-        state.screen = "login";
-        state.error = "Tu sesión se abrió en otro dispositivo.";
-        render();
+      if (response.status === 401 && tok && !options.isLogin) {
+        handleSessionLost(message);
+      } else if (response.status === 403 && /wifi/i.test(String(message))) {
+        markOffline("wifi");
+      } else if (response.status >= 500 || response.status === 0) {
+        markOffline("network");
+      } else {
+        markOnline();
       }
       throw new Error(message);
     }
+    markOnline();
     return data;
   }
 
@@ -138,23 +305,134 @@
   // "back" always lands somewhere sensible regardless of how a screen was
   // reached (Tomar pedido -> mesa -> categorias, or Mis mesas -> categorias
   // directly).
+  //
+  // Every step is also a browser history entry, so the phone's own back
+  // button walks producto -> categoria -> mesa -> inicio instead of leaving
+  // the app. Entries: [base] [home, depth 0] [depth 1] ... Backing onto
+  // "base" means "leave from the home screen": allowed, but it asks first
+  // when there is an unsent cart.
   // ---------------------------------------------------------------------
+  let historyReady = false;
+  let ignorePops = 0;
+
+  function historyPush(depth) {
+    try {
+      window.history.pushState({ wtrDepth: depth }, "");
+    } catch (_) {}
+  }
+
+  function installHistory() {
+    try {
+      const current = window.history.state;
+      if (current && typeof current.wtrDepth === "number") {
+        // A reload in the middle of the flow: the tab kept its history
+        // entries, bring back the stack that matches them.
+        const nav = restoreNav();
+        if (nav && nav.stack.length === current.wtrDepth + 1) {
+          state.stack = nav.stack;
+          state.screen = nav.stack[nav.stack.length - 1];
+          state.category = nav.category || state.category;
+          if (nav.table) state.table = nav.table;
+        } else if (current.wtrDepth > 0) {
+          ignorePops += 1;
+          window.history.go(-current.wtrDepth);
+        }
+      } else {
+        if (!current || !current.wtrBase) window.history.replaceState({ wtrBase: true }, "");
+        historyPush(0);
+      }
+      historyReady = true;
+    } catch (_) {
+      historyReady = false;
+    }
+  }
+
   function goto(screen) {
     state.stack.push(screen);
     state.screen = screen;
+    persistNav();
+    if (historyReady) {
+      // Still on the base entry (confirmed "salir" but the tab had no page
+      // to go back to): put the home entry back first, so the flow stacks
+      // on top of it and back keeps returning to inicio.
+      const current = window.history.state;
+      if (current && current.wtrBase) historyPush(0);
+      historyPush(state.stack.length - 1);
+    }
     render();
   }
 
   function back() {
+    if (historyReady) {
+      window.history.back();
+      return;
+    }
     if (state.stack.length > 1) state.stack.pop();
     state.screen = state.stack[state.stack.length - 1];
+    persistNav();
     render();
   }
 
   function resetToHome() {
+    const steps = state.stack.length - 1;
     state.stack = ["home"];
     state.screen = "home";
+    persistNav();
+    if (historyReady && steps > 0) {
+      ignorePops += 1;
+      window.history.go(-steps);
+    }
     render();
+  }
+
+  function closeOpenSheets() {
+    const sheets = document.querySelectorAll(".wtr-sheet-backdrop");
+    sheets.forEach((sheet) => sheet.remove());
+    return sheets.length > 0;
+  }
+
+  function confirmLeave() {
+    if (!state.cart.length) return true;
+    return window.confirm(`Tienes un pedido sin enviar (${state.cart.length} producto${state.cart.length === 1 ? "" : "s"}). ¿Salir de todas formas? Quedará guardado.`);
+  }
+
+  // Pure decision for a popstate, so it can be tested without a browser.
+  function popAction(historyState, stackLength, screen, sheetOpen) {
+    if (screen === "login") return { type: "ignore" };
+    if (sheetOpen) return { type: "close_sheet", depth: stackLength - 1 };
+    if (historyState && typeof historyState.wtrDepth === "number") {
+      return { type: "go", depth: Math.max(0, Math.min(historyState.wtrDepth, stackLength - 1)) };
+    }
+    return { type: "leave" };
+  }
+
+  function onPopState(event) {
+    if (ignorePops > 0) {
+      ignorePops -= 1;
+      return;
+    }
+    const sheetOpen = document.querySelectorAll(".wtr-sheet-backdrop").length > 0;
+    const action = popAction(event.state, state.stack.length, state.screen, sheetOpen);
+    if (action.type === "close_sheet") {
+      // Back with a sheet open only closes the sheet.
+      closeOpenSheets();
+      historyPush(action.depth);
+      return;
+    }
+    if (action.type === "go") {
+      state.stack = state.stack.slice(0, action.depth + 1);
+      state.screen = state.stack[action.depth];
+      persistNav();
+      safeRender();
+      return;
+    }
+    if (action.type === "leave") {
+      if (confirmLeave()) {
+        window.history.back();
+      } else {
+        historyPush(0);
+      }
+    }
   }
 
   async function doLogin(username, password) {
@@ -164,15 +442,22 @@
     try {
       const data = await api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-login`, {
         method: "POST",
-        body: JSON.stringify({ username, password, panel_type: PANEL_TYPE }),
+        isLogin: true,
+        body: JSON.stringify({ username, password, panel_type: PANEL_TYPE, device_id: deviceId() }),
       });
       setToken(data.access_token || "");
       state.session = data;
       state.companyName = (data.company && data.company.name) || "CLONEXA";
       state.mesero = (data.user && data.user.full_name) || "Mesero";
-      restoreCart();
+      state.username = String(username || "").trim().toLowerCase();
+      persistProfile();
+      restoreCart(state.username);
+      state.stack = ["home"];
+      state.screen = "home";
+      installHistory();
       await enterHome();
       startHomeRefresh();
+      startSessionKeeper();
     } catch (error) {
       state.error = error.message || "No se pudo iniciar sesión.";
     } finally {
@@ -182,9 +467,43 @@
   }
 
   async function enterHome() {
-    state.stack = ["home"];
-    state.screen = "home";
     await Promise.all([loadTables(), loadMenu(), loadOperational(), loadVentasHoy(), loadMisMesas()]);
+  }
+
+  // ---------------------------------------------------------------------
+  // Session keeper: renews the token every 25 min and whenever the phone
+  // comes back to the panel, as long as the mesero's shift is open (the
+  // server refuses to renew a closed shift or a kicked session).
+  // ---------------------------------------------------------------------
+  let sessionKeeperHandle = null;
+
+  async function refreshToken() {
+    if (!token()) return;
+    try {
+      const data = await mpApi(`/mini-panel-refresh?panel_type=${PANEL_TYPE}`, { method: "POST" });
+      if (data && data.access_token) setToken(data.access_token);
+    } catch (_) {
+      // 409 turno_cerrado / offline: keep the current token; a real 401
+      // was already handled by api().
+    }
+  }
+
+  function startSessionKeeper() {
+    stopSessionKeeper();
+    refreshToken();
+    sessionKeeperHandle = window.setInterval(refreshToken, TOKEN_REFRESH_MS);
+  }
+
+  function stopSessionKeeper() {
+    if (sessionKeeperHandle) window.clearInterval(sessionKeeperHandle);
+    sessionKeeperHandle = null;
+  }
+
+  function onVisible() {
+    if (document.visibilityState !== "visible" || !token()) return;
+    refreshToken();
+    loadAvisos();
+    refreshHomeWidgets();
   }
 
   async function loadTables() {
@@ -204,6 +523,11 @@
     } catch (error) {
       state.error = error.message || "No se pudo cargar el menú.";
     }
+  }
+
+  async function loadOperationalStrict() {
+    const data = await mpApi(`/mini-panel-operational-session?panel_type=${PANEL_TYPE}`);
+    state.operational = data.operational_session || null;
   }
 
   async function loadOperational() {
@@ -615,6 +939,29 @@
   }
 
   function render() {
+    safeRender();
+  }
+
+  // A failure while drawing one screen must not blank the whole panel: show
+  // a recoverable card instead (the cart and the session stay intact).
+  function safeRender() {
+    try {
+      renderScreen();
+    } catch (error) {
+      try { console.error("[mesero] render", error); } catch (_) {}
+      root.innerHTML = `
+        <section class="wtr-shell wtr-recover">
+          <div class="wtr-recover-card">
+            <strong>Algo falló al mostrar esta pantalla.</strong>
+            <p>Tu sesión y tu pedido siguen guardados.</p>
+            <button class="wtr-btn wtr-btn-primary" type="button" data-wtr-recover>Volver al inicio</button>
+          </div>
+        </section>`;
+    }
+    renderConnection();
+  }
+
+  function renderScreen() {
     let html = "";
     if (state.screen === "login") html = screenLogin();
     else if (state.screen === "home") html = screenHome();
@@ -642,7 +989,24 @@
   });
 
   document.addEventListener("click", (event) => {
+    try {
+      handleClick(event);
+    } catch (error) {
+      try { console.error("[mesero] click", error); } catch (_) {}
+      state.error = "No se pudo completar esa acción. Intenta de nuevo.";
+      safeRender();
+    }
+  });
+
+  function handleClick(event) {
     const target = event.target;
+
+    const recover = target.closest("[data-wtr-recover]");
+    if (recover) {
+      closeOpenSheets();
+      resetToHome();
+      return;
+    }
 
     const avisoOk = target.closest("[data-wtr-aviso-ok]");
     if (avisoOk) { dismissAviso(avisoOk.getAttribute("data-wtr-aviso-ok")); return; }
@@ -650,6 +1014,7 @@
     const logout = target.closest("[data-wtr-logout]");
     if (logout) {
       setToken("");
+      stopSessionKeeper();
       state.session = null;
       state.screen = "login";
       render();
@@ -690,6 +1055,7 @@
     const tableBtn = target.closest("[data-wtr-table]");
     if (tableBtn) {
       state.table = tableBtn.getAttribute("data-wtr-table") || "";
+      persistCart();
       goto("categories");
       return;
     }
@@ -740,7 +1106,7 @@
       else if (product.is_portioned) openPortionSheet(product, category);
       else openConfigureSheet(product, category, null);
     }
-  });
+  }
 
   function findCategoryForLine(_line) {
     return null;
@@ -1016,6 +1382,10 @@
     .wtr-qty-preview strong{font-size:20px;color:#ffd166}
     .wtr-avisos{position:fixed;top:10px;left:10px;right:10px;z-index:70;display:grid;gap:8px}
     .wtr-aviso{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-radius:16px;background:#16a34a;color:#fff;font-size:17px;font-weight:900;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+    .wtr-net{position:fixed;left:0;right:0;bottom:0;z-index:80;padding:12px 16px;background:#b45309;color:#fff;font-size:14px;font-weight:900;text-align:center;box-shadow:0 -6px 20px rgba(0,0,0,.4)}
+    .wtr-recover{display:grid;place-items:center;padding:24px}
+    .wtr-recover-card{max-width:360px;display:grid;gap:12px;padding:22px;border-radius:20px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);text-align:center}
+    .wtr-recover-card p{margin:0;color:#c9c3e6}
     .wtr-aviso button{min-height:40px;padding:0 16px;border-radius:12px;border:none;background:rgba(0,0,0,.25);color:#fff;font-weight:900;font-size:15px}
   `;
   document.head.appendChild(style);
@@ -1036,14 +1406,43 @@
     }, 20000);
   }
 
+  window.addEventListener("popstate", (event) => {
+    try {
+      onPopState(event);
+    } catch (error) {
+      try { console.error("[mesero] popstate", error); } catch (_) {}
+    }
+  });
+  window.addEventListener("online", () => { tryReconnect(); });
+  window.addEventListener("offline", () => { markOffline("network"); });
+  document.addEventListener("visibilitychange", () => {
+    try { onVisible(); } catch (_) {}
+  });
+  // Last line of defence: a stray error in a timer or a promise shows a
+  // short notice instead of leaving the panel dead. Nothing here reloads
+  // the page or clears the session.
+  window.addEventListener("error", (event) => {
+    try { console.error("[mesero] error", event.error || event.message); } catch (_) {}
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    try { console.error("[mesero] promesa", event.reason); } catch (_) {}
+    if (event && typeof event.preventDefault === "function") event.preventDefault();
+  });
+
   if (!companyId) {
     root.innerHTML = `<section style="min-height:100vh;display:grid;place-items:center;background:#080712;color:#fff"><p>Falta company_id en el enlace.</p></section>`;
   } else if (token()) {
-    restoreCart();
-    enterHome().then(render);
-    render();
+    restoreProfile();
+    restoreCart(state.username);
+    state.stack = ["home"];
+    state.screen = "home";
+    installHistory();
+    safeRender();
+    enterHome().then(safeRender, safeRender);
     startHomeRefresh();
+    startSessionKeeper();
   } else {
-    render();
+    restoreProfile();
+    safeRender();
   }
 })();
