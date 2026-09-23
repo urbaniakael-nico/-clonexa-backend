@@ -131,9 +131,10 @@ class FakeOrdersDb:
         return {"orders": sorted(rows, key=lambda o: o["created_at"], reverse=True)}
 
 
-@pytest.fixture
-def db(monkeypatch):
-    fake = FakeOrdersDb()
+def install_fake_orders(monkeypatch, fake=None):
+    """Wire the in-memory hospitality_orders fake into hospitality and
+    waiter_ordering (shared with the caja direct-sale tests)."""
+    fake = fake or FakeOrdersDb()
 
     async def fetch_order(_db, company_id, order_id):
         assert company_id == COMPANY_ID
@@ -160,6 +161,11 @@ def db(monkeypatch):
         AsyncMock(return_value={"kitchen_board_columns": True}),
     )
     return fake
+
+
+@pytest.fixture
+def db(monkeypatch):
+    return install_fake_orders(monkeypatch)
 
 
 async def _board(db, cook):

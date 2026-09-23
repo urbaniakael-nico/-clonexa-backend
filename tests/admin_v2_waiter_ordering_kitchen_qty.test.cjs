@@ -50,3 +50,10 @@ test('the buttons field keeps only valid, unique fractions', () => {
   assert.deepEqual(Array.from(ctx.cxReadQuantityButtons042K('1/2, 1, abc, 1/0, 1, 1.5')), ['1/2', '1', '1.5']);
   assert.deepEqual(Array.from(ctx.cxReadQuantityButtons042K('')), ['1/4', '1/2', '3/4', '1', '2']);
 });
+
+test('caja direct sale is off unless explicitly true', () => {
+  const ctx = context();
+  assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({}).cashier_direct_sale, false);
+  assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ cashier_direct_sale: 'yes' }).cashier_direct_sale, false);
+  assert.equal(ctx.cxWaiterOrderingKitchenQtySettings042K({ cashier_direct_sale: true }).cashier_direct_sale, true);
+});

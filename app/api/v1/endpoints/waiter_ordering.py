@@ -35,6 +35,7 @@ from app.services.access_sessions import ip_allowed_for_scope
 from app.api.v1.endpoints.company_users import require_company_user_admin_access
 from app.api.v1.endpoints.hospitality import (
     ACTIVE_STATUSES,
+    HospitalityCloseIn,
     HospitalityOrderCreateIn,
     HospitalityOrderItemIn,
     HospitalityStatusIn,
@@ -45,6 +46,7 @@ from app.api.v1.endpoints.hospitality import (
     _adjust_pending_order_inventory,
     _build_order_items,
     _clean,
+    _closing_payment_method,
     _fetch_order,
     _hsp_report_zone,
     _money,
@@ -52,6 +54,8 @@ from app.api.v1.endpoints.hospitality import (
     _num,
     _payload,
     _status,
+    _table_key,
+    close_hospitality_order,
     create_hospitality_order,
     hospitality_inventory_lite,
     list_hospitality_orders,
@@ -880,6 +884,127 @@ async def create_waiter_order(
         waiter_name=user.full_name or "",
     )
     return await create_hospitality_order(company_id, hospitality_payload, db)
+
+
+# ---------------------------------------------------------------------------
+# Caja: facturacion directa (opt-in per company, off by default). The cashier
+# sells from the whole active catalog, either as an independent sale
+# ("Venta 012", no table) or added to a table, and chooses per sale whether
+# it goes to the kitchen:
+#   - send_to_kitchen=False: the order is walked pendiente -> alistando ->
+#     entregado right away (never shows on the kitchen board); an
+#     independent sale is also charged on the spot with the chosen method.
+#   - send_to_kitchen=True: it lands in "Pedido nuevo" like a mesero's order
+#     and is charged once the kitchen marks it ready (status entregado),
+#     from the same caja table list as any other table.
+# Prices, names and stations always come from the server's catalog.
+# ---------------------------------------------------------------------------
+
+CASHIER_DIRECT_SALE_FLAG = "cashier_direct_sale"
+
+
+class CashierSaleIn(BaseModel):
+    table: str | None = Field(default="", max_length=120)
+    items: list[WaiterOrderItemIn] = Field(default_factory=list)
+    send_to_kitchen: bool = False
+    payment_method: str | None = Field(default=None, max_length=40)
+    notes: str | None = Field(default="", max_length=900)
+
+    @field_validator("items")
+    @classmethod
+    def clean_items(cls, value: list[WaiterOrderItemIn] | None) -> list[WaiterOrderItemIn]:
+        rows = [item for item in (value or []) if _clean(item.inventory_item_id) and item.quantity > 0]
+        if not rows:
+            raise ValueError("Agrega al menos un producto.")
+        return rows[:80]
+
+
+@router.get("/{company_id}/waiter-ordering/caja/config")
+async def cashier_config(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: CompanyUser = Depends(_require_caja),
+) -> dict[str, Any]:
+    settings = await _module_settings(db, company_id)
+    return {"ok": True, "direct_sale": settings.get(CASHIER_DIRECT_SALE_FLAG) is True}
+
+
+def _independent_sale_label(order_number: Any) -> str:
+    tail = str(order_number or "").rsplit("-", 1)[-1].strip()
+    return f"Venta {tail}" if tail else "Venta caja"
+
+
+@router.post("/{company_id}/waiter-ordering/caja/ventas", status_code=status.HTTP_201_CREATED)
+async def create_cashier_sale(
+    company_id: uuid.UUID,
+    payload: CashierSaleIn,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_caja),
+) -> dict[str, Any]:
+    await _require_feature(db, company_id, CASHIER_DIRECT_SALE_FLAG)
+    table = _clean(payload.table)
+    independent = not table
+    charge_now = independent and not payload.send_to_kitchen
+    # Validate the payment method BEFORE creating anything, so a bad method
+    # never leaves a half-made sale behind.
+    payment_method = _closing_payment_method(payload.payment_method) if charge_now else None
+
+    order_items = await _priced_order_items(db, company_id, payload.items)
+    created = await create_hospitality_order(
+        company_id,
+        HospitalityOrderCreateIn(
+            # Unique placeholder so two sales in flight never merge into one
+            # "table"; renamed to "Venta <n>" right below.
+            table=table or f"Venta caja {uuid.uuid4().hex[:8]}",
+            customer=user.full_name or "Caja",
+            source="table_manual",
+            payment_method="other",
+            notes=payload.notes,
+            items=order_items,
+            waiter_id=str(user.id),
+            waiter_name=user.full_name or "",
+        ),
+        db,
+    )
+    order = created.get("order") or {}
+    order_id = uuid.UUID(str(order["id"]))
+
+    sale_meta = {
+        "by": {"id": str(user.id), "name": user.full_name or ""},
+        "kind": "independiente" if independent else "mesa",
+        "send_to_kitchen": bool(payload.send_to_kitchen),
+        "at": _now().isoformat(),
+    }
+    label = _independent_sale_label(order.get("order_number")) if independent else order.get("table_number")
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_orders
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('cashier_sale', CAST(:sale AS jsonb)),
+                table_number = :label,
+                table_key = :table_key,
+                updated_at = NOW()
+            WHERE id = :order_id AND company_id = :company_id
+            """
+        ),
+        {
+            "sale": json.dumps(sale_meta, ensure_ascii=False),
+            "label": label,
+            "table_key": _table_key(label),
+            "order_id": str(order_id),
+            "company_id": str(company_id),
+        },
+    )
+    await db.commit()
+
+    if not payload.send_to_kitchen:
+        await update_hospitality_order_status(company_id, order_id, HospitalityStatusIn(status=STATUS_PREPARING), db)
+        await update_hospitality_order_status(company_id, order_id, HospitalityStatusIn(status=STATUS_SERVED), db)
+    if charge_now:
+        await close_hospitality_order(company_id, order_id, HospitalityCloseIn(payment_method=payment_method), db)
+
+    saved = await _fetch_order(db, company_id, order_id)
+    return {"ok": True, "order": saved, "charged": charge_now, "label": label}
 
 
 # ---------------------------------------------------------------------------

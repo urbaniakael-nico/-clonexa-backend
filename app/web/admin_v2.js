@@ -2725,6 +2725,7 @@
     const source = settings && typeof settings === "object" ? settings : {};
     return {
       kitchen_board_columns: source.kitchen_board_columns === true,
+      cashier_direct_sale: source.cashier_direct_sale === true,
       quantity_buttons_enabled: source.quantity_buttons_enabled === true,
       quantity_buttons: Array.isArray(source.quantity_buttons) && source.quantity_buttons.length
         ? source.quantity_buttons.map(String)
@@ -2835,6 +2836,10 @@
             <label class="cx-reset-scope">
               <input type="checkbox" name="kitchen_board_columns" ${settings.kitchen_board_columns ? "checked" : ""}>
               <span>Cocina en 3 columnas (Pedido nuevo / Preparando / Listo), boton Entregado y aviso "Mesa X lista para llevar" al mesero</span>
+            </label>
+            <label class="cx-reset-scope">
+              <input type="checkbox" name="cashier_direct_sale" ${settings.cashier_direct_sale ? "checked" : ""}>
+              <span>Caja: venta directa desde el inventario (venta independiente o agregar a mesa, con opcion "Enviar a cocina")</span>
             </label>
             <label class="cx-reset-scope">
               <input type="checkbox" name="quantity_buttons_enabled" ${settings.quantity_buttons_enabled ? "checked" : ""}>
@@ -3153,6 +3158,7 @@
       shift_max_hours: Math.max(1, Math.min(48, Number(data.shift_max_hours) || 12)),
       segments: cxReadWaiterOrderingSegmentsFromForm031T(data),
       kitchen_board_columns: data.kitchen_board_columns === "on",
+      cashier_direct_sale: data.cashier_direct_sale === "on",
       quantity_buttons_enabled: data.quantity_buttons_enabled === "on",
       quantity_buttons: cxReadQuantityButtons042K(data.quantity_buttons),
     };
