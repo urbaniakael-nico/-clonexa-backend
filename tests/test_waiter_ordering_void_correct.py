@@ -120,6 +120,12 @@ async def test_correct_adjusts_inventory_by_the_delta_and_logs_the_diff(monkeypa
     user = _user(role="caja")
 
     monkeypatch.setattr(waiter_ordering, "_lock_order_for_edit", AsyncMock(return_value=order))
+    monkeypatch.setattr(
+        waiter_ordering, "hospitality_inventory_lite",
+        AsyncMock(return_value={"inventory": [{"id": "inv-2", "name": "PAPAS Fritas", "price": 4000}]}),
+    )
+    monkeypatch.setattr(waiter_ordering, "_category_rows", AsyncMock(return_value={}))
+    monkeypatch.setattr(waiter_ordering, "_portion_membership", AsyncMock(return_value={}))
     new_items = [{"id": "line_2", "name": "Papas", "subtotal": 4000}]
     monkeypatch.setattr(waiter_ordering, "_build_order_items", AsyncMock(return_value=new_items))
     adjust = AsyncMock()

@@ -798,14 +798,11 @@ class WaiterOrderCreateIn(BaseModel):
         return rows[:80]
 
 
-@router.post("/{company_id}/waiter-ordering/orders", status_code=status.HTTP_201_CREATED)
-async def create_waiter_order(
-    company_id: uuid.UUID,
-    payload: WaiterOrderCreateIn,
-    db: AsyncSession = Depends(get_db),
-    user: CompanyUser = Depends(_require_mesero),
-) -> dict[str, Any]:
-    await ensure_waiter_ordering_storage(db)
+async def _priced_order_items(db: AsyncSession, company_id: uuid.UUID, items: list[Any]) -> list[HospitalityOrderItemIn]:
+    """Server-side name, price, station and cooking term for each line, from
+    the company's own catalog -- the client never sends money. Shared by
+    order creation and correction so both charge exactly the same way
+    (including cantidad por botones fractions)."""
     inventory = await hospitality_inventory_lite(company_id, limit=500, db=db)
     by_id = {str(row.get("id")): row for row in (inventory.get("inventory") or [])}
     categories = await _category_rows(db, company_id)
@@ -813,11 +810,11 @@ async def create_waiter_order(
     quantity_buttons: list[str] | None = None
 
     order_items: list[HospitalityOrderItemIn] = []
-    for item in payload.items:
+    for item in items:
         product = by_id.get(_clean(item.inventory_item_id))
         if not product:
             raise HTTPException(status_code=422, detail="Producto no disponible en el catalogo.")
-        fraction_label = _clean(item.fraction)
+        fraction_label = _clean(getattr(item, "fraction", None))
         resolved = None
         if fraction_label:
             if quantity_buttons is None:
@@ -859,6 +856,18 @@ async def create_waiter_order(
                 **price_fields,
             )
         )
+    return order_items
+
+
+@router.post("/{company_id}/waiter-ordering/orders", status_code=status.HTTP_201_CREATED)
+async def create_waiter_order(
+    company_id: uuid.UUID,
+    payload: WaiterOrderCreateIn,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_mesero),
+) -> dict[str, Any]:
+    await ensure_waiter_ordering_storage(db)
+    order_items = await _priced_order_items(db, company_id, payload.items)
 
     hospitality_payload = HospitalityOrderCreateIn(
         table=payload.table,
@@ -1332,7 +1341,10 @@ class CorrectOrderItemIn(BaseModel):
     observations: str | None = Field(default="", max_length=300)
     quick_notes: list[str] = Field(default_factory=list)
     term: str | None = Field(default="", max_length=40)
+    # Ignored: the station is resolved from the admin-configured category,
+    # exactly like on creation. Kept so existing callers don't get a 422.
     station: str | None = Field(default="", max_length=80)
+    fraction: str | None = Field(default=None, max_length=10)
 
 
 class CorrectOrderIn(BaseModel):
@@ -1430,18 +1442,13 @@ async def correct_waiter_order(
     if current_status not in ACTIVE_STATUSES:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este pedido ya no se puede corregir.")
 
-    hospitality_items = [
-        HospitalityOrderItemIn(
-            inventory_item_id=item.inventory_item_id,
-            quantity=item.quantity,
-            observations=item.observations,
-            quick_notes=item.quick_notes,
-            term=item.term,
-            station=item.station,
-        )
-        for item in payload.items
-        if item.quantity > 0
-    ]
+    # Used to build lines with only inventory_item_id/quantity, so every
+    # corrected line came back with unit_price 0 and subtotal $0 -- a
+    # corrected table would have been charged nothing for those products.
+    # Price them from the catalog exactly like a new order.
+    hospitality_items = await _priced_order_items(
+        db, company_id, [item for item in payload.items if item.quantity > 0],
+    )
     new_items = await _build_order_items(db, company_id, hospitality_items)
     await _adjust_pending_order_inventory(db, company_id, order, new_items)
 
