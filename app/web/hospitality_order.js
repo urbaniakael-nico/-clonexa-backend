@@ -1556,6 +1556,20 @@
       </div>`;
   }
 
+  let barNameTimer = 0;
+  function barPushNameSoon() {
+    window.clearTimeout?.(barNameTimer);
+    barNameTimer = window.setTimeout(() => {
+      if (!state.customerName) return;
+      refreshTableAccount().catch(() => {});
+    }, 900);
+  }
+
+  // Cómo ve el bar a este teléfono ("Persona 2" o el nombre que escribió).
+  function barMyName() {
+    return String(state.tableAccount?.current_account?.name || "").trim();
+  }
+
   function barSongSent(song) {
     state.message = "";
     state.songNotice = song;
@@ -1634,8 +1648,9 @@
             <button class="qr-cart-close" type="button" data-cart-close aria-label="Cerrar pedido">×</button>
           </div>
           <label class="qr-field">
-            <span>Nombre</span>
-            <input id="qrCustomer024S" name="name" autocomplete="name" placeholder="Ej: Javier" value="${h(document.getElementById("qrCustomer024S")?.value || state.customerName || "")}">
+            <span>Tu nombre</span>
+            <input id="qrCustomer024S" name="name" autocomplete="name" placeholder="${h(barMyName() && !state.customerName ? `Escríbelo o sigue como ${barMyName()}` : "Ej: Javier")}" value="${h(document.getElementById("qrCustomer024S")?.value || state.customerName || "")}">
+            ${barMyName() ? `<small class="qrb-my-name">En la barra apareces como <strong>${h(barMyName())}</strong></small>` : ""}
           </label>
           <div id="qrCartLines024S">${cartRows()}</div>
           <label class="qr-field">
@@ -1682,6 +1697,8 @@
       .qrb-line-body{padding:0 14px 14px;display:grid;gap:10px}
       .qrb-line-body > small{color:var(--qr-muted)}
       .qrb-line .qr-table-breakdown-panel{position:static;max-height:none;overflow:visible;padding:0;border:0;background:transparent;box-shadow:none}
+      .qrb-my-name{color:var(--qr-muted);font-size:13px}
+      .qrb-my-name strong{color:var(--qr-secondary)}
       .qrb-song-notice{padding:12px 14px;border-radius:12px;background:#15803d;color:#fff;font-weight:900}
       .qrb-menu{display:grid;gap:12px}
       .qrb-search{width:100%;min-height:48px;font-size:16px}
@@ -2019,7 +2036,7 @@
       state.error = "";
       state.message = "Enviando pedido...";
       render();
-      const customer = document.getElementById("qrCustomer024S")?.value || state.customerName || "Cliente mesa";
+      const customer = document.getElementById("qrCustomer024S")?.value || state.customerName || (barMenuOn() ? "" : "Cliente mesa");
       const notes = document.getElementById("qrNotes024S")?.value || "";
       const payload = {
         table: state.table,
@@ -2425,6 +2442,7 @@
     if (!(target instanceof HTMLInputElement)) return;
     if (target.id === "qrCustomer024S") {
       rememberCustomerName(target.value);
+      if (barMenuOn()) barPushNameSoon();
       return;
     }
     if (target.id === "qrSongRequest031C") {
@@ -2522,7 +2540,9 @@
     try {
       const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/account`, {
         method: "POST",
-        body: JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId() }),
+        body: barMenuOn()
+          ? JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId(), customer: state.customerName || "" })
+          : JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId() }),
       });
       state.tableAccount = {
         total: Number(data.account?.total || 0),

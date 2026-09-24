@@ -97,6 +97,8 @@ async def test_qr_table_account_keeps_independent_people_and_products(monkeypatc
     )
     monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
     monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
+    # empresa sin carta de bar: sin "Persona N" automatico
+    monkeypatch.setattr(hospitality, "_qr_customer_ui", AsyncMock(return_value={"bar_menu": False}))
     require_access = AsyncMock()
     monkeypatch.setattr(hospitality, "_require_table_access", require_access)
 
@@ -173,6 +175,8 @@ async def test_qr_order_persists_the_device_account_id(monkeypatch):
     )
     monkeypatch.setattr(hospitality, "_ensure_storage", AsyncMock())
     monkeypatch.setattr(hospitality, "_company_exists", AsyncMock(return_value=True))
+    # empresa sin carta de bar: sin "Persona N" automatico
+    monkeypatch.setattr(hospitality, "_qr_customer_ui", AsyncMock(return_value={"bar_menu": False}))
     monkeypatch.setattr(hospitality, "_require_table_access", AsyncMock())
     monkeypatch.setattr(hospitality, "_build_order_items", AsyncMock(return_value=[item]))
     monkeypatch.setattr(hospitality, "_next_order_number", AsyncMock(return_value="QR-101"))
@@ -205,7 +209,8 @@ def test_mobile_qr_renders_and_refreshes_the_server_table_total():
 
     assert "Cuenta total de la mesa" in source
     assert "/qr-tables/account`" in source
-    assert 'body: JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId() })' in source
+    # classic payload unchanged; the bar menu (qr_bar_menu) adds "customer"
+    assert ': JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId() })' in source
     assert "account_id: tableCustomerAccountId()" in source
     assert "refreshTableAccount({ render: false })" in source
     assert "refreshTableAccount().catch" in source

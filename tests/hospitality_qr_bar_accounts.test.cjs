@@ -4,8 +4,9 @@
 // tablero real del barman (client.js) suma ambas y cierra la mesa completa.
 //
 // El servidor falso guarda cada pedido con la misma forma que
-// create_hospitality_order (people[0].account_id) y agrupa la cuenta por
-// account_id; la agrupación real del servidor la prueba
+// create_hospitality_order (people[0].account_id), agrupa la cuenta por
+// account_id y nombra "Persona N" por orden de llegada como
+// _register_qr_guest; el servidor real lo prueba
 // test_hospitality_qr_bar_accounts.py con estos mismos pedidos.
 const { readFileSync } = require('node:fs');
 const { test } = require('node:test');
@@ -21,6 +22,27 @@ const INVENTORY = [
 
 function fakeBarServer() {
   const orders = [];
+  const guests = new Map(); // account_id -> { number, name }
+  const accountCalls = [];
+  const typed = (value) => {
+    const clean = String(value || '').trim();
+    return ['', 'cliente mesa', 'cliente barra', 'cliente'].includes(clean.toLowerCase()) ? '' : clean;
+  };
+  const register = (accountId, customer) => {
+    let guest = guests.get(accountId);
+    if (!guest) {
+      guest = { number: guests.size + 1, name: '' };
+      guests.set(accountId, guest);
+    }
+    const name = typed(customer);
+    if (name && name !== guest.name) {
+      guest.name = name;
+      orders.forEach((order) => order.people.forEach((person) => {
+        if (person.account_id === accountId) { person.name = name; order.customer_name = name; }
+      }));
+    }
+    return guest.name || `Persona ${guest.number}`;
+  };
   const accountFor = (accountId) => {
     const accounts = new Map();
     orders.forEach((order) => order.people.forEach((person) => {
@@ -52,7 +74,11 @@ function fakeBarServer() {
     if (url.includes('/branding')) return [200, { branding: {} }];
     if (url.includes('/qr-tables/access/verify')) return [200, { access: { active: true } }];
     if (url.includes('/qr-tables/access?')) return [200, { access: { active: true }, company_name: 'The Time Machine', ui: { bar_menu: true } }];
-    if (url.includes('/qr-tables/account')) return [200, { account: accountFor(body.account_id) }];
+    if (url.includes('/qr-tables/account')) {
+      accountCalls.push(body);
+      register(body.account_id, body.customer);
+      return [200, { account: accountFor(body.account_id) }];
+    }
     if (url.includes('/inventory-lite')) return [200, { inventory: INVENTORY }];
     if (url.endsWith('/orders') && method === 'POST') {
       const items = body.items.map((item) => ({
@@ -60,11 +86,12 @@ function fakeBarServer() {
         unit_price: item.unit_price, subtotal: item.quantity * item.unit_price,
       }));
       const total = items.reduce((sum, item) => sum + item.subtotal, 0);
+      const name = register(body.account_id, body.customer);
       const order = {
         id: `o${orders.length + 1}`, order_number: `QR-${orders.length + 1}`,
         table_number: body.table, table_key: body.table.toLowerCase(), source: 'qr', status: 'pendiente',
-        customer_name: body.customer, items, total, created_at: `2026-09-23T22:0${orders.length}:00Z`,
-        people: [{ id: body.account_id, account_id: body.account_id, name: body.customer, total, items }],
+        customer_name: name, items, total, created_at: `2026-09-23T22:0${orders.length}:00Z`,
+        people: [{ id: body.account_id, account_id: body.account_id, name, total, items }],
         metadata: { account_id: body.account_id },
       };
       orders.push(order);
@@ -72,7 +99,7 @@ function fakeBarServer() {
     }
     return [200, {}];
   };
-  return { orders, routes };
+  return { orders, guests, accountCalls, routes };
 }
 
 async function settle() {
@@ -90,7 +117,7 @@ async function phone(server) {
 }
 
 async function order(page, name, picks) {
-  page.type('qrCustomer024S', name);
+  if (name) page.type('qrCustomer024S', name);
   for (const [id, qty] of picks) {
     page.click('data-add', id);
     for (let i = 1; i < qty; i += 1) page.click('data-inc', id);
@@ -224,4 +251,75 @@ test('el desglose por persona se ve dentro de la línea de cuenta (no como flota
   // dentro de la línea colapsable de la carta de bar debe fluir en su sitio.
   assert.match(barCss.textContent, /\.qrb-line \.qr-table-breakdown-panel\{position:static;/);
   assert.match(page.html(), /<div class="qrb-line-body">[\s\S]*?id="qrTableAccountBreakdown033C" class="qr-table-breakdown-panel"/);
+});
+
+test('"Persona N" por orden de llegada, igual en el cliente y en el barman; el nombre escrito lo reemplaza', async () => {
+  const server = fakeBarServer();
+  // A, B y C escanean y activan la mesa en ese orden
+  const a = await phone(server);
+  const b = await phone(server);
+  const c = await phone(server);
+  const idOf = (page) => page.calls.find((call) => call.url.includes('/qr-tables/account')).options.body;
+  const ids = [a, b, c].map((page) => JSON.parse(idOf(page)).account_id);
+  assert.deepEqual(ids.map((id) => server.guests.get(id).number), [1, 2, 3], 'número = orden en que abrieron la mesa');
+  assert.ok(server.accountCalls.every((call) => call.customer === ''), 'sin nombre escrito, el teléfono no manda texto de relleno');
+
+  // B pide primero y A después, sin escribir nombre
+  await order(b, '', [['guaro', 1]]);
+  await order(a, '', [['aguila', 1]]);
+  const posts = [...orderPosts(b), ...orderPosts(a)];
+  assert.deepEqual(posts.map((post) => post.customer), ['', ''], 'no envía "Cliente mesa"');
+  assert.deepEqual(server.orders.map((o) => o.people[0].name), ['Persona 2', 'Persona 1']);
+
+  // cada teléfono ve cómo aparece en la barra
+  b.click('data-cart-open');
+  assert.match(b.html(), /En la barra apareces como <strong>Persona 2<\/strong>/);
+  assert.match(b.html(), /placeholder="Escríbelo o sigue como Persona 2"/);
+  b.click('data-cart-close');
+
+  // C nunca pide y aun así conserva su número: D llega y es la Persona 4
+  const d = await phone(server);
+  assert.equal(server.guests.get(JSON.parse(idOf(d)).account_id).number, 4);
+
+  // B escribe su nombre: se envía (con espera) y reemplaza al automático
+  b.type('qrCustomer024S', 'Nico');
+  b.runTimers();
+  await settle();
+  const last = server.accountCalls[server.accountCalls.length - 1];
+  assert.equal(last.customer, 'Nico');
+  assert.equal(last.account_id, ids[1]);
+  assert.equal(server.guests.get(ids[1]).number, 2, 'el número no cambia');
+
+  // pantalla de A: su cuenta y la de Nico, con los mismos nombres del barman
+  a.runIntervals();
+  await settle();
+  a.click('data-cart-close');
+  const html = a.html();
+  assert.match(html, /<strong>Persona 1<\/strong>\s*<small>1 pedido\(s\) · Tu cuenta<\/small>/);
+  assert.match(html, /<strong>Nico<\/strong>\s*<small>1 pedido\(s\)<\/small>/);
+  assert.doesNotMatch(html, /Persona 2|Cliente mesa/);
+
+  server.orders.forEach((o) => { o.status = 'entregado'; });
+  const card = barmanBoard(server.orders);
+  assert.match(card, /<summary><span>Nico<\/span>/);
+  assert.match(card, /<summary><span>Persona 1<\/span>/);
+  assert.doesNotMatch(card, /Persona 2|Cliente mesa/);
+  assert.match(card, new RegExp(`Total mesa</span><strong>${money(66000)}</strong>`));
+});
+
+test('pantalla clásica (sin interruptor): sigue enviando "Cliente mesa" y sin nombre en la cuenta', async () => {
+  const server = fakeBarServer();
+  const routes = (url, options) => (url.includes('/qr-tables/access?')
+    ? [200, { access: { active: true }, company_name: 'ASADERO EL SOCIO', ui: { bar_menu: false } }]
+    : server.routes(url, options));
+  const page = boot({ routes, local: new FakeStorage() });
+  await settle();
+  page.input('qrAccessCode025B', 'MESA5');
+  page.click('data-access-verify');
+  await settle();
+  page.click('data-add', 'aguila');
+  page.click('data-submit-order');
+  await settle();
+  assert.equal(orderPosts(page)[0].customer, 'Cliente mesa');
+  assert.ok(server.accountCalls.every((call) => !('customer' in call)));
 });

@@ -225,6 +225,10 @@ class HospitalityTableAccessVerifyIn(BaseModel):
     table: str | None = Field(default="Mesa", max_length=120)
     access_code: str | None = Field(default="", max_length=12)
     account_id: str | None = Field(default="", max_length=120)
+    # Carta de bar (qr_bar_menu): nombre que la persona escribió en su
+    # teléfono; vacío = conserva su nombre actual ("Persona N" si nunca
+    # escribió uno).
+    customer: str | None = Field(default=None, max_length=180)
 
 
 class HospitalityTableAccessCloseIn(BaseModel):
@@ -880,6 +884,132 @@ async def _qr_customer_ui(db: AsyncSession, company_id: uuid.UUID) -> dict[str, 
     settings = _json(row["settings"], {}) if row else {}
     settings = settings if isinstance(settings, dict) else {}
     return {"bar_menu": settings.get(QR_BAR_MENU_SETTING) is True}
+
+
+# "Persona N" automático (carta de bar): cada teléfono que abre la mesa queda
+# registrado en hospitality_table_guests, por activación de mesa, con el
+# número en que llegó. El número nunca se reusa ni se reordena aunque esa
+# persona deje de pedir; si escribe su nombre, reemplaza al automático en
+# sus pedidos abiertos, y así se ve igual en su pantalla y en el barman.
+QR_DEFAULT_CUSTOMER_NAMES = {"", "cliente mesa", "cliente barra", "cliente"}
+
+
+def _qr_typed_name(value: Any) -> str:
+    clean = _clean(value)[:180]
+    return "" if _norm(clean) in QR_DEFAULT_CUSTOMER_NAMES else clean
+
+
+def _qr_guest_display_name(guest: dict[str, Any]) -> str:
+    return _clean(guest.get("name")) or f"Persona {int(guest.get('guest_number') or 0)}"
+
+
+async def _register_qr_guest(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    table_number: str,
+    account_id: str,
+    typed_name: str = "",
+) -> dict[str, Any] | None:
+    account_id = _clean(account_id)[:120]
+    access = await _fetch_active_table_access(db, company_id, table_number)
+    if not account_id or not access:
+        return None
+    params = {"company_id": str(company_id), "access_id": str(access["id"]), "account_id": account_id}
+    # Serialize arrivals on this table activation so two phones scanning at
+    # the same time never get the same number.
+    await db.execute(
+        text("SELECT id FROM hospitality_table_access WHERE id = :access_id AND company_id = :company_id FOR UPDATE"),
+        params,
+    )
+    found = await db.execute(
+        text(
+            """
+            SELECT guest_number, name
+            FROM hospitality_table_guests
+            WHERE company_id = :company_id AND access_id = :access_id AND account_id = :account_id
+            LIMIT 1
+            """
+        ),
+        params,
+    )
+    guest = found.mappings().first()
+    if guest is None:
+        created = await db.execute(
+            text(
+                """
+                INSERT INTO hospitality_table_guests (company_id, access_id, table_key, account_id, guest_number, name)
+                SELECT :company_id, :access_id, :table_key, :account_id, COALESCE(MAX(guest_number), 0) + 1, :name
+                FROM hospitality_table_guests
+                WHERE company_id = :company_id AND access_id = :access_id
+                RETURNING guest_number, name
+                """
+            ),
+            {**params, "table_key": _table_key(table_number), "name": typed_name},
+        )
+        guest = dict(created.mappings().first())
+        return {**guest, "display_name": _qr_guest_display_name(guest), "renamed": bool(typed_name)}
+    guest = dict(guest)
+    if typed_name and typed_name != _clean(guest.get("name")):
+        await db.execute(
+            text(
+                """
+                UPDATE hospitality_table_guests
+                SET name = :name, updated_at = NOW()
+                WHERE company_id = :company_id AND access_id = :access_id AND account_id = :account_id
+                """
+            ),
+            {**params, "name": typed_name},
+        )
+        guest["name"] = typed_name
+        return {**guest, "display_name": _qr_guest_display_name(guest), "renamed": True}
+    return {**guest, "display_name": _qr_guest_display_name(guest), "renamed": False}
+
+
+async def _rename_qr_guest_orders(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    table_number: str,
+    account_id: str,
+    display_name: str,
+) -> None:
+    result = await db.execute(
+        text(
+            """
+            SELECT id, people
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND table_key = :table_key
+              AND archived_at IS NULL
+              AND status IN ('pendiente', 'alistando', 'entregado')
+              AND metadata->>'account_id' = :account_id
+            """
+        ),
+        {"company_id": str(company_id), "table_key": _table_key(table_number), "account_id": account_id},
+    )
+    for row in result.mappings().all():
+        people = _json(row["people"], [])
+        people = people if isinstance(people, list) else []
+        for person in people:
+            if isinstance(person, dict) and _clean(person.get("account_id")) == account_id:
+                person["name"] = display_name
+                person["customer_key"] = _customer_key(display_name)
+        await db.execute(
+            text(
+                """
+                UPDATE hospitality_orders
+                SET people = CAST(:people AS jsonb),
+                    customer_name = :customer_name,
+                    updated_at = NOW()
+                WHERE id = :order_id AND company_id = :company_id
+                """
+            ),
+            {
+                "people": json.dumps(people, ensure_ascii=False),
+                "customer_name": display_name,
+                "order_id": str(row["id"]),
+                "company_id": str(company_id),
+            },
+        )
 
 
 async def _qr_company_name(db: AsyncSession, company_id: uuid.UUID) -> str:
@@ -4140,6 +4270,13 @@ async def get_hospitality_table_account(
 
     table_number = _clean(payload.table) or "Mesa"
     await _require_table_access(db, company_id, table_number, payload.access_code)
+    account_id = _clean(payload.account_id)
+    if account_id and (await _qr_customer_ui(db, company_id))["bar_menu"]:
+        guest = await _register_qr_guest(db, company_id, table_number, account_id, _qr_typed_name(payload.customer))
+        if guest and guest["renamed"]:
+            await _rename_qr_guest_orders(db, company_id, table_number, account_id, guest["display_name"])
+        if guest:
+            await db.commit()
     result = await db.execute(
         text(
             """
@@ -5022,6 +5159,12 @@ async def create_hospitality_order(
     account_id = _clean(payload.account_id)[:120] if _norm(source) == "qr" else ""
     if _norm(source) == "qr":
         await _require_table_access(db, company_id, table_number, payload.access_code)
+        if account_id and (await _qr_customer_ui(db, company_id))["bar_menu"]:
+            guest = await _register_qr_guest(db, company_id, table_number, account_id, _qr_typed_name(payload.customer))
+            if guest:
+                customer_name = guest["display_name"]
+                if guest["renamed"]:
+                    await _rename_qr_guest_orders(db, company_id, table_number, account_id, customer_name)
 
     items = await _build_order_items(db, company_id, payload.items)
     total = _money(sum(_num(item.get("subtotal")) for item in items))
