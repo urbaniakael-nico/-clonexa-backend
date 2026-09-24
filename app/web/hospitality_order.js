@@ -1681,6 +1681,7 @@
       .qrb-line summary em{font-style:normal;font-size:13px;opacity:.75}
       .qrb-line-body{padding:0 14px 14px;display:grid;gap:10px}
       .qrb-line-body > small{color:var(--qr-muted)}
+      .qrb-line .qr-table-breakdown-panel{position:static;max-height:none;overflow:visible;padding:0;border:0;background:transparent;box-shadow:none}
       .qrb-song-notice{padding:12px 14px;border-radius:12px;background:#15803d;color:#fff;font-weight:900}
       .qrb-menu{display:grid;gap:12px}
       .qrb-search{width:100%;min-height:48px;font-size:16px}

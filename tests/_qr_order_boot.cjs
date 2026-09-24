@@ -67,6 +67,7 @@ function boot({ search = '?company_id=c1&mesa=Mesa%205', routes, withKit = true,
     setTimeout: (fn) => { window.timers.push(fn); return window.timers.length; },
     scrollTo() {},
     timers: [],
+    intervals: [],
   };
   const fetch = async (url, options = {}) => {
     calls.push({ url, options });
@@ -89,7 +90,7 @@ function boot({ search = '?company_id=c1&mesa=Mesa%205', routes, withKit = true,
     HTMLInputElement,
     HTMLDetailsElement,
     setTimeout: window.setTimeout,
-    setInterval: () => 0,
+    setInterval: (fn) => { window.intervals.push(fn); return window.intervals.length; },
     console,
   });
   ctx.globalThis = ctx;
@@ -122,6 +123,8 @@ function boot({ search = '?company_id=c1&mesa=Mesa%205', routes, withKit = true,
     type: (id, value) => dispatch('input', input(id, value)),
     input,
     runTimers: () => { const pending = window.timers.splice(0); pending.forEach((fn) => fn()); },
+    // the page's periodic refreshes (table account every 6 s, campaigns...)
+    runIntervals: () => window.intervals.forEach((fn) => fn()),
   };
 }
 

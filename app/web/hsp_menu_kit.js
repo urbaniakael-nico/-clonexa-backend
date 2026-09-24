@@ -45,18 +45,31 @@
   // Carta de bar (pantalla QR con qr_bar_menu): iconos más específicos para
   // lo que vende un bar. Solo se consulta con { bar: true }, antes de la
   // tabla general, así el panel mesero de las otras empresas no cambia.
+  // No existe emoji Unicode de botella de agua (🧴 es un frasco de loción),
+  // así que Agua usa este SVG en línea del mismo tamaño que un emoji.
+  const WATER_BOTTLE_ICON = '<svg class="cx-bar-icon" viewBox="0 0 64 64" width="1em" height="1em" role="img" aria-label="Botella de agua">'
+    + '<rect x="25" y="3" width="14" height="8" rx="2" fill="#1d4ed8"/>'
+    + '<path d="M26 11h12v5c0 3 9 6 9 15v25a6 6 0 0 1-6 6H23a6 6 0 0 1-6-6V31c0-9 9-12 9-15z" fill="#dbeafe" stroke="#60a5fa" stroke-width="2"/>'
+    + '<rect x="18" y="33" width="28" height="13" fill="#2563eb"/>'
+    + '<path d="M32 36c-2 3-3 4.5-3 6a3 3 0 0 0 6 0c0-1.5-1-3-3-6z" fill="#fff"/>'
+    + '<path d="M22 51v4" stroke="#fff" stroke-opacity=".7" stroke-width="2" stroke-linecap="round"/></svg>';
   const BAR_MENU_EMOJIS = [
-    [["aguardiente", "antioqueno", "nectar", "blanco"], "🍶"],
-    [["ron", "medellin", "caldas", "bacardi", "whisky", "whiskey", "buchanans", "chivas", "old", "tequila", "brandy"], "🥃"],
+    [["aguardiente", "guaro", "antioqueno", "nectar", "blanco"], "🍾"],
+    [["ron", "medellin", "caldas", "bacardi", "whisky", "whiskey", "buchanans", "chivas", "old", "tequila", "brandy", "licor", "licores"], "🥃"],
     [["vodka", "ginebra", "gin", "martini"], "🍸"],
     [["coctel", "coctail", "mojito", "margarita", "pina", "daiquiri", "cuba"], "🍹"],
-    [["champana", "champagne", "espumoso"], "🍾"],
-    [["agua", "hielo"], "💧"],
+    [["champana", "champagne", "espumoso"], "🥂"],
+    [["agua"], WATER_BOTTLE_ICON],
+    [["hielo"], "🧊"],
     [["energizante", "redbull", "vive", "monster", "speed"], "⚡"],
     [["jugo", "limonada", "natural"], "🧃"],
-    [["cigarrillo", "cigarro", "cigarrillos", "tabaco", "marlboro", "lucky", "boston", "belmont", "pielroja", "vape", "vaper"], "🚬"],
-    [["snack", "snacks", "pasaboca", "pasabocas", "mani", "papita", "papitas", "chito", "chitos", "dorito", "doritos", "tostacos", "detodito", "crispeta", "crispetas"], "🍿"],
-    [["dulce", "dulces", "chicle", "chicles", "confite", "confites", "chocolatina", "bombon"], "🍬"],
+    [["cigarrillo", "cigarro", "cigarrillos", "tabaco", "marlboro", "lucky", "boston", "belmont", "pielroja"], "🚬"],
+    [["vape", "vaper", "vapeador"], "💨"],
+    [["encendedor", "encendedores", "fosforo", "fosforos", "yesquero"], "🔥"],
+    [["snack", "snacks", "mecato", "pasaboca", "pasabocas", "mani", "papita", "papitas", "chito", "chitos", "dorito", "doritos", "tostacos", "detodito", "crispeta", "crispetas"], "🍿"],
+    [["chocolatina", "chocolatinas", "jet", "chocolate"], "🍫"],
+    [["bombon", "bombones", "colombina", "chupeta", "chupetas", "bonbonbum"], "🍭"],
+    [["dulce", "dulces", "chicle", "chicles", "chiclet", "chiclets", "goma", "gomas", "confite", "confites", "trident", "menta", "mentas"], "🍬"],
   ];
 
   // .replace(/x/g) instead of .replaceAll: replaceAll throws on the older

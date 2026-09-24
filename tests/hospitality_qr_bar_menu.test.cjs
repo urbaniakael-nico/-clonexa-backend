@@ -98,9 +98,9 @@ test('menú agrupado por categoría con su icono; tocar una abre sus productos',
   let html = page.html();
   const tile = (cat, icon) => new RegExp(`data-bar-cat="${cat}">\\s*<span class="qrb-cat-icon" aria-hidden="true">${icon}</span>\\s*<strong>${cat}</strong>`);
   assert.match(html, tile('Cerveza', '🍺'));
-  assert.match(html, tile('Aguardiente', '🍶'));
+  assert.match(html, tile('Aguardiente', '🍾'));
   assert.match(html, tile('Cigarrillos', '🚬'));
-  assert.match(html, tile('Agua', '💧'));
+  assert.match(html, /data-bar-cat="Agua">\s*<span class="qrb-cat-icon" aria-hidden="true"><svg class="cx-bar-icon"[^>]*aria-label="Botella de agua"/);
   assert.match(html, /data-bar-cat="Cerveza">[\s\S]*?<small>2 productos<\/small>/);
   assert.match(html, /id="qrSearch024X"/, 'se mantiene el buscador');
   assert.doesNotMatch(html, /data-add=/, 'la carta arranca en categorías');
@@ -203,4 +203,30 @@ test('sin el kit de menú cargado, la empresa con interruptor cae a la pantalla 
   const page = await unlocked({ withKit: false });
   assert.match(page.html(), /Explora el menu/);
   assert.doesNotMatch(page.html(), /qrb-/);
+});
+
+test('íconos de bar: cada categoría con un ícono que la representa', () => {
+  global.window = {};
+  delete require.cache[require.resolve('../app/web/hsp_menu_kit.js')];
+  require('../app/web/hsp_menu_kit.js');
+  const kit = global.window.CxMenuKit;
+  const bar = (word) => kit.menuEmoji(word, { bar: true });
+  const expected = {
+    Chiclets: '🍬', Chicles: '🍬', Dulces: '🍬', Confites: '🍬',
+    Aguardiente: '🍾', Cerveza: '🍺', Cigarrillos: '🚬', Gaseosa: '🥤',
+    Ron: '🥃', Whisky: '🥃', Licores: '🥃', Vodka: '🍸', Cocteles: '🍹',
+    Champaña: '🥂', Vinos: '🍷', Hielo: '🧊', Jugos: '🧃', Energizantes: '⚡',
+    Snacks: '🍿', Chocolatinas: '🍫', Bombones: '🍭', Encendedores: '🔥', Vapes: '💨',
+  };
+  for (const [word, icon] of Object.entries(expected)) assert.equal(bar(word), icon, word);
+  // Agua: botella (SVG en línea; no existe emoji de botella de agua)
+  assert.match(bar('Agua'), /^<svg class="cx-bar-icon"[^>]*aria-label="Botella de agua"/);
+  assert.match(bar('Agua Cristal 600ml'), /Botella de agua/);
+  // ninguna categoría de bar cae al plato genérico
+  for (const word of Object.keys(expected)) assert.notEqual(bar(word), kit.DEFAULT_MENU_EMOJI, word);
+  // el panel mesero (sin { bar: true }) sigue igual
+  assert.equal(kit.menuEmoji('Agua'), '🥤');
+  assert.equal(kit.menuEmoji('Aguardiente'), '🥃');
+  assert.equal(kit.menuEmoji('Chiclets'), kit.DEFAULT_MENU_EMOJI);
+  delete global.window;
 });
