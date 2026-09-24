@@ -820,7 +820,7 @@
     loyalty: ["Fidelizacion", "clientes recurrentes y puntos", "LOY"],
     day_closing: ["Cierre de dia", "resumen diario operativo", "DAY"],
     stock: ["Stock", "existencias y alertas", "STO"],
-    hospitality: ["Hospitality", "analisis de cierres", "HSP"],
+    hospitality: ["Reportes", "analisis de cierres", "HSP"],
     bots: ["Bots", "Telegram / WhatsApp", "BOT"],
     mini_panel: ["Mini Paneles", "links operativos", "MIN"],
     mini_paneles: ["Mini Paneles", "links operativos", "MIN"],
@@ -3454,7 +3454,7 @@
       orders: "Pedido",
       retail: "Retail",
       stores: "Punto",
-      hospitality: "Hospitality",
+      hospitality: "Reportes",
       bots: "Canal",
       payroll: "NÃ³mina"
     };
@@ -13561,7 +13561,7 @@ function inventoryCreatePayload() {
         ${tools.hasInventory ? `<button class="cxai-chip-027a primary" type="button" data-cxai-inv-summary-027w>Inventario</button>` : ""}
         ${tools.hasStock ? `<button class="cxai-chip-027a primary" type="button" data-cxai-stock-summary-028a>Stock</button>` : ""}
         ${tools.hasShoplink ? `<button class="cxai-chip-027a primary" type="button" data-cxai-shoplink-summary-028e>Catalogo / Tienda</button>` : ""}
-        ${tools.hasHospitality ? `<button class="cxai-chip-027a primary" type="button" data-cxai-hsp-report-028b>Hospitality</button>` : ""}
+        ${tools.hasHospitality ? `<button class="cxai-chip-027a primary" type="button" data-cxai-hsp-report-028b>Reportes</button>` : ""}
         ${tools.hasLoyalty ? `<button class="cxai-chip-027a primary" type="button" data-cxai-loy-result-028c>Fidelizacion</button>` : ""}
         ${tools.hasQr ? `<button class="cxai-chip-027a primary" type="button" data-cxai-qr-summary-028d>QR</button>` : ""}
         ${tools.hasGps ? `<button class="cxai-chip-027a primary" type="button" data-cxai-gps-summary-027x>GPS</button>` : ""}
@@ -17362,7 +17362,7 @@ function inventoryCreatePayload() {
     const data = flow.data || {};
     if (flow.step === "period") {
       return `
-        <div>Que PDF de Hospitality quieres descargar?</div>
+        <div>Que PDF de Reportes quieres descargar?</div>
         <div class="cxai-summary-027a">Escoge reporte semanal o mensual. Incluye dashboard, pagos, ventas, mesas, productos, canciones y cierres.</div>
         <div class="cxai-chip-wrap-027a">
           <button class="cxai-chip-027a primary" type="button" data-cxai-hsp-period-028b="weekly">Semanal</button>
@@ -17371,7 +17371,7 @@ function inventoryCreatePayload() {
       `;
     }
     return `
-      <div>Confirma el PDF Hospitality:</div>
+      <div>Confirma el PDF de Reportes:</div>
       <div class="cxai-summary-027a">
         <div><strong>Periodo:</strong> ${h(cxAssistantHospitalityPeriodLabel028B(data.period))}</div>
         <div><strong>Formato:</strong> dashboard descargable con logo, colores, graficas y tablas.</div>
@@ -17401,9 +17401,9 @@ function inventoryCreatePayload() {
       chat,
       "assistant",
       `
-        Listo. Generé el PDF Hospitality ${h(cxAssistantHospitalityPeriodLabel028B(data.period))}.
-        <a class="cxai-download-027a" href="${h(pdfUrl)}" target="_blank" rel="noopener">Descargar PDF Hospitality</a>
-        <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="hospitality">Abrir Hospitality</button></div>
+        Listo. Generé el PDF de Reportes ${h(cxAssistantHospitalityPeriodLabel028B(data.period))}.
+        <a class="cxai-download-027a" href="${h(pdfUrl)}" target="_blank" rel="noopener">Descargar PDF de Reportes</a>
+        <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="hospitality">Abrir Reportes</button></div>
       `,
       true
     );
@@ -24114,7 +24114,7 @@ function inventoryCreatePayload() {
     }
     panel.innerHTML = `
       <div class="hspdash-pdf-head-032f">
-        <div><span>INFORME DE GESTION</span><h2>Imprimir Hospitality por periodo</h2></div>
+        <div><span>INFORME DE GESTION</span><h2>Imprimir Reportes por periodo</h2></div>
         <button class="client-btn" type="button" data-hsp-dash-pdf-close>Cerrar</button>
       </div>
       <p>El PDF incluye cada jornada completa, desde su apertura hasta el cierre. Selecciona el día de apertura, aunque el cierre sea al día siguiente.</p>
@@ -24363,7 +24363,7 @@ function inventoryCreatePayload() {
       const data = await cxHspDashApi024W(`/analytics${query}`, { cache: "no-store" });
       if (companyId !== state.companyId || selectedDate !== cxHspDashEventDate033B) return;
       if (!data.analytics?.days || !data.analytics?.weeks || !data.analytics?.months || !data.event_search) {
-        throw new Error("No se pudieron cargar las ventas de Hospitality.");
+        throw new Error("No se pudieron cargar las ventas de Reportes.");
       }
       cxHspDashAnalytics033E = data;
       cxHspDashEventTimezone033B = data.timezone || "America/Bogota";
@@ -24598,7 +24598,7 @@ function inventoryCreatePayload() {
     try {
       await cxHspDashLoad024W();
     } catch (error) {
-      loadError = error.message || "No se pudieron cargar los cierres de Hospitality.";
+      loadError = error.message || "No se pudieron cargar los cierres de Reportes.";
     }
 
     $("app").innerHTML = `
@@ -24614,8 +24614,8 @@ function inventoryCreatePayload() {
 
           <section class="client-main">
             <header class="client-hero hspdash-hero-024w">
-              <div class="client-eyebrow">Modulo Hospitality</div>
-              <h1 class="client-title">Hospitality</h1>
+              <div class="client-eyebrow">Modulo Reportes</div>
+              <h1 class="client-title">Reportes</h1>
               <p class="client-muted">Jornadas completas por fecha de apertura: las ventas después de medianoche permanecen en la misma jornada hasta el cierre.</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
@@ -32436,7 +32436,7 @@ function inventoryCreatePayload() {
           await cxHspDashLoad024W();
           cxHspDashPaint024W();
         } catch (error) {
-          cxHspDashStatus033E(error.message || "No se pudo actualizar Hospitality.");
+          cxHspDashStatus033E(error.message || "No se pudo actualizar Reportes.");
         }
         return;
       }

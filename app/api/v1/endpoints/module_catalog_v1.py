@@ -283,7 +283,7 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "is_transversal": False,
     },
     "hospitality": {
-        "name": "Hospitality",
+        "name": "Reportes",
         "description": "Bares, restaurantes, mesas, pedidos y atención comercial.",
         "category": "hospitality",
         "category_label": "Hospitality",

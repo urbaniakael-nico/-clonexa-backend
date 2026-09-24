@@ -101,7 +101,7 @@ def test_hospitality_period_controls_are_connected_in_client():
     html = Path("app/web/client.html").read_text(encoding="utf-8")
 
     assert 'data-hsp-dash-mode="days">Diario' in panel
-    assert "Imprimir Hospitality por periodo" in panel
+    assert "Imprimir Reportes por periodo" in panel
     assert "hspDashPdfStart032F" in panel
     assert "hspDashPdfEnd032F" in panel
     assert "hspDashPdfMonth032F" in panel
