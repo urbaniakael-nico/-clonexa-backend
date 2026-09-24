@@ -3288,6 +3288,12 @@
       selected.push(selected.length === 0 ? "modules" : "channels");
     }
 
+    if (isClientModuleActive("waiter_ordering")) {
+      // 048F: "Operarios activos" en lugar de Inventario (o de la primera tarjeta).
+      const index = selected.indexOf("inventory");
+      selected[index >= 0 ? index : 0] = "operators_active";
+    }
+
     return selected.slice(0, 2);
   }
 
@@ -3496,7 +3502,89 @@
     };
   }
 
+  /* CLONEXA_048F_CRM_HOSPITALITY_AREA_START */
+  // waiter_ordering (hoy ASADERO): la tarjeta de cada persona muestra su área
+  // real (Cocina, Mesas o Caja) y su turno, y la tarjeta superior de
+  // Inventario pasa a ser "Operarios activos" (turnos abiertos de mesero,
+  // cocina y caja), que al tocarla muestra quiénes son y desde qué hora.
+  let cxCrmOperators048F = [];
+
+  function cxCrmTime048F(value) {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return "";
+    try {
+      return new Intl.DateTimeFormat("es-CO", {
+        hour: "2-digit", minute: "2-digit", hour12: false, timeZone: state.company?.timezone || "America/Bogota",
+      }).format(date);
+    } catch (_) {
+      return date.toTimeString().slice(0, 5);
+    }
+  }
+
+  function cxCrmHospitalityArea048F(person = {}) {
+    if (!isClientModuleActive("waiter_ordering")) return null;
+    const info = person.snapshotRow?.hospitality;
+    if (!info || !info.area) return null;
+    const since = cxCrmTime048F(info.shift_started_at);
+    const meta = !info.shift_open
+      ? "Sin turno abierto"
+      : info.shift_status === "break"
+        ? `En pausa · turno desde ${since}`
+        : `En turno desde ${since}`;
+    return {
+      code: "hospitality_area",
+      label: "Área",
+      value: info.area,
+      meta,
+      tone: !info.shift_open ? "idle" : info.shift_status === "break" ? "warning" : "ok",
+    };
+  }
+
+  function cxCrmOperatorsCard048F(crm = {}) {
+    const summary = crm.summary || crm.snapshot?.summary || {};
+    cxCrmOperators048F = Array.isArray(summary.operators_active_list) ? summary.operators_active_list : [];
+    return `
+      <button class="client-kpi cx-crm-operators-048f" type="button" data-crm-operators-048f>
+        <span>Operarios activos</span>
+        <strong>${h(Number(summary.operators_active || 0))}</strong>
+        <small>Meseros, cocina y caja en turno</small>
+      </button>
+    `;
+  }
+
+  function cxCrmOpenOperators048F() {
+    document.getElementById("cxCrmOperators048F")?.remove();
+    const rows = cxCrmOperators048F;
+    const overlay = document.createElement("div");
+    overlay.id = "cxCrmOperators048F";
+    overlay.className = "hsp-oos-backdrop-048e";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.innerHTML = `
+      <div class="hsp-oos-sheet-048e cx-crm-ops-sheet-048f">
+        <header>
+          <div><span>CRM</span><h2>Operarios activos (${h(rows.length)})</h2></div>
+          <button type="button" class="hsp-oos-close-048e" data-crm-operators-close aria-label="Cerrar">×</button>
+        </header>
+        <div class="hsp-oos-list-048e">
+          ${rows.length ? rows.map((row) => `
+            <div class="hsp-oos-row-048e cx-crm-op-row-048f">
+              <span>${h(row.name || "Empleado")} <small>${h(row.area || "")}</small></span>
+              <b>${row.status === "break" ? "En pausa · " : ""}desde ${h(cxCrmTime048F(row.since) || "-")}</b>
+            </div>`).join("") : `<div class="hsp-oos-empty-048e">Nadie tiene turno abierto en este momento.</div>`}
+        </div>
+      </div>`;
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest?.("[data-crm-operators-close]")) overlay.remove();
+    });
+    cxHspStockStyles048E();
+    document.body.appendChild(overlay);
+  }
+  /* CLONEXA_048F_CRM_HOSPITALITY_AREA_END */
+
   function crmEmployeeContext018B(person = {}, moduleCodes = []) {
+    const area048F = cxCrmHospitalityArea048F(person);
+    if (area048F) return area048F;
     const code = crmSingleContextCode018B(person, moduleCodes);
     if (!code) return null;
 
@@ -4253,6 +4341,7 @@
 
   function crmRenderTopKpiCard024D(code, crm = {}) {
     if (code === "store_openings") return crmRenderStoreOpeningsKpi024D(crm);
+    if (code === "operators_active") return cxCrmOperatorsCard048F(crm);
 
     return `
       <div class="client-kpi">
@@ -24188,6 +24277,7 @@ function inventoryCreatePayload() {
           <span>${h(event.orders_count || 0)} pedido(s) · ${h(event.payment_label || "Otro")}</span>
           ${numbers ? `<span title="${h(numbers)}">${h(numbers)}</span>` : ""}
         </footer>
+        ${cxHspDashEventActions048H(event)}
       </article>
     `;
   }
@@ -24620,6 +24710,112 @@ function inventoryCreatePayload() {
     return `${start} → ${end}${shifts.length > 1 ? ` · ${shifts.length} jornadas` : ""}`;
   }
 
+  /* CLONEXA_048H_RESTAURANT_REPORTS_START */
+  // Reportes de un restaurante con waiter_ordering (hoy ASADERO): sin accesos
+  // a Pedidos / Mesa QR, sin "Horas operadas" (queda "Día más movido de la
+  // semana"), sin canciones, y la búsqueda de eventos permite ver y
+  // reimprimir la cuenta de un consumo pasado con el documento de venta.
+  function cxHspDashRestaurant048H() {
+    return isClientModuleActive("waiter_ordering");
+  }
+
+  function cxHspWeekdayPlural048H(label = "", count = 0) {
+    const lower = String(label).toLowerCase();
+    if (Number(count) === 1) return lower;
+    return lower.endsWith("s") ? lower : `${lower}s`;
+  }
+
+  function cxHspDashBusiestKpi048H(totals = {}) {
+    const busy = totals.busiest_weekday;
+    return `<div class="hspdash-kpi-024w"><span>Día más movido de la semana</span><b>${h(busy?.label || "-")}</b><small>${busy
+      ? `${h(cxHspMoney024R(busy.total || 0))} en ${h(busy.days)} ${h(cxHspWeekdayPlural048H(busy.label, busy.days))}`
+      : "Sin ventas en el periodo"}</small></div>`;
+  }
+
+  function cxHspDashEventActions048H(event = {}) {
+    if (!cxHspDashRestaurant048H()) return "";
+    const printable = Array.isArray(event.order_ids) && event.order_ids.length;
+    return `<div class="hspdash-event-actions-048h">
+      <button class="client-btn" type="button" data-hsp-event-view="${h(event.id)}">Ver</button>
+      <button class="client-btn" type="button" data-hsp-event-print="${h(event.id)}" ${printable ? "" : "disabled"}>Imprimir</button>
+    </div>`;
+  }
+
+  function cxHspDashFindEvent048H(id = "") {
+    return (Array.isArray(cxHspDashEvents033B) ? cxHspDashEvents033B : []).find((event) => String(event.id) === String(id)) || null;
+  }
+
+  function cxHspDashViewEvent048H(id = "") {
+    const event = cxHspDashFindEvent048H(id);
+    if (!event) return;
+    document.getElementById("hspEventView048H")?.remove();
+    const overlay = document.createElement("div");
+    overlay.id = "hspEventView048H";
+    overlay.className = "hsp-oos-backdrop-048e";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    const title = event.type === "bar" ? (event.customer_name || event.label || "Cliente barra") : (event.location || event.label || "Mesa");
+    overlay.innerHTML = `
+      <div class="hsp-oos-sheet-048e hspdash-event-sheet-048h">
+        <header>
+          <div><span>Consumo · ${h(cxHspDashEventTime033B(event.started_at))} – ${h(event.active ? "Activa" : cxHspDashEventTime033B(event.ended_at, "Sin cierre"))}</span><h2>${h(title)}</h2></div>
+          <button type="button" class="hsp-oos-close-048e" data-hsp-event-close aria-label="Cerrar">×</button>
+        </header>
+        <div class="hsp-oos-list-048e">${cxHspDashEventItems033B(event.items || [])}</div>
+        <footer class="hspdash-event-sheet-foot-048h">
+          <span>${h(event.orders_count || 0)} pedido(s) · ${h(event.payment_label || "Otro")}<br><small>${h((event.order_numbers || []).join(" · "))}</small></span>
+          <b>${h(cxHspMoney024R(event.total || 0))}</b>
+          <button class="client-btn" type="button" data-hsp-event-print="${h(event.id)}">Imprimir</button>
+        </footer>
+      </div>`;
+    overlay.addEventListener("click", (evt) => {
+      if (evt.target === overlay || evt.target.closest?.("[data-hsp-event-close]")) overlay.remove();
+    });
+    cxHspStockStyles048E();
+    cxHspDashStyles048H();
+    document.body.appendChild(overlay);
+  }
+
+  async function cxHspDashPrintEvent048H(id = "", button = null) {
+    const event = cxHspDashFindEvent048H(id);
+    if (!event || !Array.isArray(event.order_ids) || !event.order_ids.length) return;
+    if (!window.CxSaleDocument) {
+      window.alert("No se pudo cargar el formato de impresión. Recarga la página.");
+      return;
+    }
+    const label = button ? button.textContent : "";
+    if (button) { button.disabled = true; button.textContent = "Imprimiendo..."; }
+    try {
+      const data = await api(`/companies/${encodeURIComponent(state.companyId)}/waiter-ordering/sale-document/reprint`, {
+        method: "POST",
+        body: JSON.stringify({ order_ids: event.order_ids }),
+      });
+      window.CxSaleDocument.printDocument(data.document);
+    } catch (error) {
+      window.alert(String(error.message || "").includes("403")
+        ? "Solo un administrador de la empresa puede reimprimir cuentas."
+        : "No se pudo generar la cuenta para imprimir. Intenta de nuevo.");
+    } finally {
+      if (button) { button.disabled = false; button.textContent = label || "Imprimir"; }
+    }
+  }
+
+  function cxHspDashStyles048H() {
+    if (document.getElementById("cxHspDashStyles048H")) return;
+    const style = document.createElement("style");
+    style.id = "cxHspDashStyles048H";
+    style.textContent = `
+      .hspdash-event-actions-048h{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+      .hspdash-event-actions-048h .client-btn{min-height:34px;padding:0 14px}
+      .hspdash-event-sheet-048h{border-color:rgba(255,255,255,.18)}
+      .hspdash-event-sheet-048h .hspdash-event-item-033b{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05)}
+      .hspdash-event-sheet-foot-048h{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid rgba(255,255,255,.12);padding-top:10px}
+      .hspdash-event-sheet-foot-048h b{font-size:20px}
+    `;
+    document.head.appendChild(style);
+  }
+  /* CLONEXA_048H_RESTAURANT_REPORTS_END */
+
   /* CLONEXA_048C_BUSINESS_DAY_START */
   // Jornada por horario (solo empresas con hospitality_business_day, hoy The
   // Time Machine): sin "Horas operadas" y con los indicadores de bar.
@@ -24789,7 +24985,7 @@ function inventoryCreatePayload() {
         <table class="hspdash-table-024w">
           <thead>
             <tr>
-              <th>Periodo</th><th>Total</th><th>Efectivo</th><th>Transf.</th><th>Tarjeta</th><th>Otro</th><th>Pedidos</th><th>Ticket prom.</th>${cxHspDashBusinessDay048C() ? (cxHspDashMode024W === "days" ? "<th>vs sem. ant.</th>" : "") : "<th>Horas</th>"}<th>Mesa top</th>
+              <th>Periodo</th><th>Total</th><th>Efectivo</th><th>Transf.</th><th>Tarjeta</th><th>Otro</th><th>Pedidos</th><th>Ticket prom.</th>${cxHspDashBusinessDay048C() ? (cxHspDashMode024W === "days" ? "<th>vs sem. ant.</th>" : "") : cxHspDashRestaurant048H() ? "" : "<th>Horas</th>"}<th>Mesa top</th>
             </tr>
           </thead>
           <tbody>
@@ -24810,7 +25006,7 @@ function inventoryCreatePayload() {
                     ? (cxHspDashMode024W === "days"
                       ? (() => { const delta = cxHspDashDelta048C(row.total, row.prev_week_total); return `<td class="hspdash-delta-cell-048c ${delta.cls}" title="${h(row.prev_week_date || "")}: ${h(cxHspMoney024R(row.prev_week_total || 0))}">${h(delta.text)}</td>`; })()
                       : "")
-                    : `<td>${h(cxHspDashHours024W(row.workedMinutes))}</td>`}
+                    : cxHspDashRestaurant048H() ? "" : `<td>${h(cxHspDashHours024W(row.workedMinutes))}</td>`}
                   <td>${h(topTable?.name || "-")}</td>
                 </tr>
               `;
@@ -24830,6 +25026,7 @@ function inventoryCreatePayload() {
     }
     const { periods, totals } = cxHspDashAggregate024W(cxHspDashMode024W);
     if (cxHspDashBusinessDay048C()) cxHspDashStyles048C();
+    if (cxHspDashRestaurant048H()) cxHspDashStyles048H();
     const comparisonTitle = cxHspDashMode024W === "days" ? "Comparativo diario" : cxHspDashMode024W === "weeks" ? "Comparativo semanal" : "Comparativo mensual";
     const topProduct = cxHspDashTop024W(totals.products, "total", 1)[0];
     const topTable = cxHspDashTop024W(totals.tables, "total", 1)[0];
@@ -24851,7 +25048,9 @@ function inventoryCreatePayload() {
           <div class="hspdash-kpi-024w"><span>Total vendido</span><b>${h(cxHspMoney024R(totals.total))}</b><small>${h(totals.closures)} ${cxHspDashBusinessDay048C() ? "jornada(s)" : "cierre(s)"}</small></div>
           <div class="hspdash-kpi-024w"><span>Ticket promedio</span><b>${h(cxHspMoney024R(avgTicket))}</b><small>${h(totals.orders)} pedido(s)</small></div>
           <div class="hspdash-kpi-024w"><span>Mesa lider</span><b>${h(topTable?.name || "-")}</b><small>${h(cxHspMoney024R(topTable?.total || 0))}</small></div>
-          ${cxHspDashBusinessDay048C()
+          ${cxHspDashRestaurant048H() && !cxHspDashBusinessDay048C()
+            ? cxHspDashBusiestKpi048H(totals)
+            : cxHspDashBusinessDay048C()
             ? `<div class="hspdash-kpi-024w"><span>Consumo por mesa</span><b>${h(cxHspMoney024R(totals.table_sessions?.avg_consumption || 0))}</b><small>Duración prom. ${h(cxHspDashMinutes048C(totals.table_sessions?.avg_minutes))}</small></div>`
             : `<div class="hspdash-kpi-024w"><span>Horas operadas</span><b>${h(cxHspDashHours024W(totals.workedMinutes))}</b><small>${h(topSong?.name || "Sin canciones")}</small></div>`}
         </div>
@@ -24886,7 +25085,7 @@ function inventoryCreatePayload() {
       <section class="hspdash-rank-grid-024w">
         ${cxHspDashRankCard024W("Productos lideres", cxHspDashTop024W(totals.products, "total", 6), "total", cxHspMoney024R)}
         ${cxHspDashRankCard024W("Mesas con mas consumo", cxHspDashTop024W(totals.tables, "total", 6), "total", cxHspMoney024R)}
-        ${cxHspDashRankCard024W("Canciones mas pedidas", cxHspDashTop024W(totals.songs, "count", 6), "count", (value) => `${value}`)}
+        ${cxHspDashRestaurant048H() ? "" : cxHspDashRankCard024W("Canciones mas pedidas", cxHspDashTop024W(totals.songs, "count", 6), "count", (value) => `${value}`)}
       </section>
     `;
     const eventList = root.querySelector(".hspdash-event-list-033b");
@@ -24931,8 +25130,8 @@ function inventoryCreatePayload() {
                 : "Jornadas completas por fecha de apertura: las ventas después de medianoche permanecen en la misma jornada hasta el cierre."}</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
-                <button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
-                <button class="client-btn" type="button" data-client-module="qr">Mesa QR</button>
+                ${cxHspDashRestaurant048H() ? "" : `<button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
+                <button class="client-btn" type="button" data-client-module="qr">Mesa QR</button>`}
                 <button class="client-btn" type="button" data-hsp-dash-pdf>Informe PDF</button>
                 <button class="client-btn" type="button" data-hsp-dash-refresh>Actualizar</button>
               </div>
@@ -32736,6 +32935,23 @@ function inventoryCreatePayload() {
 
       if (target.closest("[data-hsp-out-of-stock-048e]")) {
         cxHspOpenOutOfStock048E();
+        return;
+      }
+
+      const hspEventView = target.closest("[data-hsp-event-view]");
+      if (hspEventView) {
+        cxHspDashViewEvent048H(hspEventView.getAttribute("data-hsp-event-view") || "");
+        return;
+      }
+
+      const hspEventPrint = target.closest("[data-hsp-event-print]");
+      if (hspEventPrint) {
+        await cxHspDashPrintEvent048H(hspEventPrint.getAttribute("data-hsp-event-print") || "", hspEventPrint);
+        return;
+      }
+
+      if (target.closest("[data-crm-operators-048f]")) {
+        cxCrmOpenOperators048F();
         return;
       }
 

@@ -325,16 +325,13 @@ async def _next_number(db: AsyncSession, company_id: uuid.UUID, start: int) -> i
     return int(result.scalar())
 
 
-@router.post("/{company_id}/waiter-ordering/caja/documento")
-async def issue_sale_document(
-    company_id: uuid.UUID,
-    payload: SaleDocumentRequest,
-    db: AsyncSession = Depends(get_db),
-    user: CompanyUser = Depends(_require_caja),
+async def _issue_sale_document(
+    db: AsyncSession, company_id: uuid.UUID, order_ids: list[uuid.UUID], by: dict[str, str],
 ) -> dict[str, Any]:
-    """Printable document for a table or a sale. A reprint of the same set of
-    orders keeps its number; anything else gets the next consecutive."""
-    ids = [str(order_id) for order_id in payload.order_ids]
+    """Printable document for a set of orders (caja, or a reprint from the
+    portal's event search). A reprint of the same set keeps its number;
+    anything else gets the next consecutive."""
+    ids = [str(order_id) for order_id in order_ids]
     result = await db.execute(
         text("""
             SELECT * FROM hospitality_orders
@@ -362,7 +359,7 @@ async def issue_sale_document(
             "number": number,
             "issued_at": issued_at,
             "order_ids": sorted(ids),
-            "by": {"id": str(user.id), "name": user.full_name or ""},
+            "by": by,
         }
         await db.execute(
             text("""
@@ -376,3 +373,28 @@ async def issue_sale_document(
     await db.commit()
     identity = await _hospitality_company_identity(db, company_id)
     return {"ok": True, "document": build_sale_document(config, identity, orders, number, issued_at)}
+
+
+@router.post("/{company_id}/waiter-ordering/caja/documento")
+async def issue_sale_document(
+    company_id: uuid.UUID,
+    payload: SaleDocumentRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_caja),
+) -> dict[str, Any]:
+    return await _issue_sale_document(
+        db, company_id, payload.order_ids, {"id": str(user.id), "name": user.full_name or ""},
+    )
+
+
+@router.post("/{company_id}/waiter-ordering/sale-document/reprint")
+async def reprint_sale_document(
+    company_id: uuid.UUID,
+    payload: SaleDocumentRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: str = Depends(_require_sale_doc_admin),
+) -> dict[str, Any]:
+    """048G: reprint the bill of a past consumption from the portal's event
+    search (Reportes). Same document, same number when it was already
+    printed; Admin V2 or an admin of this company, only with waiter_ordering."""
+    return await _issue_sale_document(db, company_id, payload.order_ids, {"id": "", "name": actor[:120]})

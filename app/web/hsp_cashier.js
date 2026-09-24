@@ -42,6 +42,12 @@
     stack: ["tables"],
     offline: false,
     offlineReason: "",
+    // Turno de la caja (pausa / retomar / cerrar jornada), igual que el
+    // mesero: mini_panel_work_sessions -> asistencia (CRM) y nomina.
+    operational: null,
+    operationalAt: 0,
+    shiftOpen: false,
+    shiftBusy: false,
   };
 
   let pollHandle = null;
@@ -360,6 +366,113 @@
     return api(`/api/v1/companies/${encodeURIComponent(companyId)}/waiter-ordering${path}`, options);
   }
 
+  function mpApi(path, options) {
+    return api(`/api/v1/companies/${encodeURIComponent(companyId)}${path}`, options);
+  }
+
+  // ---------------------------------------------------------------------
+  // Turno: entering the panel opens (or reuses) the cashier's work session,
+  // exactly like the mesero; the server syncs every change to Workforce
+  // attendance, which feeds the CRM and payroll.
+  // ---------------------------------------------------------------------
+  function setOperational(data) {
+    state.operational = (data && data.operational_session) || null;
+    state.operationalAt = Date.now();
+  }
+
+  async function loadOperational() {
+    try {
+      setOperational(await mpApi(`/mini-panel-operational-session?panel_type=${PANEL_TYPE}`));
+    } catch (_) {
+      // transient: keep the last snapshot
+    }
+    safeRender();
+  }
+
+  function liveShiftSeconds() {
+    const op = state.operational;
+    if (!op) return { active: 0, pause: 0 };
+    const elapsed = Math.max(0, Math.floor((Date.now() - state.operationalAt) / 1000));
+    const onBreak = op.status === "break";
+    return {
+      active: Number(op.active_seconds || 0) + (onBreak ? 0 : elapsed),
+      pause: Number(op.break_seconds || 0) + (onBreak ? elapsed : 0),
+    };
+  }
+
+  function clockLabel(totalSeconds) {
+    const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const rest = seconds % 60;
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  }
+
+  function shiftBarHtml() {
+    const op = state.operational;
+    if (!op) return "";
+    const onBreak = op.status === "break";
+    const live = liveShiftSeconds();
+    return `
+      <div class="csh-shift ${onBreak ? "is-break" : ""}">
+        <button class="csh-shift-chip" type="button" data-csh-shift-toggle aria-expanded="${state.shiftOpen ? "true" : "false"}">
+          <span>${onBreak ? "⏸ En pausa" : "⏱ En turno"}</span>
+          <strong data-csh-shift-clock>${h(clockLabel(onBreak ? live.pause : live.active))}</strong>
+          <small>${state.shiftOpen ? "▲" : "▾"}</small>
+        </button>
+        ${state.shiftOpen ? `
+          <div class="csh-shift-panel">
+            <div class="csh-shift-times">
+              <div><span>Activo</span><strong data-csh-active-clock>${h(clockLabel(live.active))}</strong></div>
+              <div><span>Pausa</span><strong data-csh-break-clock>${h(clockLabel(live.pause))}</strong></div>
+            </div>
+            <div class="csh-shift-actions">
+              ${onBreak
+                ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-shift-resume ${state.shiftBusy ? "disabled" : ""}>Retomar</button>`
+                : `<button class="csh-btn" type="button" data-csh-shift-pause ${state.shiftBusy ? "disabled" : ""}>Pausa</button>`}
+              <button class="csh-btn csh-btn-danger" type="button" data-csh-shift-finish ${state.shiftBusy ? "disabled" : ""}>Cerrar jornada</button>
+            </div>
+          </div>` : ""}
+      </div>`;
+  }
+
+  function tickShiftClock() {
+    if (!state.operational || state.screen === "login") return;
+    const live = liveShiftSeconds();
+    const onBreak = state.operational.status === "break";
+    const set = (selector, value) => {
+      const node = root.querySelector ? root.querySelector(selector) : null;
+      if (node) node.textContent = clockLabel(value);
+    };
+    set("[data-csh-shift-clock]", onBreak ? live.pause : live.active);
+    set("[data-csh-active-clock]", live.active);
+    set("[data-csh-break-clock]", live.pause);
+  }
+
+  async function shiftAction(action) {
+    if (state.shiftBusy) return;
+    state.shiftBusy = true;
+    safeRender();
+    try {
+      setOperational(await mpApi(`/mini-panel-operational-session/${action}?panel_type=${PANEL_TYPE}`, { method: "POST" }));
+      if (action === "finish") {
+        // Jornada cerrada: log out so the next login opens a new one.
+        stopPolling();
+        stopSessionKeeper();
+        setToken("");
+        state.operational = null;
+        state.shiftOpen = false;
+        state.screen = "login";
+        state.error = "Jornada cerrada. Tus horas quedaron registradas.";
+      }
+    } catch (error) {
+      state.error = error.message || "No se pudo actualizar el turno.";
+    } finally {
+      state.shiftBusy = false;
+      safeRender();
+    }
+  }
+
   async function doLogin(username, password) {
     state.busy = true;
     state.error = "";
@@ -378,6 +491,7 @@
       startSessionKeeper();
       loadMenu();
       loadCashierConfig();
+      loadOperational();
     } catch (error) {
       state.error = error.message || "No se pudo iniciar sesión.";
     } finally {
@@ -958,6 +1072,7 @@
           <button class="csh-btn csh-btn-mini" type="button" data-csh-register-network>Registrar la red actual del local</button>
           <button class="csh-logout" type="button" data-csh-logout aria-label="Salir">⏻</button>
         </header>
+        ${shiftBarHtml()}
         ${state.toast ? `<div class="csh-toast">${h(state.toast)}</div>` : ""}
         ${state.lastCharged ? `
           <div class="csh-last">
@@ -1122,6 +1237,24 @@
       return;
     }
 
+    if (target.closest("[data-csh-shift-toggle]")) {
+      state.shiftOpen = !state.shiftOpen;
+      safeRender();
+      return;
+    }
+    if (target.closest("[data-csh-shift-pause]")) {
+      shiftAction("pause");
+      return;
+    }
+    if (target.closest("[data-csh-shift-resume]")) {
+      shiftAction("resume");
+      return;
+    }
+    if (target.closest("[data-csh-shift-finish]")) {
+      if (window.confirm("¿Cerrar tu jornada? Se registran tus horas y se cierra la sesión.")) shiftAction("finish");
+      return;
+    }
+
     const openTable = target.closest("[data-csh-open-table]");
     if (openTable) {
       state.activeTableKey = openTable.getAttribute("data-csh-open-table") || "";
@@ -1267,6 +1400,18 @@
     .csh-alert{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(239,68,68,.16);color:#fecaca;font-size:13px;font-weight:800}
     .csh-alert-floating{position:fixed;left:16px;right:16px;bottom:16px;z-index:50}
     .csh-toast{margin:0 16px 10px;padding:10px 12px;border-radius:12px;background:rgba(34,197,94,.16);color:#bbf7d0;font-weight:800}
+    .csh-shift{margin:10px 16px 0;border:1px solid rgba(34,197,94,.45);border-radius:14px;background:rgba(22,163,74,.12)}
+    .csh-shift.is-break{border-color:rgba(245,158,11,.55);background:rgba(245,158,11,.14)}
+    .csh-shift-chip{width:100%;display:flex;align-items:center;gap:12px;padding:10px 14px;border:0;background:none;color:inherit;font:inherit;cursor:pointer;min-height:48px}
+    .csh-shift-chip span{font-weight:900}
+    .csh-shift-chip strong{margin-left:auto;font-size:20px;font-variant-numeric:tabular-nums}
+    .csh-shift-panel{display:grid;gap:10px;padding:0 14px 14px}
+    .csh-shift-times{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .csh-shift-times div{display:grid;gap:2px;padding:8px 10px;border-radius:10px;background:rgba(0,0,0,.25)}
+    .csh-shift-times span{font-size:12px;opacity:.75}
+    .csh-shift-times strong{font-size:18px;font-variant-numeric:tabular-nums}
+    .csh-shift-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .csh-btn-danger{background:#b91c1c;border-color:#b91c1c;color:#fff}
     .csh-header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:16px;background:rgba(8,7,18,.92);backdrop-filter:blur(6px);border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
     .csh-header h1{flex:1;margin:0;font-size:20px}
     .csh-back,.csh-logout{width:40px;height:40px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;font-size:18px}
@@ -1377,6 +1522,13 @@
     if (event && typeof event.preventDefault === "function") event.preventDefault();
   });
 
+  window.setInterval(() => {
+    try { tickShiftClock(); } catch (_) {}
+  }, 1000);
+  window.setInterval(() => {
+    if (state.screen !== "login" && token()) loadOperational();
+  }, 60000);
+
   if (!companyId) {
     root.innerHTML = `<section style="min-height:100vh;display:grid;place-items:center;background:#080712;color:#fff"><p>Falta company_id en el enlace.</p></section>`;
   } else if (token()) {
@@ -1387,6 +1539,7 @@
     startSessionKeeper();
     loadMenu();
     loadCashierConfig();
+    loadOperational();
     safeRender();
   } else {
     safeRender();

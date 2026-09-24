@@ -100,6 +100,78 @@ def overlap_seconds(a_start: datetime, a_end: datetime, b_start: datetime, b_end
     return int((end - start).total_seconds())
 
 
+# ---------------------------------------------------------------------------
+# CLONEXA_048F: area and open shift of each person for waiter_ordering
+# companies (today ASADERO EL SOCIO). The CRM card shows Cocina / Mesas /
+# Caja instead of a generic module label, and the top card "Operarios
+# activos" counts the open mesero/cocina/caja shifts (mini panel sessions).
+# ---------------------------------------------------------------------------
+HOSPITALITY_AREAS_048F = {"mesero": "Mesas", "cocina": "Cocina", "caja": "Caja"}
+HOSPITALITY_ROLE_TOKENS_048F = (
+    ("cocina", ("cocina", "cocinero", "cocinera", "chef", "parrilla", "parrillero", "ayudante de cocina")),
+    ("caja", ("caja", "cajero", "cajera")),
+    ("mesero", ("mesero", "mesera", "meseros", "mesas", "servicio")),
+)
+
+
+def hospitality_area_code_048f(*values: Any) -> str:
+    for value in values:
+        raw = clean(value).lower()
+        if not raw:
+            continue
+        if raw in HOSPITALITY_AREAS_048F:
+            return raw
+        for code, tokens in HOSPITALITY_ROLE_TOKENS_048F:
+            if any(token in raw for token in tokens):
+                return code
+    return ""
+
+
+async def hospitality_staff_048f(db: AsyncSession, company_id: str) -> dict[str, Any]:
+    """{employee_id: {"role": <mini panel role>}} plus the open shifts."""
+    logins = await safe_rows(
+        db,
+        """
+        SELECT lower(role) AS role, settings_json->'mini_panel'->>'employee_id' AS employee_id
+        FROM company_users
+        WHERE company_id::text = :company_id
+          AND lower(role) IN ('mesero', 'cocina', 'caja')
+          AND lower(COALESCE(status, 'active')) NOT IN ('deleted', 'archived')
+        """,
+        {"company_id": company_id},
+    )
+    shifts = await safe_rows(
+        db,
+        """
+        SELECT DISTINCT ON (employee_id)
+               employee_id::text AS employee_id, lower(panel_type) AS panel_type,
+               lower(status) AS status, started_at
+        FROM mini_panel_work_sessions
+        WHERE company_id::text = :company_id
+          AND lower(COALESCE(status, '')) IN ('active', 'break')
+          AND lower(COALESCE(panel_type, '')) IN ('mesero', 'cocina', 'caja')
+        ORDER BY employee_id, started_at DESC
+        """,
+        {"company_id": company_id},
+    )
+    roles = {clean(row.get("employee_id")): clean(row.get("role")) for row in logins if clean(row.get("employee_id"))}
+    open_shifts = {clean(row.get("employee_id")): row for row in shifts if clean(row.get("employee_id"))}
+    return {"roles": roles, "shifts": open_shifts}
+
+
+def hospitality_person_048f(staff: dict[str, Any], employee_id: str, employee_role: Any) -> dict[str, Any]:
+    shift = staff["shifts"].get(employee_id)
+    code = hospitality_area_code_048f(staff["roles"].get(employee_id), employee_role, (shift or {}).get("panel_type"))
+    return {
+        "area_code": code,
+        "area": HOSPITALITY_AREAS_048F.get(code, ""),
+        "shift_open": bool(shift),
+        "shift_status": clean((shift or {}).get("status")),
+        "shift_started_at": dt_text(parse_dt((shift or {}).get("started_at"))) if shift else None,
+        "shift_panel": clean((shift or {}).get("panel_type")),
+    }
+
+
 async def safe_rows(db: AsyncSession, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     try:
         result = await db.execute(text(sql), params)
@@ -1154,6 +1226,7 @@ async def crm_core_snapshot(
 
     rows = []
     consumed_session_ids: set[str] = set()
+    hospitality_staff = await hospitality_staff_048f(db, company_id) if "waiter_ordering" in modules else None
 
     for employee in employees:
         employee_id = clean(employee.get("employee_id"))
@@ -1345,6 +1418,8 @@ async def crm_core_snapshot(
                 "time_rule": "pause_excluded_from_shift_payroll_production",
             },
             "adapters": adapters,
+            **({"hospitality": hospitality_person_048f(hospitality_staff, employee_id, employee.get("employee_role"))}
+               if hospitality_staff is not None else {}),
         })
 
     production_enabled = {"production", "references"}.issubset(modules)
@@ -1371,6 +1446,20 @@ async def crm_core_snapshot(
             if item.get("is_active")
         ) if production_enabled else 0,
     }
+    if hospitality_staff is not None:
+        operators = sorted(
+            (
+                {
+                    "employee_id": row["employee_id"], "name": row["employee_name"],
+                    "area": row["hospitality"]["area"] or HOSPITALITY_AREAS_048F.get(row["hospitality"]["shift_panel"], ""),
+                    "status": row["hospitality"]["shift_status"], "since": row["hospitality"]["shift_started_at"],
+                }
+                for row in rows if row["hospitality"]["shift_open"]
+            ),
+            key=lambda item: item["since"] or "",
+        )
+        summary["operators_active"] = len(operators)
+        summary["operators_active_list"] = operators
 
     selected = await selected_card_codes(db, company_id, modules)
     cards = build_cards(summary, modules, selected)

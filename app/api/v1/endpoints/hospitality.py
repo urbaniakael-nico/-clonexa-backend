@@ -1577,6 +1577,25 @@ def _hsp_money_text(value: Any) -> str:
     return "$ " + f"{int(round(_num(value))):,}".replace(",", ".")
 
 
+HSP_WEEKDAYS_048H = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+
+
+def _hsp_busiest_weekday(dates: dict[calendar_date, float]) -> dict[str, Any] | None:
+    """048H: weekday with the most accumulated sales ("Sábado · $X en 4
+    sábados"): sum of the jornadas opened on that weekday, and how many."""
+    by_weekday: dict[int, dict[str, Any]] = {}
+    for day, total in dates.items():
+        if _num(total) <= 0:
+            continue
+        row = by_weekday.setdefault(day.weekday(), {"total": 0.0, "days": 0})
+        row["total"] = _money(row["total"] + _num(total))
+        row["days"] += 1
+    if not by_weekday:
+        return None
+    weekday, row = max(by_weekday.items(), key=lambda item: (item[1]["total"], -item[0]))
+    return {"weekday": weekday, "label": HSP_WEEKDAYS_048H[weekday], "total": row["total"], "days": row["days"]}
+
+
 def _hsp_aggregate(
     closures: list[dict[str, Any]],
     period: str,
@@ -1588,6 +1607,7 @@ def _hsp_aggregate(
     buckets = {definition["key"]: _hsp_empty_bucket(definition) for definition in definitions}
     totals = _hsp_empty_bucket({"key": "total", "label": "Total", "subtitle": ""})
     included: list[dict[str, Any]] = []
+    day_sales: dict[str, dict[calendar_date, float]] = {}
     for closure in closures:
         date_value = _hsp_report_date(closure.get("opened_at") or closure.get("closed_at") or closure.get("created_at"))
         if not date_value:
@@ -1602,6 +1622,8 @@ def _hsp_aggregate(
             continue
         included.append(closure)
         for target in (bucket, totals):
+            sales = day_sales.setdefault(target["key"], {})
+            sales[local_date] = _num(sales.get(local_date)) + _num(closure.get("total_sold"))
             target["closures"] += 0 if closure.get("is_open") else 1
             target["shifts"].append({
                 "id": closure.get("id"), "opened_at": closure.get("opened_at"),
@@ -1620,6 +1642,8 @@ def _hsp_aggregate(
                 _hsp_add_rank(target["tables"], item.get("table") or item.get("name"), {"orders": item.get("orders"), "total": item.get("total")})
             for item in closure.get("songs") or []:
                 _hsp_add_rank(target["songs"], item.get("song") or item.get("name"), {"count": item.get("count")})
+    for target in [*buckets.values(), totals]:
+        target["busiest_weekday"] = _hsp_busiest_weekday(day_sales.get(target["key"], {}))
     return {"periods": [buckets[item["key"]] for item in definitions], "totals": totals, "closures": included}
 
 
@@ -2420,6 +2444,18 @@ def _hsp_business_event_search(
     }}
 
 
+async def _hsp_has_waiter_ordering(db: AsyncSession, company_id: uuid.UUID) -> bool:
+    result = await db.execute(
+        text("""
+            SELECT 1 FROM company_modules cm JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = :company_id AND m.code = 'waiter_ordering' AND cm.enabled IS TRUE
+            LIMIT 1
+        """),
+        {"company_id": str(company_id)},
+    )
+    return result.first() is not None
+
+
 async def _hsp_company_report_settings(db: AsyncSession, company_id: uuid.UUID) -> tuple[str, dict[str, Any] | None] | None:
     result = await db.execute(
         text("SELECT timezone, settings_json FROM companies WHERE id = :company_id"),
@@ -2590,7 +2626,9 @@ async def _hospitality_report_payload(
     aggregated = _hsp_sales_aggregate(orders, closures, song_requests, period_mode, timezone_name, start_date, end_date)
     totals = aggregated["totals"]
     avg_ticket = (totals["total"] / totals["orders"]) if totals["orders"] else 0
-    return {
+    restaurant = await _hsp_has_waiter_ordering(db, company_id)
+    busiest = totals.get("busiest_weekday")
+    payload = {
         "company_id": str(company_id),
         "company": company,
         "period": period_mode,
@@ -2620,6 +2658,15 @@ async def _hospitality_report_payload(
         "top_tables": _hsp_top(totals["tables"], "total", 20),
         "top_songs": _hsp_top(totals["songs"], "count", 20),
     }
+    if restaurant:
+        payload["restaurant_mode"] = True
+        payload["cards"] = [card for card in payload["cards"] if card["label"] != "Horas operadas"] + [{
+            "label": "Dia mas movido",
+            "value": busiest["label"] if busiest else "-",
+            "detail": f"{_hsp_money_text(busiest['total'])} en {busiest['days']} {busiest['label'].lower()}(s)" if busiest else "Sin ventas",
+        }]
+        payload["top_songs"] = []
+    return payload
 
 
 def _hsp_report_logo_reader(source: str | None):
@@ -2879,7 +2926,7 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
         ],
     )
     kpi_columns = [("period", "Periodo", 1), ("total", "Total", 1), ("cash", "Efectivo", 1), ("transfer", "Transf.", 1), ("card", "Tarjeta", 1), ("other", "Otro", 1), ("orders", "Pedidos", .7), ("ticket", "Ticket", 1), ("hours", "Horas", .7), ("top_table", "Mesa top", 1)]
-    if payload.get("business_day"):
+    if payload.get("business_day") or payload.get("restaurant_mode"):
         kpi_columns = [column for column in kpi_columns if column[0] != "hours"]
     table(
         "KPI vs KPI por periodo",
@@ -2903,7 +2950,8 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
     )
     table("Productos lideres", [("name", "Producto", 1.9), ("quantity", "Cantidad", .8), ("total", "Total", 1)], [{"name": r.get("name"), "quantity": r.get("quantity"), "total": _hsp_money_text(r.get("total"))} for r in payload.get("top_products") or []])
     table("Mesas con mas consumo", [("name", "Mesa", 1.6), ("orders", "Pedidos", .8), ("total", "Total", 1)], [{"name": r.get("name"), "orders": r.get("orders"), "total": _hsp_money_text(r.get("total"))} for r in payload.get("top_tables") or []])
-    table("Canciones mas pedidas", [("name", "Cancion", 1.8), ("count", "Solicitudes", .8)], [{"name": r.get("name"), "count": r.get("count")} for r in payload.get("top_songs") or []])
+    if not payload.get("restaurant_mode"):
+        table("Canciones mas pedidas", [("name", "Cancion", 1.8), ("count", "Solicitudes", .8)], [{"name": r.get("name"), "count": r.get("count")} for r in payload.get("top_songs") or []])
     table(
         "Jornadas incluidas",
         [("number", "Cierre", 1), ("opened_at", "Apertura", 1.3), ("closed_at", "Cierre", 1.3), ("closed_by", "Responsable", 1.2), ("orders", "Pedidos", .7), ("total", "Total", 1), ("cash", "Efectivo", 1), ("transfer", "Transf.", 1), ("card", "Tarjeta", 1), ("other", "Otro", 1), ("notes", "Notas", 1.4)],

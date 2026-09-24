@@ -22,7 +22,9 @@ const NAMES = [
   'cxHspDashRankCard024W', 'cxHspDashEventTime033B', 'cxHspDashEventItems033B', 'cxHspDashEventCard033B',
   'cxHspDashRenderEventSearch033B', 'cxHspDashDefaultEventDate033B', 'cxHspDashBusinessDay048C', 'cxHspDashMinutes048C',
   'cxHspDashDelta048C', 'cxHspDashHourLabel048C', 'cxHspDashIndicators048C', 'cxHspDashStyles048C',
-  'cxHspDashKpiRows048D', 'cxHspDashKpiSelector048D', 'cxHspDashPaint024W',
+  'cxHspDashKpiRows048D', 'cxHspDashKpiSelector048D', 'cxHspDashRestaurant048H', 'cxHspDashBusiestKpi048H',
+  'cxHspWeekdayPlural048H', 'cxHspDashEventActions048H', 'cxHspDashStyles048H', 'cxHspDashFindEvent048H',
+  'cxHspDashViewEvent048H', 'cxHspDashPrintEvent048H', 'cxHspStockStyles048E', 'cxHspDashPaint024W',
 ];
 
 const bucket = (extra) => ({
@@ -72,32 +74,46 @@ function legacyPayload() {
   return payload;
 }
 
-function dashboard(payload, mode = 'days', kpiDays = 10) {
+const apiCalls = [];
+const printed = [];
+
+function dashboard(payload, mode = 'days', kpiDays = 10, restaurant = false) {
   const root = { innerHTML: '', querySelector: () => null };
   const head = { children: [], appendChild(node) { this.children.push(node); } };
   const ctx = vm.createContext({
     h: (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
     cxHspMoney024R: (value) => `$ ${Math.round(Number(value || 0)).toLocaleString('de-DE')}`,
     cxHspDashStatus033E: () => {},
+    isClientModuleActive: (code) => restaurant && code === 'waiter_ordering',
     cxHspDashPeriodDefs024W: () => [],
     document: {
       head,
       getElementById: (id) => (id === 'hspDashRoot024W' ? root : head.children.find((node) => node.id === id) || null),
-      createElement: () => ({ id: '', textContent: '' }),
+      createElement: () => {
+        const node = { id: '', textContent: '', innerHTML: '', attrs: {} };
+        node.setAttribute = (k, v) => { node.attrs[k] = v; };
+        node.addEventListener = () => {};
+        node.remove = () => {};
+        return node;
+      },
+      body: { children: [], appendChild(node) { this.children.push(node); } },
     },
+    api: async (path, options) => { apiCalls.push({ path, options }); return { document: { number: 'CC-000007', lines: [] } }; },
+    state: { companyId: 'c1' },
+    window: { CxSaleDocument: { printDocument: (doc) => printed.push(doc) }, alert: () => {} },
     Intl, Date, Math, Number, String, Array, Object, JSON,
   });
   vm.runInContext(
     `var cxHspDashAnalytics033E = ${JSON.stringify(payload)}; var cxHspDashMode024W = ${JSON.stringify(mode)};
      var cxHspDashEventTimezone033B = "America/Bogota"; var cxHspDashEventDate033B = "2026-09-22";
-     var cxHspDashEventSummary033B = cxHspDashAnalytics033E.event_search.summary; var cxHspDashEvents033B = [];
+     var cxHspDashEventSummary033B = cxHspDashAnalytics033E.event_search.summary; var cxHspDashEvents033B = cxHspDashAnalytics033E.event_search.events || [];
      var cxHspDashEventLoading033B = false; var cxHspDashEventError033B = ""; var cxHspDashPainted033E = "";
      var cxHspDashKpiDays048D = ${kpiDays};\n`
       + NAMES.map(fn).join('\n'),
     ctx,
   );
   ctx.cxHspDashPaint024W();
-  return { html: root.innerHTML, head };
+  return { html: root.innerHTML, head, ctx };
 }
 
 test('jornada por horario: sin "Horas operadas" en KPI ni en la tabla', () => {
@@ -182,4 +198,61 @@ test('las demás empresas (sin jornada por horario) conservan el tablero actual'
   assert.match(html, /No hay consumos capturados para este día\./);
   assert.ok(!head.children.some((node) => node.id === 'cxHspDashStyles048C'));
   assert.doesNotMatch(html, /data-hsp-dash-kpi-days/, 'sin selector de jornadas');
+});
+
+// ------------------------------------------------ ASADERO (waiter_ordering) --
+function asaderoPayload() {
+  const payload = legacyPayload();
+  const totals = payload.analytics.days.totals;
+  totals.total = 3200000;
+  totals.busiest_weekday = { weekday: 5, label: 'Sábado', total: 1850000, days: 4 };
+  totals.songs = { Querida: { name: 'Querida', count: 3 } };
+  payload.event_search = {
+    date: '2026-09-20',
+    events: [{
+      id: 'shift1:acc1', type: 'qr', location: 'Mesa 4', label: 'Mesa 4', activation_number: 1,
+      started_at: '2026-09-20T18:00:00Z', ended_at: '2026-09-20T20:10:00Z', orders_count: 2,
+      order_ids: ['o-1', 'o-2'], order_numbers: ['P-11', 'P-12'], payment_label: 'Efectivo', total: 88000,
+      items: [{ name: 'POLLO Asado', quantity: 1, unit_price: 40000, subtotal: 40000 }, { name: 'Gaseosa', quantity: 2, unit_price: 24000, subtotal: 48000 }],
+    }],
+    summary: { events: 1, qr_events: 1, total: 88000, orders: 2 },
+  };
+  return payload;
+}
+
+test('Asadero: "Día más movido de la semana" en lugar de "Horas operadas"', () => {
+  const { html } = dashboard(asaderoPayload(), 'days', 10, true);
+  assert.doesNotMatch(html, /Horas operadas|<th>Horas<\/th>/);
+  assert.match(html, /<span>Día más movido de la semana<\/span><b>Sábado<\/b><small>\$ 1\.850\.000 en 4 sábados<\/small>/);
+});
+
+test('Asadero: sin panel de canciones; The Time Machine lo conserva', () => {
+  assert.doesNotMatch(dashboard(asaderoPayload(), 'days', 10, true).html, /Canciones mas pedidas/);
+  assert.match(dashboard(businessPayload()).html, /Canciones mas pedidas/);
+  assert.match(dashboard(legacyPayload()).html, /Canciones mas pedidas/, 'otras empresas sin cambios');
+});
+
+test('Asadero: la búsqueda de eventos permite ver y reimprimir un consumo viejo', async () => {
+  const { html, ctx } = dashboard(asaderoPayload(), 'days', 10, true);
+  assert.match(html, /data-hsp-event-view="shift1:acc1">Ver<\/button>\s*<button class="client-btn" type="button" data-hsp-event-print="shift1:acc1" >Imprimir/);
+
+  ctx.cxHspDashViewEvent048H('shift1:acc1');
+  const sheet = ctx.document.body.children.find((node) => node.id === 'hspEventView048H');
+  assert.match(sheet.innerHTML, /<h2>Mesa 4<\/h2>/);
+  assert.match(sheet.innerHTML, /POLLO Asado[\s\S]*Gaseosa/);
+  assert.match(sheet.innerHTML, /\$ 88\.000/);
+
+  apiCalls.length = 0; printed.length = 0;
+  await ctx.cxHspDashPrintEvent048H('shift1:acc1');
+  assert.equal(apiCalls.length, 1);
+  assert.equal(apiCalls[0].path, '/companies/c1/waiter-ordering/sale-document/reprint');
+  assert.deepEqual(JSON.parse(apiCalls[0].options.body), { order_ids: ['o-1', 'o-2'] });
+  assert.equal(printed[0].number, 'CC-000007', 'imprime con el formato del documento de venta');
+});
+
+test('otras empresas no ven Ver/Imprimir ni pierden sus accesos del encabezado', () => {
+  const payload = asaderoPayload();
+  assert.doesNotMatch(dashboard(payload, 'days', 10, false).html, /data-hsp-event-view|data-hsp-event-print/);
+  const source = readFileSync('app/web/client.js', 'utf8');
+  assert.match(source, /\$\{cxHspDashRestaurant048H\(\) \? "" : `<button class="client-btn" type="button" data-client-module="orders">Pedidos<\/button>\s*<button class="client-btn" type="button" data-client-module="qr">Mesa QR<\/button>`\}/);
 });
