@@ -332,6 +332,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "QR",
         "is_transversal": False,
     },
+    "sanidad": {
+        "name": "Sanidad",
+        "description": "Planilla diaria de limpieza y logística para inspecciones de Sanidad: ítems por empresa, cierre firmado, historial y PDF.",
+        "category": "operations",
+        "category_label": "Operación / Cumplimiento",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "SAN",
+        "is_transversal": False,
+    },
     "requests": {
         "name": "Solicitudes",
         "description": "Solicitudes internas, aprobaciones y estados.",

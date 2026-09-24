@@ -821,6 +821,7 @@
     day_closing: ["Cierre de dia", "resumen diario operativo", "DAY"],
     stock: ["Stock", "existencias y alertas", "STO"],
     hospitality: ["Reportes", "analisis de cierres", "HSP"],
+    sanidad: ["Sanidad", "planilla diaria de limpieza", "SAN"],
     bots: ["Bots", "Telegram / WhatsApp", "BOT"],
     mini_panel: ["Mini Paneles", "links operativos", "MIN"],
     mini_paneles: ["Mini Paneles", "links operativos", "MIN"],
@@ -32938,6 +32939,8 @@ function inventoryCreatePayload() {
         return;
       }
 
+      if (target.closest("#cxSanRoot048K") && await cxSanHandleClick048K(target)) return;
+
       const hspEventView = target.closest("[data-hsp-event-view]");
       if (hspEventView) {
         cxHspDashViewEvent048H(hspEventView.getAttribute("data-hsp-event-view") || "");
@@ -33750,6 +33753,11 @@ function inventoryCreatePayload() {
           return;
         }
 
+        if (code === "sanidad") {
+          await renderSanitationModule048K();
+          return;
+        }
+
         if (typeof cxIsStockCode024T === "function" && cxIsStockCode024T(code)) {
           await renderStockModule024T();
           return;
@@ -34218,6 +34226,7 @@ function inventoryCreatePayload() {
                 ${hasHospitalityDashboard ? `<button class="client-btn hsp-alert-control-030b" type="button" data-hsp-toggle-visual-alerts aria-pressed="true"><span aria-hidden="true">&#128994;</span> Visual <b>ON</b></button><button class="client-btn hsp-alert-control-030b" type="button" data-hsp-toggle-sound-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Sonido <b>OFF</b></button>` : ""}
               </div>
               ${hasHospitalityDashboard ? cxHspDashboardPendingBanner030D(hospitalityMetrics) : ""}
+              ${cxSanDashboardBanner048K()}
             </header>
 
             <section class="client-panel">
@@ -34334,6 +34343,481 @@ function inventoryCreatePayload() {
       storeOpenings: crm ? crmStoreOpeningRows024D(crm) : [],
     };
   }
+
+  /* CLONEXA_048K_SANIDAD_START */
+  // Módulo SANIDAD (general, se activa por empresa desde Admin V2): planilla
+  // diaria de limpieza/logística con responsable de Workforce, ítems propios
+  // de cada empresa por secciones, cierre firmado e inmutable (luego solo
+  // notas), historial con Ver / Descargar / Imprimir (PDF con logo) y un
+  // aviso en el Dashboard si la planilla del día quedó sin diligenciar.
+  let cxSan048K = { tab: "sheet", date: "", sheet: null, staff: [], today: "", items: [], history: [], message: "", error: "", busy: false };
+
+  function cxSanApi048K(path, options = {}) {
+    return api(`/sanitation/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxSanDashboardBanner048K() {
+    const status = state.dashboardMetrics?.sanitation048K;
+    if (!status || !status.alert) return "";
+    return `
+      <button class="cx-san-alert-048k" type="button" data-client-module="sanidad">
+        <span aria-hidden="true">🧼</span>
+        <strong>Planilla de Sanidad pendiente</strong>
+        <small>${h(status.message || "Falta diligenciar la planilla del día.")}</small>
+        <b>Abrir Sanidad →</b>
+      </button>`;
+  }
+
+  function cxSanIsAdmin048K() {
+    const role = String(currentClientRole() || "").toLowerCase();
+    return ["company_admin", "admin_empresa", "manager", "gerencia", "gerente", "dueno", "dueño", "owner", "propietario", "administrador", ""].includes(role);
+  }
+
+  function cxSanDateLabel048K(value) {
+    const [y, m, d] = String(value || "").split("-");
+    return y && m && d ? `${d}/${m}/${y}` : String(value || "");
+  }
+
+  function cxSanTime048K(value) {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return "";
+    try {
+      return new Intl.DateTimeFormat("es-CO", { dateStyle: "short", timeStyle: "short", timeZone: state.company?.timezone || "America/Bogota" }).format(date);
+    } catch (_) {
+      return date.toLocaleString("es-CO");
+    }
+  }
+
+  function cxSanCompliance048K(entries = []) {
+    if (!entries.length) return 0;
+    return Math.round((entries.filter((entry) => entry.checked).length / entries.length) * 100);
+  }
+
+  function cxSanGroups048K(rows = []) {
+    const groups = [];
+    rows.forEach((row) => {
+      let group = groups.find((item) => item.section === row.section);
+      if (!group) {
+        group = { section: row.section, rows: [] };
+        groups.push(group);
+      }
+      group.rows.push(row);
+    });
+    return groups;
+  }
+
+  function cxSanSheetHtml048K() {
+    const sheet = cxSan048K.sheet;
+    if (!sheet) return `<div class="client-muted">Cargando planilla...</div>`;
+    const closed = sheet.status === "closed";
+    const entries = sheet.entries || [];
+    const pct = closed ? Math.round(Number(sheet.compliance || 0)) : cxSanCompliance048K(entries);
+    return `
+      <div class="cx-san-sheet-head-048k">
+        <label>Fecha<input type="date" value="${h(sheet.date)}" max="${h(cxSan048K.today)}" data-san-date-048k></label>
+        <label>Responsable del día
+          <select data-san-responsible-048k ${closed ? "disabled" : ""}>
+            <option value="">Elegir del personal...</option>
+            ${cxSan048K.staff.map((person) => `<option value="${h(person.id)}" ${person.id === sheet.responsible_employee_id ? "selected" : ""}>${h(person.name)}${person.role ? ` · ${h(person.role)}` : ""}</option>`).join("")}
+            ${closed && !cxSan048K.staff.some((person) => person.id === sheet.responsible_employee_id) ? `<option selected>${h(sheet.responsible_name || "-")}</option>` : ""}
+          </select>
+        </label>
+        <div class="cx-san-pct-048k ${pct >= 90 ? "ok" : pct >= 60 ? "mid" : "low"}"><span>Cumplimiento</span><b data-san-pct-048k>${h(pct)}%</b></div>
+      </div>
+      ${closed ? `<div class="cx-san-closed-048k">🔒 Planilla cerrada el ${h(cxSanTime048K(sheet.closed_at))} por ${h(sheet.closed_by || "-")} · responsable ${h(sheet.responsible_name || "-")}. Ya no se puede editar.</div>` : ""}
+      <div class="cx-san-groups-048k">
+        ${entries.length ? cxSanGroups048K(entries).map((group) => `
+          <section class="cx-san-group-048k">
+            <h3>${h(group.section)}</h3>
+            ${group.rows.map((entry) => `
+              <div class="cx-san-row-048k ${entry.checked ? "is-ok" : ""}" data-san-row-048k="${h(entry.item_id)}">
+                <label class="cx-san-check-048k"><input type="checkbox" data-san-check-048k ${entry.checked ? "checked" : ""} ${closed ? "disabled" : ""}><span>${h(entry.label)}</span></label>
+                ${entry.requires_value ? `<label class="cx-san-value-048k"><input type="number" step="0.1" inputmode="decimal" data-san-value-048k value="${entry.value === null || entry.value === undefined ? "" : h(entry.value)}" ${closed ? "disabled" : ""} aria-label="${h(entry.label)}"><small>${h(entry.value_label || "")}</small></label>` : "<span></span>"}
+                <input class="cx-san-obs-048k" maxlength="240" placeholder="Observación" data-san-obs-048k value="${h(entry.observation || "")}" ${closed ? "disabled" : ""}>
+              </div>`).join("")}
+          </section>`).join("") : `<div class="client-muted">No hay ítems activos. Configúralos en la pestaña "Configurar ítems".</div>`}
+      </div>
+      ${closed ? `
+        <section class="cx-san-notes-048k">
+          <h3>Notas posteriores al cierre</h3>
+          ${(sheet.notes || []).map((note) => `<div class="cx-san-note-048k"><small>${h(cxSanTime048K(note.created_at))} · ${h(note.author || "")}</small><p>${h(note.note)}</p></div>`).join("") || `<div class="client-muted">Sin notas.</div>`}
+          <textarea maxlength="1000" placeholder="Corrección o aclaración (queda registrada con tu nombre y la hora)" data-san-note-text-048k></textarea>
+          <button class="client-btn" type="button" data-san-add-note-048k>Agregar nota</button>
+        </section>` : `
+        <div class="cx-san-actions-048k">
+          <button class="client-btn" type="button" data-san-save-048k ${cxSan048K.busy ? "disabled" : ""}>Guardar borrador</button>
+          <button class="client-btn primary cx-san-close-btn-048k" type="button" data-san-close-048k ${cxSan048K.busy ? "disabled" : ""}>Cerrar y firmar planilla</button>
+        </div>`}
+    `;
+  }
+
+  function cxSanHistoryHtml048K() {
+    const rows = cxSan048K.history;
+    if (!rows.length) return `<div class="client-muted">Todavía no hay planillas cerradas.</div>`;
+    return `
+      <div class="cx-san-history-048k">
+        <div class="cx-san-hist-row-048k head"><span>Fecha</span><span>Responsable</span><span>Cumplimiento</span><span>Cerrada</span><span></span></div>
+        ${rows.map((row) => `
+          <div class="cx-san-hist-row-048k">
+            <span><b>${h(cxSanDateLabel048K(row.date))}</b></span>
+            <span>${h(row.responsible_name || "-")}</span>
+            <span class="cx-san-pct-tag-048k ${row.compliance >= 90 ? "ok" : row.compliance >= 60 ? "mid" : "low"}">${h(Math.round(row.compliance))}%</span>
+            <span>${h(cxSanTime048K(row.closed_at))} · ${h(row.closed_by || "")}</span>
+            <span class="cx-san-hist-actions-048k">
+              <button class="client-btn" type="button" data-san-view-048k="${h(row.date)}">Ver</button>
+              <button class="client-btn" type="button" data-san-download-048k="${h(row.date)}">Descargar</button>
+              <button class="client-btn" type="button" data-san-print-048k="${h(row.date)}">Imprimir</button>
+            </span>
+          </div>`).join("")}
+      </div>`;
+  }
+
+  function cxSanItemsHtml048K() {
+    if (!cxSanIsAdmin048K()) return `<div class="client-muted">Solo un administrador de la empresa puede configurar los ítems.</div>`;
+    const sections = [...new Set(cxSan048K.items.map((item) => item.section))];
+    return `
+      <form class="cx-san-add-048k" data-san-add-form-048k>
+        <input name="section" list="cxSanSections048K" maxlength="80" placeholder="Sección (ej: Cocina)" required>
+        <datalist id="cxSanSections048K">${sections.map((section) => `<option value="${h(section)}"></option>`).join("")}</datalist>
+        <input name="label" maxlength="240" placeholder="Ítem a verificar" required>
+        <label class="cx-san-inline-048k"><input type="checkbox" name="requires_value"> Pide valor</label>
+        <input name="value_label" maxlength="40" placeholder="Unidad (ej: °C)">
+        <button class="client-btn primary" type="submit">Agregar ítem</button>
+      </form>
+      ${cxSanGroups048K(cxSan048K.items).map((group) => `
+        <section class="cx-san-group-048k">
+          <h3>${h(group.section)}</h3>
+          ${group.rows.map((item) => `
+            <div class="cx-san-item-048k ${item.active ? "" : "is-off"}" data-san-item-048k="${h(item.id)}">
+              <input data-san-item-section-048k maxlength="80" value="${h(item.section)}" aria-label="Sección">
+              <input data-san-item-label-048k maxlength="240" value="${h(item.label)}" aria-label="Ítem">
+              <label class="cx-san-inline-048k"><input type="checkbox" data-san-item-value-048k ${item.requires_value ? "checked" : ""}> Valor</label>
+              <input data-san-item-unit-048k maxlength="40" value="${h(item.value_label)}" placeholder="Unidad" aria-label="Unidad">
+              <label class="cx-san-inline-048k"><input type="checkbox" data-san-item-active-048k ${item.active ? "checked" : ""}> Activo</label>
+              <button class="client-btn" type="button" data-san-item-up-048k title="Subir">↑</button>
+              <button class="client-btn" type="button" data-san-item-down-048k title="Bajar">↓</button>
+              <button class="client-btn" type="button" data-san-item-save-048k>Guardar</button>
+            </div>`).join("")}
+        </section>`).join("")}
+    `;
+  }
+
+  function cxSanPaint048K() {
+    const root = document.getElementById("cxSanRoot048K");
+    if (!root) return;
+    const tab = cxSan048K.tab;
+    root.innerHTML = `
+      <div class="cx-san-tabs-048k">
+        <button class="client-btn ${tab === "sheet" ? "primary" : ""}" type="button" data-san-tab-048k="sheet">Planilla del día</button>
+        <button class="client-btn ${tab === "history" ? "primary" : ""}" type="button" data-san-tab-048k="history">Historial</button>
+        ${cxSanIsAdmin048K() ? `<button class="client-btn ${tab === "items" ? "primary" : ""}" type="button" data-san-tab-048k="items">Configurar ítems</button>` : ""}
+      </div>
+      ${cxSan048K.message ? `<div class="personal-toast">${h(cxSan048K.message)}</div>` : ""}
+      ${cxSan048K.error ? `<div class="personal-toast error">${h(cxSan048K.error)}</div>` : ""}
+      <section class="client-panel cx-san-panel-048k">
+        ${tab === "history" ? cxSanHistoryHtml048K() : tab === "items" ? cxSanItemsHtml048K() : cxSanSheetHtml048K()}
+      </section>`;
+  }
+
+  function cxSanReadSheet048K() {
+    const root = document.getElementById("cxSanRoot048K");
+    const sheet = cxSan048K.sheet;
+    if (!root || !sheet) return null;
+    const responsible = root.querySelector("[data-san-responsible-048k]");
+    const entries = (sheet.entries || []).map((entry) => {
+      const row = root.querySelector(`[data-san-row-048k="${entry.item_id}"]`);
+      if (!row) return entry;
+      const rawValue = row.querySelector("[data-san-value-048k]")?.value;
+      return {
+        ...entry,
+        checked: Boolean(row.querySelector("[data-san-check-048k]")?.checked),
+        observation: String(row.querySelector("[data-san-obs-048k]")?.value || "").trim(),
+        value: rawValue === undefined || rawValue === "" ? null : Number(rawValue),
+      };
+    });
+    return { responsible_employee_id: responsible ? String(responsible.value || "") : "", entries };
+  }
+
+  async function cxSanLoadSheet048K(day = "") {
+    try {
+      const data = await cxSanApi048K(`/sheets/${encodeURIComponent(day || cxSan048K.today || new Date().toISOString().slice(0, 10))}`);
+      cxSan048K.sheet = data.sheet;
+      cxSan048K.staff = Array.isArray(data.staff) ? data.staff : [];
+      cxSan048K.today = data.today || cxSan048K.today;
+      cxSan048K.date = data.sheet?.date || day;
+      cxSan048K.error = "";
+    } catch (error) {
+      cxSan048K.error = error.message || "No se pudo cargar la planilla.";
+    }
+  }
+
+  async function cxSanSubmit048K(close = false) {
+    const payload = cxSanReadSheet048K();
+    if (!payload) return;
+    // keep what was typed on screen if anything below repaints
+    cxSan048K.sheet = { ...cxSan048K.sheet, responsible_employee_id: payload.responsible_employee_id, entries: payload.entries };
+    if (close && !payload.responsible_employee_id) {
+      cxSan048K.error = "Elige el responsable del día antes de cerrar.";
+      cxSanPaint048K();
+      return;
+    }
+    if (close && !window.confirm("¿Cerrar y firmar la planilla? Después no se puede editar; solo agregar notas.")) return;
+    cxSan048K.busy = true;
+    cxSanPaint048K();
+    try {
+      const data = await cxSanApi048K(`/sheets/${encodeURIComponent(cxSan048K.sheet.date)}${close ? "/close" : ""}`, {
+        method: close ? "POST" : "PUT",
+        body: JSON.stringify(payload),
+      });
+      cxSan048K.sheet = { ...data.sheet, notes: [] };
+      cxSan048K.message = close ? `Planilla del ${cxSanDateLabel048K(data.sheet.date)} cerrada con ${Math.round(data.sheet.compliance)}% de cumplimiento.` : "Borrador guardado.";
+      cxSan048K.error = "";
+      if (close) state.dashboardMetrics = { ...(state.dashboardMetrics || {}), sanitation048K: null };
+    } catch (error) {
+      cxSan048K.error = error.message || "No se pudo guardar la planilla.";
+    } finally {
+      cxSan048K.busy = false;
+      cxSanPaint048K();
+    }
+  }
+
+  async function cxSanPdf048K(day, mode) {
+    const response = await fetch(`${API}/sanitation/companies/${encodeURIComponent(state.companyId)}/sheets/${encodeURIComponent(day)}/pdf`, {
+      headers: authHeaders({}),
+    });
+    if (!response.ok) throw new Error("No se pudo generar el PDF.");
+    const url = URL.createObjectURL(await response.blob());
+    if (mode === "download") {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `planilla_sanidad_${day}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+      return;
+    }
+    const frame = document.createElement("iframe");
+    frame.style.position = "fixed";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    frame.src = url;
+    frame.onload = () => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (_) { window.open(url, "_blank"); }
+      window.setTimeout(() => { frame.remove(); URL.revokeObjectURL(url); }, 60000);
+    };
+    document.body.appendChild(frame);
+  }
+
+  function cxSanStyles048K() {
+    if (document.getElementById("cxSanStyles048K")) return;
+    const style = document.createElement("style");
+    style.id = "cxSanStyles048K";
+    style.textContent = `
+      .cx-san-alert-048k{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:center;width:100%;margin-top:14px;padding:12px 16px;border-radius:16px;border:1px solid rgba(245,158,11,.7);background:rgba(245,158,11,.16);color:inherit;font:inherit;text-align:left;cursor:pointer}
+      .cx-san-alert-048k span{grid-row:span 2;font-size:26px}.cx-san-alert-048k small{grid-column:2;opacity:.9}.cx-san-alert-048k b{grid-row:1/span 2;grid-column:3}
+      .cx-san-tabs-048k{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+      .cx-san-sheet-head-048k{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:end;margin-bottom:12px}
+      .cx-san-sheet-head-048k label{display:grid;gap:4px;font-size:12px;font-weight:800}
+      .cx-san-sheet-head-048k input,.cx-san-sheet-head-048k select,.cx-san-obs-048k,.cx-san-value-048k input,.cx-san-add-048k input,.cx-san-item-048k input:not([type=checkbox]),.cx-san-notes-048k textarea{min-height:40px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(3,7,18,.4);color:inherit;padding:0 10px;font:inherit}
+      .cx-san-pct-048k{display:grid;justify-items:end;padding:6px 12px;border-radius:12px;background:rgba(255,255,255,.06)}
+      .cx-san-pct-048k b{font-size:24px}.cx-san-pct-048k.ok b,.cx-san-pct-tag-048k.ok{color:#86efac}.cx-san-pct-048k.mid b,.cx-san-pct-tag-048k.mid{color:#fcd34d}.cx-san-pct-048k.low b,.cx-san-pct-tag-048k.low{color:#fca5a5}
+      .cx-san-closed-048k{padding:10px 12px;border-radius:12px;background:rgba(59,130,246,.14);border:1px solid rgba(96,165,250,.45);margin-bottom:12px;font-weight:700}
+      .cx-san-groups-048k{display:grid;gap:12px}
+      .cx-san-group-048k{display:grid;gap:6px}
+      .cx-san-group-048k h3{margin:6px 0 2px;font-size:15px;text-transform:uppercase;letter-spacing:.06em;opacity:.85}
+      .cx-san-row-048k{display:grid;grid-template-columns:minmax(0,1.6fr) 120px minmax(0,1fr);gap:10px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+      .cx-san-row-048k.is-ok{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.08)}
+      .cx-san-check-048k{display:flex;gap:10px;align-items:center;font-weight:700;cursor:pointer}
+      .cx-san-check-048k input{width:22px;height:22px;flex:none}
+      .cx-san-value-048k{display:flex;gap:6px;align-items:center}.cx-san-value-048k input{width:80px}
+      .cx-san-actions-048k{display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+      .cx-san-notes-048k{display:grid;gap:8px;margin-top:14px}.cx-san-notes-048k textarea{min-height:70px;padding:8px 10px}
+      .cx-san-note-048k{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05)}.cx-san-note-048k p{margin:4px 0 0}
+      .cx-san-history-048k{display:grid;gap:6px}
+      .cx-san-hist-row-048k{display:grid;grid-template-columns:110px minmax(0,1fr) 110px minmax(0,1.2fr) 270px;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04)}
+      .cx-san-hist-row-048k.head{background:none;font-size:11px;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
+      .cx-san-hist-actions-048k{display:flex;gap:6px}
+      .cx-san-add-048k{display:grid;grid-template-columns:1fr 2fr auto 110px auto;gap:8px;align-items:center;margin-bottom:14px}
+      .cx-san-item-048k{display:grid;grid-template-columns:1fr 2fr auto 90px auto auto auto auto;gap:6px;align-items:center}
+      .cx-san-item-048k.is-off{opacity:.55}
+      .cx-san-inline-048k{display:flex;gap:6px;align-items:center;font-size:13px;white-space:nowrap}
+      @media(max-width:900px){.cx-san-row-048k,.cx-san-hist-row-048k,.cx-san-add-048k,.cx-san-item-048k,.cx-san-sheet-head-048k{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function renderSanitationModule048K(tab = "") {
+    if (!isClientModuleActive("sanidad")) {
+      render();
+      return;
+    }
+    cxSanStyles048K();
+    cxSan048K.tab = tab || cxSan048K.tab || "sheet";
+    cxSan048K.message = "";
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("sanidad")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Módulo Sanidad</div>
+              <h1 class="client-title">Sanidad</h1>
+              <p class="client-muted">Planilla diaria de limpieza, desinfección y logística. Al cerrarla queda firmada con fecha, hora, responsable y cumplimiento.</p>
+            </header>
+            <div id="cxSanRoot048K"><div class="client-muted">Cargando...</div></div>
+          </section>
+        </div>
+      </main>`;
+    await cxSanLoadTab048K();
+  }
+
+  async function cxSanLoadTab048K() {
+    const tab = cxSan048K.tab;
+    try {
+      if (tab === "history") {
+        cxSan048K.history = (await cxSanApi048K("/sheets?limit=120")).sheets || [];
+      } else if (tab === "items") {
+        cxSan048K.items = (await cxSanApi048K("/items")).items || [];
+      } else {
+        await cxSanLoadSheet048K(cxSan048K.date || cxSan048K.today);
+      }
+      cxSan048K.error = "";
+    } catch (error) {
+      cxSan048K.error = error.message || "No se pudo cargar Sanidad.";
+    }
+    cxSanPaint048K();
+  }
+
+  async function cxSanHandleClick048K(target) {
+    const tab = target.closest("[data-san-tab-048k]");
+    if (tab) {
+      cxSan048K.tab = tab.getAttribute("data-san-tab-048k") || "sheet";
+      cxSan048K.message = "";
+      await cxSanLoadTab048K();
+      return true;
+    }
+    if (target.closest("[data-san-save-048k]")) { await cxSanSubmit048K(false); return true; }
+    if (target.closest("[data-san-close-048k]")) { await cxSanSubmit048K(true); return true; }
+    if (target.closest("[data-san-add-note-048k]")) {
+      const text = String(document.querySelector("[data-san-note-text-048k]")?.value || "").trim();
+      if (!text) return true;
+      try {
+        const data = await cxSanApi048K(`/sheets/${encodeURIComponent(cxSan048K.sheet.date)}/notes`, { method: "POST", body: JSON.stringify({ note: text }) });
+        cxSan048K.sheet = data.sheet;
+        cxSan048K.message = "Nota agregada a la planilla cerrada.";
+      } catch (error) {
+        cxSan048K.error = error.message || "No se pudo agregar la nota.";
+      }
+      cxSanPaint048K();
+      return true;
+    }
+    const view = target.closest("[data-san-view-048k]");
+    if (view) {
+      cxSan048K.tab = "sheet";
+      cxSan048K.date = view.getAttribute("data-san-view-048k") || "";
+      await cxSanLoadTab048K();
+      return true;
+    }
+    const download = target.closest("[data-san-download-048k]");
+    const print = target.closest("[data-san-print-048k]");
+    if (download || print) {
+      const day = (download || print).getAttribute(download ? "data-san-download-048k" : "data-san-print-048k");
+      try {
+        await cxSanPdf048K(day, download ? "download" : "print");
+      } catch (error) {
+        cxSan048K.error = error.message || "No se pudo generar el PDF.";
+        cxSanPaint048K();
+      }
+      return true;
+    }
+    const item = target.closest("[data-san-item-048k]");
+    if (item) {
+      const id = item.getAttribute("data-san-item-048k");
+      const move = target.closest("[data-san-item-up-048k]") ? -1 : target.closest("[data-san-item-down-048k]") ? 1 : 0;
+      if (move) {
+        const ids = cxSan048K.items.map((row) => row.id);
+        const index = ids.indexOf(id);
+        const next = index + move;
+        if (index < 0 || next < 0 || next >= ids.length) return true;
+        [ids[index], ids[next]] = [ids[next], ids[index]];
+        cxSan048K.items = (await cxSanApi048K("/items/reorder", { method: "POST", body: JSON.stringify({ ids }) })).items || cxSan048K.items;
+        cxSanPaint048K();
+        return true;
+      }
+      if (target.closest("[data-san-item-save-048k]")) {
+        try {
+          await cxSanApi048K(`/items/${encodeURIComponent(id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              section: String(item.querySelector("[data-san-item-section-048k]")?.value || "").trim(),
+              label: String(item.querySelector("[data-san-item-label-048k]")?.value || "").trim(),
+              requires_value: Boolean(item.querySelector("[data-san-item-value-048k]")?.checked),
+              value_label: String(item.querySelector("[data-san-item-unit-048k]")?.value || "").trim(),
+              active: Boolean(item.querySelector("[data-san-item-active-048k]")?.checked),
+            }),
+          });
+          cxSan048K.items = (await cxSanApi048K("/items")).items || [];
+          cxSan048K.message = "Ítem guardado.";
+        } catch (error) {
+          cxSan048K.error = error.message || "No se pudo guardar el ítem.";
+        }
+        cxSanPaint048K();
+        return true;
+      }
+    }
+    return false;
+  }
+  document.addEventListener("submit", async (event) => {
+    const form = event.target && event.target.closest ? event.target.closest("[data-san-add-form-048k]") : null;
+    if (!form) return;
+    event.preventDefault();
+    const data = new FormData(form);
+    try {
+      await cxSanApi048K("/items", {
+        method: "POST",
+        body: JSON.stringify({
+          section: String(data.get("section") || "").trim(),
+          label: String(data.get("label") || "").trim(),
+          requires_value: data.get("requires_value") === "on",
+          value_label: String(data.get("value_label") || "").trim(),
+        }),
+      });
+      cxSan048K.items = (await cxSanApi048K("/items")).items || [];
+      cxSan048K.message = "Ítem agregado.";
+      cxSan048K.error = "";
+    } catch (error) {
+      cxSan048K.error = error.message || "No se pudo agregar el ítem.";
+    }
+    cxSanPaint048K();
+  });
+
+  document.addEventListener("change", async (event) => {
+    const target = event.target;
+    if (!target || !target.closest || !target.closest("#cxSanRoot048K")) return;
+    if (target.matches("[data-san-date-048k]")) {
+      cxSan048K.date = target.value || cxSan048K.today;
+      cxSan048K.message = "";
+      await cxSanLoadSheet048K(cxSan048K.date);
+      cxSanPaint048K();
+      return;
+    }
+    if (target.matches("[data-san-check-048k]")) {
+      target.closest("[data-san-row-048k]")?.classList.toggle("is-ok", target.checked);
+      const current = cxSanReadSheet048K();
+      const pct = document.querySelector("[data-san-pct-048k]");
+      if (current && pct) pct.textContent = `${cxSanCompliance048K(current.entries)}%`;
+    }
+  });
+  /* CLONEXA_048K_SANIDAD_END */
 
   async function loadHospitalityDashboardMetrics025I(companyId) {
     const encodedCompanyId = encodeURIComponent(companyId);
@@ -34535,11 +35019,16 @@ function inventoryCreatePayload() {
     }, 5000);
   }
 
+
   async function loadClientDashboardMetrics(companyId, modules = []) {
     const visibleModules = visibleClientModules(modules);
     const codes = clientModuleCodes(visibleModules);
     const metrics = {};
     let employeesCache = [];
+
+    if (codes.has("sanidad")) {
+      metrics.sanitation048K = await api(`/sanitation/companies/${encodeURIComponent(companyId)}/status`).catch(() => null);
+    }
 
     if (codes.has("workforce")) {
       try {
