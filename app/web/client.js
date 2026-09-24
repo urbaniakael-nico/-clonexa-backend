@@ -1086,7 +1086,12 @@
         : "Sin mesas pendientes";
       return [
         ["Mesas activas", String(Number(hospitality.activeTables || 0))],
-        ["Stock bajo", String(Number(hospitality.lowStock || 0))],
+        cxHspOutOfStockOn048E()
+          ? (() => {
+            const view = cxHspStockCardView048E(hospitality);
+            return ["SIN STOCK", view.value, view.detail, "", { cls: `hsp-kpi-stock-048e ${view.tone}`, attr: "data-hsp-out-of-stock-048e" }];
+          })()
+          : ["Stock bajo", String(Number(hospitality.lowStock || 0))],
         ["Pedidos pendientes", String(Number(hospitality.pendingOrders || 0)), pendingDetail, "orders"],
         ["Total abierto", cxHspMoney024R(hospitality.openTotal || 0)],
       ];
@@ -1217,13 +1222,26 @@
     }
 
     return buildClientHeroKpis(modules, company)
-      .map(([label, value, detail, action]) => `
+      .map(([label, value, detail, action, extra]) => {
+        if (extra) {
+          // 048E: tarjeta que abre su propio detalle (p. ej. "SIN STOCK").
+          cxHspStockStyles048E();
+          return `
+        <button class="client-kpi ${h(extra.cls || "")}" type="button" data-client-kpi-label="${h(label)}" ${extra.attr || ""}>
+          <span>${h(label)}</span>
+          <strong>${h(value)}</strong>
+          ${detail ? `<small>${h(detail)}</small>` : ""}
+        </button>
+      `;
+        }
+        return `
         <${action ? "button" : "div"} class="client-kpi${action ? " hsp-dashboard-kpi-030d" : ""}" data-client-kpi-label="${h(label)}" ${action ? `type="button" data-client-module="${h(action)}"` : ""}>
           <span>${h(label)}</span>
           <strong>${h(value)}</strong>
           ${detail ? `<small>${h(detail)}</small>` : ""}
         </${action ? "button" : "div"}>
-      `)
+      `;
+      })
       .join("");
   }
 
@@ -32716,6 +32734,11 @@ function inventoryCreatePayload() {
         return;
       }
 
+      if (target.closest("[data-hsp-out-of-stock-048e]")) {
+        cxHspOpenOutOfStock048E();
+        return;
+      }
+
       const hspDashKpiDays = target.closest("[data-hsp-dash-kpi-days]");
       if (hspDashKpiDays) {
         const days = Number(hspDashKpiDays.getAttribute("data-hsp-dash-kpi-days"));
@@ -34101,10 +34124,11 @@ function inventoryCreatePayload() {
     const qrConfig = cxHspQrConfigFromModules025N(activeClientModules());
     const baseUrl = encodeURIComponent(qrConfig.baseUrl || window.location.origin);
     const includeBar = qrConfig.includeBar ? "true" : "false";
+    const outOfStockCard = cxHspOutOfStockOn048E();
     const [qrData, ordersData, inventoryData] = await Promise.all([
       api(`/hospitality/companies/${encodedCompanyId}/qr-tables?count=${encodeURIComponent(qrConfig.count)}&include_bar=${includeBar}&base_url=${baseUrl}`).catch(() => ({})),
       api(`/hospitality/companies/${encodedCompanyId}/orders?status=all&limit=220`).catch(() => ({})),
-      api(`/inventory/companies/${encodedCompanyId}/items?include_inactive=false&limit=1000`).catch(() => ({})),
+      api(`/inventory/companies/${encodedCompanyId}/items?include_inactive=${outOfStockCard ? "true" : "false"}&limit=1000`).catch(() => ({})),
     ]);
 
     const tables = Array.isArray(qrData.tables) ? qrData.tables : [];
@@ -34117,12 +34141,103 @@ function inventoryCreatePayload() {
     return {
       activeTables,
       lowStock: Number(inventoryData?.summary?.low_stock || 0),
+      ...(outOfStockCard ? cxHspStockAlerts048E(inventoryData?.items) : {}),
       pendingOrders: pendingItems.length,
       pendingTables,
       pendingOrderItems: pendingItems,
       openTotal,
     };
   }
+
+  /* CLONEXA_048E_OUT_OF_STOCK_START */
+  // Tarjeta "SIN STOCK" del Dashboard (solo con qr_bar_menu, hoy The Time
+  // Machine) en lugar de "Stock bajo". Cuenta todo artículo no eliminado en
+  // cero -- incluidos los que el sistema desactivó solo al llegar al mínimo --
+  // y conserva el dato de stock bajo (0 < stock <= mínimo) como línea aparte.
+  function cxHspOutOfStockOn048E() {
+    return cxHspSongByTableOn048B();
+  }
+
+  function cxHspStockAlerts048E(rows = []) {
+    const items = (Array.isArray(rows) ? rows : [])
+      .filter((row) => String(row.status || "active").toLowerCase() !== "deleted");
+    const stock = (row) => Number(row.current_stock || 0);
+    const name = (row) => String(row.name_reference || row.name || row.reference || row.sku || "Artículo").trim();
+    const out = items
+      .filter((row) => stock(row) <= 0)
+      .map((row) => ({ id: row.id, name: name(row), size: row.size || "", status: String(row.status || "active").toLowerCase() }))
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
+    const low = items.filter((row) => stock(row) > 0 && stock(row) <= Number(row.min_stock || 0)).length;
+    return { outOfStock: out.length, outOfStockItems: out, lowStockSoon: low };
+  }
+
+  function cxHspStockCardView048E(metrics = {}) {
+    const count = Number(metrics.outOfStock || 0);
+    const low = Number(metrics.lowStockSoon || 0);
+    return {
+      value: count ? String(count) : "Todo con stock",
+      detail: `además, ${low} con stock bajo`,
+      tone: count ? "danger" : "ok",
+    };
+  }
+
+  function cxHspOpenOutOfStock048E() {
+    const metrics = state.dashboardMetrics?.hospitalityDashboard025I || {};
+    const items = Array.isArray(metrics.outOfStockItems) ? metrics.outOfStockItems : [];
+    document.getElementById("hspOutOfStock048E")?.remove();
+    const overlay = document.createElement("div");
+    overlay.id = "hspOutOfStock048E";
+    overlay.className = "hsp-oos-backdrop-048e";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.innerHTML = `
+      <div class="hsp-oos-sheet-048e">
+        <header>
+          <div><span>Inventario</span><h2>Sin stock (${h(items.length)})</h2></div>
+          <button type="button" class="hsp-oos-close-048e" data-hsp-oos-close aria-label="Cerrar">×</button>
+        </header>
+        <div class="hsp-oos-list-048e">
+          ${items.length ? items.map((item) => `
+            <div class="hsp-oos-row-048e">
+              <span>${h(item.name)}${item.size ? ` <small>${h(item.size)}</small>` : ""}</span>
+              <b>${item.status === "active" ? "Agotado" : "Agotado · inactivo"}</b>
+            </div>`).join("") : `<div class="hsp-oos-empty-048e">Todo con stock.</div>`}
+        </div>
+        <footer><button type="button" class="client-btn" data-client-module="inventory">Ir a Inventario</button></footer>
+      </div>`;
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest?.("[data-hsp-oos-close]") || event.target.closest?.("[data-client-module]")) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+  }
+
+  function cxHspStockStyles048E() {
+    if (document.getElementById("cxHspStockStyles048E")) return;
+    const style = document.createElement("style");
+    style.id = "cxHspStockStyles048E";
+    style.textContent = `
+      .client-kpi.hsp-kpi-stock-048e{cursor:pointer;text-align:left;font:inherit;color:inherit}
+      .client-kpi.hsp-kpi-stock-048e.danger{background:linear-gradient(135deg,rgba(220,38,38,.38),rgba(127,29,29,.30));border-color:rgba(248,113,113,.75);box-shadow:0 0 0 1px rgba(248,113,113,.35) inset}
+      .client-kpi.hsp-kpi-stock-048e.ok{background:linear-gradient(135deg,rgba(22,163,74,.30),rgba(20,83,45,.26));border-color:rgba(74,222,128,.6)}
+      .client-kpi.hsp-kpi-stock-048e.danger strong{color:#fecaca}
+      .client-kpi.hsp-kpi-stock-048e.ok strong{color:#bbf7d0}
+      .client-kpi.hsp-kpi-stock-048e small{display:block;opacity:.85}
+      .hsp-oos-backdrop-048e{position:fixed;inset:0;z-index:120;background:rgba(2,6,23,.72);display:grid;place-items:center;padding:16px}
+      .hsp-oos-sheet-048e{width:min(520px,100%);max-height:calc(100vh - 32px);display:grid;grid-template-rows:auto 1fr auto;gap:10px;padding:18px;border-radius:20px;background:#0f0a1e;border:1px solid rgba(248,113,113,.55);color:#fff;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+      .hsp-oos-sheet-048e header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+      .hsp-oos-sheet-048e header span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.7}
+      .hsp-oos-sheet-048e h2{margin:2px 0 0;font-size:22px}
+      .hsp-oos-close-048e{width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font-size:22px;cursor:pointer}
+      .hsp-oos-list-048e{overflow:auto;display:grid;gap:6px;align-content:start}
+      .hsp-oos-row-048e{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:12px;background:rgba(220,38,38,.14)}
+      .hsp-oos-row-048e span{min-width:0;overflow-wrap:anywhere;font-weight:800}
+      .hsp-oos-row-048e small{opacity:.7;font-weight:600}
+      .hsp-oos-row-048e b{white-space:nowrap;color:#fca5a5;font-size:13px}
+      .hsp-oos-empty-048e{padding:16px;text-align:center;color:#bbf7d0;font-weight:800}
+    `;
+    document.head.appendChild(style);
+  }
+  /* CLONEXA_048E_OUT_OF_STOCK_END */
 
   function cxHspDashboardPendingItems030D() {
     const rows = state.dashboardMetrics?.hospitalityDashboard025I?.pendingOrderItems;
@@ -34148,9 +34263,11 @@ function inventoryCreatePayload() {
     const pendingDetail = pendingTables.length
       ? pendingTables.slice(0, 3).join(" · ") + (pendingTables.length > 3 ? "…" : "")
       : "Sin mesas pendientes";
+    const stockView = cxHspOutOfStockOn048E() ? cxHspStockCardView048E(metrics) : null;
     const values = new Map([
       ["Mesas activas", [String(Number(metrics.activeTables || 0)), ""]],
       ["Stock bajo", [String(Number(metrics.lowStock || 0)), ""]],
+      ...(stockView ? [["SIN STOCK", [stockView.value, stockView.detail]]] : []),
       ["Pedidos pendientes", [String(Number(metrics.pendingOrders || 0)), pendingDetail]],
       ["Total abierto", [cxHspMoney024R(metrics.openTotal || 0), ""]],
     ]);
@@ -34161,6 +34278,10 @@ function inventoryCreatePayload() {
       const detail = kpi.querySelector("small");
       if (value) value.textContent = patch[0];
       if (detail && patch[1]) detail.textContent = patch[1];
+      if (stockView && kpi.hasAttribute("data-hsp-out-of-stock-048e")) {
+        kpi.classList.toggle("danger", stockView.tone === "danger");
+        kpi.classList.toggle("ok", stockView.tone === "ok");
+      }
     });
     const hero = document.querySelector("#clientDashboardRoot030D .client-hero");
     const currentBanner = hero?.querySelector(".hsp-dashboard-pending-banner-030d");
