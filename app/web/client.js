@@ -34431,9 +34431,10 @@ function inventoryCreatePayload() {
             <h3>${h(group.section)}</h3>
             ${group.rows.map((entry) => `
               <div class="cx-san-row-048k ${entry.checked ? "is-ok" : ""}" data-san-row-048k="${h(entry.item_id)}">
-                <label class="cx-san-check-048k"><input type="checkbox" data-san-check-048k ${entry.checked ? "checked" : ""} ${closed ? "disabled" : ""}><span>${h(entry.label)}</span></label>
+                <label class="cx-san-check-048k"><input type="checkbox" data-san-check-048k ${entry.checked ? "checked" : ""} ${closed ? "disabled" : ""}><span>${h(entry.label)}${entry.requires_support ? ` <em class="cx-san-req-048l${entry.attachment ? " ok" : ""}">Requiere soporte</em>` : ""}</span></label>
                 ${entry.requires_value ? `<label class="cx-san-value-048k"><input type="number" step="0.1" inputmode="decimal" data-san-value-048k value="${entry.value === null || entry.value === undefined ? "" : h(entry.value)}" ${closed ? "disabled" : ""} aria-label="${h(entry.label)}"><small>${h(entry.value_label || "")}</small></label>` : "<span></span>"}
                 <input class="cx-san-obs-048k" maxlength="240" placeholder="Observación" data-san-obs-048k value="${h(entry.observation || "")}" ${closed ? "disabled" : ""}>
+                ${cxSanAttachmentCell048L(sheet, entry, closed)}
               </div>`).join("")}
           </section>`).join("") : `<div class="client-muted">No hay ítems activos. Configúralos en la pestaña "Configurar ítems".</div>`}
       </div>
@@ -34449,6 +34450,88 @@ function inventoryCreatePayload() {
           <button class="client-btn primary cx-san-close-btn-048k" type="button" data-san-close-048k ${cxSan048K.busy ? "disabled" : ""}>Cerrar y firmar planilla</button>
         </div>`}
     `;
+  }
+
+  // ---- Adjuntos por ítem (048L): solo fotos, vía media_storage ----------
+  const cxSanThumbs048L = new Map();
+
+  function cxSanAttachmentUrl048L(day, itemId) {
+    return `${API}/sanitation/companies/${encodeURIComponent(state.companyId)}/sheets/${encodeURIComponent(day)}/items/${encodeURIComponent(itemId)}/attachment`;
+  }
+
+  function cxSanAttachmentCell048L(sheet, entry, closed) {
+    const att = entry.attachment;
+    const picker = (label) => `<label class="client-btn cx-san-att-pick-048l">${label}<input type="file" accept="image/*" capture="environment" hidden data-san-att-input-048l="${h(entry.item_id)}"></label>`;
+    if (!att) {
+      return `<div class="cx-san-att-048l">${closed ? `<span class="client-muted">Sin soporte</span>` : picker("📎 Adjuntar foto")}</div>`;
+    }
+    return `
+      <div class="cx-san-att-048l has-file">
+        <img class="cx-san-thumb-048l" alt="${h(att.name)}" data-san-thumb-048l="${h(entry.item_id)}" data-san-thumb-key-048l="${h(`${sheet.date}:${entry.item_id}:${att.updated_at || ""}`)}">
+        <span class="cx-san-att-name-048l" title="${h(att.name)}">${h(att.name)}</span>
+        <button class="client-btn" type="button" data-san-att-open-048l="${h(entry.item_id)}">Abrir</button>
+        ${closed ? "" : `${picker("Reemplazar")}<button class="client-btn" type="button" data-san-att-remove-048l="${h(entry.item_id)}">Quitar</button>`}
+      </div>`;
+  }
+
+  async function cxSanAttachmentBlobUrl048L(day, itemId, key) {
+    if (key && cxSanThumbs048L.has(key)) return cxSanThumbs048L.get(key);
+    const response = await fetch(cxSanAttachmentUrl048L(day, itemId), { headers: authHeaders({}) });
+    if (!response.ok) throw new Error("No se pudo abrir el soporte.");
+    const url = URL.createObjectURL(await response.blob());
+    if (key) cxSanThumbs048L.set(key, url);
+    return url;
+  }
+
+  function cxSanLoadThumbs048L() {
+    const sheet = cxSan048K.sheet;
+    if (!sheet) return;
+    document.querySelectorAll("[data-san-thumb-048l]").forEach((img) => {
+      const itemId = img.getAttribute("data-san-thumb-048l");
+      const key = img.getAttribute("data-san-thumb-key-048l");
+      cxSanAttachmentBlobUrl048L(sheet.date, itemId, key).then((url) => { img.src = url; }).catch(() => {});
+    });
+  }
+
+  function cxSanMissingSupport048L(entries = []) {
+    return entries.filter((entry) => entry.requires_support && !entry.attachment).map((entry) => entry.label);
+  }
+
+  async function cxSanUploadAttachment048L(itemId, file) {
+    const sheet = cxSan048K.sheet;
+    if (!sheet || !file) return;
+    const current = cxSanReadSheet048K();
+    if (current) cxSan048K.sheet = { ...sheet, responsible_employee_id: current.responsible_employee_id, entries: current.entries };
+    cxSan048K.message = "Subiendo foto...";
+    cxSanPaint048K();
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name || "foto.jpg");
+      const response = await fetch(cxSanAttachmentUrl048L(cxSan048K.sheet.date, itemId), { method: "POST", headers: authHeaders({}), body: form });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "No se pudo adjuntar la foto.");
+      cxSan048K.sheet.entries = cxSan048K.sheet.entries.map((entry) => (entry.item_id === itemId ? { ...entry, attachment: data.attachment } : entry));
+      cxSan048K.message = "Soporte adjuntado.";
+      cxSan048K.error = "";
+    } catch (error) {
+      cxSan048K.message = "";
+      cxSan048K.error = error.message || "No se pudo adjuntar la foto.";
+    }
+    cxSanPaint048K();
+  }
+
+  async function cxSanRemoveAttachment048L(itemId) {
+    if (!window.confirm("¿Quitar este soporte?")) return;
+    const current = cxSanReadSheet048K();
+    if (current) cxSan048K.sheet = { ...cxSan048K.sheet, responsible_employee_id: current.responsible_employee_id, entries: current.entries };
+    try {
+      await cxSanApi048K(`/sheets/${encodeURIComponent(cxSan048K.sheet.date)}/items/${encodeURIComponent(itemId)}/attachment`, { method: "DELETE" });
+      cxSan048K.sheet.entries = cxSan048K.sheet.entries.map((entry) => (entry.item_id === itemId ? { ...entry, attachment: null } : entry));
+      cxSan048K.message = "Soporte quitado.";
+    } catch (error) {
+      cxSan048K.error = error.message || "No se pudo quitar el soporte.";
+    }
+    cxSanPaint048K();
   }
 
   function cxSanHistoryHtml048K() {
@@ -34481,6 +34564,7 @@ function inventoryCreatePayload() {
         <datalist id="cxSanSections048K">${sections.map((section) => `<option value="${h(section)}"></option>`).join("")}</datalist>
         <input name="label" maxlength="240" placeholder="Ítem a verificar" required>
         <label class="cx-san-inline-048k"><input type="checkbox" name="requires_value"> Pide valor</label>
+        <label class="cx-san-inline-048k"><input type="checkbox" name="requires_support"> Requiere soporte</label>
         <input name="value_label" maxlength="40" placeholder="Unidad (ej: °C)">
         <button class="client-btn primary" type="submit">Agregar ítem</button>
       </form>
@@ -34493,6 +34577,7 @@ function inventoryCreatePayload() {
               <input data-san-item-label-048k maxlength="240" value="${h(item.label)}" aria-label="Ítem">
               <label class="cx-san-inline-048k"><input type="checkbox" data-san-item-value-048k ${item.requires_value ? "checked" : ""}> Valor</label>
               <input data-san-item-unit-048k maxlength="40" value="${h(item.value_label)}" placeholder="Unidad" aria-label="Unidad">
+              <label class="cx-san-inline-048k"><input type="checkbox" data-san-item-support-048k ${item.requires_support ? "checked" : ""}> Soporte</label>
               <label class="cx-san-inline-048k"><input type="checkbox" data-san-item-active-048k ${item.active ? "checked" : ""}> Activo</label>
               <button class="client-btn" type="button" data-san-item-up-048k title="Subir">↑</button>
               <button class="client-btn" type="button" data-san-item-down-048k title="Bajar">↓</button>
@@ -34517,6 +34602,7 @@ function inventoryCreatePayload() {
       <section class="client-panel cx-san-panel-048k">
         ${tab === "history" ? cxSanHistoryHtml048K() : tab === "items" ? cxSanItemsHtml048K() : cxSanSheetHtml048K()}
       </section>`;
+    if (tab === "sheet") cxSanLoadThumbs048L();
   }
 
   function cxSanReadSheet048K() {
@@ -34561,7 +34647,11 @@ function inventoryCreatePayload() {
       cxSanPaint048K();
       return;
     }
-    if (close && !window.confirm("¿Cerrar y firmar la planilla? Después no se puede editar; solo agregar notas.")) return;
+    const missing048L = close ? cxSanMissingSupport048L(payload.entries) : [];
+    const warning048L = missing048L.length
+      ? `Atención: ${missing048L.length === 1 ? "este ítem requiere" : "estos ítems requieren"} soporte y no ${missing048L.length === 1 ? "tiene" : "tienen"} adjunto:\n- ${missing048L.join("\n- ")}\n\n`
+      : "";
+    if (close && !window.confirm(`${warning048L}¿Cerrar y firmar la planilla? Después no se puede editar (tampoco sus soportes); solo agregar notas.`)) return;
     cxSan048K.busy = true;
     cxSanPaint048K();
     try {
@@ -34627,7 +34717,7 @@ function inventoryCreatePayload() {
       .cx-san-groups-048k{display:grid;gap:12px}
       .cx-san-group-048k{display:grid;gap:6px}
       .cx-san-group-048k h3{margin:6px 0 2px;font-size:15px;text-transform:uppercase;letter-spacing:.06em;opacity:.85}
-      .cx-san-row-048k{display:grid;grid-template-columns:minmax(0,1.6fr) 120px minmax(0,1fr);gap:10px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+      .cx-san-row-048k{display:grid;grid-template-columns:minmax(0,1.5fr) 120px minmax(0,1fr) minmax(170px,.9fr);gap:10px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
       .cx-san-row-048k.is-ok{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.08)}
       .cx-san-check-048k{display:flex;gap:10px;align-items:center;font-weight:700;cursor:pointer}
       .cx-san-check-048k input{width:22px;height:22px;flex:none}
@@ -34639,8 +34729,14 @@ function inventoryCreatePayload() {
       .cx-san-hist-row-048k{display:grid;grid-template-columns:110px minmax(0,1fr) 110px minmax(0,1.2fr) 270px;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04)}
       .cx-san-hist-row-048k.head{background:none;font-size:11px;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
       .cx-san-hist-actions-048k{display:flex;gap:6px}
-      .cx-san-add-048k{display:grid;grid-template-columns:1fr 2fr auto 110px auto;gap:8px;align-items:center;margin-bottom:14px}
-      .cx-san-item-048k{display:grid;grid-template-columns:1fr 2fr auto 90px auto auto auto auto;gap:6px;align-items:center}
+      .cx-san-att-048l{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+      .cx-san-att-048l .client-btn{display:inline-flex;align-items:center;min-height:34px;padding:0 10px;font-size:12px;cursor:pointer}
+      .cx-san-thumb-048l{width:44px;height:44px;object-fit:cover;border-radius:8px;background:rgba(255,255,255,.08);flex:none}
+      .cx-san-att-name-048l{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;opacity:.85}
+      .cx-san-req-048l{font-style:normal;font-size:11px;font-weight:900;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,.22);color:#fcd34d;white-space:nowrap}
+      .cx-san-req-048l.ok{background:rgba(34,197,94,.2);color:#86efac}
+      .cx-san-add-048k{display:grid;grid-template-columns:1fr 2fr auto auto 110px auto;gap:8px;align-items:center;margin-bottom:14px}
+      .cx-san-item-048k{display:grid;grid-template-columns:1fr 2fr auto 90px auto auto auto auto auto;gap:6px;align-items:center}
       .cx-san-item-048k.is-off{opacity:.55}
       .cx-san-inline-048k{display:flex;gap:6px;align-items:center;font-size:13px;white-space:nowrap}
       @media(max-width:900px){.cx-san-row-048k,.cx-san-hist-row-048k,.cx-san-add-048k,.cx-san-item-048k,.cx-san-sheet-head-048k{grid-template-columns:1fr}}
@@ -34705,6 +34801,23 @@ function inventoryCreatePayload() {
       await cxSanLoadTab048K();
       return true;
     }
+    const attOpen = target.closest("[data-san-att-open-048l]");
+    if (attOpen) {
+      try {
+        const itemId = attOpen.getAttribute("data-san-att-open-048l");
+        const url = await cxSanAttachmentBlobUrl048L(cxSan048K.sheet.date, itemId, "");
+        window.open(url, "_blank", "noopener");
+      } catch (error) {
+        cxSan048K.error = error.message || "No se pudo abrir el soporte.";
+        cxSanPaint048K();
+      }
+      return true;
+    }
+    const attRemove = target.closest("[data-san-att-remove-048l]");
+    if (attRemove) {
+      await cxSanRemoveAttachment048L(attRemove.getAttribute("data-san-att-remove-048l"));
+      return true;
+    }
     if (target.closest("[data-san-save-048k]")) { await cxSanSubmit048K(false); return true; }
     if (target.closest("[data-san-close-048k]")) { await cxSanSubmit048K(true); return true; }
     if (target.closest("[data-san-add-note-048k]")) {
@@ -34762,6 +34875,7 @@ function inventoryCreatePayload() {
               label: String(item.querySelector("[data-san-item-label-048k]")?.value || "").trim(),
               requires_value: Boolean(item.querySelector("[data-san-item-value-048k]")?.checked),
               value_label: String(item.querySelector("[data-san-item-unit-048k]")?.value || "").trim(),
+              requires_support: Boolean(item.querySelector("[data-san-item-support-048k]")?.checked),
               active: Boolean(item.querySelector("[data-san-item-active-048k]")?.checked),
             }),
           });
@@ -34789,6 +34903,7 @@ function inventoryCreatePayload() {
           label: String(data.get("label") || "").trim(),
           requires_value: data.get("requires_value") === "on",
           value_label: String(data.get("value_label") || "").trim(),
+          requires_support: data.get("requires_support") === "on",
         }),
       });
       cxSan048K.items = (await cxSanApi048K("/items")).items || [];
@@ -34808,6 +34923,11 @@ function inventoryCreatePayload() {
       cxSan048K.message = "";
       await cxSanLoadSheet048K(cxSan048K.date);
       cxSanPaint048K();
+      return;
+    }
+    if (target.matches("[data-san-att-input-048l]")) {
+      const file = target.files && target.files[0];
+      if (file) await cxSanUploadAttachment048L(target.getAttribute("data-san-att-input-048l"), file);
       return;
     }
     if (target.matches("[data-san-check-048k]")) {

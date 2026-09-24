@@ -19,12 +19,14 @@ function portal({ role = 'company_admin', dashboard = {} } = {}) {
   const ctx = vm.createContext({
     h: (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
     currentClientRole: () => role,
-    state: { company: { timezone: 'America/Bogota' }, dashboardMetrics: dashboard },
+    state: { companyId: 'c1', company: { timezone: 'America/Bogota' }, dashboardMetrics: dashboard },
+    API: '/api/v1',
     Intl, Date, Math, Number, String, Array, Set, Object, JSON,
   });
   vm.runInContext(`var cxSan048K = { tab: "sheet", date: "", sheet: null, staff: [], today: "2026-09-24", items: [], history: [], message: "", error: "", busy: false };\n`
     + ['cxSanDashboardBanner048K', 'cxSanIsAdmin048K', 'cxSanDateLabel048K', 'cxSanTime048K', 'cxSanCompliance048K',
-      'cxSanGroups048K', 'cxSanSheetHtml048K', 'cxSanHistoryHtml048K', 'cxSanItemsHtml048K'].map(fn).join('\n'), ctx);
+      'cxSanGroups048K', 'cxSanSheetHtml048K', 'cxSanHistoryHtml048K', 'cxSanItemsHtml048K',
+      'cxSanAttachmentUrl048L', 'cxSanAttachmentCell048L', 'cxSanMissingSupport048L'].map(fn).join('\n'), ctx);
   return ctx;
 }
 
@@ -97,4 +99,52 @@ test('configurar ítems: agregar, editar, reordenar y desactivar; solo administr
   assert.match(html, /cx-san-item-048k is-off" data-san-item-048k="i2"/);
   assert.match(html, /data-san-item-up-048k[\s\S]*data-san-item-down-048k[\s\S]*data-san-item-save-048k/);
   assert.match(portal({ role: 'operador' }).cxSanItemsHtml048K(), /Solo un administrador de la empresa puede configurar los ítems\./);
+});
+
+// ------------------------------------------------------------ adjuntos (048L) ---
+const WITH_FILES = [
+  { item_id: 'f1', section: 'Áreas comunes', label: 'Fumigación', checked: true, requires_support: true,
+    attachment: { name: 'recibo_fumigacion.jpg', updated_at: '2026-09-24T12:00:00Z' } },
+  { item_id: 't1', section: 'Áreas comunes', label: 'Lavado de tanque', checked: false, requires_support: true, attachment: null },
+  { item_id: 'n1', section: 'Neveras', label: 'Foto de la nevera', checked: true, requires_support: false, attachment: null },
+];
+
+test('adjuntos en la planilla abierta: miniatura, abrir, reemplazar y quitar; o adjuntar foto', () => {
+  const ctx = portal();
+  ctx.cxSan048K.sheet = { date: '2026-09-24', status: 'open', entries: WITH_FILES, notes: [] };
+  const html = ctx.cxSanSheetHtml048K();
+  assert.match(html, /<img class="cx-san-thumb-048l" alt="recibo_fumigacion\.jpg" data-san-thumb-048l="f1"/);
+  assert.match(html, /recibo_fumigacion\.jpg<\/span>\s*<button class="client-btn" type="button" data-san-att-open-048l="f1">Abrir<\/button>/);
+  assert.match(html, /Reemplazar<input type="file" accept="image\/\*" capture="environment" hidden data-san-att-input-048l="f1">/);
+  assert.match(html, /data-san-att-remove-048l="f1">Quitar/);
+  assert.match(html, /📎 Adjuntar foto<input type="file" accept="image\/\*" capture="environment" hidden data-san-att-input-048l="t1">/);
+  assert.match(html, /Fumigación <em class="cx-san-req-048l ok">Requiere soporte<\/em>/);
+  assert.match(html, /Lavado de tanque <em class="cx-san-req-048l">Requiere soporte<\/em>/);
+});
+
+test('planilla cerrada: los soportes quedan fijos (solo Abrir)', () => {
+  const ctx = portal();
+  ctx.cxSan048K.sheet = { date: '2026-09-20', status: 'closed', responsible_name: 'Ana', closed_at: '2026-09-21T03:00:00Z', closed_by: 'P', compliance: 67, entries: WITH_FILES, notes: [] };
+  const html = ctx.cxSanSheetHtml048K();
+  assert.match(html, /data-san-att-open-048l="f1">Abrir/);
+  assert.doesNotMatch(html, /data-san-att-input-048l|data-san-att-remove-048l|Reemplazar|Adjuntar foto/);
+  assert.match(html, /Sin soporte/);
+});
+
+test('"requiere soporte" sin adjunto avisa antes de cerrar, sin bloquear', () => {
+  const ctx = portal();
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.cxSanMissingSupport048L(WITH_FILES))), ['Lavado de tanque']);
+  assert.match(source, /const missing048L = close \? cxSanMissingSupport048L\(payload\.entries\) : \[\];/);
+  assert.match(source, /soporte y no \$\{missing048L\.length === 1 \? "tiene" : "tienen"\} adjunto/);
+  assert.match(source, /if \(close && !window\.confirm\(`\$\{warning048L\}¿Cerrar y firmar la planilla\?/, 'solo confirma: no bloquea');
+});
+
+test('configurar ítems: marca "requiere soporte"; los adjuntos se piden con la sesión', () => {
+  const ctx = portal();
+  ctx.cxSan048K.items = [{ id: 'i1', section: 'Áreas comunes', label: 'Fumigación', requires_value: false, value_label: '', requires_support: true, active: true }];
+  const html = ctx.cxSanItemsHtml048K();
+  assert.match(html, /name="requires_support"> Requiere soporte/);
+  assert.match(html, /data-san-item-support-048k checked> Soporte/);
+  assert.equal(ctx.cxSanAttachmentUrl048L('2026-09-20', 'f1'), '/api/v1/sanitation/companies/c1/sheets/2026-09-20/items/f1/attachment');
+  assert.match(source, /fetch\(cxSanAttachmentUrl048L\(day, itemId\), \{ headers: authHeaders\(\{\}\) \}\)/);
 });

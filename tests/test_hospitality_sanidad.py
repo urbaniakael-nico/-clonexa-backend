@@ -54,6 +54,8 @@ class SanDb:
         self.items: list[dict] = []
         self.sheets: dict[tuple, dict] = {}
         self.notes: list[dict] = []
+        self.attachments: dict[tuple, dict] = {}
+        self.quota_mb = None
         self.employees = [
             {"id": EMP_A, "company_id": ASADERO, "full_name": "Ana Cocina", "role": "cocina", "status": "active"},
             {"id": EMP_B, "company_id": OTRA, "full_name": "Beto Otra", "role": "mesero", "status": "active"},
@@ -79,6 +81,7 @@ class SanDb:
             same = [i for i in self.items if i["company_id"] == cid]
             row = {"id": uuid.uuid4(), "company_id": cid, "section": p["section"], "label": p["label"],
                    "requires_value": p["requires_value"], "value_label": p["value_label"],
+                   "requires_support": p.get("requires_support", False),
                    "position": p.get("position") or (max([i["position"] for i in same], default=0) + 10),
                    "active": p.get("active", True), "created_at": datetime.now(timezone.utc)}
             self.items.append(row)
@@ -91,7 +94,7 @@ class SanDb:
         if sql.startswith("UPDATE sanitation_items SET"):
             for i in self.items:
                 if str(i["id"]) == p["item_id"] and i["company_id"] == cid:
-                    i.update({k: v for k, v in p.items() if k in {"section", "label", "requires_value", "value_label", "active"}})
+                    i.update({k: v for k, v in p.items() if k in {"section", "label", "requires_value", "value_label", "requires_support", "active"}})
                     return Result([i])
             return Result()
         if sql.startswith("SELECT * FROM sanitation_sheets"):
@@ -127,6 +130,35 @@ class SanDb:
             days = {p["today"], p["yesterday"]}
             return Result([{"sheet_date": s["sheet_date"]} for (c, d), s in self.sheets.items()
                            if c == cid and s["status"] == "closed" and d in days])
+        # ---- adjuntos (sanitation_attachments via media_storage) ----
+        if sql.startswith("SELECT cm.settings FROM company_modules"):
+            return Result(scalar={"attachments_quota_mb": self.quota_mb} if self.quota_mb else {})
+        key = (cid, p.get("day", p.get("sheet_date")), str(p.get("item_id", "")))
+        if sql.startswith("SELECT item_id, file_name, image_content_type, size_bytes, updated_at FROM sanitation_attachments"):
+            return Result([{"item_id": k[2], "file_name": a["file_name"], "image_content_type": a["image_content_type"],
+                            "size_bytes": a["size_bytes"], "updated_at": a["updated_at"]}
+                           for k, a in self.attachments.items() if k[0] == cid and k[1] == p["day"] and a.get("image_bytes")])
+        if sql.startswith("SELECT COALESCE(SUM(size_bytes), 0) FROM sanitation_attachments"):
+            return Result(scalar=sum(a["size_bytes"] for k, a in self.attachments.items() if k[0] == cid and k != key))
+        if sql.startswith("INSERT INTO sanitation_attachments"):
+            row = self.attachments.setdefault(key, {"image_bytes": None, "image_content_type": None, "size_bytes": 0})
+            row.update({"file_name": p["file_name"], "uploaded_by": p["uploaded_by"], "updated_at": datetime.now(timezone.utc)})
+            return Result()
+        if sql.startswith("UPDATE sanitation_attachments SET image_bytes"):
+            self.attachments[key].update({"image_bytes": p["image_bytes"], "image_content_type": p["image_content_type"]})
+            return Result()
+        if sql.startswith("UPDATE sanitation_attachments SET size_bytes"):
+            self.attachments[key]["size_bytes"] = len(self.attachments[key]["image_bytes"] or b"")
+            return Result()
+        if sql.startswith("SELECT image_bytes, image_content_type FROM sanitation_attachments"):
+            row = self.attachments.get(key)
+            return Result([{"image_bytes": row["image_bytes"], "image_content_type": row["image_content_type"]}] if row else [])
+        if sql.startswith("DELETE FROM sanitation_attachments"):
+            self.attachments.pop(key, None)
+            return Result()
+        if sql.startswith("SELECT item_id, file_name, image_bytes, image_content_type FROM sanitation_attachments"):
+            return Result([{"item_id": k[2], "file_name": a["file_name"], "image_bytes": a["image_bytes"], "image_content_type": a["image_content_type"]}
+                           for k, a in self.attachments.items() if k[0] == cid and k[1] == p["day"] and a.get("image_bytes")])
         raise AssertionError(f"SQL no esperado: {sql[:120]}")
 
 
@@ -177,6 +209,9 @@ ROUTES = [
     ("GET", "/items"), ("POST", "/items"), ("PATCH", f"/items/{uuid.uuid4()}"), ("POST", "/items/reorder"),
     ("GET", "/sheets"), ("GET", "/sheets/2026-09-20"), ("PUT", "/sheets/2026-09-20"), ("POST", "/sheets/2026-09-20/close"),
     ("POST", "/sheets/2026-09-20/notes"), ("GET", "/sheets/2026-09-20/pdf"), ("GET", "/status"),
+    ("POST", f"/sheets/2026-09-20/items/{uuid.uuid4()}/attachment"),
+    ("GET", f"/sheets/2026-09-20/items/{uuid.uuid4()}/attachment"),
+    ("DELETE", f"/sheets/2026-09-20/items/{uuid.uuid4()}/attachment"),
 ]
 
 
@@ -322,3 +357,138 @@ def test_hospitality_sanidad_in_admin_v2_catalog_and_migration():
     # el modulo queda en el catalogo (tabla modules) y solo Asadero recibe company_modules
     assert "INSERT INTO modules" in source and source.count("INSERT INTO company_modules") == 1
     assert "UNIQUE (company_id, sheet_date)" in source
+
+
+# ------------------------------------------------------------ adjuntos (048L) ---
+def _photo(width=2400, height=1600, fmt="JPEG"):
+    import io
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (40, 120, 200)).save(buffer, format=fmt)
+    return buffer.getvalue()
+
+
+def upload(company, day, item_id, token, content=None, name="nevera.jpg", content_type="image/jpeg"):
+    return client.post(
+        f"/api/v1/sanitation/companies/{company}/sheets/{day}/items/{item_id}/attachment",
+        files={"file": (name, content if content is not None else _photo(), content_type)},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+
+def test_hospitality_sanidad_attach_photo_resized_replace_and_remove(db):
+    day = today().isoformat()
+    item = call("GET", ASADERO, "/items", token="admin-asadero").json()["items"][4]
+    res = upload(ASADERO, day, item["id"], "mesero-asadero")
+    assert res.status_code == 200, res.text
+    meta = res.json()["attachment"]
+    assert meta["name"] == "nevera.jpg" and meta["content_type"] == "image/jpeg"
+    stored = db.attachments[(ASADERO, today(), item["id"])]
+    assert len(stored["image_bytes"]) <= 200 * 1024  # media_storage: redimensionada y con tope
+    from PIL import Image
+    import io
+    assert Image.open(io.BytesIO(stored["image_bytes"])).width <= 800
+
+    sheet = call("GET", ASADERO, f"/sheets/{day}", token="mesero-asadero").json()["sheet"]
+    entry = next(e for e in sheet["entries"] if e["item_id"] == item["id"])
+    assert entry["attachment"]["name"] == "nevera.jpg"
+
+    got = call("GET", ASADERO, f"/sheets/{day}/items/{item['id']}/attachment", token="mesero-asadero")
+    assert got.status_code == 200 and got.headers["content-type"] == "image/jpeg"
+
+    replaced = upload(ASADERO, day, item["id"], "mesero-asadero", name="nevera2.png", content=_photo(fmt="PNG"), content_type="image/png")
+    assert replaced.json()["attachment"]["name"] == "nevera2.png"
+    assert len([k for k in db.attachments if k[0] == ASADERO]) == 1, "reemplaza, no acumula"
+
+    assert call("DELETE", ASADERO, f"/sheets/{day}/items/{item['id']}/attachment", token="mesero-asadero").status_code == 200
+    assert call("GET", ASADERO, f"/sheets/{day}/items/{item['id']}/attachment", token="mesero-asadero").status_code == 404
+
+
+def test_hospitality_sanidad_attachment_limits(db):
+    day = today().isoformat()
+    item = call("GET", ASADERO, "/items", token="admin-asadero").json()["items"][0]
+    pdf = upload(ASADERO, day, item["id"], "mesero-asadero", content=b"%PDF-1.4 recibo", name="recibo.pdf", content_type="application/pdf")
+    assert pdf.status_code == 422 and "solo se aceptan fotos" in pdf.text
+    huge = upload(ASADERO, day, item["id"], "mesero-asadero", content=b"x" * (sanitation.MAX_UPLOAD_BYTES + 10))
+    assert huge.status_code == 413
+    db.quota_mb = 0.1  # cupo casi lleno para la empresa
+    full = upload(ASADERO, day, item["id"], "mesero-asadero")
+    assert full.status_code == 409 and "espacio de soportes" in full.text
+    other_item = str(uuid.uuid4())
+    assert upload(ASADERO, day, other_item, "mesero-asadero").status_code in (404, 409)
+    # otra empresa no puede subir ni leer
+    assert upload(ASADERO, day, item["id"], "admin-otra").status_code == 403
+
+
+def test_hospitality_sanidad_attachments_freeze_on_close_and_open_from_history(db):
+    day = (today() - timedelta(days=1)).isoformat()
+    items = call("GET", ASADERO, "/items", token="admin-asadero").json()["items"]
+    fumigation = items[15]
+    call("PATCH", ASADERO, f"/items/{fumigation['id']}", token="admin-asadero", body={"requires_support": True})
+    tank = items[11]
+    call("PATCH", ASADERO, f"/items/{tank['id']}", token="admin-asadero", body={"requires_support": True})
+    assert upload(ASADERO, day, fumigation["id"], "mesero-asadero", name="recibo_fumigacion.jpg").status_code == 200
+
+    sheet = call("GET", ASADERO, f"/sheets/{day}", token="mesero-asadero").json()["sheet"]
+    flags = {e["item_id"]: e["requires_support"] for e in sheet["entries"]}
+    assert flags[fumigation["id"]] and flags[tank["id"]]
+    closed = call("POST", ASADERO, f"/sheets/{day}/close", token="mesero-asadero",
+                  body={"responsible_employee_id": EMP_A, "entries": [{"item_id": e["item_id"], "checked": True} for e in sheet["entries"]]})
+    assert closed.status_code == 200, "requiere soporte solo avisa, no bloquea"
+    body = closed.json()
+    assert body["missing_support"] == [tank["label"]]
+    snap = next(e for e in body["sheet"]["entries"] if e["item_id"] == fumigation["id"])
+    assert snap["attachment"]["name"] == "recibo_fumigacion.jpg"
+
+    # cerrada: los soportes quedan fijos
+    assert upload(ASADERO, day, fumigation["id"], "mesero-asadero").status_code == 409
+    assert call("DELETE", ASADERO, f"/sheets/{day}/items/{fumigation['id']}/attachment", token="mesero-asadero").status_code == 409
+    # historial: se abre el soporte de un dia pasado
+    assert call("GET", ASADERO, f"/sheets/{day}/items/{fumigation['id']}/attachment", token="mesero-asadero").status_code == 200
+
+    pdf = call("GET", ASADERO, f"/sheets/{day}/pdf", token="mesero-asadero")
+    assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+
+
+def test_hospitality_sanidad_pdf_lists_supports_with_images():
+    import base64
+    import re
+    import zlib
+
+    sheet = {"date": "2026-09-23", "responsible_name": "Ana", "compliance": 100.0, "closed_at": "2026-09-23T23:00:00+00:00",
+             "closed_by": "Pedro", "notes": [],
+             "entries": [{"item_id": "i1", "section": "Áreas comunes", "label": "Sin evidencia de plagas", "checked": True, "value": None,
+                          "observation": "Fumigación mensual", "attachment": {"name": "recibo_fumigacion.jpg"}},
+                         {"item_id": "i2", "section": "Cocina", "label": "Mesones limpios", "checked": True, "value": None}]}
+    images = {"i1": {"name": "recibo_fumigacion.jpg", "bytes": _photo(400, 300), "content_type": "image/jpeg"}}
+    pdf = sanitation.build_sheet_pdf({"name": "ASADERO", "logo_url": "", "nit": "", "address": "", "phone": "", "timezone": "America/Bogota"}, sheet, images)
+    text_chunks = []
+    for match in re.finditer(rb"stream\r?\n(.*?)endstream", pdf, re.S):
+        chunk = match.group(1)
+        for decode in (lambda c: zlib.decompress(base64.a85decode(c.strip().rstrip(b"~>").strip())), zlib.decompress):
+            try:
+                chunk = decode(chunk)
+                break
+            except Exception:
+                continue
+        text_chunks.append(chunk)
+    content = b"".join(text_chunks)
+    assert b"Con soporte adjunto" in content
+    assert b"Soportes del d" in content  # "Soportes del día (1)"
+    assert b"recibo_fumigacion.jpg" in content
+    assert b"/Subtype /Image" in pdf, "la foto va incluida (reducida) en el PDF"
+
+
+def test_hospitality_sanidad_pdf_with_company_logo():
+    """Regression: platypus.Image rejects an ImageReader (TypeError), so a
+    company WITH a logo got a 500 instead of its PDF."""
+    import base64
+
+    logo = "data:image/png;base64," + base64.b64encode(_photo(300, 120, "PNG")).decode()
+    sheet = {"date": "2026-09-23", "responsible_name": "Ana", "compliance": 100.0, "closed_at": None, "closed_by": "",
+             "notes": [], "entries": [{"item_id": "i1", "section": "Cocina", "label": "Mesones", "checked": True, "value": None}]}
+    pdf = sanitation.build_sheet_pdf({"name": "ASADERO", "logo_url": logo, "nit": "", "address": "", "phone": "",
+                                      "timezone": "America/Bogota"}, sheet)
+    assert pdf[:4] == b"%PDF"
+    assert b"/Subtype /Image" in pdf, "el logo va en el PDF"

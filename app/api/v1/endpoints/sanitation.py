@@ -21,7 +21,7 @@ from datetime import date as calendar_date
 from datetime import datetime, time as dt_time, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -33,6 +33,7 @@ from app.api.v1.endpoints.hospitality import (
     _hsp_report_logo_reader,
     _hsp_report_zone,
 )
+from app.services import media_storage
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
@@ -42,6 +43,12 @@ SANIDAD_ADMIN_ROLES = ADMIN_ROLES | {
     "manager", "gerencia", "gerente", "dueno", "dueño", "owner", "propietario", "administrador",
 }
 DEFAULT_ALERT_HOUR = "22:00"
+# Adjuntos (048L): solo fotos por ahora (los PDF esperan un bucket de
+# objetos). media_storage las deja en <= 800 px y <= 200 KB; ademas un tope
+# de lo que se acepta subir y un cupo total por empresa (ajustable en el
+# modulo con attachments_quota_mb) para cuidar los 500 MB de la base.
+MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+DEFAULT_QUOTA_MB = 40
 
 # Lista base sugerida (se carga una sola vez, cuando la empresa aun no tiene items).
 BASE_ITEMS: list[tuple[str, str, bool, str]] = [
@@ -107,6 +114,7 @@ def _item_payload(row: Any) -> dict[str, Any]:
         "label": data["label"],
         "requires_value": bool(data["requires_value"]),
         "value_label": data.get("value_label") or "",
+        "requires_support": bool(data.get("requires_support")),
         "position": int(data.get("position") or 0),
         "active": bool(data["active"]),
     }
@@ -142,6 +150,7 @@ class ItemIn(BaseModel):
     label: str = Field(min_length=1, max_length=240)
     requires_value: bool = False
     value_label: str = Field(default="", max_length=40)
+    requires_support: bool = False
     active: bool = True
 
 
@@ -150,6 +159,7 @@ class ItemPatch(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=240)
     requires_value: bool | None = None
     value_label: str | None = Field(default=None, max_length=40)
+    requires_support: bool | None = None
     active: bool | None = None
 
 
@@ -175,13 +185,14 @@ async def create_item(
 ) -> dict[str, Any]:
     result = await db.execute(
         text("""
-            INSERT INTO sanitation_items (company_id, section, label, requires_value, value_label, position, active)
-            VALUES (:company_id, :section, :label, :requires_value, :value_label,
+            INSERT INTO sanitation_items (company_id, section, label, requires_value, value_label, requires_support, position, active)
+            VALUES (:company_id, :section, :label, :requires_value, :value_label, :requires_support,
                     COALESCE((SELECT MAX(position) FROM sanitation_items WHERE company_id = :company_id), 0) + 10, :active)
             RETURNING *
         """),
         {"company_id": str(company_id), "section": _clean(payload.section, 80), "label": _clean(payload.label),
-         "requires_value": payload.requires_value, "value_label": _clean(payload.value_label, 40), "active": payload.active},
+         "requires_value": payload.requires_value, "value_label": _clean(payload.value_label, 40),
+         "requires_support": payload.requires_support, "active": payload.active},
     )
     row = result.mappings().first()
     await db.commit()
@@ -316,19 +327,43 @@ async def _staff(db: AsyncSession, company_id: uuid.UUID) -> list[dict[str, Any]
     return [{"id": str(row["id"]), "name": row["full_name"] or "Empleado", "role": row["role"] or ""} for row in result.mappings().all()]
 
 
-async def _build_entries(db: AsyncSession, company_id: uuid.UUID, submitted: list[EntryIn]) -> list[dict[str, Any]]:
+async def _attachments_meta(db: AsyncSession, company_id: uuid.UUID, day: calendar_date) -> dict[str, dict[str, Any]]:
+    result = await db.execute(
+        text("""
+            SELECT item_id, file_name, image_content_type, size_bytes, updated_at FROM sanitation_attachments
+            WHERE company_id = :company_id AND sheet_date = :day AND image_bytes IS NOT NULL
+        """),
+        {"company_id": str(company_id), "day": day},
+    )
+    return {
+        str(row["item_id"]): {
+            "name": row["file_name"] or "foto.jpg", "content_type": row["image_content_type"] or "image/jpeg",
+            "size": int(row["size_bytes"] or 0),
+            "updated_at": row["updated_at"].isoformat() if hasattr(row["updated_at"], "isoformat") else row["updated_at"],
+        }
+        for row in result.mappings().all()
+    }
+
+
+async def _build_entries(
+    db: AsyncSession, company_id: uuid.UUID, submitted: list[EntryIn], day: calendar_date | None = None,
+) -> list[dict[str, Any]]:
     """Snapshot of the company's ACTIVE items (label/section as they are now)
-    merged with what was filled in; unknown or other-company ids are ignored."""
+    merged with what was filled in and the day's attachments; unknown or
+    other-company ids are ignored."""
     by_id = {str(entry.item_id): entry for entry in submitted}
+    attachments = await _attachments_meta(db, company_id, day) if day else {}
     entries = []
     for item in await _items(db, company_id, include_inactive=False):
         entry = by_id.get(item["id"])
         entries.append({
             "item_id": item["id"], "section": item["section"], "label": item["label"],
             "requires_value": item["requires_value"], "value_label": item["value_label"],
+            "requires_support": item.get("requires_support", False),
             "checked": bool(entry.checked) if entry else False,
             "observation": _clean(entry.observation) if entry else "",
             "value": entry.value if (entry and item["requires_value"]) else None,
+            "attachment": attachments.get(item["id"]),
         })
     return entries
 
@@ -366,12 +401,16 @@ async def get_sheet(
     row = await _sheet_row(db, company_id, sheet_day)
     if row:
         sheet = _sheet_payload(row, await _notes(db, company_id, row["id"]))
+        if sheet["status"] != "closed":
+            attachments = await _attachments_meta(db, company_id, sheet_day)
+            for entry in sheet["entries"]:
+                entry["attachment"] = attachments.get(str(entry.get("item_id")))
     else:
         items = await _items(db, company_id, include_inactive=False)
         if not items and not await _items(db, company_id):
             await _seed_base_items(db, company_id)
         sheet = _sheet_payload({"id": None, "sheet_date": sheet_day, "status": "open",
-                                "entries": await _build_entries(db, company_id, [])})
+                                "entries": await _build_entries(db, company_id, [], sheet_day)})
     return {"ok": True, "sheet": sheet, "staff": await _staff(db, company_id), "today": (await _today(db, company_id)).isoformat()}
 
 
@@ -385,7 +424,8 @@ async def _save(db: AsyncSession, company_id: uuid.UUID, sheet_day: calendar_dat
     responsible = await _responsible_name(db, company_id, responsible_id)
     if close_by and not responsible:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Elige el responsable del dia antes de cerrar.")
-    entries = await _build_entries(db, company_id, payload.entries)
+    entries = await _build_entries(db, company_id, payload.entries, sheet_day)
+    missing_support = [entry["label"] for entry in entries if entry["requires_support"] and not entry["attachment"]]
     params = {
         "company_id": str(company_id), "day": sheet_day, "responsible_id": responsible_id, "responsible": responsible,
         "entries": json.dumps(entries, ensure_ascii=False), "compliance": _compliance(entries),
@@ -411,7 +451,7 @@ async def _save(db: AsyncSession, company_id: uuid.UUID, sheet_day: calendar_dat
     if not row:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La planilla ya esta cerrada. Agrega una nota posterior.")
     await db.commit()
-    return {"ok": True, "sheet": _sheet_payload(row)}
+    return {"ok": True, "sheet": _sheet_payload(row), "missing_support": missing_support}
 
 
 @router.put("/companies/{company_id}/sheets/{day}")
@@ -473,6 +513,129 @@ async def list_sheets(
     ]}
 
 
+# ---------------------------------------------------------- attachments ---
+async def _open_day_for_attachment(db: AsyncSession, company_id: uuid.UUID, day: str, item_id: uuid.UUID) -> calendar_date:
+    sheet_day = _parse_day(day)
+    if sheet_day > await _today(db, company_id):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No se puede adjuntar en un dia futuro.")
+    row = await _sheet_row(db, company_id, sheet_day)
+    if row and row["status"] == "closed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La planilla ya esta cerrada: sus soportes no se pueden cambiar.")
+    items = {item["id"] for item in await _items(db, company_id, include_inactive=False)}
+    if str(item_id) not in items:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item no encontrado.")
+    return sheet_day
+
+
+async def _quota_bytes(db: AsyncSession, company_id: uuid.UUID) -> int:
+    result = await db.execute(
+        text("""
+            SELECT cm.settings FROM company_modules cm JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = :company_id AND m.code = :code LIMIT 1
+        """),
+        {"company_id": str(company_id), "code": MODULE_CODE},
+    )
+    settings = result.scalar()
+    settings = json.loads(settings) if isinstance(settings, str) else (settings or {})
+    try:
+        megabytes = float(settings.get("attachments_quota_mb") or DEFAULT_QUOTA_MB)
+    except (TypeError, ValueError):
+        megabytes = DEFAULT_QUOTA_MB
+    return int(megabytes * 1024 * 1024)
+
+
+@router.post("/companies/{company_id}/sheets/{day}/items/{item_id}/attachment")
+async def upload_attachment(
+    company_id: uuid.UUID, day: str, item_id: uuid.UUID, file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db), actor: dict = Depends(require_sanidad_user),
+) -> dict[str, Any]:
+    """Adds or replaces the photo of one item for one day (open sheet only)."""
+    sheet_day = await _open_day_for_attachment(db, company_id, day, item_id)
+    content_type = (file.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="Por ahora solo se aceptan fotos (JPG, PNG o WEBP). Los PDF llegan con el almacenamiento de archivos.")
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail=f"La foto pesa mas de {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+    params = {"company_id": str(company_id), "day": sheet_day, "item_id": str(item_id)}
+    used = await db.execute(
+        text("""
+            SELECT COALESCE(SUM(size_bytes), 0) FROM sanitation_attachments
+            WHERE company_id = :company_id AND NOT (sheet_date = :day AND item_id = :item_id)
+        """),
+        params,
+    )
+    quota = await _quota_bytes(db, company_id)
+    if int(used.scalar() or 0) + media_storage.MAX_IMAGE_BYTES > quota:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Se lleno el espacio de soportes de Sanidad ({quota // (1024 * 1024)} MB). Pide ampliarlo.")
+    await db.execute(
+        text("""
+            INSERT INTO sanitation_attachments (company_id, sheet_date, item_id, file_name, uploaded_by)
+            VALUES (:company_id, :day, :item_id, :file_name, :uploaded_by)
+            ON CONFLICT (company_id, sheet_date, item_id)
+            DO UPDATE SET file_name = EXCLUDED.file_name, uploaded_by = EXCLUDED.uploaded_by, updated_at = NOW()
+        """),
+        {**params, "file_name": _clean(file.filename or "foto.jpg", 160), "uploaded_by": actor["name"]},
+    )
+    key_columns = {"company_id": str(company_id), "sheet_date": sheet_day, "item_id": str(item_id)}
+    await media_storage.save_image(db, table="sanitation_attachments", key_columns=key_columns, raw=raw, content_type=content_type)
+    await db.execute(
+        text("""
+            UPDATE sanitation_attachments SET size_bytes = COALESCE(octet_length(image_bytes), 0)
+            WHERE company_id = :company_id AND sheet_date = :day AND item_id = :item_id
+        """),
+        params,
+    )
+    await db.commit()
+    meta = (await _attachments_meta(db, company_id, sheet_day)).get(str(item_id))
+    return {"ok": True, "attachment": meta}
+
+
+@router.get("/companies/{company_id}/sheets/{day}/items/{item_id}/attachment")
+async def get_attachment(
+    company_id: uuid.UUID, day: str, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), _actor_: dict = Depends(require_sanidad_user),
+) -> Response:
+    """Any day, open or closed (history)."""
+    found = await media_storage.get_image(
+        db, table="sanitation_attachments",
+        key_columns={"company_id": str(company_id), "sheet_date": _parse_day(day), "item_id": str(item_id)},
+    )
+    if not found:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sin soporte adjunto.")
+    content, content_type = found
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": "private, max-age=300"})
+
+
+@router.delete("/companies/{company_id}/sheets/{day}/items/{item_id}/attachment")
+async def delete_attachment(
+    company_id: uuid.UUID, day: str, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), _actor_: dict = Depends(require_sanidad_user),
+) -> dict[str, Any]:
+    sheet_day = await _open_day_for_attachment(db, company_id, day, item_id)
+    await db.execute(
+        text("DELETE FROM sanitation_attachments WHERE company_id = :company_id AND sheet_date = :day AND item_id = :item_id"),
+        {"company_id": str(company_id), "day": sheet_day, "item_id": str(item_id)},
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+async def _attachment_images(db: AsyncSession, company_id: uuid.UUID, day: calendar_date) -> dict[str, dict[str, Any]]:
+    result = await db.execute(
+        text("""
+            SELECT item_id, file_name, image_bytes, image_content_type FROM sanitation_attachments
+            WHERE company_id = :company_id AND sheet_date = :day AND image_bytes IS NOT NULL
+        """),
+        {"company_id": str(company_id), "day": day},
+    )
+    return {str(row["item_id"]): {"name": row["file_name"], "bytes": bytes(row["image_bytes"]),
+                                   "content_type": row["image_content_type"]} for row in result.mappings().all()}
+
+
 # ---------------------------------------------------------------- PDF ---
 async def _company_details(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
     identity = await _hospitality_company_identity(db, company_id)
@@ -494,7 +657,28 @@ async def _company_details(db: AsyncSession, company_id: uuid.UUID) -> dict[str,
     return details
 
 
-def build_sheet_pdf(company: dict[str, Any], sheet: dict[str, Any]) -> bytes:
+def _platypus_image(source: Any, max_width: float, max_height: float):
+    """platypus.Image needs a path or a file-like object (an ImageReader
+    raises TypeError), so always hand it PNG/JPEG bytes."""
+    from reportlab.platypus import Image
+
+    if isinstance(source, (bytes, bytearray)):
+        raw = bytes(source)
+    else:  # ImageReader from _hsp_report_logo_reader
+        pil = getattr(source, "_image", None)
+        if pil is None:
+            return None
+        buffer = io.BytesIO()
+        pil.convert("RGBA" if pil.mode in ("RGBA", "LA", "P") else "RGB").save(buffer, format="PNG")
+        raw = buffer.getvalue()
+    from reportlab.lib.utils import ImageReader
+
+    width, height = ImageReader(io.BytesIO(raw)).getSize()
+    ratio = min(max_width / max(width, 1), max_height / max(height, 1))
+    return Image(io.BytesIO(raw), width=width * ratio, height=height * ratio)
+
+
+def build_sheet_pdf(company: dict[str, Any], sheet: dict[str, Any], images: dict[str, dict[str, Any]] | None = None) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -514,12 +698,14 @@ def build_sheet_pdf(company: dict[str, Any], sheet: dict[str, Any]) -> bytes:
         f"NIT {company['nit']}" if company.get("nit") else "", company.get("address") or "", company.get("phone") or "") if value)
     if extra:
         header.append(Paragraph(extra, small))
-    logo = _hsp_report_logo_reader(company.get("logo_url"))
+    logo = None
+    try:
+        reader = _hsp_report_logo_reader(company.get("logo_url"))
+        logo = _platypus_image(reader, 30 * mm, 18 * mm) if reader else None
+    except Exception:
+        logo = None
     if logo:
-        width, height = logo.getSize()
-        ratio = min(30 * mm / max(width, 1), 18 * mm / max(height, 1))
-        story.append(Table([[Image(logo, width=width * ratio, height=height * ratio), header]], colWidths=[36 * mm, None],
-                           style=[("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+        story.append(Table([[logo, header]], colWidths=[36 * mm, None], style=[("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
     else:
         story.extend(header)
     story.append(Spacer(1, 4 * mm))
@@ -542,17 +728,40 @@ def build_sheet_pdf(company: dict[str, Any], sheet: dict[str, Any]) -> bytes:
     styles_rows = [("GRID", (0, 0), (-1, -1), 0.3, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("FONTSIZE", (0, 0), (-1, -1), 8.5),
                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (2, 1), (3, -1), "CENTER")]
+    images = images or {}
+    supported = []
     for index, entry in enumerate(sheet.get("entries") or [], start=1):
         value = entry.get("value")
+        has_support = bool(entry.get("attachment")) or str(entry.get("item_id")) in images
+        observation = entry.get("observation") or ""
+        if has_support:
+            supported.append(entry)
+            observation = f"{observation}<br/><i>Con soporte adjunto</i>" if observation else "<i>Con soporte adjunto</i>"
         rows.append([
             Paragraph(entry.get("section") or "", cell), Paragraph(entry.get("label") or "", cell),
             "✔" if entry.get("checked") else "✘",
             f"{value:g} {entry.get('value_label') or ''}".strip() if isinstance(value, (int, float)) else "",
-            Paragraph(entry.get("observation") or "", cell),
+            Paragraph(observation, cell),
         ])
         if not entry.get("checked"):
             styles_rows.append(("TEXTCOLOR", (2, index), (2, index), colors.HexColor("#b91c1c")))
     story.append(Table(rows, colWidths=[32 * mm, 70 * mm, 10 * mm, 20 * mm, None], repeatRows=1, style=styles_rows))
+
+    if supported:
+        story.append(Spacer(1, 5 * mm))
+        story.append(Paragraph(f"<b>Soportes del día ({len(supported)})</b>", styles["Heading4"]))
+        for number, entry in enumerate(supported, start=1):
+            image = images.get(str(entry.get("item_id")))
+            name = (entry.get("attachment") or {}).get("name") or (image or {}).get("name") or "foto"
+            caption = Paragraph(f"{number}. <b>{entry.get('section') or ''}</b> · {entry.get('label') or ''}<br/>{name}", small)
+            picture = ""
+            if image:
+                try:
+                    picture = _platypus_image(image["bytes"], 60 * mm, 45 * mm) or ""
+                except Exception:
+                    picture = Paragraph("(imagen no disponible)", small)
+            story.append(Table([[picture, caption]], colWidths=[64 * mm, None],
+                               style=[("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
 
     if sheet.get("notes"):
         story.append(Spacer(1, 4 * mm))
@@ -585,7 +794,8 @@ async def sheet_pdf(
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay planilla para ese dia.")
     sheet = _sheet_payload(row, await _notes(db, company_id, row["id"]))
-    pdf = build_sheet_pdf(await _company_details(db, company_id), sheet)
+    images = await _attachment_images(db, company_id, _parse_day(day))
+    pdf = build_sheet_pdf(await _company_details(db, company_id), sheet, images)
     return StreamingResponse(
         iter([pdf]), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="planilla_sanidad_{sheet["date"]}.pdf"'},
