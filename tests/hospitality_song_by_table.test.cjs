@@ -1,4 +1,4 @@
-// "Pedido musical por mesa" (048B) en el panel de empresa: solo con el
+// "Pedido musical por mesa" (048B, lista agrupada 048D) en el panel: solo con el
 // interruptor qr_bar_menu (The Time Machine). Ejecuta las funciones reales
 // de client.js en un contexto aislado.
 const { readFileSync } = require('node:fs');
@@ -18,8 +18,8 @@ function fn(name) {
 
 const NAMES = [
   'cxIsHospitalityQrCode024S', 'cxHspActiveSongRequests031T', 'cxHspSongRequestCard031C',
-  'cxHspSongByTableOn048B', 'cxHspSongTableKey048B', 'cxHspSongGroups048B', 'cxHspSongByTableHtml048B',
-  'cxHspBindSongTables048B', 'cxHspCopyText048B', 'cxHspCopyFallback048B', 'cxHspSongToast048B',
+  'cxHspSongByTableOn048B', 'cxHspSongTableKey048B', 'cxHspSongGroups048B', 'cxHspSongGroupedHtml048D',
+  'cxHspCopyText048B', 'cxHspCopyFallback048B', 'cxHspSongToast048B',
   'cxHspCopyAndArchiveSong048B', 'cxHspRenderSongRequests031C', 'cxHspPaintSongQueue031K',
 ];
 
@@ -52,7 +52,7 @@ function panel({ barMenu = true, songs = [], archiveFails = false } = {}) {
     Date, JSON, String, Number, Map, Set, Array, Promise, Infinity,
   });
   vm.runInContext(
-    `var cxHspSongRequests031C = ${JSON.stringify(songs)}; var cxHspSongSearch031H = ""; var cxHspSongOpenTables048B = new Set();\n`
+    `var cxHspSongRequests031C = ${JSON.stringify(songs)}; var cxHspSongSearch031H = "";\n`
       + NAMES.map(fn).join('\n'),
     context,
   );
@@ -67,31 +67,36 @@ const TWO_TABLES = [
   song('s4', 'Mesa 3', 'Vicente Fernández', 2),
 ];
 
-test('dos mesas con canciones muestran sus dos números, de menor a mayor', () => {
+const groupOf = (html, key) => {
+  const match = new RegExp(`data-hsp-song-group="${key}"[\\s\\S]*?</section>`).exec(html);
+  return match ? match[0] : '';
+};
+const songsOf = (html, key) => [...groupOf(html, key).matchAll(/<span class="hsp-song-name-048b">♫ ([^<]+)<\/span>/g)].map((m) => m[1]);
+
+test('lista agrupada por mesa, todo a la vista y sin carpetas desplegables', () => {
   const p = panel({ songs: TWO_TABLES });
   const html = p.paint();
-  const numbers = [...html.matchAll(/<span class="hsp-song-table-num-048b">([^<]+)<\/span>/g)].map((m) => m[1]);
-  assert.deepEqual(numbers, ['3', '8']);
-  assert.match(html, /data-hsp-song-table="n3"[\s\S]*2 canciones/);
-  assert.match(html, /hsp-song-table-arrow-048b/, 'cada número tiene su flecha');
+  const heads = [...html.matchAll(/<header class="hsp-song-group-head-048d">\s*<span>([^<]+)<\/span>/g)].map((m) => m[1]);
+  assert.deepEqual(heads, ['Mesa 3', 'Mesa 8'], 'un encabezado por mesa, de menor a mayor');
+  assert.doesNotMatch(html, /<details|<summary|hsp-song-table-/, 'nada que desplegar');
   assert.doesNotMatch(html, /data-hsp-song-archive=|Buscar canción/);
   assert.equal(p.count.textContent, '4', 'contador total arriba a la derecha');
 });
 
-test('desplegar una mesa muestra solo sus canciones, en orden de llegada', () => {
+test('debajo de cada mesa sus canciones, una por línea y en orden de llegada, con Copiar', () => {
   const p = panel({ songs: TWO_TABLES });
   const html = p.paint();
-  const block = (key) => new RegExp(`data-hsp-song-table="${key}"[\\s\\S]*?</details>`).exec(html)[0];
-  const songsOf = (key) => [...block(key).matchAll(/<span class="hsp-song-name-048b">♫ ([^<]+)<\/span>/g)].map((m) => m[1]);
-  assert.deepEqual(songsOf('n3'), ['Vicente Fernández', 'Música de plancha']);
-  assert.deepEqual(songsOf('n8'), ['Simplemente amigos', 'Juan Gabriel - Querida']);
-  assert.match(block('n8'), /data-hsp-song-copy="s1">Copiar<\/button>/);
+  assert.deepEqual(songsOf(html, 'n3'), ['Vicente Fernández', 'Música de plancha']);
+  assert.deepEqual(songsOf(html, 'n8'), ['Simplemente amigos', 'Juan Gabriel - Querida']);
+  assert.equal((groupOf(html, 'n8').match(/data-hsp-song-copy=/g) || []).length, 2);
+  assert.match(groupOf(html, 'n8'), /data-hsp-song-copy="s1">Copiar<\/button>/);
+  assert.match(groupOf(html, 'n3'), /<small>2 canciones<\/small>/);
+});
 
-  // la mesa abierta sigue abierta en el siguiente repintado
-  p.context.cxHspSongOpenTables048B.add('n8');
-  const again = p.paint();
-  assert.match(again, /data-hsp-song-table="n8" open/);
-  assert.match(again, /data-hsp-song-table="n3" >/);
+test('el bloque tiene su propio desplazamiento', () => {
+  const css = source.split('\n').find((line) => line.includes('.hsp-song-list-031c{'));
+  assert.match(css, /max-height:310px;overflow-y:auto/);
+  assert.match(source, /<div id="hspSongRequests031C" class="hsp-song-list-031c hsp-song-bytable-048b"><\/div>/);
 });
 
 test('Copiar copia el nombre, archiva la canción y la quita de la lista', async () => {
@@ -106,12 +111,12 @@ test('Copiar copia el nombre, archiva la canción y la quita de la lista', async
   assert.match(p.toast.textContent, /✓ Copiada: Simplemente amigos/);
 });
 
-test('al archivar la última canción de una mesa, su número desaparece; sin nada queda el mensaje', async () => {
+test('al archivar la última canción de una mesa, su encabezado desaparece; sin nada queda el mensaje', async () => {
   const p = panel({ songs: [song('a', 'Mesa 3', 'Una', 1), song('b', 'Mesa 8', 'Dos', 2)] });
   p.paint();
   await p.context.cxHspCopyAndArchiveSong048B('a');
-  assert.doesNotMatch(p.list.innerHTML, /data-hsp-song-table="n3"/);
-  assert.match(p.list.innerHTML, /data-hsp-song-table="n8"/);
+  assert.doesNotMatch(p.list.innerHTML, /data-hsp-song-group="n3"|>Mesa 3</);
+  assert.match(p.list.innerHTML, /data-hsp-song-group="n8"/);
   assert.equal(p.count.textContent, '1');
   await p.context.cxHspCopyAndArchiveSong048B('b');
   assert.match(p.list.innerHTML, /Sin solicitudes musicales pendientes/);

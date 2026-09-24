@@ -21,7 +21,8 @@ const NAMES = [
   'cxHspDashHours024W', 'cxHspDashShiftRange033F', 'cxHspDashRenderChart024W', 'cxHspDashRenderTable024W',
   'cxHspDashRankCard024W', 'cxHspDashEventTime033B', 'cxHspDashEventItems033B', 'cxHspDashEventCard033B',
   'cxHspDashRenderEventSearch033B', 'cxHspDashDefaultEventDate033B', 'cxHspDashBusinessDay048C', 'cxHspDashMinutes048C',
-  'cxHspDashDelta048C', 'cxHspDashHourLabel048C', 'cxHspDashIndicators048C', 'cxHspDashStyles048C', 'cxHspDashPaint024W',
+  'cxHspDashDelta048C', 'cxHspDashHourLabel048C', 'cxHspDashIndicators048C', 'cxHspDashStyles048C',
+  'cxHspDashKpiRows048D', 'cxHspDashKpiSelector048D', 'cxHspDashPaint024W',
 ];
 
 const bucket = (extra) => ({
@@ -46,7 +47,12 @@ function businessPayload() {
     cancelled_count: 1, cancelled_total: 8000,
     cancelled: [{ order_number: 'QR-o5', table: 'Mesa 2', total: 8000, reason: 'Vaso roto' }],
   });
-  const snapshot = { periods: [day23], totals };
+  // 30 jornadas de historial (09/09 .. 08/10 ficticias), la más reciente al final
+  const history = Array.from({ length: 30 }, (_, i) => bucket({
+    key: `h${String(i + 1).padStart(2, '0')}`, label: `J${String(i + 1).padStart(2, '0')}`, subtitle: '2026',
+    total: (i + 1) * 1000, orders: 1, cash: (i + 1) * 1000,
+  }));
+  const snapshot = { periods: [day23], totals, history };
   return {
     company_id: 'c1', timezone: 'America/Bogota', today: '2026-09-24', generated_at: '2026-09-24T15:00:00Z',
     business_day: { enabled: true, open: '18:00', close: '04:00' },
@@ -66,7 +72,7 @@ function legacyPayload() {
   return payload;
 }
 
-function dashboard(payload, mode = 'days') {
+function dashboard(payload, mode = 'days', kpiDays = 10) {
   const root = { innerHTML: '', querySelector: () => null };
   const head = { children: [], appendChild(node) { this.children.push(node); } };
   const ctx = vm.createContext({
@@ -85,7 +91,8 @@ function dashboard(payload, mode = 'days') {
     `var cxHspDashAnalytics033E = ${JSON.stringify(payload)}; var cxHspDashMode024W = ${JSON.stringify(mode)};
      var cxHspDashEventTimezone033B = "America/Bogota"; var cxHspDashEventDate033B = "2026-09-22";
      var cxHspDashEventSummary033B = cxHspDashAnalytics033E.event_search.summary; var cxHspDashEvents033B = [];
-     var cxHspDashEventLoading033B = false; var cxHspDashEventError033B = ""; var cxHspDashPainted033E = "";\n`
+     var cxHspDashEventLoading033B = false; var cxHspDashEventError033B = ""; var cxHspDashPainted033E = "";
+     var cxHspDashKpiDays048D = ${kpiDays};\n`
       + NAMES.map(fn).join('\n'),
     ctx,
   );
@@ -101,8 +108,38 @@ test('jornada por horario: sin "Horas operadas" en KPI ni en la tabla', () => {
   assert.match(html, /3 jornada\(s\)/);
 });
 
-test('la tabla KPI diaria compara contra la misma jornada de la semana anterior', () => {
+const kpiRows = (html) => {
+  const table = /<table class="hspdash-table-024w">[\s\S]*?<\/table>/.exec(html)[0];
+  return [...table.matchAll(/<tr>\s*<td>([^<]+?) 2026/g)].map((m) => m[1].trim());
+};
+
+test('KPI vs KPI muestra las últimas 10 jornadas, la más reciente arriba', () => {
   const { html } = dashboard(businessPayload());
+  assert.deepEqual(kpiRows(html), ['J30', 'J29', 'J28', 'J27', 'J26', 'J25', 'J24', 'J23', 'J22', 'J21']);
+  assert.match(html, /data-hsp-dash-kpi-days="10">10 días/);
+  assert.match(html, /hspdash-tab-024w active" type="button" data-hsp-dash-kpi-days="10"/);
+});
+
+test('el selector amplía a 20 o 30 jornadas', () => {
+  assert.equal(kpiRows(dashboard(businessPayload(), 'days', 20).html).length, 20);
+  const rows30 = kpiRows(dashboard(businessPayload(), 'days', 30).html);
+  assert.equal(rows30.length, 30);
+  assert.equal(rows30[0], 'J30');
+  assert.equal(rows30[29], 'J01');
+});
+
+test('la gráfica y las vistas semanal/mensual no cambian con el selector', () => {
+  const days = dashboard(businessPayload()).html;
+  assert.match(days, /data-hsp-sales-period="2026-09-23"/, 'la gráfica sigue con sus periodos');
+  const weeks = dashboard(businessPayload(), 'weeks').html;
+  assert.doesNotMatch(weeks, /data-hsp-dash-kpi-days/);
+  assert.deepEqual(kpiRows(weeks), ['23 sep']);
+});
+
+test('la tabla KPI diaria compara contra la misma jornada de la semana anterior', () => {
+  const payload = businessPayload();
+  payload.analytics.days.history = [payload.analytics.days.periods[0]];
+  const { html } = dashboard(payload);
   assert.match(html, /<th>vs sem\. ant\.<\/th>/);
   assert.match(html, /hspdash-delta-cell-048c up" title="2026-09-16: \$ 40\.000">\+25%<\/td>/);
   const weeks = dashboard(businessPayload(), 'weeks').html;
@@ -144,4 +181,5 @@ test('las demás empresas (sin jornada por horario) conservan el tablero actual'
   assert.match(html, /cierre\(s\)/);
   assert.match(html, /No hay consumos capturados para este día\./);
   assert.ok(!head.children.some((node) => node.id === 'cxHspDashStyles048C'));
+  assert.doesNotMatch(html, /data-hsp-dash-kpi-days/, 'sin selector de jornadas');
 });

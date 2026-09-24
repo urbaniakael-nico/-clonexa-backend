@@ -2466,7 +2466,7 @@ async def _hsp_business_analytics(
     selected = event_date or today
     # 3 calendar months back (monthly view) plus a week for the week-over-week comparison.
     first = (today.replace(day=1) - timedelta(days=62)).replace(day=1) - timedelta(days=8)
-    first = min(first, selected - timedelta(days=8))
+    first = min(first, selected - timedelta(days=8), today - timedelta(days=29 + 8))
     since = datetime.combine(first, dt_time(0, 0), _hsp_report_zone(timezone_name))
     orders, accesses, songs, inventory = await _hsp_load_business_sources(db, company_id, since)
     analytics = {}
@@ -2475,6 +2475,12 @@ async def _hsp_business_analytics(
         aggregated = _hsp_business_aggregate(orders, songs, accesses, inventory, period, timezone_name, config, now=now)
         analytics[mode] = {"periods": aggregated["periods"], "totals": aggregated["totals"]}
         daily_totals = aggregated["daily_totals"]
+    # KPI table: up to the last 30 jornadas (the panel shows 10/20/30).
+    history = _hsp_business_aggregate(
+        orders, songs, accesses, inventory, "daily", timezone_name, config,
+        today - timedelta(days=29), today, now=now,
+    )
+    analytics["days"]["history"] = history["periods"]
     selected_totals = daily_totals.get(selected.isoformat(), {"total": 0.0, "orders": 0})
     previous = selected - timedelta(days=7)
     previous_totals = daily_totals.get(previous.isoformat(), {"total": 0.0, "orders": 0})

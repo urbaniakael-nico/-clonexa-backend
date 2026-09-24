@@ -21645,15 +21645,12 @@ function inventoryCreatePayload() {
       .hsp-song-search-031h{width:100%;box-sizing:border-box;background:rgba(3,7,18,.62);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:11px;padding:9px 11px;font-size:12px;font-weight:850;outline:none}
       .hsp-song-search-031h:focus{border-color:var(--hsp-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--hsp-primary) 18%,transparent)}
       .hsp-song-bytable-head-048b{padding:8px 10px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(3,7,18,.24);font-size:12px;font-weight:1000;letter-spacing:.08em}
-      .hsp-song-bytable-048b{display:grid;gap:8px}
-      .hsp-song-table-048b{border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(3,7,18,.34);overflow:hidden}
-      .hsp-song-table-048b summary{list-style:none;display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;min-height:52px}
-      .hsp-song-table-048b summary::-webkit-details-marker{display:none}
-      .hsp-song-table-num-048b{min-width:44px;height:44px;padding:0 8px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,#a855f7,#ec4899);color:#fff;font-size:22px;font-weight:1000}
-      .hsp-song-table-count-048b{flex:1;font-weight:800;opacity:.85}
-      .hsp-song-table-arrow-048b{font-size:18px;transition:transform .15s}
-      .hsp-song-table-048b[open] .hsp-song-table-arrow-048b{transform:rotate(180deg)}
-      .hsp-song-table-list-048b{display:grid;gap:6px;padding:0 10px 10px}
+      .hsp-song-bytable-048b{display:grid;gap:0;padding:4px 0}
+      .hsp-song-group-048d{display:grid;gap:4px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
+      .hsp-song-group-048d:last-child{border-bottom:0}
+      .hsp-song-group-head-048d{display:flex;align-items:baseline;justify-content:space-between;gap:8px;position:sticky;top:0;padding:2px 0;background:rgba(15,10,30,.96);z-index:1}
+      .hsp-song-group-head-048d span{font-weight:1000;font-size:15px}
+      .hsp-song-group-head-048d small{opacity:.7;font-weight:800}
       .hsp-song-item-048b{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.06)}
       .hsp-song-name-048b{min-width:0;overflow-wrap:anywhere;font-weight:800}
       .hsp-song-copy-048b{flex:none;min-width:84px}
@@ -22146,8 +22143,6 @@ function inventoryCreatePayload() {
   // "Archivar más antiguas"; un número por mesa con canciones pendientes
   // (menor a mayor), que se despliega con sus canciones en orden de
   // llegada. "Copiar" copia el nombre y archiva esa canción al instante.
-  let cxHspSongOpenTables048B = new Set();
-
   function cxHspSongByTableOn048B(modules = activeClientModules()) {
     const qrModule = (Array.isArray(modules) ? modules : [])
       .find((module) => cxIsHospitalityQrCode024S(module.code || module.module_code || module.raw?.module_code));
@@ -22176,36 +22171,24 @@ function inventoryCreatePayload() {
       .sort((a, b) => (a.number - b.number) || a.label.localeCompare(b.label, "es"));
   }
 
-  function cxHspSongByTableHtml048B() {
+  // 048D: todo a la vista, sin desplegar: un encabezado por mesa y debajo
+  // sus canciones (orden de llegada), cada una con "Copiar". La mesa sin
+  // canciones desaparece; el bloque se desplaza solo (max-height del 031C).
+  function cxHspSongGroupedHtml048D() {
     const groups = cxHspSongGroups048B();
     if (!groups.length) return `<div class="hsp-empty-024r">Sin solicitudes musicales pendientes</div>`;
     return groups.map((group) => `
-      <details class="hsp-song-table-048b" data-hsp-song-table="${h(group.key)}" ${cxHspSongOpenTables048B.has(group.key) ? "open" : ""}>
-        <summary>
-          <span class="hsp-song-table-num-048b">${h(group.label)}</span>
-          <span class="hsp-song-table-count-048b">${h(group.songs.length)} ${group.songs.length === 1 ? "canción" : "canciones"}</span>
-          <span class="hsp-song-table-arrow-048b" aria-hidden="true">▾</span>
-        </summary>
-        <div class="hsp-song-table-list-048b">
-          ${group.songs.map((request) => `
-            <div class="hsp-song-item-048b">
-              <span class="hsp-song-name-048b">♫ ${h(request.song || "Canción solicitada")}</span>
-              <button class="hsp-btn-024r green hsp-song-copy-048b" type="button" data-hsp-song-copy="${h(request.id)}">Copiar</button>
-            </div>`).join("")}
-        </div>
-      </details>`).join("");
-  }
-
-  // Keeps each table's open/closed state across the periodic repaints.
-  function cxHspBindSongTables048B(list) {
-    if (!list || typeof list.querySelectorAll !== "function") return;
-    list.querySelectorAll("details[data-hsp-song-table]").forEach((details) => {
-      details.addEventListener("toggle", () => {
-        const key = details.getAttribute("data-hsp-song-table") || "";
-        if (details.open) cxHspSongOpenTables048B.add(key);
-        else cxHspSongOpenTables048B.delete(key);
-      });
-    });
+      <section class="hsp-song-group-048d" data-hsp-song-group="${h(group.key)}">
+        <header class="hsp-song-group-head-048d">
+          <span>${h(Number.isFinite(group.number) ? `Mesa ${group.label}` : group.label)}</span>
+          <small>${h(group.songs.length)} ${group.songs.length === 1 ? "canción" : "canciones"}</small>
+        </header>
+        ${group.songs.map((request) => `
+          <div class="hsp-song-item-048b">
+            <span class="hsp-song-name-048b">♫ ${h(request.song || "Canción solicitada")}</span>
+            <button class="hsp-btn-024r green hsp-song-copy-048b" type="button" data-hsp-song-copy="${h(request.id)}">Copiar</button>
+          </div>`).join("")}
+      </section>`).join("");
   }
 
   function cxHspCopyText048B(value) {
@@ -22276,7 +22259,7 @@ function inventoryCreatePayload() {
   }
 
   function cxHspRenderSongRequests031C() {
-    if (cxHspSongByTableOn048B()) return cxHspSongByTableHtml048B();
+    if (cxHspSongByTableOn048B()) return cxHspSongGroupedHtml048D();
     const query = String(cxHspSongSearch031H || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const active = cxHspActiveSongRequests031T().filter((request) => {
       const haystack = `${request.song || ""} ${request.table_number || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -22304,7 +22287,6 @@ function inventoryCreatePayload() {
       if (options.force === true || list.dataset.songQueueSignature031T !== signature) {
         list.innerHTML = cxHspRenderSongRequests031C();
         list.dataset.songQueueSignature031T = signature;
-        cxHspBindSongTables048B(list);
         if (options.preserveScroll !== false) {
           const restoreScroll = () => {
             list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight));
@@ -24030,6 +24012,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_024S_HOSPITALITY_QR_END */
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_START */
   let cxHspDashMode024W = "days";
+  let cxHspDashKpiDays048D = 10;
   let cxHspDashAnalytics033E = null;
   let cxHspDashLoading033E = false;
   let cxHspDashPending033G = null;
@@ -24765,7 +24748,24 @@ function inventoryCreatePayload() {
     `;
   }
 
+  // 048D: con jornada por horario, la vista diaria de la tabla KPI muestra
+  // las últimas 10/20/30 jornadas (10 por defecto), la más reciente arriba.
+  function cxHspDashKpiRows048D(periods = []) {
+    if (!cxHspDashBusinessDay048C() || cxHspDashMode024W !== "days") return periods;
+    const history = cxHspDashAnalytics033E?.analytics?.days?.history;
+    const source = Array.isArray(history) && history.length ? history : periods;
+    return source.slice(-cxHspDashKpiDays048D).reverse();
+  }
+
+  function cxHspDashKpiSelector048D() {
+    if (!cxHspDashBusinessDay048C() || cxHspDashMode024W !== "days") return "";
+    return `<div class="hspdash-tabs-024w" role="group" aria-label="Jornadas en la tabla">
+      ${[10, 20, 30].map((days) => `<button class="hspdash-tab-024w ${cxHspDashKpiDays048D === days ? "active" : ""}" type="button" data-hsp-dash-kpi-days="${days}">${days} días</button>`).join("")}
+    </div>`;
+  }
+
   function cxHspDashRenderTable024W(periods = []) {
+    periods = cxHspDashKpiRows048D(periods);
     return `
       <div class="hspdash-table-wrap-024w">
         <table class="hspdash-table-024w">
@@ -24859,7 +24859,7 @@ function inventoryCreatePayload() {
       </section>
 
       <section class="hspdash-panel-024w">
-        <div class="hspdash-head-024w"><h2>KPI vs KPI por periodo</h2></div>
+        <div class="hspdash-head-024w"><h2>KPI vs KPI por periodo</h2>${cxHspDashKpiSelector048D()}</div>
         ${cxHspDashRenderTable024W(periods)}
       </section>
 
@@ -32713,6 +32713,14 @@ function inventoryCreatePayload() {
         } catch (error) {
           cxHspQrShowMsg024S(error.message || "No se pudo cancelar el pedido.", true);
         }
+        return;
+      }
+
+      const hspDashKpiDays = target.closest("[data-hsp-dash-kpi-days]");
+      if (hspDashKpiDays) {
+        const days = Number(hspDashKpiDays.getAttribute("data-hsp-dash-kpi-days"));
+        cxHspDashKpiDays048D = [10, 20, 30].includes(days) ? days : 10;
+        cxHspDashPaint024W();
         return;
       }
 

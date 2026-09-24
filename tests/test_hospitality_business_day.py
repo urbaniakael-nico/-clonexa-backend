@@ -161,6 +161,11 @@ async def test_hospitality_analytics_uses_business_day_only_with_the_switch(monk
     assert data["business_day"] == {"enabled": True, "open": "18:00", "close": "04:00"}
     assert data["today"] == "2026-09-24"
     assert set(data["analytics"]) == {"days", "weeks", "months"}
+    history = data["analytics"]["days"]["history"]  # tabla KPI: hasta 30 jornadas
+    assert len(history) == 30
+    assert (history[0]["key"], history[-1]["key"]) == ("2026-08-26", "2026-09-24")
+    assert next(row for row in history if row["key"] == "2026-09-23")["total"] == 50000
+    assert len(data["analytics"]["days"]["periods"]) == 14  # la gráfica no cambia
     assert data["event_search"]["summary"]["total"] == 50000
     assert data["week_compare"] == {
         "date": "2026-09-23", "total": 50000, "orders": 2,
