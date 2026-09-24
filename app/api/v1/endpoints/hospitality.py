@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.companies import require_admin_v2_or_tenant_company_user
 
 router = APIRouter()
 
@@ -4753,6 +4754,9 @@ async def archive_hospitality_song_request(
     company_id: uuid.UUID,
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    # CLONEXA_SEC_2026_09_24: had no auth; only the company panel archives
+    # songs, and it sends its session (Admin V2 is also allowed).
+    _actor: None = Depends(require_admin_v2_or_tenant_company_user),
 ) -> dict[str, Any]:
     await _ensure_storage(db)
     result = await db.execute(
