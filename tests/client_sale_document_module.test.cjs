@@ -6,7 +6,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 
-const client = readFileSync('app/web/client.js', 'utf8');
+// Normalized: on Windows with core.autocrlf the working copy is CRLF.
+const client = readFileSync('app/web/client.js', 'utf8').replace(/\r\n/g, '\n');
 const saleDocSource = readFileSync('app/web/sale_document.js', 'utf8');
 
 function fn(name) {

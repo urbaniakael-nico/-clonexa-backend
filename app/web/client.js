@@ -21644,6 +21644,22 @@ function inventoryCreatePayload() {
       .hsp-song-queue-head-031c h2{margin:0}
       .hsp-song-search-031h{width:100%;box-sizing:border-box;background:rgba(3,7,18,.62);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:11px;padding:9px 11px;font-size:12px;font-weight:850;outline:none}
       .hsp-song-search-031h:focus{border-color:var(--hsp-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--hsp-primary) 18%,transparent)}
+      .hsp-song-bytable-head-048b{padding:8px 10px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(3,7,18,.24);font-size:12px;font-weight:1000;letter-spacing:.08em}
+      .hsp-song-bytable-048b{display:grid;gap:8px}
+      .hsp-song-table-048b{border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(3,7,18,.34);overflow:hidden}
+      .hsp-song-table-048b summary{list-style:none;display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;min-height:52px}
+      .hsp-song-table-048b summary::-webkit-details-marker{display:none}
+      .hsp-song-table-num-048b{min-width:44px;height:44px;padding:0 8px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,#a855f7,#ec4899);color:#fff;font-size:22px;font-weight:1000}
+      .hsp-song-table-count-048b{flex:1;font-weight:800;opacity:.85}
+      .hsp-song-table-arrow-048b{font-size:18px;transition:transform .15s}
+      .hsp-song-table-048b[open] .hsp-song-table-arrow-048b{transform:rotate(180deg)}
+      .hsp-song-table-list-048b{display:grid;gap:6px;padding:0 10px 10px}
+      .hsp-song-item-048b{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.06)}
+      .hsp-song-name-048b{min-width:0;overflow-wrap:anywhere;font-weight:800}
+      .hsp-song-copy-048b{flex:none;min-width:84px}
+      .hsp-song-toast-048b{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);opacity:0;pointer-events:none;z-index:95;padding:10px 16px;border-radius:999px;background:#15803d;color:#fff;font-weight:900;box-shadow:0 12px 30px rgba(0,0,0,.45);transition:opacity .18s,transform .18s;max-width:calc(100% - 32px)}
+      .hsp-song-toast-048b.show{opacity:1;transform:translate(-50%,0)}
+      .hsp-song-toast-048b.error{background:#b91c1c}
       .hsp-song-bulk-031t{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 9px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(3,7,18,.24)}
       .hsp-song-bulk-031t>span{color:var(--hsp-muted);font-size:9px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em}.hsp-song-bulk-actions-031t{display:flex;gap:5px;flex-wrap:wrap}
       .hsp-song-bulk-btn-031t{min-width:34px;min-height:28px;padding:5px 8px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.08);color:var(--cx-text,#fff);font:inherit;font-size:10px;font-weight:1000;cursor:pointer}.hsp-song-bulk-btn-031t:hover{border-color:var(--hsp-primary);background:color-mix(in srgb,var(--hsp-primary) 18%,rgba(3,7,18,.52))}.hsp-song-bulk-btn-031t.all{color:#fecaca;border-color:rgba(248,113,113,.28)}
@@ -22125,7 +22141,142 @@ function inventoryCreatePayload() {
       });
   }
 
+  // ---- Pedido musical por mesa (048B) ----------------------------------
+  // Solo para la empresa con qr_bar_menu (The Time Machine): sin buscador ni
+  // "Archivar más antiguas"; un número por mesa con canciones pendientes
+  // (menor a mayor), que se despliega con sus canciones en orden de
+  // llegada. "Copiar" copia el nombre y archiva esa canción al instante.
+  let cxHspSongOpenTables048B = new Set();
+
+  function cxHspSongByTableOn048B(modules = activeClientModules()) {
+    const qrModule = (Array.isArray(modules) ? modules : [])
+      .find((module) => cxIsHospitalityQrCode024S(module.code || module.module_code || module.raw?.module_code));
+    const settings = qrModule?.raw?.settings || qrModule?.settings || qrModule?.raw?.module?.settings || {};
+    return settings.qr_bar_menu === true;
+  }
+
+  function cxHspSongTableKey048B(request = {}) {
+    const label = String(request.table_number || "Mesa").trim() || "Mesa";
+    const match = /\d+/.exec(label);
+    return match
+      ? { key: `n${Number(match[0])}`, number: Number(match[0]), label: String(Number(match[0])) }
+      : { key: `t${label.toLowerCase()}`, number: Infinity, label };
+  }
+
+  function cxHspSongGroups048B(requests = cxHspActiveSongRequests031T()) {
+    const groups = new Map();
+    requests.forEach((request) => {
+      const table = cxHspSongTableKey048B(request);
+      if (!groups.has(table.key)) groups.set(table.key, { ...table, songs: [] });
+      groups.get(table.key).songs.push(request);
+    });
+    const arrival = (request) => Date.parse(request.created_at || request.updated_at || "") || 0;
+    return [...groups.values()]
+      .map((group) => ({ ...group, songs: group.songs.sort((a, b) => arrival(a) - arrival(b) || String(a.id || "").localeCompare(String(b.id || ""))) }))
+      .sort((a, b) => (a.number - b.number) || a.label.localeCompare(b.label, "es"));
+  }
+
+  function cxHspSongByTableHtml048B() {
+    const groups = cxHspSongGroups048B();
+    if (!groups.length) return `<div class="hsp-empty-024r">Sin solicitudes musicales pendientes</div>`;
+    return groups.map((group) => `
+      <details class="hsp-song-table-048b" data-hsp-song-table="${h(group.key)}" ${cxHspSongOpenTables048B.has(group.key) ? "open" : ""}>
+        <summary>
+          <span class="hsp-song-table-num-048b">${h(group.label)}</span>
+          <span class="hsp-song-table-count-048b">${h(group.songs.length)} ${group.songs.length === 1 ? "canción" : "canciones"}</span>
+          <span class="hsp-song-table-arrow-048b" aria-hidden="true">▾</span>
+        </summary>
+        <div class="hsp-song-table-list-048b">
+          ${group.songs.map((request) => `
+            <div class="hsp-song-item-048b">
+              <span class="hsp-song-name-048b">♫ ${h(request.song || "Canción solicitada")}</span>
+              <button class="hsp-btn-024r green hsp-song-copy-048b" type="button" data-hsp-song-copy="${h(request.id)}">Copiar</button>
+            </div>`).join("")}
+        </div>
+      </details>`).join("");
+  }
+
+  // Keeps each table's open/closed state across the periodic repaints.
+  function cxHspBindSongTables048B(list) {
+    if (!list || typeof list.querySelectorAll !== "function") return;
+    list.querySelectorAll("details[data-hsp-song-table]").forEach((details) => {
+      details.addEventListener("toggle", () => {
+        const key = details.getAttribute("data-hsp-song-table") || "";
+        if (details.open) cxHspSongOpenTables048B.add(key);
+        else cxHspSongOpenTables048B.delete(key);
+      });
+    });
+  }
+
+  function cxHspCopyText048B(value) {
+    const text = String(value || "");
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        return navigator.clipboard.writeText(text).then(() => true, () => cxHspCopyFallback048B(text));
+      }
+    } catch (_) {}
+    return Promise.resolve(cxHspCopyFallback048B(text));
+  }
+
+  function cxHspCopyFallback048B(text) {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function cxHspSongToast048B(message, isError = false) {
+    let toast = document.getElementById("hspSongToast048B");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "hspSongToast048B";
+      toast.className = "hsp-song-toast-048b";
+      toast.setAttribute("role", "status");
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.toggle("error", Boolean(isError));
+    toast.classList.add("show");
+    window.clearTimeout(cxHspSongToast048B.timer);
+    cxHspSongToast048B.timer = window.setTimeout(() => toast.classList.remove("show"), 1800);
+  }
+
+  // Copia y archiva en el mismo toque: la canción sale de la lista de una vez
+  // (y la mesa, si era la última); si el archivo falla, vuelve a aparecer.
+  async function cxHspCopyAndArchiveSong048B(id) {
+    const request = cxHspSongRequests031C.find((row) => String(row.id || "") === String(id));
+    if (!request) return;
+    const copying = cxHspCopyText048B(request.song || "");
+    cxHspSongRequests031C = cxHspSongRequests031C.filter((row) => row !== request);
+    cxHspPaintSongQueue031K(cxHspSongRequests031C, { force: true });
+    const copied = await copying;
+    cxHspSongToast048B(copied ? `✓ Copiada: ${request.song || "canción"}` : "No se pudo copiar; la canción se archivó igual.", !copied);
+    try {
+      await cxHspApi024R(`/song-requests/${encodeURIComponent(id)}/archive`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } catch (error) {
+      if (!cxHspSongRequests031C.some((row) => String(row.id || "") === String(id))) {
+        cxHspSongRequests031C = [...cxHspSongRequests031C, request];
+      }
+      cxHspPaintSongQueue031K(cxHspSongRequests031C, { force: true });
+      cxHspSongToast048B(error.message || "No se pudo archivar la canción.", true);
+    }
+  }
+
   function cxHspRenderSongRequests031C() {
+    if (cxHspSongByTableOn048B()) return cxHspSongByTableHtml048B();
     const query = String(cxHspSongSearch031H || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const active = cxHspActiveSongRequests031T().filter((request) => {
       const haystack = `${request.song || ""} ${request.table_number || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -22153,6 +22304,7 @@ function inventoryCreatePayload() {
       if (options.force === true || list.dataset.songQueueSignature031T !== signature) {
         list.innerHTML = cxHspRenderSongRequests031C();
         list.dataset.songQueueSignature031T = signature;
+        cxHspBindSongTables048B(list);
         if (options.preserveScroll !== false) {
           const restoreScroll = () => {
             list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight));
@@ -23253,6 +23405,9 @@ function inventoryCreatePayload() {
                     <div><div class="client-eyebrow">Música por mesa</div><h2>Solicitudes musicales</h2></div>
                     <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
                   </div>
+                  ${cxHspSongByTableOn048B() ? `
+                  <div class="hsp-song-bytable-head-048b">PEDIDO MUSICAL POR MESA</div>
+                  <div id="hspSongRequests031C" class="hsp-song-list-031c hsp-song-bytable-048b"></div>` : `
                   <input class="hsp-song-search-031h" type="search" data-hsp-song-search placeholder="Buscar canción o mesa..." value="${h(cxHspSongSearch031H)}" />
                   <div class="hsp-song-bulk-031t">
                     <span>Archivar más antiguas</span>
@@ -23264,7 +23419,7 @@ function inventoryCreatePayload() {
                       <button class="hsp-song-bulk-btn-031t all" type="button" data-hsp-song-archive-bulk="all">Todo</button>
                     </div>
                   </div>
-                  <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>
+                  <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>`}
                 </section>
               </div>
 
@@ -32176,6 +32331,12 @@ function inventoryCreatePayload() {
         } catch (error) {
           cxHspShowMsg024R("hspGlobalMsg024R", error.message || "No se pudo cambiar el estado.", true);
         }
+        return;
+      }
+
+      const hspSongCopy = target.closest("[data-hsp-song-copy]");
+      if (hspSongCopy) {
+        await cxHspCopyAndArchiveSong048B(hspSongCopy.getAttribute("data-hsp-song-copy") || "");
         return;
       }
 
