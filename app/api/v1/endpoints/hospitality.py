@@ -2748,7 +2748,7 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
     def footer() -> None:
         c.setFillColor(muted)
         c.setFont("Helvetica", 7)
-        c.drawString(margin, 18, "CLONEXA / Hospitality dashboard PDF")
+        c.drawString(margin, 18, "CLONEXA / Reportes dashboard PDF")
         c.drawRightString(page_w - margin, 18, f"Pagina {page_no}")
 
     def logo_box() -> None:
@@ -2911,7 +2911,7 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
     totals = payload.get("totals") or {}
     periods = payload.get("periods") or []
     closures = payload.get("closures") or []
-    c.setTitle("CLONEXA - Hospitality Dashboard")
+    c.setTitle("CLONEXA - Reportes Dashboard")
     header()
     kpis(payload.get("cards") or [])
     bars(periods)
@@ -3000,7 +3000,7 @@ def build_hospitality_reorder_pdf(payload: dict[str, Any]) -> bytes:
         topMargin=34 * mm,
         bottomMargin=18 * mm,
         title="CLONEXA - Orden de pedido",
-        author="CLONEXA Hospitality",
+        author="CLONEXA Reportes",
     )
     styles = getSampleStyleSheet()
     try:
@@ -3049,7 +3049,7 @@ def build_hospitality_reorder_pdf(payload: dict[str, Any]) -> bytes:
         canvas.drawRightString(page_w - 18 * mm, page_h - 20 * mm, _clean(company.get("name")) or "CLONEXA")
         canvas.setFillColor(muted)
         canvas.setFont("Helvetica", 7)
-        canvas.drawString(18 * mm, 10 * mm, "Documento operativo generado por CLONEXA Hospitality")
+        canvas.drawString(18 * mm, 10 * mm, "Documento operativo generado por CLONEXA Reportes")
         canvas.drawRightString(page_w - 18 * mm, 10 * mm, f"Pagina {document.page}")
         canvas.restoreState()
 

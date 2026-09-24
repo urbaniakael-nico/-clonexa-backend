@@ -38,3 +38,27 @@ def test_hospitality_module_rename_touches_no_data():
     for path in Path("migrations/versions").glob("*.py"):
         text = path.read_text(encoding="utf-8")
         assert "Reportes" not in text, path.name
+
+
+def test_hospitality_pdf_footers_say_clonexa_reportes():
+    """048J: the PDFs (dashboard and reorder) match the module's new name."""
+    import re
+
+    from app.api.v1.endpoints import hospitality
+
+    source = Path("app/api/v1/endpoints/hospitality.py").read_text(encoding="utf-8")
+    assert "CLONEXA Hospitality" not in source
+    assert "Hospitality dashboard PDF" not in source
+    assert '"Documento operativo generado por CLONEXA Reportes"' in source
+    assert 'c.drawString(margin, 18, "CLONEXA / Reportes dashboard PDF")' in source
+
+    payload = {
+        "company": {"name": "Empresa", "timezone": "America/Bogota"}, "period": "daily", "period_label": "Diario",
+        "range_label": "Hoy", "generated_at": "2026-09-24T12:00:00+00:00", "periods": [],
+        "totals": {"total": 0, "orders": 0, "cash": 0, "transfer": 0, "card": 0, "other": 0, "tables": {}},
+        "closures": [], "cards": [], "top_products": [], "top_tables": [], "top_songs": [],
+    }
+    pdf = hospitality.build_hospitality_dashboard_pdf(payload)
+    assert pdf[:4] == b"%PDF"
+    title = re.search(rb"/Title \(([^)]*)\)", pdf)
+    assert title and b"Reportes" in title.group(1)
