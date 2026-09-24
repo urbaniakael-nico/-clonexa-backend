@@ -4,11 +4,13 @@ import asyncio
 import base64
 import io
 import json
+import logging
 import os
 import secrets
 import uuid
 from datetime import date as calendar_date
 from datetime import datetime, timedelta, timezone
+from datetime import time as dt_time
 from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
@@ -1460,8 +1462,9 @@ def _hsp_period_defs(
     start_date: calendar_date | None = None,
     end_date: calendar_date | None = None,
     timezone_name: Any = "America/Bogota",
+    anchor: calendar_date | None = None,
 ) -> list[dict[str, Any]]:
-    anchor = _hsp_local_date(_now(), timezone_name)
+    anchor = anchor or _hsp_local_date(_now(), timezone_name)
     if start_date and end_date:
         if period == "daily":
             count = (end_date - start_date).days + 1
@@ -2092,6 +2095,465 @@ def _hsp_shift_event_search(
     }
 
 
+# ---------------------------------------------------------------------------
+# CLONEXA_048C_BUSINESS_DAY: jornada por horario (opt-in por empresa).
+#
+# Sin configuracion, una "jornada" es lo que hay entre dos "Generar cierre";
+# si un bar no cierra un dia, esa jornada absorbe los dias siguientes. Con
+# companies.settings_json.hospitality_business_day = {"open": "18:00",
+# "close": "04:00"} cada venta pertenece a la jornada del dia en que abrio:
+# una venta a las 02:00 del 24 es de la jornada del 23. Fuera de la franja
+# (p. ej. 14:00) pertenece al dia en que ocurrio. "Generar cierre" sigue
+# siendo el corte de caja, pero ya no define fechas. Todo se calcula al
+# leer los pedidos (que el cierre solo archiva), asi que el historico queda
+# recalculado sin tocar datos. Solo The Time Machine lo tiene (021o).
+# ---------------------------------------------------------------------------
+HSP_BUSINESS_DAY_SETTING = "hospitality_business_day"
+
+
+def _hsp_parse_clock(value: Any) -> dt_time | None:
+    raw = _clean(value)
+    try:
+        hours, minutes = raw.split(":")[:2]
+        return dt_time(int(hours), int(minutes))
+    except Exception:
+        return None
+
+
+def _hsp_business_day_config(settings: Any) -> dict[str, Any] | None:
+    settings = _json(settings, {}) if not isinstance(settings, dict) else settings
+    raw = settings.get(HSP_BUSINESS_DAY_SETTING) if isinstance(settings, dict) else None
+    if not isinstance(raw, dict) or raw.get("enabled") is False:
+        return None
+    opens, closes = _hsp_parse_clock(raw.get("open")), _hsp_parse_clock(raw.get("close"))
+    if not opens or not closes or opens == closes:
+        return None
+    return {
+        "open": opens, "close": closes,
+        "open_text": opens.strftime("%H:%M"), "close_text": closes.strftime("%H:%M"),
+        "overnight": closes < opens,
+    }
+
+
+def _hsp_business_date(value: datetime, timezone_name: Any, config: dict[str, Any]) -> calendar_date:
+    local = _aware(value).astimezone(_hsp_report_zone(timezone_name))
+    if config["overnight"] and local.time() < config["close"]:
+        return local.date() - timedelta(days=1)
+    return local.date()
+
+
+def _hsp_business_window(day: calendar_date, timezone_name: Any, config: dict[str, Any]) -> tuple[datetime, datetime]:
+    zone = _hsp_report_zone(timezone_name)
+    start = datetime.combine(day, config["open"], zone)
+    end = datetime.combine(day + timedelta(days=1 if config["overnight"] else 0), config["close"], zone)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
+def _hsp_business_key(day: calendar_date, period: str) -> str:
+    if period == "daily":
+        return day.isoformat()
+    if period == "weekly":
+        return (day - timedelta(days=day.isoweekday() - 1)).isoformat()
+    return day.strftime("%Y-%m")
+
+
+def _hsp_item_subtotal(item: dict[str, Any]) -> float:
+    subtotal = item.get("subtotal")
+    if subtotal is None:
+        subtotal = _num(item.get("quantity")) * _num(item.get("unit_price"))
+    return _money(subtotal)
+
+
+def _hsp_business_bucket(definition: dict[str, Any]) -> dict[str, Any]:
+    bucket = _hsp_empty_bucket(definition)
+    bucket.pop("worked_minutes", None)
+    bucket.update({
+        "jornadas": 0, "hours": {}, "cancelled_count": 0, "cancelled_total": 0.0, "cancelled": [],
+        "table_sessions": {"sessions": 0, "consumption": 0.0, "timed": 0, "minutes": 0.0},
+        "sold_item_ids": set(),
+    })
+    return bucket
+
+
+def _hsp_table_sessions(
+    orders: list[dict[str, Any]], accesses: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """One row per QR table activation that had consumption."""
+    by_table: dict[str, list[dict[str, Any]]] = {}
+    for access in accesses:
+        by_table.setdefault(_table_key(access.get("table_key") or access.get("table_number")), []).append(access)
+    table_orders: dict[str, list[dict[str, Any]]] = {}
+    for order in orders:
+        if _status(order.get("status")) == STATUS_CANCELLED:
+            continue
+        if _order_type(order.get("table_number"), order.get("source")) == "bar_sale":
+            continue
+        table_orders.setdefault(_table_key(order.get("table_key") or order.get("table_number")), []).append(order)
+    sessions = []
+    for key, rows in by_table.items():
+        rows.sort(key=lambda row: _hsp_event_datetime(row.get("activated_at") or row.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc))
+        for index, access in enumerate(rows):
+            started = _hsp_event_datetime(access.get("activated_at") or access.get("created_at"))
+            if not started:
+                continue
+            next_started = _hsp_event_datetime(rows[index + 1].get("activated_at") or rows[index + 1].get("created_at")) if index + 1 < len(rows) else None
+            ended = _hsp_event_access_end(access, next_started)
+            consumption = 0.0
+            for order in table_orders.get(key, []):
+                created = _hsp_event_datetime(order.get("created_at"))
+                if not created or created < started or (next_started and created >= next_started):
+                    continue
+                if ended and created > ended + timedelta(minutes=5):
+                    continue
+                consumption += _num(order.get("total"))
+            if consumption <= 0:
+                continue
+            active = _norm(access.get("status")) == "active"
+            minutes = (ended - started).total_seconds() / 60 if (ended and not active) else None
+            sessions.append({"started_at": started, "consumption": _money(consumption), "minutes": minutes})
+    return sessions
+
+
+def _hsp_business_aggregate(
+    orders: list[dict[str, Any]],
+    song_requests: list[dict[str, Any]],
+    accesses: list[dict[str, Any]],
+    inventory: list[dict[str, Any]],
+    period: str,
+    timezone_name: str,
+    config: dict[str, Any],
+    start_date: calendar_date | None = None,
+    end_date: calendar_date | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    now = now or _now()
+    today = _hsp_business_date(now, timezone_name, config)
+    definitions = _hsp_period_defs(period, [], start_date, end_date, timezone_name, anchor=today)
+    buckets = {definition["key"]: _hsp_business_bucket(definition) for definition in definitions}
+    totals = _hsp_business_bucket({"key": "total", "label": "Total", "subtitle": ""})
+    zone = _hsp_report_zone(timezone_name)
+    first_day = min((_hsp_business_period_start(d["key"], period) for d in definitions), default=today)
+    last_day = max((_hsp_business_period_end(d["key"], period) for d in definitions), default=today)
+    if start_date:
+        first_day = max(first_day, start_date)
+    if end_date:
+        last_day = min(last_day, end_date)
+
+    def targets_for(day: calendar_date | None):
+        if not day or day < first_day or day > last_day:
+            return []
+        bucket = buckets.get(_hsp_business_key(day, period))
+        return [bucket, totals] if bucket else []
+
+    daily_totals: dict[str, dict[str, float]] = {}
+    active_days: dict[str, set[calendar_date]] = {}
+    for raw in orders:
+        order = _payload(raw)
+        created = _hsp_event_datetime(order.get("created_at"))
+        if not created:
+            continue
+        day = _hsp_business_date(created, timezone_name, config)
+        total = _money(order.get("total"))
+        cancelled = _status(order.get("status")) == STATUS_CANCELLED
+        if not cancelled:
+            row = daily_totals.setdefault(day.isoformat(), {"total": 0.0, "orders": 0})
+            row["total"] = _money(row["total"] + total)
+            row["orders"] += 1
+        for target in targets_for(day):
+            if cancelled:
+                target["cancelled_count"] += 1
+                target["cancelled_total"] = _money(target["cancelled_total"] + total)
+                target["cancelled"].append({
+                    "order_number": order.get("order_number") or "",
+                    "table": order.get("table_number") or "",
+                    "total": total,
+                    "reason": _clean((order.get("metadata") or {}).get("loss_reason")) or "Cancelado",
+                    "cancelled_at": _iso(_hsp_event_datetime(order.get("cancelled_at") or order.get("updated_at"))),
+                    "business_date": day.isoformat(),
+                })
+                continue
+            target["orders"] += 1
+            target["total"] = _money(target["total"] + total)
+            method = _payment_method(order.get("payment_method"))
+            target[method] = _money(target[method] + total)
+            _hsp_add_rank(target["tables"], order.get("table_number"), {"orders": 1, "total": total})
+            hour = created.astimezone(zone).hour
+            slot = target["hours"].setdefault(hour, {"hour": hour, "total": 0.0, "orders": 0})
+            slot["total"] = _money(slot["total"] + total)
+            slot["orders"] += 1
+            for item in order.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                _hsp_add_rank(target["products"], item.get("name") or item.get("sku"), {
+                    "quantity": _num(item.get("quantity")), "total": _hsp_item_subtotal(item),
+                })
+                for ref in (item.get("inventory_item_id"), item.get("product_id")):
+                    if ref:
+                        target["sold_item_ids"].add(str(ref))
+            active_days.setdefault(target["key"], set()).add(day)
+
+    for song in song_requests:
+        created = _hsp_event_datetime(song.get("created_at"))
+        if not created or not _clean(song.get("song")):
+            continue
+        for target in targets_for(_hsp_business_date(created, timezone_name, config)):
+            _hsp_add_rank(target["songs"], song.get("song"), {"count": 1})
+
+    for session in _hsp_table_sessions(orders, accesses):
+        for target in targets_for(_hsp_business_date(session["started_at"], timezone_name, config)):
+            stats = target["table_sessions"]
+            stats["sessions"] += 1
+            stats["consumption"] = _money(stats["consumption"] + session["consumption"])
+            if session["minutes"] is not None:
+                stats["timed"] += 1
+                stats["minutes"] += session["minutes"]
+
+    hour_order = [(config["open"].hour + offset) % 24 for offset in range(24)]
+    for target in [*buckets.values(), totals]:
+        days = sorted(active_days.get(target["key"], set()))
+        if target is totals:
+            days = sorted({day for values in active_days.values() for day in values})
+        target["jornadas"] = len(days)
+        target["closures"] = len(days)
+        target["shifts"] = []
+        for day in days:
+            start, end = _hsp_business_window(day, timezone_name, config)
+            target["shifts"].append({
+                "id": day.isoformat(), "business_date": day.isoformat(),
+                "opened_at": _iso(start), "closed_at": _iso(end), "is_open": start <= now < end,
+            })
+        target["hours"] = [target["hours"][hour] for hour in hour_order if hour in target["hours"]]
+        stats = target["table_sessions"]
+        stats["avg_consumption"] = _money(stats["consumption"] / stats["sessions"]) if stats["sessions"] else 0.0
+        stats["avg_minutes"] = round(stats["minutes"] / stats["timed"]) if stats["timed"] else 0
+        target["cancelled"] = sorted(target["cancelled"], key=lambda row: row["cancelled_at"] or "", reverse=True)[:20]
+        sold = target.pop("sold_item_ids")
+        if target is totals:
+            products = list(target["products"].values())
+            target["top_products_quantity"] = sorted(products, key=lambda row: _num(row["quantity"]), reverse=True)[:10]
+            target["top_products_total"] = sorted(products, key=lambda row: _num(row["total"]), reverse=True)[:10]
+            sold_names = {_norm(name) for name in target["products"]}
+            target["no_rotation"] = [
+                {"id": item.get("id"), "name": item.get("name"), "stock": _money(item.get("stock"))}
+                for item in inventory
+                if str(item.get("id")) not in sold and _norm(item.get("name")) not in sold_names
+            ][:60]
+
+    if period == "daily":
+        for definition in definitions:
+            bucket = buckets[definition["key"]]
+            previous = (calendar_date.fromisoformat(definition["key"]) - timedelta(days=7)).isoformat()
+            prior = daily_totals.get(previous, {"total": 0.0, "orders": 0})
+            bucket["prev_week_date"] = previous
+            bucket["prev_week_total"] = prior["total"]
+            bucket["prev_week_orders"] = prior["orders"]
+
+    return {"periods": [buckets[item["key"]] for item in definitions], "totals": totals, "today": today, "daily_totals": daily_totals}
+
+
+def _hsp_business_period_start(key: str, period: str) -> calendar_date:
+    if period == "monthly":
+        return calendar_date.fromisoformat(f"{key}-01")
+    return calendar_date.fromisoformat(key)
+
+
+def _hsp_business_period_end(key: str, period: str) -> calendar_date:
+    start = _hsp_business_period_start(key, period)
+    if period == "daily":
+        return start
+    if period == "weekly":
+        return start + timedelta(days=6)
+    return (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+
+
+def _hsp_business_event_search(
+    orders: list[dict[str, Any]],
+    accesses: list[dict[str, Any]],
+    event_date: calendar_date,
+    timezone_name: str,
+    config: dict[str, Any],
+    day_totals: dict[str, Any],
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Events of one jornada (by schedule). Never raises."""
+    now = now or _now()
+    start, end = _hsp_business_window(event_date, timezone_name, config)
+    zone = _hsp_report_zone(timezone_name)
+    window = {"opened_at": _iso(start), "closed_at": _iso(end), "is_open": start <= now < end}
+    label = (
+        f"jornada del {event_date.strftime('%d/%m/%Y')} "
+        f"({start.astimezone(zone).strftime('%d/%m %H:%M')} a {end.astimezone(zone).strftime('%d/%m %H:%M')})"
+    )
+    base = {"date": event_date.isoformat(), "timezone": timezone_name, "business_day": True, "window": window}
+    try:
+        members = []
+        for raw in orders:
+            order = _payload(raw)
+            created = _hsp_event_datetime(order.get("created_at"))
+            if not created or _status(order.get("status")) == STATUS_CANCELLED:
+                continue
+            if _hsp_business_date(created, timezone_name, config) == event_date:
+                members.append(order)
+        events = _hsp_event_search_rows(members, accesses, event_date, timezone_name, filter_calendar=False)
+        for event in events:
+            event["opening_date"] = event_date.isoformat()
+            event["shift_opened_at"] = window["opened_at"]
+            event["shift_closed_at"] = window["closed_at"]
+    except Exception as exc:  # the search must never break the dashboard
+        logging.getLogger("clonexa.hospitality").warning("Busqueda de eventos fallo: %s", exc)
+        return {**base, "events": [], "summary": {
+            "events": 0, "qr_events": 0, "bar_events": 0, "total": 0.0, "orders": 0,
+            "shifts": [{**window, "business_date": event_date.isoformat()}], "reconciled": True,
+            "message": f"No se pudo reconstruir la {label}. Intenta de nuevo.",
+        }}
+    total = _money(sum(_num(event["total"]) for event in events))
+    count = sum(event["orders_count"] for event in events)
+    expected_total = _money(day_totals.get("total"))
+    expected_orders = int(day_totals.get("orders") or 0)
+    return {**base, "events": events, "summary": {
+        "events": len(events), "qr_events": sum(event["type"] == "qr" for event in events),
+        "bar_events": sum(event["type"] == "bar" for event in events), "total": total, "orders": count,
+        "shifts": [{**window, "business_date": event_date.isoformat()}],
+        "expected_total": expected_total, "expected_orders": expected_orders,
+        "reconciled": total == expected_total and count == expected_orders,
+        "message": "" if events else f"No hubo ventas en la {label}.",
+    }}
+
+
+async def _hsp_company_report_settings(db: AsyncSession, company_id: uuid.UUID) -> tuple[str, dict[str, Any] | None] | None:
+    result = await db.execute(
+        text("SELECT timezone, settings_json FROM companies WHERE id = :company_id"),
+        {"company_id": str(company_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        return None
+    return str(_hsp_report_zone(row.get("timezone"))), _hsp_business_day_config(row.get("settings_json"))
+
+
+async def _hsp_load_business_sources(db: AsyncSession, company_id: uuid.UUID, since: datetime):
+    params = {"company_id": str(company_id), "since": since}
+    result = await db.execute(text("""
+        SELECT 'order' AS kind, to_jsonb(o) AS data FROM hospitality_orders o
+        WHERE o.company_id = :company_id AND o.created_at >= :since
+        UNION ALL
+        SELECT 'access', to_jsonb(a) FROM hospitality_table_access a
+        WHERE a.company_id = :company_id AND a.activated_at >= :since
+        UNION ALL
+        SELECT 'song', jsonb_build_object('id', s.id, 'song', s.song, 'created_at', s.created_at)
+        FROM hospitality_song_requests s
+        WHERE s.company_id = :company_id AND s.created_at >= :since
+    """), params)
+    orders, accesses, songs = [], [], []
+    for source in result.mappings().all():
+        row = _json(source["data"], {})
+        {"order": orders, "access": accesses, "song": songs}[source["kind"]].append(row)
+    inventory: list[dict[str, Any]] = []
+    try:
+        lite = await hospitality_inventory_lite(company_id, limit=500, db=db)
+        inventory = list(lite.get("inventory") or [])
+    except Exception:
+        inventory = []
+    return orders, accesses, songs, inventory
+
+
+async def _hsp_business_analytics(
+    db: AsyncSession, company_id: uuid.UUID, timezone_name: str, config: dict[str, Any],
+    event_date: calendar_date | None,
+) -> dict[str, Any]:
+    now = _now()
+    today = _hsp_business_date(now, timezone_name, config)
+    selected = event_date or today
+    # 3 calendar months back (monthly view) plus a week for the week-over-week comparison.
+    first = (today.replace(day=1) - timedelta(days=62)).replace(day=1) - timedelta(days=8)
+    first = min(first, selected - timedelta(days=8))
+    since = datetime.combine(first, dt_time(0, 0), _hsp_report_zone(timezone_name))
+    orders, accesses, songs, inventory = await _hsp_load_business_sources(db, company_id, since)
+    analytics = {}
+    daily_totals: dict[str, Any] = {}
+    for mode, period in (("days", "daily"), ("weeks", "weekly"), ("months", "monthly")):
+        aggregated = _hsp_business_aggregate(orders, songs, accesses, inventory, period, timezone_name, config, now=now)
+        analytics[mode] = {"periods": aggregated["periods"], "totals": aggregated["totals"]}
+        daily_totals = aggregated["daily_totals"]
+    selected_totals = daily_totals.get(selected.isoformat(), {"total": 0.0, "orders": 0})
+    previous = selected - timedelta(days=7)
+    previous_totals = daily_totals.get(previous.isoformat(), {"total": 0.0, "orders": 0})
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "timezone": timezone_name,
+        "today": today.isoformat(),
+        "generated_at": now.isoformat(),
+        "business_day": {"enabled": True, "open": config["open_text"], "close": config["close_text"]},
+        "analytics": analytics,
+        "week_compare": {
+            "date": selected.isoformat(), "total": selected_totals["total"], "orders": selected_totals["orders"],
+            "previous_date": previous.isoformat(), "previous_total": previous_totals["total"],
+            "previous_orders": previous_totals["orders"],
+        },
+        "event_search": _hsp_business_event_search(orders, accesses, selected, timezone_name, config, selected_totals, now=now),
+    }
+
+
+async def _hsp_business_report_payload(
+    db: AsyncSession, company_id: uuid.UUID, company: dict[str, Any], timezone_name: str,
+    config: dict[str, Any], period_mode: str, start_date: calendar_date | None, end_date: calendar_date | None,
+) -> dict[str, Any]:
+    now = _now()
+    today = _hsp_business_date(now, timezone_name, config)
+    first = start_date or ((today.replace(day=1) - timedelta(days=62)).replace(day=1))
+    since = datetime.combine(first - timedelta(days=8), dt_time(0, 0), _hsp_report_zone(timezone_name))
+    orders, accesses, songs, inventory = await _hsp_load_business_sources(db, company_id, since)
+    aggregated = _hsp_business_aggregate(
+        orders, songs, accesses, inventory, period_mode, timezone_name, config, start_date, end_date, now=now,
+    )
+    totals = aggregated["totals"]
+    avg_ticket = (totals["total"] / totals["orders"]) if totals["orders"] else 0
+    top_table = _hsp_top(totals["tables"], "total", 1)
+    zone = _hsp_report_zone(timezone_name)
+    jornadas = [
+        {
+            "closure_number": calendar_date.fromisoformat(shift["business_date"]).strftime("%d/%m/%Y"),
+            "opened_at": shift["opened_at"], "closed_at": shift["closed_at"], "closed_by": "Horario",
+            "orders_count": aggregated["daily_totals"].get(shift["business_date"], {}).get("orders", 0),
+            "total_sold": aggregated["daily_totals"].get(shift["business_date"], {}).get("total", 0.0),
+            "cash_total": 0.0, "transfer_total": 0.0, "card_total": 0.0, "other_total": 0.0, "notes": "",
+        }
+        for shift in totals["shifts"]
+    ]
+    return {
+        "company_id": str(company_id),
+        "company": company,
+        "business_day": {"enabled": True, "open": config["open_text"], "close": config["close_text"]},
+        "period": period_mode,
+        "period_label": {"daily": "Diario", "weekly": "Semanal", "monthly": "Mensual"}[period_mode],
+        "range_start": start_date.isoformat() if start_date else None,
+        "range_end": end_date.isoformat() if end_date else None,
+        "range_label": (
+            start_date.strftime("%d/%m/%Y")
+            if start_date and end_date and start_date == end_date
+            else f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
+            if start_date and end_date
+            else {"daily": "Ultimos 14 dias", "weekly": "Ultimas 12 semanas", "monthly": "Ultimos 3 meses"}[period_mode]
+        ),
+        "generated_at": now.astimezone(zone).isoformat(),
+        "periods": aggregated["periods"],
+        "totals": totals,
+        "closures": jornadas,
+        "cards": [
+            {"label": "Total vendido", "value": _hsp_money_text(totals["total"]), "detail": f"{totals['jornadas']} jornada(s)"},
+            {"label": "Ticket promedio", "value": _hsp_money_text(avg_ticket), "detail": f"{totals['orders']} pedido(s)"},
+            {"label": "Jornadas", "value": totals["jornadas"], "detail": f"{config['open_text']} a {config['close_text']}"},
+            {"label": "Pedidos", "value": totals["orders"], "detail": "Incluidos en las jornadas"},
+            {"label": "Mesa lider", "value": (top_table[0].get("name") if top_table else "-"), "detail": _hsp_money_text(top_table[0].get("total") if top_table else 0)},
+            {"label": "Mermas y cancelaciones", "value": _hsp_money_text(totals["cancelled_total"]), "detail": f"{totals['cancelled_count']} pedido(s)"},
+        ],
+        "top_products": _hsp_top(totals["products"], "total", 20),
+        "top_tables": _hsp_top(totals["tables"], "total", 20),
+        "top_songs": _hsp_top(totals["songs"], "count", 20),
+    }
+
+
 async def _hospitality_report_payload(
     db: AsyncSession,
     company_id: uuid.UUID,
@@ -2110,6 +2572,12 @@ async def _hospitality_report_payload(
     period_mode = _hsp_period_mode(period)
     company = await _hospitality_company_identity(db, company_id)
     timezone_name = company.get("timezone") or "America/Bogota"
+    report_settings = await _hsp_company_report_settings(db, company_id)
+    business_day = report_settings[1] if report_settings else None
+    if business_day:
+        return await _hsp_business_report_payload(
+            db, company_id, company, timezone_name, business_day, period_mode, start_date, end_date,
+        )
     since_date = start_date or (_hsp_local_date(_now(), timezone_name) - timedelta(days=120))
     since = datetime.combine(since_date, datetime.min.time(), _hsp_report_zone(timezone_name))
     orders, closures, song_requests, _ = await _hsp_load_shift_sources(db, company_id, since)
@@ -2404,9 +2872,12 @@ def build_hospitality_dashboard_pdf(payload: dict[str, Any]) -> bytes:
             {"label": "Otro", "value": _hsp_money_text(totals.get("other")), "pct": f"{((_num(totals.get('other')) / max(_num(totals.get('total')), 1)) * 100):.0f}%"},
         ],
     )
+    kpi_columns = [("period", "Periodo", 1), ("total", "Total", 1), ("cash", "Efectivo", 1), ("transfer", "Transf.", 1), ("card", "Tarjeta", 1), ("other", "Otro", 1), ("orders", "Pedidos", .7), ("ticket", "Ticket", 1), ("hours", "Horas", .7), ("top_table", "Mesa top", 1)]
+    if payload.get("business_day"):
+        kpi_columns = [column for column in kpi_columns if column[0] != "hours"]
     table(
         "KPI vs KPI por periodo",
-        [("period", "Periodo", 1), ("total", "Total", 1), ("cash", "Efectivo", 1), ("transfer", "Transf.", 1), ("card", "Tarjeta", 1), ("other", "Otro", 1), ("orders", "Pedidos", .7), ("ticket", "Ticket", 1), ("hours", "Horas", .7), ("top_table", "Mesa top", 1)],
+        kpi_columns,
         [
             {
                 "period": f"{row.get('label')} {row.get('subtitle')}",
@@ -4986,14 +5457,12 @@ async def hospitality_sales_analytics(
     event_date: calendar_date | None = None,
 ) -> dict[str, Any]:
     await _ensure_storage(db)
-    company_result = await db.execute(
-        text("SELECT timezone FROM companies WHERE id = :company_id"),
-        {"company_id": str(company_id)},
-    )
-    company = company_result.mappings().first()
-    if not company:
+    report_settings = await _hsp_company_report_settings(db, company_id)
+    if report_settings is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
-    timezone_name = str(_hsp_report_zone(company.get("timezone")))
+    timezone_name, business_day = report_settings
+    if business_day:
+        return await _hsp_business_analytics(db, company_id, timezone_name, business_day, event_date)
     today = _hsp_local_date(_now(), timezone_name)
     # Include whole shifts closing after the scan boundary; filter by opening later.
     start = datetime.combine(today - timedelta(days=120), datetime.min.time(), _hsp_report_zone(timezone_name))

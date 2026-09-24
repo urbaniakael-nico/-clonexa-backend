@@ -1,0 +1,147 @@
+// Tablero de reportes con jornada por horario (048C): sin "Horas operadas",
+// comparativo contra la misma jornada de la semana anterior e indicadores de
+// bar. Las demás empresas (sin business_day) se ven igual que antes.
+const { readFileSync } = require('node:fs');
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+
+const source = readFileSync('app/web/client.js', 'utf8').replace(/\r\n/g, '\n');
+
+function fn(name) {
+  const start = source.search(new RegExp(`\\n  (?:async )?function ${name}\\(`));
+  assert.ok(start >= 0, name);
+  const tail = source.slice(start + 3);
+  const next = tail.search(/\n  (?:async )?function |\n  let |\n  const |\n  document\./);
+  return (next < 0 ? tail : tail.slice(0, next)) + '\n';
+}
+
+const NAMES = [
+  'cxHspDashNum024W', 'cxHspDashDate024W', 'cxHspDashEmptyBucket024W', 'cxHspDashAggregate024W', 'cxHspDashTop024W',
+  'cxHspDashHours024W', 'cxHspDashShiftRange033F', 'cxHspDashRenderChart024W', 'cxHspDashRenderTable024W',
+  'cxHspDashRankCard024W', 'cxHspDashEventTime033B', 'cxHspDashEventItems033B', 'cxHspDashEventCard033B',
+  'cxHspDashRenderEventSearch033B', 'cxHspDashDefaultEventDate033B', 'cxHspDashBusinessDay048C', 'cxHspDashMinutes048C',
+  'cxHspDashDelta048C', 'cxHspDashHourLabel048C', 'cxHspDashIndicators048C', 'cxHspDashStyles048C', 'cxHspDashPaint024W',
+];
+
+const bucket = (extra) => ({
+  key: '', label: '', subtitle: '', closures: 0, orders: 0, total: 0, cash: 0, transfer: 0, card: 0, other: 0,
+  products: {}, tables: {}, songs: {}, shifts: [], ...extra,
+});
+
+function businessPayload() {
+  const day23 = bucket({
+    key: '2026-09-23', label: '23 sep', subtitle: '2026', closures: 1, orders: 2, total: 50000, cash: 20000, transfer: 30000,
+    tables: { 'Mesa 2': { name: 'Mesa 2', total: 30000, orders: 1 } }, prev_week_date: '2026-09-16', prev_week_total: 40000,
+    shifts: [{ opened_at: '2026-09-23T23:00:00Z', closed_at: '2026-09-24T09:00:00Z', is_open: false }],
+  });
+  const totals = bucket({
+    key: 'total', closures: 3, orders: 4, total: 65000, cash: 30000, transfer: 30000, card: 5000,
+    tables: { 'Mesa 2': { name: 'Mesa 2', total: 30000, orders: 1 } },
+    hours: [{ hour: 18, total: 20000, orders: 1 }, { hour: 2, total: 30000, orders: 1 }],
+    top_products_quantity: [{ name: 'Cerveza Aguila', quantity: 4, total: 20000 }],
+    top_products_total: [{ name: 'Aguardiente media', quantity: 1, total: 30000 }],
+    no_rotation: [{ id: 'inv-agua', name: 'Agua Cristal', stock: 12 }],
+    table_sessions: { sessions: 1, avg_consumption: 20000, avg_minutes: 120 },
+    cancelled_count: 1, cancelled_total: 8000,
+    cancelled: [{ order_number: 'QR-o5', table: 'Mesa 2', total: 8000, reason: 'Vaso roto' }],
+  });
+  const snapshot = { periods: [day23], totals };
+  return {
+    company_id: 'c1', timezone: 'America/Bogota', today: '2026-09-24', generated_at: '2026-09-24T15:00:00Z',
+    business_day: { enabled: true, open: '18:00', close: '04:00' },
+    analytics: { days: snapshot, weeks: snapshot, months: snapshot },
+    week_compare: { date: '2026-09-23', total: 50000, orders: 2, previous_date: '2026-09-16', previous_total: 40000, previous_orders: 1 },
+    event_search: { date: '2026-09-22', events: [], summary: { events: 0, total: 0, orders: 0, message: 'No hubo ventas en la jornada del 22/09/2026 (22/09 18:00 a 23/09 04:00).' } },
+  };
+}
+
+function legacyPayload() {
+  const payload = businessPayload();
+  delete payload.business_day;
+  delete payload.week_compare;
+  const legacy = { periods: [bucket({ key: '2026-09-23', label: '23 sep', worked_minutes: 600 })], totals: bucket({ key: 'total', worked_minutes: 9833 }) };
+  payload.analytics = { days: legacy, weeks: legacy, months: legacy };
+  payload.event_search.summary = { events: 0 };
+  return payload;
+}
+
+function dashboard(payload, mode = 'days') {
+  const root = { innerHTML: '', querySelector: () => null };
+  const head = { children: [], appendChild(node) { this.children.push(node); } };
+  const ctx = vm.createContext({
+    h: (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
+    cxHspMoney024R: (value) => `$ ${Math.round(Number(value || 0)).toLocaleString('de-DE')}`,
+    cxHspDashStatus033E: () => {},
+    cxHspDashPeriodDefs024W: () => [],
+    document: {
+      head,
+      getElementById: (id) => (id === 'hspDashRoot024W' ? root : head.children.find((node) => node.id === id) || null),
+      createElement: () => ({ id: '', textContent: '' }),
+    },
+    Intl, Date, Math, Number, String, Array, Object, JSON,
+  });
+  vm.runInContext(
+    `var cxHspDashAnalytics033E = ${JSON.stringify(payload)}; var cxHspDashMode024W = ${JSON.stringify(mode)};
+     var cxHspDashEventTimezone033B = "America/Bogota"; var cxHspDashEventDate033B = "2026-09-22";
+     var cxHspDashEventSummary033B = cxHspDashAnalytics033E.event_search.summary; var cxHspDashEvents033B = [];
+     var cxHspDashEventLoading033B = false; var cxHspDashEventError033B = ""; var cxHspDashPainted033E = "";\n`
+      + NAMES.map(fn).join('\n'),
+    ctx,
+  );
+  ctx.cxHspDashPaint024W();
+  return { html: root.innerHTML, head };
+}
+
+test('jornada por horario: sin "Horas operadas" en KPI ni en la tabla', () => {
+  const { html } = dashboard(businessPayload());
+  assert.doesNotMatch(html, /Horas operadas/);
+  assert.doesNotMatch(html, /<th>Horas<\/th>/);
+  assert.match(html, /<span>Consumo por mesa<\/span><b>\$ 20\.000<\/b><small>Duración prom\. 2 h 00 min<\/small>/);
+  assert.match(html, /3 jornada\(s\)/);
+});
+
+test('la tabla KPI diaria compara contra la misma jornada de la semana anterior', () => {
+  const { html } = dashboard(businessPayload());
+  assert.match(html, /<th>vs sem\. ant\.<\/th>/);
+  assert.match(html, /hspdash-delta-cell-048c up" title="2026-09-16: \$ 40\.000">\+25%<\/td>/);
+  const weeks = dashboard(businessPayload(), 'weeks').html;
+  assert.doesNotMatch(weeks, /vs sem\. ant\./, 'solo aplica en la vista diaria');
+});
+
+test('los KPI cuadran entre sí: total, ticket, mesa líder y métodos de pago', () => {
+  const { html } = dashboard(businessPayload());
+  assert.match(html, /<span>Total vendido<\/span><b>\$ 65\.000<\/b>/);
+  assert.match(html, /<span>Ticket promedio<\/span><b>\$ 16\.250<\/b><small>4 pedido\(s\)<\/small>/);
+  assert.match(html, /<span>Mesa lider<\/span><b>Mesa 2<\/b>/);
+  assert.match(html, /<span>Efectivo<\/span><b>\$ 30\.000<\/b>[\s\S]*<span>Transferencia<\/span><b>\$ 30\.000<\/b>[\s\S]*<span>Tarjeta<\/span><b>\$ 5\.000<\/b>/);
+});
+
+test('indicadores de bar: hora pico, top 10, sin rotación, mesas, mermas y semana anterior', () => {
+  const { html, head } = dashboard(businessPayload());
+  assert.match(html, /Ventas por hora de la jornada · hora pico 02:00/);
+  assert.match(html, /hspdash-hour-048c "[\s\S]*<b>18:00<\/b>[\s\S]*hspdash-hour-048c peak[\s\S]*<b>02:00<\/b>/);
+  assert.match(html, /Top 10 en unidades[\s\S]*1\. Cerveza Aguila<\/span><b>4 u<\/b>/);
+  assert.match(html, /Top 10 en plata[\s\S]*1\. Aguardiente media<\/span><b>\$ 30\.000<\/b>/);
+  assert.match(html, /Sin rotación \(1\)[\s\S]*Agua Cristal<\/span><b>12 en stock<\/b>/);
+  assert.match(html, /Consumo promedio<\/span><b>\$ 20\.000<\/b>[\s\S]*Duración promedio<\/span><b>2 h 00 min<\/b>/);
+  assert.match(html, /1 pedido\(s\)<\/span><b>\$ 8\.000<\/b>[\s\S]*Vaso roto/);
+  assert.match(html, /Misma jornada, semana anterior[\s\S]*\$ 50\.000[\s\S]*\$ 40\.000[\s\S]*\+25%/);
+  assert.ok(head.children.some((node) => node.id === 'cxHspDashStyles048C'));
+});
+
+test('búsqueda de eventos sin datos lo dice con claridad', () => {
+  const { html } = dashboard(businessPayload());
+  assert.match(html, /No hubo ventas en la jornada del 22\/09\/2026 \(22\/09 18:00 a 23\/09 04:00\)\./);
+  assert.match(html, /Jornada por horario \(18:00 a 04:00 del día siguiente\)/);
+});
+
+test('las demás empresas (sin jornada por horario) conservan el tablero actual', () => {
+  const { html, head } = dashboard(legacyPayload());
+  assert.match(html, /<span>Horas operadas<\/span><b>163h 53m<\/b>/);
+  assert.match(html, /<th>Horas<\/th>/);
+  assert.doesNotMatch(html, /Indicadores del bar|vs sem\. ant\.|Consumo por mesa/);
+  assert.match(html, /cierre\(s\)/);
+  assert.match(html, /No hay consumos capturados para este día\./);
+  assert.ok(!head.children.some((node) => node.id === 'cxHspDashStyles048C'));
+});

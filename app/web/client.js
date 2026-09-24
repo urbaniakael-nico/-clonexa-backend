@@ -24199,7 +24199,9 @@ function inventoryCreatePayload() {
           <div><span class="hspdash-event-eyebrow-033b">HISTÓRICO RETROACTIVO</span><h2>BÚSQUEDA DE EVENTOS</h2></div>
           <span class="hspdash-event-count-033b">${h(summary.events || cxHspDashEvents033B.length || 0)} evento(s)</span>
         </div>
-        <p class="client-muted">Misma jornada de la gráfica y los KPI, incluidas las ventas después de medianoche.</p>
+        <p class="client-muted">${cxHspDashBusinessDay048C()
+          ? `Jornada por horario (${h(cxHspDashBusinessDay048C().open)} a ${h(cxHspDashBusinessDay048C().close)} del día siguiente): las ventas de la madrugada cuentan en la jornada que abrió.`
+          : "Misma jornada de la gráfica y los KPI, incluidas las ventas después de medianoche."}</p>
         <div class="hspdash-event-controls-033b">
           <label>Día de apertura de la jornada<input type="date" value="${h(cxHspDashEventDate033B || cxHspDashDefaultEventDate033B())}" data-hsp-dash-event-date></label>
           <button class="client-btn" type="button" data-hsp-dash-event-search>Buscar</button>
@@ -24217,7 +24219,7 @@ function inventoryCreatePayload() {
               ? `<div class="personal-toast error">${h(cxHspDashEventError033B)}</div>`
               : cxHspDashEvents033B.length
                 ? cxHspDashEvents033B.map(cxHspDashEventCard033B).join("")
-                : `<div class="hspdash-empty-024w">No hay consumos capturados para este día.</div>`}
+                : `<div class="hspdash-empty-024w">${h(summary.message || "No hay consumos capturados para este día.")}</div>`}
         </div>
       </section>
     `;
@@ -24617,6 +24619,132 @@ function inventoryCreatePayload() {
     return `${start} → ${end}${shifts.length > 1 ? ` · ${shifts.length} jornadas` : ""}`;
   }
 
+  /* CLONEXA_048C_BUSINESS_DAY_START */
+  // Jornada por horario (solo empresas con hospitality_business_day, hoy The
+  // Time Machine): sin "Horas operadas" y con los indicadores de bar.
+  function cxHspDashBusinessDay048C() {
+    const config = cxHspDashAnalytics033E?.business_day;
+    return config && config.enabled ? config : null;
+  }
+
+  function cxHspDashMinutes048C(minutes = 0) {
+    const total = Math.max(0, Math.round(cxHspDashNum024W(minutes)));
+    if (!total) return "-";
+    return total >= 60 ? `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, "0")} min` : `${total} min`;
+  }
+
+  function cxHspDashDelta048C(current = 0, previous = 0) {
+    const now = cxHspDashNum024W(current);
+    const before = cxHspDashNum024W(previous);
+    if (!before && !now) return { text: "Sin ventas", cls: "flat" };
+    if (!before) return { text: "Nueva", cls: "up" };
+    const pct = Math.round(((now - before) / before) * 100);
+    return { text: `${pct > 0 ? "+" : ""}${pct}%`, cls: pct > 0 ? "up" : pct < 0 ? "down" : "flat" };
+  }
+
+  function cxHspDashHourLabel048C(hour = 0) {
+    return `${String(hour).padStart(2, "0")}:00`;
+  }
+
+  function cxHspDashIndicators048C(totals = {}) {
+    const hours = Array.isArray(totals.hours) ? totals.hours : [];
+    const maxHour = Math.max(...hours.map((row) => cxHspDashNum024W(row.total)), 1);
+    const peak = hours.reduce((best, row) => (!best || cxHspDashNum024W(row.total) > cxHspDashNum024W(best.total) ? row : best), null);
+    const topQty = Array.isArray(totals.top_products_quantity) ? totals.top_products_quantity : [];
+    const topMoney = Array.isArray(totals.top_products_total) ? totals.top_products_total : [];
+    const still = Array.isArray(totals.no_rotation) ? totals.no_rotation : [];
+    const sessions = totals.table_sessions || {};
+    const cancelled = Array.isArray(totals.cancelled) ? totals.cancelled : [];
+    const compare = cxHspDashAnalytics033E?.week_compare || {};
+    const delta = cxHspDashDelta048C(compare.total, compare.previous_total);
+    const dayName = (value) => {
+      const date = cxHspDashDate024W(`${value}T12:00:00`);
+      const text = date ? new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "2-digit", month: "2-digit" }).format(date) : String(value || "");
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    };
+    const list = (rows, render, empty) => rows.length
+      ? rows.map(render).join("")
+      : `<div class="hspdash-empty-024w">${h(empty)}</div>`;
+    return `
+      <section class="hspdash-panel-024w hspdash-ind-048c">
+        <div class="hspdash-head-024w"><h2>Indicadores del bar</h2><small>Periodo de la gráfica · jornada ${h(cxHspDashBusinessDay048C()?.open || "")} a ${h(cxHspDashBusinessDay048C()?.close || "")}</small></div>
+        <div class="hspdash-ind-grid-048c">
+          <article class="hspdash-ind-card-048c">
+            <h3>Misma jornada, semana anterior</h3>
+            <p class="hspdash-ind-compare-048c"><span>${h(dayName(compare.date))}</span><b>${h(cxHspMoney024R(compare.total || 0))}</b></p>
+            <p class="hspdash-ind-compare-048c muted"><span>${h(dayName(compare.previous_date))}</span><b>${h(cxHspMoney024R(compare.previous_total || 0))}</b></p>
+            <span class="hspdash-delta-048c ${delta.cls}">${h(delta.text)}</span>
+          </article>
+          <article class="hspdash-ind-card-048c">
+            <h3>Mesas</h3>
+            <p class="hspdash-ind-compare-048c"><span>Consumo promedio</span><b>${h(cxHspMoney024R(sessions.avg_consumption || 0))}</b></p>
+            <p class="hspdash-ind-compare-048c"><span>Duración promedio</span><b>${h(cxHspDashMinutes048C(sessions.avg_minutes))}</b></p>
+            <small>${h(sessions.sessions || 0)} mesa(s) con consumo</small>
+          </article>
+          <article class="hspdash-ind-card-048c">
+            <h3>Cancelaciones y mermas</h3>
+            <p class="hspdash-ind-compare-048c"><span>${h(totals.cancelled_count || 0)} pedido(s)</span><b>${h(cxHspMoney024R(totals.cancelled_total || 0))}</b></p>
+            <div class="hspdash-ind-list-048c">${list(cancelled.slice(0, 5), (row) => `<div><span>${h(row.order_number || "Pedido")} · ${h(row.table || "")}<small>${h(row.reason || "")}</small></span><b>${h(cxHspMoney024R(row.total || 0))}</b></div>`, "Sin cancelaciones en el periodo.")}</div>
+          </article>
+        </div>
+        <div class="hspdash-ind-block-048c">
+          <h3>Ventas por hora de la jornada${peak ? ` · hora pico ${h(cxHspDashHourLabel048C(peak.hour))}` : ""}</h3>
+          ${hours.length ? `<div class="hspdash-hours-048c">${hours.map((row) => `
+            <div class="hspdash-hour-048c ${peak && row.hour === peak.hour ? "peak" : ""}" title="${h(cxHspMoney024R(row.total))} · ${h(row.orders)} pedido(s)">
+              <div class="hspdash-hour-track-048c"><div style="height:${Math.max(2, (cxHspDashNum024W(row.total) / maxHour) * 100)}%"></div></div>
+              <b>${h(cxHspDashHourLabel048C(row.hour))}</b><small>${h(cxHspMoney024R(row.total))}</small>
+            </div>`).join("")}</div>` : `<div class="hspdash-empty-024w">Sin ventas en el periodo.</div>`}
+        </div>
+        <div class="hspdash-ind-grid-048c">
+          <article class="hspdash-ind-card-048c">
+            <h3>Top 10 en unidades</h3>
+            <div class="hspdash-ind-list-048c">${list(topQty, (row, index) => `<div><span>${index + 1}. ${h(row.name)}</span><b>${h(cxHspDashNum024W(row.quantity))} u</b></div>`, "Sin ventas en el periodo.")}</div>
+          </article>
+          <article class="hspdash-ind-card-048c">
+            <h3>Top 10 en plata</h3>
+            <div class="hspdash-ind-list-048c">${list(topMoney, (row, index) => `<div><span>${index + 1}. ${h(row.name)}</span><b>${h(cxHspMoney024R(row.total || 0))}</b></div>`, "Sin ventas en el periodo.")}</div>
+          </article>
+          <article class="hspdash-ind-card-048c">
+            <h3>Sin rotación (${h(still.length)})</h3>
+            <div class="hspdash-ind-list-048c">${list(still, (row) => `<div><span>${h(row.name)}</span><b>${h(cxHspDashNum024W(row.stock))} en stock</b></div>`, "Todo el inventario activo se vendió.")}</div>
+          </article>
+        </div>
+      </section>
+    `;
+  }
+
+  function cxHspDashStyles048C() {
+    if (document.getElementById("cxHspDashStyles048C")) return;
+    const style = document.createElement("style");
+    style.id = "cxHspDashStyles048C";
+    style.textContent = `
+      .hspdash-ind-048c{display:grid;gap:14px}
+      .hspdash-ind-grid-048c{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+      .hspdash-ind-card-048c,.hspdash-ind-block-048c{border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:12px 14px;background:rgba(3,7,18,.28);display:grid;gap:8px;align-content:start;min-width:0}
+      .hspdash-ind-card-048c h3,.hspdash-ind-block-048c h3{margin:0;font-size:14px}
+      .hspdash-ind-compare-048c{margin:0;display:flex;justify-content:space-between;gap:10px}
+      .hspdash-ind-compare-048c.muted{opacity:.7}
+      .hspdash-delta-048c{justify-self:start;padding:3px 10px;border-radius:999px;font-weight:900;font-size:13px;background:rgba(255,255,255,.10)}
+      .hspdash-delta-048c.up{background:rgba(34,197,94,.22);color:#86efac}
+      .hspdash-delta-048c.down{background:rgba(239,68,68,.22);color:#fca5a5}
+      .hspdash-ind-list-048c{display:grid;gap:4px;max-height:260px;overflow:auto}
+      .hspdash-ind-list-048c>div{display:flex;justify-content:space-between;gap:10px;font-size:13px}
+      .hspdash-ind-list-048c span{min-width:0;overflow-wrap:anywhere}
+      .hspdash-ind-list-048c small{display:block;opacity:.7}
+      .hspdash-ind-list-048c b{white-space:nowrap}
+      .hspdash-hours-048c{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(52px,1fr);gap:6px;overflow-x:auto;padding-bottom:4px}
+      .hspdash-hour-048c{display:grid;gap:3px;justify-items:center;font-size:11px}
+      .hspdash-hour-track-048c{height:110px;width:100%;display:flex;align-items:flex-end;border-radius:8px;background:rgba(255,255,255,.05)}
+      .hspdash-hour-track-048c div{width:100%;border-radius:8px;background:linear-gradient(180deg,#a855f7,#6366f1)}
+      .hspdash-hour-048c.peak .hspdash-hour-track-048c div{background:linear-gradient(180deg,#f59e0b,#ef4444)}
+      .hspdash-hour-048c small{opacity:.75;white-space:nowrap}
+      .hspdash-delta-cell-048c.up{color:#86efac}.hspdash-delta-cell-048c.down{color:#fca5a5}
+      @media(max-width:900px){.hspdash-ind-grid-048c{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+  /* CLONEXA_048C_BUSINESS_DAY_END */
+
   function cxHspDashRenderChart024W(periods = []) {
     const max = Math.max(...periods.map((row) => cxHspDashNum024W(row.total)), 1);
     return `
@@ -24643,7 +24771,7 @@ function inventoryCreatePayload() {
         <table class="hspdash-table-024w">
           <thead>
             <tr>
-              <th>Periodo</th><th>Total</th><th>Efectivo</th><th>Transf.</th><th>Tarjeta</th><th>Otro</th><th>Pedidos</th><th>Ticket prom.</th><th>Horas</th><th>Mesa top</th>
+              <th>Periodo</th><th>Total</th><th>Efectivo</th><th>Transf.</th><th>Tarjeta</th><th>Otro</th><th>Pedidos</th><th>Ticket prom.</th>${cxHspDashBusinessDay048C() ? (cxHspDashMode024W === "days" ? "<th>vs sem. ant.</th>" : "") : "<th>Horas</th>"}<th>Mesa top</th>
             </tr>
           </thead>
           <tbody>
@@ -24660,7 +24788,11 @@ function inventoryCreatePayload() {
                   <td>${h(cxHspMoney024R(row.other))}</td>
                   <td>${h(row.orders)}</td>
                   <td>${h(cxHspMoney024R(avg))}</td>
-                  <td>${h(cxHspDashHours024W(row.workedMinutes))}</td>
+                  ${cxHspDashBusinessDay048C()
+                    ? (cxHspDashMode024W === "days"
+                      ? (() => { const delta = cxHspDashDelta048C(row.total, row.prev_week_total); return `<td class="hspdash-delta-cell-048c ${delta.cls}" title="${h(row.prev_week_date || "")}: ${h(cxHspMoney024R(row.prev_week_total || 0))}">${h(delta.text)}</td>`; })()
+                      : "")
+                    : `<td>${h(cxHspDashHours024W(row.workedMinutes))}</td>`}
                   <td>${h(topTable?.name || "-")}</td>
                 </tr>
               `;
@@ -24679,6 +24811,7 @@ function inventoryCreatePayload() {
       return;
     }
     const { periods, totals } = cxHspDashAggregate024W(cxHspDashMode024W);
+    if (cxHspDashBusinessDay048C()) cxHspDashStyles048C();
     const comparisonTitle = cxHspDashMode024W === "days" ? "Comparativo diario" : cxHspDashMode024W === "weeks" ? "Comparativo semanal" : "Comparativo mensual";
     const topProduct = cxHspDashTop024W(totals.products, "total", 1)[0];
     const topTable = cxHspDashTop024W(totals.tables, "total", 1)[0];
@@ -24697,10 +24830,12 @@ function inventoryCreatePayload() {
           </div>
         </div>
         <div class="hspdash-kpis-024w">
-          <div class="hspdash-kpi-024w"><span>Total vendido</span><b>${h(cxHspMoney024R(totals.total))}</b><small>${h(totals.closures)} cierre(s)</small></div>
+          <div class="hspdash-kpi-024w"><span>Total vendido</span><b>${h(cxHspMoney024R(totals.total))}</b><small>${h(totals.closures)} ${cxHspDashBusinessDay048C() ? "jornada(s)" : "cierre(s)"}</small></div>
           <div class="hspdash-kpi-024w"><span>Ticket promedio</span><b>${h(cxHspMoney024R(avgTicket))}</b><small>${h(totals.orders)} pedido(s)</small></div>
           <div class="hspdash-kpi-024w"><span>Mesa lider</span><b>${h(topTable?.name || "-")}</b><small>${h(cxHspMoney024R(topTable?.total || 0))}</small></div>
-          <div class="hspdash-kpi-024w"><span>Horas operadas</span><b>${h(cxHspDashHours024W(totals.workedMinutes))}</b><small>${h(topSong?.name || "Sin canciones")}</small></div>
+          ${cxHspDashBusinessDay048C()
+            ? `<div class="hspdash-kpi-024w"><span>Consumo por mesa</span><b>${h(cxHspMoney024R(totals.table_sessions?.avg_consumption || 0))}</b><small>Duración prom. ${h(cxHspDashMinutes048C(totals.table_sessions?.avg_minutes))}</small></div>`
+            : `<div class="hspdash-kpi-024w"><span>Horas operadas</span><b>${h(cxHspDashHours024W(totals.workedMinutes))}</b><small>${h(topSong?.name || "Sin canciones")}</small></div>`}
         </div>
       </section>
 
@@ -24727,6 +24862,8 @@ function inventoryCreatePayload() {
         <div class="hspdash-head-024w"><h2>KPI vs KPI por periodo</h2></div>
         ${cxHspDashRenderTable024W(periods)}
       </section>
+
+      ${cxHspDashBusinessDay048C() ? cxHspDashIndicators048C(totals) : ""}
 
       <section class="hspdash-rank-grid-024w">
         ${cxHspDashRankCard024W("Productos lideres", cxHspDashTop024W(totals.products, "total", 6), "total", cxHspMoney024R)}
@@ -24771,7 +24908,9 @@ function inventoryCreatePayload() {
             <header class="client-hero hspdash-hero-024w">
               <div class="client-eyebrow">Modulo Reportes</div>
               <h1 class="client-title">Reportes</h1>
-              <p class="client-muted">Jornadas completas por fecha de apertura: las ventas después de medianoche permanecen en la misma jornada hasta el cierre.</p>
+              <p class="client-muted" id="hspDashHeroText048C">${cxHspDashBusinessDay048C()
+                ? `Jornada por horario: de ${h(cxHspDashBusinessDay048C().open)} a ${h(cxHspDashBusinessDay048C().close)} del día siguiente. "Generar cierre" es solo el corte de caja.`
+                : "Jornadas completas por fecha de apertura: las ventas después de medianoche permanecen en la misma jornada hasta el cierre."}</p>
               <div class="client-actions">
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 <button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
