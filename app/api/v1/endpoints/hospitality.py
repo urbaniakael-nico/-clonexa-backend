@@ -4124,6 +4124,10 @@ async def activate_hospitality_table_access(
     company_id: uuid.UUID,
     payload: HospitalityTableAccessIn,
     db: AsyncSession = Depends(get_db),
+    # CLONEXA_SEC_2026_09_24 paso 1: had no auth and exposed/created the
+    # tables' access codes. Admin V2 or a logged-in user of this company
+    # (panel, and the mesero/caja/cocina mini panels, which are company users).
+    _actor: None = Depends(require_admin_v2_or_tenant_company_user),
 ) -> dict[str, Any]:
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
@@ -4194,6 +4198,10 @@ async def close_hospitality_table_access(
     company_id: uuid.UUID,
     payload: HospitalityTableAccessCloseIn,
     db: AsyncSession = Depends(get_db),
+    # CLONEXA_SEC_2026_09_24 paso 1: had no auth and exposed/created the
+    # tables' access codes. Admin V2 or a logged-in user of this company
+    # (panel, and the mesero/caja/cocina mini panels, which are company users).
+    _actor: None = Depends(require_admin_v2_or_tenant_company_user),
 ) -> dict[str, Any]:
     """Close a table opened by mistake, but never bypass active orders."""
     await _ensure_storage(db)
@@ -4313,6 +4321,10 @@ async def hospitality_qr_tables(
     base_url: str | None = Query(default=None, max_length=260),
     mode: str | None = Query(default=None, max_length=40),
     db: AsyncSession = Depends(get_db),
+    # CLONEXA_SEC_2026_09_24 paso 1: had no auth and exposed/created the
+    # tables' access codes. Admin V2 or a logged-in user of this company
+    # (panel, and the mesero/caja/cocina mini panels, which are company users).
+    _actor: None = Depends(require_admin_v2_or_tenant_company_user),
 ) -> dict[str, Any]:
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
