@@ -333,3 +333,35 @@ async def test_archived_check_never_raises_when_the_database_is_unreachable():
     # (does not block) rather than raising and 500-ing every request.
     result = await app_main._clonexa_company_is_archived(str(uuid.uuid4()))
     assert result is False
+
+
+def test_audit_lines_really_reach_stdout_at_default_levels(monkeypatch, capsys):
+    """Regression (2026-09-24): the audit used INFO with no handler of its
+    own, so the root logger's default WARNING level dropped every line in
+    production -- tests only passed because caplog.at_level raised the level
+    for them. No level juggling here: the line must reach the real stdout,
+    with the client's real IP (first X-Forwarded-For hop, as Railway sends)."""
+    import asyncio
+
+    monkeypatch.setattr(app_main, "_clonexa_has_valid_session", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        app_main, "AsyncSessionLocal",
+        lambda: type("Ctx", (), {"__aenter__": AsyncMock(return_value=object()), "__aexit__": AsyncMock(return_value=False)})(),
+    )
+    assert logging.getLogger().level == logging.WARNING  # nothing configures root
+
+    async def call_next(request):
+        return "OK"
+
+    class FakeRequest:
+        url = type("U", (), {"path": f"/api/v1/hospitality/companies/{ASADERO_ID}/qr-tables"})()
+        method = "GET"
+        headers = {"x-forwarded-for": "203.0.113.7, 100.64.0.8"}
+        query_params = {}
+
+    asyncio.run(app_main._clonexa_auth_audit_middleware(FakeRequest(), call_next))
+    out = capsys.readouterr().out
+    assert "INFO: AUTH_AUDIT path=/api/v1/hospitality/companies/" in out
+    assert f"company_id={ASADERO_ID}" in out
+    assert "ip=203.0.113.7" in out
+    assert out.count("AUTH_AUDIT") == 1, "una sola línea por petición"

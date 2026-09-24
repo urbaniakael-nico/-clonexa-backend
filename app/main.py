@@ -39,8 +39,9 @@ def _clonexa_request_ip(request) -> str:
     forwarded = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For") or ""
     if forwarded:
         return forwarded.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
+    client = getattr(request, "client", None)
+    if client and getattr(client, "host", None):
+        return client.host
     return ""
 
 
@@ -397,6 +398,35 @@ def _clonexa_audit_origin(request, token_scope: str | None) -> str:
     return "desconocido"
 
 
+# The audit lines are INFO, but nothing configures Python logging in this
+# app (uvicorn only sets up its own loggers), so the root logger's default
+# WARNING level silently dropped every AUTH_AUDIT line since it was added.
+# Give this one logger its own stdout handler at INFO (Railway shows stdout
+# as info). Propagation stays on: the root logger has no handler here, so
+# nothing is printed twice, and pytest's caplog can still see the lines.
+import sys as _clonexa_sys
+
+class _ClonexaStdoutHandler(logging.StreamHandler):
+    """Always writes to the current sys.stdout (not the one at import)."""
+
+    @property
+    def stream(self):
+        return _clonexa_sys.stdout
+
+    @stream.setter
+    def stream(self, _value):
+        pass
+
+
+_clonexa_audit_logger = logging.getLogger("clonexa.auth_audit")
+if not any(getattr(h, "_clonexa_audit", False) for h in _clonexa_audit_logger.handlers):
+    _clonexa_audit_handler = _ClonexaStdoutHandler()
+    _clonexa_audit_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    _clonexa_audit_handler._clonexa_audit = True
+    _clonexa_audit_logger.addHandler(_clonexa_audit_handler)
+_clonexa_audit_logger.setLevel(logging.INFO)
+
+
 def _clonexa_auth_audit_enabled() -> bool:
     return os.getenv("CLONEXA_AUTH_AUDIT", "true").strip().lower() not in {"0", "false", "off", "no"}
 
@@ -416,16 +446,17 @@ async def _clonexa_auth_audit_middleware(request, call_next):
             live_ids = _clonexa_live_company_ids()
             empresa_viva = bool(company_id) and str(company_id) in live_ids
             origin = _clonexa_audit_origin(request, _clonexa_token_scope_hint(token))
-            logging.getLogger("clonexa.auth_audit").info(
-                "AUTH_AUDIT path=%s method=%s company_id=%s empresa_viva=%s origen=%s",
+            _clonexa_audit_logger.info(
+                "AUTH_AUDIT path=%s method=%s company_id=%s empresa_viva=%s origen=%s ip=%s",
                 path,
                 request.method,
                 company_id or "-",
                 str(empresa_viva).lower(),
                 origin,
+                _clonexa_request_ip(request) or "-",
             )
     except Exception as exc:
-        logging.getLogger("clonexa.auth_audit").warning("Fallo no bloqueante en auditoria de auth: %s", exc)
+        _clonexa_audit_logger.warning("Fallo no bloqueante en auditoria de auth: %s", exc)
 
     return await call_next(request)
 # CLONEXA_SEC_2026_09_23_SWEEP_END
