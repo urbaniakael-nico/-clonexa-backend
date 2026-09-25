@@ -3454,6 +3454,7 @@
     login: ["Login tiendas", "Acceso de tienda, turnos y sesiones de colaboradores.", "Campo", "LOG"],
     cotizacion: ["Cotizaciones", "Captura y seguimiento de cotizaciones del tenant.", "Retail / Ventas", "COT"],
     payroll: ["Nómina", "Calculo de horas, cortes y pagos operativos.", "Finanzas", "PAY"],
+    nomina_colombia: ["APLICAR NORMATIVA LABORAL COLOMBIANA", "Nomina automatica segun la ley colombiana: recargos, extras, auxilio, aportes y provisiones desde los turnos.", "Finanzas", "LEY"],
     registro_venta: ["Registro Venta", "Captura directa de ventas, facturas y medios de pago.", "Retail / Ventas", "REG"],
     day_closing: ["Cierre de dia", "Resumen diario de ventas, pedidos, inventario y operacion.", "Hospitality", "DAY"],
     hospitality: ["Reportes", "Motor para bares, restaurantes, mesas, pedidos y atencion comercial.", "Hospitality", "HSP"],
@@ -4020,6 +4021,152 @@
     `;
   }
 
+  /* CX_PAYROLL_COLOMBIA_ADMIN_048O_START */
+  // Parametros de ley por año de "APLICAR NORMATIVA LABORAL COLOMBIANA".
+  // Son nacionales (aplican a todas las empresas con el modulo encendido) y
+  // cambian cada enero; el codigo no trae ningun valor fijo.
+  var cxPayCoAdmin048O = { loaded: false, loading: false, fields: [], years: [], year: null, draft: null, message: "", error: "" };
+
+  function cxPayCoAdminValue048O(field, value) {
+    if (field.kind === "json") return JSON.stringify(value ?? (field.key === "extra_holidays" ? [] : null));
+    return value ?? "";
+  }
+
+  function cxPayCoAdminFormHtml048O() {
+    const draft = cxPayCoAdmin048O.draft;
+    if (!draft) return `<p>Selecciona un año.</p>`;
+    const params = draft.params || {};
+    return `
+      <form data-payco-admin-form style="display:grid;gap:10px;margin-top:12px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
+          ${cxPayCoAdmin048O.fields.map((field) => `
+            <label style="display:grid;gap:4px">
+              <span>${escapeHtml(field.label)}</span>
+              ${field.kind === "json"
+                ? `<textarea name="${escapeHtml(field.key)}" data-kind="json" rows="2">${escapeHtml(cxPayCoAdminValue048O(field, params[field.key]))}</textarea>`
+                : `<input name="${escapeHtml(field.key)}" data-kind="${escapeHtml(field.kind)}" value="${escapeHtml(cxPayCoAdminValue048O(field, params[field.key]))}">`}
+            </label>
+          `).join("")}
+        </div>
+        <label style="display:grid;gap:4px">
+          <span>Cambios con fecha dentro del año (ej. jornada desde el 15 de julio, dominical desde el 1 de julio)</span>
+          <textarea name="changes" rows="4">${escapeHtml(JSON.stringify(draft.changes || [], null, 1))}</textarea>
+        </label>
+        <div class="cx-actions">
+          <button class="cx-btn cx-btn-primary" type="button" data-payco-admin-save>Guardar ${escapeHtml(draft.year)}</button>
+        </div>
+      </form>
+    `;
+  }
+
+  function cxPayCoAdminSection048O() {
+    const s = cxPayCoAdmin048O;
+    const years = s.years.map((row) => row.year);
+    const nextYear = (years.length ? Math.max(...years) : new Date().getFullYear() - 1) + 1;
+    return `
+      <section class="cx-module-section-025m" data-payco-admin>
+        <div class="cx-card-head">
+          <div>
+            <span class="cx-kicker">Aplicar normativa laboral colombiana</span>
+            <h3>Parámetros de ley por año</h3>
+            <p>SMMLV, auxilio de transporte, jornada, recargos, aportes y provisiones. Aplican a todas las empresas con el interruptor encendido. Actualízalos cada enero.</p>
+          </div>
+          <button class="cx-btn" type="button" data-payco-admin-load>${s.loaded ? "Recargar" : "Ver parámetros"}</button>
+        </div>
+        ${s.error ? `<p class="cx-empty-state">${escapeHtml(s.error)}</p>` : ""}
+        ${s.message ? `<p><span class="cx-badge cx-badge-live">${escapeHtml(s.message)}</span></p>` : ""}
+        ${s.loaded ? `
+          <div class="cx-actions" style="gap:8px;flex-wrap:wrap">
+            ${years.map((year) => `<button class="cx-btn ${s.year === year ? "cx-btn-primary" : ""}" type="button" data-payco-admin-year="${escapeHtml(year)}">${escapeHtml(year)}</button>`).join("")}
+            <button class="cx-btn" type="button" data-payco-admin-new="${escapeHtml(nextYear)}">Preparar ${escapeHtml(nextYear)}</button>
+          </div>
+          ${cxPayCoAdminFormHtml048O()}
+        ` : ""}
+      </section>
+    `;
+  }
+
+  function cxPayCoAdminReadForm048O() {
+    const form = document.querySelector("[data-payco-admin-form]");
+    const params = {};
+    form.querySelectorAll("[name][data-kind]").forEach((input) => {
+      const kind = input.getAttribute("data-kind");
+      const raw = String(input.value || "").trim();
+      if (kind === "json") params[input.name] = raw ? JSON.parse(raw) : null;
+      else if (kind === "time") params[input.name] = raw;
+      else params[input.name] = Number(raw.replace(",", "."));
+    });
+    if (params.extra_holidays === null) params.extra_holidays = [];
+    const changes = JSON.parse(String(form.querySelector("[name=changes]").value || "[]"));
+    return { params, changes };
+  }
+
+  function cxPayCoAdminRerender048O() {
+    const holder = document.querySelector("[data-payco-admin]");
+    if (holder) holder.outerHTML = cxPayCoAdminSection048O();
+  }
+
+  async function cxPayCoAdminLoad048O(selectYear) {
+    try {
+      const data = await cxJsonRequest("/payroll-co/params");
+      cxPayCoAdmin048O.fields = data.fields || [];
+      cxPayCoAdmin048O.years = data.years || [];
+      cxPayCoAdmin048O.loaded = true;
+      cxPayCoAdmin048O.error = "";
+      const year = selectYear || cxPayCoAdmin048O.year || (cxPayCoAdmin048O.years.slice(-1)[0] || {}).year;
+      cxPayCoAdmin048O.year = year || null;
+      cxPayCoAdmin048O.draft = cxPayCoAdmin048O.years.find((row) => row.year === year) || null;
+    } catch (error) {
+      cxPayCoAdmin048O.error = `No se pudieron cargar los parámetros: ${error.message}`;
+    }
+    cxPayCoAdminRerender048O();
+  }
+
+  document.addEventListener("click", async (event) => {
+    if (event.target.closest("[data-payco-admin-load]")) {
+      cxPayCoAdmin048O.message = "";
+      await cxPayCoAdminLoad048O();
+      return;
+    }
+    const yearButton = event.target.closest("[data-payco-admin-year]");
+    if (yearButton) {
+      const year = Number(yearButton.getAttribute("data-payco-admin-year"));
+      cxPayCoAdmin048O.year = year;
+      cxPayCoAdmin048O.draft = cxPayCoAdmin048O.years.find((row) => row.year === year) || null;
+      cxPayCoAdmin048O.message = "";
+      cxPayCoAdminRerender048O();
+      return;
+    }
+    const newButton = event.target.closest("[data-payco-admin-new]");
+    if (newButton) {
+      const year = Number(newButton.getAttribute("data-payco-admin-new"));
+      try {
+        const template = await cxJsonRequest(`/payroll-co/params/${year}/template`);
+        cxPayCoAdmin048O.year = year;
+        cxPayCoAdmin048O.draft = { year, params: template.params, changes: template.changes };
+        cxPayCoAdmin048O.message = `Borrador ${year} copiado de ${year - 1}: actualiza SMMLV y auxilio y guarda.`;
+        cxPayCoAdmin048O.error = "";
+      } catch (error) {
+        cxPayCoAdmin048O.error = `No se pudo preparar ${year}: ${error.message}`;
+      }
+      cxPayCoAdminRerender048O();
+      return;
+    }
+    if (event.target.closest("[data-payco-admin-save]")) {
+      const year = cxPayCoAdmin048O.year;
+      try {
+        const body = cxPayCoAdminReadForm048O();
+        await cxJsonRequest(`/payroll-co/params/${year}`, { method: "PUT", body: JSON.stringify(body) });
+        cxPayCoAdmin048O.message = `Parámetros ${year} guardados.`;
+        await cxPayCoAdminLoad048O(year);
+      } catch (error) {
+        cxPayCoAdmin048O.error = `No se pudo guardar ${year}: ${error.message}`;
+        cxPayCoAdminRerender048O();
+      }
+    }
+  });
+  /* CX_PAYROLL_COLOMBIA_ADMIN_048O_END */
+
   function renderModules() {
     const grid = el("#modulesGrid");
     if (!grid) return;
@@ -4193,6 +4340,8 @@
           ${cxModuleCreateForm025M()}
         </div>
       </section>
+
+      ${cxPayCoAdminSection048O()}
     `;
     cxModuleApplyFilterValues025T();
   }
@@ -5798,6 +5947,7 @@
     field: "campo operacion campo tecnico ruta evidencia actividad externo cuadrilla",
     gps: "gps ubicacion ubicaciones mapa ruta seguimiento localizacion geolocalizacion tecnico campo",
     payroll: "nomina pago pagos quincena quincenal salario horas extras corte liquidacion",
+    nomina_colombia: "nomina colombia ley laboral recargos nocturno dominical festivo extras auxilio transporte salud pension arl cesantias prima vacaciones",
     day_closing: "cierre dia cierre diario ventas resumen caja turno",
     hospitality: "bar restaurante hospitality mesas pedidos mesero cuenta",
     loyalty: "fidelizacion clientes puntos beneficios lealtad recurrentes",

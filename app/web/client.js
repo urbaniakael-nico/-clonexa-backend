@@ -768,6 +768,7 @@
     inventory: ["Inventario", "stock y materiales", "INV"],
     materials: ["Materiales", "solicitud y devolucion", "MAT"],
     payroll: ["Nomina", "corte y calculo", "PAY"],
+    nomina_colombia: ["Normativa laboral", "ley colombiana en nomina", "LEY"],
     payroll_biweekly: ["Nomina Quincenal", "corte actual", "PAY"],
     billing: ["Billing", "cobros y facturacion", "BIL"],
     reports: ["Reportes", "metricas y auditoria", "REP"],
@@ -1536,6 +1537,8 @@
     if (currentClientRole() === "administrador") {
       modules = modules.filter((module) => module.code !== "payroll");
     }
+    // 048O: el interruptor de normativa colombiana se ve dentro de Nomina.
+    modules = modules.filter((module) => module.code !== "nomina_colombia");
     const buttons = [`<button class="${activeCode === "dashboard" ? "active" : ""}" type="button" data-client-back-dashboard>Dashboard</button>`];
 
     modules.forEach((module) => {
@@ -7604,6 +7607,7 @@ function inventoryCreatePayload() {
       name: row.employee_name || row.name || "Colaborador",
       role: row.employee_role || row.role || "",
       shifts: Number(row.closed_shifts ?? row.shifts ?? 0),
+      colombia: row.colombia || null,
       regularMinutes: Number(row.regular_minutes ?? row.regularMinutes ?? 0),
       extraMinutes: Number(row.extra_minutes ?? row.extraMinutes ?? 0),
       regularRate: payrollNumber(row.hourly_rate_regular ?? row.regularRate),
@@ -7646,9 +7650,12 @@ function inventoryCreatePayload() {
           from: payload.period?.period_start || payload.period_start || period.from,
           to: payload.period?.period_end || payload.period_end || period.to,
         },
+        legalMode: payload.legal_mode || null,
         source: "api",
       };
     } catch (error) {
+      // 048O: con normativa colombiana no se cae a un calculo local sin recargos.
+      if (isClientModuleActive("nomina_colombia")) throw error;
       const source = await payrollLoadSourceData();
       const rows = payrollBuildRows(source.employees, source.events, period);
       return {
@@ -7771,6 +7778,7 @@ function inventoryCreatePayload() {
       ]),
       [],
       ["TOTAL", "", totals.shifts, payrollDuration(totals.regularMinutes), payrollDuration(totals.extraMinutes), payrollMoney(totals.gross), payrollMoney(totals.discount), payrollMoney(totals.net)],
+      ...cxPayCoCsvRows048O(rows),
     ];
 
     const csv = data.map((line) => line.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -7787,6 +7795,222 @@ function inventoryCreatePayload() {
     URL.revokeObjectURL(url);
   }
 
+  /* CX_PAYROLL_COLOMBIA_048O_START */
+  // Interruptor "APLICAR NORMATIVA LABORAL COLOMBIANA" (modulo nomina_colombia).
+  // El servidor decide el modo y lo devuelve en legal_mode; sin el modulo no
+  // llega legal_mode y la pantalla de Nomina queda exactamente igual.
+  var cxPayCo048O = { open: false, config: null, message: "", error: "" };
+
+  function cxPayCoHours048O(minutes) {
+    const hours = Number(minutes || 0) / 60;
+    return `${hours.toLocaleString("es-CO", { maximumFractionDigits: 2 })} h`;
+  }
+
+  function cxPayCoNotice048O(legalMode) {
+    if (!legalMode || !legalMode.state) return "";
+    if (legalMode.state === "manual") {
+      return `
+        <div class="cx-payco-notice warn" data-payco-notice="manual">
+          <strong>Modo manual activo</strong>
+          <span>${h(legalMode.notice || "")}</span>
+        </div>
+      `;
+    }
+    const ref = legalMode.reference || {};
+    return `
+      <div class="cx-payco-notice" data-payco-notice="colombia">
+        <strong>Normativa laboral colombiana aplicada</strong>
+        <span>${h(legalMode.notice || "")}</span>
+        <small>Valores vigentes al ${h(ref.date || "")}: SMMLV $${h(payrollMoney(ref.smmlv))} · auxilio de transporte $${h(payrollMoney(ref.transport_allowance))} · jornada ${h(ref.weekly_hours)} h semanales · nocturno desde ${h(ref.night_start)} · dominical/festivo ${h(ref.sunday_holiday_pct)}% · ARL nivel ${h(legalMode.arl_level || 1)}${legalMode.exonerated ? " · empresa exonerada" : ""}</small>
+      </div>
+    `;
+  }
+
+  function cxPayCoPartsHtml048O(title, parts = [], total = 0) {
+    return `
+      <div class="cx-payco-parts">
+        <b>${h(title)}</b>
+        ${(parts || []).map((part) => `
+          <div><span>${h(part.label)} ${h(part.pct)}% sobre $${h(payrollMoney(part.base))}${part.note ? ` <em>(${h(part.note)})</em>` : ""}</span><strong>$${h(payrollMoney(part.amount))}</strong></div>
+        `).join("")}
+        <div class="total"><span>Total</span><strong>$${h(payrollMoney(total))}</strong></div>
+      </div>
+    `;
+  }
+
+  function cxPayCoEmployeeHtml048O(row) {
+    const co = row.colombia || {};
+    const lines = Array.isArray(co.lines) ? co.lines : [];
+    const alerts = Array.isArray(co.alerts) ? co.alerts : [];
+    return `
+      <article class="cx-payco-card" data-payco-employee="${h(row.employeeId)}">
+        <header>
+          <div class="cx-payroll-employee"><strong>${h(row.name)}</strong><span>${h(row.role || "Sin rol")} · salario base $${h(payrollMoney(co.monthly_salary))}${co.salary_is_minimum_default ? " (sin salario configurado: se usa el mínimo)" : ""}</span></div>
+          <div class="cx-payco-net"><span>Neto a pagar</span><strong>$${h(payrollMoney(row.net))}</strong></div>
+        </header>
+        ${alerts.map((alert) => `<div class="cx-payco-alert" data-payco-alert="${h(alert.kind)}">Incumplimiento: ${h(alert.message)}</div>`).join("")}
+        <div class="cx-payroll-table-wrap">
+          <table class="cx-payroll-table">
+            <thead><tr><th>Tipo de hora</th><th>Recargo</th><th>Horas</th><th>Valor hora</th><th>Total</th></tr></thead>
+            <tbody>
+              ${lines.map((line) => `
+                <tr class="${String(line.type || "").startsWith("ext_") ? "cx-payco-extra" : ""}">
+                  <td>${h(line.label)}${line.from !== line.to ? ` <small>${h(line.from)} a ${h(line.to)}</small>` : ` <small>${h(line.from)}</small>`}</td>
+                  <td>${h(line.surcharge)}</td>
+                  <td>${h(cxPayCoHours048O(line.minutes))}</td>
+                  <td class="cx-payroll-money">$${h(payrollMoney(line.hour_value))}<small> (base $${h(payrollMoney(line.base_hour_value))})</small></td>
+                  <td class="cx-payroll-money">$${h(payrollMoney(line.amount))}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+        <div class="cx-payco-summary">
+          <div><span>Devengado por horas</span><strong>$${h(payrollMoney(co.earned_amount))}</strong></div>
+          <div><span>Auxilio de transporte (${h(co.worked_days || 0)} días)</span><strong>$${h(payrollMoney(co.transport_allowance))}</strong></div>
+          <div><span>Descuentos del empleado</span><strong>-$${h(payrollMoney(row.discount))}</strong></div>
+          <div class="total"><span>Neto a pagar</span><strong>$${h(payrollMoney(row.net))}</strong></div>
+        </div>
+        <details class="cx-payco-details">
+          <summary>Ver aportes y provisiones</summary>
+          ${cxPayCoPartsHtml048O("Descuentos del empleado (el auxilio no entra en la base)", co.employee_deductions, co.employee_deductions_total)}
+          ${Number(co.other_deductions || 0) ? `<div class="cx-payco-parts"><div><span>Otros descuentos del corte</span><strong>$${h(payrollMoney(co.other_deductions))}</strong></div></div>` : ""}
+          ${cxPayCoPartsHtml048O("Aportes del empleador", co.employer_contributions, co.employer_contributions_total)}
+          ${cxPayCoPartsHtml048O("Provisiones (prima y cesantías incluyen el auxilio; vacaciones no)", co.provisions, co.provisions_total)}
+        </details>
+      </article>
+    `;
+  }
+
+  function cxPayCoRowsHtml048O(rows = []) {
+    if (!rows.length) {
+      return `<div class="cx-payroll-empty">No hay turnos de mesero, cocina o caja en el periodo seleccionado.</div>`;
+    }
+    return `<div class="cx-payco-list">${rows.map(cxPayCoEmployeeHtml048O).join("")}</div>`;
+  }
+
+  function cxPayCoConfigHtml048O() {
+    if (!cxPayCo048O.open) {
+      return `<button class="client-btn" type="button" data-payco-config-open>Salarios y ARL</button>`;
+    }
+    const config = cxPayCo048O.config;
+    if (!config) {
+      return `<div class="cx-payroll-empty">${h(cxPayCo048O.error || "Cargando configuración...")}</div>`;
+    }
+    const levels = [1, 2, 3, 4, 5];
+    return `
+      <form class="cx-payco-config" data-payco-config-form>
+        <div class="cx-payroll-field">
+          <label>Nivel de riesgo ARL de la empresa</label>
+          <select name="arl_level">${levels.map((level) => `<option value="${level}" ${Number(config.arl_level) === level ? "selected" : ""}>Nivel ${level}</option>`).join("")}</select>
+        </div>
+        <label class="cx-payco-check"><input type="checkbox" name="exonerated" ${config.exonerated ? "checked" : ""}> Empresa exonerada de salud, SENA e ICBF (art. 114-1 E.T.)</label>
+        <table class="cx-payroll-table">
+          <thead><tr><th>Colaborador</th><th>Salario base mensual</th><th>ARL propia</th></tr></thead>
+          <tbody>
+            ${(config.employees || []).map((employee) => `
+              <tr data-payco-config-employee="${h(employee.id)}">
+                <td><div class="cx-payroll-employee"><strong>${h(employee.name)}</strong><span>${h(employee.role || "")}</span></div></td>
+                <td><input type="number" min="0" step="1" name="salary" value="${h(employee.monthly_salary || "")}" placeholder="Vacío = salario mínimo"></td>
+                <td><select name="arl"><option value="">La de la empresa</option>${levels.map((level) => `<option value="${level}" ${Number(employee.arl_level) === level ? "selected" : ""}>Nivel ${level}</option>`).join("")}</select></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        ${cxPayCo048O.error ? `<div class="personal-toast error">${h(cxPayCo048O.error)}</div>` : ""}
+        ${cxPayCo048O.message ? `<div class="personal-toast ok">${h(cxPayCo048O.message)}</div>` : ""}
+        <div class="client-actions">
+          <button class="client-btn" type="button" data-payco-config-save>Guardar y recalcular</button>
+          <button class="client-btn" type="button" data-payco-config-close>Cerrar</button>
+        </div>
+      </form>
+    `;
+  }
+
+  function cxPayCoReadConfig048O() {
+    const form = document.querySelector("[data-payco-config-form]");
+    if (!form) return null;
+    return {
+      arl_level: Number(form.querySelector("[name=arl_level]")?.value || 1),
+      exonerated: Boolean(form.querySelector("[name=exonerated]")?.checked),
+      employees: [...form.querySelectorAll("[data-payco-config-employee]")].map((row) => ({
+        id: row.getAttribute("data-payco-config-employee"),
+        monthly_salary: Number(row.querySelector("[name=salary]")?.value || 0),
+        arl_level: row.querySelector("[name=arl]")?.value || "",
+      })),
+    };
+  }
+
+  async function cxPayCoOpenConfig048O() {
+    cxPayCo048O.open = true;
+    cxPayCo048O.error = "";
+    cxPayCo048O.message = "";
+    try {
+      cxPayCo048O.config = await api(`/payroll-co/companies/${encodeURIComponent(state.companyId)}/config`);
+    } catch (error) {
+      cxPayCo048O.config = null;
+      cxPayCo048O.error = "Solo el administrador de la empresa puede ver salarios y ARL.";
+    }
+    await renderPayrollModule(payrollReadPeriod());
+  }
+
+  async function cxPayCoSaveConfig048O() {
+    const payload = cxPayCoReadConfig048O();
+    if (!payload) return;
+    try {
+      cxPayCo048O.config = await api(`/payroll-co/companies/${encodeURIComponent(state.companyId)}/config`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      cxPayCo048O.error = "";
+      cxPayCo048O.message = "Configuración guardada. La nómina se recalculó.";
+    } catch (error) {
+      cxPayCo048O.error = `No se pudo guardar: ${error.message}`;
+    }
+    await renderPayrollModule(payrollReadPeriod());
+  }
+
+  function cxPayCoCsvRows048O(rows = []) {
+    const out = [];
+    rows.filter((row) => row.colombia).forEach((row) => {
+      const co = row.colombia;
+      out.push([], [`Desglose ${row.name}`, "Recargo", "Horas", "Valor hora", "Total"]);
+      (co.lines || []).forEach((line) => out.push([line.label, line.surcharge, (Number(line.minutes || 0) / 60).toFixed(2), payrollMoney(line.hour_value), payrollMoney(line.amount)]));
+      out.push(["Auxilio de transporte", "", "", "", payrollMoney(co.transport_allowance)]);
+      (co.employee_deductions || []).forEach((part) => out.push([part.label, `${part.pct}%`, "", "", `-${payrollMoney(part.amount)}`]));
+      out.push(["Neto a pagar", "", "", "", payrollMoney(row.net)]);
+      (co.alerts || []).forEach((alert) => out.push(["ALERTA", alert.message]));
+    });
+    return out;
+  }
+
+  function ensurePayCoStyles048O() {
+    if (document.getElementById("cxPayCo048OStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxPayCo048OStyles";
+    style.textContent = `
+      .cx-payco-notice { display:grid; gap:6px; margin:16px 0; padding:14px 16px; border-radius:16px; border:1px solid rgba(80,200,140,.45); background:rgba(80,200,140,.12); }
+      .cx-payco-notice.warn { border-color:rgba(255,190,60,.6); background:rgba(255,190,60,.14); }
+      .cx-payco-notice small { opacity:.8; }
+      .cx-payco-list { display:grid; gap:16px; }
+      .cx-payco-card { border:1px solid rgba(255,255,255,.14); border-radius:20px; padding:16px; background:rgba(255,255,255,.05); }
+      .cx-payco-card header { display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; align-items:center; margin-bottom:10px; }
+      .cx-payco-net { text-align:right; } .cx-payco-net span { display:block; font-size:12px; opacity:.7; }
+      .cx-payco-alert { margin:8px 0; padding:10px 12px; border-radius:12px; background:rgba(230,60,60,.18); border:1px solid rgba(230,60,60,.7); color:#ff8a8a; font-weight:900; }
+      .cx-payco-extra td { color:#ffb3b3; }
+      .cx-payco-summary, .cx-payco-parts { display:grid; gap:6px; margin-top:12px; }
+      .cx-payco-summary div, .cx-payco-parts div { display:flex; justify-content:space-between; gap:12px; }
+      .cx-payco-summary .total, .cx-payco-parts .total { border-top:1px solid rgba(255,255,255,.18); padding-top:6px; font-weight:900; }
+      .cx-payco-details summary { cursor:pointer; margin-top:12px; font-weight:900; }
+      .cx-payco-config { display:grid; gap:12px; margin-top:12px; }
+      .cx-payco-config input, .cx-payco-config select { min-height:40px; border-radius:12px; padding:8px 10px; }
+      .cx-payco-check { display:flex; gap:8px; align-items:center; }
+      td small { opacity:.7; }
+    `;
+    document.head.appendChild(style);
+  }
+  /* CX_PAYROLL_COLOMBIA_048O_END */
+
   async function renderPayrollModule(period = payrollDefaultPeriod(), options = {}) {
     if (!isClientModuleActive("payroll")) {
       render();
@@ -7801,6 +8025,7 @@ function inventoryCreatePayload() {
     let loadError = "";
     let loadWarning = "";
     let mode = "Periodo abierto";
+    let legalMode = null;
 
     try {
       const calculated = await payrollCalculatePeriod(period);
@@ -7808,6 +8033,7 @@ function inventoryCreatePayload() {
       totals = calculated.totals;
       period = calculated.period || period;
       loadWarning = calculated.warning || "";
+      legalMode = calculated.legalMode || null;
     } catch (error) {
       rows = [];
       totals = payrollTotals([]);
@@ -7818,6 +8044,8 @@ function inventoryCreatePayload() {
     window.__cxPayrollTotals = totals;
     window.__cxPayrollPeriod = period;
     window.__cxPayrollMode = mode;
+    const coLaw = legalMode?.state === "colombia";
+    if (legalMode) ensurePayCoStyles048O();
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -7875,11 +8103,14 @@ function inventoryCreatePayload() {
                 <button class="client-btn" type="button" data-payroll-export>Exportar CSV</button>
               </div>
 
+              ${cxPayCoNotice048O(legalMode)}
+
               ${payrollCards(totals)}
 
               <div class="client-eyebrow" style="margin-top:28px">Detalle por colaborador</div>
               <h2>Periodo calculado</h2>
-              ${payrollRowsTable(rows)}
+              ${coLaw ? cxPayCoConfigHtml048O() : ""}
+              ${coLaw ? cxPayCoRowsHtml048O(rows) : payrollRowsTable(rows)}
 
               <div class="client-eyebrow" style="margin-top:32px">Cierre del corte</div>
               <h2>Exportación</h2>
@@ -33822,6 +34053,11 @@ function inventoryCreatePayload() {
           return;
         }
 
+        if (code === "nomina_colombia") {
+          await renderPayrollModule();
+          return;
+        }
+
         if (code === "domicilios_whatsapp") {
           await renderDeliveryModule048N();
           return;
@@ -33873,6 +34109,22 @@ function inventoryCreatePayload() {
 
       if (target.closest("[data-payroll-export]")) {
         exportPayrollCsv();
+        return;
+      }
+
+      if (target.closest("[data-payco-config-open]")) {
+        await cxPayCoOpenConfig048O();
+        return;
+      }
+
+      if (target.closest("[data-payco-config-save]")) {
+        await cxPayCoSaveConfig048O();
+        return;
+      }
+
+      if (target.closest("[data-payco-config-close]")) {
+        cxPayCo048O.open = false;
+        await renderPayrollModule(payrollReadPeriod());
         return;
       }
 

@@ -23,6 +23,7 @@ for _module_name, _prefix, _tags in [
     ("shifts", "/shifts", ["shifts"]),
     ("crm", "/crm", ["crm"]),
     ("payroll", "/payroll", ["payroll"]),
+    ("payroll_colombia", "/payroll-co", ["payroll_colombia"]),
     ("gps", "/gps", ["gps"]),
     ("inventory", "/inventory", ["inventory"]),
     ("materials", "/materials", ["materials"]),

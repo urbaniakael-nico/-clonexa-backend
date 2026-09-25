@@ -352,6 +352,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "DOM",
         "is_transversal": False,
     },
+    "nomina_colombia": {
+        "name": "APLICAR NORMATIVA LABORAL COLOMBIANA",
+        "description": "Nómina automática según la ley colombiana: horas ordinarias, nocturnas, dominicales, festivas y extras desde los turnos, auxilio de transporte, aportes y provisiones, con parámetros por año.",
+        "category": "finance",
+        "category_label": "Finanzas",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "LEY",
+        "is_transversal": False,
+    },
     "requests": {
         "name": "Solicitudes",
         "description": "Solicitudes internas, aprobaciones y estados.",

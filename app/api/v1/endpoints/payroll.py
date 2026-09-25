@@ -8,12 +8,15 @@ from typing import Any
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_company_user_for_tenant
+from app.api.v1.endpoints import payroll_colombia as co_config_049a
 from app.api.v1.endpoints.company_users import require_company_user_not_role
+from app.services import payroll_colombia as co_engine_049a
+from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
 
@@ -761,7 +764,281 @@ async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: 
     return snapshot
 
 
+# CLONEXA_049A_NOMINA_COLOMBIA_START
+# Interruptor por empresa "APLICAR NORMATIVA LABORAL COLOMBIANA" (modulo
+# nomina_colombia del catalogo de Admin V2). Sin fila en company_modules la
+# nomina calcula y responde exactamente como antes. Con el modulo encendido
+# se liquida con la ley colombiana; apagado despues de haberlo tenido, se
+# calcula como antes pero con el aviso de que los recargos son obligatorios.
+CO_MANUAL_NOTICE_049A = (
+    "Modo manual: los recargos nocturnos, dominicales, festivos y las horas extra de ley son "
+    "obligatorios para trabajadores con contrato laboral. Usa este modo solo si la nómina se "
+    "liquida en otro sistema."
+)
+CO_LAW_NOTICE_049A = (
+    "Cálculo según la normativa laboral colombiana. Es una ayuda y no reemplaza la revisión de un contador."
+)
+
+
+async def _cx_co_state_049A(db: AsyncSession, company_id) -> str | None:
+    result = await db.execute(
+        text("""
+            SELECT cm.enabled
+            FROM company_modules cm
+            JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = CAST(:company_id AS uuid)
+              AND LOWER(m.code) = 'nomina_colombia'
+              AND COALESCE(m.is_active, TRUE) IS TRUE
+            LIMIT 1
+        """),
+        {"company_id": str(company_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        return None
+    return "colombia" if row.get("enabled") else "manual"
+
+
+async def _cx_co_gate_049A(
+    company_id: UUID,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Empresas con el modulo (encendido o apagado): la nomina lleva salarios
+    y aportes, asi que exige sesion de la empresa o Admin V2. Para las demas
+    no cambia nada."""
+    if await _cx_co_state_049A(db, company_id) is None:
+        return
+    if await active_admin_v2_session(request, db):
+        return
+    await require_company_user_for_tenant(db, authorization, company_id)
+
+
+def _cx_co_local_049A(value: Any) -> datetime | None:
+    dt = _cx_payroll_dt_023o(value)
+    if not dt:
+        return None
+    return dt.astimezone(BUSINESS_TIMEZONE).replace(tzinfo=None)
+
+
+def _cx_co_pair_breaks_049A(events: list[dict], until: datetime) -> list[tuple[datetime, datetime]]:
+    breaks: list[tuple[datetime, datetime]] = []
+    opened: datetime | None = None
+    for ev in sorted(events, key=lambda item: item["occurred_at"]):
+        kind = attendance_event_kind(ev)
+        at = _cx_co_local_049A(ev.get("occurred_at"))
+        if not at:
+            continue
+        if is_break_start(kind) and opened is None:
+            opened = at
+        elif is_break_end(kind) and opened is not None:
+            breaks.append((opened, at))
+            opened = None
+    if opened is not None:
+        breaks.append((opened, until))
+    return breaks
+
+
+def _cx_co_attendance_shifts_049A(events: list[dict], skip_session_ids: set[str]) -> dict[str, list[dict]]:
+    """Turnos de Workforce/Bot (entrada, pausas, salida) que no vienen de un
+    turno de mini panel: {employee_id: [{start, end, breaks}]} en hora local."""
+    open_shifts: dict[str, dict] = {}
+    shifts: dict[str, list[dict]] = {}
+    for ev in sorted([e for e in events if e.get("occurred_at")], key=lambda item: item["occurred_at"]):
+        employee_id = str(ev.get("employee_id") or "")
+        session_id = _cx_payroll_event_session_id_023o(ev)
+        if not employee_id or (session_id and session_id in skip_session_ids):
+            continue
+        kind = attendance_event_kind(ev)
+        at = _cx_co_local_049A(ev.get("occurred_at"))
+        if not at:
+            continue
+        if is_check_in(kind):
+            open_shifts[employee_id] = {"start": at, "breaks": [], "pause": None}
+            continue
+        shift = open_shifts.get(employee_id)
+        if not shift:
+            continue
+        if is_break_start(kind):
+            shift["pause"] = shift["pause"] or at
+        elif is_break_end(kind) and shift["pause"]:
+            shift["breaks"].append((shift["pause"], at))
+            shift["pause"] = None
+        elif is_check_out(kind):
+            if shift["pause"]:
+                shift["breaks"].append((shift["pause"], at))
+            shifts.setdefault(employee_id, []).append({"start": shift["start"], "end": at, "breaks": shift["breaks"]})
+            open_shifts.pop(employee_id, None)
+    return shifts
+
+
+async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
+    resolver = co_engine_049a.ParamResolver(await co_config_049a.load_params_by_year(db))
+    try:
+        resolver.for_date(period_start)
+        resolver.for_date(period_end)
+    except co_engine_049a.ParamsMissing as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # Desde el lunes de la semana del inicio (tope semanal) y un dia antes
+    # (turnos que empiezan antes de medianoche).
+    window_start = period_start - timedelta(days=period_start.weekday() + 1)
+    window_start_dt, _unused = period_datetime_bounds(window_start, window_start)
+    _unused, end_dt = period_datetime_bounds(period_start, period_end)
+    as_of = min(utcnow(), end_dt)
+    as_of_local = _cx_co_local_049A(as_of)
+    period_start_local = datetime.combine(period_start, time.min)
+    period_end_local = datetime.combine(period_end, time.max)
+
+    company_config = await co_config_049a.load_company_config(db, company_id)
+    employee_config = await co_config_049a.load_employee_config(db, company_id)
+    employees_result = await db.execute(
+        text("""
+            SELECT id, full_name, role, deduction_1, deduction_2, status
+            FROM employees
+            WHERE company_id = :company_id
+              AND COALESCE(status, 'active') != 'archived'
+        """),
+        {"company_id": str(company_id)},
+    )
+    employee_map = {str(row["id"]): dict(row) for row in employees_result.mappings().all()}
+
+    events_result = await db.execute(
+        text("""
+            SELECT
+                ev.id, ev.employee_id, ev.event_type, ev.event_label, ev.status_after,
+                ev.detail, ev.payload_json, ev.metadata_json,
+                COALESCE(ev.occurred_at, ev.created_at) AS occurred_at
+            FROM workforce_attendance_events ev
+            WHERE ev.company_id = :company_id
+              AND COALESCE(ev.occurred_at, ev.created_at) >= :start_dt
+              AND COALESCE(ev.occurred_at, ev.created_at) <= :end_dt
+            ORDER BY COALESCE(ev.occurred_at, ev.created_at) ASC
+        """),
+        {"company_id": str(company_id), "start_dt": window_start_dt, "end_dt": end_dt},
+    )
+    events = [dict(row) for row in events_result.mappings().all()]
+    sessions = await _cx_payroll_mini_panel_sessions_023o(db, company_id, window_start_dt, end_dt, as_of)
+    session_ids = {str(s.get("id")) for s in sessions if s.get("id")}
+    events_by_session: dict[str, list[dict]] = {}
+    for ev in events:
+        session_id = _cx_payroll_event_session_id_023o(ev)
+        if session_id in session_ids:
+            events_by_session.setdefault(session_id, []).append(ev)
+
+    shifts_by_employee = _cx_co_attendance_shifts_049A(events, session_ids)
+    for session in sessions:
+        employee_id = str(session.get("employee_id") or "")
+        start = _cx_co_local_049A(session.get("started_at"))
+        end = _cx_co_local_049A(session.get("ended_at")) or as_of_local
+        if not employee_id or not start or not end or end <= start:
+            continue
+        breaks = _cx_co_pair_breaks_049A(events_by_session.get(str(session.get("id")), []), end)
+        shifts_by_employee.setdefault(employee_id, []).append({
+            "start": start,
+            "end": end,
+            "breaks": breaks,
+            "break_seconds": _cx_payroll_int_023o(session.get("break_seconds")),
+        })
+
+    rows = []
+    for employee_id, shifts in shifts_by_employee.items():
+        employee = employee_map.get(employee_id)
+        if not employee:
+            continue  # archivado o de otra empresa: no se liquida
+        intervals: list[tuple[datetime, datetime]] = []
+        closed_shifts = 0
+        for shift in shifts:
+            known = sum(int((b1 - b0).total_seconds()) for b0, b1 in shift["breaks"])
+            missing = max(0, int(shift.get("break_seconds") or 0) - known)
+            intervals.extend(co_engine_049a.subtract_breaks(
+                shift["start"], shift["end"], shift["breaks"], missing if missing > 60 else 0,
+            ))
+            if shift["end"] >= period_start_local and shift["start"] <= period_end_local:
+                closed_shifts += 1
+        config = employee_config.get(employee_id, {})
+        other = money(employee.get("deduction_1")) + money(employee.get("deduction_2"))
+        detail = co_engine_049a.liquidate_employee(
+            intervals=intervals,
+            monthly_salary=config.get("monthly_salary") or 0,
+            resolver=resolver,
+            pay_from=period_start,
+            pay_to=period_end,
+            arl_level=config.get("arl_level") or company_config["arl_level"],
+            exonerated=company_config["exonerated"],
+            other_deductions=other if closed_shifts else 0,
+        )
+        if not detail["lines"]:
+            continue
+        rows.append(serialize_value({
+            "employee_id": employee_id,
+            "employee_name": employee.get("full_name") or "Colaborador",
+            "employee_role": employee.get("role") or "",
+            "closed_shifts": closed_shifts,
+            "regular_minutes": detail["regular_minutes"],
+            "extra_minutes": detail["extra_minutes"],
+            "hourly_rate_regular": detail["lines"][-1]["base_hour_value"],
+            "hourly_rate_extra": Decimal("0"),
+            "deduction_1": money(employee.get("deduction_1")),
+            "deduction_2": money(employee.get("deduction_2")),
+            "gross_amount": detail["gross_amount"],
+            "discount_amount": detail["discount_amount"],
+            "net_amount": detail["net_amount"],
+            "colombia": detail,
+        }))
+    rows.sort(key=lambda item: str(item.get("employee_name") or ""))
+
+    def total(key: str, nested: bool = False) -> float:
+        values = (Decimal(str((row["colombia"] if nested else row).get(key) or 0)) for row in rows)
+        return float(money(sum(values, Decimal("0"))))
+
+    reference = resolver.for_date(period_end)
+    return {
+        "period": {
+            "company_id": str(company_id),
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "status": "open",
+        },
+        "rows": rows,
+        "totals": {
+            "people": len(rows),
+            "closed_shifts": sum(int(row["closed_shifts"]) for row in rows),
+            "regular_minutes": sum(int(row["regular_minutes"]) for row in rows),
+            "extra_minutes": sum(int(row["extra_minutes"]) for row in rows),
+            "gross_amount": total("gross_amount"),
+            "discount_amount": total("discount_amount"),
+            "net_amount": total("net_amount"),
+            "transport_allowance": total("transport_allowance", nested=True),
+            "employer_contributions_total": total("employer_contributions_total", nested=True),
+            "provisions_total": total("provisions_total", nested=True),
+            "alerts": sum(len(row["colombia"]["alerts"]) for row in rows),
+        },
+        "legal_mode": {
+            "state": "colombia",
+            "notice": CO_LAW_NOTICE_049A,
+            "arl_level": company_config["arl_level"],
+            "exonerated": company_config["exonerated"],
+            "reference": serialize_value({
+                "date": period_end.isoformat(),
+                "smmlv": reference["smmlv"],
+                "transport_allowance": reference["transport_allowance"],
+                "weekly_hours": reference["weekly_hours"],
+                "night_start": reference["night_start"],
+                "night_end": reference["night_end"],
+                "sunday_holiday_pct": reference["sunday_holiday_pct"],
+            }),
+        },
+    }
+# CLONEXA_049A_NOMINA_COLOMBIA_END
+
+
 async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
+    co_state = await _cx_co_state_049A(db, company_id)
+    if co_state == "colombia":
+        return await _cx_co_snapshot_049A(db, company_id, period_start, period_end)
+
     start_dt, end_dt = period_datetime_bounds(period_start, period_end)
     lookback_dt = start_dt - timedelta(days=2)
     as_of = min(utcnow(), end_dt)
@@ -1009,6 +1286,8 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
     }
 
     snapshot_payload = await _cx_apply_payroll_config_rule(db, company_id, snapshot_payload)
+    if co_state == "manual":
+        snapshot_payload["legal_mode"] = {"state": "manual", "notice": CO_MANUAL_NOTICE_049A}
     return snapshot_payload
 
 
@@ -1018,6 +1297,7 @@ async def calculate_payroll_period(
     payload: dict | None = None,
     db: AsyncSession = Depends(get_db),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
+    _co_gate: None = Depends(_cx_co_gate_049A),
 ) -> dict:
     await ensure_payroll_storage(db)
 
@@ -1037,6 +1317,7 @@ async def list_payroll_periods(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
+    _co_gate: None = Depends(_cx_co_gate_049A),
 ) -> list[dict]:
     await ensure_payroll_storage(db)
 
@@ -1071,6 +1352,7 @@ async def get_payroll_period(
     period_id: UUID,
     db: AsyncSession = Depends(get_db),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
+    _co_gate: None = Depends(_cx_co_gate_049A),
 ) -> dict:
     await ensure_payroll_storage(db)
 
@@ -1152,6 +1434,7 @@ async def close_payroll_period(
     payload: dict | None = None,
     db: AsyncSession = Depends(get_db),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
+    _co_gate: None = Depends(_cx_co_gate_049A),
 ) -> dict:
     await ensure_payroll_storage(db)
 
