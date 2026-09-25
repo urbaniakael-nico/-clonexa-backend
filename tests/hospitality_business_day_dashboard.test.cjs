@@ -77,7 +77,7 @@ function legacyPayload() {
 const apiCalls = [];
 const printed = [];
 
-function dashboard(payload, mode = 'days', kpiDays = 10, restaurant = false) {
+function dashboard(payload, mode = 'days', kpiDays = 10, restaurant = false, tab = 'owner') {
   const root = { innerHTML: '', querySelector: () => null };
   const head = { children: [], appendChild(node) { this.children.push(node); } };
   const ctx = vm.createContext({
@@ -112,6 +112,10 @@ function dashboard(payload, mode = 'days', kpiDays = 10, restaurant = false) {
       + NAMES.map(fn).join('\n'),
     ctx,
   );
+  // 048S: los restaurantes pintan el reporte del dueño (bloque completo).
+  const ownerSrc = readFileSync('app/web/client.js', 'utf8').replace(/\r\n/g, '\n');
+  vm.runInContext(ownerSrc.slice(ownerSrc.indexOf('  /* CX_OWNER_REPORT_048S_START */'), ownerSrc.indexOf('  /* CX_OWNER_REPORT_048S_END */')), ctx);
+  ctx.cxOwn048S.tab = tab;
   ctx.cxHspDashPaint024W();
   return { html: root.innerHTML, head, ctx };
 }
@@ -220,10 +224,11 @@ function asaderoPayload() {
   return payload;
 }
 
-test('Asadero: "Día más movido de la semana" en lugar de "Horas operadas"', () => {
+test('Asadero: sin "Horas operadas"; ahora ve el reporte del dueño (día más movido con >= 3 repeticiones)', () => {
   const { html } = dashboard(asaderoPayload(), 'days', 10, true);
   assert.doesNotMatch(html, /Horas operadas|<th>Horas<\/th>/);
-  assert.match(html, /<span>Día más movido de la semana<\/span><b>Sábado<\/b><small>\$ 1\.850\.000 en 4 sábados<\/small>/);
+  assert.match(html, /data-own-tab="owner">Resumen del negocio[\s\S]*data-own-tab="events">Consumos y reimpresión/);
+  // La regla de las 3 repeticiones se prueba en test_hospitality_owner_report.py y hospitality_owner_report_portal.test.cjs.
 });
 
 test('Asadero: sin panel de canciones; The Time Machine lo conserva', () => {
@@ -233,7 +238,7 @@ test('Asadero: sin panel de canciones; The Time Machine lo conserva', () => {
 });
 
 test('Asadero: la búsqueda de eventos permite ver y reimprimir un consumo viejo', async () => {
-  const { html, ctx } = dashboard(asaderoPayload(), 'days', 10, true);
+  const { html, ctx } = dashboard(asaderoPayload(), 'days', 10, true, 'events');
   assert.match(html, /data-hsp-event-view="shift1:acc1">Ver<\/button>\s*<button class="client-btn" type="button" data-hsp-event-print="shift1:acc1" >Imprimir/);
 
   ctx.cxHspDashViewEvent048H('shift1:acc1');

@@ -25328,9 +25328,502 @@ function inventoryCreatePayload() {
     `;
   }
 
+  /* CX_OWNER_REPORT_048S_START */
+  // Reportes para el dueño (solo restaurantes con waiter_ordering; hoy ASADERO).
+  // Dos llamadas en paralelo: /summary (indicadores y lecturas, se pinta
+  // primero) y /details (gráficas, carta, equipo, operación, inventario).
+  // La pestaña "Consumos y reimpresión" conserva la búsqueda de eventos.
+  var cxOwn048S = {
+    companyId: "", tab: "owner", period: "7d", start: "", end: "",
+    summary: null, details: null, loadingSummary: false, loadingDetails: false,
+    error: "", detailsError: "", sort: { key: "sales", dir: "desc" }, version: 0, painted: "", seq: 0,
+  };
+  const CX_OWN_PERIODS_048S = [["today", "Hoy"], ["yesterday", "Ayer"], ["7d", "Últimos 7 días"], ["month", "Este mes"], ["custom", "Personalizado"]];
+  const CX_OWN_QUADRANTS_048S = {
+    estrella: { label: "Estrellas", color: "#22c55e", action: "Se venden mucho y dejan mucho. Protégelos." },
+    vaca: { label: "Vacas", color: "#f59e0b", action: "Se venden mucho pero dejan poco. Sube el precio o baja el costo." },
+    enigma: { label: "Enigmas", color: "#38bdf8", action: "Dejan mucho pero se venden poco. Promociónalos." },
+    perro: { label: "Perros", color: "#f87171", action: "Ni se venden ni dejan. Sácalos de la carta." },
+  };
+
+  function cxOwnError048S(error) {
+    const text = String(error?.message || error || "");
+    const json = text.slice(text.indexOf("{"));
+    try {
+      const detail = JSON.parse(json).detail;
+      if (detail) return String(detail);
+    } catch (_) {}
+    return text || "No se pudo cargar el reporte.";
+  }
+
+  function cxOwnMoney048S(value) {
+    if (value === null || value === undefined) return "—";
+    return `$${Math.round(Number(value) || 0).toLocaleString("es-CO")}`;
+  }
+
+  function cxOwnValue048S(card) {
+    if (card.value === null || card.value === undefined) return "—";
+    if (card.kind === "money") return cxOwnMoney048S(card.value);
+    if (card.kind === "pct") return `${Number(card.value).toFixed(1)}%`;
+    return Number(card.value).toLocaleString("es-CO");
+  }
+
+  function cxOwnHour048S(hour) {
+    const n = Number(hour);
+    return `${n % 12 || 12} ${n < 12 ? "a.m." : "p.m."}`;
+  }
+
+  function cxOwnQuery048S() {
+    const params = new URLSearchParams({ period: cxOwn048S.period });
+    if (cxOwn048S.period === "custom") {
+      params.set("start", cxOwn048S.start);
+      params.set("end", cxOwn048S.end);
+    }
+    return params.toString();
+  }
+
+  async function cxOwnLoad048S() {
+    const seq = ++cxOwn048S.seq;
+    cxOwn048S.companyId = state.companyId;
+    cxOwn048S.loadingSummary = true;
+    cxOwn048S.loadingDetails = true;
+    cxOwn048S.error = "";
+    cxOwn048S.detailsError = "";
+    cxOwn048S.version += 1;
+    cxOwnPaint048S(true);
+    const query = cxOwnQuery048S();
+    const summary = cxHspDashApi024W(`/owner-report/summary?${query}`).then((data) => {
+      if (seq !== cxOwn048S.seq) return;
+      cxOwn048S.summary = data;
+    }).catch((error) => {
+      if (seq === cxOwn048S.seq) cxOwn048S.error = cxOwnError048S(error);
+    }).finally(() => {
+      if (seq !== cxOwn048S.seq) return;
+      cxOwn048S.loadingSummary = false;
+      cxOwn048S.version += 1;
+      cxOwnPaint048S(true);
+    });
+    const details = cxHspDashApi024W(`/owner-report/details?${query}`).then((data) => {
+      if (seq !== cxOwn048S.seq) return;
+      cxOwn048S.details = data;
+    }).catch((error) => {
+      if (seq === cxOwn048S.seq) cxOwn048S.detailsError = cxOwnError048S(error);
+    }).finally(() => {
+      if (seq !== cxOwn048S.seq) return;
+      cxOwn048S.loadingDetails = false;
+      cxOwn048S.version += 1;
+      cxOwnPaint048S(true);
+    });
+    await Promise.all([summary, details]);
+  }
+
+  function cxOwnPeriodBar048S() {
+    const custom = cxOwn048S.period === "custom";
+    return `
+      <div class="cx-own-periods-048s" role="group" aria-label="Periodo">
+        ${CX_OWN_PERIODS_048S.map(([key, label]) => `<button class="${cxOwn048S.period === key ? "active" : ""}" type="button" data-own-048s data-own-period="${key}">${h(label)}</button>`).join("")}
+      </div>
+      ${custom ? `<div class="cx-own-custom-048s">
+        <label>Desde<input type="date" data-own-start value="${h(cxOwn048S.start)}"></label>
+        <label>Hasta<input type="date" data-own-end value="${h(cxOwn048S.end)}"></label>
+        <button class="client-btn" type="button" data-own-048s data-own-apply>Aplicar</button>
+      </div>` : ""}
+      <div class="cx-own-exports-048s">
+        <button class="client-btn" type="button" data-own-048s data-own-pdf>PDF para el contador</button>
+        <button class="client-btn" type="button" data-own-048s data-own-csv ${cxOwn048S.summary ? "" : "disabled"}>CSV</button>
+      </div>
+    `;
+  }
+
+  function cxOwnReadings048S(readings = []) {
+    if (!readings.length) return "";
+    return `<section class="cx-own-readings-048s" data-own-readings>
+      ${readings.map((text) => `<p>${h(text)}</p>`).join("")}
+    </section>`;
+  }
+
+  function cxOwnCard048S(card) {
+    const change = card.change_pct;
+    let delta = `<small class="neutral">Sin periodo anterior para comparar</small>`;
+    if (change !== null && change !== undefined) {
+      const good = card.better === "down" ? change <= 0 : change >= 0;
+      delta = `<small class="${good ? "good" : "bad"}">${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toFixed(1)}% vs periodo anterior</small>`;
+    }
+    return `<article class="cx-own-kpi-048s" data-own-kpi="${h(card.key)}"><span>${h(card.label)}</span><b>${h(cxOwnValue048S(card))}</b>${delta}</article>`;
+  }
+
+  function cxOwnKpis048S(summary) {
+    if (!summary) {
+      return `<div class="cx-own-kpis-048s">${["Ventas", "Cuentas", "Ticket promedio", "Margen bruto estimado", "Costo de mercancía / venta", "Mermas y cancelaciones"]
+        .map((label) => `<article class="cx-own-kpi-048s loading"><span>${h(label)}</span><b>…</b><small class="neutral">Calculando</small></article>`).join("")}</div>`;
+    }
+    const kpis = summary.kpis || {};
+    const costing = kpis.costing || {};
+    const losses = kpis.losses || {};
+    return `
+      <div class="cx-own-kpis-048s">${(kpis.cards || []).map(cxOwnCard048S).join("")}</div>
+      <p class="cx-own-note-048s">Mermas: ${h(cxOwnMoney048S(losses.merma_total))} en ${h(losses.merma_count || 0)} pedido(s) (costo perdido ${h(cxOwnMoney048S(losses.merma_cost))}) · Cancelaciones antes de preparar: ${h(cxOwnMoney048S(losses.cancelled_total))} en ${h(losses.cancelled_count || 0)}.</p>
+      ${costing.complete === false ? `<div class="cx-own-warn-048s" data-own-uncosted>
+        <strong>Margen incompleto: ${h(costing.uncosted_count)} producto(s) sin precio de entrada</strong>
+        <span>${h(cxOwnMoney048S(costing.uncosted_sales))} de venta no tienen costo y no entran al margen. Carga el precio de entrada en Inventario: ${h((costing.uncosted || []).slice(0, 8).map((p) => p.name).join(", "))}${(costing.uncosted || []).length > 8 ? "…" : ""}.</span>
+      </div>` : ""}
+      ${(costing.derived || []).length ? `<p class="cx-own-note-048s">Costo por porción derivado del entero (fracción × precio de entrada del entero): ${h(costing.derived.join(", "))}.</p>` : ""}
+    `;
+  }
+
+  function cxOwnSalesChart048S(days = []) {
+    if (!days.some((d) => d.sales > 0)) return `<div class="cx-own-empty-048s">Sin ventas en el periodo.</div>`;
+    const w = 480, hgt = 280, pad = { l: 78, r: 10, t: 16, b: 50 };
+    const max = Math.max(1, ...days.map((d) => Math.max(d.sales || 0, d.margin || 0)));
+    const innerW = w - pad.l - pad.r, innerH = hgt - pad.t - pad.b;
+    const step = innerW / days.length;
+    const barW = Math.max(4, step * 0.62);
+    const y = (v) => pad.t + innerH - (Math.max(0, v) / max) * innerH;
+    const every = Math.ceil(days.length / 6);
+    const points = days.map((d, i) => d.margin === null || d.margin === undefined ? null : `${pad.l + step * i + step / 2},${y(d.margin)}`).filter(Boolean);
+    return `<svg class="cx-own-chart-048s" viewBox="0 0 ${w} ${hgt}" role="img" aria-label="Venta y margen por día">
+      ${[0, 0.5, 1].map((f) => `<line x1="${pad.l}" x2="${w - pad.r}" y1="${y(max * f)}" y2="${y(max * f)}" class="grid"/><text x="${pad.l - 6}" y="${y(max * f) + 4}" text-anchor="end">${h(cxOwnMoney048S(max * f))}</text>`).join("")}
+      ${days.map((d, i) => `<rect x="${pad.l + step * i + (step - barW) / 2}" y="${y(d.sales)}" width="${barW}" height="${Math.max(0, pad.t + innerH - y(d.sales))}" class="bar"><title>${h(d.weekday)} ${h(d.date)}: ${h(cxOwnMoney048S(d.sales))}${d.margin !== null && d.margin !== undefined ? ` · margen ${h(cxOwnMoney048S(d.margin))}` : ""}</title></rect>`).join("")}
+      ${points.length > 1 ? `<polyline points="${points.join(" ")}" class="margin"/>` : ""}
+      ${points.map((p) => `<circle cx="${p.split(",")[0]}" cy="${p.split(",")[1]}" r="3.5" class="margin-dot"/>`).join("")}
+      ${days.map((d, i) => (i % every === 0 ? `<text x="${pad.l + step * i + step / 2}" y="${hgt - 26}" text-anchor="middle">${h(d.date.slice(8, 10))}/${h(d.date.slice(5, 7))}</text>` : "")).join("")}
+      <g class="legend"><rect x="${pad.l}" y="${hgt - 14}" width="14" height="10" class="bar"/><text x="${pad.l + 20}" y="${hgt - 4}">Venta</text><line x1="${pad.l + 90}" x2="${pad.l + 110}" y1="${hgt - 9}" y2="${hgt - 9}" class="margin"/><text x="${pad.l + 116}" y="${hgt - 4}">Margen bruto</text></g>
+    </svg>`;
+  }
+
+  function cxOwnDays048S(daily, busy) {
+    const rows = daily?.table || [];
+    return `
+      <p class="cx-own-note-048s" data-own-idle>${h(daily?.idle_days || 0)} días sin operación en el periodo.</p>
+      <div class="cx-own-busy-048s" data-own-busy>${busy && busy.enough
+        ? `<span>Día más movido de la semana</span><b>${h(busy.weekday)}</b><small>${h(cxOwnMoney048S(busy.average))} promedio en ${h(busy.days)} ${h(busy.plural)}</small>`
+        : `<span>Día más movido de la semana</span><b>—</b><small>${h(busy?.message || "Datos insuficientes, se necesitan al menos 3 semanas")}</small>`}</div>
+      ${rows.length ? `<details class="cx-own-days-048s" ${rows.length <= 7 ? "open" : ""}><summary>Ver detalle por día (${h(rows.length)} con ventas)</summary><div class="cx-own-table-wrap-048s"><table class="cx-own-table-048s"><thead><tr><th>Día</th><th>Pedidos</th><th>Venta</th><th>Margen</th></tr></thead><tbody>
+        ${rows.map((d) => `<tr><td>${h(d.weekday)} ${h(d.date.slice(8, 10))}/${h(d.date.slice(5, 7))}</td><td>${h(d.orders)}</td><td>${h(cxOwnMoney048S(d.sales))}</td><td>${h(cxOwnMoney048S(d.margin))}</td></tr>`).join("")}
+      </tbody></table></div></details>` : ""}
+    `;
+  }
+
+  function cxOwnHeatmap048S(heatmap) {
+    const hours = heatmap?.hours || [];
+    if (!hours.length) return `<div class="cx-own-empty-048s">Sin ventas para el mapa de calor.</div>`;
+    const cells = new Map((heatmap.cells || []).map((c) => [`${c.weekday}-${c.hour}`, c.sales]));
+    const max = Math.max(1, Number(heatmap.max) || 1);
+    return `<div class="cx-own-heat-wrap-048s"><div class="cx-own-heat-048s" style="grid-template-columns: 88px repeat(${hours.length}, minmax(34px, 1fr))">
+      <span></span>${hours.map((hour) => `<span class="hour">${h(cxOwnHour048S(hour))}</span>`).join("")}
+      ${(heatmap.weekdays || []).map((day, wd) => `<span class="day">${h(day)}</span>${hours.map((hour) => {
+        const value = cells.get(`${wd}-${hour}`) || 0;
+        const alpha = value ? 0.15 + 0.85 * (value / max) : 0;
+        return `<span class="cell" data-own-cell="${wd}-${hour}" style="background:rgba(34,197,94,${alpha.toFixed(2)})" title="${h(day)} ${h(cxOwnHour048S(hour))}: ${h(cxOwnMoney048S(value))}"></span>`;
+      }).join("")}`).join("")}
+    </div></div><p class="cx-own-note-048s">Cada fila es el día de la jornada: lo vendido después de medianoche queda en la jornada que abrió. Más verde = más venta.</p>`;
+  }
+
+  function cxOwnScatter048S(menu) {
+    const items = (menu?.products || []).filter((p) => p.quadrant);
+    if (!items.length) return `<div class="cx-own-empty-048s">${h(menu?.note || "Sin productos con costo para clasificar.")}</div>`;
+    const w = 520, hgt = 380, pad = { l: 40, r: 12, t: 20, b: 44 };
+    const maxX = Math.max(...items.map((p) => p.share_pct), menu.thresholds.popularity_share_pct) * 1.1;
+    const values = items.map((p) => p.margin_unit);
+    const minY = Math.min(0, ...values), maxY = Math.max(...values, menu.thresholds.avg_margin_unit) * 1.1 || 1;
+    const x = (v) => pad.l + (v / maxX) * (w - pad.l - pad.r);
+    const y = (v) => pad.t + (1 - (v - minY) / (maxY - minY || 1)) * (hgt - pad.t - pad.b);
+    const tx = x(menu.thresholds.popularity_share_pct), ty = y(menu.thresholds.avg_margin_unit);
+    const labelled = new Set([...items].sort((a, b) => b.sales - a.sales).slice(0, 10).map((p) => p.key));
+    return `<svg class="cx-own-scatter-048s" viewBox="0 0 ${w} ${hgt}" role="img" aria-label="Análisis de carta">
+      <line x1="${tx}" x2="${tx}" y1="${pad.t}" y2="${hgt - pad.b}" class="threshold"/>
+      <line x1="${pad.l}" x2="${w - pad.r}" y1="${ty}" y2="${ty}" class="threshold"/>
+      <text x="${w - pad.r - 4}" y="${pad.t + 12}" text-anchor="end" class="q estrella">Estrellas</text>
+      <text x="${pad.l + 6}" y="${pad.t + 12}" class="q enigma">Enigmas</text>
+      <text x="${w - pad.r - 4}" y="${hgt - pad.b - 6}" text-anchor="end" class="q vaca">Vacas</text>
+      <text x="${pad.l + 6}" y="${hgt - pad.b - 6}" class="q perro">Perros</text>
+      ${items.map((p) => `<circle cx="${x(p.share_pct)}" cy="${y(p.margin_unit)}" r="7" fill="${CX_OWN_QUADRANTS_048S[p.quadrant].color}" data-own-dot="${h(p.quadrant)}"><title>${h(p.name)}: ${h(p.share_pct)}% de lo vendido · margen ${h(cxOwnMoney048S(p.margin_unit))} por venta</title></circle>${labelled.has(p.key) ? `<text x="${x(p.share_pct) + 11}" y="${y(p.margin_unit) + 5}" class="dot-label">${h(p.name.slice(0, 18))}</text>` : ""}`).join("")}
+      <text x="${(w + pad.l) / 2}" y="${hgt - 8}" text-anchor="middle">Popularidad (% de lo vendido) →</text>
+      <text x="16" y="${hgt / 2}" transform="rotate(-90 16 ${hgt / 2})" text-anchor="middle">Margen por unidad →</text>
+    </svg>`;
+  }
+
+  function cxOwnMenu048S(menu) {
+    if (!menu) return "";
+    const sort = cxOwn048S.sort;
+    const rows = [...(menu.products || [])].sort((a, b) => {
+      const va = a[sort.key] ?? -Infinity, vb = b[sort.key] ?? -Infinity;
+      return sort.dir === "asc" ? va - vb : vb - va;
+    });
+    const head = (key, label) => `<th><button type="button" data-own-048s data-own-sort="${key}">${h(label)}${sort.key === key ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</button></th>`;
+    return `
+      ${cxOwnScatter048S(menu)}
+      <div class="cx-own-quadrants-048s">${Object.entries(CX_OWN_QUADRANTS_048S).map(([key, q]) => `<div style="border-color:${q.color}"><b style="color:${q.color}">${h(q.label)} (${h(rows.filter((p) => p.quadrant === key).length)})</b><span>${h(q.action)}</span></div>`).join("")}</div>
+      <p class="cx-own-note-048s">En los productos por porciones, cada porción vendida cuenta como una venta para la popularidad y el margen por unidad; la columna Unidades muestra el equivalente en enteros.</p>
+      <div class="cx-own-table-wrap-048s"><table class="cx-own-table-048s" data-own-menu-table><thead><tr><th>Producto</th>${head("units", "Unidades")}${head("sales", "Venta")}${head("cost", "Costo")}${head("margin_unit", "Margen/u")}${head("margin_total", "Margen total")}<th>Cuadrante</th></tr></thead><tbody>
+        ${rows.map((p) => `<tr><td>${h(p.name)}${p.portions_text ? `<small>${h(p.portions_text)}</small>` : ""}${p.derived_cost ? `<small>costo derivado del entero</small>` : ""}</td><td>${h(p.units_text)}</td><td>${h(cxOwnMoney048S(p.sales))}</td><td>${p.costed ? h(cxOwnMoney048S(p.cost)) : `<em class="bad">Sin costo</em>`}</td><td>${h(cxOwnMoney048S(p.margin_unit))}</td><td>${h(cxOwnMoney048S(p.margin_total))}</td><td>${p.quadrant ? `<b style="color:${CX_OWN_QUADRANTS_048S[p.quadrant].color}">${h(CX_OWN_QUADRANTS_048S[p.quadrant].label.replace(/s$/, ""))}</b>` : "—"}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+
+  function cxOwnTeam048S(team, kitchen) {
+    const waiters = team?.waiters || [];
+    const slow = kitchen?.slow_pct;
+    return `
+      ${waiters.length ? `<div class="cx-own-table-wrap-048s"><table class="cx-own-table-048s" data-own-team><thead><tr><th>Mesero</th><th>Venta</th><th>Mesas</th><th>Ticket</th><th>Horas</th><th>Venta por hora</th></tr></thead><tbody>
+        ${waiters.map((w) => `<tr><td>${h(w.name)}</td><td>${h(cxOwnMoney048S(w.sales))}</td><td>${h(w.tables)}</td><td>${h(cxOwnMoney048S(w.ticket))}</td><td>${h(w.hours)}</td><td><b>${w.sales_per_hour === null ? "Sin turno" : h(cxOwnMoney048S(w.sales_per_hour))}</b></td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="cx-own-empty-048s">Sin ventas de meseros en el periodo.</div>`}
+      ${team?.excluded_hours ? `<p class="cx-own-note-048s">${h(team.excluded_hours)} h de turnos cerrados por el sistema sin hora real no cuentan en la venta por hora.</p>` : ""}
+      <h3>Cocina</h3>
+      ${kitchen?.comandas ? `<div class="cx-own-kpis-048s small">
+        <article class="cx-own-kpi-048s"><span>Comandas de más de ${h(kitchen.slow_minutes)} min</span><b class="${slow > 20 ? "bad" : ""}">${h(slow)}%</b><small class="neutral">de ${h(kitchen.comandas)} comandas</small></article>
+        ${(kitchen.stations || []).map((s) => `<article class="cx-own-kpi-048s"><span>${h(s.name)}</span><b>${h(s.avg_minutes)} min</b><small class="neutral">peor ${h(s.max_minutes)} min</small></article>`).join("")}
+      </div>
+      <div class="cx-own-table-wrap-048s"><table class="cx-own-table-048s"><thead><tr><th>Producto</th><th>Demora promedio</th><th>Peor demora</th></tr></thead><tbody>
+        ${(kitchen.products || []).slice(0, 10).map((p) => `<tr><td>${h(p.name)}</td><td>${h(p.avg_minutes)} min</td><td>${h(p.max_minutes)} min</td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="cx-own-empty-048s">Sin tiempos de cocina registrados en el periodo.</div>`}
+    `;
+  }
+
+  function cxOwnBars048S(rows = [], valueKey = "sales") {
+    const max = Math.max(1, ...rows.map((r) => r[valueKey] || 0));
+    return `<div class="cx-own-bars-048s">${rows.map((r) => `<div><span>${h(r.label || r.name)}</span><i style="width:${Math.max(2, (r[valueKey] / max) * 100).toFixed(1)}%"></i><b>${h(cxOwnMoney048S(r[valueKey]))}</b></div>`).join("")}</div>`;
+  }
+
+  function cxOwnOps048S(ops) {
+    if (!ops) return "";
+    return `
+      <div class="cx-own-kpis-048s small">${(ops.channels || []).map((c) => `<article class="cx-own-kpi-048s" data-own-channel="${h(c.channel)}"><span>${h(c.label)}</span><b>${h(cxOwnMoney048S(c.sales))}</b><small class="neutral">${h(c.accounts)} cuenta(s) · ticket ${h(cxOwnMoney048S(c.ticket))}</small></article>`).join("")}
+        <article class="cx-own-kpi-048s"><span>Duración promedio de mesa</span><b>${ops.avg_table_minutes === null ? "—" : `${h(ops.avg_table_minutes)} min`}</b><small class="neutral">Rotación: ${ops.rotation_per_jornada === null ? "—" : `${h(ops.rotation_per_jornada)} veces por mesa en cada jornada`}</small></article>
+      </div>
+      <h3>Métodos de pago</h3>${cxOwnBars048S(ops.payments || [])}
+      <div class="cx-own-two-048s">
+        <div data-own-top-tables><h3>Mesas con más consumo</h3>${(ops.top_tables || []).length ? cxOwnBars048S(ops.top_tables) : `<div class="cx-own-empty-048s">Sin consumo en mesas.</div>`}</div>
+        <div data-own-top-deliveries><h3>Domicilios con más consumo</h3>${(ops.top_deliveries || []).length ? cxOwnBars048S(ops.top_deliveries) : `<div class="cx-own-empty-048s">Sin domicilios en el periodo.</div>`}</div>
+      </div>
+    `;
+  }
+
+  function cxOwnInventory048S(inv) {
+    if (!inv) return "";
+    return `
+      <div class="cx-own-kpis-048s small"><article class="cx-own-kpi-048s"><span>Valor del inventario actual</span><b>${h(cxOwnMoney048S(inv.value))}</b><small class="neutral">${inv.uncosted_items ? `${h(inv.uncosted_items)} producto(s) con existencia sin precio de entrada no suman` : "a precio de entrada"}</small></article></div>
+      <h3>Qué comprar hoy</h3>
+      ${(inv.buy_today || []).length ? `<ul class="cx-own-buy-048s" data-own-buy>${inv.buy_today.map((r) => `<li><b>${h(r.name)}</b><span>quedan ${h(r.stock)} · se venden ${h(r.daily)} por día · alcanza para ${h(r.days)} día(s)</span></li>`).join("")}</ul>` : `<div class="cx-own-empty-048s">Nada se acaba en los próximos 3 días al ritmo actual.</div>`}
+      ${(inv.coverage || []).length ? `<details><summary>Días de cobertura de cada producto</summary><div class="cx-own-table-wrap-048s"><table class="cx-own-table-048s"><thead><tr><th>Producto</th><th>Existencia</th><th>Venta diaria</th><th>Días</th></tr></thead><tbody>${inv.coverage.map((r) => `<tr><td>${h(r.name)}</td><td>${h(r.stock)}</td><td>${h(r.daily)}</td><td>${h(r.days)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+      ${(inv.idle || []).length ? `<details><summary>Sin rotación en el periodo (${h(inv.idle.length)})</summary><ul class="cx-own-idle-048s">${inv.idle.slice(0, 40).map((r) => `<li>${h(r.name)} · ${h(r.stock)} en existencia${r.value ? ` · ${h(cxOwnMoney048S(r.value))} quietos` : ""}</li>`).join("")}</ul></details>` : ""}
+    `;
+  }
+
+  function cxOwnSection048S(title, body, loading) {
+    return `<section class="cx-own-section-048s"><h2>${h(title)}</h2>${loading ? `<div class="cx-own-empty-048s">Cargando…</div>` : body}</section>`;
+  }
+
+  function cxOwnView048S() {
+    const s = cxOwn048S.summary;
+    const d = cxOwn048S.details;
+    const period = s?.period || d?.period;
+    return `
+      ${cxOwnPeriodBar048S()}
+      ${period ? `<p class="cx-own-note-048s">${h(period.label)}: ${h(period.start)} a ${h(period.end)} · comparado con ${h(period.prev_start)} a ${h(period.prev_end)}.</p>` : ""}
+      ${cxOwn048S.error ? `<div class="personal-toast error">${h(cxOwn048S.error)}</div>` : ""}
+      ${cxOwnReadings048S(s?.readings || [])}
+      ${cxOwnKpis048S(s)}
+      ${cxOwn048S.detailsError ? `<div class="personal-toast error">${h(cxOwn048S.detailsError)}</div>` : ""}
+      ${cxOwnSection048S("Venta y margen por día", `${cxOwnSalesChart048S(d?.daily?.days || [])}${cxOwnDays048S(d?.daily, s?.busiest_weekday)}`, !d)}
+      ${cxOwnSection048S("¿Cuándo se llena?", cxOwnHeatmap048S(d?.heatmap), !d)}
+      ${cxOwnSection048S("Análisis de carta", cxOwnMenu048S(d?.menu), !d)}
+      ${cxOwnSection048S("Equipo", cxOwnTeam048S(d?.team, d?.kitchen), !d)}
+      ${cxOwnSection048S("Operación", cxOwnOps048S(d?.operations), !d)}
+      ${cxOwnSection048S("Inventario y compras", cxOwnInventory048S(d?.inventory), !d)}
+    `;
+  }
+
+  function cxOwnPaint048S(force = false) {
+    const root = document.getElementById("hspDashRoot024W");
+    if (!root) return;
+    cxOwnStyles048S();
+    const key = cxOwn048S.tab === "events"
+      ? `events:${JSON.stringify(cxHspDashAnalytics033E?.event_search || null)}`
+      : `owner:${cxOwn048S.version}`;
+    if (!force && key === cxOwn048S.painted && root.querySelector("[data-own-tabs]")) return;
+    cxOwn048S.painted = key;
+    root.innerHTML = `
+      <div class="cx-own-tabs-048s" data-own-tabs>
+        <button class="${cxOwn048S.tab === "owner" ? "active" : ""}" type="button" data-own-048s data-own-tab="owner">Resumen del negocio</button>
+        <button class="${cxOwn048S.tab === "events" ? "active" : ""}" type="button" data-own-048s data-own-tab="events">Consumos y reimpresión</button>
+      </div>
+      ${cxOwn048S.tab === "events" ? cxHspDashRenderEventSearch033B() : `<div class="cx-own-048s" data-own-048s-root>${cxOwnView048S()}</div>`}
+    `;
+  }
+
+  function cxOwnCsv048S() {
+    const s = cxOwn048S.summary || {};
+    const d = cxOwn048S.details || {};
+    const lines = [["Periodo", s.period?.label || "", s.period?.start || "", s.period?.end || ""], []];
+    (s.kpis?.cards || []).forEach((c) => lines.push([c.label, c.value ?? "", c.change_pct ?? ""]));
+    lines.push([], ["Día", "Fecha", "Pedidos", "Venta", "Margen"]);
+    (d.daily?.table || []).forEach((r) => lines.push([r.weekday, r.date, r.orders, r.sales, r.margin ?? ""]));
+    lines.push([], ["Producto", "Unidades", "Porciones", "Venta", "Costo", "Margen por unidad", "Margen total", "Cuadrante"]);
+    (d.menu?.products || []).forEach((p) => lines.push([p.name, p.units_text, p.portions_text, p.sales, p.costed ? p.cost : "Sin costo", p.margin_unit ?? "", p.margin_total ?? "", p.quadrant || ""]));
+    lines.push([], ["Mesero", "Venta", "Mesas", "Ticket", "Horas", "Venta por hora"]);
+    (d.team?.waiters || []).forEach((w) => lines.push([w.name, w.sales, w.tables, w.ticket, w.hours, w.sales_per_hour ?? ""]));
+    lines.push([], ["Canal", "Venta", "Cuentas", "Ticket"]);
+    (d.operations?.channels || []).forEach((c) => lines.push([c.label, c.sales, c.accounts, c.ticket]));
+    lines.push([], ["Método de pago", "Venta"]);
+    (d.operations?.payments || []).forEach((p) => lines.push([p.label, p.sales]));
+    lines.push([], ["Comprar hoy", "Existencia", "Venta diaria", "Días"]);
+    (d.inventory?.buy_today || []).forEach((r) => lines.push([r.name, r.stock, r.daily, r.days]));
+    return lines.map((row) => row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  }
+
+  function cxOwnDownload048S(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function cxOwnHandleClick048S(target) {
+    const tab = target.closest("[data-own-tab]");
+    if (tab) {
+      cxOwn048S.tab = tab.getAttribute("data-own-tab");
+      if (cxOwn048S.tab === "events" && !cxHspDashAnalytics033E) await cxHspDashLoad024W().catch(() => null);
+      cxOwnPaint048S(true);
+      return true;
+    }
+    const period = target.closest("[data-own-period]");
+    if (period) {
+      cxOwn048S.period = period.getAttribute("data-own-period");
+      if (cxOwn048S.period === "custom") {
+        const today = new Date().toISOString().slice(0, 10);
+        cxOwn048S.start = cxOwn048S.start || today;
+        cxOwn048S.end = cxOwn048S.end || today;
+        cxOwn048S.version += 1;
+        cxOwnPaint048S(true);
+        return true;
+      }
+      await cxOwnLoad048S();
+      return true;
+    }
+    if (target.closest("[data-own-apply]")) {
+      cxOwn048S.start = document.querySelector("[data-own-start]")?.value || cxOwn048S.start;
+      cxOwn048S.end = document.querySelector("[data-own-end]")?.value || cxOwn048S.end;
+      await cxOwnLoad048S();
+      return true;
+    }
+    const sort = target.closest("[data-own-sort]");
+    if (sort) {
+      const key = sort.getAttribute("data-own-sort");
+      cxOwn048S.sort = { key, dir: cxOwn048S.sort.key === key && cxOwn048S.sort.dir === "desc" ? "asc" : "desc" };
+      cxOwn048S.version += 1;
+      cxOwnPaint048S(true);
+      return true;
+    }
+    if (target.closest("[data-own-csv]")) {
+      cxOwnDownload048S(new Blob([`﻿${cxOwnCsv048S()}`], { type: "text/csv;charset=utf-8" }), `reporte_${cxOwn048S.summary?.period?.start || ""}_${cxOwn048S.summary?.period?.end || ""}.csv`);
+      return true;
+    }
+    if (target.closest("[data-own-pdf]")) {
+      try {
+        const res = await fetch(`${API}/hospitality/companies/${encodeURIComponent(state.companyId)}/owner-report/pdf?${cxOwnQuery048S()}`, { headers: authHeaders() });
+        if (!res.ok) throw new Error(await res.text());
+        cxOwnDownload048S(await res.blob(), `reporte_${cxOwn048S.summary?.period?.start || "periodo"}.pdf`);
+      } catch (error) {
+        cxOwn048S.error = `No se pudo generar el PDF: ${error.message || error}`;
+        cxOwn048S.version += 1;
+        cxOwnPaint048S(true);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function cxOwnStyles048S() {
+    if (document.getElementById("cxOwn048SStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxOwn048SStyles";
+    style.textContent = `
+      .cx-own-tabs-048s, .cx-own-periods-048s { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; }
+      .cx-own-tabs-048s button, .cx-own-periods-048s button { min-height:42px; padding:8px 14px; border-radius:999px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.06); color:inherit; font-weight:800; cursor:pointer; }
+      .cx-own-tabs-048s button.active, .cx-own-periods-048s button.active { background:#22c55e; color:#06140b; border-color:#22c55e; }
+      .cx-own-custom-048s, .cx-own-exports-048s { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin-bottom:12px; }
+      .cx-own-custom-048s label { display:grid; gap:4px; font-size:12px; }
+      .cx-own-custom-048s input { min-height:42px; border-radius:10px; padding:6px 10px; }
+      .cx-own-readings-048s { display:grid; gap:8px; margin:6px 0 16px; }
+      .cx-own-readings-048s p { margin:0; padding:12px 14px; border-left:4px solid #38bdf8; background:rgba(56,189,248,.12); border-radius:10px; font-size:16px; font-weight:700; line-height:1.35; }
+      .cx-own-kpis-048s { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; }
+      .cx-own-kpis-048s.small { grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); margin:8px 0 14px; }
+      .cx-own-kpi-048s { padding:14px 16px; border-radius:16px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); display:grid; gap:4px; }
+      .cx-own-kpi-048s span { font-size:12px; text-transform:uppercase; letter-spacing:.06em; opacity:.75; font-weight:800; }
+      .cx-own-kpi-048s b { font-size:clamp(22px, 3.2vw, 32px); line-height:1.05; }
+      .cx-own-kpi-048s small { font-weight:800; font-size:12px; }
+      .cx-own-kpi-048s .good, .cx-own-048s .good { color:#4ade80; }
+      .cx-own-kpi-048s .bad, .cx-own-048s .bad { color:#f87171; }
+      .cx-own-kpi-048s .neutral { opacity:.65; }
+      .cx-own-kpi-048s.loading b { opacity:.4; }
+      .cx-own-warn-048s { display:grid; gap:4px; margin:12px 0; padding:12px 14px; border-radius:12px; border:1px solid rgba(248,113,113,.7); background:rgba(248,113,113,.14); }
+      .cx-own-note-048s { opacity:.8; font-size:13px; margin:8px 0; }
+      .cx-own-section-048s { margin-top:22px; padding:16px; border-radius:18px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); }
+      .cx-own-section-048s h2 { margin:0 0 10px; font-size:20px; }
+      .cx-own-section-048s h3 { margin:16px 0 8px; font-size:15px; }
+      .cx-own-empty-048s { padding:14px; opacity:.75; }
+      .cx-own-chart-048s, .cx-own-scatter-048s { width:100%; height:auto; max-height:340px; display:block; margin:0 auto; }
+      .cx-own-scatter-048s { max-height:420px; }
+      .cx-own-chart-048s text, .cx-own-scatter-048s text { fill:currentColor; font-size:15px; opacity:.9; }
+      .cx-own-048s details summary { cursor:pointer; font-weight:800; margin:8px 0; }
+      .cx-own-chart-048s .grid { stroke:rgba(255,255,255,.12); }
+      .cx-own-chart-048s .bar { fill:#22c55e; }
+      .cx-own-chart-048s .margin { fill:none; stroke:#fbbf24; stroke-width:3; }
+      .cx-own-chart-048s .margin-dot { fill:#fbbf24; }
+      .cx-own-scatter-048s .threshold { stroke:rgba(255,255,255,.35); stroke-dasharray:6 5; }
+      .cx-own-scatter-048s .q { font-weight:800; font-size:17px; opacity:1; }
+      .cx-own-scatter-048s .q.estrella { fill:#22c55e; } .cx-own-scatter-048s .q.vaca { fill:#f59e0b; }
+      .cx-own-scatter-048s .q.enigma { fill:#38bdf8; } .cx-own-scatter-048s .q.perro { fill:#f87171; }
+      .cx-own-scatter-048s .dot-label { font-size:13px; }
+      .cx-own-quadrants-048s { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:8px; margin:10px 0; }
+      .cx-own-quadrants-048s div { display:grid; gap:4px; padding:10px; border-radius:12px; border:1px solid; font-size:13px; }
+      .cx-own-busy-048s { display:grid; gap:2px; margin:8px 0 12px; }
+      .cx-own-busy-048s span { font-size:12px; text-transform:uppercase; opacity:.75; font-weight:800; }
+      .cx-own-busy-048s b { font-size:22px; }
+      .cx-own-table-wrap-048s { overflow-x:auto; }
+      .cx-own-table-048s { width:100%; border-collapse:collapse; font-size:14px; }
+      .cx-own-table-048s th, .cx-own-table-048s td { padding:9px 8px; border-bottom:1px solid rgba(255,255,255,.1); text-align:left; vertical-align:top; }
+      .cx-own-table-048s td small { display:block; opacity:.7; font-size:12px; margin-top:2px; }
+      .cx-own-table-048s th button { background:none; border:0; color:inherit; font:inherit; font-weight:800; cursor:pointer; padding:0; }
+      .cx-own-heat-wrap-048s { overflow-x:auto; }
+      .cx-own-heat-048s { display:grid; gap:3px; min-width:max-content; }
+      .cx-own-heat-048s span { font-size:12px; }
+      .cx-own-heat-048s .hour { text-align:center; opacity:.75; }
+      .cx-own-heat-048s .day { font-weight:800; align-self:center; }
+      .cx-own-heat-048s .cell { height:30px; border-radius:6px; border:1px solid rgba(255,255,255,.08); }
+      .cx-own-bars-048s { display:grid; gap:8px; }
+      .cx-own-bars-048s div { display:grid; grid-template-columns:minmax(90px, 160px) 1fr auto; gap:10px; align-items:center; }
+      .cx-own-bars-048s i { height:16px; border-radius:8px; background:#22c55e; display:block; }
+      .cx-own-two-048s { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+      .cx-own-buy-048s { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+      .cx-own-buy-048s li { display:grid; gap:2px; padding:10px 12px; border-radius:12px; background:rgba(248,113,113,.14); border:1px solid rgba(248,113,113,.6); }
+      .cx-own-idle-048s { columns:2; font-size:13px; }
+      @media (max-width: 760px) {
+        .cx-own-kpis-048s { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+        .cx-own-quadrants-048s, .cx-own-two-048s { grid-template-columns:1fr; }
+        .cx-own-readings-048s p { font-size:15px; }
+        .cx-own-idle-048s { columns:1; }
+        .cx-own-bars-048s div { grid-template-columns:minmax(80px, 110px) 1fr auto; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  /* CX_OWNER_REPORT_048S_END */
+
   function cxHspDashPaint024W() {
     const root = document.getElementById("hspDashRoot024W");
     if (!root) return;
+    // 048S: los restaurantes con waiter_ordering ven el reporte del dueño.
+    if (cxHspDashRestaurant048H()) {
+      cxHspDashPainted033E = JSON.stringify([cxHspDashAnalytics033E?.analytics, cxHspDashAnalytics033E?.event_search]);
+      cxOwnPaint048S();
+      cxHspDashStatus033E();
+      return;
+    }
     if (!cxHspDashAnalytics033E) {
       root.innerHTML = `<div class="hspdash-empty-024w">Las ventas aún no se han cargado. Se reintentará automáticamente.</div>`;
       return;
@@ -25443,7 +25936,7 @@ function inventoryCreatePayload() {
                 <button class="client-btn" type="button" data-client-back-dashboard>Dashboard</button>
                 ${cxHspDashRestaurant048H() ? "" : `<button class="client-btn" type="button" data-client-module="orders">Pedidos</button>
                 <button class="client-btn" type="button" data-client-module="qr">Mesa QR</button>`}
-                <button class="client-btn" type="button" data-hsp-dash-pdf>Informe PDF</button>
+                ${cxHspDashRestaurant048H() ? "" : `<button class="client-btn" type="button" data-hsp-dash-pdf>Informe PDF</button>`}
                 <button class="client-btn" type="button" data-hsp-dash-refresh>Actualizar</button>
               </div>
             </header>
@@ -25462,6 +25955,7 @@ function inventoryCreatePayload() {
     cxHspDashPaintPdf032F();
     cxHspDashStatus033E(loadError);
     cxHspDashStartMonitor033E();
+    if (cxHspDashRestaurant048H() && (cxOwn048S.companyId !== state.companyId || !cxOwn048S.summary)) cxOwnLoad048S();
   }
   /* CLONEXA_024W_HOSPITALITY_ANALYTICS_END */
   /* CLONEXA_024Z_HOSPITALITY_LOYALTY_START */
@@ -33250,6 +33744,7 @@ function inventoryCreatePayload() {
       }
 
       if (target.closest("#cxSanRoot048K") && await cxSanHandleClick048K(target)) return;
+      if (target.closest("[data-own-048s]") && await cxOwnHandleClick048S(target)) return;
       if (target.closest("[data-sess-048q-root]") && await cxSessHandleClick048Q(target)) return;
       if (target.closest("[data-pay-sess-confirm-048q]")) {
         await cxPaySessConfirm048Q(target);
