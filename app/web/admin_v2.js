@@ -3700,6 +3700,9 @@
 
         if (typeof renderCompanies === "function") renderCompanies();
         if (typeof renderModules === "function") renderModules();
+        // 048R: el detalle abierto (p. ej. el interruptor de normativa en Resumen) tambien se refresca.
+        const openCompany = state.companies.find((item) => String(item.id) === String(companyId));
+        if (openCompany && String(state.selectedCompanyId) === String(companyId)) renderCompanyDetailTab(openCompany);
       } catch (error) {
         alert(`No se pudo ${action === "activate" ? "activar" : "desactivar"} el módulo: ${error.message}`);
       } finally {
@@ -5904,6 +5907,38 @@
   });
   /* CX_SESSION_CUTOFF_ADMIN_048Q_END */
 
+  /* CX_PAYROLL_COLOMBIA_SWITCH_048R_START */
+  // Acceso directo al interruptor "APLICAR NORMATIVA LABORAL COLOMBIANA" de
+  // la empresa (modulo nomina_colombia): mismo boton de activar/desactivar
+  // del catalogo, sin tener que buscarlo entre todos los modulos.
+  function cxPayCoSwitchPanel048R(company) {
+    const row = cxCompanyModuleRowMap(company.id).get("nomina_colombia");
+    const enabled = !!row && row.enabled !== false;
+    const action = enabled ? "deactivate" : "activate";
+    return `
+      <section class="cx-panel" data-payco-switch-048r="${escapeHtml(company.id)}">
+        <div class="cx-card-head">
+          <div>
+            <h3>Nómina: aplicar normativa laboral colombiana</h3>
+            <p>${enabled
+              ? "Encendido: la nómina liquida recargos, extras, auxilio, aportes y provisiones de ley con los parámetros del año. En el portal, Nómina muestra el desglose por empleado y el botón \"Salarios y ARL\"."
+              : "Apagado: cálculo simple, horas trabajadas × valor hora de cada empleado."}</p>
+          </div>
+          ${enabled ? `<span class="cx-badge cx-badge-live">Encendido</span>` : `<span class="cx-badge">Apagado</span>`}
+        </div>
+        <div class="cx-actions" style="margin-top:14px">
+          <button class="cx-btn ${enabled ? "" : "cx-btn-primary"}" type="button"
+            data-cx-company-module-toggle
+            data-company-id="${escapeHtml(company.id)}"
+            data-module-code="nomina_colombia"
+            data-action="${escapeHtml(action)}">${enabled ? "Apagar normativa colombiana" : "Encender normativa colombiana"}</button>
+          <button class="cx-btn" type="button" data-view="modules">Parámetros de ley por año</button>
+        </div>
+      </section>
+    `;
+  }
+  /* CX_PAYROLL_COLOMBIA_SWITCH_048R_END */
+
   function renderCompanyDetailTab(company) {
     const node = el("#companyDetailContent");
     if (!node) return;
@@ -5972,6 +6007,8 @@
               <button class="cx-btn cx-btn-danger" data-select-company="${escapeHtml(company.id)}" data-detail-tab="reset" type="button">Reset operativo</button>
             </div>
           </section>
+
+          ${cxPayCoSwitchPanel048R(company)}
 
           ${cxSessPolicyPanel048Q(company)}
         </div>

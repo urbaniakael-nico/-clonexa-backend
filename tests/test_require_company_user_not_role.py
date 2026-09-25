@@ -13,6 +13,14 @@ from fastapi import HTTPException
 import pytest
 
 from app.api.v1.endpoints import company_users
+from app.web import admin_v2_routes
+
+REQ = SimpleNamespace()  # stand-in Request; the Admin V2 check is patched per test
+
+
+@pytest.fixture(autouse=True)
+def no_admin_v2_session(monkeypatch):
+    monkeypatch.setattr(admin_v2_routes, "_active_session", AsyncMock(return_value=False))
 
 
 @pytest.mark.asyncio
@@ -25,7 +33,7 @@ async def test_noop_when_the_company_has_no_waiter_ordering_module(monkeypatch):
     monkeypatch.setattr(company_users, "require_company_user_for_tenant", tenant_check)
 
     dependency = company_users.require_company_user_not_role({"administrador"})
-    result = await dependency(company_id=uuid.uuid4(), authorization=None, db=SimpleNamespace())
+    result = await dependency(company_id=uuid.uuid4(), request=REQ, authorization=None, db=SimpleNamespace())
 
     assert result is None
     tenant_check.assert_not_awaited()
@@ -41,7 +49,7 @@ async def test_blocks_the_forbidden_role_when_module_is_enabled(monkeypatch):
 
     dependency = company_users.require_company_user_not_role({"administrador"})
     with pytest.raises(HTTPException) as exc:
-        await dependency(company_id=uuid.uuid4(), authorization="Bearer tok", db=SimpleNamespace())
+        await dependency(company_id=uuid.uuid4(), request=REQ, authorization="Bearer tok", db=SimpleNamespace())
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "role_not_allowed"
@@ -57,7 +65,7 @@ async def test_allows_dueno_and_gerente_through(monkeypatch):
             AsyncMock(return_value=SimpleNamespace(role=role)),
         )
         dependency = company_users.require_company_user_not_role({"administrador"})
-        result = await dependency(company_id=uuid.uuid4(), authorization="Bearer tok", db=SimpleNamespace())
+        result = await dependency(company_id=uuid.uuid4(), request=REQ, authorization="Bearer tok", db=SimpleNamespace())
         assert result is None
 
 
@@ -74,6 +82,20 @@ async def test_requires_a_valid_session_when_module_is_enabled(monkeypatch):
 
     dependency = company_users.require_company_user_not_role({"administrador"})
     with pytest.raises(HTTPException) as exc:
-        await dependency(company_id=uuid.uuid4(), authorization=None, db=SimpleNamespace())
+        await dependency(company_id=uuid.uuid4(), request=REQ, authorization=None, db=SimpleNamespace())
 
     assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_v2_session_passes_without_a_company_token(monkeypatch):
+    """049F: the portal opened from Admin V2 has the Admin V2 cookie and no
+    company token -- Nomina/Ajustes of a waiter_ordering company must work."""
+    monkeypatch.setattr(company_users, "require_enabled_module", AsyncMock())
+    monkeypatch.setattr(admin_v2_routes, "_active_session", AsyncMock(return_value=True))
+    tenant_check = AsyncMock()
+    monkeypatch.setattr(company_users, "require_company_user_for_tenant", tenant_check)
+
+    dependency = company_users.require_company_user_not_role({"administrador"})
+    assert await dependency(company_id=uuid.uuid4(), request=REQ, authorization=None, db=SimpleNamespace()) is None
+    tenant_check.assert_not_awaited()

@@ -127,3 +127,24 @@ test('Admin V2: interruptor en el catálogo y editor de parámetros por año', (
   assert.match(html, /name="fsp_brackets" data-kind="json" rows="2">\[\[4,1\]\]/);
   assert.match(html, /&quot;from&quot;: &quot;2026-07-15&quot;/);
 });
+
+test('Admin V2: acceso directo al interruptor de normativa colombiana en el Resumen de la empresa', () => {
+  assert.match(admin, /\$\{cxPayCoSwitchPanel048R\(company\)\}/);
+  const start = admin.indexOf('  function cxPayCoSwitchPanel048R(');
+  const end = admin.indexOf('  /* CX_PAYROLL_COLOMBIA_SWITCH_048R_END */');
+  const run = (rows) => {
+    const ctx = vm.createContext({
+      escapeHtml: (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])),
+      cxCompanyModuleRowMap: () => new Map(rows), String,
+    });
+    vm.runInContext(admin.slice(start, end), ctx);
+    return ctx.cxPayCoSwitchPanel048R({ id: 'asadero' });
+  };
+  const off = run([]);
+  assert.match(off, /Nómina: aplicar normativa laboral colombiana[\s\S]*Apagado: cálculo simple/);
+  assert.match(off, /data-cx-company-module-toggle\s+data-company-id="asadero"\s+data-module-code="nomina_colombia"\s+data-action="activate">Encender normativa colombiana/);
+  assert.match(off, /data-view="modules">Parámetros de ley por año/);
+  const on = run([['nomina_colombia', { code: 'nomina_colombia', enabled: true }]]);
+  assert.match(on, /cx-badge-live">Encendido[\s\S]*data-action="deactivate">Apagar normativa colombiana/);
+  assert.match(admin, /if \(openCompany && String\(state\.selectedCompanyId\) === String\(companyId\)\) renderCompanyDetailTab\(openCompany\);/);
+});

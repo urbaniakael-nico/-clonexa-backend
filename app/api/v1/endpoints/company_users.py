@@ -571,6 +571,7 @@ def _cx_waiter_ordering_segment_enabled_031t(settings: Dict[str, Any], panel_typ
 def require_company_user_not_role(forbidden_roles: set[str]):
     async def _dependency(
         company_id: UUID,
+        request: Request,
         authorization: Optional[str] = Header(default=None),
         db: AsyncSession = Depends(get_db),
     ) -> None:
@@ -578,6 +579,13 @@ def require_company_user_not_role(forbidden_roles: set[str]):
             await require_enabled_module(db, company_id, "waiter_ordering")
         except HTTPException:
             return  # module not enabled here -> endpoint stays exactly as it is today
+        # 049F: the portal opened from Admin V2 ("Abrir /client") carries the
+        # Admin V2 session cookie and no company token; Admin V2 is the
+        # platform owner, so it passes (it is never the "administrador" role).
+        from app.web.admin_v2_routes import _active_session as active_admin_v2_session
+
+        if await active_admin_v2_session(request, db):
+            return
         user = await require_company_user_for_tenant(db, authorization, company_id)
         role = str(getattr(user, "role", "") or "").strip().lower()
         if role in forbidden_roles:

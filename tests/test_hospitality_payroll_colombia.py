@@ -318,6 +318,8 @@ class PayDb:
             return Result([])
         if sql.startswith("SELECT settings_json FROM company_settings"):
             return Result([])
+        if sql.startswith("SELECT id, company_id, name, period_start, period_end"):
+            return Result([])  # sin cortes cerrados
         if sql.startswith("SELECT id FROM payroll_periods"):
             return Result(scalar=None)
         raise AssertionError(f"SQL no esperado: {sql[:140]}")
@@ -445,6 +447,25 @@ def test_hospitality_payroll_simple_mode_lists_employees_without_hourly_rate(db)
     assert data["missing_rate_employees"] == [{
         "employee_id": EMP[PLAIN], "employee_name": "Ana Mesera", "employee_role": "mesero",
         "minutes": 480, "missing": ["valor hora"]}]
+
+
+def test_hospitality_payroll_waiter_ordering_company_works_from_admin_v2_and_with_its_token(db, monkeypatch):
+    """Bug 049F: Nomina del Asadero (waiter_ordering) daba 401 "Token requerido."
+    al abrir el portal desde Admin V2 (cookie de Admin V2, sin token de empresa)."""
+    from app.web import admin_v2_routes
+
+    db.co_modules[PLAIN] = {"waiter_ordering"}
+    monkeypatch.setattr(admin_v2_routes, "_active_session", AsyncMock(return_value=False))
+    no_session = calculate(PLAIN)
+    assert no_session.status_code == 401 and "Token requerido" in no_session.text, "sin sesion sigue cerrado"
+    assert calculate(PLAIN, token="admin-plain").status_code == 200, "con el token de la empresa"
+    assert calculate(PLAIN, token="admin-co").status_code == 403, "token de otra empresa no"
+    monkeypatch.setattr(admin_v2_routes, "_active_session", AsyncMock(return_value=True))
+    from_admin = calculate(PLAIN)
+    assert from_admin.status_code == 200, from_admin.text
+    assert from_admin.json()["rows"][0]["gross_amount"] == 80000.0
+    for path in ("/periods", f"/periods/{uuid.uuid4()}"):
+        assert client.get(f"/api/v1/payroll/companies/{PLAIN}{path}").status_code != 401
 
 
 def test_hospitality_payroll_co_payroll_requires_session_once_the_company_has_the_module(db):
