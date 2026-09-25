@@ -496,6 +496,16 @@ async def _clonexa_startup_bootstrap_bots() -> None:
         )
 
     try:
+        # 049D: corte diario de sesiones y turnos abiertos (todas las empresas).
+        from app.services.session_cutoff import start_cutoff_loop
+
+        start_cutoff_loop()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("clonexa.session_cutoff").warning("No se pudo iniciar el corte diario: %s", exc)
+
+    try:
         from app.services.shoplink_whatsapp_web import start_whatsapp_bridge
 
         start_whatsapp_bridge()

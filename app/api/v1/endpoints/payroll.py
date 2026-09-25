@@ -16,6 +16,7 @@ from app.api.deps import get_db, require_company_user_for_tenant
 from app.api.v1.endpoints import payroll_colombia as co_config_049a
 from app.api.v1.endpoints.company_users import require_company_user_not_role
 from app.services import payroll_colombia as co_engine_049a
+from app.services import session_cutoff as session_cutoff_049d
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
@@ -364,6 +365,7 @@ def build_closed_shifts(events: list[dict]) -> list[dict]:
         if is_check_in(etype):
             open_shifts[employee_id] = {
                 "employee_id": employee_id,
+                "check_in_event": ev,
                 "start": occurred_at,
                 "end": None,
                 "pauses_seconds": 0,
@@ -810,26 +812,87 @@ async def _cx_co_gate_049A(
     await require_company_user_for_tenant(db, authorization, company_id)
 
 
-# Turnos que el sistema cerro solo al pasar el maximo de horas (028Q/044D):
-# el cierre llega cuando alguien vuelve a abrir el panel, asi que su hora de
-# salida no es real. No se liquidan; se listan aparte para revisarlos.
-AUTO_CLOSE_REASON_049B = "cierre_automatico"
+# 049D (todas las empresas): un turno que cerro el sistema (corte diario,
+# cierre automatico por tiempo, historico larguisimo) o que dura mas que la
+# jornada configurada no se liquida hasta que el administrador confirme la
+# hora real de salida (workforce_session_closures). Confirmada, se paga
+# hasta esa hora. Mientras tanto sale aparte en "unverified_shifts".
+async def _cx_verification_context_049D(db: AsyncSession, company_id) -> dict:
+    closures: dict[tuple[str, str], dict] = {}
+    alert_hours = session_cutoff_049d.DEFAULT_ALERT_HOURS
+    if await _cx_payroll_table_exists_023o(db, "workforce_session_closures"):
+        result = await db.execute(
+            text("""
+                SELECT id, source, session_ref, status, reason, real_end_at, declared_end_at
+                FROM workforce_session_closures
+                WHERE company_id = CAST(:company_id AS uuid)
+            """),
+            {"company_id": str(company_id)},
+        )
+        closures = {(str(r["source"]), str(r["session_ref"])): dict(r) for r in result.mappings().all()}
+    if await _cx_payroll_table_exists_023o(db, "workforce_session_policy"):
+        alert_hours = (await session_cutoff_049d.load_policy(db, company_id))["alert_after_hours"]
+    return {"closures": closures, "limit_seconds": float(alert_hours) * 3600}
 
 
-def _cx_is_auto_closed_049B(session: dict) -> bool:
-    return str(session.get("closed_reason") or "").strip().lower() == AUTO_CLOSE_REASON_049B
+def _cx_check_shift_049D(ctx: dict, source: str, ref: Any, start: Any, end: Any, system_closed: bool) -> tuple[str, dict | None]:
+    """("pay", None) normal | ("confirmed", cierre) pagar hasta real_end_at | ("hold", cierre) no liquidar."""
+    closure = ctx["closures"].get((source, str(ref or "")))
+    if closure and closure.get("status") == "confirmed" and closure.get("real_end_at"):
+        return "confirmed", closure
+    started, ended = _cx_payroll_dt_023o(start), _cx_payroll_dt_023o(end)
+    too_long = bool(started and ended and (ended - started).total_seconds() > ctx["limit_seconds"])
+    if system_closed or too_long or closure:
+        return "hold", closure
+    return "pay", None
 
 
-def _cx_auto_closed_item_049B(session: dict, employee: dict | None, minutes: int) -> dict:
+def _cx_unverified_item_049D(
+    *, source: str, ref: Any, employee: dict | None, fallback_name: Any, panel_type: Any,
+    start: Any, end: Any, minutes: int, reason: Any, closure: dict | None,
+) -> dict:
     employee = employee or {}
+    start_dt, end_dt = _cx_payroll_dt_023o(start), _cx_payroll_dt_023o(end)
+    closure = closure or {}
+    declared = _cx_payroll_dt_023o(closure.get("declared_end_at"))
     return {
-        "employee_id": str(session.get("employee_id") or ""),
-        "employee_name": employee.get("full_name") or session.get("employee_name") or "Colaborador",
-        "panel_type": session.get("panel_type") or "",
-        "start": _cx_payroll_dt_023o(session.get("started_at")).isoformat() if session.get("started_at") else None,
-        "end": _cx_payroll_dt_023o(session.get("ended_at")).isoformat() if session.get("ended_at") else None,
+        "source": source,
+        "session_ref": str(ref or ""),
+        "closure_id": str(closure["id"]) if closure.get("id") else None,
+        "status": closure.get("status") or "pending",
+        "reason": closure.get("reason") or reason or "turno_largo",
+        "declared_end_at": declared.isoformat() if declared else None,
+        "employee_id": str(employee.get("id") or ""),
+        "employee_name": employee.get("full_name") or fallback_name or "Colaborador",
+        "panel_type": panel_type or "",
+        "start": start_dt.isoformat() if start_dt else None,
+        "end": end_dt.isoformat() if end_dt else None,
         "minutes": max(0, int(minutes)),
     }
+
+
+def _cx_confirmed_seconds_049D(session: dict, real_end: datetime, session_events: list[dict]) -> int:
+    """Segundos pagables de un turno de mini panel hasta la hora real
+    confirmada: entrada -> hora real, menos las pausas dentro de ese rango."""
+    start = _cx_co_local_049A(session.get("started_at"))
+    end = _cx_co_local_049A(real_end)
+    system_end = _cx_co_local_049A(session.get("ended_at")) or end
+    if not start or not end or end <= start:
+        return 0
+    breaks = _cx_co_pair_breaks_049A(session_events, system_end)
+    known = sum(int((b1 - b0).total_seconds()) for b0, b1 in breaks)
+    missing = max(0, _cx_payroll_int_023o(session.get("break_seconds")) - known)
+    pieces = co_engine_049a.subtract_breaks(start, end, breaks, missing if missing > 60 else 0)
+    return int(sum((b - a).total_seconds() for a, b in pieces))
+
+
+def _cx_session_system_closed_049D(session: dict) -> bool:
+    return str(session.get("closed_reason") or "").strip().lower() in session_cutoff_049d.SYSTEM_CLOSE_REASONS
+
+
+def _cx_event_system_cutoff_049D(event: dict | None) -> bool:
+    payload = parse_payload((event or {}).get("payload_json")) or parse_payload((event or {}).get("metadata_json"))
+    return bool(isinstance(payload, dict) and payload.get("system_cutoff"))
 
 
 def _cx_co_local_049A(value: Any) -> datetime | None:
@@ -859,7 +922,7 @@ def _cx_co_pair_breaks_049A(events: list[dict], until: datetime) -> list[tuple[d
 
 def _cx_co_attendance_shifts_049A(events: list[dict], skip_session_ids: set[str]) -> dict[str, list[dict]]:
     """Turnos de Workforce/Bot (entrada, pausas, salida) que no vienen de un
-    turno de mini panel: {employee_id: [{start, end, breaks}]} en hora local."""
+    turno de mini panel: {employee_id: [{start, end, breaks, ref, ...}]} en hora local."""
     open_shifts: dict[str, dict] = {}
     shifts: dict[str, list[dict]] = {}
     for ev in sorted([e for e in events if e.get("occurred_at")], key=lambda item: item["occurred_at"]):
@@ -872,7 +935,8 @@ def _cx_co_attendance_shifts_049A(events: list[dict], skip_session_ids: set[str]
         if not at:
             continue
         if is_check_in(kind):
-            open_shifts[employee_id] = {"start": at, "breaks": [], "pause": None}
+            open_shifts[employee_id] = {"start": at, "breaks": [], "pause": None, "ref": str(ev.get("id") or ""),
+                                        "start_utc": ev.get("occurred_at")}
             continue
         shift = open_shifts.get(employee_id)
         if not shift:
@@ -885,7 +949,11 @@ def _cx_co_attendance_shifts_049A(events: list[dict], skip_session_ids: set[str]
         elif is_check_out(kind):
             if shift["pause"]:
                 shift["breaks"].append((shift["pause"], at))
-            shifts.setdefault(employee_id, []).append({"start": shift["start"], "end": at, "breaks": shift["breaks"]})
+            shifts.setdefault(employee_id, []).append({
+                "start": shift["start"], "end": at, "breaks": shift["breaks"], "source": "attendance",
+                "ref": shift["ref"], "start_utc": shift["start_utc"], "end_utc": ev.get("occurred_at"),
+                "system_closed": _cx_event_system_cutoff_049D(ev),
+            })
             open_shifts.pop(employee_id, None)
     return shifts
 
@@ -945,17 +1013,11 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
             events_by_session.setdefault(session_id, []).append(ev)
 
     shifts_by_employee = _cx_co_attendance_shifts_049A(events, session_ids)
-    auto_closed: list[dict] = []
     for session in sessions:
         employee_id = str(session.get("employee_id") or "")
         start = _cx_co_local_049A(session.get("started_at"))
         end = _cx_co_local_049A(session.get("ended_at")) or as_of_local
         if not employee_id or not start or not end or end <= start:
-            continue
-        if _cx_is_auto_closed_049B(session):
-            if employee_id in employee_map and period_start_local <= end <= period_end_local:
-                seconds = _cx_payroll_session_payable_seconds_023o(session, _cx_payroll_dt_023o(session.get("ended_at")))
-                auto_closed.append(_cx_auto_closed_item_049B(session, employee_map[employee_id], round(seconds / 60)))
             continue
         breaks = _cx_co_pair_breaks_049A(events_by_session.get(str(session.get("id")), []), end)
         shifts_by_employee.setdefault(employee_id, []).append({
@@ -963,7 +1025,17 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
             "end": end,
             "breaks": breaks,
             "break_seconds": _cx_payroll_int_023o(session.get("break_seconds")),
+            "source": "mini_panel",
+            "ref": str(session.get("id") or ""),
+            "start_utc": session.get("started_at"),
+            "end_utc": session.get("ended_at") or as_of,
+            "system_closed": _cx_session_system_closed_049D(session),
+            "system_reason": session.get("closed_reason"),
+            "panel_type": session.get("panel_type"),
         })
+
+    verification = await _cx_verification_context_049D(db, company_id)
+    unverified: list[dict] = []
 
     rows = []
     for employee_id, shifts in shifts_by_employee.items():
@@ -975,10 +1047,24 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
         for shift in shifts:
             known = sum(int((b1 - b0).total_seconds()) for b0, b1 in shift["breaks"])
             missing = max(0, int(shift.get("break_seconds") or 0) - known)
-            intervals.extend(co_engine_049a.subtract_breaks(
-                shift["start"], shift["end"], shift["breaks"], missing if missing > 60 else 0,
-            ))
-            if shift["end"] >= period_start_local and shift["start"] <= period_end_local:
+            verdict, closure = _cx_check_shift_049D(
+                verification, shift["source"], shift["ref"], shift["start_utc"], shift["end_utc"], shift["system_closed"],
+            )
+            shift_end = shift["end"]
+            if verdict == "confirmed":
+                shift_end = _cx_co_local_049A(closure["real_end_at"])
+            pieces = co_engine_049a.subtract_breaks(shift["start"], shift_end, shift["breaks"], missing if missing > 60 else 0)
+            if verdict == "hold":
+                if period_start_local <= shift["end"] <= period_end_local:
+                    unverified.append(_cx_unverified_item_049D(
+                        source=shift["source"], ref=shift["ref"], employee={**employee, "id": employee_id},
+                        fallback_name=None, panel_type=shift.get("panel_type") or "asistencia",
+                        start=shift["start_utc"], end=shift["end_utc"], reason=shift.get("system_reason"), closure=closure,
+                        minutes=round(sum((b - a).total_seconds() for a, b in pieces) / 60),
+                    ))
+                continue
+            intervals.extend(pieces)
+            if shift_end >= period_start_local and shift["start"] <= period_end_local:
                 closed_shifts += 1
         config = employee_config.get(employee_id, {})
         other = money(employee.get("deduction_1")) + money(employee.get("deduction_2"))
@@ -1042,10 +1128,10 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
             "employer_contributions_total": total("employer_contributions_total", nested=True),
             "provisions_total": total("provisions_total", nested=True),
             "alerts": sum(len(row["colombia"]["alerts"]) for row in rows),
-            "auto_closed_minutes": sum(item["minutes"] for item in auto_closed),
+            "unverified_minutes": sum(item["minutes"] for item in unverified),
         },
         "missing_rate_employees": missing_salary,
-        "auto_closed_shifts": auto_closed,
+        "unverified_shifts": unverified,
         "legal_mode": {
             "state": "colombia",
             "notice": CO_LAW_NOTICE_049A,
@@ -1153,6 +1239,13 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
     mini_panel_session_ids = {str(row.get("id")) for row in mini_panel_sessions if row.get("id")}
 
     rows_by_employee: dict[str, dict] = {}
+    verification = await _cx_verification_context_049D(db, company_id)
+    unverified: list[dict] = []
+    events_by_session: dict[str, list[dict]] = {}
+    for ev in events:
+        ev_session = _cx_payroll_event_session_id_023o(ev)
+        if ev_session in mini_panel_session_ids:
+            events_by_session.setdefault(ev_session, []).append(ev)
 
     def ensure_employee_row(employee_id: str, employee: dict | None = None, fallback: dict | None = None) -> dict:
         employee = employee or {}
@@ -1198,6 +1291,24 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         if event_session_id and event_session_id in mini_panel_session_ids:
             continue
 
+        check_in_event = shift.get("check_in_event") or {}
+        verdict, closure = _cx_check_shift_049D(
+            verification, "attendance", check_in_event.get("id"), shift["start"], shift["end"],
+            _cx_event_system_cutoff_049D(check_out_event),
+        )
+        if verdict == "hold":
+            held_seconds = max(0, int((shift["end"] - shift["start"]).total_seconds()) - int(shift["pauses_seconds"]))
+            unverified.append(_cx_unverified_item_049D(
+                source="attendance", ref=check_in_event.get("id"), employee=employee or None,
+                fallback_name=check_out_event.get("employee_name"), panel_type="asistencia",
+                start=shift["start"], end=shift["end"], minutes=round(held_seconds / 60), reason=None, closure=closure,
+            ))
+            continue
+        if verdict == "confirmed":
+            real_end = _cx_payroll_dt_023o(closure["real_end_at"])
+            shift = {**shift, "end": real_end}
+            check_out_event = {}  # la proyeccion del bot era hasta el cierre del sistema
+
         projection = payroll_projection_from_event(check_out_event)
 
         if projection:
@@ -1230,7 +1341,6 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             "mini_panel_session_id": event_session_id,
         })
 
-    auto_closed: list[dict] = []
     for session in mini_panel_sessions:
         employee_id = str(session.get("employee_id") or "")
         if not employee_id:
@@ -1249,11 +1359,24 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             session_as_of = as_of
 
         payable_seconds = _cx_payroll_session_payable_seconds_023o(session, session_as_of)
+        verdict, closure = _cx_check_shift_049D(
+            verification, "mini_panel", session.get("id"), session_start, session_end or session_as_of,
+            _cx_session_system_closed_049D(session),
+        )
+        if verdict == "confirmed":
+            payable_seconds = _cx_confirmed_seconds_049D(
+                session, _cx_payroll_dt_023o(closure["real_end_at"]), events_by_session.get(str(session.get("id")), []),
+            )
         payable_minutes = max(0, round(payable_seconds / 60))
         if payable_minutes <= 0:
             continue
-        if _cx_is_auto_closed_049B(session):
-            auto_closed.append(_cx_auto_closed_item_049B(session, employee_map.get(employee_id), payable_minutes))
+        if verdict == "hold":
+            unverified.append(_cx_unverified_item_049D(
+                source="mini_panel", ref=session.get("id"), employee=employee_map.get(employee_id),
+                fallback_name=session.get("employee_name"), panel_type=session.get("panel_type"),
+                start=session_start, end=session_end or session_as_of, minutes=payable_minutes,
+                reason=session.get("closed_reason"), closure=closure,
+            ))
             continue
 
         employee = employee_map.get(employee_id, session)
@@ -1321,8 +1444,8 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
     }
 
     snapshot_payload = await _cx_apply_payroll_config_rule(db, company_id, snapshot_payload)
-    if auto_closed:
-        snapshot_payload["auto_closed_shifts"] = auto_closed
+    if unverified:
+        snapshot_payload["unverified_shifts"] = unverified
     return snapshot_payload
 
 

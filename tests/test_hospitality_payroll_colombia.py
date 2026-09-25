@@ -305,6 +305,10 @@ class PayDb:
             return Result(self.employees(cid) if cid in EMP else [])
         if "FROM workforce_attendance_events ev" in sql:
             return Result(self.break_events(cid) if cid in EMP else [])
+        if sql.startswith("SELECT id, source, session_ref, status, reason, real_end_at, declared_end_at FROM workforce_session_closures"):
+            return Result([])
+        if "FROM companies c LEFT JOIN workforce_session_policy p" in sql:
+            return Result([{"timezone": "America/Bogota", "cutoff_time": None, "alert_after_hours": None}])
         if sql.startswith("SELECT to_regclass"):
             return Result([{"exists": True}])
         if "FROM mini_panel_work_sessions s" in sql:
@@ -397,7 +401,7 @@ def test_hospitality_payroll_co_switch_on_liquidates_with_colombian_law(db):
     assert detail["minutes_by_type"]["ord_day"] == 240
     assert detail["minutes_by_type"]["ord_night"] == 240
     assert detail["monthly_salary"] == float(SMMLV) and detail["salary_missing"] is False
-    assert data["missing_rate_employees"] == [] and data["auto_closed_shifts"] == []
+    assert data["missing_rate_employees"] == [] and data["unverified_shifts"] == []
     assert detail["transport_allowance"] == float(engine.money(Decimal("249095") / 30))
     hour = SMMLV / 210
     assert detail["earned_amount"] == float(engine.money(hour * 4) + engine.money(hour * 4 * Decimal("1.35")))
@@ -418,16 +422,17 @@ def test_hospitality_payroll_co_auto_closed_shift_is_set_apart_in_both_modes(db)
     plain = calculate(PLAIN).json()
     assert plain["rows"][0]["regular_minutes"] == 480, "las 18 h del cierre automatico no se pagan"
     assert plain["rows"][0]["gross_amount"] == 80000.0
-    [item] = plain["auto_closed_shifts"]
+    [item] = plain["unverified_shifts"]
     assert item["minutes"] == 18 * 60 and item["employee_name"] == "Ana Mesera" and item["panel_type"] == "mesero"
+    assert item["reason"] == "cierre_automatico" and item["source"] == "mini_panel" and item["status"] == "pending"
     db.employee_cfg[(CO, EMP[CO])] = {"monthly_salary": SMMLV, "arl_level": None}
     co = calculate(CO, token="admin-co").json()
     assert co["rows"][0]["regular_minutes"] + co["rows"][0]["extra_minutes"] == 480
-    assert co["auto_closed_shifts"][0]["minutes"] == 18 * 60
-    assert co["totals"]["auto_closed_minutes"] == 18 * 60
+    assert co["unverified_shifts"][0]["minutes"] == 18 * 60
+    assert co["totals"]["unverified_minutes"] == 18 * 60
     # Sin cierres automaticos la respuesta no cambia (sin la clave nueva).
     db.auto_closed = set()
-    assert "auto_closed_shifts" not in calculate(PLAIN).json()
+    assert "unverified_shifts" not in calculate(PLAIN).json()
 
 
 def test_hospitality_payroll_co_payroll_requires_session_once_the_company_has_the_module(db):

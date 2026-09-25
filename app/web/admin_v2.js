@@ -5847,6 +5847,63 @@
   
 
 
+  /* CX_SESSION_CUTOFF_ADMIN_048Q_START */
+  // Corte diario de sesiones por empresa (todas las empresas; 00:00 por defecto).
+  var cxSessPolicy048Q = new Map();
+
+  function cxSessPolicyPanel048Q(company) {
+    const id = String(company.id);
+    const policy = cxSessPolicy048Q.get(id);
+    if (!policy) {
+      cxSessPolicy048Q.set(id, { loading: true });
+      cxJsonRequest(`/workforce-sessions/companies/${encodeURIComponent(id)}/policy`)
+        .then((data) => cxSessPolicy048Q.set(id, data))
+        .catch((error) => cxSessPolicy048Q.set(id, { error: error.message }))
+        .then(() => {
+          if (state.selectedCompanyId === company.id && state.activeDetailTab === "resumen") renderCompanyDetailTab(company);
+        });
+    }
+    const data = policy || { loading: true };
+    return `
+      <section class="cx-panel" data-sess-policy-048q="${escapeHtml(id)}">
+        <div class="cx-card-head">
+          <div>
+            <h3>Corte diario de sesiones</h3>
+            <p>A esta hora el sistema cierra los turnos y logins de mini panel que sigan abiertos. Las horas cortadas no se pagan hasta que el administrador registre la hora real.</p>
+          </div>
+          <span class="cx-badge">${escapeHtml(data.cutoff_time || "00:00")}</span>
+        </div>
+        ${data.error ? `<p class="cx-empty-state">${escapeHtml(data.error)}</p>` : ""}
+        <form data-sess-policy-form-048q="${escapeHtml(id)}" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end">
+          <label style="display:grid;gap:4px"><span>Hora del corte</span><input type="time" name="cutoff_time" value="${escapeHtml(data.cutoff_time || "00:00")}"></label>
+          <label style="display:grid;gap:4px"><span>Alerta si una sesión pasa de (horas)</span><input type="number" min="1" max="24" step="0.5" name="alert_after_hours" value="${escapeHtml(data.alert_after_hours || 12)}"></label>
+          <button class="cx-btn cx-btn-primary" type="submit">Guardar</button>
+        </form>
+      </section>
+    `;
+  }
+
+  document.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-sess-policy-form-048q]");
+    if (!form) return;
+    event.preventDefault();
+    const id = form.getAttribute("data-sess-policy-form-048q");
+    const data = Object.fromEntries(new FormData(form).entries());
+    try {
+      const saved = await cxJsonRequest(`/workforce-sessions/companies/${encodeURIComponent(id)}/policy`, {
+        method: "PUT",
+        body: JSON.stringify({ cutoff_time: data.cutoff_time, alert_after_hours: Number(data.alert_after_hours) }),
+      });
+      cxSessPolicy048Q.set(id, saved);
+      showToast("Corte diario guardado.");
+    } catch (error) {
+      showToast(`No se pudo guardar el corte: ${error.message}`, "error");
+    }
+    const company = state.companies.find((item) => String(item.id) === String(id));
+    if (company && state.selectedCompanyId === company.id) renderCompanyDetailTab(company);
+  });
+  /* CX_SESSION_CUTOFF_ADMIN_048Q_END */
+
   function renderCompanyDetailTab(company) {
     const node = el("#companyDetailContent");
     if (!node) return;
@@ -5915,6 +5972,8 @@
               <button class="cx-btn cx-btn-danger" data-select-company="${escapeHtml(company.id)}" data-detail-tab="reset" type="button">Reset operativo</button>
             </div>
           </section>
+
+          ${cxSessPolicyPanel048Q(company)}
         </div>
       `;
       return;

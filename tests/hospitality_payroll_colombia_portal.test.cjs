@@ -24,7 +24,7 @@ function portal() {
   vm.runInContext('var cxPayCo048O = { open: false, config: null, message: "", error: "" };\n'
     + ['payrollNumber', 'payrollMoney', 'cxPayCoHours048O', 'cxPayCoNotice048O', 'cxPayCoPartsHtml048O',
       'cxPayCoEmployeeHtml048O', 'cxPayCoRowsHtml048O', 'cxPayCoConfigHtml048O', 'cxPayCoCsvRows048O',
-      'cxPayMissingRateHtml048P', 'cxPayAutoClosedHtml048P'].map(fn).join('\n'), ctx);
+      'cxPayMissingRateHtml048P'].map(fn).join('\n'), ctx);
   return ctx;
 }
 
@@ -78,17 +78,6 @@ test('empleado sin salario: marcado en su tarjeta y en la lista, sin asumir nada
   const list = ctx.cxPayMissingRateHtml048P([{ employee_name: 'Ana Mesera', employee_role: 'mesero', minutes: 480 }]);
   assert.match(list, /Empleados sin salario configurado \(1\): no se les liquidó ningún valor[\s\S]*<li>Ana Mesera · mesero · 8 h trabajadas<\/li>/);
   assert.equal(ctx.cxPayMissingRateHtml048P([]), '');
-});
-
-test('turnos con cierre automático: aparte y fuera de la liquidación', () => {
-  const ctx = portal();
-  const html = ctx.cxPayAutoClosedHtml048P([{ employee_name: 'Ana Mesera', panel_type: 'mesero', start: '2026-09-23T13:00:00Z', end: '2026-09-24T07:00:00Z', minutes: 1080 }]);
-  assert.match(html, /data-payroll-auto-closed[\s\S]*Turnos con cierre automático: 18 h fuera de la liquidación/);
-  assert.match(html, /la hora de cierre no es real\. No se pagaron/);
-  assert.match(html, /<li>Ana Mesera · mesero · entrada [^<]*· cierre automático [^<]*· 18 h<\/li>/);
-  assert.equal(ctx.cxPayAutoClosedHtml048P([]), '', 'sin cierres automáticos la pantalla no cambia');
-  assert.match(source, /\$\{cxPayMissingRateHtml048P\(missingRate\)\}\s*\$\{cxPayAutoClosedHtml048P\(autoClosed\)\}/);
-  assert.match(source, /autoClosed: payload\.auto_closed_shifts \|\| \[\],/);
 });
 
 test('configuración de salarios y ARL y CSV con el desglose', () => {

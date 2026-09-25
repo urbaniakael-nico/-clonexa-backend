@@ -80,11 +80,17 @@
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = data.detail || data.message || "Solicitud rechazada.";
-      if (response.status === 401 && /otro dispositivo/i.test(String(message))) {
+      // 048Q: cualquier 401 con sesion (otro dispositivo, corte diario del
+      // sistema, cerrada desde Admin V2) vuelve al login con usuario y clave.
+      if (response.status === 401 && tok) {
         stopPolling();
         setToken("");
         state.screen = "login";
-        state.error = "Tu sesión se abrió en otro dispositivo.";
+        state.error = /otro dispositivo/i.test(String(message))
+          ? "Tu sesión se abrió en otro dispositivo."
+          : /corte diario/i.test(String(message))
+            ? "El sistema cerró la sesión en el corte diario. Vuelve a entrar con tu usuario y clave."
+            : "Tu sesión terminó. Vuelve a entrar con tu usuario y clave.";
         render();
       }
       throw new Error(message);

@@ -7652,7 +7652,7 @@ function inventoryCreatePayload() {
         },
         legalMode: payload.legal_mode || null,
         missingRate: payload.missing_rate_employees || [],
-        autoClosed: payload.auto_closed_shifts || [],
+        unverified: payload.unverified_shifts || [],
         source: "api",
       };
     } catch (error) {
@@ -7894,19 +7894,6 @@ function inventoryCreatePayload() {
     `;
   }
 
-  function cxPayAutoClosedHtml048P(list = []) {
-    if (!Array.isArray(list) || !list.length) return "";
-    const total = list.reduce((sum, item) => sum + Number(item.minutes || 0), 0);
-    const when = (value) => (value ? new Date(value).toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" }) : "sin hora");
-    return `
-      <div class="cx-payco-notice warn" data-payroll-auto-closed>
-        <strong>Turnos con cierre automático: ${h(cxPayCoHours048O(total))} fuera de la liquidación</strong>
-        <span>El sistema cerró estos turnos porque nadie marcó la salida; la hora de cierre no es real. No se pagaron: revísalos con el empleado.</span>
-        <ul>${list.map((item) => `<li>${h(item.employee_name)}${item.panel_type ? ` · ${h(item.panel_type)}` : ""} · entrada ${h(when(item.start))} · cierre automático ${h(when(item.end))} · ${h(cxPayCoHours048O(item.minutes))}</li>`).join("")}</ul>
-      </div>
-    `;
-  }
-
   function cxPayCoConfigHtml048O() {
     if (!cxPayCo048O.open) {
       return `<button class="client-btn" type="button" data-payco-config-open>Salarios y ARL</button>`;
@@ -8046,7 +8033,7 @@ function inventoryCreatePayload() {
     let mode = "Periodo abierto";
     let legalMode = null;
     let missingRate = [];
-    let autoClosed = [];
+    let unverified = [];
 
     try {
       const calculated = await payrollCalculatePeriod(period);
@@ -8056,7 +8043,7 @@ function inventoryCreatePayload() {
       loadWarning = calculated.warning || "";
       legalMode = calculated.legalMode || null;
       missingRate = calculated.missingRate || [];
-      autoClosed = calculated.autoClosed || [];
+      unverified = calculated.unverified || [];
     } catch (error) {
       rows = [];
       totals = payrollTotals([]);
@@ -8068,7 +8055,8 @@ function inventoryCreatePayload() {
     window.__cxPayrollPeriod = period;
     window.__cxPayrollMode = mode;
     const coLaw = legalMode?.state === "colombia";
-    if (legalMode || autoClosed.length) ensurePayCoStyles048O();
+    if (legalMode || unverified.length) ensurePayCoStyles048O();
+    if (unverified.length) ensureSessStyles048Q();
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -8128,7 +8116,7 @@ function inventoryCreatePayload() {
 
               ${cxPayCoNotice048O(legalMode)}
               ${cxPayMissingRateHtml048P(missingRate)}
-              ${cxPayAutoClosedHtml048P(autoClosed)}
+              ${cxPayUnverifiedHtml048Q(unverified)}
 
               ${payrollCards(totals)}
 
@@ -33260,6 +33248,11 @@ function inventoryCreatePayload() {
       }
 
       if (target.closest("#cxSanRoot048K") && await cxSanHandleClick048K(target)) return;
+      if (target.closest("[data-sess-048q-root]") && await cxSessHandleClick048Q(target)) return;
+      if (target.closest("[data-pay-sess-confirm-048q]")) {
+        await cxPaySessConfirm048Q(target);
+        return;
+      }
 
       const hspEventView = target.closest("[data-hsp-event-view]");
       if (hspEventView) {
@@ -34578,6 +34571,7 @@ function inventoryCreatePayload() {
               </div>
               ${hasHospitalityDashboard ? cxHspDashboardPendingBanner030D(hospitalityMetrics) : ""}
               ${cxSanDashboardBanner048K()}
+              ${cxSessDashboardBanner048Q()}
             </header>
 
             <section class="client-panel">
@@ -34702,6 +34696,151 @@ function inventoryCreatePayload() {
   // notas), historial con Ver / Descargar / Imprimir (PDF con logo) y un
   // aviso en el Dashboard si la planilla del día quedó sin diligenciar.
   let cxSan048K = { tab: "sheet", date: "", sheet: null, staff: [], today: "", items: [], history: [], message: "", error: "", busy: false };
+
+  /* CX_SESSION_CUTOFF_048Q_START */
+  // Corte diario de sesiones (todas las empresas): aviso por persona al dia
+  // siguiente, hora real de salida (una sola vez, la confirma el
+  // administrador) y alerta en vivo de sesiones abiertas de mas.
+  var cxSess048Q = { message: "", error: "" };
+
+  function cxSessLocalInput048Q(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const parts = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: state.company?.timezone || "America/Bogota",
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(d);
+    return parts.replace(" ", "T");
+  }
+
+  function cxSessWhen048Q(iso) {
+    return cxSessLocalInput048Q(iso).replace("T", " ");
+  }
+
+  function cxSessClosureRowHtml048Q(item) {
+    const declared = item.status === "declared" && item.declared_end_at;
+    return `
+      <div class="cx-sess-closure-048q" data-sess-closure="${h(item.id)}">
+        <span>${h(item.panel_type || "turno")} · entrada ${h(cxSessWhen048Q(item.started_at))}</span>
+        ${declared ? `<em data-sess-declared>Hora declarada por el empleado: ${h(cxSessWhen048Q(item.declared_end_at))} (sin confirmar)</em>` : ""}
+        <label>Hora real de salida
+          <input type="datetime-local" data-sess-end-048q value="${h(cxSessLocalInput048Q(item.declared_end_at))}" min="${h(cxSessLocalInput048Q(item.started_at))}" max="${h(cxSessLocalInput048Q(item.system_end_at))}">
+        </label>
+        <button class="client-btn" type="button" data-sess-048q data-sess-confirm-048q="${h(item.id)}">${declared ? "Confirmar hora" : "Guardar hora real"}</button>
+        <small>Al guardar queda fija y no se puede volver a modificar. Mientras tanto estas horas no se liquidan.</small>
+      </div>
+    `;
+  }
+
+  function cxSessDashboardBanner048Q() {
+    const data = state.dashboardMetrics?.sessions048Q;
+    if (!data) return "";
+    const people = Array.isArray(data.people) ? data.people : [];
+    const live = Array.isArray(data.live_alerts) ? data.live_alerts : [];
+    if (!people.length && !live.length) return "";
+    return `
+      <section class="cx-sess-048q" data-sess-048q-root>
+        ${cxSess048Q.error ? `<div class="personal-toast error">${h(cxSess048Q.error)}</div>` : ""}
+        ${cxSess048Q.message ? `<div class="personal-toast ok">${h(cxSess048Q.message)}</div>` : ""}
+        ${live.map((alert) => `
+          <div class="cx-sess-live-048q" data-sess-live="${h(alert.employee_id)}">
+            <strong>${h(alert.employee_name)} lleva ${h(alert.hours_open)} h con la sesión abierta</strong>
+            <span>${h(alert.panel_type || "")} · desde ${h(cxSessWhen048Q(alert.started_at))}. Pídele que marque la salida o corrígelo antes de la liquidación.</span>
+          </div>
+        `).join("")}
+        ${people.map((person) => `
+          <article class="cx-sess-person-048q" data-sess-person="${h(person.employee_id)}">
+            <strong>${h(person.message)}</strong>
+            ${(person.closures || []).map(cxSessClosureRowHtml048Q).join("")}
+          </article>
+        `).join("")}
+      </section>
+    `;
+  }
+
+  async function cxSessLoad048Q(companyId) {
+    return api(`/workforce-sessions/companies/${encodeURIComponent(companyId)}/dashboard`);
+  }
+
+  async function cxSessHandleClick048Q(target) {
+    const button = target.closest("[data-sess-confirm-048q]");
+    if (!button) return false;
+    const row = button.closest("[data-sess-closure]");
+    const value = row?.querySelector("[data-sess-end-048q]")?.value || "";
+    const body = { closure_id: button.getAttribute("data-sess-confirm-048q") };
+    if (value) body.real_end_at = value;
+    button.disabled = true;
+    try {
+      await api(`/workforce-sessions/companies/${encodeURIComponent(state.companyId)}/closures/confirm`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      cxSess048Q.error = "";
+      cxSess048Q.message = "Hora real registrada. Ya no se puede modificar.";
+    } catch (error) {
+      cxSess048Q.message = "";
+      cxSess048Q.error = `No se pudo guardar: ${error.message}`;
+    }
+    const fresh = await cxSessLoad048Q(state.companyId).catch(() => null);
+    state.dashboardMetrics = { ...(state.dashboardMetrics || {}), sessions048Q: fresh };
+    render();
+    return true;
+  }
+
+  function ensureSessStyles048Q() {
+    if (document.getElementById("cxSess048QStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxSess048QStyles";
+    style.textContent = `
+      .cx-sess-048q { display:grid; gap:10px; margin-top:16px; }
+      .cx-sess-person-048q, .cx-sess-live-048q { display:grid; gap:8px; padding:14px 16px; border-radius:16px; border:1px solid rgba(255,190,60,.6); background:rgba(255,190,60,.12); }
+      .cx-sess-live-048q { border-color:rgba(230,60,60,.7); background:rgba(230,60,60,.14); }
+      .cx-sess-closure-048q { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+      .cx-sess-closure-048q input { min-height:40px; border-radius:12px; padding:6px 10px; }
+      .cx-sess-closure-048q small { opacity:.75; flex-basis:100%; }
+      .cx-sess-closure-048q em { color:#ffd27a; font-weight:800; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxPayUnverifiedHtml048Q(list = []) {
+    if (!Array.isArray(list) || !list.length) return "";
+    const total = list.reduce((sum, item) => sum + Number(item.minutes || 0), 0);
+    const label = { corte_diario: "corte diario del sistema", cierre_automatico: "cierre automático", historico_largo: "turno larguísimo (histórico)", turno_largo: "más largo que la jornada" };
+    return `
+      <div class="cx-payco-notice warn" data-payroll-unverified>
+        <strong>Turnos sin hora real de salida: ${h(cxPayCoHours048O(total))} fuera de la liquidación</strong>
+        <span>El sistema cerró estos turnos o duraron más que la jornada configurada. No se pagan hasta que el administrador registre la hora real (una sola vez).</span>
+        ${cxSess048Q.error ? `<div class="personal-toast error">${h(cxSess048Q.error)}</div>` : ""}
+        ${list.map((item) => `
+          <div class="cx-sess-closure-048q" data-sess-closure="${h(item.closure_id || "")}" data-sess-source="${h(item.source)}" data-sess-ref="${h(item.session_ref)}">
+            <span>${h(item.employee_name)}${item.panel_type ? ` · ${h(item.panel_type)}` : ""} · ${h(label[item.reason] || item.reason)} · entrada ${h(cxSessWhen048Q(item.start))} · cierre ${h(cxSessWhen048Q(item.end))} · ${h(cxPayCoHours048O(item.minutes))}</span>
+            ${item.status === "declared" && item.declared_end_at ? `<em>Hora declarada por el empleado: ${h(cxSessWhen048Q(item.declared_end_at))} (sin confirmar)</em>` : ""}
+            <input type="datetime-local" data-sess-end-048q value="${h(cxSessLocalInput048Q(item.declared_end_at))}" min="${h(cxSessLocalInput048Q(item.start))}" max="${h(cxSessLocalInput048Q(item.end))}">
+            <button class="client-btn" type="button" data-pay-sess-confirm-048q>Guardar hora real</button>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  async function cxPaySessConfirm048Q(target) {
+    const row = target.closest("[data-sess-source]");
+    if (!row) return;
+    const body = { real_end_at: row.querySelector("[data-sess-end-048q]")?.value || "" };
+    const closureId = row.getAttribute("data-sess-closure");
+    if (closureId) body.closure_id = closureId;
+    else Object.assign(body, { source: row.getAttribute("data-sess-source"), session_ref: row.getAttribute("data-sess-ref") });
+    try {
+      await api(`/workforce-sessions/companies/${encodeURIComponent(state.companyId)}/closures/confirm`, { method: "POST", body: JSON.stringify(body) });
+      cxSess048Q.error = "";
+    } catch (error) {
+      cxSess048Q.error = `No se pudo guardar la hora real: ${error.message}`;
+    }
+    await renderPayrollModule(payrollReadPeriod());
+  }
+  /* CX_SESSION_CUTOFF_048Q_END */
 
   function cxSanApi048K(path, options = {}) {
     return api(`/sanitation/companies/${encodeURIComponent(state.companyId)}${path}`, options);
@@ -35781,6 +35920,10 @@ function inventoryCreatePayload() {
     if (codes.has("sanidad")) {
       metrics.sanitation048K = await api(`/sanitation/companies/${encodeURIComponent(companyId)}/status`).catch(() => null);
     }
+
+    // 048Q: avisos del corte diario y sesiones abiertas de mas (solo admin/dueño; a otros el servidor responde 403).
+    metrics.sessions048Q = await cxSessLoad048Q(companyId).catch(() => null);
+    if (metrics.sessions048Q) ensureSessStyles048Q();
 
     if (codes.has("workforce")) {
       try {

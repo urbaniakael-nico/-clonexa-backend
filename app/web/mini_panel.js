@@ -62,11 +62,27 @@
     return value ? `${prefix}access_token=${encodeURIComponent(value)}` : "";
   }
 
+  // 048Q: si el servidor ya no reconoce la sesion (corte diario, otro
+  // dispositivo, cerrada desde Admin V2) el panel vuelve al login de siempre
+  // en vez de quedarse mostrando errores.
+  let sessionLost048Q = false;
+
+  function hasAuthHeader048Q(options = {}) {
+    const headers = options.headers || {};
+    return Boolean(headers.Authorization || headers.authorization);
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(path, options);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(data.detail || data.message || "Solicitud rechazada.");
+      const message = data.detail || data.message || "Solicitud rechazada.";
+      if (response.status === 401 && !isLogin && hasAuthHeader048Q(options) && !sessionLost048Q) {
+        sessionLost048Q = true;
+        clearMiniPanelToken024B();
+        window.location.href = `${loginUrl()}&motivo=${encodeURIComponent(message)}`;
+      }
+      throw new Error(message);
     }
     return data;
   }
@@ -8504,7 +8520,7 @@ async function bootShell() {
   }
 
   if (isLogin) {
-    renderLogin();
+    renderLogin(params.get("motivo") || "");
   } else {
     bootShell();
   }

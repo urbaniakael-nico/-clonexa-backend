@@ -178,6 +178,7 @@
   }
 
   function sessionLostMessage(message) {
+    if (/corte diario/i.test(String(message))) return "El sistema cerró tu turno en el corte diario. Vuelve a entrar con tu usuario y clave.";
     if (/otro dispositivo/i.test(String(message))) return "Tu sesión se abrió en otro dispositivo.";
     return "Tu sesión terminó. Vuelve a entrar.";
   }
