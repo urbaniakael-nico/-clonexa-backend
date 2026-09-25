@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.companies import require_admin_v2_or_tenant_company_admin
 from app.services.shoplink_whatsapp_web import whatsapp_logout, whatsapp_send, whatsapp_start, whatsapp_status
 
 router = APIRouter()
@@ -2230,20 +2231,35 @@ async def get_shoplink_orders(
     }
 
 
+# SECURITY (2026-09-24): the four WhatsApp endpoints had no auth; with just
+# the company_id anyone could unlink the number or send from it. Now Admin V2
+# or an admin/owner of that company.
 @router.get("/companies/{company_id}/whatsapp-web")
-async def get_shoplink_whatsapp_web(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def get_shoplink_whatsapp_web(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
+) -> dict[str, Any]:
     company = await _company(db, company_id)
     return await whatsapp_status(company["id"])
 
 
 @router.post("/companies/{company_id}/whatsapp-web/start")
-async def start_shoplink_whatsapp_web(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def start_shoplink_whatsapp_web(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
+) -> dict[str, Any]:
     company = await _company(db, company_id)
     return await whatsapp_start(company["id"])
 
 
 @router.post("/companies/{company_id}/whatsapp-web/logout")
-async def logout_shoplink_whatsapp_web(company_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def logout_shoplink_whatsapp_web(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
+) -> dict[str, Any]:
     company = await _company(db, company_id)
     return await whatsapp_logout(company["id"])
 
@@ -2253,6 +2269,7 @@ async def test_shoplink_whatsapp_web(
     company_id: UUID,
     payload: ShoplinkWhatsAppTestIn | None = None,
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> dict[str, Any]:
     company = await _company(db, company_id)
     settings = await _settings(db, company)

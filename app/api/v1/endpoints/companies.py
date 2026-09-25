@@ -55,6 +55,29 @@ async def require_admin_v2_or_tenant_company_user(
     if await _admin_v2_session_active(request, db):
         return
     await require_company_user_for_tenant(db, authorization, company_id)
+
+
+# Owners/managers of a company, on top of deps.ADMIN_ROLES (which require_role
+# always accepts). Same set the Sanidad module uses for its configuration.
+COMPANY_ADMIN_ROLES = {
+    "manager", "gerencia", "gerente", "dueno", "dueño", "owner", "propietario", "administrador",
+}
+
+
+async def require_admin_v2_or_tenant_company_admin(
+    company_id: UUID,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Admin V2, or an admin/owner of that exact company -- for endpoints that
+    act on behalf of the business (e.g. linking its WhatsApp or sending a
+    message from it), which a mesero/caja/cocina session must not reach."""
+    from app.web.admin_v2_routes import _active_session as _admin_v2_session_active
+
+    if await _admin_v2_session_active(request, db):
+        return
+    await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=COMPANY_ADMIN_ROLES)
 # CLONEXA_SEC_2026_09_22_ADMIN_GUARD_END
 ALLOWED_COMPANY_STATUSES = {"active", "inactive", "archived"}
 ALLOWED_THEME_MODES = {"dark", "light", "corporate", "classic"}

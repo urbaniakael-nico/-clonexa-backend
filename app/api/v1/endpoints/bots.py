@@ -4,6 +4,7 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import hmac
 import json
 import re
 import logging
@@ -17,12 +18,16 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_company_user_for_tenant
+from app.api.v1.endpoints.companies import (
+    require_admin_v2_or_tenant_company_admin,
+    require_admin_v2_or_tenant_company_user,
+)
 from app.api.v1.endpoints.crm_core_v1 import crm_core_snapshot
 from app.api.v1.endpoints.payroll import calculate_period_snapshot, ensure_payroll_storage
 from app.api.v1.endpoints.production_v1 import production_summary
@@ -41,7 +46,15 @@ from app.schemas.bot import (
     TelegramBotTestOut,
 )
 from app.services.event_engine import EventEngine
-from app.services.shoplink_whatsapp_web import whatsapp_logout, whatsapp_send, whatsapp_start, whatsapp_status
+from app.services.shoplink_whatsapp_web import (
+    whatsapp_line,
+    whatsapp_logout,
+    whatsapp_send,
+    whatsapp_start,
+    whatsapp_status,
+)
+from app.services.whatsapp_agent_access import is_agent_phone_authorized, list_agent_access, set_agent_access
+from app.services.whatsapp_customer_line import customer_line_reply
 
 try:
     from cryptography.fernet import Fernet
@@ -248,11 +261,17 @@ def bot_out(row: CompanyBotInstance | None, company_id: UUID | None = None) -> T
 
 class WhatsAppWebTestIn(BaseModel):
     to: str | None = None
-    message: str | None = None
+
+
+class WhatsAppAgentAccessIn(BaseModel):
+    enabled: bool = False
 
 
 class WhatsAppWebInboundIn(BaseModel):
     company_id: str
+    line: str | None = None
+    is_self_chat: bool = False
+    from_me: bool = False
     event_type: str | None = None
     from_jid: str | None = None
     from_phone: str | None = None
@@ -1309,10 +1328,8 @@ def _whatsapp_web_out(company: Company, payload: dict[str, Any]) -> dict[str, An
 
 def _ensure_whatsapp_inbound_secret(request: Request) -> None:
     expected = str(os.getenv("WHATSAPP_INBOUND_SECRET") or get_settings().JWT_SECRET_KEY or "").strip()
-    if not expected:
-        return
     received = str(request.headers.get("x-clonexa-whatsapp-secret") or "").strip()
-    if received != expected:
+    if not expected or not hmac.compare_digest(received, expected):
         raise HTTPException(status_code=403, detail="WhatsApp inbound no autorizado.")
 
 
@@ -5603,40 +5620,55 @@ async def bootstrap_telegram_listeners() -> dict[str, Any]:
 async def get_company_telegram_bot(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_user),
 ) -> TelegramBotConfigOut:
     await ensure_company_exists(db, company_id)
     row = await get_telegram_instance(db, company_id)
     return bot_out(row, company_id)
 
 
+# SECURITY (2026-09-24): these endpoints had no auth at all -- with just the
+# company_id anyone could read the linked number and the last inbound
+# message, unlink it, or send any text from the business's WhatsApp. Now
+# they need Admin V2 or an admin/owner of that company.
+# `line` picks the number: "interno" (the agent, default) or "clientes".
 @router.get("/companies/{company_id}/whatsapp-web")
 async def get_company_whatsapp_web_agent(
     company_id: UUID,
+    line: str = Query(default="interno", max_length=20),
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> dict[str, Any]:
     company = await ensure_company_exists(db, company_id)
-    payload = await whatsapp_status(str(company_id))
-    return _whatsapp_web_out(company, payload)
+    line = whatsapp_line(line)
+    payload = await whatsapp_status(str(company_id), line)
+    return {**_whatsapp_web_out(company, payload), "line": line}
 
 
 @router.post("/companies/{company_id}/whatsapp-web/start")
 async def start_company_whatsapp_web_agent(
     company_id: UUID,
+    line: str = Query(default="interno", max_length=20),
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> dict[str, Any]:
     company = await ensure_company_exists(db, company_id)
-    payload = await whatsapp_start(str(company_id))
-    return _whatsapp_web_out(company, payload)
+    line = whatsapp_line(line)
+    payload = await whatsapp_start(str(company_id), line)
+    return {**_whatsapp_web_out(company, payload), "line": line}
 
 
 @router.post("/companies/{company_id}/whatsapp-web/logout")
 async def logout_company_whatsapp_web_agent(
     company_id: UUID,
+    line: str = Query(default="interno", max_length=20),
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> dict[str, Any]:
     company = await ensure_company_exists(db, company_id)
-    payload = await whatsapp_logout(str(company_id))
-    return _whatsapp_web_out(company, payload)
+    line = whatsapp_line(line)
+    payload = await whatsapp_logout(str(company_id), line)
+    return {**_whatsapp_web_out(company, payload), "line": line}
 
 
 @router.post("/companies/{company_id}/whatsapp-web/test")
@@ -5644,7 +5676,11 @@ async def test_company_whatsapp_web_agent(
     company_id: UUID,
     payload: WhatsAppWebTestIn,
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> dict[str, Any]:
+    # Only ever sends the fixed welcome text of the internal line: no
+    # free-form message, so not even an admin session can use it to write
+    # arbitrary text to customers in the business's name.
     company = await ensure_company_exists(db, company_id)
     to = str(payload.to or "").strip()
     if not to:
@@ -5652,11 +5688,41 @@ async def test_company_whatsapp_web_agent(
         to = str(current.get("connected_phone") or "").strip()
     if not to:
         raise HTTPException(status_code=422, detail="No hay numero destino ni WhatsApp vinculado para probar.")
-    message = str(payload.message or "").strip() or _whatsapp_agent_welcome(company)
-    sent = await whatsapp_send(str(company_id), to, message)
+    sent = await whatsapp_send(str(company_id), to, _whatsapp_agent_welcome(company))
     if not sent.get("ok"):
         raise HTTPException(status_code=409, detail=sent.get("detail") or "No se pudo enviar la prueba WhatsApp.")
     return {"ok": True, "sent": sent}
+
+
+# "Puede consultar por WhatsApp": which Workforce phones the internal agent
+# answers (besides the owner's own chat). Off for everyone by default.
+@router.get("/companies/{company_id}/whatsapp-web/access")
+async def list_company_whatsapp_agent_access(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
+) -> dict[str, Any]:
+    await ensure_company_exists(db, company_id)
+    return {"ok": True, "company_id": str(company_id), "employees": await list_agent_access(db, company_id)}
+
+
+@router.put("/companies/{company_id}/whatsapp-web/access/{employee_id}")
+async def set_company_whatsapp_agent_access(
+    company_id: UUID,
+    employee_id: UUID,
+    payload: WhatsAppAgentAccessIn,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
+) -> dict[str, Any]:
+    await ensure_company_exists(db, company_id)
+    granted_by = "Admin V2"
+    if authorization:
+        with contextlib.suppress(HTTPException):
+            user = await require_company_user_for_tenant(db, authorization, company_id)
+            granted_by = str(getattr(user, "full_name", "") or getattr(user, "email", "") or "Administrador")
+    await set_agent_access(db, company_id, employee_id, enabled=payload.enabled, granted_by=granted_by)
+    return {"ok": True, "company_id": str(company_id), "employees": await list_agent_access(db, company_id)}
 
 
 @router.post("/whatsapp-web/inbound")
@@ -5665,12 +5731,27 @@ async def whatsapp_web_agent_inbound(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    # Machine-to-machine: only the local bridge knows this secret.
     _ensure_whatsapp_inbound_secret(request)
     try:
         company_id = UUID(str(payload.company_id))
     except Exception:
         raise HTTPException(status_code=422, detail="Empresa invalida.")
     company = await ensure_company_exists(db, company_id)
+    text_value = str(payload.text or "").strip()
+
+    # SECURITY (2026-09-24): the customer line never reaches the internal
+    # agent -- it is answered only by whatsapp_customer_line.
+    if whatsapp_line(payload.line) == "clientes":
+        reply = await customer_line_reply(
+            db,
+            company_id=company_id,
+            from_phone=str(payload.from_phone or ""),
+            text_value=text_value,
+            event_type=str(payload.event_type or ""),
+        )
+        return {"ok": True, "company_id": str(company_id), "line": "clientes", "reply": reply}
+
     if _text_norm(payload.event_type) == "connected":
         return {
             "ok": True,
@@ -5678,9 +5759,13 @@ async def whatsapp_web_agent_inbound(
             "agent_name": _wa_agent_name(company),
             "reply": _whatsapp_agent_welcome(company),
         }
-    text_value = str(payload.text or "").strip()
     if not text_value:
         return {"ok": True, "ignored": True, "reply": ""}
+    # Internal line: the owner's own chat, or a Workforce phone with
+    # "puede consultar por WhatsApp". Anyone else: silence (not even a hint
+    # that there is an agent behind the number).
+    if not payload.is_self_chat and not await is_agent_phone_authorized(db, company_id, payload.from_phone):
+        return {"ok": True, "ignored": True, "reason": "not_authorized", "reply": ""}
     reply = await _whatsapp_agent_reply(
         company_id=company_id,
         company=company,
@@ -5701,6 +5786,7 @@ async def save_company_telegram_bot(
     company_id: UUID,
     payload: TelegramBotConfigIn,
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> TelegramBotConfigOut:
     company = await ensure_company_exists(db, company_id)
     await ensure_bot_storage(db)
@@ -5745,6 +5831,7 @@ async def save_company_telegram_bot(
 async def test_company_telegram_bot(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> TelegramBotTestOut:
     await ensure_company_exists(db, company_id)
     row = await get_telegram_instance(db, company_id)
@@ -5805,6 +5892,7 @@ async def test_company_telegram_bot(
 async def start_company_telegram_listener(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> TelegramBotConfigOut:
     """
     011A-2:
@@ -5881,6 +5969,7 @@ async def start_company_telegram_listener(
 async def deactivate_company_telegram_bot(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> TelegramBotConfigOut:
     await ensure_company_exists(db, company_id)
     row = await get_telegram_instance(db, company_id)
@@ -5907,6 +5996,7 @@ async def poll_company_telegram_bot(
     limit: int = Query(default=20, ge=1, le=100),
     send_replies: bool = Query(default=True),
     db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_admin),
 ) -> TelegramBotPollOut:
     """
     Diagnóstico interno/manual. La operación normal debe usar Iniciar escucha en Admin V2.
@@ -5924,7 +6014,18 @@ async def telegram_webhook(
     company_id: UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ) -> BotResponse:
+    # SECURITY (2026-09-24): this legacy webhook took any POST as a Telegram
+    # update and fed it to the event engine (attendance, etc.). Nothing in the
+    # code registers it with Telegram anymore (company_bots_v1 has its own,
+    # signed one), so it now only accepts updates carrying the secret_token
+    # saved in the bot's config as webhook_secret; without one, 403.
+    row = await get_telegram_instance(db, company_id)
+    expected = str(((row.config_json or {}) if row else {}).get("webhook_secret") or "").strip()
+    received = str(x_telegram_bot_api_secret_token or "").strip()
+    if not expected or not hmac.compare_digest(received, expected):
+        raise HTTPException(status_code=403, detail="webhook secret invalido.")
     update: dict[str, Any] = await request.json()
     event = parse_telegram_update(company_id, update)
 

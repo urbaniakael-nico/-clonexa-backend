@@ -2511,11 +2511,64 @@
     `;
   }
 
+  // SECURITY (2026-09-24): the internal agent only answers the linked
+  // number's own chat and the Workforce phones granted here (off by default).
+  async function cxBotWaLoadAccess048M() {
+    if (!state.companyId) return { employees: [] };
+    try {
+      return await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/access`);
+    } catch (error) {
+      return { employees: [], error: error.message || "No se pudo cargar el acceso." };
+    }
+  }
+
+  function cxBotWaAccessPanel048M(access = {}) {
+    const employees = Array.isArray(access.employees) ? access.employees : [];
+    const rows = employees.map((row) => {
+      const hasPhone = String(row.phone || "").length >= 7;
+      const note = row.stale
+        ? `<small class="client-muted" style="color:#f59e0b">El telefono cambio despues del permiso: vuelve a activarlo para el numero actual.</small>`
+        : (hasPhone ? `<small class="client-muted">${h(row.phone)}</small>` : `<small class="client-muted">Sin telefono en Workforce</small>`);
+      return `
+        <label style="display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(148,163,184,.18)">
+          <input type="checkbox" data-bot-wa-access-048m="${h(row.employee_id)}" ${row.enabled ? "checked" : ""} ${hasPhone ? "" : "disabled"}>
+          <span style="display:grid;gap:2px">
+            <strong>${h(row.name || "Empleado")}</strong>
+            ${note}
+          </span>
+        </label>
+      `;
+    }).join("");
+    return `
+      <div style="margin-top:22px">
+        <div class="client-eyebrow">Puede consultar por WhatsApp</div>
+        <p class="client-muted">El agente responde solo al chat propio del numero vinculado y a las personas activas de Workforce marcadas aqui. A cualquier otro numero no le responde nada.</p>
+        ${access.error ? `<div class="personal-toast error">${h(access.error)}</div>` : ""}
+        ${rows || `<div class="client-muted">No hay personal activo en Workforce.</div>`}
+      </div>
+    `;
+  }
+
+  async function cxBotWaSetAccess048M(employeeId, enabled) {
+    try {
+      await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/access/${encodeURIComponent(employeeId)}`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled: !!enabled }),
+      });
+      await renderBotsModule();
+      setTimeout(() => showBotsNotice(enabled ? "Acceso por WhatsApp activado." : "Acceso por WhatsApp retirado."), 50);
+    } catch (error) {
+      await renderBotsModule();
+      setTimeout(() => showBotsNotice(error.message || "No se pudo cambiar el acceso.", "error"), 50);
+    }
+  }
+
   async function renderBotsModule() {
     const company = state.company || {};
-    const [bot, whatsapp] = await Promise.all([
+    const [bot, whatsapp, waAccess] = await Promise.all([
       loadClientBotConfig(),
       loadClientBotWhatsApp027F(),
+      cxBotWaLoadAccess048M(),
     ]);
     const configured = !!bot?.configured;
     const status = botStatusLabel(bot?.status);
@@ -2585,9 +2638,10 @@
             </section>
 
             <section class="client-panel">
-              <div class="client-eyebrow">Canal WhatsApp vinculado</div>
+              <div class="client-eyebrow">Numero interno</div>
               <h2>Agente IA por WhatsApp</h2>
-              <p class="client-muted">WhatsApp funciona como puente. CLONEXA lee el mensaje entrante y responde como ${h(waAgentName)} con datos de esta empresa.</p>
+              <p class="client-muted">Consultas internas del equipo (nomina, personal, produccion). Responde como ${h(waAgentName)} solo al chat propio de este numero y a las personas autorizadas abajo. Nunca atiende clientes.</p>
+              <div class="personal-toast" style="margin-top:12px">Aviso: automatizar WhatsApp Web no esta permitido por WhatsApp y el numero puede ser suspendido. Usa un numero dedicado, distinto al principal del negocio.</div>
 
               <div class="client-kpi-grid">
                 <div class="client-kpi">
@@ -2640,6 +2694,8 @@
               </div>
 
               ${whatsapp?.last_error ? `<div class="personal-toast error">${h(whatsapp.last_error)}</div>` : ""}
+
+              ${cxBotWaAccessPanel048M(waAccess || {})}
             </section>
           </section>
         </div>
@@ -34093,6 +34149,11 @@ function inventoryCreatePayload() {
     document.addEventListener("change", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+      const waAccess048M = target.closest("[data-bot-wa-access-048m]");
+      if (waAccess048M) {
+        cxBotWaSetAccess048M(waAccess048M.getAttribute("data-bot-wa-access-048m"), waAccess048M.checked);
+        return;
+      }
       const slProInventory = target.closest("[data-slpro-inventory-select]");
       if (slProInventory) {
         cxSlProFillFromInventory026L(slProInventory.value || "");

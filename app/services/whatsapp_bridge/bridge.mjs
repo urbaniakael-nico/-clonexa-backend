@@ -36,6 +36,32 @@ function phoneFromJid(value = "") {
   return normalizePhone(user);
 }
 
+// A session key is the company id ("interno" line, the original one) or
+// "<company id>--clientes" (the public customer line). A number only ever
+// serves one line.
+function splitSessionKey(key = "") {
+  const [companyId, line] = String(key || "").split("--");
+  return { companyId, line: line === "clientes" ? "clientes" : "interno" };
+}
+
+function otherLineKey(key = "") {
+  const { companyId, line } = splitSessionKey(key);
+  return line === "clientes" ? companyId : `${companyId}--clientes`;
+}
+
+// The sender's real phone. Newer WhatsApp chats come as "<id>@lid", which is
+// not a phone number: use the phone WhatsApp attaches to the key, or none at
+// all (the backend then treats the sender as unknown, never as someone else).
+function senderPhone(message) {
+  const key = message?.key || {};
+  const jid = String(key.remoteJid || "");
+  if (jid.endsWith("@lid")) {
+    const alt = key.senderPn || key.remoteJidAlt || key.participantPn || "";
+    return alt ? phoneFromJid(alt) : "";
+  }
+  return phoneFromJid(jid);
+}
+
 function rememberInboundId(id = "") {
   const key = String(id || "").trim();
   if (!key) return false;
@@ -92,38 +118,6 @@ function normalizeText(value = "") {
     .trim();
 }
 
-function looksLikeAgentPrompt(text = "") {
-  const normalized = normalizeText(text);
-  if (!normalized) return false;
-  return [
-    "clonexa",
-    "crm",
-    "nomina",
-    "corte",
-    "conexion",
-    "conexiones",
-    "tiempo",
-    "tiempos",
-    "estado",
-    "estados",
-    "modulo",
-    "modulos",
-    "produccion",
-    "avance",
-    "cierre",
-    "cierres",
-    "cotizacion",
-    "cuenta de cobro",
-    "pedido",
-    "pedidos",
-    "stock",
-    "dame",
-    "consulta",
-    "necesito",
-    "?",
-  ].some((token) => normalized.includes(token));
-}
-
 function looksLikeAgentReply(text = "") {
   const normalized = normalizeText(text);
   return (
@@ -151,14 +145,18 @@ async function postInboundPayload(payload) {
   return data;
 }
 
-async function postInboundMessage(companyId, message, textOverride = "") {
+async function postInboundMessage(sessionKey, message, textOverride = "", isSelfChat = false) {
   const remoteJid = String(message.key?.remoteJid || "");
   const text = String(textOverride || extractMessageText(message) || "").trim();
   if (!remoteJid || !text) return { ok: true, ignored: true };
+  const { companyId, line } = splitSessionKey(sessionKey);
   const payload = {
     company_id: companyId,
+    line,
+    is_self_chat: !!isSelfChat,
+    from_me: !!message.key?.fromMe,
     from_jid: remoteJid,
-    from_phone: phoneFromJid(remoteJid),
+    from_phone: senderPhone(message),
     push_name: message.pushName || "",
     message_id: message.key?.id || "",
     text,
@@ -167,11 +165,15 @@ async function postInboundMessage(companyId, message, textOverride = "") {
   return postInboundPayload(payload);
 }
 
-async function sendAgentWelcome(companyId, session, sock) {
+async function sendAgentWelcome(sessionKey, session, sock) {
   if (session.welcomeSent || !session.connectedPhone) return;
+  const { companyId, line } = splitSessionKey(sessionKey);
+  if (line !== "interno") return;
   const jid = `${session.connectedPhone}@s.whatsapp.net`;
   const result = await postInboundPayload({
     company_id: companyId,
+    line,
+    is_self_chat: true,
     event_type: "connected",
     from_jid: jid,
     from_phone: session.connectedPhone,
@@ -180,7 +182,7 @@ async function sendAgentWelcome(companyId, session, sock) {
   const reply = String(result?.reply || "").trim();
   if (!reply) return;
   const sent = await sock.sendMessage(jid, { text: reply });
-  rememberOutboundId(`${companyId}:${jid}:${sent?.key?.id || ""}`);
+  rememberOutboundId(`${sessionKey}:${jid}:${sent?.key?.id || ""}`);
   session.welcomeSent = true;
 }
 
@@ -277,19 +279,23 @@ async function startSession(companyId) {
       const messageId = message?.key?.id || "";
       if (isOutboundId(`${companyId}:${remoteJid}:${messageId}`)) continue;
       const fromMe = !!message?.key?.fromMe;
-      const remotePhone = phoneFromJid(remoteJid);
+      const remotePhone = senderPhone(message);
       const text = extractMessageText(message);
-      const isSelfChat = !!session.connectedPhone && remotePhone === normalizePhone(session.connectedPhone);
+      const isSelfChat = !!session.connectedPhone && !!remotePhone && remotePhone === normalizePhone(session.connectedPhone);
       if (!text) continue;
+      // SECURITY (2026-09-24): what the linked number writes in someone
+      // else's chat is never an order for the agent (it used to be, and the
+      // agent could paste nomina into a customer's chat). Only the owner's
+      // own chat counts, and only on the internal line.
+      if (fromMe && (splitSessionKey(companyId).line !== "interno" || !isSelfChat)) continue;
       if (fromMe && looksLikeAgentReply(text)) continue;
-      if (fromMe && !isSelfChat && !looksLikeAgentPrompt(text)) continue;
       if (rememberInboundId(`${companyId}:${remoteJid}:${messageId}`)) continue;
       try {
         session.lastInboundAt = new Date().toISOString();
         session.lastInboundFrom = remotePhone || remoteJid;
         session.lastInboundText = text.slice(0, 160);
         session.lastInboundError = "";
-        const result = await postInboundMessage(companyId, message, text);
+        const result = await postInboundMessage(companyId, message, text, isSelfChat);
         const reply = String(result?.reply || "").trim();
         if (reply) {
           const sent = await sock.sendMessage(remoteJid, { text: reply });
@@ -314,6 +320,15 @@ async function startSession(companyId) {
       session.qrDataUrl = "";
       session.connectedPhone = phoneFromJid(sock.user?.id || sock.user?.jid || "");
       session.lastError = "";
+      const other = sessions.get(otherLineKey(companyId));
+      if (other?.connectedPhone && other.connectedPhone === session.connectedPhone) {
+        // One number, one line: never let the customer line and the internal
+        // agent share a phone.
+        session.rejectedReason = "Este numero ya esta conectado en la otra linea de WhatsApp. Usa un numero distinto.";
+        session.intentionalClose = true;
+        await sock.logout().catch(() => {});
+        return;
+      }
       await sendAgentWelcome(companyId, session, sock).catch((error) => {
         logger.error({ err: error, companyId }, "whatsapp welcome failed");
       });
@@ -322,8 +337,8 @@ async function startSession(companyId) {
       const statusCode = update.lastDisconnect?.error?.output?.statusCode;
       const loggedOut = statusCode === DisconnectReason.loggedOut;
       session.sock = null;
-      session.status = loggedOut ? "not_linked" : "disconnected";
-      session.lastError = update.lastDisconnect?.error?.message || "";
+      session.status = loggedOut || session.rejectedReason ? "not_linked" : "disconnected";
+      session.lastError = session.rejectedReason || update.lastDisconnect?.error?.message || "";
       if (loggedOut || session.intentionalClose) {
         await removeAuth(companyId);
         session.qrDataUrl = "";
