@@ -895,6 +895,31 @@ def _cx_event_system_cutoff_049D(event: dict | None) -> bool:
     return bool(isinstance(payload, dict) and payload.get("system_cutoff"))
 
 
+def _cx_missing_rate_rows_049C(rows: list[dict]) -> list[dict]:
+    """Calculo simple: horas trabajadas sin valor hora configurado no se
+    pagan en silencio a $0; se marcan en la fila y se listan."""
+    missing = []
+    for row in rows:
+        regular = int(_cx_payroll_number(row.get("regular_minutes"), 0))
+        extra = int(_cx_payroll_number(row.get("extra_minutes"), 0))
+        reasons = []
+        if regular > 0 and _cx_payroll_money(row.get("hourly_rate_regular")) <= 0:
+            reasons.append("valor hora")
+        if extra > 0 and _cx_payroll_money(row.get("hourly_rate_extra")) <= 0:
+            reasons.append("valor hora extra")
+        if not reasons:
+            continue
+        row["rate_missing"] = reasons
+        missing.append({
+            "employee_id": str(row.get("employee_id") or ""),
+            "employee_name": row.get("employee_name") or "Colaborador",
+            "employee_role": row.get("employee_role") or "",
+            "minutes": regular + extra,
+            "missing": reasons,
+        })
+    return missing
+
+
 def _cx_co_local_049A(value: Any) -> datetime | None:
     dt = _cx_payroll_dt_023o(value)
     if not dt:
@@ -1446,6 +1471,9 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
     snapshot_payload = await _cx_apply_payroll_config_rule(db, company_id, snapshot_payload)
     if unverified:
         snapshot_payload["unverified_shifts"] = unverified
+    missing_rate = _cx_missing_rate_rows_049C(snapshot_payload.get("rows") or [])
+    if missing_rate:
+        snapshot_payload["missing_rate_employees"] = missing_rate
     return snapshot_payload
 
 

@@ -78,6 +78,8 @@ test('empleado sin salario: marcado en su tarjeta y en la lista, sin asumir nada
   const list = ctx.cxPayMissingRateHtml048P([{ employee_name: 'Ana Mesera', employee_role: 'mesero', minutes: 480 }]);
   assert.match(list, /Empleados sin salario configurado \(1\): no se les liquidó ningún valor[\s\S]*<li>Ana Mesera · mesero · 8 h trabajadas<\/li>/);
   assert.equal(ctx.cxPayMissingRateHtml048P([]), '');
+  const simple = ctx.cxPayMissingRateHtml048P([{ employee_name: 'Beto', employee_role: 'caja', minutes: 300, missing: ['valor hora'] }]);
+  assert.match(simple, /Empleados sin valor hora configurado \(1\): esas horas quedaron en \$0\.[\s\S]*<li>Beto · caja · 5 h trabajadas · falta valor hora<\/li>/);
 });
 
 test('configuración de salarios y ARL y CSV con el desglose', () => {

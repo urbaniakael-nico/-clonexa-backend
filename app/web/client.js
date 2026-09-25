@@ -7888,8 +7888,10 @@ function inventoryCreatePayload() {
     if (!Array.isArray(list) || !list.length) return "";
     return `
       <div class="cx-payco-alert" data-payroll-missing-rate>
-        Empleados sin salario configurado (${h(list.length)}): no se les liquidó ningún valor.
-        <ul>${list.map((item) => `<li>${h(item.employee_name)}${item.employee_role ? ` · ${h(item.employee_role)}` : ""} · ${h(cxPayCoHours048O(item.minutes))} trabajadas</li>`).join("")}</ul>
+        ${list.some((item) => Array.isArray(item.missing))
+          ? `Empleados sin valor hora configurado (${h(list.length)}): esas horas quedaron en $0.`
+          : `Empleados sin salario configurado (${h(list.length)}): no se les liquidó ningún valor.`}
+        <ul>${list.map((item) => `<li>${h(item.employee_name)}${item.employee_role ? ` · ${h(item.employee_role)}` : ""} · ${h(cxPayCoHours048O(item.minutes))} trabajadas${Array.isArray(item.missing) ? ` · falta ${h(item.missing.join(" y "))}` : ""}</li>`).join("")}</ul>
       </div>
     `;
   }
@@ -8055,7 +8057,7 @@ function inventoryCreatePayload() {
     window.__cxPayrollPeriod = period;
     window.__cxPayrollMode = mode;
     const coLaw = legalMode?.state === "colombia";
-    if (legalMode || unverified.length) ensurePayCoStyles048O();
+    if (legalMode || unverified.length || missingRate.length) ensurePayCoStyles048O();
     if (unverified.length) ensureSessStyles048Q();
 
     $("app").innerHTML = `

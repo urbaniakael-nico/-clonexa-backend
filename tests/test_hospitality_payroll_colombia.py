@@ -238,12 +238,13 @@ class PayDb:
         self.employee_cfg: dict[tuple, dict] = {}
         self.sql: list[str] = []
         self.auto_closed: set[str] = set()
+        self.zero_rate: set[str] = set()
         self.commit = AsyncMock()
         self.rollback = AsyncMock()
 
     def employees(self, cid):
         return [{"id": uuid.UUID(EMP[cid]), "company_id": cid, "full_name": "Ana Mesera", "role": "mesero",
-                 "hourly_rate_regular": Decimal("10000"), "hourly_rate_extra": Decimal("15000"),
+                 "hourly_rate_regular": Decimal("0" if cid in self.zero_rate else "10000"), "hourly_rate_extra": Decimal("15000"),
                  "deduction_1": Decimal("0"), "deduction_2": Decimal("0"), "status": "active"}]
 
     def sessions(self, cid):
@@ -433,6 +434,17 @@ def test_hospitality_payroll_co_auto_closed_shift_is_set_apart_in_both_modes(db)
     # Sin cierres automaticos la respuesta no cambia (sin la clave nueva).
     db.auto_closed = set()
     assert "unverified_shifts" not in calculate(PLAIN).json()
+
+
+def test_hospitality_payroll_simple_mode_lists_employees_without_hourly_rate(db):
+    assert "missing_rate_employees" not in calculate(PLAIN).json(), "con valor hora la respuesta no cambia"
+    db.zero_rate = {PLAIN}
+    data = calculate(PLAIN).json()
+    assert data["rows"][0]["gross_amount"] == 0.0
+    assert data["rows"][0]["rate_missing"] == ["valor hora"]
+    assert data["missing_rate_employees"] == [{
+        "employee_id": EMP[PLAIN], "employee_name": "Ana Mesera", "employee_role": "mesero",
+        "minutes": 480, "missing": ["valor hora"]}]
 
 
 def test_hospitality_payroll_co_payroll_requires_session_once_the_company_has_the_module(db):
