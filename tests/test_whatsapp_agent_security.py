@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 import app.main as app_main
 from app.api import deps
 from app.api.deps import get_db
-from app.api.v1.endpoints import bots, shoplink
+from app.api.v1.endpoints import bots
 from app.services import whatsapp_agent_access as access
 from app.web import admin_v2_routes
 

@@ -48,6 +48,14 @@
     operationalAt: 0,
     shiftOpen: false,
     shiftBusy: false,
+    // Domicilios por WhatsApp (module domicilios_whatsapp): their own
+    // section, one card per order, never mixed with the tables.
+    delivery: false,
+    deliveries: [],
+    activeDeliveryId: "",
+    drivers: [],
+    driversOpen: false,
+    deliveryBusy: false,
   };
 
   let pollHandle = null;
@@ -252,7 +260,7 @@
   let ignorePops = 0;
 
   function persistNav() {
-    storeSet("sessionStorage", navKey, JSON.stringify({ stack: state.stack, activeTableKey: state.activeTableKey }));
+    storeSet("sessionStorage", navKey, JSON.stringify({ stack: state.stack, activeTableKey: state.activeTableKey, activeDeliveryId: state.activeDeliveryId }));
   }
 
   function historyPush(depth) {
@@ -270,6 +278,7 @@
           state.stack = nav.stack;
           state.screen = nav.stack[nav.stack.length - 1];
           state.activeTableKey = nav.activeTableKey || "";
+          state.activeDeliveryId = nav.activeDeliveryId || "";
         } else if (current.cshDepth > 0) {
           ignorePops += 1;
           window.history.go(-current.cshDepth);
@@ -504,8 +513,10 @@
     try {
       const data = await waiterApi("/caja/config");
       state.directSale = data.direct_sale === true;
+      state.delivery = data.delivery === true;
     } catch (_) {
       state.directSale = false;
+      state.delivery = false;
     }
     if (state.directSale) {
       try {
@@ -648,7 +659,12 @@
       const data = await hspApi("/orders?status=active");
       const orders = Array.isArray(data.orders) ? data.orders : [];
       const groups = new Map();
+      const deliveries = [];
       orders.forEach((order) => {
+        if (isDelivery(order)) {
+          deliveries.push(order);
+          return;
+        }
         const key = normKey(order.table_key || order.table_number);
         if (!groups.has(key)) {
           groups.set(key, { key, table_number: order.table_number, orders: [], total: 0, waiter: "" });
@@ -660,8 +676,9 @@
         if (waiter && !bucket.waiter) bucket.waiter = waiter;
       });
       state.tables = sortTablesByAge(Array.from(groups.values()), Date.now());
+      state.deliveries = deliveries.sort((a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0));
       state.tablesLoaded = true;
-      const detected = cajaAlerts(alertMemory, state.tables);
+      const detected = cajaAlerts(alertMemory, [...state.tables, ...state.deliveries.map(deliveryAsTable)]);
       alertMemory = detected.memory;
       if (Alerts) detected.alerts.forEach((alert) => Alerts.notify(alert));
       // Never redraw the sale screens from the 4s poll: it would close the
@@ -1063,6 +1080,216 @@
       </section>`;
   }
 
+  // ---------------------------------------------------------------------
+  // Domicilios por WhatsApp. A QR payment arrives "por verificar": the
+  // receipt photo can be faked, so only the caja -- after seeing the money
+  // in the bank -- marks it paid; until then it can't be dispatched or
+  // closed (the server enforces both).
+  // ---------------------------------------------------------------------
+  function isDelivery(order) {
+    return Boolean(order && order.metadata && order.metadata.delivery);
+  }
+
+  function deliveryOf(order) {
+    return (order && order.metadata && order.metadata.delivery) || {};
+  }
+
+  function deliveryAsTable(order) {
+    return { key: `domicilio:${order.id}`, table_number: order.table_number, orders: [order], total: Number(order.total || 0), waiter: "" };
+  }
+
+  function activeDelivery() {
+    return state.deliveries.find((o) => String(o.id) === state.activeDeliveryId) || null;
+  }
+
+  function deliveryNumber(order) {
+    const tail = String(order.order_number || "").split("-").pop();
+    return tail ? `#${tail}` : "";
+  }
+
+  function clockTime(iso) {
+    const date = new Date(iso);
+    if (!iso || Number.isNaN(date.getTime())) return "";
+    return date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function deliveryStage(order) {
+    const d = deliveryOf(order);
+    if (d.dispatched_at) return { key: "sent", label: "En camino" };
+    if (d.driver) return { key: "assigned", label: `Asignado a ${d.driver.name}` };
+    if (order.status === "pendiente" || order.status === "alistando") return { key: "kitchen", label: "En cocina" };
+    return { key: "ready", label: "Listo para despachar" };
+  }
+
+  function paymentBadge(d) {
+    if (d.payment_method === "qr" && d.payment_status === "por_verificar") return `<span class="csh-pay-warn">⚠ Pago QR por verificar</span>`;
+    if (d.payment_method === "qr") return `<span class="csh-pay-ok">QR verificado ✓</span>`;
+    return `<span class="csh-pay-cod">${d.payment_method === "card" ? "Datáfono" : "Efectivo"} contra entrega</span>`;
+  }
+
+  function deliveryCardHtml(order, nowMs) {
+    const d = deliveryOf(order);
+    const stage = deliveryStage(order);
+    return `
+      <button class="csh-card csh-card-delivery csh-delivery-${stage.key}" type="button" data-csh-open-delivery="${h(order.id)}">
+        <div class="csh-card-top">
+          <div class="csh-card-number"><small>Domicilio</small><b>${h(deliveryNumber(order))}</b></div>
+          <span class="csh-card-timer">⏱ ${h(elapsedLabel(Date.parse(order.created_at) || nowMs, nowMs))}</span>
+        </div>
+        <span class="csh-card-state">${h(stage.label)}</span>
+        <div class="csh-card-waiter">${h(d.customer_name || "")} · ${h(d.address || "")}</div>
+        ${paymentBadge(d)}
+        <strong class="csh-card-total">${h(money(order.total))}</strong>
+      </button>`;
+  }
+
+  function deliverySectionHtml() {
+    if (!state.delivery && !state.deliveries.length) return "";
+    const now = Date.now();
+    return `
+      <h2 class="csh-section-title">🛵 Domicilios</h2>
+      <div class="csh-grid-tables">
+        ${state.deliveries.map((order) => deliveryCardHtml(order, now)).join("") || `<div class="csh-empty">No hay domicilios abiertos.</div>`}
+      </div>`;
+  }
+
+  function deliveryApi(path, options) {
+    return api(`/api/v1/domicilios/companies/${encodeURIComponent(companyId)}${path}`, options);
+  }
+
+  async function deliveryAction(path, body, okMessage) {
+    const order = activeDelivery();
+    if (!order || state.deliveryBusy) return;
+    state.deliveryBusy = true;
+    safeRender();
+    try {
+      const result = await deliveryApi(`/orders/${encodeURIComponent(order.id)}/${path}`, {
+        method: "POST",
+        body: JSON.stringify(body || {}),
+      });
+      state.toast = result && result.detail ? result.detail : okMessage;
+      state.driversOpen = false;
+      await refreshTables();
+    } catch (error) {
+      state.error = error.message || "No se pudo completar la acción.";
+    } finally {
+      state.deliveryBusy = false;
+      safeRender();
+    }
+  }
+
+  async function toggleDrivers() {
+    state.driversOpen = !state.driversOpen;
+    if (state.driversOpen) {
+      try {
+        const data = await deliveryApi("/drivers");
+        state.drivers = Array.isArray(data.drivers) ? data.drivers : [];
+      } catch (error) {
+        state.drivers = [];
+        state.error = error.message || "No se pudo cargar los domiciliarios.";
+      }
+    }
+    safeRender();
+  }
+
+  async function chargeDelivery(paymentMethod, cash) {
+    const order = activeDelivery();
+    if (!order) return;
+    state.paying = true;
+    safeRender();
+    try {
+      await hspApi(`/orders/${encodeURIComponent(order.id)}/close-table`, {
+        method: "POST",
+        body: JSON.stringify({ payment_method: paymentMethod }),
+      });
+      state.toast = `Domicilio ${deliveryNumber(order)} cerrado.${cash ? ` Cambio: ${money(cash.change)}.` : ""}`;
+      state.lastCharged = { order_ids: [order.id], label: `Domicilio ${deliveryNumber(order)}` };
+      resetToTables();
+      await refreshTables();
+    } catch (error) {
+      state.error = error.message || "No se pudo cerrar el domicilio.";
+    } finally {
+      state.paying = false;
+      safeRender();
+    }
+  }
+
+  function screenDelivery() {
+    const order = activeDelivery();
+    if (!order) {
+      if (!state.tablesLoaded) return `<section class="csh-shell"><div class="csh-empty">Cargando domicilio…</div></section>`;
+      state.stack = ["tables"];
+      state.screen = "tables";
+      state.activeDeliveryId = "";
+      persistNav();
+      return screenTables();
+    }
+    const d = deliveryOf(order);
+    const stage = deliveryStage(order);
+    const pending = d.payment_method === "qr" && d.payment_status === "por_verificar";
+    const pinUrl = (d.whatsapp_location && d.whatsapp_location.url) || d.location_url || "";
+    const served = order.status === "entregado";
+    const busy = state.deliveryBusy ? "disabled" : "";
+    return `
+      <section class="csh-shell">
+        <header class="csh-header">
+          <button class="csh-back" type="button" data-csh-back aria-label="Volver">‹</button>
+          <h1>Domicilio ${h(deliveryNumber(order))}</h1>
+          <span class="csh-card-state">${h(stage.label)}</span>
+          <button class="csh-logout" type="button" data-csh-logout aria-label="Salir">⏻</button>
+        </header>
+        <div class="csh-detail">
+          ${pending ? `
+            <div class="csh-qr-warning">
+              <strong>⚠ PAGO POR QR SIN VERIFICAR</strong>
+              <span>El cliente envió un comprobante al WhatsApp. Un comprobante se puede falsificar: confirma en la cuenta del banco que el dinero llegó antes de despachar.</span>
+              <button class="csh-btn csh-btn-primary" type="button" data-csh-verify-payment ${busy}>Ya confirmé el pago en el banco</button>
+            </div>` : ""}
+          <div class="csh-delivery-info">
+            <div><span>Cliente</span><b>${h(d.customer_name || "")}</b> · ${h(/^\d+$/.test(String(d.customer_phone || "")) ? d.customer_phone : "por WhatsApp")}</div>
+            <div><span>Dirección</span><b>${h(d.address || "")}</b>${d.address_notes ? ` · ${h(d.address_notes)}` : ""}</div>
+            ${pinUrl ? `<div><span>Ubicación</span><a href="${h(pinUrl)}" target="_blank" rel="noopener">Abrir en el mapa</a></div>` : ""}
+            <div><span>Pago</span>${paymentBadge(d)}${d.payment_method === "cash" && d.pays_with ? ` · Paga con ${h(money(d.pays_with))}, cambio ${h(money(d.change))}` : ""}</div>
+            ${d.payment_verified_at ? `<div><span>Verificado</span>${h(d.payment_verified_by || "")} a las ${h(clockTime(d.payment_verified_at))}</div>` : ""}
+          </div>
+          <table class="csh-detail-lines">
+            <thead><tr><th>Cant.</th><th>Producto</th><th>Valor</th></tr></thead>
+            <tbody>
+              ${(order.items || []).map((item) => `
+                <tr>
+                  <td>${h(lineQuantity(item))}</td>
+                  <td>${h(item.name)}${item.term ? ` <small>· ${h(item.term)}</small>` : ""}${item.observations ? `<div class="csh-note">${h(item.observations)}</div>` : ""}</td>
+                  <td>${h(money(lineAmount(item)))}</td>
+                </tr>`).join("")}
+            </tbody>
+            <tfoot><tr><td colspan="2">Total</td><td>${h(money(order.total))}</td></tr></tfoot>
+          </table>
+          <div class="csh-delivery-driver">
+            ${d.driver ? `<div>🛵 <b>${h(d.driver.name)}</b> · asignado a las ${h(clockTime(d.driver.assigned_at))} por ${h(d.driver.assigned_by || "")}${d.driver.whatsapp_sent === false ? ` <span class="csh-pay-warn">WhatsApp no enviado</span>` : ""}</div>` : ""}
+            <button class="csh-btn" type="button" data-csh-drivers-toggle ${busy}>${d.driver ? "Reenviar a otro domiciliario" : "Enviar a domiciliario"} ▾</button>
+            ${state.driversOpen ? `
+              <div class="csh-driver-list">
+                ${state.drivers.map((driver) => `
+                  <button class="csh-btn" type="button" data-csh-assign-driver="${h(driver.employee_id)}" ${busy}>${h(driver.name)} · ${h(driver.phone)}</button>`).join("")
+                  || `<div class="csh-empty">No hay domiciliarios activos con teléfono en Workforce (rol Domiciliario).</div>`}
+              </div>` : ""}
+            <button class="csh-btn csh-btn-primary" type="button" data-csh-dispatched ${pending || !d.driver || d.dispatched_at || state.deliveryBusy ? "disabled" : ""}>
+              ${d.dispatched_at ? `Salió a las ${h(clockTime(d.dispatched_at))}` : "Salió a domicilio (avisar al cliente)"}
+            </button>
+          </div>
+          ${served && !pending ? `
+            <div class="csh-pay-block">
+              <div class="csh-pay-title">Cerrar domicilio</div>
+              <div class="csh-pay-options">
+                ${d.payment_method === "qr"
+                  ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-delivery-pay="transfer" ${state.paying ? "disabled" : ""}>Cerrar (pagado por QR)</button>`
+                  : PAYMENT_METHODS.map((pm) => `<button class="csh-btn csh-btn-primary" type="button" data-csh-delivery-pay="${pm.value}" ${state.paying ? "disabled" : ""}>${h(pm.label)}</button>`).join("")}
+              </div>
+            </div>` : `<div class="csh-hint">${pending ? "Verifica el pago antes de cerrar." : "La cocina aún no entrega este pedido."}</div>`}
+        </div>
+      </section>`;
+  }
+
   function screenTables() {
     return `
       <section class="csh-shell">
@@ -1082,6 +1309,7 @@
         <div class="csh-grid-tables">
           ${state.tables.map((table) => tableCardHtml(table, Date.now())).join("") || `<div class="csh-empty">No hay mesas abiertas.</div>`}
         </div>
+        ${deliverySectionHtml()}
       </section>`;
   }
 
@@ -1168,6 +1396,7 @@
     if (state.screen === "login") html = screenLogin();
     else if (state.screen === "tables") html = screenTables();
     else if (state.screen === "table") html = screenTable();
+    else if (state.screen === "delivery") html = screenDelivery();
     else if (state.screen === "sale") html = screenSale();
     else if (state.screen === "sale_products") html = screenSaleProducts();
     root.innerHTML = html;
@@ -1252,6 +1481,45 @@
     }
     if (target.closest("[data-csh-shift-finish]")) {
       if (window.confirm("¿Cerrar tu jornada? Se registran tus horas y se cierra la sesión.")) shiftAction("finish");
+      return;
+    }
+
+    const openDelivery = target.closest("[data-csh-open-delivery]");
+    if (openDelivery) {
+      state.activeDeliveryId = openDelivery.getAttribute("data-csh-open-delivery") || "";
+      state.driversOpen = false;
+      goto("delivery");
+      return;
+    }
+    if (target.closest("[data-csh-verify-payment]")) {
+      if (window.confirm("¿Confirmaste en la cuenta del banco que el dinero llegó? Un comprobante se puede falsificar.")) {
+        deliveryAction("verify-payment", {}, "Pago confirmado.");
+      }
+      return;
+    }
+    if (target.closest("[data-csh-drivers-toggle]")) {
+      toggleDrivers();
+      return;
+    }
+    const assignDriver = target.closest("[data-csh-assign-driver]");
+    if (assignDriver && !assignDriver.disabled) {
+      deliveryAction("assign", { employee_id: assignDriver.getAttribute("data-csh-assign-driver") }, "Pedido enviado al domiciliario.");
+      return;
+    }
+    const dispatched = target.closest("[data-csh-dispatched]");
+    if (dispatched && !dispatched.disabled) {
+      deliveryAction("dispatched", {}, "Avisamos al cliente que su pedido va en camino.");
+      return;
+    }
+    const deliveryPay = target.closest("[data-csh-delivery-pay]");
+    if (deliveryPay && !deliveryPay.disabled) {
+      const method = deliveryPay.getAttribute("data-csh-delivery-pay");
+      const order = activeDelivery();
+      if (method === "cash" && order) {
+        openCashSheet({ total: Number(order.total || 0), label: `Domicilio ${deliveryNumber(order)}`, onConfirm: (cash) => chargeDelivery("cash", cash) });
+      } else {
+        chargeDelivery(method);
+      }
       return;
     }
 
@@ -1449,6 +1717,18 @@
     .csh-line-main{display:grid;gap:2px;text-align:left;background:none;border:none;color:#fff;padding:0;cursor:pointer;font:inherit}
     .csh-line-main small{color:#ffb3d9;font-size:11px}
     .csh-line-remove{width:30px;height:30px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff}
+    .csh-section-title{margin:22px 16px 0;font-size:20px;font-weight:1000}
+    .csh-card-delivery{border-color:#38bdf8}
+    .csh-pay-warn{display:inline-block;padding:4px 8px;border-radius:10px;background:rgba(239,68,68,.22);color:#fecaca;font-size:12px;font-weight:900}
+    .csh-pay-ok{display:inline-block;padding:4px 8px;border-radius:10px;background:rgba(34,197,94,.22);color:#86efac;font-size:12px;font-weight:900}
+    .csh-pay-cod{display:inline-block;padding:4px 8px;border-radius:10px;background:rgba(255,209,102,.16);color:#ffd166;font-size:12px;font-weight:900}
+    .csh-qr-warning{display:grid;gap:10px;padding:14px;border-radius:18px;border:2px solid #ef4444;background:rgba(239,68,68,.14);color:#fecaca}
+    .csh-qr-warning strong{font-size:16px;color:#fff}
+    .csh-delivery-info{display:grid;gap:8px;padding:14px;border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);font-size:14px}
+    .csh-delivery-info span{display:inline-block;min-width:88px;color:#8f8aa8;font-size:12px;font-weight:800}
+    .csh-delivery-info a{color:#7dd3fc;font-weight:900}
+    .csh-delivery-driver{display:grid;gap:10px}
+    .csh-driver-list{display:grid;gap:8px}
     .csh-card{display:grid;gap:6px;text-align:left;border-radius:20px;border:2px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#fff;padding:14px;cursor:pointer}
     .csh-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
     .csh-card-number{display:grid;line-height:1}

@@ -162,10 +162,13 @@ async def test_sale_rejects_a_product_outside_the_catalog(db):
 @pytest.mark.asyncio
 async def test_direct_sale_is_off_without_the_company_switch(db, monkeypatch):
     monkeypatch.setattr(waiter_ordering, "_module_settings", AsyncMock(return_value={}))
+    # Domicilios por WhatsApp off too: the caja config reports it.
+    monkeypatch.setattr(waiter_ordering.whatsapp_delivery, "module_settings", AsyncMock(return_value=None))
     with pytest.raises(HTTPException) as exc:
         await waiter_ordering.create_cashier_sale(COMPANY_ID, _sale(payment_method="cash"), db=db, user=_caja())
     assert exc.value.status_code == 404
-    assert (await waiter_ordering.cashier_config(COMPANY_ID, db=db, _user=_caja()))["direct_sale"] is False
+    config = await waiter_ordering.cashier_config(COMPANY_ID, db=db, _user=_caja())
+    assert config["direct_sale"] is False and config["delivery"] is False
 
 
 def test_empty_sale_is_rejected():

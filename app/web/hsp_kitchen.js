@@ -311,6 +311,13 @@
     return item.quantity_label ? String(item.quantity_label) : `${item.quantity}×`;
   }
 
+  // Domicilios por WhatsApp: not a table -- say so and where it goes.
+  function deliveryTag(comanda) {
+    const delivery = comanda.delivery;
+    if (!delivery) return "";
+    return `<div class="ktc-delivery">🛵 DOMICILIO · ${h(delivery.customer_name || "")}<small>${h(delivery.address || "")}</small></div>`;
+  }
+
   function comandaCard(comanda) {
     const minutes = minutesOpen(comanda.created_at);
     const cls = timerClass(minutes);
@@ -325,6 +332,7 @@
             <span class="ktc-timer">${Math.floor(minutes)} min</span>
           </div>
         </header>
+        ${deliveryTag(comanda)}
         <div class="ktc-items">
           ${(comanda.items || []).map((item) => `
             <div class="ktc-item ${item.ready ? "is-ready" : ""}">
@@ -360,6 +368,7 @@
             <span class="ktc-timer">${isListo ? "lista hace " : ""}${Math.floor(minutes)} min</span>
           </div>
         </header>
+        ${deliveryTag(comanda)}
         <div class="ktc-items">
           ${(comanda.items || []).map((item) => `
             <div class="ktc-item ${item.ready && columnKey === "preparando" ? "is-ready" : ""}">
@@ -560,6 +569,8 @@
     .ktc-card header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:10px}
     .ktc-table{font-size:44px;font-weight:1000;line-height:1;letter-spacing:-.02em}
     .ktc-meta{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+    .ktc-delivery{display:grid;gap:2px;margin:6px 0;padding:8px 10px;border-radius:12px;background:rgba(56,189,248,.18);color:#bae6fd;font-weight:900}
+    .ktc-delivery small{font-size:12px;font-weight:700;color:#e0f2fe}
     .ktc-waiter{font-size:13px;color:#a5b4fc;font-weight:800}
     .ktc-timer{font-weight:1000;font-variant-numeric:tabular-nums;font-size:22px}
     .ktc-timer-green .ktc-timer{color:#86efac}

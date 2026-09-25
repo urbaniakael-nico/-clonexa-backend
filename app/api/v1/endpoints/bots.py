@@ -279,6 +279,9 @@ class WhatsAppWebInboundIn(BaseModel):
     message_id: str | None = None
     text: str | None = None
     timestamp: Any | None = None
+    # Location messages (customer line only: the delivery address pin).
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 def _wa_agent_name(company: Company | None) -> str:
@@ -5749,6 +5752,10 @@ async def whatsapp_web_agent_inbound(
             from_phone=str(payload.from_phone or ""),
             text_value=text_value,
             event_type=str(payload.event_type or ""),
+            push_name=str(payload.push_name or ""),
+            from_jid=str(payload.from_jid or ""),
+            latitude=payload.latitude,
+            longitude=payload.longitude,
         )
         return {"ok": True, "company_id": str(company_id), "line": "clientes", "reply": reply}
 

@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_company_user_for_tenant, require_enabled_module
 from app.models.auth import CompanyUser
-from app.services import media_storage
+from app.services import media_storage, whatsapp_delivery
 from app.services.access_sessions import ip_allowed_for_scope
 
 from app.api.v1.endpoints.company_users import (
@@ -746,6 +746,13 @@ async def waiter_ordering_menu(
     db: AsyncSession = Depends(get_db),
     _user: CompanyUser = Depends(_require_menu_reader),
 ) -> dict[str, Any]:
+    return await build_waiter_menu(db, company_id)
+
+
+async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    """The carta (categories with photo/emoji, products with photo, price
+    and portions; only active products, i.e. with stock above the minimum).
+    Shared by the mesero/caja panels and the domicilios public carta."""
     await ensure_waiter_ordering_storage(db)
     inventory = await hospitality_inventory_lite(company_id, limit=500, db=db)
     configured = await _category_rows(db, company_id)
@@ -969,7 +976,12 @@ async def cashier_config(
     _user: CompanyUser = Depends(_require_caja),
 ) -> dict[str, Any]:
     settings = await _module_settings(db, company_id)
-    return {"ok": True, "direct_sale": settings.get(CASHIER_DIRECT_SALE_FLAG) is True}
+    return {
+        "ok": True,
+        "direct_sale": settings.get(CASHIER_DIRECT_SALE_FLAG) is True,
+        # Domicilios por WhatsApp: the caja shows its own section for them.
+        "delivery": await whatsapp_delivery.module_settings(db, company_id) is not None,
+    }
 
 
 def _independent_sale_label(order_number: Any) -> str:
@@ -1186,16 +1198,21 @@ def _station_set(user: CompanyUser) -> tuple[list[str], set[str]]:
 def _comanda(order: dict[str, Any], station_set: set[str]) -> dict[str, Any] | None:
     items = [
         item for item in (order.get("items") or [])
-        if not station_set or _clean(item.get("station")).lower() in station_set
+        # The delivery fee line of a domicilio is charged, never cooked.
+        if _clean(item.get("station")).lower() != "domicilio"
+        and (not station_set or _clean(item.get("station")).lower() in station_set)
     ]
     if not items:
         return None
     kitchen = _kitchen_meta(order)
+    delivery = (order.get("metadata") or {}).get("delivery") or {}
     return {
         "order_id": order.get("id"),
         "table_number": order.get("table_number"),
         "status": order.get("status"),
         "waiter": (order.get("metadata") or {}).get("waiter") or {},
+        # Domicilio: the kitchen sees it is not a table and where it goes.
+        "delivery": {"customer_name": delivery.get("customer_name") or "", "address": delivery.get("address") or ""} if delivery else None,
         "notes": order.get("notes"),
         "created_at": order.get("created_at"),
         "preparing_at": order.get("preparing_at"),

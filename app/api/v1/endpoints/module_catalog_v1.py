@@ -342,6 +342,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "SAN",
         "is_transversal": False,
     },
+    "domicilios_whatsapp": {
+        "name": "Domicilios por WhatsApp",
+        "description": "El cliente escribe al WhatsApp de clientes y recibe un link personal a la carta; el pedido entra a cocina y caja como domicilio, con reenvío al domiciliario.",
+        "category": "hospitality",
+        "category_label": "Hospitality",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "DOM",
+        "is_transversal": False,
+    },
     "requests": {
         "name": "Solicitudes",
         "description": "Solicitudes internas, aprobaciones y estados.",

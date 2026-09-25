@@ -20,7 +20,7 @@ function context(columns = {}) {
   vm.runInContext(
     `var state = { thresholds: { green_max_minutes: 10, yellow_max_minutes: 20 }, columns: ${JSON.stringify(columns)} };\n`
       + source.slice(constStart, constEnd).replace('const COLUMNS', 'var COLUMNS') + '\n'
-      + ['h', 'minutesOpen', 'timerClass', 'itemLine', 'itemQuantity', 'boardColumns', 'columnAction', 'columnCard', 'screenColumns'].map(fn).join('\n'),
+      + ['h', 'minutesOpen', 'timerClass', 'itemLine', 'itemQuantity', 'deliveryTag', 'boardColumns', 'columnAction', 'columnCard', 'screenColumns'].map(fn).join('\n'),
     ctx,
   );
   return ctx;

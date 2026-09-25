@@ -5682,12 +5682,23 @@ async def create_hospitality_day_closure(
     }
 
 
+def _internal_only() -> None:
+    """Dependency that is always None over HTTP: the parameter it guards can
+    only be set by Python callers (e.g. domicilios), never by a request."""
+    return None
+
+
 @router.post("/companies/{company_id}/orders", status_code=status.HTTP_201_CREATED)
 async def create_hospitality_order(
     company_id: uuid.UUID,
     payload: HospitalityOrderCreateIn,
     db: AsyncSession = Depends(get_db),
+    # Domicilios por WhatsApp: delivery data (address, payment...) saved in
+    # metadata.delivery and order_type "domicilio". Internal only.
+    delivery: dict[str, Any] | None = Depends(_internal_only),
 ) -> dict[str, Any]:
+    # Direct Python callers that don't pass it get the Depends marker itself.
+    delivery = delivery if isinstance(delivery, dict) else None
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
@@ -5708,8 +5719,10 @@ async def create_hospitality_order(
     items = await _build_order_items(db, company_id, payload.items)
     total = _money(sum(_num(item.get("subtotal")) for item in items))
     payment_method = _payment_method(payload.payment_method)
-    order_type = _order_type(table_number, source)
+    order_type = "domicilio" if delivery else _order_type(table_number, source)
     order_number = await _next_order_number(db, company_id)
+    if delivery:
+        delivery = {**delivery, "subtotal": _money(total - _num(delivery.get("fee"))), "total": total}
     person = {
         "id": account_id or f"person_{uuid.uuid4()}",
         "account_id": account_id,
@@ -5759,6 +5772,7 @@ async def create_hospitality_order(
                         if _clean(payload.waiter_id) or _clean(payload.waiter_name)
                         else {}
                     ),
+                    **({"delivery": delivery} if delivery else {}),
                 },
                 ensure_ascii=False,
             ),
@@ -6080,6 +6094,12 @@ async def close_hospitality_order(
     order = await _fetch_order(db, company_id, order_id)
     if _status(order.get("status")) != STATUS_SERVED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="solo_se_puede_cerrar_mesa_entregada")
+    # Domicilio pagado por QR: a receipt photo can be faked, so it is only
+    # closed once the caja confirmed the money in the bank
+    # (POST /domicilios/.../verify-payment).
+    delivery = (order.get("metadata") or {}).get("delivery") or {}
+    if delivery.get("payment_status") == "por_verificar":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="pago_por_verificar")
 
     payment_method = _closing_payment_method(payload.payment_method if payload else None)
     await db.execute(

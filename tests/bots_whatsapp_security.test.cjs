@@ -49,7 +49,8 @@ test('puente: el remitente @lid nunca se confunde con un teléfono', () => {
 test('puente: lo que el dueño escribe en chats ajenos ya no es una orden', () => {
   assert.doesNotMatch(bridge, /looksLikeAgentPrompt/);
   assert.match(bridge, /if \(fromMe && \(splitSessionKey\(companyId\)\.line !== "interno" \|\| !isSelfChat\)\) continue;/);
-  assert.match(bridge, /line,\n    is_self_chat: !!isSelfChat,\n    from_me: !!message\.key\?\.fromMe,/);
+  assert.match(bridge, /is_self_chat: !!isSelfChat,\n    from_me: !!message\.key\?\.fromMe,/);
+  assert.match(bridge, /const location = isCustomerLine\(sessionKey\) \? extractLocation\(message\) : null;/, 'ubicaciones solo en la línea de clientes');
   assert.match(bridge, /if \(line !== "interno"\) return;/, 'la línea de clientes no manda bienvenida del agente');
 });
 

@@ -44,6 +44,10 @@ function splitSessionKey(key = "") {
   return { companyId, line: line === "clientes" ? "clientes" : "interno" };
 }
 
+function isCustomerLine(key = "") {
+  return splitSessionKey(key).line === "clientes";
+}
+
 function otherLineKey(key = "") {
   const { companyId, line } = splitSessionKey(key);
   return line === "clientes" ? companyId : `${companyId}--clientes`;
@@ -87,6 +91,17 @@ function rememberOutboundId(id = "") {
 function isOutboundId(id = "") {
   const key = String(id || "").trim();
   return !!key && sentOutboundIds.has(key);
+}
+
+// A pin the customer shared (Adjuntar > Ubicacion): the delivery address.
+function extractLocation(message = {}) {
+  const content = message.message || {};
+  const inner = content.ephemeralMessage?.message || content.viewOnceMessage?.message || content;
+  const pin = inner.locationMessage || inner.liveLocationMessage || null;
+  const latitude = Number(pin?.degreesLatitude);
+  const longitude = Number(pin?.degreesLongitude);
+  if (!pin || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
 }
 
 function extractMessageText(message = {}) {
@@ -148,11 +163,13 @@ async function postInboundPayload(payload) {
 async function postInboundMessage(sessionKey, message, textOverride = "", isSelfChat = false) {
   const remoteJid = String(message.key?.remoteJid || "");
   const text = String(textOverride || extractMessageText(message) || "").trim();
-  if (!remoteJid || !text) return { ok: true, ignored: true };
+  const location = isCustomerLine(sessionKey) ? extractLocation(message) : null;
+  if (!remoteJid || (!text && !location)) return { ok: true, ignored: true };
   const { companyId, line } = splitSessionKey(sessionKey);
   const payload = {
     company_id: companyId,
     line,
+    ...(location ? { event_type: "location", latitude: location.latitude, longitude: location.longitude } : {}),
     is_self_chat: !!isSelfChat,
     from_me: !!message.key?.fromMe,
     from_jid: remoteJid,
@@ -282,7 +299,8 @@ async function startSession(companyId) {
       const remotePhone = senderPhone(message);
       const text = extractMessageText(message);
       const isSelfChat = !!session.connectedPhone && !!remotePhone && remotePhone === normalizePhone(session.connectedPhone);
-      if (!text) continue;
+      const location = isCustomerLine(companyId) ? extractLocation(message) : null;
+      if (!text && !location) continue;
       // SECURITY (2026-09-24): what the linked number writes in someone
       // else's chat is never an order for the agent (it used to be, and the
       // agent could paste nomina into a customer's chat). Only the owner's
@@ -293,7 +311,7 @@ async function startSession(companyId) {
       try {
         session.lastInboundAt = new Date().toISOString();
         session.lastInboundFrom = remotePhone || remoteJid;
-        session.lastInboundText = text.slice(0, 160);
+        session.lastInboundText = (text || "[ubicacion]").slice(0, 160);
         session.lastInboundError = "";
         const result = await postInboundMessage(companyId, message, text, isSelfChat);
         const reply = String(result?.reply || "").trim();
@@ -364,7 +382,9 @@ async function logoutSession(companyId) {
 }
 
 async function sendMessage(companyId, to, message) {
-  const phone = normalizePhone(to);
+  // A "<id>@lid" chat (customer line, no visible phone) is written to as is.
+  const lidTarget = /^\d{5,30}@lid$/.test(String(to || "").trim()) ? String(to).trim() : "";
+  const phone = lidTarget || normalizePhone(to);
   if (!phone) {
     return { ok: false, status: "missing_phone", detail: "Destino WhatsApp requerido." };
   }
@@ -380,7 +400,7 @@ async function sendMessage(companyId, to, message) {
   if (!session?.sock || session.status !== "connected") {
     return { ok: false, status: session?.status || "not_linked", detail: "WhatsApp no esta vinculado." };
   }
-  const exists = await session.sock.onWhatsApp(phone).catch(() => null);
+  const exists = lidTarget ? null : await session.sock.onWhatsApp(phone).catch(() => null);
   const target = Array.isArray(exists)
     ? exists.find((item) => item?.exists)?.jid || ""
     : "";
@@ -392,7 +412,7 @@ async function sendMessage(companyId, to, message) {
       detail: "El numero destino no aparece activo en WhatsApp.",
     };
   }
-  const jid = target || `${phone}@s.whatsapp.net`;
+  const jid = lidTarget || target || `${phone}@s.whatsapp.net`;
   const sent = await session.sock.sendMessage(jid, { text });
   rememberOutboundId(`${companyId}:${jid}:${sent?.key?.id || ""}`);
   return { ok: true, status: "sent", to: phone, jid, message_id: sent?.key?.id || "" };

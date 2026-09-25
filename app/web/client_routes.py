@@ -51,6 +51,13 @@ def register_client_portal(app: FastAPI) -> None:
         async def hospitality_order_page() -> HTMLResponse:
             return _read_html(web_dir / "hospitality_order.html")
 
+    # Domicilios por WhatsApp: public carta opened from the link the customer
+    # line sends (the link code in ?s= is the only credential).
+    if not any(getattr(route, "path", None) == "/domicilio" for route in app.routes):
+        @app.get("/domicilio", response_class=HTMLResponse, include_in_schema=False)
+        async def delivery_order_page() -> HTMLResponse:
+            return _read_html(web_dir / "domicilio.html")
+
     if not any(getattr(route, "path", None) == "/shoplink" for route in app.routes):
         @app.get("/shoplink", response_class=HTMLResponse, include_in_schema=False)
         async def shoplink_public_page() -> HTMLResponse:

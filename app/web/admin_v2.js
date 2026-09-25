@@ -3459,6 +3459,7 @@
     hospitality: ["Reportes", "Motor para bares, restaurantes, mesas, pedidos y atencion comercial.", "Hospitality", "HSP"],
     loyalty: ["Fidelización", "Clientes recurrentes, beneficios y seguimiento comercial.", "Hospitality", "LOY"],
     sanidad: ["Sanidad", "Planilla diaria de limpieza y logistica para inspecciones de Sanidad, con historial y PDF.", "Operacion / Cumplimiento", "SAN"],
+    domicilios_whatsapp: ["Domicilios por WhatsApp", "El cliente escribe al WhatsApp y recibe un link a la carta; entra a cocina y caja como domicilio.", "Hospitality", "DOM"],
     orders: ["Pedidos", "Creación, seguimiento y estados de pedidos.", "Hospitality", "ORD"],
     tables: ["Mesas", "Gestion de mesas, cuentas y sesiones por QR.", "Hospitality", "TBL"],
     bots: ["Bots", "Entrada por Telegram, WhatsApp y automatizaciones de captura.", "Canales / Input", "BOT"],

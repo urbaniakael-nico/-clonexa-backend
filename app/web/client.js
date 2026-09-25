@@ -822,6 +822,7 @@
     stock: ["Stock", "existencias y alertas", "STO"],
     hospitality: ["Reportes", "analisis de cierres", "HSP"],
     sanidad: ["Sanidad", "planilla diaria de limpieza", "SAN"],
+    domicilios_whatsapp: ["Domicilios", "pedidos por WhatsApp", "DOM"],
     bots: ["Bots", "Telegram / WhatsApp", "BOT"],
     mini_panel: ["Mini Paneles", "links operativos", "MIN"],
     mini_paneles: ["Mini Paneles", "links operativos", "MIN"],
@@ -1811,9 +1812,13 @@
   }
 
   function personalRoleOptions(selected = "operator") {
-    const roles = isClientModuleActive("waiter_ordering")
+    const baseRoles = isClientModuleActive("waiter_ordering")
       ? CX_PERSONAL_ROLES_WAITER_ORDERING_030S
       : CX_PERSONAL_ROLES_DEFAULT_030S;
+    // Domicilios por WhatsApp: the caja sends orders to this role (048N).
+    const roles = isClientModuleActive("domicilios_whatsapp")
+      ? [...baseRoles, ["domiciliario", "Domiciliario"]]
+      : baseRoles;
     const value = String(selected || "operator");
     // A role saved before the company's list changed (or from a company
     // that later got a restricted list) must not disappear on edit -- keep
@@ -2565,10 +2570,11 @@
 
   async function renderBotsModule() {
     const company = state.company || {};
-    const [bot, whatsapp, waAccess] = await Promise.all([
+    const [bot, whatsapp, waAccess, waClientes] = await Promise.all([
       loadClientBotConfig(),
       loadClientBotWhatsApp027F(),
       cxBotWaLoadAccess048M(),
+      cxBotWaLoadClientes048N(),
     ]);
     const configured = !!bot?.configured;
     const status = botStatusLabel(bot?.status);
@@ -2697,6 +2703,8 @@
 
               ${cxBotWaAccessPanel048M(waAccess || {})}
             </section>
+
+            ${cxBotWaClientesCard048N(waClientes)}
           </section>
         </div>
       </main>
@@ -33814,6 +33822,11 @@ function inventoryCreatePayload() {
           return;
         }
 
+        if (code === "domicilios_whatsapp") {
+          await renderDeliveryModule048N();
+          return;
+        }
+
         if (typeof cxIsStockCode024T === "function" && cxIsStockCode024T(code)) {
           await renderStockModule024T();
           return;
@@ -34804,6 +34817,287 @@ function inventoryCreatePayload() {
     `;
     document.head.appendChild(style);
   }
+
+  // ---------------------------------------------------------------------
+  // Domicilios por WhatsApp (048N) -- module domicilios_whatsapp, only for
+  // the companies that have it (ASADERO today). Configuration: schedule per
+  // day and slot, delivery fee, ETA, payment QR image, greeting and
+  // out-of-hours messages. Only admins/owners (the server enforces it).
+  // ---------------------------------------------------------------------
+  const CX_DOM_DAYS_048N = [
+    ["mon", "Lunes"], ["tue", "Martes"], ["wed", "Miércoles"], ["thu", "Jueves"],
+    ["fri", "Viernes"], ["sat", "Sábado"], ["sun", "Domingo"],
+  ];
+  const CX_DOM_WARNING_048N = "Automatizar WhatsApp Web no está permitido por WhatsApp y el número puede ser suspendido. Usa un número dedicado para los domicilios, distinto al principal del local.";
+  const cxDom048N = { settings: null, hasQr: false, qrUrl: "", message: "", error: "", busy: false, forbidden: false };
+
+  function cxDomApi048N(path, options) {
+    return api(`/domicilios/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxDomScheduleHtml048N(schedule = {}) {
+    return CX_DOM_DAYS_048N.map(([day, label]) => {
+      const slots = Array.isArray(schedule[day]) ? schedule[day] : [];
+      const slot = (index) => {
+        const value = slots[index] || { from: "", to: "" };
+        return `
+          <span class="cx-dom-slot-048n">
+            <input type="time" data-dom-slot-048n="${day}:${index}:from" value="${h(value.from)}">
+            <span>a</span>
+            <input type="time" data-dom-slot-048n="${day}:${index}:to" value="${h(value.to)}">
+          </span>`;
+      };
+      return `
+        <div class="cx-dom-day-048n">
+          <strong>${h(label)}</strong>
+          ${slot(0)}
+          ${slot(1)}
+        </div>`;
+    }).join("");
+  }
+
+  function cxDomFormHtml048N() {
+    const s = cxDom048N.settings || {};
+    if (cxDom048N.forbidden) {
+      return `<div class="client-panel"><p class="client-muted">Solo un administrador de la empresa puede configurar los domicilios.</p></div>`;
+    }
+    if (!cxDom048N.settings) {
+      return `<div class="client-panel">${cxDom048N.error ? `<div class="personal-toast error">${h(cxDom048N.error)}</div>` : `<div class="client-muted">Cargando...</div>`}</div>`;
+    }
+    return `
+      <div class="personal-toast error cx-dom-warning-048n">⚠ ${h(CX_DOM_WARNING_048N)}</div>
+      ${cxDom048N.message ? `<div class="personal-toast ok">${h(cxDom048N.message)}</div>` : ""}
+      ${cxDom048N.error ? `<div class="personal-toast error">${h(cxDom048N.error)}</div>` : ""}
+      <section class="client-panel">
+        <div class="client-eyebrow">Horario de domicilios</div>
+        <p class="client-muted">Hasta dos franjas por día. Deja un día vacío si no hay servicio. Una franja que termina antes de empezar (18:00 a 02:00) sigue después de medianoche. Fuera de este horario el bot responde el mensaje de "fuera de horario".</p>
+        <div class="cx-dom-schedule-048n">${cxDomScheduleHtml048N(s.schedule || {})}</div>
+      </section>
+      <section class="client-panel">
+        <div class="client-eyebrow">Valores</div>
+        <div class="cx-dom-grid-048n">
+          <label>Valor del domicilio<input type="number" min="0" step="100" data-dom-field-048n="delivery_fee" value="${h(s.delivery_fee ?? 0)}"></label>
+          <label>Tiempo estimado de entrega (min)<input type="number" min="5" max="240" data-dom-field-048n="eta_minutes" value="${h(s.eta_minutes ?? 45)}"></label>
+          <label>Rol de los domiciliarios en Workforce<input data-dom-field-048n="driver_role" value="${h(s.driver_role || "domiciliario")}"></label>
+        </div>
+      </section>
+      <section class="client-panel">
+        <div class="client-eyebrow">Mensajes del bot</div>
+        <p class="client-muted">Puedes usar {nombre}, {empresa}, {link} y {horario}. Si el saludo no trae {link} o el mensaje de cierre no trae {horario}, se agregan al final.</p>
+        <label class="cx-dom-label-048n">Saludo (dentro del horario)<textarea rows="4" data-dom-field-048n="greeting_message">${h(s.greeting_message || "")}</textarea></label>
+        <label class="cx-dom-label-048n">Fuera de horario<textarea rows="4" data-dom-field-048n="closed_message">${h(s.closed_message || "")}</textarea></label>
+      </section>
+      <section class="client-panel">
+        <div class="client-eyebrow">QR de pago</div>
+        <p class="client-muted">La imagen del QR del local (Nequi, Bancolombia...). El cliente paga y envía el comprobante al chat de WhatsApp; el pedido queda "pago por verificar" hasta que la caja confirme el dinero en el banco. Los comprobantes no se guardan en el sistema.</p>
+        ${cxDom048N.qrUrl ? `<img class="cx-dom-qr-048n" src="${h(cxDom048N.qrUrl)}" alt="QR de pago">` : `<div class="client-muted">${cxDom048N.hasQr ? "QR cargado." : "Sin QR: el pago por QR no aparece en la carta."}</div>`}
+        <label class="client-btn cx-dom-upload-048n">${cxDom048N.hasQr ? "Reemplazar QR" : "Subir QR"}<input type="file" accept="image/png,image/jpeg,image/webp" data-dom-qr-file-048n hidden></label>
+      </section>
+      <div class="client-actions">
+        <button class="client-btn" type="button" data-dom-save-048n ${cxDom048N.busy ? "disabled" : ""}>Guardar configuración</button>
+      </div>`;
+  }
+
+  function cxDomRender048N() {
+    const box = document.getElementById("cxDomRoot048N");
+    if (box) box.innerHTML = cxDomFormHtml048N();
+  }
+
+  function cxDomReadForm048N(rootEl = document) {
+    const schedule = {};
+    CX_DOM_DAYS_048N.forEach(([day]) => {
+      schedule[day] = [0, 1].map((index) => ({
+        from: String(rootEl.querySelector(`[data-dom-slot-048n="${day}:${index}:from"]`)?.value || ""),
+        to: String(rootEl.querySelector(`[data-dom-slot-048n="${day}:${index}:to"]`)?.value || ""),
+      })).filter((slot) => slot.from && slot.to && slot.from !== slot.to);
+    });
+    const field = (name) => rootEl.querySelector(`[data-dom-field-048n="${name}"]`)?.value ?? "";
+    return {
+      schedule,
+      delivery_fee: Number(field("delivery_fee") || 0),
+      eta_minutes: Number(field("eta_minutes") || 45),
+      driver_role: String(field("driver_role") || "domiciliario").trim().toLowerCase(),
+      greeting_message: String(field("greeting_message") || ""),
+      closed_message: String(field("closed_message") || ""),
+    };
+  }
+
+  async function cxDomLoadQr048N() {
+    if (cxDom048N.qrUrl) {
+      try { URL.revokeObjectURL(cxDom048N.qrUrl); } catch (_) {}
+      cxDom048N.qrUrl = "";
+    }
+    if (!cxDom048N.hasQr) return;
+    try {
+      const res = await fetch(`${API}/domicilios/companies/${encodeURIComponent(state.companyId)}/payment-qr`, { headers: authHeaders({}) });
+      if (res.ok) cxDom048N.qrUrl = URL.createObjectURL(await res.blob());
+    } catch (_) {}
+  }
+
+  async function cxDomLoad048N() {
+    cxDom048N.error = "";
+    cxDom048N.forbidden = false;
+    try {
+      const data = await cxDomApi048N("/settings");
+      cxDom048N.settings = data.settings || {};
+      cxDom048N.hasQr = data.has_payment_qr === true;
+      await cxDomLoadQr048N();
+    } catch (error) {
+      cxDom048N.settings = null;
+      if (/^403\b/.test(String(error.message || ""))) cxDom048N.forbidden = true;
+      else cxDom048N.error = error.message || "No se pudo cargar la configuración.";
+    }
+    cxDomRender048N();
+  }
+
+  async function cxDomSave048N() {
+    cxDom048N.busy = true;
+    try {
+      const data = await cxDomApi048N("/settings", { method: "PUT", body: JSON.stringify(cxDomReadForm048N()) });
+      cxDom048N.settings = data.settings || cxDom048N.settings;
+      cxDom048N.message = `Configuración guardada. Horario: ${String(data.schedule_text || "").replace(/\n/g, " · ")}`;
+      cxDom048N.error = "";
+    } catch (error) {
+      cxDom048N.error = error.message || "No se pudo guardar.";
+    } finally {
+      cxDom048N.busy = false;
+      cxDomRender048N();
+    }
+  }
+
+  async function cxDomUploadQr048N(file) {
+    if (!file) return;
+    const form = new FormData();
+    form.append("image", file);
+    try {
+      await apiForm(`/domicilios/companies/${encodeURIComponent(state.companyId)}/payment-qr`, form);
+      cxDom048N.hasQr = true;
+      cxDom048N.message = "QR de pago guardado.";
+      cxDom048N.error = "";
+      await cxDomLoadQr048N();
+    } catch (error) {
+      cxDom048N.error = error.message || "No se pudo subir el QR.";
+    }
+    cxDomRender048N();
+  }
+
+  function cxDomStyles048N() {
+    if (document.getElementById("cxDomStyles048N")) return;
+    const style = document.createElement("style");
+    style.id = "cxDomStyles048N";
+    style.textContent = `
+      .cx-dom-warning-048n{margin-bottom:14px}
+      .cx-dom-schedule-048n{display:grid;gap:8px;margin-top:12px}
+      .cx-dom-day-048n{display:grid;grid-template-columns:110px 1fr 1fr;gap:10px;align-items:center}
+      .cx-dom-slot-048n{display:flex;gap:6px;align-items:center}
+      .cx-dom-slot-048n input,.cx-dom-grid-048n input,.cx-dom-label-048n textarea{padding:10px;border-radius:10px;border:1px solid rgba(148,163,184,.3);background:rgba(15,23,42,.4);color:inherit;font:inherit}
+      .cx-dom-grid-048n{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+      .cx-dom-grid-048n label,.cx-dom-label-048n{display:grid;gap:6px;font-weight:700;margin-top:10px}
+      .cx-dom-qr-048n{width:200px;max-width:100%;background:#fff;border-radius:14px;padding:8px;display:block;margin:10px 0}
+      .cx-dom-upload-048n{display:inline-flex;cursor:pointer;margin-top:8px}
+      @media(max-width:700px){.cx-dom-day-048n{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function renderDeliveryModule048N() {
+    if (!isClientModuleActive("domicilios_whatsapp")) {
+      render();
+      return;
+    }
+    cxDomStyles048N();
+    cxDom048N.message = "";
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("domicilios_whatsapp")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Módulo Domicilios</div>
+              <h1 class="client-title">Domicilios por WhatsApp</h1>
+              <p class="client-muted">El cliente escribe al número de clientes (módulo Bots) y recibe un link personal a la carta, válido 30 minutos. El pedido entra a cocina y a caja como domicilio.</p>
+            </header>
+            <div id="cxDomRoot048N"><div class="client-muted">Cargando...</div></div>
+          </section>
+        </div>
+      </main>`;
+    await cxDomLoad048N();
+  }
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const save = target.closest("[data-dom-save-048n]");
+    if (save && !save.disabled) cxDomSave048N();
+  });
+
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const file = target.closest("[data-dom-qr-file-048n]");
+    if (file) cxDomUploadQr048N(file.files && file.files[0]);
+  });
+
+  // Bots: the CUSTOMER number (linea "clientes"), only with Domicilios on.
+  // It never reaches the internal agent (nomina, personal, produccion).
+  async function cxBotWaLoadClientes048N() {
+    if (!isClientModuleActive("domicilios_whatsapp")) return null;
+    try {
+      return await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web?line=clientes`);
+    } catch (error) {
+      return { status: "error", last_error: error.message || "No se pudo cargar el numero de clientes." };
+    }
+  }
+
+  function cxBotWaClientesCard048N(line) {
+    if (!line) return "";
+    const status = botWhatsAppStatusLabel027F(line.status);
+    const linked = ["connected", "qr", "connecting", "disconnected"].includes(String(line.status || "").toLowerCase());
+    return `
+      <section class="client-panel">
+        <div class="client-eyebrow">Número de clientes</div>
+        <h2>WhatsApp de domicilios</h2>
+        <p class="client-muted">A este número escriben los clientes: solo responde con el link de la carta de domicilios o con el horario. Nunca entrega datos internos.</p>
+        <div class="personal-toast error" style="margin-top:12px">⚠ ${h(CX_DOM_WARNING_048N)}</div>
+        <div class="client-kpi-grid">
+          <div class="client-kpi"><span>Estado</span><strong>${h(status)}</strong></div>
+          <div class="client-kpi"><span>Línea</span><strong>Clientes</strong></div>
+        </div>
+        ${botWhatsAppQr027F(line)}
+        <div class="personal-toolbar" style="margin-top:22px;align-items:center">
+          <button class="client-btn" type="button" data-bot-wa-cli-048n="start">${line.qr_data_url ? "Regenerar QR" : "Generar QR"}</button>
+          <button class="client-btn" type="button" data-bot-wa-cli-048n="refresh">Actualizar</button>
+          <button class="client-btn" type="button" data-bot-wa-cli-048n="logout" ${linked ? "" : "disabled"}>Desvincular</button>
+        </div>
+        ${line.last_error ? `<div class="personal-toast error">${h(line.last_error)}</div>` : ""}
+      </section>`;
+  }
+
+  async function cxBotWaClientesAction048N(action) {
+    try {
+      if (action !== "refresh") {
+        await api(`/bots/companies/${encodeURIComponent(state.companyId)}/whatsapp-web/${action}?line=clientes`, { method: "POST" });
+      }
+      await renderBotsModule();
+      setTimeout(() => showBotsNotice(action === "logout" ? "Número de clientes desvinculado." : "Número de clientes actualizado."), 50);
+    } catch (error) {
+      showBotsNotice(error.message || "No se pudo completar.", "error");
+    }
+  }
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest("[data-bot-wa-cli-048n]");
+    if (button && !button.disabled) cxBotWaClientesAction048N(button.getAttribute("data-bot-wa-cli-048n"));
+  });
 
   async function renderSanitationModule048K(tab = "") {
     if (!isClientModuleActive("sanidad")) {
