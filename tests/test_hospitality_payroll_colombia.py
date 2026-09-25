@@ -184,6 +184,15 @@ def test_hospitality_payroll_co_values_come_from_the_table_not_the_code():
     assert "falta smmlv" in engine.validate_year_row({"params": {}, "changes": []})
 
 
+def test_hospitality_payroll_co_missing_salary_is_flagged_not_assumed():
+    result = liquidate([(at("2026-09-22", 20), at("2026-09-22", 22))], date(2026, 9, 22), monthly_salary=0, other_deductions=5000)
+    assert result["salary_missing"] is True
+    assert result["minutes_by_type"]["ord_night"] == 120, "las horas se clasifican igual"
+    assert result["earned_amount"] == 0 and result["transport_allowance"] == 0
+    assert result["gross_amount"] == 0 and result["net_amount"] == 0 and result["employer_contributions_total"] == 0
+    assert liquidate([(at("2026-09-22", 8), at("2026-09-22", 9))], date(2026, 9, 22))["salary_missing"] is False
+
+
 def test_hospitality_payroll_co_breaks_are_not_paid():
     pieces = engine.subtract_breaks(at("2026-09-22", 8), at("2026-09-22", 17), [(at("2026-09-22", 12), at("2026-09-22", 13))])
     assert pieces == [(at("2026-09-22", 8), at("2026-09-22", 12)), (at("2026-09-22", 13), at("2026-09-22", 17))]
@@ -228,6 +237,7 @@ class PayDb:
         self.company_cfg: dict[str, dict] = {}
         self.employee_cfg: dict[tuple, dict] = {}
         self.sql: list[str] = []
+        self.auto_closed: set[str] = set()
         self.commit = AsyncMock()
         self.rollback = AsyncMock()
 
@@ -239,12 +249,17 @@ class PayDb:
     def sessions(self, cid):
         # Martes 22/09/2026 de 2:00 p.m. a 11:00 p.m., 1 h de pausa (5 p.m. a 6 p.m.).
         e = self.employees(cid)[0]
-        return [{"id": uuid.UUID(SESSION[cid]), "company_id": cid, "user_id": None, "employee_id": e["id"],
+        rows = [{"id": uuid.UUID(SESSION[cid]), "company_id": cid, "user_id": None, "employee_id": e["id"],
                  "panel_type": "mesero", "status": "finished", "location_label": "", "started_at": utc("2026-09-22", 14),
                  "ended_at": utc("2026-09-22", 23), "active_seconds": 8 * 3600, "break_seconds": 3600,
                  "active_started_at": None, "current_break_started_at": None, "created_at": None, "updated_at": None,
                  "employee_name": e["full_name"], "employee_role": e["role"], "hourly_rate_regular": e["hourly_rate_regular"],
-                 "hourly_rate_extra": e["hourly_rate_extra"], "deduction_1": 0, "deduction_2": 0}]
+                 "hourly_rate_extra": e["hourly_rate_extra"], "deduction_1": 0, "deduction_2": 0, "closed_reason": ""}]
+        if cid in self.auto_closed:
+            # Olvido marcar salida el miercoles 23/09 a las 8:00 a.m.; el sistema lo cerro al abrir el panel 18 h despues.
+            rows.append({**rows[0], "id": uuid.uuid4(), "started_at": utc("2026-09-23", 8), "ended_at": utc("2026-09-24", 2),
+                         "active_seconds": 18 * 3600, "break_seconds": 0, "closed_reason": "cierre_automatico"})
+        return rows
 
     def break_events(self, cid):
         payload = {"mini_panel_session_id": SESSION[cid]}
@@ -359,16 +374,18 @@ def test_hospitality_payroll_co_switch_off_calculates_exactly_as_today(db):
     assert not any("payroll_co_" in sql for sql in db.sql), "sin el modulo no se leen tablas nuevas"
 
 
-def test_hospitality_payroll_co_switch_turned_off_keeps_manual_numbers_and_warns(db):
+def test_hospitality_payroll_co_switch_turned_off_is_the_simple_calculation_without_notices(db):
     plain = calculate(PLAIN).json()
     manual = calculate(MANUAL, token="admin-manual").json()
-    assert manual["rows"][0]["gross_amount"] == plain["rows"][0]["gross_amount"]
-    assert manual["legal_mode"]["state"] == "manual"
-    assert "obligatorios para trabajadores con contrato laboral" in manual["legal_mode"]["notice"]
-    assert "otro sistema" in manual["legal_mode"]["notice"]
+    assert manual["rows"] == [{**plain["rows"][0], "employee_id": manual["rows"][0]["employee_id"],
+                               "shifts": manual["rows"][0]["shifts"]}]
+    assert manual["totals"] == plain["totals"]
+    assert "legal_mode" not in manual, "apagado no hay aviso de recargos"
+    assert not hasattr(payroll, "CO_MANUAL_NOTICE_049A")
 
 
 def test_hospitality_payroll_co_switch_on_liquidates_with_colombian_law(db):
+    db.employee_cfg[(CO, EMP[CO])] = {"monthly_salary": SMMLV, "arl_level": None}
     response = calculate(CO, token="admin-co")
     assert response.status_code == 200, response.text
     data = response.json()
@@ -379,11 +396,38 @@ def test_hospitality_payroll_co_switch_on_liquidates_with_colombian_law(db):
     # 2 p.m.-5 p.m. y 6 p.m.-7 p.m. diurnas (4 h); 7 p.m.-11 p.m. nocturnas (4 h). Pausa sin pagar.
     assert detail["minutes_by_type"]["ord_day"] == 240
     assert detail["minutes_by_type"]["ord_night"] == 240
-    assert detail["monthly_salary"] == float(SMMLV) and detail["salary_is_minimum_default"] is True
+    assert detail["monthly_salary"] == float(SMMLV) and detail["salary_missing"] is False
+    assert data["missing_rate_employees"] == [] and data["auto_closed_shifts"] == []
     assert detail["transport_allowance"] == float(engine.money(Decimal("249095") / 30))
     hour = SMMLV / 210
     assert detail["earned_amount"] == float(engine.money(hour * 4) + engine.money(hour * 4 * Decimal("1.35")))
     assert data["totals"]["employer_contributions_total"] > 0
+
+
+def test_hospitality_payroll_co_employee_without_salary_is_listed_and_not_paid(db):
+    data = calculate(CO, token="admin-co").json()
+    row = data["rows"][0]
+    assert row["colombia"]["salary_missing"] is True and row["net_amount"] == 0
+    assert row["colombia"]["minutes_by_type"]["ord_night"] == 240
+    assert data["missing_rate_employees"] == [
+        {"employee_id": EMP[CO], "employee_name": "Ana Mesera", "employee_role": "mesero", "minutes": 480}]
+
+
+def test_hospitality_payroll_co_auto_closed_shift_is_set_apart_in_both_modes(db):
+    db.auto_closed = {PLAIN, CO}
+    plain = calculate(PLAIN).json()
+    assert plain["rows"][0]["regular_minutes"] == 480, "las 18 h del cierre automatico no se pagan"
+    assert plain["rows"][0]["gross_amount"] == 80000.0
+    [item] = plain["auto_closed_shifts"]
+    assert item["minutes"] == 18 * 60 and item["employee_name"] == "Ana Mesera" and item["panel_type"] == "mesero"
+    db.employee_cfg[(CO, EMP[CO])] = {"monthly_salary": SMMLV, "arl_level": None}
+    co = calculate(CO, token="admin-co").json()
+    assert co["rows"][0]["regular_minutes"] + co["rows"][0]["extra_minutes"] == 480
+    assert co["auto_closed_shifts"][0]["minutes"] == 18 * 60
+    assert co["totals"]["auto_closed_minutes"] == 18 * 60
+    # Sin cierres automaticos la respuesta no cambia (sin la clave nueva).
+    db.auto_closed = set()
+    assert "auto_closed_shifts" not in calculate(PLAIN).json()
 
 
 def test_hospitality_payroll_co_payroll_requires_session_once_the_company_has_the_module(db):
@@ -438,7 +482,7 @@ def test_hospitality_payroll_co_company_config_needs_admin_and_module_and_stays_
     assert client.put(url, headers={"Authorization": "Bearer admin-co"}, json={"arl_level": 9}).status_code == 400
     # El salario configurado se usa en el calculo.
     detail = calculate(CO, token="admin-co").json()["rows"][0]["colombia"]
-    assert detail["monthly_salary"] == 2000000 and detail["salary_is_minimum_default"] is False
+    assert detail["monthly_salary"] == 2000000 and detail["salary_missing"] is False
     assert any(p["label"] == "ARL nivel 2" for p in detail["employer_contributions"])
 
 

@@ -2444,6 +2444,17 @@ async def _cx_kitchen_autoclose_stale_044d(
             await _cx_mp_apply_action_to_row_044d(
                 db, company, _AutoCloseOperator044D(), {"type": "cocina", "employee_id": employee_id}, row, "finish",
             )
+            # 049B: igual que el cierre automatico por login (028Q), queda
+            # marcado para que Nomina no lo liquide como horas reales.
+            await db.execute(
+                text("""
+                    UPDATE mini_panel_work_sessions
+                    SET closed_reason = 'cierre_automatico'
+                    WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid)
+                """),
+                {"id": str(row["id"]), "company_id": str(company_id)},
+            )
+            await db.commit()
             continue
         still_open[employee_id] = row
     return still_open

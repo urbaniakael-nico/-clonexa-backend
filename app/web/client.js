@@ -7651,6 +7651,8 @@ function inventoryCreatePayload() {
           to: payload.period?.period_end || payload.period_end || period.to,
         },
         legalMode: payload.legal_mode || null,
+        missingRate: payload.missing_rate_employees || [],
+        autoClosed: payload.auto_closed_shifts || [],
         source: "api",
       };
     } catch (error) {
@@ -7807,15 +7809,7 @@ function inventoryCreatePayload() {
   }
 
   function cxPayCoNotice048O(legalMode) {
-    if (!legalMode || !legalMode.state) return "";
-    if (legalMode.state === "manual") {
-      return `
-        <div class="cx-payco-notice warn" data-payco-notice="manual">
-          <strong>Modo manual activo</strong>
-          <span>${h(legalMode.notice || "")}</span>
-        </div>
-      `;
-    }
+    if (!legalMode || legalMode.state !== "colombia") return "";
     const ref = legalMode.reference || {};
     return `
       <div class="cx-payco-notice" data-payco-notice="colombia">
@@ -7845,9 +7839,10 @@ function inventoryCreatePayload() {
     return `
       <article class="cx-payco-card" data-payco-employee="${h(row.employeeId)}">
         <header>
-          <div class="cx-payroll-employee"><strong>${h(row.name)}</strong><span>${h(row.role || "Sin rol")} · salario base $${h(payrollMoney(co.monthly_salary))}${co.salary_is_minimum_default ? " (sin salario configurado: se usa el mínimo)" : ""}</span></div>
+          <div class="cx-payroll-employee"><strong>${h(row.name)}</strong><span>${h(row.role || "Sin rol")} · ${co.salary_missing ? "" : `salario base $${h(payrollMoney(co.monthly_salary))}`}</span></div>
           <div class="cx-payco-net"><span>Neto a pagar</span><strong>$${h(payrollMoney(row.net))}</strong></div>
         </header>
+        ${co.salary_missing ? `<div class="cx-payco-alert" data-payco-alert="salary_missing">Sin salario configurado: sus horas se muestran pero no se liquidan. Configúralo en "Salarios y ARL".</div>` : ""}
         ${alerts.map((alert) => `<div class="cx-payco-alert" data-payco-alert="${h(alert.kind)}">Incumplimiento: ${h(alert.message)}</div>`).join("")}
         <div class="cx-payroll-table-wrap">
           <table class="cx-payroll-table">
@@ -7889,6 +7884,29 @@ function inventoryCreatePayload() {
     return `<div class="cx-payco-list">${rows.map(cxPayCoEmployeeHtml048O).join("")}</div>`;
   }
 
+  function cxPayMissingRateHtml048P(list = []) {
+    if (!Array.isArray(list) || !list.length) return "";
+    return `
+      <div class="cx-payco-alert" data-payroll-missing-rate>
+        Empleados sin salario configurado (${h(list.length)}): no se les liquidó ningún valor.
+        <ul>${list.map((item) => `<li>${h(item.employee_name)}${item.employee_role ? ` · ${h(item.employee_role)}` : ""} · ${h(cxPayCoHours048O(item.minutes))} trabajadas</li>`).join("")}</ul>
+      </div>
+    `;
+  }
+
+  function cxPayAutoClosedHtml048P(list = []) {
+    if (!Array.isArray(list) || !list.length) return "";
+    const total = list.reduce((sum, item) => sum + Number(item.minutes || 0), 0);
+    const when = (value) => (value ? new Date(value).toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" }) : "sin hora");
+    return `
+      <div class="cx-payco-notice warn" data-payroll-auto-closed>
+        <strong>Turnos con cierre automático: ${h(cxPayCoHours048O(total))} fuera de la liquidación</strong>
+        <span>El sistema cerró estos turnos porque nadie marcó la salida; la hora de cierre no es real. No se pagaron: revísalos con el empleado.</span>
+        <ul>${list.map((item) => `<li>${h(item.employee_name)}${item.panel_type ? ` · ${h(item.panel_type)}` : ""} · entrada ${h(when(item.start))} · cierre automático ${h(when(item.end))} · ${h(cxPayCoHours048O(item.minutes))}</li>`).join("")}</ul>
+      </div>
+    `;
+  }
+
   function cxPayCoConfigHtml048O() {
     if (!cxPayCo048O.open) {
       return `<button class="client-btn" type="button" data-payco-config-open>Salarios y ARL</button>`;
@@ -7911,7 +7929,7 @@ function inventoryCreatePayload() {
             ${(config.employees || []).map((employee) => `
               <tr data-payco-config-employee="${h(employee.id)}">
                 <td><div class="cx-payroll-employee"><strong>${h(employee.name)}</strong><span>${h(employee.role || "")}</span></div></td>
-                <td><input type="number" min="0" step="1" name="salary" value="${h(employee.monthly_salary || "")}" placeholder="Vacío = salario mínimo"></td>
+                <td><input type="number" min="0" step="1" name="salary" value="${h(employee.monthly_salary || "")}" placeholder="Sin configurar: no se liquida"></td>
                 <td><select name="arl"><option value="">La de la empresa</option>${levels.map((level) => `<option value="${level}" ${Number(employee.arl_level) === level ? "selected" : ""}>Nivel ${level}</option>`).join("")}</select></td>
               </tr>
             `).join("")}
@@ -8005,6 +8023,7 @@ function inventoryCreatePayload() {
       .cx-payco-config { display:grid; gap:12px; margin-top:12px; }
       .cx-payco-config input, .cx-payco-config select { min-height:40px; border-radius:12px; padding:8px 10px; }
       .cx-payco-check { display:flex; gap:8px; align-items:center; }
+      .cx-payco-alert ul, .cx-payco-notice ul { margin:6px 0 0; padding-left:18px; font-weight:700; }
       td small { opacity:.7; }
     `;
     document.head.appendChild(style);
@@ -8026,6 +8045,8 @@ function inventoryCreatePayload() {
     let loadWarning = "";
     let mode = "Periodo abierto";
     let legalMode = null;
+    let missingRate = [];
+    let autoClosed = [];
 
     try {
       const calculated = await payrollCalculatePeriod(period);
@@ -8034,6 +8055,8 @@ function inventoryCreatePayload() {
       period = calculated.period || period;
       loadWarning = calculated.warning || "";
       legalMode = calculated.legalMode || null;
+      missingRate = calculated.missingRate || [];
+      autoClosed = calculated.autoClosed || [];
     } catch (error) {
       rows = [];
       totals = payrollTotals([]);
@@ -8045,7 +8068,7 @@ function inventoryCreatePayload() {
     window.__cxPayrollPeriod = period;
     window.__cxPayrollMode = mode;
     const coLaw = legalMode?.state === "colombia";
-    if (legalMode) ensurePayCoStyles048O();
+    if (legalMode || autoClosed.length) ensurePayCoStyles048O();
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -8104,6 +8127,8 @@ function inventoryCreatePayload() {
               </div>
 
               ${cxPayCoNotice048O(legalMode)}
+              ${cxPayMissingRateHtml048P(missingRate)}
+              ${cxPayAutoClosedHtml048P(autoClosed)}
 
               ${payrollCards(totals)}
 

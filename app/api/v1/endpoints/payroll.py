@@ -493,6 +493,7 @@ async def _cx_payroll_mini_panel_sessions_023o(
                 s.break_seconds,
                 s.active_started_at,
                 s.current_break_started_at,
+                s.closed_reason,
                 s.created_at,
                 s.updated_at,
                 e.full_name AS employee_name,
@@ -766,15 +767,9 @@ async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: 
 
 # CLONEXA_049A_NOMINA_COLOMBIA_START
 # Interruptor por empresa "APLICAR NORMATIVA LABORAL COLOMBIANA" (modulo
-# nomina_colombia del catalogo de Admin V2). Sin fila en company_modules la
-# nomina calcula y responde exactamente como antes. Con el modulo encendido
-# se liquida con la ley colombiana; apagado despues de haberlo tenido, se
-# calcula como antes pero con el aviso de que los recargos son obligatorios.
-CO_MANUAL_NOTICE_049A = (
-    "Modo manual: los recargos nocturnos, dominicales, festivos y las horas extra de ley son "
-    "obligatorios para trabajadores con contrato laboral. Usa este modo solo si la nómina se "
-    "liquida en otro sistema."
-)
+# nomina_colombia del catalogo de Admin V2), todo o nada: encendido se
+# liquida el paquete legal completo; apagado, el calculo simple de siempre
+# (horas x valor hora de cada empleado), sin avisos.
 CO_LAW_NOTICE_049A = (
     "Cálculo según la normativa laboral colombiana. Es una ayuda y no reemplaza la revisión de un contador."
 )
@@ -813,6 +808,28 @@ async def _cx_co_gate_049A(
     if await active_admin_v2_session(request, db):
         return
     await require_company_user_for_tenant(db, authorization, company_id)
+
+
+# Turnos que el sistema cerro solo al pasar el maximo de horas (028Q/044D):
+# el cierre llega cuando alguien vuelve a abrir el panel, asi que su hora de
+# salida no es real. No se liquidan; se listan aparte para revisarlos.
+AUTO_CLOSE_REASON_049B = "cierre_automatico"
+
+
+def _cx_is_auto_closed_049B(session: dict) -> bool:
+    return str(session.get("closed_reason") or "").strip().lower() == AUTO_CLOSE_REASON_049B
+
+
+def _cx_auto_closed_item_049B(session: dict, employee: dict | None, minutes: int) -> dict:
+    employee = employee or {}
+    return {
+        "employee_id": str(session.get("employee_id") or ""),
+        "employee_name": employee.get("full_name") or session.get("employee_name") or "Colaborador",
+        "panel_type": session.get("panel_type") or "",
+        "start": _cx_payroll_dt_023o(session.get("started_at")).isoformat() if session.get("started_at") else None,
+        "end": _cx_payroll_dt_023o(session.get("ended_at")).isoformat() if session.get("ended_at") else None,
+        "minutes": max(0, int(minutes)),
+    }
 
 
 def _cx_co_local_049A(value: Any) -> datetime | None:
@@ -928,11 +945,17 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
             events_by_session.setdefault(session_id, []).append(ev)
 
     shifts_by_employee = _cx_co_attendance_shifts_049A(events, session_ids)
+    auto_closed: list[dict] = []
     for session in sessions:
         employee_id = str(session.get("employee_id") or "")
         start = _cx_co_local_049A(session.get("started_at"))
         end = _cx_co_local_049A(session.get("ended_at")) or as_of_local
         if not employee_id or not start or not end or end <= start:
+            continue
+        if _cx_is_auto_closed_049B(session):
+            if employee_id in employee_map and period_start_local <= end <= period_end_local:
+                seconds = _cx_payroll_session_payable_seconds_023o(session, _cx_payroll_dt_023o(session.get("ended_at")))
+                auto_closed.append(_cx_auto_closed_item_049B(session, employee_map[employee_id], round(seconds / 60)))
             continue
         breaks = _cx_co_pair_breaks_049A(events_by_session.get(str(session.get("id")), []), end)
         shifts_by_employee.setdefault(employee_id, []).append({
@@ -988,6 +1011,11 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
             "colombia": detail,
         }))
     rows.sort(key=lambda item: str(item.get("employee_name") or ""))
+    missing_salary = [
+        {"employee_id": row["employee_id"], "employee_name": row["employee_name"], "employee_role": row["employee_role"],
+         "minutes": int(row["regular_minutes"]) + int(row["extra_minutes"])}
+        for row in rows if row["colombia"].get("salary_missing")
+    ]
 
     def total(key: str, nested: bool = False) -> float:
         values = (Decimal(str((row["colombia"] if nested else row).get(key) or 0)) for row in rows)
@@ -1014,7 +1042,10 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
             "employer_contributions_total": total("employer_contributions_total", nested=True),
             "provisions_total": total("provisions_total", nested=True),
             "alerts": sum(len(row["colombia"]["alerts"]) for row in rows),
+            "auto_closed_minutes": sum(item["minutes"] for item in auto_closed),
         },
+        "missing_rate_employees": missing_salary,
+        "auto_closed_shifts": auto_closed,
         "legal_mode": {
             "state": "colombia",
             "notice": CO_LAW_NOTICE_049A,
@@ -1199,6 +1230,7 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             "mini_panel_session_id": event_session_id,
         })
 
+    auto_closed: list[dict] = []
     for session in mini_panel_sessions:
         employee_id = str(session.get("employee_id") or "")
         if not employee_id:
@@ -1219,6 +1251,9 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         payable_seconds = _cx_payroll_session_payable_seconds_023o(session, session_as_of)
         payable_minutes = max(0, round(payable_seconds / 60))
         if payable_minutes <= 0:
+            continue
+        if _cx_is_auto_closed_049B(session):
+            auto_closed.append(_cx_auto_closed_item_049B(session, employee_map.get(employee_id), payable_minutes))
             continue
 
         employee = employee_map.get(employee_id, session)
@@ -1286,8 +1321,8 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
     }
 
     snapshot_payload = await _cx_apply_payroll_config_rule(db, company_id, snapshot_payload)
-    if co_state == "manual":
-        snapshot_payload["legal_mode"] = {"state": "manual", "notice": CO_MANUAL_NOTICE_049A}
+    if auto_closed:
+        snapshot_payload["auto_closed_shifts"] = auto_closed
     return snapshot_payload
 
 

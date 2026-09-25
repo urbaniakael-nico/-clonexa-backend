@@ -79,6 +79,11 @@ class WorkSessionsDb:
         if "SELECT * FROM mini_panel_work_sessions WHERE id" in sql:
             row = self.rows.get(params["id"])
             return self._result([dict(row)] if row else [])
+        if "SET closed_reason = 'cierre_automatico'" in sql:
+            row = self.rows[params["id"]]
+            assert row["company_id"] == params["company_id"]
+            row["closed_reason"] = "cierre_automatico"
+            return self._result(rowcount=1)
         if "SET action_log" in sql:
             row = self.rows[params["id"]]
             assert row["company_id"] == params["company_id"]
@@ -221,6 +226,16 @@ async def test_a_forgotten_salir_turno_is_closed_after_the_max_shift(kitchen):
     assert roster["Ana Cocina"]["state"] == "off"
     assert row["status"] == "finished"
     assert kitchen.crm[-1]["event"] == "check_out"
+    # Queda marcado como cierre automatico para que Nomina no lo pague como horas reales.
+    assert row["closed_reason"] == "cierre_automatico"
+
+
+@pytest.mark.asyncio
+async def test_a_normal_salir_turno_is_not_marked_as_auto_closed(kitchen):
+    await _press(kitchen, kitchen.ana, "iniciar")
+    await _press(kitchen, kitchen.ana, "salir")
+    row = next(r for r in kitchen.db.rows.values() if r["employee_id"] == str(kitchen.ana.id))
+    assert row["status"] == "finished" and "closed_reason" not in row
 
 
 # ---------------------------------------------------------------------------

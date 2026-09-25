@@ -23,14 +23,15 @@ function portal() {
   });
   vm.runInContext('var cxPayCo048O = { open: false, config: null, message: "", error: "" };\n'
     + ['payrollNumber', 'payrollMoney', 'cxPayCoHours048O', 'cxPayCoNotice048O', 'cxPayCoPartsHtml048O',
-      'cxPayCoEmployeeHtml048O', 'cxPayCoRowsHtml048O', 'cxPayCoConfigHtml048O', 'cxPayCoCsvRows048O'].map(fn).join('\n'), ctx);
+      'cxPayCoEmployeeHtml048O', 'cxPayCoRowsHtml048O', 'cxPayCoConfigHtml048O', 'cxPayCoCsvRows048O',
+      'cxPayMissingRateHtml048P', 'cxPayAutoClosedHtml048P'].map(fn).join('\n'), ctx);
   return ctx;
 }
 
 const ROW = {
   employeeId: 'e1', name: 'Ana Mesera', role: 'mesero', net: 90000, discount: 4000,
   colombia: {
-    monthly_salary: 1750905, salary_is_minimum_default: true, worked_days: 1,
+    monthly_salary: 1750905, salary_missing: false, worked_days: 1,
     earned_amount: 78000, transport_allowance: 8303.17,
     lines: [
       { type: 'ord_night', label: 'Ordinaria nocturna', surcharge: 'nocturno 35%', minutes: 60, hour_value: 11255.82, base_hour_value: 8337.64, amount: 11255.82, from: '2026-09-22', to: '2026-09-22' },
@@ -46,10 +47,10 @@ const ROW = {
   },
 };
 
-test('aviso obligatorio con el interruptor apagado y nota con el encendido', () => {
+test('sin aviso con el interruptor apagado; nota del contador con el encendido', () => {
   const ctx = portal();
-  const manual = ctx.cxPayCoNotice048O({ state: 'manual', notice: 'Modo manual: los recargos ... son obligatorios para trabajadores con contrato laboral. Usa este modo solo si la nómina se liquida en otro sistema.' });
-  assert.match(manual, /data-payco-notice="manual"[\s\S]*Modo manual activo[\s\S]*obligatorios para trabajadores con contrato laboral[\s\S]*otro sistema/);
+  assert.equal(ctx.cxPayCoNotice048O({ state: 'manual', notice: 'x' }), '');
+  assert.doesNotMatch(source, /Modo manual activo|obligatorios para trabajadores con contrato laboral/);
   const law = ctx.cxPayCoNotice048O({ state: 'colombia', notice: 'Es una ayuda y no reemplaza la revisión de un contador.', arl_level: 2, reference: { date: '2026-09-25', smmlv: 1750905, transport_allowance: 249095, weekly_hours: 42, night_start: '19:00', sunday_holiday_pct: 90 } });
   assert.match(law, /no reemplaza la revisión de un contador/);
   assert.match(law, /jornada 42 h semanales · nocturno desde 19:00 · dominical\/festivo 90% · ARL nivel 2/);
@@ -58,7 +59,8 @@ test('aviso obligatorio con el interruptor apagado y nota con el encendido', () 
 
 test('desglose por empleado: horas por tipo, valor, total y alerta en rojo', () => {
   const html = portal().cxPayCoEmployeeHtml048O(ROW);
-  assert.match(html, /Ana Mesera[\s\S]*sin salario configurado: se usa el mínimo/);
+  assert.match(html, /Ana Mesera[\s\S]*salario base \$1\.750\.905,00/);
+  assert.doesNotMatch(html, /data-payco-alert="salary_missing"/);
   assert.match(html, /class="cx-payco-alert" data-payco-alert="extra_daily">Incumplimiento: 2026-09-22: 3 h extra/);
   assert.match(html, /Ordinaria nocturna[\s\S]*nocturno 35%[\s\S]*1 h[\s\S]*\$11\.255,82/);
   assert.match(html, /<tr class="cx-payco-extra">[\s\S]*Extra diurna[\s\S]*3 h/);
@@ -66,6 +68,27 @@ test('desglose por empleado: horas por tipo, valor, total y alerta en rojo', () 
   assert.match(html, /Descuentos del empleado \(el auxilio no entra en la base\)[\s\S]*Salud empleado 4% sobre \$78\.000,00/);
   assert.match(html, /Prima de servicios 8\.33% sobre \$86\.303,17/);
   assert.match(html, /Neto a pagar<\/span><strong>\$90\.000,00/);
+});
+
+test('empleado sin salario: marcado en su tarjeta y en la lista, sin asumir nada', () => {
+  const ctx = portal();
+  const card = ctx.cxPayCoEmployeeHtml048O({ ...ROW, net: 0, colombia: { ...ROW.colombia, salary_missing: true, monthly_salary: 0, alerts: [] } });
+  assert.match(card, /data-payco-alert="salary_missing">Sin salario configurado: sus horas se muestran pero no se liquidan/);
+  assert.doesNotMatch(card, /salario base/);
+  const list = ctx.cxPayMissingRateHtml048P([{ employee_name: 'Ana Mesera', employee_role: 'mesero', minutes: 480 }]);
+  assert.match(list, /Empleados sin salario configurado \(1\): no se les liquidó ningún valor[\s\S]*<li>Ana Mesera · mesero · 8 h trabajadas<\/li>/);
+  assert.equal(ctx.cxPayMissingRateHtml048P([]), '');
+});
+
+test('turnos con cierre automático: aparte y fuera de la liquidación', () => {
+  const ctx = portal();
+  const html = ctx.cxPayAutoClosedHtml048P([{ employee_name: 'Ana Mesera', panel_type: 'mesero', start: '2026-09-23T13:00:00Z', end: '2026-09-24T07:00:00Z', minutes: 1080 }]);
+  assert.match(html, /data-payroll-auto-closed[\s\S]*Turnos con cierre automático: 18 h fuera de la liquidación/);
+  assert.match(html, /la hora de cierre no es real\. No se pagaron/);
+  assert.match(html, /<li>Ana Mesera · mesero · entrada [^<]*· cierre automático [^<]*· 18 h<\/li>/);
+  assert.equal(ctx.cxPayAutoClosedHtml048P([]), '', 'sin cierres automáticos la pantalla no cambia');
+  assert.match(source, /\$\{cxPayMissingRateHtml048P\(missingRate\)\}\s*\$\{cxPayAutoClosedHtml048P\(autoClosed\)\}/);
+  assert.match(source, /autoClosed: payload\.auto_closed_shifts \|\| \[\],/);
 });
 
 test('configuración de salarios y ARL y CSV con el desglose', () => {

@@ -367,12 +367,15 @@ def liquidate_employee(
     exonerated: bool = False,
     other_deductions: Any = 0,
 ) -> dict:
-    """Liquidacion de un empleado para el periodo [pay_from, pay_to]."""
-    salary = _dec(monthly_salary)
+    """Liquidacion de un empleado para el periodo [pay_from, pay_to].
+
+    Sin salario configurado no se asume ninguno: las horas se clasifican
+    igual, pero todo valor queda en 0 y la fila sale marcada salary_missing.
+    """
+    salary = max(_dec(monthly_salary), Decimal("0"))
+    salary_missing = salary <= 0
     ref = resolver.for_date(pay_to)
     smmlv = _dec(ref["smmlv"])
-    if salary <= 0:
-        salary = smmlv
     classified = classify_intervals(intervals, resolver, pay_from, pay_to)
 
     # Lineas del desglose: una por (tipo de hora, valor de la hora, %).
@@ -417,7 +420,7 @@ def liquidate_employee(
 
     # Auxilio de transporte: por dia trabajado, si el salario no pasa el tope.
     transport = Decimal("0")
-    transport_applies = salary <= _dec(ref["transport_cap_smmlv"]) * smmlv
+    transport_applies = not salary_missing and salary <= _dec(ref["transport_cap_smmlv"]) * smmlv
     if transport_applies:
         for day in classified["worked_days"]:
             transport += _dec(resolver.for_date(day)["transport_allowance"]) / Decimal(30)
@@ -464,12 +467,12 @@ def liquidate_employee(
     ]
 
     employee_total = sum((p["amount"] for p in employee_parts), Decimal("0"))
-    other = money(other_deductions)
+    other = Decimal("0") if salary_missing else money(other_deductions)
     gross = money(earned + transport)
     net = money(gross - employee_total - other)
     return {
         "monthly_salary": money(salary),
-        "salary_is_minimum_default": _dec(monthly_salary) <= 0,
+        "salary_missing": salary_missing,
         "lines": lines,
         "minutes_by_type": hours_by_type,
         "regular_minutes": sum(v for k, v in hours_by_type.items() if k.startswith("ord_")),
