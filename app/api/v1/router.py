@@ -46,6 +46,7 @@ for _module_name, _prefix, _tags in [
     ("hospitality", "/hospitality", ["hospitality"]),
     ("hospitality_owner_report", "/hospitality", ["hospitality"]),
     ("carta", "/carta", ["carta"]),
+    ("costos", "/costos", ["costos"]),
     ("waiter_ordering", "/companies", ["waiter_ordering"]),
     ("sale_document", "/companies", ["sale_document"]),
     ("sanitation", "/sanitation", ["sanitation"]),

@@ -16,13 +16,13 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_company_user_for_tenant
 from app.api.v1.endpoints.companies import require_admin_v2_or_tenant_company_user
 
 router = APIRouter()
@@ -6141,14 +6141,35 @@ async def update_hospitality_order_status(
     return {"ok": True, "order": saved, "table": saved}
 
 
+async def _hsp_closer_049i(db: AsyncSession, company_id: uuid.UUID, request: Any, authorization: Any) -> dict[str, Any] | None:
+    """049I: con el modulo Costos (hoy solo ASADERO) el cobro exige sesion y
+    guarda quien cobro, para asignar el efectivo al arqueo de su turno. Sin el
+    modulo, o en llamadas internas de confianza (sin request), nada cambia."""
+    if not isinstance(request, Request):
+        return None
+    from app.api.v1.endpoints.costos import costos_enabled
+
+    if not await costos_enabled(db, company_id):
+        return None
+    from app.web.admin_v2_routes import _active_session as active_admin_v2_session
+
+    if await active_admin_v2_session(request, db):
+        return {"id": "", "name": "Admin V2", "role": "admin_v2"}
+    user = await require_company_user_for_tenant(db, authorization if isinstance(authorization, str) else None, company_id)
+    return {"id": str(user.id), "name": str(getattr(user, "full_name", "") or "Caja"), "role": str(getattr(user, "role", "") or "")}
+
+
 @router.post("/companies/{company_id}/orders/{order_id}/close-table")
 async def close_hospitality_order(
     company_id: uuid.UUID,
     order_id: uuid.UUID,
     payload: HospitalityCloseIn | None = None,
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
+    authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     await _ensure_storage(db)
+    closer = await _hsp_closer_049i(db, company_id, request, authorization)
     order = await _fetch_order(db, company_id, order_id)
     if _status(order.get("status")) != STATUS_SERVED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="solo_se_puede_cerrar_mesa_entregada")
@@ -6174,6 +6195,16 @@ async def close_hospitality_order(
         ),
         {"order_id": str(order_id), "company_id": str(company_id), "payment_method": payment_method},
     )
+    if closer:
+        await db.execute(
+            text("""
+                UPDATE hospitality_orders
+                SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('closed_by', CAST(:closer AS jsonb))
+                WHERE id = :order_id AND company_id = :company_id
+            """),
+            {"closer": json.dumps({**closer, "at": _now().isoformat()}, ensure_ascii=False),
+             "order_id": str(order_id), "company_id": str(company_id)},
+        )
     await _close_table_access_if_idle(db, company_id, order.get("table_key") or order.get("table_number") or "")
     await db.commit()
     saved = await _fetch_order(db, company_id, order_id)

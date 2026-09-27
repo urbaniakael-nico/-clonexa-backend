@@ -362,6 +362,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "CAR",
         "is_transversal": False,
     },
+    "costos": {
+        "name": "Costos",
+        "description": "Egresos, compras que actualizan inventario, proveedores, cuentas por pagar, caja chica, gastos recurrentes, presupuesto, aprobaciones y arqueo de caja a ciegas.",
+        "category": "finance",
+        "category_label": "Finanzas",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "COS",
+        "is_transversal": False,
+    },
     "nomina_colombia": {
         "name": "APLICAR NORMATIVA LABORAL COLOMBIANA",
         "description": "Nómina automática según la ley colombiana: horas ordinarias, nocturnas, dominicales, festivas y extras desde los turnos, auxilio de transporte, aportes y provisiones, con parámetros por año.",

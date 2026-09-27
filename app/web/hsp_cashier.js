@@ -56,6 +56,13 @@
     drivers: [],
     driversOpen: false,
     deliveryBusy: false,
+    // 048U: modulo Costos (hoy ASADERO): arqueo a ciegas al cerrar la jornada
+    // y gastos pagados con el efectivo del cajon. Sin el modulo, nada cambia.
+    costos: false,
+    costosCats: {},
+    denominations: [],
+    arqueo: null,
+    gasto: null,
   };
 
   let pollHandle = null;
@@ -440,6 +447,7 @@
               ${onBreak
                 ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-shift-resume ${state.shiftBusy ? "disabled" : ""}>Retomar</button>`
                 : `<button class="csh-btn" type="button" data-csh-shift-pause ${state.shiftBusy ? "disabled" : ""}>Pausa</button>`}
+              ${state.costos ? `<button class="csh-btn" type="button" data-csh-gasto-open>Registrar gasto del cajón</button>` : ""}
               <button class="csh-btn csh-btn-danger" type="button" data-csh-shift-finish ${state.shiftBusy ? "disabled" : ""}>Cerrar jornada</button>
             </div>
           </div>` : ""}
@@ -510,7 +518,167 @@
     }
   }
 
+  function costosApi048U(path, options) {
+    return api(`/api/v1/costos/companies/${encodeURIComponent(companyId)}${path}`, options);
+  }
+
+  async function loadCostosConfig048U() {
+    try {
+      const data = await costosApi048U("/caja/config");
+      state.costos = data.enabled === true;
+      state.costosCats = data.categories || {};
+      state.denominations = Array.isArray(data.denominations) ? data.denominations : [];
+    } catch (_) {
+      state.costos = false;
+    }
+  }
+
+  async function openArqueo048U() {
+    state.arqueo = { step: "count", busy: false, result: null, message: "" };
+    try {
+      const current = await costosApi048U("/caja/arqueo");
+      if (current && current.count) state.arqueo = { step: "result", busy: false, result: current.count, message: "" };
+    } catch (_) {}
+    safeRender();
+  }
+
+  function money048U(value) {
+    return `$${Math.round(Number(value) || 0).toLocaleString("es-CO")}`;
+  }
+
+  function costosOverlay048U() {
+    const a = state.arqueo;
+    if (a) {
+      if (a.step === "count") {
+        return `<div class="csh-modal-048u" data-csh-arqueo>
+          <div class="csh-modal-card-048u">
+            <h2>Arqueo de caja</h2>
+            <p>Cuenta el efectivo del cajón y escribe cuánto hay. <b>No vas a ver cuánto debería haber</b> hasta registrar tu conteo, y el conteo no se puede cambiar después.</p>
+            <label>Total contado<input type="number" min="0" step="50" data-csh-arq-total placeholder="$ contado"></label>
+            <details><summary>Contar por billetes y monedas (opcional)</summary>
+              <div class="csh-den-048u">${state.denominations.map((d) => `<label>${money048U(d)}<input type="number" min="0" step="1" data-csh-den="${d}" placeholder="0"></label>`).join("")}</div>
+            </details>
+            ${a.message ? `<div class="csh-alert">${h(a.message)}</div>` : ""}
+            <div class="csh-modal-actions-048u">
+              <button class="csh-btn" type="button" data-csh-arq-cancel ${a.busy ? "disabled" : ""}>Volver</button>
+              <button class="csh-btn csh-btn-primary" type="button" data-csh-arq-submit ${a.busy ? "disabled" : ""}>Registrar conteo</button>
+            </div>
+          </div></div>`;
+      }
+      const r = a.result || {};
+      const diff = Number(r.difference || 0);
+      return `<div class="csh-modal-048u" data-csh-arqueo>
+        <div class="csh-modal-card-048u">
+          <h2>Resultado del arqueo</h2>
+          <div class="csh-arq-rows-048u">
+            <div><span>Contaste</span><b>${money048U(r.counted)}</b></div>
+            <div><span>Debía haber</span><b>${money048U(r.expected)}</b></div>
+            <small>Base ${money048U(r.base)} + ventas en efectivo ${money048U(r.cash_sales)} − gastos del cajón ${money048U(r.drawer_expenses)} − retiros ${money048U(r.withdrawals)}</small>
+            <div class="${diff < 0 ? "bad" : diff > 0 ? "warn" : "ok"}"><span>${diff === 0 ? "Cuadra" : diff < 0 ? "Faltante" : "Sobrante"}</span><b>${money048U(Math.abs(diff))}</b></div>
+          </div>
+          ${r.needs_observation ? `<label>Explica la diferencia (obligatorio)<textarea data-csh-arq-obs rows="3"></textarea></label>` : ""}
+          ${a.message ? `<div class="csh-alert">${h(a.message)}</div>` : ""}
+          <div class="csh-modal-actions-048u">
+            ${r.needs_observation
+              ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-arq-save-obs ${a.busy ? "disabled" : ""}>Guardar y cerrar jornada</button>`
+              : `<button class="csh-btn csh-btn-danger" type="button" data-csh-arq-finish ${a.busy ? "disabled" : ""}>Cerrar jornada</button>`}
+          </div>
+        </div></div>`;
+    }
+    const g = state.gasto;
+    if (g) {
+      return `<div class="csh-modal-048u" data-csh-gasto>
+        <div class="csh-modal-card-048u">
+          <h2>Gasto pagado con el efectivo del cajón</h2>
+          <p>Queda pendiente de aprobación y se descuenta de lo que debe haber en tu arqueo.</p>
+          <label>Categoría<select data-csh-gasto-cat>${Object.entries(state.costosCats).map(([k, v]) => `<option value="${h(k)}">${h(v)}</option>`).join("")}</select></label>
+          <label>Valor<input type="number" min="1" step="50" data-csh-gasto-value></label>
+          <label>¿En qué se gastó?<input data-csh-gasto-desc placeholder="Hielo, domicilio de gas, reparación…"></label>
+          <label>Proveedor (opcional)<input data-csh-gasto-supplier></label>
+          ${g.message ? `<div class="csh-alert">${h(g.message)}</div>` : ""}
+          <div class="csh-modal-actions-048u">
+            <button class="csh-btn" type="button" data-csh-gasto-cancel>Cancelar</button>
+            <button class="csh-btn csh-btn-primary" type="button" data-csh-gasto-save ${g.busy ? "disabled" : ""}>Guardar gasto</button>
+          </div>
+        </div></div>`;
+    }
+    return "";
+  }
+
+  async function submitCount048U() {
+    const a = state.arqueo;
+    const denominations = {};
+    root.querySelectorAll("[data-csh-den]").forEach((el) => { const n = Number(el.value || 0); if (n > 0) denominations[el.getAttribute("data-csh-den")] = n; });
+    const total = root.querySelector("[data-csh-arq-total]")?.value;
+    if (!Object.keys(denominations).length && (total === undefined || total === "")) {
+      a.message = "Escribe cuánto efectivo contaste.";
+      safeRender();
+      return;
+    }
+    a.busy = true;
+    safeRender();
+    try {
+      const body = Object.keys(denominations).length ? { denominations } : { counted: Number(total) };
+      a.result = await costosApi048U("/caja/arqueo", { method: "POST", body: JSON.stringify(body) });
+      a.step = "result";
+      a.message = "";
+    } catch (error) {
+      a.message = error.message || "No se pudo registrar el conteo.";
+    } finally {
+      a.busy = false;
+      safeRender();
+    }
+  }
+
+  async function saveObservation048U() {
+    const a = state.arqueo;
+    const observation = (root.querySelector("[data-csh-arq-obs]")?.value || "").trim();
+    if (!observation) {
+      a.message = "La observación es obligatoria cuando hay diferencia.";
+      safeRender();
+      return;
+    }
+    a.busy = true;
+    safeRender();
+    try {
+      await costosApi048U(`/caja/arqueo/${encodeURIComponent(a.result.id)}/observation`, { method: "POST", body: JSON.stringify({ observation }) });
+      state.arqueo = null;
+      await shiftAction("finish");
+    } catch (error) {
+      a.message = error.message || "No se pudo guardar la observación.";
+      a.busy = false;
+      safeRender();
+    }
+  }
+
+  async function saveGasto048U() {
+    const g = state.gasto;
+    const body = {
+      category: root.querySelector("[data-csh-gasto-cat]")?.value || "otros",
+      subtotal: Number(root.querySelector("[data-csh-gasto-value]")?.value || 0),
+      description: (root.querySelector("[data-csh-gasto-desc]")?.value || "").trim(),
+      supplier_name: (root.querySelector("[data-csh-gasto-supplier]")?.value || "").trim(),
+    };
+    if (!body.subtotal || !body.description) {
+      g.message = "Escribe el valor y en qué se gastó.";
+      safeRender();
+      return;
+    }
+    g.busy = true;
+    safeRender();
+    try {
+      await costosApi048U("/caja/gastos", { method: "POST", body: JSON.stringify(body) });
+      state.gasto = null;
+      state.toast = "Gasto registrado. Queda pendiente de aprobación.";
+    } catch (error) {
+      g.message = error.message || "No se pudo registrar el gasto.";
+      g.busy = false;
+    }
+    safeRender();
+  }
+
   async function loadCashierConfig() {
+    loadCostosConfig048U();
     try {
       const data = await waiterApi("/caja/config");
       state.directSale = data.direct_sale === true;
@@ -1400,6 +1568,7 @@
     else if (state.screen === "delivery") html = screenDelivery();
     else if (state.screen === "sale") html = screenSale();
     else if (state.screen === "sale_products") html = screenSaleProducts();
+    if (state.screen !== "login") html += costosOverlay048U();
     root.innerHTML = html;
     if (state.error && state.screen !== "login") {
       const banner = document.createElement("div");
@@ -1481,9 +1650,21 @@
       return;
     }
     if (target.closest("[data-csh-shift-finish]")) {
+      // 048U: con Costos, cerrar la jornada pasa primero por el arqueo a ciegas.
+      if (state.costos) {
+        openArqueo048U();
+        return;
+      }
       if (window.confirm("¿Cerrar tu jornada? Se registran tus horas y se cierra la sesión.")) shiftAction("finish");
       return;
     }
+    if (target.closest("[data-csh-arq-cancel]")) { state.arqueo = null; safeRender(); return; }
+    if (target.closest("[data-csh-arq-submit]")) { submitCount048U(); return; }
+    if (target.closest("[data-csh-arq-save-obs]")) { saveObservation048U(); return; }
+    if (target.closest("[data-csh-arq-finish]")) { state.arqueo = null; shiftAction("finish"); return; }
+    if (target.closest("[data-csh-gasto-open]")) { state.gasto = { busy: false, message: "" }; safeRender(); return; }
+    if (target.closest("[data-csh-gasto-cancel]")) { state.gasto = null; safeRender(); return; }
+    if (target.closest("[data-csh-gasto-save]")) { saveGasto048U(); return; }
 
     const openDelivery = target.closest("[data-csh-open-delivery]");
     if (openDelivery) {
@@ -1668,6 +1849,19 @@
     .csh-btn-mini{min-height:36px;font-size:12px}
     .csh-alert{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(239,68,68,.16);color:#fecaca;font-size:13px;font-weight:800}
     .csh-alert-floating{position:fixed;left:16px;right:16px;bottom:16px;z-index:50}
+    .csh-modal-048u{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.72);display:grid;place-items:center;padding:16px;overflow:auto}
+    .csh-modal-card-048u{width:min(520px,100%);display:grid;gap:12px;padding:18px;border-radius:18px;background:#141225;border:1px solid rgba(255,255,255,.14);color:#fff}
+    .csh-modal-card-048u h2{margin:0;font-size:22px}
+    .csh-modal-card-048u p{margin:0;opacity:.85;line-height:1.4}
+    .csh-modal-card-048u label{display:grid;gap:6px;font-weight:800;font-size:14px}
+    .csh-modal-card-048u input,.csh-modal-card-048u select,.csh-modal-card-048u textarea{min-height:46px;border-radius:12px;padding:8px 12px;font-size:18px}
+    .csh-den-048u{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+    .csh-den-048u input{font-size:16px}
+    .csh-modal-actions-048u{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+    .csh-arq-rows-048u{display:grid;gap:8px}
+    .csh-arq-rows-048u div{display:flex;justify-content:space-between;font-size:18px}
+    .csh-arq-rows-048u small{opacity:.7}
+    .csh-arq-rows-048u .bad{color:#f87171;font-size:22px}.csh-arq-rows-048u .warn{color:#fbbf24;font-size:22px}.csh-arq-rows-048u .ok{color:#4ade80;font-size:22px}
     .csh-toast{margin:0 16px 10px;padding:10px 12px;border-radius:12px;background:rgba(34,197,94,.16);color:#bbf7d0;font-weight:800}
     .csh-shift{margin:10px 16px 0;border:1px solid rgba(34,197,94,.45);border-radius:14px;background:rgba(22,163,74,.12)}
     .csh-shift.is-break{border-color:rgba(245,158,11,.55);background:rgba(245,158,11,.14)}

@@ -396,6 +396,13 @@ async def cutoff_loop() -> None:
                         closed = [r for r in results if r["sessions"] or r["attendance"] or r["logins"]]
                         if closed:
                             log.info("Corte diario aplicado: %s", closed)
+                        try:  # 049I: gastos recurrentes del modulo Costos
+                            from app.api.v1.endpoints.costos import run_recurring_all
+
+                            await run_recurring_all(db)
+                        except Exception as exc:
+                            await db.rollback()
+                            log.warning("Gastos recurrentes no se generaron: %s", exc)
                     finally:
                         await db.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": ADVISORY_LOCK_ID})
                         await db.commit()

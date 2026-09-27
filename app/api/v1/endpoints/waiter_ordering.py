@@ -1060,9 +1060,31 @@ async def create_cashier_sale(
         await update_hospitality_order_status(company_id, order_id, HospitalityStatusIn(status=STATUS_SERVED), db)
     if charge_now:
         await close_hospitality_order(company_id, order_id, HospitalityCloseIn(payment_method=payment_method), db)
+        # 049I: quien cobro (el arqueo de caja asigna el efectivo a su turno),
+        # solo en empresas con el modulo Costos.
+        from app.api.v1.endpoints.costos import costos_enabled
+
+        if await costos_enabled(db, company_id):
+            await _record_closer_049i(db, company_id, order_id, user)
 
     saved = await _fetch_order(db, company_id, order_id)
     return {"ok": True, "order": saved, "charged": charge_now, "label": label}
+
+
+async def _record_closer_049i(db: AsyncSession, company_id: uuid.UUID, order_id: uuid.UUID, user: CompanyUser) -> None:
+    """049I: guarda quien cobro una venta directa (arqueo por turno de caja)."""
+    await db.execute(
+        text(
+            """
+            UPDATE hospitality_orders
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('closed_by', CAST(:closer AS jsonb))
+            WHERE id = :order_id AND company_id = :company_id
+            """
+        ),
+        {"closer": json.dumps({"id": str(user.id), "name": user.full_name or "", "role": str(user.role or "")}, ensure_ascii=False),
+         "order_id": str(order_id), "company_id": str(company_id)},
+    )
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------

@@ -124,9 +124,21 @@ async def _context(db: AsyncSession, company_id: uuid.UUID, period: str, start, 
                 SELECT session_ref, real_end_at FROM workforce_session_closures
                 WHERE company_id = CAST(:company_id AS uuid) AND source = 'mini_panel' AND status = 'confirmed'
             """), {"company_id": cid})).mappings().all()}
+    cash_counts = []
+    if details and await _table_exists(db, "cash_counts"):
+        # 049I: historico de faltantes y sobrantes por cajero (arqueos del periodo).
+        cash_counts = [dict(r) for r in (await db.execute(text("""
+            SELECT cashier_name, COUNT(*) AS counts,
+                   COALESCE(SUM(-difference) FILTER (WHERE difference < 0), 0) AS shortage,
+                   COALESCE(SUM(difference) FILTER (WHERE difference > 0), 0) AS surplus,
+                   COUNT(*) FILTER (WHERE difference < 0) AS shortages
+            FROM cash_counts
+            WHERE company_id = CAST(:company_id AS uuid) AND created_at >= :start AND created_at < :end
+            GROUP BY cashier_name ORDER BY 3 DESC
+        """), {"company_id": cid, "start": period_start, "end": period_end})).mappings().all()]
     report = engine.Report(orders=orders, closures=closures, inventory=inventory, portions=portions, tz=tz,
                            period=chosen, business_day=business_day, sessions=sessions, confirmed_ends=confirmed)
-    return {"report": report, "period": chosen, "tz": tz_name}
+    return {"report": report, "period": chosen, "tz": tz_name, "cash_counts": cash_counts}
 
 
 def _period_payload(period: dict) -> dict:
@@ -156,6 +168,8 @@ async def _details(ctx: dict) -> dict:
         "kitchen": report.kitchen(),
         "operations": report.operations(),
         "inventory": report.inventory_report(),
+        "cash_counts": [{"cashier_name": r["cashier_name"], "counts": int(r["counts"]), "shortages": int(r["shortages"]),
+                         "shortage": r["shortage"], "surplus": r["surplus"]} for r in ctx.get("cash_counts") or []],
     })
 
 

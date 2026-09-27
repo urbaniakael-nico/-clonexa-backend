@@ -3455,6 +3455,7 @@
     cotizacion: ["Cotizaciones", "Captura y seguimiento de cotizaciones del tenant.", "Retail / Ventas", "COT"],
     payroll: ["Nómina", "Calculo de horas, cortes y pagos operativos.", "Finanzas", "PAY"],
     carta: ["Carta", "Platos separados del inventario, con recetas, costo y margen por plato.", "Hospitality", "CAR"],
+    costos: ["Costos", "Egresos, proveedores, cuentas por pagar, caja chica, presupuesto y arqueo de caja a ciegas.", "Finanzas", "COS"],
     nomina_colombia: ["APLICAR NORMATIVA LABORAL COLOMBIANA", "Nomina automatica segun la ley colombiana: recargos, extras, auxilio, aportes y provisiones desde los turnos.", "Finanzas", "LEY"],
     registro_venta: ["Registro Venta", "Captura directa de ventas, facturas y medios de pago.", "Retail / Ventas", "REG"],
     day_closing: ["Cierre de dia", "Resumen diario de ventas, pedidos, inventario y operacion.", "Hospitality", "DAY"],

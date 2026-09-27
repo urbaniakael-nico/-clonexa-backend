@@ -770,6 +770,7 @@
     payroll: ["Nomina", "corte y calculo", "PAY"],
     nomina_colombia: ["Normativa laboral", "ley colombiana en nomina", "LEY"],
     carta: ["Carta", "platos y recetas", "CAR"],
+    costos: ["Costos", "egresos y arqueos", "COS"],
     payroll_biweekly: ["Nomina Quincenal", "corte actual", "PAY"],
     billing: ["Billing", "cobros y facturacion", "BIL"],
     reports: ["Reportes", "metricas y auditoria", "REP"],
@@ -25629,7 +25630,7 @@ function inventoryCreatePayload() {
       ${cxOwnSection048S("Venta y margen por día", `${cxOwnSalesChart048S(d?.daily?.days || [])}${cxOwnDays048S(d?.daily, s?.busiest_weekday)}`, !d)}
       ${cxOwnSection048S("¿Cuándo se llena?", cxOwnHeatmap048S(d?.heatmap), !d)}
       ${cxOwnSection048S("Análisis de carta", cxOwnMenu048S(d?.menu), !d)}
-      ${cxOwnSection048S("Equipo", cxOwnTeam048S(d?.team, d?.kitchen), !d)}
+      ${cxOwnSection048S("Equipo", cxOwnTeam048S(d?.team, d?.kitchen) + cxOwnCashCounts048U(d?.cash_counts || []), !d)}
       ${cxOwnSection048S("Operación", cxOwnOps048S(d?.operations), !d)}
       ${cxOwnSection048S("Inventario y compras", cxOwnInventory048S(d?.inventory), !d)}
     `;
@@ -25814,6 +25815,14 @@ function inventoryCreatePayload() {
     `;
     document.head.appendChild(style);
   }
+  function cxOwnCashCounts048U(rows = []) {
+    if (!rows.length) return "";
+    return `<h3>Arqueos de caja (faltantes y sobrantes por cajero)</h3>
+      <div class="cx-own-table-wrap-048s"><table class="cx-own-table-048s" data-own-cash-counts><thead><tr><th>Cajero</th><th>Arqueos</th><th>Con faltante</th><th>Faltantes</th><th>Sobrantes</th></tr></thead><tbody>
+        ${rows.map((r) => `<tr><td>${h(r.cashier_name)}</td><td>${h(r.counts)}</td><td>${h(r.shortages)}</td><td class="${r.shortage ? "bad" : ""}">${h(cxOwnMoney048S(r.shortage))}</td><td>${h(cxOwnMoney048S(r.surplus))}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+
   /* CX_OWNER_REPORT_048S_END */
 
   function cxHspDashPaint024W() {
@@ -33748,6 +33757,7 @@ function inventoryCreatePayload() {
       if (target.closest("#cxSanRoot048K") && await cxSanHandleClick048K(target)) return;
       if (target.closest("[data-own-048s]") && await cxOwnHandleClick048S(target)) return;
       if (target.closest("#cxCarRoot048T") && await cxCarHandleClick048T(target)) return;
+      if (target.closest("#cxCosRoot048V") && await cxCosHandleClick048V(target)) return;
       if (target.closest("[data-sess-048q-root]") && await cxSessHandleClick048Q(target)) return;
       if (target.closest("[data-pay-sess-confirm-048q]")) {
         await cxPaySessConfirm048Q(target);
@@ -34581,6 +34591,11 @@ function inventoryCreatePayload() {
           return;
         }
 
+        if (code === "costos") {
+          await renderCostosModule048V();
+          return;
+        }
+
         if (code === "domicilios_whatsapp") {
           await renderDeliveryModule048N();
           return;
@@ -35078,6 +35093,7 @@ function inventoryCreatePayload() {
               ${cxSanDashboardBanner048K()}
               ${cxSessDashboardBanner048Q()}
               ${cxCarDashboardBanner048T()}
+              ${cxCosDashboardBanner048V()}
             </header>
 
             <section class="client-panel">
@@ -35645,6 +35661,459 @@ function inventoryCreatePayload() {
     document.head.appendChild(style);
   }
   /* CX_CARTA_048T_END */
+
+  /* CX_COSTOS_048V_START */
+  // Módulo Costos (solo empresas con el módulo "costos"; hoy ASADERO).
+  var cxCos048V = { tab: "egresos", meta: null, data: {}, form: false, draftLines: [], priceItem: "", message: "", error: "",
+    start: "", end: "" };
+  const CX_COS_TABS_048V = [["egresos", "Egresos"], ["proveedores", "Proveedores"], ["porpagar", "Por pagar"], ["cajachica", "Caja chica"],
+    ["recurrentes", "Recurrentes"], ["presupuesto", "Presupuesto"], ["arqueos", "Arqueos"], ["ajustes", "Ajustes"]];
+  const CX_COS_STATUS_048V = { aprobado: "Aprobado", pendiente: "Pendiente", rechazado: "Rechazado" };
+
+  function cxCosMoney048V(value) {
+    if (value === null || value === undefined) return "—";
+    return `$${Math.round(Number(value) || 0).toLocaleString("es-CO")}`;
+  }
+
+  function cxCosApi048V(path, options = {}) {
+    return api(`/costos/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  function cxCosErr048V(error) {
+    const text = String(error?.message || error || "");
+    try {
+      const detail = JSON.parse(text.slice(text.indexOf("{"))).detail;
+      if (detail) return String(detail);
+    } catch (_) {}
+    return text || "No se pudo completar.";
+  }
+
+  function cxCosOptions048V(map, selected = "") {
+    return Object.entries(map || {}).map(([k, v]) => `<option value="${h(k)}" ${k === selected ? "selected" : ""}>${h(v)}</option>`).join("");
+  }
+
+  function cxCosExpenseFormHtml048V() {
+    const meta = cxCos048V.meta || {};
+    const suppliers = cxCos048V.data.suppliers || [];
+    const insumos = cxCos048V.data.insumos || [];
+    const lines = cxCos048V.draftLines;
+    return `
+      <form class="cx-cos-form-048v" data-cos-expense-form>
+        <h3>Nuevo egreso</h3>
+        <label>Fecha<input type="date" name="expense_date" value="${h(new Date().toISOString().slice(0, 10))}"></label>
+        <label>Categoría<select name="category" data-cos-category>${cxCosOptions048V(meta.categories, cxCos048V.category || "compras")}</select></label>
+        <label>Proveedor<select name="supplier_id"><option value="">Sin proveedor registrado</option>${suppliers.map((s) => `<option value="${h(s.id)}">${h(s.name)}${s.nit ? ` · ${h(s.nit)}` : ""}</option>`).join("")}</select></label>
+        <label>Proveedor (si no está registrado)<input name="supplier_name" placeholder="Nombre"></label>
+        <label class="wide">Descripción<input name="description" placeholder="Qué se compró o pagó"></label>
+        <label>Método de pago<select name="payment_method">${cxCosOptions048V(meta.payment_methods, "efectivo")}</select></label>
+        <label>Sale de<select name="paid_from">${cxCosOptions048V(meta.paid_from, "cajon")}</select></label>
+        <label>Vence (si es a crédito)<input type="date" name="due_date"></label>
+        <label>Caja chica (si sale de ahí)<select name="petty_fund_id"><option value="">—</option>${(cxCos048V.data.funds || []).map((f) => `<option value="${h(f.id)}">${h(f.name)}</option>`).join("")}</select></label>
+        ${(cxCos048V.category || "compras") === "compras" ? `
+          <div class="wide cx-cos-lines-048v">
+            <b>Insumos comprados (suben la existencia y recalculan el costo promedio)</b>
+            ${lines.map((line, i) => `<div class="cx-cos-line-048v" data-cos-line="${i}">
+              <select name="inventory_item_id"><option value="">Insumo</option>${insumos.map((it) => `<option value="${h(it.id)}" ${line.inventory_item_id === it.id ? "selected" : ""}>${h(it.name)} (por ${h(it.purchase_unit)})</option>`).join("")}</select>
+              <input name="quantity" type="number" min="0.01" step="0.01" value="${h(line.quantity || "")}" placeholder="Cantidad">
+              <input name="unit_price" type="number" min="0" step="1" value="${h(line.unit_price || "")}" placeholder="Precio unitario">
+              <button class="client-btn" type="button" data-cos-del-line="${i}">Quitar</button></div>`).join("")}
+            <button class="client-btn" type="button" data-cos-add-line>+ Insumo</button>
+          </div>` : `<label>Valor (sin IVA)<input name="subtotal" type="number" min="0" step="1"></label>`}
+        <label>IVA<input name="iva" type="number" min="0" step="1" value="0"></label>
+        <label>Retención<input name="retention" type="number" min="0" step="1" value="0"></label>
+        <div class="wide cx-cos-actions-048v"><button class="client-btn" type="button" data-cos-save-expense>Guardar egreso</button><button class="client-btn" type="button" data-cos-cancel>Cancelar</button></div>
+      </form>`;
+  }
+
+  function cxCosExpensesHtml048V() {
+    const data = cxCos048V.data.expenses || { expenses: [] };
+    return `
+      <div class="cx-cos-actions-048v">
+        <label>Desde<input type="date" data-cos-start value="${h(data.start || "")}"></label>
+        <label>Hasta<input type="date" data-cos-end value="${h(data.end || "")}"></label>
+        <button class="client-btn" type="button" data-cos-filter>Ver</button>
+        <button class="client-btn" type="button" data-cos-new>+ Nuevo egreso</button>
+        <button class="client-btn" type="button" data-cos-export>Exportar para el contador (CSV)</button>
+      </div>
+      ${cxCos048V.form ? cxCosExpenseFormHtml048V() : ""}
+      <p class="cx-cos-note-048v">Total del periodo (sin rechazados): <b>${h(cxCosMoney048V(data.total))}</b></p>
+      <div class="cx-cos-table-wrap-048v"><table class="cx-cos-table-048v" data-cos-expenses><thead><tr><th>Fecha</th><th>Categoría</th><th>Proveedor</th><th>Total</th><th>Estado</th><th>Soporte</th></tr></thead><tbody>
+        ${(data.expenses || []).map((e) => `<tr data-cos-expense="${h(e.id)}" class="${e.status}">
+          <td>${h(e.expense_date)}</td>
+          <td>${h(e.category_label)}<small>${h(e.description)}</small><small>${h(e.created_by_name)}${e.created_by_kind === "cashier" ? " · desde la caja" : ""}</small></td>
+          <td>${h(e.supplier_name || "—")}</td>
+          <td>${h(cxCosMoney048V(e.total))}${e.iva ? `<small>IVA ${h(cxCosMoney048V(e.iva))}</small>` : ""}${e.retention ? `<small>Retención ${h(cxCosMoney048V(e.retention))}</small>` : ""}</td>
+          <td><b>${h(CX_COS_STATUS_048V[e.status] || e.status)}</b>${e.status === "pendiente" ? `<div class="cx-cos-actions-048v"><button class="client-btn" type="button" data-cos-approve="${h(e.id)}">Aprobar</button><button class="client-btn" type="button" data-cos-reject="${h(e.id)}">Rechazar</button></div>` : ""}${e.rejected_reason ? `<small>${h(e.rejected_reason)}</small>` : ""}</td>
+          <td>${e.has_attachment ? `<button class="client-btn" type="button" data-cos-view-att="${h(e.id)}">Ver foto</button>` : ""}<label class="cx-cos-upload-048v">Subir foto<input type="file" accept="image/*" data-cos-att="${h(e.id)}"></label></td>
+        </tr>`).join("")}
+      </tbody></table></div>`;
+  }
+
+  function cxCosSuppliersHtml048V() {
+    const suppliers = cxCos048V.data.suppliers || [];
+    const insumos = cxCos048V.data.insumos || [];
+    const prices = cxCos048V.data.prices;
+    return `
+      <form class="cx-cos-form-048v" data-cos-supplier-form>
+        <h3>Nuevo proveedor</h3>
+        <label>Nombre<input name="name" required></label><label>NIT<input name="nit"></label>
+        <label>Contacto<input name="contact_name"></label><label>Teléfono<input name="phone"></label>
+        <label>Correo<input name="email"></label><label>Condiciones de pago<input name="payment_terms" placeholder="Contado, 30 días…"></label>
+        <label>Días de crédito<input name="credit_days" type="number" min="0" value="0"></label>
+        <div class="wide cx-cos-actions-048v"><button class="client-btn" type="button" data-cos-save-supplier>Guardar proveedor</button></div>
+      </form>
+      <div class="cx-cos-table-wrap-048v"><table class="cx-cos-table-048v"><thead><tr><th>Proveedor</th><th>NIT</th><th>Contacto</th><th>Condiciones</th><th>Comprado</th><th>Última compra</th></tr></thead><tbody>
+        ${suppliers.map((s) => `<tr><td><b>${h(s.name)}</b></td><td>${h(s.nit)}</td><td>${h(s.contact_name)}<small>${h(s.phone)} ${h(s.email)}</small></td><td>${h(s.payment_terms)}${s.credit_days ? `<small>${h(s.credit_days)} días</small>` : ""}</td><td>${h(cxCosMoney048V(s.purchased))}<small>${h(s.purchases)} compra(s)</small></td><td>${h(s.last_purchase || "—")}</td></tr>`).join("")}
+      </tbody></table></div>
+      <h3>Variación de precio de un insumo</h3>
+      <div class="cx-cos-actions-048v"><select data-cos-price-item><option value="">Elige un insumo</option>${insumos.map((i) => `<option value="${h(i.id)}" ${cxCos048V.priceItem === i.id ? "selected" : ""}>${h(i.name)}</option>`).join("")}</select><button class="client-btn" type="button" data-cos-prices>Ver precios</button></div>
+      ${prices ? `<div class="cx-cos-table-wrap-048v"><table class="cx-cos-table-048v" data-cos-price-table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Precio por unidad de consumo</th><th>Cambio</th></tr></thead><tbody>
+        ${prices.purchases.map((p) => `<tr><td>${h(p.date)}</td><td>${h(p.supplier)}</td><td>${h(p.unit_cost)}</td><td class="${p.change_pct > 0 ? "bad" : p.change_pct < 0 ? "good" : ""}">${p.change_pct === null ? "—" : `${p.change_pct > 0 ? "+" : ""}${h(p.change_pct)}%`}</td></tr>`).join("")}
+      </tbody></table></div>
+      <p class="cx-cos-note-048v">Promedio por proveedor: ${h(prices.by_supplier.map((s) => `${s.supplier} ${s.avg_unit_cost} (${s.purchases})`).join(" · ") || "—")}</p>` : ""}`;
+  }
+
+  function cxCosPayablesHtml048V() {
+    const data = cxCos048V.data.payables || { payables: [] };
+    return `<p class="cx-cos-note-048v">Por pagar: <b>${h(cxCosMoney048V(data.total))}</b> · vence esta semana: <b class="${data.due_this_week_total ? "bad" : ""}">${h(cxCosMoney048V(data.due_this_week_total))}</b></p>
+      <div class="cx-cos-table-wrap-048v"><table class="cx-cos-table-048v" data-cos-payables><thead><tr><th>Vence</th><th>Proveedor</th><th>Concepto</th><th>Total</th><th></th></tr></thead><tbody>
+        ${(data.payables || []).map((p) => `<tr class="${p.overdue ? "rechazado" : p.due_this_week ? "pendiente" : ""}"><td>${h(p.due_date || "—")}${p.overdue ? `<small class="bad">Vencida</small>` : p.due_this_week ? `<small class="bad">Vence esta semana</small>` : ""}</td><td>${h(p.supplier_name || "—")}</td><td>${h(p.category_label)}<small>${h(p.description)}</small></td><td>${h(cxCosMoney048V(p.total))}</td>
+          <td><select data-cos-pay-from="${h(p.id)}"><option value="banco">Banco</option><option value="caja_chica">Caja chica</option><option value="cajon">Efectivo del cajón</option></select><button class="client-btn" type="button" data-cos-pay="${h(p.id)}">Marcar pagada</button></td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+
+  function cxCosPettyHtml048V() {
+    const funds = cxCos048V.data.funds || [];
+    return `
+      <form class="cx-cos-form-048v" data-cos-fund-form><h3>Nueva caja chica</h3>
+        <label>Nombre<input name="name" value="Caja chica"></label><label>Fondo<input name="amount" type="number" min="0" step="1"></label>
+        <label>Responsable<input name="responsible_name"></label>
+        <div class="wide cx-cos-actions-048v"><button class="client-btn" type="button" data-cos-save-fund>Crear</button></div></form>
+      ${funds.map((f) => `<article class="cx-cos-card-048v" data-cos-fund="${h(f.id)}"><b>${h(f.name)}</b>
+        <span>Fondo ${h(cxCosMoney048V(f.amount))} · responsable ${h(f.responsible_name || "—")}</span>
+        <span>Gastado ${h(cxCosMoney048V(f.spent))} · repuesto ${h(cxCosMoney048V(f.replenished))} · <b>saldo ${h(cxCosMoney048V(f.balance))}</b></span>
+        ${f.to_replenish > 0 ? `<span class="bad">Por reponer: ${h(cxCosMoney048V(f.to_replenish))}</span>` : ""}
+        <div class="cx-cos-actions-048v"><input type="number" min="1" step="1" data-cos-replenish-amount="${h(f.id)}" value="${h(Math.max(0, f.to_replenish))}"><button class="client-btn" type="button" data-cos-replenish="${h(f.id)}">Registrar reposición</button></div></article>`).join("")}`;
+  }
+
+  function cxCosRecurringHtml048V() {
+    const meta = cxCos048V.meta || {};
+    const rows = cxCos048V.data.recurring || [];
+    return `
+      <form class="cx-cos-form-048v" data-cos-rec-form><h3>Nuevo gasto recurrente (se crea solo cada mes)</h3>
+        <label>Categoría<select name="category">${cxCosOptions048V(meta.categories, "arriendo")}</select></label>
+        <label>Proveedor<input name="supplier_name"></label><label>Descripción<input name="description"></label>
+        <label>Valor (sin IVA)<input name="subtotal" type="number" min="1" step="1"></label><label>IVA<input name="iva" type="number" min="0" value="0"></label>
+        <label>Retención<input name="retention" type="number" min="0" value="0"></label>
+        <label>Método<select name="payment_method">${cxCosOptions048V(meta.payment_methods, "transferencia")}</select></label>
+        <label>Día del mes<input name="day_of_month" type="number" min="1" max="28" value="1"></label>
+        <div class="wide cx-cos-actions-048v"><button class="client-btn" type="button" data-cos-save-rec>Guardar</button></div></form>
+      <div class="cx-cos-table-wrap-048v"><table class="cx-cos-table-048v"><thead><tr><th>Día</th><th>Categoría</th><th>Proveedor</th><th>Valor</th><th>Último mes creado</th></tr></thead><tbody>
+        ${rows.map((r) => `<tr><td>${h(r.day_of_month)}</td><td>${h(r.category_label)}<small>${h(r.description)}</small></td><td>${h(r.supplier_name || "—")}</td><td>${h(cxCosMoney048V(r.subtotal + r.iva - r.retention))}</td><td>${h(r.last_generated_month || "aún no")}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+
+  function cxCosBudgetHtml048V() {
+    const data = cxCos048V.data.budget || { rows: [], categories: {} };
+    const rows = new Map((data.rows || []).map((r) => [r.category, r]));
+    return `<p class="cx-cos-note-048v">Mes ${h(data.month || "")}: presupuesto mensual por categoría contra lo real (sin rechazados).</p>
+      <div class="cx-cos-table-wrap-048v"><table class="cx-cos-table-048v" data-cos-budget><thead><tr><th>Categoría</th><th>Presupuesto mensual</th><th>Real</th><th>%</th></tr></thead><tbody>
+        ${Object.entries(data.categories || {}).map(([key, label]) => { const r = rows.get(key) || { budget: 0, real: 0, pct: null, over: false };
+          return `<tr class="${r.over ? "rechazado" : ""}"><td>${h(label)}</td><td><input type="number" min="0" step="1" data-cos-budget-cat="${h(key)}" value="${h(r.budget || "")}"></td><td>${h(cxCosMoney048V(r.real))}</td><td>${r.pct === null ? "—" : `${h(r.pct)}%`}${r.over ? ` <b class="bad">Se pasó</b>` : ""}</td></tr>`; }).join("")}
+      </tbody></table></div><div class="cx-cos-actions-048v"><button class="client-btn" type="button" data-cos-save-budget>Guardar presupuesto</button></div>`;
+  }
+
+  function cxCosCountsHtml048V() {
+    const pending = (cxCos048V.data.pending || { pending: [] }).pending || [];
+    const history = cxCos048V.data.counts || { counts: [], by_cashier: [] };
+    return `
+      <h3>Arqueos pendientes</h3>
+      ${pending.length ? pending.map((p) => `<article class="cx-cos-card-048v" data-cos-pending="${h(p.session_id)}">
+        <b>${h(p.cashier_name)} · turno ${h((p.shift_start || "").slice(0, 16).replace("T", " "))}${p.closed_reason === "corte_diario" ? " (cerrado por el corte diario)" : ""}</b>
+        <span>Esperado en el cajón: <b>${h(cxCosMoney048V(p.expected))}</b> = base ${h(cxCosMoney048V(p.base))} + ventas en efectivo ${h(cxCosMoney048V(p.cash_sales))} − gastos del cajón ${h(cxCosMoney048V(p.drawer_expenses))} − retiros ${h(cxCosMoney048V(p.withdrawals))}</span>
+        <div class="cx-cos-actions-048v"><input type="number" min="0" step="50" placeholder="Efectivo contado" data-cos-count-amount="${h(p.session_id)}"><input placeholder="Observación (obligatoria si hay diferencia)" data-cos-count-obs="${h(p.session_id)}"><button class="client-btn" type="button" data-cos-count="${h(p.session_id)}">Registrar arqueo</button></div>
+      </article>`).join("") : `<p class="cx-cos-note-048v">No hay turnos de caja sin arqueo.</p>`}
+      <h3>Faltantes y sobrantes por cajero</h3>
+      <div class="cx-cos-table-wrap-048v"><table class="cx-cos-table-048v" data-cos-by-cashier><thead><tr><th>Cajero</th><th>Arqueos</th><th>Faltantes</th><th>Sobrantes</th></tr></thead><tbody>
+        ${(history.by_cashier || []).map((c) => `<tr><td>${h(c.cashier_name)}</td><td>${h(c.counts)}</td><td class="${c.shortage ? "bad" : ""}">${h(cxCosMoney048V(c.shortage))}</td><td>${h(cxCosMoney048V(c.surplus))}</td></tr>`).join("")}
+      </tbody></table></div>
+      <div class="cx-cos-table-wrap-048v"><table class="cx-cos-table-048v" data-cos-counts><thead><tr><th>Fecha</th><th>Cajero</th><th>Esperado</th><th>Contado</th><th>Diferencia</th><th>Observación</th></tr></thead><tbody>
+        ${(history.counts || []).map((c) => `<tr><td>${h((c.created_at || "").slice(0, 16).replace("T", " "))}${c.blind ? "" : `<small>hecho por ${h(c.performed_by_name)}</small>`}</td><td>${h(c.cashier_name)}</td><td>${h(cxCosMoney048V(c.expected))}</td><td>${h(cxCosMoney048V(c.counted))}</td><td class="${c.difference < 0 ? "bad" : c.difference > 0 ? "good" : ""}">${h(cxCosMoney048V(c.difference))}<small>${h(c.result)}</small></td><td>${h(c.observation || "—")}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+
+  function cxCosSettingsHtml048V() {
+    const meta = cxCos048V.meta || {};
+    const s = meta.settings || {};
+    return `
+      <form class="cx-cos-form-048v" data-cos-settings-form><h3>Ajustes (los define el dueño)</h3>
+        <label>Aprobación del dueño para egresos por encima de<input name="approval_threshold" type="number" min="0" step="1000" value="${h(s.approval_threshold)}"></label>
+        <label>Base inicial del cajón<input name="drawer_base" type="number" min="0" step="1000" value="${h(s.drawer_base)}"></label>
+        <label class="check"><input type="checkbox" name="iva_is_cost" ${s.iva_is_cost ? "checked" : ""}> El IVA de las compras es costo (no descontable)</label>
+        <div class="wide cx-cos-actions-048v"><button class="client-btn" type="button" data-cos-save-settings>Guardar</button></div></form>
+      <h3>Centros de costo (sedes)</h3>
+      <p class="cx-cos-note-048v">${h((meta.cost_centers || []).map((c) => `${c.name}${c.is_default ? " (principal)" : ""}`).join(" · "))}</p>
+      <div class="cx-cos-actions-048v"><input placeholder="Nueva sede" data-cos-center-name><button class="client-btn" type="button" data-cos-save-center>Agregar sede</button></div>`;
+  }
+
+  function cxCosPaint048V() {
+    const root = document.getElementById("cxCosRoot048V");
+    if (!root) return;
+    const views = { egresos: cxCosExpensesHtml048V, proveedores: cxCosSuppliersHtml048V, porpagar: cxCosPayablesHtml048V,
+      cajachica: cxCosPettyHtml048V, recurrentes: cxCosRecurringHtml048V, presupuesto: cxCosBudgetHtml048V, arqueos: cxCosCountsHtml048V,
+      ajustes: cxCosSettingsHtml048V };
+    root.innerHTML = `
+      <div class="cx-cos-tabs-048v">${CX_COS_TABS_048V.map(([k, v]) => `<button class="${cxCos048V.tab === k ? "active" : ""}" type="button" data-cos-tab="${k}">${h(v)}</button>`).join("")}</div>
+      ${cxCos048V.error ? `<div class="personal-toast error">${h(cxCos048V.error)}</div>` : ""}
+      ${cxCos048V.message ? `<div class="personal-toast ok">${h(cxCos048V.message)}</div>` : ""}
+      ${cxCos048V.meta ? views[cxCos048V.tab]() : `<p class="cx-cos-note-048v">Cargando…</p>`}`;
+  }
+
+  async function cxCosLoadTab048V() {
+    try {
+      if (!cxCos048V.meta) cxCos048V.meta = await cxCosApi048V("/settings");
+      const tab = cxCos048V.tab;
+      const range = cxCos048V.start && cxCos048V.end ? `?start=${cxCos048V.start}&end=${cxCos048V.end}` : "";
+      if (tab === "egresos") {
+        [cxCos048V.data.expenses, cxCos048V.data.suppliers, cxCos048V.data.insumos, cxCos048V.data.funds] = await Promise.all([
+          cxCosApi048V(`/expenses${range}`), cxCosApi048V("/suppliers").then((d) => d.suppliers), cxCosApi048V("/insumos").then((d) => d.insumos),
+          cxCosApi048V("/petty-cash").then((d) => d.funds)]);
+      } else if (tab === "proveedores") {
+        [cxCos048V.data.suppliers, cxCos048V.data.insumos] = await Promise.all([cxCosApi048V("/suppliers").then((d) => d.suppliers), cxCosApi048V("/insumos").then((d) => d.insumos)]);
+      } else if (tab === "porpagar") cxCos048V.data.payables = await cxCosApi048V("/payables");
+      else if (tab === "cajachica") cxCos048V.data.funds = (await cxCosApi048V("/petty-cash")).funds;
+      else if (tab === "recurrentes") cxCos048V.data.recurring = (await cxCosApi048V("/recurring")).recurring;
+      else if (tab === "presupuesto") cxCos048V.data.budget = await cxCosApi048V("/budget");
+      else if (tab === "arqueos") [cxCos048V.data.pending, cxCos048V.data.counts] = await Promise.all([cxCosApi048V("/arqueos/pending"), cxCosApi048V("/arqueos")]);
+      else if (tab === "ajustes") cxCos048V.meta = await cxCosApi048V("/settings");
+      cxCos048V.error = "";
+    } catch (error) {
+      cxCos048V.error = cxCosErr048V(error);
+    }
+    cxCosPaint048V();
+  }
+
+  async function renderCostosModule048V() {
+    if (!isClientModuleActive("costos")) {
+      render();
+      return;
+    }
+    cxCosStyles048V();
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell"><div class="client-layout">
+        <aside class="client-sidebar">
+          <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+          <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+          <nav class="client-nav">${renderClientNav("costos")}</nav>
+        </aside>
+        <section class="client-main">
+          <header class="client-hero"><div class="client-eyebrow">Módulo Costos</div><h1 class="client-title">Costos</h1>
+            <p class="client-muted">Todo lo que sale de plata: compras, gastos fijos, caja chica, cuentas por pagar y arqueos. Las ventas y la nómina se toman solas de sus módulos.</p>
+            <div class="client-actions"><button class="client-btn" type="button" data-client-back-dashboard>Volver</button></div>
+          </header>
+          <section class="client-panel" id="cxCosRoot048V"></section>
+        </section>
+      </div></main>`;
+    cxCosPaint048V();
+    await cxCosLoadTab048V();
+  }
+
+  function cxCosFormValues048V(selector) {
+    const form = document.querySelector(selector);
+    const data = {};
+    form.querySelectorAll("[name]").forEach((el) => { if (!el.closest("[data-cos-line]")) data[el.name] = el.type === "checkbox" ? el.checked : el.value; });
+    return data;
+  }
+
+  function cxCosReadLines048V() {
+    return [...document.querySelectorAll("[data-cos-line]")].map((row) => ({
+      inventory_item_id: row.querySelector("[name=inventory_item_id]").value,
+      quantity: Number(row.querySelector("[name=quantity]").value || 0),
+      unit_price: Number(row.querySelector("[name=unit_price]").value || 0),
+    }));
+  }
+
+  async function cxCosRun048V(fn, message) {
+    try {
+      await fn();
+      cxCos048V.error = "";
+      cxCos048V.message = message;
+    } catch (error) {
+      cxCos048V.message = "";
+      cxCos048V.error = cxCosErr048V(error);
+    }
+    await cxCosLoadTab048V();
+  }
+
+  async function cxCosDownload048V(path, name) {
+    const res = await fetch(`${API}/costos/companies/${encodeURIComponent(state.companyId)}${path}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(await res.text());
+    const url = URL.createObjectURL(await res.blob());
+    if (name) {
+      const a = document.createElement("a");
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } else {
+      window.open(url, "_blank", "noopener");
+    }
+  }
+
+  async function cxCosHandleClick048V(target) {
+    const tab = target.closest("[data-cos-tab]");
+    if (tab) { cxCos048V.tab = tab.getAttribute("data-cos-tab"); cxCos048V.message = ""; cxCos048V.form = false; cxCosPaint048V(); await cxCosLoadTab048V(); return true; }
+    if (target.closest("[data-cos-new]")) { cxCos048V.form = true; cxCos048V.draftLines = [{}]; cxCosPaint048V(); return true; }
+    if (target.closest("[data-cos-cancel]")) { cxCos048V.form = false; cxCosPaint048V(); return true; }
+    if (target.closest("[data-cos-add-line]")) { cxCos048V.draftLines = [...cxCosReadLines048V(), {}]; cxCosPaint048V(); return true; }
+    const delLine = target.closest("[data-cos-del-line]");
+    if (delLine) { const l = cxCosReadLines048V(); l.splice(Number(delLine.getAttribute("data-cos-del-line")), 1); cxCos048V.draftLines = l; cxCosPaint048V(); return true; }
+    if (target.closest("[data-cos-filter]")) { cxCos048V.start = document.querySelector("[data-cos-start]")?.value || ""; cxCos048V.end = document.querySelector("[data-cos-end]")?.value || ""; await cxCosLoadTab048V(); return true; }
+    if (target.closest("[data-cos-save-expense]")) {
+      const v = cxCosFormValues048V("[data-cos-expense-form]");
+      const body = { ...v, iva: Number(v.iva || 0), retention: Number(v.retention || 0), supplier_id: v.supplier_id || null, due_date: v.due_date || null,
+        petty_fund_id: v.petty_fund_id || null, lines: v.category === "compras" ? cxCosReadLines048V().filter((l) => l.inventory_item_id && l.quantity > 0) : [] };
+      if (v.category !== "compras") body.subtotal = Number(v.subtotal || 0); else delete body.subtotal;
+      await cxCosRun048V(async () => { await cxCosApi048V("/expenses", { method: "POST", body: JSON.stringify(body) }); cxCos048V.form = false; }, "Egreso registrado.");
+      return true;
+    }
+    const approve = target.closest("[data-cos-approve]");
+    if (approve) { await cxCosRun048V(() => cxCosApi048V(`/expenses/${approve.getAttribute("data-cos-approve")}/approve`, { method: "POST" }), "Egreso aprobado."); return true; }
+    const reject = target.closest("[data-cos-reject]");
+    if (reject) {
+      const reason = (window.prompt ? window.prompt("¿Por qué se rechaza?") : "") || "";
+      if (reason.trim()) await cxCosRun048V(() => cxCosApi048V(`/expenses/${reject.getAttribute("data-cos-reject")}/reject`, { method: "POST", body: JSON.stringify({ reason }) }), "Egreso rechazado.");
+      return true;
+    }
+    const viewAtt = target.closest("[data-cos-view-att]");
+    if (viewAtt) { await cxCosDownload048V(`/expenses/${viewAtt.getAttribute("data-cos-view-att")}/attachment`).catch((e) => { cxCos048V.error = cxCosErr048V(e); cxCosPaint048V(); }); return true; }
+    if (target.closest("[data-cos-export]")) {
+      const data = cxCos048V.data.expenses || {};
+      await cxCosDownload048V(`/export?start=${data.start}&end=${data.end}`, `egresos_${data.start}_${data.end}.csv`).catch((e) => { cxCos048V.error = cxCosErr048V(e); cxCosPaint048V(); });
+      return true;
+    }
+    if (target.closest("[data-cos-save-supplier]")) {
+      const v = cxCosFormValues048V("[data-cos-supplier-form]");
+      await cxCosRun048V(() => cxCosApi048V("/suppliers", { method: "POST", body: JSON.stringify({ ...v, credit_days: Number(v.credit_days || 0) }) }), "Proveedor guardado.");
+      return true;
+    }
+    if (target.closest("[data-cos-prices]")) {
+      cxCos048V.priceItem = document.querySelector("[data-cos-price-item]")?.value || "";
+      if (cxCos048V.priceItem) await cxCosRun048V(async () => { cxCos048V.data.prices = await cxCosApi048V(`/price-variation?inventory_item_id=${cxCos048V.priceItem}`); }, "");
+      cxCosPaint048V();
+      return true;
+    }
+    const pay = target.closest("[data-cos-pay]");
+    if (pay) {
+      const id = pay.getAttribute("data-cos-pay");
+      const from = document.querySelector(`[data-cos-pay-from="${id}"]`)?.value || "banco";
+      await cxCosRun048V(() => cxCosApi048V(`/expenses/${id}/pay`, { method: "POST", body: JSON.stringify({ paid_from: from }) }), "Cuenta marcada como pagada.");
+      return true;
+    }
+    if (target.closest("[data-cos-save-fund]")) {
+      const v = cxCosFormValues048V("[data-cos-fund-form]");
+      await cxCosRun048V(() => cxCosApi048V("/petty-cash", { method: "POST", body: JSON.stringify({ ...v, amount: Number(v.amount || 0) }) }), "Caja chica creada.");
+      return true;
+    }
+    const replenish = target.closest("[data-cos-replenish]");
+    if (replenish) {
+      const id = replenish.getAttribute("data-cos-replenish");
+      const amount = Number(document.querySelector(`[data-cos-replenish-amount="${id}"]`)?.value || 0);
+      await cxCosRun048V(() => cxCosApi048V(`/petty-cash/${id}/replenish`, { method: "POST", body: JSON.stringify({ amount }) }), "Reposición registrada.");
+      return true;
+    }
+    if (target.closest("[data-cos-save-rec]")) {
+      const v = cxCosFormValues048V("[data-cos-rec-form]");
+      await cxCosRun048V(() => cxCosApi048V("/recurring", { method: "POST", body: JSON.stringify({ ...v, subtotal: Number(v.subtotal || 0), iva: Number(v.iva || 0), retention: Number(v.retention || 0), day_of_month: Number(v.day_of_month || 1) }) }), "Gasto recurrente guardado.");
+      return true;
+    }
+    if (target.closest("[data-cos-save-budget]")) {
+      const budgets = {};
+      document.querySelectorAll("[data-cos-budget-cat]").forEach((el) => { if (el.value !== "") budgets[el.getAttribute("data-cos-budget-cat")] = Number(el.value); });
+      await cxCosRun048V(() => cxCosApi048V("/budget", { method: "PUT", body: JSON.stringify({ budgets }) }), "Presupuesto guardado.");
+      return true;
+    }
+    const count = target.closest("[data-cos-count]");
+    if (count) {
+      const id = count.getAttribute("data-cos-count");
+      const counted = Number(document.querySelector(`[data-cos-count-amount="${id}"]`)?.value || 0);
+      const observation = document.querySelector(`[data-cos-count-obs="${id}"]`)?.value || "";
+      await cxCosRun048V(() => cxCosApi048V("/arqueos/admin", { method: "POST", body: JSON.stringify({ session_id: id, counted, observation }) }), "Arqueo registrado.");
+      return true;
+    }
+    if (target.closest("[data-cos-save-settings]")) {
+      const v = cxCosFormValues048V("[data-cos-settings-form]");
+      await cxCosRun048V(async () => { cxCos048V.meta = await cxCosApi048V("/settings", { method: "PUT", body: JSON.stringify({ approval_threshold: Number(v.approval_threshold || 0), drawer_base: Number(v.drawer_base || 0), iva_is_cost: !!v.iva_is_cost }) }); }, "Ajustes guardados.");
+      return true;
+    }
+    if (target.closest("[data-cos-save-center]")) {
+      const name = document.querySelector("[data-cos-center-name]")?.value || "";
+      if (name.trim()) await cxCosRun048V(async () => { cxCos048V.meta = await cxCosApi048V("/cost-centers", { method: "POST", body: JSON.stringify({ name }) }); }, "Sede agregada.");
+      return true;
+    }
+    return false;
+  }
+
+  async function cxCosHandleChange048V(target) {
+    const category = target.closest("[data-cos-category]");
+    if (category) { cxCos048V.category = category.value; cxCos048V.draftLines = cxCosReadLines048V(); if (!cxCos048V.draftLines.length) cxCos048V.draftLines = [{}]; cxCosPaint048V(); return true; }
+    const att = target.closest("[data-cos-att]");
+    if (att && att.files && att.files[0]) {
+      const body = new FormData();
+      body.append("image", att.files[0]);
+      await cxCosRun048V(() => apiForm(`/costos/companies/${encodeURIComponent(state.companyId)}/expenses/${att.getAttribute("data-cos-att")}/attachment`, body), "Soporte guardado.");
+      return true;
+    }
+    return false;
+  }
+
+  function cxCosDashboardBanner048V() {
+    const a = state.dashboardMetrics?.costos048V;
+    if (!a) return "";
+    const parts = [];
+    if (a.pending_approvals) parts.push(`${a.pending_approvals} egreso(s) por aprobar (${cxCosMoney048V(a.pending_total)})`);
+    if ((a.due_this_week || []).length) parts.push(`cuentas por pagar que vencen esta semana: ${cxCosMoney048V(a.due_this_week_total)}`);
+    if ((a.over_budget || []).length) parts.push(`presupuesto superado en ${a.over_budget.map((b) => b.label).join(", ")}`);
+    if (a.pending_counts) parts.push(`${a.pending_counts} turno(s) de caja sin arqueo`);
+    if (!parts.length) return "";
+    return `<button class="cx-car-alert-048t" type="button" data-client-module="costos" data-cos-dashboard><strong>Costos: revisar</strong><small>${h(parts.join(" · "))}.</small><b>Abrir Costos →</b></button>`;
+  }
+
+  function cxCosStyles048V() {
+    if (document.getElementById("cxCos048VStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxCos048VStyles";
+    style.textContent = `
+      .cx-cos-tabs-048v { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+      .cx-cos-tabs-048v button { min-height:40px; padding:8px 14px; border-radius:999px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.06); color:inherit; font-weight:800; }
+      .cx-cos-tabs-048v button.active { background:#22c55e; color:#06140b; border-color:#22c55e; }
+      .cx-cos-note-048v { opacity:.85; font-size:13px; margin:8px 0; }
+      .cx-cos-048v .bad, .cx-cos-table-048v .bad, .cx-cos-card-048v .bad, .cx-cos-note-048v .bad { color:#f87171; }
+      .cx-cos-table-048v .good { color:#4ade80; }
+      .cx-cos-actions-048v { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:8px 0; }
+      .cx-cos-actions-048v label { display:grid; gap:4px; font-size:12px; }
+      .cx-cos-table-wrap-048v { overflow-x:auto; }
+      .cx-cos-table-048v { width:100%; border-collapse:collapse; font-size:14px; }
+      .cx-cos-table-048v th, .cx-cos-table-048v td { padding:9px 8px; border-bottom:1px solid rgba(255,255,255,.1); text-align:left; vertical-align:top; }
+      .cx-cos-table-048v td small { display:block; opacity:.75; font-size:12px; }
+      .cx-cos-table-048v tr.pendiente td { background:rgba(245,158,11,.10); }
+      .cx-cos-table-048v tr.rechazado td { background:rgba(248,113,113,.10); }
+      .cx-cos-form-048v { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; padding:14px; border-radius:14px; border:1px solid rgba(255,255,255,.15); margin:10px 0; }
+      .cx-cos-form-048v h3, .cx-cos-form-048v .wide { grid-column:1/-1; margin:0; }
+      .cx-cos-form-048v label { display:grid; gap:4px; font-size:13px; }
+      .cx-cos-form-048v label.check { display:flex; align-items:center; gap:8px; }
+      .cx-cos-form-048v input, .cx-cos-form-048v select, .cx-cos-actions-048v input, .cx-cos-actions-048v select, .cx-cos-table-048v input, .cx-cos-table-048v select, .cx-cos-line-048v input, .cx-cos-line-048v select { min-height:38px; border-radius:10px; padding:4px 8px; max-width:100%; }
+      .cx-cos-lines-048v { display:grid; gap:8px; }
+      .cx-cos-line-048v { display:flex; flex-wrap:wrap; gap:6px; }
+      .cx-cos-card-048v { display:grid; gap:6px; padding:12px 14px; border-radius:14px; border:1px solid rgba(255,255,255,.15); margin:8px 0; }
+      .cx-cos-upload-048v { display:inline-flex; cursor:pointer; font-size:12px; text-decoration:underline; }
+      .cx-cos-upload-048v input { display:none; }
+    `;
+    document.head.appendChild(style);
+  }
+  document.addEventListener("change", (event) => {
+    if (event.target && event.target.closest && event.target.closest("#cxCosRoot048V")) cxCosHandleChange048V(event.target);
+  });
+  /* CX_COSTOS_048V_END */
 
   function cxSanApi048K(path, options = {}) {
     return api(`/sanitation/companies/${encodeURIComponent(state.companyId)}${path}`, options);
@@ -36728,6 +37197,11 @@ function inventoryCreatePayload() {
     if (codes.has("carta")) {
       metrics.carta048T = await api(`/carta/companies/${encodeURIComponent(companyId)}/alerts`).catch(() => null);
       if (metrics.carta048T) cxCarStyles048T();
+    }
+
+    if (codes.has("costos")) {
+      metrics.costos048V = await api(`/costos/companies/${encodeURIComponent(companyId)}/alerts`).catch(() => null);
+      if (metrics.costos048V) cxCarStyles048T();
     }
 
     // 048Q: avisos del corte diario y sesiones abiertas de mas (solo admin/dueño; a otros el servidor responde 403).
