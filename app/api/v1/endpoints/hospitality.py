@@ -1060,6 +1060,33 @@ async def _next_closure_number(db: AsyncSession, company_id: uuid.UUID) -> str:
     return f"ARQ-{today}-{number:04d}"
 
 
+# CLONEXA_049H_CARTA_START
+# Modulo "carta" (hoy solo ASADERO EL SOCIO): la carta sale de carta_items y
+# cada linea del pedido guarda los insumos que consume. Sin el modulo (The
+# Time Machine y las demas) todo sigue por el camino de siempre.
+async def _carta_on_049h(db: AsyncSession, company_id: Any) -> bool:
+    from app.api.v1.endpoints.carta import carta_enabled
+
+    return await carta_enabled(db, company_id)
+
+
+def _merge_consumption_049h(target: dict[str, Any], item: dict[str, Any]) -> None:
+    if "consumption" not in target and "consumption" not in item:
+        return
+    merged: dict[str, dict[str, Any]] = {}
+    for entry in [*(target.get("consumption") or []), *(item.get("consumption") or [])]:
+        key = str(entry.get("inventory_item_id") or "")
+        row = merged.setdefault(key, {**entry, "quantity": 0.0})
+        row["quantity"] = round(float(row["quantity"]) + float(entry.get("quantity") or 0), 4)
+        row["blocking"] = bool(row.get("blocking")) and bool(entry.get("blocking"))
+    target["consumption"] = list(merged.values())
+    if target.get("cost") is None or item.get("cost") is None:
+        target["cost"] = None
+    else:
+        target["cost"] = _money(_num(target.get("cost")) + _num(item.get("cost")))
+# CLONEXA_049H_CARTA_END
+
+
 async def _inventory_lookup(db: AsyncSession, company_id: uuid.UUID, raw_id: str | None) -> dict[str, Any] | None:
     item_id = _clean(raw_id)
     if not item_id:
@@ -1136,6 +1163,10 @@ async def _build_order_items(
         if quantity_label:
             row["quantity_label"] = quantity_label[:20]
         rows.append(row)
+    if rows and await _carta_on_049h(db, company_id):
+        from app.api.v1.endpoints.carta import attach_consumption
+
+        rows = await attach_consumption(db, company_id, rows)
     return rows
 
 
@@ -1166,6 +1197,7 @@ def _merge_hospitality_items(items: list[dict[str, Any]] | None) -> list[dict[st
             order.append(key)
             continue
         target = merged[key]
+        _merge_consumption_049h(target, item)
         target["quantity"] = _money(_num(target.get("quantity")) + quantity)
         target["subtotal"] = _money(_num(target.get("subtotal")) + subtotal)
         if _num(target.get("quantity")):
@@ -3303,8 +3335,17 @@ async def _deduct_inventory(
     if not exists.scalar():
         return
 
+    targets: list[tuple[dict[str, Any], str, float, bool]] = []
     for item in order.get("items") or []:
-        item_id = _clean(item.get("inventory_item_id") or item.get("product_id"))
+        if isinstance(item.get("consumption"), list):
+            # 049H: plato de la carta -> sus insumos (los preparados no bloquean).
+            for entry in item["consumption"]:
+                targets.append((item, _clean(entry.get("inventory_item_id")), float(entry.get("quantity") or 0),
+                                bool(entry.get("blocking"))))
+            continue
+        targets.append((item, _clean(item.get("inventory_item_id") or item.get("product_id")), _money(item.get("quantity")), True))
+
+    for item, item_id, raw_qty, blocking in targets:
         if not item_id:
             continue
         try:
@@ -3312,7 +3353,7 @@ async def _deduct_inventory(
         except Exception:
             continue
 
-        qty = _money(item.get("quantity"))
+        qty = round(float(raw_qty), 4) if "consumption" in item else _money(raw_qty)
         if qty <= 0:
             continue
 
@@ -3335,15 +3376,15 @@ async def _deduct_inventory(
 
         before = _money(inventory["current_stock"])
         minimum = _money(inventory.get("min_stock"))
-        if _norm(inventory.get("status")) != "active" and not allow_inactive_reserved:
+        if blocking and _norm(inventory.get("status")) != "active" and not allow_inactive_reserved:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"{item.get('name') or 'Producto'} está inactivo por stock mínimo.",
             )
-        if before < qty:
+        if blocking and before < qty:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Stock insuficiente para {item.get('name')}. Disponible: {before}.")
 
-        after = _money(before - qty)
+        after = round(float(before) - qty, 4) if "consumption" in item else _money(before - qty)
         deactivate_at_minimum = after <= minimum
         await db.execute(
             text(
@@ -3395,6 +3436,12 @@ async def _deduct_inventory(
 def _hospitality_item_quantities(items: list[dict[str, Any]] | None) -> dict[str, float]:
     quantities: dict[str, float] = {}
     for item in items or []:
+        if isinstance(item.get("consumption"), list):
+            for entry in item["consumption"]:  # 049H: plato de la carta -> insumos
+                key = _clean(entry.get("inventory_item_id"))
+                if key:
+                    quantities[key] = round(quantities.get(key, 0) + float(entry.get("quantity") or 0), 4)
+            continue
         item_id = _clean(item.get("inventory_item_id") or item.get("product_id"))
         try:
             item_id = str(uuid.UUID(item_id))
@@ -3442,9 +3489,15 @@ async def _adjust_pending_order_inventory(
         if row:
             locked[item_id] = dict(row)
 
+    soft_ids = {
+        _clean(entry.get("inventory_item_id"))
+        for item in [*old_items, *(new_items or [])]
+        for entry in (item.get("consumption") or [])
+        if not entry.get("blocking")
+    }
     for item_id, inventory in locked.items():
         delta = _money(new_quantities.get(item_id, 0) - old_quantities.get(item_id, 0))
-        if delta <= 0:
+        if delta <= 0 or item_id in soft_ids:
             continue
         before = _money(inventory.get("current_stock"))
         if _norm(inventory.get("status")) != "active":
@@ -5085,6 +5138,11 @@ async def hospitality_inventory_lite(
             {"company_id": str(company_id)},
         )
         await db.commit()
+
+    if await _carta_on_049h(db, company_id):
+        from app.api.v1.endpoints.carta import carta_inventory_lite
+
+        return {"ok": True, "company_id": str(company_id), "inventory": (await carta_inventory_lite(db, company_id))[:limit]}
 
     result = await db.execute(
         text(

@@ -19,6 +19,10 @@ Reglas que definen los numeros:
     del entero".
   * Sin precio de entrada: la linea NO tiene costo, no entra al margen y el
     producto sale en "sin costear".
+- Con el modulo Carta (049H) cada linea trae el costo REAL congelado al
+  venderse (insumos de la receta x costo promedio de ese momento); ese es el
+  que se usa. Las lineas anteriores se estiman con el costo del insumo y
+  quedan marcadas "estimado". Es la unica cifra de margen del sistema.
 - Merma: pedido cancelado cuando el inventario ya se habia descontado (el
   producto se perdio: cuenta su costo). Cancelacion: antes de descontar.
 """
@@ -30,6 +34,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from fractions import Fraction
 from typing import Any, Callable, Iterable
 from zoneinfo import ZoneInfo
+
+from app.services.carta import unit_cost as insumo_unit_cost
 
 MONEY = Decimal("0.01")
 WEEKDAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
@@ -252,9 +258,14 @@ class Costing:
         qty = dec(item.get("quantity") or 0)
         sale = dec(item.get("subtotal") if item.get("subtotal") is not None else dec(item.get("unit_price")) * qty)
         key, name, frac = self.family(item)
-        entry = dec((self.inventory.get(item_id) or {}).get("entry_price"))
-        cost, derived = None, False
-        if entry > 0:
+        entry = insumo_unit_cost(self.inventory.get(item_id)) or Decimal("0")
+        cost, derived, real = None, False, False
+        consumption = item.get("consumption") if isinstance(item.get("consumption"), list) else None
+        if consumption is not None:
+            # Carta: costo real congelado en la venta (None = algun insumo sin costo).
+            cost = dec(item.get("cost")) if item.get("cost") is not None else None
+            real = cost is not None
+        elif entry > 0:
             cost = entry * qty
         else:
             member = self.portions.get(item_id)
@@ -276,7 +287,8 @@ class Costing:
         else:
             equiv = Fraction(str(qty)).limit_denominator(100)
             pieces = Fraction(1) if 0 < equiv < 1 else equiv
-        return {"key": key, "name": name, "sale": sale, "cost": cost, "derived": derived, "fraction": frac,
+        return {"key": key, "name": name, "sale": sale, "cost": cost, "derived": derived, "real": real,
+                "consumption": consumption, "fraction": frac,
                 "equiv": equiv, "pieces": pieces, "inventory_item_id": item_id, "qty": qty,
                 "station": str(item.get("station") or ""), "created_at": item.get("created_at"),
                 "ready_at": item.get("ready_at")}
@@ -410,6 +422,8 @@ class Report:
                 row = uncosted.setdefault(line["key"], {"name": line["name"], "sales": Decimal("0")})
                 row["sales"] += line["sale"]
         derived = sorted({l["name"] for l in self.lines() if l["derived"]})
+        real_sales = sum((l["sale"] for l in self.lines() if l["real"]), Decimal("0"))
+        estimated_sales = sum((l["sale"] for l in self.lines() if l["cost"] is not None and not l["real"]), Decimal("0"))
 
         def card(key: str, label: str, value: Any, kind: str, better: str = "up") -> dict:
             current = float(value) if value is not None else None
@@ -445,6 +459,8 @@ class Report:
                 "uncosted": [{"name": v["name"], "sales": money(v["sales"])}
                              for v in sorted(uncosted.values(), key=lambda v: v["sales"], reverse=True)],
                 "derived": derived,
+                "real_sales": money(real_sales),
+                "estimated_sales": money(estimated_sales),
             },
             "_raw": cur, "_prev": prev,
         }
@@ -675,7 +691,10 @@ class Report:
     def inventory_report(self) -> dict:
         sold: dict[str, Decimal] = defaultdict(Decimal)
         for line in self.lines():
-            if line["inventory_item_id"]:
+            if line.get("consumption") is not None:
+                for entry in line["consumption"]:
+                    sold[str(entry.get("inventory_item_id") or "")] += dec(entry.get("quantity"))
+            elif line["inventory_item_id"]:
                 sold[line["inventory_item_id"]] += line["qty"]
         days = Decimal(max(1, self.period["days"]))
         value = Decimal("0")
@@ -683,7 +702,8 @@ class Report:
         coverage, idle = [], []
         for item_id, item in self.inventory.items():
             stock = dec(item.get("current_stock"))
-            entry = dec(item.get("entry_price"))
+            entry = insumo_unit_cost(item) or Decimal("0")
+            consumable = str(item.get("item_type") or "") == "consumible"
             if stock > 0:
                 if entry > 0:
                     value += stock * entry
@@ -693,8 +713,8 @@ class Report:
             if rate > 0:
                 cover = stock / rate if stock > 0 else Decimal("0")
                 coverage.append({"name": item.get("name") or "Producto", "stock": float(stock), "daily": round(float(rate), 2),
-                                 "days": round(float(cover), 1)})
-            elif stock > 0:
+                                 "days": round(float(cover), 1), "unit": item.get("consumption_unit") or "unidad"})
+            elif stock > 0 and not consumable:
                 idle.append({"name": item.get("name") or "Producto", "stock": float(stock),
                              "value": money(stock * entry) if entry > 0 else None})
         coverage.sort(key=lambda r: r["days"])

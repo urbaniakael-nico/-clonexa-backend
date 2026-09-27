@@ -242,7 +242,7 @@ def test_hospitality_owner_report_inventory_coverage_and_buy_list():
     per = engine.resolve_period("custom", date(2026, 9, 25), date(2026, 9, 1), date(2026, 9, 10))
     orders = [order(local("2026-09-05", 13), [item(PAPA, 10, 15000)]), order(local("2026-09-06", 13), [item(GASEOSA, 5, 15000)])]
     inv = report(orders, per=per).inventory_report()
-    assert inv["buy_today"] == [{"name": "Papa salada", "stock": 2.0, "daily": 1.0, "days": 2.0}]
+    assert inv["buy_today"] == [{"name": "Papa salada", "stock": 2.0, "daily": 1.0, "days": 2.0, "unit": "unidad"}]
     assert "Limonada" in [r["name"] for r in inv["idle"]]
     assert inv["value"] == 10 * 20000 + 2 * 1000 + 40 * 2500 + 3 * 24000
     assert inv["uncosted_items"] == 2

@@ -97,7 +97,8 @@ async def _context(db: AsyncSession, company_id: uuid.UUID, period: str, start, 
         WHERE company_id = CAST(:company_id AS uuid) AND closed_at >= :start AND closed_at < :end
     """), {"company_id": cid, "start": window_start, "end": window_end + timedelta(days=2)})).mappings().all()]
     inventory = {str(r["id"]): dict(r) for r in (await db.execute(text("""
-        SELECT id, COALESCE(NULLIF(name, ''), name_reference, sku) AS name, entry_price, sale_price, current_stock, status
+        SELECT id, COALESCE(NULLIF(name, ''), name_reference, sku) AS name, entry_price, sale_price, current_stock, status,
+               avg_cost, units_per_purchase, item_type, consumption_unit
         FROM inventory_items
         WHERE company_id = CAST(:company_id AS uuid) AND COALESCE(status, 'active') NOT IN ('archived', 'deleted')
     """), {"company_id": cid})).mappings().all()}

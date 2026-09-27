@@ -352,6 +352,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "DOM",
         "is_transversal": False,
     },
+    "carta": {
+        "name": "Carta",
+        "description": "Carta de platos separada del inventario: platos directos o con receta, costo por plato, margen y aviso cuando el precio queda por debajo del costo.",
+        "category": "hospitality",
+        "category_label": "Hospitality",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "CAR",
+        "is_transversal": False,
+    },
     "nomina_colombia": {
         "name": "APLICAR NORMATIVA LABORAL COLOMBIANA",
         "description": "Nómina automática según la ley colombiana: horas ordinarias, nocturnas, dominicales, festivas y extras desde los turnos, auxilio de transporte, aportes y provisiones, con parámetros por año.",

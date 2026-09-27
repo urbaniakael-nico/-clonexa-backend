@@ -1,0 +1,164 @@
+"""Carta, recetas e insumos (049H): motor puro, sin base de datos.
+
+Inventario = lo que se compra (insumos con tipo, unidad de compra, unidad de
+consumo y costo promedio ponderado). Carta = lo que se vende (platos directos
+ligados a un insumo, o preparados con receta). Al vender, cada linea del
+pedido guarda que insumos consumio y a que costo en ese momento.
+
+Reglas:
+- Existencias y costo promedio van en la UNIDAD DE CONSUMO del insumo
+  (g, ml o unidad). units_per_purchase = cuantas unidades de consumo trae
+  una unidad de compra (1 lb = 453.59237 g; 1 pollo = 1600 g si la empresa
+  lo define asi).
+- Receta: la cantidad es lo que va en el plato. Lo que se descuenta y se
+  cuesta es cantidad / rendimiento (250 g servidos con 65 % = 384.6 g crudos).
+- Plato directo: descuenta su insumo x cantidad y bloquea la venta sin stock
+  (igual que hoy). Plato preparado: descuenta los ingredientes sin bloquear;
+  un ingrediente puede quedar en negativo y el Dashboard avisa.
+- Un consumible (gas, servilletas) nunca va a un plato ni a una receta.
+"""
+from __future__ import annotations
+
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any, Iterable
+
+ITEM_TYPES = {"venta_directa": "Venta directa", "ingrediente": "Ingrediente", "consumible": "Consumible"}
+DISH_KINDS = {"directo", "preparado"}
+# unidad -> (dimension, cuantas unidades base trae)
+UNITS: dict[str, tuple[str, Decimal]] = {
+    "g": ("masa", Decimal("1")), "gramo": ("masa", Decimal("1")), "kg": ("masa", Decimal("1000")),
+    "kilo": ("masa", Decimal("1000")), "lb": ("masa", Decimal("453.59237")), "libra": ("masa", Decimal("453.59237")),
+    "ml": ("volumen", Decimal("1")), "l": ("volumen", Decimal("1000")), "litro": ("volumen", Decimal("1000")),
+    "unidad": ("unidad", Decimal("1")),
+}
+PURCHASE_UNITS = ["unidad", "libra", "kilo", "gramo", "litro", "ml"]
+CONSUMPTION_UNITS = ["g", "ml", "unidad"]
+QTY = Decimal("0.0001")
+MONEY = Decimal("0.01")
+
+
+def dec(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value if value not in (None, "") else 0))
+    except Exception:
+        return Decimal("0")
+
+
+def clean_unit(value: Any, allowed: Iterable[str]) -> str:
+    unit = str(value or "").strip().lower()
+    aliases = {"gr": "g", "gramos": "g", "kilos": "kilo", "kilogramo": "kilo", "libras": "libra", "litros": "litro",
+               "mililitro": "ml", "mililitros": "ml", "unidades": "unidad", "und": "unidad", "u": "unidad", "gramo": "g"}
+    unit = aliases.get(unit, unit)
+    allowed = list(allowed)
+    if unit == "g" and "gramo" in allowed and "g" not in allowed:
+        unit = "gramo"
+    if unit not in allowed:
+        raise ValueError(f"unidad_invalida:{value}")
+    return unit
+
+
+def standard_factor(purchase_unit: str, consumption_unit: str) -> Decimal | None:
+    """Unidades de consumo por unidad de compra cuando ambas son de la misma
+    dimension (libra -> g = 453.59237). None si la conversion la define la
+    empresa (unidad -> g: cuanto pesa un pollo)."""
+    p, c = UNITS.get(purchase_unit), UNITS.get(consumption_unit)
+    if not p or not c or p[0] != c[0]:
+        return None
+    return p[1] / c[1]
+
+
+def to_consumption(quantity: Any, item: dict) -> Decimal:
+    """Cantidad en unidad de compra -> unidad de consumo del insumo."""
+    return (dec(quantity) * dec(item.get("units_per_purchase") or 1)).quantize(QTY, rounding=ROUND_HALF_UP)
+
+
+def weighted_average(stock: Any, avg_cost: Any, qty_in: Any, unit_cost_in: Any) -> Decimal:
+    """Costo promedio ponderado tras una entrada (todo en unidad de consumo).
+    Con existencia en cero o negativa, el costo pasa a ser el de la compra."""
+    stock, avg, qty, unit = dec(stock), dec(avg_cost), dec(qty_in), dec(unit_cost_in)
+    if qty <= 0:
+        return avg
+    if stock <= 0:
+        return unit.quantize(QTY, rounding=ROUND_HALF_UP)
+    return ((stock * avg + qty * unit) / (stock + qty)).quantize(QTY, rounding=ROUND_HALF_UP)
+
+
+def unit_cost(insumo: dict | None) -> Decimal | None:
+    """Costo por unidad de consumo; None si el insumo no tiene costo cargado."""
+    if not insumo:
+        return None
+    avg = dec(insumo.get("avg_cost"))
+    if avg > 0:
+        return avg
+    entry = dec(insumo.get("entry_price"))
+    if entry > 0:
+        return entry / (dec(insumo.get("units_per_purchase")) or Decimal("1"))
+    return None
+
+
+def consumption(dish: dict, lines: list[dict], quantity: Any) -> list[dict]:
+    """Insumos que consume vender `quantity` del plato (0.25 = boton 1/4)."""
+    qty = dec(quantity)
+    if qty <= 0:
+        return []
+    if dish.get("kind") == "preparado":
+        out = []
+        for line in lines:
+            yield_pct = dec(line.get("yield_pct") or 100)
+            if yield_pct <= 0:
+                yield_pct = Decimal("100")
+            need = qty * dec(line.get("quantity")) * Decimal("100") / yield_pct
+            if need > 0:
+                out.append({"inventory_item_id": str(line.get("inventory_item_id")),
+                            "quantity": float(need.quantize(QTY, rounding=ROUND_HALF_UP)), "blocking": False})
+        return out
+    insumo_id = dish.get("inventory_item_id")
+    if not insumo_id:
+        return []
+    need = qty * (dec(dish.get("direct_qty")) or Decimal("1"))
+    return [{"inventory_item_id": str(insumo_id), "quantity": float(need.quantize(QTY, rounding=ROUND_HALF_UP)),
+             "blocking": True}]
+
+
+def cost_of(entries: list[dict], insumos: dict[str, dict]) -> tuple[Decimal | None, list[dict]]:
+    """Costo total de los insumos consumidos (None si alguno no tiene costo) y
+    las entradas con su costo unitario congelado."""
+    total = Decimal("0")
+    complete = bool(entries)
+    priced = []
+    for entry in entries:
+        unit = unit_cost(insumos.get(entry["inventory_item_id"]))
+        row = dict(entry)
+        if unit is None:
+            complete = False
+            row["unit_cost"] = None
+        else:
+            row["unit_cost"] = float(unit.quantize(QTY, rounding=ROUND_HALF_UP))
+            total += unit * dec(entry["quantity"])
+        priced.append(row)
+    return (total.quantize(MONEY, rounding=ROUND_HALF_UP) if complete else None), priced
+
+
+def dish_summary(dish: dict, lines: list[dict], insumos: dict[str, dict]) -> dict:
+    """Costo y margen de UNA unidad del plato para la pantalla de Carta."""
+    entries = consumption(dish, lines, 1)
+    cost, priced = cost_of(entries, insumos)
+    price = dec(dish.get("price"))
+    missing = [insumos.get(e["inventory_item_id"], {}).get("name") or "Insumo" for e in priced if e["unit_cost"] is None]
+    margin = (price - cost) if cost is not None else None
+    return {
+        "cost": float(cost) if cost is not None else None,
+        "margin": float(margin.quantize(MONEY)) if margin is not None else None,
+        "margin_pct": float((margin / price * 100).quantize(Decimal("0.1"))) if margin is not None and price > 0 else None,
+        "below_cost": bool(cost is not None and price < cost),
+        "missing_cost": missing,
+        "no_recipe": dish.get("kind") == "preparado" and not lines,
+        "consumption": priced,
+    }
+
+
+def validate_link(insumo: dict | None) -> None:
+    if not insumo:
+        raise ValueError("insumo_no_encontrado")
+    if str(insumo.get("item_type") or "venta_directa") == "consumible":
+        raise ValueError("consumible_no_va_a_la_carta")

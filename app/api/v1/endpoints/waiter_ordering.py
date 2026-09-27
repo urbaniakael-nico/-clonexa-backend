@@ -790,7 +790,8 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
 
     grouped: dict[str, dict[str, Any]] = {}
     for product in merged_products:
-        key = _category_key(product.get("name"))
+        # 049H: un plato de la carta puede traer su categoria; si no, la de su nombre.
+        key = _category_key(product.get("category_key") or product.get("name"))
         bucket = grouped.setdefault(
             key,
             {
@@ -886,9 +887,11 @@ async def _priced_order_items(db: AsyncSession, company_id: uuid.UUID, items: li
         # it lands in the same category/station the menu already showed it
         # under.
         membership = portion_map.get(str(product["id"]))
-        category_source = membership["group_label"] if membership else product.get("name")
+        category_source = membership["group_label"] if membership else (product.get("category_key") or product.get("name"))
         category = categories.get(_category_key(category_source))
-        term = _clean(item.term) if (category or {}).get("requires_term") else ""
+        # 049H: estacion y termino propios del plato de la carta, si los tiene.
+        requires_term = (category or {}).get("requires_term") or product.get("requires_term")
+        term = _clean(item.term) if requires_term else ""
         if resolved:
             count = Decimal(str(item.quantity))
             price_fields = {
@@ -905,7 +908,7 @@ async def _priced_order_items(db: AsyncSession, company_id: uuid.UUID, items: li
                 name=str(product.get("name") or ""),
                 observations=item.observations,
                 quick_notes=item.quick_notes,
-                station=(category or {}).get("station", ""),
+                station=product.get("station") or (category or {}).get("station", ""),
                 term=term,
                 **price_fields,
             )
