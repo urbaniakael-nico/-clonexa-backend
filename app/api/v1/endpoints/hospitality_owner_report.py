@@ -138,7 +138,12 @@ async def _context(db: AsyncSession, company_id: uuid.UUID, period: str, start, 
         """), {"company_id": cid, "start": period_start, "end": period_end})).mappings().all()]
     report = engine.Report(orders=orders, closures=closures, inventory=inventory, portions=portions, tz=tz,
                            period=chosen, business_day=business_day, sessions=sessions, confirmed_ends=confirmed)
-    return {"report": report, "period": chosen, "tz": tz_name, "cash_counts": cash_counts}
+    # 049M: gastos fijos (Inventario > Gastos fijos) del periodo y del anterior.
+    from app.api.v1.endpoints.fixed_expenses import fixed_expenses_for_period
+
+    fixed = await fixed_expenses_for_period(db, company_id, chosen["start"], chosen["end"])
+    fixed_prev = await fixed_expenses_for_period(db, company_id, chosen["prev_start"], chosen["prev_end"])
+    return {"report": report, "period": chosen, "tz": tz_name, "cash_counts": cash_counts, "fixed": fixed, "fixed_prev": fixed_prev}
 
 
 def _period_payload(period: dict) -> dict:
@@ -148,10 +153,13 @@ def _period_payload(period: dict) -> dict:
 async def _summary(ctx: dict) -> dict:
     report = ctx["report"]
     kpis = report.kpis()
+    statement = engine.income_statement(kpis, ctx.get("fixed") or {"total": 0}, ctx.get("fixed_prev") or {"total": 0})
+    kpis["cards"].insert(4, engine.profit_card(statement))
     return engine.public({
         "period": _period_payload(ctx["period"]),
         "timezone": ctx["tz"],
         "kpis": kpis,
+        "income_statement": statement,
         "readings": report.readings(kpis=kpis),
         "busiest_weekday": report.busiest_weekday(),
     })

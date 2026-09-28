@@ -798,3 +798,31 @@ def public(data: Any) -> Any:
     if isinstance(data, (date, datetime)):
         return data.isoformat()
     return data
+
+
+# ------------------------------------------------- estado de resultados ---
+def income_statement(kpis: dict, fixed: dict, fixed_prev: dict) -> dict:
+    """049M: ventas - costo de mercancia = margen bruto; menos gastos fijos
+    (arriendo, servicios, aseo...) = utilidad operativa. Antes la utilidad
+    que se veia era solo el margen bruto: no descontaba arriendo ni servicios."""
+    cur, prev = kpis["_raw"], kpis["_prev"]
+    gross, prev_gross = dec(cur["margin"]), dec(prev["margin"])
+    fixed_total, prev_fixed_total = dec(fixed.get("total")), dec(fixed_prev.get("total"))
+    profit, prev_profit = gross - fixed_total, prev_gross - prev_fixed_total
+    return {
+        "sales": money(cur["sales"]),
+        "cost_of_goods": money(cur["cost"]),
+        "gross_margin": money(gross),
+        "uncosted_sales": money(cur["uncosted_sales"]),
+        "fixed_expenses": money(fixed_total),
+        "fixed_by_concept": fixed.get("by_concept") or [],
+        "operating_profit": money(profit),
+        "previous_operating_profit": money(prev_profit),
+        "change_pct": pct_change(float(profit), float(prev_profit)),
+    }
+
+
+def profit_card(statement: dict) -> dict:
+    return {"key": "profit", "label": "Utilidad después de gastos fijos", "value": statement["operating_profit"],
+            "kind": "money", "previous": statement["previous_operating_profit"], "change_pct": statement["change_pct"],
+            "better": "up"}

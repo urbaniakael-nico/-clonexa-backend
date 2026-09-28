@@ -29,7 +29,9 @@ function context({ restaurant = false } = {}) {
       + `function isClientModuleActive(code){return ${restaurant} && code === "waiter_ordering";}\n`
       + 'var window = { __cxInventorySearchQuery: "" };\n'
       + ['inventoryMoneyLabel045B', 'inventoryMoneyValue045B', 'inventoryShowsPortions045B', 'inventoryTextWidth045B',
-        'inventoryColumnPlan045B', 'renderInventoryRow', 'renderInventoryModifyPanel', 'inventoryDeleteMessage045B'].map(fn).join(''),
+        'inventoryColumnPlan045B', 'renderInventoryRow', 'renderInventoryModifyPanel', 'inventoryDeleteMessage045B',
+        'cxInvSizeHtml049M', 'cxInvReadSize049M', 'cxInvSizeProblem049M'].map(fn).join('')
+      + source.match(/\r?\n  const CX_INV_UNITS_049M = \[[\s\S]*?\];\r?\n/)[0].replace('const', 'var'),
     ctx,
   );
   return ctx;
@@ -103,7 +105,7 @@ test('"Permite porciones" only shows for companies with waiter_ordering, reflect
 test('every existing hook is still there, plus Eliminar in the compact menu', () => {
   const html = context().renderInventoryRow(ROW, 0);
   for (const hook of [
-    'data-inventory-field="name_reference"', 'data-inventory-field="size"', 'data-inventory-field="color"',
+    'data-inventory-field="name_reference"', 'data-inv-size-value', 'data-inventory-field="color"',
     'data-inventory-field="min_stock"', 'data-inventory-field="entry_price"', 'data-inventory-field="sale_price"',
     'data-inventory-field="status"', 'data-inventory-entry-qty="inv-1"', 'data-inventory-entry-invoice="inv-1"',
     'data-inventory-update="inv-1"', 'data-inventory-entry="inv-1"', 'data-inventory-disable="inv-1"',
@@ -130,4 +132,29 @@ test('the result message tells which path was applied', () => {
 
 test('low stock is still flagged on the stock pill', () => {
   assert.match(context().renderInventoryRow(ROW, 0), /cx-inv-stock low" title="Stock bajo">3 <span aria-label="Stock bajo">⚠<\/span>/);
+});
+
+
+test('tamaño: número + unidad (se despliega al escribir), y lo que no se entendió queda marcado', () => {
+  const ctx = context();
+  const done = ctx.renderInventoryRow({ ...ROW, size: '275 gr', size_value: 275, size_unit: 'gr' }, 0);
+  assert.match(done, /data-inv-size-value value="275"/);
+  assert.match(done, /<select data-inv-size-unit ><option value="">Unidad<\/option><optgroup label="Peso"><option value="gr" selected>gr<\/option><option value="lb" >lb<\/option><option value="kg" >kg<\/option><\/optgroup><optgroup label="Volumen"><option value="ml" >ml<\/option><option value="litros" >litros<\/option><\/optgroup><optgroup label="Unidad"><option value="unidad" >unidad<\/option><option value="paquete" >paquete<\/option><option value="caja" >caja<\/option><option value="docena" >docena<\/option>/);
+  const empty = ctx.cxInvSizeHtml049M({});
+  assert.match(empty, /<select data-inv-size-unit hidden>/, 'la unidad aparece al escribir el número');
+  const review = ctx.renderInventoryRow({ ...ROW, size: 'M', size_review: true }, 0);
+  assert.match(review, /data-inv-size-legacy="M"[\s\S]*Revisar: "M"/);
+  const scope = (value, unit, legacy) => ({ querySelector: () => ({
+    getAttribute: () => legacy || null,
+    querySelector: (sel) => (sel === '[data-inv-size-value]' ? { value } : { value: unit }),
+  }) });
+  assert.deepEqual({ ...ctx.cxInvReadSize049M(scope('1.5', 'litros')) }, { size_value: '1.5', size_unit: 'litros' });
+  assert.deepEqual({ ...ctx.cxInvReadSize049M(scope('', '', 'M')) }, {}, 'sin tocar: el valor anterior no se pierde');
+  assert.deepEqual({ ...ctx.cxInvReadSize049M(scope('', '')) }, { size: '' });
+  assert.match(ctx.cxInvSizeProblem049M({ size_value: '275', size_unit: '' }), /Elige la unidad/);
+});
+
+test('botón Gastos fijos junto a Crear, Modificar y CSV', () => {
+  assert.match(source, /data-inventory-mode="modify">Modificar material<\/button>\s*<button type="button" data-inventory-export>CSV \+ archivar<\/button>\s*<button class="\$\{mode === "fixed" \? "active" : ""\}" type="button" data-inventory-mode="fixed">Gastos fijos<\/button>/);
+  assert.match(source, /window\.__cxInventoryMode = \["create", "modify", "fixed"\]\.includes\(mode\)/);
 });

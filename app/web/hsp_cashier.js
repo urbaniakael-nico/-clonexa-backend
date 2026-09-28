@@ -56,13 +56,11 @@
     drivers: [],
     driversOpen: false,
     deliveryBusy: false,
-    // 048U: modulo Costos (hoy ASADERO): arqueo a ciegas al cerrar la jornada
-    // y gastos pagados con el efectivo del cajon. Sin el modulo, nada cambia.
+    // 048U/049M: arqueo a ciegas al cerrar la jornada (antes del modulo
+    // Costos; ahora propio de la caja, hoy ASADERO). Sin el arqueo, nada cambia.
     costos: false,
-    costosCats: {},
     denominations: [],
     arqueo: null,
-    gasto: null,
   };
 
   let pollHandle = null;
@@ -447,7 +445,6 @@
               ${onBreak
                 ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-shift-resume ${state.shiftBusy ? "disabled" : ""}>Retomar</button>`
                 : `<button class="csh-btn" type="button" data-csh-shift-pause ${state.shiftBusy ? "disabled" : ""}>Pausa</button>`}
-              ${state.costos ? `<button class="csh-btn" type="button" data-csh-gasto-open>Registrar gasto del cajón</button>` : ""}
               <button class="csh-btn csh-btn-danger" type="button" data-csh-shift-finish ${state.shiftBusy ? "disabled" : ""}>Cerrar jornada</button>
             </div>
           </div>` : ""}
@@ -519,14 +516,13 @@
   }
 
   function costosApi048U(path, options) {
-    return api(`/api/v1/costos/companies/${encodeURIComponent(companyId)}${path}`, options);
+    return api(`/api/v1/caja-arqueo/companies/${encodeURIComponent(companyId)}${path}`, options);
   }
 
   async function loadCostosConfig048U() {
     try {
       const data = await costosApi048U("/caja/config");
       state.costos = data.enabled === true;
-      state.costosCats = data.categories || {};
       state.denominations = Array.isArray(data.denominations) ? data.denominations : [];
     } catch (_) {
       state.costos = false;
@@ -573,7 +569,7 @@
           <div class="csh-arq-rows-048u">
             <div><span>Contaste</span><b>${money048U(r.counted)}</b></div>
             <div><span>Debía haber</span><b>${money048U(r.expected)}</b></div>
-            <small>Base ${money048U(r.base)} + ventas en efectivo ${money048U(r.cash_sales)} − gastos del cajón ${money048U(r.drawer_expenses)} − retiros ${money048U(r.withdrawals)}</small>
+            <small>Base ${money048U(r.base)} + ventas en efectivo ${money048U(r.cash_sales)}${Number(r.drawer_expenses || 0) || Number(r.withdrawals || 0) ? ` − gastos del cajón ${money048U(r.drawer_expenses)} − retiros ${money048U(r.withdrawals)}` : ""}</small>
             <div class="${diff < 0 ? "bad" : diff > 0 ? "warn" : "ok"}"><span>${diff === 0 ? "Cuadra" : diff < 0 ? "Faltante" : "Sobrante"}</span><b>${money048U(Math.abs(diff))}</b></div>
           </div>
           ${r.needs_observation ? `<label>Explica la diferencia (obligatorio)<textarea data-csh-arq-obs rows="3"></textarea></label>` : ""}
@@ -582,23 +578,6 @@
             ${r.needs_observation
               ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-arq-save-obs ${a.busy ? "disabled" : ""}>Guardar y cerrar jornada</button>`
               : `<button class="csh-btn csh-btn-danger" type="button" data-csh-arq-finish ${a.busy ? "disabled" : ""}>Cerrar jornada</button>`}
-          </div>
-        </div></div>`;
-    }
-    const g = state.gasto;
-    if (g) {
-      return `<div class="csh-modal-048u" data-csh-gasto>
-        <div class="csh-modal-card-048u">
-          <h2>Gasto pagado con el efectivo del cajón</h2>
-          <p>Queda pendiente de aprobación y se descuenta de lo que debe haber en tu arqueo.</p>
-          <label>Categoría<select data-csh-gasto-cat>${Object.entries(state.costosCats).map(([k, v]) => `<option value="${h(k)}">${h(v)}</option>`).join("")}</select></label>
-          <label>Valor<input type="number" min="1" step="50" data-csh-gasto-value></label>
-          <label>¿En qué se gastó?<input data-csh-gasto-desc placeholder="Hielo, domicilio de gas, reparación…"></label>
-          <label>Proveedor (opcional)<input data-csh-gasto-supplier></label>
-          ${g.message ? `<div class="csh-alert">${h(g.message)}</div>` : ""}
-          <div class="csh-modal-actions-048u">
-            <button class="csh-btn" type="button" data-csh-gasto-cancel>Cancelar</button>
-            <button class="csh-btn csh-btn-primary" type="button" data-csh-gasto-save ${g.busy ? "disabled" : ""}>Guardar gasto</button>
           </div>
         </div></div>`;
     }
@@ -649,32 +628,6 @@
       a.busy = false;
       safeRender();
     }
-  }
-
-  async function saveGasto048U() {
-    const g = state.gasto;
-    const body = {
-      category: root.querySelector("[data-csh-gasto-cat]")?.value || "otros",
-      subtotal: Number(root.querySelector("[data-csh-gasto-value]")?.value || 0),
-      description: (root.querySelector("[data-csh-gasto-desc]")?.value || "").trim(),
-      supplier_name: (root.querySelector("[data-csh-gasto-supplier]")?.value || "").trim(),
-    };
-    if (!body.subtotal || !body.description) {
-      g.message = "Escribe el valor y en qué se gastó.";
-      safeRender();
-      return;
-    }
-    g.busy = true;
-    safeRender();
-    try {
-      await costosApi048U("/caja/gastos", { method: "POST", body: JSON.stringify(body) });
-      state.gasto = null;
-      state.toast = "Gasto registrado. Queda pendiente de aprobación.";
-    } catch (error) {
-      g.message = error.message || "No se pudo registrar el gasto.";
-      g.busy = false;
-    }
-    safeRender();
   }
 
   async function loadCashierConfig() {
@@ -1662,9 +1615,6 @@
     if (target.closest("[data-csh-arq-submit]")) { submitCount048U(); return; }
     if (target.closest("[data-csh-arq-save-obs]")) { saveObservation048U(); return; }
     if (target.closest("[data-csh-arq-finish]")) { state.arqueo = null; shiftAction("finish"); return; }
-    if (target.closest("[data-csh-gasto-open]")) { state.gasto = { busy: false, message: "" }; safeRender(); return; }
-    if (target.closest("[data-csh-gasto-cancel]")) { state.gasto = null; safeRender(); return; }
-    if (target.closest("[data-csh-gasto-save]")) { saveGasto048U(); return; }
 
     const openDelivery = target.closest("[data-csh-open-delivery]");
     if (openDelivery) {

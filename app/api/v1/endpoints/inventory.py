@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import inventory_size as size_engine
 from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
@@ -209,6 +210,10 @@ class InventoryItemCreate(BaseModel):
     reference: str | None = None
     size: str | None = None
     item_size: str | None = None
+    # 049M: tamaño = numero + unidad de una lista (gr, lb, kg, ml, litros,
+    # unidad, paquete, caja, docena); "size" como texto sigue aceptandose.
+    size_value: float | int | str | None = None
+    size_unit: str | None = None
     color: str | None = None
     entry_price: float | int | str | None = None
     purchase_price: float | int | str | None = None
@@ -231,6 +236,10 @@ class InventoryItemUpdate(BaseModel):
     reference: str | None = None
     size: str | None = None
     item_size: str | None = None
+    # 049M: tamaño = numero + unidad de una lista (gr, lb, kg, ml, litros,
+    # unidad, paquete, caja, docena); "size" como texto sigue aceptandose.
+    size_value: float | int | str | None = None
+    size_unit: str | None = None
     color: str | None = None
     entry_price: float | int | str | None = None
     purchase_price: float | int | str | None = None
@@ -245,6 +254,29 @@ class InventoryItemUpdate(BaseModel):
     status: str | None = None
     # "Permite porciones" (1/4, 1/2... in the mesero panel). None = unchanged.
     allows_portions: bool | None = None
+
+
+def _size_fields_049M(payload: Any) -> dict | None:
+    """Tamaño que llega del formulario (numero + unidad) o como texto (CSV,
+    integraciones viejas). None = no se envio: no se toca."""
+    value = getattr(payload, "size_value", None)
+    unit = getattr(payload, "size_unit", None)
+    text_value = payload.size if payload.size is not None else payload.item_size
+    if value is not None and str(value).strip() != "":
+        try:
+            number, clean_unit = size_engine.clean(value, unit)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Tamaño inválido: escribe un número y elige la unidad (gr, lb, kg, ml, litros, unidad, paquete, caja o docena).",
+            ) from exc
+        return {"item_size": size_engine.format_size(number, clean_unit), "size_value": number,
+                "size_unit": clean_unit, "size_review": False}
+    if text_value is None and value is None and unit is None:
+        return None
+    normalized = size_engine.normalize_existing(text_value)
+    return {"item_size": normalized["text"], "size_value": normalized["value"], "size_unit": normalized["unit"],
+            "size_review": normalized["review"]}
 
 
 class InventoryBulkItemUpdate(InventoryItemUpdate):
@@ -336,6 +368,9 @@ async def ensure_inventory_storage(db: AsyncSession) -> None:
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS reference text NULL",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS name_reference text NOT NULL DEFAULT ''",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS item_size varchar(120) NULL",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS size_value numeric(14, 4) NULL",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS size_unit varchar(20) NULL",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS size_review boolean NOT NULL DEFAULT false",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS color varchar(120) NULL",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS entry_price numeric(14, 2) NOT NULL DEFAULT 0",
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS sale_price numeric(14, 2) NOT NULL DEFAULT 0",
@@ -444,6 +479,9 @@ def inventory_item_out(row: dict[str, Any]) -> dict[str, Any]:
         "company_id": str(row.get("company_id")),
         "name_reference": row.get("name_reference") or "",
         "size": row.get("item_size") or "",
+        "size_value": _float(row.get("size_value")) if row.get("size_value") is not None else None,
+        "size_unit": row.get("size_unit") or "",
+        "size_review": bool(row.get("size_review")),
         "color": row.get("color") or "",
         "entry_price": entry_price,
         "purchase_price": entry_price,
@@ -558,14 +596,17 @@ async def create_inventory_item(
 
     if entry_price < 0 or sale_price < 0:
         raise HTTPException(status_code=422, detail="Los precios no pueden ser negativos.")
+    size = _size_fields_049M(payload) or {"item_size": None, "size_value": None, "size_unit": None, "size_review": False}
 
     result = await db.execute(
         text("""
             INSERT INTO inventory_items (
-                id, company_id, sku, name, reference, name_reference, item_size, color, entry_price, sale_price, unit_value, min_stock, current_stock, status, created_at, updated_at
+                id, company_id, sku, name, reference, name_reference, item_size, size_value, size_unit, size_review,
+                color, entry_price, sale_price, unit_value, min_stock, current_stock, status, created_at, updated_at
             )
             VALUES (
-                :id, :company_id, :sku, :name, :reference, :name_reference, :item_size, :color, :entry_price, :sale_price, :sale_price, :min_stock, :current_stock, 'active', now(), now()
+                :id, :company_id, :sku, :name, :reference, :name_reference, :item_size, :size_value, :size_unit, :size_review,
+                :color, :entry_price, :sale_price, :sale_price, :min_stock, :current_stock, 'active', now(), now()
             )
             RETURNING *
         """),
@@ -576,7 +617,7 @@ async def create_inventory_item(
             "name": name,
             "reference": name,
             "name_reference": name,
-            "item_size": (payload.size or payload.item_size or "").strip() or None,
+            **size,
             "color": (payload.color or "").strip() or None,
             "entry_price": entry_price,
             "sale_price": sale_price,
@@ -639,6 +680,7 @@ async def _update_inventory_item_record(
         if min_stock < 0:
             raise HTTPException(status_code=422, detail="El mínimo no puede ser negativo.")
 
+    size_update = _size_fields_049M(payload)
     company_filter = " AND company_id = :company_id" if company_id is not None else ""
     result = await db.execute(
         text(f"""
@@ -648,7 +690,10 @@ async def _update_inventory_item_record(
               name = COALESCE(NULLIF(:name_reference, ''), name),
               reference = COALESCE(NULLIF(:name_reference, ''), reference),
               name_reference = COALESCE(NULLIF(:name_reference, ''), name_reference),
-              item_size = :item_size,
+              item_size = CASE WHEN :size_given THEN :item_size ELSE item_size END,
+              size_value = CASE WHEN :size_given THEN :size_value ELSE size_value END,
+              size_unit = CASE WHEN :size_given THEN :size_unit ELSE size_unit END,
+              size_review = CASE WHEN :size_given THEN :size_review ELSE size_review END,
               color = :color,
               entry_price = COALESCE(:entry_price, entry_price),
               sale_price = COALESCE(:sale_price, sale_price),
@@ -664,7 +709,8 @@ async def _update_inventory_item_record(
         {
             "item_id": str(item_id),
             "name_reference": (payload.name_reference or payload.name or payload.reference or "").strip() if (payload.name_reference is not None or payload.name is not None or payload.reference is not None) else "",
-            "item_size": (payload.size or payload.item_size or "").strip() if (payload.size is not None or payload.item_size is not None) else None,
+            **(size_update or {"item_size": None, "size_value": None, "size_unit": None, "size_review": False}),
+            "size_given": size_update is not None,
             "color": (payload.color or "").strip() if payload.color is not None else None,
             "entry_price": entry_price,
             "sale_price": sale_price,

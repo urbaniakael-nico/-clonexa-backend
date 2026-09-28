@@ -1099,11 +1099,11 @@ async def create_cashier_sale(
         await update_hospitality_order_status(company_id, order_id, HospitalityStatusIn(status=STATUS_SERVED), db)
     if charge_now:
         await close_hospitality_order(company_id, order_id, HospitalityCloseIn(payment_method=payment_method), db)
-        # 049I: quien cobro (el arqueo de caja asigna el efectivo a su turno),
-        # solo en empresas con el modulo Costos.
-        from app.api.v1.endpoints.costos import costos_enabled
+        # 049I/049M: quien cobro (el arqueo de caja asigna el efectivo a su
+        # turno), solo en empresas con el arqueo activo.
+        from app.api.v1.endpoints.cash_count import cash_count_enabled
 
-        if await costos_enabled(db, company_id):
+        if await cash_count_enabled(db, company_id):
             await _record_closer_049i(db, company_id, order_id, user)
 
     saved = await _fetch_order(db, company_id, order_id)

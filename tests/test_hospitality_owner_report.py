@@ -353,7 +353,8 @@ def test_hospitality_owner_report_requires_owner_session_and_waiter_ordering(api
 
 def test_hospitality_owner_report_summary_and_details_payloads(api):
     summary = get(ASADERO, "summary", "dueno").json()
-    assert {c["key"] for c in summary["kpis"]["cards"]} == {"sales", "accounts", "ticket", "margin", "cost_pct", "losses"}
+    assert {c["key"] for c in summary["kpis"]["cards"]} == {"sales", "accounts", "ticket", "margin", "cost_pct", "losses", "profit"}
+    assert summary["income_statement"]["operating_profit"] == summary["income_statement"]["gross_margin"], "sin gastos fijos cargados: utilidad = margen"
     assert "_raw" not in summary["kpis"]
     details = get(ASADERO, "details", "dueno").json()
     assert set(details) >= {"daily", "heatmap", "menu", "team", "kitchen", "operations", "inventory"}

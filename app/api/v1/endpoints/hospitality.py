@@ -6142,14 +6142,15 @@ async def update_hospitality_order_status(
 
 
 async def _hsp_closer_049i(db: AsyncSession, company_id: uuid.UUID, request: Any, authorization: Any) -> dict[str, Any] | None:
-    """049I: con el modulo Costos (hoy solo ASADERO) el cobro exige sesion y
-    guarda quien cobro, para asignar el efectivo al arqueo de su turno. Sin el
-    modulo, o en llamadas internas de confianza (sin request), nada cambia."""
+    """049I/049M: con el arqueo de caja activo (hoy solo ASADERO; antes era
+    parte del modulo Costos) el cobro exige sesion y guarda quien cobro, para
+    asignar el efectivo al arqueo de su turno. Sin el arqueo, o en llamadas
+    internas de confianza (sin request), nada cambia."""
     if not isinstance(request, Request):
         return None
-    from app.api.v1.endpoints.costos import costos_enabled
+    from app.api.v1.endpoints.cash_count import cash_count_enabled
 
-    if not await costos_enabled(db, company_id):
+    if not await cash_count_enabled(db, company_id):
         return None
     from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
