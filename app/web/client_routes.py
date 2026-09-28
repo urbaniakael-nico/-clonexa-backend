@@ -58,6 +58,13 @@ def register_client_portal(app: FastAPI) -> None:
         async def delivery_order_page() -> HTMLResponse:
             return _read_html(web_dir / "domicilio.html")
 
+    # 049J: carta que abre el QR impreso de la carta (el codigo secreto ?t= es
+    # la unica credencial; se cambia desde el portal y el anterior deja de servir).
+    if not any(getattr(route, "path", None) == "/carta-qr" for route in app.routes):
+        @app.get("/carta-qr", response_class=HTMLResponse, include_in_schema=False)
+        async def carta_qr_page() -> HTMLResponse:
+            return _read_html(web_dir / "carta_qr.html")
+
     if not any(getattr(route, "path", None) == "/shoplink" for route in app.routes):
         @app.get("/shoplink", response_class=HTMLResponse, include_in_schema=False)
         async def shoplink_public_page() -> HTMLResponse:

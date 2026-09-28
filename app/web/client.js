@@ -35368,8 +35368,7 @@ function inventoryCreatePayload() {
   // Módulo Carta (solo empresas con el módulo "carta"; hoy ASADERO): platos
   // directos o con receta, costo y margen por plato, insumos con tipo y
   // unidades. Sin el módulo nada de esto se ve.
-  var cxCar048T = { tab: "platos", data: null, editing: "", recipeFor: "", draftLines: [], message: "", error: "", busy: false };
-  const CX_CAR_KIND_048T = { directo: "Directo", preparado: "Con receta" };
+  var cxCar048T = { tab: "platos", data: null, message: "", error: "", busy: false };
 
   function cxCarMoney048T(value) {
     if (value === null || value === undefined) return "—";
@@ -35395,72 +35394,485 @@ function inventoryCreatePayload() {
     return text || "No se pudo completar.";
   }
 
-  function cxCarInsumoOptions048T(selected = "", { allowEmpty = false } = {}) {
-    const insumos = (cxCar048T.data?.insumos || []).filter((i) => i.item_type !== "consumible");
-    return `${allowEmpty ? `<option value="">Elige un insumo</option>` : ""}${insumos.map((i) => `<option value="${h(i.id)}" ${String(selected) === String(i.id) ? "selected" : ""}>${h(i.name)} (${h(i.consumption_unit)})</option>`).join("")}`;
+  // 049J: la pestaña Platos es un asistente por pasos y una lista de tarjetas
+  // con foto (nada de tablas técnicas), más la pestaña del QR de la carta.
+  var cxCarWiz049J = null; // asistente abierto; null = lista de tarjetas
+  var cxCarUi049J = { confirmDelete: "", addingCategory: false, summary: "", imageVersion: 0, qr: null, qrConfirm: false };
+  const CX_CAR_STEPS_049J = ["Categoría", "Nombre", "Precio", "¿Cómo se arma?", "Foto y opciones"];
+  const CX_CAR_MODES_049J = {
+    receta: ["Con ingredientes", "Churrasco, hamburguesa: descuenta cada ingrediente"],
+    directo: ["Producto del inventario", "Gaseosa, cerveza: descuenta ese producto"],
+    combo: ["Combo", "Varios platos o insumos juntos: descuenta cada parte"],
+    sin: ["Sin receta", "Saltar este paso: no descuenta inventario"],
+  };
+  const CX_CAR_PRESENTATIONS_049J = ["125 gr", "275 gr", "500 gr", "250 ml", "350 ml", "500 ml", "1.5 L"];
+
+  function cxCarNorm049J(value) {
+    return String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
   }
 
-  function cxCarDishesHtml048T() {
+  function cxCarImageUrl049J(dishId) {
+    return `${API}/companies/${encodeURIComponent(state.companyId)}/waiter-ordering/products/${encodeURIComponent(dishId)}/image?v=${cxCarUi049J.imageVersion}`;
+  }
+
+  function cxCarWizFrom049J(dish) {
+    const insumos = new Map((cxCar048T.data?.insumos || []).map((i) => [i.id, i]));
+    const mode = !dish ? "" : dish.kind === "directo" ? "directo" : dish.kind === "combo" ? "combo" : (dish.recipe || []).length ? "receta" : "sin";
+    const direct = dish?.kind === "directo" && dish.inventory_item_id ? insumos.get(dish.inventory_item_id) : null;
+    return {
+      id: dish?.id || "", step: 1, mode, category: dish?.category_key || "", name: dish?.name || "",
+      presentation: dish?.presentation || "", price: dish ? dish.price : "", station: dish?.station || "",
+      lines: (dish?.recipe || []).map((l) => ({ ...l })),
+      direct: direct ? { inventory_item_id: direct.id, insumo: direct.name, unit: direct.consumption_unit, quantity: dish.direct_qty || 1 } : null,
+      allows_portions: !!dish?.allows_portions, requires_term: !!dish?.requires_term, active: dish ? !!dish.active : true,
+      hasImage: !!dish?.has_image, photo: null, photoUrl: "", search: "", pick: null, error: "", busy: false,
+    };
+  }
+
+  function cxCarWizPool049J(wiz) {
+    const insumos = (cxCar048T.data?.insumos || []).filter((i) => i.item_type !== "consumible")
+      .map((i) => ({ kind: "insumo", id: i.id, name: i.name, unit: i.consumption_unit || "unidad" }));
+    const platos = wiz.mode === "combo"
+      ? (cxCar048T.data?.items || []).filter((d) => d.kind !== "combo" && d.id !== wiz.id)
+        .map((d) => ({ kind: "plato", id: d.id, name: d.display_name || d.name, unit: "plato" }))
+      : [];
+    return [...platos, ...insumos];
+  }
+
+  function cxCarWizOptions049J(wiz) {
+    // buscador del inventario: sin tildes, por palabras, primero lo que empieza igual
+    const q = cxCarNorm049J(wiz.search);
+    const words = q ? q.split(" ") : [];
+    return cxCarWizPool049J(wiz)
+      .filter((o) => words.every((w) => cxCarNorm049J(o.name).includes(w)))
+      .sort((a, b) => Number(!cxCarNorm049J(a.name).startsWith(q)) - Number(!cxCarNorm049J(b.name).startsWith(q)))
+      .slice(0, 12);
+  }
+
+  function cxCarWizResultsHtml049J(wiz) {
+    const options = cxCarWizOptions049J(wiz);
+    if (!options.length) return `<p class="cx-car-note-048t">No hay nada con ese nombre en el inventario.</p>`;
+    return options.map((o) => `<button type="button" class="cx-car-result-049j" data-wz-pick="${h(o.kind)}:${h(o.id)}">${o.kind === "plato" ? "🍽 " : ""}${h(o.name)} <small>${h(o.unit)}</small></button>`).join("");
+  }
+
+  function cxCarWizCategoryHtml049J(wiz) {
+    const cats = cxCar048T.data?.categories || [];
+    return `
+      <h3>¿En qué categoría va?</h3>
+      <div class="cx-car-cats-049j">
+        ${cats.map((c) => `<button type="button" class="${cxCarNorm049J(c.label) === cxCarNorm049J(wiz.category) ? "on" : ""}" data-wz-cat="${h(c.label)}"><b>${h(c.label)}</b>${c.hint ? `<small>${h(c.hint)}</small>` : ""}</button>`).join("")}
+        <button type="button" class="add" data-wz-cat-add><b>+ Agregar categoría</b></button>
+      </div>
+      ${cxCarUi049J.addingCategory ? `<div class="cx-car-inline-049j"><input data-wz-new-cat maxlength="80" placeholder="Ej: DESAYUNOS"><button class="client-btn" type="button" data-wz-cat-save>Agregar</button></div>` : ""}`;
+  }
+
+  function cxCarWizNameHtml049J(wiz) {
+    return `
+      <h3>¿Cómo se llama en la carta?</h3>
+      <label class="cx-car-big-049j">Nombre<input data-wz-field="name" maxlength="220" value="${h(wiz.name)}" placeholder="Ej: Churrasco"></label>
+      <label class="cx-car-big-049j">Cantidad o presentación <small>(opcional)</small><input data-wz-field="presentation" maxlength="60" value="${h(wiz.presentation)}" placeholder="Ej: 275 gr, 500 ml"></label>
+      <div class="cx-car-chips-049j">${CX_CAR_PRESENTATIONS_049J.map((p) => `<button type="button" data-wz-pres="${h(p)}">${h(p)}</button>`).join("")}</div>`;
+  }
+
+  function cxCarWizPriceHtml049J(wiz) {
+    return `
+      <h3>¿A cuánto se vende?</h3>
+      <label class="cx-car-big-049j">Precio de venta<input data-wz-field="price" type="number" inputmode="numeric" min="0" step="1" value="${h(wiz.price)}" placeholder="Ej: 28000"></label>
+      <p class="cx-car-note-048t">El costo y el margen se calculan solos con los ingredientes del siguiente paso.</p>`;
+  }
+
+  function cxCarWizPartsHtml049J(wiz) {
+    const modes = Object.entries(CX_CAR_MODES_049J).map(([key, [label, hint]]) =>
+      `<button type="button" class="${wiz.mode === key ? "on" : ""}" data-wz-mode="${key}"><b>${h(label)}</b><small>${h(hint)}</small></button>`).join("");
+    let body = "";
+    if (wiz.mode === "sin") {
+      body = `<p class="cx-car-note-048t">Este plato no descuenta inventario ni tiene costo. Puedes agregarle receta después con Editar.</p>`;
+    } else if (wiz.mode) {
+      const list = wiz.mode === "directo"
+        ? (wiz.direct ? [wiz.direct] : [])
+        : wiz.lines;
+      body = `
+        <div class="cx-car-lines-049j">${list.map((l, index) => `
+          <div class="cx-car-line-049j"><span>${l.component_item_id ? "🍽 " : ""}${h(l.insumo)}</span><b>${h(l.quantity)} ${h(l.unit)}</b>
+            <button class="client-btn" type="button" data-wz-del="${index}">Quitar</button></div>`).join("") || `<p class="cx-car-note-048t">${wiz.mode === "directo" ? "Busca el producto que descuenta este plato." : "Todavía no hay nada: búscalo abajo y agrégalo con +."}</p>`}</div>
+        ${wiz.pick ? `
+          <div class="cx-car-pick-049j"><span>${h(wiz.pick.name)}</span>
+            <input data-wz-qty type="number" min="0" step="any" inputmode="decimal" value="${h(wiz.pick.quantity)}" placeholder="Cantidad"><small>${h(wiz.pick.unit)}</small>
+            <button class="client-btn" type="button" data-wz-add>+</button><button class="client-btn" type="button" data-wz-pick-cancel>✕</button></div>` : ""}
+        <input class="cx-car-search-049j" data-wz-search value="${h(wiz.search)}" placeholder="${wiz.mode === "combo" ? "Buscar plato o insumo…" : "Buscar en el inventario…"}">
+        <div class="cx-car-results-049j" data-wz-results>${cxCarWizResultsHtml049J(wiz)}</div>`;
+    }
+    return `<h3>¿Cómo se arma?</h3><div class="cx-car-modes-049j">${modes}</div>${body}`;
+  }
+
+  function cxCarWizFinishHtml049J(wiz) {
+    const preview = wiz.photoUrl || (wiz.hasImage && wiz.id ? cxCarImageUrl049J(wiz.id) : "");
+    const toggle = (key, label) => `<button type="button" class="${wiz[key] ? "on" : ""}" data-wz-toggle="${key}">${wiz[key] ? "✔" : "○"} ${h(label)}</button>`;
+    return `
+      <h3>Foto y opciones</h3>
+      <label class="cx-car-photo-049j">
+        <span class="frame">${preview ? `<img src="${h(preview)}" alt="">` : `<span>Sin foto</span>`}</span>
+        <input type="file" accept="image/*" data-wz-photo hidden>
+        <b>${preview ? "Cambiar foto" : "Subir foto"}</b>
+        <small>Se recorta sola al marco estándar para que todas se vean parejas en mesero, caja y domicilios.</small>
+      </label>
+      <div class="cx-car-toggles-049j">
+        ${toggle("allows_portions", "Se vende por porciones (1/4, 1/2, 3/4, entero)")}
+        ${toggle("requires_term", "Pide término de cocción")}
+        ${toggle("active", "Visible en la carta")}
+      </div>`;
+  }
+
+  function cxCarWizHtml049J() {
+    const wiz = cxCarWiz049J;
+    const bodies = [null, cxCarWizCategoryHtml049J, cxCarWizNameHtml049J, cxCarWizPriceHtml049J, cxCarWizPartsHtml049J, cxCarWizFinishHtml049J];
+    const last = wiz.step === CX_CAR_STEPS_049J.length;
+    return `
+      <div class="cx-car-wiz-049j" data-car-wizard>
+        <ol class="cx-car-steps-049j">${CX_CAR_STEPS_049J.map((label, i) => `<li class="${i + 1 === wiz.step ? "on" : i + 1 < wiz.step ? "done" : ""}">${i + 1}. ${h(label)}</li>`).join("")}</ol>
+        <div class="cx-car-wiz-title-049j">${wiz.id ? "Editar plato" : "Nuevo plato"}${wiz.name ? ` · ${h(wiz.name)}` : ""}</div>
+        ${bodies[wiz.step](wiz)}
+        ${wiz.error ? `<div class="personal-toast error">${h(wiz.error)}</div>` : ""}
+        <div class="cx-car-wiz-nav-049j">
+          <button class="client-btn" type="button" data-wz-cancel>Cancelar</button>
+          ${wiz.step > 1 ? `<button class="client-btn" type="button" data-wz-back>← Atrás</button>` : ""}
+          <button class="client-btn primary" type="button" ${last ? "data-wz-save" : "data-wz-next"} ${wiz.busy ? "disabled" : ""}>${last ? (wiz.busy ? "Guardando…" : "Guardar plato") : "Siguiente →"}</button>
+        </div>
+      </div>`;
+  }
+
+  function cxCarMarginHtml049J(d) {
+    if (d.margin === null || d.margin === undefined) return `<span class="cx-car-margin-049j none">Margen: falta el costo</span>`;
+    return `<span class="cx-car-margin-049j ${d.below_cost ? "bad" : "ok"}">Margen ${h(cxCarMoney048T(d.margin))}${d.margin_pct === null ? "" : ` · ${h(d.margin_pct)}%`}</span>`;
+  }
+
+  function cxCarFlagsHtml049J(d) {
+    const flags = [];
+    if (d.kind === "combo") flags.push(`<em>Combo</em>`);
+    if (!d.active) flags.push(`<em>Oculto</em>`);
+    if (d.active && !d.available) flags.push(`<em class="bad">Sin existencias</em>`);
+    if (d.below_cost) flags.push(`<em class="bad">Precio por debajo del costo</em>`);
+    if (d.no_recipe) flags.push(`<em class="bad">${d.kind === "combo" ? "Combo vacío" : "Sin receta"}</em>`);
+    if ((d.missing_cost || []).length) flags.push(`<em>Sin costo: ${h(d.missing_cost.join(", "))}</em>`);
+    return flags.length ? `<div class="cx-car-flags-049j">${flags.join("")}</div>` : "";
+  }
+
+  function cxCarPhotoHtml049J(d) {
+    return `<div class="cx-car-ph-049j">${d.has_image ? `<img src="${h(cxCarImageUrl049J(d.id))}" alt="" loading="lazy">` : `<span>${h(String(d.name || "?").trim().charAt(0).toUpperCase())}</span>`}</div>`;
+  }
+
+  function cxCarCardHtml049J(d) {
+    const confirming = cxCarUi049J.confirmDelete === d.id;
+    return `
+      <article class="cx-car-card-049j ${d.below_cost ? "below" : ""}" data-car-card="${h(d.id)}">
+        ${cxCarPhotoHtml049J(d)}
+        <div class="cx-car-card-body-049j">
+          <b>${h(d.display_name || d.name)}</b>
+          <span class="cx-car-price-049j">${h(cxCarMoney048T(d.price))}</span>
+          ${cxCarMarginHtml049J(d)}
+          ${cxCarFlagsHtml049J(d)}
+        </div>
+        ${confirming
+          ? `<div class="cx-car-card-actions-049j"><span>¿Eliminar este plato?</span><button class="client-btn danger" type="button" data-car-del-yes="${h(d.id)}">Sí, eliminar</button><button class="client-btn" type="button" data-car-del-no>No</button></div>`
+          : `<div class="cx-car-card-actions-049j"><button class="client-btn" type="button" data-car-edit="${h(d.id)}">Editar</button><button class="client-btn danger" type="button" data-car-del="${h(d.id)}">Eliminar</button></div>`}
+      </article>`;
+  }
+
+  function cxCarGroups049J(items) {
+    const order = (cxCar048T.data?.categories || []).map((c) => c.label);
+    const groups = new Map();
+    items.forEach((d) => {
+      const label = String(d.category_key || "").toUpperCase() || "SIN CATEGORÍA";
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(d);
+    });
+    const rank = (label) => { const i = order.findIndex((o) => cxCarNorm049J(o) === cxCarNorm049J(label)); return i < 0 ? order.length : i; };
+    return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
+  }
+
+  function cxCarCardsHtml049J() {
     const items = cxCar048T.data?.items || [];
     const below = items.filter((d) => d.below_cost).length;
-    const noRecipe = items.filter((d) => d.no_recipe).length;
     return `
-      <div class="cx-car-actions-048t"><button class="client-btn" type="button" data-car-new>+ Nuevo plato</button></div>
-      <p class="cx-car-note-048t">${h(items.length)} platos · ${below ? `<b class="bad">${h(below)} con precio por debajo del costo</b>` : "ninguno por debajo del costo"} · ${noRecipe ? `${h(noRecipe)} con receta vacía` : "todas las recetas cargadas"}.</p>
-      ${cxCar048T.editing ? cxCarDishFormHtml048T() : ""}
-      <div class="cx-car-table-wrap-048t"><table class="cx-car-table-048t" data-car-dishes>
-        <thead><tr><th>Plato</th><th>Tipo</th><th>Precio</th><th>Costo</th><th>Margen</th><th></th></tr></thead>
-        <tbody>${items.map((d) => `
-          <tr class="${d.below_cost ? "below" : ""}" data-car-dish="${h(d.id)}">
-            <td><b>${h(d.name)}</b>${d.active ? "" : ` <small>(oculto)</small>`}${d.available || !d.active ? "" : ` <small class="bad">sin existencias</small>`}
-              ${d.below_cost ? `<small class="bad">El precio de venta quedó por debajo del costo</small>` : ""}
-              ${(d.missing_cost || []).length ? `<small>Sin costo cargado: ${h(d.missing_cost.join(", "))}</small>` : ""}
-              ${d.no_recipe ? `<small class="bad">Receta vacía: no descuenta ni tiene costo</small>` : ""}</td>
-            <td>${h(CX_CAR_KIND_048T[d.kind] || d.kind)}</td>
-            <td>${h(cxCarMoney048T(d.price))}</td>
-            <td>${h(cxCarMoney048T(d.cost))}</td>
-            <td>${d.margin === null ? "—" : `${h(cxCarMoney048T(d.margin))}${d.margin_pct === null ? "" : ` <small>${h(d.margin_pct)}%</small>`}`}</td>
-            <td><button class="client-btn" type="button" data-car-edit="${h(d.id)}">Editar</button>${d.kind === "preparado" ? ` <button class="client-btn" type="button" data-car-recipe="${h(d.id)}">Receta</button>` : ""}</td>
-          </tr>
-          ${cxCar048T.recipeFor === d.id ? `<tr><td colspan="6">${cxCarRecipeHtml048T(d)}</td></tr>` : ""}`).join("")}
-        </tbody></table></div>`;
+      <div class="cx-car-actions-048t"><button class="client-btn primary cx-car-new-049j" type="button" data-car-new>+ Crear plato</button></div>
+      <p class="cx-car-note-048t">${h(items.length)} platos${below ? ` · <b class="bad">${h(below)} con precio por debajo del costo</b>` : ""}.</p>
+      ${items.length ? cxCarGroups049J(items).map(([label, dishes]) => `
+        <section class="cx-car-group-049j"><h3>${h(label)} <small>${h(dishes.length)}</small></h3>
+          <div class="cx-car-cards-049j">${dishes.map(cxCarCardHtml049J).join("")}</div></section>`).join("")
+        : `<p class="cx-car-note-048t">Todavía no hay platos. Crea el primero con el botón de arriba.</p>`}`;
   }
 
-  function cxCarDishFormHtml048T() {
-    const dish = (cxCar048T.data?.items || []).find((d) => d.id === cxCar048T.editing) || { kind: "directo", active: true, direct_qty: 1 };
+  function cxCarSummaryHtml049J(d) {
     return `
-      <form class="cx-car-form-048t" data-car-form>
-        <h3>${cxCar048T.editing === "new" ? "Nuevo plato" : `Editar ${h(dish.name)}`}</h3>
-        <label>Nombre<input name="name" value="${h(dish.name || "")}" required></label>
-        <label>Precio de venta<input name="price" type="number" min="0" step="1" value="${h(dish.price ?? "")}"></label>
-        <label>Categoría<input name="category_key" value="${h(dish.category_key || "")}" placeholder="Vacío = la de su nombre"></label>
-        <label>Estación<input name="station" value="${h(dish.station || "")}" placeholder="Vacío = la de la categoría"></label>
-        <label>Tipo<select name="kind"><option value="directo" ${dish.kind === "directo" ? "selected" : ""}>Directo (descuenta un insumo)</option><option value="preparado" ${dish.kind === "preparado" ? "selected" : ""}>Con receta</option></select></label>
-        <label>Insumo que descuenta (solo directos)<select name="inventory_item_id">${cxCarInsumoOptions048T(dish.inventory_item_id, { allowEmpty: true })}</select></label>
-        <label>Cantidad del insumo por plato<input name="direct_qty" type="number" min="0.0001" step="0.0001" value="${h(dish.direct_qty ?? 1)}"></label>
-        <label class="check"><input type="checkbox" name="requires_term" ${dish.requires_term ? "checked" : ""}> Pide término de cocción</label>
-        <label class="check"><input type="checkbox" name="allows_portions" ${dish.allows_portions ? "checked" : ""}> Se vende por porciones (1/4, 1/2…)</label>
-        <label class="check"><input type="checkbox" name="active" ${dish.active ? "checked" : ""}> Visible en la carta</label>
-        <div class="cx-car-actions-048t"><button class="client-btn" type="button" data-car-save-dish>Guardar</button><button class="client-btn" type="button" data-car-cancel>Cancelar</button></div>
-      </form>`;
-  }
-
-  function cxCarRecipeHtml048T(dish) {
-    const lines = cxCar048T.draftLines;
-    const insumos = new Map((cxCar048T.data?.insumos || []).map((i) => [i.id, i]));
-    return `
-      <div class="cx-car-recipe-048t" data-car-recipe-editor>
-        <p class="cx-car-note-048t">Cantidad = lo que va en el plato (ya limpio y cocido). Rendimiento = cuánto del insumo crudo queda útil; el sistema descuenta cantidad ÷ rendimiento. Vacío = 100%.</p>
-        ${lines.map((line, index) => `
-          <div class="cx-car-line-048t" data-car-line="${index}">
-            <select name="inventory_item_id">${cxCarInsumoOptions048T(line.inventory_item_id, { allowEmpty: true })}</select>
-            <input name="quantity" type="number" min="0.0001" step="0.01" value="${h(line.quantity ?? "")}" placeholder="Cantidad">
-            <span>${h(insumos.get(line.inventory_item_id)?.consumption_unit || "")}</span>
-            <input name="yield_pct" type="number" min="1" max="100" step="0.1" value="${h(line.yield_pct ?? 100)}" title="Rendimiento %"><span>%</span>
-            <button class="client-btn" type="button" data-car-del-line="${index}">Quitar</button>
-          </div>`).join("")}
-        <div class="cx-car-actions-048t"><button class="client-btn" type="button" data-car-add-line>+ Ingrediente</button><button class="client-btn" type="button" data-car-save-recipe="${h(dish.id)}">Guardar receta</button></div>
+      <div class="cx-car-summary-049j" data-car-summary>
+        <h3>✔ Plato guardado</h3>
+        <div class="cx-car-summary-row-049j">
+          ${cxCarPhotoHtml049J(d)}
+          <div>
+            <b>${h(d.display_name || d.name)}</b><small>${h(d.category_key || "Sin categoría")}${d.kind === "combo" ? " · Combo" : ""}</small>
+            <dl><dt>Precio</dt><dd>${h(cxCarMoney048T(d.price))}</dd><dt>Costo</dt><dd>${h(cxCarMoney048T(d.cost))}</dd>
+              <dt>Margen</dt><dd>${cxCarMarginHtml049J(d)}</dd></dl>
+            ${(d.recipe || []).length ? `<p class="cx-car-note-048t">${d.kind === "combo" ? "Lleva" : "Ingredientes"}: ${h(d.recipe.map((l) => `${l.insumo} ${l.quantity} ${l.unit}`).join(", "))}</p>` : ""}
+            ${cxCarFlagsHtml049J(d)}
+          </div>
+        </div>
+        <div class="cx-car-actions-048t"><button class="client-btn primary" type="button" data-car-new>+ Crear otro plato</button><button class="client-btn" type="button" data-car-summary-close>Ver todos los platos</button></div>
       </div>`;
+  }
+
+  function cxCarPlatosHtml049J() {
+    if (cxCarWiz049J) return cxCarWizHtml049J();
+    const done = cxCarUi049J.summary && (cxCar048T.data?.items || []).find((d) => d.id === cxCarUi049J.summary);
+    return `${done ? cxCarSummaryHtml049J(done) : ""}${cxCarCardsHtml049J()}`;
+  }
+
+  function cxCarQrHtml049J() {
+    const qr = cxCarUi049J.qr;
+    if (!qr) return `<div class="cx-car-note-048t">Generando el QR de la carta…</div>`;
+    if (qr.error) return `<div class="personal-toast error">${h(qr.error)}</div>`;
+    return `
+      <div class="cx-car-qr-049j">
+        ${qr.image ? `<img src="${h(qr.image)}" alt="QR de la carta">` : `<div class="cx-car-note-048t">Cargando imagen…</div>`}
+        <div>
+          <h3>QR de la carta</h3>
+          <p class="cx-car-note-048t">Abre la misma carta visual que ven los clientes (fotos, categorías y precios; nunca costos). Imprímelo y pégalo en las mesas o compártelo en redes.</p>
+          <p class="cx-car-qr-url-049j">${h(qr.url)}</p>
+          <div class="cx-car-actions-048t">
+            <button class="client-btn primary" type="button" data-car-qr-download ${qr.image ? "" : "disabled"}>Descargar imagen</button>
+            <a class="client-btn" href="${h(qr.url)}" target="_blank" rel="noopener">Abrir la carta</a>
+            <button class="client-btn" type="button" data-car-qr-copy>Copiar link</button>
+          </div>
+          ${cxCarUi049J.qrConfirm
+            ? `<div class="cx-car-actions-048t"><span>El QR impreso dejará de abrir la carta.</span><button class="client-btn danger" type="button" data-car-qr-regen-yes>Sí, cambiar código</button><button class="client-btn" type="button" data-car-qr-regen-no>No</button></div>`
+            : `<button class="client-btn" type="button" data-car-qr-regen>Cambiar código</button>`}
+        </div>
+      </div>`;
+  }
+
+  async function cxCarQrLoad049J(regenerate = false) {
+    try {
+      const info = await cxCarApi048T(regenerate ? "/qr/regenerate" : "/qr", regenerate ? { method: "POST" } : {});
+      if (cxCarUi049J.qr?.image) URL.revokeObjectURL(cxCarUi049J.qr.image);
+      cxCarUi049J.qr = { url: info.url, image: "" };
+      cxCarPaint048T();
+      const res = await fetch(`${API}/carta/companies/${encodeURIComponent(state.companyId)}/qr.png`, { headers: authHeaders({}) });
+      if (!res.ok) throw new Error("No se pudo generar la imagen del QR.");
+      cxCarUi049J.qr.image = URL.createObjectURL(await res.blob());
+    } catch (error) {
+      cxCarUi049J.qr = { error: cxCarErr048T(error) };
+    }
+    cxCarPaint048T();
+  }
+
+  function cxCarWizRead049J() {
+    const wiz = cxCarWiz049J;
+    if (!wiz) return;
+    document.querySelectorAll("[data-wz-field]").forEach((input) => { wiz[input.getAttribute("data-wz-field")] = input.value; });
+    const qty = document.querySelector("[data-wz-qty]");
+    if (qty && wiz.pick) wiz.pick.quantity = qty.value;
+  }
+
+  function cxCarWizCheck049J(wiz) {
+    if (wiz.step === 1 && !wiz.category) return "Elige una categoría.";
+    if (wiz.step === 2 && !String(wiz.name).trim()) return "Escribe el nombre del plato.";
+    if (wiz.step === 3 && !(Number(wiz.price) > 0)) return "Escribe el precio de venta.";
+    if (wiz.step === 4) {
+      if (!wiz.mode) return "Elige cómo se arma el plato.";
+      if (wiz.mode === "directo" && !wiz.direct) return "Busca y agrega el producto que descuenta.";
+      if ((wiz.mode === "receta" || wiz.mode === "combo") && !wiz.lines.length) return "Agrega al menos un ingrediente con +.";
+    }
+    return "";
+  }
+
+  async function cxCarWizSave049J() {
+    const wiz = cxCarWiz049J;
+    const kind = wiz.mode === "directo" ? "directo" : wiz.mode === "combo" ? "combo" : "preparado";
+    const body = {
+      name: String(wiz.name).trim(), presentation: String(wiz.presentation || "").trim(), price: Number(wiz.price) || 0,
+      category_key: wiz.category, station: wiz.station, kind,
+      inventory_item_id: kind === "directo" ? wiz.direct.inventory_item_id : null,
+      direct_qty: kind === "directo" ? Number(wiz.direct.quantity) || 1 : 1,
+      requires_term: wiz.requires_term, allows_portions: wiz.allows_portions, active: wiz.active,
+    };
+    wiz.busy = true;
+    wiz.error = "";
+    cxCarPaint048T();
+    try {
+      let data = await cxCarApi048T(wiz.id ? `/items/${encodeURIComponent(wiz.id)}` : "/items",
+        { method: wiz.id ? "PUT" : "POST", body: JSON.stringify(body) });
+      wiz.id = wiz.id || data.created_id; // si algo falla después, reintentar actualiza en vez de duplicar
+      if (kind !== "directo") {
+        const lines = wiz.mode === "sin" ? [] : wiz.lines.map((l) => (l.component_item_id
+          ? { component_item_id: l.component_item_id, quantity: Number(l.quantity) }
+          : { inventory_item_id: l.inventory_item_id, quantity: Number(l.quantity), yield_pct: Number(l.yield_pct) || 100 }));
+        data = await cxCarApi048T(`/items/${encodeURIComponent(wiz.id)}/recipe`, { method: "PUT", body: JSON.stringify({ lines }) });
+      }
+      if (wiz.photo) {
+        const form = new FormData();
+        form.append("image", wiz.photo);
+        data = await apiForm(`/carta/companies/${encodeURIComponent(state.companyId)}/items/${encodeURIComponent(wiz.id)}/photo`, form);
+        cxCarUi049J.imageVersion = Date.now();
+      }
+      if (wiz.photoUrl) URL.revokeObjectURL(wiz.photoUrl);
+      cxCar048T.data = data;
+      cxCar048T.error = "";
+      cxCarUi049J.summary = wiz.id;
+      cxCarWiz049J = null;
+    } catch (error) {
+      wiz.error = cxCarErr048T(error);
+      wiz.busy = false;
+    }
+    cxCarPaint048T();
+  }
+
+  async function cxCarHandleClick049J(target) {
+    const wiz = cxCarWiz049J;
+    const paint = () => { cxCarPaint048T(); return true; };
+    if (target.closest("[data-car-new]")) {
+      cxCarWiz049J = cxCarWizFrom049J(null);
+      cxCarUi049J.summary = "";
+      cxCarUi049J.addingCategory = false;
+      return paint();
+    }
+    const edit = target.closest("[data-car-edit]");
+    if (edit) {
+      cxCarWiz049J = cxCarWizFrom049J((cxCar048T.data?.items || []).find((d) => d.id === edit.getAttribute("data-car-edit")));
+      cxCarUi049J.summary = "";
+      return paint();
+    }
+    if (target.closest("[data-car-summary-close]")) { cxCarUi049J.summary = ""; return paint(); }
+    const del = target.closest("[data-car-del]");
+    if (del) { cxCarUi049J.confirmDelete = del.getAttribute("data-car-del"); return paint(); }
+    if (target.closest("[data-car-del-no]")) { cxCarUi049J.confirmDelete = ""; return paint(); }
+    const delYes = target.closest("[data-car-del-yes]");
+    if (delYes) {
+      cxCarUi049J.confirmDelete = "";
+      await cxCarSave048T(() => cxCarApi048T(`/items/${encodeURIComponent(delYes.getAttribute("data-car-del-yes"))}`, { method: "DELETE" }), "Plato eliminado.");
+      return true;
+    }
+    if (target.closest("[data-car-qr-download]") && cxCarUi049J.qr?.image) {
+      const link = document.createElement("a");
+      link.href = cxCarUi049J.qr.image;
+      link.download = "qr_carta.png";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return true;
+    }
+    if (target.closest("[data-car-qr-copy]") && cxCarUi049J.qr?.url) {
+      try { await navigator.clipboard.writeText(cxCarUi049J.qr.url); cxCar048T.message = "Link copiado."; } catch (_) { cxCar048T.message = cxCarUi049J.qr.url; }
+      return paint();
+    }
+    if (target.closest("[data-car-qr-regen]")) { cxCarUi049J.qrConfirm = true; return paint(); }
+    if (target.closest("[data-car-qr-regen-no]")) { cxCarUi049J.qrConfirm = false; return paint(); }
+    if (target.closest("[data-car-qr-regen-yes]")) {
+      cxCarUi049J.qrConfirm = false;
+      await cxCarQrLoad049J(true);
+      cxCar048T.message = "Código cambiado: imprime el QR nuevo.";
+      return paint();
+    }
+    if (!wiz) return false;
+    cxCarWizRead049J();
+    wiz.error = "";
+    if (target.closest("[data-wz-cancel]")) { if (wiz.photoUrl) URL.revokeObjectURL(wiz.photoUrl); cxCarWiz049J = null; return paint(); }
+    if (target.closest("[data-wz-back]")) { wiz.step = Math.max(1, wiz.step - 1); return paint(); }
+    if (target.closest("[data-wz-next]")) {
+      wiz.error = cxCarWizCheck049J(wiz);
+      if (!wiz.error) wiz.step += 1;
+      return paint();
+    }
+    if (target.closest("[data-wz-save]")) {
+      for (let step = 1; step < CX_CAR_STEPS_049J.length; step += 1) {
+        const error = cxCarWizCheck049J({ ...wiz, step });
+        if (error) { wiz.step = step; wiz.error = error; return paint(); }
+      }
+      await cxCarWizSave049J();
+      return true;
+    }
+    const cat = target.closest("[data-wz-cat]");
+    if (cat) { wiz.category = cat.getAttribute("data-wz-cat"); wiz.step = 2; return paint(); }
+    if (target.closest("[data-wz-cat-add]")) { cxCarUi049J.addingCategory = true; return paint(); }
+    if (target.closest("[data-wz-cat-save]")) {
+      const label = String(document.querySelector("[data-wz-new-cat]")?.value || "").trim();
+      if (!label) { wiz.error = "Escribe el nombre de la categoría."; return paint(); }
+      try {
+        cxCar048T.data = await cxCarApi048T("/categories", { method: "POST", body: JSON.stringify({ label }) });
+        cxCarUi049J.addingCategory = false;
+        wiz.category = label.toUpperCase();
+        wiz.step = 2;
+      } catch (error) {
+        wiz.error = cxCarErr048T(error);
+      }
+      return paint();
+    }
+    const pres = target.closest("[data-wz-pres]");
+    if (pres) { wiz.presentation = pres.getAttribute("data-wz-pres"); return paint(); }
+    const mode = target.closest("[data-wz-mode]");
+    if (mode) {
+      const next = mode.getAttribute("data-wz-mode");
+      if (next !== wiz.mode) {
+        // los platos de un combo solo valen en un combo
+        if (next !== "combo") wiz.lines = wiz.lines.filter((l) => !l.component_item_id);
+        wiz.mode = next;
+        wiz.pick = null;
+        wiz.search = "";
+      }
+      return paint();
+    }
+    const pick = target.closest("[data-wz-pick]");
+    if (pick) {
+      const [kind, id] = pick.getAttribute("data-wz-pick").split(":");
+      const option = cxCarWizPool049J(wiz).find((o) => o.kind === kind && o.id === id);
+      if (option) wiz.pick = { ...option, quantity: option.unit === "g" || option.unit === "ml" ? "" : 1 };
+      return paint();
+    }
+    if (target.closest("[data-wz-pick-cancel]")) { wiz.pick = null; return paint(); }
+    if (target.closest("[data-wz-add]") && wiz.pick) {
+      const quantity = Number(wiz.pick.quantity);
+      if (!(quantity > 0)) { wiz.error = `Escribe la cantidad de ${wiz.pick.name}.`; return paint(); }
+      const line = wiz.pick.kind === "plato"
+        ? { component_item_id: wiz.pick.id, inventory_item_id: null, insumo: wiz.pick.name, unit: "plato", quantity, yield_pct: 100 }
+        : { component_item_id: null, inventory_item_id: wiz.pick.id, insumo: wiz.pick.name, unit: wiz.pick.unit, quantity, yield_pct: 100 };
+      if (wiz.mode === "directo") {
+        wiz.direct = line;
+      } else {
+        const same = (l) => (line.component_item_id ? l.component_item_id === line.component_item_id : l.inventory_item_id === line.inventory_item_id);
+        const existing = wiz.lines.find(same);
+        if (existing) existing.quantity = quantity;
+        else wiz.lines.push(line);
+      }
+      wiz.pick = null;
+      wiz.search = "";
+      return paint();
+    }
+    const delLine = target.closest("[data-wz-del]");
+    if (delLine) {
+      if (wiz.mode === "directo") wiz.direct = null;
+      else wiz.lines.splice(Number(delLine.getAttribute("data-wz-del")), 1);
+      return paint();
+    }
+    const toggle = target.closest("[data-wz-toggle]");
+    if (toggle) { const key = toggle.getAttribute("data-wz-toggle"); wiz[key] = !wiz[key]; return paint(); }
+    return target.closest("[data-car-wizard]") ? true : false;
+  }
+
+  function cxCarOnInput049J(event) {
+    const search = event.target.closest?.("[data-wz-search]");
+    if (!search || !cxCarWiz049J) return;
+    cxCarWiz049J.search = search.value;
+    const box = document.querySelector("[data-wz-results]");
+    if (box) box.innerHTML = cxCarWizResultsHtml049J(cxCarWiz049J);
+  }
+
+  function cxCarOnChange049J(event) {
+    const input = event.target.closest?.("[data-wz-photo]");
+    const file = input?.files?.[0];
+    if (!file || !cxCarWiz049J) return;
+    cxCarWizRead049J();
+    if (cxCarWiz049J.photoUrl) URL.revokeObjectURL(cxCarWiz049J.photoUrl);
+    cxCarWiz049J.photo = file;
+    cxCarWiz049J.photoUrl = URL.createObjectURL(file);
+    cxCarPaint048T();
   }
 
   function cxCarInsumosHtml048T() {
@@ -35488,14 +35900,17 @@ function inventoryCreatePayload() {
   function cxCarPaint048T() {
     const root = document.getElementById("cxCarRoot048T");
     if (!root) return;
+    const tabs = [["platos", "Platos"], ["insumos", "Insumos"], ["qr", "QR de la carta"]];
     root.innerHTML = `
       <div class="cx-car-tabs-048t">
-        <button class="${cxCar048T.tab === "platos" ? "active" : ""}" type="button" data-car-tab="platos">Platos</button>
-        <button class="${cxCar048T.tab === "insumos" ? "active" : ""}" type="button" data-car-tab="insumos">Insumos</button>
+        ${tabs.map(([key, label]) => `<button class="${cxCar048T.tab === key ? "active" : ""}" type="button" data-car-tab="${key}">${label}</button>`).join("")}
       </div>
       ${cxCar048T.error ? `<div class="personal-toast error">${h(cxCar048T.error)}</div>` : ""}
       ${cxCar048T.message ? `<div class="personal-toast ok">${h(cxCar048T.message)}</div>` : ""}
-      ${!cxCar048T.data ? `<div class="cx-car-note-048t">Cargando carta…</div>` : cxCar048T.tab === "insumos" ? cxCarInsumosHtml048T() : cxCarDishesHtml048T()}`;
+      ${!cxCar048T.data ? `<div class="cx-car-note-048t">Cargando carta…</div>`
+        : cxCar048T.tab === "insumos" ? cxCarInsumosHtml048T()
+        : cxCar048T.tab === "qr" ? cxCarQrHtml049J()
+        : cxCarPlatosHtml049J()}`;
   }
 
   async function cxCarLoad048T() {
@@ -35514,6 +35929,7 @@ function inventoryCreatePayload() {
       return;
     }
     cxCarStyles048T();
+    cxCarStyles049J();
     const company = state.company || {};
     $("app").innerHTML = `
       <main class="client-shell"><div class="client-layout">
@@ -35524,33 +35940,19 @@ function inventoryCreatePayload() {
         </aside>
         <section class="client-main">
           <header class="client-hero"><div class="client-eyebrow">Módulo Carta</div><h1 class="client-title">Carta</h1>
-            <p class="client-muted">Lo que se vende: platos directos o con receta. El costo sale del costo promedio de los insumos y el margen se calcula solo.</p>
+            <p class="client-muted">Crea tus platos paso a paso. El costo sale de los ingredientes y el margen se calcula solo.</p>
             <div class="client-actions"><button class="client-btn" type="button" data-client-back-dashboard>Volver</button></div>
           </header>
           <section class="client-panel" id="cxCarRoot048T"></section>
         </section>
       </div></main>`;
+    const root = document.getElementById("cxCarRoot048T");
+    root.addEventListener("input", cxCarOnInput049J);
+    root.addEventListener("change", cxCarOnChange049J);
+    cxCarWiz049J = null;
+    cxCarUi049J.summary = "";
     cxCarPaint048T();
     await cxCarLoad048T();
-  }
-
-  function cxCarReadDish048T() {
-    const form = document.querySelector("[data-car-form]");
-    const val = (name) => form.querySelector(`[name=${name}]`);
-    return {
-      name: val("name").value.trim(), price: Number(val("price").value || 0), category_key: val("category_key").value.trim(),
-      station: val("station").value.trim(), kind: val("kind").value, inventory_item_id: val("inventory_item_id").value || null,
-      direct_qty: Number(val("direct_qty").value || 1), requires_term: val("requires_term").checked,
-      allows_portions: val("allows_portions").checked, active: val("active").checked,
-    };
-  }
-
-  function cxCarReadLines048T() {
-    return [...document.querySelectorAll("[data-car-line]")].map((row) => ({
-      inventory_item_id: row.querySelector("[name=inventory_item_id]").value,
-      quantity: Number(row.querySelector("[name=quantity]").value || 0),
-      yield_pct: Number(row.querySelector("[name=yield_pct]").value || 100),
-    }));
   }
 
   async function cxCarSave048T(fn, message) {
@@ -35572,39 +35974,14 @@ function inventoryCreatePayload() {
 
   async function cxCarHandleClick048T(target) {
     const tab = target.closest("[data-car-tab]");
-    if (tab) { cxCar048T.tab = tab.getAttribute("data-car-tab"); cxCar048T.message = ""; cxCarPaint048T(); return true; }
-    if (target.closest("[data-car-new]")) { cxCar048T.editing = "new"; cxCar048T.recipeFor = ""; cxCarPaint048T(); return true; }
-    const edit = target.closest("[data-car-edit]");
-    if (edit) { cxCar048T.editing = edit.getAttribute("data-car-edit"); cxCar048T.recipeFor = ""; cxCarPaint048T(); return true; }
-    if (target.closest("[data-car-cancel]")) { cxCar048T.editing = ""; cxCarPaint048T(); return true; }
-    if (target.closest("[data-car-save-dish]")) {
-      const body = cxCarReadDish048T();
-      const id = cxCar048T.editing;
-      const ok = await cxCarSave048T(() => cxCarApi048T(id === "new" ? "/items" : `/items/${encodeURIComponent(id)}`,
-        { method: id === "new" ? "POST" : "PUT", body: JSON.stringify(body) }), "Plato guardado.");
-      if (ok) { cxCar048T.editing = ""; cxCarPaint048T(); }
-      return true;
-    }
-    const recipe = target.closest("[data-car-recipe]");
-    if (recipe) {
-      const id = recipe.getAttribute("data-car-recipe");
-      cxCar048T.recipeFor = cxCar048T.recipeFor === id ? "" : id;
-      const dish = (cxCar048T.data?.items || []).find((d) => d.id === id);
-      cxCar048T.draftLines = (dish?.recipe || []).map((l) => ({ ...l }));
-      if (!cxCar048T.draftLines.length) cxCar048T.draftLines = [{ inventory_item_id: "", quantity: "", yield_pct: 100 }];
+    if (tab) {
+      cxCar048T.tab = tab.getAttribute("data-car-tab");
+      cxCar048T.message = "";
       cxCarPaint048T();
+      if (cxCar048T.tab === "qr" && !cxCarUi049J.qr?.image) await cxCarQrLoad049J();
       return true;
     }
-    if (target.closest("[data-car-add-line]")) { cxCar048T.draftLines = [...cxCarReadLines048T(), { inventory_item_id: "", quantity: "", yield_pct: 100 }]; cxCarPaint048T(); return true; }
-    const del = target.closest("[data-car-del-line]");
-    if (del) { const lines = cxCarReadLines048T(); lines.splice(Number(del.getAttribute("data-car-del-line")), 1); cxCar048T.draftLines = lines; cxCarPaint048T(); return true; }
-    const saveRecipe = target.closest("[data-car-save-recipe]");
-    if (saveRecipe) {
-      const lines = cxCarReadLines048T().filter((l) => l.inventory_item_id && l.quantity > 0);
-      await cxCarSave048T(() => cxCarApi048T(`/items/${encodeURIComponent(saveRecipe.getAttribute("data-car-save-recipe"))}/recipe`,
-        { method: "PUT", body: JSON.stringify({ lines }) }), "Receta guardada. El costo del plato se recalculó.");
-      return true;
-    }
+    if (await cxCarHandleClick049J(target)) return true;
     const saveInsumo = target.closest("[data-car-save-insumo]");
     if (saveInsumo) {
       const row = saveInsumo.closest("[data-car-insumo]");
@@ -35657,6 +36034,83 @@ function inventoryCreatePayload() {
       .cx-car-recipe-048t { display:grid; gap:8px; padding:10px; border-radius:12px; background:rgba(255,255,255,.04); }
       .cx-car-line-048t { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
       .cx-car-alert-048t { display:grid; gap:4px; width:100%; margin-top:12px; padding:12px 14px; border-radius:14px; border:1px solid rgba(248,113,113,.7); background:rgba(248,113,113,.14); color:inherit; text-align:left; cursor:pointer; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function cxCarStyles049J() {
+    if (document.getElementById("cxCar049JStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxCar049JStyles";
+    style.textContent = `
+      .client-btn.primary { background:#22c55e; color:#06140b; border-color:#22c55e; font-weight:800; }
+      .client-btn.danger { border-color:rgba(248,113,113,.7); color:#fca5a5; }
+      .cx-car-new-049j { min-height:52px; padding:10px 22px; font-size:16px; }
+      .cx-car-group-049j h3 { margin:18px 0 8px; font-size:15px; letter-spacing:.04em; }
+      .cx-car-group-049j h3 small { opacity:.6; font-weight:600; }
+      .cx-car-cards-049j { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
+      .cx-car-card-049j { display:grid; grid-template-rows:auto 1fr auto; border-radius:16px; overflow:hidden; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.04); }
+      .cx-car-card-049j.below { border-color:rgba(248,113,113,.7); }
+      .cx-car-ph-049j { aspect-ratio:4/3; background:rgba(255,255,255,.07); display:grid; place-items:center; overflow:hidden; }
+      .cx-car-ph-049j img { width:100%; height:100%; object-fit:cover; display:block; }
+      .cx-car-ph-049j span { font-size:42px; font-weight:900; opacity:.35; }
+      .cx-car-card-body-049j { display:grid; gap:4px; padding:10px 12px; align-content:start; }
+      .cx-car-card-body-049j b { font-size:16px; }
+      .cx-car-price-049j { font-size:20px; font-weight:900; color:#ffd166; }
+      .cx-car-margin-049j { font-size:13px; font-weight:700; }
+      .cx-car-margin-049j.ok { color:#4ade80; } .cx-car-margin-049j.bad { color:#f87171; } .cx-car-margin-049j.none { opacity:.65; }
+      .cx-car-flags-049j { display:flex; flex-wrap:wrap; gap:4px; }
+      .cx-car-flags-049j em { font-style:normal; font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.1); }
+      .cx-car-flags-049j em.bad { background:rgba(248,113,113,.18); color:#fca5a5; }
+      .cx-car-card-actions-049j { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:0 12px 12px; }
+      .cx-car-card-actions-049j .client-btn { flex:1; min-height:46px; font-weight:800; }
+      .cx-car-card-actions-049j span { width:100%; font-size:13px; }
+      .cx-car-wiz-049j { display:grid; gap:12px; padding:16px; border-radius:18px; border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.03); }
+      .cx-car-wiz-049j h3 { margin:0; font-size:20px; }
+      .cx-car-wiz-title-049j { opacity:.7; font-size:13px; }
+      .cx-car-steps-049j { display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; list-style:none; }
+      .cx-car-steps-049j li { padding:4px 10px; border-radius:999px; font-size:12px; background:rgba(255,255,255,.07); opacity:.7; }
+      .cx-car-steps-049j li.on { background:#22c55e; color:#06140b; opacity:1; font-weight:800; }
+      .cx-car-steps-049j li.done { opacity:1; }
+      .cx-car-cats-049j, .cx-car-modes-049j { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px; }
+      .cx-car-cats-049j button, .cx-car-modes-049j button { display:grid; gap:4px; min-height:84px; padding:14px; border-radius:16px; border:2px solid rgba(255,255,255,.16); background:rgba(255,255,255,.05); color:inherit; text-align:left; cursor:pointer; }
+      .cx-car-cats-049j button b, .cx-car-modes-049j button b { font-size:17px; }
+      .cx-car-cats-049j button small, .cx-car-modes-049j button small { opacity:.7; font-size:12px; }
+      .cx-car-cats-049j button.on, .cx-car-modes-049j button.on { border-color:#22c55e; background:rgba(34,197,94,.14); }
+      .cx-car-cats-049j button.add { border-style:dashed; place-items:center; text-align:center; }
+      .cx-car-inline-049j, .cx-car-pick-049j { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+      .cx-car-inline-049j input, .cx-car-pick-049j input, .cx-car-search-049j, .cx-car-big-049j input { min-height:48px; border-radius:12px; padding:6px 12px; font-size:17px; max-width:100%; }
+      .cx-car-pick-049j { padding:10px; border-radius:12px; background:rgba(34,197,94,.12); }
+      .cx-car-pick-049j input { width:120px; }
+      .cx-car-pick-049j span { font-weight:800; }
+      .cx-car-big-049j { display:grid; gap:6px; font-weight:700; }
+      .cx-car-chips-049j { display:flex; flex-wrap:wrap; gap:6px; }
+      .cx-car-chips-049j button { min-height:38px; padding:4px 14px; border-radius:999px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.06); color:inherit; }
+      .cx-car-results-049j { display:flex; flex-wrap:wrap; gap:6px; }
+      .cx-car-result-049j { min-height:42px; padding:6px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.05); color:inherit; cursor:pointer; }
+      .cx-car-result-049j small { opacity:.6; }
+      .cx-car-lines-049j { display:grid; gap:6px; }
+      .cx-car-line-049j { display:flex; gap:10px; align-items:center; padding:8px 10px; border-radius:12px; background:rgba(255,255,255,.06); }
+      .cx-car-line-049j span { flex:1; }
+      .cx-car-photo-049j { display:grid; gap:6px; justify-items:start; cursor:pointer; }
+      .cx-car-photo-049j .frame { width:min(320px, 100%); aspect-ratio:4/3; border-radius:14px; overflow:hidden; border:2px dashed rgba(255,255,255,.25); display:grid; place-items:center; }
+      .cx-car-photo-049j .frame img { width:100%; height:100%; object-fit:cover; }
+      .cx-car-photo-049j small { opacity:.7; }
+      .cx-car-toggles-049j { display:grid; gap:8px; }
+      .cx-car-toggles-049j button { min-height:52px; padding:10px 14px; border-radius:14px; border:2px solid rgba(255,255,255,.16); background:rgba(255,255,255,.05); color:inherit; text-align:left; font-size:15px; font-weight:700; cursor:pointer; }
+      .cx-car-toggles-049j button.on { border-color:#22c55e; background:rgba(34,197,94,.14); }
+      .cx-car-wiz-nav-049j { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+      .cx-car-wiz-nav-049j .client-btn { min-height:50px; padding:8px 20px; font-size:16px; }
+      .cx-car-summary-049j { padding:16px; border-radius:18px; border:2px solid #22c55e; background:rgba(34,197,94,.08); margin-bottom:14px; }
+      .cx-car-summary-049j h3 { margin:0 0 10px; }
+      .cx-car-summary-row-049j { display:grid; grid-template-columns:minmax(0, 220px) 1fr; gap:14px; }
+      .cx-car-summary-row-049j small { display:block; opacity:.7; }
+      .cx-car-summary-row-049j dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:10px 0; }
+      .cx-car-summary-row-049j dt { opacity:.7; } .cx-car-summary-row-049j dd { margin:0; font-weight:800; }
+      .cx-car-qr-049j { display:grid; grid-template-columns:minmax(0, 280px) 1fr; gap:18px; align-items:start; }
+      .cx-car-qr-049j img { width:100%; background:#fff; border-radius:14px; }
+      .cx-car-qr-url-049j { word-break:break-all; font-size:12px; opacity:.75; }
+      @media (max-width:640px) { .cx-car-summary-row-049j, .cx-car-qr-049j { grid-template-columns:1fr; } }
     `;
     document.head.appendChild(style);
   }

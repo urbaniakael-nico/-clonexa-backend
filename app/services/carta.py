@@ -23,7 +23,16 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Iterable
 
 ITEM_TYPES = {"venta_directa": "Venta directa", "ingrediente": "Ingrediente", "consumible": "Consumible"}
-DISH_KINDS = {"directo", "preparado"}
+DISH_KINDS = {"directo", "preparado", "combo"}
+# Categorias sugeridas del asistente (el dueño puede agregar las suyas).
+PRESET_CATEGORIES = [
+    ("BEBIDAS", "gaseosas, jugos, energizantes, cerveza"),
+    ("PLATOS A LA CARTA", "churrasco, carne asada, pechuga a la plancha, costillitas"),
+    ("POLLO", "frito, broaster, asado"),
+    ("COMIDAS RÁPIDAS", "hamburguesas, perros calientes, salchipapas"),
+    ("PORCIONES", "papa francesa, papa salada, ensalada, presa de pollo"),
+]
+MAX_COMBO_DEPTH = 3
 # unidad -> (dimension, cuantas unidades base trae)
 UNITS: dict[str, tuple[str, Decimal]] = {
     "g": ("masa", Decimal("1")), "gramo": ("masa", Decimal("1")), "kg": ("masa", Decimal("1000")),
@@ -96,11 +105,35 @@ def unit_cost(insumo: dict | None) -> Decimal | None:
     return None
 
 
-def consumption(dish: dict, lines: list[dict], quantity: Any) -> list[dict]:
-    """Insumos que consume vender `quantity` del plato (0.25 = boton 1/4)."""
+def consumption(dish: dict, lines: list[dict], quantity: Any, catalog: tuple[dict, dict] | None = None, depth: int = 0) -> list[dict]:
+    """Insumos que consume vender `quantity` del plato (0.25 = boton 1/4).
+
+    Combo: no tiene existencia propia; descuenta sus partes (platos de la
+    carta, con su propia receta o insumo, o insumos sueltos). `catalog` =
+    (platos por id, lineas por plato) para resolver los platos del combo."""
     qty = dec(quantity)
     if qty <= 0:
         return []
+    if dish.get("kind") == "combo":
+        by_id, lines_map = catalog or ({}, {})
+        out: list[dict] = []
+        for line in lines:
+            part_qty = qty * (dec(line.get("quantity")) or Decimal("1"))
+            component = line.get("component_item_id")
+            if component:
+                part = by_id.get(str(component))
+                if not part or depth >= MAX_COMBO_DEPTH:
+                    continue
+                out.extend(consumption(part, lines_map.get(str(component), []), part_qty, catalog, depth + 1))
+            elif line.get("inventory_item_id"):
+                out.append({"inventory_item_id": str(line["inventory_item_id"]),
+                            "quantity": float(part_qty.quantize(QTY, rounding=ROUND_HALF_UP)), "blocking": True})
+        merged: dict[tuple, dict] = {}
+        for entry in out:
+            key = (entry["inventory_item_id"], entry["blocking"])
+            row = merged.setdefault(key, {**entry, "quantity": 0.0})
+            row["quantity"] = float((dec(row["quantity"]) + dec(entry["quantity"])).quantize(QTY, rounding=ROUND_HALF_UP))
+        return list(merged.values())
     if dish.get("kind") == "preparado":
         out = []
         for line in lines:
@@ -139,9 +172,9 @@ def cost_of(entries: list[dict], insumos: dict[str, dict]) -> tuple[Decimal | No
     return (total.quantize(MONEY, rounding=ROUND_HALF_UP) if complete else None), priced
 
 
-def dish_summary(dish: dict, lines: list[dict], insumos: dict[str, dict]) -> dict:
+def dish_summary(dish: dict, lines: list[dict], insumos: dict[str, dict], catalog: tuple[dict, dict] | None = None) -> dict:
     """Costo y margen de UNA unidad del plato para la pantalla de Carta."""
-    entries = consumption(dish, lines, 1)
+    entries = consumption(dish, lines, 1, catalog)
     cost, priced = cost_of(entries, insumos)
     price = dec(dish.get("price"))
     missing = [insumos.get(e["inventory_item_id"], {}).get("name") or "Insumo" for e in priced if e["unit_cost"] is None]
@@ -152,7 +185,7 @@ def dish_summary(dish: dict, lines: list[dict], insumos: dict[str, dict]) -> dic
         "margin_pct": float((margin / price * 100).quantize(Decimal("0.1"))) if margin is not None and price > 0 else None,
         "below_cost": bool(cost is not None and price < cost),
         "missing_cost": missing,
-        "no_recipe": dish.get("kind") == "preparado" and not lines,
+        "no_recipe": dish.get("kind") in {"preparado", "combo"} and not lines,
         "consumption": priced,
     }
 

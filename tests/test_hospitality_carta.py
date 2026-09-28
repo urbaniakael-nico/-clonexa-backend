@@ -116,17 +116,22 @@ class CartaDb:
         self.dishes = {
             POLLO_ASADO: {"id": uuid.UUID(POLLO_ASADO), "company_id": ASADERO, "name": "POLLO Asado", "price": Decimal("40000"),
                           "category_key": "", "station": "parrilla", "requires_term": False, "allows_portions": True,
-                          "kind": "preparado", "inventory_item_id": None, "direct_qty": Decimal("1"), "active": True, "position": 1},
+                          "kind": "preparado", "inventory_item_id": None, "direct_qty": Decimal("1"), "active": True, "position": 1,
+                          "presentation": "500 gr"},
             CERVEZA_PLATO: {"id": uuid.UUID(CERVEZA_PLATO), "company_id": ASADERO, "name": "Cerveza", "price": Decimal("6000"),
                             "category_key": "bebidas", "station": "", "requires_term": False, "allows_portions": False,
-                            "kind": "directo", "inventory_item_id": uuid.UUID(CERVEZA), "direct_qty": Decimal("1"), "active": True, "position": 2},
+                            "kind": "directo", "inventory_item_id": uuid.UUID(CERVEZA), "direct_qty": Decimal("1"), "active": True, "position": 2,
+                            "presentation": ""},
         }
         self.lines = [
-            {"carta_item_id": uuid.UUID(POLLO_ASADO), "company_id": ASADERO, "inventory_item_id": uuid.UUID(POLLO_CRUDO), "quantity": Decimal("400"), "yield_pct": Decimal("80"), "position": 0},
-            {"carta_item_id": uuid.UUID(POLLO_ASADO), "company_id": ASADERO, "inventory_item_id": uuid.UUID(PAPA), "quantity": Decimal("300"), "yield_pct": Decimal("100"), "position": 1},
-            {"carta_item_id": uuid.UUID(POLLO_ASADO), "company_id": ASADERO, "inventory_item_id": uuid.UUID(ACEITE), "quantity": Decimal("30"), "yield_pct": Decimal("100"), "position": 2},
+            {"carta_item_id": uuid.UUID(POLLO_ASADO), "company_id": ASADERO, "inventory_item_id": uuid.UUID(POLLO_CRUDO), "component_item_id": None, "quantity": Decimal("400"), "yield_pct": Decimal("80"), "position": 0},
+            {"carta_item_id": uuid.UUID(POLLO_ASADO), "company_id": ASADERO, "inventory_item_id": uuid.UUID(PAPA), "component_item_id": None, "quantity": Decimal("300"), "yield_pct": Decimal("100"), "position": 1},
+            {"carta_item_id": uuid.UUID(POLLO_ASADO), "company_id": ASADERO, "inventory_item_id": uuid.UUID(ACEITE), "component_item_id": None, "quantity": Decimal("30"), "yield_pct": Decimal("100"), "position": 2},
         ]
         self.movements = []
+        self.images: set[str] = set()
+        self.image_bytes: dict[str, bytes] = {}
+        self.settings: dict = {}
         self.commit = AsyncMock()
         self.rollback = AsyncMock()
 
@@ -144,7 +149,7 @@ class CartaDb:
         sql = " ".join(str(statement).split())
         p = params or {}
         cid = str(p.get("company_id", p.get("c", "")))
-        if "FROM company_modules cm JOIN modules m" in sql:
+        if "FROM company_modules cm JOIN modules m" in sql and "cm.settings" not in sql and "JOIN companies c" not in sql:
             return Result([{"code": c} for c in self.modules.get(cid, set())])
         if sql.startswith("SELECT to_regclass"):
             return Result([{"exists": True}], scalar=True)
@@ -152,8 +157,34 @@ class CartaDb:
             return Result(self._inv_rows(cid))
         if sql.startswith("SELECT id, name, price, category_key, station"):
             return Result([d for d in self.dishes.values() if d["company_id"] == cid])
-        if sql.startswith("SELECT carta_item_id, inventory_item_id, quantity, yield_pct, position FROM carta_recipe_lines"):
+        if sql.startswith("SELECT carta_item_id, inventory_item_id, component_item_id, quantity, yield_pct, position FROM carta_recipe_lines"):
             return Result([l for l in self.lines if l["company_id"] == cid])
+        if sql.startswith("SELECT inventory_item_id FROM hospitality_product_images"):
+            return Result([{"inventory_item_id": i} for i in self.images])
+        if sql.startswith("SELECT cm.settings FROM company_modules cm JOIN modules m ON m.id = cm.module_id WHERE cm.company_id"):
+            return Result([{"settings": dict(self.settings)}] if "carta" in self.modules.get(cid, set()) else [])
+        if sql.startswith("UPDATE company_modules SET settings"):
+            self.settings.update(json.loads(p["s"]))
+            return Result()
+        if sql.startswith("DELETE FROM carta_items"):
+            existed = self.dishes.pop(p["id"], None)
+            self.lines = [l for l in self.lines if str(l["carta_item_id"]) != p["id"]]
+            return Result(rowcount=1 if existed else 0)
+        if sql.startswith("DELETE FROM hospitality_product_images"):
+            if p["id"] not in self.inventory:
+                self.images.discard(p["id"])
+                self.image_bytes.pop(p["id"], None)
+            return Result()
+        if sql.startswith("INSERT INTO hospitality_product_images"):
+            return Result()
+        if sql.startswith("UPDATE hospitality_product_images SET image_bytes"):
+            self.images.add(p["inventory_item_id"])
+            self.image_bytes[p["inventory_item_id"]] = p["image_bytes"]
+            return Result()
+        if sql.startswith("SELECT c.id, c.name FROM company_modules cm JOIN modules m ON m.id = cm.module_id JOIN companies c"):
+            if self.settings.get("qr_token") == p["token"]:
+                return Result([{"id": uuid.UUID(ASADERO), "name": "ASADERO EL SOCIO"}])
+            return Result([])
         if sql.startswith("SELECT id, sku, name, reference, name_reference, current_stock, status FROM inventory_items WHERE id"):
             row = self.inventory.get(str(p["item_id"]))
             return Result([{**row, "id": uuid.UUID(str(p["item_id"]))}] if row and row["company_id"] == cid else [])
@@ -174,7 +205,8 @@ class CartaDb:
                        min_stock=row["min_stock"] * ratio, avg_cost=row["avg_cost"] / ratio)
             return Result()
         if sql.startswith("INSERT INTO carta_items"):
-            self.dishes[p["id"]] = {"id": uuid.UUID(p["id"]), "company_id": cid, "name": p["name"], "price": Decimal(str(p["price"])),
+            self.dishes[p["id"]] = {"id": uuid.UUID(p["id"]), "company_id": cid, "name": p["name"], "presentation": p.get("presentation", ""),
+                                    "price": Decimal(str(p["price"])),
                                     "category_key": p["category_key"], "station": p["station"], "requires_term": p["requires_term"],
                                     "allows_portions": p["allows_portions"], "kind": p["kind"],
                                     "inventory_item_id": uuid.UUID(p["inventory_item_id"]) if p["inventory_item_id"] else None,
@@ -184,7 +216,9 @@ class CartaDb:
             self.lines = [l for l in self.lines if not (l["company_id"] == cid and str(l["carta_item_id"]) == p["i"])]
             return Result()
         if sql.startswith("INSERT INTO carta_recipe_lines"):
-            self.lines.append({"carta_item_id": uuid.UUID(p["i"]), "company_id": cid, "inventory_item_id": uuid.UUID(p["insumo"]),
+            self.lines.append({"carta_item_id": uuid.UUID(p["i"]), "company_id": cid,
+                               "inventory_item_id": uuid.UUID(p["insumo"]) if p.get("insumo") else None,
+                               "component_item_id": uuid.UUID(p["component"]) if p.get("component") else None,
                                "quantity": Decimal(str(p["quantity"])), "yield_pct": Decimal(str(p["yield_pct"])), "position": p["position"]})
             return Result()
         raise AssertionError(f"SQL no esperado: {sql[:150]}")
@@ -245,7 +279,7 @@ async def test_hospitality_carta_menu_only_shows_dishes_never_a_consumable():
     db = CartaDb()
     menu = await hospitality.hospitality_inventory_lite(uuid.UUID(ASADERO), limit=500, db=_with_company(db))
     names = [i["name"] for i in menu["inventory"]]
-    assert names == ["POLLO Asado", "Cerveza"]
+    assert names == ["POLLO Asado 500 gr", "Cerveza"], "nombre visible con su presentacion"
     assert "Gas" not in names and "Aceite" not in names and "Pollo crudo" not in names
     pollo = menu["inventory"][0]
     assert pollo["active"] is True and pollo["station"] == "parrilla" and pollo["carta_kind"] == "preparado"
@@ -401,3 +435,168 @@ def test_hospitality_carta_unit_change_keeps_physical_stock_and_value(api):
     assert (row["current_stock"] * row["avg_cost"]).quantize(Decimal("1")) == before_value
     libra = call("PUT", ASADERO, f"/insumos/{PAPA}", "admin", {"item_type": "ingrediente", "purchase_unit": "libra", "consumption_unit": "g"})
     assert libra.status_code == 200 and api.inventory[PAPA]["units_per_purchase"] == Decimal("453.59237")
+
+
+# ------------------------------------------- 049J: asistente, combo, foto y QR ---
+def _png(width, height):
+    import io as _io
+
+    from PIL import Image
+
+    image = Image.new("RGB", (width, height))
+    for x in range(0, width, 8):  # degradado: una foto "real", no ruido
+        for y in range(0, height, 8):
+            image.paste((x * 255 // width, y * 255 // height, 120), (x, y, x + 8, y + 8))
+    buffer = _io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("method,path", [("DELETE", f"/items/{uuid.uuid4()}"), ("POST", "/categories"),
+                                          ("POST", f"/items/{uuid.uuid4()}/photo"), ("GET", "/qr"),
+                                          ("POST", "/qr/regenerate"), ("GET", "/qr.png")])
+def test_hospitality_carta_wizard_endpoints_require_admin_session_and_module(api, method, path):
+    assert call(method, ASADERO, path, body={}).status_code == 401
+    assert call(method, ASADERO, path, "mesero", body={}).status_code == 403
+    assert call(method, ASADERO, path, "ttm", body={}).status_code == 403
+    assert call(method, TTM, path, "ttm", body={}).status_code == 403
+
+
+def test_hospitality_carta_wizard_creates_a_full_dish(api):
+    """Lo que manda el asistente al terminar: plato, receta y foto; el resumen
+    trae costo y margen."""
+    cats = call("GET", ASADERO, "", "admin").json()["categories"]
+    assert [c["label"] for c in cats][:5] == ["BEBIDAS", "PLATOS A LA CARTA", "POLLO", "COMIDAS RÁPIDAS", "PORCIONES"]
+    added = call("POST", ASADERO, "/categories", "admin", {"label": "desayunos"}).json()
+    assert "DESAYUNOS" in [c["label"] for c in added["categories"]]
+    created = call("POST", ASADERO, "/items", "admin", {"name": "Churrasco", "presentation": "275 gr", "price": 32000,
+                                                          "category_key": "Platos a la carta", "kind": "preparado",
+                                                          "requires_term": True, "allows_portions": False})
+    assert created.status_code == 200, created.text
+    dish_id = created.json()["created_id"]
+    recipe = call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin",
+                  {"lines": [{"inventory_item_id": POLLO_CRUDO, "quantity": 125}, {"inventory_item_id": PAPA, "quantity": 3}]})
+    assert recipe.status_code == 200, recipe.text
+    photo = client.post(f"/api/v1/carta/companies/{ASADERO}/items/{dish_id}/photo", headers={"Authorization": "Bearer admin"},
+                        files={"image": ("foto.png", _png(1200, 400), "image/png")})
+    assert photo.status_code == 200, photo.text
+    dish = next(i for i in photo.json()["items"] if i["id"] == dish_id)
+    assert dish["display_name"] == "Churrasco 275 gr" and dish["category_key"] == "PLATOS A LA CARTA"
+    assert dish["cost"] == 125 * 12.5 + 3 * 3 and dish["margin"] == 32000 - 1571.5 and dish["has_image"] is True
+    assert dish["requires_term"] is True
+    lite = asyncio_run(carta_endpoint.carta_inventory_lite(api, ASADERO))
+    row = next(r for r in lite if r["id"] == dish_id)
+    assert row["category_key"] == "platos_a_la_carta" and row["category_label"] == "PLATOS A LA CARTA"
+
+
+def asyncio_run(coro):
+    import asyncio
+
+    return asyncio.run(coro)
+
+
+def test_hospitality_carta_photo_is_cropped_to_the_standard_frame(api):
+    from PIL import Image
+    import io as _io
+
+    for size in ((1200, 400), (500, 900), (3000, 2250)):
+        res = client.post(f"/api/v1/carta/companies/{ASADERO}/items/{POLLO_ASADO}/photo", headers={"Authorization": "Bearer admin"},
+                          files={"image": ("foto.png", _png(*size), "image/png")})
+        assert res.status_code == 200, res.text
+        stored = Image.open(_io.BytesIO(api.image_bytes[POLLO_ASADO]))
+        assert stored.size == carta_endpoint.PHOTO_FRAME == (800, 600) and stored.format == "JPEG", size
+    assert len(api.image_bytes[POLLO_ASADO]) <= 200 * 1024
+    bad = client.post(f"/api/v1/carta/companies/{ASADERO}/items/{POLLO_ASADO}/photo", headers={"Authorization": "Bearer admin"},
+                      files={"image": ("x.png", b"no es una imagen", "image/png")})
+    assert bad.status_code == 422
+
+
+def test_hospitality_carta_combo_deducts_its_parts_not_its_own_stock(api):
+    combo = call("POST", ASADERO, "/items", "admin", {"name": "Combo Socio", "price": 45000, "kind": "combo",
+                                                        "category_key": "POLLO"}).json()["created_id"]
+    res = call("PUT", ASADERO, f"/items/{combo}/recipe", "admin",
+               {"lines": [{"component_item_id": POLLO_ASADO, "quantity": 1}, {"component_item_id": CERVEZA_PLATO, "quantity": 2}]})
+    assert res.status_code == 200, res.text
+    dish = next(i for i in res.json()["items"] if i["id"] == combo)
+    assert dish["kind"] == "combo" and dish["inventory_item_id"] is None, "sin existencia propia"
+    assert dish["cost"] == 7390 + 2 * 3000 and dish["available"] is True
+    assert [l["insumo"] for l in dish["recipe"]] == ["POLLO Asado 500 gr", "Cerveza"]
+
+    rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(combo, 1, "Combo Socio", 45000)]))
+    assert {c["inventory_item_id"]: c["quantity"] for c in rows[0]["consumption"]} == {
+        POLLO_CRUDO: 500.0, PAPA: 300.0, ACEITE: 30.0, CERVEZA: 2.0}
+    asyncio_run(hospitality._deduct_inventory(api, uuid.UUID(ASADERO), {"id": "c1", "items": rows}))
+    assert api.inventory[POLLO_CRUDO]["current_stock"] == Decimal("4500") and api.inventory[CERVEZA]["current_stock"] == Decimal("0")
+
+    nested = call("PUT", ASADERO, f"/items/{POLLO_ASADO}/recipe", "admin", {"lines": [{"component_item_id": CERVEZA_PLATO, "quantity": 1}]})
+    assert nested.status_code == 400 and "combo" in nested.text, "solo un combo lleva otros platos"
+    inner = call("POST", ASADERO, "/items", "admin", {"name": "Combo 2", "price": 1, "kind": "combo"}).json()["created_id"]
+    combo_in_combo = call("PUT", ASADERO, f"/items/{inner}/recipe", "admin", {"lines": [{"component_item_id": combo, "quantity": 1}]})
+    assert combo_in_combo.status_code == 400
+    in_use = call("DELETE", ASADERO, f"/items/{POLLO_ASADO}", "admin")
+    assert in_use.status_code == 409 and "Combo Socio" in in_use.text
+
+
+def test_hospitality_carta_delete_dish_removes_it_and_its_photo(api):
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "Salchipapa", "price": 12000, "kind": "preparado"}).json()["created_id"]
+    client.post(f"/api/v1/carta/companies/{ASADERO}/items/{dish_id}/photo", headers={"Authorization": "Bearer admin"},
+                files={"image": ("foto.png", _png(900, 600), "image/png")})
+    assert dish_id in api.images
+    res = call("DELETE", ASADERO, f"/items/{dish_id}", "admin")
+    assert res.status_code == 200 and dish_id not in [i["id"] for i in res.json()["items"]]
+    assert dish_id not in api.images, "no quedan bytes huerfanos en la base"
+    assert call("DELETE", ASADERO, f"/items/{dish_id}", "admin").status_code == 404
+
+
+def test_hospitality_carta_qr_opens_the_right_carta_and_never_costs(api, monkeypatch):
+    from app.api.v1.endpoints import waiter_ordering
+
+    seen = []
+
+    async def fake_menu(_db, company_id):
+        seen.append(str(company_id))
+        return {"menu_emojis": False, "categories": [
+            {"key": "pollo", "label": "POLLO", "has_image": False, "station": "parrilla", "products": [
+                {"id": POLLO_ASADO, "name": "POLLO Asado 500 gr", "price": 40000, "has_image": True, "cost": 7390, "stock": 12,
+                 "is_portioned": False, "portions": []}]},
+            {"key": "vacia", "label": "VACIA", "products": []}]}
+
+    monkeypatch.setattr(waiter_ordering, "build_waiter_menu", fake_menu)
+    info = call("GET", ASADERO, "/qr", "admin").json()
+    assert "/carta-qr?t=" in info["url"]
+    token = info["url"].split("t=")[1]
+    assert call("GET", ASADERO, "/qr", "admin").json()["url"] == info["url"], "el mismo QR hasta que se cambie"
+    png = call("GET", ASADERO, "/qr.png", "admin")
+    assert png.status_code == 200 and png.content[:8] == b"\x89PNG\r\n\x1a\n" and "qr_carta.png" in png.headers["content-disposition"]
+
+    public = client.get(f"/api/v1/carta/public/{token}")
+    assert public.status_code == 200 and seen == [ASADERO]
+    body = public.json()
+    assert body["company_name"] == "ASADERO EL SOCIO" and [c["label"] for c in body["categories"]] == ["POLLO"]
+    assert "cost" not in public.text and "stock" not in public.text, "el cliente nunca ve costos ni existencias"
+    assert client.get("/api/v1/carta/public/codigo-inventado-que-no-existe-123").status_code == 404
+    assert client.get("/api/v1/carta/public/corto").status_code == 404
+
+    new = call("POST", ASADERO, "/qr/regenerate", "admin").json()["url"]
+    assert new != info["url"] and client.get(f"/api/v1/carta/public/{token}").status_code == 404, "el QR viejo deja de servir"
+    page = client.get("/carta-qr")
+    assert page.status_code == 200 and "carta_qr.js" in page.text
+
+
+def test_hospitality_carta_wizard_migration_is_short_and_only_touches_carta_tables():
+    spec = importlib.util.spec_from_file_location("mig_021y", ROOT / "migrations/versions/021y_carta_wizard.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert len(module.revision) <= 32 and module.down_revision == "021x_costos_module"
+    source = (ROOT / "migrations/versions/021y_carta_wizard.py").read_text(encoding="utf-8")
+    touched = {line.split("TABLE ")[1].split()[0] for line in source.splitlines() if "ALTER TABLE" in line}
+    assert touched == {"carta_items", "carta_recipe_lines"}
+
+
+def test_hospitality_carta_other_companies_keep_their_menu_categories():
+    from app.api.v1.endpoints import waiter_ordering
+
+    source = (ROOT / "app/api/v1/endpoints/waiter_ordering.py").read_text(encoding="utf-8")
+    # sin category_key (todas las empresas sin Carta) la categoria sigue saliendo del nombre
+    assert 'key = product.get("category_key") or _category_key(product.get("name"))' in source
+    assert waiter_ordering._category_key("Club Colombia") == "club"

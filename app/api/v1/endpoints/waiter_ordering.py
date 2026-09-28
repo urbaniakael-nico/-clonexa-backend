@@ -790,12 +790,14 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
 
     grouped: dict[str, dict[str, Any]] = {}
     for product in merged_products:
-        # 049H: un plato de la carta puede traer su categoria; si no, la de su nombre.
-        key = _category_key(product.get("category_key") or product.get("name"))
+        # 049H/049J: un plato de la carta trae su categoria completa ("PLATOS A LA
+        # CARTA"); si no, la de su nombre, como siempre.
+        key = product.get("category_key") or _category_key(product.get("name"))
+        default_label = product.get("category_label") or _pretty_label(str(product.get("name") or "").split(" ")[0])
         bucket = grouped.setdefault(
             key,
             {
-                **(configured.get(key) or {"key": key, "label": _pretty_label(str(product.get("name") or "").split(" ")[0]), "station": "", "quick_notes": [], "requires_term": False, "has_image": False}),
+                **(configured.get(key) or {"key": key, "label": default_label, "station": "", "quick_notes": [], "requires_term": False, "has_image": False}),
                 "products": [],
             },
         )
@@ -887,8 +889,8 @@ async def _priced_order_items(db: AsyncSession, company_id: uuid.UUID, items: li
         # it lands in the same category/station the menu already showed it
         # under.
         membership = portion_map.get(str(product["id"]))
-        category_source = membership["group_label"] if membership else (product.get("category_key") or product.get("name"))
-        category = categories.get(_category_key(category_source))
+        category_source = membership["group_label"] if membership else product.get("name")
+        category = categories.get(product.get("category_key") or _category_key(category_source)) if not membership else categories.get(_category_key(category_source))
         # 049H: estacion y termino propios del plato de la carta, si los tiene.
         requires_term = (category or {}).get("requires_term") or product.get("requires_term")
         term = _clean(item.term) if requires_term else ""
