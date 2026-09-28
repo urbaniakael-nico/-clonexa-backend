@@ -39,12 +39,23 @@ UNITS: dict[str, tuple[str, Decimal]] = {
     "kilo": ("masa", Decimal("1000")), "lb": ("masa", Decimal("453.59237")), "libra": ("masa", Decimal("453.59237")),
     "ml": ("volumen", Decimal("1")), "l": ("volumen", Decimal("1000")), "litro": ("volumen", Decimal("1000")),
     "unidad": ("unidad", Decimal("1")), "par": ("unidad", Decimal("2")),
+    # 049O: onza, docena y cucharada (15 ml) tienen equivalencia fija; paquete y
+    # pizca no: cuanto trae un paquete o cuanto pesa una pizca lo dice la empresa.
+    "oz": ("masa", Decimal("28.349523125")), "docena": ("unidad", Decimal("12")),
+    "cucharada": ("volumen", Decimal("15")), "paquete": ("paquete", Decimal("1")), "pizca": ("pizca", Decimal("1")),
 }
-# 049N: unidades en las que el cocinero escribe la receta (clave -> etiqueta).
-# Cada linea se convierte sola a la unidad del inventario del insumo.
-RECIPE_UNITS = {"g": "gr", "kg": "kg", "lb": "lb", "ml": "ml", "l": "litros", "unidad": "unidad", "par": "par"}
+# 049N/049O: las mismas unidades para TODOS los insumos (clave -> etiqueta).
+# Cada linea se convierte sola a la unidad del inventario del insumo; si no
+# hay forma, se pide una sola vez la equivalencia y se guarda para el insumo.
+RECIPE_UNITS = {"g": "gr", "kg": "kg", "lb": "lb", "oz": "onza", "ml": "ml", "l": "litros", "unidad": "unidad",
+                "par": "par", "docena": "docena", "paquete": "paquete", "cucharada": "cucharada", "pizca": "pizca"}
 _RECIPE_ALIASES = {"gr": "g", "gramo": "g", "gramos": "g", "kilo": "kg", "kilos": "kg", "libra": "lb", "libras": "lb",
-                   "litro": "l", "litros": "l", "lt": "l", "und": "unidad", "unidades": "unidad", "u": "unidad"}
+                   "onza": "oz", "onzas": "oz", "litro": "l", "litros": "l", "lt": "l", "und": "unidad", "unidades": "unidad",
+                   "u": "unidad", "docenas": "docena", "paquetes": "paquete", "cucharadas": "cucharada", "pizcas": "pizca"}
+# Un ingrediente que cuesta mas de 3 veces el plato casi siempre es una unidad
+# mal puesta (275 "unidades" de carne en vez de 275 gr): se avisa en vez de
+# mostrar la cifra como si fuera correcta.
+SUSPECT_SHARE_OF_PRICE = Decimal("3")
 PURCHASE_UNITS = ["unidad", "libra", "kilo", "gramo", "litro", "ml"]
 CONSUMPTION_UNITS = ["g", "ml", "unidad"]
 QTY = Decimal("0.0001")
@@ -96,11 +107,13 @@ def default_recipe_unit(insumo: dict | None) -> str:
 def line_factor(unit: Any, insumo: dict | None) -> Decimal | None:
     """Cuantas unidades de consumo del insumo hay en 1 unidad de la receta.
 
-    Misma dimension: directo (1 kg = 1000 g; 1 lb = 453,59 g; 1 litro =
-    1000 ml, y al reves). Distinta dimension: por la unidad de compra y su
-    conversion (1 unidad de pollo = 1600 g si se compra por unidad de 1600 g).
-    None si no hay forma de convertir (receta en gramos de algo que el
-    inventario solo cuenta por unidades sin peso definido)."""
+    1. Misma dimension: directo (1 kg = 1000 g; 1 lb = 453,59 g; 1 litro =
+       1000 ml; 1 docena = 12 unidades; 1 cucharada = 15 ml, y al reves).
+    2. Equivalencia guardada para el insumo ("1 unidad de carne = 1 lb",
+       "1 cucharada de sal = 12 g"), para esa unidad o para una de su misma
+       dimension (con "1 unidad = 1 lb" tambien sirven gr, kg y onza).
+    3. La unidad de compra y su conversion (1 unidad de pollo = 1600 g).
+    None si no hay forma: la pantalla pide la equivalencia una sola vez."""
     consumption_unit = str((insumo or {}).get("consumption_unit") or "unidad")
     unit = recipe_unit(unit) or consumption_unit
     if unit == consumption_unit:
@@ -108,6 +121,13 @@ def line_factor(unit: Any, insumo: dict | None) -> Decimal | None:
     direct = standard_factor(unit, consumption_unit)
     if direct is not None:
         return direct
+    equivalences = (insumo or {}).get("equivalences") or {}
+    if dec(equivalences.get(unit)) > 0:
+        return dec(equivalences[unit])
+    for other, amount in equivalences.items():
+        sibling = standard_factor(unit, other)
+        if sibling is not None and dec(amount) > 0:
+            return sibling * dec(amount)
     purchase_unit = str((insumo or {}).get("purchase_unit") or "unidad")
     via_purchase = standard_factor(unit, purchase_unit)
     per_purchase = dec((insumo or {}).get("units_per_purchase"))
@@ -116,14 +136,21 @@ def line_factor(unit: Any, insumo: dict | None) -> Decimal | None:
     return None
 
 
-def line_need(line: dict, insumos: dict[str, dict] | None) -> Decimal:
+def line_need(line: dict, insumos: dict[str, dict] | None) -> Decimal | None:
     """Unidades de consumo que gasta UNA porcion de la linea (con su unidad y
-    su rendimiento)."""
-    factor = line_factor(line.get("unit"), (insumos or {}).get(str(line.get("inventory_item_id")))) if insumos is not None else None
+    su rendimiento). None si la unidad no se puede convertir todavia (falta
+    la equivalencia): esa linea ni descuenta ni tiene costo, nunca una cifra
+    inventada."""
+    if insumos is None:
+        factor = Decimal("1")  # sin inventario a mano: la cantidad ya esta en unidad de consumo
+    else:
+        factor = line_factor(line.get("unit"), insumos.get(str(line.get("inventory_item_id"))))
+        if factor is None:
+            return None
     yield_pct = dec(line.get("yield_pct") or 100)
     if yield_pct <= 0:
         yield_pct = Decimal("100")
-    return dec(line.get("quantity")) * (factor if factor is not None else Decimal("1")) * Decimal("100") / yield_pct
+    return dec(line.get("quantity")) * factor * Decimal("100") / yield_pct
 
 
 def to_consumption(quantity: Any, item: dict) -> Decimal:
@@ -177,7 +204,10 @@ def consumption(dish: dict, lines: list[dict], quantity: Any, catalog: tuple[dic
                     continue
                 out.extend(consumption(part, lines_map.get(str(component), []), part_qty, catalog, depth + 1, insumos))
             elif line.get("inventory_item_id"):
-                need = qty * line_need({**line, "quantity": dec(line.get("quantity")) or Decimal("1"), "yield_pct": 100}, insumos)
+                per = line_need({**line, "quantity": dec(line.get("quantity")) or Decimal("1"), "yield_pct": 100}, insumos)
+                if per is None:
+                    continue
+                need = qty * per
                 out.append({"inventory_item_id": str(line["inventory_item_id"]),
                             "quantity": float(need.quantize(QTY, rounding=ROUND_HALF_UP)), "blocking": True})
         merged: dict[tuple, dict] = {}
@@ -189,7 +219,10 @@ def consumption(dish: dict, lines: list[dict], quantity: Any, catalog: tuple[dic
     if dish.get("kind") == "preparado":
         out = []
         for line in lines:
-            need = qty * line_need(line, insumos)
+            per = line_need(line, insumos)
+            if per is None:
+                continue
+            need = qty * per
             if need > 0:
                 out.append({"inventory_item_id": str(line.get("inventory_item_id")),
                             "quantity": float(need.quantize(QTY, rounding=ROUND_HALF_UP)), "blocking": False})
@@ -227,6 +260,11 @@ def dish_summary(dish: dict, lines: list[dict], insumos: dict[str, dict], catalo
     cost, priced = cost_of(entries, insumos)
     price = dec(dish.get("price"))
     missing = [insumos.get(e["inventory_item_id"], {}).get("name") or "Insumo" for e in priced if e["unit_cost"] is None]
+    no_equivalence = [(insumos.get(str(l.get("inventory_item_id"))) or {}).get("name") or "Insumo" for l in lines
+                      if dish.get("kind") != "directo" and l.get("inventory_item_id") and line_need(l, insumos) is None]
+    suspect = suspect_lines(priced, insumos, price)
+    if no_equivalence or suspect:
+        cost = None  # no se muestra un costo que no es: se avisa
     margin = (price - cost) if cost is not None else None
     return {
         "cost": float(cost) if cost is not None else None,
@@ -234,9 +272,26 @@ def dish_summary(dish: dict, lines: list[dict], insumos: dict[str, dict], catalo
         "margin_pct": float((margin / price * 100).quantize(Decimal("0.1"))) if margin is not None and price > 0 else None,
         "below_cost": bool(cost is not None and price < cost),
         "missing_cost": missing,
+        "missing_equivalence": no_equivalence,
+        "cost_suspect": suspect,
         "no_recipe": dish.get("kind") in {"preparado", "combo"} and not lines,
         "consumption": priced,
     }
+
+
+def suspect_lines(priced: list[dict], insumos: dict[str, dict], price: Any) -> list[str]:
+    """Ingredientes que por si solos cuestan mas de 3 veces el plato (umbral
+    SUSPECT_SHARE_OF_PRICE del precio): casi seguro una unidad mal puesta."""
+    price = dec(price)
+    if price <= 0:
+        return []
+    out = []
+    for entry in priced:
+        if entry.get("unit_cost") is None:
+            continue
+        if dec(entry["unit_cost"]) * dec(entry["quantity"]) > price * SUSPECT_SHARE_OF_PRICE:
+            out.append((insumos.get(entry["inventory_item_id"]) or {}).get("name") or "Insumo")
+    return out
 
 
 def validate_link(insumo: dict | None) -> None:

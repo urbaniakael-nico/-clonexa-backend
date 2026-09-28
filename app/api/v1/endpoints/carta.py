@@ -76,12 +76,31 @@ async def load_insumos(db: AsyncSession, company_id: Any) -> dict[str, dict]:
     result = await db.execute(text("""
         SELECT id, COALESCE(NULLIF(name_reference, ''), NULLIF(name, ''), NULLIF(reference, ''), sku, id::text) AS name,
                sku, current_stock, min_stock, status, entry_price, sale_price, avg_cost,
-               item_type, purchase_unit, consumption_unit, units_per_purchase
+               item_type, purchase_unit, consumption_unit, units_per_purchase, size_value, size_unit
         FROM inventory_items
         WHERE company_id = CAST(:company_id AS uuid) AND COALESCE(status, 'active') NOT IN ('archived', 'deleted')
         ORDER BY lower(COALESCE(NULLIF(name_reference, ''), NULLIF(name, ''), sku, id::text))
     """), {"company_id": str(company_id)})
-    return {str(r["id"]): dict(r) for r in result.mappings().all()}
+    insumos = {str(r["id"]): dict(r) for r in result.mappings().all()}
+    for key, equivalences in (await load_equivalences(db, company_id)).items():
+        if key in insumos:
+            insumos[key]["equivalences"] = equivalences
+    return insumos
+
+
+async def load_equivalences(db: AsyncSession, company_id: Any) -> dict[str, dict[str, Decimal]]:
+    """049O: "1 <unidad> = N <unidad del inventario>" guardado por insumo
+    (cuanto pesa una unidad, cuantos gramos tiene una cucharada...)."""
+    exists = (await db.execute(text("SELECT to_regclass('public.carta_unit_equivalences') IS NOT NULL AS exists"))).mappings().first()
+    if not exists or not exists.get("exists"):
+        return {}
+    rows = (await db.execute(text("""
+        SELECT inventory_item_id, unit, amount FROM carta_unit_equivalences WHERE company_id = CAST(:company_id AS uuid)
+    """), {"company_id": str(company_id)})).mappings().all()
+    out: dict[str, dict[str, Decimal]] = {}
+    for row in rows:
+        out.setdefault(str(row["inventory_item_id"]), {})[row["unit"]] = Decimal(str(row["amount"]))
+    return out
 
 
 async def load_dishes(db: AsyncSession, company_id: Any) -> tuple[list[dict], dict[str, list[dict]]]:
@@ -276,8 +295,15 @@ async def attach_consumption(db: AsyncSession, company_id: Any, rows: list[dict]
         dish = by_id.get(str(row.get("inventory_item_id") or row.get("product_id") or ""))
         if not dish:
             continue
-        entries = engine.consumption(dish, lines.get(str(dish["id"]), []), row.get("quantity"), catalog, insumos=insumos)
+        dish_lines = lines.get(str(dish["id"]), [])
+        entries = engine.consumption(dish, dish_lines, row.get("quantity"), catalog, insumos=insumos)
         cost, priced = engine.cost_of(entries, insumos)
+        # 049O: con una unidad sin equivalencia o un costo desproporcionado, la
+        # venta queda "sin costo" (los reportes la marcan) en vez de una cifra falsa.
+        sale_price = engine.dec(dish.get("price")) * engine.dec(row.get("quantity") or 1)
+        if engine.suspect_lines(priced, insumos, sale_price) or any(
+                l.get("inventory_item_id") and engine.line_need(l, insumos) is None for l in dish_lines if dish.get("kind") != "directo"):
+            cost = None
         row["menu_item_id"] = str(dish["id"])
         row["carta_kind"] = dish.get("kind") or "directo"
         row["consumption"] = priced
@@ -325,6 +351,11 @@ def _insumo_payload(row: dict) -> dict:
         # 049K: precio de venta cargado en el insumo (un "producto del
         # inventario" lo trae al asistente para no pedirlo dos veces).
         "sale_price": float(Decimal(str(row.get("sale_price") or 0))),
+        # 049O: equivalencias guardadas (1 <unidad> = N <unidad del inventario>)
+        # y el tamaño del articulo, que sirve de sugerencia al pedirlas.
+        "equivalences": {k: float(v) for k, v in (row.get("equivalences") or {}).items()},
+        "size_value": float(row["size_value"]) if row.get("size_value") is not None else None,
+        "size_unit": row.get("size_unit") or "",
     }
 
 
@@ -401,8 +432,9 @@ async def _carta_payload(db: AsyncSession, company_id: uuid.UUID) -> dict:
             "inventory_item_id": str(dish["inventory_item_id"]) if dish.get("inventory_item_id") else None,
             "direct_qty": float(Decimal(str(dish.get("direct_qty") or 1))),
             "available": _available(dish, insumos, catalog),
-            "recipe": _with_shares([_line_payload(l, insumos, catalog[0]) for l in dish_lines]),
-            **{k: summary[k] for k in ("cost", "margin", "margin_pct", "below_cost", "missing_cost", "no_recipe")},
+            "recipe": _with_shares([_line_payload(l, insumos, catalog[0]) for l in dish_lines], dish.get("price")),
+            **{k: summary[k] for k in ("cost", "margin", "margin_pct", "below_cost", "missing_cost", "no_recipe",
+                                       "missing_equivalence", "cost_suspect")},
         })
     return {"items": items, "insumos": [_insumo_payload(r) for r in insumos.values()],
             "item_types": engine.ITEM_TYPES, "purchase_units": engine.PURCHASE_UNITS,
@@ -421,22 +453,29 @@ def _line_payload(line: dict, insumos: dict[str, dict], dishes_by_id: dict[str, 
     insumo = insumos.get(str(line.get("inventory_item_id"))) or {}
     unit = engine.recipe_unit(line.get("unit")) or engine.default_recipe_unit(insumo)
     need = engine.line_need({**line, "unit": unit}, insumos)
+    if need is not None:
+        need = need.quantize(engine.QTY)  # lo mismo que se descuenta y que suma el costo del plato
     unit_cost = engine.unit_cost(insumo) if insumo else None
     return {"component_item_id": None, "inventory_item_id": str(line["inventory_item_id"]),
             "insumo": insumo.get("name") or "Insumo borrado", "unit": unit, "unit_label": engine.RECIPE_UNITS[unit],
             "stock_unit": insumo.get("consumption_unit") or "unidad",
             "quantity": float(Decimal(str(line["quantity"]))), "yield_pct": float(Decimal(str(line.get("yield_pct") or 100))),
-            # 049N: lo que descuenta del inventario por porcion y cuanto cuesta
-            "stock_quantity": float(need.quantize(engine.QTY)),
-            "cost": float((unit_cost * need).quantize(engine.MONEY)) if unit_cost is not None else None}
+            # 049N/049O: lo que descuenta del inventario por porcion y cuanto
+            # cuesta; sin equivalencia, ninguna de las dos (se pide en pantalla)
+            "needs_equivalence": need is None,
+            "stock_quantity": float(need.quantize(engine.QTY)) if need is not None else None,
+            "cost": float((unit_cost * need).quantize(engine.MONEY)) if unit_cost is not None and need is not None else None}
 
 
-def _with_shares(recipe: list[dict]) -> list[dict]:
-    """Aporte de cada ingrediente al costo del plato (para ver cual pesa mas)."""
+def _with_shares(recipe: list[dict], price: Any = 0) -> list[dict]:
+    """Aporte de cada ingrediente al costo del plato (para ver cual pesa mas)
+    y el aviso cuando un ingrediente solo cuesta mas que el plato."""
     total = sum((Decimal(str(l["cost"])) for l in recipe if l.get("cost") is not None), Decimal("0"))
+    price = engine.dec(price)
     for line in recipe:
         cost = line.get("cost")
         line["share_pct"] = float((Decimal(str(cost)) / total * 100).quantize(Decimal("0.1"))) if cost is not None and total > 0 else None
+        line["cost_suspect"] = bool(cost is not None and price > 0 and Decimal(str(cost)) > price * engine.SUSPECT_SHARE_OF_PRICE)
     return recipe
 
 
@@ -581,11 +620,6 @@ async def save_recipe(company_id: uuid.UUID, item_id: uuid.UUID, payload: Recipe
             raise HTTPException(status_code=400, detail=detail) from exc
         if line.unit is not None and not engine.recipe_unit(line.unit):
             raise HTTPException(status_code=400, detail="Unidad inválida: usa gr, kg, lb, ml, litros, unidad o par.")
-        if engine.line_factor(line.unit, insumo) is None:
-            raise HTTPException(status_code=400, detail=(
-                f"{insumo['name']} está en inventario por {insumo.get('consumption_unit') or 'unidad'}: "
-                f"no se puede convertir desde {engine.RECIPE_UNITS[engine.recipe_unit(line.unit)]}. "
-                f"Usa {engine.RECIPE_UNITS[engine.default_recipe_unit(insumo)]} o define en Insumos cuánto trae cada unidad de compra."))
     await db.execute(text("DELETE FROM carta_recipe_lines WHERE company_id = CAST(:c AS uuid) AND carta_item_id = CAST(:i AS uuid)"),
                      {"c": str(company_id), "i": str(item_id)})
     for position, line in enumerate(payload.lines):
@@ -650,6 +684,34 @@ async def update_insumo(company_id: uuid.UUID, insumo_id: uuid.UUID, payload: In
          WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid)
     """), {"item_type": payload.item_type, "purchase_unit": purchase, "consumption_unit": consumption_unit,
            "factor": factor, "ratio": ratio, "id": str(insumo_id), "company_id": str(company_id)})
+    await db.commit()
+    return await _carta_payload(db, company_id)
+
+
+class EquivalenceIn(BaseModel):
+    unit: str = Field(..., min_length=1, max_length=12)
+    amount: float = Field(..., gt=0, le=1_000_000)  # unidades del inventario que hay en 1 <unit>
+
+
+@router.put("/companies/{company_id}/insumos/{insumo_id}/equivalences")
+async def save_equivalence(company_id: uuid.UUID, insumo_id: uuid.UUID, payload: EquivalenceIn, db: AsyncSession = Depends(get_db),
+                           _a: str = Depends(require_carta_admin)) -> dict:
+    """Se pide una sola vez y queda para el insumo: "1 unidad de carne = 1 lb",
+    "1 cucharada de sal = 12 g", "1 paquete de pan = 24 unidades"."""
+    insumos = await load_insumos(db, company_id)
+    insumo = insumos.get(str(insumo_id))
+    if not insumo:
+        raise HTTPException(status_code=404, detail="Insumo no encontrado.")
+    unit = engine.recipe_unit(payload.unit)
+    if not unit:
+        raise HTTPException(status_code=400, detail="Unidad inválida.")
+    if unit == str(insumo.get("consumption_unit") or "unidad"):
+        raise HTTPException(status_code=400, detail="Esa ya es la unidad del inventario.")
+    await db.execute(text("""
+        INSERT INTO carta_unit_equivalences (company_id, inventory_item_id, unit, amount, updated_at)
+        VALUES (CAST(:c AS uuid), CAST(:i AS uuid), :unit, :amount, now())
+        ON CONFLICT (company_id, inventory_item_id, unit) DO UPDATE SET amount = EXCLUDED.amount, updated_at = now()
+    """), {"c": str(company_id), "i": str(insumo_id), "unit": unit, "amount": Decimal(str(payload.amount))})
     await db.commit()
     return await _carta_payload(db, company_id)
 

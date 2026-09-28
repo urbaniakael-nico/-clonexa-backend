@@ -35832,17 +35832,24 @@ function inventoryCreatePayload() {
     combo: ["Combo", "Varios platos o insumos juntos: descuenta cada parte"],
     sin: ["Sin receta", "Saltar este paso: no descuenta inventario"],
   };
-  const CX_CAR_PRESENTATIONS_049J = ["125 gr", "275 gr", "500 gr", "250 ml", "350 ml", "500 ml", "1.5 L"];
+  const CX_CAR_PRESENTATIONS_049J = ["100 gr", "125 gr", "150 gr", "200 gr", "250 gr", "275 gr", "300 gr", "400 gr", "500 gr", "1 kg",
+    "150 ml", "200 ml", "250 ml", "300 ml", "350 ml", "400 ml", "500 ml", "1 L", "1.5 L", "2 L",
+    "1 unidad", "1/2 unidad", "porción personal", "porción familiar"];
 
   // 049N: unidad de cada ingrediente de la receta. Se convierte sola a la
   // unidad del inventario (misma regla que el servidor): 3 gr de un tomate
   // cargado en kilos descuentan 3 gr; 1 unidad de pollo = lo que pesa cada
   // unidad de compra.
-  const CX_CAR_RECIPE_UNITS_049N = [["g", "gr"], ["kg", "kg"], ["lb", "lb"], ["ml", "ml"], ["l", "litros"], ["unidad", "unidad"], ["par", "par"]];
+  // 049O: las mismas 12 unidades para todos los insumos; si una no convierte a la
+  // del inventario, se pide una sola vez la equivalencia y queda guardada.
+  const CX_CAR_RECIPE_UNITS_049N = [["g", "gr"], ["kg", "kg"], ["lb", "lb"], ["oz", "onza"], ["ml", "ml"], ["l", "litros"],
+    ["unidad", "unidad"], ["par", "par"], ["docena", "docena"], ["paquete", "paquete"], ["cucharada", "cucharada"], ["pizca", "pizca"]];
   const CX_CAR_UNIT_DEF_049N = {
     g: ["masa", 1], gramo: ["masa", 1], kg: ["masa", 1000], kilo: ["masa", 1000], lb: ["masa", 453.59237], libra: ["masa", 453.59237],
-    ml: ["volumen", 1], l: ["volumen", 1000], litro: ["volumen", 1000], unidad: ["unidad", 1], par: ["unidad", 2],
+    oz: ["masa", 28.349523125], ml: ["volumen", 1], l: ["volumen", 1000], litro: ["volumen", 1000], cucharada: ["volumen", 15],
+    unidad: ["unidad", 1], par: ["unidad", 2], docena: ["unidad", 12], paquete: ["paquete", 1], pizca: ["pizca", 1],
   };
+  const CX_CAR_SUSPECT_049O = 3; // un ingrediente que cuesta mas de 3 veces el plato: unidad mal puesta
 
   function cxCarStdFactor049N(from, to) {
     const a = CX_CAR_UNIT_DEF_049N[from];
@@ -35862,6 +35869,12 @@ function inventoryCreatePayload() {
     if (from === consumption) return 1;
     const direct = cxCarStdFactor049N(from, consumption);
     if (direct !== null) return direct;
+    const eq = insumo?.equivalences || {};
+    if (Number(eq[from]) > 0) return Number(eq[from]);
+    for (const [other, amount] of Object.entries(eq)) {
+      const sibling = cxCarStdFactor049N(from, other);
+      if (sibling !== null && Number(amount) > 0) return sibling * Number(amount);
+    }
     const via = cxCarStdFactor049N(from, String(insumo?.purchase_unit || "unidad"));
     const perPurchase = Number(insumo?.units_per_purchase || 0);
     return via !== null && perPurchase > 0 ? via * perPurchase : null;
@@ -35893,16 +35906,73 @@ function inventoryCreatePayload() {
   function cxCarUnitOptions049N(line) {
     const insumo = cxCarInsumo049N(line.inventory_item_id);
     const current = line.unit || cxCarDefaultUnit049N(insumo);
-    return CX_CAR_RECIPE_UNITS_049N.filter(([key]) => cxCarFactor049N(key, insumo) !== null)
+    return CX_CAR_RECIPE_UNITS_049N
       .map(([key, label]) => `<option value="${h(key)}" ${key === current ? "selected" : ""}>${h(label)}</option>`).join("");
+  }
+
+  function cxCarUnitLabel049O(unit) {
+    return (CX_CAR_RECIPE_UNITS_049N.find(([key]) => key === unit) || [unit, unit])[1];
+  }
+
+  function cxCarEqForm049O(line, index) {
+    // "1 unidad de Carne = [1] [lb]" o "1 cucharada de Sal = [12] g": una sola vez por insumo
+    const insumo = cxCarInsumo049N(line.inventory_item_id);
+    if (!insumo) return "";
+    const unit = line.unit || cxCarDefaultUnit049N(insumo);
+    const stock = String(insumo.consumption_unit || "unidad");
+    const dim = (CX_CAR_UNIT_DEF_049N[unit] || [])[0];
+    const weighs = (stock === "unidad") && (dim === "masa" || dim === "volumen");
+    if (weighs) {
+      const options = CX_CAR_RECIPE_UNITS_049N.filter(([key]) => (CX_CAR_UNIT_DEF_049N[key] || [])[0] === dim);
+      const sizeKey = { gr: "g", kg: "kg", lb: "lb", ml: "ml", litros: "l" }[insumo.size_unit] || "";
+      const suggest = sizeKey && (CX_CAR_UNIT_DEF_049N[sizeKey] || [])[0] === dim ? insumo.size_value : "";
+      return `
+        <div class="cx-car-eq-049o" data-wz-eq="${index}" data-wz-eq-mode="weighs">
+          <b>¿Cuánto ${dim === "masa" ? "pesa" : "trae"} 1 unidad de ${h(insumo.name)}?</b>
+          <span>En inventario se cuenta por unidad${insumo.avg_cost ? ` a ${h(cxCarPortionMoney049N(insumo.avg_cost))}` : ""}. Se pregunta una sola vez.</span>
+          <label>1 unidad = <input type="number" min="0" step="any" inputmode="decimal" data-wz-eq-value value="${h(suggest ?? "")}" placeholder="Ej: 1">
+            <select data-wz-eq-unit>${options.map(([key, label]) => `<option value="${h(key)}" ${key === (sizeKey || unit) ? "selected" : ""}>${h(label)}</option>`).join("")}</select></label>
+          <button class="client-btn primary" type="button" data-wz-eq-save="${index}">Guardar equivalencia</button>
+        </div>`;
+    }
+    return `
+      <div class="cx-car-eq-049o" data-wz-eq="${index}" data-wz-eq-mode="per">
+        <b>¿Cuánto es 1 ${h(cxCarUnitLabel049O(unit))} de ${h(insumo.name)}?</b>
+        <span>En inventario se cuenta por ${h(stock)}. Se pregunta una sola vez.</span>
+        <label>1 ${h(cxCarUnitLabel049O(unit))} = <input type="number" min="0" step="any" inputmode="decimal" data-wz-eq-value placeholder="Ej: 12"> ${h(stock)}</label>
+        <button class="client-btn primary" type="button" data-wz-eq-save="${index}">Guardar equivalencia</button>
+      </div>`;
+  }
+
+  function cxCarEqAmount049O(line, mode, value, promptUnit) {
+    // -> {unit, amount}: cuantas unidades del inventario hay en 1 <unit>
+    const n = Number(value);
+    if (!(n > 0)) return null;
+    if (mode === "weighs") return { unit: promptUnit, amount: 1 / n }; // 1 unidad = n <promptUnit>
+    return { unit: line.unit, amount: n };
+  }
+
+  function cxCarLineCostText049O(wiz, line) {
+    if (cxCarFactor049N(line.unit, cxCarInsumo049N(line.inventory_item_id)) === null) return "falta equivalencia";
+    const cost = cxCarLineCost049N(line).cost;
+    const price = cxCarPriceOf049O(wiz);
+    if (cost !== null && price > 0 && cost > price * CX_CAR_SUSPECT_049O) return `⚠ ${cxCarPortionMoney049N(cost)}`;
+    return cxCarPortionMoney049N(cost);
+  }
+
+  function cxCarPriceOf049O(wiz) {
+    return Number(wiz?.price || 0) || 0;
   }
 
   function cxCarCostsHtml049N(wiz) {
     // costo total del plato y el aporte de cada ingrediente (el que mas pesa arriba)
     const rows = (wiz.lines || []).map((line) => ({ line, ...cxCarLineCost049N(line) })).filter((r) => r.cost !== null);
-    const missing = (wiz.lines || []).filter((l) => !l.component_item_id && cxCarLineCost049N(l).cost === null && Number(l.quantity) > 0);
-    if (!rows.length && !missing.length) return "";
+    const noEq = (wiz.lines || []).filter((l) => !l.component_item_id && cxCarFactor049N(l.unit, cxCarInsumo049N(l.inventory_item_id)) === null);
+    const missing = (wiz.lines || []).filter((l) => !l.component_item_id && !noEq.includes(l) && cxCarLineCost049N(l).cost === null && Number(l.quantity) > 0);
+    if (!rows.length && !missing.length && !noEq.length) return "";
     const total = rows.reduce((sum, r) => sum + r.cost, 0);
+    const price = cxCarPriceOf049O(wiz);
+    const suspect = price > 0 ? rows.filter((r) => r.cost > price * CX_CAR_SUSPECT_049O) : [];
     rows.sort((a, b) => b.cost - a.cost);
     return `
       <div class="cx-car-costs-049n">
@@ -35912,13 +35982,15 @@ function inventoryCreatePayload() {
           return `<div class="cx-car-cost-row-049n"><span>${h(r.line.insumo)}</span><i style="--pct:${pct.toFixed(1)}%"></i><b>${h(cxCarPortionMoney049N(r.cost))}</b><small>${pct.toFixed(0)}%</small></div>`;
         }).join("")}
         ${missing.length ? `<p class="cx-car-note-049k warn">Sin costo en inventario: ${h(missing.map((l) => l.insumo).join(", "))}. El total no los incluye.</p>` : ""}
+        ${noEq.length ? `<p class="cx-car-note-049k warn">Falta la equivalencia de ${h(noEq.map((l) => l.insumo).join(", "))}: complétala arriba para calcular su costo.</p>` : ""}
+        ${suspect.length ? `<p class="cx-car-note-049k warn" data-wz-suspect>⚠ Costo desproporcionado: ${h(suspect.map((r) => r.line.insumo).join(", "))} cuesta más de ${CX_CAR_SUSPECT_049O} veces el precio del plato. Revisa la unidad; este total no es confiable.</p>` : ""}
       </div>`;
   }
 
   function cxCarRefreshCosts049N(wiz) {
     (wiz.lines || []).forEach((line, index) => {
       const cell = document.querySelector(`[data-wz-line-cost="${index}"]`);
-      if (cell) cell.textContent = cxCarPortionMoney049N(cxCarLineCost049N(line).cost);
+      if (cell) cell.textContent = cxCarLineCostText049O(wiz, line);
     });
     const box = document.querySelector("[data-wz-costs]");
     if (box) box.innerHTML = cxCarCostsHtml049N(wiz);
@@ -36028,9 +36100,10 @@ function inventoryCreatePayload() {
         <input type="number" min="0" step="any" inputmode="decimal" data-wz-line-qty="${index}" value="${h(l.quantity)}" placeholder="Cantidad">
         ${withUnits && !l.component_item_id
           ? `<select data-wz-line-unit="${index}" aria-label="Unidad">${cxCarUnitOptions049N(l)}</select>
-             <b class="cx-car-line-cost-049n" data-wz-line-cost="${index}" title="Costo de esta cantidad según el inventario">${h(cxCarPortionMoney049N(cxCarLineCost049N(l).cost))}</b>`
+             <b class="cx-car-line-cost-049n" data-wz-line-cost="${index}" title="Costo de esta cantidad según el inventario">${h(cxCarLineCostText049O(wiz, l))}</b>`
           : `<small>${h(l.component_item_id ? "plato" : l.unit)}</small>`}
-        <button class="client-btn" type="button" data-wz-del="${index}">Quitar</button></div>`).join("")
+        <button class="client-btn" type="button" data-wz-del="${index}">Quitar</button>
+        ${withUnits && !l.component_item_id && cxCarFactor049N(l.unit, cxCarInsumo049N(l.inventory_item_id)) === null ? cxCarEqForm049O(l, index) : ""}</div>`).join("")
       + (withUnits ? `<div data-wz-costs>${cxCarCostsHtml049N(wiz)}</div>` : "");
   }
 
@@ -36122,6 +36195,8 @@ function inventoryCreatePayload() {
   }
 
   function cxCarMarginHtml049J(d) {
+    if ((d.cost_suspect || []).length) return `<span class="cx-car-margin-049j bad">Costo por revisar</span>`;
+    if ((d.missing_equivalence || []).length) return `<span class="cx-car-margin-049j none">Margen: falta una equivalencia</span>`;
     if (d.margin === null || d.margin === undefined) return `<span class="cx-car-margin-049j none">Margen: falta el costo</span>`;
     return `<span class="cx-car-margin-049j ${d.below_cost ? "bad" : "ok"}">Margen ${h(cxCarMoney048T(d.margin))}${d.margin_pct === null ? "" : ` · ${h(d.margin_pct)}%`}</span>`;
   }
@@ -36135,6 +36210,8 @@ function inventoryCreatePayload() {
     if (d.no_recipe) flags.push(`<em class="bad">${d.kind === "combo" ? "Combo vacío" : "Sin receta"}</em>`);
     if (d.category_id && !d.effective_station) flags.push(`<em class="bad">Sin estación de cocina</em>`);
     if ((d.missing_cost || []).length) flags.push(`<em>Sin costo: ${h(d.missing_cost.join(", "))}</em>`);
+    if ((d.missing_equivalence || []).length) flags.push(`<em class="bad">Falta equivalencia: ${h(d.missing_equivalence.join(", "))}</em>`);
+    if ((d.cost_suspect || []).length) flags.push(`<em class="bad">Costo desproporcionado: ${h(d.cost_suspect.join(", "))} (revisa la unidad)</em>`);
     return flags.length ? `<div class="cx-car-flags-049j">${flags.join("")}</div>` : "";
   }
 
@@ -36218,9 +36295,10 @@ function inventoryCreatePayload() {
     const rows = [...recipe].sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1));
     return `
       <div class="cx-car-costs-049n" data-car-breakdown>
-        <div class="cx-car-costs-total-049n"><span>${d.kind === "combo" ? "Lleva" : "Costo por ingrediente"}</span><b>${h(cxCarMoney048T(d.cost))}</b></div>
+        <div class="cx-car-costs-total-049n"><span>${d.kind === "combo" ? "Lleva" : "Costo por ingrediente"}</span><b>${h(d.cost === null || d.cost === undefined ? "por revisar" : cxCarMoney048T(d.cost))}</b></div>
         ${rows.map((l) => `<div class="cx-car-cost-row-049n"><span>${h(l.insumo)} <small>${h(l.quantity)} ${h(l.unit_label || l.unit)}</small></span>
-          <i style="--pct:${Number(l.share_pct || 0)}%"></i><b>${h(cxCarPortionMoney049N(l.cost))}</b><small>${l.share_pct === null || l.share_pct === undefined ? "" : `${h(l.share_pct)}%`}</small></div>`).join("")}
+          <i style="--pct:${Number(l.share_pct || 0)}%"></i><b class="${l.cost_suspect ? "bad" : ""}">${h(l.needs_equivalence ? "falta equivalencia" : `${l.cost_suspect ? "⚠ " : ""}${cxCarPortionMoney049N(l.cost)}`)}</b><small>${l.share_pct === null || l.share_pct === undefined ? "" : `${h(l.share_pct)}%`}</small></div>`).join("")}
+        ${(d.cost_suspect || []).length ? `<p class="cx-car-note-049k warn">⚠ ${h(d.cost_suspect.join(", "))} cuesta más de ${CX_CAR_SUSPECT_049O} veces el precio del plato: casi seguro la unidad está mal (por ejemplo "unidad" en vez de "gr"). Edita la receta.</p>` : ""}
       </div>`;
   }
 
@@ -36574,6 +36652,22 @@ function inventoryCreatePayload() {
       }
       return paint();
     }
+    const eqSave = target.closest("[data-wz-eq-save]");
+    if (eqSave) {
+      const index = Number(eqSave.getAttribute("data-wz-eq-save"));
+      const line = wiz.lines[index];
+      const box = eqSave.closest("[data-wz-eq]");
+      const eq = line && box ? cxCarEqAmount049O(line, box.getAttribute("data-wz-eq-mode"),
+        box.querySelector("[data-wz-eq-value]")?.value, box.querySelector("[data-wz-eq-unit]")?.value) : null;
+      if (!eq) { wiz.error = "Escribe la equivalencia (un número mayor que cero)."; return paint(); }
+      try {
+        cxCar048T.data = await cxCarApi048T(`/insumos/${encodeURIComponent(line.inventory_item_id)}/equivalences`,
+          { method: "PUT", body: JSON.stringify(eq) });
+      } catch (error) {
+        wiz.error = cxCarErr048T(error);
+      }
+      return paint();
+    }
     const delLine = target.closest("[data-wz-del]");
     if (delLine) {
       if (wiz.mode === "directo") wiz.direct = null;
@@ -36615,7 +36709,9 @@ function inventoryCreatePayload() {
     if (unitSelect && wiz) {
       const line = wiz.lines[Number(unitSelect.getAttribute("data-wz-line-unit"))];
       if (line) line.unit = unitSelect.value;
-      cxCarRefreshCosts049N(wiz);
+      const lines = document.querySelector("[data-wz-lines]");
+      if (lines) lines.innerHTML = cxCarWizLinesHtml049K(wiz); // muestra u oculta la equivalencia
+      else cxCarRefreshCosts049N(wiz);
       return;
     }
     const pick = event.target.closest?.("[data-car-select]");
@@ -36645,7 +36741,7 @@ function inventoryCreatePayload() {
         <thead><tr><th>Insumo</th><th>Tipo</th><th>Compra</th><th>Consumo</th><th>Consumo por unidad de compra</th><th>Existencia</th><th>Costo promedio</th><th></th></tr></thead>
         <tbody>${(data.insumos || []).map((i) => `
           <tr data-car-insumo="${h(i.id)}" class="${i.stock < 0 ? "below" : ""}">
-            <td><b>${h(i.name)}</b></td>
+            <td><b>${h(i.name)}</b>${Object.keys(i.equivalences || {}).length ? `<small>${h(Object.entries(i.equivalences).map(([u, a]) => `1 ${cxCarUnitLabel049O(u)} = ${Number(a).toLocaleString("es-CO", { maximumFractionDigits: 6 })} ${i.consumption_unit}`).join(" · "))}</small>` : ""}</td>
             <td><select name="item_type">${Object.entries(types).map(([k, v]) => `<option value="${h(k)}" ${k === i.item_type ? "selected" : ""}>${h(v)}</option>`).join("")}</select></td>
             <td><select name="purchase_unit">${units(data.purchase_units, i.purchase_unit)}</select></td>
             <td><select name="consumption_unit">${units(data.consumption_units, i.consumption_unit)}</select></td>
@@ -36938,6 +37034,11 @@ function inventoryCreatePayload() {
       .cx-car-costs-total-049n b { font-size:20px; }
       .cx-car-cost-row-049n { display:grid; grid-template-columns:minmax(120px, 1.2fr) 2fr auto 44px; gap:10px; align-items:center; font-size:14px; }
       .cx-car-cost-row-049n small { opacity:.75; }
+      .cx-car-eq-049o { flex-basis:100%; display:grid; gap:6px; padding:10px 12px; border-radius:12px; background:#fef9c3; color:#713f12; border:1px solid #eab308; }
+      .cx-car-eq-049o label { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-weight:700; }
+      .cx-car-eq-049o input { width:110px; min-height:40px; border-radius:10px; padding:4px 8px; }
+      .cx-car-eq-049o select { min-height:40px; border-radius:10px; }
+      .cx-car-cost-row-049n b.bad { color:#dc2626; }
       .cx-car-cost-row-049n i { display:block; height:10px; border-radius:999px; background:linear-gradient(to right, #16a34a var(--pct), color-mix(in srgb, currentColor 12%, transparent) var(--pct)); }
     `;
     document.head.appendChild(style);

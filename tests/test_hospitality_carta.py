@@ -134,6 +134,7 @@ class CartaDb:
         self.image_bytes: dict[str, bytes] = {}
         self.settings: dict = {}
         self.categories: dict[str, dict] = {}
+        self.equivalences: dict[tuple, Decimal] = {}
         self.waiter_settings: dict = {}
         self.image_stamps: dict[str, datetime] = {}
         self.commit = AsyncMock()
@@ -157,6 +158,11 @@ class CartaDb:
             return Result([{"code": c} for c in self.modules.get(cid, set())])
         if sql.startswith("SELECT to_regclass"):
             return Result([{"exists": True}], scalar=True)
+        if sql.startswith("SELECT inventory_item_id, unit, amount FROM carta_unit_equivalences"):
+            return Result([{"inventory_item_id": k[0], "unit": k[1], "amount": v} for k, v in self.equivalences.items() if k[2] == cid])
+        if sql.startswith("INSERT INTO carta_unit_equivalences"):
+            self.equivalences[(p["i"], p["unit"], cid)] = p["amount"]
+            return Result()
         if "FROM inventory_items WHERE company_id = CAST(:company_id AS uuid) AND COALESCE(status, 'active') NOT IN" in sql:
             return Result(self._inv_rows(cid))
         if sql.startswith("SELECT id, name, price, category_key, station"):
@@ -853,12 +859,18 @@ def test_hospitality_carta_three_grams_of_tomato_from_five_kilos(api):
     assert rows[0]["cost"] == 12 + 160 + 1562.5
 
 
-def test_hospitality_carta_recipe_rejects_units_that_cannot_convert(api):
-    bad = call("PUT", ASADERO, f"/items/{POLLO_ASADO}/recipe", "admin",
-               {"lines": [{"inventory_item_id": PAPA, "quantity": 100, "unit": "ml"}]})
-    assert bad.status_code == 400 and "no se puede convertir" in bad.text
+def test_hospitality_carta_unit_without_equivalence_is_allowed_and_flagged(api):
+    ok = call("PUT", ASADERO, f"/items/{POLLO_ASADO}/recipe", "admin",
+              {"lines": [{"inventory_item_id": CERVEZA, "quantity": 250, "unit": "ml"}]})
+    assert ok.status_code == 200, "se permite; la pantalla pide la equivalencia"
+    dish = next(i for i in ok.json()["items"] if i["id"] == POLLO_ASADO)
+    line = dish["recipe"][0]
+    assert line["needs_equivalence"] is True and line["cost"] is None and line["stock_quantity"] is None
+    assert dish["missing_equivalence"] == ["Cerveza"] and dish["cost"] is None, "sin cifra inventada"
+    rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(POLLO_ASADO, 1, "POLLO Asado", 40000)]))
+    assert rows[0]["consumption"] == [] and rows[0]["cost"] is None, "ni descuenta ni congela un costo falso"
     unknown = call("PUT", ASADERO, f"/items/{POLLO_ASADO}/recipe", "admin",
-                   {"lines": [{"inventory_item_id": PAPA, "quantity": 1, "unit": "onza"}]})
+                   {"lines": [{"inventory_item_id": PAPA, "quantity": 1, "unit": "vaso"}]})
     assert unknown.status_code == 400 and "Unidad inválida" in unknown.text
 
 
@@ -871,3 +883,81 @@ def test_hospitality_carta_recipe_units_migration_keeps_existing_quantities():
     assert len(module.revision) <= 32 and module.down_revision == "022c_fixed_expenses"
     assert "CASE WHEN i.consumption_unit IN ('g', 'ml') THEN i.consumption_unit ELSE 'unidad' END" in source
     assert "i.company_id = l.company_id" in source and "quantity" not in source.split("def upgrade")[1].split("def downgrade")[0]
+
+
+# ---------------------------- 049O: equivalencias y costos desproporcionados ---
+def _carne(api, **kwargs):
+    carne = str(uuid.uuid4())
+    api.inventory[carne] = CartaDb._inv(ASADERO, "Carne de res", 20, "ingrediente", kwargs.get("pu", "unidad"),
+                                        kwargs.get("cu", "unidad"), kwargs.get("f", 1), avg=kwargs.get("avg", "14000"))
+    return carne
+
+
+def test_hospitality_carta_275g_of_meat_bought_at_14000_the_pound(api):
+    # Como esta hoy en el Asadero: el inventario cuenta la carne por "unidad" a $14.000 (una libra)
+    carne = _carne(api)
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "CARNE Asada", "price": 32000, "kind": "preparado"}).json()["created_id"]
+    call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin", {"lines": [{"inventory_item_id": carne, "quantity": 275, "unit": "gr"}]})
+    before = next(i for i in call("GET", ASADERO, "", "admin").json()["items"] if i["id"] == dish_id)
+    assert before["recipe"][0]["needs_equivalence"] is True and before["cost"] is None, "sin equivalencia: se pide, no se inventa"
+    # una sola vez: "1 unidad de carne = 1 lb"
+    eq = call("PUT", ASADERO, f"/insumos/{carne}/equivalences", "admin", {"unit": "lb", "amount": 1})
+    assert eq.status_code == 200, eq.text
+    assert next(i for i in eq.json()["insumos"] if i["id"] == carne)["equivalences"] == {"lb": 1.0}
+    dish = next(i for i in eq.json()["items"] if i["id"] == dish_id)
+    assert dish["recipe"][0]["cost"] == 8488.2, "275 gr a $14.000 la libra ≈ $8.500"
+    assert dish["cost"] == 8488.2 and dish["cost_suspect"] == []
+    # se reutiliza: otro plato en onzas o kilos, sin volver a preguntar
+    other = call("POST", ASADERO, "/items", "admin", {"name": "Churrasco", "price": 40000, "kind": "preparado"}).json()["created_id"]
+    res = call("PUT", ASADERO, f"/items/{other}/recipe", "admin", {"lines": [{"inventory_item_id": carne, "quantity": 0.5, "unit": "kg"}]})
+    churrasco = next(i for i in res.json()["items"] if i["id"] == other)
+    assert churrasco["recipe"][0]["needs_equivalence"] is False and churrasco["cost"] == 15432.2, "0,5 kg = 1,1023 lb"
+    rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(dish_id, 1, "CARNE Asada", 32000)]))
+    asyncio_run(hospitality._deduct_inventory(api, uuid.UUID(ASADERO), {"id": "c1", "items": rows}))
+    assert api.inventory[carne]["current_stock"] == Decimal("19.3937"), "descuenta 275 gr = 0,6063 libras de la carne"
+
+
+def test_hospitality_carta_meat_in_pounds_in_inventory_needs_no_equivalence(api):
+    # carne comprada por libra y consumida en gramos: $14.000 / 453,59 g
+    carne = _carne(api, pu="libra", cu="g", f="453.59237", avg=str(Decimal("14000") / Decimal("453.59237")))
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "CARNE Asada", "price": 32000, "kind": "preparado"}).json()["created_id"]
+    res = call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin", {"lines": [{"inventory_item_id": carne, "quantity": 275, "unit": "g"}]})
+    assert next(i for i in res.json()["items"] if i["id"] == dish_id)["cost"] == 8487.8
+
+
+def test_hospitality_carta_disproportionate_cost_triggers_the_alert(api):
+    # la receta vieja: 275 "unidades" de carne de $14.000 = $3.850.000 en un plato de $32.000
+    carne = _carne(api)
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "CARNE Asada", "price": 32000, "kind": "preparado"}).json()["created_id"]
+    res = call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin", {"lines": [{"inventory_item_id": carne, "quantity": 275, "unit": "unidad"}]})
+    dish = next(i for i in res.json()["items"] if i["id"] == dish_id)
+    assert dish["cost_suspect"] == ["Carne de res"], "avisa en vez de mostrar la cifra como correcta"
+    assert dish["cost"] is None and dish["margin"] is None and dish["below_cost"] is False
+    assert dish["recipe"][0]["cost_suspect"] is True
+    rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(dish_id, 1, "CARNE Asada", 32000)]))
+    assert rows[0]["cost"] is None, "los reportes no reciben $3.850.000 de costo"
+    assert engine.SUSPECT_SHARE_OF_PRICE == 3
+
+
+def test_hospitality_carta_every_insumo_offers_the_same_units():
+    assert list(engine.RECIPE_UNITS.values()) == ["gr", "kg", "lb", "onza", "ml", "litros", "unidad", "par", "docena",
+                                                   "paquete", "cucharada", "pizca"]
+    sal = {"consumption_unit": "g", "purchase_unit": "kilo", "units_per_purchase": 1000}
+    assert engine.line_factor("cucharada", sal) is None, "cuantos gramos tiene una cucharada: se pide"
+    assert engine.line_factor("cucharada", {**sal, "equivalences": {"cucharada": Decimal("12")}}) == Decimal("12")
+    assert engine.line_factor("cucharada", {"consumption_unit": "ml"}) == Decimal("15"), "1 cucharada = 15 ml"
+    assert engine.line_factor("oz", sal) == Decimal("28.349523125")
+    assert engine.line_factor("docena", {"consumption_unit": "unidad"}) == Decimal("12")
+    assert engine.line_factor("paquete", {"consumption_unit": "unidad", "equivalences": {"paquete": Decimal("24")}}) == Decimal("24")
+
+
+def test_hospitality_carta_equivalences_migration():
+    path = ROOT / "migrations/versions/022e_unit_equivalences.py"
+    spec = importlib.util.spec_from_file_location("mig_022e", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    source = path.read_text(encoding="utf-8")
+    assert len(module.revision) <= 32 and module.down_revision == "022d_recipe_units"
+    assert "PRIMARY KEY (company_id, inventory_item_id, unit)" in source
+    assert "COALESCE(i.consumption_unit, 'unidad') = 'unidad' AND l.unit = 'unidad' AND l.quantity >= :n" in source
+    assert "i.company_id = l.company_id" in source and module.SUSPECT_UNITS == 20

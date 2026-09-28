@@ -453,7 +453,10 @@ test('unidades: conversión entre gr, kg, lb, ml, litros, unidad y par en ambos 
   assert.equal(ctx.cxCarFactor049N('g', PAN), null, 'el pan no tiene peso definido');
   const opts = ctx.cxCarUnitOptions049N({ inventory_item_id: 't1', unit: 'g' });
   assert.match(opts, /<option value="g" selected>gr<\/option><option value="kg" >kg<\/option><option value="lb" >lb<\/option>/);
-  assert.doesNotMatch(opts, /value="ml"|value="par"/, 'solo ofrece unidades que se pueden convertir');
+  const all = '<option value="g" >gr</option><option value="kg" >kg</option><option value="lb" >lb</option><option value="oz" >onza</option><option value="ml" >ml</option><option value="l" >litros</option><option value="unidad" >unidad</option><option value="par" >par</option><option value="docena" >docena</option><option value="paquete" >paquete</option><option value="cucharada" >cucharada</option><option value="pizca" >pizca</option>';
+  for (const [id, current] of [['t1', 'g'], ['p1', 'unidad'], ['a1', 'ml'], ['po', 'g']]) {
+    assert.equal(ctx.cxCarUnitOptions049N({ inventory_item_id: id, unit: 'zz' }).replace(/ selected/g, ' '), all, `${id}: la misma lista para todos`);
+  }
 });
 
 test('costo de la porción al escribir la cantidad: 3 gr de tomate de $4.000 el kilo = $12', async () => {
@@ -511,4 +514,72 @@ test('contraste: encabezados de categoría con fondo propio, precios en el color
   assert.doesNotMatch(carta, /rgba\(255,255,255,/, 'nada de blanco translúcido fijo sobre fondos claros');
   assert.doesNotMatch(carta, /#ffd166/, 'sin el amarillo que no se lee');
   assert.match(source, /cxCarStyles049J\(\);\n    cxCarStyles049N\(\);/);
+});
+
+
+// ---------------------------------------- 049O: equivalencias y alerta de costo
+const CARNE = { id: 'c1', name: 'Carne de res', item_type: 'ingrediente', purchase_unit: 'unidad', consumption_unit: 'unidad',
+  units_per_purchase: 1, stock: 20, avg_cost: 14000, sale_price: 0, equivalences: {}, size_value: 1, size_unit: 'lb' };
+const SAL = { id: 's1', name: 'Sal', item_type: 'ingrediente', purchase_unit: 'kilo', consumption_unit: 'g', units_per_purchase: 1000,
+  stock: 900, avg_cost: 3, sale_price: 0, equivalences: {} };
+const EQ_DATA = { ...DATA, insumos: [CARNE, SAL, TOMATE] };
+
+test('equivalencia: se pide una sola vez en la línea, con la sugerencia del tamaño del artículo, y se guarda', async () => {
+  const ctx = portal(EQ_DATA);
+  await ctx.click('data-car-new');
+  await ctx.click('data-wz-cat', 'cat-pollo');
+  ctx.dom.typed = { name: 'CARNE Asada' };
+  await ctx.click('data-wz-next');
+  await ctx.click('data-wz-mode', 'receta');
+  await ctx.check('data-wz-check', 'insumo:c1');
+  const wiz = ctx.cxCarWiz049J;
+  wiz.lines[0].quantity = '275';
+  await ctx.cxCarOnChange049J({ target: { closest: (sel) => (sel === '[data-wz-line-unit]' ? { getAttribute: () => '0', value: 'g' } : null) } });
+  let html = ctx.cxCarWizHtml049J();
+  assert.match(html, /¿Cuánto pesa 1 unidad de Carne de res\?[\s\S]*En inventario se cuenta por unidad a \$14\.000[\s\S]*data-wz-eq-value value="1"[\s\S]*<option value="lb" selected>lb<\/option>/, 'sugiere 1 lb del tamaño del artículo');
+  assert.match(html, /data-wz-line-cost="0"[^>]*>falta equivalencia</);
+  const box = { getAttribute: (a) => (a === 'data-wz-eq-mode' ? 'weighs' : '0'),
+    querySelector: (sel) => ({ '[data-wz-eq-value]': { value: '1' }, '[data-wz-eq-unit]': { value: 'lb' } })[sel] };
+  ctx.respond = (path) => (path.endsWith('/equivalences') ? { ...EQ_DATA, insumos: [{ ...CARNE, equivalences: { lb: 1 } }, SAL, TOMATE] } : EQ_DATA);
+  await ctx.click('data-wz-eq-save', '0', { '[data-wz-eq]': box, closest: (sel) => (sel === '[data-wz-eq]' ? box : null) });
+  const put = ctx.calls.find((c) => c.path === '/insumos/c1/equivalences');
+  assert.deepEqual(JSON.parse(JSON.stringify(put.body)), { unit: 'lb', amount: 1 }, '"1 unidad = 1 lb"');
+  html = ctx.cxCarWizHtml049J();
+  assert.doesNotMatch(html, /data-wz-eq=/, 'ya no se vuelve a pedir');
+  assert.equal(ctx.cxCarPortionMoney049N(ctx.cxCarLineCost049N(wiz.lines[0]).cost), '$8.488', '275 gr a $14.000 la libra');
+  assert.equal(ctx.cxCarFactor049N('kg', { ...CARNE, equivalences: { lb: 1 } }).toFixed(6), '2.204623', 'se reutiliza para kg y onza');
+});
+
+test('equivalencia de cucharada, paquete y pizca: "1 cucharada de sal = 12 g"', () => {
+  const ctx = portal(EQ_DATA);
+  const line = { inventory_item_id: 's1', insumo: 'Sal', unit: 'cucharada', quantity: 1 };
+  assert.equal(ctx.cxCarFactor049N('cucharada', SAL), null);
+  assert.match(ctx.cxCarEqForm049O(line, 0), /¿Cuánto es 1 cucharada de Sal\?[\s\S]*1 cucharada = <input[^>]*data-wz-eq-value[^>]*> g/);
+  assert.deepEqual({ ...ctx.cxCarEqAmount049O(line, 'per', '12') }, { unit: 'cucharada', amount: 12 });
+  assert.deepEqual({ ...ctx.cxCarEqAmount049O({ unit: 'g' }, 'weighs', '453.59237', 'g') }, { unit: 'g', amount: 1 / 453.59237 });
+  assert.equal(ctx.cxCarEqAmount049O(line, 'per', '0'), null);
+  assert.equal(ctx.cxCarFactor049N('cucharada', { consumption_unit: 'ml' }), 15, '1 cucharada = 15 ml sin preguntar');
+});
+
+test('costo desproporcionado: avisa en vez de mostrar la cifra como correcta', () => {
+  const ctx = portal(EQ_DATA);
+  const wiz = { price: '32000', lines: [{ inventory_item_id: 'c1', insumo: 'Carne de res', unit: 'unidad', quantity: '275', yield_pct: 100 }] };
+  assert.equal(ctx.cxCarLineCostText049O(wiz, wiz.lines[0]), '⚠ $3.850.000');
+  assert.match(ctx.cxCarCostsHtml049N(wiz), /data-wz-suspect>⚠ Costo desproporcionado: Carne de res cuesta más de 3 veces el precio del plato/);
+  const d = { kind: 'preparado', cost: null, price: 32000, cost_suspect: ['Carne de res'], missing_equivalence: [], active: true, available: true,
+    missing_cost: [], recipe: [{ insumo: 'Carne de res', quantity: 275, unit: 'unidad', unit_label: 'unidad', cost: 3850000, share_pct: 100, cost_suspect: true }] };
+  assert.match(ctx.cxCarMarginHtml049J(d), /Costo por revisar/);
+  assert.match(ctx.cxCarFlagsHtml049J(d), /<em class="bad">Costo desproporcionado: Carne de res \(revisa la unidad\)<\/em>/);
+  assert.match(ctx.cxCarRecipeBreakdown049N(d), /Costo por ingrediente<\/span><b>por revisar<\/b>[\s\S]*<b class="bad">⚠ \$3\.850\.000<\/b>[\s\S]*casi seguro la unidad está mal/);
+  assert.match(ctx.cxCarFlagsHtml049J({ ...d, cost_suspect: [], missing_equivalence: ['Papa'] }), /Falta equivalencia: Papa/);
+});
+
+test('atajos de cantidad ampliados en el paso 2', () => {
+  const ctx = portal(DATA);
+  ctx.cxCarWiz049J = ctx.cxCarWizFrom049J(null);
+  const html = ctx.cxCarWizNameHtml049J(ctx.cxCarWiz049J);
+  for (const chip of ['100 gr', '150 gr', '200 gr', '250 gr', '300 gr', '400 gr', '1 kg', '150 ml', '200 ml', '300 ml', '400 ml', '1 L', '2 L',
+    '1 unidad', '1/2 unidad', 'porción personal', 'porción familiar', '125 gr', '275 gr', '500 ml', '1.5 L']) {
+    assert.ok(html.includes(`data-wz-pres="${chip}"`), chip);
+  }
 });
