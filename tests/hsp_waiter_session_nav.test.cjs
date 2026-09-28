@@ -321,3 +321,57 @@ test('the panel escapes text without String.replaceAll (older Android WebViews)'
   assert.doesNotMatch(source, /\.replaceAll\(/);
   assert.equal(loadKit().h('<b>"Mesa" & \'1\'</b>'), '&lt;b&gt;&quot;Mesa&quot; &amp; &#039;1&#039;&lt;/b&gt;');
 });
+
+// ---------------------------------------------------------------------------
+// 049K: Chrome skips, on back, history entries a page added without a tap.
+// The "inicio" entry is added on load, so back from categorias landed on the
+// base entry and the panel left the app. With the Carta menu (hoy ASADERO)
+// that landing means "volver al inicio".
+// ---------------------------------------------------------------------------
+class ChromeHistory extends FakeHistory {
+  constructor() { super(); this.gesture = false; }
+  pushState(state) { super.pushState(state); this.entries[this.index].skippable = !this.gesture; }
+  back() {
+    let target = this.index - 1;
+    while (target > 0 && this.entries[target].skippable) target -= 1;
+    this.go(target - this.index);
+  }
+}
+
+function chromeWalk(carta) {
+  const history = new ChromeHistory();
+  const b = browser({ history });
+  b.ctx.state.menuCarta = carta;
+  b.ctx.installHistory();          // on load: no tap
+  history.gesture = true;          // from here on every step is a tap
+  b.ctx.goto('table');
+  b.ctx.goto('categories');
+  b.ctx.goto('subcategories');
+  b.ctx.goto('products');
+  return b;
+}
+
+test('Carta: back walks plato -> subcategoria -> categoria -> mesa -> inicio even when Chrome skips the inicio entry', () => {
+  const b = chromeWalk(true);
+  for (const screen of ['subcategories', 'categories', 'table', 'home']) {
+    b.history.back();
+    assert.equal(b.ctx.state.screen, screen);
+    assert.equal(b.history.exited, false);
+  }
+  // and the flow still works from there, back again returns to inicio
+  b.ctx.goto('table');
+  b.history.back();
+  assert.equal(b.ctx.state.screen, 'home');
+  assert.equal(b.history.exited, false);
+  // only from inicio does back leave
+  b.history.back();
+  assert.equal(b.history.exited, true);
+});
+
+test('without Carta (The Time Machine) the popstate decision is exactly the old one', () => {
+  const b = browser();
+  assert.equal(b.ctx.popAction({ wtrBase: true }, 3, 'table', false).type, 'leave');
+  assert.equal(b.ctx.popAction({ wtrBase: true }, 3, 'table', false, false).type, 'leave');
+  assert.deepEqual({ ...b.ctx.popAction({ wtrBase: true }, 3, 'table', false, true) }, { type: 'go', depth: 0 });
+  assert.equal(b.ctx.popAction({ wtrBase: true }, 1, 'home', false, true).type, 'leave');
+});

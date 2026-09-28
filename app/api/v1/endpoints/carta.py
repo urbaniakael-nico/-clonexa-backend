@@ -7,6 +7,10 @@ siguen saliendo del inventario como siempre (The Time Machine no cambia).
 Con el modulo:
 - hospitality_inventory_lite / build_waiter_menu leen los PLATOS de
   carta_items (nunca un consumible).
+- 049K: la Carta es la UNICA fuente de categorias del menu (mesero, caja,
+  domicilios y QR): categoria -> subcategoria opcional, cada una con su
+  imagen, estacion de cocina, notas rapidas y termino; los platos van sin
+  foto y heredan la estacion de su categoria.
 - Al armar un pedido, cada linea guarda que insumos consume y a que costo
   (attach_consumption); _deduct_inventory y la edicion de pedidos pendientes
   descuentan esos insumos.
@@ -17,6 +21,7 @@ administrador/dueño/gerente (o Admin V2) y el modulo activo.
 from __future__ import annotations
 
 import io
+import json
 import logging
 import secrets
 import unicodedata
@@ -82,7 +87,7 @@ async def load_insumos(db: AsyncSession, company_id: Any) -> dict[str, dict]:
 async def load_dishes(db: AsyncSession, company_id: Any) -> tuple[list[dict], dict[str, list[dict]]]:
     dishes = [dict(r) for r in (await db.execute(text("""
         SELECT id, name, price, category_key, station, requires_term, allows_portions, kind,
-               inventory_item_id, direct_qty, active, position, presentation
+               inventory_item_id, direct_qty, active, position, presentation, category_id
         FROM carta_items WHERE company_id = CAST(:company_id AS uuid)
         ORDER BY position, lower(name)
     """), {"company_id": str(company_id)})).mappings().all()]
@@ -124,25 +129,140 @@ def _catalog(dishes: list[dict], lines: dict[str, list[dict]]) -> tuple[dict, di
     return {str(d["id"]): d for d in dishes}, lines
 
 
+# ---------------------------------------------------------- categorias ---
+# 049K: la carta de la empresa es un arbol de dos niveles con imagen
+# (categoria -> subcategoria opcional); los platos van sin imagen. Es la
+# unica fuente de las categorias del mesero, la caja, el QR y domicilios.
+async def load_categories(db: AsyncSession, company_id: Any) -> list[dict]:
+    result = await db.execute(text("""
+        SELECT id, parent_id, label, position, station, quick_notes, requires_term
+        FROM carta_categories WHERE company_id = CAST(:company_id AS uuid)
+        ORDER BY position, lower(label)
+    """), {"company_id": str(company_id)})
+    out = []
+    for raw in result.mappings().all():
+        row = dict(raw)
+        notes = row.get("quick_notes")
+        if isinstance(notes, str):
+            try:
+                notes = json.loads(notes or "[]")
+            except ValueError:
+                notes = []
+        out.append({"id": str(row["id"]), "parent_id": str(row["parent_id"]) if row.get("parent_id") else None,
+                    "label": row["label"], "position": int(row.get("position") or 0), "station": row.get("station") or "",
+                    "quick_notes": [n for n in notes if isinstance(n, str)] if isinstance(notes, list) else [],
+                    "requires_term": bool(row.get("requires_term"))})
+    return out
+
+
+async def ensure_categories(db: AsyncSession, company_id: Any) -> list[dict]:
+    """Una empresa que estrena Carta arranca con las categorias sugeridas."""
+    categories = await load_categories(db, company_id)
+    if categories:
+        return categories
+    for position, (label, _hint) in enumerate(engine.PRESET_CATEGORIES, start=1):
+        await db.execute(text("""
+            INSERT INTO carta_categories (id, company_id, parent_id, label, position)
+            VALUES (CAST(:id AS uuid), CAST(:company_id AS uuid), NULL, :label, :position)
+        """), {"id": str(uuid.uuid4()), "company_id": str(company_id), "label": label, "position": position})
+    await db.commit()
+    return await load_categories(db, company_id)
+
+
+def resolve_category(dish: dict, by_id: dict[str, dict]) -> tuple[dict | None, dict | None]:
+    """(categoria, subcategoria) del plato; la subcategoria puede faltar."""
+    leaf = by_id.get(str(dish.get("category_id") or ""))
+    if not leaf:
+        return None, None
+    if leaf.get("parent_id"):
+        top = by_id.get(leaf["parent_id"])
+        return (top, leaf) if top else (leaf, None)
+    return leaf, None
+
+
+def effective_kitchen(dish: dict, top: dict | None, sub: dict | None) -> dict:
+    """Estacion, termino y notas rapidas: los del plato y si no, los de su
+    subcategoria o categoria. Sin estacion la comanda no le llega a una
+    cocina que trabaja por estaciones."""
+    return {
+        "station": _clean(dish.get("station"), 80) or (sub or {}).get("station") or (top or {}).get("station") or "",
+        "requires_term": bool(dish.get("requires_term") or (sub or {}).get("requires_term") or (top or {}).get("requires_term")),
+        "quick_notes": (sub or {}).get("quick_notes") or (top or {}).get("quick_notes") or [],
+    }
+
+
 async def carta_inventory_lite(db: AsyncSession, company_id: Any) -> list[dict]:
     """Platos de la carta con la misma forma que devuelve inventory-lite."""
     insumos = await load_insumos(db, company_id)
     dishes, lines = await load_dishes(db, company_id)
+    categories = {c["id"]: c for c in await load_categories(db, company_id)}
     catalog = _catalog(dishes, lines)
     out = []
     for dish in dishes:
         insumo = insumos.get(str(dish.get("inventory_item_id"))) if dish.get("kind") == "directo" else None
         price = float(Decimal(str(dish.get("price") or 0)))
-        category = _clean(dish.get("category_key"), 80)
+        top, sub = resolve_category(dish, categories)
         out.append({
             "id": str(dish["id"]), "sku": (insumo or {}).get("sku") or "", "name": display_name(dish),
             "price": price, "unit_price": price,
             "stock": float(Decimal(str((insumo or {}).get("current_stock") or 0))) if insumo else 0.0,
             "active": _available(dish, insumos, catalog), "allows_portions": bool(dish.get("allows_portions")),
-            "category_key": category_slug(category) if category else "", "category_label": category,
-            "station": dish.get("station") or "",
-            "requires_term": bool(dish.get("requires_term")), "carta_kind": dish.get("kind") or "directo",
+            "category_key": top["id"] if top else "", "category_label": top["label"] if top else "",
+            "subcategory_key": sub["id"] if sub else "", "subcategory_label": sub["label"] if sub else "",
+            **effective_kitchen(dish, top, sub), "carta_kind": dish.get("kind") or "directo",
         })
+    return out
+
+
+async def _image_versions(db: AsyncSession, company_id: Any) -> dict[str, str]:
+    """Imagenes guardadas (id -> version para que el celular no muestre una vieja)."""
+    result = await db.execute(text("SELECT to_regclass('public.hospitality_product_images') IS NOT NULL AS exists"))
+    row = result.mappings().first()
+    if not row or not row.get("exists"):
+        return {}
+    rows = await db.execute(text("""
+        SELECT inventory_item_id, updated_at FROM hospitality_product_images
+        WHERE company_id = CAST(:company_id AS uuid) AND image_bytes IS NOT NULL
+    """), {"company_id": str(company_id)})
+    out = {}
+    for r in rows.mappings().all():
+        stamp = r.get("updated_at")
+        out[str(r["inventory_item_id"])] = str(int(stamp.timestamp())) if hasattr(stamp, "timestamp") else "1"
+    return out
+
+
+def _category_node(category: dict, images: dict[str, str]) -> dict:
+    return {"key": category["id"], "label": category["label"], "station": category["station"],
+            "quick_notes": category["quick_notes"], "requires_term": category["requires_term"],
+            "has_image": category["id"] in images, "image_item_id": category["id"],
+            "image_version": images.get(category["id"], ""), "image_fit": "contain"}
+
+
+async def carta_menu_categories(db: AsyncSession, company_id: Any, products: list[dict]) -> list[dict]:
+    """Categorias del menu (mesero, caja, QR, domicilios) desde la Carta:
+    cada categoria trae TODOS sus platos en `products` (asi un panel que no
+    conoce subcategorias sigue funcionando igual) y sus `subcategories` con
+    los platos de cada una. Un plato sin categoria cae en OTROS: nunca se
+    pierde de la carta."""
+    categories = await ensure_categories(db, company_id)
+    images = await _image_versions(db, company_id)
+    tops = [c for c in categories if not c["parent_id"]]
+    top_ids = {c["id"] for c in tops}
+    out = []
+    for top in tops:
+        entry = {**_category_node(top, images), "subcategories": [],
+                 "products": [p for p in products if p.get("category_key") == top["id"]]}
+        for sub in (c for c in categories if c["parent_id"] == top["id"]):
+            sub_products = [p for p in entry["products"] if p.get("subcategory_key") == sub["id"]]
+            if sub_products:
+                entry["subcategories"].append({**_category_node(sub, images), "products": sub_products})
+        if entry["products"]:
+            out.append(entry)
+    loose = [p for p in products if p.get("category_key") not in top_ids]
+    if loose:
+        out.append({"key": "otros", "label": "OTROS", "station": "", "quick_notes": [], "requires_term": False,
+                    "has_image": False, "image_item_id": "", "image_version": "", "image_fit": "contain",
+                    "subcategories": [], "products": loose})
     return out
 
 
@@ -202,19 +322,10 @@ def _insumo_payload(row: dict) -> dict:
         "units_per_purchase": float(Decimal(str(row.get("units_per_purchase") or 1))),
         "stock": float(Decimal(str(row.get("current_stock") or 0))), "min_stock": float(Decimal(str(row.get("min_stock") or 0))),
         "avg_cost": float(unit) if unit is not None else None, "status": row.get("status") or "active",
+        # 049K: precio de venta cargado en el insumo (un "producto del
+        # inventario" lo trae al asistente para no pedirlo dos veces).
+        "sale_price": float(Decimal(str(row.get("sale_price") or 0))),
     }
-
-
-async def _images(db: AsyncSession, company_id: uuid.UUID) -> set[str]:
-    result = await db.execute(text("SELECT to_regclass('public.hospitality_product_images') IS NOT NULL AS exists"))
-    row = result.mappings().first()
-    if not row or not row.get("exists"):
-        return set()
-    rows = await db.execute(text("""
-        SELECT inventory_item_id FROM hospitality_product_images
-        WHERE company_id = CAST(:company_id AS uuid) AND image_bytes IS NOT NULL
-    """), {"company_id": str(company_id)})
-    return {str(r["inventory_item_id"]) for r in rows.mappings().all()}
 
 
 async def _settings(db: AsyncSession, company_id: uuid.UUID) -> dict:
@@ -225,48 +336,66 @@ async def _settings(db: AsyncSession, company_id: uuid.UUID) -> dict:
     row = result.mappings().first()
     raw = (row or {}).get("settings") or {}
     if isinstance(raw, str):
-        import json as _json
-        raw = _json.loads(raw or "{}")
+        raw = json.loads(raw or "{}")
     return raw if isinstance(raw, dict) else {}
 
 
 async def _save_settings(db: AsyncSession, company_id: uuid.UUID, patch: dict) -> None:
-    import json as _json
-
     await db.execute(text("""
         UPDATE company_modules SET settings = COALESCE(settings, '{}'::jsonb) || CAST(:s AS jsonb), updated_at = now()
         WHERE company_id = CAST(:company_id AS uuid) AND module_id = (SELECT id FROM modules WHERE LOWER(code) = 'carta' LIMIT 1)
-    """), {"s": _json.dumps(patch, ensure_ascii=False), "company_id": str(company_id)})
+    """), {"s": json.dumps(patch, ensure_ascii=False), "company_id": str(company_id)})
 
 
-def _categories(settings: dict, dishes: list[dict]) -> list[dict]:
-    out, seen = [], set()
-    for label, hint in engine.PRESET_CATEGORIES:
-        out.append({"label": label, "hint": hint, "preset": True})
-        seen.add(category_slug(label))
-    for label in [*(settings.get("categories") or []), *[d.get("category_key") for d in dishes]]:
-        clean = _clean(label, 80).upper()
-        if clean and category_slug(clean) not in seen:
-            out.append({"label": clean, "hint": "", "preset": False})
-            seen.add(category_slug(clean))
+async def _stations(db: AsyncSession, company_id: uuid.UUID, categories: list[dict]) -> list[str]:
+    """Estaciones de cocina que ya usa la empresa (las del mesero/cocina y
+    las de sus categorias), para elegirlas sin escribirlas."""
+    from app.api.v1.endpoints.waiter_ordering import _module_settings
+
+    configured = (await _module_settings(db, company_id)).get("stations")
+    out: list[str] = []
+    for name in [*(configured if isinstance(configured, list) else []), *[c["station"] for c in categories]]:
+        clean = _clean(name, 80)
+        if clean and clean.lower() not in {s.lower() for s in out}:
+            out.append(clean)
     return out
+
+
+def _category_tree(categories: list[dict], images: dict[str, str], dishes: list[dict]) -> list[dict]:
+    counts: dict[str, int] = {}
+    for dish in dishes:
+        key = str(dish.get("category_id") or "")
+        counts[key] = counts.get(key, 0) + 1
+    hints = dict(engine.PRESET_CATEGORIES)
+
+    def node(c: dict) -> dict:
+        return {**c, "hint": hints.get(c["label"], ""), "has_image": c["id"] in images,
+                "image_version": images.get(c["id"], ""), "dish_count": counts.get(c["id"], 0)}
+
+    return [{**node(top), "children": [node(sub) for sub in categories if sub["parent_id"] == top["id"]]}
+            for top in categories if not top["parent_id"]]
 
 
 async def _carta_payload(db: AsyncSession, company_id: uuid.UUID) -> dict:
     insumos = await load_insumos(db, company_id)
     dishes, lines = await load_dishes(db, company_id)
+    categories = await ensure_categories(db, company_id)
+    by_category = {c["id"]: c for c in categories}
     catalog = _catalog(dishes, lines)
-    images = await _images(db, company_id)
+    images = await _image_versions(db, company_id)
     settings = await _settings(db, company_id)
     items = []
     for dish in dishes:
         dish_lines = lines.get(str(dish["id"]), [])
         summary = engine.dish_summary(dish, dish_lines, insumos, catalog)
+        top, sub = resolve_category(dish, by_category)
         items.append({
             "id": str(dish["id"]), "name": dish["name"], "price": float(Decimal(str(dish["price"] or 0))),
             "presentation": dish.get("presentation") or "", "display_name": display_name(dish),
-            "has_image": str(dish["id"]) in images,
-            "category_key": dish.get("category_key") or "", "station": dish.get("station") or "",
+            "category_id": str(dish["category_id"]) if dish.get("category_id") and top else None,
+            "category_label": top["label"] if top else "", "subcategory_label": sub["label"] if sub else "",
+            "top_category_id": top["id"] if top else None,
+            "station": dish.get("station") or "", "effective_station": effective_kitchen(dish, top, sub)["station"],
             "requires_term": bool(dish.get("requires_term")), "allows_portions": bool(dish.get("allows_portions")),
             "kind": dish.get("kind") or "directo", "active": bool(dish.get("active")),
             "inventory_item_id": str(dish["inventory_item_id"]) if dish.get("inventory_item_id") else None,
@@ -277,7 +406,9 @@ async def _carta_payload(db: AsyncSession, company_id: uuid.UUID) -> dict:
         })
     return {"items": items, "insumos": [_insumo_payload(r) for r in insumos.values()],
             "item_types": engine.ITEM_TYPES, "purchase_units": engine.PURCHASE_UNITS,
-            "consumption_units": engine.CONSUMPTION_UNITS, "categories": _categories(settings, dishes),
+            "consumption_units": engine.CONSUMPTION_UNITS,
+            "categories": _category_tree(categories, images, dishes),
+            "stations": await _stations(db, company_id, categories),
             "company_id": str(company_id), "qr_ready": bool(settings.get("qr_token"))}
 
 
@@ -314,7 +445,7 @@ class DishIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=220)
     presentation: str = Field(default="", max_length=60)
     price: float = Field(default=0, ge=0)
-    category_key: str = Field(default="", max_length=80)
+    category_id: str | None = Field(default=None, max_length=40)
     station: str = Field(default="", max_length=80)
     requires_term: bool = False
     allows_portions: bool = False
@@ -322,6 +453,18 @@ class DishIn(BaseModel):
     inventory_item_id: str | None = None
     direct_qty: float = Field(default=1, gt=0)
     active: bool = True
+
+
+async def _check_category(db: AsyncSession, company_id: uuid.UUID, category_id: str | None) -> tuple[str, str]:
+    """(id, etiqueta de la categoria principal); vacio = sin categoria."""
+    if not category_id:
+        return "", ""
+    categories = {c["id"]: c for c in await load_categories(db, company_id)}
+    leaf = categories.get(str(category_id))
+    if not leaf:
+        raise HTTPException(status_code=400, detail="Esa categoría no existe en tu carta.")
+    top, _sub = resolve_category({"category_id": leaf["id"]}, categories)
+    return leaf["id"], (top or leaf)["label"]
 
 
 async def _validate_dish(db: AsyncSession, company_id: uuid.UUID, payload: DishIn) -> dict:
@@ -339,8 +482,9 @@ async def _validate_dish(db: AsyncSession, company_id: uuid.UUID, payload: DishI
                       if "consumible" in str(exc) else "Elige el insumo que descuenta este plato.")
             raise HTTPException(status_code=400, detail=detail) from exc
         insumo_id = str(insumo["id"])
+    category_id, category_label = await _check_category(db, company_id, payload.category_id)
     return {"name": _clean(payload.name), "presentation": _clean(payload.presentation, 60), "price": payload.price,
-            "category_key": _clean(payload.category_key, 80).upper(),
+            "category_id": category_id, "category_key": category_label,
             "station": _clean(payload.station, 80), "requires_term": payload.requires_term,
             "allows_portions": payload.allows_portions, "kind": kind, "inventory_item_id": insumo_id,
             "direct_qty": payload.direct_qty, "active": payload.active}
@@ -352,9 +496,10 @@ async def create_dish(company_id: uuid.UUID, payload: DishIn, db: AsyncSession =
     values = await _validate_dish(db, company_id, payload)
     new_id = str(uuid.uuid4())
     await db.execute(text("""
-        INSERT INTO carta_items (id, company_id, name, presentation, price, category_key, station, requires_term, allows_portions,
-                                 kind, inventory_item_id, direct_qty, active, position)
-        VALUES (CAST(:id AS uuid), CAST(:company_id AS uuid), :name, :presentation, :price, :category_key, :station, :requires_term,
+        INSERT INTO carta_items (id, company_id, name, presentation, price, category_key, category_id, station, requires_term,
+                                 allows_portions, kind, inventory_item_id, direct_qty, active, position)
+        VALUES (CAST(:id AS uuid), CAST(:company_id AS uuid), :name, :presentation, :price, :category_key,
+                CAST(NULLIF(:category_id, '') AS uuid), :station, :requires_term,
                 :allows_portions, :kind, CAST(NULLIF(:inventory_item_id, '') AS uuid), :direct_qty, :active,
                 (SELECT COALESCE(MAX(position), 0) + 1 FROM carta_items WHERE company_id = CAST(:company_id AS uuid)))
     """), {**values, "inventory_item_id": values["inventory_item_id"] or "", "id": new_id, "company_id": str(company_id)})
@@ -367,7 +512,8 @@ async def update_dish(company_id: uuid.UUID, item_id: uuid.UUID, payload: DishIn
                       _a: str = Depends(require_carta_admin)) -> dict:
     values = await _validate_dish(db, company_id, payload)
     result = await db.execute(text("""
-        UPDATE carta_items SET name = :name, presentation = :presentation, price = :price, category_key = :category_key, station = :station,
+        UPDATE carta_items SET name = :name, presentation = :presentation, price = :price, category_key = :category_key,
+               category_id = CAST(NULLIF(:category_id, '') AS uuid), station = :station,
                requires_term = :requires_term, allows_portions = :allows_portions, kind = :kind,
                inventory_item_id = CAST(NULLIF(:inventory_item_id, '') AS uuid), direct_qty = :direct_qty,
                active = :active, updated_at = now()
@@ -481,7 +627,7 @@ async def update_insumo(company_id: uuid.UUID, insumo_id: uuid.UUID, payload: In
     return await _carta_payload(db, company_id)
 
 
-# ------------------------------------------------ eliminar, categoria, foto ---
+# --------------------------------------- eliminar, categorias e imagenes ---
 @router.delete("/companies/{company_id}/items/{item_id}")
 async def delete_dish(company_id: uuid.UUID, item_id: uuid.UUID, db: AsyncSession = Depends(get_db),
                       _a: str = Depends(require_carta_admin)) -> dict:
@@ -507,57 +653,172 @@ async def delete_dish(company_id: uuid.UUID, item_id: uuid.UUID, db: AsyncSessio
 
 class CategoryIn(BaseModel):
     label: str = Field(..., min_length=1, max_length=80)
+    parent_id: str | None = Field(default=None, max_length=40)
+
+
+class CategoryUpdateIn(BaseModel):
+    label: str = Field(..., min_length=1, max_length=80)
+    station: str = Field(default="", max_length=80)
+    quick_notes: list[str] = Field(default_factory=list)
+    requires_term: bool = False
+
+
+def _same_label(a: Any, b: Any) -> bool:
+    return category_slug(a) == category_slug(b)
 
 
 @router.post("/companies/{company_id}/categories")
 async def add_category(company_id: uuid.UUID, payload: CategoryIn, db: AsyncSession = Depends(get_db),
                        _a: str = Depends(require_carta_admin)) -> dict:
+    """Categoria (sin parent_id) o subcategoria. Solo dos niveles: una
+    subcategoria no lleva subcategorias."""
     label = _clean(payload.label, 80).upper()
-    settings = await _settings(db, company_id)
-    current = [c for c in (settings.get("categories") or []) if category_slug(c) != category_slug(label)]
-    await _save_settings(db, company_id, {"categories": [*current, label]})
+    categories = await ensure_categories(db, company_id)
+    by_id = {c["id"]: c for c in categories}
+    parent_id = str(payload.parent_id) if payload.parent_id else None
+    if parent_id:
+        parent = by_id.get(parent_id)
+        if not parent:
+            raise HTTPException(status_code=404, detail="Categoría no encontrada.")
+        if parent["parent_id"]:
+            raise HTTPException(status_code=400, detail="Una subcategoría no lleva subcategorías.")
+    siblings = [c for c in categories if c["parent_id"] == parent_id]
+    if any(_same_label(c["label"], label) for c in siblings):
+        raise HTTPException(status_code=409, detail=f"Ya existe {label}.")
+    new_id = str(uuid.uuid4())
+    await db.execute(text("""
+        INSERT INTO carta_categories (id, company_id, parent_id, label, position)
+        VALUES (CAST(:id AS uuid), CAST(:company_id AS uuid), CAST(NULLIF(:parent_id, '') AS uuid), :label, :position)
+    """), {"id": new_id, "company_id": str(company_id), "parent_id": parent_id or "", "label": label,
+           "position": max([c["position"] for c in siblings] or [0]) + 1})
+    await db.commit()
+    return {**await _carta_payload(db, company_id), "created_category_id": new_id}
+
+
+@router.put("/companies/{company_id}/categories/{category_id}")
+async def update_category(company_id: uuid.UUID, category_id: uuid.UUID, payload: CategoryUpdateIn,
+                          db: AsyncSession = Depends(get_db), _a: str = Depends(require_carta_admin)) -> dict:
+    categories = await load_categories(db, company_id)
+    current = next((c for c in categories if c["id"] == str(category_id)), None)
+    if not current:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada.")
+    label = _clean(payload.label, 80).upper()
+    if any(c["id"] != current["id"] and c["parent_id"] == current["parent_id"] and _same_label(c["label"], label) for c in categories):
+        raise HTTPException(status_code=409, detail=f"Ya existe {label}.")
+    notes = [_clean(n, 80) for n in payload.quick_notes if _clean(n, 80)][:8]
+    await db.execute(text("""
+        UPDATE carta_categories SET label = :label, station = :station, quick_notes = CAST(:notes AS jsonb),
+               requires_term = :requires_term, updated_at = now()
+        WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid)
+    """), {"label": label, "station": _clean(payload.station, 80), "notes": json.dumps(notes, ensure_ascii=False),
+           "requires_term": payload.requires_term, "id": str(category_id), "company_id": str(company_id)})
+    if not current["parent_id"]:
+        await db.execute(text("""
+            UPDATE carta_items SET category_key = :label WHERE company_id = CAST(:company_id AS uuid)
+              AND category_id IN (SELECT id FROM carta_categories WHERE company_id = CAST(:company_id AS uuid)
+                                  AND (id = CAST(:id AS uuid) OR parent_id = CAST(:id AS uuid)))
+        """), {"label": label, "id": str(category_id), "company_id": str(company_id)})
     await db.commit()
     return await _carta_payload(db, company_id)
 
 
-PHOTO_FRAME = (800, 600)  # 4:3, el mismo marco para todos los platos
+@router.delete("/companies/{company_id}/categories/{category_id}")
+async def delete_category(company_id: uuid.UUID, category_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                          _a: str = Depends(require_carta_admin)) -> dict:
+    categories = await load_categories(db, company_id)
+    current = next((c for c in categories if c["id"] == str(category_id)), None)
+    if not current:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada.")
+    ids = {current["id"], *[c["id"] for c in categories if c["parent_id"] == current["id"]]}
+    dishes, _lines = await load_dishes(db, company_id)
+    inside = [d["name"] for d in dishes if str(d.get("category_id") or "") in ids]
+    if inside:
+        raise HTTPException(status_code=409, detail=f"Tiene {len(inside)} plato(s) ({', '.join(inside[:3])}): muévelos a otra categoría primero.")
+    for image_id in ids:
+        await db.execute(text("""
+            DELETE FROM hospitality_product_images WHERE company_id = CAST(:c AS uuid) AND inventory_item_id = CAST(:id AS uuid)
+        """), {"c": str(company_id), "id": image_id})
+    await db.execute(text("DELETE FROM carta_categories WHERE id = CAST(:id AS uuid) AND company_id = CAST(:c AS uuid)"),
+                     {"id": str(category_id), "c": str(company_id)})
+    await db.commit()
+    return await _carta_payload(db, company_id)
 
 
-def crop_to_frame(raw: bytes) -> bytes:
-    """Recorta al centro y ajusta la foto al marco estandar (4:3, 800x600)
-    para que todas se vean parejas en mesero, caja, domicilios y el QR."""
+CATEGORY_IMAGE_BOX = (800, 800)  # lado mayor 800 px: nitida en cualquier celular, dentro del tope de 200 KB
+
+
+def fit_to_box(raw: bytes) -> bytes:
+    """La imagen COMPLETA dentro del recuadro: se reduce en proporcion (nunca
+    se recorta, deforma ni agranda) y se guarda con la mejor calidad que
+    quepa en el tope de la base."""
     from PIL import Image, ImageOps
 
     try:
         image = Image.open(io.BytesIO(raw))
-        image = ImageOps.exif_transpose(image).convert("RGB")
+        image = ImageOps.exif_transpose(image)
+        if image.mode in ("RGBA", "LA", "P"):
+            rgba = image.convert("RGBA")
+            image = Image.new("RGB", rgba.size, (18, 16, 32))  # fondo oscuro de los paneles
+            image.paste(rgba, mask=rgba.split()[-1])
+        image = image.convert("RGB")
     except Exception as exc:
         raise HTTPException(status_code=422, detail="No se pudo leer la imagen (usa JPG, PNG o WEBP).") from exc
-    framed = ImageOps.fit(image, PHOTO_FRAME, method=Image.LANCZOS, centering=(0.5, 0.5))
-    out = io.BytesIO()
-    framed.save(out, format="JPEG", quality=82, optimize=True)
-    return out.getvalue()
+    image.thumbnail(CATEGORY_IMAGE_BOX, Image.LANCZOS)
+    encoded = b""
+    for quality in (92, 88, 84, 80, 74, 68, 60):
+        out = io.BytesIO()
+        image.save(out, format="JPEG", quality=quality, optimize=True, progressive=True, subsampling=0 if quality >= 84 else 2)
+        encoded = out.getvalue()
+        if len(encoded) <= media_storage.MAX_IMAGE_BYTES:
+            break
+    return encoded
 
 
-@router.post("/companies/{company_id}/items/{item_id}/photo")
-async def upload_dish_photo(company_id: uuid.UUID, item_id: uuid.UUID, image: UploadFile = File(...),
-                            db: AsyncSession = Depends(get_db), _a: str = Depends(require_carta_admin)) -> dict:
-    dishes, _lines = await load_dishes(db, company_id)
-    if not any(str(d["id"]) == str(item_id) for d in dishes):
-        raise HTTPException(status_code=404, detail="Plato no encontrado.")
+@router.post("/companies/{company_id}/categories/{category_id}/image")
+async def upload_category_image(company_id: uuid.UUID, category_id: uuid.UUID, image: UploadFile = File(...),
+                                db: AsyncSession = Depends(get_db), _a: str = Depends(require_carta_admin)) -> dict:
+    """Imagen de la categoria o subcategoria (8 o 10 en toda la carta, no una
+    por plato). Se sirve por la misma ruta publica de fotos del menu."""
+    categories = await load_categories(db, company_id)
+    if not any(c["id"] == str(category_id) for c in categories):
+        raise HTTPException(status_code=404, detail="Categoría no encontrada.")
     raw = await image.read(12 * 1024 * 1024 + 1)
     if len(raw) > 12 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="La foto es demasiado grande.")
-    framed = crop_to_frame(raw)
+        raise HTTPException(status_code=413, detail="La imagen es demasiado grande.")
+    fitted = fit_to_box(raw)
     await db.execute(text("""
         INSERT INTO hospitality_product_images (company_id, inventory_item_id) VALUES (CAST(:c AS uuid), CAST(:i AS uuid))
         ON CONFLICT (company_id, inventory_item_id) DO NOTHING
-    """), {"c": str(company_id), "i": str(item_id)})
+    """), {"c": str(company_id), "i": str(category_id)})
     await media_storage.save_image(db, table="hospitality_product_images",
-                                   key_columns={"company_id": str(company_id), "inventory_item_id": str(item_id)},
-                                   raw=framed, content_type="image/jpeg")
+                                   key_columns={"company_id": str(company_id), "inventory_item_id": str(category_id)},
+                                   raw=fitted, content_type="image/jpeg", pre_encoded=True)
     await db.commit()
     return await _carta_payload(db, company_id)
+
+
+class BulkCategoryIn(BaseModel):
+    item_ids: list[str] = Field(..., min_length=1, max_length=300)
+    category_id: str | None = Field(default=None, max_length=40)
+
+
+@router.put("/companies/{company_id}/items-category")
+async def move_dishes(company_id: uuid.UUID, payload: BulkCategoryIn, db: AsyncSession = Depends(get_db),
+                      _a: str = Depends(require_carta_admin)) -> dict:
+    """Reasigna varios platos a la vez a una categoria o subcategoria."""
+    category_id, category_label = await _check_category(db, company_id, payload.category_id)
+    dishes, _lines = await load_dishes(db, company_id)
+    known = {str(d["id"]) for d in dishes}
+    ids = [str(i) for i in payload.item_ids if str(i) in known]
+    if not ids:
+        raise HTTPException(status_code=404, detail="Elige platos de tu carta.")
+    for item_id in ids:
+        await db.execute(text("""
+            UPDATE carta_items SET category_id = CAST(NULLIF(:category_id, '') AS uuid), category_key = :label, updated_at = now()
+            WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid)
+        """), {"category_id": category_id, "label": category_label, "id": item_id, "company_id": str(company_id)})
+    await db.commit()
+    return {**await _carta_payload(db, company_id), "moved": len(ids)}
 
 
 # ---------------------------------------------------------- QR de la carta ---
@@ -629,17 +890,25 @@ async def public_carta(token: str, db: AsyncSession = Depends(get_db)) -> dict:
     from app.api.v1.endpoints.waiter_ordering import build_waiter_menu
 
     menu = await build_waiter_menu(db, company["id"])
+
+    def product(p: dict) -> dict:
+        return {"id": str(p.get("id")), "name": p.get("name") or "", "price": p.get("price") or 0,
+                "has_image": bool(p.get("has_image")), "image_item_id": p.get("image_item_id") or p.get("id"),
+                "subcategory_key": p.get("subcategory_key") or "", "is_portioned": bool(p.get("is_portioned")),
+                "portions": [{"label": x.get("label") or x.get("portion_label") or "", "price": x.get("price") or 0}
+                             for x in (p.get("portions") or [])]}
+
+    def art(node: dict) -> dict:
+        return {"key": node.get("key"), "label": node.get("label"), "has_image": bool(node.get("has_image")),
+                "image_item_id": node.get("image_item_id") or "", "image_version": node.get("image_version") or "",
+                "image_fit": node.get("image_fit") or ""}
+
     categories = []
     for category in menu.get("categories") or []:
-        products = [{
-            "id": str(p.get("id")), "name": p.get("name") or "", "price": p.get("price") or 0,
-            "has_image": bool(p.get("has_image")), "image_item_id": p.get("image_item_id") or p.get("id"),
-            "is_portioned": bool(p.get("is_portioned")),
-            "portions": [{"label": x.get("label") or x.get("portion_label") or "", "price": x.get("price") or 0}
-                         for x in (p.get("portions") or [])],
-        } for p in category.get("products") or []]
+        products = [product(p) for p in category.get("products") or []]
         if products:
-            categories.append({"key": category.get("key"), "label": category.get("label"), "has_image": bool(category.get("has_image")),
-                               "products": products})
+            categories.append({**art(category), "products": products,
+                               "subcategories": [{**art(sub), "products": [product(p) for p in sub.get("products") or []]}
+                                                 for sub in category.get("subcategories") or []]})
     return {"company_id": str(company["id"]), "company_name": company["name"], "categories": categories,
             "menu_emojis": bool(menu.get("menu_emojis"))}

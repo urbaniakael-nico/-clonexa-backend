@@ -206,6 +206,18 @@ async def _category_rows(db: AsyncSession, company_id: uuid.UUID) -> dict[str, d
     return rows
 
 
+async def _carta_on(db: AsyncSession, company_id: uuid.UUID) -> bool:
+    """049K: con el modulo Carta (hoy solo ASADERO), la Carta es la unica
+    fuente de categorias, estaciones y presentacion del menu; las categorias
+    de aqui (derivadas del inventario) no aplican a esa empresa."""
+    from app.api.v1.endpoints.carta import carta_enabled
+
+    return await carta_enabled(db, company_id)
+
+
+CARTA_MANAGES_CATEGORIES = "Las categorías de este restaurante se crean y gestionan en Carta."
+
+
 class CategoryUpsertIn(BaseModel):
     label: str | None = Field(default="", max_length=160)
     station: str | None = Field(default="", max_length=80)
@@ -350,6 +362,8 @@ async def list_waiter_ordering_categories(
     _admin: None = Depends(require_company_user_admin_access),
 ) -> dict[str, Any]:
     await ensure_waiter_ordering_storage(db)
+    if await _carta_on(db, company_id):
+        return {"ok": True, "company_id": str(company_id), "categories": [], "managed_by_carta": True}
     configured = await _category_rows(db, company_id)
 
     menu = await hospitality_inventory_lite(company_id, limit=500, db=db)
@@ -378,6 +392,8 @@ async def upsert_waiter_ordering_category(
     _admin: None = Depends(require_company_user_admin_access),
 ) -> dict[str, Any]:
     await ensure_waiter_ordering_storage(db)
+    if await _carta_on(db, company_id):
+        raise HTTPException(status_code=409, detail=CARTA_MANAGES_CATEGORIES)
     key = _category_key(category_key)
     label = _clean(payload.label) or _pretty_label(key)
     await db.execute(
@@ -430,6 +446,8 @@ async def upload_waiter_ordering_category_image(
     db: AsyncSession = Depends(get_db),
     _admin: None = Depends(require_company_user_admin_access),
 ) -> dict[str, Any]:
+    if await _carta_on(db, company_id):
+        raise HTTPException(status_code=409, detail=CARTA_MANAGES_CATEGORIES)
     key = _category_key(category_key)
     content = await image.read()
     await _ensure_category_row(db, company_id, key)
@@ -755,7 +773,11 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
     Shared by the mesero/caja panels and the domicilios public carta."""
     await ensure_waiter_ordering_storage(db)
     inventory = await hospitality_inventory_lite(company_id, limit=500, db=db)
-    configured = await _category_rows(db, company_id)
+    carta = await _carta_on(db, company_id)
+    # 049K: con Carta, las categorias del inventario no entran al menu y los
+    # platos van sin foto, cada uno en su tarjeta. Los grupos de porciones
+    # siguen fijando el precio de cada boton (1/4, 1/2...), como siempre.
+    configured = {} if carta else await _category_rows(db, company_id)
     portion_map = await _portion_membership(db, company_id)
 
     image_rows = await db.execute(
@@ -769,8 +791,8 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
 
     active_products = [item for item in (inventory.get("inventory") or []) if item.get("active")]
     for product in active_products:
-        product["has_image"] = str(product.get("id")) in products_with_image
-    merged_products = _merge_portions_into_products(active_products, portion_map)
+        product["has_image"] = not carta and str(product.get("id")) in products_with_image
+    merged_products = [dict(p) for p in active_products] if carta else _merge_portions_into_products(active_products, portion_map)
 
     module_settings = await _module_settings(db, company_id)
     quantity_buttons = _quantity_buttons_config(module_settings)
@@ -788,12 +810,24 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
                 product["quantity_ref_id"] = ref_id
                 product["quantity_options"] = _quantity_options(by_id[ref_id], quantity_buttons, by_id, portion_map)
 
+    if carta:
+        from app.api.v1.endpoints.carta import carta_menu_categories
+
+        return {
+            "ok": True,
+            "company_id": str(company_id),
+            "categories": await carta_menu_categories(db, company_id, merged_products),
+            "quantity_buttons": quantity_buttons,
+            "menu_emojis": module_settings.get("menu_emojis") is True,
+            # Menu de Carta: categoria -> subcategoria -> plato; el panel del
+            # mesero muestra ese nivel y su atras nunca saca de la app.
+            "carta": True,
+        }
+
     grouped: dict[str, dict[str, Any]] = {}
     for product in merged_products:
-        # 049H/049J: un plato de la carta trae su categoria completa ("PLATOS A LA
-        # CARTA"); si no, la de su nombre, como siempre.
-        key = product.get("category_key") or _category_key(product.get("name"))
-        default_label = product.get("category_label") or _pretty_label(str(product.get("name") or "").split(" ")[0])
+        key = _category_key(product.get("name"))
+        default_label = _pretty_label(str(product.get("name") or "").split(" ")[0])
         bucket = grouped.setdefault(
             key,
             {
@@ -857,7 +891,10 @@ async def _priced_order_items(db: AsyncSession, company_id: uuid.UUID, items: li
     (including cantidad por botones fractions)."""
     inventory = await hospitality_inventory_lite(company_id, limit=500, db=db)
     by_id = {str(row.get("id")): row for row in (inventory.get("inventory") or [])}
-    categories = await _category_rows(db, company_id)
+    # 049K: los platos de la Carta traen estacion/termino resueltos (los suyos
+    # o los de su categoria de Carta); nada de categorias del inventario.
+    carta = any("carta_kind" in row for row in by_id.values())
+    categories = {} if carta else await _category_rows(db, company_id)
     portion_map = await _portion_membership(db, company_id)
     quantity_buttons: list[str] | None = None
 
@@ -890,7 +927,7 @@ async def _priced_order_items(db: AsyncSession, company_id: uuid.UUID, items: li
         # under.
         membership = portion_map.get(str(product["id"]))
         category_source = membership["group_label"] if membership else product.get("name")
-        category = categories.get(product.get("category_key") or _category_key(category_source)) if not membership else categories.get(_category_key(category_source))
+        category = categories.get(_category_key(category_source))
         # 049H: estacion y termino propios del plato de la carta, si los tiene.
         requires_term = (category or {}).get("requires_term") or product.get("requires_term")
         term = _clean(item.term) if requires_term else ""

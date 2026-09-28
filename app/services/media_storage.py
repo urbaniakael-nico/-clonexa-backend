@@ -77,6 +77,7 @@ async def save_image(
     key_columns: dict[str, object],
     raw: bytes,
     content_type: str,
+    pre_encoded: bool = False,
 ) -> None:
     """Resize/validate `raw`, then replace the image on the row matched by
     `key_columns` (an UPDATE, never an INSERT of a new image row) -- so a new
@@ -95,7 +96,17 @@ async def save_image(
     for column in key_columns:
         _assert_safe_identifier(column, _COLUMN_NAME_RE, "column")
 
-    encoded, final_content_type = _resize_and_encode(raw, content_type)
+    if pre_encoded:
+        # The caller already sized and encoded it (e.g. Carta's fit-to-box
+        # category photos): a second JPEG pass would only blur it. Same cap.
+        if len(raw) > MAX_IMAGE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"La imagen pesa mas de {MAX_IMAGE_BYTES // 1024} KB. Usa una mas liviana.",
+            )
+        encoded, final_content_type = raw, content_type
+    else:
+        encoded, final_content_type = _resize_and_encode(raw, content_type)
 
     where_clause = " AND ".join(f"{column} = :{column}" for column in key_columns)
     await db.execute(

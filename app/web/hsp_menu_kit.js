@@ -112,6 +112,11 @@
   // Photo (Admin V2) > emoji (switch on) > nothing, like before the switch.
   function tileArt(kind, item, opts = {}) {
     const companyId = opts.companyId || "";
+    if (item.has_image && kind === "category" && item.image_item_id) {
+      // 049K: imagen de una categoria de Carta, guardada por su id.
+      const version = item.image_version ? `?v=${encodeURIComponent(item.image_version)}` : "";
+      return { type: "image", url: `/api/v1/companies/${encodeURIComponent(companyId)}/waiter-ordering/products/${encodeURIComponent(item.image_item_id)}/image${version}` };
+    }
     if (item.has_image) {
       const path = kind === "category"
         ? `categories/${encodeURIComponent(item.key)}/image`
@@ -250,7 +255,10 @@
           const art = tileArt("category", cat, opts);
           return `
             <button class="wtr-cat-tile" type="button" ${attr}="${h(cat.key)}">
-              ${art.type === "image"
+              ${art.type === "image" && cat.image_fit === "contain"
+                // 049K (Carta): la imagen completa, sin recorte, sobre su propio fondo difuminado.
+                ? `<div class="wtr-cat-img wtr-cat-fit" style="--wtr-img:url('${art.url}')"><img src="${art.url}" alt="" loading="lazy"></div>`
+                : art.type === "image"
                 ? `<div class="wtr-cat-img" style="background-image:url('${art.url}')"></div>`
                 : `<div class="wtr-cat-img wtr-emoji">${art.emoji}</div>`}
               <span>${h(cat.label)}</span>
@@ -471,6 +479,9 @@
     .wtr-prod-tile{min-height:76px;display:grid;gap:6px;align-content:center;border-radius:18px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#fff;padding:12px;text-align:left;overflow:hidden;cursor:pointer}
     .wtr-prod-img{height:70px;margin:-12px -12px 4px;background-size:cover;background-position:center}
     .wtr-cat-img.wtr-emoji{font-size:56px;line-height:1}
+    .wtr-cat-fit{height:auto;aspect-ratio:4/3;position:relative;overflow:hidden;background-color:#15131f}
+    .wtr-cat-fit::before{content:"";position:absolute;inset:-16px;background:var(--wtr-img) center/cover no-repeat;filter:blur(16px) brightness(.55)}
+    .wtr-cat-fit img{position:relative;display:block;width:100%;height:100%;object-fit:contain}
     .wtr-prod-emoji{font-size:40px;line-height:1}
     .wtr-prod-tile strong{color:#ffd166}
     .wtr-sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;align-items:end;z-index:60}
@@ -515,6 +526,48 @@
     document.head.appendChild(style);
   }
 
+  // ---------------------------------------------------------------------
+  // 049K: boton atras del celular en las cartas del cliente (QR, domicilios).
+  // La pantalla de inicio es la entrada ORIGINAL de la pagina (nunca una
+  // agregada al cargar: Chrome se salta al retroceder las entradas creadas
+  // sin un toque del usuario, y eso sacaba de la app). Cada paso hacia
+  // adentro se agrega al tocar; atras cierra primero la hoja abierta y luego
+  // vuelve un nivel. Solo desde el inicio se sale.
+  //   nav = backNav({ read: () => estado, apply: (estado|null) => pintar })
+  //   nav.push()  -> despues de entrar a un nivel (dentro del clic)
+  // ---------------------------------------------------------------------
+  function backNav(opts) {
+    const SHEET = ".wtr-sheet-backdrop";
+    let ignore = 0;
+    try {
+      window.history.replaceState({ cxNav: null }, "");
+    } catch (_) {
+      return { push() {} };
+    }
+    function push(extra) {
+      try { window.history.pushState({ cxNav: opts.read(), ...(extra || {}) }, ""); } catch (_) {}
+    }
+    window.addEventListener("popstate", (event) => {
+      if (ignore > 0) { ignore -= 1; return; }
+      document.querySelectorAll(SHEET).forEach((sheet) => sheet.remove());
+      opts.apply((event.state && event.state.cxNav) || null);
+    });
+    // Una hoja (producto, porciones) abierta con un toque tiene su propia
+    // entrada; si se cierra desde la pantalla, esa entrada se retira.
+    let open = false;
+    if (typeof MutationObserver === "undefined" || !document.body) return { push };
+    new MutationObserver(() => {
+      const now = Boolean(document.querySelector(SHEET));
+      if (now && !open) push({ cxSheet: true });
+      if (!now && open && window.history.state && window.history.state.cxSheet) {
+        ignore += 1;
+        window.history.back();
+      }
+      open = now;
+    }).observe(document.body, { childList: true, subtree: true });
+    return { push };
+  }
+
   window.CxMenuKit = {
     TERM_STOPS,
     MENU_EMOJIS,
@@ -535,6 +588,7 @@
     cartLineLabel,
     findMenuProduct,
     categoryGridHtml,
+    backNav,
     productGridHtml,
     productOpenMode,
     openPortionSheet,

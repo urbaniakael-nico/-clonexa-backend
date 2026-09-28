@@ -164,7 +164,7 @@
   // Navigation stack per tab (sessionStorage, like the browser history it
   // mirrors), so a reload lands back on the same screen.
   function persistNav() {
-    storeSet("sessionStorage", navKey, JSON.stringify({ stack: state.stack, category: state.category, table: state.table }));
+    storeSet("sessionStorage", navKey, JSON.stringify({ stack: state.stack, category: state.category, subcategory: state.subcategory || "", table: state.table }));
   }
 
   function restoreNav() {
@@ -319,6 +319,7 @@
           state.stack = nav.stack;
           state.screen = nav.stack[nav.stack.length - 1];
           state.category = nav.category || state.category;
+          state.subcategory = nav.subcategory || "";
           if (nav.table) state.table = nav.table;
         } else if (current.wtrDepth > 0) {
           ignorePops += 1;
@@ -384,12 +385,16 @@
   }
 
   // Pure decision for a popstate, so it can be tested without a browser.
-  function popAction(historyState, stackLength, screen, sheetOpen) {
+  function popAction(historyState, stackLength, screen, sheetOpen, carta = false) {
     if (screen === "login") return { type: "ignore" };
     if (sheetOpen) return { type: "close_sheet", depth: stackLength - 1 };
     if (historyState && typeof historyState.wtrDepth === "number") {
       return { type: "go", depth: Math.max(0, Math.min(historyState.wtrDepth, stackLength - 1)) };
     }
+    // 049K (menu de Carta): Chrome se salta al retroceder la entrada de
+    // "inicio" porque se creo al cargar, sin un toque; se cae en la base.
+    // Desde adentro eso es "volver al inicio", nunca salir de la app.
+    if (carta && stackLength > 1) return { type: "go", depth: 0 };
     return { type: "leave" };
   }
 
@@ -399,7 +404,7 @@
       return;
     }
     const sheetOpen = document.querySelectorAll(".wtr-sheet-backdrop").length > 0;
-    const action = popAction(event.state, state.stack.length, state.screen, sheetOpen);
+    const action = popAction(event.state, state.stack.length, state.screen, sheetOpen, state.menuCarta === true);
     if (action.type === "close_sheet") {
       // Back with a sheet open only closes the sheet.
       closeOpenSheets();
@@ -511,6 +516,7 @@
       state.menu = Array.isArray(data.categories) ? data.categories : [];
       state.quantityButtons = Array.isArray(data.quantity_buttons) ? data.quantity_buttons : [];
       state.menuEmojis = data.menu_emojis === true;
+      state.menuCarta = data.carta === true;
     } catch (error) {
       state.error = error.message || "No se pudo cargar el menú.";
     }
@@ -774,12 +780,27 @@
       </section>`;
   }
 
-  function screenProducts() {
+  // 049K (menu de Carta): categoria -> subcategoria -> platos.
+  function screenSubcategories() {
     const category = state.menu.find((cat) => cat.key === state.category);
-    const products = category ? category.products : [];
+    const subs = (category && category.subcategories) || [];
+    const loose = ((category && category.products) || []).filter((item) => !item.subcategory_key);
     return `
       <section class="wtr-shell">
         ${header(category ? category.label : "Productos")}
+        ${Kit.categoryGridHtml(subs, kitOptions("data-wtr-sub"))}
+        ${loose.length ? Kit.productGridHtml(loose, kitOptions("data-wtr-product")) : ""}
+        ${cartFloatingButton()}
+      </section>`;
+  }
+
+  function screenProducts() {
+    const category = state.menu.find((cat) => cat.key === state.category);
+    const sub = state.subcategory ? ((category && category.subcategories) || []).find((item) => item.key === state.subcategory) : null;
+    const products = sub ? sub.products || [] : category ? category.products : [];
+    return `
+      <section class="wtr-shell">
+        ${header(sub ? sub.label : category ? category.label : "Productos")}
         ${Kit.productGridHtml(products, kitOptions("data-wtr-product"))}
         ${cartFloatingButton()}
       </section>`;
@@ -858,6 +879,7 @@
     else if (state.screen === "home") html = screenHome();
     else if (state.screen === "table") html = screenTable();
     else if (state.screen === "categories") html = screenCategories();
+    else if (state.screen === "subcategories") html = screenSubcategories();
     else if (state.screen === "products") html = screenProducts();
     else if (state.screen === "cart") html = screenCart();
     root.innerHTML = html;
@@ -951,6 +973,15 @@
     const catBtn = target.closest("[data-wtr-cat]");
     if (catBtn) {
       state.category = catBtn.getAttribute("data-wtr-cat") || "";
+      state.subcategory = "";
+      const picked = state.menu.find((cat) => cat.key === state.category);
+      goto(picked && (picked.subcategories || []).length ? "subcategories" : "products");
+      return;
+    }
+
+    const subBtn = target.closest("[data-wtr-sub]");
+    if (subBtn) {
+      state.subcategory = subBtn.getAttribute("data-wtr-sub") || "";
       goto("products");
       return;
     }

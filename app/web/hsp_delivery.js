@@ -16,6 +16,7 @@
   const companyId = params.get("c") || "";
   const code = params.get("s") || "";
   const API = `/api/v1/domicilios/public/${encodeURIComponent(companyId)}`;
+  let nav = { push() {}, ready: false };
 
   const state = {
     screen: "loading",
@@ -23,6 +24,7 @@
     notice: "",
     data: null,
     category: "",
+    sub: "", // 049K: subcategoria de la Carta (si la categoria tiene)
     cart: [],
     form: { customer_name: "", address: "", address_notes: "", notes: "", payment_method: "cash", pays_with: "" },
     location: null,
@@ -225,10 +227,21 @@
 
   function screenProducts() {
     const category = currentCategory();
+    const subs = (category && category.subcategories) || [];
+    const sub = subs.find((item) => item.key === state.sub);
+    if (sub) {
+      return `
+        ${header(true)}
+        <h2 class="dom-section">${h(sub.label)}</h2>
+        ${Kit.productGridHtml(sub.products || [], kitOptions("data-dom-product"))}`;
+    }
+    const products = category ? category.products || [] : [];
+    const loose = subs.length ? products.filter((item) => !item.subcategory_key) : products;
     return `
       ${header(true)}
       <h2 class="dom-section">${h(category ? category.label : "")}</h2>
-      ${Kit.productGridHtml(category ? category.products : [], kitOptions("data-dom-product"))}`;
+      ${subs.length ? Kit.categoryGridHtml(subs, kitOptions("data-dom-sub")) : ""}
+      ${loose.length || !subs.length ? Kit.productGridHtml(loose, kitOptions("data-dom-product")) : ""}`;
   }
 
   function paymentBlock() {
@@ -346,13 +359,26 @@
     const cat = target.closest("[data-dom-cat]");
     if (cat) {
       state.category = cat.getAttribute("data-dom-cat") || "";
+      state.sub = "";
       state.screen = "products";
       render();
+      nav.push();
+      return;
+    }
+    const sub = target.closest("[data-dom-sub]");
+    if (sub) {
+      state.sub = sub.getAttribute("data-dom-sub") || "";
+      render();
+      nav.push();
       return;
     }
     const product = target.closest("[data-dom-product]");
     if (product) {
       openProduct(product.getAttribute("data-dom-product") || "");
+      return;
+    }
+    if (target.closest("[data-dom-back]") && nav.ready) {
+      window.history.back(); // el mismo camino que el boton atras del celular
       return;
     }
     if (target.closest("[data-dom-back]")) {
@@ -364,13 +390,17 @@
     }
     if (target.closest("[data-dom-more]")) {
       state.screen = "categories";
+      state.category = "";
+      state.sub = "";
       render();
+      nav.push();
       return;
     }
     const checkout = target.closest("[data-dom-checkout]");
     if (checkout && !checkout.disabled) {
       state.screen = "checkout";
       render();
+      nav.push();
       return;
     }
     const remove = target.closest("[data-dom-remove]");
@@ -456,7 +486,26 @@
   // Exposed for tests only.
   window.CxDeliveryPage = { state, render, checkoutProblem, orderPayload, total, subtotal, whatsappLocationUrl };
 
+  // 049K: el boton atras del celular vuelve un nivel (producto -> subcategoria
+  // -> categoria -> inicio) y solo sale desde el inicio.
+  function applyNav(next) {
+    if (["loading", "error", "done"].includes(state.screen)) {
+      render();
+      return;
+    }
+    state.error = "";
+    state.screen = (next && next.screen) || "categories";
+    state.category = (next && next.category) || "";
+    state.sub = (next && next.sub) || "";
+    if (state.screen === "products" && !currentCategory()) state.screen = "categories";
+    render();
+    window.scrollTo(0, 0);
+  }
+
   Kit.injectStyles();
   injectStyles();
+  if (Kit.backNav) {
+    nav = { ...Kit.backNav({ read: () => ({ screen: state.screen, category: state.category, sub: state.sub }), apply: applyNav }), ready: true };
+  }
   load();
 })();

@@ -2866,7 +2866,7 @@
 
         <div class="cx-wo-categories-026k" style="margin-top:16px">
           <strong>Categorias: imagen y estacion</strong>
-          ${!categories || categories.loading ? `<div class="cx-empty-state">Cargando categorias...</div>` : `
+          ${categories && categories.managed_by_carta ? `<div class="cx-empty-state">Este restaurante usa el modulo Carta: sus categorias, subcategorias, imagenes y estaciones se crean y gestionan en Carta (portal de la empresa).</div>` : !categories || categories.loading ? `<div class="cx-empty-state">Cargando categorias...</div>` : `
             <div class="cx-wo-category-list-026k">
               ${(categories.categories || []).map((cat) => `
                 <form class="cx-wo-category-row-026k" data-cx-wo-category="${escapeHtml(cat.key)}" data-company-id="${escapeHtml(company.id)}">
