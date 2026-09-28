@@ -93,7 +93,7 @@ async def load_dishes(db: AsyncSession, company_id: Any) -> tuple[list[dict], di
     """), {"company_id": str(company_id)})).mappings().all()]
     lines: dict[str, list[dict]] = {}
     for row in (await db.execute(text("""
-        SELECT carta_item_id, inventory_item_id, component_item_id, quantity, yield_pct, position
+        SELECT carta_item_id, inventory_item_id, component_item_id, quantity, yield_pct, position, unit
         FROM carta_recipe_lines WHERE company_id = CAST(:company_id AS uuid)
         ORDER BY position
     """), {"company_id": str(company_id)})).mappings().all():
@@ -276,7 +276,7 @@ async def attach_consumption(db: AsyncSession, company_id: Any, rows: list[dict]
         dish = by_id.get(str(row.get("inventory_item_id") or row.get("product_id") or ""))
         if not dish:
             continue
-        entries = engine.consumption(dish, lines.get(str(dish["id"]), []), row.get("quantity"), catalog)
+        entries = engine.consumption(dish, lines.get(str(dish["id"]), []), row.get("quantity"), catalog, insumos=insumos)
         cost, priced = engine.cost_of(entries, insumos)
         row["menu_item_id"] = str(dish["id"])
         row["carta_kind"] = dish.get("kind") or "directo"
@@ -401,12 +401,12 @@ async def _carta_payload(db: AsyncSession, company_id: uuid.UUID) -> dict:
             "inventory_item_id": str(dish["inventory_item_id"]) if dish.get("inventory_item_id") else None,
             "direct_qty": float(Decimal(str(dish.get("direct_qty") or 1))),
             "available": _available(dish, insumos, catalog),
-            "recipe": [_line_payload(l, insumos, catalog[0]) for l in dish_lines],
+            "recipe": _with_shares([_line_payload(l, insumos, catalog[0]) for l in dish_lines]),
             **{k: summary[k] for k in ("cost", "margin", "margin_pct", "below_cost", "missing_cost", "no_recipe")},
         })
     return {"items": items, "insumos": [_insumo_payload(r) for r in insumos.values()],
             "item_types": engine.ITEM_TYPES, "purchase_units": engine.PURCHASE_UNITS,
-            "consumption_units": engine.CONSUMPTION_UNITS,
+            "consumption_units": engine.CONSUMPTION_UNITS, "recipe_units": engine.RECIPE_UNITS,
             "categories": _category_tree(categories, images, dishes),
             "stations": await _stations(db, company_id, categories),
             "company_id": str(company_id), "qr_ready": bool(settings.get("qr_token"))}
@@ -419,9 +419,25 @@ def _line_payload(line: dict, insumos: dict[str, dict], dishes_by_id: dict[str, 
                 "insumo": display_name(part) if part else "Plato borrado", "unit": "plato",
                 "quantity": float(Decimal(str(line["quantity"]))), "yield_pct": 100.0}
     insumo = insumos.get(str(line.get("inventory_item_id"))) or {}
+    unit = engine.recipe_unit(line.get("unit")) or engine.default_recipe_unit(insumo)
+    need = engine.line_need({**line, "unit": unit}, insumos)
+    unit_cost = engine.unit_cost(insumo) if insumo else None
     return {"component_item_id": None, "inventory_item_id": str(line["inventory_item_id"]),
-            "insumo": insumo.get("name") or "Insumo borrado", "unit": insumo.get("consumption_unit") or "unidad",
-            "quantity": float(Decimal(str(line["quantity"]))), "yield_pct": float(Decimal(str(line.get("yield_pct") or 100)))}
+            "insumo": insumo.get("name") or "Insumo borrado", "unit": unit, "unit_label": engine.RECIPE_UNITS[unit],
+            "stock_unit": insumo.get("consumption_unit") or "unidad",
+            "quantity": float(Decimal(str(line["quantity"]))), "yield_pct": float(Decimal(str(line.get("yield_pct") or 100))),
+            # 049N: lo que descuenta del inventario por porcion y cuanto cuesta
+            "stock_quantity": float(need.quantize(engine.QTY)),
+            "cost": float((unit_cost * need).quantize(engine.MONEY)) if unit_cost is not None else None}
+
+
+def _with_shares(recipe: list[dict]) -> list[dict]:
+    """Aporte de cada ingrediente al costo del plato (para ver cual pesa mas)."""
+    total = sum((Decimal(str(l["cost"])) for l in recipe if l.get("cost") is not None), Decimal("0"))
+    for line in recipe:
+        cost = line.get("cost")
+        line["share_pct"] = float((Decimal(str(cost)) / total * 100).quantize(Decimal("0.1"))) if cost is not None and total > 0 else None
+    return recipe
 
 
 @router.get("/companies/{company_id}")
@@ -529,6 +545,7 @@ class RecipeLineIn(BaseModel):
     inventory_item_id: str | None = None
     component_item_id: str | None = None
     quantity: float = Field(..., gt=0)
+    unit: str | None = Field(default=None, max_length=12)
     yield_pct: float = Field(default=100, gt=0, le=100)
 
 
@@ -555,22 +572,32 @@ async def save_recipe(company_id: uuid.UUID, item_id: uuid.UUID, payload: Recipe
             if part.get("kind") == "combo":
                 raise HTTPException(status_code=400, detail="Un combo no puede llevar otro combo.")
             continue
+        insumo = insumos.get(str(line.inventory_item_id or ""))
         try:
-            engine.validate_link(insumos.get(str(line.inventory_item_id or "")))
+            engine.validate_link(insumo)
         except ValueError as exc:
             detail = ("Un consumible no va en una receta: cuenta como gasto, no como ingrediente."
                       if "consumible" in str(exc) else "Insumo no encontrado en tu inventario.")
             raise HTTPException(status_code=400, detail=detail) from exc
+        if line.unit is not None and not engine.recipe_unit(line.unit):
+            raise HTTPException(status_code=400, detail="Unidad inválida: usa gr, kg, lb, ml, litros, unidad o par.")
+        if engine.line_factor(line.unit, insumo) is None:
+            raise HTTPException(status_code=400, detail=(
+                f"{insumo['name']} está en inventario por {insumo.get('consumption_unit') or 'unidad'}: "
+                f"no se puede convertir desde {engine.RECIPE_UNITS[engine.recipe_unit(line.unit)]}. "
+                f"Usa {engine.RECIPE_UNITS[engine.default_recipe_unit(insumo)]} o define en Insumos cuánto trae cada unidad de compra."))
     await db.execute(text("DELETE FROM carta_recipe_lines WHERE company_id = CAST(:c AS uuid) AND carta_item_id = CAST(:i AS uuid)"),
                      {"c": str(company_id), "i": str(item_id)})
     for position, line in enumerate(payload.lines):
         await db.execute(text("""
-            INSERT INTO carta_recipe_lines (company_id, carta_item_id, inventory_item_id, component_item_id, quantity, yield_pct, position)
+            INSERT INTO carta_recipe_lines (company_id, carta_item_id, inventory_item_id, component_item_id, quantity, yield_pct, position, unit)
             VALUES (CAST(:c AS uuid), CAST(:i AS uuid), CAST(NULLIF(:insumo, '') AS uuid), CAST(NULLIF(:component, '') AS uuid),
-                    :quantity, :yield_pct, :position)
+                    :quantity, :yield_pct, :position, NULLIF(:unit, ''))
         """), {"c": str(company_id), "i": str(item_id), "insumo": line.inventory_item_id or "",
                "component": line.component_item_id or "", "quantity": line.quantity,
-               "yield_pct": line.yield_pct if not line.component_item_id else 100, "position": position})
+               "yield_pct": line.yield_pct if not line.component_item_id else 100, "position": position,
+               "unit": "" if line.component_item_id else (engine.recipe_unit(line.unit)
+                                                           or engine.default_recipe_unit(insumos.get(str(line.inventory_item_id or ""))))})
     await db.commit()
     return await _carta_payload(db, company_id)
 

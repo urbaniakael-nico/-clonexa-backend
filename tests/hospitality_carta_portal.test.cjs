@@ -178,7 +178,7 @@ test('asistente: categoría -> subcategoría, receta con casillas y precio; plat
   assert.deepEqual({ ...create.body }, { name: 'Churrasco', presentation: '275 gr', price: 32000, category_id: CARNES, station: '', kind: 'preparado',
     inventory_item_id: null, direct_qty: 1, requires_term: true, allows_portions: false, active: true });
   assert.equal(recipe.path, '/items/n1/recipe');
-  assert.deepEqual(JSON.parse(JSON.stringify(recipe.body.lines)), [{ inventory_item_id: 'i4', quantity: 275, yield_pct: 100 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(recipe.body.lines)), [{ inventory_item_id: 'i4', quantity: 275, yield_pct: 100, unit: 'g' }]);
   assert.ok(!ctx.calls.some((c) => c.form), 'no sube foto de plato');
   const summary = ctx.cxCarPlatosHtml049J();
   assert.match(summary, /Plato guardado[\s\S]*Churrasco 275 gr[\s\S]*PLATOS A LA CARTA › CARNES[\s\S]*Estación parrilla[\s\S]*<dt>Precio<\/dt><dd>\$32\.000[\s\S]*<dt>Costo<\/dt><dd>\$3\.438[\s\S]*Margen/);
@@ -252,7 +252,7 @@ test('combo: se arma marcando platos de la carta o insumos y manda sus partes', 
   await ctx.click('data-wz-save');
   assert.equal(ctx.calls.find((c) => c.path === '/items').body.kind, 'combo');
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.calls.find((c) => c.path === '/items/n4/recipe').body.lines)),
-    [{ component_item_id: 'd1', quantity: 1 }, { inventory_item_id: 'i6', quantity: 2, yield_pct: 100 }]);
+    [{ component_item_id: 'd1', quantity: 1 }, { inventory_item_id: 'i6', quantity: 2, yield_pct: 100, unit: 'unidad' }]);
 });
 
 test('mover varios platos a la vez a su categoría', async () => {
@@ -338,7 +338,7 @@ test('insumos: tipo, unidades, conversión, existencia negativa marcada y costo 
   const html = portal(DATA).cxCarInsumosHtml048T();
   assert.match(html, /<option value="consumible" selected>Consumible<\/option>/);
   assert.match(html, /name="units_per_purchase" type="number"[^>]*value="1600"/);
-  assert.match(html, /-350 g <small class="bad">negativo: revisar<\/small>/);
+  assert.match(html, /-350 g<small>= -0,219 unidad<\/small> <small class="bad">negativo: revisar<\/small>/);
   assert.match(html, /\$12,50<small> por g<\/small>/, 'costo por gramo con centavos');
   assert.match(html, /nunca aparecen en la carta/);
 });
@@ -426,4 +426,89 @@ test('mesero y domicilios: tres niveles con Carta', () => {
   assert.match(waiter, /state\.menuCarta = data\.carta === true/);
   assert.match(delivery, /Kit\.categoryGridHtml\(subs, kitOptions\("data-dom-sub"\)\)/);
   assert.match(delivery, /Kit\.backNav\(/);
+});
+
+
+// ------------------------------------------- 049N: unidades y costo en la receta
+const TOMATE = { id: 't1', name: 'Tomate', item_type: 'ingrediente', purchase_unit: 'kilo', consumption_unit: 'g', units_per_purchase: 1000,
+  stock: 5000, avg_cost: 4, sale_price: 0 }; // el kilo costó $4.000 -> $4 por gramo
+const ACEITE = { id: 'a1', name: 'Aceite', item_type: 'ingrediente', purchase_unit: 'litro', consumption_unit: 'ml', units_per_purchase: 1000,
+  stock: 3000, avg_cost: 12, sale_price: 0 };
+const PAN = { id: 'p1', name: 'Pan', item_type: 'ingrediente', purchase_unit: 'unidad', consumption_unit: 'unidad', units_per_purchase: 1,
+  stock: 40, avg_cost: 800, sale_price: 0 };
+const POLLO = { id: 'po', name: 'Pollo', item_type: 'ingrediente', purchase_unit: 'unidad', consumption_unit: 'g', units_per_purchase: 1600,
+  stock: 16000, avg_cost: 12.5, sale_price: 0 };
+const UNITS_DATA = { ...DATA, insumos: [TOMATE, ACEITE, PAN, POLLO] };
+
+test('unidades: conversión entre gr, kg, lb, ml, litros, unidad y par en ambos sentidos', () => {
+  const ctx = portal(UNITS_DATA);
+  assert.equal(ctx.cxCarFactor049N('g', TOMATE), 1);
+  assert.equal(ctx.cxCarFactor049N('kg', TOMATE), 1000);
+  assert.equal(ctx.cxCarFactor049N('lb', TOMATE), 453.59237);
+  assert.equal(ctx.cxCarFactor049N('l', ACEITE), 1000);
+  assert.equal(ctx.cxCarFactor049N('ml', ACEITE), 1);
+  assert.equal(ctx.cxCarFactor049N('par', PAN), 2);
+  assert.equal(ctx.cxCarFactor049N('unidad', POLLO), 1600, '1 unidad de pollo = lo que trae cada unidad de compra');
+  assert.equal(ctx.cxCarFactor049N('ml', TOMATE), null, 'no convierte masa a volumen');
+  assert.equal(ctx.cxCarFactor049N('g', PAN), null, 'el pan no tiene peso definido');
+  const opts = ctx.cxCarUnitOptions049N({ inventory_item_id: 't1', unit: 'g' });
+  assert.match(opts, /<option value="g" selected>gr<\/option><option value="kg" >kg<\/option><option value="lb" >lb<\/option>/);
+  assert.doesNotMatch(opts, /value="ml"|value="par"/, 'solo ofrece unidades que se pueden convertir');
+});
+
+test('costo de la porción al escribir la cantidad: 3 gr de tomate de $4.000 el kilo = $12', async () => {
+  const ctx = portal(UNITS_DATA);
+  await ctx.click('data-car-new');
+  await ctx.click('data-wz-cat', 'cat-pollo');
+  ctx.dom.typed = { name: 'Hamburguesa' };
+  await ctx.click('data-wz-next');
+  await ctx.click('data-wz-mode', 'receta');
+  await ctx.check('data-wz-check', 'insumo:t1');
+  await ctx.check('data-wz-check', 'insumo:a1');
+  const wiz = ctx.cxCarWiz049J;
+  assert.equal(wiz.lines[0].unit, 'g', 'arranca en la unidad del inventario');
+  ctx.qty(0, '3');
+  assert.equal(ctx.cxCarPortionMoney049N(ctx.cxCarLineCost049N(wiz.lines[0]).cost), '$12');
+  wiz.lines[1].quantity = '0.02';
+  await ctx.cxCarOnChange049J({ target: { closest: (sel) => (sel === '[data-wz-line-unit]' ? { getAttribute: () => '1', value: 'l' } : null) } });
+  assert.equal(wiz.lines[1].unit, 'l');
+  assert.equal(ctx.cxCarLineCost049N(wiz.lines[1]).need, 20, '0,02 litros = 20 ml del inventario');
+  assert.equal(ctx.cxCarLineCost049N(wiz.lines[1]).cost, 240);
+  const costs = ctx.cxCarCostsHtml049N(wiz);
+  assert.match(costs, /Costo de los ingredientes por plato<\/span><b>\$252<\/b>/, 'suma los ingredientes: 12 + 240');
+  assert.ok(costs.indexOf('Aceite') < costs.indexOf('Tomate'), 'el que más pesa, primero');
+  assert.match(costs, /Aceite<\/span><i style="--pct:95\.2%"><\/i><b>\$240<\/b><small>95%/);
+  const html = ctx.cxCarWizHtml049J();
+  assert.match(html, /data-wz-line-unit="0"[\s\S]*data-wz-line-cost="0"[^>]*>\$12<\/b>/);
+  ctx.dom.typed = {};
+  await ctx.click('data-wz-next');
+  ctx.dom.typed = { price: '18000' };
+  await ctx.click('data-wz-next');
+  ctx.dom.typed = {};
+  ctx.respond = (path) => ({ ...UNITS_DATA, ...(path === '/items' ? { created_id: 'h1' } : {}) });
+  await ctx.click('data-wz-save');
+  const recipe = ctx.calls.find((c) => c.path === '/items/h1/recipe');
+  assert.deepEqual(JSON.parse(JSON.stringify(recipe.body.lines)),
+    [{ inventory_item_id: 't1', quantity: 3, yield_pct: 100, unit: 'g' }, { inventory_item_id: 'a1', quantity: 0.02, yield_pct: 100, unit: 'l' }]);
+});
+
+test('resumen: costo total del plato y el aporte de cada ingrediente', () => {
+  const ctx = portal(UNITS_DATA);
+  const html = ctx.cxCarRecipeBreakdown049N({ kind: 'preparado', cost: 252, recipe: [
+    { insumo: 'Tomate', quantity: 3, unit: 'g', unit_label: 'gr', cost: 12, share_pct: 4.8 },
+    { insumo: 'Aceite', quantity: 0.02, unit: 'l', unit_label: 'litros', cost: 240, share_pct: 95.2 }] });
+  assert.match(html, /Costo por ingrediente<\/span><b>\$252<\/b>[\s\S]*Aceite <small>0\.02 litros<\/small>[\s\S]*\$240[\s\S]*95\.2%[\s\S]*Tomate <small>3 gr<\/small>[\s\S]*\$12/);
+});
+
+test('contraste: encabezados de categoría con fondo propio, precios en el color del texto y avisos legibles', () => {
+  const start = source.indexOf('  function cxCarStyles049N() {');
+  const css = source.slice(start, source.indexOf('  /* CX_CARTA_048T_END */'));
+  assert.match(css, /\.cx-car-group-049j > h3 \{[^}]*background:#1e293b; color:#ffffff;[^}]*font-size:20px/);
+  assert.match(css, /\.cx-car-price-049j \{ color:inherit;/);
+  assert.match(css, /\.cx-car-flags-049j em\.bad \{ background:#fef3c7; color:#78350f;/);
+  assert.match(css, /\.cx-car-margin-049j\.ok \{ background:#dcfce7; color:#14532d; \}/);
+  const carta = source.slice(source.indexOf('  /* CX_CARTA_048T_START */'), source.indexOf('  /* CX_CARTA_048T_END */'));
+  assert.doesNotMatch(carta, /rgba\(255,255,255,/, 'nada de blanco translúcido fijo sobre fondos claros');
+  assert.doesNotMatch(carta, /#ffd166/, 'sin el amarillo que no se lee');
+  assert.match(source, /cxCarStyles049J\(\);\n    cxCarStyles049N\(\);/);
 });

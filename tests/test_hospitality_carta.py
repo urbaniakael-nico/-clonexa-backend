@@ -161,7 +161,7 @@ class CartaDb:
             return Result(self._inv_rows(cid))
         if sql.startswith("SELECT id, name, price, category_key, station"):
             return Result([d for d in self.dishes.values() if d["company_id"] == cid])
-        if sql.startswith("SELECT carta_item_id, inventory_item_id, component_item_id, quantity, yield_pct, position FROM carta_recipe_lines"):
+        if sql.startswith("SELECT carta_item_id, inventory_item_id, component_item_id, quantity, yield_pct, position, unit FROM carta_recipe_lines"):
             return Result([l for l in self.lines if l["company_id"] == cid])
         if sql.startswith("SELECT inventory_item_id FROM hospitality_product_images WHERE company_id = :company_id"):
             return Result([{"inventory_item_id": i} for i in self.images])
@@ -263,7 +263,8 @@ class CartaDb:
             self.lines.append({"carta_item_id": uuid.UUID(p["i"]), "company_id": cid,
                                "inventory_item_id": uuid.UUID(p["insumo"]) if p.get("insumo") else None,
                                "component_item_id": uuid.UUID(p["component"]) if p.get("component") else None,
-                               "quantity": Decimal(str(p["quantity"])), "yield_pct": Decimal(str(p["yield_pct"])), "position": p["position"]})
+                               "quantity": Decimal(str(p["quantity"])), "yield_pct": Decimal(str(p["yield_pct"])), "position": p["position"],
+                               "unit": p.get("unit") or None})
             return Result()
         raise AssertionError(f"SQL no esperado: {sql[:150]}")
 
@@ -797,3 +798,76 @@ def test_hospitality_carta_wizard_migration_is_short_and_only_touches_carta_tabl
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert len(module.revision) <= 32 and module.down_revision == "021x_costos_module"
+
+
+# ------------------------------------------ 049N: unidades en la receta ---
+TOMATE = {"consumption_unit": "g", "purchase_unit": "kilo", "units_per_purchase": Decimal("1000")}
+
+
+@pytest.mark.parametrize("unit,insumo,expected", [
+    ("g", TOMATE, Decimal("1")), ("kg", TOMATE, Decimal("1000")), ("lb", TOMATE, Decimal("453.59237")),
+    ("ml", {"consumption_unit": "ml", "purchase_unit": "litro", "units_per_purchase": 1000}, Decimal("1")),
+    ("l", {"consumption_unit": "ml", "purchase_unit": "litro", "units_per_purchase": 1000}, Decimal("1000")),
+    ("unidad", {"consumption_unit": "g", "purchase_unit": "unidad", "units_per_purchase": 1600}, Decimal("1600")),
+    ("par", {"consumption_unit": "unidad", "purchase_unit": "unidad", "units_per_purchase": 1}, Decimal("2")),
+    ("g", {"consumption_unit": "unidad", "purchase_unit": "kilo", "units_per_purchase": 10}, Decimal("0.01")),
+    ("ml", TOMATE, None), ("g", {"consumption_unit": "unidad", "purchase_unit": "unidad", "units_per_purchase": 1}, None),
+])
+def test_hospitality_carta_recipe_units_convert_both_ways(unit, insumo, expected):
+    factor = engine.line_factor(unit, insumo)
+    assert factor == expected, (unit, factor)
+
+
+def test_hospitality_carta_recipe_units_in_consumption_and_cost():
+    insumos = {POLLO_CRUDO: {**TOMATE, "name": "Tomate", "avg_cost": Decimal("4")}}  # $4.000 el kilo
+    dish = {"kind": "preparado", "price": 18000}
+    for line in ({"quantity": 3, "unit": "g"}, {"quantity": Decimal("0.003"), "unit": "kg"}):
+        entries = engine.consumption(dish, [{"inventory_item_id": POLLO_CRUDO, "yield_pct": 100, **line}], 1, insumos=insumos)
+        assert entries[0]["quantity"] == 3.0, line
+    summary = engine.dish_summary(dish, [{"inventory_item_id": POLLO_CRUDO, "quantity": 3, "unit": "g", "yield_pct": 100}], insumos)
+    assert summary["cost"] == 12.0, "3 gr de un tomate de $4.000 el kilo = $12"
+    legacy = engine.consumption(dish, [{"inventory_item_id": POLLO_CRUDO, "quantity": 250, "yield_pct": 100}], 1, insumos=insumos)
+    assert legacy[0]["quantity"] == 250.0, "las lineas de antes (sin unidad) siguen en la unidad del inventario"
+
+
+def test_hospitality_carta_three_grams_of_tomato_from_five_kilos(api):
+    tomato = str(uuid.uuid4())
+    api.inventory[tomato] = CartaDb._inv(ASADERO, "Tomate", 5000, "ingrediente", "kilo", "g", 1000, avg="4")  # 5 kg
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "Hamburguesa", "price": 18000, "kind": "preparado"}).json()["created_id"]
+    res = call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin", {"lines": [
+        {"inventory_item_id": tomato, "quantity": 3, "unit": "gr"},
+        {"inventory_item_id": ACEITE, "quantity": 0.02, "unit": "litros"},
+        {"inventory_item_id": POLLO_CRUDO, "quantity": 125, "unit": "g"}]})
+    assert res.status_code == 200, res.text
+    dish = next(i for i in res.json()["items"] if i["id"] == dish_id)
+    lines = {l["insumo"]: l for l in dish["recipe"]}
+    assert (lines["Tomate"]["unit"], lines["Tomate"]["unit_label"], lines["Tomate"]["cost"]) == ("g", "gr", 12.0)
+    assert (lines["Aceite"]["unit"], lines["Aceite"]["stock_quantity"], lines["Aceite"]["cost"]) == ("l", 20.0, 160.0)
+    assert lines["Pollo crudo"]["cost"] == 125 * 12.5
+    assert dish["cost"] == 12 + 160 + 1562.5, "el costo del plato suma sus ingredientes"
+    assert lines["Pollo crudo"]["share_pct"] == 90.1 and lines["Tomate"]["share_pct"] == 0.7, "se ve cual pesa mas"
+    rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(dish_id, 1, "Hamburguesa", 18000)]))
+    asyncio_run(hospitality._deduct_inventory(api, uuid.UUID(ASADERO), {"id": "h1", "items": rows}))
+    assert api.inventory[tomato]["current_stock"] == Decimal("4997"), "5 kg - 3 gr = 4,997 kg"
+    assert api.inventory[ACEITE]["current_stock"] == Decimal("980"), "0,02 litros = 20 ml"
+    assert rows[0]["cost"] == 12 + 160 + 1562.5
+
+
+def test_hospitality_carta_recipe_rejects_units_that_cannot_convert(api):
+    bad = call("PUT", ASADERO, f"/items/{POLLO_ASADO}/recipe", "admin",
+               {"lines": [{"inventory_item_id": PAPA, "quantity": 100, "unit": "ml"}]})
+    assert bad.status_code == 400 and "no se puede convertir" in bad.text
+    unknown = call("PUT", ASADERO, f"/items/{POLLO_ASADO}/recipe", "admin",
+                   {"lines": [{"inventory_item_id": PAPA, "quantity": 1, "unit": "onza"}]})
+    assert unknown.status_code == 400 and "Unidad inválida" in unknown.text
+
+
+def test_hospitality_carta_recipe_units_migration_keeps_existing_quantities():
+    path = ROOT / "migrations/versions/022d_recipe_units.py"
+    spec = importlib.util.spec_from_file_location("mig_022d", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    source = path.read_text(encoding="utf-8")
+    assert len(module.revision) <= 32 and module.down_revision == "022c_fixed_expenses"
+    assert "CASE WHEN i.consumption_unit IN ('g', 'ml') THEN i.consumption_unit ELSE 'unidad' END" in source
+    assert "i.company_id = l.company_id" in source and "quantity" not in source.split("def upgrade")[1].split("def downgrade")[0]

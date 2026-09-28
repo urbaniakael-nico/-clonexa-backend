@@ -35834,6 +35834,96 @@ function inventoryCreatePayload() {
   };
   const CX_CAR_PRESENTATIONS_049J = ["125 gr", "275 gr", "500 gr", "250 ml", "350 ml", "500 ml", "1.5 L"];
 
+  // 049N: unidad de cada ingrediente de la receta. Se convierte sola a la
+  // unidad del inventario (misma regla que el servidor): 3 gr de un tomate
+  // cargado en kilos descuentan 3 gr; 1 unidad de pollo = lo que pesa cada
+  // unidad de compra.
+  const CX_CAR_RECIPE_UNITS_049N = [["g", "gr"], ["kg", "kg"], ["lb", "lb"], ["ml", "ml"], ["l", "litros"], ["unidad", "unidad"], ["par", "par"]];
+  const CX_CAR_UNIT_DEF_049N = {
+    g: ["masa", 1], gramo: ["masa", 1], kg: ["masa", 1000], kilo: ["masa", 1000], lb: ["masa", 453.59237], libra: ["masa", 453.59237],
+    ml: ["volumen", 1], l: ["volumen", 1000], litro: ["volumen", 1000], unidad: ["unidad", 1], par: ["unidad", 2],
+  };
+
+  function cxCarStdFactor049N(from, to) {
+    const a = CX_CAR_UNIT_DEF_049N[from];
+    const b = CX_CAR_UNIT_DEF_049N[to];
+    if (!a || !b || a[0] !== b[0]) return null;
+    return a[1] / b[1];
+  }
+
+  function cxCarDefaultUnit049N(insumo) {
+    const unit = String(insumo?.consumption_unit || "unidad");
+    return ["g", "ml", "unidad"].includes(unit) ? unit : "unidad";
+  }
+
+  function cxCarFactor049N(unit, insumo) {
+    const consumption = String(insumo?.consumption_unit || "unidad");
+    const from = unit || consumption;
+    if (from === consumption) return 1;
+    const direct = cxCarStdFactor049N(from, consumption);
+    if (direct !== null) return direct;
+    const via = cxCarStdFactor049N(from, String(insumo?.purchase_unit || "unidad"));
+    const perPurchase = Number(insumo?.units_per_purchase || 0);
+    return via !== null && perPurchase > 0 ? via * perPurchase : null;
+  }
+
+  function cxCarInsumo049N(id) {
+    return (cxCar048T.data?.insumos || []).find((i) => i.id === id) || null;
+  }
+
+  function cxCarLineCost049N(line) {
+    // {need: lo que descuenta del inventario, cost: $ de la porcion o null}
+    if (!line || line.component_item_id) return { need: null, cost: null };
+    const insumo = cxCarInsumo049N(line.inventory_item_id);
+    const factor = cxCarFactor049N(line.unit, insumo);
+    const qty = Number(line.quantity || 0);
+    const yieldPct = Number(line.yield_pct || 100) || 100;
+    if (factor === null || !(qty > 0)) return { need: null, cost: null };
+    const need = qty * factor * 100 / yieldPct;
+    return { need, cost: insumo && insumo.avg_cost !== null && insumo.avg_cost !== undefined ? need * Number(insumo.avg_cost) : null };
+  }
+
+  function cxCarPortionMoney049N(value) {
+    if (value === null || value === undefined) return "sin costo";
+    const n = Number(value) || 0;
+    if (n > 0 && n < 10) return `$${n.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `$${Math.round(n).toLocaleString("es-CO")}`;
+  }
+
+  function cxCarUnitOptions049N(line) {
+    const insumo = cxCarInsumo049N(line.inventory_item_id);
+    const current = line.unit || cxCarDefaultUnit049N(insumo);
+    return CX_CAR_RECIPE_UNITS_049N.filter(([key]) => cxCarFactor049N(key, insumo) !== null)
+      .map(([key, label]) => `<option value="${h(key)}" ${key === current ? "selected" : ""}>${h(label)}</option>`).join("");
+  }
+
+  function cxCarCostsHtml049N(wiz) {
+    // costo total del plato y el aporte de cada ingrediente (el que mas pesa arriba)
+    const rows = (wiz.lines || []).map((line) => ({ line, ...cxCarLineCost049N(line) })).filter((r) => r.cost !== null);
+    const missing = (wiz.lines || []).filter((l) => !l.component_item_id && cxCarLineCost049N(l).cost === null && Number(l.quantity) > 0);
+    if (!rows.length && !missing.length) return "";
+    const total = rows.reduce((sum, r) => sum + r.cost, 0);
+    rows.sort((a, b) => b.cost - a.cost);
+    return `
+      <div class="cx-car-costs-049n">
+        <div class="cx-car-costs-total-049n"><span>Costo de los ingredientes por plato</span><b>${h(cxCarPortionMoney049N(total))}</b></div>
+        ${rows.map((r) => {
+          const pct = total > 0 ? (r.cost / total) * 100 : 0;
+          return `<div class="cx-car-cost-row-049n"><span>${h(r.line.insumo)}</span><i style="--pct:${pct.toFixed(1)}%"></i><b>${h(cxCarPortionMoney049N(r.cost))}</b><small>${pct.toFixed(0)}%</small></div>`;
+        }).join("")}
+        ${missing.length ? `<p class="cx-car-note-049k warn">Sin costo en inventario: ${h(missing.map((l) => l.insumo).join(", "))}. El total no los incluye.</p>` : ""}
+      </div>`;
+  }
+
+  function cxCarRefreshCosts049N(wiz) {
+    (wiz.lines || []).forEach((line, index) => {
+      const cell = document.querySelector(`[data-wz-line-cost="${index}"]`);
+      if (cell) cell.textContent = cxCarPortionMoney049N(cxCarLineCost049N(line).cost);
+    });
+    const box = document.querySelector("[data-wz-costs]");
+    if (box) box.innerHTML = cxCarCostsHtml049N(wiz);
+  }
+
   function cxCarNorm049J(value) {
     return String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
   }
@@ -35932,10 +36022,16 @@ function inventoryCreatePayload() {
     if (!list.length) {
       return `<p class="cx-car-note-048t">${wiz.mode === "directo" ? "Marca el producto que descuenta este plato." : "Marca en la lista los que lleva y escribe su cantidad."}</p>`;
     }
+    const withUnits = wiz.mode === "receta" || wiz.mode === "combo";
     return list.map((l, index) => `
       <div class="cx-car-line-049j"><span>${l.component_item_id ? "🍽 " : ""}${h(l.insumo)}</span>
-        <input type="number" min="0" step="any" inputmode="decimal" data-wz-line-qty="${index}" value="${h(l.quantity)}" placeholder="Cantidad"><small>${h(l.unit)}</small>
-        <button class="client-btn" type="button" data-wz-del="${index}">Quitar</button></div>`).join("");
+        <input type="number" min="0" step="any" inputmode="decimal" data-wz-line-qty="${index}" value="${h(l.quantity)}" placeholder="Cantidad">
+        ${withUnits && !l.component_item_id
+          ? `<select data-wz-line-unit="${index}" aria-label="Unidad">${cxCarUnitOptions049N(l)}</select>
+             <b class="cx-car-line-cost-049n" data-wz-line-cost="${index}" title="Costo de esta cantidad según el inventario">${h(cxCarPortionMoney049N(cxCarLineCost049N(l).cost))}</b>`
+          : `<small>${h(l.component_item_id ? "plato" : l.unit)}</small>`}
+        <button class="client-btn" type="button" data-wz-del="${index}">Quitar</button></div>`).join("")
+      + (withUnits ? `<div data-wz-costs>${cxCarCostsHtml049N(wiz)}</div>` : "");
   }
 
   function cxCarWizCategoryHtml049J(wiz) {
@@ -36110,9 +36206,21 @@ function inventoryCreatePayload() {
         <b>${h(d.display_name || d.name)}</b><small class="cx-car-summary-cat-049k">${h(cxCarCatName049K(d.category_id))}${d.kind === "combo" ? " · Combo" : ""}${d.effective_station ? ` · Estación ${h(d.effective_station)}` : ""}</small>
         <dl class="cx-car-summary-dl-049k"><dt>Precio</dt><dd>${h(cxCarMoney048T(d.price))}</dd><dt>Costo</dt><dd>${h(cxCarMoney048T(d.cost))}</dd>
           <dt>Margen</dt><dd>${cxCarMarginHtml049J(d)}</dd></dl>
-        ${(d.recipe || []).length ? `<p class="cx-car-note-048t">${d.kind === "combo" ? "Lleva" : "Ingredientes"}: ${h(d.recipe.map((l) => `${l.insumo} ${l.quantity} ${l.unit}`).join(", "))}</p>` : ""}
+        ${cxCarRecipeBreakdown049N(d)}
         ${cxCarFlagsHtml049J(d)}
         <div class="cx-car-actions-048t"><button class="client-btn primary" type="button" data-car-new>+ Crear otro plato</button><button class="client-btn" type="button" data-car-summary-close>Ver todos los platos</button></div>
+      </div>`;
+  }
+
+  function cxCarRecipeBreakdown049N(d) {
+    const recipe = d.recipe || [];
+    if (!recipe.length) return "";
+    const rows = [...recipe].sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1));
+    return `
+      <div class="cx-car-costs-049n" data-car-breakdown>
+        <div class="cx-car-costs-total-049n"><span>${d.kind === "combo" ? "Lleva" : "Costo por ingrediente"}</span><b>${h(cxCarMoney048T(d.cost))}</b></div>
+        ${rows.map((l) => `<div class="cx-car-cost-row-049n"><span>${h(l.insumo)} <small>${h(l.quantity)} ${h(l.unit_label || l.unit)}</small></span>
+          <i style="--pct:${Number(l.share_pct || 0)}%"></i><b>${h(cxCarPortionMoney049N(l.cost))}</b><small>${l.share_pct === null || l.share_pct === undefined ? "" : `${h(l.share_pct)}%`}</small></div>`).join("")}
       </div>`;
   }
 
@@ -36242,7 +36350,8 @@ function inventoryCreatePayload() {
       if (kind !== "directo") {
         const lines = wiz.mode === "sin" ? [] : wiz.lines.map((l) => (l.component_item_id
           ? { component_item_id: l.component_item_id, quantity: Number(l.quantity) }
-          : { inventory_item_id: l.inventory_item_id, quantity: Number(l.quantity), yield_pct: Number(l.yield_pct) || 100 }));
+          : { inventory_item_id: l.inventory_item_id, quantity: Number(l.quantity), yield_pct: Number(l.yield_pct) || 100,
+              unit: l.unit || cxCarDefaultUnit049N(cxCarInsumo049N(l.inventory_item_id)) }));
         data = await cxCarApi048T(`/items/${encodeURIComponent(wiz.id)}/recipe`, { method: "PUT", body: JSON.stringify({ lines }) });
       }
       cxCar048T.data = data;
@@ -36270,8 +36379,8 @@ function inventoryCreatePayload() {
     if (checked) {
       wiz.lines.push(option.kind === "plato"
         ? { component_item_id: option.id, inventory_item_id: null, insumo: option.name, unit: "plato", quantity: 1, yield_pct: 100 }
-        : { component_item_id: null, inventory_item_id: option.id, insumo: option.name, unit: option.unit,
-            quantity: option.unit === "unidad" ? 1 : "", yield_pct: 100 });
+        : { component_item_id: null, inventory_item_id: option.id, insumo: option.name,
+            unit: cxCarDefaultUnit049N(cxCarInsumo049N(option.id)), quantity: option.unit === "unidad" ? 1 : "", yield_pct: 100 });
     }
   }
 
@@ -36489,6 +36598,7 @@ function inventoryCreatePayload() {
     if (qty && wiz) {
       const line = wiz.mode === "directo" ? wiz.direct : wiz.lines[Number(qty.getAttribute("data-wz-line-qty"))];
       if (line) line.quantity = qty.value;
+      if (wiz.mode !== "directo") cxCarRefreshCosts049N(wiz);
     }
   }
 
@@ -36499,6 +36609,13 @@ function inventoryCreatePayload() {
       cxCarWizToggle049K(wiz, check.getAttribute("data-wz-check"), check.checked);
       const lines = document.querySelector("[data-wz-lines]");
       if (lines) lines.innerHTML = cxCarWizLinesHtml049K(wiz); // la lista de búsqueda no se mueve
+      return;
+    }
+    const unitSelect = event.target.closest?.("[data-wz-line-unit]");
+    if (unitSelect && wiz) {
+      const line = wiz.lines[Number(unitSelect.getAttribute("data-wz-line-unit"))];
+      if (line) line.unit = unitSelect.value;
+      cxCarRefreshCosts049N(wiz);
       return;
     }
     const pick = event.target.closest?.("[data-car-select]");
@@ -36533,7 +36650,7 @@ function inventoryCreatePayload() {
             <td><select name="purchase_unit">${units(data.purchase_units, i.purchase_unit)}</select></td>
             <td><select name="consumption_unit">${units(data.consumption_units, i.consumption_unit)}</select></td>
             <td><input name="units_per_purchase" type="number" min="0.0001" step="0.0001" value="${h(i.units_per_purchase)}"></td>
-            <td>${h(i.stock.toLocaleString("es-CO"))} ${h(i.consumption_unit)}${i.stock < 0 ? ` <small class="bad">negativo: revisar</small>` : ""}</td>
+            <td>${h(i.stock.toLocaleString("es-CO"))} ${h(i.consumption_unit)}${Number(i.units_per_purchase) > 1 && i.purchase_unit !== i.consumption_unit ? `<small>= ${h((i.stock / Number(i.units_per_purchase)).toLocaleString("es-CO", { maximumFractionDigits: 3 }))} ${h(i.purchase_unit)}</small>` : ""}${i.stock < 0 ? ` <small class="bad">negativo: revisar</small>` : ""}</td>
             <td>${i.avg_cost === null ? `<small class="bad">sin costo</small>` : `${h(cxCarUnitMoney048T(i.avg_cost))}<small> por ${h(i.consumption_unit)}</small>`}</td>
             <td><button class="client-btn" type="button" data-car-save-insumo="${h(i.id)}">Guardar</button></td>
           </tr>`).join("")}
@@ -36574,6 +36691,7 @@ function inventoryCreatePayload() {
     }
     cxCarStyles048T();
     cxCarStyles049J();
+    cxCarStyles049N();
     const company = state.company || {};
     $("app").innerHTML = `
       <main class="client-shell"><div class="client-layout">
@@ -36660,23 +36778,23 @@ function inventoryCreatePayload() {
     style.id = "cxCar048TStyles";
     style.textContent = `
       .cx-car-tabs-048t { display:flex; gap:8px; margin-bottom:12px; }
-      .cx-car-tabs-048t button { min-height:42px; padding:8px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.06); color:inherit; font-weight:800; }
+      .cx-car-tabs-048t button { min-height:42px; padding:8px 16px; border-radius:999px; border:1px solid color-mix(in srgb, currentColor 22%, transparent); background:color-mix(in srgb, currentColor 6%, transparent); color:inherit; font-weight:800; }
       .cx-car-tabs-048t button.active { background:#22c55e; color:#06140b; border-color:#22c55e; }
       .cx-car-note-048t { opacity:.85; font-size:13px; margin:8px 0; }
       .cx-car-note-048t .bad, .cx-car-table-048t .bad { color:#f87171; }
       .cx-car-actions-048t { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
       .cx-car-table-wrap-048t { overflow-x:auto; }
       .cx-car-table-048t { width:100%; border-collapse:collapse; font-size:14px; }
-      .cx-car-table-048t th, .cx-car-table-048t td { padding:9px 8px; border-bottom:1px solid rgba(255,255,255,.1); text-align:left; vertical-align:top; }
+      .cx-car-table-048t th, .cx-car-table-048t td { padding:9px 8px; border-bottom:1px solid color-mix(in srgb, currentColor 10%, transparent); text-align:left; vertical-align:top; }
       .cx-car-table-048t td small { display:block; opacity:.8; font-size:12px; }
       .cx-car-table-048t tr.below td { background:rgba(248,113,113,.10); }
       .cx-car-table-048t select, .cx-car-table-048t input, .cx-car-form-048t input, .cx-car-form-048t select, .cx-car-line-048t input, .cx-car-line-048t select { min-height:38px; border-radius:10px; padding:4px 8px; max-width:100%; }
-      .cx-car-form-048t { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; padding:14px; border-radius:14px; border:1px solid rgba(255,255,255,.15); margin:10px 0; }
+      .cx-car-form-048t { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; padding:14px; border-radius:14px; border:1px solid color-mix(in srgb, currentColor 15%, transparent); margin:10px 0; }
       .cx-car-form-048t h3 { grid-column:1/-1; margin:0; }
       .cx-car-form-048t label { display:grid; gap:4px; font-size:13px; }
       .cx-car-form-048t label.check { display:flex; align-items:center; gap:8px; }
       .cx-car-form-048t .cx-car-actions-048t { grid-column:1/-1; }
-      .cx-car-recipe-048t { display:grid; gap:8px; padding:10px; border-radius:12px; background:rgba(255,255,255,.04); }
+      .cx-car-recipe-048t { display:grid; gap:8px; padding:10px; border-radius:12px; background:color-mix(in srgb, currentColor 6%, transparent); }
       .cx-car-line-048t { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
       .cx-car-alert-048t { display:grid; gap:4px; width:100%; margin-top:12px; padding:12px 14px; border-radius:14px; border:1px solid rgba(248,113,113,.7); background:rgba(248,113,113,.14); color:inherit; text-align:left; cursor:pointer; }
     `;
@@ -36694,28 +36812,28 @@ function inventoryCreatePayload() {
       .cx-car-group-049j h3 { margin:18px 0 8px; font-size:15px; letter-spacing:.04em; }
       .cx-car-group-049j h3 small { opacity:.6; font-weight:600; }
       .cx-car-cards-049j { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
-      .cx-car-card-049j { display:grid; grid-template-rows:auto 1fr auto; border-radius:16px; overflow:hidden; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.04); }
+      .cx-car-card-049j { display:grid; grid-template-rows:auto 1fr auto; border-radius:16px; overflow:hidden; border:1px solid color-mix(in srgb, currentColor 14%, transparent); background:color-mix(in srgb, currentColor 6%, transparent); }
       .cx-car-card-049j.below { border-color:rgba(248,113,113,.7); }
       .cx-car-card-body-049j { display:grid; gap:4px; padding:10px 12px; align-content:start; }
       .cx-car-card-body-049j b { font-size:16px; }
-      .cx-car-price-049j { font-size:20px; font-weight:900; color:#ffd166; }
+      .cx-car-price-049j { font-size:20px; font-weight:900; color:inherit; }
       .cx-car-margin-049j { font-size:13px; font-weight:700; }
       .cx-car-margin-049j.ok { color:#4ade80; } .cx-car-margin-049j.bad { color:#f87171; } .cx-car-margin-049j.none { opacity:.65; }
       .cx-car-flags-049j { display:flex; flex-wrap:wrap; gap:4px; }
-      .cx-car-flags-049j em { font-style:normal; font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.1); }
+      .cx-car-flags-049j em { font-style:normal; font-size:11px; padding:2px 8px; border-radius:999px; background:color-mix(in srgb, currentColor 10%, transparent); }
       .cx-car-flags-049j em.bad { background:rgba(248,113,113,.18); color:#fca5a5; }
       .cx-car-card-actions-049j { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:0 12px 12px; }
       .cx-car-card-actions-049j .client-btn { flex:1; min-height:46px; font-weight:800; }
       .cx-car-card-actions-049j span { width:100%; font-size:13px; }
-      .cx-car-wiz-049j { display:grid; gap:12px; padding:16px; border-radius:18px; border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.03); }
+      .cx-car-wiz-049j { display:grid; gap:12px; padding:16px; border-radius:18px; border:1px solid color-mix(in srgb, currentColor 16%, transparent); background:color-mix(in srgb, currentColor 6%, transparent); }
       .cx-car-wiz-049j h3 { margin:0; font-size:20px; }
       .cx-car-wiz-title-049j { opacity:.7; font-size:13px; }
       .cx-car-steps-049j { display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; list-style:none; }
-      .cx-car-steps-049j li { padding:4px 10px; border-radius:999px; font-size:12px; background:rgba(255,255,255,.07); opacity:.7; }
+      .cx-car-steps-049j li { padding:4px 10px; border-radius:999px; font-size:12px; background:color-mix(in srgb, currentColor 7%, transparent); opacity:.7; }
       .cx-car-steps-049j li.on { background:#22c55e; color:#06140b; opacity:1; font-weight:800; }
       .cx-car-steps-049j li.done { opacity:1; }
       .cx-car-cats-049j, .cx-car-modes-049j { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px; }
-      .cx-car-cats-049j button, .cx-car-modes-049j button { display:grid; gap:4px; min-height:84px; padding:14px; border-radius:16px; border:2px solid rgba(255,255,255,.16); background:rgba(255,255,255,.05); color:inherit; text-align:left; cursor:pointer; }
+      .cx-car-cats-049j button, .cx-car-modes-049j button { display:grid; gap:4px; min-height:84px; padding:14px; border-radius:16px; border:2px solid color-mix(in srgb, currentColor 16%, transparent); background:color-mix(in srgb, currentColor 6%, transparent); color:inherit; text-align:left; cursor:pointer; }
       .cx-car-cats-049j button b, .cx-car-modes-049j button b { font-size:17px; }
       .cx-car-cats-049j button small, .cx-car-modes-049j button small { opacity:.7; font-size:12px; }
       .cx-car-cats-049j button.on, .cx-car-modes-049j button.on { border-color:#22c55e; background:rgba(34,197,94,.14); }
@@ -36727,15 +36845,15 @@ function inventoryCreatePayload() {
       .cx-car-pick-049j span { font-weight:800; }
       .cx-car-big-049j { display:grid; gap:6px; font-weight:700; }
       .cx-car-chips-049j { display:flex; flex-wrap:wrap; gap:6px; }
-      .cx-car-chips-049j button { min-height:38px; padding:4px 14px; border-radius:999px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.06); color:inherit; }
+      .cx-car-chips-049j button { min-height:38px; padding:4px 14px; border-radius:999px; border:1px solid color-mix(in srgb, currentColor 22%, transparent); background:color-mix(in srgb, currentColor 6%, transparent); color:inherit; }
       .cx-car-results-049j { display:flex; flex-wrap:wrap; gap:6px; }
-      .cx-car-result-049j { min-height:42px; padding:6px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.05); color:inherit; cursor:pointer; }
+      .cx-car-result-049j { min-height:42px; padding:6px 12px; border-radius:12px; border:1px solid color-mix(in srgb, currentColor 20%, transparent); background:color-mix(in srgb, currentColor 6%, transparent); color:inherit; cursor:pointer; }
       .cx-car-result-049j small { opacity:.6; }
       .cx-car-lines-049j { display:grid; gap:6px; }
-      .cx-car-line-049j { display:flex; gap:10px; align-items:center; padding:8px 10px; border-radius:12px; background:rgba(255,255,255,.06); }
+      .cx-car-line-049j { display:flex; gap:10px; align-items:center; padding:8px 10px; border-radius:12px; background:color-mix(in srgb, currentColor 6%, transparent); }
       .cx-car-line-049j span { flex:1; }
       .cx-car-toggles-049j { display:grid; gap:8px; }
-      .cx-car-toggles-049j button { min-height:52px; padding:10px 14px; border-radius:14px; border:2px solid rgba(255,255,255,.16); background:rgba(255,255,255,.05); color:inherit; text-align:left; font-size:15px; font-weight:700; cursor:pointer; }
+      .cx-car-toggles-049j button { min-height:52px; padding:10px 14px; border-radius:14px; border:2px solid color-mix(in srgb, currentColor 16%, transparent); background:color-mix(in srgb, currentColor 6%, transparent); color:inherit; text-align:left; font-size:15px; font-weight:700; cursor:pointer; }
       .cx-car-toggles-049j button.on { border-color:#22c55e; background:rgba(34,197,94,.14); }
       .cx-car-wiz-nav-049j { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
       .cx-car-wiz-nav-049j .client-btn { min-height:50px; padding:8px 20px; font-size:16px; }
@@ -36752,8 +36870,8 @@ function inventoryCreatePayload() {
       .cx-car-pick-049k input, .cx-car-opt-049k input { width:22px; height:22px; }
       .cx-car-move-049k { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
       .cx-car-move-049k select { min-height:42px; border-radius:10px; padding:4px 8px; }
-      .cx-car-results-049k { max-height:250px; overflow-y:auto; display:grid; gap:4px; padding:4px; border-radius:12px; border:1px solid rgba(255,255,255,.14); }
-      .cx-car-opt-049k { display:flex; align-items:center; gap:10px; min-height:46px; padding:4px 10px; border-radius:10px; background:rgba(255,255,255,.04); cursor:pointer; }
+      .cx-car-results-049k { max-height:250px; overflow-y:auto; display:grid; gap:4px; padding:4px; border-radius:12px; border:1px solid color-mix(in srgb, currentColor 14%, transparent); }
+      .cx-car-opt-049k { display:flex; align-items:center; gap:10px; min-height:46px; padding:4px 10px; border-radius:10px; background:color-mix(in srgb, currentColor 6%, transparent); cursor:pointer; }
       .cx-car-opt-049k span { flex:1; }
       .cx-car-opt-049k small { opacity:.6; }
       .cx-car-line-049j input { width:110px; min-height:42px; border-radius:10px; padding:4px 10px; font-size:16px; }
@@ -36766,10 +36884,10 @@ function inventoryCreatePayload() {
       .cx-car-fit-049k { position:relative; display:block; width:100%; aspect-ratio:4/3; border-radius:12px; overflow:hidden; background:#15131f; }
       .cx-car-fit-049k::before { content:""; position:absolute; inset:-14px; background:var(--img) center/cover no-repeat; filter:blur(14px) brightness(.55); }
       .cx-car-fit-049k img { position:relative; display:block; width:100%; height:100%; object-fit:contain; }
-      .cx-car-fit-049k.empty { display:grid; place-items:center; border:2px dashed rgba(255,255,255,.25); opacity:.7; font-size:13px; }
-      .cx-car-cat-card-049k { display:grid; gap:10px; padding:14px; margin:12px 0; border-radius:18px; border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.03); }
+      .cx-car-fit-049k.empty { display:grid; place-items:center; border:2px dashed color-mix(in srgb, currentColor 25%, transparent); opacity:.7; font-size:13px; }
+      .cx-car-cat-card-049k { display:grid; gap:10px; padding:14px; margin:12px 0; border-radius:18px; border:1px solid color-mix(in srgb, currentColor 16%, transparent); background:color-mix(in srgb, currentColor 6%, transparent); }
       .cx-car-cat-row-049k { display:grid; grid-template-columns:180px 1fr auto; gap:12px; align-items:start; }
-      .cx-car-cat-row-049k.sub { margin-left:24px; grid-template-columns:140px 1fr auto; padding-top:10px; border-top:1px dashed rgba(255,255,255,.12); }
+      .cx-car-cat-row-049k.sub { margin-left:24px; grid-template-columns:140px 1fr auto; padding-top:10px; border-top:1px dashed color-mix(in srgb, currentColor 12%, transparent); }
       .cx-car-cat-img-049k { display:grid; gap:4px; cursor:pointer; text-align:center; }
       .cx-car-cat-img-049k small { opacity:.75; }
       .cx-car-cat-fields-049k { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; }
@@ -36779,6 +36897,48 @@ function inventoryCreatePayload() {
       .cx-car-cat-actions-049k { display:grid; gap:6px; }
       .cx-car-inline-049j.sub, .cx-car-add-sub-049k { margin-left:24px; justify-self:start; }
       @media (max-width:640px) { .cx-car-qr-049j, .cx-car-cat-row-049k { grid-template-columns:1fr; } }
+    `;
+    document.head.appendChild(style);
+  }
+  function cxCarStyles049N() {
+    // Legible con cualquier tema del portal (claro u oscuro): encabezados y
+    // avisos con fondo propio y texto contrastado; precios en el color del texto.
+    if (document.getElementById("cxCar049NStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxCar049NStyles";
+    style.textContent = `
+      #cxCarRoot048T { color: var(--cx-text, inherit); }
+      .cx-car-group-049j { margin:28px 0 10px; padding-bottom:20px; border-bottom:3px solid color-mix(in srgb, currentColor 20%, transparent); }
+      .cx-car-group-049j > h3 { display:flex; align-items:center; gap:10px; margin:0 0 14px; padding:12px 16px; border-radius:14px; background:#1e293b; color:#ffffff; font-size:20px; font-weight:900; letter-spacing:.05em; border-left:10px solid var(--cx-primary, #16a34a); }
+      .cx-car-group-049j > h3 small { opacity:1; color:#1e293b; background:#e2e8f0; padding:2px 10px; border-radius:999px; font-size:13px; font-weight:800; }
+      .cx-car-subhead-049k { display:inline-block; margin:14px 0 8px; padding:5px 14px; border-radius:999px; background:#334155; color:#ffffff; font-weight:800; opacity:1; }
+      .cx-car-card-049j { background:color-mix(in srgb, currentColor 4%, transparent); border:1px solid color-mix(in srgb, currentColor 22%, transparent); }
+      .cx-car-card-049j.below { border:2px solid #dc2626; }
+      .cx-car-price-049j { color:inherit; font-size:22px; font-weight:900; }
+      .cx-car-margin-049j { display:inline-block; width:max-content; padding:3px 10px; border-radius:999px; font-size:13px; font-weight:800; opacity:1; }
+      .cx-car-margin-049j.ok { background:#dcfce7; color:#14532d; }
+      .cx-car-margin-049j.bad { background:#fee2e2; color:#991b1b; }
+      .cx-car-margin-049j.none { background:#e2e8f0; color:#334155; opacity:1; }
+      .cx-car-flags-049j { gap:6px; margin-top:4px; }
+      .cx-car-flags-049j em { font-size:12px; font-weight:800; padding:4px 10px; border-radius:8px; border:1px solid #94a3b8; background:#f1f5f9; color:#1e293b; }
+      .cx-car-flags-049j em.bad { background:#fef3c7; color:#78350f; border:1px solid #d97706; }
+      .cx-car-flags-049j em.bad::before { content:"⚠ "; }
+      .cx-car-note-048t .bad, .cx-car-table-048t .bad { color:#dc2626; font-weight:800; }
+      .cx-car-note-049k { background:#fef9c3; color:#713f12; border:1px solid #eab308; }
+      .cx-car-note-049k.warn { background:#fee2e2; color:#991b1b; border:1px solid #f87171; }
+      .client-btn.danger { border-color:#dc2626; color:#dc2626; font-weight:800; }
+      .cx-car-steps-049j li { opacity:1; }
+      .cx-car-steps-049j li:not(.on):not(.done) { opacity:.75; }
+      .cx-car-fit-049k.empty { background:color-mix(in srgb, currentColor 6%, transparent); }
+      .cx-car-line-049j { flex-wrap:wrap; }
+      .cx-car-line-049j select { min-height:42px; border-radius:10px; padding:4px 8px; font-size:15px; }
+      .cx-car-line-cost-049n { min-width:84px; text-align:right; font-size:16px; }
+      .cx-car-costs-049n { display:grid; gap:6px; margin-top:10px; padding:12px; border-radius:14px; border:1px solid color-mix(in srgb, currentColor 22%, transparent); }
+      .cx-car-costs-total-049n { display:flex; justify-content:space-between; gap:10px; font-size:16px; }
+      .cx-car-costs-total-049n b { font-size:20px; }
+      .cx-car-cost-row-049n { display:grid; grid-template-columns:minmax(120px, 1.2fr) 2fr auto 44px; gap:10px; align-items:center; font-size:14px; }
+      .cx-car-cost-row-049n small { opacity:.75; }
+      .cx-car-cost-row-049n i { display:block; height:10px; border-radius:999px; background:linear-gradient(to right, #16a34a var(--pct), color-mix(in srgb, currentColor 12%, transparent) var(--pct)); }
     `;
     document.head.appendChild(style);
   }
