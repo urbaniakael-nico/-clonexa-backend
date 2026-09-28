@@ -8021,13 +8021,129 @@ function inventoryCreatePayload() {
   }
   /* CX_PAYROLL_COLOMBIA_048O_END */
 
-  async function renderPayrollModule(period = payrollDefaultPeriod(), options = {}) {
+  /* CX_PAYROLL_CUTOFFS_049L_START */
+  // Periodos por días de corte (solo empresas con la configuración; hoy
+  // VELVET). Sin ella el servidor responde enabled:false y Nómina se ve y
+  // calcula exactamente como antes.
+  var cxPayCfg049L = { companyId: "", disabled: false, message: "", error: "" };
+
+  async function cxPayLoadCfg049L(dateRef = "") {
+    if (cxPayCfg049L.companyId !== state.companyId) {
+      cxPayCfg049L.companyId = state.companyId;
+      cxPayCfg049L.disabled = false;
+    }
+    if (cxPayCfg049L.disabled) return { enabled: false };
+    try {
+      const query = dateRef ? `?date_ref=${encodeURIComponent(dateRef)}` : "";
+      const data = await api(`/payroll/companies/${encodeURIComponent(state.companyId)}/period-config${query}`);
+      if (!data || !data.enabled) cxPayCfg049L.disabled = true;
+      return data || { enabled: false };
+    } catch (_) {
+      cxPayCfg049L.disabled = true; // sin acceso o sin la ruta: Nómina de siempre
+      return { enabled: false };
+    }
+  }
+
+  function cxPayShiftDate049L(iso, days) {
+    const [y, m, d] = String(iso).split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d + days));
+    return date.toISOString().slice(0, 10);
+  }
+
+  function cxPayPeriodHtml049L(cfg, period) {
+    if (!cfg || !cfg.enabled) return "";
+    const p = cfg.period || {};
+    const exact = p.period_start === period.from && p.period_end === period.to;
+    const status = !exact
+      ? "Fechas elegidas a mano: no coinciden con un periodo de corte."
+      : p.closed ? "Periodo cerrado: el corte ya se procesó." : `Periodo abierto · ${p.auto_close_label}.`;
+    return `
+      <div class="cx-pay-period-049l" data-payroll-period-card>
+        <strong data-payroll-period-headline>${h(exact ? p.headline : `Periodo del ${period.from} al ${period.to}`)}</strong>
+        <small>${h(status)}</small>
+        <div class="cx-pay-period-nav-049l">
+          <button class="client-btn" type="button" data-payroll-period-shift="prev">‹ Periodo anterior</button>
+          <button class="client-btn" type="button" data-payroll-period-shift="current">Periodo actual</button>
+          <button class="client-btn" type="button" data-payroll-period-shift="next">Periodo siguiente ›</button>
+        </div>
+        <div class="cx-pay-cutoffs-049l">
+          <label>Días de corte <input data-payroll-cutoffs value="${h((cfg.cutoff_days || []).join(", "))}" placeholder="10, 25"></label>
+          <label class="check"><input type="checkbox" data-payroll-autoclose ${cfg.auto_close ? "checked" : ""}> Corte automático a las 00:01 del día siguiente</label>
+          <button class="client-btn" type="button" data-payroll-cutoffs-save>Guardar días de corte</button>
+          <small>Cada periodo cierra en un día de corte y empieza el día siguiente al corte anterior. Un turno cuenta en el periodo en que empezó.</small>
+        </div>
+        ${cxPayCfg049L.error ? `<div class="personal-toast error">${h(cxPayCfg049L.error)}</div>` : ""}
+        ${cxPayCfg049L.message ? `<div class="personal-toast ok">${h(cxPayCfg049L.message)}</div>` : ""}
+      </div>`;
+  }
+
+  async function cxPayHandleClick049L(target) {
+    const shift = target.closest("[data-payroll-period-shift]");
+    if (shift) {
+      const way = shift.getAttribute("data-payroll-period-shift");
+      const current = payrollReadPeriod();
+      const ref = way === "prev" ? cxPayShiftDate049L(current.from, -1) : way === "next" ? cxPayShiftDate049L(current.to, 1) : "";
+      const cfg = await cxPayLoadCfg049L(ref);
+      if (!cfg.enabled) return true;
+      await renderPayrollModule({ from: cfg.period.period_start, to: cfg.period.period_end });
+      return true;
+    }
+    if (target.closest("[data-payroll-cutoffs-save]")) {
+      const days = String(document.querySelector("[data-payroll-cutoffs]")?.value || "").split(/[,\s]+/).filter(Boolean).map(Number);
+      const autoClose = Boolean(document.querySelector("[data-payroll-autoclose]")?.checked);
+      try {
+        await api(`/payroll/companies/${encodeURIComponent(state.companyId)}/period-config`, {
+          method: "PUT", body: JSON.stringify({ cutoff_days: days, auto_close: autoClose }),
+        });
+        cxPayCfg049L.error = "";
+        cxPayCfg049L.message = "Días de corte guardados.";
+      } catch (error) {
+        const text = String(error?.message || "");
+        let detail = "";
+        try { detail = JSON.parse(text.slice(text.indexOf("{"))).detail; } catch (_) {}
+        cxPayCfg049L.error = detail || "No se pudieron guardar los días de corte.";
+        cxPayCfg049L.message = "";
+      }
+      await renderPayrollModule();
+      return true;
+    }
+    return false;
+  }
+
+  function cxPayStyles049L() {
+    if (document.getElementById("cxPay049LStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxPay049LStyles";
+    style.textContent = `
+      .cx-pay-period-049l { display:grid; gap:8px; margin:12px 0; padding:14px 16px; border-radius:16px; border:1px solid rgba(34,197,94,.45); background:rgba(34,197,94,.08); }
+      .cx-pay-period-049l strong { font-size:18px; }
+      .cx-pay-period-049l small { opacity:.8; }
+      .cx-pay-period-nav-049l, .cx-pay-cutoffs-049l { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+      .cx-pay-cutoffs-049l { padding-top:8px; border-top:1px dashed rgba(255,255,255,.15); }
+      .cx-pay-cutoffs-049l input:not([type]) { min-height:38px; width:110px; border-radius:10px; padding:4px 8px; }
+      .cx-pay-cutoffs-049l label.check { display:flex; align-items:center; gap:6px; }
+      .cx-pay-cutoffs-049l small { width:100%; }
+    `;
+    document.head.appendChild(style);
+  }
+  /* CX_PAYROLL_CUTOFFS_049L_END */
+
+  async function renderPayrollModule(period, options = {}) {
     if (!isClientModuleActive("payroll")) {
       render();
       return;
     }
 
     ensurePayrollStyles();
+    // 049L: al abrir Nómina el periodo viene según los días de corte de la
+    // empresa (si los tiene); si no, el de siempre.
+    let periodCfg049L = await cxPayLoadCfg049L(period ? period.from : "");
+    if (!period) {
+      period = periodCfg049L.enabled
+        ? { from: periodCfg049L.period.period_start, to: periodCfg049L.period.period_end }
+        : payrollDefaultPeriod();
+    }
+    if (periodCfg049L.enabled) cxPayStyles049L();
 
     const company = state.company || {};
     let rows = [];
@@ -8044,6 +8160,7 @@ function inventoryCreatePayload() {
       rows = calculated.rows;
       totals = calculated.totals;
       period = calculated.period || period;
+      if (periodCfg049L.enabled && periodCfg049L.period.period_start !== period.from) periodCfg049L = await cxPayLoadCfg049L(period.from);
       loadWarning = calculated.warning || "";
       legalMode = calculated.legalMode || null;
       missingRate = calculated.missingRate || [];
@@ -8104,6 +8221,7 @@ function inventoryCreatePayload() {
               <div class="cx-payroll-status">
                 ${h(mode)}
               </div>
+              ${cxPayPeriodHtml049L(periodCfg049L, period)}
 
               <div class="cx-payroll-filters">
                 <div class="cx-payroll-field">
@@ -34644,6 +34762,8 @@ function inventoryCreatePayload() {
         await renderPayrollModule(payrollReadPeriod());
         return;
       }
+
+      if (target.closest("[data-payroll-period-card]") && await cxPayHandleClick049L(target)) return;
 
       if (target.closest("[data-payroll-export]")) {
         exportPayrollCsv();

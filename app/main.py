@@ -506,6 +506,16 @@ async def _clonexa_startup_bootstrap_bots() -> None:
         logging.getLogger("clonexa.session_cutoff").warning("No se pudo iniciar el corte diario: %s", exc)
 
     try:
+        # 049L: corte automatico de nomina a las 00:01 (solo empresas con dias de corte, hoy VELVET).
+        from app.api.v1.endpoints.payroll import start_payroll_autoclose_loop_049L
+
+        start_payroll_autoclose_loop_049L()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("clonexa.payroll").warning("No se pudo iniciar el corte automatico de nomina: %s", exc)
+
+    try:
         from app.services.shoplink_whatsapp_web import start_whatsapp_bridge
 
         start_whatsapp_bridge()

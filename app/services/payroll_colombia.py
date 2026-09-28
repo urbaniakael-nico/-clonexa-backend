@@ -239,6 +239,7 @@ def classify_intervals(
     resolver: ParamResolver,
     pay_from: date,
     pay_to: date,
+    assign_by_start: bool = False,
 ) -> dict:
     """Clasifica minuto a minuto los intervalos trabajados (hora local, sin
     pausas) de UN empleado.
@@ -290,14 +291,17 @@ def classify_intervals(
             else:
                 daily_ord[journey] += 1
                 weekly_ord[week] += 1
-            if pay_from <= day <= pay_to:
+            # 049L: con assign_by_start el turno entero es del periodo en el
+            # que empezo (su jornada), aunque cruce la medianoche del corte.
+            paid_day = journey if assign_by_start else day
+            if pay_from <= paid_day <= pay_to:
                 if day.year not in holidays_cache:
                     holidays_cache[day.year] = resolver.holidays(day.year)
                 sunday = day.weekday() == 6 or day in holidays_cache[day.year]
                 night = _is_night(cursor, values)
                 kind = ("ext_" if is_extra else "ord_") + ("sun_" if sunday else "") + ("night" if night else "day")
                 minutes[(kind, day)] += 1
-                worked_days.add(day)
+                worked_days.add(paid_day)
             cursor += timedelta(minutes=1)
 
     alerts: list[dict] = []
@@ -366,6 +370,7 @@ def liquidate_employee(
     arl_level: int = 1,
     exonerated: bool = False,
     other_deductions: Any = 0,
+    assign_by_start: bool = False,
 ) -> dict:
     """Liquidacion de un empleado para el periodo [pay_from, pay_to].
 
@@ -376,7 +381,7 @@ def liquidate_employee(
     salary_missing = salary <= 0
     ref = resolver.for_date(pay_to)
     smmlv = _dec(ref["smmlv"])
-    classified = classify_intervals(intervals, resolver, pay_from, pay_to)
+    classified = classify_intervals(intervals, resolver, pay_from, pay_to, assign_by_start=assign_by_start)
 
     # Lineas del desglose: una por (tipo de hora, valor de la hora, %).
     grouped: dict[tuple, dict] = {}

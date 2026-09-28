@@ -16,6 +16,7 @@ from app.api.deps import get_db, require_company_user_for_tenant
 from app.api.v1.endpoints import payroll_colombia as co_config_049a
 from app.api.v1.endpoints.company_users import require_company_user_not_role
 from app.services import payroll_colombia as co_engine_049a
+from app.services import payroll_periods as periods_049l
 from app.services import session_cutoff as session_cutoff_049d
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
@@ -983,7 +984,8 @@ def _cx_co_attendance_shifts_049A(events: list[dict], skip_session_ids: set[str]
     return shifts
 
 
-async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
+async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start: date, period_end: date,
+                                *, by_start: bool = False) -> dict:
     resolver = co_engine_049a.ParamResolver(await co_config_049a.load_params_by_year(db))
     try:
         resolver.for_date(period_start)
@@ -996,7 +998,8 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
     window_start = period_start - timedelta(days=period_start.weekday() + 1)
     window_start_dt, _unused = period_datetime_bounds(window_start, window_start)
     _unused, end_dt = period_datetime_bounds(period_start, period_end)
-    as_of = min(utcnow(), end_dt)
+    lookahead = SHIFT_LOOKAHEAD_049L if by_start else timedelta(0)
+    as_of = min(utcnow(), end_dt + lookahead)
     as_of_local = _cx_co_local_049A(as_of)
     period_start_local = datetime.combine(period_start, time.min)
     period_end_local = datetime.combine(period_end, time.max)
@@ -1026,7 +1029,7 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
               AND COALESCE(ev.occurred_at, ev.created_at) <= :end_dt
             ORDER BY COALESCE(ev.occurred_at, ev.created_at) ASC
         """),
-        {"company_id": str(company_id), "start_dt": window_start_dt, "end_dt": end_dt},
+        {"company_id": str(company_id), "start_dt": window_start_dt, "end_dt": end_dt + lookahead},
     )
     events = [dict(row) for row in events_result.mappings().all()]
     sessions = await _cx_payroll_mini_panel_sessions_023o(db, company_id, window_start_dt, end_dt, as_of)
@@ -1080,7 +1083,7 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
                 shift_end = _cx_co_local_049A(closure["real_end_at"])
             pieces = co_engine_049a.subtract_breaks(shift["start"], shift_end, shift["breaks"], missing if missing > 60 else 0)
             if verdict == "hold":
-                if period_start_local <= shift["end"] <= period_end_local:
+                if period_start_local <= (shift["start"] if by_start else shift["end"]) <= period_end_local:
                     unverified.append(_cx_unverified_item_049D(
                         source=shift["source"], ref=shift["ref"], employee={**employee, "id": employee_id},
                         fallback_name=None, panel_type=shift.get("panel_type") or "asistencia",
@@ -1089,7 +1092,10 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
                     ))
                 continue
             intervals.extend(pieces)
-            if shift_end >= period_start_local and shift["start"] <= period_end_local:
+            if by_start:
+                if period_start_local <= shift["start"] <= period_end_local:
+                    closed_shifts += 1
+            elif shift_end >= period_start_local and shift["start"] <= period_end_local:
                 closed_shifts += 1
         config = employee_config.get(employee_id, {})
         other = money(employee.get("deduction_1")) + money(employee.get("deduction_2"))
@@ -1102,6 +1108,7 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
             arl_level=config.get("arl_level") or company_config["arl_level"],
             exonerated=company_config["exonerated"],
             other_deductions=other if closed_shifts else 0,
+            assign_by_start=by_start,
         )
         if not detail["lines"]:
             continue
@@ -1177,13 +1184,18 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
 
 
 async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
+    # 049L: con dias de corte configurados (hoy VELVET) cada turno va al
+    # periodo en el que EMPEZO; sin configuracion, como siempre (por su fin).
+    by_start = await load_period_config_049L(db, company_id) is not None
     co_state = await _cx_co_state_049A(db, company_id)
     if co_state == "colombia":
-        return await _cx_co_snapshot_049A(db, company_id, period_start, period_end)
+        return await _cx_co_snapshot_049A(db, company_id, period_start, period_end, by_start=by_start)
 
     start_dt, end_dt = period_datetime_bounds(period_start, period_end)
     lookback_dt = start_dt - timedelta(days=2)
-    as_of = min(utcnow(), end_dt)
+    # Un turno que empezo antes del corte y termina despues se lee completo.
+    lookahead = SHIFT_LOOKAHEAD_049L if by_start else timedelta(0)
+    as_of = min(utcnow(), end_dt + lookahead)
 
     employees_result = await db.execute(
         text("""
@@ -1256,7 +1268,7 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         {
             "company_id": str(company_id),
             "lookback_dt": lookback_dt,
-            "end_dt": end_dt,
+            "end_dt": end_dt + lookahead,
         },
     )
     events = [dict(row) for row in events_result.mappings().all()]
@@ -1306,7 +1318,10 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         row["shifts"].append(shift_payload)
 
     for shift in build_closed_shifts(events):
-        if not shift.get("end") or shift["end"] < start_dt or shift["end"] > end_dt:
+        if not shift.get("end"):
+            continue
+        anchor = shift["start"] if by_start else shift["end"]
+        if not anchor or anchor < start_dt or anchor > end_dt:
             continue
 
         employee_id = str(shift["employee_id"])
@@ -1374,8 +1389,10 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
         status_value = str(session.get("status") or "active").strip().lower()
         session_start = _cx_payroll_dt_023o(session.get("started_at"))
         session_end = _cx_payroll_dt_023o(session.get("ended_at"))
+        if by_start and (not session_start or session_start < start_dt or session_start > end_dt):
+            continue  # 049L: el turno es del periodo en el que empezo
         if status_value == "finished":
-            if not session_end or session_end < start_dt or session_end > end_dt:
+            if not session_end or (not by_start and (session_end < start_dt or session_end > end_dt)):
                 continue
             session_as_of = session_end
         else:
@@ -1488,7 +1505,7 @@ async def calculate_payroll_period(
     await ensure_payroll_storage(db)
 
     data = payload or {}
-    period_start, period_end = period_from_payload(data)
+    period_start, period_end = await period_from_payload_049L(db, company_id, data)
 
     if period_end < period_start:
         raise HTTPException(status_code=400, detail="period_end_before_start")
@@ -1625,11 +1642,22 @@ async def close_payroll_period(
     await ensure_payroll_storage(db)
 
     data = payload or {}
-    period_start, period_end = period_from_payload(data)
+    period_start, period_end = await period_from_payload_049L(db, company_id, data)
 
     if period_end < period_start:
         raise HTTPException(status_code=400, detail="period_end_before_start")
+    period_id = await close_period_core_049L(
+        db, company_id, period_start, period_end,
+        name=data.get("name"), currency=str(data.get("currency") or "USD"),
+    )
+    return await get_payroll_period(company_id, UUID(str(period_id)), db)
 
+
+async def close_period_core_049L(
+    db: AsyncSession, company_id: UUID, period_start: date, period_end: date, *, name: Any = None, currency: str = "USD",
+) -> str:
+    """Cierra (congela) el periodo y devuelve su id; si ya estaba cerrado,
+    devuelve el existente. Lo usan el boton de cierre y el corte automatico."""
     existing = await db.execute(
         text("""
             SELECT id
@@ -1647,10 +1675,10 @@ async def close_payroll_period(
     )
     existing_id = existing.scalar_one_or_none()
     if existing_id:
-        return await get_payroll_period(company_id, UUID(str(existing_id)), db)
+        return str(existing_id)
 
     snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end)
-    name = str(data.get("name") or f"Nómina {period_start.isoformat()} / {period_end.isoformat()}").strip()
+    name = str(name or f"Nómina {period_start.isoformat()} / {period_end.isoformat()}").strip()
     totals = snapshot["totals"]
     rows = snapshot["rows"]
 
@@ -1691,7 +1719,7 @@ async def close_payroll_period(
             "name": name,
             "period_start": period_start,
             "period_end": period_end,
-            "currency": str(data.get("currency") or "USD"),
+            "currency": currency,
             "totals_json": as_json(totals),
             "snapshot_json": as_json(snapshot),
         },
@@ -1761,4 +1789,229 @@ async def close_payroll_period(
         )
 
     await db.commit()
-    return await get_payroll_period(company_id, UUID(str(period_id)), db)
+    return str(period_id)
+
+
+# ---------------------------------------------------------------------------
+# 049L: periodos por dias de corte (hoy solo VELVET, fila en
+# payroll_period_config). Sin fila, la empresa sigue exactamente igual.
+# ---------------------------------------------------------------------------
+SHIFT_LOOKAHEAD_049L = timedelta(days=1)  # turno que empieza antes del corte y termina despues
+AUTOCLOSE_LOCK_ID_049L = 4904904
+AUTOCLOSE_LOOP_SECONDS_049L = 30
+PERIOD_ADMIN_ROLES_049L = {"company_admin", "admin_empresa", "owner", "propietario", "dueno", "dueño", "gerente", "gerencia", "manager"}
+
+
+async def load_period_config_049L(db: AsyncSession, company_id: Any) -> dict | None:
+    if not await _cx_payroll_table_exists_023o(db, "payroll_period_config"):
+        return None
+    row = (await db.execute(text("""
+        SELECT company_id, cutoff_days, auto_close, active_from
+        FROM payroll_period_config WHERE company_id = CAST(:company_id AS uuid) LIMIT 1
+    """), {"company_id": str(company_id)})).mappings().first()
+    if not row:
+        return None
+    days = row["cutoff_days"]
+    if isinstance(days, str):
+        days = json.loads(days or "[]")
+    try:
+        cutoffs = periods_049l.clean_cutoffs(days)
+    except ValueError:
+        return None
+    return {"cutoff_days": cutoffs, "auto_close": bool(row["auto_close"]), "active_from": row["active_from"]}
+
+
+def _local_today_049L() -> date:
+    return datetime.now(BUSINESS_TIMEZONE).date()
+
+
+async def period_from_payload_049L(db: AsyncSession, company_id: Any, data: dict) -> tuple[date, date]:
+    """Fechas pedidas; sin fechas, el periodo actual segun los dias de corte
+    de la empresa (o el de siempre si no tiene)."""
+    if data.get("period_start") or data.get("from") or data.get("date_from"):
+        return period_from_payload(data)
+    config = await load_period_config_049L(db, company_id)
+    if not config:
+        return period_from_payload(data)
+    return periods_049l.period_for(_local_today_049L(), config["cutoff_days"])
+
+
+async def _require_period_reader_049L(
+    company_id: UUID, request: Request, authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+) -> str:
+    if await active_admin_v2_session(request, db):
+        return "Admin V2"
+    user = await require_company_user_for_tenant(db, authorization, company_id)
+    return str(getattr(user, "full_name", "") or "Usuario")
+
+
+async def _require_period_admin_049L(
+    company_id: UUID, request: Request, authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+) -> str:
+    if await active_admin_v2_session(request, db):
+        return "Admin V2"
+    user = await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=PERIOD_ADMIN_ROLES_049L)
+    return str(getattr(user, "full_name", "") or "Administrador")
+
+
+async def _closed_period_049L(db: AsyncSession, company_id: Any, start: date, end: date) -> dict | None:
+    row = (await db.execute(text("""
+        SELECT id, closed_at FROM payroll_periods
+        WHERE company_id = :company_id AND period_start = :period_start AND period_end = :period_end LIMIT 1
+    """), {"company_id": str(company_id), "period_start": start, "period_end": end})).mappings().first()
+    return dict(row) if row else None
+
+
+async def _period_config_payload_049L(db: AsyncSession, company_id: UUID, reference: date | None) -> dict:
+    config = await load_period_config_049L(db, company_id)
+    if not config:
+        return {"enabled": False}
+    today = _local_today_049L()
+    start, end = periods_049l.period_for(reference or today, config["cutoff_days"])
+    await ensure_payroll_storage(db)
+    closed = await _closed_period_049L(db, company_id, start, end)
+    return {
+        "enabled": True,
+        "cutoff_days": config["cutoff_days"],
+        "auto_close": config["auto_close"],
+        "period": {**periods_049l.describe(start, end, today), "closed": bool(closed),
+                   "closed_at": serialize_value(closed.get("closed_at")) if closed else None},
+    }
+
+
+@router.get("/companies/{company_id}/period-config")
+async def get_period_config(
+    company_id: UUID,
+    date_ref: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(_require_period_reader_049L),
+    _not_admin: None = Depends(_NOT_ADMINISTRADOR),
+) -> dict:
+    """Dias de corte y el periodo que contiene `date_ref` (hoy por defecto)."""
+    reference = date_from_payload(date_ref, "date_ref") if date_ref else None
+    return await _period_config_payload_049L(db, company_id, reference)
+
+
+@router.put("/companies/{company_id}/period-config")
+async def update_period_config(
+    company_id: UUID,
+    payload: dict | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(_require_period_admin_049L),
+) -> dict:
+    """Cambia los dias de corte de una empresa que ya los usa (el interruptor
+    es la fila de la empresa: sin ella la nomina sigue como siempre)."""
+    if not await load_period_config_049L(db, company_id):
+        raise HTTPException(status_code=409, detail="Esta empresa no tiene periodos por dias de corte.")
+    data = payload or {}
+    try:
+        cutoffs = periods_049l.clean_cutoffs(data.get("cutoff_days") or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Dias de corte invalidos: de 1 a 4 dias entre 1 y 31.") from exc
+    await db.execute(text("""
+        UPDATE payroll_period_config
+           SET cutoff_days = CAST(:days AS jsonb), auto_close = :auto_close,
+               active_from = CASE WHEN cutoff_days = CAST(:days AS jsonb) THEN active_from ELSE now() END,
+               updated_at = now()
+         WHERE company_id = CAST(:company_id AS uuid)
+    """), {"days": json.dumps(cutoffs), "auto_close": bool(data.get("auto_close", True)), "company_id": str(company_id)})
+    await db.commit()
+    return await _period_config_payload_049L(db, company_id, None)
+
+
+async def _open_shifts_started_049L(db: AsyncSession, company_id: Any, start_dt: datetime, end_dt: datetime) -> int:
+    """Turnos que empezaron en el periodo y siguen abiertos: el corte los
+    espera para no partirlos en dos."""
+    total = 0
+    params = {"company_id": str(company_id), "start_dt": start_dt, "end_dt": end_dt}
+    if await _cx_payroll_table_exists_023o(db, "mini_panel_work_sessions"):
+        total += int((await db.execute(text("""
+            SELECT count(*) FROM mini_panel_work_sessions
+            WHERE company_id = CAST(:company_id AS uuid) AND status IN ('active', 'break')
+              AND started_at >= :start_dt AND started_at <= :end_dt
+        """), params)).scalar() or 0)
+    if await _cx_payroll_table_exists_023o(db, "workforce_attendance_status"):
+        total += int((await db.execute(text("""
+            SELECT count(*) FROM workforce_attendance_status
+            WHERE company_id = CAST(:company_id AS uuid) AND status IN ('working', 'on_break')
+              AND check_in_at >= :start_dt AND check_in_at <= :end_dt
+        """), params)).scalar() or 0)
+    return total
+
+
+async def run_payroll_autoclose_049L(db: AsyncSession, now_utc: datetime | None = None) -> list[dict]:
+    """Corte automatico: a las 00:01 (hora local) del dia siguiente al cierre
+    se congela el periodo que termino. Si alguien sigue en un turno que
+    empezo antes del corte, se espera a que lo cierre (se reintenta)."""
+    if not await _cx_payroll_table_exists_023o(db, "payroll_period_config"):
+        return []
+    now_local = (now_utc or utcnow()).astimezone(BUSINESS_TIMEZONE)
+    rows = (await db.execute(text("SELECT company_id FROM payroll_period_config WHERE auto_close IS TRUE"))).mappings().all()
+    done = []
+    for row in rows:
+        company_id = str(row["company_id"])
+        try:
+            config = await load_period_config_049L(db, company_id)
+            if not config:
+                continue
+            start, end = periods_049l.due_period(now_local.replace(tzinfo=None), config["cutoff_days"])
+            due_at = periods_049l.auto_close_at(end).replace(tzinfo=BUSINESS_TIMEZONE)
+            active_from = config["active_from"]
+            if active_from and due_at < active_from:
+                continue  # cortes de antes de activar los dias de corte no se tocan
+            await ensure_payroll_storage(db)
+            if await _closed_period_049L(db, company_id, start, end):
+                continue
+            start_dt, end_dt = period_datetime_bounds(start, end)
+            waiting = await _open_shifts_started_049L(db, company_id, start_dt, end_dt)
+            if waiting:
+                done.append({"company_id": company_id, "period_start": start.isoformat(), "period_end": end.isoformat(),
+                             "status": "waiting_open_shifts", "open_shifts": waiting})
+                continue
+            label = periods_049l.period_label(start, end).replace("Periodo ", "")
+            period_id = await close_period_core_049L(
+                db, UUID(company_id), start, end, name=f"Nómina {label} (corte automático)", currency="COP",
+            )
+            done.append({"company_id": company_id, "period_start": start.isoformat(), "period_end": end.isoformat(),
+                         "status": "closed", "period_id": period_id})
+        except Exception as exc:  # una empresa con datos raros no frena a las demas
+            await db.rollback()
+            import logging
+
+            logging.getLogger("clonexa.payroll").warning("Corte automatico de nomina fallo para %s: %s", company_id, exc)
+    return done
+
+
+async def payroll_autoclose_loop_049L() -> None:
+    """Revisa cada 30 s (el corte cae entre las 00:01:00 y las 00:01:30); con
+    varias replicas solo una corre a la vez."""
+    import asyncio
+    import logging
+
+    from app.core.database import AsyncSessionLocal
+
+    log = logging.getLogger("clonexa.payroll")
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                locked = (await db.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": AUTOCLOSE_LOCK_ID_049L})).scalar()
+                if locked:
+                    try:
+                        results = await run_payroll_autoclose_049L(db)
+                        if results:
+                            log.info("Corte automatico de nomina: %s", results)
+                    finally:
+                        await db.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": AUTOCLOSE_LOCK_ID_049L})
+                        await db.commit()
+        except Exception as exc:
+            log.warning("Corte automatico de nomina no pudo correr: %s", exc)
+        await asyncio.sleep(AUTOCLOSE_LOOP_SECONDS_049L)
+
+
+def start_payroll_autoclose_loop_049L() -> None:
+    import asyncio
+    import os
+
+    if os.getenv("CLONEXA_DISABLE_PAYROLL_AUTOCLOSE", "").strip().lower() in {"1", "true", "yes"}:
+        return
+    asyncio.get_event_loop().create_task(payroll_autoclose_loop_049L())

@@ -312,6 +312,8 @@ class PayDb:
             return Result([{"timezone": "America/Bogota", "cutoff_time": None, "alert_after_hours": None}])
         if sql.startswith("SELECT to_regclass"):
             return Result([{"exists": True}])
+        if "FROM payroll_period_config" in sql:
+            return Result([])  # 049L: sin dias de corte, la nomina de siempre
         if "FROM mini_panel_work_sessions s" in sql:
             return Result(self.sessions(cid) if cid in EMP else [])
         if "FROM information_schema.columns" in sql:
