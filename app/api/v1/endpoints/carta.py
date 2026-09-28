@@ -356,6 +356,10 @@ def _insumo_payload(row: dict) -> dict:
         "equivalences": {k: float(v) for k, v in (row.get("equivalences") or {}).items()},
         "size_value": float(row["size_value"]) if row.get("size_value") is not None else None,
         "size_unit": row.get("size_unit") or "",
+        # 049P: se compra por unidad y se consume en g/ml sin saber cuanto pesa
+        # la unidad: la pantalla lo pregunta una vez.
+        "purchase_weight_missing": engine.purchase_weight_missing(row),
+        "purchase_price": float(Decimal(str((row.get("avg_cost") or 0) if engine.dec(row.get("avg_cost")) > 0 else (row.get("entry_price") or 0)))),
     }
 
 
@@ -666,6 +670,11 @@ async def update_insumo(company_id: uuid.UUID, insumo_id: uuid.UUID, payload: In
         if not payload.units_per_purchase:
             raise HTTPException(status_code=400, detail="Indica cuántas unidades de consumo trae cada unidad de compra.")
         factor = Decimal(str(payload.units_per_purchase))
+        if purchase == "unidad" and consumption_unit in {"g", "ml"} and factor <= 1:
+            # 049P: "1 unidad = 1 g" convierte el precio de una libra en precio por gramo
+            raise HTTPException(status_code=400, detail=(
+                f"¿Cuánto {'pesa' if consumption_unit == 'g' else 'trae'} cada unidad de compra de {current['name']}? "
+                f"Escribe los {consumption_unit} de una unidad (una libra = 453,6 g)."))
     if payload.item_type == "consumible":
         dishes, lines = await load_dishes(db, company_id)
         used = [d["name"] for d in dishes if str(d.get("inventory_item_id")) == str(insumo_id)]

@@ -114,6 +114,8 @@ def line_factor(unit: Any, insumo: dict | None) -> Decimal | None:
        dimension (con "1 unidad = 1 lb" tambien sirven gr, kg y onza).
     3. La unidad de compra y su conversion (1 unidad de pollo = 1600 g).
     None si no hay forma: la pantalla pide la equivalencia una sola vez."""
+    if purchase_weight_missing(insumo):
+        return None  # la pantalla pregunta cuanto pesa 1 unidad de compra
     consumption_unit = str((insumo or {}).get("consumption_unit") or "unidad")
     unit = recipe_unit(unit) or consumption_unit
     if unit == consumption_unit:
@@ -169,9 +171,23 @@ def weighted_average(stock: Any, avg_cost: Any, qty_in: Any, unit_cost_in: Any) 
     return ((stock * avg + qty * unit) / (stock + qty)).quantize(QTY, rounding=ROUND_HALF_UP)
 
 
-def unit_cost(insumo: dict | None) -> Decimal | None:
-    """Costo por unidad de consumo; None si el insumo no tiene costo cargado."""
+def purchase_weight_missing(insumo: dict | None) -> bool:
+    """049P: se compra por "unidad" pero se consume en g/ml y cada unidad de
+    compra "trae" 1 g o 1 ml. Asi el precio de la unidad (una libra de carne
+    a $14.000) queda como precio de UN gramo: 275 g = $3.850.000. Esa
+    conversion es imposible; hasta que se diga cuanto pesa una unidad de
+    compra, el insumo no da costo ni descuenta en las recetas."""
     if not insumo:
+        return False
+    return (str(insumo.get("purchase_unit") or "unidad") == "unidad"
+            and str(insumo.get("consumption_unit") or "unidad") in {"g", "ml"}
+            and dec(insumo.get("units_per_purchase") or 1) <= 1)
+
+
+def unit_cost(insumo: dict | None) -> Decimal | None:
+    """Costo por unidad de consumo; None si el insumo no tiene costo cargado
+    (o si no se sabe cuanto pesa su unidad de compra)."""
+    if not insumo or purchase_weight_missing(insumo):
         return None
     avg = dec(insumo.get("avg_cost"))
     if avg > 0:

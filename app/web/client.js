@@ -35864,6 +35864,7 @@ function inventoryCreatePayload() {
   }
 
   function cxCarFactor049N(unit, insumo) {
+    if (insumo?.purchase_weight_missing) return null; // 049P: falta cuanto pesa 1 unidad de compra
     const consumption = String(insumo?.consumption_unit || "unidad");
     const from = unit || consumption;
     if (from === consumption) return 1;
@@ -35918,6 +35919,21 @@ function inventoryCreatePayload() {
     // "1 unidad de Carne = [1] [lb]" o "1 cucharada de Sal = [12] g": una sola vez por insumo
     const insumo = cxCarInsumo049N(line.inventory_item_id);
     if (!insumo) return "";
+    if (insumo.purchase_weight_missing) {
+      // 049P: "1 unidad de compra = 1 g" es imposible: el precio de una libra quedaba como precio por gramo
+      const stockDim = insumo.consumption_unit === "ml" ? "volumen" : "masa";
+      const options = CX_CAR_RECIPE_UNITS_049N.filter(([key]) => (CX_CAR_UNIT_DEF_049N[key] || [])[0] === stockDim);
+      const sizeKey = { gr: "g", kg: "kg", lb: "lb", ml: "ml", litros: "l" }[insumo.size_unit] || "";
+      const suggest = sizeKey && (CX_CAR_UNIT_DEF_049N[sizeKey] || [])[0] === stockDim ? insumo.size_value : "";
+      return `
+        <div class="cx-car-eq-049o" data-wz-eq="${index}" data-wz-eq-mode="purchase">
+          <b>¿Cuánto ${stockDim === "masa" ? "pesa" : "trae"} cada unidad de compra de ${h(insumo.name)}?</b>
+          <span>Se compra por unidad${insumo.purchase_price ? ` a ${h(cxCarPortionMoney049N(insumo.purchase_price))}` : ""}, pero el inventario dice que una unidad trae 1 ${h(insumo.consumption_unit)}. Dilo una vez y se corrigen el costo y la existencia.</span>
+          <label>1 unidad de compra = <input type="number" min="0" step="any" inputmode="decimal" data-wz-eq-value value="${h(suggest ?? "")}" placeholder="Ej: 1">
+            <select data-wz-eq-unit>${options.map(([key, label]) => `<option value="${h(key)}" ${key === (sizeKey || (stockDim === "masa" ? "lb" : "l")) ? "selected" : ""}>${h(label)}</option>`).join("")}</select></label>
+          <button class="client-btn primary" type="button" data-wz-eq-save="${index}">Guardar</button>
+        </div>`;
+    }
     const unit = line.unit || cxCarDefaultUnit049N(insumo);
     const stock = String(insumo.consumption_unit || "unidad");
     const dim = (CX_CAR_UNIT_DEF_049N[unit] || [])[0];
@@ -36657,6 +36673,20 @@ function inventoryCreatePayload() {
       const index = Number(eqSave.getAttribute("data-wz-eq-save"));
       const line = wiz.lines[index];
       const box = eqSave.closest("[data-wz-eq]");
+      if (line && box && box.getAttribute("data-wz-eq-mode") === "purchase") {
+        const insumo = cxCarInsumo049N(line.inventory_item_id);
+        const n = Number(box.querySelector("[data-wz-eq-value]")?.value);
+        const factor = cxCarStdFactor049N(box.querySelector("[data-wz-eq-unit]")?.value, insumo?.consumption_unit);
+        if (!insumo || !(n > 0) || factor === null) { wiz.error = "Escribe cuánto pesa una unidad de compra."; return paint(); }
+        try {
+          cxCar048T.data = await cxCarApi048T(`/insumos/${encodeURIComponent(insumo.id)}`, { method: "PUT", body: JSON.stringify({
+            item_type: insumo.item_type, purchase_unit: insumo.purchase_unit, consumption_unit: insumo.consumption_unit,
+            units_per_purchase: n * factor }) });
+        } catch (error) {
+          wiz.error = cxCarErr048T(error);
+        }
+        return paint();
+      }
       const eq = line && box ? cxCarEqAmount049O(line, box.getAttribute("data-wz-eq-mode"),
         box.querySelector("[data-wz-eq-value]")?.value, box.querySelector("[data-wz-eq-unit]")?.value) : null;
       if (!eq) { wiz.error = "Escribe la equivalencia (un número mayor que cero)."; return paint(); }
@@ -36745,9 +36775,9 @@ function inventoryCreatePayload() {
             <td><select name="item_type">${Object.entries(types).map(([k, v]) => `<option value="${h(k)}" ${k === i.item_type ? "selected" : ""}>${h(v)}</option>`).join("")}</select></td>
             <td><select name="purchase_unit">${units(data.purchase_units, i.purchase_unit)}</select></td>
             <td><select name="consumption_unit">${units(data.consumption_units, i.consumption_unit)}</select></td>
-            <td><input name="units_per_purchase" type="number" min="0.0001" step="0.0001" value="${h(i.units_per_purchase)}"></td>
+            <td><input name="units_per_purchase" type="number" min="0.0001" step="0.0001" value="${h(i.units_per_purchase)}">${i.purchase_weight_missing ? `<small class="bad">⚠ ¿Cuántos ${h(i.consumption_unit)} trae 1 unidad? Hoy dice 1: su costo y descuento están en pausa.</small>` : ""}</td>
             <td>${h(i.stock.toLocaleString("es-CO"))} ${h(i.consumption_unit)}${Number(i.units_per_purchase) > 1 && i.purchase_unit !== i.consumption_unit ? `<small>= ${h((i.stock / Number(i.units_per_purchase)).toLocaleString("es-CO", { maximumFractionDigits: 3 }))} ${h(i.purchase_unit)}</small>` : ""}${i.stock < 0 ? ` <small class="bad">negativo: revisar</small>` : ""}</td>
-            <td>${i.avg_cost === null ? `<small class="bad">sin costo</small>` : `${h(cxCarUnitMoney048T(i.avg_cost))}<small> por ${h(i.consumption_unit)}</small>`}</td>
+            <td>${i.purchase_weight_missing ? `<small class="bad">por revisar</small>` : i.avg_cost === null ? `<small class="bad">sin costo</small>` : `${h(cxCarUnitMoney048T(i.avg_cost))}<small> por ${h(i.consumption_unit)}</small>`}</td>
             <td><button class="client-btn" type="button" data-car-save-insumo="${h(i.id)}">Guardar</button></td>
           </tr>`).join("")}
         </tbody></table></div>`;

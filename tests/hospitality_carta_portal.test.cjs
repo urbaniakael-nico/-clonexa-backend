@@ -583,3 +583,23 @@ test('atajos de cantidad ampliados en el paso 2', () => {
     assert.ok(html.includes(`data-wz-pres="${chip}"`), chip);
   }
 });
+
+test('carne comprada por unidad y consumida en gramos con "1 unidad = 1 g": se pregunta cuánto pesa la unidad de compra', async () => {
+  const MAL = { ...CARNE, id: 'm1', consumption_unit: 'g', units_per_purchase: 1, avg_cost: null, purchase_price: 14000,
+    purchase_weight_missing: true, size_value: null, size_unit: '' };
+  const ctx = portal({ ...DATA, insumos: [MAL, SAL] });
+  assert.equal(ctx.cxCarFactor049N('g', MAL), null, 'no se calcula con $14.000 por gramo');
+  const line = { inventory_item_id: 'm1', insumo: 'Carne de res', unit: 'g', quantity: '275', yield_pct: 100 };
+  const form = ctx.cxCarEqForm049O(line, 0);
+  assert.match(form, /data-wz-eq-mode="purchase"[\s\S]*¿Cuánto pesa cada unidad de compra de Carne de res\?[\s\S]*Se compra por unidad a \$14\.000[\s\S]*<option value="lb" selected>lb<\/option>/);
+  ctx.cxCarWiz049J = { ...ctx.cxCarWizFrom049J(null), step: 3, mode: 'receta', lines: [line] };
+  const box = { getAttribute: (a) => (a === 'data-wz-eq-mode' ? 'purchase' : '0'),
+    querySelector: (sel) => ({ '[data-wz-eq-value]': { value: '1' }, '[data-wz-eq-unit]': { value: 'lb' } })[sel] };
+  await ctx.click('data-wz-eq-save', '0', { '[data-wz-eq]': box, closest: (sel) => (sel === '[data-wz-eq]' ? box : null) });
+  const put = ctx.calls.find((c) => c.path === '/insumos/m1');
+  assert.deepEqual(JSON.parse(JSON.stringify(put.body)), { item_type: 'ingrediente', purchase_unit: 'unidad', consumption_unit: 'g', units_per_purchase: 453.59237 },
+    '1 unidad de compra = 1 lb = 453,59 g');
+  const tab = ctx.cxCarInsumosHtml048T();
+  assert.match(tab, /⚠ ¿Cuántos g trae 1 unidad\? Hoy dice 1: su costo y descuento están en pausa\./);
+  assert.match(tab, /<small class="bad">por revisar<\/small>/);
+});
