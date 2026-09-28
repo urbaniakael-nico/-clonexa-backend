@@ -313,7 +313,7 @@ def build_owner_report_pdf(company: dict, data: dict) -> bytes:
         c.roundRect(x, y - 44, box_w, 46, 6, stroke=1, fill=0)
         c.setFillColor(muted)
         c.setFont("Helvetica", 8)
-        c.drawString(x + 8, y - 10, card["label"])
+        c.drawString(x + 8, y - 10, fit(card["label"], 8, box_w - 16))
         c.setFillColor(dark)
         c.setFont("Helvetica-Bold", 14)
         c.drawString(x + 8, y - 28, _fmt(card["value"], card["kind"]))

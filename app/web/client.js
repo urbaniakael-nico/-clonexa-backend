@@ -25847,7 +25847,9 @@ function inventoryCreatePayload() {
       const good = card.better === "down" ? change <= 0 : change >= 0;
       delta = `<small class="${good ? "good" : "bad"}">${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toFixed(1)}% vs periodo anterior</small>`;
     }
-    return `<article class="cx-own-kpi-048s" data-own-kpi="${h(card.key)}"><span>${h(card.label)}</span><b>${h(cxOwnValue048S(card))}</b>${delta}</article>`;
+    // 049M: la tarjeta de utilidad avisa cuando todavia es solo margen bruto.
+    const note = card.note ? `<small class="bad" data-own-kpi-note>${h(card.note)}</small>` : "";
+    return `<article class="cx-own-kpi-048s" data-own-kpi="${h(card.key)}"><span>${h(card.label)}</span><b>${h(cxOwnValue048S(card))}</b>${delta}${note}</article>`;
   }
 
   function cxOwnKpis048S(summary) {
@@ -26022,9 +26024,11 @@ function inventoryCreatePayload() {
         ${line("= Margen bruto", st.gross_margin, "total")}
         ${line("− Gastos fijos", st.fixed_expenses)}
         ${concepts}
-        ${line("= Utilidad después de gastos fijos", st.operating_profit, `total ${Number(st.operating_profit) < 0 ? "bad" : "good"}`)}
+        ${line(st.has_fixed_expenses ? "= Utilidad después de gastos fijos" : "= Margen bruto (faltan los gastos fijos)", st.operating_profit, `total ${Number(st.operating_profit) < 0 ? "bad" : st.has_fixed_expenses ? "good" : ""}`)}
       </div>
-      ${Number(st.fixed_expenses || 0) === 0 ? `<p class="cx-own-note-048s">Sin gastos fijos en el periodo: regístralos en Inventario › Gastos fijos para ver la utilidad real.</p>` : `<p class="cx-own-note-048s">Cada gasto mensual se reparte por días del periodo.</p>`}
+      ${st.has_fixed_expenses
+        ? `<p class="cx-own-note-048s">Utilidad real: ya descuenta arriendo y servicios. Cada gasto mensual se reparte por días del periodo.</p>`
+        : `<div class="cx-own-warn-048s" data-own-no-fixed><strong>${h(st.warning || "Sin gastos fijos cargados, esta cifra es margen bruto, no utilidad real.")}</strong><span>Regístralos en Inventario › Gastos fijos (arriendo, luz, agua, gas, internet…) para ver la utilidad de verdad.</span></div>`}
       <style>
         .cx-own-pl-049m { display:grid; gap:4px; max-width:560px; }
         .cx-own-pl-row-049m { display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.08); }

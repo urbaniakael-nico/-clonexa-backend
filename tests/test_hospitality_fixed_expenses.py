@@ -128,6 +128,13 @@ def test_hospitality_fixed_expenses_income_statement_deducts_them():
     assert [c["label"] for c in statement["fixed_by_concept"]] == ["Arriendo", "Luz"]
     card = owner_report.profit_card(statement)
     assert card["key"] == "profit" and card["value"] == 200000.0
+    assert card["label"] == "Utilidad después de gastos fijos" and card["note"] is None and statement["has_fixed_expenses"] is True
+    # sin gastos fijos cargados: lo dice explicitamente, es margen bruto
+    bare = owner_report.income_statement(kpis, {"total": 0}, {"total": 0})
+    assert bare["has_fixed_expenses"] is False and bare["operating_profit"] == bare["gross_margin"] == 600000.0
+    assert bare["warning"] == "Sin gastos fijos cargados, esta cifra es margen bruto, no utilidad real."
+    bare_card = owner_report.profit_card(bare)
+    assert bare_card["label"] == "Utilidad (sin gastos fijos: es margen bruto)" and bare_card["note"] == bare["warning"]
 
 
 # ------------------------------------------------------------ endpoints ---

@@ -89,10 +89,16 @@ test('Reportes: estado de resultados que descuenta los gastos fijos', () => {
   const end = source.indexOf('  function cxOwnSection048S(title, body, loading) {');
   const ctx = vm.createContext({ h: (v) => String(v ?? ''), Number, cxOwnMoney048S: (v) => `$${Math.round(Number(v) || 0).toLocaleString('es-CO')}` });
   vm.runInContext(source.slice(start, end), ctx);
-  const html = ctx.cxOwnIncome049M({ sales: 1000000, cost_of_goods: 400000, gross_margin: 600000, fixed_expenses: 400000,
+  const html = ctx.cxOwnIncome049M({ sales: 1000000, cost_of_goods: 400000, gross_margin: 600000, fixed_expenses: 400000, has_fixed_expenses: true,
     fixed_by_concept: [{ label: 'Arriendo', amount: 300000 }, { label: 'Luz', amount: 100000 }], operating_profit: 200000 });
+  assert.match(html, /Utilidad real: ya descuenta arriendo y servicios/);
   assert.match(html, /Ventas<\/span><b>\$1\.000\.000[\s\S]*− Costo de mercancía<\/span><b>\$400\.000[\s\S]*= Margen bruto<\/span><b>\$600\.000[\s\S]*− Gastos fijos<\/span><b>\$400\.000[\s\S]*Arriendo<\/span><b>\$300\.000[\s\S]*= Utilidad después de gastos fijos<\/span><b>\$200\.000/);
-  assert.match(ctx.cxOwnIncome049M({ sales: 1, cost_of_goods: 0, gross_margin: 1, fixed_expenses: 0, operating_profit: 1 }), /regístralos en Inventario › Gastos fijos/);
+  const bare = ctx.cxOwnIncome049M({ sales: 1, cost_of_goods: 0, gross_margin: 1, fixed_expenses: 0, operating_profit: 1, has_fixed_expenses: false,
+    warning: 'Sin gastos fijos cargados, esta cifra es margen bruto, no utilidad real.' });
+  assert.match(bare, /data-own-no-fixed><strong>Sin gastos fijos cargados, esta cifra es margen bruto, no utilidad real\.<\/strong>/);
+  assert.match(bare, /= Margen bruto \(faltan los gastos fijos\)/);
+  assert.doesNotMatch(bare, /Utilidad después de gastos fijos/, 'nunca la llama utilidad sin los gastos');
+  assert.match(source, /const note = card\.note \? `<small class="bad" data-own-kpi-note>\$\{h\(card\.note\)\}<\/small>` : "";/);
   assert.match(source, /\$\{cxOwnKpis048S\(s\)\}\n      \$\{cxOwnIncome049M\(s\?\.income_statement\)\}/);
 });
 

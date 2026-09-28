@@ -801,6 +801,9 @@ def public(data: Any) -> Any:
 
 
 # ------------------------------------------------- estado de resultados ---
+NO_FIXED_WARNING = "Sin gastos fijos cargados, esta cifra es margen bruto, no utilidad real."
+
+
 def income_statement(kpis: dict, fixed: dict, fixed_prev: dict) -> dict:
     """049M: ventas - costo de mercancia = margen bruto; menos gastos fijos
     (arriendo, servicios, aseo...) = utilidad operativa. Antes la utilidad
@@ -809,7 +812,12 @@ def income_statement(kpis: dict, fixed: dict, fixed_prev: dict) -> dict:
     gross, prev_gross = dec(cur["margin"]), dec(prev["margin"])
     fixed_total, prev_fixed_total = dec(fixed.get("total")), dec(fixed_prev.get("total"))
     profit, prev_profit = gross - fixed_total, prev_gross - prev_fixed_total
+    has_fixed = fixed_total > 0
     return {
+        # Sin gastos fijos cargados la "utilidad" es solo el margen bruto: se
+        # dice explicitamente para que nadie decida con un numero que no es.
+        "has_fixed_expenses": has_fixed,
+        "warning": None if has_fixed else NO_FIXED_WARNING,
         "sales": money(cur["sales"]),
         "cost_of_goods": money(cur["cost"]),
         "gross_margin": money(gross),
@@ -823,6 +831,7 @@ def income_statement(kpis: dict, fixed: dict, fixed_prev: dict) -> dict:
 
 
 def profit_card(statement: dict) -> dict:
-    return {"key": "profit", "label": "Utilidad después de gastos fijos", "value": statement["operating_profit"],
-            "kind": "money", "previous": statement["previous_operating_profit"], "change_pct": statement["change_pct"],
-            "better": "up"}
+    real = statement["has_fixed_expenses"]
+    return {"key": "profit", "label": "Utilidad después de gastos fijos" if real else "Utilidad (sin gastos fijos: es margen bruto)",
+            "value": statement["operating_profit"], "kind": "money", "previous": statement["previous_operating_profit"],
+            "change_pct": statement["change_pct"], "better": "up", "note": statement["warning"]}

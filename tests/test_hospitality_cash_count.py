@@ -256,9 +256,11 @@ def test_hospitality_cash_count_costos_dismantle_migration_keeps_every_row():
     # compras y retiros no son gastos fijos: se quedan en expenses
     assert "category NOT IN ('compras', 'retiro_dueno')" in source and "status <> 'rechazado'" in source
     assert set(module.CATEGORY_MAP) == {"arriendo", "internet", "aseo", "mantenimiento", "servicios", "seguros", "impuestos", "emergencia", "otros"}
-    # arqueos: la tabla nunca se toca; solo se eliminan tablas vacias
-    assert "cash_counts" not in [t for t, _children in module.COSTOS_TABLES]
-    assert "if rows == 0 and not blocked:" in source and "DROP TABLE cash_counts" not in source
-    assert dict(module.COSTOS_TABLES)["cost_centers"][-1] == "cash_counts", "cash_counts apunta a cost_centers: nunca se elimina"
+    # ninguna tabla se borra (ni las vacias): se informa cuantas filas tiene cada una
+    assert "DROP TABLE" not in source
+    assert set(module.LEGACY_TABLES) == {"expenses", "expense_lines", "expense_attachments", "suppliers", "petty_cash_funds",
+                                         "petty_cash_moves", "recurring_expenses", "budgets", "cost_centers"}
+    assert "cash_counts" not in module.LEGACY_TABLES, "los arqueos siguen en uso"
+    assert '"tablas_de_costos_vacias"' in source
     assert "ON CONFLICT (company_id, source, source_ref) WHERE source_ref IS NOT NULL DO NOTHING" in source, "se puede correr dos veces"
     assert '"cash_count": True' in source and "cash_count_drawer_base" in source

@@ -18,8 +18,10 @@ Create Date: 2026-09-28
    - arqueos: siguen en cash_counts (misma tabla, mismo candado). Donde
      Costos estaba activo se enciende el arqueo del panel de caja
      (waiter_ordering.settings.cash_count) con la misma base del cajon.
-   - el modulo "costos" sale del catalogo de Admin V2. Sus tablas VACIAS se
-     eliminan; las que tengan datos se conservan tal cual.
+   - el modulo "costos" sale del catalogo de Admin V2 y de todo el codigo.
+     Ninguna de sus tablas se borra (ni las vacias): quedan en la base, fuera
+     de toda pantalla, y el log dice cuantas filas tiene cada una para
+     decidir despues si se borran.
 Cada paso imprime lo que encontro y lo que movio (queda en el log del
 despliegue).
 """
@@ -48,12 +50,10 @@ CATEGORY_MAP = {
     "otros": ("otros", "Otros", "otros", True),
 }
 NOT_FIXED = ("compras", "retiro_dueno")
-# tablas de Costos: hijas antes que padres; cash_counts (arqueos) se conserva
-COSTOS_TABLES = [
-    ("expense_lines", []), ("expense_attachments", []), ("petty_cash_moves", []), ("recurring_expenses", []),
-    ("budgets", []), ("expenses", ["expense_lines", "expense_attachments"]), ("petty_cash_funds", ["petty_cash_moves"]),
-    ("suppliers", ["expenses"]), ("cost_centers", ["expenses", "petty_cash_funds", "recurring_expenses", "cash_counts"]),
-]
+# tablas de Costos que ya no usa ningun codigo (se informan, no se borran);
+# cash_counts (arqueos) sigue en uso por el panel de caja
+LEGACY_TABLES = ["expenses", "expense_lines", "expense_attachments", "suppliers", "petty_cash_funds", "petty_cash_moves",
+                 "recurring_expenses", "budgets", "cost_centers"]
 
 TABLES = """
 CREATE TABLE IF NOT EXISTS fixed_expense_concepts (
@@ -183,20 +183,11 @@ def upgrade() -> None:
         bind.execute(sa.text("DELETE FROM modules WHERE id = :m"), {"m": costos["id"]})
     report["arqueo_en_caja_activado_para"] = enabled_for
 
-    # --- 2d. tablas de Costos: solo se eliminan las vacias
-    dropped, kept = [], {}
-    for table, children in COSTOS_TABLES:
-        if not _exists(bind, table):
-            continue
-        rows = _count(bind, table)
-        blocked = [child for child in children if _exists(bind, child)]
-        if rows == 0 and not blocked:
-            op.execute(f"DROP TABLE {table}")
-            dropped.append(table)
-        else:
-            kept[table] = rows
-    report["tablas_vacias_eliminadas"] = dropped
-    report["tablas_conservadas_(filas)"] = kept
+    # --- 2d. tablas de Costos: ninguna se borra; se informa cuantas filas
+    # tiene cada una (vacias o con datos) para decidir despues.
+    legacy = {table: _count(bind, table) for table in LEGACY_TABLES if _exists(bind, table)}
+    report["tablas_de_costos_conservadas_(filas)"] = legacy
+    report["tablas_de_costos_vacias"] = [table for table, rows in legacy.items() if rows == 0]
     print(f"[022c_fixed_expenses] {json.dumps(report, ensure_ascii=False, default=str)}")
 
 
