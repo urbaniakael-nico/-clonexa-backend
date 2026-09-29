@@ -40,9 +40,9 @@ def test_hospitality_carta_pound_to_grams_is_exact():
     assert engine.standard_factor("litro", "ml") == Decimal("1000")
     assert engine.standard_factor("unidad", "g") is None, "cuanto pesa un pollo lo define la empresa"
     assert engine.to_consumption(2, {"units_per_purchase": "453.59237"}) == Decimal("907.1847")
-    assert engine.clean_unit("Libras", engine.PURCHASE_UNITS) == "libra"
-    with pytest.raises(ValueError):
-        engine.clean_unit("arroba", engine.PURCHASE_UNITS)
+    # 049Q: la unidad de compra sale de la lista unica; las claves viejas se leen como su par
+    assert engine.purchase_unit_key("Libras") == "lb" and engine.purchase_unit_key("kilo") == "kg"
+    assert engine.purchase_unit_key("arroba") is None
 
 
 def test_hospitality_carta_yield_factor_is_applied():
@@ -135,6 +135,7 @@ class CartaDb:
         self.settings: dict = {}
         self.categories: dict[str, dict] = {}
         self.equivalences: dict[tuple, Decimal] = {}
+        self.purchases: list[dict] = []
         self.waiter_settings: dict = {}
         self.image_stamps: dict[str, datetime] = {}
         self.commit = AsyncMock()
@@ -248,10 +249,34 @@ class CartaDb:
             return Result()
         if sql.startswith("UPDATE inventory_items SET item_type = :item_type"):
             row = self.inventory[str(p["id"])]
-            ratio = Decimal(str(p["ratio"]))
             row.update(item_type=p["item_type"], purchase_unit=p["purchase_unit"], consumption_unit=p["consumption_unit"],
-                       units_per_purchase=Decimal(str(p["factor"])), current_stock=row["current_stock"] * ratio,
-                       min_stock=row["min_stock"] * ratio, avg_cost=row["avg_cost"] / ratio)
+                       units_per_purchase=Decimal(str(p["factor"])), current_stock=Decimal(str(p["stock"])),
+                       min_stock=Decimal(str(p["min_stock"])), avg_cost=Decimal(str(p["avg_cost"])),
+                       entry_price=Decimal(str(p["entry_price"])))
+            return Result()
+        if sql.startswith("UPDATE inventory_items SET current_stock = :stock, avg_cost = :avg_cost"):
+            row = self.inventory[str(p["id"])]
+            assert row["company_id"] == cid
+            row.update(current_stock=Decimal(str(p["stock"])), avg_cost=Decimal(str(p["avg_cost"])),
+                       entry_price=Decimal(str(p["entry_price"])))
+            return Result()
+        if sql.startswith("UPDATE carta_unit_equivalences SET amount = amount * :ratio"):
+            for key in [k for k in self.equivalences if k[0] == p["i"] and k[2] == cid]:
+                self.equivalences[key] = Decimal(str(self.equivalences[key])) * Decimal(str(p["ratio"]))
+            return Result()
+        if sql.startswith("DELETE FROM carta_unit_equivalences"):
+            self.equivalences.pop((p["i"], p["base"], cid), None)
+            return Result()
+        if sql.startswith("SELECT DISTINCT ON (inventory_item_id) inventory_item_id, quantity, unit, total_paid"):
+            latest = {}
+            for row in self.purchases:
+                if row["company_id"] == cid:
+                    latest[row["inventory_item_id"]] = row
+            return Result(list(latest.values()))
+        if sql.startswith("INSERT INTO carta_purchases"):
+            self.purchases.append({"company_id": cid, "inventory_item_id": p["item_id"], "quantity": p["quantity"], "unit": p["unit"],
+                                   "total_paid": p["total_paid"], "base_quantity": p["base_quantity"], "unit_cost": p["unit_cost"],
+                                   "source": "compra", "created_by": p["actor"], "created_at": datetime.now(timezone.utc)})
             return Result()
         if sql.startswith("INSERT INTO carta_items"):
             self.dishes[p["id"]] = {"id": uuid.UUID(p["id"]), "company_id": cid, "name": p["name"], "presentation": p.get("presentation", ""),
@@ -477,15 +502,19 @@ def test_hospitality_carta_rejects_consumables_in_dishes_and_recipes(api):
 
 def test_hospitality_carta_unit_change_keeps_physical_stock_and_value(api):
     # Cerveza: 2 unidades a $3.000. Pasa a comprarse por "unidad" y consumirse en ml (330 ml por botella).
+    # 049Q: se elige la unidad; como pasa de contar a medir con existencia, se pregunta una vez la conversion
     before_value = api.inventory[CERVEZA]["current_stock"] * api.inventory[CERVEZA]["avg_cost"]
-    res = call("PUT", ASADERO, f"/insumos/{CERVEZA}", "admin",
-               {"item_type": "venta_directa", "purchase_unit": "unidad", "consumption_unit": "ml", "units_per_purchase": 330})
+    ask = call("PUT", ASADERO, f"/insumos/{CERVEZA}", "admin", {"item_type": "venta_directa", "unit": "ml"})
+    assert ask.status_code == 400 and "¿cuántos ml hay en 1 unidad?" in ask.text
+    res = call("PUT", ASADERO, f"/insumos/{CERVEZA}", "admin", {"item_type": "venta_directa", "unit": "ml", "convert_amount": 330})
     assert res.status_code == 200, res.text
     row = api.inventory[CERVEZA]
-    assert row["current_stock"] == Decimal("660") and row["units_per_purchase"] == Decimal("330")
+    assert row["current_stock"] == Decimal("660") and row["consumption_unit"] == "ml" and row["units_per_purchase"] == Decimal("1")
     assert (row["current_stock"] * row["avg_cost"]).quantize(Decimal("1")) == before_value
-    libra = call("PUT", ASADERO, f"/insumos/{PAPA}", "admin", {"item_type": "ingrediente", "purchase_unit": "libra", "consumption_unit": "g"})
+    # misma dimension: la existencia (en g) no se toca; solo cambia la unidad natural
+    libra = call("PUT", ASADERO, f"/insumos/{PAPA}", "admin", {"item_type": "ingrediente", "unit": "lb"})
     assert libra.status_code == 200 and api.inventory[PAPA]["units_per_purchase"] == Decimal("453.59237")
+    assert api.inventory[PAPA]["current_stock"] == Decimal("3000") and api.inventory[PAPA]["purchase_unit"] == "lb"
 
 
 # ------------------------------- 049J/049K: asistente, categorias, combo y QR ---
@@ -975,14 +1004,189 @@ def test_hospitality_carta_meat_configured_as_one_gram_per_unit_is_the_real_bug(
     assert dish["recipe"][0]["needs_equivalence"] is True and dish["cost"] is None, "se pregunta cuanto pesa 1 unidad"
     rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(dish_id, 1, "CARNE Asada", 32000)]))
     assert rows[0]["consumption"] == [] and rows[0]["cost"] is None, "ni descuenta 275 de 20 ni congela millones"
-    # no se puede volver a guardar "1 unidad = 1 g"
-    again = call("PUT", ASADERO, f"/insumos/{carne}", "admin",
-                 {"item_type": "ingrediente", "purchase_unit": "unidad", "consumption_unit": "g", "units_per_purchase": 1})
-    assert again.status_code == 400 and "453,6 g" in again.text
-    # la respuesta: 1 unidad de compra = 1 libra (453,59 g); costo y existencia se reexpresan
-    fixed = call("PUT", ASADERO, f"/insumos/{carne}", "admin",
-                 {"item_type": "ingrediente", "purchase_unit": "unidad", "consumption_unit": "g", "units_per_purchase": 453.59237})
+    # 049Q: ya no existe el campo libre "consumo por unidad de compra"; se elige la unidad y,
+    # como no se sabe cuanto pesaba la "unidad", se pregunta una vez
+    again = call("PUT", ASADERO, f"/insumos/{carne}", "admin", {"item_type": "ingrediente", "unit": "lb"})
+    assert again.status_code == 400 and "¿cuántos lb hay en 1 unidad?" in again.text
+    # la respuesta: 1 unidad = 1 libra; costo y existencia se reexpresan
+    fixed = call("PUT", ASADERO, f"/insumos/{carne}", "admin", {"item_type": "ingrediente", "unit": "lb", "convert_amount": 1})
     assert fixed.status_code == 200, fixed.text
     assert api.inventory[carne]["current_stock"] == Decimal("20") * Decimal("453.59237"), "20 libras = 9.071,8 g"
     dish = next(i for i in fixed.json()["items"] if i["id"] == dish_id)
-    assert dish["cost"] == 8487.8 and dish["recipe"][0]["cost"] == 8487.8, "275 gr a $14.000 la libra ≈ $8.500"
+    # costo por gramo con 4 decimales, como lo guarda la columna avg_cost numeric(14,4)
+    assert dish["cost"] == 8487.79 and dish["recipe"][0]["cost"] == 8487.79, "275 gr a $14.000 la libra ≈ $8.500"
+
+
+# ------------- 049Q: compra = cantidad + total pagado, una sola lista de unidades ---
+def _carne_kg(api, stock=0, avg="0"):
+    carne = str(uuid.uuid4())
+    api.inventory[carne] = CartaDb._inv(ASADERO, "Carne asada", stock, "ingrediente", "kg", "g", 1000, avg=avg)
+    return carne
+
+
+def test_hospitality_carta_purchase_80kg_for_1120000_is_14_per_gram():
+    carne = {"name": "Carne asada", "purchase_unit": "kg", "consumption_unit": "g", "units_per_purchase": 1000,
+             "current_stock": 0, "avg_cost": 0}
+    result = engine.register_purchase(carne, 80, "kg", 1120000)
+    assert result["base_quantity"] == Decimal("80000"), "80 kg = 80.000 g"
+    assert result["unit_cost"] == Decimal("14"), "$1.120.000 / 80.000 g = $14 por gramo, lo calcula el sistema"
+    assert result["cost_per_unit"] == Decimal("14000") and result["avg_cost"] == Decimal("14")
+    insumos = {POLLO_CRUDO: {**carne, "current_stock": result["new_stock"], "avg_cost": result["avg_cost"]}}
+    summary = engine.dish_summary({"kind": "preparado", "price": 32000},
+                                  [{"inventory_item_id": POLLO_CRUDO, "quantity": 275, "unit": "g", "yield_pct": 100}], insumos)
+    assert summary["cost"] == 3850.0, "275 gr cuestan $3.850"
+    # la misma compra escrita en gramos da el mismo costo
+    assert engine.register_purchase(carne, 80000, "gr", 1120000)["unit_cost"] == Decimal("14")
+    for bad in ((0, "kg", 1000), (80, "arroba", 1000), (80, "kg", -1)):
+        with pytest.raises(ValueError):
+            engine.register_purchase(carne, *bad)
+    with pytest.raises(ValueError, match="sin_equivalencia"):
+        engine.register_purchase(carne, 3, "cucharada", 1000)
+
+
+def test_hospitality_carta_second_purchase_weights_the_average():
+    carne = {"purchase_unit": "kg", "consumption_unit": "g", "units_per_purchase": 1000, "current_stock": 40000, "avg_cost": 14}
+    result = engine.register_purchase(carne, 40, "kg", 640000)  # $16 el gramo
+    assert result["unit_cost"] == Decimal("16") and result["avg_cost"] == Decimal("15") and result["new_stock"] == Decimal("80000")
+
+
+def test_hospitality_carta_purchase_endpoint_and_sale_in_kilos(api):
+    carne = _carne_kg(api)
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "CARNE Asada", "price": 32000, "kind": "preparado"}).json()["created_id"]
+    call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin", {"lines": [{"inventory_item_id": carne, "quantity": 275, "unit": "gr"}]})
+    res = call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin", {"quantity": 80, "unit": "kg", "total_paid": 1120000})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["purchase"] == {"base_quantity": 80000.0, "unit_cost": 14.0, "avg_cost": 14.0, "cost_per_unit": 14000.0}
+    insumo = next(i for i in body["insumos"] if i["id"] == carne)
+    assert (insumo["stock_natural"], insumo["unit"], insumo["unit_label"], insumo["stock"]) == (80.0, "kg", "kg", 80000.0), "80 kg (80.000 g)"
+    assert insumo["avg_cost"] == 14.0 and insumo["cost_per_unit"] == 14000.0
+    assert insumo["last_purchase"]["quantity"] == 80 and insumo["last_purchase"]["total_paid"] == 1120000
+    assert insumo["last_purchase"]["unit_cost"] == 14 and insumo["last_purchase"]["reinterpreted"] is False
+    assert api.inventory[carne]["entry_price"] == Decimal("14000.00"), "precio de entrada = costo del kilo, calculado"
+    movement = api.movements[-1]
+    assert movement["delta"] == Decimal("80000.0000") and "Compra: 80 kg por $1.120.000 ($14 por gr)" in movement["notes"]
+    dish = next(i for i in body["items"] if i["id"] == dish_id)
+    assert dish["cost"] == 3850.0 and dish["recipe"][0]["cost"] == 3850.0, "275 gr = $3.850"
+    # vender el plato descuenta 275 g de los 80 kg
+    rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(dish_id, 1, "CARNE Asada", 32000)]))
+    assert rows[0]["cost"] == 3850.0
+    asyncio_run(hospitality._deduct_inventory(api, uuid.UUID(ASADERO), {"id": "k1", "items": rows}))
+    assert api.inventory[carne]["current_stock"] == Decimal("79725")
+    after = next(i for i in call("GET", ASADERO, "", "admin").json()["insumos"] if i["id"] == carne)
+    assert after["stock_natural"] == 79.725 and after["unit_label"] == "kg", "79,725 kg"
+
+
+def test_hospitality_carta_purchase_in_a_unit_without_equivalence_is_rejected(api):
+    carne = _carne_kg(api)
+    res = call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin", {"quantity": 3, "unit": "paquete", "total_paid": 1000})
+    assert res.status_code == 400 and "se cuenta en kg" in res.text
+    assert call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin", {"quantity": 0, "unit": "kg", "total_paid": 1}).status_code == 422
+    assert api.inventory[carne]["current_stock"] == 0 and not api.purchases
+
+
+@pytest.mark.parametrize("method,path", [("POST", f"/insumos/{uuid.uuid4()}/purchases"), ("PUT", f"/insumos/{uuid.uuid4()}"),
+                                          ("PUT", f"/insumos/{uuid.uuid4()}/equivalences")])
+def test_hospitality_carta_inventory_endpoints_require_admin_session_and_module(api, method, path):
+    body = {"quantity": 1, "unit": "kg", "total_paid": 1, "item_type": "ingrediente", "amount": 1}
+    assert call(method, ASADERO, path, body=body).status_code == 401
+    assert call(method, ASADERO, path, "mesero", body=body).status_code == 403
+    assert call(method, ASADERO, path, "ttm", body=body).status_code == 403
+    assert call(method, TTM, path, "ttm", body=body).status_code == 403
+
+
+def test_hospitality_carta_new_insumo_picks_its_unit_and_base(api):
+    # recien creado en Inventario: unidad -> unidad, sin existencia; se elige "kg"
+    nuevo = str(uuid.uuid4())
+    api.inventory[nuevo] = CartaDb._inv(ASADERO, "Costilla", 0, "venta_directa", "unidad", "unidad", 1)
+    res = call("PUT", ASADERO, f"/insumos/{nuevo}", "admin", {"item_type": "ingrediente", "unit": "kg", "min_stock": 5})
+    assert res.status_code == 200, res.text
+    row = api.inventory[nuevo]
+    assert (row["purchase_unit"], row["consumption_unit"], row["units_per_purchase"]) == ("kg", "g", Decimal("1000"))
+    assert row["min_stock"] == Decimal("5000"), "el minimo se escribe en kg y se guarda en g"
+    insumo = next(i for i in res.json()["insumos"] if i["id"] == nuevo)
+    assert insumo["min_stock_natural"] == 5.0 and insumo["item_type"] == "ingrediente"
+
+
+def test_hospitality_carta_inventory_and_recipes_use_the_same_units():
+    assert engine.PURCHASE_UNITS == list(engine.RECIPE_UNITS)
+    assert [engine.RECIPE_UNITS[u] for u in engine.PURCHASE_UNITS] == ["gr", "kg", "lb", "onza", "ml", "litros", "unidad", "par",
+                                                                      "docena", "paquete", "cucharada", "pizca"]
+    from app.services import inventory_size
+    assert set(engine.RECIPE_UNITS.values()) <= set(inventory_size.FORM_UNITS), "el tamaño en Inventario acepta la misma lista"
+    assert inventory_size.clean("2", "onza") == (Decimal("2"), "onza")
+
+
+def test_hospitality_carta_carta_no_longer_configures_insumos():
+    source = (ROOT / "app/web/client.js").read_text(encoding="utf-8")
+    carta = source[source.index("/* CX_CARTA_048T_START */"):source.index("/* CX_INV_INSUMOS_049Q_START */")]
+    assert '["insumos", "Insumos"]' not in carta and "cxCarInsumosHtml048T" not in source
+    assert "units_per_purchase: n * factor" not in source and "data-car-save-insumo" not in source
+    assert "units_per_purchase" not in carta_endpoint.InsumoIn.model_fields, "ya no se escribe a mano la conversion"
+
+
+# ------------------------------------------------ migracion 022f ---
+def _mig_022f():
+    path = ROOT / "migrations/versions/022f_carta_purchases.py"
+    spec = importlib.util.spec_from_file_location("mig_022f", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module, path.read_text(encoding="utf-8")
+
+
+def test_hospitality_carta_purchases_migration_header():
+    module, source = _mig_022f()
+    assert len(module.revision) <= 32 and module.down_revision == "022e_unit_equivalences"
+    assert "LOWER(m.code) = 'carta' AND cm.enabled IS TRUE" in source, "solo empresas con Carta"
+    assert source.count("company_id = CAST(:c AS uuid)") >= 6
+    assert "'reinterpretada_022f'" in source and "ON DELETE CASCADE" in source
+
+
+def test_hospitality_carta_migration_reads_80kg_for_1120000():
+    module, _ = _mig_022f()
+    # como quedo la carne: "unidad", consumo en g, "1 unidad = 1 g", 80 escritos y $1.120.000
+    carne = {"purchase_unit": "unidad", "consumption_unit": "g", "units_per_purchase": 1, "current_stock": 80, "min_stock": 10,
+             "entry_price": 1120000, "avg_cost": 1120000, "sale_price": 0, "size_unit": None}
+    new = module.reinterpret(carne, typed_qty=80)
+    assert (new["purchase_unit"], new["consumption_unit"], new["units_per_purchase"]) == ("kg", "g", Decimal("1000"))
+    assert new["current_stock"] == Decimal("80000") and new["min_stock"] == Decimal("10000"), "80 kg = 80.000 g"
+    assert new["avg_cost"] == Decimal("14") and new["entry_price"] == Decimal("14000"), "$14 por gramo, $14.000 el kilo"
+    assert new["purchase"] == {"quantity": Decimal("80"), "unit": "kg", "total_paid": Decimal("1120000"),
+                               "base_quantity": Decimal("80000"), "unit_cost": Decimal("14")}
+    assert Decimal("275") * new["avg_cost"] == Decimal("3850")
+    # con ventas despues de cargarla, la compra sigue siendo la del primer ingreso
+    sold = module.reinterpret({**carne, "current_stock": 60}, typed_qty=80)
+    assert sold["current_stock"] == Decimal("60000") and sold["avg_cost"] == Decimal("14")
+    # tamaño en libras: se compra por libra
+    assert module.reinterpret({**carne, "size_unit": "lb"}, typed_qty=80)["purchase_unit"] == "lb"
+
+
+def test_hospitality_carta_migration_keeps_what_was_already_right():
+    module, _ = _mig_022f()
+    # papa comprada por kilo y ya en gramos (configurada en la vieja pestaña Insumos): 10 kg por $30.000
+    papa = {"purchase_unit": "kilo", "consumption_unit": "g", "units_per_purchase": 1000, "current_stock": 8000, "min_stock": 0,
+            "entry_price": 30000, "avg_cost": 30, "sale_price": 0}
+    new = module.reinterpret(papa, typed_qty=10)
+    assert (new["purchase_unit"], new["current_stock"], new["avg_cost"]) == ("kg", Decimal("8000"), Decimal("3")), "$3 el gramo"
+    # gaseosa: el precio de entrada ($2.500) es menor que su precio de venta ($4.000): ya era por unidad
+    coca = {"purchase_unit": "unidad", "consumption_unit": "unidad", "units_per_purchase": 1, "current_stock": 24,
+            "entry_price": 2500, "avg_cost": 2500, "sale_price": 4000}
+    kept = module.reinterpret(coca, typed_qty=24)
+    assert kept["avg_cost"] == Decimal("2500") and kept["purchase"] is None and kept["current_stock"] == Decimal("24")
+    # canasta de 30 huevos por $15.000 (se vende a $1.000 cada uno? no: no tiene precio de venta) = $500 el huevo
+    huevos = {"purchase_unit": "unidad", "consumption_unit": "unidad", "units_per_purchase": 1, "current_stock": 30,
+              "entry_price": 15000, "avg_cost": 15000, "sale_price": 0}
+    assert module.reinterpret(huevos, typed_qty=30)["avg_cost"] == Decimal("500")
+    # contado por unidad pero usado en gramos en las recetas y sin equivalencia: se pesa
+    queso = {"purchase_unit": "unidad", "consumption_unit": "unidad", "units_per_purchase": 1, "current_stock": 5,
+             "entry_price": 100000, "avg_cost": 100000, "sale_price": 0}
+    weighed = module.reinterpret(queso, typed_qty=5, recipe_dim="masa")
+    assert (weighed["consumption_unit"], weighed["current_stock"], weighed["avg_cost"]) == ("g", Decimal("5000"), Decimal("20"))
+    # pollo "1 unidad = 1600 g" con su equivalencia: sigue igual
+    pollo = {"purchase_unit": "unidad", "consumption_unit": "g", "units_per_purchase": 1600, "current_stock": 16000,
+             "entry_price": 180000, "avg_cost": 18000, "sale_price": 0}
+    kept_pollo = module.reinterpret(pollo, typed_qty=10)
+    assert (kept_pollo["purchase_unit"], kept_pollo["units_per_purchase"], kept_pollo["current_stock"]) == ("unidad", Decimal("1600"), Decimal("16000"))
+    assert kept_pollo["avg_cost"] == Decimal("11.2500"), "$180.000 / (10 x 1600 g)"
+    # sin precio: no se inventa costo
+    assert module.reinterpret({**papa, "entry_price": 0, "avg_cost": 0}, typed_qty=10)["avg_cost"] == 0

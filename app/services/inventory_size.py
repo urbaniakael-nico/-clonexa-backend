@@ -19,6 +19,11 @@ UNIT_GROUPS = {
     "unidad": ["unidad", "paquete", "caja", "docena"],
 }
 UNITS = [unit for units in UNIT_GROUPS.values() for unit in units]
+# 049Q: las empresas con Carta eligen el tamaño en la misma lista que las
+# recetas (gr, kg, lb, onza, ml, litros, unidad, par, docena, paquete,
+# cucharada, pizca). Se aceptan al elegirlas; el texto viejo se sigue
+# interpretando igual para todas.
+FORM_UNITS = UNITS + ["onza", "par", "cucharada", "pizca"]
 
 # como lo escribe la gente -> unidad de la lista
 ALIASES = {
@@ -77,7 +82,7 @@ def format_size(value: Any, unit: str) -> str:
 def clean(value: Any, unit: Any) -> tuple[Decimal, str]:
     """Numero y unidad elegidos en el formulario; ValueError si no sirven."""
     unit = str(unit or "").strip().lower()
-    if unit not in UNITS:
+    if unit not in FORM_UNITS:
         raise ValueError("unidad_invalida")
     try:
         number = Decimal(str(value).replace(",", "."))

@@ -323,7 +323,7 @@ test('editar abre el asistente con lo que ya tiene; eliminar pide confirmación'
 
 test('QR de la carta: opcional, imagen para descargar, link y cambio de código', () => {
   const ctx = portal(DATA);
-  assert.match(source, /\["categorias", "Categorías"\], \["insumos", "Insumos"\], \["qr", "QR de la carta"\]/);
+  assert.match(source, /const tabs = \[\["platos", "Platos"\], \["categorias", "Categorías"\], \["qr", "QR de la carta"\]\];/);
   assert.match(ctx.cxCarQrHtml049J(), /Generando el QR/);
   ctx.cxCarUi049J.qr = { url: 'https://x.test/carta-qr?t=abc', image: 'blob:qr' };
   const html = ctx.cxCarQrHtml049J();
@@ -334,13 +334,19 @@ test('QR de la carta: opcional, imagen para descargar, link y cambio de código'
   assert.match(source, /fetch\(`\$\{API\}\/carta\/companies\/\$\{encodeURIComponent\(state\.companyId\)\}\/qr\.png`, \{ headers: authHeaders\(\{\}\) \}\)/, 'la imagen se pide con sesión');
 });
 
-test('insumos: tipo, unidades, conversión, existencia negativa marcada y costo por unidad de consumo', () => {
-  const html = portal(DATA).cxCarInsumosHtml048T();
-  assert.match(html, /<option value="consumible" selected>Consumible<\/option>/);
-  assert.match(html, /name="units_per_purchase" type="number"[^>]*value="1600"/);
-  assert.match(html, /-350 g<small>= -0,219 unidad<\/small> <small class="bad">negativo: revisar<\/small>/);
-  assert.match(html, /\$12,50<small> por g<\/small>/, 'costo por gramo con centavos');
-  assert.match(html, /nunca aparecen en la carta/);
+test('049Q: Carta ya no tiene pestaña Insumos; lo que se compra se configura solo en Inventario', () => {
+  const ctx = portal(DATA);
+  assert.equal(typeof ctx.cxCarInsumosHtml048T, 'undefined', 'la pestaña se quitó');
+  assert.doesNotMatch(source, /\["insumos", "Insumos"\]|data-car-save-insumo|name="units_per_purchase"/);
+  // lo que solo existía ahí (tipo, unidades, equivalencias) está en Inventario → Insumos y compras
+  ctx.cxInv049Q.data = { ...DATA, insumos: [{ ...DATA.insumos[0], unit: 'unidad', unit_label: 'unidad', natural_factor: 1600,
+    stock_natural: -0.2188, min_stock_natural: 0, cost_per_unit: 20000, equivalences: {} }] };
+  const panel = ctx.cxInvInsumosPanelHtml049Q();
+  assert.match(panel, /<select name="item_type"[\s\S]*<option value="ingrediente" selected>Ingrediente<\/option>/);
+  assert.match(panel, /<select name="unit" data-inv-unit="i1"/);
+  assert.match(panel, /data-inv-eq-save="i1">Guardar equivalencia/);
+  assert.match(panel, /-0,219 unidad \(-350 gr\)[\s\S]*negativo: revisar/, 'existencia en su unidad natural con el equivalente');
+  assert.match(panel, /\$20\.000 por unidad · \$12,50 por gr/);
 });
 
 test('Dashboard: aviso de insumos en negativo y platos bajo costo; sin módulo, nada', () => {
@@ -536,16 +542,27 @@ test('equivalencia: se pide una sola vez en la línea, con la sugerencia del tam
   wiz.lines[0].quantity = '275';
   await ctx.cxCarOnChange049J({ target: { closest: (sel) => (sel === '[data-wz-line-unit]' ? { getAttribute: () => '0', value: 'g' } : null) } });
   let html = ctx.cxCarWizHtml049J();
-  assert.match(html, /¿Cuánto pesa 1 unidad de Carne de res\?[\s\S]*En inventario se cuenta por unidad a \$14\.000[\s\S]*data-wz-eq-value value="1"[\s\S]*<option value="lb" selected>lb<\/option>/, 'sugiere 1 lb del tamaño del artículo');
+  assert.match(html, /Falta la equivalencia: cuánto es 1 gr de Carne de res\.[\s\S]*Inventario → Insumos y compras[\s\S]*data-car-go-inventory="c1">Abrir en Inventario/);
   assert.match(html, /data-wz-line-cost="0"[^>]*>falta equivalencia</);
-  const box = { getAttribute: (a) => (a === 'data-wz-eq-mode' ? 'weighs' : '0'),
-    querySelector: (sel) => ({ '[data-wz-eq-value]': { value: '1' }, '[data-wz-eq-unit]': { value: 'lb' } })[sel] };
+  assert.doesNotMatch(html, /data-wz-eq-save|data-wz-eq-value/, 'Carta ya no guarda equivalencias');
+  let opened = '';
+  ctx.cxInvOpenInsumos049Q = async (id) => { opened = id; };
+  await ctx.click('data-car-go-inventory', 'c1');
+  assert.equal(opened, 'c1', 'lleva a Inventario → Insumos y compras con la carne marcada');
+  // en Inventario: "1 unidad = [1] lb"
+  ctx.cxInv049Q.data = EQ_DATA;
+  ctx.cxInv049Q.eqUnit.c1 = 'lb';
+  assert.match(ctx.cxInvEqHtml049Q(CARNE), /1 unidad = <input[^>]*data-inv-eq-value="c1"[^>]*> <select data-inv-eq-unit="c1">[\s\S]*<option value="lb" selected>lb/);
+  ctx.dom.values['[data-inv-eq-unit="c1"]'] = 'lb';
+  ctx.dom.values['[data-inv-eq-value="c1"]'] = '1';
   ctx.respond = (path) => (path.endsWith('/equivalences') ? { ...EQ_DATA, insumos: [{ ...CARNE, equivalences: { lb: 1 } }, SAL, TOMATE] } : EQ_DATA);
-  await ctx.click('data-wz-eq-save', '0', { '[data-wz-eq]': box, closest: (sel) => (sel === '[data-wz-eq]' ? box : null) });
+  await ctx.cxInvHandleClick049Q({ closest: (sel) => (sel === '[data-inv-eq-save]' ? { getAttribute: () => 'c1' } : null) });
   const put = ctx.calls.find((c) => c.path === '/insumos/c1/equivalences');
   assert.deepEqual(JSON.parse(JSON.stringify(put.body)), { unit: 'lb', amount: 1 }, '"1 unidad = 1 lb"');
+  ctx.cxCar048T.data = ctx.cxInv049Q.data;
+  ctx.cxCarWiz049J = wiz; // de vuelta en Carta con la misma receta
   html = ctx.cxCarWizHtml049J();
-  assert.doesNotMatch(html, /data-wz-eq=/, 'ya no se vuelve a pedir');
+  assert.doesNotMatch(html, /data-wz-eq-missing=/, 'ya no se vuelve a pedir');
   assert.equal(ctx.cxCarPortionMoney049N(ctx.cxCarLineCost049N(wiz.lines[0]).cost), '$8.488', '275 gr a $14.000 la libra');
   assert.equal(ctx.cxCarFactor049N('kg', { ...CARNE, equivalences: { lb: 1 } }).toFixed(6), '2.204623', 'se reutiliza para kg y onza');
 });
@@ -554,7 +571,8 @@ test('equivalencia de cucharada, paquete y pizca: "1 cucharada de sal = 12 g"', 
   const ctx = portal(EQ_DATA);
   const line = { inventory_item_id: 's1', insumo: 'Sal', unit: 'cucharada', quantity: 1 };
   assert.equal(ctx.cxCarFactor049N('cucharada', SAL), null);
-  assert.match(ctx.cxCarEqForm049O(line, 0), /¿Cuánto es 1 cucharada de Sal\?[\s\S]*1 cucharada = <input[^>]*data-wz-eq-value[^>]*> g/);
+  assert.match(ctx.cxCarEqForm049O(line, 0), /Falta la equivalencia: cuánto es 1 cucharada de Sal\./);
+  assert.match(ctx.cxInvEqHtml049Q(SAL), /1 <select data-inv-eq-unit="s1">[\s\S]*<\/select> = <input[^>]*data-inv-eq-value="s1"[^>]*> gr/, 'en Inventario: "1 cucharada = [12] gr"');
   assert.deepEqual({ ...ctx.cxCarEqAmount049O(line, 'per', '12') }, { unit: 'cucharada', amount: 12 });
   assert.deepEqual({ ...ctx.cxCarEqAmount049O({ unit: 'g' }, 'weighs', '453.59237', 'g') }, { unit: 'g', amount: 1 / 453.59237 });
   assert.equal(ctx.cxCarEqAmount049O(line, 'per', '0'), null);
@@ -590,16 +608,77 @@ test('carne comprada por unidad y consumida en gramos con "1 unidad = 1 g": se p
   const ctx = portal({ ...DATA, insumos: [MAL, SAL] });
   assert.equal(ctx.cxCarFactor049N('g', MAL), null, 'no se calcula con $14.000 por gramo');
   const line = { inventory_item_id: 'm1', insumo: 'Carne de res', unit: 'g', quantity: '275', yield_pct: 100 };
-  const form = ctx.cxCarEqForm049O(line, 0);
-  assert.match(form, /data-wz-eq-mode="purchase"[\s\S]*¿Cuánto pesa cada unidad de compra de Carne de res\?[\s\S]*Se compra por unidad a \$14\.000[\s\S]*<option value="lb" selected>lb<\/option>/);
-  ctx.cxCarWiz049J = { ...ctx.cxCarWizFrom049J(null), step: 3, mode: 'receta', lines: [line] };
-  const box = { getAttribute: (a) => (a === 'data-wz-eq-mode' ? 'purchase' : '0'),
-    querySelector: (sel) => ({ '[data-wz-eq-value]': { value: '1' }, '[data-wz-eq-unit]': { value: 'lb' } })[sel] };
-  await ctx.click('data-wz-eq-save', '0', { '[data-wz-eq]': box, closest: (sel) => (sel === '[data-wz-eq]' ? box : null) });
-  const put = ctx.calls.find((c) => c.path === '/insumos/m1');
-  assert.deepEqual(JSON.parse(JSON.stringify(put.body)), { item_type: 'ingrediente', purchase_unit: 'unidad', consumption_unit: 'g', units_per_purchase: 453.59237 },
-    '1 unidad de compra = 1 lb = 453,59 g');
-  const tab = ctx.cxCarInsumosHtml048T();
-  assert.match(tab, /⚠ ¿Cuántos g trae 1 unidad\? Hoy dice 1: su costo y descuento están en pausa\./);
-  assert.match(tab, /<small class="bad">por revisar<\/small>/);
+  assert.match(ctx.cxCarEqForm049O(line, 0), /Falta la equivalencia: cuánto pesa cada unidad de compra de Carne de res\.[\s\S]*data-car-go-inventory="m1"/);
+  // en Inventario se elige su unidad; como no se sabe cuánto pesaba "1 unidad", se pregunta una vez
+  ctx.cxInv049Q.data = { ...DATA, insumos: [MAL, SAL] };
+  ctx.cxInv049Q.pendingUnit.m1 = 'lb';
+  const panel = ctx.cxInvInsumosPanelHtml049Q();
+  assert.match(panel, /1 unidad = <input name="convert_amount"[^>]*> lb/);
+  assert.match(panel, /Se compraba "por unidad" sin decir cuánto pesa/);
+  assert.match(panel, /<td>por revisar<\/td>/);
+});
+
+// ------------------------ 049Q: Inventario → Insumos y compras (solo con Carta)
+const CARNE_KG = { id: 'k1', name: 'Carne asada', item_type: 'ingrediente', purchase_unit: 'kg', consumption_unit: 'g', units_per_purchase: 1000,
+  unit: 'kg', unit_label: 'kg', natural_factor: 1000, stock: 80000, stock_natural: 80, min_stock_natural: 10, avg_cost: 14, cost_per_unit: 14000,
+  sale_price: 0, equivalences: {},
+  last_purchase: { quantity: 80, unit: 'kg', unit_label: 'kg', total_paid: 1120000, base_quantity: 80000, unit_cost: 14, reinterpreted: true } };
+
+test('compra: cantidad comprada + total pagado; el costo por unidad lo calcula el sistema', async () => {
+  const ctx = portal(DATA);
+  const empty = { ...CARNE_KG, stock: 0, stock_natural: 0, avg_cost: null, cost_per_unit: null, last_purchase: null };
+  ctx.cxInv049Q.data = { ...DATA, insumos: [empty] };
+  const preview = ctx.cxInvPurchasePreview049Q(empty, 80, 'kg', 1120000);
+  assert.equal(preview.unitCost, 14, '$1.120.000 / 80.000 g');
+  assert.equal(preview.text, 'Entran 80.000 gr · $14,00 por gr ($14.000 por kg)');
+  assert.equal(ctx.cxInvPurchasePreview049Q(empty, 275, 'g', 3850).unitCost, 14, '275 gr por $3.850 = $14 por gr');
+  assert.match(ctx.cxInvPurchasePreview049Q(empty, 2, 'paquete', 1000).error, /se cuenta en kg/);
+  await ctx.cxInvHandleClick049Q({ closest: (sel) => (sel === '[data-inv-buy]' ? { getAttribute: () => 'k1' } : null) });
+  const form = ctx.cxInvInsumosPanelHtml049Q();
+  assert.match(form, /Cantidad comprada[\s\S]*data-inv-buy-qty="k1"[\s\S]*<select data-inv-buy-unit="k1">[\s\S]*<option value="kg" selected>kg[\s\S]*Total pagado[\s\S]*data-inv-buy-total="k1"/);
+  assert.doesNotMatch(form, /Precio de entrada|costo unitario<\/label>/i, 'el costo unitario nunca lo escribe el usuario');
+  Object.assign(ctx.dom.values, { '[data-inv-buy-qty="k1"]': '80', '[data-inv-buy-unit="k1"]': 'kg', '[data-inv-buy-total="k1"]': '1.120.000' });
+  ctx.respond = () => ({ ...DATA, insumos: [CARNE_KG] });
+  await ctx.cxInvHandleClick049Q({ closest: (sel) => (sel === '[data-inv-buy-save]' ? { getAttribute: () => 'k1' } : null) });
+  const post = ctx.calls.find((c) => c.path === '/insumos/k1/purchases');
+  assert.deepEqual(JSON.parse(JSON.stringify(post)), { path: '/insumos/k1/purchases', method: 'POST', body: { quantity: 80, unit: 'kg', total_paid: 1120000 } });
+  assert.match(ctx.cxInv049Q.message, /Compra registrada: Entran 80\.000 gr · \$14,00 por gr \(\$14\.000 por kg\)/);
+});
+
+test('existencia en su unidad natural (80 kg, no 80.000 g) y la compra reinterpretada a la vista', () => {
+  const ctx = portal(DATA);
+  ctx.cxInv049Q.data = { ...DATA, insumos: [CARNE_KG] };
+  assert.equal(ctx.cxInvStockText049Q(CARNE_KG), '80 kg (80.000 gr)');
+  assert.equal(ctx.cxInvStockText049Q({ ...CARNE_KG, stock: 79725, stock_natural: 79.725 }), '79,725 kg (79.725 gr)', 'tras vender 275 gr');
+  assert.equal(ctx.cxInvCostText049Q(CARNE_KG), '$14.000 por kg · $14,00 por gr');
+  const panel = ctx.cxInvInsumosPanelHtml049Q();
+  assert.match(panel, /80 kg por \$1\.120\.000[\s\S]*= \$14,00 por gr[\s\S]*Leída de lo que estaba cargado/);
+  assert.match(panel, /Mínimo <input name="min_stock"[^>]*value="10"> kg/);
+  const gaseosa = { ...DATA.insumos[5], unit: 'unidad', unit_label: 'unidad', natural_factor: 1, stock_natural: 24, cost_per_unit: 2200 };
+  assert.equal(ctx.cxInvStockText049Q(gaseosa), '24 unidad', 'sin paréntesis cuando no hace falta');
+});
+
+test('mismas unidades en Inventario y en las recetas de Carta', () => {
+  const ctx = portal(DATA);
+  const labels = (html) => [...html.matchAll(/<option value="[^"]*"[^>]*>([^<]*)<\/option>/g)].map((m) => m[1]);
+  const recipe = labels(ctx.cxCarUnitOptions049N({ inventory_item_id: 'i4', unit: 'g' }));
+  assert.deepEqual(recipe, ['gr', 'kg', 'lb', 'onza', 'ml', 'litros', 'unidad', 'par', 'docena', 'paquete', 'cucharada', 'pizca']);
+  assert.deepEqual(labels(ctx.cxInvUnitOptions049Q('kg')), recipe, 'unidad del insumo');
+  assert.deepEqual(labels(ctx.cxInvCreateFieldsHtml049Q().split('inventoryCreateUnit049Q')[1].split('</select>')[0]), recipe, 'al crear');
+  // el tamaño del artículo, con Carta, usa la misma lista
+  assert.match(source, /const groups = cxInvCartaOn049Q\(\) \? \[\["Unidades", CX_CAR_RECIPE_UNITS_049N\.map\(\(\[, label\]\) => label\)\]\] : CX_INV_UNITS_049M;/);
+});
+
+test('crear un insumo con Carta: cantidad comprada + total pagado en vez de cantidad inicial + precio de entrada', async () => {
+  const ctx = portal(DATA);
+  const html = ctx.cxInvCreateFieldsHtml049Q();
+  assert.match(html, /Tipo de insumo[\s\S]*Unidad \(cómo se compra\)[\s\S]*Cantidad comprada[\s\S]*Total pagado/);
+  assert.doesNotMatch(html, /Precio de entrada|Cantidad inicial/);
+  assert.equal(ctx.cxInvCreatePreview049Q('kg', 80, 1120000).text, 'Entran 80.000 gr · $14,00 por gr ($14.000 por kg)');
+  assert.match(source, /\$\{cxInvCartaOn049Q\(\) \? cxInvCreateFieldsHtml049Q\(\) : `/, 'solo con Carta; las demás empresas no cambian');
+  // pasar de contar a pesar con existencia pide la conversión una vez
+  const pollo = { ...DATA.insumos[0], unit: 'unidad', equivalences: {} };
+  assert.equal(ctx.cxInvNeedsConvert049Q(pollo, 'kg'), false, 'unidad de 1600 g: ya convierte');
+  assert.equal(ctx.cxInvNeedsConvert049Q(DATA.insumos[2], 'kg'), true, 'pan contado por unidad con existencia');
+  assert.equal(ctx.cxInvNeedsConvert049Q({ ...DATA.insumos[2], stock: 0, avg_cost: null }, 'kg'), false, 'sin existencia ni costo');
 });

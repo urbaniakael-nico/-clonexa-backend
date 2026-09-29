@@ -56,8 +56,14 @@ _RECIPE_ALIASES = {"gr": "g", "gramo": "g", "gramos": "g", "kilo": "kg", "kilos"
 # mal puesta (275 "unidades" de carne en vez de 275 gr): se avisa en vez de
 # mostrar la cifra como si fuera correcta.
 SUSPECT_SHARE_OF_PRICE = Decimal("3")
-PURCHASE_UNITS = ["unidad", "libra", "kilo", "gramo", "litro", "ml"]
-CONSUMPTION_UNITS = ["g", "ml", "unidad"]
+# 049Q: Inventario y Carta usan EXACTAMENTE la misma lista (RECIPE_UNITS). La
+# unidad de compra de un insumo es su "unidad natural" (80 kg); la existencia y
+# el costo se guardan en su unidad base (g, ml, unidad...) y se muestran en la
+# natural. Las claves viejas (libra, kilo, gramo, litro) se leen como su par.
+PURCHASE_UNITS = list(RECIPE_UNITS)
+LEGACY_PURCHASE_UNITS = {"libra": "lb", "kilo": "kg", "gramo": "g", "litro": "l"}
+BASE_UNITS = {"masa": "g", "volumen": "ml", "unidad": "unidad", "paquete": "paquete", "pizca": "pizca"}
+CONSUMPTION_UNITS = ["g", "ml", "unidad", "paquete", "pizca"]
 QTY = Decimal("0.0001")
 MONEY = Decimal("0.01")
 
@@ -182,6 +188,113 @@ def purchase_weight_missing(insumo: dict | None) -> bool:
     return (str(insumo.get("purchase_unit") or "unidad") == "unidad"
             and str(insumo.get("consumption_unit") or "unidad") in {"g", "ml"}
             and dec(insumo.get("units_per_purchase") or 1) <= 1)
+
+
+def purchase_unit_key(value: Any) -> str | None:
+    """Unidad de compra en la lista unica ("libra" -> "lb", "Kilos" -> "kg")."""
+    raw = str(value or "").strip().lower()
+    return recipe_unit(LEGACY_PURCHASE_UNITS.get(raw, raw))
+
+
+def base_unit_for(unit: str) -> str:
+    """Unidad en la que se guarda la existencia de algo que se compra en `unit`:
+    lo que se pesa en g, lo liquido en ml, lo que se cuenta en unidades."""
+    return BASE_UNITS[UNITS[unit][0]]
+
+
+def natural_unit(insumo: dict | None) -> str:
+    """Unidad en la que la empresa compra y piensa el insumo (80 kg, no 80.000 g)."""
+    return (purchase_unit_key((insumo or {}).get("purchase_unit"))
+            or recipe_unit((insumo or {}).get("consumption_unit")) or "unidad")
+
+
+def natural_factor(insumo: dict | None) -> Decimal | None:
+    """Unidades base (de consumo) que trae 1 unidad natural: 1 kg = 1000 g.
+    None mientras no se sepa cuanto pesa la unidad de compra."""
+    if not insumo or purchase_weight_missing(insumo):
+        return None
+    factor = dec(insumo.get("units_per_purchase") or 1)
+    return factor if factor > 0 else None
+
+
+def stock_natural(insumo: dict | None) -> Decimal | None:
+    """80.000 g de carne comprada por kilo -> 80 (kg)."""
+    factor = natural_factor(insumo)
+    if factor is None:
+        return None
+    return (dec((insumo or {}).get("current_stock")) / factor).quantize(QTY, rounding=ROUND_HALF_UP)
+
+
+def register_purchase(insumo: dict, quantity: Any, unit: Any, total_paid: Any) -> dict:
+    """049Q: la compra se escribe como la hace el dueño: CANTIDAD comprada (con
+    su unidad) y TOTAL pagado por esa cantidad. El costo unitario lo calcula
+    el sistema, nunca el usuario: 80 kg por $1.120.000 = 80.000 g ->
+    $14 por gramo, y 275 g cuestan $3.850.
+
+    Devuelve lo que entra a la existencia (en unidad base), el costo de esta
+    compra por unidad base y el nuevo costo promedio ponderado."""
+    qty, total = dec(quantity), dec(total_paid)
+    if qty <= 0:
+        raise ValueError("cantidad_invalida")
+    if total < 0:
+        raise ValueError("total_invalido")
+    key = recipe_unit(unit)
+    if not key:
+        raise ValueError("unidad_invalida")
+    factor = line_factor(key, insumo)
+    if factor is None:
+        raise ValueError("sin_equivalencia")
+    base_qty = (qty * factor).quantize(QTY, rounding=ROUND_HALF_UP)
+    if base_qty <= 0:
+        raise ValueError("cantidad_invalida")
+    purchase_cost = (total / base_qty).quantize(QTY, rounding=ROUND_HALF_UP)
+    stock = dec(insumo.get("current_stock"))
+    current = unit_cost(insumo)
+    # sin costo conocido (o sin existencia) el promedio pasa a ser el de esta compra
+    new_avg = purchase_cost if current is None else weighted_average(stock, current, base_qty, purchase_cost)
+    return {"unit": key, "quantity": qty, "total_paid": total, "base_quantity": base_qty, "base_unit": insumo.get("consumption_unit") or "unidad",
+            "unit_cost": purchase_cost, "avg_cost": new_avg, "new_stock": stock + base_qty,
+            "cost_per_unit": (total / qty).quantize(MONEY, rounding=ROUND_HALF_UP)}
+
+
+def configure_unit(insumo: dict, unit: Any, convert_amount: Any = None) -> dict:
+    """049Q: el insumo se configura en Inventario eligiendo SU unidad de la
+    lista unica. Se deriva todo lo demas (ya no se escribe "consumo por unidad
+    de compra", que fue donde nacio "1 unidad = 1 g"):
+
+    - Misma dimension que la existencia (kg -> g, lb -> g, litros -> ml): la
+      existencia no cambia; solo cambia en que unidad se ve y se compra.
+    - Unidad que ya tiene equivalencia para el insumo (1 unidad de pollo =
+      1600 g): igual, sin reexpresar nada.
+    - Otra dimension (se contaba por unidad y ahora se pesa): la existencia
+      pasa a la base nueva; si hay existencia, costo o equivalencias se pide
+      `convert_amount` = cuantas <unidad nueva> hay en 1 <unidad anterior>, y
+      existencia, costo y equivalencias se reexpresan sin perder valor.
+
+    Devuelve purchase_unit, consumption_unit, units_per_purchase y `ratio`
+    (unidades base nuevas por cada unidad base anterior)."""
+    key = recipe_unit(unit)
+    if not key:
+        raise ValueError("unidad_invalida")
+    base = str(insumo.get("consumption_unit") or "unidad")
+    missing = purchase_weight_missing(insumo)
+    if not missing:
+        same = standard_factor(key, base)
+        if same is None:
+            same = line_factor(key, insumo)
+        if same is not None:
+            return {"purchase_unit": key, "consumption_unit": base, "units_per_purchase": same, "ratio": Decimal("1")}
+    new_base = base_unit_for(key)
+    factor = standard_factor(key, new_base) or Decimal("1")
+    needs = missing or dec(insumo.get("current_stock")) != 0 or dec(insumo.get("avg_cost")) > 0 or bool(insumo.get("equivalences"))
+    if not needs:
+        return {"purchase_unit": key, "consumption_unit": new_base, "units_per_purchase": factor, "ratio": Decimal("1")}
+    amount = dec(convert_amount)
+    if amount <= 0:
+        raise ValueError("falta_conversion")
+    old_natural = Decimal("1") if missing else (dec(insumo.get("units_per_purchase")) or Decimal("1"))
+    return {"purchase_unit": key, "consumption_unit": new_base, "units_per_purchase": factor,
+            "ratio": amount * factor / old_natural}
 
 
 def unit_cost(insumo: dict | None) -> Decimal | None:

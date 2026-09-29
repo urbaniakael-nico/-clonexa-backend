@@ -340,8 +340,36 @@ async def require_carta_admin(
 
 
 # ------------------------------------------------------------- lectura ---
-def _insumo_payload(row: dict) -> dict:
+async def load_last_purchases(db: AsyncSession, company_id: Any) -> dict[str, dict]:
+    """049Q: ultima compra de cada insumo (cantidad, unidad, total pagado y el
+    costo que calculo el sistema). Las que vienen de la migracion 022f quedan
+    marcadas como "reinterpretada" para que el dueño las revise."""
+    exists = (await db.execute(text("SELECT to_regclass('public.carta_purchases') IS NOT NULL AS exists"))).mappings().first()
+    if not exists or not exists.get("exists"):
+        return {}
+    rows = (await db.execute(text("""
+        SELECT DISTINCT ON (inventory_item_id) inventory_item_id, quantity, unit, total_paid, base_quantity, unit_cost, source, created_at
+        FROM carta_purchases WHERE company_id = CAST(:company_id AS uuid)
+        ORDER BY inventory_item_id, created_at DESC
+    """), {"company_id": str(company_id)})).mappings().all()
+    out = {}
+    for row in rows:
+        stamp = row.get("created_at")
+        out[str(row["inventory_item_id"])] = {
+            "quantity": float(Decimal(str(row["quantity"]))), "unit": row["unit"],
+            "unit_label": engine.RECIPE_UNITS.get(row["unit"], row["unit"]),
+            "total_paid": float(Decimal(str(row["total_paid"]))), "base_quantity": float(Decimal(str(row["base_quantity"]))),
+            "unit_cost": float(Decimal(str(row["unit_cost"]))), "reinterpreted": row.get("source") == "reinterpretada_022f",
+            "created_at": stamp.isoformat() if hasattr(stamp, "isoformat") else None,
+        }
+    return out
+
+
+def _insumo_payload(row: dict, last_purchase: dict | None = None) -> dict:
     unit = engine.unit_cost(row)
+    natural = engine.natural_unit(row)
+    factor = engine.natural_factor(row)
+    stock_nat = engine.stock_natural(row)
     return {
         "id": str(row["id"]), "name": row["name"], "item_type": row.get("item_type") or "venta_directa",
         "purchase_unit": row.get("purchase_unit") or "unidad", "consumption_unit": row.get("consumption_unit") or "unidad",
@@ -360,6 +388,14 @@ def _insumo_payload(row: dict) -> dict:
         # la unidad: la pantalla lo pregunta una vez.
         "purchase_weight_missing": engine.purchase_weight_missing(row),
         "purchase_price": float(Decimal(str((row.get("avg_cost") or 0) if engine.dec(row.get("avg_cost")) > 0 else (row.get("entry_price") or 0)))),
+        # 049Q: la existencia en su unidad natural (80 kg) con su equivalente en
+        # la unidad base (80.000 g), el costo por unidad natural y la ultima compra.
+        "unit": natural, "unit_label": engine.RECIPE_UNITS.get(natural, natural),
+        "natural_factor": float(factor) if factor is not None else None,
+        "stock_natural": float(stock_nat) if stock_nat is not None else None,
+        "min_stock_natural": float((engine.dec(row.get("min_stock")) / factor).quantize(engine.QTY)) if factor else None,
+        "cost_per_unit": float((unit * factor).quantize(engine.MONEY)) if unit is not None and factor else None,
+        "last_purchase": last_purchase,
     }
 
 
@@ -440,7 +476,8 @@ async def _carta_payload(db: AsyncSession, company_id: uuid.UUID) -> dict:
             **{k: summary[k] for k in ("cost", "margin", "margin_pct", "below_cost", "missing_cost", "no_recipe",
                                        "missing_equivalence", "cost_suspect")},
         })
-    return {"items": items, "insumos": [_insumo_payload(r) for r in insumos.values()],
+    purchases = await load_last_purchases(db, company_id)
+    return {"items": items, "insumos": [_insumo_payload(r, purchases.get(key)) for key, r in insumos.items()],
             "item_types": engine.ITEM_TYPES, "purchase_units": engine.PURCHASE_UNITS,
             "consumption_units": engine.CONSUMPTION_UNITS, "recipe_units": engine.RECIPE_UNITS,
             "categories": _category_tree(categories, images, dishes),
@@ -623,7 +660,7 @@ async def save_recipe(company_id: uuid.UUID, item_id: uuid.UUID, payload: Recipe
                       if "consumible" in str(exc) else "Insumo no encontrado en tu inventario.")
             raise HTTPException(status_code=400, detail=detail) from exc
         if line.unit is not None and not engine.recipe_unit(line.unit):
-            raise HTTPException(status_code=400, detail="Unidad inválida: usa gr, kg, lb, ml, litros, unidad o par.")
+            raise HTTPException(status_code=400, detail=f"Unidad inválida: usa {', '.join(engine.RECIPE_UNITS.values())}.")
     await db.execute(text("DELETE FROM carta_recipe_lines WHERE company_id = CAST(:c AS uuid) AND carta_item_id = CAST(:i AS uuid)"),
                      {"c": str(company_id), "i": str(item_id)})
     for position, line in enumerate(payload.lines):
@@ -642,59 +679,135 @@ async def save_recipe(company_id: uuid.UUID, item_id: uuid.UUID, payload: Recipe
 
 # ----------------------------------------------------------- insumos ---
 class InsumoIn(BaseModel):
+    """049Q: se configura en Inventario. Solo el tipo y LA unidad (de la lista
+    unica); la conversion la deduce el sistema. `convert_amount` solo se pide
+    al pasar de contar a pesar (o al reves) con existencia: cuantas <unidad
+    nueva> hay en 1 <unidad anterior>. `min_stock` va en la unidad natural."""
     item_type: str
-    purchase_unit: str
-    consumption_unit: str
-    units_per_purchase: float | None = Field(default=None, gt=0)
+    unit: str | None = Field(default=None, max_length=12)
+    purchase_unit: str | None = Field(default=None, max_length=12)  # nombre anterior de `unit`
+    convert_amount: float | None = Field(default=None, gt=0, le=1_000_000)
+    min_stock: float | None = Field(default=None, ge=0)
 
 
 @router.put("/companies/{company_id}/insumos/{insumo_id}")
 async def update_insumo(company_id: uuid.UUID, insumo_id: uuid.UUID, payload: InsumoIn, db: AsyncSession = Depends(get_db),
                         _a: str = Depends(require_carta_admin)) -> dict:
-    """Tipo y unidades. Si cambia la conversion, la existencia y el costo
-    promedio se reexpresan en la nueva unidad de consumo (misma cantidad
-    fisica, mismo valor total)."""
+    """Tipo y unidad del insumo. Si la unidad cambia de dimension, la
+    existencia, el costo promedio y las equivalencias se reexpresan (misma
+    cantidad fisica, mismo valor total)."""
     insumos = await load_insumos(db, company_id)
     current = insumos.get(str(insumo_id))
     if not current:
         raise HTTPException(status_code=404, detail="Insumo no encontrado.")
     if payload.item_type not in engine.ITEM_TYPES:
         raise HTTPException(status_code=400, detail="Tipo inválido.")
+    unit = engine.purchase_unit_key(payload.unit or payload.purchase_unit) if (payload.unit or payload.purchase_unit) else engine.natural_unit(current)
+    if not unit:
+        raise HTTPException(status_code=400, detail=f"Unidad inválida: usa {', '.join(engine.RECIPE_UNITS.values())}.")
     try:
-        purchase = engine.clean_unit(payload.purchase_unit, engine.PURCHASE_UNITS)
-        consumption_unit = engine.clean_unit(payload.consumption_unit, engine.CONSUMPTION_UNITS)
+        config = engine.configure_unit(current, unit, payload.convert_amount)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Unidad inválida.") from exc
-    factor = engine.standard_factor("g" if purchase == "gramo" else purchase, consumption_unit)
-    if factor is None:
-        if not payload.units_per_purchase:
-            raise HTTPException(status_code=400, detail="Indica cuántas unidades de consumo trae cada unidad de compra.")
-        factor = Decimal(str(payload.units_per_purchase))
-        if purchase == "unidad" and consumption_unit in {"g", "ml"} and factor <= 1:
-            # 049P: "1 unidad = 1 g" convierte el precio de una libra en precio por gramo
-            raise HTTPException(status_code=400, detail=(
-                f"¿Cuánto {'pesa' if consumption_unit == 'g' else 'trae'} cada unidad de compra de {current['name']}? "
-                f"Escribe los {consumption_unit} de una unidad (una libra = 453,6 g)."))
+        before = "unidad" if engine.purchase_weight_missing(current) else engine.RECIPE_UNITS.get(engine.natural_unit(current), "unidad")
+        raise HTTPException(status_code=400, detail=(
+            f"{current['name']} se contaba por {before} y ahora se medirá en {engine.RECIPE_UNITS[unit]}: "
+            f"¿cuántos {engine.RECIPE_UNITS[unit]} hay en 1 {before}? Escríbelo una vez y se convierten la existencia y el costo.")) from exc
     if payload.item_type == "consumible":
         dishes, lines = await load_dishes(db, company_id)
         used = [d["name"] for d in dishes if str(d.get("inventory_item_id")) == str(insumo_id)]
         used += [d["name"] for d in dishes if any(str(l["inventory_item_id"]) == str(insumo_id) for l in lines.get(str(d["id"]), []))]
         if used:
             raise HTTPException(status_code=409, detail=f"Está en la carta ({', '.join(sorted(set(used))[:5])}): un consumible no puede venderse.")
-    old_factor = Decimal(str(current.get("units_per_purchase") or 1)) or Decimal("1")
-    ratio = factor / old_factor
+    ratio, factor = config["ratio"], config["units_per_purchase"]
+    old_cost = engine.dec(current.get("avg_cost")) if engine.purchase_weight_missing(current) else (engine.unit_cost(current) or Decimal("0"))
+    new_cost = (old_cost / ratio).quantize(engine.QTY) if ratio > 0 else old_cost
+    stock = (engine.dec(current.get("current_stock")) * ratio).quantize(engine.QTY)
+    min_stock = (Decimal(str(payload.min_stock)) * factor if payload.min_stock is not None
+                 else engine.dec(current.get("min_stock")) * ratio).quantize(engine.QTY)
     await db.execute(text("""
         UPDATE inventory_items
            SET item_type = :item_type, purchase_unit = :purchase_unit, consumption_unit = :consumption_unit,
-               units_per_purchase = :factor,
-               current_stock = current_stock * :ratio, min_stock = min_stock * :ratio,
-               avg_cost = CASE WHEN :ratio > 0 THEN avg_cost / :ratio ELSE avg_cost END,
-               updated_at = now()
+               units_per_purchase = :factor, current_stock = :stock, min_stock = :min_stock,
+               avg_cost = :avg_cost, entry_price = :entry_price, updated_at = now()
          WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid)
-    """), {"item_type": payload.item_type, "purchase_unit": purchase, "consumption_unit": consumption_unit,
-           "factor": factor, "ratio": ratio, "id": str(insumo_id), "company_id": str(company_id)})
+    """), {"item_type": payload.item_type, "purchase_unit": config["purchase_unit"], "consumption_unit": config["consumption_unit"],
+           "factor": factor, "stock": stock, "min_stock": min_stock, "avg_cost": new_cost,
+           # precio de entrada = costo de UNA unidad natural (el kilo), el que ve Inventario
+           "entry_price": (new_cost * factor).quantize(engine.MONEY),
+           "id": str(insumo_id), "company_id": str(company_id)})
+    if ratio != 1:
+        await db.execute(text("""
+            UPDATE carta_unit_equivalences SET amount = amount * :ratio, updated_at = now()
+            WHERE company_id = CAST(:c AS uuid) AND inventory_item_id = CAST(:i AS uuid)
+        """), {"ratio": ratio, "c": str(company_id), "i": str(insumo_id)})
+    await db.execute(text("""
+        DELETE FROM carta_unit_equivalences WHERE company_id = CAST(:c AS uuid) AND inventory_item_id = CAST(:i AS uuid) AND unit = :base
+    """), {"c": str(company_id), "i": str(insumo_id), "base": config["consumption_unit"]})
     await db.commit()
     return await _carta_payload(db, company_id)
+
+
+class PurchaseIn(BaseModel):
+    """Lo que el dueño ve en la factura: cuanto compro y cuanto pago en total."""
+    quantity: float = Field(..., gt=0, le=10_000_000)
+    unit: str = Field(..., min_length=1, max_length=12)
+    total_paid: float = Field(..., ge=0, le=10_000_000_000)
+    notes: str = Field(default="", max_length=200)
+
+
+@router.post("/companies/{company_id}/insumos/{insumo_id}/purchases")
+async def register_purchase(company_id: uuid.UUID, insumo_id: uuid.UUID, payload: PurchaseIn, db: AsyncSession = Depends(get_db),
+                            actor: str = Depends(require_carta_admin)) -> dict:
+    """049Q: registra una compra. 80 kg por $1.120.000 -> entran 80.000 g a
+    $14 el gramo; el costo promedio se pondera con lo que ya habia."""
+    insumos = await load_insumos(db, company_id)
+    insumo = insumos.get(str(insumo_id))
+    if not insumo:
+        raise HTTPException(status_code=404, detail="Insumo no encontrado.")
+    try:
+        result = engine.register_purchase(insumo, payload.quantity, payload.unit, payload.total_paid)
+    except ValueError as exc:
+        reason = str(exc)
+        if reason == "sin_equivalencia":
+            detail = (f"{insumo['name']} se cuenta en {engine.RECIPE_UNITS.get(engine.natural_unit(insumo), 'unidad')}: "
+                      f"registra la compra en esa unidad o guarda antes cuánto es 1 {engine.RECIPE_UNITS.get(engine.recipe_unit(payload.unit) or '', payload.unit)}.")
+        elif reason == "unidad_invalida":
+            detail = f"Unidad inválida: usa {', '.join(engine.RECIPE_UNITS.values())}."
+        else:
+            detail = "Escribe la cantidad comprada (mayor que cero) y el total pagado."
+        raise HTTPException(status_code=400, detail=detail) from exc
+    factor = engine.natural_factor(insumo) or Decimal("1")
+    stock_before = engine.dec(insumo.get("current_stock"))
+    await db.execute(text("""
+        UPDATE inventory_items
+           SET current_stock = :stock, avg_cost = :avg_cost, entry_price = :entry_price, updated_at = now()
+         WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid)
+    """), {"stock": result["new_stock"], "avg_cost": result["avg_cost"], "entry_price": (result["avg_cost"] * factor).quantize(engine.MONEY),
+           "id": str(insumo_id), "company_id": str(company_id)})
+    label = engine.RECIPE_UNITS[result["unit"]]
+    base_label = engine.RECIPE_UNITS.get(result["base_unit"], result["base_unit"])
+    note = (f"Compra: {engine.dec(payload.quantity).normalize():f} {label} por ${int(result['total_paid']):,} "
+            f"(${result['unit_cost'].normalize():f} por {base_label})").replace(",", ".")
+    if payload.notes.strip():
+        note = f"{note} · {_clean(payload.notes, 200)}"
+    await db.execute(text("""
+        INSERT INTO inventory_movements (id, company_id, item_id, movement_type, quantity_delta, quantity, stock_before, stock_after,
+                                         source_module, notes, created_at, updated_at)
+        VALUES (CAST(:id AS uuid), CAST(:company_id AS uuid), CAST(:item_id AS uuid), 'entry', :delta, :delta, :before, :after,
+                'carta_compra', :notes, now(), now())
+    """), {"id": str(uuid.uuid4()), "company_id": str(company_id), "item_id": str(insumo_id), "delta": result["base_quantity"],
+           "before": stock_before, "after": result["new_stock"], "notes": note[:500]})
+    await db.execute(text("""
+        INSERT INTO carta_purchases (id, company_id, inventory_item_id, quantity, unit, total_paid, base_quantity, unit_cost, source, created_by)
+        VALUES (CAST(:id AS uuid), CAST(:company_id AS uuid), CAST(:item_id AS uuid), :quantity, :unit, :total_paid, :base_quantity,
+                :unit_cost, 'compra', :actor)
+    """), {"id": str(uuid.uuid4()), "company_id": str(company_id), "item_id": str(insumo_id), "quantity": result["quantity"],
+           "unit": result["unit"], "total_paid": result["total_paid"], "base_quantity": result["base_quantity"],
+           "unit_cost": result["unit_cost"], "actor": _clean(actor, 120)})
+    await db.commit()
+    return {**await _carta_payload(db, company_id), "purchase": {
+        "base_quantity": float(result["base_quantity"]), "unit_cost": float(result["unit_cost"]),
+        "avg_cost": float(result["avg_cost"]), "cost_per_unit": float(result["cost_per_unit"])}}
 
 
 class EquivalenceIn(BaseModel):

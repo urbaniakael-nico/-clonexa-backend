@@ -5371,7 +5371,10 @@
     const value = row.size_value ?? "";
     const unit = row.size_unit || "";
     const legacy = row.size_review ? String(row.size || "") : "";
-    const options = CX_INV_UNITS_049M.map(([label, units]) => `<optgroup label="${h(label)}">${units.map((u) => `<option value="${h(u)}" ${u === unit ? "selected" : ""}>${h(u)}</option>`).join("")}</optgroup>`).join("");
+    // 049Q: con Carta, la MISMA lista de unidades que las recetas (y la que ya tenga el artículo, si es otra)
+    const groups = cxInvCartaOn049Q() ? [["Unidades", CX_CAR_RECIPE_UNITS_049N.map(([, label]) => label)]] : CX_INV_UNITS_049M;
+    const known = groups.some(([, units]) => units.includes(unit));
+    const options = [...groups, ...(unit && !known ? [["Actual", [unit]]] : [])].map(([label, units]) => `<optgroup label="${h(label)}">${units.map((u) => `<option value="${h(u)}" ${u === unit ? "selected" : ""}>${h(u)}</option>`).join("")}</optgroup>`).join("");
     return `
       <span class="cx-inv-size-049m" data-inv-size-wrap ${legacy ? `data-inv-size-legacy="${h(legacy)}"` : ""}>
         <input type="number" min="0" step="any" inputmode="decimal" data-inv-size-value value="${h(value)}" placeholder="${legacy ? "Número" : "Ej: 275"}">
@@ -5635,7 +5638,7 @@
   }
 
   function setInventoryMode(mode) {
-    window.__cxInventoryMode = ["create", "modify", "fixed"].includes(mode) ? mode : "create";
+    window.__cxInventoryMode = ["create", "modify", "fixed", "insumos"].includes(mode) ? mode : "create";
   }
 
   async function loadInventoryItems(query = "") {
@@ -5786,6 +5789,18 @@ function inventoryCreatePayload() {
       return;
     }
 
+    if (cxInvCartaOn049Q()) {
+      // 049Q: nunca "precio de entrada" escrito a mano: cantidad comprada + total pagado
+      try {
+        const { id, preview } = await cxInvCreateInsumo049Q(payload);
+        await cxInvOpenInsumos049Q(id);
+        setTimeout(() => showInventoryNotice(preview ? `Insumo creado. ${preview.text}.` : "Insumo creado sin existencia: registra su compra."), 80);
+      } catch (error) {
+        showInventoryNotice(cxCarErr048T(error), "error");
+      }
+      return;
+    }
+
     const createInvoiceInput = document.querySelector("[data-inventory-create-invoice]");
     const createInvoiceFile = createInvoiceInput?.files && createInvoiceInput.files.length ? createInvoiceInput.files[0] : null;
     const initialQuantity = inventoryNumber(payload.initial_quantity || payload.quantity || payload.current_stock || 0);
@@ -5871,7 +5886,7 @@ function inventoryCreatePayload() {
   /* CX_023R_R9_CREATE_INVOICE_CREATE_HANDLER_END */
 
   function inventoryRowPayload(row) {
-    return {
+    return cxInvRowPayload049Q(row, {
       name_reference: String(row.querySelector('[data-inventory-field="name_reference"]')?.value || "").trim(),
       ...cxInvReadSize049M(row),
       color: String(row.querySelector('[data-inventory-field="color"]')?.value || "").trim(),
@@ -5882,7 +5897,7 @@ function inventoryCreatePayload() {
       ...(row.querySelector('[data-inventory-field="allows_portions"]')
         ? { allows_portions: !!row.querySelector('[data-inventory-field="allows_portions"]').checked }
         : {}),
-    };
+    });
   }
 
   async function updateInventoryItem(itemId) {
@@ -6028,6 +6043,7 @@ function inventoryCreatePayload() {
             <label>Color</label>
             <input id="inventoryCreateColor" placeholder="Ej: Azul">
           </div>
+          ${cxInvCartaOn049Q() ? cxInvCreateFieldsHtml049Q() : `
           <div class="cx-inv-field">
             <label>Cantidad inicial</label>
             <input id="inventoryCreateQty" type="number" min="0" step="0.01" value="0">
@@ -6039,12 +6055,12 @@ function inventoryCreatePayload() {
           <div class="cx-inv-field">
             <label>Precio de entrada</label>
             <input id="inventoryCreateEntryPrice" type="number" min="0" step="100" value="0" placeholder="Costo de compra">
-          </div>
+          </div>`}
           <div class="cx-inv-field">
             <label>Precio de salida</label>
             <input id="inventoryCreateSalePrice" type="number" min="0" step="100" value="0" placeholder="Precio de venta">
           </div>
-        <div class="cx-inv-create-invoice-wrap">
+        <div class="cx-inv-create-invoice-wrap" ${cxInvCartaOn049Q() ? "hidden" : ""}>
           <label class="cx-inv-invoice-picker" data-inventory-create-invoice-label>
             <input data-inventory-create-invoice type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
             <span>Adjuntar factura</span>
@@ -6132,14 +6148,15 @@ function inventoryCreatePayload() {
     const invoicePickerTitle = pendingInvoice?.name ? ` title="${h(pendingInvoice.name)}"` : "";
     const status = String(row.status || "active").toLowerCase();
     const low = !!row.alert_low;
+    const insumo049Q = cxInvCartaOn049Q() ? cxInvInsumo049Q(row.id) : null;
     return `
       <tr data-inventory-row="${h(row.id)}" data-inventory-order="${h(index)}" data-inventory-label="${h(row.name_reference || "Material")}" data-inventory-search-text="${h([row.name_reference, row.size, row.color, row.sku, row.reference].filter(Boolean).join(" "))}">
         <td class="cx-inv-col-name"><input data-inventory-field="name_reference" value="${h(row.name_reference || "")}" title="${h(row.name_reference || "")}"></td>
         <td class="cx-inv-col-size">${cxInvSizeHtml049M(row)}</td>
         <td class="cx-inv-col-short"><input data-inventory-field="color" value="${h(row.color || "")}"></td>
-        <td class="cx-inv-col-num"><span class="cx-inv-stock ${low ? "low" : ""}"${low ? ` title="Stock bajo"` : ""}>${h(inventoryQtyLabel(row.current_stock))}${low ? ` <span aria-label="Stock bajo">⚠</span>` : ""}</span></td>
-        <td class="cx-inv-col-num"><input data-inventory-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
-        <td class="cx-inv-col-num"><input data-inventory-field="entry_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.entry_price ?? 0))}"></td>
+        <td class="cx-inv-col-num"><span class="cx-inv-stock ${low ? "low" : ""}"${low ? ` title="Stock bajo"` : ""}>${h(insumo049Q ? cxInvStockText049Q(insumo049Q) : inventoryQtyLabel(row.current_stock))}${low ? ` <span aria-label="Stock bajo">⚠</span>` : ""}</span></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="min_stock" type="number" min="0" step="${insumo049Q ? "any" : "0.01"}" value="${h(insumo049Q && insumo049Q.min_stock_natural !== null ? insumo049Q.min_stock_natural : (row.min_stock ?? 0))}"></td>
+        <td class="cx-inv-col-num">${insumo049Q ? `<small title="Lo calcula el sistema con cada compra">${h(cxInvCostText049Q(insumo049Q))}</small>` : `<input data-inventory-field="entry_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.entry_price ?? 0))}">`}</td>
         <td class="cx-inv-col-num"><input data-inventory-field="sale_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.sale_price ?? row.unit_value ?? 0))}"></td>
         <td class="cx-inv-col-status">
           <select data-inventory-field="status" class="cx-inv-status-select ${h(status)}">
@@ -6155,6 +6172,7 @@ function inventoryCreatePayload() {
           </label>
         </td>` : ""}
         <td class="cx-inv-col-entry">
+          ${insumo049Q ? `<button class="cx-inv-action primary" type="button" data-inv-buy-open="${h(row.id)}">Registrar compra</button>` : `
           <div class="cx-inv-entry-line">
             <input data-inventory-entry-qty="${h(row.id)}" type="number" min="0" step="0.01" placeholder="Cant." title="Cantidad a ingresar">
             <label class="${invoicePickerClass} cx-inv-invoice-compact"${invoicePickerTitle} aria-label="Adjuntar factura">
@@ -6162,7 +6180,7 @@ function inventoryCreatePayload() {
               <span>${invoicePickerText}</span>
             </label>
             <button class="cx-inv-action" type="button" data-inventory-entry="${h(row.id)}">Ingresar</button>
-          </div>
+          </div>`}
         </td>
         <td class="cx-inv-col-actions">
           <div class="cx-inv-actions">
@@ -6206,11 +6224,11 @@ function inventoryCreatePayload() {
                 <th>Color</th>
                 <th>Stock actual</th>
                 <th>Mínimo alerta</th>
-                <th>Precio entrada</th>
+                <th>${cxInvCartaOn049Q() ? "Costo (calculado)" : "Precio entrada"}</th>
                 <th>Precio salida</th>
                 <th>Estado</th>
                 ${withPortions ? `<th title="Permite porciones (1/4, 1/2, 3/4) en el panel del mesero">Porciones</th>` : ""}
-                <th>Ingresar cantidad</th>
+                <th>${cxInvCartaOn049Q() ? "Compras" : "Ingresar cantidad"}</th>
                 <th class="cx-inv-col-actions">Acciones</th>
               </tr>
             </thead>
@@ -6301,13 +6319,16 @@ function inventoryCreatePayload() {
     } catch (error) {
       loadError = error.message || "No se pudo cargar Inventario.";
     }
+    // 049Q: con Carta, las compras e insumos se configuran aquí (unidad natural, costo calculado)
+    const carta049Q = cxInvCartaOn049Q();
+    if (carta049Q) await cxInvLoadCarta049Q();
 
     const rows = Array.isArray(data.items) ? data.items : [];
     const movements = Array.isArray(movementsData.movements) ? movementsData.movements : [];
     const summary = data.summary || {};
     window.__cxInventoryRows = rows;
     window.__cxInventoryMovements = movements;
-    const mode = inventoryMode();
+    const mode = !carta049Q && inventoryMode() === "insumos" ? "create" : inventoryMode();
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -6346,17 +6367,22 @@ function inventoryCreatePayload() {
               <div class="cx-inv-modebar">
                 <button class="${mode === "create" ? "active" : ""}" type="button" data-inventory-mode="create">Crear material / producto</button>
                 <button class="${mode === "modify" ? "active" : ""}" type="button" data-inventory-mode="modify">Modificar material</button>
+                ${carta049Q ? `<button class="${mode === "insumos" ? "active" : ""}" type="button" data-inventory-mode="insumos">Insumos y compras</button>` : ""}
                 <button type="button" data-inventory-export>CSV + archivar</button>
                 <button class="${mode === "fixed" ? "active" : ""}" type="button" data-inventory-mode="fixed">Gastos fijos</button>
               </div>
             </section>
 
-            ${mode === "fixed" ? `<section class="client-panel" id="cxFix049MRoot">${cxFixPanelHtml049M()}</section>` : mode === "create" ? renderInventoryCreatePanel() : renderInventoryModifyPanel(rows, movements)}
+            ${mode === "fixed" ? `<section class="client-panel" id="cxFix049MRoot">${cxFixPanelHtml049M()}</section>` : mode === "insumos" ? `<section class="client-panel" id="cxInvInsumos049QRoot">${cxInvInsumosPanelHtml049Q()}</section>` : mode === "create" ? renderInventoryCreatePanel() : renderInventoryModifyPanel(rows, movements)}
           </section>
         </div>
       </main>
     `;
     cxInvStyles049M();
+    if (carta049Q) {
+      cxCarStyles048T();
+      cxInvStyles049Q();
+    }
     if (mode === "modify") applyInventorySmartSearch(window.__cxInventorySearchQuery || "");
     if (mode === "fixed") cxFixLoad049M();
   }
@@ -35195,6 +35221,7 @@ function inventoryCreatePayload() {
       }
 
       if (target.closest("#cxFix049MRoot") && await cxFixHandleClick049M(target)) return;
+      if (await cxInvHandleClick049Q(target)) return;
 
       const inventoryModeBtn = target.closest("[data-inventory-mode]");
       if (inventoryModeBtn) {
@@ -35860,7 +35887,7 @@ function inventoryCreatePayload() {
 
   function cxCarDefaultUnit049N(insumo) {
     const unit = String(insumo?.consumption_unit || "unidad");
-    return ["g", "ml", "unidad"].includes(unit) ? unit : "unidad";
+    return CX_CAR_RECIPE_UNITS_049N.some(([key]) => key === unit) ? unit : "unidad";
   }
 
   function cxCarFactor049N(unit, insumo) {
@@ -35916,47 +35943,20 @@ function inventoryCreatePayload() {
   }
 
   function cxCarEqForm049O(line, index) {
-    // "1 unidad de Carne = [1] [lb]" o "1 cucharada de Sal = [12] g": una sola vez por insumo
+    // 049Q: Carta solo LEE de Inventario. Si la unidad de la receta no se puede
+    // convertir a la del insumo, se avisa y se lleva a Inventario, donde se
+    // configuran unidades y equivalencias (una sola vez por insumo).
     const insumo = cxCarInsumo049N(line.inventory_item_id);
     if (!insumo) return "";
-    if (insumo.purchase_weight_missing) {
-      // 049P: "1 unidad de compra = 1 g" es imposible: el precio de una libra quedaba como precio por gramo
-      const stockDim = insumo.consumption_unit === "ml" ? "volumen" : "masa";
-      const options = CX_CAR_RECIPE_UNITS_049N.filter(([key]) => (CX_CAR_UNIT_DEF_049N[key] || [])[0] === stockDim);
-      const sizeKey = { gr: "g", kg: "kg", lb: "lb", ml: "ml", litros: "l" }[insumo.size_unit] || "";
-      const suggest = sizeKey && (CX_CAR_UNIT_DEF_049N[sizeKey] || [])[0] === stockDim ? insumo.size_value : "";
-      return `
-        <div class="cx-car-eq-049o" data-wz-eq="${index}" data-wz-eq-mode="purchase">
-          <b>¿Cuánto ${stockDim === "masa" ? "pesa" : "trae"} cada unidad de compra de ${h(insumo.name)}?</b>
-          <span>Se compra por unidad${insumo.purchase_price ? ` a ${h(cxCarPortionMoney049N(insumo.purchase_price))}` : ""}, pero el inventario dice que una unidad trae 1 ${h(insumo.consumption_unit)}. Dilo una vez y se corrigen el costo y la existencia.</span>
-          <label>1 unidad de compra = <input type="number" min="0" step="any" inputmode="decimal" data-wz-eq-value value="${h(suggest ?? "")}" placeholder="Ej: 1">
-            <select data-wz-eq-unit>${options.map(([key, label]) => `<option value="${h(key)}" ${key === (sizeKey || (stockDim === "masa" ? "lb" : "l")) ? "selected" : ""}>${h(label)}</option>`).join("")}</select></label>
-          <button class="client-btn primary" type="button" data-wz-eq-save="${index}">Guardar</button>
-        </div>`;
-    }
     const unit = line.unit || cxCarDefaultUnit049N(insumo);
-    const stock = String(insumo.consumption_unit || "unidad");
-    const dim = (CX_CAR_UNIT_DEF_049N[unit] || [])[0];
-    const weighs = (stock === "unidad") && (dim === "masa" || dim === "volumen");
-    if (weighs) {
-      const options = CX_CAR_RECIPE_UNITS_049N.filter(([key]) => (CX_CAR_UNIT_DEF_049N[key] || [])[0] === dim);
-      const sizeKey = { gr: "g", kg: "kg", lb: "lb", ml: "ml", litros: "l" }[insumo.size_unit] || "";
-      const suggest = sizeKey && (CX_CAR_UNIT_DEF_049N[sizeKey] || [])[0] === dim ? insumo.size_value : "";
-      return `
-        <div class="cx-car-eq-049o" data-wz-eq="${index}" data-wz-eq-mode="weighs">
-          <b>¿Cuánto ${dim === "masa" ? "pesa" : "trae"} 1 unidad de ${h(insumo.name)}?</b>
-          <span>En inventario se cuenta por unidad${insumo.avg_cost ? ` a ${h(cxCarPortionMoney049N(insumo.avg_cost))}` : ""}. Se pregunta una sola vez.</span>
-          <label>1 unidad = <input type="number" min="0" step="any" inputmode="decimal" data-wz-eq-value value="${h(suggest ?? "")}" placeholder="Ej: 1">
-            <select data-wz-eq-unit>${options.map(([key, label]) => `<option value="${h(key)}" ${key === (sizeKey || unit) ? "selected" : ""}>${h(label)}</option>`).join("")}</select></label>
-          <button class="client-btn primary" type="button" data-wz-eq-save="${index}">Guardar equivalencia</button>
-        </div>`;
-    }
+    const question = insumo.purchase_weight_missing
+      ? `cuánto pesa cada unidad de compra de ${insumo.name}`
+      : `cuánto es 1 ${cxCarUnitLabel049O(unit)} de ${insumo.name}`;
     return `
-      <div class="cx-car-eq-049o" data-wz-eq="${index}" data-wz-eq-mode="per">
-        <b>¿Cuánto es 1 ${h(cxCarUnitLabel049O(unit))} de ${h(insumo.name)}?</b>
-        <span>En inventario se cuenta por ${h(stock)}. Se pregunta una sola vez.</span>
-        <label>1 ${h(cxCarUnitLabel049O(unit))} = <input type="number" min="0" step="any" inputmode="decimal" data-wz-eq-value placeholder="Ej: 12"> ${h(stock)}</label>
-        <button class="client-btn primary" type="button" data-wz-eq-save="${index}">Guardar equivalencia</button>
+      <div class="cx-car-eq-049o" data-wz-eq-missing="${index}">
+        <b>Falta la equivalencia: ${h(question)}.</b>
+        <span>Se configura en Inventario → Insumos y compras (la unidad del insumo y sus equivalencias). Mientras tanto esta línea no descuenta ni suma costo.</span>
+        <button class="client-btn" type="button" data-car-go-inventory="${h(insumo.id)}">Abrir en Inventario</button>
       </div>`;
   }
 
@@ -36668,35 +36668,11 @@ function inventoryCreatePayload() {
       }
       return paint();
     }
-    const eqSave = target.closest("[data-wz-eq-save]");
-    if (eqSave) {
-      const index = Number(eqSave.getAttribute("data-wz-eq-save"));
-      const line = wiz.lines[index];
-      const box = eqSave.closest("[data-wz-eq]");
-      if (line && box && box.getAttribute("data-wz-eq-mode") === "purchase") {
-        const insumo = cxCarInsumo049N(line.inventory_item_id);
-        const n = Number(box.querySelector("[data-wz-eq-value]")?.value);
-        const factor = cxCarStdFactor049N(box.querySelector("[data-wz-eq-unit]")?.value, insumo?.consumption_unit);
-        if (!insumo || !(n > 0) || factor === null) { wiz.error = "Escribe cuánto pesa una unidad de compra."; return paint(); }
-        try {
-          cxCar048T.data = await cxCarApi048T(`/insumos/${encodeURIComponent(insumo.id)}`, { method: "PUT", body: JSON.stringify({
-            item_type: insumo.item_type, purchase_unit: insumo.purchase_unit, consumption_unit: insumo.consumption_unit,
-            units_per_purchase: n * factor }) });
-        } catch (error) {
-          wiz.error = cxCarErr048T(error);
-        }
-        return paint();
-      }
-      const eq = line && box ? cxCarEqAmount049O(line, box.getAttribute("data-wz-eq-mode"),
-        box.querySelector("[data-wz-eq-value]")?.value, box.querySelector("[data-wz-eq-unit]")?.value) : null;
-      if (!eq) { wiz.error = "Escribe la equivalencia (un número mayor que cero)."; return paint(); }
-      try {
-        cxCar048T.data = await cxCarApi048T(`/insumos/${encodeURIComponent(line.inventory_item_id)}/equivalences`,
-          { method: "PUT", body: JSON.stringify(eq) });
-      } catch (error) {
-        wiz.error = cxCarErr048T(error);
-      }
-      return paint();
+    const goInventory = target.closest("[data-car-go-inventory]");
+    if (goInventory) {
+      cxCarWiz049J = null;
+      await cxInvOpenInsumos049Q(goInventory.getAttribute("data-car-go-inventory"));
+      return true;
     }
     const delLine = target.closest("[data-wz-del]");
     if (delLine) {
@@ -36761,32 +36737,11 @@ function inventoryCreatePayload() {
     }
   }
 
-  function cxCarInsumosHtml048T() {
-    const data = cxCar048T.data || {};
-    const types = data.item_types || {};
-    const units = (list, value) => (list || []).map((u) => `<option value="${h(u)}" ${u === value ? "selected" : ""}>${h(u)}</option>`).join("");
-    return `
-      <p class="cx-car-note-048t">Inventario = lo que se compra. Los consumibles (gas, servilletas, aseo) solo cuentan como costo: nunca aparecen en la carta. La existencia y el costo promedio van en la unidad de consumo; al cambiar la conversión se reexpresan sin perder valor.</p>
-      <div class="cx-car-table-wrap-048t"><table class="cx-car-table-048t" data-car-insumos>
-        <thead><tr><th>Insumo</th><th>Tipo</th><th>Compra</th><th>Consumo</th><th>Consumo por unidad de compra</th><th>Existencia</th><th>Costo promedio</th><th></th></tr></thead>
-        <tbody>${(data.insumos || []).map((i) => `
-          <tr data-car-insumo="${h(i.id)}" class="${i.stock < 0 ? "below" : ""}">
-            <td><b>${h(i.name)}</b>${Object.keys(i.equivalences || {}).length ? `<small>${h(Object.entries(i.equivalences).map(([u, a]) => `1 ${cxCarUnitLabel049O(u)} = ${Number(a).toLocaleString("es-CO", { maximumFractionDigits: 6 })} ${i.consumption_unit}`).join(" · "))}</small>` : ""}</td>
-            <td><select name="item_type">${Object.entries(types).map(([k, v]) => `<option value="${h(k)}" ${k === i.item_type ? "selected" : ""}>${h(v)}</option>`).join("")}</select></td>
-            <td><select name="purchase_unit">${units(data.purchase_units, i.purchase_unit)}</select></td>
-            <td><select name="consumption_unit">${units(data.consumption_units, i.consumption_unit)}</select></td>
-            <td><input name="units_per_purchase" type="number" min="0.0001" step="0.0001" value="${h(i.units_per_purchase)}">${i.purchase_weight_missing ? `<small class="bad">⚠ ¿Cuántos ${h(i.consumption_unit)} trae 1 unidad? Hoy dice 1: su costo y descuento están en pausa.</small>` : ""}</td>
-            <td>${h(i.stock.toLocaleString("es-CO"))} ${h(i.consumption_unit)}${Number(i.units_per_purchase) > 1 && i.purchase_unit !== i.consumption_unit ? `<small>= ${h((i.stock / Number(i.units_per_purchase)).toLocaleString("es-CO", { maximumFractionDigits: 3 }))} ${h(i.purchase_unit)}</small>` : ""}${i.stock < 0 ? ` <small class="bad">negativo: revisar</small>` : ""}</td>
-            <td>${i.purchase_weight_missing ? `<small class="bad">por revisar</small>` : i.avg_cost === null ? `<small class="bad">sin costo</small>` : `${h(cxCarUnitMoney048T(i.avg_cost))}<small> por ${h(i.consumption_unit)}</small>`}</td>
-            <td><button class="client-btn" type="button" data-car-save-insumo="${h(i.id)}">Guardar</button></td>
-          </tr>`).join("")}
-        </tbody></table></div>`;
-  }
-
   function cxCarPaint048T() {
     const root = document.getElementById("cxCarRoot048T");
     if (!root) return;
-    const tabs = [["platos", "Platos"], ["categorias", "Categorías"], ["insumos", "Insumos"], ["qr", "QR de la carta"]];
+    // 049Q: sin pestaña Insumos; lo que se compra se carga y configura solo en Inventario
+    const tabs = [["platos", "Platos"], ["categorias", "Categorías"], ["qr", "QR de la carta"]];
     root.innerHTML = `
       <div class="cx-car-tabs-048t">
         ${tabs.map(([key, label]) => `<button class="${cxCar048T.tab === key ? "active" : ""}" type="button" data-car-tab="${key}">${label}</button>`).join("")}
@@ -36794,7 +36749,6 @@ function inventoryCreatePayload() {
       ${cxCar048T.error ? `<div class="personal-toast error">${h(cxCar048T.error)}</div>` : ""}
       ${cxCar048T.message ? `<div class="personal-toast ok">${h(cxCar048T.message)}</div>` : ""}
       ${!cxCar048T.data ? `<div class="cx-car-note-048t">Cargando carta…</div>`
-        : cxCar048T.tab === "insumos" ? cxCarInsumosHtml048T()
         : cxCar048T.tab === "categorias" ? cxCarCategoriesHtml049K()
         : cxCar048T.tab === "qr" ? cxCarQrHtml049J()
         : cxCarPlatosHtml049J()}`;
@@ -36871,17 +36825,6 @@ function inventoryCreatePayload() {
       return true;
     }
     if (await cxCarHandleClick049J(target)) return true;
-    const saveInsumo = target.closest("[data-car-save-insumo]");
-    if (saveInsumo) {
-      const row = saveInsumo.closest("[data-car-insumo]");
-      const body = {
-        item_type: row.querySelector("[name=item_type]").value, purchase_unit: row.querySelector("[name=purchase_unit]").value,
-        consumption_unit: row.querySelector("[name=consumption_unit]").value, units_per_purchase: Number(row.querySelector("[name=units_per_purchase]").value || 0) || null,
-      };
-      await cxCarSave048T(() => cxCarApi048T(`/insumos/${encodeURIComponent(saveInsumo.getAttribute("data-car-save-insumo"))}`,
-        { method: "PUT", body: JSON.stringify(body) }), "Insumo actualizado.");
-      return true;
-    }
     return false;
   }
 
@@ -37073,6 +37016,447 @@ function inventoryCreatePayload() {
     `;
     document.head.appendChild(style);
   }
+  /* CX_INV_INSUMOS_049Q_START */
+  // 049Q (solo empresas con el módulo Carta; hoy ASADERO): Inventario es el
+  // ÚNICO lugar donde se carga y configura lo que se compra. Carta solo lee.
+  // - Compra = cantidad comprada (con su unidad) + total pagado. El costo por
+  //   unidad lo calcula el sistema: 80 kg por $1.120.000 = $14 por gr.
+  // - La existencia se ve en su unidad natural (80 kg) con el equivalente en
+  //   la unidad base entre paréntesis (80.000 gr).
+  // - Unidades: exactamente la misma lista que las recetas de Carta
+  //   (CX_CAR_RECIPE_UNITS_049N).
+  var cxInv049Q = { data: null, error: "", message: "", buying: "", focus: "", pendingUnit: {}, eqUnit: {}, busy: false };
+
+  function cxInvCartaOn049Q() {
+    try {
+      return isClientModuleActive("carta");
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function cxInvLoadCarta049Q() {
+    try {
+      cxInv049Q.data = await api(`/carta/companies/${encodeURIComponent(state.companyId)}`);
+      cxInv049Q.error = "";
+    } catch (error) {
+      cxInv049Q.error = cxCarErr048T(error);
+    }
+    return cxInv049Q.data;
+  }
+
+  function cxInvInsumo049Q(id) {
+    return (cxInv049Q.data?.insumos || []).find((i) => i.id === String(id || "")) || null;
+  }
+
+  function cxInvNum049Q(value, digits = 3) {
+    return (Number(value) || 0).toLocaleString("es-CO", { maximumFractionDigits: digits });
+  }
+
+  function cxInvMoneyValue049Q(value) {
+    // "1.120.000" -> 1120000; "1120000" -> 1120000; "14,5" -> 14.5
+    const raw = String(value ?? "").replace(/[\s$]/g, "");
+    if (!raw) return 0;
+    let normalized = raw;
+    if (raw.includes(",")) normalized = raw.replace(/\./g, "").replace(",", ".");
+    else if (/^\d{1,3}(\.\d{3})+$/.test(raw)) normalized = raw.replace(/\./g, "");
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function cxInvBaseFor049Q(unit) {
+    const dim = (CX_CAR_UNIT_DEF_049N[unit] || ["unidad"])[0];
+    return { masa: "g", volumen: "ml", unidad: "unidad", paquete: "paquete", pizca: "pizca" }[dim] || "unidad";
+  }
+
+  function cxInvStockText049Q(i) {
+    const base = cxCarUnitLabel049O(i.consumption_unit || "unidad");
+    if (i.stock_natural === null || i.stock_natural === undefined) {
+      return `${cxInvNum049Q(i.stock)} ${base}`;
+    }
+    const natural = `${cxInvNum049Q(i.stock_natural)} ${i.unit_label || cxCarUnitLabel049O(i.unit)}`;
+    return Number(i.natural_factor) !== 1 ? `${natural} (${cxInvNum049Q(i.stock)} ${base})` : natural;
+  }
+
+  function cxInvCostText049Q(i) {
+    if (i.purchase_weight_missing) return "por revisar";
+    if (i.avg_cost === null || i.avg_cost === undefined) return "sin costo: registra una compra";
+    const base = cxCarUnitLabel049O(i.consumption_unit || "unidad");
+    const perNatural = `${cxCarMoney048T(i.cost_per_unit)} por ${i.unit_label || cxCarUnitLabel049O(i.unit)}`;
+    return Number(i.natural_factor) !== 1 ? `${perNatural} · ${cxCarUnitMoney048T(i.avg_cost)} por ${base}` : perNatural;
+  }
+
+  function cxInvPurchasePreview049Q(insumo, quantity, unit, total) {
+    // lo mismo que calcula el servidor: {base, unitCost, perNatural} o {error}
+    const qty = Number(quantity);
+    const paid = Number(total);
+    if (!(qty > 0) || !(paid >= 0) || !insumo) return { error: "Escribe la cantidad comprada y el total pagado." };
+    const factor = cxCarFactor049N(unit, insumo);
+    if (factor === null) {
+      return { error: `${insumo.name} se cuenta en ${cxCarUnitLabel049O(insumo.unit || insumo.consumption_unit)}: registra la compra en esa unidad o guarda antes su equivalencia.` };
+    }
+    const base = qty * factor;
+    const unitCost = paid / base;
+    const naturalFactor = Number(insumo.natural_factor || insumo.units_per_purchase || 1) || 1;
+    const baseLabel = cxCarUnitLabel049O(insumo.consumption_unit || "unidad");
+    const naturalLabel = insumo.unit_label || cxCarUnitLabel049O(insumo.unit || insumo.consumption_unit);
+    const text = `Entran ${cxInvNum049Q(base)} ${baseLabel} · ${cxCarUnitMoney048T(unitCost)} por ${baseLabel}`
+      + (naturalFactor !== 1 ? ` (${cxCarMoney048T(unitCost * naturalFactor)} por ${naturalLabel})` : "");
+    return { base, unitCost, perNatural: unitCost * naturalFactor, text };
+  }
+
+  function cxInvNeedsConvert049Q(i, unit) {
+    // mismo criterio que el servidor (configure_unit): pasar de contar a pesar con existencia
+    if (!i || !unit) return false;
+    if (i.purchase_weight_missing) return true;
+    if (cxCarStdFactor049N(unit, i.consumption_unit) !== null) return false;
+    if (cxCarFactor049N(unit, i) !== null) return false;
+    return Number(i.stock) !== 0 || Number(i.avg_cost) > 0 || Object.keys(i.equivalences || {}).length > 0;
+  }
+
+  function cxInvUnitOptions049Q(selected) {
+    return CX_CAR_RECIPE_UNITS_049N.map(([key, label]) => `<option value="${h(key)}" ${key === selected ? "selected" : ""}>${h(label)}</option>`).join("");
+  }
+
+  function cxInvEqMode049Q(i, unit) {
+    // "1 unidad = [1600] gr" (se cuenta y se pesa) o "1 cucharada = [12] gr"
+    const baseDim = (CX_CAR_UNIT_DEF_049N[i.consumption_unit] || ["unidad"])[0];
+    const dim = (CX_CAR_UNIT_DEF_049N[unit] || [""])[0];
+    return !["masa", "volumen"].includes(baseDim) && ["masa", "volumen"].includes(dim) ? "weighs" : "per";
+  }
+
+  function cxInvEqHtml049Q(i) {
+    const base = i.consumption_unit || "unidad";
+    const baseLabel = cxCarUnitLabel049O(base);
+    const saved = Object.entries(i.equivalences || {});
+    const options = CX_CAR_RECIPE_UNITS_049N.filter(([key]) => key !== base && cxCarStdFactor049N(key, base) === null);
+    const unit = cxInv049Q.eqUnit[i.id] || (options[0] || [""])[0];
+    const mode = cxInvEqMode049Q(i, unit);
+    const select = `<select data-inv-eq-unit="${h(i.id)}">${options.map(([key, label]) => `<option value="${h(key)}" ${key === unit ? "selected" : ""}>${h(label)}</option>`).join("")}</select>`;
+    return `
+      <div class="cx-inv-eq-049q">
+        ${saved.length ? `<small>${h(saved.map(([u, a]) => (cxInvEqMode049Q(i, u) === "weighs"
+          ? `1 ${baseLabel} = ${cxInvNum049Q(1 / Number(a), 4)} ${cxCarUnitLabel049O(u)}`
+          : `1 ${cxCarUnitLabel049O(u)} = ${cxInvNum049Q(a, 6)} ${baseLabel}`)).join(" · "))}</small>` : ""}
+        ${options.length ? `<span>${mode === "weighs"
+          ? `1 ${h(baseLabel)} = <input type="number" min="0" step="any" inputmode="decimal" data-inv-eq-value="${h(i.id)}" placeholder="Ej: 1600"> ${select}`
+          : `1 ${select} = <input type="number" min="0" step="any" inputmode="decimal" data-inv-eq-value="${h(i.id)}" placeholder="Ej: 12"> ${h(baseLabel)}`}
+          <button class="cx-inv-action" type="button" data-inv-eq-save="${h(i.id)}">Guardar equivalencia</button></span>` : ""}
+      </div>`;
+  }
+
+  function cxInvLastPurchaseHtml049Q(i) {
+    const p = i.last_purchase;
+    if (!p) return `<small>Sin compras registradas.</small>`;
+    const base = cxCarUnitLabel049O(i.consumption_unit || "unidad");
+    return `<span>${h(cxInvNum049Q(p.quantity))} ${h(p.unit_label || cxCarUnitLabel049O(p.unit))} por ${h(cxCarMoney048T(p.total_paid))}</span>
+      <small>= ${h(cxCarUnitMoney048T(p.unit_cost))} por ${h(base)}</small>
+      ${p.reinterpreted ? `<small class="warn">Leída de lo que estaba cargado (el precio era el total pagado). Si no es así, registra la compra de nuevo.</small>` : ""}`;
+  }
+
+  function cxInvBuyFormHtml049Q(i) {
+    return `
+      <tr class="cx-inv-buy-049q" data-inv-buy-row="${h(i.id)}"><td colspan="7">
+        <div class="cx-inv-buy-grid-049q" data-inv-insumo-buy="${h(i.id)}">
+          <b>Registrar compra de ${h(i.name)}</b>
+          <label>Cantidad comprada <span><input type="number" min="0" step="any" inputmode="decimal" data-inv-buy-qty="${h(i.id)}" placeholder="Ej: 80">
+            <select data-inv-buy-unit="${h(i.id)}">${cxInvUnitOptions049Q(i.unit || i.consumption_unit)}</select></span></label>
+          <label>Total pagado <input type="text" inputmode="decimal" data-inv-buy-total="${h(i.id)}" placeholder="Ej: 1.120.000"></label>
+          <p class="cx-inv-buy-preview-049q" data-inv-buy-preview="${h(i.id)}">El costo por unidad lo calcula el sistema.</p>
+          <div class="cx-car-actions-048t">
+            <button class="client-btn primary" type="button" data-inv-buy-save="${h(i.id)}">Guardar compra</button>
+            <button class="client-btn" type="button" data-inv-buy-cancel="${h(i.id)}">Cancelar</button>
+          </div>
+        </div>
+      </td></tr>`;
+  }
+
+  function cxInvInsumosPanelHtml049Q() {
+    const data = cxInv049Q.data;
+    if (!data) return `<p class="client-muted">${h(cxInv049Q.error || "Cargando insumos…")}</p>`;
+    const types = data.item_types || {};
+    const rows = (data.insumos || []).map((i) => {
+      const pending = cxInv049Q.pendingUnit[i.id] || i.unit || i.consumption_unit;
+      const convert = cxInvNeedsConvert049Q(i, pending) && pending !== i.unit;
+      const before = i.purchase_weight_missing ? "unidad" : (i.unit_label || cxCarUnitLabel049O(i.unit));
+      return `
+        <tr data-inv-insumo="${h(i.id)}" class="${i.stock < 0 ? "below" : ""} ${cxInv049Q.focus === i.id ? "focus" : ""}">
+          <td><b>${h(i.name)}</b>
+            <select name="item_type" aria-label="Tipo de insumo">${Object.entries(types).map(([k, v]) => `<option value="${h(k)}" ${k === i.item_type ? "selected" : ""}>${h(v)}</option>`).join("")}</select></td>
+          <td><select name="unit" data-inv-unit="${h(i.id)}" aria-label="Unidad">${cxInvUnitOptions049Q(pending)}</select>
+            ${convert ? `<label class="cx-inv-convert-049q">1 ${h(before)} = <input name="convert_amount" type="number" min="0" step="any" inputmode="decimal" placeholder="Ej: 1"> ${h(cxCarUnitLabel049O(pending))}</label>` : ""}
+            ${i.purchase_weight_missing ? `<small class="bad">⚠ Se compraba "por unidad" sin decir cuánto pesa: elige su unidad (kg, lb...).</small>` : ""}</td>
+          <td><b>${h(cxInvStockText049Q(i))}</b>${i.stock < 0 ? `<small class="bad">negativo: revisar</small>` : ""}
+            <label class="cx-inv-min-049q">Mínimo <input name="min_stock" type="number" min="0" step="any" value="${h(i.min_stock_natural ?? "")}"> ${h(i.unit_label || "")}</label></td>
+          <td>${h(cxInvCostText049Q(i))}</td>
+          <td>${cxInvLastPurchaseHtml049Q(i)}</td>
+          <td>${cxInvEqHtml049Q(i)}</td>
+          <td><div class="cx-inv-actions">
+            <button class="cx-inv-action primary" type="button" data-inv-buy="${h(i.id)}">Registrar compra</button>
+            <button class="cx-inv-action" type="button" data-inv-save-insumo="${h(i.id)}">Guardar</button></div></td>
+        </tr>${cxInv049Q.buying === i.id ? cxInvBuyFormHtml049Q(i) : ""}`;
+    }).join("");
+    return `
+      <div class="client-eyebrow">Insumos y compras</div>
+      <h2>Lo que se compra</h2>
+      <p class="client-muted">Registra cada compra como viene en la factura: la cantidad comprada con su unidad y el total pagado. El costo por unidad lo calcula el sistema (80 kg por $1.120.000 = $14 por gr). La Carta toma de aquí la unidad, el costo y las equivalencias de cada insumo.</p>
+      ${cxInv049Q.error ? `<div class="personal-toast error">${h(cxInv049Q.error)}</div>` : ""}
+      ${cxInv049Q.message ? `<div class="personal-toast ok">${h(cxInv049Q.message)}</div>` : ""}
+      <div class="cx-car-table-wrap-048t"><table class="cx-car-table-048t cx-inv-insumos-049q" data-inv-insumos>
+        <thead><tr><th>Insumo y tipo</th><th>Unidad</th><th>Existencia</th><th>Costo</th><th>Última compra</th><th>Equivalencias</th><th></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="7">No hay insumos. Créalos en "Crear material / producto".</td></tr>`}</tbody>
+      </table></div>`;
+  }
+
+  function cxInvPaint049Q() {
+    const root = document.getElementById("cxInvInsumos049QRoot");
+    if (root) root.innerHTML = cxInvInsumosPanelHtml049Q();
+  }
+
+  async function cxInvOpenInsumos049Q(insumoId = "") {
+    setInventoryMode("insumos");
+    cxInv049Q.focus = String(insumoId || "");
+    cxInv049Q.buying = "";
+    await renderInventoryModule();
+  }
+
+  async function cxInvSend049Q(fn, message) {
+    cxInv049Q.busy = true;
+    try {
+      const data = await fn();
+      if (data && data.insumos) cxInv049Q.data = data;
+      cxInv049Q.error = "";
+      cxInv049Q.message = message;
+      return true;
+    } catch (error) {
+      cxInv049Q.error = cxCarErr048T(error);
+      cxInv049Q.message = "";
+      return false;
+    } finally {
+      cxInv049Q.busy = false;
+      cxInvPaint049Q();
+    }
+  }
+
+  function cxInvCartaApi049Q(path, body, method = "PUT") {
+    return api(`/carta/companies/${encodeURIComponent(state.companyId)}${path}`, { method, body: JSON.stringify(body) });
+  }
+
+  async function cxInvHandleClick049Q(target) {
+    const buy = target.closest?.("[data-inv-buy]");
+    if (buy) {
+      cxInv049Q.buying = buy.getAttribute("data-inv-buy");
+      cxInv049Q.message = "";
+      cxInvPaint049Q();
+      return true;
+    }
+    const openBuy = target.closest?.("[data-inv-buy-open]");
+    if (openBuy) {
+      await cxInvOpenInsumos049Q(openBuy.getAttribute("data-inv-buy-open"));
+      cxInv049Q.buying = openBuy.getAttribute("data-inv-buy-open");
+      cxInvPaint049Q();
+      return true;
+    }
+    if (target.closest?.("[data-inv-buy-cancel]")) {
+      cxInv049Q.buying = "";
+      cxInvPaint049Q();
+      return true;
+    }
+    const saveBuy = target.closest?.("[data-inv-buy-save]");
+    if (saveBuy) {
+      const id = saveBuy.getAttribute("data-inv-buy-save");
+      const insumo = cxInvInsumo049Q(id);
+      const quantity = Number(document.querySelector(`[data-inv-buy-qty="${id}"]`)?.value || 0);
+      const unit = String(document.querySelector(`[data-inv-buy-unit="${id}"]`)?.value || insumo?.unit || "");
+      const total = cxInvMoneyValue049Q(document.querySelector(`[data-inv-buy-total="${id}"]`)?.value);
+      const preview = cxInvPurchasePreview049Q(insumo, quantity, unit, total);
+      if (preview.error) {
+        cxInv049Q.error = preview.error;
+        cxInvPaint049Q();
+        return true;
+      }
+      const ok = await cxInvSend049Q(() => cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}/purchases`, { quantity, unit, total_paid: total }, "POST"),
+        `Compra registrada: ${preview.text}.`);
+      if (ok) {
+        cxInv049Q.buying = "";
+        cxInvPaint049Q();
+      }
+      return true;
+    }
+    const saveInsumo = target.closest?.("[data-inv-save-insumo]");
+    if (saveInsumo) {
+      const id = saveInsumo.getAttribute("data-inv-save-insumo");
+      const row = saveInsumo.closest("[data-inv-insumo]");
+      const convert = row?.querySelector("[name=convert_amount]");
+      const min = String(row?.querySelector("[name=min_stock]")?.value ?? "").trim();
+      const body = {
+        item_type: row?.querySelector("[name=item_type]")?.value,
+        unit: row?.querySelector("[name=unit]")?.value,
+        ...(convert ? { convert_amount: Number(convert.value || 0) || null } : {}),
+        ...(min !== "" ? { min_stock: Number(min) } : {}),
+      };
+      const ok = await cxInvSend049Q(() => cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}`, body), "Insumo actualizado.");
+      if (ok) delete cxInv049Q.pendingUnit[id];
+      cxInvPaint049Q();
+      return true;
+    }
+    const eqSave = target.closest?.("[data-inv-eq-save]");
+    if (eqSave) {
+      const id = eqSave.getAttribute("data-inv-eq-save");
+      const insumo = cxInvInsumo049Q(id);
+      const unit = String(document.querySelector(`[data-inv-eq-unit="${id}"]`)?.value || "");
+      const value = document.querySelector(`[data-inv-eq-value="${id}"]`)?.value;
+      const eq = insumo && unit ? cxCarEqAmount049O({ unit }, cxInvEqMode049Q(insumo, unit), value, unit) : null;
+      if (!eq) {
+        cxInv049Q.error = "Escribe la equivalencia (un número mayor que cero).";
+        cxInvPaint049Q();
+        return true;
+      }
+      await cxInvSend049Q(() => cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}/equivalences`, eq), "Equivalencia guardada: la Carta ya la usa.");
+      return true;
+    }
+    return false;
+  }
+
+  function cxInvOnInput049Q(event) {
+    const field = event.target?.closest?.("[data-inv-buy-qty], [data-inv-buy-total]");
+    if (field) {
+      const id = field.getAttribute("data-inv-buy-qty") || field.getAttribute("data-inv-buy-total");
+      cxInvRefreshPreview049Q(id);
+      return;
+    }
+    if (event.target?.closest?.("[data-inv-create-049q]")) cxInvRefreshCreatePreview049Q();
+  }
+
+  function cxInvRefreshPreview049Q(id) {
+    const box = document.querySelector(`[data-inv-buy-preview="${id}"]`);
+    if (!box) return;
+    const preview = cxInvPurchasePreview049Q(cxInvInsumo049Q(id),
+      document.querySelector(`[data-inv-buy-qty="${id}"]`)?.value,
+      document.querySelector(`[data-inv-buy-unit="${id}"]`)?.value,
+      cxInvMoneyValue049Q(document.querySelector(`[data-inv-buy-total="${id}"]`)?.value));
+    box.textContent = preview.error || preview.text;
+  }
+
+  function cxInvOnChange049Q(event) {
+    const unit = event.target?.closest?.("[data-inv-unit]");
+    if (unit) {
+      cxInv049Q.pendingUnit[unit.getAttribute("data-inv-unit")] = unit.value;
+      cxInvPaint049Q(); // muestra "1 unidad = [ ] kg" si hay que convertir
+      return;
+    }
+    const eqUnit = event.target?.closest?.("[data-inv-eq-unit]");
+    if (eqUnit) {
+      cxInv049Q.eqUnit[eqUnit.getAttribute("data-inv-eq-unit")] = eqUnit.value;
+      cxInvPaint049Q();
+      return;
+    }
+    const buyUnit = event.target?.closest?.("[data-inv-buy-unit]");
+    if (buyUnit) cxInvRefreshPreview049Q(buyUnit.getAttribute("data-inv-buy-unit"));
+    const createField = event.target?.closest?.("[data-inv-create-049q]");
+    if (createField) cxInvRefreshCreatePreview049Q();
+  }
+
+  // --- crear un insumo desde Inventario con su primera compra ---
+  function cxInvCreateFieldsHtml049Q() {
+    const types = cxInv049Q.data?.item_types || { venta_directa: "Venta directa", ingrediente: "Ingrediente", consumible: "Consumible" };
+    return `
+      <div class="cx-inv-field">
+        <label>Tipo de insumo</label>
+        <select id="inventoryCreateType049Q" data-inv-create-049q>${Object.entries(types).map(([k, v]) => `<option value="${h(k)}" ${k === "ingrediente" ? "selected" : ""}>${h(v)}</option>`).join("")}</select>
+      </div>
+      <div class="cx-inv-field">
+        <label>Unidad (cómo se compra)</label>
+        <select id="inventoryCreateUnit049Q" data-inv-create-049q>${cxInvUnitOptions049Q("kg")}</select>
+      </div>
+      <div class="cx-inv-field">
+        <label>Cantidad comprada</label>
+        <input id="inventoryCreateBuyQty049Q" data-inv-create-049q type="number" min="0" step="any" inputmode="decimal" placeholder="Ej: 80">
+      </div>
+      <div class="cx-inv-field">
+        <label>Total pagado</label>
+        <input id="inventoryCreateBuyTotal049Q" data-inv-create-049q type="text" inputmode="decimal" placeholder="Ej: 1.120.000">
+      </div>
+      <p class="cx-inv-buy-preview-049q" id="inventoryCreatePreview049Q">El costo por unidad lo calcula el sistema.</p>`;
+  }
+
+  function cxInvCreatePreview049Q(unit, quantity, total) {
+    const base = cxInvBaseFor049Q(unit);
+    const factor = cxCarStdFactor049N(unit, base) || 1;
+    const insumo = { name: "El insumo", consumption_unit: base, purchase_unit: unit, units_per_purchase: factor,
+      natural_factor: factor, unit, unit_label: cxCarUnitLabel049O(unit) };
+    return cxInvPurchasePreview049Q(insumo, quantity, unit, total);
+  }
+
+  function cxInvRefreshCreatePreview049Q() {
+    const box = document.getElementById("inventoryCreatePreview049Q");
+    if (!box) return;
+    const qty = document.getElementById("inventoryCreateBuyQty049Q")?.value;
+    if (!(Number(qty) > 0)) { box.textContent = "Sin cantidad: se crea sin existencia."; return; }
+    const preview = cxInvCreatePreview049Q(document.getElementById("inventoryCreateUnit049Q")?.value,
+      qty, cxInvMoneyValue049Q(document.getElementById("inventoryCreateBuyTotal049Q")?.value));
+    box.textContent = preview.error || preview.text;
+  }
+
+  async function cxInvCreateInsumo049Q(payload) {
+    // 1) el artículo (sin cantidad ni precio escritos a mano), 2) su tipo y
+    // unidad, 3) su primera compra: cantidad + total pagado.
+    const unit = String(document.getElementById("inventoryCreateUnit049Q")?.value || "unidad");
+    const itemType = String(document.getElementById("inventoryCreateType049Q")?.value || "ingrediente");
+    const quantity = Number(document.getElementById("inventoryCreateBuyQty049Q")?.value || 0);
+    const total = cxInvMoneyValue049Q(document.getElementById("inventoryCreateBuyTotal049Q")?.value);
+    const created = await api(`/inventory/companies/${encodeURIComponent(state.companyId)}/items`, {
+      method: "POST", body: JSON.stringify({ ...payload, initial_quantity: 0, entry_price: 0 }),
+    });
+    const id = created?.id;
+    if (!id) throw new Error("No se pudo crear el insumo.");
+    await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}`, { item_type: itemType, unit });
+    let preview = null;
+    if (quantity > 0) {
+      preview = cxInvCreatePreview049Q(unit, quantity, total);
+      cxInv049Q.data = await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}/purchases`, { quantity, unit, total_paid: total }, "POST");
+    }
+    return { id, preview };
+  }
+
+  function cxInvRowPayload049Q(row, payload) {
+    // 049Q: con Carta el costo sale de las compras (no se escribe) y el mínimo
+    // se escribe en la unidad natural (kg) y se guarda en la base (g).
+    const insumo = cxInvCartaOn049Q() ? cxInvInsumo049Q(row?.dataset?.inventoryRow) : null;
+    if (!insumo) return payload;
+    const out = { ...payload };
+    delete out.entry_price;
+    out.min_stock = Number(out.min_stock || 0) * (Number(insumo.natural_factor) || 1);
+    return out;
+  }
+
+  function cxInvStyles049Q() {
+    if (document.getElementById("cxInv049QStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxInv049QStyles";
+    style.textContent = `
+      .cx-inv-insumos-049q td { min-width:120px; }
+      .cx-inv-insumos-049q td select, .cx-inv-insumos-049q td input { display:block; margin-top:6px; }
+      .cx-inv-insumos-049q tr.focus td { background:color-mix(in srgb, #22c55e 14%, transparent); }
+      .cx-inv-insumos-049q small.warn { color:#fbbf24; font-weight:700; }
+      .cx-inv-min-049q, .cx-inv-convert-049q { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12px; margin-top:6px; }
+      .cx-inv-min-049q input, .cx-inv-convert-049q input { width:90px; margin:0 !important; display:inline-block !important; }
+      .cx-inv-eq-049q span { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:6px; }
+      .cx-inv-eq-049q span input, .cx-inv-eq-049q span select { width:auto; min-width:70px; margin:0 !important; display:inline-block !important; }
+      .cx-inv-buy-grid-049q { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; align-items:end; padding:12px; border-radius:14px; border:1px solid color-mix(in srgb, #22c55e 50%, transparent); }
+      .cx-inv-buy-grid-049q > b, .cx-inv-buy-grid-049q > p, .cx-inv-buy-grid-049q > div { grid-column:1/-1; }
+      .cx-inv-buy-grid-049q label { display:grid; gap:4px; font-size:13px; }
+      .cx-inv-buy-grid-049q label span { display:flex; gap:6px; }
+      .cx-inv-buy-preview-049q { font-weight:800; margin:4px 0; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  if (document.addEventListener) {
+    document.addEventListener("input", (event) => cxInvOnInput049Q(event));
+    document.addEventListener("change", (event) => cxInvOnChange049Q(event));
+  }
+  /* CX_INV_INSUMOS_049Q_END */
   /* CX_CARTA_048T_END */
 
 

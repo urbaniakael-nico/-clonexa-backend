@@ -26,6 +26,7 @@ function context({ restaurant = false } = {}) {
       + 'function inventoryQtyLabel(v){return String(v);}\n'
       + 'function inventoryStatusLabel(s){return s === "inactive" ? "Inactivo" : "Activo";}\n'
       + 'function renderInventoryHistoryPanel(){return "";}\n'
+      + 'function cxInvCartaOn049Q(){return false;}\n'
       + `function isClientModuleActive(code){return ${restaurant} && code === "waiter_ordering";}\n`
       + 'var window = { __cxInventorySearchQuery: "" };\n'
       + ['inventoryMoneyLabel045B', 'inventoryMoneyValue045B', 'inventoryShowsPortions045B', 'inventoryTextWidth045B',
@@ -155,6 +156,6 @@ test('tamaño: número + unidad (se despliega al escribir), y lo que no se enten
 });
 
 test('botón Gastos fijos junto a Crear, Modificar y CSV', () => {
-  assert.match(source, /data-inventory-mode="modify">Modificar material<\/button>\s*<button type="button" data-inventory-export>CSV \+ archivar<\/button>\s*<button class="\$\{mode === "fixed" \? "active" : ""\}" type="button" data-inventory-mode="fixed">Gastos fijos<\/button>/);
-  assert.match(source, /window\.__cxInventoryMode = \["create", "modify", "fixed"\]\.includes\(mode\)/);
+  assert.match(source, /data-inventory-mode="modify">Modificar material<\/button>\s*(?:\$\{carta049Q \? `<button[^`]*data-inventory-mode="insumos">Insumos y compras<\/button>` : ""\}\s*)?<button type="button" data-inventory-export>CSV \+ archivar<\/button>\s*<button class="\$\{mode === "fixed" \? "active" : ""\}" type="button" data-inventory-mode="fixed">Gastos fijos<\/button>/);
+  assert.match(source, /window\.__cxInventoryMode = \["create", "modify", "fixed", "insumos"\]\.includes\(mode\)/);
 });
