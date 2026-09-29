@@ -167,19 +167,11 @@ test('botón Gastos fijos junto a Crear, Modificar y CSV', () => {
   assert.match(source, /window\.__cxInventoryMode = \["create", "modify", "fixed"\]\.includes\(mode\)/);
 });
 
-test('049R: con Carta, Modificar material sin Color, Precio de salida ni Porciones; saldos y compra en la fila', () => {
+test('049S: con Carta, Modificar material usa su propia tabla; sin Carta nada cambia', () => {
   const ctx = context({ restaurant: true, carta: true });
-  const cols = 8; // nombre, tamaño, stock, mínimo, saldo y costo, estado, registrar compra, acciones
-  const panel = ctx.renderInventoryModifyPanel([], []);
-  assert.equal((panel.match(/<th[ >]/g) || []).length, cols);
-  assert.equal((panel.match(/<col /g) || []).length, cols);
-  assert.match(panel, new RegExp(`colspan="${cols}"`));
-  assert.doesNotMatch(panel, /<th>Color<\/th>|<th>Precio salida<\/th>|Porciones/);
-  assert.match(panel, /<th>Saldo y costo<\/th>[\s\S]*<th>Registrar compra<\/th>/);
-  const row = ctx.renderInventoryRow({ ...ROW, allows_portions: true }, 0);
-  assert.equal((row.match(/<td[ >]/g) || []).length, cols);
-  assert.doesNotMatch(row, /data-inventory-field="(color|sale_price|allows_portions|entry_price)"/);
-  assert.match(row, /Última compra: 3 kg · \$42\.000 · 28\/09\/2026[\s\S]*12 kg \(12\.000 gr\)[\s\S]*value="2"[\s\S]*<b>\$192\.000<\/b>[\s\S]*data-inv-buy-row="inv-1"/);
-  // sin Carta todo sigue igual
+  vm.runInContext('function cxInvCartaRowHtml049S(row){return "<tr carta=" + row.id + ">";}\nfunction cxInvCartaPanelHtml049S(){return "<section carta>";}', ctx);
+  assert.equal(ctx.renderInventoryRow({ ...ROW }, 0), '<tr carta=inv-1>');
+  assert.equal(ctx.renderInventoryModifyPanel([], []), '<section carta>');
+  // sin Carta la tabla de siempre, con todas sus columnas
   assert.match(context({ restaurant: true }).renderInventoryRow(ROW, 0), /data-inventory-field="color"[\s\S]*data-inventory-field="sale_price"[\s\S]*allows_portions/);
 });

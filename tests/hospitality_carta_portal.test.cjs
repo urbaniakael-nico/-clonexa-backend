@@ -608,9 +608,33 @@ function inventoryCtx(insumos) {
   return ctx;
 }
 
+// ventana de verdad: lo que se agrega al body y se quita al cerrar
+function withDialogDom(ctx) {
+  const body = [];
+  ctx.document.body = { appendChild: (node) => body.push(node) };
+  ctx.document.createElement = () => {
+    const holder = { set innerHTML(html) { this.html = html; } };
+    Object.defineProperty(holder, 'firstElementChild', { get() {
+      const node = { html: holder.html, remove: () => body.splice(body.indexOf(node), 1), querySelector: () => ({ focus: () => { node.focused = true; } }) };
+      return node;
+    } });
+    return holder;
+  };
+  ctx.document.querySelectorAll = (sel) => (sel === '[data-inv-dialog]' ? [...body] : []);
+  ctx.document.head = { appendChild: () => {} };
+  ctx.document.getElementById = () => null;
+  ctx.body = body;
+  return ctx;
+}
+
+const click = (ctx, attr, value, extra = {}) => ctx.cxInvHandleClick049Q({
+  closest: (sel) => (sel === `[${attr}]` ? { getAttribute: () => value, hasAttribute: (x) => x === attr, closest: () => null } : null),
+  matches: () => false, ...extra,
+});
+
 test('dos saldos: comprar 12 kg por $192.000, consumir 275 gr y comprar 3 kg por $42.000', async () => {
   const empty = { ...CARNE_KG, stock: 0, stock_natural: 0, stock_value: null, avg_cost: null, cost_per_unit: null, last_purchase: null };
-  const ctx = inventoryCtx([CARNE_KG]);
+  const ctx = withDialogDom(inventoryCtx([CARNE_KG]));
   const first = ctx.cxInvPurchasePreview049Q(empty, 12, 'kg', 192000);
   assert.equal(first.text, 'Saldo: 12.000 gr y $192.000 · $16,00 por gr');
   // tras consumir 275 gr: 11.725 gr y $187.600; entra la segunda compra
@@ -619,28 +643,99 @@ test('dos saldos: comprar 12 kg por $192.000, consumir 275 gr y comprar 3 kg por
   assert.equal(second.value, 229600);
   assert.equal(second.cost, 229600 / 14725, 'costo por gramo = dinero / cantidad');
   assert.equal(second.text, 'Saldo: 14.725 gr y $229.600 · $15,59 por gr');
-  // la compra se escribe en la fila: cantidad total, unidad y total pagado; nunca un precio unitario
-  const cell = ctx.cxInvBuyCellHtml049R(CARNE_KG);
-  assert.match(cell, /data-inv-buy-qty="k1" placeholder="Cantidad total"[\s\S]*<select data-inv-buy-unit="k1"[\s\S]*<option value="kg" selected>kg[\s\S]*data-inv-buy-total="k1" placeholder="Total pagado"[\s\S]*data-inv-buy-save="k1">Registrar compra/);
-  assert.doesNotMatch(cell, /precio unitario|Precio de entrada/i);
+  // "Registrar compra" abre una ventana con los tres campos y la casilla
+  await click(ctx, 'data-inv-buy-open', 'k1');
+  assert.equal(ctx.body.length, 1, 'se abre una sola ventana');
+  const html = ctx.body[0].html;
+  assert.match(html, /role="dialog" aria-modal="true" aria-label="Registrar compra de Carne asada"/);
+  assert.match(html, /Hoy: 11,725 kg 11\.725 gr · \$187\.600/);
+  assert.match(html, /Cantidad total comprada[\s\S]*data-inv-buy-qty="k1"[\s\S]*Unidad[\s\S]*<select data-inv-buy-unit="k1"><option value="g" >gr<\/option><option value="kg" selected>kg[\s\S]*Total pagado[\s\S]*data-inv-buy-total="k1"[\s\S]*data-inv-buy-replace="k1" >[\s\S]*Corregir saldo[\s\S]*data-inv-buy-preview="k1"[\s\S]*data-inv-buy-save="k1">Registrar compra/);
+  assert.doesNotMatch(html, /precio unitario|Precio de entrada/i);
+  assert.equal(ctx.body[0].focused, true, 'el cursor queda en la cantidad');
   Object.assign(ctx.dom.values, { '[data-inv-buy-qty="k1"]': '3', '[data-inv-buy-unit="k1"]': 'kg', '[data-inv-buy-total="k1"]': '42.000' });
-  await ctx.cxInvHandleClick049Q({ closest: (sel) => (sel === '[data-inv-buy-save]' ? { getAttribute: () => 'k1' } : null) });
+  await click(ctx, 'data-inv-buy-save', 'k1');
   const post = ctx.calls.find((c) => c.path === '/insumos/k1/purchases');
   assert.deepEqual(JSON.parse(JSON.stringify(post.body)), { quantity: 3, unit: 'kg', total_paid: 42000, replace: false });
+  assert.equal(ctx.body.length, 0, 'al guardar la ventana se cierra');
   assert.match(ctx.notices[0][1], /Saldo: 14\.725 gr y \$229\.600/);
 });
 
-test('saldos a la vista, nota discreta de la última compra y carne dañada lista para corregir', () => {
+test('la ventana se cierra con la X, Cancelar o un clic afuera; el error se ve dentro', async () => {
+  const ctx = withDialogDom(inventoryCtx([CARNE_KG]));
+  await click(ctx, 'data-inv-buy-open', 'k1');
+  await click(ctx, 'data-inv-dialog-close', '');
+  assert.equal(ctx.body.length, 0);
+  await click(ctx, 'data-inv-buy-open', 'k1');
+  await ctx.cxInvHandleClick049Q({ closest: () => null, matches: (sel) => sel === '[data-inv-dialog]' });
+  assert.equal(ctx.body.length, 0, 'clic en el fondo');
+  await click(ctx, 'data-inv-buy-open', 'k1');
+  const box = { textContent: '', classList: { add: (c) => { box.cls = c; } } };
+  ctx.dom.boxes['[data-inv-buy-preview="k1"]'] = box;
+  const original = ctx.document.querySelector;
+  ctx.document.querySelector = (sel) => (sel === '[data-inv-buy-preview="k1"]' ? box : original(sel));
+  ctx.dom.values = { '[data-inv-buy-qty="k1"]': '', '[data-inv-buy-total="k1"]': '1000' };
+  await click(ctx, 'data-inv-buy-save', 'k1');
+  assert.match(box.textContent, /Escribe la cantidad total comprada/);
+  assert.equal(box.cls, 'error');
+  assert.equal(ctx.body.length, 1, 'con error la ventana sigue abierta');
+  assert.equal(ctx.notices.length, 0, 'nada detrás de la ventana');
+});
+
+test('Modificar material con Carta: solo lo esencial en la fila y cada dato en su celda', () => {
   const ctx = inventoryCtx([CARNE_KG]);
-  assert.equal(ctx.cxInvStockText049Q(CARNE_KG), '11,725 kg (11.725 gr)');
-  assert.match(ctx.cxInvBalanceHtml049R(CARNE_KG), /<b>\$187\.600<\/b><small>\$16,00 por gr<\/small>/);
-  assert.match(ctx.cxInvLastPurchaseHtml049R(CARNE_KG), /class="cx-inv-last-049r">Última compra: 3 kg · \$42\.000 · 28\/09\/2026</);
-  const damaged = { ...CARNE_KG, id: 'd1', stock: 16, avg_cost: 56000, balance_suspect: true };
-  assert.match(ctx.cxInvBalanceHtml049R(damaged), /Mal cargado: registra la compra con "Corregir saldo"/);
-  assert.match(ctx.cxInvBuyCellHtml049R(damaged), /data-inv-buy-replace="d1" checked> Corregir saldo/, 'la corrección viene marcada');
-  assert.doesNotMatch(ctx.cxInvBuyCellHtml049R(CARNE_KG), /data-inv-buy-replace="k1" checked/);
+  ctx.renderInventoryHistoryPanel = () => '';
+  ctx.window = { __cxInventorySearchQuery: '' };
+  ctx.inventoryQtyLabel = (v) => String(v);
+  const row = ctx.cxInvCartaRowHtml049S({ id: 'k1', name_reference: 'Carne asada', status: 'active', alert_low: false }, 0);
+  const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+  assert.equal(cells.length, 6, 'insumo, existencia, saldo, costo, estado, acciones');
+  assert.match(cells[0], /^<input data-inventory-field="name_reference" value="Carne asada"[^>]*><small class="cx-inv-last-049r">Última compra: 3 kg · \$42\.000 · 28\/09\/2026<\/small>$/, 'la nota debajo del nombre, sola');
+  assert.equal(cells[1], '<b>11,725 kg</b><small>11.725 gr</small>');
+  assert.equal(cells[2], '<b>$187.600</b>');
+  assert.equal(cells[3], '<b>$16.000 / kg</b><small>$16,00 / gr</small>');
+  assert.match(cells[4], /^<select data-inventory-field="status"/);
+  assert.match(cells[5], /data-inv-buy-open="k1">Registrar compra<\/button>[\s\S]*data-inventory-update="k1">Guardar[\s\S]*data-inv-min-open="k1">Mínimo de alerta[\s\S]*data-inventory-delete="k1"/);
+  assert.doesNotMatch(row, /data-inv-buy-qty|data-inv-buy-total|data-inv-buy-unit|data-inv-size|data-inventory-field="(color|sale_price|entry_price|allows_portions|min_stock)"/,
+    'la compra no va desplegada en la fila, ni tamaño, color, precios o porciones');
+  const panel = ctx.cxInvCartaPanelHtml049S([], []);
+  assert.equal((panel.match(/<th[ >]/g) || []).length, 6);
+  assert.equal((panel.match(/<col[ >]/g) || []).length, 6);
+  assert.match(panel, /<th>Insumo<\/th><th class="num">Existencia<\/th><th class="num">Saldo<\/th><th class="num">Costo por unidad<\/th><th>Estado<\/th>/);
+  assert.match(panel, /colspan="6"/);
+  // bajo el mínimo: una etiqueta corta
+  assert.match(ctx.cxInvStockCellHtml049S({ status: 'active', alert_low: true }, CARNE_KG), /<b>11,725 kg<\/b> <span class="cx-inv-pill-049s warn"[^>]*>Bajo<\/span>/);
+});
+
+test('"Mal cargado": una etiqueta corta en la fila y la ventana viene lista para corregir', async () => {
+  const damaged = { ...CARNE_KG, id: 'd1', name: 'CARNE Asada', stock: 16, stock_natural: 0.016, avg_cost: 56000, stock_value: 896000, balance_suspect: true };
+  const ctx = withDialogDom(inventoryCtx([damaged]));
+  const row = ctx.cxInvCartaRowHtml049S({ id: 'd1', name_reference: 'CARNE Asada', status: 'active' }, 0);
+  const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+  assert.match(cells[3], /^<span class="cx-inv-pill-049s bad" title="[^"]+">⚠ Mal cargado<\/span>$/, 'corta; la explicación va en el título');
+  assert.equal(cells[2], '<span class="cx-inv-muted-049s">—</span>', 'no muestra un saldo imposible');
+  await click(ctx, 'data-inv-buy-open', 'd1');
+  const html = ctx.body[0].html;
+  assert.match(html, /quedó mal cargado[\s\S]*data-inv-buy-replace="d1" checked>/, 'Corregir saldo ya marcado');
+  assert.match(html, /<option value="kg" selected>kg<\/option>/, 'la compra real de una carne se propone en kg');
   const fixed = ctx.cxInvPurchasePreview049Q(damaged, 12, 'kg', 192000, true);
   assert.equal(fixed.text, 'Saldo: 12.000 gr y $192.000 · $16,00 por gr', 'corregir = los saldos quedan los de la compra');
+  // mínimo de alerta en su propia ventana
+  await click(ctx, 'data-inv-min-open', 'd1');
+  assert.equal(ctx.body.length, 1, 'una ventana a la vez');
+  assert.match(ctx.body[0].html, /Mínimo de alerta \(kg\)[\s\S]*data-inv-min-value="d1" value="2"[\s\S]*data-inv-min-save="d1"/);
+  ctx.dom.values['[data-inv-min-value="d1"]'] = '3';
+  await click(ctx, 'data-inv-min-save', 'd1');
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.calls.find((c) => c.path === '/insumos/d1').body)), { min_stock: 3 });
+  assert.equal(ctx.body.length, 0);
+});
+
+test('contraste: la ventana trae sus propios colores y los campos se distinguen', () => {
+  const css = source.slice(source.indexOf('function cxInvStyles049Q()'), source.indexOf('/* CX_INV_INSUMOS_049Q_END */'));
+  assert.match(css, /\.cx-inv-dialog-box-049s \{[^}]*background:#1b1830; color:#f3f2f8;/);
+  assert.match(css, /\.cx-inv-dialog-box-049s input:not\(\[type=checkbox\]\), \.cx-inv-dialog-box-049s select \{[^}]*color:#ffffff; background:#0f0d1c; border:1px solid #8a86a8;/);
+  assert.match(css, /\.cx-inv-table-049s input, \.cx-inv-table-049s select \{[^}]*border:1px solid color-mix\(in srgb, currentColor 45%, transparent\)/);
+  assert.match(css, /\.cx-inv-table-049s \{[^}]*table-layout:fixed/, 'cada columna con su ancho: nada se monta encima');
+  assert.doesNotMatch(css, /opacity:\.(5|6)\d?;/, 'ningún texto casi transparente');
 });
 
 test('crear con Carta: nombre, cantidad total comprada, unidad de compra, total pagado y mínimo. Nada más', async () => {

@@ -1286,3 +1286,116 @@ def test_hospitality_carta_cost_precision_migration():
     source = path.read_text(encoding="utf-8")
     assert len(module.revision) <= 32 and module.down_revision == "022f_carta_purchases"
     assert "ALTER COLUMN avg_cost TYPE numeric(18, 8)" in source
+
+
+# ------------- 049S: las dos carnes del Asadero con su compra real ---
+def _mig_022h():
+    path = ROOT / "migrations/versions/022h_fix_carnes_asadero.py"
+    spec = importlib.util.spec_from_file_location("mig_022h", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module, path.read_text(encoding="utf-8")
+
+
+class _FixBind:
+    """Base minima para correr el upgrade de 022h con su SQL real."""
+
+    def __init__(self, items, purchases, company=True):
+        self.items, self.purchases, self.company = items, purchases, company
+        self.movements, self.equivalences_deleted = [], []
+
+    def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        p = params or {}
+        assert p.get("c") == ASADERO, "solo el Asadero"
+        if sql.startswith("SELECT 1 FROM companies"):
+            return Result([{"x": 1}] if self.company else [])
+        if sql.startswith("SELECT id, upper(trim("):
+            return Result([{"id": uuid.UUID(k), "label": v["name"].strip().upper(), "current_stock": v["current_stock"],
+                            "avg_cost": v["avg_cost"]} for k, v in self.items.items()])
+        if sql.startswith("DELETE FROM carta_purchases"):
+            gone = [x for x in self.purchases if x["item"] == p["i"]]
+            self.purchases[:] = [x for x in self.purchases if x["item"] != p["i"]]
+            return Result(rowcount=len(gone))
+        if sql.startswith("DELETE FROM carta_unit_equivalences"):
+            self.equivalences_deleted.append(p["i"])
+            return Result()
+        if sql.startswith("UPDATE inventory_items"):
+            self.items[p["i"]].update(purchase_unit=p["pu"], consumption_unit=p["cu"], units_per_purchase=p["f"],
+                                      current_stock=p["stock"], avg_cost=p["avg"], entry_price=p["entry"])
+            return Result()
+        if sql.startswith("INSERT INTO carta_purchases"):
+            self.purchases.append({"item": p["i"], "quantity": p["quantity"], "unit": p["unit"], "total_paid": p["total"],
+                                   "base_quantity": p["base"], "unit_cost": p["cost"]})
+            return Result()
+        if sql.startswith("INSERT INTO inventory_movements"):
+            self.movements.append(p)
+            return Result()
+        if sql.startswith("SELECT name FROM carta_items"):
+            return Result([])
+        raise AssertionError(f"SQL no esperado: {sql[:120]}")
+
+
+def test_hospitality_carta_fix_meats_migration_header():
+    module, source = _mig_022h()
+    assert len(module.revision) <= 32 and module.down_revision == "022g_avg_cost_precision"
+    assert module.TARGET_COMPANY_ID == ASADERO and TTM not in source
+    assert module.REAL_PURCHASES == {"CARNE ASADA": (Decimal("12"), "kg", Decimal("192000")),
+                                     "CARNE CHURRASCO": (Decimal("12"), "kg", Decimal("192000"))}
+
+
+def test_hospitality_carta_fix_meats_leaves_12000_g_and_192000(monkeypatch):
+    module, _ = _mig_022h()
+    asada, churrasco, papa = (str(uuid.uuid4()) for _ in range(3))
+    items = {
+        asada: {"name": "CARNE Asada", "current_stock": Decimal("16"), "avg_cost": Decimal("56000")},
+        churrasco: {"name": "CARNE Churrasco ", "current_stock": Decimal("17"), "avg_cost": Decimal("60000")},
+        papa: {"name": "PAPA", "current_stock": Decimal("98.91"), "avg_cost": Decimal("400")},
+    }
+    purchases = [{"item": asada, "quantity": 20, "unit": "g", "total_paid": 1120000},
+                 {"item": churrasco, "quantity": 20, "unit": "g", "total_paid": 1200000},
+                 {"item": papa, "quantity": 100, "unit": "unidad", "total_paid": 40000}]
+    bind = _FixBind(items, purchases)
+    monkeypatch.setattr(module, "op", SimpleNamespace(get_bind=lambda: bind))
+    module.upgrade()
+    for meat in (asada, churrasco):
+        row = items[meat]
+        assert (row["current_stock"], row["avg_cost"], row["entry_price"]) == (Decimal("12000"), Decimal("16"), Decimal("16000.00"))
+        assert (row["purchase_unit"], row["consumption_unit"], row["units_per_purchase"]) == ("kg", "g", Decimal("1000"))
+        assert row["current_stock"] * row["avg_cost"] == Decimal("192000"), "saldos: 12.000 g y $192.000"
+        mine = [x for x in purchases if x["item"] == meat]
+        assert len(mine) == 1 and (mine[0]["quantity"], mine[0]["unit"], mine[0]["total_paid"]) == (Decimal("12"), "kg", Decimal("192000")), \
+            "lo mal cargado (20 g por $1.120.000 / $1.200.000) se borro"
+    assert items[papa] == {"name": "PAPA", "current_stock": Decimal("98.91"), "avg_cost": Decimal("400")}, "nada mas cambia"
+    assert [x["item"] for x in purchases].count(papa) == 1
+    assert set(bind.equivalences_deleted) == {asada, churrasco}
+    assert {m["i"]: (m["before"], m["after"]) for m in bind.movements} == {asada: (Decimal("16"), Decimal("12000")),
+                                                                           churrasco: (Decimal("17"), Decimal("12000"))}
+
+
+def test_hospitality_carta_fix_meats_skips_ambiguous_names_and_other_databases(monkeypatch):
+    module, _ = _mig_022h()
+    a, b = str(uuid.uuid4()), str(uuid.uuid4())
+    items = {a: {"name": "CARNE Asada", "current_stock": Decimal("16"), "avg_cost": Decimal("56000")},
+             b: {"name": "carne asada", "current_stock": Decimal("3"), "avg_cost": Decimal("10")}}
+    bind = _FixBind(items, [])
+    monkeypatch.setattr(module, "op", SimpleNamespace(get_bind=lambda: bind))
+    module.upgrade()
+    assert items[a]["current_stock"] == Decimal("16") and not bind.movements, "dos con el mismo nombre: no adivina"
+    empty = _FixBind({}, [], company=False)
+    monkeypatch.setattr(module, "op", SimpleNamespace(get_bind=lambda: empty))
+    module.upgrade()
+
+
+def test_hospitality_carta_fixed_meat_costs_4400_for_275_g(api):
+    module, _ = _mig_022h()
+    new = module.corrected(Decimal("12"), Decimal("192000"))
+    carne = str(uuid.uuid4())
+    api.inventory[carne] = {**CartaDb._inv(ASADERO, "CARNE Asada", new["current_stock"], "ingrediente", "kg", "g", 1000),
+                            "avg_cost": new["avg_cost"], "entry_price": new["entry_price"]}
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "CARNE Asada 275", "price": 32000, "kind": "preparado"}).json()["created_id"]
+    res = call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin", {"lines": [{"inventory_item_id": carne, "quantity": 275, "unit": "gr"}]})
+    dish = next(i for i in res.json()["items"] if i["id"] == dish_id)
+    insumo = next(i for i in res.json()["insumos"] if i["id"] == carne)
+    assert dish["cost"] == 4400.0, "275 gr cuestan $4.400"
+    assert (insumo["stock"], insumo["stock_value"], insumo["balance_suspect"]) == (12000.0, 192000.0, False)

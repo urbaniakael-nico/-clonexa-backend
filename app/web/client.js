@@ -6148,27 +6148,26 @@ function inventoryCreatePayload() {
     const invoicePickerClass = pendingInvoice ? "cx-inv-invoice-picker has-file" : "cx-inv-invoice-picker";
     const invoicePickerText = pendingInvoice ? "Factura adjunta" : "Adjuntar factura";
     const invoicePickerTitle = pendingInvoice?.name ? ` title="${h(pendingInvoice.name)}"` : "";
+    // 049S: con Carta (hoy ASADERO) la fila es otra, corta y legible
+    if (cxInvCartaOn049Q()) return cxInvCartaRowHtml049S(row, index);
     const status = String(row.status || "active").toLowerCase();
     const low = !!row.alert_low;
-    // 049R: con Carta (hoy ASADERO) sin Color, Precio de salida ni Porciones (eso vive en Carta)
-    const carta049R = cxInvCartaOn049Q();
-    const insumo049Q = carta049R ? cxInvInsumo049Q(row.id) : null;
     return `
       <tr data-inventory-row="${h(row.id)}" data-inventory-order="${h(index)}" data-inventory-label="${h(row.name_reference || "Material")}" data-inventory-search-text="${h([row.name_reference, row.size, row.color, row.sku, row.reference].filter(Boolean).join(" "))}">
-        <td class="cx-inv-col-name"><input data-inventory-field="name_reference" value="${h(row.name_reference || "")}" title="${h(row.name_reference || "")}">${insumo049Q ? cxInvLastPurchaseHtml049R(insumo049Q) : ""}</td>
+        <td class="cx-inv-col-name"><input data-inventory-field="name_reference" value="${h(row.name_reference || "")}" title="${h(row.name_reference || "")}"></td>
         <td class="cx-inv-col-size">${cxInvSizeHtml049M(row)}</td>
-        ${carta049R ? "" : `<td class="cx-inv-col-short"><input data-inventory-field="color" value="${h(row.color || "")}"></td>`}
-        <td class="cx-inv-col-num"><span class="cx-inv-stock ${low ? "low" : ""}"${low ? ` title="Stock bajo"` : ""}>${h(insumo049Q ? cxInvStockText049Q(insumo049Q) : inventoryQtyLabel(row.current_stock))}${low ? ` <span aria-label="Stock bajo">⚠</span>` : ""}</span></td>
-        <td class="cx-inv-col-num"><input data-inventory-field="min_stock" type="number" min="0" step="${insumo049Q ? "any" : "0.01"}" value="${h(insumo049Q && insumo049Q.min_stock_natural !== null ? insumo049Q.min_stock_natural : (row.min_stock ?? 0))}"></td>
-        <td class="cx-inv-col-num">${insumo049Q ? cxInvBalanceHtml049R(insumo049Q) : `<input data-inventory-field="entry_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.entry_price ?? 0))}">`}</td>
-        ${carta049R ? "" : `<td class="cx-inv-col-num"><input data-inventory-field="sale_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.sale_price ?? row.unit_value ?? 0))}"></td>`}
+        <td class="cx-inv-col-short"><input data-inventory-field="color" value="${h(row.color || "")}"></td>
+        <td class="cx-inv-col-num"><span class="cx-inv-stock ${low ? "low" : ""}"${low ? ` title="Stock bajo"` : ""}>${h(inventoryQtyLabel(row.current_stock))}${low ? ` <span aria-label="Stock bajo">⚠</span>` : ""}</span></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="min_stock" type="number" min="0" step="0.01" value="${h(row.min_stock ?? 0)}"></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="entry_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.entry_price ?? 0))}"></td>
+        <td class="cx-inv-col-num"><input data-inventory-field="sale_price" data-inventory-money type="text" inputmode="decimal" value="${h(inventoryMoneyLabel045B(row.sale_price ?? row.unit_value ?? 0))}"></td>
         <td class="cx-inv-col-status">
           <select data-inventory-field="status" class="cx-inv-status-select ${h(status)}">
             <option value="active" ${status !== "inactive" ? "selected" : ""}>Activo</option>
             <option value="inactive" ${status === "inactive" ? "selected" : ""}>Inactivo</option>
           </select>
         </td>
-        ${inventoryShowsPortions045B() && !carta049R ? `
+        ${inventoryShowsPortions045B() ? `
         <td class="cx-inv-col-portions">
           <label class="cx-inv-portions-045b" title="Permite porciones (1/4, 1/2, 3/4) en el panel del mesero">
             <input type="checkbox" data-inventory-field="allows_portions" ${row.allows_portions ? "checked" : ""}>
@@ -6176,7 +6175,6 @@ function inventoryCreatePayload() {
           </label>
         </td>` : ""}
         <td class="cx-inv-col-entry">
-          ${insumo049Q ? cxInvBuyCellHtml049R(insumo049Q) : `
           <div class="cx-inv-entry-line">
             <input data-inventory-entry-qty="${h(row.id)}" type="number" min="0" step="0.01" placeholder="Cant." title="Cantidad a ingresar">
             <label class="${invoicePickerClass} cx-inv-invoice-compact"${invoicePickerTitle} aria-label="Adjuntar factura">
@@ -6184,7 +6182,7 @@ function inventoryCreatePayload() {
               <span>${invoicePickerText}</span>
             </label>
             <button class="cx-inv-action" type="button" data-inventory-entry="${h(row.id)}">Ingresar</button>
-          </div>`}
+          </div>
         </td>
         <td class="cx-inv-col-actions">
           <div class="cx-inv-actions">
@@ -6203,19 +6201,15 @@ function inventoryCreatePayload() {
   }
 
   function renderInventoryModifyPanel(rows = [], movements = []) {
-    // 049R: con Carta, sin Color, Precio de salida ni Porciones; la compra se registra en la fila
-    const carta049R = cxInvCartaOn049Q();
-    const withPortions = inventoryShowsPortions045B() && !carta049R;
-    const columnPlan = inventoryColumnPlan045B(rows, withPortions)
-      .filter((col) => !carta049R || !["color", "sale_price"].includes(col.key))
-      .map((col) => (carta049R && col.key === "entry" ? { ...col, px: 470 } : carta049R && col.key === "entry_price" ? { ...col, px: 190 } : col));
+    // 049S: con Carta (hoy ASADERO) una tabla propia: solo lo esencial y la compra en una ventana
+    if (cxInvCartaOn049Q()) return cxInvCartaPanelHtml049S(rows, movements);
+    const withPortions = inventoryShowsPortions045B();
+    const columnPlan = inventoryColumnPlan045B(rows, withPortions);
     return `
       <section class="client-panel">
         <div class="client-eyebrow">Modificar material</div>
         <h2>Buscar y actualizar</h2>
-        <p class="client-muted">${carta049R
-          ? "Cada insumo es una cuenta con dos saldos: cantidad y dinero. Registra cada compra con la cantidad total y el total pagado; el costo por unidad sale solo de dividir los dos saldos."
-          : "Edita datos y precios directamente aquí. “Guardar todo” conserva todas las filas de una vez; las entradas de stock se registran individualmente con “Ingresar”."}</p>
+        <p class="client-muted">Edita datos y precios directamente aquí. “Guardar todo” conserva todas las filas de una vez; las entradas de stock se registran individualmente con “Ingresar”.</p>
         <div class="client-actions" style="justify-content:space-between;align-items:center;margin-bottom:14px">
           <input class="cx-inv-search" data-inventory-search value="${h(window.__cxInventorySearchQuery || "")}" placeholder="🔎 Escribe light, poker, referencia, tamaño o color..." autocomplete="off">
           <button class="client-btn" type="button" data-inventory-save-all>Guardar todo</button>
@@ -6231,14 +6225,14 @@ function inventoryCreatePayload() {
               <tr>
                 <th class="cx-inv-col-name">Nombre / referencia</th>
                 <th>Tamaño</th>
-                ${carta049R ? "" : `<th>Color</th>`}
+                <th>Color</th>
                 <th>Stock actual</th>
                 <th>Mínimo alerta</th>
-                <th>${carta049R ? "Saldo y costo" : "Precio entrada"}</th>
-                ${carta049R ? "" : `<th>Precio salida</th>`}
+                <th>Precio entrada</th>
+                <th>Precio salida</th>
                 <th>Estado</th>
                 ${withPortions ? `<th title="Permite porciones (1/4, 1/2, 3/4) en el panel del mesero">Porciones</th>` : ""}
-                <th>${carta049R ? "Registrar compra" : "Ingresar cantidad"}</th>
+                <th>Ingresar cantidad</th>
                 <th class="cx-inv-col-actions">Acciones</th>
               </tr>
             </thead>
@@ -37077,26 +37071,6 @@ function inventoryCreatePayload() {
     return { masa: "g", volumen: "ml", unidad: "unidad", paquete: "paquete", pizca: "pizca" }[dim] || "unidad";
   }
 
-  function cxInvStockText049Q(i) {
-    // saldo de cantidad en su unidad natural, con el equivalente: "12 kg (12.000 gr)"
-    const base = cxCarUnitLabel049O(i.consumption_unit || "unidad");
-    if (i.stock_natural === null || i.stock_natural === undefined) {
-      return `${cxInvNum049Q(i.stock)} ${base}`;
-    }
-    const natural = `${cxInvNum049Q(i.stock_natural)} ${i.unit_label || cxCarUnitLabel049O(i.unit)}`;
-    return Number(i.natural_factor) !== 1 ? `${natural} (${cxInvNum049Q(i.stock)} ${base})` : natural;
-  }
-
-  function cxInvBalanceHtml049R(i) {
-    // saldo de dinero y el costo por unidad que sale de dividir los dos saldos
-    if (i.balance_suspect) {
-      return `<small class="cx-inv-bad-049r" title="Saldo imposible">⚠ Mal cargado: registra la compra con "Corregir saldo".</small>`;
-    }
-    if (i.avg_cost === null || i.avg_cost === undefined) return `<small>Sin compras: registra la primera.</small>`;
-    const base = cxCarUnitLabel049O(i.consumption_unit || "unidad");
-    return `<b>${h(cxCarMoney048T(i.stock_value))}</b><small>${h(cxCarUnitMoney048T(i.avg_cost))} por ${h(base)}</small>`;
-  }
-
   function cxInvDate049R(iso) {
     const date = new Date(iso || "");
     if (Number.isNaN(date.getTime())) return "";
@@ -37141,17 +37115,142 @@ function inventoryCreatePayload() {
     }).join("");
   }
 
-  function cxInvBuyCellHtml049R(i) {
-    const id = h(i.id);
+  // --- 049S: Modificar material con Carta. Una fila corta por insumo (nombre,
+  // existencia, saldo, costo, estado) y "Registrar compra" en una ventana. ---
+  function cxInvCostCellHtml049S(i) {
+    if (!i) return `<span class="cx-inv-muted-049s">—</span>`;
+    if (i.balance_suspect) {
+      return `<span class="cx-inv-pill-049s bad" title="La cantidad o el dinero que hay no pueden ser reales. Registra la compra con &quot;Corregir saldo&quot; y queda bien.">⚠ Mal cargado</span>`;
+    }
+    if (i.avg_cost === null || i.avg_cost === undefined) return `<span class="cx-inv-muted-049s">Sin compras</span>`;
+    const base = cxCarUnitLabel049O(i.consumption_unit || "unidad");
+    const natural = i.unit_label || cxCarUnitLabel049O(i.unit);
+    return Number(i.natural_factor) !== 1 && i.cost_per_unit !== null && i.cost_per_unit !== undefined
+      ? `<b>${h(cxCarMoney048T(i.cost_per_unit))} / ${h(natural)}</b><small>${h(cxCarUnitMoney048T(i.avg_cost))} / ${h(base)}</small>`
+      : `<b>${h(cxCarUnitMoney048T(i.avg_cost))} / ${h(base)}</b>`;
+  }
+
+  function cxInvStockCellHtml049S(row, i) {
+    const low = !!row.alert_low && String(row.status || "active") === "active";
+    const badge = low ? ` <span class="cx-inv-pill-049s warn" title="Por debajo del mínimo de alerta">Bajo</span>` : "";
+    if (!i) return `<b>${h(inventoryQtyLabel(row.current_stock))}</b>${badge}`;
+    const base = cxCarUnitLabel049O(i.consumption_unit || "unidad");
+    if (i.stock_natural === null || i.stock_natural === undefined || Number(i.natural_factor) === 1) {
+      return `<b>${h(cxInvNum049Q(i.stock))} ${h(base)}</b>${badge}`;
+    }
+    return `<b>${h(cxInvNum049Q(i.stock_natural))} ${h(i.unit_label || cxCarUnitLabel049O(i.unit))}</b>${badge}<small>${h(cxInvNum049Q(i.stock))} ${h(base)}</small>`;
+  }
+
+  function cxInvCartaRowHtml049S(row = {}, index = 0) {
+    const i = cxInvInsumo049Q(row.id);
+    const status = String(row.status || "active").toLowerCase();
+    const id = h(row.id);
     return `
-      <div class="cx-inv-buy-049r" data-inv-buy-row="${id}">
-        <input type="number" min="0" step="any" inputmode="decimal" data-inv-buy-qty="${id}" placeholder="Cantidad total" title="Cantidad total comprada">
-        <select data-inv-buy-unit="${id}" aria-label="Unidad de compra">${cxInvUnitOptions049Q(i.unit || i.consumption_unit, i.balance_suspect ? null : i)}</select>
-        <input type="text" inputmode="decimal" data-inv-buy-total="${id}" placeholder="Total pagado" title="Total pagado">
-        <button class="cx-inv-action primary" type="button" data-inv-buy-save="${id}">Registrar compra</button>
-        <label class="cx-inv-fix-049r" title="La compra reemplaza la cantidad y el dinero que hay (para un insumo mal cargado)"><input type="checkbox" data-inv-buy-replace="${id}" ${i.balance_suspect ? "checked" : ""}> Corregir saldo</label>
-        <small data-inv-buy-preview="${id}"></small>
+      <tr class="cx-inv-row-049s" data-inventory-row="${id}" data-inventory-order="${h(index)}" data-inventory-label="${h(row.name_reference || "Material")}" data-inventory-search-text="${h([row.name_reference, row.size, row.sku, row.reference].filter(Boolean).join(" "))}">
+        <td class="cx-inv-c-name-049s"><input data-inventory-field="name_reference" value="${h(row.name_reference || "")}" title="${h(row.name_reference || "")}" aria-label="Nombre">${i ? cxInvLastPurchaseHtml049R(i) : ""}</td>
+        <td class="cx-inv-c-num-049s">${cxInvStockCellHtml049S(row, i)}</td>
+        <td class="cx-inv-c-num-049s">${i && !i.balance_suspect && i.stock_value !== null && i.stock_value !== undefined ? `<b>${h(cxCarMoney048T(i.stock_value))}</b>` : `<span class="cx-inv-muted-049s">—</span>`}</td>
+        <td class="cx-inv-c-num-049s">${cxInvCostCellHtml049S(i)}</td>
+        <td><select data-inventory-field="status" class="cx-inv-status-select ${h(status)}" aria-label="Estado">
+            <option value="active" ${status !== "inactive" ? "selected" : ""}>Activo</option>
+            <option value="inactive" ${status === "inactive" ? "selected" : ""}>Inactivo</option>
+          </select></td>
+        <td><div class="cx-inv-c-actions-049s">
+          ${i ? `<button class="cx-inv-action primary" type="button" data-inv-buy-open="${id}">Registrar compra</button>` : ""}
+          <button class="cx-inv-action" type="button" data-inventory-update="${id}">Guardar</button>
+          <details class="cx-inv-more-045a">
+            <summary class="cx-inv-action" aria-label="Más acciones" title="Más acciones">⋯</summary>
+            <div class="cx-inv-more-menu-045a">
+              ${i ? `<button class="cx-inv-action" type="button" data-inv-min-open="${id}">Mínimo de alerta</button>` : ""}
+              <button class="cx-inv-action" type="button" data-inventory-disable="${id}">Deshabilitar</button>
+              <button class="cx-inv-action cx-inv-action-danger-045b" type="button" data-inventory-delete="${id}" data-inventory-delete-name="${h(row.name_reference || "este producto")}">Eliminar</button>
+            </div>
+          </details>
+        </div></td>
+      </tr>`;
+  }
+
+  function cxInvCartaPanelHtml049S(rows = [], movements = []) {
+    return `
+      <section class="client-panel">
+        <div class="client-eyebrow">Modificar material</div>
+        <h2>Buscar y actualizar</h2>
+        <p class="client-muted">Cada insumo es una cuenta con dos saldos, cantidad y dinero. Registra cada compra con la cantidad total y el total pagado; el costo por unidad sale solo.</p>
+        <div class="client-actions" style="justify-content:space-between;align-items:center;margin-bottom:12px">
+          <input class="cx-inv-search" data-inventory-search value="${h(window.__cxInventorySearchQuery || "")}" placeholder="🔎 Busca un insumo..." autocomplete="off">
+          <button class="client-btn" type="button" data-inventory-save-all>Guardar todo</button>
+        </div>
+        <div class="cx-inv-search-status" data-inventory-search-status aria-live="polite"></div>
+        <div class="cx-inv-table-wrap">
+          <table class="cx-inv-table-049s">
+            <colgroup><col><col style="width:150px"><col style="width:130px"><col style="width:150px"><col style="width:118px"><col style="width:290px"></colgroup>
+            <thead><tr><th>Insumo</th><th class="num">Existencia</th><th class="num">Saldo</th><th class="num">Costo por unidad</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              ${rows.length ? rows.map(cxInvCartaRowHtml049S).join("") : `<tr><td colspan="6">No hay insumos en inventario.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        ${renderInventoryHistoryPanel(movements)}
+      </section>`;
+  }
+
+  function cxInvDialogHtml049S(i, mode = "buy") {
+    const id = h(i.id);
+    const now = `${cxInvStockCellHtml049S({ status: "active" }, i).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}${!i.balance_suspect && i.stock_value !== null && i.stock_value !== undefined ? ` · ${cxCarMoney048T(i.stock_value)}` : ""}`;
+    const body = mode === "min"
+      ? `<label>Mínimo de alerta (${h(i.unit_label || cxCarUnitLabel049O(i.unit))})
+           <input type="number" min="0" step="any" inputmode="decimal" data-inv-min-value="${id}" value="${h(i.min_stock_natural ?? 0)}"></label>
+         <footer><button class="client-btn" type="button" data-inv-dialog-close>Cancelar</button>
+           <button class="client-btn primary" type="button" data-inv-min-save="${id}">Guardar</button></footer>`
+      : `<label>Cantidad total comprada
+           <input type="number" min="0" step="any" inputmode="decimal" data-inv-buy-qty="${id}" placeholder="Ej: 12"></label>
+         <label>Unidad
+           <select data-inv-buy-unit="${id}">${cxInvUnitOptions049Q(i.balance_suspect ? ({ g: "kg", ml: "l" }[i.consumption_unit] || i.unit || i.consumption_unit) : (i.unit || i.consumption_unit), i.balance_suspect ? null : i)}</select></label>
+         <label>Total pagado
+           <input type="text" inputmode="decimal" data-inv-buy-total="${id}" placeholder="Ej: 192.000"></label>
+         <label class="check"><input type="checkbox" data-inv-buy-replace="${id}" ${i.balance_suspect ? "checked" : ""}>
+           <span><b>Corregir saldo</b> · la cantidad y el dinero quedan exactamente los de esta compra</span></label>
+         <p class="cx-inv-dialog-preview-049s" data-inv-buy-preview="${id}" aria-live="polite"></p>
+         <footer><button class="client-btn" type="button" data-inv-dialog-close>Cancelar</button>
+           <button class="client-btn primary" type="button" data-inv-buy-save="${id}">Registrar compra</button></footer>`;
+    return `
+      <div class="cx-inv-dialog-049s" data-inv-dialog="${id}" role="dialog" aria-modal="true" aria-label="${mode === "min" ? "Mínimo de alerta" : "Registrar compra"} de ${h(i.name)}">
+        <div class="cx-inv-dialog-box-049s">
+          <header><div><b>${mode === "min" ? "Mínimo de alerta" : "Registrar compra"}</b><span>${h(i.name)}</span></div>
+            <button type="button" class="cx-inv-dialog-x-049s" data-inv-dialog-close aria-label="Cerrar">×</button></header>
+          <p class="cx-inv-dialog-now-049s">Hoy: ${h(now)}</p>
+          ${i.balance_suspect && mode !== "min" ? `<p class="cx-inv-dialog-warn-049s">⚠ Este insumo quedó mal cargado: registra la compra real con "Corregir saldo" marcado.</p>` : ""}
+          ${body}
+        </div>
       </div>`;
+  }
+
+  function cxInvDialogError049S(id, message) {
+    // el error se ve dentro de la ventana, no detrás de ella
+    const box = document.querySelector(`[data-inv-buy-preview="${id}"]`);
+    if (box) {
+      box.textContent = message;
+      box.classList?.add("error");
+    } else {
+      showInventoryNotice(message, "error");
+    }
+  }
+
+  function cxInvCloseDialog049S() {
+    document.querySelectorAll?.("[data-inv-dialog]").forEach((node) => node.remove());
+  }
+
+  function cxInvOpenDialog049S(id, mode = "buy") {
+    const insumo = cxInvInsumo049Q(id);
+    if (!insumo) return false;
+    cxInvCloseDialog049S();
+    cxInvStyles049Q();
+    const holder = document.createElement("div");
+    holder.innerHTML = cxInvDialogHtml049S(insumo, mode).trim();
+    const dialog = holder.firstElementChild;
+    document.body.appendChild(dialog);
+    dialog.querySelector("input:not([type=checkbox])")?.focus();
+    return true;
   }
 
   function cxInvCartaApi049Q(path, body, method = "PUT") {
@@ -37168,6 +37267,32 @@ function inventoryCreatePayload() {
   }
 
   async function cxInvHandleClick049Q(target) {
+    const open = target.closest?.("[data-inv-buy-open]") || target.closest?.("[data-inv-min-open]");
+    if (open) {
+      const isMin = open.hasAttribute?.("data-inv-min-open");
+      open.closest?.("details")?.removeAttribute("open");
+      cxInvOpenDialog049S(open.getAttribute(isMin ? "data-inv-min-open" : "data-inv-buy-open"), isMin ? "min" : "buy");
+      return true;
+    }
+    // cerrar: la X, Cancelar o un clic fuera de la ventana
+    if (target.closest?.("[data-inv-dialog-close]") || target.matches?.("[data-inv-dialog]")) {
+      cxInvCloseDialog049S();
+      return true;
+    }
+    const minSave = target.closest?.("[data-inv-min-save]");
+    if (minSave) {
+      const id = minSave.getAttribute("data-inv-min-save");
+      const value = Number(document.querySelector(`[data-inv-min-value="${id}"]`)?.value || 0);
+      try {
+        cxInv049Q.data = await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}`, { min_stock: value >= 0 ? value : 0 });
+        cxInvCloseDialog049S();
+        await renderInventoryModule();
+        setTimeout(() => showInventoryNotice("Mínimo de alerta guardado."), 80);
+      } catch (error) {
+        showInventoryNotice(cxCarErr048T(error), "error");
+      }
+      return true;
+    }
     const save = target.closest?.("[data-inv-buy-save]");
     if (!save) return false;
     const id = save.getAttribute("data-inv-buy-save");
@@ -37175,16 +37300,17 @@ function inventoryCreatePayload() {
     const v = cxInvBuyValues049R(id);
     const preview = cxInvPurchasePreview049Q(insumo, v.quantity, v.unit || insumo?.unit, v.total, v.replace);
     if (preview.error) {
-      showInventoryNotice(preview.error, "error");
+      cxInvDialogError049S(id, preview.error);
       return true;
     }
     try {
       cxInv049Q.data = await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}/purchases`,
         { quantity: v.quantity, unit: v.unit || insumo?.unit, total_paid: v.total, replace: v.replace }, "POST");
+      cxInvCloseDialog049S();
       await renderInventoryModule();
       setTimeout(() => showInventoryNotice(`Compra registrada en ${insumo?.name || "el insumo"}. ${preview.text}.`), 80);
     } catch (error) {
-      showInventoryNotice(cxCarErr048T(error), "error");
+      cxInvDialogError049S(id, cxCarErr048T(error));
     }
     return true;
   }
@@ -37195,6 +37321,7 @@ function inventoryCreatePayload() {
     const v = cxInvBuyValues049R(id);
     const preview = cxInvPurchasePreview049Q(cxInvInsumo049Q(id), v.quantity, v.unit, v.total, v.replace);
     box.textContent = v.quantity > 0 ? (preview.error || preview.text) : "";
+    box.classList?.toggle("error", !!(v.quantity > 0 && preview.error));
   }
 
   function cxInvOnInput049Q(event) {
@@ -37301,7 +37428,12 @@ function inventoryCreatePayload() {
     delete out.entry_price;
     delete out.sale_price;
     delete out.allows_portions;
-    out.min_stock = Number(out.min_stock || 0) * (Number(insumo.natural_factor) || 1);
+    // 049S: el mínimo ya no está en la fila (se edita en su ventana): no se toca al guardar
+    if (row?.querySelector?.('[data-inventory-field="min_stock"]')) {
+      out.min_stock = Number(out.min_stock || 0) * (Number(insumo.natural_factor) || 1);
+    } else {
+      delete out.min_stock;
+    }
     return out;
   }
 
@@ -37310,14 +37442,49 @@ function inventoryCreatePayload() {
     const style = document.createElement("style");
     style.id = "cxInv049QStyles";
     style.textContent = `
-      .cx-inv-buy-049r { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-      .cx-inv-buy-049r input[type=number], .cx-inv-buy-049r input[type=text] { width:108px; }
-      .cx-inv-buy-049r select { min-height:34px; border-radius:8px; }
-      .cx-inv-buy-049r small { width:100%; font-weight:700; opacity:.85; }
-      .cx-inv-fix-049r { display:flex; gap:4px; align-items:center; font-size:12px; opacity:.85; }
-      .cx-inv-last-049r { display:block; margin-top:4px; font-size:11px; opacity:.65; white-space:nowrap; }
-      .cx-inv-bad-049r { color:#f87171; font-weight:700; white-space:normal; }
-      td.cx-inv-col-num small { display:block; opacity:.8; font-size:12px; }
+      /* 049S: tabla de Modificar material con Carta: filas cortas, cada dato en su celda */
+      .cx-inv-table-049s { width:100%; min-width:900px; table-layout:fixed; border-collapse:collapse; font-size:14px; }
+      .cx-inv-table-049s th { text-align:left; font-size:12px; font-weight:800; letter-spacing:.02em; text-transform:uppercase; opacity:.85;
+        padding:8px 10px; border-bottom:2px solid color-mix(in srgb, currentColor 30%, transparent); }
+      .cx-inv-table-049s th.num, .cx-inv-c-num-049s { text-align:right; }
+      .cx-inv-table-049s td { padding:7px 10px; vertical-align:middle; border-bottom:1px solid color-mix(in srgb, currentColor 14%, transparent); overflow:hidden; }
+      .cx-inv-table-049s tbody tr:hover td { background:color-mix(in srgb, currentColor 5%, transparent); }
+      .cx-inv-table-049s input, .cx-inv-table-049s select { box-sizing:border-box; min-height:34px; padding:4px 10px; border-radius:8px; font:inherit; color:inherit;
+        border:1px solid color-mix(in srgb, currentColor 45%, transparent); background:color-mix(in srgb, currentColor 7%, transparent); }
+      .cx-inv-table-049s input:focus, .cx-inv-table-049s select:focus { outline:2px solid #22c55e; outline-offset:1px; }
+      .cx-inv-c-name-049s input { width:100%; font-weight:700; }
+      .cx-inv-table-049s select { width:100%; }
+      .cx-inv-c-num-049s b { display:block; font-size:15px; white-space:nowrap; }
+      .cx-inv-c-num-049s small { display:block; margin-top:2px; font-size:12px; opacity:.8; white-space:nowrap; }
+      .cx-inv-c-actions-049s { display:flex; gap:6px; align-items:center; justify-content:flex-end; }
+      .cx-inv-table-049s td:last-child { overflow:visible; }
+      .cx-inv-last-049r { display:block; margin-top:4px; font-size:12px; opacity:.8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .cx-inv-muted-049s { opacity:.75; }
+      .cx-inv-pill-049s { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:800; white-space:nowrap; }
+      .cx-inv-pill-049s.bad { background:#7f1d1d; color:#fee2e2; }
+      .cx-inv-pill-049s.warn { background:#78350f; color:#fef3c7; margin-left:6px; vertical-align:middle; }
+      /* ventana "Registrar compra": colores propios para que se lea sobre cualquier tema */
+      .cx-inv-dialog-049s { position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; padding:16px;
+        background:rgba(6,5,14,.72); }
+      .cx-inv-dialog-box-049s { width:min(420px, 100%); max-height:calc(100vh - 32px); overflow:auto; box-sizing:border-box; padding:18px;
+        border-radius:16px; background:#1b1830; color:#f3f2f8; border:1px solid #3b3760; box-shadow:0 20px 60px rgba(0,0,0,.5);
+        display:grid; gap:12px; }
+      .cx-inv-dialog-box-049s header { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+      .cx-inv-dialog-box-049s header b { display:block; font-size:18px; }
+      .cx-inv-dialog-box-049s header span { display:block; font-size:14px; color:#c9c6dd; margin-top:2px; }
+      .cx-inv-dialog-x-049s { border:0; background:transparent; color:#f3f2f8; font-size:24px; line-height:1; cursor:pointer; padding:0 4px; }
+      .cx-inv-dialog-now-049s { margin:0; font-size:13px; color:#c9c6dd; }
+      .cx-inv-dialog-warn-049s { margin:0; padding:8px 10px; border-radius:10px; background:#7f1d1d; color:#fee2e2; font-size:13px; font-weight:700; }
+      .cx-inv-dialog-box-049s label { display:grid; gap:5px; font-size:13px; font-weight:700; color:#e7e5f2; }
+      .cx-inv-dialog-box-049s label.check { display:flex; gap:8px; align-items:flex-start; font-weight:400; }
+      .cx-inv-dialog-box-049s label.check input { margin-top:3px; width:18px; height:18px; }
+      .cx-inv-dialog-box-049s input:not([type=checkbox]), .cx-inv-dialog-box-049s select { box-sizing:border-box; width:100%; min-height:42px; padding:6px 12px;
+        border-radius:10px; font:inherit; font-size:16px; color:#ffffff; background:#0f0d1c; border:1px solid #8a86a8; }
+      .cx-inv-dialog-box-049s input::placeholder { color:#a9a6c2; }
+      .cx-inv-dialog-box-049s input:focus, .cx-inv-dialog-box-049s select:focus { outline:2px solid #22c55e; outline-offset:1px; }
+      .cx-inv-dialog-preview-049s { margin:0; min-height:18px; font-weight:800; color:#bbf7d0; }
+      .cx-inv-dialog-preview-049s.error { color:#fecaca; }
+      .cx-inv-dialog-box-049s footer { display:flex; justify-content:flex-end; gap:8px; }
       .cx-inv-buy-preview-049q { font-weight:800; margin:4px 0; grid-column:1/-1; }
     `;
     document.head.appendChild(style);
@@ -37326,6 +37493,9 @@ function inventoryCreatePayload() {
   if (document.addEventListener) {
     document.addEventListener("input", (event) => cxInvOnInput049Q(event));
     document.addEventListener("change", (event) => cxInvOnChange049Q(event));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && document.querySelector("[data-inv-dialog]")) cxInvCloseDialog049S();
+    });
   }
   /* CX_INV_INSUMOS_049Q_END */
   /* CX_CARTA_048T_END */
