@@ -225,14 +225,41 @@ def stock_natural(insumo: dict | None) -> Decimal | None:
     return (dec((insumo or {}).get("current_stock")) / factor).quantize(QTY, rounding=ROUND_HALF_UP)
 
 
-def register_purchase(insumo: dict, quantity: Any, unit: Any, total_paid: Any) -> dict:
-    """049Q: la compra se escribe como la hace el dueño: CANTIDAD comprada (con
-    su unidad) y TOTAL pagado por esa cantidad. El costo unitario lo calcula
-    el sistema, nunca el usuario: 80 kg por $1.120.000 = 80.000 g ->
-    $14 por gramo, y 275 g cuestan $3.850.
+COST = Decimal("0.00000001")  # costo por unidad base: saldo de dinero / saldo de cantidad, sin perder pesos
+# Un gramo o mililitro de algo de un asadero nunca cuesta mas de $500 ($500.000
+# el kilo): un saldo asi quedo mal cargado (CARNE Asada: 16 g a $56.000 el g).
+SUSPECT_COST_PER_BASE = Decimal("500")
 
-    Devuelve lo que entra a la existencia (en unidad base), el costo de esta
-    compra por unidad base y el nuevo costo promedio ponderado."""
+
+def stock_value(insumo: dict | None) -> Decimal | None:
+    """049R: saldo de dinero del insumo = saldo de cantidad x costo por unidad."""
+    cost = unit_cost(insumo)
+    if cost is None:
+        return None
+    return (dec((insumo or {}).get("current_stock")) * cost).quantize(MONEY, rounding=ROUND_HALF_UP)
+
+
+def balance_suspect(insumo: dict | None) -> bool:
+    """Saldo que no puede ser real: se corrige registrando la compra de nuevo."""
+    if not insumo:
+        return False
+    if purchase_weight_missing(insumo):
+        return True
+    cost = unit_cost(insumo)
+    return bool(cost is not None and str(insumo.get("consumption_unit") or "") in {"g", "ml"} and cost > SUSPECT_COST_PER_BASE)
+
+
+def register_purchase(insumo: dict, quantity: Any, unit: Any, total_paid: Any, replace: bool = False) -> dict:
+    """049Q/049R: el inventario es una cuenta con DOS saldos, cantidad y dinero.
+
+    La compra se escribe como la hace el dueño: cantidad total comprada (con
+    su unidad) y total pagado. Nadie escribe un precio unitario:
+      12 kg por $192.000        -> 12.000 g y $192.000 ($16 por g)
+      una receta consume 275 g  -> 11.725 g y $187.600 (costo del plato $4.400)
+      3 kg mas por $42.000      -> 14.725 g y $229.600 (costo = dinero / cantidad)
+
+    `replace`: la compra REEMPLAZA los saldos (corrige un insumo mal cargado) y
+    su unidad pasa a ser la de esta compra."""
     qty, total = dec(quantity), dec(total_paid)
     if qty <= 0:
         raise ValueError("cantidad_invalida")
@@ -241,20 +268,34 @@ def register_purchase(insumo: dict, quantity: Any, unit: Any, total_paid: Any) -
     key = recipe_unit(unit)
     if not key:
         raise ValueError("unidad_invalida")
-    factor = line_factor(key, insumo)
-    if factor is None:
-        raise ValueError("sin_equivalencia")
+    if replace:
+        base_unit = base_unit_for(key)
+        factor = standard_factor(key, base_unit) or Decimal("1")
+    else:
+        base_unit = str(insumo.get("consumption_unit") or "unidad")
+        factor = line_factor(key, insumo)
+        if factor is None:
+            raise ValueError("sin_equivalencia")
     base_qty = (qty * factor).quantize(QTY, rounding=ROUND_HALF_UP)
     if base_qty <= 0:
         raise ValueError("cantidad_invalida")
-    purchase_cost = (total / base_qty).quantize(QTY, rounding=ROUND_HALF_UP)
-    stock = dec(insumo.get("current_stock"))
-    current = unit_cost(insumo)
-    # sin costo conocido (o sin existencia) el promedio pasa a ser el de esta compra
-    new_avg = purchase_cost if current is None else weighted_average(stock, current, base_qty, purchase_cost)
-    return {"unit": key, "quantity": qty, "total_paid": total, "base_quantity": base_qty, "base_unit": insumo.get("consumption_unit") or "unidad",
-            "unit_cost": purchase_cost, "avg_cost": new_avg, "new_stock": stock + base_qty,
-            "cost_per_unit": (total / qty).quantize(MONEY, rounding=ROUND_HALF_UP)}
+    purchase_cost = (total / base_qty).quantize(COST, rounding=ROUND_HALF_UP)
+    stock = Decimal("0") if replace else dec(insumo.get("current_stock"))
+    value = Decimal("0") if replace else (stock_value(insumo) if unit_cost(insumo) is not None else None)
+    new_stock = stock + base_qty
+    if value is None or new_stock <= 0:
+        # sin saldo de dinero conocido (o la cuenta sigue en negativo): el costo es el de esta compra
+        new_avg = purchase_cost
+        new_value = (new_stock * new_avg).quantize(MONEY, rounding=ROUND_HALF_UP)
+    else:
+        new_value = value + total
+        new_avg = (new_value / new_stock).quantize(COST, rounding=ROUND_HALF_UP)
+    out = {"unit": key, "quantity": qty, "total_paid": total, "base_quantity": base_qty, "base_unit": base_unit,
+           "unit_cost": purchase_cost, "avg_cost": new_avg, "new_stock": new_stock, "stock_value": new_value,
+           "cost_per_unit": (total / qty).quantize(MONEY, rounding=ROUND_HALF_UP), "replace": bool(replace)}
+    if replace:
+        out.update(purchase_unit=key, consumption_unit=base_unit, units_per_purchase=factor)
+    return out
 
 
 def configure_unit(insumo: dict, unit: Any, convert_amount: Any = None) -> dict:

@@ -18,7 +18,7 @@ function fn(name) {
   return (next < 0 ? tail : tail.slice(0, next)) + '\n';
 }
 
-function context({ restaurant = false } = {}) {
+function context({ restaurant = false, carta = false } = {}) {
   const ctx = vm.createContext({ String, Number, Array, JSON, Math, Intl });
   vm.runInContext(
     'function h(v){return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}\n'
@@ -26,7 +26,14 @@ function context({ restaurant = false } = {}) {
       + 'function inventoryQtyLabel(v){return String(v);}\n'
       + 'function inventoryStatusLabel(s){return s === "inactive" ? "Inactivo" : "Activo";}\n'
       + 'function renderInventoryHistoryPanel(){return "";}\n'
-      + 'function cxInvCartaOn049Q(){return false;}\n'
+      + `function cxInvCartaOn049Q(){return ${carta};}\n`
+      // 049R: con Carta la fila lee el insumo (saldos, última compra y compra en línea)
+      + 'function cxInvInsumo049Q(id){return { id, natural_factor: 1000, min_stock_natural: 2 };}\n'
+      + 'function cxInvStockText049Q(){return "12 kg (12.000 gr)";}\n'
+      + 'function cxInvLastPurchaseHtml049R(){return "<small>Última compra: 3 kg · $42.000 · 28/09/2026</small>";}\n'
+      + 'function cxInvBalanceHtml049R(){return "<b>$192.000</b>";}\n'
+      + 'function cxInvBuyCellHtml049R(i){return `<div data-inv-buy-row="${i.id}"></div>`;}\n'
+      + 'var CX_CAR_RECIPE_UNITS_049N = [["g", "gr"], ["kg", "kg"]];\n'
       + `function isClientModuleActive(code){return ${restaurant} && code === "waiter_ordering";}\n`
       + 'var window = { __cxInventorySearchQuery: "" };\n'
       + ['inventoryMoneyLabel045B', 'inventoryMoneyValue045B', 'inventoryShowsPortions045B', 'inventoryTextWidth045B',
@@ -157,5 +164,22 @@ test('tamaño: número + unidad (se despliega al escribir), y lo que no se enten
 
 test('botón Gastos fijos junto a Crear, Modificar y CSV', () => {
   assert.match(source, /data-inventory-mode="modify">Modificar material<\/button>\s*(?:\$\{carta049Q \? `<button[^`]*data-inventory-mode="insumos">Insumos y compras<\/button>` : ""\}\s*)?<button type="button" data-inventory-export>CSV \+ archivar<\/button>\s*<button class="\$\{mode === "fixed" \? "active" : ""\}" type="button" data-inventory-mode="fixed">Gastos fijos<\/button>/);
-  assert.match(source, /window\.__cxInventoryMode = \["create", "modify", "fixed", "insumos"\]\.includes\(mode\)/);
+  assert.match(source, /window\.__cxInventoryMode = \["create", "modify", "fixed"\]\.includes\(mode\)/);
+});
+
+test('049R: con Carta, Modificar material sin Color, Precio de salida ni Porciones; saldos y compra en la fila', () => {
+  const ctx = context({ restaurant: true, carta: true });
+  const cols = 8; // nombre, tamaño, stock, mínimo, saldo y costo, estado, registrar compra, acciones
+  const panel = ctx.renderInventoryModifyPanel([], []);
+  assert.equal((panel.match(/<th[ >]/g) || []).length, cols);
+  assert.equal((panel.match(/<col /g) || []).length, cols);
+  assert.match(panel, new RegExp(`colspan="${cols}"`));
+  assert.doesNotMatch(panel, /<th>Color<\/th>|<th>Precio salida<\/th>|Porciones/);
+  assert.match(panel, /<th>Saldo y costo<\/th>[\s\S]*<th>Registrar compra<\/th>/);
+  const row = ctx.renderInventoryRow({ ...ROW, allows_portions: true }, 0);
+  assert.equal((row.match(/<td[ >]/g) || []).length, cols);
+  assert.doesNotMatch(row, /data-inventory-field="(color|sale_price|allows_portions|entry_price)"/);
+  assert.match(row, /Última compra: 3 kg · \$42\.000 · 28\/09\/2026[\s\S]*12 kg \(12\.000 gr\)[\s\S]*value="2"[\s\S]*<b>\$192\.000<\/b>[\s\S]*data-inv-buy-row="inv-1"/);
+  // sin Carta todo sigue igual
+  assert.match(context({ restaurant: true }).renderInventoryRow(ROW, 0), /data-inventory-field="color"[\s\S]*data-inventory-field="sale_price"[\s\S]*allows_portions/);
 });

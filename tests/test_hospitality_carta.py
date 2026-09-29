@@ -259,13 +259,17 @@ class CartaDb:
             assert row["company_id"] == cid
             row.update(current_stock=Decimal(str(p["stock"])), avg_cost=Decimal(str(p["avg_cost"])),
                        entry_price=Decimal(str(p["entry_price"])))
+            if "purchase_unit = :purchase_unit" in sql:  # compra que corrige el saldo y define la unidad
+                row.update(purchase_unit=p["purchase_unit"], consumption_unit=p["consumption_unit"],
+                           units_per_purchase=Decimal(str(p["factor"])))
             return Result()
         if sql.startswith("UPDATE carta_unit_equivalences SET amount = amount * :ratio"):
             for key in [k for k in self.equivalences if k[0] == p["i"] and k[2] == cid]:
                 self.equivalences[key] = Decimal(str(self.equivalences[key])) * Decimal(str(p["ratio"]))
             return Result()
         if sql.startswith("DELETE FROM carta_unit_equivalences"):
-            self.equivalences.pop((p["i"], p["base"], cid), None)
+            for key in [k for k in self.equivalences if k[0] == p["i"] and k[2] == cid and ("base" not in p or k[1] == p["base"])]:
+                self.equivalences.pop(key)
             return Result()
         if sql.startswith("SELECT DISTINCT ON (inventory_item_id) inventory_item_id, quantity, unit, total_paid"):
             latest = {}
@@ -276,7 +280,7 @@ class CartaDb:
         if sql.startswith("INSERT INTO carta_purchases"):
             self.purchases.append({"company_id": cid, "inventory_item_id": p["item_id"], "quantity": p["quantity"], "unit": p["unit"],
                                    "total_paid": p["total_paid"], "base_quantity": p["base_quantity"], "unit_cost": p["unit_cost"],
-                                   "source": "compra", "created_by": p["actor"], "created_at": datetime.now(timezone.utc)})
+                                   "source": p["source"], "created_by": p["actor"], "created_at": datetime.now(timezone.utc)})
             return Result()
         if sql.startswith("INSERT INTO carta_items"):
             self.dishes[p["id"]] = {"id": uuid.UUID(p["id"]), "company_id": cid, "name": p["name"], "presentation": p.get("presentation", ""),
@@ -1057,7 +1061,8 @@ def test_hospitality_carta_purchase_endpoint_and_sale_in_kilos(api):
     res = call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin", {"quantity": 80, "unit": "kg", "total_paid": 1120000})
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["purchase"] == {"base_quantity": 80000.0, "unit_cost": 14.0, "avg_cost": 14.0, "cost_per_unit": 14000.0}
+    assert body["purchase"] == {"base_quantity": 80000.0, "unit_cost": 14.0, "avg_cost": 14.0, "cost_per_unit": 14000.0,
+                                "stock": 80000.0, "stock_value": 1120000.0, "replace": False}
     insumo = next(i for i in body["insumos"] if i["id"] == carne)
     assert (insumo["stock_natural"], insumo["unit"], insumo["unit_label"], insumo["stock"]) == (80.0, "kg", "kg", 80000.0), "80 kg (80.000 g)"
     assert insumo["avg_cost"] == 14.0 and insumo["cost_per_unit"] == 14000.0
@@ -1190,3 +1195,94 @@ def test_hospitality_carta_migration_keeps_what_was_already_right():
     assert kept_pollo["avg_cost"] == Decimal("11.2500"), "$180.000 / (10 x 1600 g)"
     # sin precio: no se inventa costo
     assert module.reinterpret({**papa, "entry_price": 0, "avg_cost": 0}, typed_qty=10)["avg_cost"] == 0
+
+
+# ------------- 049R: el inventario es una cuenta con dos saldos (cantidad y dinero) ---
+def _saldos(api, insumo_id):
+    data = call("GET", ASADERO, "", "admin").json()
+    row = next(i for i in data["insumos"] if i["id"] == insumo_id)
+    return row["stock"], row["stock_value"], data
+
+
+def test_hospitality_carta_inventory_is_an_account_with_two_balances(api):
+    carne = _carne_kg(api)
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "CARNE Asada", "price": 32000, "kind": "preparado"}).json()["created_id"]
+    # la carta muestra el costo sin pedir configuraciones: solo ingrediente, cantidad y unidad
+    call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin", {"lines": [{"inventory_item_id": carne, "quantity": 275, "unit": "gr"}]})
+    # 12 kg de carne asada por $192.000
+    res = call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin", {"quantity": 12, "unit": "kg", "total_paid": 192000})
+    assert res.status_code == 200, res.text
+    stock, value, data = _saldos(api, carne)
+    assert (stock, value) == (12000.0, 192000.0), "saldo: 12.000 gr y $192.000"
+    dish = next(i for i in data["items"] if i["id"] == dish_id)
+    assert dish["cost"] == 4400.0 and dish["recipe"][0]["cost"] == 4400.0 and dish["recipe"][0]["needs_equivalence"] is False, \
+        "275 gr de una carne con saldo 12.000 gr y $192.000 = $4.400"
+    # la receta consume 275 gr: sale su parte proporcional del dinero
+    rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(dish_id, 1, "CARNE Asada", 32000)]))
+    assert rows[0]["cost"] == 4400.0, "costo real del ingrediente en ese plato"
+    asyncio_run(hospitality._deduct_inventory(api, uuid.UUID(ASADERO), {"id": "s1", "items": rows}))
+    stock, value, _ = _saldos(api, carne)
+    assert (stock, value) == (11725.0, 187600.0), "11.725 gr y $187.600"
+    # otra compra: 3 kg por $42.000 se suman a los dos saldos
+    res = call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin", {"quantity": 3, "unit": "kg", "total_paid": 42000})
+    assert res.json()["purchase"]["stock"] == 14725.0 and res.json()["purchase"]["stock_value"] == 229600.0
+    stock, value, data = _saldos(api, carne)
+    assert (stock, value) == (14725.0, 229600.0), "14.725 gr y $229.600"
+    insumo = next(i for i in data["insumos"] if i["id"] == carne)
+    assert abs(insumo["avg_cost"] - 229600 / 14725) < 1e-6, "costo por gramo = dinero / cantidad, recalculado solo"
+    assert next(i for i in data["items"] if i["id"] == dish_id)["cost"] == round(275 * 229600 / 14725, 2)
+    assert insumo["last_purchase"]["quantity"] == 3 and insumo["last_purchase"]["total_paid"] == 42000
+    assert insumo["last_purchase"]["created_at"], "la nota de la ultima compra lleva su fecha"
+
+
+def test_hospitality_carta_two_balances_engine():
+    carne = {"purchase_unit": "kg", "consumption_unit": "g", "units_per_purchase": 1000, "current_stock": 0, "avg_cost": 0}
+    first = engine.register_purchase(carne, 12, "kg", 192000)
+    assert (first["new_stock"], first["stock_value"], first["avg_cost"]) == (Decimal("12000"), Decimal("192000"), Decimal("16"))
+    after_sale = {**carne, "current_stock": Decimal("11725"), "avg_cost": first["avg_cost"]}
+    assert engine.stock_value(after_sale) == Decimal("187600.00")
+    second = engine.register_purchase(after_sale, 3, "kg", 42000)
+    assert (second["new_stock"], second["stock_value"]) == (Decimal("14725"), Decimal("229600.00"))
+    assert (second["new_stock"] * second["avg_cost"]).quantize(Decimal("0.01")) == Decimal("229600.00"), "los saldos cuadran al peso"
+    # cuenta en negativo (recetas que descontaron sin existencia): el costo es el de la nueva compra
+    negative = engine.register_purchase({**carne, "current_stock": -500, "avg_cost": 16}, 0.2, "kg", 4000)
+    assert negative["new_stock"] == Decimal("-300") and negative["avg_cost"] == Decimal("20")
+
+
+def test_hospitality_carta_damaged_meat_is_fixed_by_registering_the_purchase_again(api):
+    # como quedo en el Asadero: CARNE Asada con 16 gramos a $56.000 el gramo
+    carne = str(uuid.uuid4())
+    api.inventory[carne] = CartaDb._inv(ASADERO, "CARNE Asada", 16, "ingrediente", "g", "g", 1, avg="56000")
+    insumo = next(i for i in call("GET", ASADERO, "", "admin").json()["insumos"] if i["id"] == carne)
+    assert insumo["balance_suspect"] is True, "se marca para corregir"
+    res = call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin",
+               {"quantity": 12, "unit": "kg", "total_paid": 192000, "replace": True})
+    assert res.status_code == 200, res.text
+    row = api.inventory[carne]
+    assert (row["current_stock"], row["avg_cost"], row["purchase_unit"], row["consumption_unit"]) == (Decimal("12000"), Decimal("16"), "kg", "g")
+    fixed = next(i for i in res.json()["insumos"] if i["id"] == carne)
+    assert fixed["balance_suspect"] is False and fixed["stock_value"] == 192000.0 and fixed["stock_natural"] == 12.0
+    assert api.movements[-1]["movement_type"] == "manual_adjustment" and "corrige el saldo" in api.movements[-1]["notes"]
+    assert api.purchases[-1]["source"] == "correccion"
+
+
+def test_hospitality_carta_correction_can_change_the_unit(api):
+    # contado por "unidad" y en realidad se compra por peso: la compra que corrige define su unidad
+    queso = str(uuid.uuid4())
+    api.inventory[queso] = CartaDb._inv(ASADERO, "Queso", 5, "ingrediente", "unidad", "unidad", 1, avg="100000")
+    normal = call("POST", ASADERO, f"/insumos/{queso}/purchases", "admin", {"quantity": 2, "unit": "kg", "total_paid": 40000})
+    assert normal.status_code == 400 and "Corregir saldo" in normal.text
+    fixed = call("POST", ASADERO, f"/insumos/{queso}/purchases", "admin", {"quantity": 2, "unit": "kg", "total_paid": 40000, "replace": True})
+    assert fixed.status_code == 200, fixed.text
+    row = api.inventory[queso]
+    assert (row["current_stock"], row["consumption_unit"], row["units_per_purchase"], row["avg_cost"]) == (Decimal("2000"), "g", Decimal("1000"), Decimal("20"))
+
+
+def test_hospitality_carta_cost_precision_migration():
+    path = ROOT / "migrations/versions/022g_avg_cost_precision.py"
+    spec = importlib.util.spec_from_file_location("mig_022g", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    source = path.read_text(encoding="utf-8")
+    assert len(module.revision) <= 32 and module.down_revision == "022f_carta_purchases"
+    assert "ALTER COLUMN avg_cost TYPE numeric(18, 8)" in source
