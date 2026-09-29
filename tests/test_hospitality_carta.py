@@ -136,6 +136,8 @@ class CartaDb:
         self.categories: dict[str, dict] = {}
         self.equivalences: dict[tuple, Decimal] = {}
         self.purchases: list[dict] = []
+        self.invoices: dict[tuple, dict] = {}
+        self.sales: list[dict] = []  # movimientos de venta (consumo real) para Proximas compras
         self.waiter_settings: dict = {}
         self.image_stamps: dict[str, datetime] = {}
         self.commit = AsyncMock()
@@ -271,14 +273,35 @@ class CartaDb:
             for key in [k for k in self.equivalences if k[0] == p["i"] and k[2] == cid and ("base" not in p or k[1] == p["base"])]:
                 self.equivalences.pop(key)
             return Result()
-        if sql.startswith("SELECT DISTINCT ON (inventory_item_id) inventory_item_id, quantity, unit, total_paid"):
+        if sql.startswith("SELECT purchase_id FROM carta_purchase_invoices"):
+            return Result([{"purchase_id": k[1]} for k, v in self.invoices.items() if k[0] == cid and v.get("image_bytes")])
+        if sql.startswith("SELECT id, inventory_item_id FROM carta_purchases WHERE id"):
+            return Result([r for r in self.purchases if r["id"] == p["id"] and r["company_id"] == p["c"]])
+        if sql.startswith("INSERT INTO carta_purchase_invoices"):
+            self.invoices.setdefault((p["c"], p["p"]), {})["original_name"] = p["name"]
+            return Result()
+        if sql.startswith("UPDATE carta_purchase_invoices SET image_bytes"):
+            self.invoices[(p["company_id"], p["purchase_id"])].update(image_bytes=p["image_bytes"], image_content_type=p["image_content_type"])
+            return Result()
+        if sql.startswith("SELECT image_bytes, image_content_type FROM carta_purchase_invoices"):
+            row = self.invoices.get((p["company_id"], p["purchase_id"]))
+            return Result([row] if row and row.get("image_bytes") else [])
+        if sql.startswith("SELECT item_id, movement_type, quantity_delta, created_at FROM inventory_movements"):
+            return Result([m for m in self.sales if m["company_id"] == cid and m["created_at"] >= p["since"]])
+        if sql.startswith("SELECT item_id, MIN(created_at) AS first_seen FROM inventory_movements"):
+            firsts = {}
+            for m in self.sales:
+                if m["company_id"] == cid:
+                    firsts[m["item_id"]] = min(firsts.get(m["item_id"], m["created_at"]), m["created_at"])
+            return Result([{"item_id": k, "first_seen": v} for k, v in firsts.items()])
+        if sql.startswith("SELECT DISTINCT ON (inventory_item_id) id, inventory_item_id, quantity, unit, total_paid"):
             latest = {}
             for row in self.purchases:
                 if row["company_id"] == cid:
                     latest[row["inventory_item_id"]] = row
             return Result(list(latest.values()))
         if sql.startswith("INSERT INTO carta_purchases"):
-            self.purchases.append({"company_id": cid, "inventory_item_id": p["item_id"], "quantity": p["quantity"], "unit": p["unit"],
+            self.purchases.append({"id": p["id"], "company_id": cid, "inventory_item_id": p["item_id"], "quantity": p["quantity"], "unit": p["unit"],
                                    "total_paid": p["total_paid"], "base_quantity": p["base_quantity"], "unit_cost": p["unit_cost"],
                                    "source": p["source"], "created_by": p["actor"], "created_at": datetime.now(timezone.utc)})
             return Result()
@@ -1061,6 +1084,8 @@ def test_hospitality_carta_purchase_endpoint_and_sale_in_kilos(api):
     res = call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin", {"quantity": 80, "unit": "kg", "total_paid": 1120000})
     assert res.status_code == 200, res.text
     body = res.json()
+    purchase_id = body["purchase"].pop("id")
+    assert purchase_id == api.purchases[-1]["id"], "la compra devuelve su id (para adjuntarle la factura)"
     assert body["purchase"] == {"base_quantity": 80000.0, "unit_cost": 14.0, "avg_cost": 14.0, "cost_per_unit": 14000.0,
                                 "stock": 80000.0, "stock_value": 1120000.0, "replace": False}
     insumo = next(i for i in body["insumos"] if i["id"] == carne)
@@ -1399,3 +1424,195 @@ def test_hospitality_carta_fixed_meat_costs_4400_for_275_g(api):
     insumo = next(i for i in res.json()["insumos"] if i["id"] == carne)
     assert dish["cost"] == 4400.0, "275 gr cuestan $4.400"
     assert (insumo["stock"], insumo["stock_value"], insumo["balance_suspect"]) == (12000.0, 192000.0, False)
+
+
+# ------------- 049T: valor unico del inventario, proximas compras y facturas ---
+import math  # noqa: E402
+from datetime import timedelta  # noqa: E402
+
+from app.services import restock  # noqa: E402
+
+NOW = datetime(2026, 9, 29, 18, tzinfo=timezone.utc)
+
+
+def _sales(item_id, grams_per_day, days, company=ASADERO, now=NOW):
+    """Ventas reales: un movimiento 'hospitality_sale' por dia."""
+    from datetime import timedelta as _td
+
+    return [{"company_id": company, "item_id": item_id, "movement_type": "hospitality_sale",
+             "quantity_delta": Decimal(str(-grams_per_day)), "created_at": now - _td(days=d, hours=2)} for d in range(days)]
+
+
+def test_hospitality_carta_stock_total_uses_the_same_unit_as_the_quantity(api):
+    # 12 kg de carne con saldo de $192.000: el total es $192.000, no $192.000.000
+    carne = _carne_kg(api, stock=12000, avg="16")
+    api.inventory[carne]["entry_price"] = Decimal("16000")
+    from app.api.v1.endpoints import inventory as inventory_endpoint
+
+    raw = [inventory_endpoint.inventory_item_out({**api.inventory[carne], "id": carne})]
+    assert raw[0]["entry_stock_value"] == 192_000_000, "asi se veia: 12.000 g x $16.000 el kilo"
+    rows = asyncio_run(carta_endpoint.enrich_stock_rows(api, uuid.UUID(ASADERO), raw))
+    row = rows[0]
+    assert row["entry_stock_value"] == 192000.0 and row["entry_price"] == 16000.0
+    assert (row["stock_natural"], row["unit_label"], row["base_label"], row["natural_factor"]) == (12.0, "kg", "gr", 1000.0), "12 kg (12.000 gr)"
+    assert row["sale_stock_value"] == 0.0, "el precio de venta de un insumo por peso vive en Carta"
+    summary = inventory_endpoint.inventory_summary(rows)
+    insumos = asyncio_run(carta_endpoint.load_insumos(api, uuid.UUID(ASADERO)))
+    assert summary["total_entry_value"] == float(restock.inventory_value([insumos[carne]])) == 192000.0
+
+
+def test_hospitality_carta_inventory_value_is_the_sum_of_the_balances(api):
+    carne = _carne_kg(api, stock=12000, avg="16")
+    api.inventory[carne]["entry_price"] = Decimal("16000")
+    insumos = asyncio_run(carta_endpoint.load_insumos(api, uuid.UUID(ASADERO)))
+    from app.api.v1.endpoints import inventory as inventory_endpoint
+
+    raw = [inventory_endpoint.inventory_item_out({**v, "id": k}) for k, v in api.inventory.items() if v["company_id"] == ASADERO]
+    rows = asyncio_run(carta_endpoint.enrich_stock_rows(api, uuid.UUID(ASADERO), raw))
+    stock_kpi = inventory_endpoint.inventory_summary(rows)["total_entry_value"]
+    expected = sum(float(restock.item_value(i)) for i in insumos.values())
+    report = restock.report_inventory(insumos, {})
+    assert stock_kpi == round(expected, 2) == report["value"], "Stock, Inventario y Reportes: la misma cifra"
+    # un insumo en negativo o sin costo no suma
+    api.inventory[ACEITE]["current_stock"] = Decimal("-50")
+    assert restock.item_value({**api.inventory[ACEITE]}) == 0
+
+
+def test_hospitality_carta_consumption_comes_from_real_sales_movements():
+    carne = str(uuid.uuid4())
+    moves = _sales(carne, 550, 14) + [
+        {"item_id": carne, "movement_type": "hospitality_order_edit", "quantity_delta": Decimal("275"), "created_at": NOW},  # devolvieron un plato
+        {"item_id": carne, "movement_type": "entry", "quantity_delta": Decimal("12000"), "created_at": NOW},  # una compra no es consumo
+        {"item_id": carne, "movement_type": "hospitality_sale", "quantity_delta": Decimal("-9999"), "created_at": NOW - timedelta(days=40)},  # fuera de la ventana
+    ]
+    use = restock.consumption(moves, NOW)[carne]
+    assert use["consumed"] == Decimal(550 * 14 - 275) and use["active_days"] == 14 and use["observed_days"] == 28
+    assert use["enough_history"] is True
+    assert use["daily"] == Decimal(550 * 14 - 275) / 28, "consumo real / dias observados"
+    assert restock.coverage_days(12000, use["daily"]).quantize(Decimal("0.1")) == Decimal("45.3")
+
+
+def test_hospitality_carta_without_history_there_is_no_invented_projection():
+    nuevo, poco = str(uuid.uuid4()), str(uuid.uuid4())
+    usage = restock.consumption(_sales(poco, 300, 2) + [{"item_id": nuevo, "movement_type": "entry", "quantity_delta": 1000,
+                                                        "created_at": NOW - timedelta(days=1)}], NOW)
+    assert usage[poco]["enough_history"] is False and usage[poco]["daily"] is None, "2 dias con ventas no bastan"
+    assert usage[nuevo]["daily"] is None
+    insumos = {
+        nuevo: {"name": "Queso nuevo", "current_stock": 1000, "min_stock": 0, "purchase_unit": "kg", "consumption_unit": "g", "units_per_purchase": 1000, "avg_cost": 20},
+        poco: {"name": "Tocineta", "current_stock": 100, "min_stock": 500, "purchase_unit": "kg", "consumption_unit": "g", "units_per_purchase": 1000, "avg_cost": 30},
+    }
+    plan = restock.plan(insumos, usage, {}, 15)
+    tocineta = next(r for r in plan["buy"] if r["id"] == poco)
+    assert tocineta["reason"] == "bajo_minimo" and tocineta["daily"] is None and tocineta["days_left"] is None
+    assert tocineta["basis"] == "minimo" and tocineta["suggest_natural"] == 0.4, "sin historial: solo hasta el minimo (400 g)"
+    assert "Tocineta" in plan["without_history"]
+    queso = next(r for r in plan["ok"] if r["id"] == nuevo)
+    assert queso["days_left"] is None and queso["suggest_natural"] == 0, "no inventa cuando se acaba ni cuanto comprar"
+
+
+def test_hospitality_carta_restock_orders_by_urgency_and_prices_the_purchase():
+    a, b, c, d = (str(uuid.uuid4()) for _ in range(4))
+    usage = restock.consumption(_sales(a, 1000, 20) + _sales(b, 500, 20) + _sales(c, 100, 20) + _sales(d, 2, 20), NOW)
+    base = {"purchase_unit": "kg", "consumption_unit": "g", "units_per_purchase": 1000, "min_stock": 0}
+    insumos = {
+        a: {**base, "name": "Carne asada", "current_stock": 3000, "avg_cost": 16},     # 3 kg a 1 kg/dia: 3 dias
+        b: {**base, "name": "Papa", "current_stock": 0, "avg_cost": 3},                # agotada
+        c: {**base, "name": "Tomate", "current_stock": 5000, "avg_cost": 4},           # 50 dias: al dia
+        d: {"name": "Gaseosa", "current_stock": 10, "min_stock": 12, "purchase_unit": "unidad", "consumption_unit": "unidad",
+            "units_per_purchase": 1, "avg_cost": 2500},                                # bajo el minimo
+    }
+    last = {a: {"quantity": 12, "unit": "kg", "total_paid": 192000, "created_at": "2026-09-29T16:00:00"}}
+    plan = restock.plan(insumos, usage, last, 15)
+    assert [r["name"] for r in plan["buy"]] == ["Papa", "Gaseosa", "Carne asada"], "agotado, bajo el minimo, luego lo que se acaba primero"
+    carne = plan["buy"][2]
+    daily = 1000  # vendio 1 kg diario los 20 dias que lleva: se divide por los dias observados, no por 28
+    assert carne["reason"] == "se_acaba" and carne["days_left"] == round(3000 / daily, 1)
+    assert carne["suggest_natural"] == math.ceil((daily * 15 - 3000) / 100) / 10, "para 15 dias, en kg de a 0,1"
+    assert carne["estimated_cost"] == round(carne["suggest_natural"] * 1000 * 16, 2) and carne["last_purchase"] == last[a]
+    assert plan["total_estimated"] == round(sum(r["estimated_cost"] for r in plan["buy"] if r["estimated_cost"]), 2)
+    assert [r["name"] for r in plan["ok"]] == ["Tomate"]
+    longer = restock.plan(insumos, usage, last, 60)
+    assert "Tomate" in [r["name"] for r in longer["buy"]], "con 60 dias el tomate (50 dias) tambien entra"
+
+
+def test_hospitality_carta_restock_endpoint_uses_real_consumption(api):
+    carne = _carne_kg(api, stock=12000, avg="16")
+    api.sales = _sales(carne, 800, 21, now=datetime.now(timezone.utc))
+    res = call("GET", ASADERO, "/restock?days=15", "admin")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    row = next(r for r in body["buy"] + body["ok"] if r["id"] == carne)
+    daily = 800  # 800 g diarios durante los 21 dias observados
+    assert row["daily"] == daily and row["days_left"] == round(12000 / daily, 1) and row["enough_history"] is True
+    assert body["days_to_cover"] == 15 and body["inventory"]["value"] >= 192000
+    saved = call("PUT", ASADERO, "/restock/settings", "admin", {"days": 30})
+    assert saved.status_code == 200 and api.settings["restock_days"] == 30
+    assert call("GET", ASADERO, "/restock", "admin").json()["days_to_cover"] == 30, "el periodo queda guardado"
+    assert call("PUT", ASADERO, "/restock/settings", "admin", {"days": 0}).status_code == 422
+
+
+@pytest.mark.parametrize("method,path", [("GET", "/restock"), ("PUT", "/restock/settings"),
+                                          ("POST", f"/purchases/{uuid.uuid4()}/invoice"), ("GET", f"/purchases/{uuid.uuid4()}/invoice")])
+def test_hospitality_carta_restock_and_invoice_endpoints_require_admin_session_and_module(api, method, path):
+    assert call(method, ASADERO, path, body={"days": 15}).status_code == 401
+    assert call(method, ASADERO, path, "mesero", body={"days": 15}).status_code == 403
+    assert call(method, ASADERO, path, "ttm", body={"days": 15}).status_code == 403
+    assert call(method, TTM, path, "ttm", body={"days": 15}).status_code == 403
+
+
+def test_hospitality_carta_purchase_invoice_is_resized_and_capped(api):
+    carne = _carne_kg(api)
+    purchase = call("POST", ASADERO, f"/insumos/{carne}/purchases", "admin", {"quantity": 12, "unit": "kg", "total_paid": 192000}).json()["purchase"]
+    headers = {"Authorization": "Bearer admin"}
+    url = f"/api/v1/carta/companies/{ASADERO}/purchases/{purchase['id']}/invoice"
+    photo = _png(2400, 3200)  # foto de celular grande
+    res = client.post(url, headers=headers, files={"invoice": ("factura.png", photo, "image/png")})
+    assert res.status_code == 200, res.text
+    stored = api.invoices[(ASADERO, purchase["id"])]
+    assert len(stored["image_bytes"]) <= 200 * 1024 and stored["original_name"] == "factura.png", "media_storage: tope de 200 KB"
+    from PIL import Image
+    import io as _io
+    assert Image.open(_io.BytesIO(stored["image_bytes"])).width <= 800, "redimensionada en el servidor"
+    got = client.get(url, headers=headers)
+    assert got.status_code == 200 and got.content == stored["image_bytes"] and got.headers["content-type"].startswith("image/")
+    listed = next(i for i in call("GET", ASADERO, "", "admin").json()["insumos"] if i["id"] == carne)
+    assert listed["last_purchase"]["id"] == purchase["id"] and listed["last_purchase"]["has_invoice"] is True
+    pdf = client.post(url, headers=headers, files={"invoice": ("f.pdf", b"%PDF-1.4", "application/pdf")})
+    assert pdf.status_code == 422 and "foto" in pdf.text
+    other = client.post(f"/api/v1/carta/companies/{ASADERO}/purchases/{uuid.uuid4()}/invoice", headers=headers,
+                        files={"invoice": ("f.png", photo, "image/png")})
+    assert other.status_code == 404, "solo compras de esta empresa"
+    big = client.post(url, headers=headers, files={"invoice": ("f.png", b"0" * (12 * 1024 * 1024 + 10), "image/png")})
+    assert big.status_code == 413
+
+
+def test_hospitality_carta_invoices_migration():
+    path = ROOT / "migrations/versions/022i_purchase_invoices.py"
+    spec = importlib.util.spec_from_file_location("mig_022i", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    source = path.read_text(encoding="utf-8")
+    assert len(module.revision) <= 32 and module.down_revision == "022h_fix_carnes_asadero"
+    assert "REFERENCES carta_purchases(id) ON DELETE CASCADE" in source and "PRIMARY KEY (company_id, purchase_id)" in source
+    assert "image_bytes bytea" in source and "image_content_type" in source, "la forma que espera media_storage"
+
+
+def test_hospitality_carta_reports_inventory_matches_restock_and_stock():
+    carne, papa = str(uuid.uuid4()), str(uuid.uuid4())
+    base = {"purchase_unit": "kg", "consumption_unit": "g", "units_per_purchase": 1000, "min_stock": 0, "item_type": "ingrediente"}
+    insumos = {carne: {**base, "name": "CARNE Asada", "current_stock": 12000, "avg_cost": 16},
+               papa: {**base, "name": "PAPA", "current_stock": 5000, "avg_cost": 3}}
+    usage = restock.consumption(_sales(carne, 5000, 20), NOW)
+    inv = restock.report_inventory(insumos, usage)
+    assert inv["value"] == 192000 + 15000 == float(restock.inventory_value(insumos.values()))
+    daily = Decimal(5000)  # 5 kg diarios en los 20 dias observados
+    assert inv["coverage"] == [{"name": "CARNE Asada", "stock": "12 kg", "daily": restock.qty_text(daily / 1000, "kg"),
+                                "days": float((12000 / daily).quantize(Decimal("0.1"))), "unit": "kg"}]
+    assert inv["buy_today"] == inv["coverage"], "se acaba en menos de 3 dias"
+    assert inv["idle"] == [{"name": "PAPA", "stock": "5 kg", "value": 15000.0}]
+    assert inv["daily_consumption_cost"] == float((daily * 16).quantize(Decimal("0.01")))
+    assert inv["inventory_days"] == float((Decimal(207000) / (daily * 16)).quantize(Decimal("0.1")))
+    plan = restock.plan(insumos, usage, {}, 15)
+    assert next(r for r in plan["buy"] if r["id"] == carne)["days_left"] == inv["coverage"][0]["days"], "la misma cobertura en los dos lados"
+    assert restock.qty_text(Decimal("11725.5"), "gr") == "11.725,5 gr" and restock.qty_text(12, "kg") == "12 kg"

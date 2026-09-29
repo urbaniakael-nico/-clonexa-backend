@@ -36,6 +36,7 @@ from app.api.v1.endpoints.hospitality import (
     _hsp_report_zone,
 )
 from app.services import owner_report as engine
+from app.services import restock
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
@@ -143,7 +144,15 @@ async def _context(db: AsyncSession, company_id: uuid.UUID, period: str, start, 
 
     fixed = await fixed_expenses_for_period(db, company_id, chosen["start"], chosen["end"])
     fixed_prev = await fixed_expenses_for_period(db, company_id, chosen["prev_start"], chosen["prev_end"])
-    return {"report": report, "period": chosen, "tz": tz_name, "cash_counts": cash_counts, "fixed": fixed, "fixed_prev": fixed_prev}
+    # 049T: con Carta, el inventario de Reportes sale del mismo calculo que Stock
+    # y Proximas compras (saldos en dinero y consumo real de los movimientos).
+    from app.api.v1.endpoints import carta as carta_endpoint
+
+    stock = None
+    if await carta_endpoint.carta_enabled(db, company_id):
+        stock = (await carta_endpoint.load_insumos(db, company_id), await carta_endpoint.load_usage(db, company_id))
+    return {"report": report, "period": chosen, "tz": tz_name, "cash_counts": cash_counts, "fixed": fixed, "fixed_prev": fixed_prev,
+            "stock": stock}
 
 
 def _period_payload(period: dict) -> dict:
@@ -160,7 +169,7 @@ async def _summary(ctx: dict) -> dict:
         "timezone": ctx["tz"],
         "kpis": kpis,
         "income_statement": statement,
-        "readings": report.readings(kpis=kpis),
+        "readings": report.readings(kpis=kpis, inventory=restock.report_inventory(*ctx["stock"]) if ctx.get("stock") else None),
         "busiest_weekday": report.busiest_weekday(),
     })
 
@@ -175,7 +184,7 @@ async def _details(ctx: dict) -> dict:
         "team": report.team(),
         "kitchen": report.kitchen(),
         "operations": report.operations(),
-        "inventory": report.inventory_report(),
+        "inventory": restock.report_inventory(*ctx["stock"]) if ctx.get("stock") else report.inventory_report(),
         "cash_counts": [{"cashier_name": r["cashier_name"], "counts": int(r["counts"]), "shortages": int(r["shortages"]),
                          "shortage": r["shortage"], "surplus": r["surplus"]} for r in ctx.get("cash_counts") or []],
     })

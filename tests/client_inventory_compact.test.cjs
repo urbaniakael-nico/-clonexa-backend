@@ -164,7 +164,9 @@ test('tamaño: número + unidad (se despliega al escribir), y lo que no se enten
 
 test('botón Gastos fijos junto a Crear, Modificar y CSV', () => {
   assert.match(source, /data-inventory-mode="modify">Modificar material<\/button>\s*(?:\$\{carta049Q \? `<button[^`]*data-inventory-mode="insumos">Insumos y compras<\/button>` : ""\}\s*)?<button type="button" data-inventory-export>CSV \+ archivar<\/button>\s*<button class="\$\{mode === "fixed" \? "active" : ""\}" type="button" data-inventory-mode="fixed">Gastos fijos<\/button>/);
-  assert.match(source, /window\.__cxInventoryMode = \["create", "modify", "fixed"\]\.includes\(mode\)/);
+  assert.match(source, /window\.__cxInventoryMode = \["create", "modify", "fixed", "compras"\]\.includes\(mode\)/);
+  // 049T: "Próximas compras" solo con Carta
+  assert.match(source, /\$\{carta049Q \? `<button class="\$\{mode === "compras" \? "active" : ""\}" type="button" data-inventory-mode="compras">Próximas compras<\/button>` : ""\}/);
 });
 
 test('049S: con Carta, Modificar material usa su propia tabla; sin Carta nada cambia', () => {

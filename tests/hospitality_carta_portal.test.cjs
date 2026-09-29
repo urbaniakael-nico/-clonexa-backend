@@ -742,10 +742,72 @@ test('crear con Carta: nombre, cantidad total comprada, unidad de compra, total 
   const ctx = inventoryCtx([]);
   const html = ctx.cxInvCreatePanelHtml049R();
   const labels = [...html.matchAll(/<label>([^<]+)<\/label>/g)].map((m) => m[1]);
-  assert.deepEqual(labels, ['Nombre / referencia', 'Cantidad total comprada', 'Unidad de medida de compra', 'Total pagado', 'Mínimo alerta']);
-  assert.doesNotMatch(html, /Precio de salida|Color|Tamaño|Precio de entrada|Porciones|Adjuntar factura|type="file"/i);
+  assert.deepEqual(labels, ['Nombre / referencia', 'Cantidad total comprada', 'Unidad de medida de compra', 'Total pagado', 'Mínimo alerta', 'Factura (opcional)']);
+  assert.doesNotMatch(html, /Precio de salida|Color|Tamaño|Precio de entrada|Porciones/i);
+  assert.match(html, /id="inventoryCreateInvoice049T" type="file" accept="image\/jpeg,image\/png,image\/webp"/, '049T: factura opcional al crear');
   const units = [...html.split('inventoryCreateUnit049Q')[1].split('</select>')[0].matchAll(/>([^<]+)<\/option>/g)].map((m) => m[1]);
   assert.deepEqual(units, ['gr', 'kg', 'lb', 'onza', 'ml', 'litros', 'unidad', 'par', 'docena', 'paquete', 'cucharada', 'pizca'], 'misma lista que Carta');
   assert.equal(ctx.cxInvCreatePreview049Q('kg', 12, 192000).text, 'Saldo: 12.000 gr y $192.000 · $16,00 por gr');
   assert.match(source, /if \(cxInvCartaOn049Q\(\)\) return cxInvCreatePanelHtml049R\(\);/, 'solo con Carta; las demás empresas no cambian');
+});
+
+// ------------------- 049T: Stock en la misma unidad, Próximas compras y facturas
+const RESTOCK = {
+  days_to_cover: 15, window_days: 28, total_estimated: 188000,
+  buy: [
+    { id: 'p', name: 'PAPA', reason: 'agotado', unit_label: 'kg', stock_natural: 0, min_natural: 5, daily_natural: 2.5, days_left: 0, enough_history: true,
+      active_days: 20, observed_days: 28, basis: 'consumo', suggest_natural: 42.5, estimated_cost: 127500, last_purchase: null },
+    { id: 'g', name: 'Gaseosa', reason: 'bajo_minimo', unit_label: 'unidad', stock_natural: 10, min_natural: 12, daily_natural: null, days_left: null,
+      enough_history: false, active_days: 2, observed_days: 5, basis: 'minimo', suggest_natural: 2, estimated_cost: 5000, last_purchase: null },
+    { id: 'c', name: 'CARNE Asada', reason: 'se_acaba', unit_label: 'kg', stock_natural: 3, min_natural: 0, daily_natural: 1, days_left: 3, enough_history: true,
+      active_days: 20, observed_days: 20, basis: 'consumo', suggest_natural: 12, estimated_cost: 55500,
+      last_purchase: { quantity: 12, unit: 'kg', unit_label: 'kg', total_paid: 192000, created_at: '2026-09-29T16:00:00' } },
+  ],
+  ok: [{ id: 't', name: 'TOMATE', reason: 'ok', unit_label: 'kg', stock_natural: 5, days_left: 50 }],
+  without_cost: [], without_history: ['Gaseosa'],
+};
+
+test('Próximas compras: por urgencia, cuánto comprar y cuánto cuesta, sin inventar lo que no tiene historial', () => {
+  const ctx = inventoryCtx([]);
+  ctx.cxInvRestock049T.data = RESTOCK;
+  const html = ctx.cxInvRestockHtml049T();
+  const rows = [...html.matchAll(/data-inv-restock-row="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(rows, ['p', 'g', 'c'], 'lo que se acaba primero, arriba');
+  assert.match(html, /data-inv-restock-row="p"[\s\S]*Agotado[\s\S]*PAPA[\s\S]*Mínimo 5 kg[\s\S]*0 kg[\s\S]*2,5 kg por día[\s\S]*Ya se acabó[\s\S]*42,5 kg[\s\S]*\$127\.500[\s\S]*Sin compras registradas/);
+  assert.match(html, /data-inv-restock-row="g"[\s\S]*Bajo el mínimo[\s\S]*Sin historial suficiente \(2 días con consumo en 5\): no se proyecta[\s\S]*Sin historial suficiente[\s\S]*2 unidad \(hasta el mínimo\)/);
+  assert.match(html, /data-inv-restock-row="c"[\s\S]*Se acaba pronto[\s\S]*En 3 días[\s\S]*12 kg[\s\S]*\$55\.500[\s\S]*12 kg · \$192\.000 \(\$16\.000 \/ kg\) · 29\/09\/2026/, 'la última compra para comparar precios');
+  assert.match(html, /data-inv-restock-days value="15"[\s\S]*Total estimado <b>\$188\.000<\/b>[\s\S]*data-inv-restock-print>Imprimir lista de mercado[\s\S]*data-inv-restock-csv>Descargar CSV/);
+  assert.match(html, /<details><summary>Al día \(1\)<\/summary>[\s\S]*TOMATE<\/b> · 5 kg · alcanza 50 días/);
+});
+
+test('Próximas compras se imprime como lista de mercado y se exporta en CSV', () => {
+  const ctx = inventoryCtx([]);
+  const print = ctx.cxInvRestockPrintHtml049T(RESTOCK);
+  assert.match(print, /<title>Lista de mercado [\d/]+<\/title>[\s\S]*Para 15 días al ritmo de consumo actual/);
+  assert.match(print, /<span class="box"><\/span><\/td><td>PAPA<\/td><td class="n">42,5 kg<\/td><td class="n">\$127\.500/);
+  assert.match(print, /Total estimado<\/td><td><\/td><td class="n">\$188\.000/);
+  const csv = ctx.cxInvRestockCsv049T(RESTOCK).split('\n');
+  assert.equal(csv[0], '"Urgencia","Insumo","Existencia","Unidad","Consumo diario","Se acaba","Comprar","Costo estimado","Última compra"');
+  assert.equal(csv[2], '"Bajo el mínimo","Gaseosa","10","unidad","sin historial suficiente","Sin historial suficiente","2","5000","Sin compras registradas"');
+  assert.equal(csv.at(-1), '"","Total estimado","","","","","","188000",""');
+});
+
+test('factura: se adjunta en la ventana de compra y se ve desde la nota de la última compra', async () => {
+  const withInvoice = { ...CARNE_KG, last_purchase: { ...CARNE_KG.last_purchase, id: 'pur-1', has_invoice: true } };
+  const ctx = withDialogDom(inventoryCtx([withInvoice]));
+  assert.match(ctx.cxInvLastPurchaseHtml049R(withInvoice), /28\/09\/2026 · <button type="button" class="cx-inv-link-049t" data-inv-invoice-view="pur-1">Ver factura<\/button>/);
+  assert.doesNotMatch(ctx.cxInvLastPurchaseHtml049R(CARNE_KG), /Ver factura/);
+  await click(ctx, 'data-inv-buy-open', 'k1');
+  assert.match(ctx.body[0].html, /Factura[\s\S]*opcional · foto JPG, PNG o WEBP; se reduce sola[\s\S]*<input type="file" accept="image\/jpeg,image\/png,image\/webp" data-inv-buy-invoice="k1">/);
+  // guardar: primero la compra, luego su factura con el id que devolvió
+  const file = { name: 'factura.jpg' };
+  const original = ctx.document.querySelector;
+  ctx.document.querySelector = (sel) => (sel === '[data-inv-buy-invoice="k1"]' ? { files: [file] } : original(sel));
+  Object.assign(ctx.dom.values, { '[data-inv-buy-qty="k1"]': '12', '[data-inv-buy-unit="k1"]': 'kg', '[data-inv-buy-total="k1"]': '192.000' });
+  ctx.respond = (path) => (path.endsWith('/purchases') ? { ...DATA, insumos: [CARNE_KG], purchase: { id: 'pur-9' } } : { ok: true });
+  await click(ctx, 'data-inv-buy-save', 'k1');
+  const upload = ctx.calls.find((c) => c.path.endsWith('/purchases/pur-9/invoice'));
+  assert.ok(upload, 'sube la factura de esa compra');
+  assert.deepEqual(upload.form, [['invoice', file]]);
+  assert.match(ctx.notices.at(-1)[1], /Compra registrada en Carne asada con su factura/);
 });

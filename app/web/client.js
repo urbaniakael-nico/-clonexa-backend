@@ -5638,7 +5638,7 @@
   }
 
   function setInventoryMode(mode) {
-    window.__cxInventoryMode = ["create", "modify", "fixed"].includes(mode) ? mode : "create";
+    window.__cxInventoryMode = ["create", "modify", "fixed", "compras"].includes(mode) ? mode : "create";
   }
 
   async function loadInventoryItems(query = "") {
@@ -6366,6 +6366,7 @@ function inventoryCreatePayload() {
                 <div class="client-kpi"><span>Stock bajo</span><strong>${h(summary.low_stock || 0)}</strong></div>
                 <div class="client-kpi"><span>Inactivos</span><strong>${h(summary.inactive || 0)}</strong></div>
                 <div class="client-kpi"><span>Total registros</span><strong>${h(summary.total || 0)}</strong></div>
+                ${carta049Q ? `<div class="client-kpi" title="Suma de los saldos en dinero: la misma cifra de Stock y Reportes"><span>Valor del inventario</span><strong>${h(cxCarMoney048T(summary.total_entry_value || 0))}</strong></div>` : ""}
               </div>
 
               <div class="cx-inv-modebar">
@@ -6373,10 +6374,11 @@ function inventoryCreatePayload() {
                 <button class="${mode === "modify" ? "active" : ""}" type="button" data-inventory-mode="modify">Modificar material</button>
                 <button type="button" data-inventory-export>CSV + archivar</button>
                 <button class="${mode === "fixed" ? "active" : ""}" type="button" data-inventory-mode="fixed">Gastos fijos</button>
+                ${carta049Q ? `<button class="${mode === "compras" ? "active" : ""}" type="button" data-inventory-mode="compras">Próximas compras</button>` : ""}
               </div>
             </section>
 
-            ${mode === "fixed" ? `<section class="client-panel" id="cxFix049MRoot">${cxFixPanelHtml049M()}</section>` : mode === "create" ? renderInventoryCreatePanel() : renderInventoryModifyPanel(rows, movements)}
+            ${mode === "compras" && carta049Q ? `<section class="client-panel" id="cxInvRestock049TRoot">${cxInvRestockHtml049T()}</section>` : mode === "fixed" ? `<section class="client-panel" id="cxFix049MRoot">${cxFixPanelHtml049M()}</section>` : mode === "create" ? renderInventoryCreatePanel() : renderInventoryModifyPanel(rows, movements)}
           </section>
         </div>
       </main>
@@ -6388,6 +6390,7 @@ function inventoryCreatePayload() {
     }
     if (mode === "modify") applyInventorySmartSearch(window.__cxInventorySearchQuery || "");
     if (mode === "fixed") cxFixLoad049M();
+    if (mode === "compras" && carta049Q) cxInvRestockLoad049T();
   }
 
   /* CX_019E_R1_INVENTORY_HISTORY_ARCHIVE_CLIENT */
@@ -6555,6 +6558,8 @@ function inventoryCreatePayload() {
     const salePrice = inventoryNumber(row.sale_price ?? row.unit_value ?? row.unit_price ?? row.price ?? 0);
     const entryStockValue = inventoryNumber(row.entry_stock_value ?? (inventoryNumber(row.current_stock) * entryPrice));
     const saleStockValue = inventoryNumber(row.sale_stock_value ?? row.stock_value ?? (inventoryNumber(row.current_stock) * salePrice));
+    // 049T: con Carta el servidor manda la unidad: cantidad, precio y total en la misma unidad
+    if (row.unit_label) return cxStockCartaRowHtml049T(row, alertClass, status, entryStockValue, saleStockValue);
     return `
       <tr data-stock-row="${h(row.id)}">
         <td class="cx-stock-product-024t">
@@ -6567,6 +6572,33 @@ function inventoryCreatePayload() {
         <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(salePrice))}</span></td>
         <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(entryStockValue))}</span></td>
         <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(saleStockValue))}</span></td>
+        <td><span class="cx-stock-chip-024t ${h(alertClass)}">${h(cxStockAlertLabel024T(row))}</span></td>
+        <td><span class="cx-stock-chip-024t ${status === "inactive" ? "inactive" : "ok"}">${h(inventoryStatusLabel(status))}</span></td>
+        <td>${isClientModuleActive("inventory") ? `<button class="cx-stock-btn-024t secondary" type="button" data-stock-open-inventory="${h(row.id)}">Editar en Inventario</button>` : `<span class="client-muted">Solo lectura</span>`}</td>
+      </tr>
+    `;
+  }
+
+  function cxStockQty049T(value) {
+    return (Number(value) || 0).toLocaleString("es-CO", { maximumFractionDigits: 3 });
+  }
+
+  function cxStockCartaRowHtml049T(row, alertClass, status, entryStockValue, saleStockValue) {
+    // 12 kg (12.000 gr) · $16.000 / kg · total $192.000 (el saldo en dinero del insumo)
+    const natural = Number(row.natural_factor || 1) !== 1;
+    const salePrice = inventoryNumber(row.sale_price ?? 0);
+    return `
+      <tr data-stock-row="${h(row.id)}">
+        <td class="cx-stock-product-024t">
+          <strong>${h(row.name_reference || "Producto")}</strong>
+          <small>${h(row.size || "")}</small>
+        </td>
+        <td><span class="cx-stock-qty-024t">${h(cxStockQty049T(row.stock_natural))} ${h(row.unit_label)}</span>${natural ? `<small class="cx-stock-sub-049t" style="display:block;font-size:12px;opacity:.8">${h(cxStockQty049T(row.current_stock))} ${h(row.base_label)}</small>` : ""}</td>
+        <td><span class="cx-stock-qty-024t">${h(cxStockQty049T(row.min_stock_natural))} ${h(row.unit_label)}</span></td>
+        <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(row.entry_price))} / ${h(row.unit_label)}</span></td>
+        <td><span class="cx-stock-value-024t">${natural || !salePrice ? `<span title="El precio de venta se define en Carta">—</span>` : h(cxStockMoney024T(salePrice))}</span></td>
+        <td><span class="cx-stock-value-024t">${h(cxStockMoney024T(entryStockValue))}</span></td>
+        <td><span class="cx-stock-value-024t">${saleStockValue ? h(cxStockMoney024T(saleStockValue)) : "—"}</span></td>
         <td><span class="cx-stock-chip-024t ${h(alertClass)}">${h(cxStockAlertLabel024T(row))}</span></td>
         <td><span class="cx-stock-chip-024t ${status === "inactive" ? "inactive" : "ok"}">${h(inventoryStatusLabel(status))}</span></td>
         <td>${isClientModuleActive("inventory") ? `<button class="cx-stock-btn-024t secondary" type="button" data-stock-open-inventory="${h(row.id)}">Editar en Inventario</button>` : `<span class="client-muted">Solo lectura</span>`}</td>
@@ -25921,6 +25953,23 @@ function inventoryCreatePayload() {
     </svg>`;
   }
 
+  function cxOwnInventory049T(inv) {
+    const kpi = (label, value, note = "") => `<article class="cx-own-kpi-048s"><span>${h(label)}</span><b>${h(value)}</b>${note ? `<small class="neutral">${h(note)}</small>` : ""}</article>`;
+    return `
+      <div class="cx-own-kpis-048s small" data-own-stock-049t>
+        ${kpi("Valor del inventario actual", cxOwnMoney048S(inv.value), inv.uncosted_items ? `${inv.uncosted_items} insumo(s) con existencia sin costo no suman` : "suma de los saldos en dinero")}
+        ${kpi("Consumo diario", inv.daily_consumption_cost ? cxOwnMoney048S(inv.daily_consumption_cost) : "—", `promedio de los últimos ${inv.window_days} días`)}
+        ${kpi("Rotación", inv.inventory_days !== null && inv.inventory_days !== undefined ? `${String(inv.inventory_days).replace(".", ",")} días` : "—",
+          inv.turns_per_month ? `el inventario se renueva ${String(inv.turns_per_month).replace(".", ",")} veces al mes` : "sin consumo suficiente para calcularla")}
+      </div>
+      <h3>Qué comprar hoy</h3>
+      ${(inv.buy_today || []).length ? `<ul class="cx-own-buy-048s" data-own-buy>${inv.buy_today.map((r) => `<li><b>${h(r.name)}</b><span>quedan ${h(r.stock)} · se consumen ${h(r.daily)} por día · alcanza para ${h(String(r.days).replace(".", ","))} día(s)</span></li>`).join("")}</ul>` : `<div class="cx-own-empty-048s">Nada se acaba en los próximos 3 días al ritmo actual.</div>`}
+      ${(inv.coverage || []).length ? `<details><summary>Días de cobertura de cada insumo</summary><div class="cx-own-table-wrap-048s"><table class="cx-own-table-048s"><thead><tr><th>Insumo</th><th>Existencia</th><th>Consumo diario</th><th>Días</th></tr></thead><tbody>${inv.coverage.map((r) => `<tr><td>${h(r.name)}</td><td>${h(r.stock)}</td><td>${h(r.daily)}</td><td>${h(String(r.days).replace(".", ","))}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+      ${(inv.without_history || []).length ? `<p class="cx-own-note-048s">Sin historial suficiente para proyectar: ${h(inv.without_history.join(", "))}.</p>` : ""}
+      ${(inv.idle || []).length ? `<details><summary>Sin consumo en los últimos ${h(inv.window_days)} días (${h(inv.idle.length)})</summary><ul class="cx-own-idle-048s">${inv.idle.slice(0, 40).map((r) => `<li>${h(r.name)} · ${h(r.stock)} en existencia${r.value ? ` · ${h(cxOwnMoney048S(r.value))} quietos` : ""}</li>`).join("")}</ul></details>` : ""}
+    `;
+  }
+
   function cxOwnDays048S(daily, busy) {
     const rows = daily?.table || [];
     return `
@@ -26030,6 +26079,8 @@ function inventoryCreatePayload() {
 
   function cxOwnInventory048S(inv) {
     if (!inv) return "";
+    // 049T: con Carta el inventario sale de los saldos y del consumo real (mismas cifras que Stock y Próximas compras)
+    if (inv.source === "movimientos") return cxOwnInventory049T(inv);
     return `
       <div class="cx-own-kpis-048s small"><article class="cx-own-kpi-048s"><span>Valor del inventario actual</span><b>${h(cxOwnMoney048S(inv.value))}</b><small class="neutral">${inv.uncosted_items ? `${h(inv.uncosted_items)} producto(s) con existencia sin precio de entrada no suman` : "a precio de entrada"}</small></article></div>
       <h3>Qué comprar hoy</h3>
@@ -37083,7 +37134,7 @@ function inventoryCreatePayload() {
     const p = i?.last_purchase;
     if (!p) return "";
     const date = cxInvDate049R(p.created_at);
-    return `<small class="cx-inv-last-049r">Última compra: ${h(cxInvNum049Q(p.quantity))} ${h(p.unit_label || cxCarUnitLabel049O(p.unit))} · ${h(cxCarMoney048T(p.total_paid))}${date ? ` · ${h(date)}` : ""}</small>`;
+    return `<small class="cx-inv-last-049r">Última compra: ${h(cxInvNum049Q(p.quantity))} ${h(p.unit_label || cxCarUnitLabel049O(p.unit))} · ${h(cxCarMoney048T(p.total_paid))}${date ? ` · ${h(date)}` : ""}${p.has_invoice && p.id ? ` · <button type="button" class="cx-inv-link-049t" data-inv-invoice-view="${h(p.id)}">Ver factura</button>` : ""}</small>`;
   }
 
   function cxInvPurchasePreview049Q(insumo, quantity, unit, total, replace = false) {
@@ -37208,6 +37259,8 @@ function inventoryCreatePayload() {
            <select data-inv-buy-unit="${id}">${cxInvUnitOptions049Q(i.balance_suspect ? ({ g: "kg", ml: "l" }[i.consumption_unit] || i.unit || i.consumption_unit) : (i.unit || i.consumption_unit), i.balance_suspect ? null : i)}</select></label>
          <label>Total pagado
            <input type="text" inputmode="decimal" data-inv-buy-total="${id}" placeholder="Ej: 192.000"></label>
+         <label>Factura <small class="cx-inv-dialog-hint-049t">(opcional · foto JPG, PNG o WEBP; se reduce sola)</small>
+           <input type="file" accept="image/jpeg,image/png,image/webp" data-inv-buy-invoice="${id}"></label>
          <label class="check"><input type="checkbox" data-inv-buy-replace="${id}" ${i.balance_suspect ? "checked" : ""}>
            <span><b>Corregir saldo</b> · la cantidad y el dinero quedan exactamente los de esta compra</span></label>
          <p class="cx-inv-dialog-preview-049s" data-inv-buy-preview="${id}" aria-live="polite"></p>
@@ -37267,6 +37320,45 @@ function inventoryCreatePayload() {
   }
 
   async function cxInvHandleClick049Q(target) {
+    if (target.closest?.("[data-inv-restock-days-save]")) {
+      const days = Math.max(1, Math.min(90, Math.round(Number(document.querySelector("[data-inv-restock-days]")?.value || 15)) || 15));
+      try {
+        await api(`/carta/companies/${encodeURIComponent(state.companyId)}/restock/settings`, { method: "PUT", body: JSON.stringify({ days }) });
+      } catch (error) {
+        cxInvRestock049T.error = cxCarErr048T(error);
+      }
+      await cxInvRestockLoad049T(days);
+      return true;
+    }
+    if (target.closest?.("[data-inv-restock-csv]") && cxInvRestock049T.data) {
+      const blob = new Blob(["﻿" + cxInvRestockCsv049T(cxInvRestock049T.data)], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `proximas_compras_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      return true;
+    }
+    if (target.closest?.("[data-inv-restock-print]") && cxInvRestock049T.data) {
+      const win = window.open("", "_blank");
+      if (!win) {
+        showInventoryNotice("El navegador bloqueó la ventana de impresión: permite ventanas emergentes para este sitio.", "error");
+        return true;
+      }
+      win.document.write(cxInvRestockPrintHtml049T(cxInvRestock049T.data));
+      win.document.close();
+      win.focus();
+      win.print();
+      return true;
+    }
+    const invoiceView = target.closest?.("[data-inv-invoice-view]");
+    if (invoiceView) {
+      await cxInvViewInvoice049T(invoiceView.getAttribute("data-inv-invoice-view"));
+      return true;
+    }
     const open = target.closest?.("[data-inv-buy-open]") || target.closest?.("[data-inv-min-open]");
     if (open) {
       const isMin = open.hasAttribute?.("data-inv-min-open");
@@ -37304,11 +37396,15 @@ function inventoryCreatePayload() {
       return true;
     }
     try {
-      cxInv049Q.data = await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}/purchases`,
+      const file = document.querySelector(`[data-inv-buy-invoice="${id}"]`)?.files?.[0] || null;
+      const saved = await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}/purchases`,
         { quantity: v.quantity, unit: v.unit || insumo?.unit, total_paid: v.total, replace: v.replace }, "POST");
+      cxInv049Q.data = saved;
+      const invoiceProblem = await cxInvUploadInvoice049T(saved?.purchase?.id, file);
       cxInvCloseDialog049S();
       await renderInventoryModule();
-      setTimeout(() => showInventoryNotice(`Compra registrada en ${insumo?.name || "el insumo"}. ${preview.text}.`), 80);
+      setTimeout(() => showInventoryNotice(invoiceProblem || `Compra registrada en ${insumo?.name || "el insumo"}${file ? " con su factura" : ""}. ${preview.text}.`,
+        invoiceProblem ? "error" : undefined), 80);
     } catch (error) {
       cxInvDialogError049S(id, cxCarErr048T(error));
     }
@@ -37377,6 +37473,10 @@ function inventoryCreatePayload() {
             <label>Mínimo alerta</label>
             <input id="inventoryCreateMin049Q" type="number" min="0" step="any" value="0">
           </div>
+          <div class="cx-inv-field">
+            <label>Factura (opcional)</label>
+            <input id="inventoryCreateInvoice049T" type="file" accept="image/jpeg,image/png,image/webp" title="Foto de la factura: se reduce sola">
+          </div>
           <p class="cx-inv-buy-preview-049q" id="inventoryCreatePreview049Q"></p>
           <button class="client-btn" type="button" data-inventory-create>Crear</button>
         </div>
@@ -37412,7 +37512,11 @@ function inventoryCreatePayload() {
     let preview = null;
     if (quantity > 0) {
       preview = cxInvCreatePreview049Q(unit, quantity, total);
-      cxInv049Q.data = await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}/purchases`, { quantity, unit, total_paid: total }, "POST");
+      const saved = await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}/purchases`, { quantity, unit, total_paid: total }, "POST");
+      cxInv049Q.data = saved;
+      // 049T: factura opcional de esa primera compra
+      const invoiceProblem = await cxInvUploadInvoice049T(saved?.purchase?.id, document.getElementById("inventoryCreateInvoice049T")?.files?.[0] || null);
+      if (invoiceProblem) preview = { ...preview, text: `${preview.text}. ${invoiceProblem}` };
     }
     return { id, preview };
   }
@@ -37435,6 +37539,143 @@ function inventoryCreatePayload() {
       delete out.min_stock;
     }
     return out;
+  }
+
+  // --- 049T: Próximas compras. Qué hay que comprar hoy, con el consumo real ---
+  var cxInvRestock049T = { data: null, error: "" };
+  const CX_INV_REASONS_049T = { agotado: ["Agotado", "bad"], bajo_minimo: ["Bajo el mínimo", "bad"], se_acaba: ["Se acaba pronto", "warn"], ok: ["Al día", "ok"] };
+
+  async function cxInvRestockLoad049T(days = null) {
+    try {
+      cxInvRestock049T.data = await api(`/carta/companies/${encodeURIComponent(state.companyId)}/restock${days ? `?days=${encodeURIComponent(days)}` : ""}`);
+      cxInvRestock049T.error = "";
+    } catch (error) {
+      cxInvRestock049T.error = cxCarErr048T(error);
+    }
+    const root = document.getElementById("cxInvRestock049TRoot");
+    if (root) root.innerHTML = cxInvRestockHtml049T();
+  }
+
+  function cxInvQty049T(value, label) {
+    return `${cxInvNum049Q(value)} ${label || ""}`.trim();
+  }
+
+  function cxInvLastText049T(p) {
+    if (!p) return "Sin compras registradas";
+    const date = cxInvDate049R(p.created_at);
+    const per = Number(p.quantity) > 0 ? ` (${cxCarMoney048T(Number(p.total_paid) / Number(p.quantity))} / ${p.unit_label || cxCarUnitLabel049O(p.unit)})` : "";
+    return `${cxInvQty049T(p.quantity, p.unit_label || cxCarUnitLabel049O(p.unit))} · ${cxCarMoney048T(p.total_paid)}${per}${date ? ` · ${date}` : ""}`;
+  }
+
+  function cxInvWhen049T(r) {
+    // cuándo se acaba, dicho como lo diría una persona
+    if (r.reason === "agotado") return "Ya se acabó";
+    if (r.days_left === null || r.days_left === undefined) return r.enough_history ? "—" : "Sin historial suficiente";
+    if (r.days_left < 1) return "Hoy";
+    return `En ${cxInvNum049Q(r.days_left, 1)} día${r.days_left >= 1.5 ? "s" : ""}`;
+  }
+
+  function cxInvUseText049T(r) {
+    if (r.daily_natural === null || r.daily_natural === undefined) {
+      return `Sin historial suficiente (${r.active_days} día${r.active_days === 1 ? "" : "s"} con consumo en ${r.observed_days}): no se proyecta`;
+    }
+    return `${cxInvQty049T(r.daily_natural, r.unit_label)} por día`;
+  }
+
+  function cxInvBuyText049T(r) {
+    if (!(r.suggest_natural > 0)) return r.basis === "sin_historial" ? "Define el mínimo o espera más ventas" : "—";
+    return `${cxInvQty049T(r.suggest_natural, r.unit_label)}${r.basis === "minimo" ? " (hasta el mínimo)" : ""}`;
+  }
+
+  function cxInvRestockHtml049T() {
+    const d = cxInvRestock049T.data;
+    if (!d) return `<p class="client-muted">${h(cxInvRestock049T.error || "Calculando qué hay que comprar…")}</p>`;
+    const rows = d.buy || [];
+    return `
+      <div class="client-eyebrow">Próximas compras</div>
+      <h2>Qué hay que comprar hoy</h2>
+      <p class="client-muted">Calculado con lo que de verdad salió del inventario en los últimos ${h(d.window_days)} días. Primero lo que se acaba antes.</p>
+      ${cxInvRestock049T.error ? `<div class="personal-toast error">${h(cxInvRestock049T.error)}</div>` : ""}
+      <div class="cx-inv-restock-bar-049t">
+        <label>Comprar para <input type="number" min="1" max="90" step="1" data-inv-restock-days value="${h(d.days_to_cover)}"> días</label>
+        <button class="cx-inv-action" type="button" data-inv-restock-days-save>Recalcular</button>
+        <span class="cx-inv-restock-total-049t">Total estimado <b>${h(cxCarMoney048T(d.total_estimated))}</b></span>
+        <button class="cx-inv-action" type="button" data-inv-restock-print>Imprimir lista de mercado</button>
+        <button class="cx-inv-action" type="button" data-inv-restock-csv>Descargar CSV</button>
+      </div>
+      <div class="cx-inv-table-wrap">
+        <table class="cx-inv-table-049s cx-inv-restock-049t">
+          <colgroup><col style="width:130px"><col><col style="width:130px"><col style="width:190px"><col style="width:120px"><col style="width:150px"><col style="width:120px"><col style="width:230px"></colgroup>
+          <thead><tr><th>Urgencia</th><th>Insumo</th><th class="num">Existencia</th><th>Consumo</th><th>Se acaba</th><th class="num">Comprar</th><th class="num">Costo estimado</th><th>Última compra</th></tr></thead>
+          <tbody>${rows.length ? rows.map((r) => `
+            <tr data-inv-restock-row="${h(r.id)}">
+              <td><span class="cx-inv-pill-049s ${h((CX_INV_REASONS_049T[r.reason] || ["", ""])[1])}">${h((CX_INV_REASONS_049T[r.reason] || [r.reason])[0])}</span></td>
+              <td><b>${h(r.name)}</b>${r.min_natural > 0 ? `<small class="cx-inv-last-049r">Mínimo ${h(cxInvQty049T(r.min_natural, r.unit_label))}</small>` : ""}</td>
+              <td class="cx-inv-c-num-049s"><b>${h(cxInvQty049T(r.stock_natural, r.unit_label))}</b></td>
+              <td><span class="${r.daily_natural === null ? "cx-inv-muted-049s" : ""}">${h(cxInvUseText049T(r))}</span></td>
+              <td>${h(cxInvWhen049T(r))}</td>
+              <td class="cx-inv-c-num-049s"><b>${h(cxInvBuyText049T(r))}</b></td>
+              <td class="cx-inv-c-num-049s">${r.estimated_cost !== null && r.estimated_cost !== undefined ? `<b>${h(cxCarMoney048T(r.estimated_cost))}</b>` : `<span class="cx-inv-muted-049s">${r.suggest_natural > 0 ? "sin costo" : "—"}</span>`}</td>
+              <td><small>${h(cxInvLastText049T(r.last_purchase))}</small></td>
+            </tr>`).join("") : `<tr><td colspan="8">Nada por comprar: todo alcanza para más de ${h(d.days_to_cover)} días.</td></tr>`}
+          </tbody>
+          ${rows.length ? `<tfoot><tr><td colspan="6"><b>Total estimado</b></td><td class="cx-inv-c-num-049s"><b>${h(cxCarMoney048T(d.total_estimated))}</b></td><td></td></tr></tfoot>` : ""}
+        </table>
+      </div>
+      ${(d.without_cost || []).length ? `<p class="client-muted">Sin costo (registra su compra para saberlo): ${h(d.without_cost.join(", "))}. El total no los incluye.</p>` : ""}
+      ${(d.ok || []).length ? `<details><summary>Al día (${h(d.ok.length)})</summary><ul class="cx-inv-restock-ok-049t">${d.ok.map((r) => `<li><b>${h(r.name)}</b> · ${h(cxInvQty049T(r.stock_natural, r.unit_label))} · ${h(r.days_left !== null ? `alcanza ${cxInvNum049Q(r.days_left, 1)} días` : "sin historial suficiente")}</li>`).join("")}</ul></details>` : ""}`;
+  }
+
+  function cxInvRestockCsv049T(d) {
+    const head = ["Urgencia", "Insumo", "Existencia", "Unidad", "Consumo diario", "Se acaba", "Comprar", "Costo estimado", "Última compra"];
+    const lines = [head, ...(d.buy || []).map((r) => [(CX_INV_REASONS_049T[r.reason] || [r.reason])[0], r.name, r.stock_natural, r.unit_label,
+      r.daily_natural ?? "sin historial suficiente", cxInvWhen049T(r), r.suggest_natural || "", r.estimated_cost ?? "", cxInvLastText049T(r.last_purchase)]),
+    ["", "Total estimado", "", "", "", "", "", d.total_estimated, ""]];
+    return lines.map((row) => row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  }
+
+  function cxInvRestockPrintHtml049T(d) {
+    // lista de mercado para imprimir: qué, cuánto y cuánto cuesta
+    const items = (d.buy || []).filter((r) => r.suggest_natural > 0);
+    const today = cxInvDate049R(new Date().toISOString());
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Lista de mercado ${h(today)}</title><style>
+      body{font-family:system-ui,sans-serif;color:#111;margin:24px} h1{font-size:20px;margin:0 0 4px} p{margin:0 0 14px;color:#444}
+      table{width:100%;border-collapse:collapse;font-size:14px} th,td{padding:7px 6px;border-bottom:1px solid #ccc;text-align:left}
+      td.n,th.n{text-align:right} .box{width:16px;height:16px;border:1.5px solid #111;display:inline-block} tfoot td{font-weight:800;border-top:2px solid #111}
+    </style></head><body>
+      <h1>Lista de mercado · ${h(today)}</h1><p>Para ${h(d.days_to_cover)} días al ritmo de consumo actual.</p>
+      <table><thead><tr><th></th><th>Insumo</th><th class="n">Comprar</th><th class="n">Costo estimado</th><th>Última compra</th></tr></thead><tbody>
+      ${items.map((r) => `<tr><td><span class="box"></span></td><td>${h(r.name)}</td><td class="n">${h(cxInvBuyText049T(r))}</td><td class="n">${r.estimated_cost !== null ? h(cxCarMoney048T(r.estimated_cost)) : "—"}</td><td>${h(cxInvLastText049T(r.last_purchase))}</td></tr>`).join("")}
+      </tbody><tfoot><tr><td></td><td>Total estimado</td><td></td><td class="n">${h(cxCarMoney048T(d.total_estimated))}</td><td></td></tr></tfoot></table>
+    </body></html>`;
+  }
+
+  async function cxInvViewInvoice049T(purchaseId) {
+    // la factura se pide con la sesión (no es pública) y se abre en otra pestaña
+    const tab = window.open("", "_blank");
+    try {
+      const response = await fetch(`${API}/carta/companies/${encodeURIComponent(state.companyId)}/purchases/${encodeURIComponent(purchaseId)}/invoice`, { headers: authHeaders({}) });
+      if (!response.ok) throw new Error("No se pudo abrir la factura.");
+      const url = URL.createObjectURL(await response.blob());
+      if (tab) tab.location.href = url;
+      else window.open(url, "_blank");
+    } catch (error) {
+      tab?.close();
+      showInventoryNotice(cxCarErr048T(error), "error");
+    }
+  }
+
+  async function cxInvUploadInvoice049T(purchaseId, file) {
+    // factura opcional de una compra: se redimensiona en el servidor (tope 200 KB)
+    if (!purchaseId || !file) return "";
+    const form = new FormData();
+    form.append("invoice", file);
+    try {
+      await apiForm(`/carta/companies/${encodeURIComponent(state.companyId)}/purchases/${encodeURIComponent(purchaseId)}/invoice`, form);
+      return "";
+    } catch (error) {
+      return `La compra quedó registrada, pero la factura no se pudo guardar: ${cxCarErr048T(error)}`;
+    }
   }
 
   function cxInvStyles049Q() {
@@ -37486,6 +37727,20 @@ function inventoryCreatePayload() {
       .cx-inv-dialog-preview-049s.error { color:#fecaca; }
       .cx-inv-dialog-box-049s footer { display:flex; justify-content:flex-end; gap:8px; }
       .cx-inv-buy-preview-049q { font-weight:800; margin:4px 0; grid-column:1/-1; }
+      /* 049T: próximas compras y facturas */
+      .cx-inv-pill-049s.ok { background:#14532d; color:#dcfce7; }
+      .cx-inv-restock-bar-049t { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:12px 0; }
+      .cx-inv-restock-bar-049t label { display:flex; gap:6px; align-items:center; font-weight:700; }
+      .cx-inv-restock-bar-049t input { width:70px; min-height:34px; padding:4px 8px; border-radius:8px; font:inherit; color:inherit;
+        border:1px solid color-mix(in srgb, currentColor 45%, transparent); background:color-mix(in srgb, currentColor 7%, transparent); }
+      .cx-inv-restock-total-049t { margin-left:auto; font-size:15px; }
+      .cx-inv-restock-total-049t b { font-size:18px; margin-left:6px; }
+      .cx-inv-restock-049t td small { display:block; font-size:12px; opacity:.85; white-space:normal; }
+      .cx-inv-restock-049t .cx-inv-c-num-049s b { white-space:normal; }
+      .cx-inv-restock-049t tfoot td { border-top:2px solid color-mix(in srgb, currentColor 30%, transparent); }
+      .cx-inv-restock-ok-049t { columns:2 260px; font-size:13px; }
+      .cx-inv-link-049t { border:0; background:none; padding:0; color:#4ade80; font:inherit; font-weight:800; text-decoration:underline; cursor:pointer; }
+      .cx-inv-dialog-hint-049t { font-weight:400; color:#c9c6dd; }
     `;
     document.head.appendChild(style);
   }

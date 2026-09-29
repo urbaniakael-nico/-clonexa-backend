@@ -26,6 +26,7 @@ import logging
 import secrets
 import unicodedata
 import uuid
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -37,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
 from app.services import carta as engine
 from app.services import media_storage
+from app.services import restock
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
@@ -340,6 +342,17 @@ async def require_carta_admin(
 
 
 # ------------------------------------------------------------- lectura ---
+async def purchases_with_invoice(db: AsyncSession, company_id: Any) -> set[str]:
+    """049T: compras que tienen su factura adjunta."""
+    exists = (await db.execute(text("SELECT to_regclass('public.carta_purchase_invoices') IS NOT NULL AS exists"))).mappings().first()
+    if not exists or not exists.get("exists"):
+        return set()
+    rows = (await db.execute(text("""
+        SELECT purchase_id FROM carta_purchase_invoices WHERE company_id = CAST(:company_id AS uuid) AND image_bytes IS NOT NULL
+    """), {"company_id": str(company_id)})).mappings().all()
+    return {str(r["purchase_id"]) for r in rows}
+
+
 async def load_last_purchases(db: AsyncSession, company_id: Any) -> dict[str, dict]:
     """049Q: ultima compra de cada insumo (cantidad, unidad, total pagado y el
     costo que calculo el sistema). Las que vienen de la migracion 022f quedan
@@ -348,14 +361,17 @@ async def load_last_purchases(db: AsyncSession, company_id: Any) -> dict[str, di
     if not exists or not exists.get("exists"):
         return {}
     rows = (await db.execute(text("""
-        SELECT DISTINCT ON (inventory_item_id) inventory_item_id, quantity, unit, total_paid, base_quantity, unit_cost, source, created_at
+        SELECT DISTINCT ON (inventory_item_id) id, inventory_item_id, quantity, unit, total_paid, base_quantity, unit_cost, source, created_at
         FROM carta_purchases WHERE company_id = CAST(:company_id AS uuid)
         ORDER BY inventory_item_id, created_at DESC
     """), {"company_id": str(company_id)})).mappings().all()
+    invoices = await purchases_with_invoice(db, company_id)
     out = {}
     for row in rows:
         stamp = row.get("created_at")
         out[str(row["inventory_item_id"])] = {
+            "id": str(row["id"]) if row.get("id") else None,
+            "has_invoice": str(row.get("id")) in invoices,
             "quantity": float(Decimal(str(row["quantity"]))), "unit": row["unit"],
             "unit_label": engine.RECIPE_UNITS.get(row["unit"], row["unit"]),
             "total_paid": float(Decimal(str(row["total_paid"]))), "base_quantity": float(Decimal(str(row["base_quantity"]))),
@@ -793,6 +809,7 @@ async def register_purchase(company_id: uuid.UUID, insumo_id: uuid.UUID, payload
             detail = "Escribe la cantidad total comprada (mayor que cero) y el total pagado."
         raise HTTPException(status_code=400, detail=detail) from exc
     stock_before = engine.dec(insumo.get("current_stock"))
+    purchase_id = str(uuid.uuid4())
     if result["replace"]:
         factor = result["units_per_purchase"]
         await db.execute(text("""
@@ -836,11 +853,11 @@ async def register_purchase(company_id: uuid.UUID, insumo_id: uuid.UUID, payload
         INSERT INTO carta_purchases (id, company_id, inventory_item_id, quantity, unit, total_paid, base_quantity, unit_cost, source, created_by)
         VALUES (CAST(:id AS uuid), CAST(:company_id AS uuid), CAST(:item_id AS uuid), :quantity, :unit, :total_paid, :base_quantity,
                 :unit_cost, :source, :actor)
-    """), {"id": str(uuid.uuid4()), "company_id": str(company_id), "item_id": str(insumo_id), "quantity": result["quantity"],
+    """), {"id": purchase_id, "company_id": str(company_id), "item_id": str(insumo_id), "quantity": result["quantity"],
            "unit": result["unit"], "total_paid": result["total_paid"], "base_quantity": result["base_quantity"],
            "unit_cost": result["unit_cost"], "source": "correccion" if result["replace"] else "compra", "actor": _clean(actor, 120)})
     await db.commit()
-    return {**await _carta_payload(db, company_id), "purchase": {
+    return {**await _carta_payload(db, company_id), "purchase": {"id": purchase_id,
         "base_quantity": float(result["base_quantity"]), "unit_cost": float(result["unit_cost"]),
         "avg_cost": float(result["avg_cost"]), "cost_per_unit": float(result["cost_per_unit"]),
         "stock": float(result["new_stock"]), "stock_value": float(result["stock_value"]), "replace": result["replace"]}}
@@ -872,6 +889,140 @@ async def save_equivalence(company_id: uuid.UUID, insumo_id: uuid.UUID, payload:
     """), {"c": str(company_id), "i": str(insumo_id), "unit": unit, "amount": Decimal(str(payload.amount))})
     await db.commit()
     return await _carta_payload(db, company_id)
+
+
+# ------------------------------------ 049T: proximas compras y facturas ---
+async def load_usage(db: AsyncSession, company_id: Any, now: datetime | None = None) -> dict[str, dict]:
+    """Consumo real de cada insumo en los ultimos 28 dias (lo que las ventas
+    descontaron del inventario) y desde cuando existe cada insumo."""
+    now = now or datetime.now(timezone.utc)
+    since = now - timedelta(days=restock.WINDOW_DAYS)
+    params = {"company_id": str(company_id), "since": since}
+    rows = [dict(r) for r in (await db.execute(text("""
+        SELECT item_id, movement_type, quantity_delta, created_at FROM inventory_movements
+        WHERE company_id = CAST(:company_id AS uuid) AND created_at >= :since
+          AND movement_type IN ('hospitality_sale', 'hospitality_order_edit')
+    """), params)).mappings().all()]
+    firsts = (await db.execute(text("""
+        SELECT item_id, MIN(created_at) AS first_seen FROM inventory_movements
+        WHERE company_id = CAST(:company_id AS uuid) GROUP BY item_id
+    """), params)).mappings().all()
+    rows += [{"item_id": r["item_id"], "movement_type": "primer_movimiento", "quantity_delta": 0, "created_at": r["first_seen"]}
+             for r in firsts]
+    return restock.consumption(rows, now)
+
+
+async def enrich_stock_rows(db: AsyncSession, company_id: Any, rows: list[dict]) -> list[dict]:
+    """049T: filas de Inventario/Stock con cantidad, precio y total en la MISMA
+    unidad. La existencia se guarda en la unidad base (12.000 g) y el precio
+    de entrada es el de la unidad natural ($16.000 el kg): multiplicarlos daba
+    $192.000.000. El total es el saldo en dinero (restock.item_value, la
+    misma cifra de Reportes y Proximas compras): $192.000."""
+    insumos = await load_insumos(db, company_id)
+    out = []
+    for row in rows:
+        insumo = insumos.get(str(row.get("id")))
+        if not insumo:
+            out.append(row)
+            continue
+        factor = engine.natural_factor(insumo) or Decimal("1")
+        cost = engine.unit_cost(insumo)
+        per_unit = float((cost * factor).quantize(engine.MONEY)) if cost is not None else 0.0
+        stock_nat = engine.dec(insumo.get("current_stock")) / factor
+        sale = engine.dec(row.get("sale_price"))
+        out.append({
+            **row, "entry_price": per_unit, "purchase_price": per_unit, "cost_price": per_unit,
+            "entry_stock_value": float(restock.item_value(insumo)),
+            # el precio de venta vive en Carta; solo se valoriza lo que se vende por unidad
+            "sale_stock_value": float((max(stock_nat, Decimal("0")) * sale).quantize(engine.MONEY)) if factor == 1 else 0.0,
+            "unit": engine.natural_unit(insumo), "unit_label": engine.RECIPE_UNITS.get(engine.natural_unit(insumo), "unidad"),
+            "base_label": engine.RECIPE_UNITS.get(str(insumo.get("consumption_unit") or "unidad"), "unidad"),
+            "natural_factor": float(factor), "stock_natural": float(stock_nat.quantize(engine.QTY)),
+            "min_stock_natural": float((engine.dec(insumo.get("min_stock")) / factor).quantize(engine.QTY)),
+        })
+    return out
+
+
+async def restock_days(db: AsyncSession, company_id: uuid.UUID) -> int:
+    try:
+        days = int((await _settings(db, company_id)).get("restock_days") or restock.DEFAULT_DAYS_TO_COVER)
+    except (TypeError, ValueError):
+        days = restock.DEFAULT_DAYS_TO_COVER
+    return max(1, min(days, restock.MAX_DAYS_TO_COVER))
+
+
+@router.get("/companies/{company_id}/restock")
+async def restock_plan(company_id: uuid.UUID, days: int | None = None, db: AsyncSession = Depends(get_db),
+                       _a: str = Depends(require_carta_admin)) -> dict:
+    """049T: que hay que comprar hoy, calculado con las ventas reales."""
+    insumos = await load_insumos(db, company_id)
+    usage = await load_usage(db, company_id)
+    purchases = await load_last_purchases(db, company_id)
+    cover = days if days else await restock_days(db, company_id)
+    return {**restock.plan(insumos, usage, purchases, cover), "inventory": restock.summary(insumos, usage)}
+
+
+class RestockSettingsIn(BaseModel):
+    days: int = Field(..., ge=1, le=90)
+
+
+@router.put("/companies/{company_id}/restock/settings")
+async def restock_settings(company_id: uuid.UUID, payload: RestockSettingsIn, db: AsyncSession = Depends(get_db),
+                           _a: str = Depends(require_carta_admin)) -> dict:
+    """Para cuantos dias se sugiere comprar (por defecto 15)."""
+    await _save_settings(db, company_id, {"restock_days": payload.days})
+    await db.commit()
+    return {"days": payload.days}
+
+
+INVOICE_UPLOAD_LIMIT = 12 * 1024 * 1024  # lo que llega; se guarda redimensionada (media_storage: <= 200 KB)
+
+
+async def _purchase_of_company(db: AsyncSession, company_id: uuid.UUID, purchase_id: uuid.UUID) -> dict:
+    row = (await db.execute(text("""
+        SELECT id, inventory_item_id FROM carta_purchases WHERE id = CAST(:id AS uuid) AND company_id = CAST(:c AS uuid)
+    """), {"id": str(purchase_id), "c": str(company_id)})).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Compra no encontrada.")
+    return dict(row)
+
+
+@router.post("/companies/{company_id}/purchases/{purchase_id}/invoice")
+async def upload_purchase_invoice(company_id: uuid.UUID, purchase_id: uuid.UUID, invoice: UploadFile = File(...),
+                                  db: AsyncSession = Depends(get_db), _a: str = Depends(require_carta_admin)) -> dict:
+    """Foto de la factura de una compra (JPG, PNG o WEBP). Se redimensiona en
+    el servidor y se guarda con media_storage (tope de 200 KB): una factura
+    nueva reemplaza la anterior de esa compra, nunca se acumulan."""
+    await _purchase_of_company(db, company_id, purchase_id)
+    raw = await invoice.read(INVOICE_UPLOAD_LIMIT + 1)
+    if len(raw) > INVOICE_UPLOAD_LIMIT:
+        raise HTTPException(status_code=413, detail="La factura pesa más de 12 MB. Toma la foto de nuevo o usa una más liviana.")
+    content_type = {"image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg"}.get((invoice.content_type or "").lower(),
+                                                                               (invoice.content_type or "").lower())
+    if content_type not in media_storage.ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=422, detail="La factura debe ser una foto (JPG, PNG o WEBP).")
+    await db.execute(text("""
+        INSERT INTO carta_purchase_invoices (company_id, purchase_id, original_name)
+        VALUES (CAST(:c AS uuid), CAST(:p AS uuid), :name)
+        ON CONFLICT (company_id, purchase_id) DO UPDATE SET original_name = EXCLUDED.original_name
+    """), {"c": str(company_id), "p": str(purchase_id), "name": _clean(invoice.filename, 200)})
+    await media_storage.save_image(db, table="carta_purchase_invoices",
+                                   key_columns={"company_id": str(company_id), "purchase_id": str(purchase_id)},
+                                   raw=raw, content_type=content_type)
+    await db.commit()
+    return {"ok": True, "purchase_id": str(purchase_id)}
+
+
+@router.get("/companies/{company_id}/purchases/{purchase_id}/invoice")
+async def get_purchase_invoice(company_id: uuid.UUID, purchase_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                               _a: str = Depends(require_carta_admin)) -> Response:
+    await _purchase_of_company(db, company_id, purchase_id)
+    image = await media_storage.get_image(db, table="carta_purchase_invoices",
+                                          key_columns={"company_id": str(company_id), "purchase_id": str(purchase_id)})
+    if not image:
+        raise HTTPException(status_code=404, detail="Esta compra no tiene factura.")
+    content, content_type = image
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": "private, max-age=300"})
 
 
 # --------------------------------------- eliminar, categorias e imagenes ---

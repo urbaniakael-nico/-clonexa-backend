@@ -569,6 +569,12 @@ async def list_inventory_items(
         params,
     )
     rows = [inventory_item_out(dict(row)) for row in result.mappings().all()]
+    # 049T: con Carta, cantidad, precio y total en la misma unidad (el total es
+    # el saldo en dinero del insumo, la misma cifra de Reportes).
+    from app.api.v1.endpoints import carta as carta_endpoint
+
+    if rows and await carta_endpoint.carta_enabled(db, company_id):
+        rows = await carta_endpoint.enrich_stock_rows(db, company_id, rows)
     return {"company_id": str(company_id), "summary": inventory_summary(rows), "items": rows}
 
 
