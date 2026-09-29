@@ -373,3 +373,129 @@ def test_hospitality_owner_report_menu_counts_each_portion_sold_for_popularity()
     assert pollo["units_text"] == "3" and pollo["sold"] == 12 and pollo["portions_text"] == "12 de 1/4"
     assert pollo["margin_unit"] == 12000 - 5000, "margen por cuarto vendido"
     assert pollo["quadrant"] in {"estrella", "vaca"}, "popular por las porciones vendidas"
+
+
+# ---------------------------------------- 049U: Reportes del dueño (Asadero) ---
+USERS.update({
+    "gerente": SimpleNamespace(id=uuid.uuid4(), company_id=uuid.UUID(ASADERO), role="gerente", full_name="G", email=""),
+    "cajero": SimpleNamespace(id=uuid.uuid4(), company_id=uuid.UUID(ASADERO), role="cajero", full_name="C", email=""),
+    "cuenta": SimpleNamespace(id=uuid.uuid4(), company_id=uuid.UUID(ASADERO), role="company_admin", full_name="Cuenta", email=""),
+})
+
+
+class OwnerDb(Db):
+    """El Asadero con el interruptor de Reportes del dueño (modulo Carta)."""
+
+    def __init__(self, switch=True, orders=None):
+        super().__init__()
+        self.switch = switch
+        self.orders = orders
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        p = params or {}
+        rows = None
+        if "FROM company_modules cm JOIN modules m" in sql:
+            rows = ([{"code": "waiter_ordering"}] + ([{"code": "carta"}] if self.switch else [])) if str(p.get("company_id", "")) == ASADERO else []
+        elif "FROM inventory_movements" in sql:
+            rows = []
+        elif self.orders is not None and "FROM hospitality_orders" in sql:
+            if sql.startswith("SELECT id, created_at FROM hospitality_orders"):  # ultimo pedido antes de hoy
+                before = [o for o in self.orders if o["created_at"] < p["before"]]
+                rows = [max(before, key=lambda o: o["created_at"])] if before else []
+            else:
+                rows = [o for o in self.orders if p["start"] <= o["created_at"] < p["end"]]
+        if rows is None:
+            return await super().execute(statement, params)
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows, first=lambda: rows[0] if rows else None),
+                               fetchall=lambda: [SimpleNamespace(_mapping=r) for r in rows])
+
+
+@pytest.fixture
+def owner_api(api, monkeypatch):
+    state = {"db": OwnerDb()}
+
+    async def fake_db():
+        yield state["db"]
+
+    app_main.app.dependency_overrides[get_db] = fake_db
+    from app.api.v1.endpoints import carta as carta_endpoint
+    monkeypatch.setattr(carta_endpoint, "_carta_payload", AsyncMock(return_value={"items": []}))
+    yield state
+
+
+@pytest.mark.parametrize("part", ["summary", "details", "pdf", "live", "alerts"])
+def test_hospitality_owner_report_is_only_for_the_owner(owner_api, part):
+    """049U: un administrador, gerente o cajero que entra por la direccion directa recibe 403."""
+    assert get(ASADERO, part).status_code == 401
+    for token in ("administrador", "gerente", "cajero"):
+        res = get(ASADERO, part, token)
+        assert res.status_code == 403, (token, res.status_code)
+    assert get(ASADERO, part, "dueno").status_code == 200
+    assert get(ASADERO, part, "cuenta").status_code == 200, "la cuenta de la empresa es del dueño"
+
+
+def test_hospitality_owner_report_other_companies_keep_their_access(owner_api):
+    """Sin el interruptor (The Time Machine) el gerente sigue viendo Reportes como hoy."""
+    owner_api["db"] = OwnerDb(switch=False)
+    assert get(ASADERO, "summary", "gerente").status_code == 200
+    assert get(ASADERO, "summary", "administrador").status_code == 403
+    assert get(ASADERO, "live", "gerente").status_code == 403, "lo nuevo es del dueño en todas"
+
+
+def test_hospitality_owner_report_today_compares_with_the_same_weekday_last_week():
+    # lunes 28/09/2026 a las 8 p. m.; el lunes pasado fue el 21/09 (no el domingo 27)
+    now = local("2026-09-28", 20)
+    today = date(2026, 9, 28)
+    orders = [
+        order(local("2026-09-28", 13), [item(POLLO, 1, 40000)], status="cerrado"),
+        order(local("2026-09-28", 19), [item(GASEOSA, 2, 6000)], status="entregado", archived=False, table="Mesa 4"),
+        order(local("2026-09-28", 16), [item(POLLO, 1, 40000)], status="pendiente", archived=False, table="Mesa 9"),
+        order(local("2026-09-28", 19, 30), [item(PAPA, 1, 5000)], status="alistando", archived=False, order_type="domicilio", table="Domicilio"),
+        order(local("2026-09-27", 13), [item(POLLO, 3, 120000)]),                        # domingo: no cuenta
+        order(local("2026-09-21", 13), [item(POLLO, 1, 40000)]),                         # lunes pasado a la 1 p. m.
+        order(local("2026-09-21", 22), [item(POLLO, 2, 80000)]),                         # lunes pasado a las 10 p. m.
+    ]
+    rep = engine.Report(orders=orders, closures=[], inventory=INVENTORY, portions=PORTIONS, tz=BOG,
+                        period=engine.today_period(today), business_day={"open": time(10), "close": time(4), "overnight": True}, now=now)
+    live = engine.live_block(rep, now)
+    assert live["sales"] == 40000 + 6000 + 40000 + 5000 and live["orders"] == 4
+    assert live["compare"]["date"] == "2026-09-21" and live["compare"]["weekday"] == "Lunes", "el mismo dia de la semana pasada"
+    assert live["compare"]["sales_same_time"] == 40000, "a esta misma hora (8 p. m.) el lunes pasado llevaba $40.000"
+    assert live["compare"]["sales_full_day"] == 120000
+    assert live["compare"]["sales_change_pct"] == round((91000 - 40000) / 40000 * 100, 1)
+    assert live["margin_pct"] is not None and 0 < live["margin_pct"] < 100
+    assert live["open_tables"] == 2 and live["deliveries_in_progress"] == 1
+    assert [t["table"] for t in live["long_open_tables"]] == ["Mesa 9"], "abierta hace 4 horas"
+
+
+def test_hospitality_owner_report_without_sales_today_shows_the_last_close(owner_api):
+    last = local("2026-09-26", 14)  # sabado
+    owner_api["db"] = OwnerDb(orders=[order(last, [item(POLLO, 1, 40000)]), order(last + timedelta(hours=2), [item(GASEOSA, 1, 3000)])])
+    live = get(ASADERO, "live", "dueno").json()
+    assert live["has_sales"] is False
+    assert live["last_close"]["date"] == "2026-09-26" and live["last_close"]["weekday"] == "Sábado"
+    assert live["last_close"]["sales"] == 43000 and live["last_close"]["orders"] == 2
+
+
+def test_hospitality_owner_report_chart_type_depends_on_the_data():
+    one = engine.chart_choice([{"date": "2026-09-28", "weekday": "Lunes", "sales": 1155250}], 29)
+    assert one["kind"] == "hours"
+    assert one["explain"] == ("Solo hubo ventas el lunes 28/09 (28 días sin operación): una barra por día no diría nada, "
+                              "así que se muestra la venta por hora.")
+    few = [{"date": f"2026-09-{d:02d}", "weekday": "Lunes", "sales": 1} for d in range(1, 8)]
+    assert engine.chart_choice(few, 7)["kind"] == "bars"
+    many = [{"date": f"2026-09-{d:02d}", "weekday": "Lunes", "sales": 1} for d in range(1, 22)]
+    trend = engine.chart_choice(many, 30)
+    assert trend["kind"] == "trend" and "21 días" in trend["explain"]
+    assert engine.chart_choice([], 7)["kind"] == "empty"
+
+
+def test_hospitality_owner_report_daily_has_margin_percent_and_sales_by_hour():
+    orders = [order(local("2026-09-10", 13), [item(POLLO, 1, 40000)]), order(local("2026-09-10", 20), [item(GASEOSA, 2, 6000)])]
+    daily = report(orders).daily()
+    day = next(d for d in daily["days"] if d["date"] == "2026-09-10")
+    assert day["margin"] == (40000 - 20000) + (6000 - 5000)
+    assert day["margin_pct"] == round((21000 / 46000) * 100, 1), "margen en % de lo vendido con costo"
+    assert daily["hours"] == [{"hour": 13, "sales": 40000.0, "orders": 1}, {"hour": 20, "sales": 6000.0, "orders": 1}]
+    assert daily["chart"]["kind"] == "hours", "un solo dia con ventas en el periodo"

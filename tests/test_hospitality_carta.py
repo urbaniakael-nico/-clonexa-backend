@@ -1616,3 +1616,28 @@ def test_hospitality_carta_reports_inventory_matches_restock_and_stock():
     plan = restock.plan(insumos, usage, {}, 15)
     assert next(r for r in plan["buy"] if r["id"] == carne)["days_left"] == inv["coverage"][0]["days"], "la misma cobertura en los dos lados"
     assert restock.qty_text(Decimal("11725.5"), "gr") == "11.725,5 gr" and restock.qty_text(12, "kg") == "12 kg"
+
+
+# ------------- 049U: cualquier insumo acepta cualquier unidad en la receta ---
+def test_hospitality_carta_maracuya_counted_by_unit_accepts_grams_with_its_size(api):
+    # la maracuya se cuenta por unidad; su tamaño en Inventario dice que cada una pesa 80 gr
+    maracuya = str(uuid.uuid4())
+    api.inventory[maracuya] = {**CartaDb._inv(ASADERO, "MARACUYA", 49, "ingrediente", "unidad", "unidad", 1, avg="500"),
+                               "size_value": Decimal("80"), "size_unit": "gr"}
+    insumo = asyncio_run(carta_endpoint.load_insumos(api, uuid.UUID(ASADERO)))[maracuya]
+    assert engine.line_factor("g", insumo) == Decimal(1) / Decimal(80), "1 gr = 1/80 de maracuya"
+    assert engine.line_factor("kg", insumo) == Decimal(1000) / Decimal(80)
+    dish_id = call("POST", ASADERO, "/items", "admin", {"name": "JUGO de maracuya", "price": 6000, "kind": "preparado"}).json()["created_id"]
+    res = call("PUT", ASADERO, f"/items/{dish_id}/recipe", "admin", {"lines": [{"inventory_item_id": maracuya, "quantity": 160, "unit": "gr"}]})
+    assert res.status_code == 200, res.text
+    line = next(i for i in res.json()["items"] if i["id"] == dish_id)["recipe"][0]
+    assert (line["unit"], line["needs_equivalence"], line["stock_quantity"], line["cost"]) == ("g", False, 2.0, 1000.0), \
+        "160 gr = 2 maracuyas de $500"
+    rows = asyncio_run(hospitality._build_order_items(api, uuid.UUID(ASADERO), [item_in(dish_id, 1, "JUGO de maracuya", 6000)]))
+    asyncio_run(hospitality._deduct_inventory(api, uuid.UUID(ASADERO), {"id": "m1", "items": rows}))
+    assert api.inventory[maracuya]["current_stock"] == Decimal("47"), "descuenta 2 maracuyas"
+    # al reves: algo que se pesa y la receta lo cuenta ("1 unidad" de un pan de 60 gr comprado por kilo)
+    pan = {"consumption_unit": "g", "purchase_unit": "kg", "units_per_purchase": 1000, "size_value": 60, "size_unit": "gr"}
+    assert engine.line_factor("unidad", pan) == Decimal("60") and engine.line_factor("docena", pan) == Decimal("720")
+    # sin tamaño no se inventa: la pantalla pregunta una vez cuanto pesa
+    assert engine.line_factor("g", {"consumption_unit": "unidad", "purchase_unit": "unidad", "units_per_purchase": 1}) is None

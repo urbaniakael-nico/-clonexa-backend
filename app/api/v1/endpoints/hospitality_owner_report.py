@@ -12,8 +12,13 @@ Rendimiento: el reporte se pide en dos llamadas que el portal hace a la vez.
 Cada consulta filtra por company_id y un rango de created_at con indice
 (migracion 021v), y el periodo tiene un tope de 93 dias.
 
-Acceso: dueño/gerente de la empresa o Admin V2 (no el rol "administrador",
-igual que Nomina: margen y venta por mesero son informacion sensible).
+Acceso (049U): SOLO el dueño (cuenta de la empresa o rol dueño/owner/
+propietario, la misma definicion que el arqueo de caja) o Admin V2. Un
+administrador, gerente, cajero o mesero que entre por la direccion directa
+recibe 403: margen, costos y venta por mesero son del dueño.
+
+049U: /live (el bloque de HOY, el portal lo pide cada pocos segundos) y
+/alerts (lo que hay que resolver, con el enlace a donde se resuelve).
 """
 from __future__ import annotations
 
@@ -28,7 +33,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant, require_enabled_module
+from app.api.deps import get_db, require_company_user_for_tenant, require_enabled_module
 from app.api.v1.endpoints.hospitality import (
     _hospitality_company_identity,
     _hsp_company_report_settings,
@@ -37,18 +42,43 @@ from app.api.v1.endpoints.hospitality import (
 )
 from app.services import owner_report as engine
 from app.services import restock
+from app.services.cash_count import OWNER_ROLES as CASH_OWNER_ROLES
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
 
 MODULE_CODE = "waiter_ordering"
-OWNER_ROLES = ADMIN_ROLES | {"manager", "gerencia", "gerente", "dueno", "dueño", "owner", "propietario"}
+# Quien ve Reportes. Las empresas con el interruptor de Reportes del dueño
+# (049U: hoy ASADERO, el mismo interruptor por empresa que Carta) lo abren SOLO
+# para el dueño; las demas (The Time Machine) siguen con dueño o gerente.
+LEGACY_OWNER_ROLES = {"company_admin", "admin_empresa", "manager", "gerencia", "gerente", "dueno", "dueño", "owner", "propietario"}
+OWNER_ROLES = set(CASH_OWNER_ROLES)  # company_admin, admin_empresa, dueño, owner, propietario
+
+
+async def owner_only(db: AsyncSession, company_id: uuid.UUID) -> bool:
+    """049U: el interruptor por empresa de los Reportes del dueño."""
+    from app.api.v1.endpoints import carta as carta_endpoint
+
+    return await carta_endpoint.carta_enabled(db, company_id)
 
 
 async def require_owner_report(
     company_id: uuid.UUID, request: Request,
     authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
 ) -> str:
+    await require_enabled_module(db, company_id, MODULE_CODE)
+    if await active_admin_v2_session(request, db):
+        return "Admin V2"
+    roles = OWNER_ROLES if await owner_only(db, company_id) else LEGACY_OWNER_ROLES
+    user = await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=roles)
+    return str(getattr(user, "full_name", "") or "Dueño")
+
+
+async def require_owner_only(
+    company_id: uuid.UUID, request: Request,
+    authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+) -> str:
+    """Los endpoints nuevos (HOY y alertas) son del dueño en todas las empresas."""
     await require_enabled_module(db, company_id, MODULE_CODE)
     if await active_admin_v2_session(request, db):
         return "Admin V2"
@@ -188,6 +218,145 @@ async def _details(ctx: dict) -> dict:
         "cash_counts": [{"cashier_name": r["cashier_name"], "counts": int(r["counts"]), "shortages": int(r["shortages"]),
                          "shortage": r["shortage"], "surplus": r["surplus"]} for r in ctx.get("cash_counts") or []],
     })
+
+
+# ----------------------------------------------------- 049U: HOY y alertas ---
+async def _orders_between(db: AsyncSession, cid: str, start: datetime, end: datetime) -> tuple[list[dict], list[dict]]:
+    orders = [dict(r) for r in (await db.execute(text("""
+        SELECT id, created_at, updated_at, closed_at, cancelled_at, archived_at, status, order_type, source,
+               table_key, table_number, payment_method, total, items, metadata, inventory_deducted
+        FROM hospitality_orders
+        WHERE company_id = CAST(:company_id AS uuid) AND created_at >= :start AND created_at < :end
+    """), {"company_id": cid, "start": start, "end": end})).mappings().all()]
+    closures = [dict(r) for r in (await db.execute(text("""
+        SELECT id, opened_at, closed_at, order_ids
+        FROM hospitality_day_closures
+        WHERE company_id = CAST(:company_id AS uuid) AND closed_at >= :start AND closed_at < :end
+    """), {"company_id": cid, "start": start, "end": end + timedelta(days=2)})).mappings().all()]
+    return orders, closures
+
+
+async def _inventory_and_portions(db: AsyncSession, cid: str) -> tuple[dict, dict]:
+    inventory = {str(r["id"]): dict(r) for r in (await db.execute(text("""
+        SELECT id, COALESCE(NULLIF(name, ''), name_reference, sku) AS name, entry_price, sale_price, current_stock, status,
+               avg_cost, units_per_purchase, item_type, consumption_unit
+        FROM inventory_items
+        WHERE company_id = CAST(:company_id AS uuid) AND COALESCE(status, 'active') NOT IN ('archived', 'deleted')
+    """), {"company_id": cid})).mappings().all()}
+    portions = {}
+    if await _table_exists(db, "hospitality_product_portions"):
+        portions = {str(r["inventory_item_id"]): dict(r) for r in (await db.execute(text("""
+            SELECT inventory_item_id, product_group_key AS group_key, group_label, portion_label
+            FROM hospitality_product_portions WHERE company_id = CAST(:company_id AS uuid)
+        """), {"company_id": cid})).mappings().all()}
+    return inventory, portions
+
+
+async def _live(db: AsyncSession, company_id: uuid.UUID, now: datetime | None = None) -> dict:
+    settings = await _hsp_company_report_settings(db, company_id)
+    if settings is None:
+        raise HTTPException(status_code=404, detail="company_not_found")
+    tz_name, business_day = settings
+    tz = _hsp_report_zone(tz_name)
+    now = now or datetime.now(timezone.utc)
+    today = _today(tz, business_day)
+    cid = str(company_id)
+    inventory, portions = await _inventory_and_portions(db, cid)
+    period = engine.today_period(today)
+    start = datetime.combine(period["prev_start"] - timedelta(days=1), time.min, tz).astimezone(timezone.utc)
+    orders, closures = await _orders_between(db, cid, start, now + timedelta(days=1))
+    report = engine.Report(orders=orders, closures=closures, inventory=inventory, portions=portions, tz=tz,
+                           period=period, business_day=business_day, now=now)
+    block = engine.live_block(report, now)
+    block["last_close"] = None
+    if not block["has_sales"]:
+        # sin operacion hoy: el cierre del ultimo dia con ventas, con su fecha
+        last = (await db.execute(text("""
+            SELECT id, created_at FROM hospitality_orders
+            WHERE company_id = CAST(:company_id AS uuid) AND created_at < :before
+              AND LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'cancelled', 'canceled', 'merma')
+            ORDER BY created_at DESC LIMIT 1
+        """), {"company_id": cid, "before": datetime.combine(today, time.min, tz).astimezone(timezone.utc)})).mappings().first()
+        if last and last.get("created_at"):
+            around = engine.aware(last["created_at"])
+            day_orders, day_closures = await _orders_between(db, cid, around - timedelta(days=2), around + timedelta(days=2))
+            resolve = engine.jornada_resolver(day_orders, day_closures, tz, business_day)
+            last_order = next((o for o in day_orders if str(o.get("id")) == str(last.get("id"))), None)
+            day = (resolve(last_order) if last_order else None) or around.astimezone(tz).date()
+            day_report = engine.Report(orders=day_orders, closures=day_closures, inventory=inventory, portions=portions, tz=tz,
+                                       period={**engine.today_period(day), "label": "Último cierre"}, business_day=business_day, now=now)
+            block["last_close"] = engine.day_close(day_report)
+    block["generated_at"] = now.isoformat()
+    block["timezone"] = tz_name
+    return block
+
+
+@router.get("/companies/{company_id}/owner-report/live")
+async def owner_report_live(company_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                            _actor: str = Depends(require_owner_only)) -> dict:
+    """El bloque de HOY: el portal lo pide cada pocos segundos."""
+    return engine.public(await _live(db, company_id))
+
+
+@router.get("/companies/{company_id}/owner-report/alerts")
+async def owner_report_alerts(company_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                              _actor: str = Depends(require_owner_only)) -> dict:
+    """Lo que hay que resolver, cada uno con el enlace a donde se resuelve."""
+    settings = await _hsp_company_report_settings(db, company_id)
+    if settings is None:
+        raise HTTPException(status_code=404, detail="company_not_found")
+    tz_name, business_day = settings
+    tz = _hsp_report_zone(tz_name)
+    now = datetime.now(timezone.utc)
+    cid = str(company_id)
+    alerts: list[dict] = []
+    from app.api.v1.endpoints import carta as carta_endpoint
+
+    carta_on = await carta_endpoint.carta_enabled(db, company_id)
+    # 1. productos sin precio de entrada en lo vendido de los ultimos 7 dias
+    week = engine.resolve_period("7d", _today(tz, business_day))
+    inventory, portions = await _inventory_and_portions(db, cid)
+    start = datetime.combine(week["start"] - timedelta(days=1), time.min, tz).astimezone(timezone.utc)
+    orders, closures = await _orders_between(db, cid, start, now + timedelta(days=1))
+    week_report = engine.Report(orders=orders, closures=closures, inventory=inventory, portions=portions, tz=tz,
+                                period=week, business_day=business_day, now=now)
+    costing = week_report.kpis()["costing"]
+    if costing["uncosted"]:
+        alerts.append({"kind": "uncosted", "severity": "bad",
+                       "title": f"{len(costing['uncosted'])} producto(s) sin precio de entrada: el margen está incompleto",
+                       "detail": f"{engine.money_text(costing['uncosted_sales'])} vendidos en los últimos 7 días no tienen costo.",
+                       "items": [p["name"] for p in costing["uncosted"]],
+                       "link": {"module": "carta" if carta_on else "inventory",
+                                "label": "Completar en Carta" if carta_on else "Cargar en Inventario"}})
+    # 2. insumos por agotarse y 3. platos por debajo del costo (con Carta)
+    if carta_on:
+        insumos = await carta_endpoint.load_insumos(db, company_id)
+        plan = restock.plan(insumos, await carta_endpoint.load_usage(db, company_id), {}, 3)
+        soon = [r for r in plan["buy"] if r["reason"] in {"agotado", "bajo_minimo"} or (r["days_left"] is not None and r["days_left"] <= 3)]
+        if soon:
+            alerts.append({"kind": "restock", "severity": "warn",
+                           "title": f"{len(soon)} insumo(s) agotado(s) o por agotarse",
+                           "detail": "Agotados, bajo el mínimo o que se acaban en 3 días o menos al ritmo actual.",
+                           "items": [r["name"] for r in soon],
+                           "link": {"module": "inventory", "mode": "compras", "label": "Ver Próximas compras"}})
+        carta = await carta_endpoint._carta_payload(db, company_id)
+        below = [d for d in carta["items"] if d.get("below_cost") and d.get("active")]
+        if below:
+            alerts.append({"kind": "below_cost", "severity": "bad",
+                           "title": f"{len(below)} plato(s) por debajo del costo",
+                           "detail": "Se venden por menos de lo que cuestan sus ingredientes.",
+                           "items": [f"{d['name']} ({engine.money_text(d['price'])} vs costo {engine.money_text(d['cost'])})" for d in below],
+                           "link": {"module": "carta", "label": "Revisar en Carta"}})
+    # 4. mesas abiertas hace mucho
+    live = await _live(db, company_id, now)
+    if live["long_open_tables"]:
+        alerts.append({"kind": "long_tables", "severity": "warn",
+                       "title": f"{len(live['long_open_tables'])} mesa(s) abierta(s) hace más de {engine.LONG_TABLE_MINUTES // 60} horas",
+                       "detail": "Puede ser una cuenta que se olvidó cerrar.",
+                       "items": [f"{t['table']} · {t['minutes'] // 60} h {t['minutes'] % 60} min · {engine.money_text(t['total'])}"
+                                 for t in live["long_open_tables"]],
+                       "link": {"module": "orders", "label": "Ver mesas"}})
+    return engine.public({"alerts": alerts, "generated_at": now.isoformat()})
 
 
 @router.get("/companies/{company_id}/owner-report/summary")

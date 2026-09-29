@@ -476,15 +476,36 @@ class Report:
             row = by_day.setdefault(line["order"]["_jornada"], {"sales": Decimal("0"), "orders": 0})
             if line["cost"] is not None:
                 row["margin"] = row.get("margin", Decimal("0")) + line["sale"] - line["cost"]
+        costed: dict[date, Decimal] = defaultdict(Decimal)
+        for line in self.lines():
+            if line["cost"] is not None:
+                costed[line["order"]["_jornada"]] += line["sale"]
         days = []
         cursor = self.period["start"]
         while cursor <= self.period["end"]:
             row = by_day.get(cursor, {})
+            # 049U: margen tambien en % (sobre la venta con costo): 53% dice mas que otra barra
+            pct = (row["margin"] / costed[cursor] * 100) if "margin" in row and costed[cursor] > 0 else None
             days.append({"date": cursor.isoformat(), "weekday": WEEKDAYS[cursor.weekday()], "sales": money(row.get("sales")),
-                         "margin": money(row.get("margin")) if "margin" in row else None, "orders": row.get("orders", 0)})
+                         "margin": money(row.get("margin")) if "margin" in row else None, "orders": row.get("orders", 0),
+                         "margin_pct": round(float(pct), 1) if pct is not None else None})
             cursor += timedelta(days=1)
         with_sales = [d for d in days if d["sales"] > 0]
-        return {"days": days, "table": with_sales, "idle_days": len(days) - len(with_sales)}
+        return {"days": days, "table": with_sales, "idle_days": len(days) - len(with_sales),
+                "hours": self.hourly(), "chart": chart_choice(with_sales, len(days))}
+
+    def hourly(self) -> list[dict]:
+        """049U: venta por hora local (de la jornada) en el periodo."""
+        by_hour: dict[int, dict] = {}
+        for order in self.sales:
+            created = aware(order.get("created_at"))
+            if not created:
+                continue
+            row = by_hour.setdefault(created.astimezone(self.tz).hour, {"sales": Decimal("0"), "orders": 0})
+            row["sales"] += dec(order.get("total"))
+            row["orders"] += 1
+        hours = sorted(by_hour, key=lambda h: (h < 6, h))  # la madrugada al final: sigue siendo la misma jornada
+        return [{"hour": h, "sales": money(by_hour[h]["sales"]), "orders": by_hour[h]["orders"]} for h in hours]
 
     # --- corr. a: dia mas movido solo con >= 3 repeticiones
     def busiest_weekday(self) -> dict:
@@ -775,6 +796,91 @@ class Report:
             joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " y " + names[-1]
             out.append(f"Se acaban en menos de 3 días: {joined}.")
         return out[:4]
+
+
+# ------------------------------------------ 049U: grafica segun los datos ---
+FEW_DAYS = 2        # con 1 o 2 dias con venta, una barra por dia no dice nada: ventas por hora
+TREND_DAYS = 21     # con 3 semanas o mas: linea de tendencia
+
+
+def chart_choice(days_with_sales: list[dict], period_days: int) -> dict:
+    """Que grafica mostrar para la venta del periodo y por que (en una frase)."""
+    n = len(days_with_sales)
+    if n == 0:
+        return {"kind": "empty", "explain": "No hubo ventas en el periodo."}
+    if n <= FEW_DAYS:
+        names = " y ".join(f"el {d['weekday'].lower()} {d['date'][8:10]}/{d['date'][5:7]}" for d in days_with_sales)
+        idle = period_days - n
+        return {"kind": "hours",
+                "explain": (f"Solo hubo ventas {names}" + (f" ({idle} días sin operación)" if idle else "")
+                            + ": una barra por día no diría nada, así que se muestra la venta por hora.")}
+    if n >= TREND_DAYS:
+        return {"kind": "trend", "explain": f"Con {n} días de ventas se muestra la tendencia: venta de cada día y margen en %."}
+    return {"kind": "bars", "explain": f"Venta de cada uno de los {n} días con operación y el margen en % de cada día."}
+
+
+# ----------------------------------------------- 049U: bloque de HOY ---
+LIVE_STATUSES = {"pendiente", "alistando", "entregado"}
+LONG_TABLE_MINUTES = 180
+
+
+def today_period(today: date) -> dict:
+    """Hoy contra el MISMO dia de la semana pasada (un lunes no se compara con
+    un domingo)."""
+    last_week = today - timedelta(days=7)
+    return {"kind": "today", "label": "Hoy", "start": today, "end": today, "prev_start": last_week, "prev_end": last_week, "days": 1}
+
+
+def _margin_pct(totals: dict) -> float | None:
+    return round(float(totals["margin"] / totals["costed_sales"] * 100), 1) if totals["costed_sales"] > 0 else None
+
+
+def live_block(report: "Report", now: datetime) -> dict:
+    """Venta y margen de hoy, pedidos, ticket, mesas abiertas y domicilios en
+    curso; comparado con el mismo dia de la semana pasada a esta misma hora
+    (y con ese dia completo)."""
+    kp = report.kpis()
+    cur, prev_full = kp["_raw"], kp["_prev"]
+    cutoff = now - timedelta(days=7)
+    prev_same = [o for o in report.prev_orders if not is_cancelled(o) and (aware(o.get("created_at")) or now) <= cutoff]
+    prev_now = report._totals(prev_same, [], report.lines(prev_same))
+    active = [o for o in report.orders if str(o.get("status") or "").lower() in LIVE_STATUSES and not o.get("archived_at")]
+    open_accounts = [a for a in accounts(active) if a["channel"] == "mesa"]
+    long_open = []
+    for account in open_accounts:
+        opened = account["opened_at"]
+        minutes = int((now - opened).total_seconds() // 60) if opened else 0
+        if minutes >= LONG_TABLE_MINUTES:
+            long_open.append({"table": account["table"] or "Mesa", "minutes": minutes, "total": money(account["total"])})
+    last_week = report.period["prev_start"]
+    return {
+        "date": report.period["start"].isoformat(), "weekday": WEEKDAYS[report.period["start"].weekday()],
+        "has_sales": cur["orders"] > 0,
+        "sales": money(cur["sales"]), "margin": money(cur["margin"]), "margin_pct": _margin_pct(cur),
+        "margin_complete": kp["costing"]["complete"],
+        "orders": cur["orders"], "accounts": cur["accounts"], "ticket": money(cur["ticket"]),
+        "open_tables": len(open_accounts), "open_total": money(sum((a["total"] for a in open_accounts), Decimal("0"))),
+        "deliveries_in_progress": len([o for o in active if channel_of(o) == "domicilio"]),
+        "long_open_tables": sorted(long_open, key=lambda r: -r["minutes"]),
+        "compare": {
+            "date": last_week.isoformat(), "weekday": WEEKDAYS[last_week.weekday()],
+            "sales_same_time": money(prev_now["sales"]), "margin_same_time": money(prev_now["margin"]),
+            "sales_full_day": money(prev_full["sales"]),
+            "sales_change_pct": pct_change(float(cur["sales"]), float(prev_now["sales"])),
+            "margin_change_pct": pct_change(float(cur["margin"]), float(prev_now["margin"])),
+            "orders_same_time": prev_now["orders"],
+        },
+    }
+
+
+def day_close(report: "Report") -> dict:
+    """El cierre de un dia (cuando hoy no hay operacion se muestra el ultimo)."""
+    kp = report.kpis()
+    cur = kp["_raw"]
+    day = report.period["start"]
+    return {"date": day.isoformat(), "weekday": WEEKDAYS[day.weekday()], "sales": money(cur["sales"]),
+            "margin": money(cur["margin"]), "margin_pct": _margin_pct(cur), "orders": cur["orders"],
+            "accounts": cur["accounts"], "ticket": money(cur["ticket"]), "margin_complete": kp["costing"]["complete"]}
 
 
 def money_text(value: Any) -> str:

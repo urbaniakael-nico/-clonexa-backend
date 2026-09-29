@@ -141,6 +141,29 @@ def line_factor(unit: Any, insumo: dict | None) -> Decimal | None:
     per_purchase = dec((insumo or {}).get("units_per_purchase"))
     if via_purchase is not None and per_purchase > 0:
         return via_purchase * per_purchase
+    return size_factor(unit, insumo)
+
+
+# 049U: el tamaño del articulo en Inventario (numero + unidad) dice cuanto mide
+# cada unidad: "MARACUYA 80 gr" -> 1 unidad = 80 g. Con el se convierte sin
+# preguntar entre lo que se cuenta y lo que se pesa o se mide.
+SIZE_UNIT_KEYS = {"gr": "g", "litros": "l", "onza": "oz"}
+
+
+def size_factor(unit: str, insumo: dict | None) -> Decimal | None:
+    size_value = dec((insumo or {}).get("size_value"))
+    raw_size_unit = str((insumo or {}).get("size_unit") or "")
+    size_unit = recipe_unit(SIZE_UNIT_KEYS.get(raw_size_unit, raw_size_unit))
+    if size_value <= 0 or not size_unit:
+        return None
+    base = str((insumo or {}).get("consumption_unit") or "unidad")
+    size_dim, unit_dim, base_dim = UNITS[size_unit][0], UNITS.get(unit, ("",))[0], UNITS.get(base, ("",))[0]
+    if base_dim == "unidad" and size_dim == unit_dim and size_dim in {"masa", "volumen"}:
+        # se cuenta por unidad y la receta pesa: 160 g de maracuya de 80 g = 2 unidades
+        return standard_factor(unit, size_unit) / size_value
+    if unit_dim == "unidad" and size_dim == base_dim and size_dim in {"masa", "volumen"}:
+        # se pesa y la receta cuenta: 1 unidad = el tamaño de una unidad
+        return standard_factor(unit, "unidad") * size_value * standard_factor(size_unit, base)
     return None
 
 
