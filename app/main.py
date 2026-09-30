@@ -557,3 +557,12 @@ except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2").warning("Admin Console V2 no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2_ROUTE
+
+# CLONEXA_ADMIN_V2PLUS_ROUTE: Consola v2+ en paralelo (misma sesion de Admin V2)
+try:
+    from app.web.admin_v2plus_routes import router as admin_v2plus_router
+    app.include_router(admin_v2plus_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Consola v2+ no pudo registrarse: %s", exc)
+# END_CLONEXA_ADMIN_V2PLUS_ROUTE

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CLONEXA · Consola v2+</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Cinzel:wght@900&family=JetBrains+Mono:wght@400;600&display=swap" />
+  <link rel="stylesheet" href="/admin-v2plus.css" />
+</head>
+<body>
+  <div class="vp-shell">
+    <aside class="vp-sidebar">
+      <div class="cx-brand">
+        <div class="cx-logo-wrap">
+          <img class="cx-logo-img" src="/admin-v2-assets/clonexa-logo.png" alt="CLONEXA" onerror="this.style.display='none';document.querySelector('.cx-logo-fallback').style.display='grid';" />
+          <div class="cx-logo-fallback" aria-hidden="true">CX</div>
+        </div>
+        <div>
+          <div class="cx-brand-title">CLONEXA</div>
+          <div class="cx-brand-subtitle">Consola v2+</div>
+        </div>
+      </div>
+
+      <nav class="vp-nav" aria-label="Navegación principal" data-vp-nav>
+        <button class="vp-nav-item is-active" type="button" data-vp-view="command">Centro de mando</button>
+        <button class="vp-nav-item" type="button" data-vp-view="companies">Empresas</button>
+        <button class="vp-nav-item" type="button" data-vp-view="switches">Interruptores</button>
+        <button class="vp-nav-item" type="button" data-vp-view="access">Accesos y sesiones</button>
+        <button class="vp-nav-item" type="button" data-vp-view="catalog">Catálogo</button>
+        <button class="vp-nav-item" type="button" data-vp-view="billing">Facturación</button>
+        <button class="vp-nav-item" type="button" data-vp-view="health">Salud y seguridad</button>
+        <button class="vp-nav-item" type="button" data-vp-view="audit">Auditoría</button>
+        <button class="vp-nav-item" type="button" data-vp-view="landing">Landing</button>
+      </nav>
+
+      <a class="vp-back" href="/admin-v2">← Volver a Admin V2</a>
+    </aside>
+
+    <main class="vp-main" id="vpMain" aria-live="polite">
+      <p class="vp-loading">Cargando el Centro de mando…</p>
+    </main>
+  </div>
+
+  <script src="/admin-v2plus.js"></script>
+</body>
+</html>
