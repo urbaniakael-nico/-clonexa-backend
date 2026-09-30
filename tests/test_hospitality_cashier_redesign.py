@@ -198,7 +198,8 @@ async def test_hospitality_shift_summary_uses_the_cashier_open_shift(on):
     result = await wo.cashier_shift_summary(COMPANY_ID, db=db, user=_caja())
     sql, params = next((q, p) for q, p in db.calls if "FROM hospitality_orders" in q)
     assert "company_id = CAST(:company_id AS uuid)" in sql and params["company_id"] == str(COMPANY_ID)
-    assert "(created_at >= :since OR closed_at >= :since)" in sql and params["since"] == SINCE
+    # 049Z: la misma lectura de ventas que Reportes (sales_ledger.load_orders)
+    assert "((created_at >= :start) OR (closed_at >= :start))" in sql and params["start"] == SINCE
     assert result["shift_open"] is True
     assert result["sold"] == 225000.0
 

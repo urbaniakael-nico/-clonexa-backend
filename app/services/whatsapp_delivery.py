@@ -132,6 +132,10 @@ def normalize_settings(raw: Any) -> dict[str, Any]:
         "closed_message": str(data.get("closed_message") or DEFAULT_CLOSED)[:900],
         "driver_role": clean(data.get("driver_role") or "domiciliario", 60).lower(),
         "public_base_url": base_url if base_url.startswith(("http://", "https://")) else "",
+        # 049Z (interruptor por empresa, hoy ASADERO): pago por transferencia
+        # visible con el QR del local y la ubicacion se pide por WhatsApp
+        # despues de confirmar (sin botones de ubicacion en el formulario).
+        "checkout_v2": data.get("checkout_v2") is True,
     }
 
 
@@ -411,12 +415,16 @@ def _items_lines(items: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def _qr_label(delivery: dict[str, Any]) -> str:
+    return "Transferencia" if delivery.get("payment_kind") == "transfer" else "Pago por QR"
+
+
 def payment_line(delivery: dict[str, Any]) -> str:
     method = delivery.get("payment_method")
     if method == "qr":
         if delivery.get("payment_status") == "verificado":
-            return "Pago por QR: CONFIRMADO por caja. No cobrar."
-        return "Pago por QR: POR VERIFICAR en caja (comprobante sin confirmar)."
+            return f"{_qr_label(delivery)}: CONFIRMADO por caja. No cobrar."
+        return f"{_qr_label(delivery)}: POR VERIFICAR en caja (comprobante sin confirmar)."
     label = PAYMENT_LABELS.get(method, "Contra entrega")
     line = f"{label}: COBRAR {money(delivery.get('total'))}"
     if method == "cash" and delivery.get("pays_with"):
@@ -436,6 +444,10 @@ def confirmation_message(company_name: str, order: dict[str, Any], delivery: dic
         lines.append(f"Pagas en efectivo con {money(delivery['pays_with'])}; te llevamos {money(delivery.get('change'))} de cambio.")
     else:
         lines.append(f"Pagas al recibir: {PAYMENT_LABELS.get(delivery.get('payment_method'), 'contra entrega').lower()}.")
+    if delivery.get("ask_location"):
+        # 049Z: la ubicacion se pide aqui (ya no en el formulario).
+        lines.append("Para una entrega mas exacta, compartenos tu ubicacion por este chat: "
+                     "toca 📎 › Ubicacion › Enviar tu ubicacion actual.")
     return "\n".join(lines)
 
 

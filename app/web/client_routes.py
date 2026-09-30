@@ -20,6 +20,16 @@ def _read_html(path: Path) -> HTMLResponse:
     )
 
 
+async def _branded_html(path: Path, db: AsyncSession, company_id: object) -> HTMLResponse:
+    """049Z: la pagina con el tema de la empresa incrustado (interruptor
+    brand_everywhere); sin el interruptor, la pagina de siempre."""
+    from app.web import brand_inject
+
+    html = path.read_text(encoding="utf-8")
+    html = brand_inject.inject(html, await brand_inject.company_brand(db, company_id))
+    return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
+
+
 _SHORT_LINK_NOT_FOUND = """<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Link no encontrado</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px system-ui,sans-serif;background:#0b0a14;color:#fff;padding:16px}
@@ -55,22 +65,32 @@ def register_client_portal(app: FastAPI) -> None:
 
     if not any(getattr(route, "path", None) == "/ordenar" for route in app.routes):
         @app.get("/ordenar", response_class=HTMLResponse, include_in_schema=False)
-        async def hospitality_order_page() -> HTMLResponse:
-            return _read_html(web_dir / "hospitality_order.html")
+        async def hospitality_order_page(company_id: str = "", companyId: str = "",
+                                         db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            return await _branded_html(web_dir / "hospitality_order.html", db, company_id or companyId)
 
     # Domicilios por WhatsApp: public carta opened from the link the customer
     # line sends (the link code in ?s= is the only credential).
     if not any(getattr(route, "path", None) == "/domicilio" for route in app.routes):
         @app.get("/domicilio", response_class=HTMLResponse, include_in_schema=False)
-        async def delivery_order_page() -> HTMLResponse:
-            return _read_html(web_dir / "domicilio.html")
+        async def delivery_order_page(c: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            return await _branded_html(web_dir / "domicilio.html", db, c)
 
     # 049J: carta que abre el QR impreso de la carta (el codigo secreto ?t= es
     # la unica credencial; se cambia desde el portal y el anterior deja de servir).
     if not any(getattr(route, "path", None) == "/carta-qr" for route in app.routes):
         @app.get("/carta-qr", response_class=HTMLResponse, include_in_schema=False)
-        async def carta_qr_page() -> HTMLResponse:
-            return _read_html(web_dir / "carta_qr.html")
+        async def carta_qr_page(t: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            company_id = None
+            if t:
+                try:
+                    from app.api.v1.endpoints.carta import _company_by_qr_token
+
+                    company = await _company_by_qr_token(db, t)
+                    company_id = company["id"] if company else None
+                except Exception:
+                    await db.rollback()
+            return await _branded_html(web_dir / "carta_qr.html", db, company_id)
 
     if not any(getattr(route, "path", None) == "/shoplink" for route in app.routes):
         @app.get("/shoplink", response_class=HTMLResponse, include_in_schema=False)
@@ -123,13 +143,13 @@ def register_client_portal(app: FastAPI) -> None:
     # CLONEXA_019D_MINI_PANEL_ROUTES_START
     if not any(getattr(route, "path", None) == "/mini-panel/login" for route in app.routes):
         @app.get("/mini-panel/login", response_class=HTMLResponse, include_in_schema=False)
-        async def mini_panel_login_page() -> HTMLResponse:
-            return _read_html(web_dir / "mini_panel.html")
+        async def mini_panel_login_page(company_id: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            return await _branded_html(web_dir / "mini_panel.html", db, company_id)
 
     if not any(getattr(route, "path", None) == "/mini-panel" for route in app.routes):
         @app.get("/mini-panel", response_class=HTMLResponse, include_in_schema=False)
-        async def mini_panel_shell_page() -> HTMLResponse:
-            return _read_html(web_dir / "mini_panel.html")
+        async def mini_panel_shell_page(company_id: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            return await _branded_html(web_dir / "mini_panel.html", db, company_id)
     # CLONEXA_019D_MINI_PANEL_ROUTES_END
 
     # CLONEXA_026K_WAITER_ORDERING_ROUTES_START
@@ -150,8 +170,8 @@ def register_client_portal(app: FastAPI) -> None:
             continue
 
         def _make_waiter_ordering_page(file_name: str):
-            async def _page() -> HTMLResponse:
-                return _read_html(web_dir / file_name)
+            async def _page(company_id: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+                return await _branded_html(web_dir / file_name, db, company_id)
             return _page
 
         app.add_api_route(

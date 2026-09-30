@@ -35,6 +35,7 @@ from fractions import Fraction
 from typing import Any, Callable, Iterable
 from zoneinfo import ZoneInfo
 
+from app.services import sales_ledger as ledger
 from app.services.carta import unit_cost as insumo_unit_cost
 
 MONEY = Decimal("0.01")
@@ -312,7 +313,7 @@ PAYMENT_LABELS = {"cash": "Efectivo", "transfer": "Transferencia", "card": "Tarj
 
 
 def is_cancelled(order: dict) -> bool:
-    return str(order.get("status") or "").lower() in {"cancelado", "cancelled", "canceled", "merma"}
+    return ledger.is_cancelled(order)
 
 
 def is_merma(order: dict) -> bool:
@@ -358,14 +359,17 @@ class Report:
     def __init__(
         self, *, orders: list[dict], closures: list[dict], inventory: dict[str, dict], portions: dict[str, dict],
         tz: ZoneInfo, period: dict, business_day: dict | None = None, sessions: list[dict] | None = None,
-        confirmed_ends: dict[str, Any] | None = None, now: datetime | None = None,
+        confirmed_ends: dict[str, Any] | None = None, now: datetime | None = None, by_charge: bool = False,
     ):
         self.tz = tz
         self.period = period
         self.costing = Costing(inventory, portions)
         self.inventory = inventory
         self.now = now or datetime.now(timezone.utc)
-        jornada_of = jornada_resolver(orders, closures, tz, business_day)
+        # 049Z: con el interruptor sales_ledger, el dia de cada venta es el de
+        # su cobro (la misma regla del panel de caja y del Z), no la jornada
+        # de "cierre de dia" de hospitality.
+        jornada_of = ledger.day_resolver(tz, business_day) if by_charge else jornada_resolver(orders, closures, tz, business_day)
         for order in orders:
             order["_jornada"] = jornada_of(order)
         self.orders = [o for o in orders if o.get("_jornada") and period["start"] <= o["_jornada"] <= period["end"]]

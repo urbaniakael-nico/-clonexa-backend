@@ -148,8 +148,8 @@
       address: String(state.form.address).trim(),
       address_notes: String(state.form.address_notes).trim(),
       notes: String(state.form.notes).trim(),
-      latitude: state.location ? state.location.latitude : null,
-      longitude: state.location ? state.location.longitude : null,
+      latitude: state.location && !checkoutV2() ? state.location.latitude : null,
+      longitude: state.location && !checkoutV2() ? state.location.longitude : null,
       payment_method: state.form.payment_method,
       pays_with: state.form.payment_method === "cash" && paysWith() ? paysWith() : null,
       items: state.cart.map(Kit.orderItemPayload),
@@ -247,7 +247,44 @@
       ${loose.length || !subs.length ? Kit.productGridHtml(loose, kitOptions("data-dom-product")) : ""}`;
   }
 
+  // 049Z (interruptor checkout_v2): transferencia con el QR del local y la
+  // ubicacion se pide por WhatsApp despues de confirmar.
+  function checkoutV2() {
+    return Boolean(state.data && state.data.checkout_v2 === true);
+  }
+
+  function qrImage() {
+    return `<img src="${h(`${API}/payment-qr?s=${encodeURIComponent(code)}`)}" alt="QR de pago">`;
+  }
+
+  function paymentBlockV2() {
+    const method = state.form.payment_method;
+    const qr = state.data && state.data.has_payment_qr;
+    const option = (value, label) => `
+      <label class="dom-pay ${method === value ? "is-active" : ""}">
+        <input type="radio" name="payment" value="${value}" data-dom-payment ${method === value ? "checked" : ""}> ${label}
+      </label>`;
+    return `
+      <div class="dom-block">
+        <h3>Pago</h3>
+        ${option("cash", "Efectivo contra entrega")}
+        ${option("card", "Datafono contra entrega")}
+        ${option("transfer", "Transferencia")}
+        ${method === "cash" ? `
+          <label>Pagas con (para llevarte el cambio)
+            <input inputmode="numeric" data-dom-field="pays_with" value="${h(state.form.pays_with)}" placeholder="Ej: 100000">
+          </label>
+          ${paysWith() >= total() ? `<div class="dom-hint">Cambio: <b>${h(money(paysWith() - total()))}</b></div>` : ""}` : ""}
+        ${method === "transfer" ? `
+          <div class="dom-qr" data-dom-transfer>
+            ${qr ? qrImage() : ""}
+            <p>${qr ? `Transfiere <b>${h(money(total()))}</b> con este QR` : `Transfiere <b>${h(money(total()))}</b>: te compartimos los datos de pago por WhatsApp`} y <b>envia la foto del comprobante a nuestro chat de WhatsApp</b>. Tu pedido queda <b>por verificar</b> hasta que la caja confirme el pago.</p>
+          </div>` : ""}
+      </div>`;
+  }
+
   function paymentBlock() {
+    if (checkoutV2()) return paymentBlockV2();
     const method = state.form.payment_method;
     const qr = state.data && state.data.has_payment_qr;
     const option = (value, label) => `
@@ -296,12 +333,17 @@
           <label>Nombre<input data-dom-field="customer_name" value="${h(state.form.customer_name)}" autocomplete="name"></label>
           <label>Direccion<input data-dom-field="address" value="${h(state.form.address)}" placeholder="Calle, numero, barrio" autocomplete="street-address"></label>
           <label>Indicaciones (opcional)<input data-dom-field="address_notes" value="${h(state.form.address_notes)}" placeholder="Apto, torre, casa azul..."></label>
+          ${checkoutV2() ? `
+          <div class="dom-location-info" data-dom-location-info>
+            📍 Después de confirmar el pedido, <b>compártenos tu ubicación por WhatsApp</b> para una entrega más exacta. Te lo recordamos en el mensaje de confirmación.
+            ${state.data && state.data.whatsapp_location ? `<div class="dom-hint">✓ Ya recibimos tu ubicacion por WhatsApp.</div>` : ""}
+          </div>` : `
           <div class="dom-location">
             <button type="button" class="wtr-btn" data-dom-locate ${state.locating ? "disabled" : ""}>${state.location ? "📍 Ubicacion agregada" : state.locating ? "Buscando..." : "📍 Usar mi ubicacion actual"}</button>
             ${waUrl ? `<a class="wtr-btn dom-wa" href="${h(waUrl)}" target="_blank" rel="noopener">Compartir ubicacion por WhatsApp</a>
               <small>En el chat toca 📎 › Ubicacion › Enviar tu ubicacion actual.</small>` : ""}
             ${state.data && state.data.whatsapp_location ? `<div class="dom-hint">✓ Ya recibimos tu ubicacion por WhatsApp.</div>` : ""}
-          </div>
+          </div>`}
           <label>Nota para el pedido (opcional)<input data-dom-field="notes" value="${h(state.form.notes)}"></label>
         </div>
         ${paymentBlock()}
@@ -326,6 +368,9 @@
           <p>Tiempo estimado de entrega: <b>${h(done.eta_minutes)} minutos</b>.</p>
           ${done.payment_status === "por_verificar"
             ? `<p class="dom-warn">Recuerda enviar la foto del comprobante a nuestro chat de WhatsApp. Confirmamos el pago antes de despachar.</p>`
+            : ""}
+          ${checkoutV2() && !(state.data && state.data.whatsapp_location)
+            ? `<p class="dom-warn">📍 Compártenos tu ubicación por WhatsApp para una entrega más exacta.</p>`
             : ""}
           <p>Te avisaremos por WhatsApp cuando tu pedido salga.</p>
         </div>
@@ -464,6 +509,7 @@
     .dom-line-main small{color:#8f8aa8}
     .dom-remove{width:36px;height:36px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:none;color:#fecaca}
     .dom-location{display:grid;gap:8px}.dom-location small{color:#8f8aa8}
+    .dom-location-info{display:block;padding:12px;border-radius:14px;border:1px dashed rgba(255,255,255,.18);color:#c9c3e6;font-size:14px;line-height:1.4}
     .dom-wa{display:grid;place-items:center;text-decoration:none;background:#16a34a;border:none}
     .dom-pay{display:flex!important;align-items:center;gap:10px;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.14);color:#fff!important;font-size:15px!important}
     .dom-pay.is-active{border-color:#ff7a18;background:rgba(255,122,24,.12)}

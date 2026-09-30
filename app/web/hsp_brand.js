@@ -15,7 +15,10 @@
   "use strict";
 
   const params = new URLSearchParams(window.location.search);
-  const companyId = params.get("company_id") || params.get("companyId") || "";
+  // 049Z: el link de domicilios trae la empresa en ?c=; el QR de la carta no
+  // la trae (el servidor incrusta el tema en window.__CX_BRAND__).
+  const companyId = params.get("company_id") || params.get("companyId") || params.get("c") || "";
+  const embedded = () => (window.__CX_BRAND__ && typeof window.__CX_BRAND__ === "object" ? window.__CX_BRAND__ : null);
   const cacheKey = `clonexa_panel_brand_${companyId}`;
   const VARS_ID = "cxPanelBrand049V";
   const FONTS = ["Inter", "Manrope", "Sora", "Space Grotesk", "Rajdhani", "Orbitron", "Poppins", "Montserrat"];
@@ -119,9 +122,10 @@
   // ------------------------------------------------------------ CSS rewrite
   const LIGHT_TEXT = ["#fff", "#ffffff", "#f5f3ff", "#f8fafc", "#e2e8f0", "#e5e7eb"];
   const MUTED_TEXT = ["#c9c3e6", "#8f8aa8", "#a79fcf"];
-  const PAGE_DARK = ["#080712", "#0a0714", "#0a0716"];
-  const PAGE_DARK_2 = ["#0d1522", "#150019"];
-  const SURFACE_DARK = ["#120e20", "#141225", "#15131f"];
+  // 049Z: tambien los fondos del QR de mesa, la carta QR y el panel generico.
+  const PAGE_DARK = ["#080712", "#0a0714", "#0a0716", "#070312", "#050510", "#080813", "#090b16", "#020617"];
+  const PAGE_DARK_2 = ["#0d1522", "#150019", "#19102f"];
+  const SURFACE_DARK = ["#120e20", "#141225", "#15131f", "#111827", "#101827", "#0f172a"];
   // Pastel sobre negro -> su tono oscuro, legible sobre un fondo claro.
   const PASTEL_DARK = {
     "#86efac": "#15803d", "#bbf7d0": "#166534", "#4ade80": "#15803d",
@@ -130,7 +134,9 @@
     "#ffb3d9": "#be185d", "#a5b4fc": "#4338ca", "#7dd3fc": "#0369a1",
     "#bae6fd": "#0369a1", "#e0f2fe": "#075985", "#dbeafe": "#1d4ed8", "#60a5fa": "#1d4ed8",
   };
-  const BRAND_HEX = { "#ff2d95": "primary", "#ff7a18": "secondary", "#a855f7": "primary2" };
+  const BRAND_HEX = { "#ff2d95": "primary", "#ff7a18": "secondary", "#a855f7": "primary2", "#ff22b8": "primary", "#9333ea": "primary2" };
+  // Variables CSS de texto (el resto de variables de color se pintan como fondo).
+  const TEXT_VARS = /^--(text|muted|ink|qr-text|qr-muted|fg)$/;
   const COLOR_TOKEN = /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b|rgba?\(\s*[0-9.]+\s*,\s*[0-9.]+\s*,\s*[0-9.]+\s*(?:,\s*[0-9.]+\s*)?\)/g;
 
   function parseRgba(token) {
@@ -142,6 +148,12 @@
     if (!/^rgba?\(/.test(token)) return false;
     const c = parseRgba(token);
     return c.r === 255 && c.g === 255 && c.b === 255;
+  }
+
+  function isNavyRgba(token) {
+    if (!/^rgba?\(/.test(token)) return false;
+    const c = parseRgba(token);
+    return c.r <= 40 && c.g <= 40 && c.b <= 60 && !(c.r === 0 && c.g === 0 && c.b === 0);
   }
 
   function isDarkRgba(token) {
@@ -198,9 +210,15 @@
     if (/^rgba?\(/.test(low)) {
       const c = parseRgba(low);
       if (c.r === 247 && c.g === 37 && c.b === 133) return `rgba(${p.primaryRgb},${c.a})`;
+      if (c.r === 255 && c.g === 34 && c.b === 184) return `rgba(${p.primaryRgb},${c.a})`;
       if (c.r === 8 && c.g === 7 && c.b === 18) return "var(--cxb-header)";
       if (c.r === 3 && c.g === 7 && c.b === 18) return "var(--cxb-field)";
       if (isDarkRgba(low) && !(c.r === 0 && c.g === 0 && c.b === 0)) return "var(--cxb-surface)";
+      // 049Z: velos oscuros (azul pizarra del QR de mesa, etc.)
+      if (isNavyRgba(low)) {
+        if (c.a >= 0.5) return "var(--cxb-surface)";
+        if (p.mode === "light") return `rgba(${p.inkRgb},${(c.a * 0.25).toFixed(3)})`;
+      }
       if (isWhiteRgba(low)) {
         if (p.mode === "light" && /^background/.test(prop)) return `rgba(255,255,255,${Math.min(0.92, 0.5 + c.a * 3).toFixed(2)})`;
         return `rgba(${p.inkRgb},${c.a})`;
@@ -230,6 +248,11 @@
         return `${decl.slice(0, at)}:${value.replace(COLOR_TOKEN, (t) => mapTextColor(t, p, ctx))}`;
       }
       if (prop === "color-scheme") return `${decl.slice(0, at)}:${p.mode}`;
+      // 049Z: variables CSS con colores (--bg, --card, --qr-card, --text...).
+      if (prop.startsWith("--")) {
+        if (TEXT_VARS.test(prop)) return `${decl.slice(0, at)}:${value.replace(COLOR_TOKEN, (t) => mapTextColor(t, p, { coloredBg: false, brandBg: false }))}`;
+        return `${decl.slice(0, at)}:${value.replace(COLOR_TOKEN, (t) => mapPaintColor(t, p, "background"))}`;
+      }
       if (PAINT_PROPS.test(prop)) return `${decl.slice(0, at)}:${value.replace(COLOR_TOKEN, (t) => mapPaintColor(t, p, prop))}`;
       return decl;
     });
@@ -301,6 +324,25 @@
     observer.observe(document.head, { childList: true });
   }
 
+  // 049Z: las hojas externas propias (/client-static/*.css, p. ej. el panel
+  // generico) se copian a un <style> para poder pintarlas con la marca.
+  function inlineLinkedSheets() {
+    if (!document.head || !document.head.querySelectorAll || typeof fetch !== "function") return;
+    Array.from(document.head.querySelectorAll('link[rel="stylesheet"]')).forEach((link) => {
+      const href = String(link.getAttribute("href") || "");
+      if (!href.startsWith("/client-static/") || link.getAttribute("data-cxb-inlined")) return;
+      link.setAttribute("data-cxb-inlined", "1");
+      fetch(href).then((r) => (r.ok ? r.text() : "")).then((css) => {
+        if (!css) return;
+        const style = document.createElement("style");
+        style.setAttribute("data-cxb-from", href);
+        style.textContent = css;
+        document.head.appendChild(style);  // el observador la pinta con la marca
+        link.disabled = true;
+      }).catch(() => {});
+    });
+  }
+
   function apply(branding) {
     current = palette(branding);
     let vars = document.getElementById ? document.getElementById(VARS_ID) : null;
@@ -316,6 +358,7 @@
     } catch (_) {}
     ensureFont(current);
     watchHead();
+    inlineLinkedSheets();
     return current;
   }
 
@@ -355,6 +398,8 @@
         remember(data.branding);
         return apply(data.branding);
       }
+      // 049Z: el tema que el servidor incrusto en la pagina manda.
+      if (embedded()) return apply(embedded());
       remember(null);
       clear();
     } catch (_) {
@@ -364,11 +409,19 @@
   }
 
   function applyCached() {
-    const saved = cached();
+    // 049Z: primero el tema incrustado por el servidor (sale con la marca
+    // desde el primer pintado, incluso en un equipo nuevo); si no, el guardado.
+    const fromServer = embedded();
+    if (fromServer) {
+      if (companyId) remember(fromServer);
+      apply(fromServer);
+      return;
+    }
+    const saved = companyId ? cached() : null;
     if (saved) apply(saved);
   }
 
-  if (companyId) {
+  if (companyId || embedded()) {
     if (document.readyState === "loading" && document.addEventListener) document.addEventListener("DOMContentLoaded", applyCached);
     else window.setTimeout(applyCached, 0);
   }

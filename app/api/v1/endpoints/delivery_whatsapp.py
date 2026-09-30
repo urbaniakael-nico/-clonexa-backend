@@ -263,6 +263,7 @@ async def public_delivery_carta(
         "phone_hint": f"***{wd.display_phone(session['phone'])[-4:]}" if wd.display_phone(session["phone"]) else "",
         "whatsapp_location": bool(session.get("location")),
         "whatsapp_number": await _whatsapp_number(company_id),
+        "checkout_v2": settings.get("checkout_v2") is True,
     }
 
 
@@ -283,7 +284,9 @@ class DeliveryOrderIn(BaseModel):
     address_notes: str = Field(default="", max_length=240)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
-    payment_method: Literal["cash", "card", "qr"]
+    # 049Z: "transfer" = pago por transferencia con el QR del local; se maneja
+    # igual que "qr" (por verificar hasta que la caja confirme el dinero).
+    payment_method: Literal["cash", "card", "qr", "transfer"]
     pays_with: float | None = Field(default=None, ge=0, le=10_000_000)
     notes: str = Field(default="", max_length=500)
     items: list[WaiterOrderItemIn] = Field(default_factory=list)
@@ -310,6 +313,12 @@ async def public_create_delivery_order(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     settings, session = await _public_session(db, company_id, payload.s)
+    checkout_v2 = settings.get("checkout_v2") is True
+    payment_kind = payload.payment_method
+    if payload.payment_method == "transfer":
+        if not checkout_v2:
+            raise HTTPException(status_code=422, detail="Metodo de pago no disponible.")
+        payload.payment_method = "qr"
     company = await wd.company_brief(db, company_id)
     if not wd.is_open(settings["schedule"], wd.local_now(company["timezone"])):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="En este momento no tenemos servicio a domicilio.")
@@ -343,7 +352,8 @@ async def public_create_delivery_order(
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Este enlace ya se uso.")
 
     location = None
-    if payload.latitude is not None and payload.longitude is not None:
+    # 049Z: con checkout_v2 la ubicacion llega solo por WhatsApp.
+    if not checkout_v2 and payload.latitude is not None and payload.longitude is not None:
         location = wd.maps_url(payload.latitude, payload.longitude)
     customer_name = wd.clean(payload.customer_name, 120)
     delivery = {
@@ -355,6 +365,8 @@ async def public_create_delivery_order(
         "whatsapp_location": session.get("location") or None,
         "payment_method": payload.payment_method,
         "payment_status": "por_verificar" if payload.payment_method == "qr" else "contra_entrega",
+        "payment_kind": payment_kind,
+        "ask_location": checkout_v2 and not session.get("location"),
         "pays_with": pays_with,
         "change": change,
         "fee": fee,

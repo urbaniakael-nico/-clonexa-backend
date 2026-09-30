@@ -44,10 +44,15 @@ class CajaDb(SaleDb):
                 row.update(status="cerrado", payment_method=params["payment_method"],
                            closed_at=row.get("closed_at") or datetime.now(timezone.utc))
             return self._result(rowcount=1 if row else 0)
-        if "(created_at >= :since OR closed_at >= :since)" in sql:
+        if "FROM hospitality_orders" in sql and "OR (closed_at >= :start" in sql:  # sales_ledger.load_orders
+            end = params.get("end")
+
+            def inside(moment):
+                return bool(moment) and moment >= params["start"] and (end is None or moment < end)
+
             rows = [copy.deepcopy(r) for r in self.rows.values()
-                    if r["company_id"] == params["company_id"]
-                    and (r["created_at"] >= params["since"] or (r.get("closed_at") and r["closed_at"] >= params["since"]))]
+                    if r["company_id"] == str(params["company_id"])
+                    and (inside(r["created_at"]) or inside(r.get("closed_at")))]
             return self._result(rows)
         if "INSERT INTO cashier_z_reports" in sql:
             row = {"id": params["id"], "number": len(self.z_rows) + 1, "business_day": params["day"],

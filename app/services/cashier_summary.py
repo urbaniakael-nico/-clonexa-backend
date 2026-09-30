@@ -18,6 +18,7 @@ from decimal import Decimal
 from typing import Any, Iterable
 
 from app.services import owner_report as report
+from app.services import sales_ledger as ledger
 
 METHOD_LABELS = {"cash": "Efectivo", "transfer": "Transferencia", "card": "Tarjeta", "other": "Otro"}
 MAIN_METHODS = ("cash", "transfer", "card")
@@ -40,7 +41,7 @@ def method_of(order: dict) -> str:
 
 
 def is_paid(order: dict) -> bool:
-    return str(order.get("status") or "").lower() == "cerrado"
+    return ledger.is_paid(order)
 
 
 def is_direct_sale(order: dict) -> bool:

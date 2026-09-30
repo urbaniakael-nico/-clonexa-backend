@@ -42,6 +42,7 @@ from app.api.v1.endpoints.hospitality import (
 )
 from app.services import owner_report as engine
 from app.services import restock
+from app.services import sales_ledger
 from app.services.cash_count import OWNER_ROLES as CASH_OWNER_ROLES
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
@@ -116,17 +117,8 @@ async def _context(db: AsyncSession, company_id: uuid.UUID, period: str, start, 
     window_start = datetime.combine(chosen["prev_start"] - timedelta(days=1), time.min, tz).astimezone(timezone.utc)
     window_end = datetime.combine(chosen["end"] + timedelta(days=2), time.min, tz).astimezone(timezone.utc)
     cid = str(company_id)
-    orders = [dict(r) for r in (await db.execute(text("""
-        SELECT id, created_at, updated_at, closed_at, cancelled_at, archived_at, status, order_type, source,
-               table_key, table_number, payment_method, total, items, metadata, inventory_deducted
-        FROM hospitality_orders
-        WHERE company_id = CAST(:company_id AS uuid) AND created_at >= :start AND created_at < :end
-    """), {"company_id": cid, "start": window_start, "end": window_end})).mappings().all()]
-    closures = [dict(r) for r in (await db.execute(text("""
-        SELECT id, opened_at, closed_at, order_ids
-        FROM hospitality_day_closures
-        WHERE company_id = CAST(:company_id AS uuid) AND closed_at >= :start AND closed_at < :end
-    """), {"company_id": cid, "start": window_start, "end": window_end + timedelta(days=2)})).mappings().all()]
+    by_charge = await sales_ledger.enabled(db, company_id)
+    orders, closures = await _orders_between(db, cid, window_start, window_end, by_charge=by_charge)
     inventory = {str(r["id"]): dict(r) for r in (await db.execute(text("""
         SELECT id, COALESCE(NULLIF(name, ''), name_reference, sku) AS name, entry_price, sale_price, current_stock, status,
                avg_cost, units_per_purchase, item_type, consumption_unit
@@ -168,7 +160,8 @@ async def _context(db: AsyncSession, company_id: uuid.UUID, period: str, start, 
             GROUP BY cashier_name ORDER BY 3 DESC
         """), {"company_id": cid, "start": period_start, "end": period_end})).mappings().all()]
     report = engine.Report(orders=orders, closures=closures, inventory=inventory, portions=portions, tz=tz,
-                           period=chosen, business_day=business_day, sessions=sessions, confirmed_ends=confirmed)
+                           period=chosen, business_day=business_day, sessions=sessions, confirmed_ends=confirmed,
+                           by_charge=by_charge)
     # 049M: gastos fijos (Inventario > Gastos fijos) del periodo y del anterior.
     from app.api.v1.endpoints.fixed_expenses import fixed_expenses_for_period
 
@@ -221,7 +214,11 @@ async def _details(ctx: dict) -> dict:
 
 
 # ----------------------------------------------------- 049U: HOY y alertas ---
-async def _orders_between(db: AsyncSession, cid: str, start: datetime, end: datetime) -> tuple[list[dict], list[dict]]:
+async def _orders_between(db: AsyncSession, cid: str, start: datetime, end: datetime, *,
+                          by_charge: bool = False) -> tuple[list[dict], list[dict]]:
+    if by_charge:
+        # 049Z: creados o cobrados en la ventana, igual que el panel de caja.
+        return await sales_ledger.load_orders(db, cid, start, end), []
     orders = [dict(r) for r in (await db.execute(text("""
         SELECT id, created_at, updated_at, closed_at, cancelled_at, archived_at, status, order_type, source,
                table_key, table_number, payment_method, total, items, metadata, inventory_deducted
@@ -261,12 +258,13 @@ async def _live(db: AsyncSession, company_id: uuid.UUID, now: datetime | None = 
     now = now or datetime.now(timezone.utc)
     today = _today(tz, business_day)
     cid = str(company_id)
+    by_charge = await sales_ledger.enabled(db, company_id)
     inventory, portions = await _inventory_and_portions(db, cid)
     period = engine.today_period(today)
     start = datetime.combine(period["prev_start"] - timedelta(days=1), time.min, tz).astimezone(timezone.utc)
-    orders, closures = await _orders_between(db, cid, start, now + timedelta(days=1))
+    orders, closures = await _orders_between(db, cid, start, now + timedelta(days=1), by_charge=by_charge)
     report = engine.Report(orders=orders, closures=closures, inventory=inventory, portions=portions, tz=tz,
-                           period=period, business_day=business_day, now=now)
+                           period=period, business_day=business_day, now=now, by_charge=by_charge)
     block = engine.live_block(report, now)
     block["last_close"] = None
     if not block["has_sales"]:
@@ -279,12 +277,15 @@ async def _live(db: AsyncSession, company_id: uuid.UUID, now: datetime | None = 
         """), {"company_id": cid, "before": datetime.combine(today, time.min, tz).astimezone(timezone.utc)})).mappings().first()
         if last and last.get("created_at"):
             around = engine.aware(last["created_at"])
-            day_orders, day_closures = await _orders_between(db, cid, around - timedelta(days=2), around + timedelta(days=2))
-            resolve = engine.jornada_resolver(day_orders, day_closures, tz, business_day)
+            day_orders, day_closures = await _orders_between(db, cid, around - timedelta(days=2), around + timedelta(days=2),
+                                                             by_charge=by_charge)
+            resolve = (sales_ledger.day_resolver(tz, business_day) if by_charge
+                       else engine.jornada_resolver(day_orders, day_closures, tz, business_day))
             last_order = next((o for o in day_orders if str(o.get("id")) == str(last.get("id"))), None)
             day = (resolve(last_order) if last_order else None) or around.astimezone(tz).date()
             day_report = engine.Report(orders=day_orders, closures=day_closures, inventory=inventory, portions=portions, tz=tz,
-                                       period={**engine.today_period(day), "label": "Último cierre"}, business_day=business_day, now=now)
+                                       period={**engine.today_period(day), "label": "Último cierre"}, business_day=business_day, now=now,
+                                       by_charge=by_charge)
             block["last_close"] = engine.day_close(day_report)
     block["generated_at"] = now.isoformat()
     block["timezone"] = tz_name
@@ -317,9 +318,10 @@ async def owner_report_alerts(company_id: uuid.UUID, db: AsyncSession = Depends(
     week = engine.resolve_period("7d", _today(tz, business_day))
     inventory, portions = await _inventory_and_portions(db, cid)
     start = datetime.combine(week["start"] - timedelta(days=1), time.min, tz).astimezone(timezone.utc)
-    orders, closures = await _orders_between(db, cid, start, now + timedelta(days=1))
+    by_charge = await sales_ledger.enabled(db, company_id)
+    orders, closures = await _orders_between(db, cid, start, now + timedelta(days=1), by_charge=by_charge)
     week_report = engine.Report(orders=orders, closures=closures, inventory=inventory, portions=portions, tz=tz,
-                                period=week, business_day=business_day, now=now)
+                                period=week, business_day=business_day, now=now, by_charge=by_charge)
     costing = week_report.kpis()["costing"]
     if costing["uncosted"]:
         alerts.append({"kind": "uncosted", "severity": "bad",

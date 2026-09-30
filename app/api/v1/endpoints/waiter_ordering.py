@@ -1208,15 +1208,11 @@ async def _caja_window(db: AsyncSession, company_id: uuid.UUID, user: CompanyUse
     if since is None:
         opens = business_day["open"] if business_day else datetime.min.time()
         since = datetime.combine(today, opens, tz).astimezone(timezone.utc)
-    result = await db.execute(
-        text(f"""
-            SELECT {ORDER_COLUMNS} FROM hospitality_orders
-            WHERE company_id = CAST(:company_id AS uuid) AND (created_at >= :since OR closed_at >= :since)
-        """),
-        {"company_id": str(company_id), "since": since},
-    )
+    from app.services import sales_ledger
+
     return {
-        "orders": [dict(row) for row in result.mappings().all()],
+        # 049Z: la misma lectura de ventas que Reportes (sales_ledger).
+        "orders": await sales_ledger.load_orders(db, company_id, since),
         "since": since, "shift_open": session is not None,
         "today": today, "tz_name": tz_name, "tz": tz,
     }
