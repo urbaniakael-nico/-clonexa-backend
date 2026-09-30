@@ -13,6 +13,7 @@ su arqueo; el dueño/administrador ve el historico y cuenta turnos pendientes.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -21,6 +22,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_company_user_for_tenant
@@ -29,8 +31,10 @@ from app.services.session_cutoff import load_policy, zone
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 FLAG = "cash_count"
 BASE_KEY = "cash_count_drawer_base"
+SAVE_FAILED = "No se pudo registrar el arqueo. Puedes cerrar la jornada igual; queda anotado para el administrador."
 
 
 def _clean(value: Any, limit: int = 500) -> str:
@@ -161,6 +165,12 @@ def _count_payload(row: dict, reveal: bool = True) -> dict:
     return data
 
 
+async def _session_count(db: AsyncSession, company_id: uuid.UUID, session_id: str) -> dict | None:
+    row = (await db.execute(text("SELECT * FROM cash_counts WHERE company_id = CAST(:c AS uuid) AND cashier_session_id = CAST(:s AS uuid)"),
+                            {"c": str(company_id), "s": session_id})).mappings().first()
+    return dict(row) if row else None
+
+
 async def _insert_count(db: AsyncSession, company_id: uuid.UUID, session: dict, counted: Decimal, denominations: dict,
                         observation: str, actor: dict, blind: bool) -> dict:
     settings = await _caja_settings(db, company_id) or {}
@@ -170,6 +180,10 @@ async def _insert_count(db: AsyncSession, company_id: uuid.UUID, session: dict, 
     cashier = (await db.execute(text("SELECT full_name FROM company_users WHERE id = CAST(:u AS uuid) AND company_id = CAST(:c AS uuid)"),
                                 {"u": str(session.get("user_id") or uuid.UUID(int=0)), "c": str(company_id)})).mappings().first()
     count_id = str(uuid.uuid4())
+    # 049Y: cada parametro aparece una sola vez. Antes :status se usaba en el
+    # VALUES (varchar) y en un CASE (text): Postgres rechazaba el INSERT
+    # ("inconsistent types deduced for parameter") y el except lo mostraba
+    # como "ya tiene su arqueo", dejando al cajero sin poder cerrar.
     try:
         await db.execute(text("""
             INSERT INTO cash_counts (id, company_id, cashier_session_id, cashier_user_id, cashier_name, shift_start, shift_end,
@@ -177,16 +191,27 @@ async def _insert_count(db: AsyncSession, company_id: uuid.UUID, session: dict, 
                                      observation, status, blind, performed_by_name, performed_by_kind, closed_at)
             VALUES (CAST(:id AS uuid), CAST(:c AS uuid), CAST(:sid AS uuid), :uid, :cname, :ss, :se,
                     :base, :sales, :exp, :wd, :expected, :counted, :diff, CAST(:den AS jsonb), :obs, :status, :blind, :by, :kind,
-                    CASE WHEN :status = 'cerrado' THEN now() ELSE NULL END)
+                    :closed_at)
         """), {"id": count_id, "c": str(company_id), "sid": str(session["id"]),
                "uid": str(session.get("user_id") or ""), "cname": (cashier or {}).get("full_name") or actor["name"],
                "ss": exp["shift_start"], "se": exp["shift_end"], "base": exp["base"], "sales": exp["cash_sales"],
                "exp": exp["drawer_expenses"], "wd": exp["withdrawals"], "expected": exp["expected"], "counted": counted,
                "diff": difference, "den": json.dumps(denominations or {}), "obs": _clean(observation, 1000), "status": status_value,
-               "blind": blind, "by": actor["name"], "kind": actor["kind"]})
-    except Exception as exc:
+               "blind": blind, "by": actor["name"], "kind": actor["kind"],
+               "closed_at": datetime.now(timezone.utc) if status_value == "cerrado" else None})
+    except IntegrityError:
+        # Ya habia un arqueo para este turno (doble toque, dos pestañas): se
+        # devuelve el registrado; el conteo nunca se reemplaza.
         await db.rollback()
-        raise HTTPException(status_code=409, detail="Este turno ya tiene su arqueo registrado.") from exc
+        existing = await _session_count(db, company_id, str(session["id"]))
+        if existing:
+            return {**existing, "already_registered": True}
+        logger.exception("cash_count insert integrity error company=%s session=%s", company_id, session.get("id"))
+        raise HTTPException(status_code=500, detail=SAVE_FAILED)
+    except Exception:
+        await db.rollback()
+        logger.exception("cash_count insert failed company=%s session=%s", company_id, session.get("id"))
+        raise HTTPException(status_code=500, detail=SAVE_FAILED)
     await db.commit()
     row = (await db.execute(text("SELECT * FROM cash_counts WHERE id = CAST(:id AS uuid) AND company_id = CAST(:c AS uuid)"),
                             {"id": count_id, "c": str(company_id)})).mappings().first()
@@ -211,20 +236,25 @@ async def my_current_count(company_id: uuid.UUID, db: AsyncSession = Depends(get
     session = await open_cashier_session(db, company_id, actor["id"] or None)
     if not session:
         return {"count": None}
-    row = (await db.execute(text("SELECT * FROM cash_counts WHERE company_id = CAST(:c AS uuid) AND cashier_session_id = CAST(:s AS uuid)"),
-                            {"c": str(company_id), "s": str(session["id"])})).mappings().first()
+    row = await _session_count(db, company_id, str(session["id"]))
     if not row:
         return {"count": None}
-    return {"count": {**_count_payload(dict(row)), "needs_observation": row["status"] == "pendiente_observacion"}}
+    return {"count": {**_count_payload(row), "needs_observation": row["status"] == "pendiente_observacion"}}
 
 
 @router.post("/companies/{company_id}/caja/arqueo")
 async def blind_count(company_id: uuid.UUID, payload: BlindCountIn, db: AsyncSession = Depends(get_db),
                       actor: dict = Depends(require_cash_user)) -> dict:
-    """El cajero digita lo que conto. Queda fijo; solo entonces se revela lo esperado."""
+    """El cajero digita lo que conto. Queda fijo; solo entonces se revela lo esperado.
+    Si el turno ya tiene arqueo, devuelve ese (already_registered) en vez de
+    fallar: el cajero sigue directo al cierre y el conteo no se cambia."""
     session = await open_cashier_session(db, company_id, actor["id"] or None)
     if not session:
         raise HTTPException(status_code=409, detail="No tienes un turno de caja abierto.")
+    existing = await _session_count(db, company_id, str(session["id"]))
+    if existing:
+        return {**_count_payload(existing), "needs_observation": existing["status"] == "pendiente_observacion",
+                "already_registered": True}
     try:
         from_denominations = engine.count_from_denominations({int(k): v for k, v in (payload.denominations or {}).items()})
     except (ValueError, TypeError) as exc:
@@ -233,7 +263,36 @@ async def blind_count(company_id: uuid.UUID, payload: BlindCountIn, db: AsyncSes
     if counted is None:
         raise HTTPException(status_code=400, detail="Digita cuánto efectivo contaste.")
     row = await _insert_count(db, company_id, session, counted, payload.denominations or {}, "", actor, blind=True)
-    return {**_count_payload(row), "needs_observation": row["status"] == "pendiente_observacion"}
+    return {**_count_payload(row), "needs_observation": row["status"] == "pendiente_observacion",
+            "already_registered": bool(row.get("already_registered"))}
+
+
+class CloseIncidentIn(BaseModel):
+    step: str = Field(default="", max_length=40)
+    error: str = Field(default="", max_length=1000)
+    counted: float | None = Field(default=None, ge=0)
+
+
+@router.post("/companies/{company_id}/caja/cierre/incidencia")
+async def close_incident(company_id: uuid.UUID, payload: CloseIncidentIn, db: AsyncSession = Depends(get_db),
+                         actor: dict = Depends(require_cash_user)) -> dict:
+    """049Y: algo fallo al cerrar la jornada (arqueo, observacion, Z). El
+    cierre sigue igual; aqui queda el registro de lo que paso para el dueño
+    (sale en los turnos pendientes de arqueo). Nunca bloquea el cierre."""
+    session = await open_cashier_session(db, company_id, actor["id"] or None)
+    try:
+        await db.execute(text("""
+            INSERT INTO cash_close_incidents (id, company_id, cashier_session_id, cashier_user_id, cashier_name, step, error, counted)
+            VALUES (CAST(:id AS uuid), CAST(:c AS uuid), CAST(:sid AS uuid), :uid, :name, :step, :error, :counted)
+        """), {"id": str(uuid.uuid4()), "c": str(company_id), "sid": str(session["id"]) if session else None,
+               "uid": actor["id"], "name": actor["name"], "step": _clean(payload.step, 40), "error": _clean(payload.error, 1000),
+               "counted": engine.money(payload.counted) if payload.counted is not None else None})
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.exception("cash close incident not stored company=%s step=%s error=%s", company_id, payload.step, payload.error)
+        return {"ok": True, "recorded": False}
+    return {"ok": True, "recorded": True}
 
 
 class ObservationIn(BaseModel):
@@ -304,14 +363,37 @@ async def pending_counts(company_id: uuid.UUID, db: AsyncSession = Depends(get_d
           AND NOT EXISTS (SELECT 1 FROM cash_counts k WHERE k.company_id = s.company_id AND k.cashier_session_id = s.id)
         ORDER BY s.started_at DESC
     """), {"c": str(company_id)})).mappings().all()]
+    incidents = await _incidents_by_session(db, company_id, [str(s["id"]) for s in rows])
     out = []
     for s in rows:
         exp = await expected_for_session(db, company_id, s, settings)
         out.append({"session_id": str(s["id"]), "cashier_name": s.get("full_name") or "Cajero",
                     "shift_start": s["started_at"].isoformat(), "shift_end": s["ended_at"].isoformat() if s.get("ended_at") else None,
                     "closed_reason": s.get("closed_reason") or "", "base": _f(exp["base"]), "cash_sales": _f(exp["cash_sales"]),
-                    "drawer_expenses": _f(exp["drawer_expenses"]), "withdrawals": _f(exp["withdrawals"]), "expected": _f(exp["expected"])})
+                    "drawer_expenses": _f(exp["drawer_expenses"]), "withdrawals": _f(exp["withdrawals"]), "expected": _f(exp["expected"]),
+                    "incidents": incidents.get(str(s["id"]), [])})
     return {"pending": out}
+
+
+async def _incidents_by_session(db: AsyncSession, company_id: uuid.UUID, session_ids: list[str]) -> dict[str, list]:
+    """Lo que fallo al cerrar cada turno (049Y). Sin la tabla, nada."""
+    if not session_ids:
+        return {}
+    try:
+        rows = (await db.execute(text("""
+            SELECT cashier_session_id, step, error, counted, created_at FROM cash_close_incidents
+            WHERE company_id = CAST(:c AS uuid) AND cashier_session_id = ANY(CAST(:ids AS uuid[]))
+            ORDER BY created_at
+        """), {"c": str(company_id), "ids": session_ids})).mappings().all()
+    except Exception:
+        await db.rollback()
+        return {}
+    out: dict[str, list] = {}
+    for r in rows:
+        out.setdefault(str(r["cashier_session_id"]), []).append(
+            {"step": r["step"], "error": r["error"], "counted": _f(r["counted"]) if r.get("counted") is not None else None,
+             "created_at": r["created_at"].isoformat() if r.get("created_at") else None})
+    return out
 
 
 class AdminCountIn(BaseModel):

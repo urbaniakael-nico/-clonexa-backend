@@ -540,11 +540,21 @@
   }
 
   async function openArqueo048U() {
-    state.arqueo = { step: "count", busy: false, result: null, message: "", draft: { total: "", dens: {}, obs: "" } };
+    state.arqueo = { step: "loading", busy: false, result: null, message: "", failed: false, draft: { total: "", dens: {}, obs: "" } };
+    safeRender();
     try {
       const current = await costosApi048U("/caja/arqueo");
-      if (current && current.count) state.arqueo = { step: "result", busy: false, result: current.count, message: "", draft: { total: "", dens: {}, obs: "" } };
-    } catch (_) {}
+      // 049Y: si el turno ya tiene arqueo no se pide contar otra vez: se
+      // muestra el registrado y se sigue directo al cierre.
+      if (current && current.count) {
+        state.arqueo.result = { ...current.count, already_registered: true };
+        state.arqueo.step = "result";
+      } else {
+        state.arqueo.step = "count";
+      }
+    } catch (_) {
+      if (state.arqueo) state.arqueo.step = "count";
+    }
     safeRender();
   }
 
@@ -555,6 +565,7 @@
   function costosOverlay048U() {
     const a = state.arqueo;
     if (a) {
+      if (a.step !== "count" && a.step !== "result") return closeOverlay049Y(a);
       if (a.step === "count") {
         return `<div class="csh-modal-048u" data-csh-arqueo>
           <div class="csh-modal-card-048u">
@@ -570,13 +581,16 @@
               <button class="csh-btn" type="button" data-csh-arq-cancel ${a.busy ? "disabled" : ""}>Volver</button>
               <button class="csh-btn csh-btn-primary" type="button" data-csh-arq-submit ${a.busy ? "disabled" : ""}>Registrar conteo</button>
             </div>
+            ${a.failed ? `<div class="csh-modal-actions-048u"><button class="csh-btn csh-btn-danger" type="button" data-csh-arq-skip ${a.busy ? "disabled" : ""}>Continuar al cierre sin arqueo</button></div>
+            <small>Queda anotado lo que pasó para que el administrador haga el arqueo de este turno.</small>` : ""}
           </div></div>`;
       }
       const r = a.result || {};
       const diff = Number(r.difference || 0);
       return `<div class="csh-modal-048u" data-csh-arqueo>
         <div class="csh-modal-card-048u">
-          <h2>Resultado del arqueo</h2>
+          <h2>${r.already_registered ? "Arqueo ya registrado" : "Resultado del arqueo"}</h2>
+          ${r.already_registered ? `<p>Este turno ya tiene su arqueo${r.created_at ? ` (${h(new Date(r.created_at).toLocaleString("es-CO"))})` : ""}. No hay que contar otra vez: sigue al cierre.</p>` : ""}
           <div class="csh-arq-rows-048u">
             <div><span>Contaste</span><b>${money048U(r.counted)}</b></div>
             <div><span>Debía haber</span><b>${money048U(r.expected)}</b></div>
@@ -587,8 +601,9 @@
           ${a.message ? `<div class="csh-alert">${h(a.message)}</div>` : ""}
           <div class="csh-modal-actions-048u">
             ${r.needs_observation
-              ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-arq-save-obs ${a.busy ? "disabled" : ""}>Guardar y cerrar jornada</button>`
-              : `<button class="csh-btn csh-btn-danger" type="button" data-csh-arq-finish ${a.busy ? "disabled" : ""}>Cerrar jornada</button>`}
+              ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-arq-save-obs ${a.busy ? "disabled" : ""}>Guardar y continuar</button>`
+              : `<button class="csh-btn csh-btn-danger" type="button" data-csh-arq-finish ${a.busy ? "disabled" : ""}>Continuar al cierre</button>`}
+            ${r.needs_observation && a.failed ? `<button class="csh-btn" type="button" data-csh-arq-finish ${a.busy ? "disabled" : ""}>Continuar sin observación</button>` : ""}
           </div>
         </div></div>`;
     }
@@ -632,8 +647,11 @@
       a.result = await costosApi048U("/caja/arqueo", { method: "POST", body: JSON.stringify(body) });
       a.step = "result";
       a.message = "";
+      a.failed = false;
     } catch (error) {
-      a.message = error.message || "No se pudo registrar el conteo.";
+      // 049Y: un error nunca deja al cajero atrapado: puede seguir al cierre.
+      a.message = `${error.message || "No se pudo registrar el conteo."} Puedes intentar de nuevo o continuar al cierre.`;
+      a.failed = true;
     } finally {
       a.busy = false;
       safeRender();
@@ -652,13 +670,143 @@
     safeRender();
     try {
       await costosApi048U(`/caja/arqueo/${encodeURIComponent(a.result.id)}/observation`, { method: "POST", body: JSON.stringify({ observation }) });
-      state.arqueo = null;
-      await shiftAction("finish");
+      a.busy = false;
+      continueClose049Y();
     } catch (error) {
-      a.message = error.message || "No se pudo guardar la observación.";
+      a.message = `${error.message || "No se pudo guardar la observación."} Puedes continuar al cierre igual.`;
+      a.failed = true;
+      a.busy = false;
+      recordIncident049Y("observacion", error.message || "", null);
+      safeRender();
+    }
+  }
+
+  // ------------------------------------------------ 049Y: cierre de jornada
+  // Arqueo (si falta) -> Z (se puede sacar e imprimir cuantas veces se
+  // quiera) -> cerrar sesion. Ningun paso bloquea: si algo falla se dice, se
+  // anota para el dueño y el cajero puede seguir.
+  function recordIncident049Y(step, error, counted) {
+    const body = { step: String(step || ""), error: String(error || "").slice(0, 1000) };
+    if (counted !== null && counted !== undefined && counted !== "") body.counted = Number(counted);
+    return costosApi048U("/caja/cierre/incidencia", { method: "POST", body: JSON.stringify(body) }).catch(() => null);
+  }
+
+  function skipCount049Y() {
+    const a = state.arqueo;
+    if (!a) return;
+    const total = digits049X(arqDraft049X().total);
+    recordIncident049Y("arqueo", a.message || "No se pudo registrar el arqueo.", total === "" ? null : Number(total));
+    continueClose049Y();
+  }
+
+  async function continueClose049Y() {
+    const a = state.arqueo || (state.arqueo = { step: "", busy: false, result: null, message: "", failed: false, draft: { total: "", dens: {}, obs: "" } });
+    a.message = "";
+    a.failed = false;
+    if (!state.redesign) {
+      a.step = "closing";
+      finishClose049Y();
+      return;
+    }
+    a.step = "z";
+    a.zData = null;
+    a.zSaved = null;
+    a.zLoading = true;
+    safeRender();
+    try {
+      a.zData = await waiterApi("/caja/z");
+    } catch (error) {
+      a.message = `${error.message || "No se pudo calcular el Z."} Puedes cerrar la jornada igual.`;
+      recordIncident049Y("z", error.message || "", null);
+    } finally {
+      a.zLoading = false;
+      safeRender();
+    }
+  }
+
+  async function takeZ049Y() {
+    const a = state.arqueo;
+    if (!a || a.busy) return;
+    a.busy = true;
+    a.message = "";
+    safeRender();
+    try {
+      const saved = await waiterApi("/caja/z", { method: "POST" });
+      a.zSaved = saved;
+      if (a.zData && Array.isArray(a.zData.history)) a.zData.history.unshift(saved);
+      printZ049V(saved);
+    } catch (error) {
+      a.message = `${error.message || "No se pudo sacar el Z."} Puedes intentar de nuevo o cerrar la jornada igual.`;
+      recordIncident049Y("z", error.message || "", null);
+    } finally {
       a.busy = false;
       safeRender();
     }
+  }
+
+  function logoutAfterClose049Y(message) {
+    stopPolling();
+    stopSessionKeeper();
+    setToken("");
+    state.operational = null;
+    state.shiftOpen = false;
+    state.arqueo = null;
+    state.z = null;
+    state.screen = "login";
+    state.error = message;
+    safeRender();
+  }
+
+  async function finishClose049Y() {
+    const a = state.arqueo;
+    if (a) { a.step = "closing"; a.busy = true; a.message = ""; }
+    safeRender();
+    try {
+      setOperational(await mpApi(`/mini-panel-operational-session/finish?panel_type=${PANEL_TYPE}`, { method: "POST" }));
+      logoutAfterClose049Y("Jornada cerrada. Tus horas quedaron registradas.");
+    } catch (error) {
+      recordIncident049Y("cierre", error.message || "", null);
+      if (!state.arqueo) return;
+      state.arqueo.busy = false;
+      state.arqueo.message = `${error.message || "No se pudo cerrar el turno."} Puedes reintentar o salir igual (queda anotado).`;
+      safeRender();
+    }
+  }
+
+  function closeOverlay049Y(a) {
+    let inner = "";
+    let title = "Cerrar jornada";
+    if (a.step === "loading") inner = `<p>Revisando el arqueo del turno…</p>`;
+    else if (a.step === "z") {
+      title = "🧾 Cierre de caja · Z";
+      const d = a.zData;
+      const saved = a.zSaved;
+      inner = `
+        ${a.zLoading ? `<p>Calculando el Z del día…</p>` : ""}
+        ${saved ? `<div class="cx5-z-done">✓ Z #${h(String(saved.number || "").padStart(4, "0"))} registrado · ${h(saved.created_local || "")} · ${h(saved.cashier_name || "")}</div>` : ""}
+        ${d ? `<p class="cx5-hint">Ventas cobradas desde ${h(d.since_local || "")} · Cajero: <b>${h(d.cashier_name || "")}</b></p>${zBody049V((saved && saved.summary) || d.z || {})}` : ""}
+        ${a.message ? `<div class="csh-alert">${h(a.message)}</div>` : ""}
+        <p class="cx5-hint">El Z se puede sacar las veces que quieras: cada uno queda con su número, fecha, hora y cajero. Sacarlo no es obligatorio para cerrar.</p>
+        ${d ? zHistory049V(d.history) : ""}
+        <div class="csh-modal-actions-048u">
+          ${d ? `<button class="csh-btn" type="button" data-csh-close-z ${a.busy ? "disabled" : ""}>${a.busy ? "Registrando…" : saved ? "🧾 Sacar otro Z" : "🧾 Sacar e imprimir Z"}</button>` : ""}
+          ${saved ? `<button class="csh-btn" type="button" data-csh-close-z-print ${a.busy ? "disabled" : ""}>🖨 Imprimir de nuevo</button>` : ""}
+          <button class="csh-btn csh-btn-danger" type="button" data-csh-close-finish ${a.busy ? "disabled" : ""}>Cerrar jornada</button>
+        </div>`;
+    } else if (a.step === "closing") {
+      inner = `
+        ${a.busy ? `<p>Cerrando la jornada…</p>` : ""}
+        ${a.message ? `<div class="csh-alert">${h(a.message)}</div>` : ""}
+        ${a.busy ? "" : `<div class="csh-modal-actions-048u">
+          <button class="csh-btn" type="button" data-csh-close-finish>Reintentar</button>
+          <button class="csh-btn csh-btn-danger" type="button" data-csh-close-leave>Salir igual</button>
+        </div>`}`;
+    }
+    return `<div class="csh-modal-048u" data-csh-arqueo>
+      <div class="csh-modal-card-048u" role="dialog" aria-label="${h(title)}">
+        <h2>${h(title)}</h2>
+        ${inner}
+      </div></div>`;
   }
 
   async function loadCashierConfig() {
@@ -2423,7 +2571,20 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     if (target.closest("[data-csh-arq-cancel]")) { state.arqueo = null; safeRender(); return; }
     if (target.closest("[data-csh-arq-submit]")) { submitCount048U(); return; }
     if (target.closest("[data-csh-arq-save-obs]")) { saveObservation048U(); return; }
-    if (target.closest("[data-csh-arq-finish]")) { state.arqueo = null; shiftAction("finish"); return; }
+    if (target.closest("[data-csh-arq-finish]")) {
+      const a = state.arqueo;
+      if (a && a.result && a.result.needs_observation) recordIncident049Y("observacion", "Cerro sin guardar la observacion de la diferencia.", null);
+      continueClose049Y();
+      return;
+    }
+    if (target.closest("[data-csh-arq-skip]")) { skipCount049Y(); return; }
+    if (target.closest("[data-csh-close-z]")) { takeZ049Y(); return; }
+    if (target.closest("[data-csh-close-z-print]")) { if (state.arqueo && state.arqueo.zSaved) printZ049V(state.arqueo.zSaved); return; }
+    if (target.closest("[data-csh-close-finish]")) { finishClose049Y(); return; }
+    if (target.closest("[data-csh-close-leave]")) {
+      logoutAfterClose049Y("Saliste del panel. El turno no se pudo cerrar en el servidor: avísale al administrador.");
+      return;
+    }
 
     const openDelivery = target.closest("[data-csh-open-delivery]");
     if (openDelivery) {

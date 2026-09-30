@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 import app.main as app_main
 from app.api import deps
@@ -54,6 +55,9 @@ class CashDb:
         self.orders = []
         self.legacy_expenses = []  # egresos del cajon que se registraron con Costos
         self.counts: dict[str, dict] = {}
+        self.incidents: list[dict] = []
+        self.insert_sql: list[str] = []
+        self.insert_error: Exception | None = None
         self.commit = AsyncMock()
         self.rollback = AsyncMock()
 
@@ -92,8 +96,11 @@ class CashDb:
         if sql.startswith("SELECT full_name FROM company_users"):
             return Result([{"full_name": "Carla Caja" if str(p["u"]) == str(CAJERO_ID) else "Otro"}])
         if sql.startswith("INSERT INTO cash_counts"):
+            self.insert_sql.append(sql)
+            if self.insert_error:
+                raise self.insert_error
             if any(c["cashier_session_id"] == p["sid"] for c in self.counts.values()):
-                raise RuntimeError("duplicate key uq_cash_count_session")
+                raise IntegrityError(sql, p, Exception("duplicate key uq_cash_count_session"))
             self.counts[p["id"]] = {"id": uuid.UUID(p["id"]), "company_id": cid, "cashier_session_id": p["sid"], "cashier_user_id": p["uid"],
                                     "cashier_name": p["cname"], "shift_start": p["ss"], "shift_end": p["se"], "base": p["base"],
                                     "cash_sales": p["sales"], "drawer_expenses": p["exp"], "withdrawals": p["wd"], "expected": p["expected"],
@@ -106,6 +113,12 @@ class CashDb:
             return Result([row] if row and row["company_id"] == cid else [])
         if sql.startswith("SELECT * FROM cash_counts WHERE company_id = CAST(:c AS uuid) AND cashier_session_id"):
             return Result([c for c in self.counts.values() if c["cashier_session_id"] == p["s"]])
+        if sql.startswith("INSERT INTO cash_close_incidents"):
+            self.incidents.append(dict(p))
+            return Result()
+        if sql.startswith("SELECT cashier_session_id, step, error, counted, created_at FROM cash_close_incidents"):
+            return Result([{"cashier_session_id": i["sid"], "step": i["step"], "error": i["error"], "counted": i["counted"],
+                            "created_at": NOW} for i in self.incidents if i["c"] == cid and i["sid"] in p["ids"]])
         if sql.startswith("UPDATE cash_counts SET observation"):
             row = self.counts[p["id"]]
             if row["status"] != "pendiente_observacion":
@@ -169,7 +182,80 @@ def test_hospitality_cash_count_blind_count_from_the_cashier_panel(api):
     # esperado = base 200.000 + ventas 500.000 = 700.000; contado 690.000
     assert data["counted"] == 690000 and data["expected"] == 700000 and data["difference"] == -10000
     assert data["result"] == "faltante" and data["needs_observation"] is True
-    assert call("POST", "/caja/arqueo", "cajero", {"counted": 700000}).status_code == 409, "no se repite para cuadrar"
+    assert data["already_registered"] is False
+    # 049Y: volver a enviar no falla (el cajero quedaba atrapado): devuelve el
+    # arqueo ya registrado, sin cambiar el conteo, para seguir al cierre.
+    again = call("POST", "/caja/arqueo", "cajero", {"counted": 700000})
+    assert again.status_code == 200 and again.json()["already_registered"] is True
+    assert again.json()["counted"] == 690000 and again.json()["id"] == data["id"], "no se repite para cuadrar"
+    assert len(api.counts) == 1
+
+
+def test_hospitality_cash_count_insert_uses_each_parameter_once(api):
+    """049Y: en produccion :status iba en el VALUES (varchar) y en un CASE
+    (text); Postgres rechaza eso ("inconsistent types deduced for parameter")
+    y el cajero veia "ya tiene su arqueo" sin poder cerrar."""
+    import re
+
+    assert call("POST", "/caja/arqueo", "cajero", {"counted": 200000}).status_code == 200
+    sql = api.insert_sql[0]
+    names = re.findall(r"(?<!:):([a-z_]+)", sql)
+    assert len(names) == len(set(names)), f"parametro repetido: {sorted(n for n in names if names.count(n) > 1)}"
+    assert "CASE" not in sql
+    row = next(iter(api.counts.values()))
+    assert row["status"] == "cerrado"
+
+
+def test_hospitality_cash_count_a_failed_insert_is_not_reported_as_already_registered(api):
+    api.insert_error = RuntimeError("inconsistent types deduced for parameter $17")
+    res = call("POST", "/caja/arqueo", "cajero", {"counted": 200000})
+    assert res.status_code == 500
+    assert "ya tiene su arqueo" not in res.json()["detail"]
+    assert "cerrar la jornada igual" in res.json()["detail"]
+
+
+def test_hospitality_cash_count_close_incident_is_recorded_and_shown_to_the_owner(api):
+    sid = api.session_id
+    res = call("POST", "/caja/cierre/incidencia", "cajero", {"step": "arqueo", "error": "No se pudo registrar", "counted": 90000})
+    assert res.status_code == 200 and res.json()["recorded"] is True
+    assert api.incidents[0]["sid"] == sid and api.incidents[0]["c"] == ASADERO and api.incidents[0]["counted"] == 90000
+    assert call("POST", "/caja/cierre/incidencia", body={"step": "x"}).status_code == 401
+    assert call("POST", "/caja/cierre/incidencia", "mesero", {"step": "x"}).status_code == 403
+    assert call("POST", "/caja/cierre/incidencia", "ttm", {"step": "x"}).status_code == 403, "nunca de otra empresa"
+
+    api.sessions[sid].update(status="finished", ended_at=NOW)
+    original = api.execute
+
+    async def execute(statement, params=None):
+        sql = " ".join(str(statement).split())
+        if sql.startswith("SELECT s.id, s.user_id, s.started_at, s.ended_at, s.status, s.closed_reason, u.full_name"):
+            return Result([{"id": uuid.UUID(sid), **api.sessions[sid], "closed_reason": "", "full_name": "Carla Caja"}])
+        return await original(statement, params)
+
+    api.execute = execute
+    pend = call("GET", "/arqueos/pending", "dueno").json()["pending"]
+    assert pend[0]["incidents"][0]["step"] == "arqueo" and pend[0]["incidents"][0]["counted"] == 90000
+
+
+def test_hospitality_cash_count_close_incident_never_fails_the_close(api):
+    async def broken(statement, params=None):
+        sql = " ".join(str(statement).split())
+        if sql.startswith("INSERT INTO cash_close_incidents"):
+            raise RuntimeError("relation cash_close_incidents does not exist")
+        return await original(statement, params)
+
+    original = api.execute
+    api.execute = broken
+    res = call("POST", "/caja/cierre/incidencia", "cajero", {"step": "z", "error": "x"})
+    assert res.status_code == 200 and res.json()["recorded"] is False
+
+
+def test_hospitality_cash_count_incidents_migration():
+    path = ROOT / "migrations/versions/022l_cash_close_incidents.py"
+    spec = importlib.util.spec_from_file_location("mig_022l", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert len(module.revision) <= 32 and module.down_revision == "022k_quantity_picker"
 
 
 def test_hospitality_cash_count_observation_is_mandatory_and_then_locked(api):
