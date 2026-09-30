@@ -1021,6 +1021,8 @@ async def cashier_config(
     return {
         "ok": True,
         "direct_sale": settings.get(CASHIER_DIRECT_SALE_FLAG) is True,
+        # 049V: rediseno (indicadores, tres secciones y Z), solo con su interruptor.
+        "redesign": settings.get("cashier_redesign") is True,
         # Domicilios por WhatsApp: the caja shows its own section for them.
         "delivery": await whatsapp_delivery.module_settings(db, company_id) is not None,
     }
@@ -1124,6 +1126,229 @@ async def _record_closer_049i(db: AsyncSession, company_id: uuid.UUID, order_id:
          "order_id": str(order_id), "company_id": str(company_id)},
     )
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# 049V: rediseno del panel de caja + tema de la empresa en los mini paneles.
+# Dos interruptores del modulo, apagados por defecto (hoy solo ASADERO, ver
+# migrations/versions/022j_cashier_redesign.py):
+#   - cashier_redesign: franja de indicadores del turno, secciones Mesas /
+#     Domicilios / Ventas de caja y el Z (cierre de caja del dia).
+#   - mini_panel_brand: caja, mesero y cocina con los colores y el tema que la
+#     empresa configuro en Admin V2 (los mismos del portal).
+# Todo exige la sesion del rol en el servidor (_require_caja / lector del menu).
+# ---------------------------------------------------------------------------
+
+CASHIER_REDESIGN_FLAG = "cashier_redesign"
+MINI_PANEL_BRAND_FLAG = "mini_panel_brand"
+BRAND_KEYS = (
+    "logo_url", "primary_color", "secondary_color", "background_color", "text_color", "font_family",
+    "theme_mode", "mode", "gradient_from", "gradient_to", "gradient_angle",
+)
+
+
+@router.get("/{company_id}/waiter-ordering/panel-theme")
+async def mini_panel_theme(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: CompanyUser = Depends(_require_menu_reader),
+) -> dict[str, Any]:
+    settings = await _module_settings(db, company_id)
+    if settings.get(MINI_PANEL_BRAND_FLAG) is not True:
+        return {"ok": True, "enabled": False, "branding": None}
+    from app.api.v1.endpoints.companies import _get_company_or_404, _read_company_branding
+
+    branding = _read_company_branding(await _get_company_or_404(db, company_id))
+    return {"ok": True, "enabled": True, "branding": {key: branding.get(key) for key in BRAND_KEYS if key in branding}}
+
+
+async def _company_clock(db: AsyncSession, company_id: uuid.UUID):
+    """Zona horaria, horario de jornada y el dia de jornada de hoy."""
+    from app.api.v1.endpoints.hospitality import _hsp_company_report_settings
+    from app.api.v1.endpoints.hospitality_owner_report import _today
+
+    settings = await _hsp_company_report_settings(db, company_id)
+    if settings is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    tz_name, business_day = settings
+    tz = _hsp_report_zone(tz_name)
+    return tz_name, tz, business_day, _today(tz, business_day)
+
+
+ORDER_COLUMNS = (
+    "id, order_number, created_at, updated_at, closed_at, cancelled_at, archived_at, status, order_type, source, "
+    "table_key, table_number, payment_method, total, items, metadata, inventory_deducted"
+)
+
+
+async def _day_orders(db: AsyncSession, company_id: uuid.UUID) -> tuple[list[dict[str, Any]], Any, str, Any]:
+    """Pedidos de la jornada de hoy (misma regla de jornada que Reportes)."""
+    from app.api.v1.endpoints.hospitality_owner_report import _orders_between
+    from app.services import owner_report as engine
+
+    tz_name, tz, business_day, today = await _company_clock(db, company_id)
+    start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tz).astimezone(timezone.utc)
+    orders, closures = await _orders_between(db, str(company_id), start, datetime.now(timezone.utc) + timedelta(days=1))
+    resolve = engine.jornada_resolver(orders, closures, tz, business_day)
+    return [o for o in orders if resolve(o) == today], today, tz_name, tz
+
+
+async def _require_redesign(db: AsyncSession, company_id: uuid.UUID) -> None:
+    await _require_feature(db, company_id, CASHIER_REDESIGN_FLAG)
+
+
+@router.get("/{company_id}/waiter-ordering/caja/resumen")
+async def cashier_shift_summary(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_caja),
+) -> dict[str, Any]:
+    """Franja de indicadores + ventas de caja del turno abierto del cajero."""
+    from app.api.v1.endpoints.cash_count import open_cashier_session
+    from app.services import cashier_summary
+
+    await _require_redesign(db, company_id)
+    session = await open_cashier_session(db, company_id, str(user.id))
+    since = session.get("started_at") if session else None
+    if since is not None:
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        result = await db.execute(
+            text(f"""
+                SELECT {ORDER_COLUMNS} FROM hospitality_orders
+                WHERE company_id = CAST(:company_id AS uuid) AND (created_at >= :since OR closed_at >= :since)
+            """),
+            {"company_id": str(company_id), "since": since},
+        )
+        orders = [dict(row) for row in result.mappings().all()]
+    else:
+        # Sin turno abierto (p. ej. un administrador mirando): la jornada de hoy.
+        orders, _today, _tz_name, _tz = await _day_orders(db, company_id)
+    summary = cashier_summary.shift_summary(orders, since)
+    summary["shift_open"] = session is not None
+    return {"ok": True, **summary}
+
+
+def _z_local(moment: datetime, tz: Any) -> str:
+    return moment.astimezone(tz).strftime("%d/%m/%Y %I:%M %p").replace("AM", "a. m.").replace("PM", "p. m.")
+
+
+async def _company_name(db: AsyncSession, company_id: uuid.UUID) -> str:
+    row = (await db.execute(text("SELECT name FROM companies WHERE id = CAST(:company_id AS uuid)"),
+                            {"company_id": str(company_id)})).mappings().first()
+    return str((row or {}).get("name") or "")
+
+
+def _z_row(row: dict[str, Any], tz: Any) -> dict[str, Any]:
+    summary = row.get("summary") if isinstance(row.get("summary"), dict) else json.loads(row.get("summary") or "{}")
+    created = row.get("created_at")
+    if isinstance(created, datetime) and created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return {
+        "id": str(row.get("id")),
+        "number": int(row.get("number") or 0),
+        "business_day": str(row.get("business_day") or ""),
+        "cashier_name": str(row.get("cashier_name") or ""),
+        "total": _money(row.get("total")),
+        "created_at": created.isoformat() if isinstance(created, datetime) else str(created or ""),
+        "created_local": _z_local(created, tz) if isinstance(created, datetime) else "",
+        "summary": summary,
+    }
+
+
+@router.get("/{company_id}/waiter-ordering/caja/z")
+async def cashier_z_preview(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_caja),
+) -> dict[str, Any]:
+    """El Z de hoy tal como va (sin registrarlo) y los Z ya sacados hoy."""
+    from app.services import cashier_summary
+
+    await _require_redesign(db, company_id)
+    orders, today, tz_name, tz = await _day_orders(db, company_id)
+    rows = (await db.execute(
+        text("""
+            SELECT id, number, business_day, cashier_name, total, summary, created_at
+            FROM cashier_z_reports
+            WHERE company_id = CAST(:company_id AS uuid) AND business_day = :day
+            ORDER BY number DESC LIMIT 20
+        """),
+        {"company_id": str(company_id), "day": today},
+    )).mappings().all()
+    return {
+        "ok": True,
+        "business_day": today.isoformat(),
+        "timezone": tz_name,
+        "company_name": await _company_name(db, company_id),
+        "cashier_name": user.full_name or "",
+        "now_local": _z_local(datetime.now(timezone.utc), tz),
+        "z": cashier_summary.z_report(orders),
+        "history": [_z_row(dict(r), tz) for r in rows],
+    }
+
+
+@router.post("/{company_id}/waiter-ordering/caja/z", status_code=status.HTTP_201_CREATED)
+async def cashier_z_register(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CompanyUser = Depends(_require_caja),
+) -> dict[str, Any]:
+    """Saca el Z: lo calcula en el servidor y lo deja registrado con fecha,
+    hora, numero consecutivo y cajero. El cajero no envia cifras."""
+    from app.services import cashier_summary
+
+    await _require_redesign(db, company_id)
+    orders, today, tz_name, tz = await _day_orders(db, company_id)
+    z = cashier_summary.z_report(orders)
+    company_name = await _company_name(db, company_id)
+    summary = {**z, "company_name": company_name, "timezone": tz_name}
+    saved = None
+    for _attempt in range(3):
+        try:
+            saved = (await db.execute(
+                text("""
+                    INSERT INTO cashier_z_reports (id, company_id, number, business_day, cashier_user_id, cashier_name, total, summary)
+                    SELECT CAST(:id AS uuid), CAST(:company_id AS uuid),
+                           COALESCE((SELECT MAX(number) FROM cashier_z_reports WHERE company_id = CAST(:company_id AS uuid)), 0) + 1,
+                           :day, CAST(:user_id AS uuid), :cashier_name, :total, CAST(:summary AS jsonb)
+                    RETURNING id, number, business_day, cashier_name, total, summary, created_at
+                """),
+                {"id": str(uuid.uuid4()), "company_id": str(company_id), "day": today, "user_id": str(user.id),
+                 "cashier_name": (user.full_name or "Caja")[:200], "total": z["total"],
+                 "summary": json.dumps(summary, ensure_ascii=False, default=str)},
+            )).mappings().first()
+            await db.commit()
+            break
+        except Exception:
+            # Dos cajas sacando el Z a la vez: el consecutivo choca; reintenta.
+            await db.rollback()
+    if saved is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No se pudo registrar el Z. Intenta de nuevo.")
+    return {"ok": True, "company_name": company_name, **_z_row(dict(saved), tz)}
+
+
+@router.get("/{company_id}/waiter-ordering/caja/z/{z_id}")
+async def cashier_z_detail(
+    company_id: uuid.UUID,
+    z_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: CompanyUser = Depends(_require_caja),
+) -> dict[str, Any]:
+    """Un Z ya registrado, tal como se saco (para reimprimirlo)."""
+    await _require_redesign(db, company_id)
+    _tz_name, tz, _business_day, _today = await _company_clock(db, company_id)
+    row = (await db.execute(
+        text("""
+            SELECT id, number, business_day, cashier_name, total, summary, created_at
+            FROM cashier_z_reports WHERE id = CAST(:z_id AS uuid) AND company_id = CAST(:company_id AS uuid)
+        """),
+        {"z_id": str(z_id), "company_id": str(company_id)},
+    )).mappings().first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Z no encontrado.")
+    data = _z_row(dict(row), tz)
+    return {"ok": True, "company_name": data["summary"].get("company_name", ""), **data}
 
 
 # ---------------------------------------------------------------------------

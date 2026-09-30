@@ -61,6 +61,14 @@
     costos: false,
     denominations: [],
     arqueo: null,
+    // 049V: rediseno (interruptor cashier_redesign; apagado = panel de antes):
+    // franja de indicadores del turno, secciones Mesas / Domicilios / Ventas
+    // de caja, el Z del dia y la nueva venta en una sola pantalla.
+    redesign: false,
+    summary: null,
+    summaryAt: 0,
+    z: null,
+    moreOpen: false,
   };
 
   let pollHandle = null;
@@ -636,10 +644,15 @@
       const data = await waiterApi("/caja/config");
       state.directSale = data.direct_sale === true;
       state.delivery = data.delivery === true;
+      state.redesign = data.redesign === true;
     } catch (_) {
       state.directSale = false;
       state.delivery = false;
+      state.redesign = false;
     }
+    // 049V: colores y tema de la empresa (solo con su interruptor).
+    if (window.CxPanelBrand) window.CxPanelBrand.load((path) => waiterApi(path)).then(() => safeRender());
+    if (state.redesign) loadSummary049V();
     if (state.directSale) {
       try {
         const data = await hspApi("/qr-tables?count=30&include_bar=false");
@@ -649,6 +662,29 @@
       }
     }
     safeRender();
+  }
+
+  // 049V: indicadores del turno + ventas de caja del turno (servidor). Se
+  // piden al entrar, cada 15 s con el sondeo y enseguida despues de cobrar.
+  const SUMMARY_MS = 15000;
+  let summaryInFlight = false;
+
+  async function loadSummary049V() {
+    if (!state.redesign || summaryInFlight) return;
+    summaryInFlight = true;
+    try {
+      state.summary = await waiterApi("/caja/resumen");
+      state.summaryAt = Date.now();
+    } catch (_) {
+      // se queda la ultima franja
+    } finally {
+      summaryInFlight = false;
+    }
+    if (state.screen === "tables") safeRender();
+  }
+
+  function staleSummary049V() {
+    state.summaryAt = 0;
   }
 
   // ---------------------------------------------------------------------
@@ -681,14 +717,20 @@
       onAdd: (line) => {
         if (editIndex === null || editIndex === undefined) state.sale.items.push(line);
         else state.sale.items[editIndex] = line;
+        syncKitchen049V();
         safeRender();
       },
     });
   }
 
   function openSaleProduct(productId) {
-    const category = saleCategory();
-    const product = (category ? category.products || [] : []).find((item) => item.id === productId);
+    let category = saleCategory();
+    let product = (category ? category.products || [] : []).find((item) => item.id === productId);
+    if (!product && state.redesign) {
+      // 049V: el buscador muestra platos de todas las categorias.
+      const found = Kit.findMenuProduct(state.menu, productId);
+      if (found) ({ product, category } = found);
+    }
     if (!product) return;
     if (Kit.productOpenMode(product, state.quantityButtons) === "portions") {
       Kit.openPortionSheet(product, (portionProduct, label) => openSaleItemSheet(portionProduct, category, label));
@@ -729,12 +771,18 @@
   }
 
   function openSale(table) {
-    state.sale = { items: [], table: table || "", toKitchen: false, category: "" };
+    state.sale = { items: [], table: table || "", toKitchen: false, category: "", kitchenTouched: false, query: "" };
     goto("sale");
   }
 
   function openSaleCategory(key) {
     state.sale.category = key || "";
+    if (state.redesign) {
+      // 049V: categorias y platos en la misma pantalla (sin otra pagina).
+      state.sale.query = "";
+      safeRender();
+      return;
+    }
     goto("sale_products");
   }
 
@@ -750,6 +798,7 @@
         state.lastCharged = { order_ids: [result.order.id], label: result.label || "Venta" };
       }
       state.sale = { items: [], table: "", toKitchen: false, category: "" };
+      staleSummary049V();
       resetToTables();
       await refreshTables();
     } catch (error) {
@@ -800,6 +849,7 @@
       state.tables = sortTablesByAge(Array.from(groups.values()), Date.now());
       state.deliveries = deliveries.sort((a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0));
       state.tablesLoaded = true;
+      if (state.redesign && Date.now() - state.summaryAt > SUMMARY_MS) loadSummary049V();
       const detected = cajaAlerts(alertMemory, [...state.tables, ...state.deliveries.map(deliveryAsTable)]);
       alertMemory = detected.memory;
       if (Alerts) detected.alerts.forEach((alert) => Alerts.notify(alert));
@@ -1087,6 +1137,7 @@
       const label = String(table.table_number || "").trim();
       state.toast = `${/^(mesa|venta)\b/i.test(label) ? label : `Mesa ${label}`} cobrada.${cash ? ` Cambio: ${money(cash.change)}.` : ""}`;
       state.lastCharged = { order_ids: served.map((o) => o.id), label: /^(mesa|venta)\b/i.test(label) ? label : `Mesa ${label}` };
+      staleSummary049V();
       resetToTables();
       await refreshTables();
     } catch (error) {
@@ -1326,6 +1377,7 @@
       });
       state.toast = `Domicilio ${deliveryNumber(order)} cerrado.${cash ? ` Cambio: ${money(cash.change)}.` : ""}`;
       state.lastCharged = { order_ids: [order.id], label: `Domicilio ${deliveryNumber(order)}` };
+      staleSummary049V();
       resetToTables();
       await refreshTables();
     } catch (error) {
@@ -1344,7 +1396,7 @@
       state.screen = "tables";
       state.activeDeliveryId = "";
       persistNav();
-      return screenTables();
+      return state.redesign ? screenTables049V() : screenTables();
     }
     const d = deliveryOf(order);
     const stage = deliveryStage(order);
@@ -1491,6 +1543,626 @@
       </section>`;
   }
 
+  // =====================================================================
+  // 049V: REDISENO DE LA CAJA (interruptor cashier_redesign). Nada de esto
+  // se dibuja sin el interruptor: el panel de antes queda intacto.
+  // =====================================================================
+  const METHOD_ICONS_049V = { cash: "💵", transfer: "🏦", card: "💳", other: "🧾" };
+
+  function brandLogo049V() {
+    const current = window.CxPanelBrand && window.CxPanelBrand.current ? window.CxPanelBrand.current() : null;
+    return Boolean(current && current.logo);
+  }
+
+  function isCashierSale049V(order) {
+    const sale = order && order.metadata && order.metadata.cashier_sale;
+    return Boolean(sale && sale.kind === "independiente");
+  }
+
+  // Mesas abiertas vs ventas de caja abiertas ("Venta 012" que espera cocina).
+  function splitTables049V(tables) {
+    const mesas = [];
+    const ventas = [];
+    (tables || []).forEach((table) => {
+      const orders = table.orders || [];
+      if (orders.length && orders.every(isCashierSale049V)) ventas.push(table);
+      else mesas.push(table);
+    });
+    return { mesas, ventas };
+  }
+
+  // Un plato que se prepara (Carta: tipo preparado; sin Carta: tiene
+  // estacion de cocina) vs algo listo para entregar (una gaseosa).
+  function lineNeedsKitchen049V(line) {
+    const found = line && line.menu_product_id ? Kit.findMenuProduct(state.menu, line.menu_product_id) : null;
+    if (!found) return false;
+    const { product, category } = found;
+    if (product.carta_kind) return product.carta_kind !== "directo";
+    return Boolean(String(product.station || (category && category.station) || "").trim());
+  }
+
+  function productNeedsKitchen049V(product, category) {
+    if (product.carta_kind) return product.carta_kind !== "directo";
+    return Boolean(String(product.station || (category && category.station) || "").trim());
+  }
+
+  function saleNeedsKitchen049V(sale) {
+    return (sale.items || []).some(lineNeedsKitchen049V);
+  }
+
+  // Mientras el cajero no elija a mano, la venta sigue la sugerencia.
+  function syncKitchen049V() {
+    if (!state.redesign || state.sale.kitchenTouched) return;
+    state.sale.toKitchen = saleNeedsKitchen049V(state.sale);
+  }
+
+  function lateClass049V(startedMs, nowMs) {
+    if (!Number.isFinite(startedMs)) return "";
+    const minutes = (nowMs - startedMs) / 60000;
+    if (minutes >= 90) return "is-late";
+    if (minutes >= 45) return "is-slow";
+    return "";
+  }
+
+  // ------------------------------------------------------------ barra superior
+  function shiftLine049V() {
+    const op = state.operational;
+    if (!op) return "";
+    const onBreak = op.status === "break";
+    const live = liveShiftSeconds();
+    const busy = state.shiftBusy ? "disabled" : "";
+    return `
+      <div class="cx5-shift ${onBreak ? "is-break" : ""}" role="group" aria-label="Tu turno">
+        <span class="cx5-shift-dot" aria-hidden="true"></span>
+        <span class="cx5-shift-time">${onBreak ? "En pausa" : "Activo"} <b data-csh-active-clock>${h(clockLabel(live.active))}</b></span>
+        <span class="cx5-shift-time is-pause">Pausa <b data-csh-break-clock>${h(clockLabel(live.pause))}</b></span>
+        ${onBreak
+          ? `<button class="cx5-mini" type="button" data-csh-shift-resume ${busy}>▶ Retomar</button>`
+          : `<button class="cx5-mini" type="button" data-csh-shift-pause ${busy}>⏸ Pausa</button>`}
+        <button class="cx5-mini is-danger" type="button" data-csh-shift-finish ${busy}>Cerrar jornada</button>
+      </div>`;
+  }
+
+  function topBar049V() {
+    return `
+      <header class="cx5-top">
+        <div class="cx5-id">
+          ${brandLogo049V() ? `<span class="cx5-logo" aria-hidden="true"></span>` : `<span class="cx5-mark" aria-hidden="true">$</span>`}
+          <div><strong>Caja</strong><small>${h(new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" }))}</small></div>
+        </div>
+        ${shiftLine049V()}
+        <div class="cx5-actions">
+          <button class="cx5-btn cx5-btn-z" type="button" data-csh-z-open>🧾 Sacar Z</button>
+          ${state.directSale ? `<button class="cx5-btn cx5-btn-primary" type="button" data-csh-new-sale>＋ Nueva venta</button>` : ""}
+          <div class="cx5-more">
+            <button class="cx5-icon" type="button" data-csh-more aria-label="Más opciones" aria-expanded="${state.moreOpen ? "true" : "false"}">⋯</button>
+            ${state.moreOpen ? `
+              <div class="cx5-menu" role="menu">
+                <button type="button" role="menuitem" data-csh-register-network>📶 Registrar la red actual del local</button>
+                <button type="button" role="menuitem" data-csh-logout>⏻ Salir del panel</button>
+              </div>` : ""}
+          </div>
+        </div>
+      </header>`;
+  }
+
+  // ------------------------------------------------------------ indicadores
+  function kpiStrip049V() {
+    const s = state.summary;
+    const dash = "—";
+    const methods = (s && Array.isArray(s.methods) ? s.methods : [
+      { method: "cash", label: "Efectivo", total: 0 }, { method: "transfer", label: "Transferencia", total: 0 }, { method: "card", label: "Tarjeta", total: 0 },
+    ]);
+    const top = Math.max(1, ...methods.map((m) => Number(m.total || 0)));
+    return `
+      <section class="cx5-kpis" aria-label="Cómo va tu turno">
+        <div class="cx5-kpi cx5-kpi-main">
+          <span>Total vendido</span>
+          <strong data-cx5-kpi="sold">${s ? h(money(s.sold)) : dash}</strong>
+          <small>${s ? `Cobrado ${h(money(s.charged))} · Por cobrar ${h(money(s.pending))}` : "Cargando el turno…"}</small>
+        </div>
+        <div class="cx5-kpi"><span>Pedidos</span><strong data-cx5-kpi="orders">${s ? h(s.orders) : dash}</strong><small>${s ? `${h(s.accounts)} cuenta${s.accounts === 1 ? "" : "s"}` : ""}</small></div>
+        <div class="cx5-kpi"><span>Ticket promedio</span><strong data-cx5-kpi="ticket">${s ? h(money(s.ticket)) : dash}</strong><small>por cuenta</small></div>
+        <div class="cx5-kpi"><span>Domicilios</span><strong data-cx5-kpi="deliveries">${s ? h(s.deliveries) : dash}</strong><small>recibidos</small></div>
+        <div class="cx5-kpi"><span>Mesas atendidas</span><strong data-cx5-kpi="tables">${s ? h(s.tables) : dash}</strong><small>en el turno</small></div>
+        <div class="cx5-kpi cx5-kpi-pay">
+          <span>Cobrado por método</span>
+          ${methods.map((m) => `
+            <div class="cx5-pay-row" data-cx5-method="${h(m.method)}">
+              <em>${METHOD_ICONS_049V[m.method] || "🧾"} ${h(m.label)}</em>
+              <i style="--w:${Math.round((Number(m.total || 0) / top) * 100)}%"></i>
+              <b>${s ? h(money(m.total)) : dash}</b>
+            </div>`).join("")}
+        </div>
+      </section>
+      ${s ? `<p class="cx5-kpi-note">${s.shift_open && s.since ? `Tu turno desde las ${h(clockTime(s.since))}` : "Jornada de hoy"} · se actualiza solo</p>` : ""}`;
+  }
+
+  // ------------------------------------------------------------ secciones
+  function section049V({ key, icon, title, count, empty, body }) {
+    return `
+      <section class="cx5-sec cx5-sec-${key} ${count ? "" : "is-empty"}" aria-label="${h(title)}">
+        <header class="cx5-sec-head">
+          <span class="cx5-sec-icon" aria-hidden="true">${icon}</span>
+          <h2>${h(title)}</h2>
+          <span class="cx5-count" data-cx5-count="${key}">${h(count)}</span>
+          ${count ? "" : `<small class="cx5-sec-empty">${h(empty)}</small>`}
+        </header>
+        ${count ? body : ""}
+      </section>`;
+  }
+
+  function tableCard049V(table, nowMs) {
+    const parts = tableNumberParts(table.table_number);
+    const stateKey = tableState(table);
+    const started = tableStartedMs(table);
+    return `
+      <button class="cx5-card cx5-st-${stateKey}" type="button" data-csh-open-table="${h(table.key)}">
+        <div class="cx5-card-row">
+          <span class="cx5-cap">${h(parts.caption || "Mesa")}</span>
+          <span class="cx5-timer ${lateClass049V(started, nowMs)}">⏱ ${h(elapsedLabel(started, nowMs))}</span>
+        </div>
+        <b class="cx5-num">${h(parts.number)}</b>
+        <span class="cx5-pill">${h(TABLE_STATES[stateKey])}</span>
+        <div class="cx5-card-foot">
+          <span class="cx5-who">${table.waiter ? `👤 ${h(table.waiter)}` : "Sin mesero"}</span>
+          <strong>${h(money(table.total))}</strong>
+        </div>
+      </button>`;
+  }
+
+  function deliveryCard049V(order, nowMs) {
+    const d = deliveryOf(order);
+    const stage = deliveryStage(order);
+    const started = Date.parse(order.created_at) || nowMs;
+    return `
+      <button class="cx5-card cx5-delivery cx5-dl-${stage.key}" type="button" data-csh-open-delivery="${h(order.id)}">
+        <div class="cx5-card-row">
+          <span class="cx5-cap">Domicilio ${h(deliveryNumber(order))}</span>
+          <span class="cx5-timer ${lateClass049V(started, nowMs)}">⏱ ${h(elapsedLabel(started, nowMs))}</span>
+        </div>
+        <div class="cx5-dl-who"><b>${h(d.customer_name || "Cliente")}</b></div>
+        <div class="cx5-dl-addr">📍 ${h(d.address || "Sin dirección")}${d.address_notes ? ` · ${h(d.address_notes)}` : ""}</div>
+        <div class="cx5-dl-badges"><span class="cx5-pill">${h(stage.label)}</span>${paymentBadge(d)}</div>
+        <div class="cx5-card-foot"><span></span><strong>${h(money(order.total))}</strong></div>
+      </button>`;
+  }
+
+  function openSaleRow049V(table) {
+    const stateKey = tableState(table);
+    return `
+      <button class="cx5-row cx5-st-${stateKey}" type="button" data-csh-open-table="${h(table.key)}">
+        <span class="cx5-row-main"><b>${h(table.table_number)}</b><small>${stateKey === "ready" ? "Lista: toca para cobrar" : "En cocina"}</small></span>
+        <span class="cx5-pill">${h(TABLE_STATES[stateKey])}</span>
+        <strong>${h(money(table.total))}</strong>
+      </button>`;
+  }
+
+  function paidSaleRow049V(row) {
+    return `
+      <div class="cx5-row is-paid" data-cx5-sale="${h(row.id)}">
+        <span class="cx5-row-main"><b>${h(row.label)}</b><small>${h(clockTime(row.closed_at || row.created_at))} · ${METHOD_ICONS_049V[row.method] || ""} ${h(row.method_label || "")} · ${h(row.products)} producto${row.products === 1 ? "" : "s"}</small></span>
+        <span class="cx5-pill is-paid">Cobrada</span>
+        <strong>${h(money(row.total))}</strong>
+        <button class="cx5-icon cx5-print" type="button" data-csh-print-order="${h(row.id)}" aria-label="Imprimir cuenta" ${state.printing ? "disabled" : ""}>🖨</button>
+      </div>`;
+  }
+
+  function screenTables049V() {
+    const now = Date.now();
+    const { mesas, ventas } = splitTables049V(state.tables);
+    const paid = state.summary && Array.isArray(state.summary.direct_sales) ? state.summary.direct_sales.filter((r) => r.paid) : [];
+    const showDelivery = state.delivery || state.deliveries.length > 0;
+    const showSales = state.directSale || ventas.length > 0 || paid.length > 0;
+    return `
+      <section class="cx5">
+        ${topBar049V()}
+        ${kpiStrip049V()}
+        ${state.toast ? `<div class="cx5-toast" role="status">${h(state.toast)}</div>` : ""}
+        ${state.lastCharged ? `
+          <div class="cx5-last">
+            <span>Última cobrada: <b>${h(state.lastCharged.label)}</b></span>
+            <button class="cx5-mini" type="button" data-csh-print-last ${state.printing ? "disabled" : ""}>🖨 Imprimir cuenta</button>
+          </div>` : ""}
+        <div class="cx5-board ${showDelivery || showSales ? "" : "is-single"}">
+          ${section049V({
+            key: "mesas", icon: "🍽", title: "Mesas", count: mesas.length, empty: "No hay mesas abiertas",
+            body: `<div class="cx5-grid">${mesas.map((t) => tableCard049V(t, now)).join("")}</div>`,
+          })}
+          ${showDelivery || showSales ? `<div class="cx5-side">
+            ${showDelivery ? section049V({
+              key: "domicilios", icon: "🛵", title: "Domicilios", count: state.deliveries.length, empty: "Sin domicilios abiertos",
+              body: `<div class="cx5-grid cx5-grid-dl">${state.deliveries.map((o) => deliveryCard049V(o, now)).join("")}</div>`,
+            }) : ""}
+            ${showSales ? section049V({
+              key: "ventas", icon: "🧾", title: "Ventas de caja", count: ventas.length + paid.length, empty: "Aún no hay ventas directas en tu turno",
+              body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}${paid.map(paidSaleRow049V).join("")}</div>`,
+            }) : ""}
+          </div>` : ""}
+        </div>
+      </section>`;
+  }
+
+  // ------------------------------------------------------------ mesa (detalle)
+  function screenTable049V() {
+    const table = activeTable();
+    if (!table) {
+      if (!state.tablesLoaded) return `<section class="cx5"><p class="cx5-pick">Cargando mesa…</p></section>`;
+      state.stack = ["tables"];
+      state.screen = "tables";
+      state.activeTableKey = "";
+      persistNav();
+      return screenTables049V();
+    }
+    const allItems = table.orders.flatMap((o) => o.items || []);
+    const canCharge = table.orders.some((o) => o.status === "entregado");
+    const stateKey = tableState(table);
+    const due = chargeableTotal(table);
+    return `
+      <section class="cx5">
+        <header class="cx5-top">
+          <button class="cx5-icon" type="button" data-csh-back aria-label="Volver">‹</button>
+          <div class="cx5-id"><div><strong>${h(tableTitle(table.table_number))}</strong><small>⏱ ${h(elapsedLabel(tableStartedMs(table), Date.now()))}${table.waiter ? ` · 👤 ${h(table.waiter)}` : ""} · ${h(table.orders.length)} comanda${table.orders.length === 1 ? "" : "s"}</small></div></div>
+          <span class="cx5-pill cx5-st-${stateKey}">${h(TABLE_STATES[stateKey])}</span>
+        </header>
+        <div class="cx5-detail">
+          <div class="cx5-panel">
+            <table class="csh-detail-lines">
+              <thead><tr><th>Cant.</th><th>Producto</th><th>Valor</th></tr></thead>
+              <tbody>
+                ${allItems.map((item) => `
+                  <tr>
+                    <td>${h(lineQuantity(item))}</td>
+                    <td>${h(item.name)}${item.term ? ` <small>· ${h(item.term)}</small>` : ""}${item.observations ? `<div class="csh-note">${h(item.observations)}</div>` : ""}</td>
+                    <td>${h(money(lineAmount(item)))}</td>
+                  </tr>`).join("") || `<tr><td colspan="3" class="csh-empty">Sin productos todavía.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+          <aside class="cx5-panel cx5-charge">
+            <div class="cx5-total"><span>Total de la cuenta</span><strong>${h(money(table.total))}</strong></div>
+            <div class="cx5-charge-actions">
+              <button class="cx5-btn" type="button" data-csh-add-product>＋ Agregar producto</button>
+              <button class="cx5-btn" type="button" data-csh-print ${state.printing || !allItems.length ? "disabled" : ""}>🖨 Imprimir cuenta</button>
+            </div>
+            ${canCharge ? `
+              <div class="cx5-step"><span>✓</span>Cobrar ${h(money(due))} · elige el método</div>
+              <div class="cx5-methods">
+                ${PAYMENT_METHODS.map((pm) => `<button class="cx5-method" type="button" data-csh-pay="${pm.value}" ${state.paying ? "disabled" : ""}><i>${METHOD_ICONS_049V[pm.value]}</i>${h(pm.label)}</button>`).join("")}
+              </div>
+              ${due < Number(table.total || 0) ? `<p class="cx5-hint">Lo que sigue en cocina (${h(money(Number(table.total || 0) - due))}) se cobra cuando la marquen lista.</p>` : ""}` : `<p class="cx5-hint">La cocina aún no entrega este pedido: se cobra cuando esté listo.</p>`}
+          </aside>
+        </div>
+      </section>`;
+  }
+
+  // ------------------------------------------------------------ nueva venta
+  function catArt049V(cat) {
+    const art = Kit.tileArt("category", cat, kitOptions("data-csh-cat"));
+    if (art.type === "image") {
+      // La imagen completa, nunca recortada, sobre su propio fondo difuminado.
+      return `<span class="cx5-art" style="--img:url('${art.url}')"><img src="${art.url}" alt="" loading="lazy"></span>`;
+    }
+    return `<span class="cx5-art is-emoji">${art.emoji || "🍽️"}</span>`;
+  }
+
+  function categoryTiles049V() {
+    const active = state.sale.category;
+    const compact = Boolean(active || state.sale.query);
+    return `
+      <div class="cx5-cats ${compact ? "is-compact" : ""}" role="tablist" aria-label="Categorías">
+        ${compact ? `<button class="cx5-cat is-all" type="button" data-csh-cat-all><span class="cx5-art is-emoji">▦</span><span class="cx5-cat-name">Todas</span></button>` : ""}
+        ${state.menu.map((cat) => `
+          <button class="cx5-cat ${cat.key === active ? "is-active" : ""}" type="button" role="tab" aria-selected="${cat.key === active ? "true" : "false"}" data-csh-cat="${h(cat.key)}">
+            ${catArt049V(cat)}
+            <span class="cx5-cat-name">${h(cat.label)}</span>
+            <small>${h((cat.products || []).length)} producto${(cat.products || []).length === 1 ? "" : "s"}</small>
+          </button>`).join("") || `<div class="cx5-empty">Sin categorías todavía.</div>`}
+      </div>`;
+  }
+
+  function productTile049V(product, category) {
+    const art = Kit.tileArt("product", product, kitOptions("data-csh-product"));
+    const kitchen = productNeedsKitchen049V(product, category);
+    return `
+      <button class="cx5-prod" type="button" data-csh-product="${h(product.id)}">
+        ${art.type === "image" ? `<span class="cx5-prod-art"><img src="${art.url}" alt="" loading="lazy"></span>` : art.type === "emoji" ? `<span class="cx5-prod-art is-emoji">${art.emoji}</span>` : ""}
+        <span class="cx5-prod-name">${h(product.name)}</span>
+        <span class="cx5-prod-foot">
+          <strong>${product.is_portioned ? "Elegir porción" : h(money(product.price))}</strong>
+          <em class="cx5-tag ${kitchen ? "is-kitchen" : "is-ready"}">${kitchen ? "🍳 Cocina" : "⚡ Listo"}</em>
+        </span>
+      </button>`;
+  }
+
+  function productsHtml049V() {
+    const query = String(state.sale.query || "").trim().toLowerCase();
+    if (query) {
+      const hits = [];
+      state.menu.forEach((cat) => (cat.products || []).forEach((p) => {
+        if (String(p.name || "").toLowerCase().includes(query)) hits.push(productTile049V(p, cat));
+      }));
+      return `<div class="cx5-prods">${hits.join("") || `<div class="cx5-empty">Ningún producto coincide con “${h(state.sale.query)}”.</div>`}</div>`;
+    }
+    const category = saleCategory();
+    if (!category) {
+      // Sin categoria elegida: toda la carta, por categorias (nunca pantalla vacia).
+      return state.menu.filter((cat) => (cat.products || []).length).map((cat) => `
+        <h3 class="cx5-sub">${h(cat.label)}</h3>
+        <div class="cx5-prods">${(cat.products || []).map((p) => productTile049V(p, cat)).join("")}</div>`).join("")
+        || `<p class="cx5-pick">Sin productos activos en la carta.</p>`;
+    }
+    const subs = Array.isArray(category.subcategories) ? category.subcategories.filter((sub) => (sub.products || []).length) : [];
+    if (subs.length) {
+      const inSub = new Set(subs.flatMap((sub) => (sub.products || []).map((p) => p.id)));
+      const loose = (category.products || []).filter((p) => !inSub.has(p.id));
+      return subs.map((sub) => `
+        <h3 class="cx5-sub">${h(sub.label)}</h3>
+        <div class="cx5-prods">${(sub.products || []).map((p) => productTile049V(p, category)).join("")}</div>`).join("")
+        + (loose.length ? `<h3 class="cx5-sub">Otros</h3><div class="cx5-prods">${loose.map((p) => productTile049V(p, category)).join("")}</div>` : "");
+    }
+    return `<div class="cx5-prods">${(category.products || []).map((p) => productTile049V(p, category)).join("") || `<div class="cx5-empty">Sin productos en esta categoría.</div>`}</div>`;
+  }
+
+  function routeHint049V(sale) {
+    const where = sale.table ? ` y se suma a la cuenta de ${sale.table}` : "";
+    if (sale.toKitchen) {
+      return sale.table
+        ? `Va a la pantalla de cocina${where}.`
+        : "Va a la pantalla de cocina. La cobras en «Ventas de caja» cuando la marquen lista.";
+    }
+    return sale.table ? `Se entrega ya${where}.` : "Productos listos para entregar (ej. una gaseosa): se cobra ahora mismo.";
+  }
+
+  function suggestion049V(sale) {
+    const cooking = (sale.items || []).filter(lineNeedsKitchen049V).map((line) => line.name);
+    if (cooking.length) return `Sugerido: tiene platos que se preparan (${Array.from(new Set(cooking)).slice(0, 3).join(", ")}).`;
+    return "Sugerido: todo está listo para entregar.";
+  }
+
+  function saleCart049V() {
+    const sale = state.sale;
+    const mode = saleMode(sale);
+    const busy = state.saleBusy ? "disabled" : "";
+    const count = sale.items.reduce((sum, item) => sum + (item.fraction ? 1 : Number(item.quantity || 0)), 0);
+    return `
+      <aside class="cx5-cart" aria-label="Resumen de la venta">
+        <div class="cx5-cart-head">
+          <strong>Resumen de la venta</strong>
+          <span class="cx5-count">${h(count)}</span>
+        </div>
+        <div class="cx5-cart-dest">${sale.table ? `Para <b>${h(sale.table)}</b>` : "Venta independiente"}</div>
+        <div class="cx5-lines">
+          ${sale.items.map((item, index) => `
+            <div class="cx5-line">
+              <button type="button" class="cx5-line-main" data-csh-sale-edit="${index}">
+                <b>${Kit.cartLineLabel(item)}</b>
+                ${item.term ? `<small>${h(item.term)}</small>` : ""}
+                ${item.observations ? `<small>${h(item.observations)}</small>` : ""}
+                ${item.quick_notes && item.quick_notes.length ? `<small>${item.quick_notes.map(h).join(" · ")}</small>` : ""}
+              </button>
+              ${item.fraction ? `<span></span>` : `
+                <span class="cx5-stepper">
+                  <button type="button" data-csh-sale-step="${index}:-1" aria-label="Uno menos">−</button>
+                  <b>${h(item.quantity)}</b>
+                  <button type="button" data-csh-sale-step="${index}:1" aria-label="Uno más">＋</button>
+                </span>`}
+              <strong>${h(money(Number(item.unit_price || 0) * Number(item.quantity || 0)))}</strong>
+              <button type="button" class="cx5-x" data-csh-sale-remove="${index}" aria-label="Quitar">✕</button>
+            </div>`).join("") || `<div class="cx5-cart-empty"><span>🛒</span>Toca un producto para empezar la venta.</div>`}
+        </div>
+        <div class="cx5-cart-total"><span>Total</span><strong data-cx5-sale-total>${h(money(saleTotal(sale)))}</strong></div>
+        ${sale.items.length ? `
+          <div class="cx5-step"><span>1</span>¿Cómo sale?</div>
+          <div class="cx5-route" role="radiogroup" aria-label="Preparación">
+            <button type="button" role="radio" aria-checked="${sale.toKitchen ? "true" : "false"}" class="${sale.toKitchen ? "is-on" : ""}" data-csh-sale-route="kitchen">🍳 Preparar en cocina</button>
+            <button type="button" role="radio" aria-checked="${sale.toKitchen ? "false" : "true"}" class="${sale.toKitchen ? "" : "is-on"}" data-csh-sale-route="now">⚡ Entregar ya</button>
+          </div>
+          <p class="cx5-hint">${h(routeHint049V(sale))}${sale.kitchenTouched ? "" : `<br><small>${h(suggestion049V(sale))}</small>`}</p>
+          <div class="cx5-step"><span>2</span>${mode === "charge" ? `Cobrar ${h(money(saleTotal(sale)))} · método de pago` : mode === "kitchen" ? "Enviar" : "Agregar a la cuenta"}</div>
+          ${mode === "charge" ? `
+            <div class="cx5-methods">
+              ${PAYMENT_METHODS.map((pm) => `<button class="cx5-method" type="button" data-csh-sale-pay="${pm.value}" ${busy}><i>${METHOD_ICONS_049V[pm.value]}</i>${h(pm.label)}</button>`).join("")}
+            </div>` : `
+            <button class="cx5-btn cx5-btn-primary cx5-send" type="button" data-csh-sale-send ${busy}>
+              ${state.saleBusy ? "Enviando…" : mode === "kitchen" ? "🍳 Enviar a cocina" : `Agregar a ${h(sale.table)}`}
+            </button>`}` : ""}
+      </aside>`;
+  }
+
+  function screenSale049V() {
+    const sale = state.sale;
+    return `
+      <section class="cx5 cx5-sale-screen">
+        <header class="cx5-top">
+          <button class="cx5-icon" type="button" data-csh-back aria-label="Volver">‹</button>
+          <div class="cx5-id"><div><strong>Nueva venta</strong><small>Arma la venta, elige cómo sale y cobra.</small></div></div>
+          <label class="cx5-dest">Para
+            <select data-csh-sale-table>
+              <option value="" ${sale.table ? "" : "selected"}>Venta independiente</option>
+              ${saleTableOptions().map((label) => `<option value="${h(label)}" ${sale.table === label ? "selected" : ""}>${h(label)}</option>`).join("")}
+            </select>
+          </label>
+        </header>
+        <div class="cx5-sale">
+          <div class="cx5-sale-main">
+            <label class="cx5-search"><span aria-hidden="true">🔎</span><input type="search" data-csh-sale-search placeholder="Buscar producto…" value="${h(sale.query || "")}" autocomplete="off"></label>
+            ${categoryTiles049V()}
+            <div id="cx5Products" class="cx5-products">${productsHtml049V()}</div>
+          </div>
+          ${saleCart049V()}
+        </div>
+      </section>`;
+  }
+
+  // ------------------------------------------------------------ Z del dia
+  async function openZ049V() {
+    state.z = { step: "loading", data: null, saved: null, busy: false, message: "" };
+    state.moreOpen = false;
+    safeRender();
+    try {
+      const data = await waiterApi("/caja/z");
+      state.z = { step: "preview", data, saved: null, busy: false, message: "" };
+    } catch (error) {
+      state.z = { step: "error", data: null, saved: null, busy: false, message: error.message || "No se pudo calcular el Z." };
+    }
+    safeRender();
+  }
+
+  async function registerZ049V() {
+    const z = state.z;
+    if (!z || z.busy) return;
+    z.busy = true;
+    safeRender();
+    try {
+      const saved = await waiterApi("/caja/z", { method: "POST" });
+      z.saved = saved;
+      z.step = "done";
+      z.message = "";
+      if (z.data && Array.isArray(z.data.history)) z.data.history.unshift(saved);
+      printZ049V(saved);
+    } catch (error) {
+      z.message = error.message || "No se pudo registrar el Z.";
+    } finally {
+      z.busy = false;
+      safeRender();
+    }
+  }
+
+  async function reprintZ049V(id) {
+    try {
+      printZ049V(await waiterApi(`/caja/z/${encodeURIComponent(id)}`));
+    } catch (error) {
+      state.error = error.message || "No se pudo reimprimir el Z.";
+      safeRender();
+    }
+  }
+
+  function methodRows049V(methods, top) {
+    return (methods || []).map((m) => `
+      <div class="cx5-pay-row"><em>${METHOD_ICONS_049V[m.method] || "🧾"} ${h(m.label)} <small>(${h(m.count || 0)})</small></em>
+        <i style="--w:${Math.round((Number(m.total || 0) / Math.max(1, top)) * 100)}%"></i><b>${h(money(m.total))}</b></div>`).join("");
+  }
+
+  function zBody049V(z) {
+    const top = Math.max(1, ...(z.methods || []).map((m) => Number(m.total || 0)));
+    return `
+      <div class="cx5-z-total"><span>Total de ventas del día</span><strong data-cx5-z="total">${h(money(z.total))}</strong></div>
+      <div class="cx5-z-stats">
+        <div><span>Ventas</span><b data-cx5-z="sales">${h(z.sales)}</b></div>
+        <div><span>Productos vendidos</span><b data-cx5-z="products">${h(z.products)}</b></div>
+        <div><span>Pedidos cobrados</span><b>${h(z.orders)}</b></div>
+      </div>
+      <div class="cx5-z-methods">${methodRows049V(z.methods, top)}</div>
+      ${(z.channels || []).length ? `<div class="cx5-z-channels">${z.channels.map((c) => `<span>${h(c.label)}: <b>${h(c.count)}</b> · ${h(money(c.total))}</span>`).join("")}</div>` : ""}
+      ${z.open_count ? `<p class="cx5-z-warn">⚠ Quedan ${h(z.open_count)} pedido${z.open_count === 1 ? "" : "s"} sin cobrar por ${h(money(z.open_total))}: no entran en este Z.</p>` : ""}
+      ${z.cancelled_count ? `<p class="cx5-hint">Cancelados: ${h(z.cancelled_count)} por ${h(money(z.cancelled_total))} (no suman).</p>` : ""}`;
+  }
+
+  function zOverlay049V() {
+    const z = state.z;
+    if (!z) return "";
+    let inner = "";
+    if (z.step === "loading") inner = `<p class="cx5-pick">Calculando el Z del día…</p>`;
+    else if (z.step === "error") inner = `<div class="csh-alert">${h(z.message)}</div><div class="cx5-modal-actions"><button class="cx5-btn" type="button" data-csh-z-close>Cerrar</button></div>`;
+    else if (z.step === "preview") {
+      const d = z.data || {};
+      inner = `
+        <p class="cx5-hint">Jornada del ${h(d.business_day || "")} · ${h(d.now_local || "")} · Cajero: <b>${h(d.cashier_name || "")}</b></p>
+        ${zBody049V(d.z || {})}
+        ${z.message ? `<div class="csh-alert">${h(z.message)}</div>` : ""}
+        <p class="cx5-hint">Al sacarlo queda registrado con fecha, hora, número y tu nombre, y se imprime.</p>
+        ${zHistory049V(d.history)}
+        <div class="cx5-modal-actions">
+          <button class="cx5-btn" type="button" data-csh-z-close ${z.busy ? "disabled" : ""}>Cancelar</button>
+          <button class="cx5-btn cx5-btn-primary" type="button" data-csh-z-register ${z.busy ? "disabled" : ""}>${z.busy ? "Registrando…" : "🧾 Sacar e imprimir Z"}</button>
+        </div>`;
+    } else if (z.step === "done") {
+      const saved = z.saved || {};
+      inner = `
+        <div class="cx5-z-done">✓ Z #${h(String(saved.number || "").padStart(4, "0"))} registrado · ${h(saved.created_local || "")} · ${h(saved.cashier_name || "")}</div>
+        ${zBody049V(saved.summary || {})}
+        ${zHistory049V(z.data && z.data.history)}
+        <div class="cx5-modal-actions">
+          <button class="cx5-btn" type="button" data-csh-z-print>🖨 Imprimir de nuevo</button>
+          <button class="cx5-btn cx5-btn-primary" type="button" data-csh-z-close>Listo</button>
+        </div>`;
+    }
+    return `
+      <div class="cx5-modal" data-csh-z>
+        <div class="cx5-modal-card" role="dialog" aria-label="Cierre de caja del día (Z)">
+          <h2>🧾 Cierre de caja del día · Z</h2>
+          ${inner}
+        </div>
+      </div>`;
+  }
+
+  function zHistory049V(history) {
+    const rows = Array.isArray(history) ? history : [];
+    if (!rows.length) return "";
+    return `
+      <div class="cx5-z-history"><span>Z sacados hoy</span>
+        ${rows.map((row) => `<div><b>#${h(String(row.number || "").padStart(4, "0"))}</b><small>${h(row.created_local || "")} · ${h(row.cashier_name || "")}</small><em>${h(money(row.total))}</em><button class="cx5-icon" type="button" data-csh-z-reprint="${h(row.id)}" aria-label="Reimprimir">🖨</button></div>`).join("")}
+      </div>`;
+  }
+
+  // Tirilla de 80 mm (misma impresion por iframe oculto que la cuenta).
+  function zTicketHtml049V(saved) {
+    const z = saved.summary || {};
+    const line = (label, value) => `<div class="r"><span>${h(label)}</span><b>${h(value)}</b></div>`;
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Z ${h(saved.number)}</title>
+<style>@page{size:80mm auto;margin:3mm}body{margin:0;font:12px/1.35 monospace;color:#000;background:#fff;width:74mm}
+h1{font-size:15px;text-align:center;margin:0 0 1mm}h2{font-size:12px;margin:2mm 0 1mm;border-bottom:1px dashed #000}
+.c{text-align:center}.r{display:flex;justify-content:space-between;gap:2mm}.big{font-size:16px;font-weight:900}
+table{width:100%;border-collapse:collapse}td{vertical-align:top}td:last-child{text-align:right;white-space:nowrap}</style></head><body>
+<h1>${h(z.company_name || saved.company_name || "")}</h1>
+<div class="c"><b>CIERRE DE CAJA · Z #${h(String(saved.number || "").padStart(4, "0"))}</b></div>
+${line("Fecha y hora", saved.created_local || "")}
+${line("Jornada", saved.business_day || "")}
+${line("Cajero", saved.cashier_name || "")}
+<h2>VENTAS DEL DÍA</h2>
+${line("Ventas", z.sales || 0)}
+${line("Pedidos cobrados", z.orders || 0)}
+${line("Productos vendidos", z.products || 0)}
+<div class="r big"><span>TOTAL</span><span>${h(money(z.total))}</span></div>
+<h2>POR MÉTODO DE PAGO</h2>
+${(z.methods || []).map((m) => line(`${m.label} (${m.count || 0})`, money(m.total))).join("")}
+${(z.channels || []).length ? `<h2>POR CANAL</h2>${z.channels.map((c) => line(`${c.label} (${c.count})`, money(c.total))).join("")}` : ""}
+${(z.items || []).length ? `<h2>PRODUCTOS</h2><table>${z.items.map((i) => `<tr><td>${h(i.units)} ${h(i.name)}</td><td>${h(money(i.total))}</td></tr>`).join("")}</table>` : ""}
+${z.open_count ? `<h2>SIN COBRAR (no suman)</h2>${line(`${z.open_count} pedido(s)`, money(z.open_total))}` : ""}
+${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled_total)) : ""}
+<p class="c">_______________________<br>Firma cajero</p>
+</body></html>`;
+  }
+
+  function printZ049V(saved) {
+    if (!saved) return null;
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    document.body.appendChild(frame);
+    const win = frame.contentWindow;
+    win.document.open();
+    win.document.write(zTicketHtml049V(saved));
+    win.document.close();
+    const go = () => {
+      try {
+        win.focus();
+        win.print();
+      } finally {
+        window.setTimeout(() => frame.remove(), 1000);
+      }
+    };
+    if (win.document.readyState === "complete") window.setTimeout(go, 50);
+    else frame.onload = go;
+    return frame;
+  }
+
   function render() {
     safeRender();
   }
@@ -1515,13 +2187,18 @@
 
   function renderScreen() {
     let html = "";
+    // 049V: con el interruptor, el tablero, la mesa y la venta rediseñados.
+    const cx5 = state.redesign && state.screen !== "login";
     if (state.screen === "login") html = screenLogin();
-    else if (state.screen === "tables") html = screenTables();
-    else if (state.screen === "table") html = screenTable();
+    else if (state.screen === "tables") html = cx5 ? screenTables049V() : screenTables();
+    else if (state.screen === "table") html = cx5 ? screenTable049V() : screenTable();
     else if (state.screen === "delivery") html = screenDelivery();
-    else if (state.screen === "sale") html = screenSale();
-    else if (state.screen === "sale_products") html = screenSaleProducts();
+    else if (state.screen === "sale") html = cx5 ? screenSale049V() : screenSale();
+    else if (state.screen === "sale_products") html = cx5 ? screenSale049V() : screenSaleProducts();
     if (state.screen !== "login") html += costosOverlay048U();
+    if (cx5) html += zOverlay049V();
+    if (cx5) root.setAttribute("data-cx5", "1");
+    else if (root.removeAttribute) root.removeAttribute("data-cx5");
     root.innerHTML = html;
     if (state.error && state.screen !== "login") {
       const banner = document.createElement("div");
@@ -1545,6 +2222,16 @@
     }
   });
 
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target || !target.closest || !target.closest("[data-csh-sale-search]")) return;
+    state.sale.query = String(target.value || "");
+    const box = document.getElementById("cx5Products");
+    if (box) box.innerHTML = productsHtml049V();
+    const cats = root.querySelector ? root.querySelector(".cx5-cats") : null;
+    if (cats && cats.classList) cats.classList.toggle("is-compact", Boolean(state.sale.query.trim() || state.sale.category));
+  });
+
   document.addEventListener("submit", (event) => {
     const form = event.target.closest("#cshLoginForm");
     if (!form) return;
@@ -1565,6 +2252,12 @@
 
   function handleClick(event) {
     const target = event.target;
+
+    // 049V: el menu "⋯" se cierra al tocar cualquier otra cosa.
+    if (state.moreOpen && !target.closest("[data-csh-more]")) {
+      state.moreOpen = false;
+      if (!target.closest("[data-csh-register-network]") && !target.closest("[data-csh-logout]")) safeRender();
+    }
 
     const recover = target.closest("[data-csh-recover]");
     if (recover) {
@@ -1609,6 +2302,31 @@
         return;
       }
       if (window.confirm("¿Cerrar tu jornada? Se registran tus horas y se cierra la sesión.")) shiftAction("finish");
+      return;
+    }
+    if (target.closest("[data-csh-more]")) { state.moreOpen = !state.moreOpen; safeRender(); return; }
+    if (target.closest("[data-csh-z-open]")) { openZ049V(); return; }
+    if (target.closest("[data-csh-z-register]")) { registerZ049V(); return; }
+    if (target.closest("[data-csh-z-close]")) { state.z = null; safeRender(); return; }
+    if (target.closest("[data-csh-z-print]")) { if (state.z && state.z.saved) printZ049V(state.z.saved); return; }
+    const zReprint = target.closest("[data-csh-z-reprint]");
+    if (zReprint) { reprintZ049V(zReprint.getAttribute("data-csh-z-reprint") || ""); return; }
+    const printOrder = target.closest("[data-csh-print-order]");
+    if (printOrder && !printOrder.disabled) { printAccount([printOrder.getAttribute("data-csh-print-order")]); return; }
+    if (target.closest("[data-csh-cat-all]")) { state.sale.category = ""; state.sale.query = ""; safeRender(); return; }
+    const saleRoute = target.closest("[data-csh-sale-route]");
+    if (saleRoute) {
+      state.sale.toKitchen = saleRoute.getAttribute("data-csh-sale-route") === "kitchen";
+      state.sale.kitchenTouched = true;
+      safeRender();
+      return;
+    }
+    const saleStep = target.closest("[data-csh-sale-step]");
+    if (saleStep) {
+      const [index, delta] = String(saleStep.getAttribute("data-csh-sale-step") || "").split(":");
+      const line = state.sale.items[Number(index)];
+      if (line && !line.fraction) line.quantity = Kit.stepQuantity(line.quantity, Number(delta));
+      safeRender();
       return;
     }
     if (target.closest("[data-csh-arq-cancel]")) { state.arqueo = null; safeRender(); return; }
@@ -1697,6 +2415,7 @@
     const saleRemove = target.closest("[data-csh-sale-remove]");
     if (saleRemove) {
       state.sale.items.splice(Number(saleRemove.getAttribute("data-csh-sale-remove")), 1);
+      syncKitchen049V();
       safeRender();
       return;
     }
@@ -1919,6 +2638,225 @@
     .csh-recover-card{max-width:360px;display:grid;gap:12px;padding:22px;border-radius:20px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);text-align:center}
     .csh-recover-card p{margin:0;color:#c9c3e6}
     .csh-sheet-item{display:flex;justify-content:space-between;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#fff}
+    /* 049V: rediseno de la caja. Colores de la marca por variables (hsp_brand.js); sin marca, oscuro de siempre. */
+    #app[data-cx5]{--k-surface:var(--cxb-surface,#15131f);--k-surface2:var(--cxb-surface2,#1d1a2b);--k-ink:var(--cxb-ink,#f5f3ff);--k-ink-rgb:var(--cxb-ink-rgb,245,243,255);--k-muted:var(--cxb-muted,#a19cbc);--k-line:var(--cxb-line,#2a2638);--k-primary:var(--cxb-primary,#ff2d95);--k-primary-rgb:var(--cxb-primary-rgb,255,45,149);--k-secondary:var(--cxb-secondary,#ff7a18);--k-on-primary:var(--cxb-on-primary,#fff);--k-primary-ink:var(--cxb-primary-ink,#ff7ab8);--k-field:var(--cxb-field,#0e0c18);--k-header:var(--cxb-header,rgba(11,10,20,.92))}
+    .cx5{min-height:100vh;color:var(--k-ink);padding-bottom:28px}
+    .cx5 button:focus-visible,.cx5 select:focus-visible,.cx5 input:focus-visible{outline:3px solid rgba(var(--k-primary-rgb),.45);outline-offset:2px}
+    .cx5-top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 20px;background:var(--k-header);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--k-line)}
+    .cx5-id{display:flex;align-items:center;gap:10px;min-width:0;margin-right:auto}
+    .cx5-id strong{display:block;font-size:19px;font-weight:800;letter-spacing:-.01em}
+    .cx5-id small{display:block;font-size:12px;color:var(--k-muted)}
+    .cx5-id small::first-letter{text-transform:uppercase}
+    .cx5-logo{flex:0 0 auto;width:48px;height:48px;border-radius:12px;background:var(--cxb-logo) center/contain no-repeat}
+    .cx5-mark{flex:0 0 auto;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:var(--k-primary);color:var(--k-on-primary);font-weight:900;font-size:20px}
+    .cx5-shift{display:flex;align-items:center;gap:10px;padding:5px 6px 5px 12px;border-radius:999px;border:1px solid var(--k-line);background:var(--k-surface);font-size:13px;white-space:nowrap}
+    .cx5-shift-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.22)}
+    .cx5-shift.is-break .cx5-shift-dot{background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.25)}
+    .cx5-shift-time{color:var(--k-muted)}
+    .cx5-shift-time b{color:var(--k-ink);font-weight:700;font-variant-numeric:tabular-nums}
+    .cx5-mini{min-height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--k-line);background:transparent;color:var(--k-ink);font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+    .cx5-mini.is-danger{color:#fca5a5;border-color:rgba(220,38,38,.4)}
+    .cx5-mini:disabled{opacity:.5}
+    .cx5-actions{display:flex;align-items:center;gap:8px}
+    .cx5-btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--k-line);background:var(--k-surface);color:var(--k-ink);font:inherit;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap}
+    .cx5-btn:disabled{opacity:.55;cursor:not-allowed}
+    .cx5-btn-primary{border-color:transparent;background:var(--k-primary);color:var(--k-on-primary);box-shadow:0 6px 18px rgba(var(--k-primary-rgb),.28)}
+    .cx5-btn-z{border:1.5px solid var(--k-primary-ink);color:var(--k-primary-ink)}
+    .cx5-icon{width:44px;height:44px;flex:0 0 auto;display:grid;place-items:center;border-radius:12px;border:1px solid var(--k-line);background:var(--k-surface);color:var(--k-ink);font:inherit;font-size:20px;cursor:pointer}
+    .cx5-more{position:relative}
+    .cx5-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:280px;display:grid;padding:6px;border-radius:14px;background:var(--k-surface);border:1px solid var(--k-line);box-shadow:0 18px 40px rgba(0,0,0,.25)}
+    .cx5-menu button{padding:12px;border-radius:10px;border:0;background:none;color:var(--k-ink);font:inherit;font-weight:600;text-align:left;cursor:pointer}
+    .cx5-menu button:hover{background:rgba(var(--k-ink-rgb),.06)}
+    .cx5-kpis{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(4,minmax(0,1fr)) minmax(270px,1.7fr);gap:12px;padding:16px 20px 0}
+    .cx5-kpi{display:grid;align-content:start;gap:4px;min-width:0;padding:14px 16px;border-radius:16px;background:var(--k-surface);border:1px solid var(--k-line)}
+    .cx5-kpi>span{font-size:12px;font-weight:600;color:var(--k-muted)}
+    .cx5-kpi strong{font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .cx5-kpi small{font-size:12px;color:var(--k-muted)}
+    .cx5-kpi-main{border-color:transparent;background:var(--k-primary);color:var(--k-on-primary);box-shadow:inset 0 -5px 0 var(--k-secondary)}
+    .cx5-kpi-main>span,.cx5-kpi-main small{color:inherit;opacity:.85}
+    .cx5-kpi-main strong{font-size:28px}
+    .cx5-kpi-pay{gap:7px}
+    .cx5-pay-row{display:grid;grid-template-columns:minmax(118px,auto) minmax(40px,1fr) auto;align-items:center;gap:10px;font-size:13px}
+    .cx5-pay-row em{font-style:normal;font-weight:600;white-space:nowrap}
+    .cx5-pay-row em small{color:var(--k-muted);font-weight:500}
+    .cx5-pay-row i{position:relative;height:6px;border-radius:99px;overflow:hidden;background:rgba(var(--k-ink-rgb),.1)}
+    .cx5-pay-row i::after{content:"";position:absolute;left:0;top:0;bottom:0;width:var(--w,0%);border-radius:inherit;background:var(--k-primary)}
+    .cx5-pay-row b{font-variant-numeric:tabular-nums}
+    .cx5-kpi-note{margin:6px 20px 0;font-size:12px;color:var(--k-muted)}
+    .cx5-toast{margin:12px 20px 0;padding:10px 14px;border-radius:12px;background:rgba(22,163,74,.16);color:#bbf7d0;font-weight:700}
+    .cx5-last{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 20px 0;padding:8px 8px 8px 14px;border-radius:12px;background:var(--k-surface);border:1px solid var(--k-line);font-size:13px}
+    .cx5-board{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(340px,1fr);gap:16px;align-items:start;padding:16px 20px}
+    .cx5-board.is-single{grid-template-columns:minmax(0,1fr)}
+    .cx5-side{display:grid;gap:16px;min-width:0}
+    .cx5-sec{min-width:0;padding:14px;border-radius:20px;background:var(--k-surface2);border:1px solid var(--k-line)}
+    .cx5-sec.is-empty{padding:9px 14px}
+    .cx5-sec-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+    .cx5-sec.is-empty .cx5-sec-head{margin:0}
+    .cx5-sec-head h2{margin:0;font-size:17px;font-weight:800}
+    .cx5-sec-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:rgba(var(--k-primary-rgb),.16);font-size:18px}
+    .cx5-sec.is-empty .cx5-sec-icon{width:28px;height:28px;font-size:15px}
+    .cx5-count{min-width:28px;height:24px;padding:0 8px;display:inline-grid;place-items:center;border-radius:999px;background:var(--k-primary);color:var(--k-on-primary);font-size:13px;font-weight:800}
+    .cx5-sec.is-empty .cx5-count{background:rgba(var(--k-ink-rgb),.1);color:var(--k-muted)}
+    .cx5-sec-empty{margin-left:2px;font-size:13px;color:var(--k-muted)}
+    .cx5-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(188px,1fr));gap:12px}
+    .cx5-side .cx5-grid-dl{grid-template-columns:minmax(0,1fr)}
+    .cx5-card{position:relative;display:grid;gap:8px;min-width:0;padding:14px 14px 12px 18px;border-radius:16px;border:1px solid var(--k-line);background:var(--k-surface);color:var(--k-ink);font:inherit;text-align:left;cursor:pointer;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.06);transition:transform .12s ease,box-shadow .12s ease}
+    .cx5-card::before,.cx5-row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--st,transparent)}
+    .cx5-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.14)}
+    .cx5-st-preparing{--st:#d97706}.cx5-st-ready{--st:#16a34a}
+    .cx5-delivery{--st:#0ea5e9}.cx5-dl-kitchen{--st:#d97706}.cx5-dl-ready{--st:#16a34a}
+    .cx5-card-row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .cx5-cap{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--k-muted)}
+    .cx5-timer{padding:3px 8px;border-radius:999px;background:rgba(var(--k-ink-rgb),.07);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .cx5-timer.is-slow{background:rgba(217,119,6,.2);color:#fde68a}
+    .cx5-timer.is-late{background:rgba(220,38,38,.2);color:#fca5a5}
+    .cx5-num{font-size:40px;line-height:1;font-weight:800;letter-spacing:-.03em}
+    .cx5-pill{justify-self:start;padding:4px 10px;border-radius:999px;background:rgba(var(--k-ink-rgb),.08);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+    .cx5-st-preparing .cx5-pill,.cx5-pill.cx5-st-preparing,.cx5-dl-kitchen .cx5-pill{background:rgba(217,119,6,.2);color:#fde68a}
+    .cx5-st-ready .cx5-pill,.cx5-pill.cx5-st-ready,.cx5-dl-ready .cx5-pill,.cx5-pill.is-paid{background:rgba(22,163,74,.18);color:#86efac}
+    .cx5-dl-assigned .cx5-pill,.cx5-dl-sent .cx5-pill{background:rgba(14,165,233,.18);color:#7dd3fc}
+    .cx5-card-foot{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-width:0}
+    .cx5-who{min-width:0;overflow:hidden;font-size:13px;color:var(--k-muted);white-space:nowrap;text-overflow:ellipsis}
+    .cx5-card-foot strong{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+    .cx5-dl-who b{font-size:16px}
+    .cx5-dl-addr{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;color:var(--k-muted)}
+    .cx5-dl-badges{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+    .cx5-rows{display:grid;gap:8px}
+    .cx5-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:10px 12px 10px 16px;border-radius:12px;border:1px solid var(--k-line);background:var(--k-surface);color:var(--k-ink);font:inherit;text-align:left;cursor:pointer;overflow:hidden}
+    .cx5-row.is-paid{grid-template-columns:minmax(0,1fr) auto auto auto;--st:#16a34a;cursor:default}
+    .cx5-row-main{display:grid;min-width:0}
+    .cx5-row-main b{font-weight:700}
+    .cx5-row-main small{overflow:hidden;font-size:12px;color:var(--k-muted);white-space:nowrap;text-overflow:ellipsis}
+    .cx5-row strong{font-variant-numeric:tabular-nums}
+    .cx5-print{width:36px;height:36px;font-size:16px}
+    .cx5-detail{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start;padding:16px 20px}
+    .cx5-panel{min-width:0;padding:16px;border-radius:18px;background:var(--k-surface);border:1px solid var(--k-line)}
+    .cx5-charge{position:sticky;top:84px;display:grid;gap:12px}
+    .cx5-total{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+    .cx5-total span{font-size:13px;font-weight:600;color:var(--k-muted)}
+    .cx5-total strong{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}
+    .cx5-charge-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .cx5-step{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:13px;font-weight:700;color:var(--k-muted)}
+    .cx5-step span{flex:0 0 auto;width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:var(--k-primary);color:var(--k-on-primary);font-size:12px}
+    .cx5-methods{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .cx5-method{display:grid;justify-items:center;gap:4px;min-height:80px;padding:10px 6px;border-radius:14px;border:1.5px solid var(--k-line);background:var(--k-surface2);color:var(--k-ink);font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+    .cx5-method i{font-style:normal;font-size:26px}
+    .cx5-method:hover{border-color:var(--k-primary)}
+    .cx5-method:disabled{opacity:.5}
+    .cx5-hint{margin:0;font-size:13px;line-height:1.45;color:var(--k-muted)}
+    .cx5-hint small{font-size:12px}
+    .cx5-empty{padding:14px;color:var(--k-muted);grid-column:1/-1}
+    .cx5-dest{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--k-muted)}
+    .cx5-dest select{min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--k-line);background:var(--k-field);color:var(--k-ink);font:inherit;font-size:14px}
+    .cx5-sale{display:grid;grid-template-columns:minmax(0,1fr) 400px;min-height:calc(100vh - 66px)}
+    .cx5-sale-main{min-width:0;padding:16px 20px 28px}
+    .cx5-search{display:flex;align-items:center;gap:8px;max-width:520px;margin-bottom:14px;padding:0 14px;border-radius:14px;border:1px solid var(--k-line);background:var(--k-field)}
+    .cx5-search input{flex:1;min-width:0;min-height:46px;border:0;outline:0;background:transparent;color:var(--k-ink);font:inherit;font-size:15px}
+    .cx5-cats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+    .cx5-cats>.cx5-cat{max-width:320px}
+    .cx5-cat{display:grid;gap:4px;min-width:0;padding:0 0 12px;border-radius:18px;border:1px solid var(--k-line);background:var(--k-surface);color:var(--k-ink);font:inherit;text-align:center;cursor:pointer;overflow:hidden;transition:border-color .12s ease,box-shadow .12s ease}
+    .cx5-cat:hover,.cx5-prod:hover{border-color:var(--k-primary)}
+    .cx5-cat.is-active{border-color:var(--k-primary);box-shadow:0 0 0 3px rgba(var(--k-primary-rgb),.3)}
+    .cx5-art{position:relative;display:grid;place-items:center;aspect-ratio:4/3;overflow:hidden;background:var(--k-surface2)}
+    .cx5-art::before{content:"";position:absolute;inset:-18px;background:var(--img) center/cover no-repeat;filter:blur(18px);opacity:.5}
+    .cx5-art img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain}
+    .cx5-art.is-emoji{font-size:54px;line-height:1}
+    .cx5-art.is-emoji::before{display:none}
+    .cx5-cat-name{padding:0 8px;font-size:15px;font-weight:700}
+    .cx5-cat small{font-size:12px;color:var(--k-muted)}
+    .cx5-cats.is-compact{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;scroll-snap-type:x proximity}
+    .cx5-cats.is-compact .cx5-cat{flex:0 0 118px;padding-bottom:8px;scroll-snap-align:start}
+    .cx5-cats.is-compact .cx5-cat-name{font-size:13px}
+    .cx5-cats.is-compact .cx5-cat small{display:none}
+    .cx5-cats.is-compact .cx5-art.is-emoji{font-size:34px}
+    .cx5-products{margin-top:14px}
+    .cx5-pick{padding:18px 0;color:var(--k-muted)}
+    .cx5-sub{margin:16px 0 8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--k-muted)}
+    .cx5-prods{display:grid;grid-template-columns:repeat(auto-fill,minmax(172px,1fr));gap:10px}
+    .cx5-prod{display:grid;align-content:space-between;gap:8px;min-width:0;min-height:108px;padding:12px;border-radius:14px;border:1px solid var(--k-line);background:var(--k-surface);color:var(--k-ink);font:inherit;text-align:left;cursor:pointer}
+    .cx5-prod:active{transform:scale(.98)}
+    .cx5-prod-art{position:relative;display:grid;place-items:center;aspect-ratio:16/10;overflow:hidden;border-radius:10px;background:var(--k-surface2)}
+    .cx5-prod-art img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain}
+    .cx5-prod-art.is-emoji{justify-items:start;aspect-ratio:auto;background:none;font-size:30px;line-height:1}
+    .cx5-prod-name{font-size:14px;font-weight:600;line-height:1.25}
+    .cx5-prod-foot{display:flex;justify-content:space-between;align-items:center;gap:6px}
+    .cx5-prod-foot strong{font-weight:800;font-variant-numeric:tabular-nums}
+    .cx5-tag{padding:2px 7px;border-radius:999px;font-size:11px;font-style:normal;font-weight:700;white-space:nowrap}
+    .cx5-tag.is-kitchen{background:rgba(217,119,6,.18);color:#fde68a}
+    .cx5-tag.is-ready{background:rgba(14,165,233,.16);color:#7dd3fc}
+    .cx5-cart{position:sticky;top:66px;align-self:start;display:flex;flex-direction:column;gap:10px;height:calc(100vh - 66px);padding:16px 18px;overflow:auto;border-left:1px solid var(--k-line);background:var(--k-surface)}
+    .cx5-cart-head{display:flex;align-items:center;gap:8px}
+    .cx5-cart-head strong{margin-right:auto;font-size:16px;font-weight:800}
+    .cx5-cart-dest{font-size:13px;color:var(--k-muted)}
+    .cx5-lines{display:grid}
+    .cx5-line{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--k-line)}
+    .cx5-line-main{display:grid;gap:2px;padding:0;border:0;background:none;color:var(--k-ink);font:inherit;text-align:left;cursor:pointer}
+    .cx5-line-main b{font-size:14px;font-weight:600}
+    .cx5-line-main small{font-size:11px;color:var(--k-muted)}
+    .cx5-stepper{display:inline-flex;align-items:center;gap:4px;padding:2px;border-radius:999px;border:1px solid var(--k-line)}
+    .cx5-stepper button{width:30px;height:30px;border-radius:50%;border:0;background:rgba(var(--k-ink-rgb),.08);color:var(--k-ink);font-size:16px;cursor:pointer}
+    .cx5-stepper b{min-width:18px;font-size:13px;text-align:center}
+    .cx5-line strong{font-size:14px;font-variant-numeric:tabular-nums}
+    .cx5-x{width:28px;height:28px;border-radius:8px;border:0;background:none;color:var(--k-muted);cursor:pointer}
+    .cx5-cart-empty{display:grid;justify-items:center;gap:8px;padding:34px 10px;text-align:center;color:var(--k-muted)}
+    .cx5-cart-empty span{font-size:34px}
+    .cx5-cart-total{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0}
+    .cx5-cart-total span{font-weight:700;color:var(--k-muted)}
+    .cx5-cart-total strong{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums}
+    .cx5-route{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .cx5-route button{min-height:52px;padding:0 8px;border-radius:12px;border:1.5px solid var(--k-line);background:var(--k-surface2);color:var(--k-ink);font:inherit;font-weight:700;cursor:pointer}
+    .cx5-route button.is-on{border-color:var(--k-primary);background:rgba(var(--k-primary-rgb),.14);box-shadow:inset 0 0 0 1px var(--k-primary)}
+    .cx5-send{width:100%;min-height:56px;font-size:16px}
+    .cx5-modal{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:16px;overflow:auto;background:rgba(0,0,0,.5)}
+    .cx5-modal-card{width:min(620px,100%);display:grid;gap:14px;padding:22px;border-radius:22px;border:1px solid var(--k-line);background:var(--k-surface);color:var(--k-ink);box-shadow:0 30px 80px rgba(0,0,0,.35)}
+    .cx5-modal-card h2{margin:0;font-size:20px}
+    .cx5-z-total{display:grid;gap:2px;padding:16px;border-radius:16px;background:var(--k-primary);box-shadow:inset 0 -5px 0 var(--k-secondary);color:var(--k-on-primary)}
+    .cx5-z-total span{font-size:13px;opacity:.85}
+    .cx5-z-total strong{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums}
+    .cx5-z-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .cx5-z-stats div{display:grid;padding:10px 12px;border-radius:12px;background:var(--k-surface2)}
+    .cx5-z-stats span{font-size:12px;color:var(--k-muted)}
+    .cx5-z-stats b{font-size:20px;font-variant-numeric:tabular-nums}
+    .cx5-z-methods{display:grid;gap:8px}
+    .cx5-z-channels{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--k-muted)}
+    .cx5-z-warn{margin:0;padding:10px 12px;border-radius:12px;background:rgba(217,119,6,.16);color:#fde68a;font-size:13px;font-weight:600}
+    .cx5-z-done{padding:10px 12px;border-radius:12px;background:rgba(22,163,74,.16);color:#86efac;font-weight:700}
+    .cx5-z-history{display:grid;gap:6px;font-size:13px}
+    .cx5-z-history>span{font-weight:700;color:var(--k-muted)}
+    .cx5-z-history div{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:10px}
+    .cx5-z-history small{color:var(--k-muted)}
+    .cx5-z-history em{font-style:normal;font-weight:700}
+    .cx5-z-history .cx5-icon{width:34px;height:34px;font-size:15px}
+    .cx5-modal-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
+    #app[data-cx5] .csh-detail-lines td,#app[data-cx5] .csh-detail-lines th{padding:9px 4px}
+    @media (max-width:1280px){
+      .cx5-kpis{grid-template-columns:minmax(0,1.3fr) repeat(4,minmax(0,1fr))}
+      .cx5-kpi-pay{grid-column:1/-1;display:grid;grid-template-columns:auto repeat(3,minmax(0,1fr));align-items:center;gap:8px 18px}
+    }
+    @media (max-width:1100px){
+      .cx5-board{grid-template-columns:minmax(0,1fr)}
+      .cx5-side{grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start}
+      .cx5-shift{order:3;width:100%}
+    }
+    @media (max-width:900px){
+      .cx5-detail{grid-template-columns:minmax(0,1fr)}
+      .cx5-charge{position:static}
+      .cx5-sale{grid-template-columns:minmax(0,1fr)}
+      .cx5-cart{position:sticky;top:auto;bottom:0;height:auto;max-height:60vh;border-left:0;border-top:1px solid var(--k-line);border-radius:20px 20px 0 0;box-shadow:0 -12px 30px rgba(0,0,0,.18)}
+      .cx5-cart-empty{padding:6px 10px;grid-auto-flow:column;justify-content:center}
+      .cx5-cart-empty span{font-size:20px}
+    }
+    @media (max-width:760px){
+      .cx5-top{padding:10px 14px}
+      .cx5-kpis{grid-template-columns:repeat(2,minmax(0,1fr));padding:12px 14px 0}
+      .cx5-kpi-main{grid-column:1/-1}
+      .cx5-kpi-pay{grid-template-columns:minmax(0,1fr)}
+      .cx5-board,.cx5-detail,.cx5-sale-main{padding-left:14px;padding-right:14px}
+      .cx5-side{grid-template-columns:minmax(0,1fr)}
+      .cx5-shift{flex-wrap:wrap;border-radius:14px}
+      .cx5-actions{width:100%}
+      .cx5-actions .cx5-btn{flex:1}
+    }
   `;
   document.head.appendChild(style);
   if (Kit) Kit.injectStyles();

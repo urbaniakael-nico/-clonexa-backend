@@ -427,6 +427,12 @@
     }
   }
 
+  // 049V: colores y tema de la empresa (Admin V2), solo con el interruptor
+  // mini_panel_brand; sin el, el servidor responde enabled=false y nada cambia.
+  function loadBrand049V() {
+    if (window.CxPanelBrand) window.CxPanelBrand.load((path) => waiterApi(path));
+  }
+
   async function doLogin(username, password) {
     state.busy = true;
     state.error = "";
@@ -450,6 +456,7 @@
       await enterHome();
       startHomeRefresh();
       startSessionKeeper();
+      loadBrand049V();
     } catch (error) {
       state.error = error.message || "No se pudo iniciar sesión.";
     } finally {
@@ -1196,6 +1203,7 @@
     enterHome().then(safeRender, safeRender);
     startHomeRefresh();
     startSessionKeeper();
+    loadBrand049V();
   } else {
     restoreProfile();
     safeRender();
