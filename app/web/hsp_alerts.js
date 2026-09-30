@@ -45,6 +45,10 @@
     let audioCtx = null;
     let unlocked = false;
     let alertSeq = 0;
+    // 049Y: los controles (aviso de sonido y boton Sonido) solo se ven con
+    // sesion: la pantalla de ingreso muestra solo logo, titulo y formulario.
+    // Cada panel llama setVisible(pantalla !== login) al dibujar.
+    let visible = false;
 
     function storeGet(key) {
       try { return window.localStorage.getItem(key); } catch (_) { return null; }
@@ -137,6 +141,10 @@
 
     function renderControls() {
       let bar = document.getElementById("cxAlertControls");
+      if (!visible) {
+        if (bar && bar.remove) bar.remove();
+        return;
+      }
       if (!bar) {
         bar = document.createElement("div");
         bar.id = "cxAlertControls";
@@ -147,6 +155,13 @@
       bar.innerHTML = `
         ${!unlocked && !muted ? `<span class="cx-alert-unlock">🔈 Toca la pantalla para activar el sonido de los avisos</span>` : ""}
         <button type="button" class="cx-alert-mute" data-cx-alert-mute aria-pressed="${muted ? "true" : "false"}" title="${muted ? "Activar sonido" : "Silenciar avisos"}">${muted ? "🔕 Silenciado" : "🔔 Sonido"}</button>`;
+    }
+
+    function setVisible(value) {
+      const next = value === true;
+      if (next === visible) return;
+      visible = next;
+      renderControls();
     }
 
     function toggleMute() {
@@ -174,6 +189,7 @@
 
     return {
       install,
+      setVisible,
       notify,
       isMuted,
       toggleMute,

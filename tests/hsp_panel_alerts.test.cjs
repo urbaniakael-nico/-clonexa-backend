@@ -70,6 +70,7 @@ test('audio is unlocked on the first tap; before that a banner asks for it', () 
   const env = alertsEnv();
   const alerts = env.CxAlerts.create('cocina');
   alerts.install();
+  alerts.setVisible(true);                                           // ya con sesion
   const controls = env.body.children.find((c) => c.id === 'cxAlertControls');
   assert.match(controls.innerHTML, /Toca la pantalla para activar el sonido/);
   alerts.notify({ kind: 'new_order', title: 'Pedido nuevo · Mesa 4' });

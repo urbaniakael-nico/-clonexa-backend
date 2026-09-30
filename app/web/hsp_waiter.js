@@ -885,6 +885,7 @@
 
   function renderScreen() {
     let html = "";
+    if (Alerts && Alerts.setVisible) Alerts.setVisible(state.screen !== "login");
     if (state.screen === "login") html = screenLogin();
     else if (state.screen === "home") html = screenHome();
     else if (state.screen === "table") html = screenTable();

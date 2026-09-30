@@ -485,6 +485,7 @@
   }
 
   function render() {
+    if (Alerts && Alerts.setVisible) Alerts.setVisible(state.screen !== "login");
     root.innerHTML = state.screen === "login" ? screenLogin() : screenBoard();
     if (state.error && state.screen !== "login") {
       const banner = document.createElement("div");
