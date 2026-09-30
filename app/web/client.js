@@ -37703,7 +37703,7 @@ function inventoryCreatePayload() {
           </select></td>
         <td><div class="cx-inv-c-actions-049s">
           ${i ? `<button class="cx-inv-action primary" type="button" data-inv-buy-open="${id}">Registrar compra</button>` : ""}
-          <button class="cx-inv-action" type="button" data-inventory-update="${id}">Guardar</button>
+          ${i ? `<button class="cx-inv-action" type="button" data-inv-edit-open="${id}">Editar</button>` : `<button class="cx-inv-action" type="button" data-inventory-update="${id}">Guardar</button>`}
           <details class="cx-inv-more-045a">
             <summary class="cx-inv-action" aria-label="Más acciones" title="Más acciones">⋯</summary>
             <div class="cx-inv-more-menu-045a">
@@ -37743,6 +37743,7 @@ function inventoryCreatePayload() {
   function cxInvDialogHtml049S(i, mode = "buy") {
     const id = h(i.id);
     const now = `${cxInvStockCellHtml049S({ status: "active" }, i).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}${!i.balance_suspect && i.stock_value !== null && i.stock_value !== undefined ? ` · ${cxCarMoney048T(i.stock_value)}` : ""}`;
+    if (mode === "edit") return cxInvEditDialogHtml049W(i, cxInvRowOf049W(i.id), now);
     const body = mode === "min"
       ? `<label>Mínimo de alerta (${h(i.unit_label || cxCarUnitLabel049O(i.unit))})
            <input type="number" min="0" step="any" inputmode="decimal" data-inv-min-value="${id}" value="${h(i.min_stock_natural ?? 0)}"></label>
@@ -37771,6 +37772,111 @@ function inventoryCreatePayload() {
           ${body}
         </div>
       </div>`;
+  }
+
+  // --- 049W: "Editar" un insumo. Todo se edita (nombre, unidad, mínimo de
+  // alerta, estado) menos la existencia: esa solo cambia con compras, ventas y
+  // devoluciones; si quedó mal cargada se corrige con "Registrar compra" +
+  // "Corregir saldo". Cambiar la unidad no toca la cantidad física: si cambia
+  // de tipo (unidad -> kg) se pide la equivalencia y el servidor la reexpresa.
+  function cxInvRowOf049W(id) {
+    return (window.__cxInventoryRows || []).find((r) => String(r.id) === String(id)) || {};
+  }
+
+  function cxInvEditNeedsConvert049W(i, unit) {
+    const current = i.unit || i.consumption_unit || "unidad";
+    return unit !== current && Number(i.stock || 0) > 0 && cxCarFactor049N(unit, i) === null;
+  }
+
+  function cxInvEditDialogHtml049W(i, row = {}, now = "") {
+    const id = h(i.id);
+    const unit = i.unit || i.consumption_unit || "unidad";
+    const status = String(row.status || "active").toLowerCase() === "inactive" ? "inactive" : "active";
+    return `
+      <div class="cx-inv-dialog-049s" data-inv-dialog="${id}" role="dialog" aria-modal="true" aria-label="Editar ${h(i.name)}">
+        <div class="cx-inv-dialog-box-049s">
+          <header><div><b>Editar insumo</b><span>${h(i.name)}</span></div>
+            <button type="button" class="cx-inv-dialog-x-049s" data-inv-dialog-close aria-label="Cerrar">×</button></header>
+          <label>Nombre
+            <input type="text" maxlength="160" data-inv-edit-name="${id}" value="${h(row.name_reference || i.name || "")}"></label>
+          <label>Unidad
+            <select data-inv-edit-unit="${id}" data-inv-edit-unit-was="${h(unit)}">${cxInvUnitOptions049Q(unit)}</select></label>
+          <label data-inv-edit-convert-wrap="${id}" hidden>¿Cuántos <span data-inv-edit-new-unit="${id}"></span> hay en 1 ${h(cxCarUnitLabel049O(unit))}?
+            <input type="number" min="0" step="any" inputmode="decimal" data-inv-edit-convert="${id}" placeholder="Ej: 1,2"></label>
+          <label>Mínimo de alerta (<span data-inv-edit-min-unit="${id}">${h(cxCarUnitLabel049O(unit))}</span>)
+            <input type="number" min="0" step="any" inputmode="decimal" data-inv-edit-min="${id}" value="${h(i.min_stock_natural ?? 0)}"></label>
+          <label>Estado
+            <select data-inv-edit-status="${id}">
+              <option value="active" ${status === "active" ? "selected" : ""}>Activo</option>
+              <option value="inactive" ${status === "inactive" ? "selected" : ""}>Inactivo</option>
+            </select></label>
+          <div class="cx-inv-locked-049w" data-inv-edit-stock="${id}">
+            <span>🔒 Existencia</span><b>${h(now || "—")}</b>
+            <small>No se edita a mano: cambia sola con compras, ventas y devoluciones. Si quedó mal cargada, regístrala de nuevo con “Corregir saldo”.</small>
+            <button class="client-btn" type="button" data-inv-edit-fix="${id}">Corregir saldo</button>
+          </div>
+          <p class="cx-inv-dialog-preview-049s" data-inv-buy-preview="${id}" aria-live="polite"></p>
+          <footer><button class="client-btn" type="button" data-inv-dialog-close>Cancelar</button>
+            <button class="client-btn primary" type="button" data-inv-edit-save="${id}">Guardar cambios</button></footer>
+        </div>
+      </div>`;
+  }
+
+  // Lo que se envía: la unidad y el mínimo a Carta (reexpresa existencia y
+  // costo en el servidor), el nombre y el estado a Inventario. Nunca la existencia.
+  function cxInvEditPayloads049W(i, row, values) {
+    const name = String(values.name || "").trim();
+    if (!name) return { error: "Escribe el nombre del insumo." };
+    const min = Number(values.min);
+    if (!Number.isFinite(min) || min < 0) return { error: "El mínimo de alerta no puede ser negativo." };
+    const unit = String(values.unit || i.unit || i.consumption_unit || "unidad");
+    const carta = { unit, min_stock: min };
+    if (cxInvEditNeedsConvert049W(i, unit)) {
+      const amount = Number(values.convert);
+      if (!(amount > 0)) return { error: `Escribe cuántos ${cxCarUnitLabel049O(unit)} hay en 1 ${cxCarUnitLabel049O(i.unit || i.consumption_unit)}: así la existencia se convierte sin perderse.` };
+      carta.convert_amount = amount;
+    }
+    const status = values.status === "inactive" ? "inactive" : "active";
+    return { carta, item: { name_reference: name, status, color: row.color || "" } };
+  }
+
+  function cxInvEditValues049W(id) {
+    const q = (attr) => document.querySelector(`[${attr}="${id}"]`);
+    return { name: q("data-inv-edit-name")?.value, unit: q("data-inv-edit-unit")?.value, min: q("data-inv-edit-min")?.value || 0,
+      status: q("data-inv-edit-status")?.value, convert: q("data-inv-edit-convert")?.value };
+  }
+
+  function cxInvEditUnitChanged049W(select) {
+    const id = select.getAttribute("data-inv-edit-unit");
+    const insumo = cxInvInsumo049Q(id);
+    if (!insumo) return;
+    const unit = select.value;
+    const wrap = document.querySelector(`[data-inv-edit-convert-wrap="${id}"]`);
+    if (wrap) wrap.hidden = !cxInvEditNeedsConvert049W(insumo, unit);
+    const label = cxCarUnitLabel049O(unit);
+    const newUnit = document.querySelector(`[data-inv-edit-new-unit="${id}"]`);
+    if (newUnit) newUnit.textContent = label;
+    const minUnit = document.querySelector(`[data-inv-edit-min-unit="${id}"]`);
+    if (minUnit) minUnit.textContent = label;
+  }
+
+  async function cxInvEditSave049W(id) {
+    const insumo = cxInvInsumo049Q(id);
+    if (!insumo) return;
+    const out = cxInvEditPayloads049W(insumo, cxInvRowOf049W(id), cxInvEditValues049W(id));
+    if (out.error) {
+      cxInvDialogError049S(id, out.error);
+      return;
+    }
+    try {
+      cxInv049Q.data = await cxInvCartaApi049Q(`/insumos/${encodeURIComponent(id)}`, out.carta);
+      await api(`/inventory/items/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(out.item) });
+      cxInvCloseDialog049S();
+      await renderInventoryModule();
+      setTimeout(() => showInventoryNotice(`${out.item.name_reference}: cambios guardados.`), 80);
+    } catch (error) {
+      cxInvDialogError049S(id, cxCarErr048T(error));
+    }
   }
 
   function cxInvDialogError049S(id, message) {
@@ -37849,6 +37955,25 @@ function inventoryCreatePayload() {
       win.print();
       return true;
     }
+    const editOpen = target.closest?.("[data-inv-edit-open]");
+    if (editOpen) {
+      cxInvOpenDialog049S(editOpen.getAttribute("data-inv-edit-open"), "edit");
+      return true;
+    }
+    const editSave = target.closest?.("[data-inv-edit-save]");
+    if (editSave) {
+      await cxInvEditSave049W(editSave.getAttribute("data-inv-edit-save"));
+      return true;
+    }
+    const editFix = target.closest?.("[data-inv-edit-fix]");
+    if (editFix) {
+      // Corregir la existencia = registrar la compra real con "Corregir saldo".
+      const fixId = editFix.getAttribute("data-inv-edit-fix");
+      cxInvOpenDialog049S(fixId, "buy");
+      const replace = document.querySelector(`[data-inv-buy-replace="${fixId}"]`);
+      if (replace) replace.checked = true;
+      return true;
+    }
     const invoiceView = target.closest?.("[data-inv-invoice-view]");
     if (invoiceView) {
       await cxInvViewInvoice049T(invoiceView.getAttribute("data-inv-invoice-view"));
@@ -37913,6 +38038,13 @@ function inventoryCreatePayload() {
     const preview = cxInvPurchasePreview049Q(cxInvInsumo049Q(id), v.quantity, v.unit, v.total, v.replace);
     box.textContent = v.quantity > 0 ? (preview.error || preview.text) : "";
     box.classList?.toggle("error", !!(v.quantity > 0 && preview.error));
+  }
+
+  if (typeof document.addEventListener === "function") {
+    document.addEventListener("change", (event) => {
+      const select = event.target?.closest?.("[data-inv-edit-unit]");
+      if (select) cxInvEditUnitChanged049W(select);
+    });
   }
 
   function cxInvOnInput049Q(event) {
@@ -38178,6 +38310,10 @@ function inventoryCreatePayload() {
     const style = document.createElement("style");
     style.id = "cxInv049QStyles";
     style.textContent = `
+      /* 049W: Editar insumo: la existencia se ve pero no se edita */
+      .cx-inv-locked-049w { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; padding:10px 12px; border-radius:12px; border:1px dashed rgba(127,127,127,.45); background:rgba(127,127,127,.08); }
+      .cx-inv-locked-049w small { grid-column:1 / -1; opacity:.8; line-height:1.35; }
+      .cx-inv-locked-049w .client-btn { grid-column:1 / -1; justify-self:start; }
       /* 049S: tabla de Modificar material con Carta: filas cortas, cada dato en su celda */
       .cx-inv-table-049s { width:100%; min-width:900px; table-layout:fixed; border-collapse:collapse; font-size:14px; }
       .cx-inv-table-049s th { text-align:left; font-size:12px; font-weight:800; letter-spacing:.02em; text-transform:uppercase; opacity:.85;

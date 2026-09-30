@@ -819,6 +819,8 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
             "categories": await carta_menu_categories(db, company_id, merged_products),
             "quantity_buttons": quantity_buttons,
             "menu_emojis": module_settings.get("menu_emojis") is True,
+            # 049W: selector de cantidad libre (entero + fraccion) en los paneles y el link.
+            "quantity_picker": module_settings.get(QUANTITY_PICKER_FLAG) is True,
             # Menu de Carta: categoria -> subcategoria -> plato; el panel del
             # mesero muestra ese nivel y su atras nunca saca de la app.
             "carta": True,
@@ -844,6 +846,7 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
         "quantity_buttons": quantity_buttons,
         # Emoji per category/product in the mesero panel (off by default).
         "menu_emojis": module_settings.get("menu_emojis") is True,
+        "quantity_picker": module_settings.get(QUANTITY_PICKER_FLAG) is True,
     }
 
 
@@ -1140,6 +1143,8 @@ async def _record_closer_049i(db: AsyncSession, company_id: uuid.UUID, order_id:
 # ---------------------------------------------------------------------------
 
 CASHIER_REDESIGN_FLAG = "cashier_redesign"
+# 049W: selector de cantidad libre (entero + 1/8, 1/4, 1/2, 3/4) donde se toma un pedido.
+QUANTITY_PICKER_FLAG = "quantity_picker"
 MINI_PANEL_BRAND_FLAG = "mini_panel_brand"
 BRAND_KEYS = (
     "logo_url", "primary_color", "secondary_color", "background_color", "text_color", "font_family",
@@ -1181,16 +1186,40 @@ ORDER_COLUMNS = (
 )
 
 
-async def _day_orders(db: AsyncSession, company_id: uuid.UUID) -> tuple[list[dict[str, Any]], Any, str, Any]:
-    """Pedidos de la jornada de hoy (misma regla de jornada que Reportes)."""
-    from app.api.v1.endpoints.hospitality_owner_report import _orders_between
-    from app.services import owner_report as engine
+async def _caja_window(db: AsyncSession, company_id: uuid.UUID, user: CompanyUser) -> dict[str, Any]:
+    """049W: LA ventana de la caja, una sola para los indicadores y para el Z.
+
+    Antes el Z usaba la "jornada" de Reportes: sin horario configurado, la
+    jornada en curso toma la fecha del primer pedido sin cierre diario, asi que
+    un pedido de ayer sin archivar mandaba todas las ventas de hoy a la jornada
+    de ayer y el Z salia en $0 mientras el panel si las mostraba. Ahora los dos
+    leen exactamente los mismos pedidos:
+      - desde que el cajero abrio su turno (lo que ve en el panel), o
+      - sin turno abierto: desde el inicio del dia de hoy en la hora de la
+        empresa (la hora de apertura si tiene horario de jornada).
+    Un pedido entra si se creo o se cobro dentro de la ventana."""
+    from app.api.v1.endpoints.cash_count import open_cashier_session
 
     tz_name, tz, business_day, today = await _company_clock(db, company_id)
-    start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tz).astimezone(timezone.utc)
-    orders, closures = await _orders_between(db, str(company_id), start, datetime.now(timezone.utc) + timedelta(days=1))
-    resolve = engine.jornada_resolver(orders, closures, tz, business_day)
-    return [o for o in orders if resolve(o) == today], today, tz_name, tz
+    session = await open_cashier_session(db, company_id, str(user.id))
+    since = session.get("started_at") if session else None
+    if since is not None and since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    if since is None:
+        opens = business_day["open"] if business_day else datetime.min.time()
+        since = datetime.combine(today, opens, tz).astimezone(timezone.utc)
+    result = await db.execute(
+        text(f"""
+            SELECT {ORDER_COLUMNS} FROM hospitality_orders
+            WHERE company_id = CAST(:company_id AS uuid) AND (created_at >= :since OR closed_at >= :since)
+        """),
+        {"company_id": str(company_id), "since": since},
+    )
+    return {
+        "orders": [dict(row) for row in result.mappings().all()],
+        "since": since, "shift_open": session is not None,
+        "today": today, "tz_name": tz_name, "tz": tz,
+    }
 
 
 async def _require_redesign(db: AsyncSession, company_id: uuid.UUID) -> None:
@@ -1204,28 +1233,12 @@ async def cashier_shift_summary(
     user: CompanyUser = Depends(_require_caja),
 ) -> dict[str, Any]:
     """Franja de indicadores + ventas de caja del turno abierto del cajero."""
-    from app.api.v1.endpoints.cash_count import open_cashier_session
     from app.services import cashier_summary
 
     await _require_redesign(db, company_id)
-    session = await open_cashier_session(db, company_id, str(user.id))
-    since = session.get("started_at") if session else None
-    if since is not None:
-        if since.tzinfo is None:
-            since = since.replace(tzinfo=timezone.utc)
-        result = await db.execute(
-            text(f"""
-                SELECT {ORDER_COLUMNS} FROM hospitality_orders
-                WHERE company_id = CAST(:company_id AS uuid) AND (created_at >= :since OR closed_at >= :since)
-            """),
-            {"company_id": str(company_id), "since": since},
-        )
-        orders = [dict(row) for row in result.mappings().all()]
-    else:
-        # Sin turno abierto (p. ej. un administrador mirando): la jornada de hoy.
-        orders, _today, _tz_name, _tz = await _day_orders(db, company_id)
-    summary = cashier_summary.shift_summary(orders, since)
-    summary["shift_open"] = session is not None
+    window = await _caja_window(db, company_id, user)
+    summary = cashier_summary.shift_summary(window["orders"], window["since"])
+    summary["shift_open"] = window["shift_open"]
     return {"ok": True, **summary}
 
 
@@ -1266,7 +1279,8 @@ async def cashier_z_preview(
     from app.services import cashier_summary
 
     await _require_redesign(db, company_id)
-    orders, today, tz_name, tz = await _day_orders(db, company_id)
+    window = await _caja_window(db, company_id, user)
+    today, tz_name, tz = window["today"], window["tz_name"], window["tz"]
     rows = (await db.execute(
         text("""
             SELECT id, number, business_day, cashier_name, total, summary, created_at
@@ -1283,7 +1297,8 @@ async def cashier_z_preview(
         "company_name": await _company_name(db, company_id),
         "cashier_name": user.full_name or "",
         "now_local": _z_local(datetime.now(timezone.utc), tz),
-        "z": cashier_summary.z_report(orders),
+        "since_local": _z_local(window["since"], tz),
+        "z": cashier_summary.z_report(window["orders"], window["since"]),
         "history": [_z_row(dict(r), tz) for r in rows],
     }
 
@@ -1299,10 +1314,12 @@ async def cashier_z_register(
     from app.services import cashier_summary
 
     await _require_redesign(db, company_id)
-    orders, today, tz_name, tz = await _day_orders(db, company_id)
-    z = cashier_summary.z_report(orders)
+    window = await _caja_window(db, company_id, user)
+    today, tz_name, tz = window["today"], window["tz_name"], window["tz"]
+    z = cashier_summary.z_report(window["orders"], window["since"])
     company_name = await _company_name(db, company_id)
-    summary = {**z, "company_name": company_name, "timezone": tz_name}
+    summary = {**z, "company_name": company_name, "timezone": tz_name,
+               "since": window["since"].isoformat(), "since_local": _z_local(window["since"], tz)}
     saved = None
     for _attempt in range(3):
         try:

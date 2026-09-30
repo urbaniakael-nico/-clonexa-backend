@@ -328,10 +328,14 @@
   }
 
   // opts: { product, category, portionLabel, prefill, quantityButtons,
-  //         addLabel, onAdd(line) }
+  //         addLabel, onAdd(line), quantityPicker, priceVerb }
   function openItemSheet(opts) {
     const { product, category, portionLabel, prefill } = opts;
-    const quantityButtons = opts.quantityButtons || [];
+    // 049W: con el interruptor quantity_picker, la cantidad es el selector
+    // libre compartido (hsp_qty.js): entero + fraccion de las porciones.
+    const Picker = window.CxQtyPicker;
+    const picker = Boolean(opts.quantityPicker && Picker && !portionLabel);
+    const quantityButtons = picker ? [] : opts.quantityButtons || [];
     const requiresTerm = Boolean(category && category.requires_term);
     const quickOptions = (category && category.quick_notes) || [];
     const initialTermIndex = requiresTerm && prefill && prefill.term
@@ -349,7 +353,7 @@
     sheet.innerHTML = `
       <div class="wtr-sheet">
         <h2>${h(product.name)}</h2>
-        ${choices ? `
+        ${picker ? Picker.html({ price: product.price, portions: product.allows_portions === true, quantity: prefill ? prefill.quantity : 1, verb: opts.priceVerb }) : choices ? `
           <div class="wtr-qty-block">
             <span class="wtr-term-caption">Cantidad</span>
             <div class="wtr-qty-grid">
@@ -413,6 +417,12 @@
     }
 
     const addButton = sheet.querySelector("[data-sheet-add]");
+    const qtyPicker = picker
+      ? Picker.mount(sheet, {
+        price: product.price, portions: product.allows_portions === true, quantity: prefill ? prefill.quantity : 1,
+        verb: opts.priceVerb, onChange: (q) => { addButton.disabled = !(q > 0); },
+      })
+      : null;
     if (unitStepper) {
       sheet.querySelectorAll("[data-qty-step]").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -440,6 +450,25 @@
       const obs = String(sheet.querySelector("#wtrSheetObs").value || "");
       const term = requiresTerm ? TERM_STOPS[Number(sheet.querySelector("#wtrSheetTerm").value || 0)] : "";
       const common = { term, observations: obs, quick_notes: Array.from(selectedNotes) };
+      if (qtyPicker) {
+        const q = qtyPicker.quantity();
+        if (!(q > 0)) return;
+        sheet.remove();
+        // La cantidad total (6,5) va al servidor tal cual: cobra 6,5 x precio
+        // y descuenta 6,5 del inventario. Nunca un precio del cliente.
+        opts.onAdd({
+          inventory_item_id: product.id,
+          menu_product_id: opts.menuProductId || undefined,
+          name: product.name,
+          unit_price: product.price,
+          quantity: q,
+          quantity_label: Number.isInteger(q) ? "" : Picker.label(q),
+          fraction: "",
+          portion_label: "",
+          ...common,
+        });
+        return;
+      }
       if (choices) {
         if (choiceIndex < 0) return;
         sheet.remove();
@@ -519,6 +548,7 @@
   `;
 
   function injectStyles() {
+    if (window.CxQtyPicker) window.CxQtyPicker.injectStyles();
     if (document.getElementById("cxMenuKitStyles")) return;
     const style = document.createElement("style");
     style.id = "cxMenuKitStyles";

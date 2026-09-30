@@ -132,11 +132,23 @@ def direct_sale_row(order: dict) -> dict:
     }
 
 
+def window(orders: list[dict], since: datetime | None) -> dict:
+    """049W: el UNICO filtro de pedidos de la caja. Indicadores y Z parten de
+    aqui, asi el Z suma exactamente lo que el panel muestra como cobrado."""
+    inside = [o for o in orders if in_shift(o, since)]
+    rows = [o for o in inside if not report.is_cancelled(o)]
+    return {
+        "rows": rows,
+        "paid": [o for o in rows if is_paid(o)],
+        "pending": [o for o in rows if not is_paid(o)],
+        "cancelled": [o for o in inside if report.is_cancelled(o)],
+    }
+
+
 def shift_summary(orders: list[dict], since: datetime | None) -> dict:
     """La franja de indicadores: lo del turno abierto del cajero."""
-    rows = [o for o in orders if not report.is_cancelled(o) and in_shift(o, since)]
-    paid = [o for o in rows if is_paid(o)]
-    pending = [o for o in rows if not is_paid(o)]
+    w = window(orders, since)
+    rows, paid, pending = w["rows"], w["paid"], w["pending"]
     sold = _sum(rows)
     accts = report.accounts(rows)
     direct = [o for o in rows if is_direct_sale(o) and report.channel_of(o) == "venta_directa"]
@@ -156,11 +168,11 @@ def shift_summary(orders: list[dict], since: datetime | None) -> dict:
     }
 
 
-def z_report(day_orders: list[dict]) -> dict:
-    """El Z de la jornada: lo cobrado, cuantos productos y por que metodo."""
-    paid = [o for o in day_orders if is_paid(o)]
-    open_orders = [o for o in day_orders if not report.is_cancelled(o) and not is_paid(o)]
-    cancelled = [o for o in day_orders if report.is_cancelled(o)]
+def z_report(orders: list[dict], since: datetime | None = None) -> dict:
+    """El Z: lo cobrado en la ventana de la caja (la misma de los indicadores),
+    cuantos productos y por que metodo."""
+    w = window(orders, since)
+    paid, open_orders, cancelled = w["paid"], w["pending"], w["cancelled"]
     units = sum((line_units(i) for i in _lines(paid)), Decimal("0"))
     by_channel: dict[str, dict] = {}
     for account in report.accounts(paid):

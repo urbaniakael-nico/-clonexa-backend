@@ -255,6 +255,7 @@ async def public_delivery_carta(
         "categories": menu["categories"],
         "quantity_buttons": menu["quantity_buttons"],
         "menu_emojis": menu["menu_emojis"],
+        "quantity_picker": menu.get("quantity_picker") is True,
         "delivery_fee": settings["delivery_fee"],
         "eta_minutes": settings["eta_minutes"],
         "has_payment_qr": await _qr_exists(db, company_id),

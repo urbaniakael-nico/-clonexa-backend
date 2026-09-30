@@ -719,7 +719,7 @@ test('Modificar material con Carta: solo lo esencial en la fila y cada dato en s
   assert.equal(cells[2], '<b>$187.600</b>');
   assert.equal(cells[3], '<b>$16.000 / kg</b><small>$16,00 / gr</small>');
   assert.match(cells[4], /^<select data-inventory-field="status"/);
-  assert.match(cells[5], /data-inv-buy-open="k1">Registrar compra<\/button>[\s\S]*data-inventory-update="k1">Guardar[\s\S]*data-inv-min-open="k1">Mínimo de alerta[\s\S]*data-inventory-delete="k1"/);
+  assert.match(cells[5], /data-inv-buy-open="k1">Registrar compra<\/button>[\s\S]*data-inv-edit-open="k1">Editar[\s\S]*data-inv-min-open="k1">Mínimo de alerta[\s\S]*data-inventory-delete="k1"/);
   assert.doesNotMatch(row, /data-inv-buy-qty|data-inv-buy-total|data-inv-buy-unit|data-inv-size|data-inventory-field="(color|sale_price|entry_price|allows_portions|min_stock)"/,
     'la compra no va desplegada en la fila, ni tamaño, color, precios o porciones');
   const panel = ctx.cxInvCartaPanelHtml049S([], []);

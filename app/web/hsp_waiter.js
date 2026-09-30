@@ -43,6 +43,8 @@
     // Cantidad por botones: empty unless the company turned it on (the
     // server sends [] otherwise), so the old number field stays as is.
     quantityButtons: [],
+    // 049W: selector de cantidad libre (entero + fraccion), interruptor quantity_picker.
+    quantityPicker: false,
     avisos: [],
     avisosEnabled: true,
     menuEmojis: false,
@@ -522,6 +524,7 @@
       const data = await waiterApi("/menu");
       state.menu = Array.isArray(data.categories) ? data.categories : [];
       state.quantityButtons = Array.isArray(data.quantity_buttons) ? data.quantity_buttons : [];
+      state.quantityPicker = data.quantity_picker === true;
       state.menuEmojis = data.menu_emojis === true;
       state.menuCarta = data.carta === true;
     } catch (error) {
@@ -1009,7 +1012,7 @@
       const index = Number(editBtn.getAttribute("data-wtr-edit"));
       const line = state.cart[index];
       if (line) {
-        const found = line.menu_product_id && state.quantityButtons.length ? Kit.findMenuProduct(state.menu, line.menu_product_id) : null;
+        const found = line.menu_product_id && (state.quantityButtons.length || state.quantityPicker) ? Kit.findMenuProduct(state.menu, line.menu_product_id) : null;
         if (found) {
           openConfigureSheet(found.product, found.category, null, line, index);
           return;
@@ -1079,6 +1082,7 @@
       portionLabel,
       prefill,
       quantityButtons: state.quantityButtons,
+      quantityPicker: state.quantityPicker,
       menuProductId: Kit.findMenuProduct(state.menu, product.id) ? product.id : undefined,
       onAdd: (line) => {
         addOrUpdateCartLine(line, editIndex);

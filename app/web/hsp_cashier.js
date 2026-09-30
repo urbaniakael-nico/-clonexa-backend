@@ -34,6 +34,8 @@
     sale: { items: [], table: "", toKitchen: false, category: "" },
     saleBusy: false,
     quantityButtons: [],
+    // 049W: selector de cantidad libre (entero + fraccion), interruptor quantity_picker.
+    quantityPicker: false,
     menuEmojis: false,
     printing: false,
     // Last table/sale charged, so its cuenta can still be printed from the
@@ -712,6 +714,7 @@
       portionLabel,
       prefill,
       quantityButtons: state.quantityButtons,
+      quantityPicker: state.quantityPicker,
       addLabel: "Agregar a la venta",
       menuProductId: Kit.findMenuProduct(state.menu, product.id) ? product.id : undefined,
       onAdd: (line) => {
@@ -815,6 +818,7 @@
       const data = await waiterApi("/menu");
       state.menu = Array.isArray(data.categories) ? data.categories : [];
       state.quantityButtons = Array.isArray(data.quantity_buttons) ? data.quantity_buttons : [];
+      state.quantityPicker = data.quantity_picker === true;
       state.menuEmojis = data.menu_emojis === true;
     } catch (_) {
       state.menu = [];
@@ -1924,7 +1928,7 @@
     const sale = state.sale;
     const mode = saleMode(sale);
     const busy = state.saleBusy ? "disabled" : "";
-    const count = sale.items.reduce((sum, item) => sum + (item.fraction ? 1 : Number(item.quantity || 0)), 0);
+    const count = sale.items.reduce((sum, item) => sum + (item.fraction || !Number.isInteger(Number(item.quantity)) ? 1 : Number(item.quantity || 0)), 0);
     return `
       <aside class="cx5-cart" aria-label="Resumen de la venta">
         <div class="cx5-cart-head">
@@ -1941,7 +1945,7 @@
                 ${item.observations ? `<small>${h(item.observations)}</small>` : ""}
                 ${item.quick_notes && item.quick_notes.length ? `<small>${item.quick_notes.map(h).join(" · ")}</small>` : ""}
               </button>
-              ${item.fraction ? `<span></span>` : `
+              ${item.fraction || !Number.isInteger(Number(item.quantity)) ? `<span></span>` : `
                 <span class="cx5-stepper">
                   <button type="button" data-csh-sale-step="${index}:-1" aria-label="Uno menos">−</button>
                   <b>${h(item.quantity)}</b>
@@ -2068,7 +2072,7 @@
     else if (z.step === "preview") {
       const d = z.data || {};
       inner = `
-        <p class="cx5-hint">Jornada del ${h(d.business_day || "")} · ${h(d.now_local || "")} · Cajero: <b>${h(d.cashier_name || "")}</b></p>
+        <p class="cx5-hint">Ventas cobradas desde ${h(d.since_local || "")} (las mismas del panel) · ${h(d.now_local || "")} · Cajero: <b>${h(d.cashier_name || "")}</b></p>
         ${zBody049V(d.z || {})}
         ${z.message ? `<div class="csh-alert">${h(z.message)}</div>` : ""}
         <p class="cx5-hint">Al sacarlo queda registrado con fecha, hora, número y tu nombre, y se imprime.</p>
@@ -2118,7 +2122,7 @@ table{width:100%;border-collapse:collapse}td{vertical-align:top}td:last-child{te
 <h1>${h(z.company_name || saved.company_name || "")}</h1>
 <div class="c"><b>CIERRE DE CAJA · Z #${h(String(saved.number || "").padStart(4, "0"))}</b></div>
 ${line("Fecha y hora", saved.created_local || "")}
-${line("Jornada", saved.business_day || "")}
+${line("Desde", z.since_local || saved.business_day || "")}
 ${line("Cajero", saved.cashier_name || "")}
 <h2>VENTAS DEL DÍA</h2>
 ${line("Ventas", z.sales || 0)}
@@ -2325,7 +2329,7 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     if (saleStep) {
       const [index, delta] = String(saleStep.getAttribute("data-csh-sale-step") || "").split(":");
       const line = state.sale.items[Number(index)];
-      if (line && !line.fraction) line.quantity = Kit.stepQuantity(line.quantity, Number(delta));
+      if (line && !line.fraction && Number.isInteger(Number(line.quantity))) line.quantity = Kit.stepQuantity(line.quantity, Number(delta));
       safeRender();
       return;
     }

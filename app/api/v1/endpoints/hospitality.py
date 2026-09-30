@@ -5142,7 +5142,8 @@ async def hospitality_inventory_lite(
     if await _carta_on_049h(db, company_id):
         from app.api.v1.endpoints.carta import carta_inventory_lite
 
-        return {"ok": True, "company_id": str(company_id), "inventory": (await carta_inventory_lite(db, company_id))[:limit]}
+        return {"ok": True, "company_id": str(company_id), "inventory": (await carta_inventory_lite(db, company_id))[:limit],
+                "quantity_picker": await _quantity_picker_049w(db, company_id)}
 
     result = await db.execute(
         text(
@@ -5171,7 +5172,22 @@ async def hospitality_inventory_lite(
         }
         for row in result.mappings().all()
     ]
-    return {"ok": True, "company_id": str(company_id), "inventory": inventory}
+    return {"ok": True, "company_id": str(company_id), "inventory": inventory,
+            "quantity_picker": await _quantity_picker_049w(db, company_id)}
+
+
+async def _quantity_picker_049w(db: AsyncSession, company_id: uuid.UUID) -> bool:
+    """049W: el QR de mesa usa el selector de cantidad libre (entero + fraccion)
+    solo con el interruptor quantity_picker del modulo waiter_ordering."""
+    try:
+        row = (await db.execute(text("""
+            SELECT cm.settings FROM company_modules cm JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = CAST(:company_id AS uuid) AND m.code = 'waiter_ordering' AND cm.enabled IS TRUE LIMIT 1
+        """), {"company_id": str(company_id)})).mappings().first()
+    except Exception:
+        return False
+    settings = _json((row or {}).get("settings"), {}) if row else {}
+    return isinstance(settings, dict) and settings.get("quantity_picker") is True
 
 
 @router.get("/companies/{company_id}/orders")

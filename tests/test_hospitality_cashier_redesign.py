@@ -127,6 +127,8 @@ class ZDb:
                      "created_at": datetime(2026, 9, 30, 3, 43, tzinfo=timezone.utc)}]
         elif "FROM companies" in sql:
             rows = [{"name": "ASADERO EL SOCIO"}]
+        elif "FROM hospitality_orders" in sql:
+            rows = shift_orders()
         return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: rows[0] if rows else None, all=lambda: rows))
 
     async def commit(self):
@@ -141,7 +143,9 @@ def on(monkeypatch):
     monkeypatch.setattr(wo, "_module_settings", AsyncMock(return_value={"cashier_redesign": True, "mini_panel_brand": True}))
     tz = ZoneInfo("America/Bogota")
     monkeypatch.setattr(wo, "_company_clock", AsyncMock(return_value=("America/Bogota", tz, None, date(2026, 9, 29))))
-    monkeypatch.setattr(wo, "_day_orders", AsyncMock(return_value=(shift_orders(), date(2026, 9, 29), "America/Bogota", tz)))
+    from app.api.v1.endpoints import cash_count
+
+    monkeypatch.setattr(cash_count, "open_cashier_session", AsyncMock(return_value={"id": "s1", "started_at": SINCE}))
 
 
 @pytest.mark.asyncio
@@ -164,7 +168,7 @@ async def test_hospitality_z_register_is_computed_on_the_server_and_saved(on):
     assert params["company_id"] == str(COMPANY_ID)
     assert "WHERE company_id = CAST(:company_id AS uuid)" in insert_sql        # consecutivo por empresa
     assert params["user_id"] == str(user.id) and params["cashier_name"] == "Caja Uno"
-    assert params["total"] == cs.z_report(shift_orders())["total"]
+    assert params["total"] == cs.z_report(shift_orders(), SINCE)["total"]
     assert db.commits == 1
     assert saved["number"] == 7
     assert saved["cashier_name"] == "Caja Uno"
@@ -177,7 +181,7 @@ async def test_hospitality_z_register_is_computed_on_the_server_and_saved(on):
 async def test_hospitality_z_preview_and_detail_filter_by_company(on):
     db = ZDb()
     preview = await wo.cashier_z_preview(COMPANY_ID, db=db, user=_caja())
-    assert preview["z"]["total"] == cs.z_report(shift_orders())["total"]
+    assert preview["z"]["total"] == cs.z_report(shift_orders(), SINCE)["total"]
     history_sql, params = next((sql, p) for sql, p in db.calls if "FROM cashier_z_reports" in sql)
     assert "company_id = CAST(:company_id AS uuid)" in history_sql and params["company_id"] == str(COMPANY_ID)
     db = ZDb()
@@ -189,23 +193,12 @@ async def test_hospitality_z_preview_and_detail_filter_by_company(on):
 
 
 @pytest.mark.asyncio
-async def test_hospitality_shift_summary_uses_the_cashier_open_shift(on, monkeypatch):
-    from app.api.v1.endpoints import cash_count
-
-    monkeypatch.setattr(cash_count, "open_cashier_session", AsyncMock(return_value={"id": "s1", "started_at": SINCE}))
-
-    class Db(ZDb):
-        async def execute(self, stmt, params=None):
-            sql = " ".join(str(stmt).split())
-            self.calls.append((sql, params or {}))
-            rows = shift_orders() if "FROM hospitality_orders" in sql else []
-            return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows, first=lambda: None))
-
-    db = Db()
+async def test_hospitality_shift_summary_uses_the_cashier_open_shift(on):
+    db = ZDb()
     result = await wo.cashier_shift_summary(COMPANY_ID, db=db, user=_caja())
-    sql, params = db.calls[0]
+    sql, params = next((q, p) for q, p in db.calls if "FROM hospitality_orders" in q)
     assert "company_id = CAST(:company_id AS uuid)" in sql and params["company_id"] == str(COMPANY_ID)
-    assert "(created_at >= :since OR closed_at >= :since)" in sql
+    assert "(created_at >= :since OR closed_at >= :since)" in sql and params["since"] == SINCE
     assert result["shift_open"] is True
     assert result["sold"] == 225000.0
 

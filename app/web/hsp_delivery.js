@@ -94,6 +94,9 @@
       portionLabel,
       prefill,
       quantityButtons: (state.data && state.data.quantity_buttons) || [],
+      // 049W: selector de cantidad libre, el mismo del mesero y la caja
+      quantityPicker: Boolean(state.data && state.data.quantity_picker === true),
+      priceVerb: "Total",
       addLabel: "Agregar al pedido",
       menuProductId: Kit.findMenuProduct(menu(), product.id) ? product.id : undefined,
       onAdd: (line) => {

@@ -5,6 +5,8 @@
   const app = document.getElementById("app");
   const params = new URLSearchParams(window.location.search);
   const state = {
+    // 049W: selector de cantidad libre (entero + fraccion), interruptor quantity_picker.
+    quantityPicker: false,
     companyId: params.get("company_id") || params.get("companyId") || "",
     table: params.get("mesa") || params.get("table") || "Mesa",
     company: {},
@@ -120,6 +122,7 @@
   async function fetchHospitalityInventory() {
     const basePath = `/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`;
     const first = await api(`${basePath}&fresh=${Date.now()}`, { cache: "no-store" });
+    state.quantityPicker = first.quantity_picker === true && !!window.CxQtyPicker;
     let rows = Array.isArray(first.inventory) ? first.inventory : [];
     if (rows.length) return rows;
     await new Promise((resolve) => window.setTimeout(resolve, 350));
@@ -858,7 +861,7 @@
         </div>
         <div class="qr-qty">
           <button type="button" data-dec="${h(item.id)}">-</button>
-          <strong>${h(item.quantity)}</strong>
+          ${qtyStrong049W(item.id, item.quantity)}
           <button type="button" data-inc="${h(item.id)}">+</button>
         </div>
       </div>
@@ -1499,7 +1502,7 @@
               ${quantity > 0 ? `
                 <div class="qr-inline-qty" aria-label="Cantidad de ${h(item.name)}">
                   <button type="button" data-dec="${h(item.id)}" aria-label="Quitar una unidad">−</button>
-                  <strong aria-live="polite">${h(quantity)}</strong>
+                  ${qtyStrong049W(item.id, quantity)}
                   <button type="button" data-inc="${h(item.id)}" aria-label="Agregar una unidad">+</button>
                 </div>
               ` : `<button class="qrb-add" type="button" data-add="${h(item.id)}" aria-label="Agregar ${h(item.name)}">+</button>`}
@@ -1830,14 +1833,14 @@
                   <div class="qr-product-name">${h(item.name)}</div>
                   <div class="qr-stock">${h(productCategory(item))}</div>
                 </div>
-                ${quantity > 0 ? `<span class="qr-selected-badge">✓ ${h(quantity)} en tu pedido</span>` : ""}
+                ${quantity > 0 ? `<span class="qr-selected-badge">✓ ${h(qtyText049W(quantity))} en tu pedido</span>` : ""}
               </div>
               <div class="qr-product-actions">
                 <div class="qr-price">${Number(item.price || 0) > 0 ? h(money(item.price)) : "Por confirmar"}</div>
                 ${quantity > 0 ? `
                   <div class="qr-inline-qty" aria-label="Cantidad de ${h(item.name)}">
                     <button type="button" data-dec="${h(item.id)}" aria-label="Quitar una unidad">−</button>
-                    <strong aria-live="polite">${h(quantity)}</strong>
+                    ${qtyStrong049W(item.id, quantity)}
                     <button type="button" data-inc="${h(item.id)}" aria-label="Agregar una unidad">+</button>
                   </div>
                 ` : `<button class="qr-btn qr-add-btn" type="button" data-add="${h(item.id)}">Agregar +</button>`}
@@ -1942,7 +1945,60 @@
     `;
   }
 
+  function qtyText049W(quantity) {
+    return window.CxQtyPicker ? window.CxQtyPicker.label(quantity) : String(quantity);
+  }
+
+  // Con el interruptor, tocar la cantidad abre el selector para cambiarla.
+  function qtyStrong049W(id, quantity) {
+    if (!state.quantityPicker) return `<strong aria-live="polite">${h(qtyText049W(quantity))}</strong>`;
+    return `<button type="button" class="qr-qty-open-049w" data-qr-qty-open="${h(id)}" aria-label="Cambiar cantidad"><strong aria-live="polite">${h(qtyText049W(quantity))}</strong></button>`;
+  }
+
+  // 049W: el MISMO selector del mesero, la caja y los domicilios (hsp_qty.js).
+  function openQtySheet049W(id) {
+    const Picker = window.CxQtyPicker;
+    const item = state.inventory.find((row) => String(row.id) === String(id));
+    if (!Picker || !item) return null;
+    if (window.CxMenuKit) window.CxMenuKit.injectStyles();
+    Picker.injectStyles();
+    const price = Number(item.price || item.unit_price || item.sale_price || 0) || 0;
+    const portions = item.allows_portions === true;
+    const current = Number(state.cart.get(String(id))?.quantity || 0) || 1;
+    const sheet = document.createElement("div");
+    sheet.className = "wtr-sheet-backdrop";
+    sheet.innerHTML = `
+      <div class="wtr-sheet">
+        <h2>${h(item.name)}</h2>
+        ${Picker.html({ price, portions, quantity: current, verb: "Total" })}
+        <div class="wtr-sheet-actions">
+          <button type="button" class="wtr-btn" data-qr-qty-cancel>Cancelar</button>
+          <button type="button" class="wtr-btn wtr-btn-primary" data-qr-qty-ok>Agregar al pedido</button>
+        </div>
+      </div>`;
+    document.body.appendChild(sheet);
+    const ok = sheet.querySelector("[data-qr-qty-ok]");
+    const control = Picker.mount(sheet, { price, portions, quantity: current, verb: "Total", onChange: (q) => { ok.disabled = !(q > 0); } });
+    sheet.querySelector("[data-qr-qty-cancel]").addEventListener("click", () => sheet.remove());
+    ok.addEventListener("click", () => {
+      const q = control.quantity();
+      if (!(q > 0)) return;
+      const line = state.cart.get(String(id)) || { id: String(item.id), name: item.name, sku: item.sku || "", price, quantity: 0 };
+      line.quantity = q;
+      state.cart.set(String(id), line);
+      sheet.remove();
+      state.message = "";
+      state.error = "";
+      render();
+    });
+    return sheet;
+  }
+
   function addItem(id) {
+    if (state.quantityPicker) {
+      openQtySheet049W(id);
+      return;
+    }
     const item = state.inventory.find((row) => String(row.id) === String(id));
     if (!item) return;
     const current = state.cart.get(String(id)) || {
@@ -2404,6 +2460,11 @@
       state.error = "";
       state.message = "";
       render();
+      return;
+    }
+    const qtyOpen = target.closest("[data-qr-qty-open]");
+    if (qtyOpen) {
+      openQtySheet049W(qtyOpen.getAttribute("data-qr-qty-open"));
       return;
     }
     const add = target.closest("[data-add]");

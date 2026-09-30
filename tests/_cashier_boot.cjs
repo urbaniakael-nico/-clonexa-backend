@@ -7,6 +7,7 @@ const source = readFileSync('app/web/hsp_cashier.js', 'utf8');
 const { kitSource } = require('./_menu_kit.cjs');
 const saleDocSource = readFileSync('app/web/sale_document.js', 'utf8');
 const alertsSource = readFileSync('app/web/hsp_alerts.js', 'utf8');
+const qtySource = readFileSync('app/web/hsp_qty.js', 'utf8');
 
 class FakeStorage {
   constructor() { this.data = new Map(); }
@@ -98,6 +99,7 @@ function boot({ local = new FakeStorage(), session = new FakeStorage(), history 
   });
   // hsp_cashier.html loads the shared menu kit and the document renderer first.
   vm.runInContext(alertsSource, ctx);
+  vm.runInContext(qtySource, ctx);   // 049W: hsp_cashier.html carga el selector de cantidad antes del kit
   vm.runInContext(kitSource, ctx);
   vm.runInContext(saleDocSource, ctx);
   vm.runInContext(source, ctx);
