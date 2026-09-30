@@ -11213,6 +11213,39 @@ function inventoryCreatePayload() {
         </div>
       </main>
     `;
+    cxMiniPanelShortLinks049Y();
+  }
+
+  // 049Y: links cortos /c/CODIGO (interruptor short_links, hoy ASADERO). El
+  // servidor dice si aplican; si no, o si falla, queda el link largo de siempre.
+  async function cxMiniPanelShortLinks049Y() {
+    const buttons = Array.from(document.querySelectorAll("[data-minipanel-copy-link]"));
+    const links = Array.from(new Set(buttons.map((b) => String(b.getAttribute("data-minipanel-copy-link") || "")).filter(Boolean)));
+    if (!links.length || !state.companyId) return;
+    let data = null;
+    try {
+      data = await api(`/short-links/companies/${encodeURIComponent(state.companyId)}/mini-panels`, {
+        method: "POST",
+        body: JSON.stringify({ links })
+      });
+    } catch (_) {
+      return;
+    }
+    if (!data || data.enabled !== true || !data.links) return;
+    buttons.forEach((button) => {
+      const long = String(button.getAttribute("data-minipanel-copy-link") || "");
+      const short = data.links[long];
+      if (!short || !button.isConnected) return;
+      const url = cxMiniPanelAbsoluteUrl019B(short);
+      button.setAttribute("data-minipanel-copy-link", url);
+      const card = button.closest(".cx-mini-link-card");
+      const box = card ? card.querySelector(".cx-mini-link-box") : null;
+      if (box) {
+        box.textContent = url;
+        box.setAttribute("title", long);
+        box.setAttribute("data-cx-short-link-049y", "1");
+      }
+    });
   }
   /* CLONEXA_019B_CLIENT_MINI_PANEL_LINKS_END */
 

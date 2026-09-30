@@ -1928,7 +1928,7 @@
     const showDelivery = state.delivery || state.deliveries.length > 0;
     const showSales = state.directSale || ventas.length > 0 || paid.length > 0;
     return `
-      <section class="cx5">
+      <section class="cx5 cx5-home">
         ${topBar049V()}
         ${kpiStrip049V()}
         ${state.toast ? `<div class="cx5-toast" role="status">${h(state.toast)}</div>` : ""}
@@ -1937,7 +1937,7 @@
             <span>Última cobrada: <b>${h(state.lastCharged.label)}</b></span>
             <button class="cx5-mini" type="button" data-csh-print-last ${state.printing ? "disabled" : ""}>🖨 Imprimir cuenta</button>
           </div>` : ""}
-        <div class="cx5-board ${showDelivery || showSales ? "" : "is-single"}">
+        ${mesas.length || state.deliveries.length ? `<div class="cx5-board ${showDelivery || showSales ? "" : "is-single"}">
           ${section049V({
             key: "mesas", icon: "🍽", title: "Mesas", count: mesas.length, empty: "No hay mesas abiertas",
             body: `<div class="cx5-grid">${mesas.map((t) => tableCard049V(t, now)).join("")}</div>`,
@@ -1952,8 +1952,37 @@
               body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}${paid.map(paidSaleRow049V).join("")}</div>`,
             }) : ""}
           </div>` : ""}
-        </div>
+        </div>` : idleBoard049Y({ showDelivery, showSales, ventas, paid })}
       </section>`;
+  }
+
+  // 049Y: sin mesas ni domicilios abiertos el tablero no deja media pantalla
+  // vacia: las secciones vacias van en una franja y el resto lo ocupa un
+  // aviso con las acciones de siempre (solo con el rediseno de caja).
+  function idleBoard049Y({ showDelivery, showSales, ventas, paid }) {
+    const salesCount = ventas.length + paid.length;
+    const salesSection = showSales ? section049V({
+      key: "ventas", icon: "🧾", title: "Ventas de caja", count: salesCount, empty: "Aún no hay ventas directas en tu turno",
+      body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}${paid.map(paidSaleRow049V).join("")}</div>`,
+    }) : "";
+    return `
+        <div class="cx5-board is-idle" data-cx5-idle>
+          <div class="cx5-idle-strip">
+            ${section049V({ key: "mesas", icon: "🍽", title: "Mesas", count: 0, empty: "No hay mesas abiertas", body: "" })}
+            ${showDelivery ? section049V({ key: "domicilios", icon: "🛵", title: "Domicilios", count: 0, empty: "Sin domicilios abiertos", body: "" }) : ""}
+            ${salesCount ? "" : salesSection}
+          </div>
+          ${salesCount ? salesSection : ""}
+          <div class="cx5-idle">
+            <span class="cx5-idle-icon" aria-hidden="true">✓</span>
+            <strong>Todo al día</strong>
+            <p>No hay mesas ni domicilios abiertos. Los pedidos nuevos aparecen aquí solos.</p>
+            <div class="cx5-idle-actions">
+              ${state.directSale ? `<button class="cx5-btn cx5-btn-primary" type="button" data-csh-new-sale>＋ Nueva venta</button>` : ""}
+              <button class="cx5-btn" type="button" data-csh-z-open>🧾 Sacar Z</button>
+            </div>
+          </div>
+        </div>`;
   }
 
   // ------------------------------------------------------------ mesa (detalle)
@@ -2405,6 +2434,7 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     else if (state.screen === "delivery") html = screenDelivery();
     else if (state.screen === "sale") html = cx5 ? screenSale049V() : screenSale();
     else if (state.screen === "sale_products") html = cx5 ? screenSale049V() : screenSaleProducts();
+    if (Alerts && Alerts.setVisible) Alerts.setVisible(state.screen !== "login");
     if (state.screen !== "login") html += costosOverlay048U();
     if (cx5) html += zOverlay049V();
     if (cx5) root.setAttribute("data-cx5", "1");
@@ -2894,6 +2924,7 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     /* 049V: rediseno de la caja. Colores de la marca por variables (hsp_brand.js); sin marca, oscuro de siempre. */
     #app[data-cx5]{--k-surface:var(--cxb-surface,#15131f);--k-surface2:var(--cxb-surface2,#1d1a2b);--k-ink:var(--cxb-ink,#f5f3ff);--k-ink-rgb:var(--cxb-ink-rgb,245,243,255);--k-muted:var(--cxb-muted,#a19cbc);--k-line:var(--cxb-line,#2a2638);--k-primary:var(--cxb-primary,#ff2d95);--k-primary-rgb:var(--cxb-primary-rgb,255,45,149);--k-secondary:var(--cxb-secondary,#ff7a18);--k-on-primary:var(--cxb-on-primary,#fff);--k-primary-ink:var(--cxb-primary-ink,#ff7ab8);--k-field:var(--cxb-field,#0e0c18);--k-header:var(--cxb-header,rgba(11,10,20,.92))}
     .cx5{min-height:100vh;color:var(--k-ink);padding-bottom:28px}
+    .cx5-home{display:flex;flex-direction:column}
     .cx5 button:focus-visible,.cx5 select:focus-visible,.cx5 input:focus-visible{outline:3px solid rgba(var(--k-primary-rgb),.45);outline-offset:2px}
     .cx5-top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 20px;background:var(--k-header);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--k-line)}
     .cx5-id{display:flex;align-items:center;gap:10px;min-width:0;margin-right:auto}
@@ -2940,6 +2971,14 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     .cx5-last{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 20px 0;padding:8px 8px 8px 14px;border-radius:12px;background:var(--k-surface);border:1px solid var(--k-line);font-size:13px}
     .cx5-board{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(340px,1fr);gap:16px;align-items:start;padding:16px 20px}
     .cx5-board.is-single{grid-template-columns:minmax(0,1fr)}
+    .cx5-board.is-idle{flex:1 0 auto;display:flex;flex-direction:column;align-items:stretch}
+    .cx5-board.is-idle>.cx5-idle{flex:1 0 240px}
+    .cx5-idle-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+    .cx5-idle{display:grid;place-content:center;justify-items:center;gap:8px;padding:32px 20px;text-align:center;border-radius:24px;border:1.5px dashed var(--k-line);background:rgba(var(--k-ink-rgb),.02)}
+    .cx5-idle-icon{width:64px;height:64px;display:grid;place-items:center;border-radius:50%;background:rgba(var(--k-primary-rgb),.14);color:var(--k-primary);font-size:30px;font-weight:800}
+    .cx5-idle strong{font-size:22px;font-weight:800}
+    .cx5-idle p{margin:0;max-width:420px;color:var(--k-muted);font-size:15px}
+    .cx5-idle-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:8px}
     .cx5-side{display:grid;gap:16px;min-width:0}
     .cx5-sec{min-width:0;padding:14px;border-radius:20px;background:var(--k-surface2);border:1px solid var(--k-line)}
     .cx5-sec.is-empty{padding:9px 14px}

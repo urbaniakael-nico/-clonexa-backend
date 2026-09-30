@@ -47,6 +47,7 @@ for _module_name, _prefix, _tags in [
     ("hospitality_owner_report", "/hospitality", ["hospitality"]),
     ("carta", "/carta", ["carta"]),
     ("cash_count", "/caja-arqueo", ["caja"]),
+    ("short_links", "/short-links", ["short_links"]),
     ("fixed_expenses", "/fixed-expenses", ["inventory"]),
     ("waiter_ordering", "/companies", ["waiter_ordering"]),
     ("sale_document", "/companies", ["sale_document"]),

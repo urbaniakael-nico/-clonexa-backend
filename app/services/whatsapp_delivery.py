@@ -305,10 +305,16 @@ async def customer_reply(
 
     if await _recent_session(db, company_id, phone, "link", LINK_COOLDOWN_SECONDS):
         return ""
-    token = secrets.token_urlsafe(18)
+    # 049Y: con el interruptor short_links el cliente recibe /c/CODIGO (el
+    # codigo corto es su codigo de un solo uso); sin el, el link de siempre.
+    from app.services import short_links
+
+    short = await short_links.enabled(db, company_id)
+    token = short_links.new_code(short_links.DELIVERY_CODE_LENGTH) if short else secrets.token_urlsafe(18)
     await _insert_session(db, company_id, phone, "link", token, LINK_MINUTES)
     await db.commit()
-    link = f"{public_base_url(settings)}/domicilio?c={company_id}&s={token}"
+    link = (f"{public_base_url(settings)}/c/{token}" if short
+            else f"{public_base_url(settings)}/domicilio?c={company_id}&s={token}")
     message = render_message(settings["greeting_message"], link=link, **values)
     return message if link in message else f"{message}\n{link}"
 

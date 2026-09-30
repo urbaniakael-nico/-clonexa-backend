@@ -20,6 +20,13 @@ def _read_html(path: Path) -> HTMLResponse:
     )
 
 
+_SHORT_LINK_NOT_FOUND = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Link no encontrado</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px system-ui,sans-serif;background:#0b0a14;color:#fff;padding:16px}
+main{max-width:360px;text-align:center}h1{font-size:20px}p{opacity:.8}</style></head>
+<body><main><h1>Este link no existe o ya no sirve</h1><p>Pide a quien te lo envió un link nuevo.</p></main></body></html>"""
+
+
 def register_client_portal(app: FastAPI) -> None:
     if getattr(app.state, "clonexa_client_portal_registered", False):
         return
@@ -95,6 +102,23 @@ def register_client_portal(app: FastAPI) -> None:
                 if selected is not None:
                     return RedirectResponse(url=f"/mercado?company_id={selected['id']}", status_code=307)
             return _read_html(web_dir / "marketplace_public.html")
+
+    # 049Y: link corto /c/CODIGO -> el mini panel o la carta de domicilios de
+    # siempre. Solo redirige a rutas internas ya existentes (que piden su
+    # propio ingreso o su codigo de un solo uso); no entrega datos.
+    if not any(getattr(route, "path", None) == "/c/{code}" for route in app.routes):
+        @app.get("/c/{code}", include_in_schema=False)
+        async def short_link_redirect(code: str, db: AsyncSession = Depends(get_db)) -> Response:
+            from app.services import short_links
+
+            try:
+                target = await short_links.resolve(db, code)
+            except Exception:
+                await db.rollback()
+                target = ""
+            if not target:
+                return HTMLResponse(_SHORT_LINK_NOT_FOUND, status_code=404, headers={"Cache-Control": "no-store"})
+            return RedirectResponse(url=target, status_code=302, headers={"Cache-Control": "no-store"})
 
     # CLONEXA_019D_MINI_PANEL_ROUTES_START
     if not any(getattr(route, "path", None) == "/mini-panel/login" for route in app.routes):
