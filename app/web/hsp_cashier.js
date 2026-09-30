@@ -411,7 +411,7 @@
     } catch (_) {
       // transient: keep the last snapshot
     }
-    safeRender();
+    backgroundRender049X();
   }
 
   function liveShiftSeconds() {
@@ -540,10 +540,10 @@
   }
 
   async function openArqueo048U() {
-    state.arqueo = { step: "count", busy: false, result: null, message: "" };
+    state.arqueo = { step: "count", busy: false, result: null, message: "", draft: { total: "", dens: {}, obs: "" } };
     try {
       const current = await costosApi048U("/caja/arqueo");
-      if (current && current.count) state.arqueo = { step: "result", busy: false, result: current.count, message: "" };
+      if (current && current.count) state.arqueo = { step: "result", busy: false, result: current.count, message: "", draft: { total: "", dens: {}, obs: "" } };
     } catch (_) {}
     safeRender();
   }
@@ -560,9 +560,10 @@
           <div class="csh-modal-card-048u">
             <h2>Arqueo de caja</h2>
             <p>Cuenta el efectivo del cajón y escribe cuánto hay. <b>No vas a ver cuánto debería haber</b> hasta registrar tu conteo, y el conteo no se puede cambiar después.</p>
-            <label>Total contado<input type="number" min="0" step="50" data-csh-arq-total placeholder="$ contado"></label>
+            <label>Total contado<input type="text" inputmode="numeric" autocomplete="off" data-csh-arq-total placeholder="$ contado" value="${h(arqDraft049X().total)}"></label>
+            <small class="csh-arq-read-049x" data-csh-arq-read>${h(arqReading049X(arqDraft049X().total))}</small>
             <details><summary>Contar por billetes y monedas (opcional)</summary>
-              <div class="csh-den-048u">${state.denominations.map((d) => `<label>${money048U(d)}<input type="number" min="0" step="1" data-csh-den="${d}" placeholder="0"></label>`).join("")}</div>
+              <div class="csh-den-048u">${state.denominations.map((d) => `<label>${money048U(d)}<input type="text" inputmode="numeric" autocomplete="off" data-csh-den="${d}" placeholder="0" value="${h(arqDraft049X().dens[d] || "")}"></label>`).join("")}</div>
             </details>
             ${a.message ? `<div class="csh-alert">${h(a.message)}</div>` : ""}
             <div class="csh-modal-actions-048u">
@@ -582,7 +583,7 @@
             <small>Base ${money048U(r.base)} + ventas en efectivo ${money048U(r.cash_sales)}${Number(r.drawer_expenses || 0) || Number(r.withdrawals || 0) ? ` − gastos del cajón ${money048U(r.drawer_expenses)} − retiros ${money048U(r.withdrawals)}` : ""}</small>
             <div class="${diff < 0 ? "bad" : diff > 0 ? "warn" : "ok"}"><span>${diff === 0 ? "Cuadra" : diff < 0 ? "Faltante" : "Sobrante"}</span><b>${money048U(Math.abs(diff))}</b></div>
           </div>
-          ${r.needs_observation ? `<label>Explica la diferencia (obligatorio)<textarea data-csh-arq-obs rows="3"></textarea></label>` : ""}
+          ${r.needs_observation ? `<label>Explica la diferencia (obligatorio)<textarea data-csh-arq-obs rows="3">${h(arqDraft049X().obs)}</textarea></label>` : ""}
           ${a.message ? `<div class="csh-alert">${h(a.message)}</div>` : ""}
           <div class="csh-modal-actions-048u">
             ${r.needs_observation
@@ -594,12 +595,32 @@
     return "";
   }
 
+  // 049X: lo escrito en el arqueo vive en el estado, no solo en la pantalla:
+  // ningún redibujo (el sondeo de mesas cada 4 s) lo puede borrar. Solo
+  // dígitos; el formato de pesos se muestra aparte y nunca toca el campo.
+  function arqDraft049X() {
+    const a = state.arqueo;
+    if (!a) return { total: "", dens: {}, obs: "" };
+    if (!a.draft) a.draft = { total: "", dens: {}, obs: "" };
+    return a.draft;
+  }
+
+  function digits049X(value) {
+    return String(value ?? "").replace(/[^0-9]/g, "");
+  }
+
+  function arqReading049X(total) {
+    const clean = digits049X(total);
+    return clean ? `Son ${money048U(Number(clean))}` : "";
+  }
+
   async function submitCount048U() {
     const a = state.arqueo;
+    const draft = arqDraft049X();
     const denominations = {};
-    root.querySelectorAll("[data-csh-den]").forEach((el) => { const n = Number(el.value || 0); if (n > 0) denominations[el.getAttribute("data-csh-den")] = n; });
-    const total = root.querySelector("[data-csh-arq-total]")?.value;
-    if (!Object.keys(denominations).length && (total === undefined || total === "")) {
+    Object.entries(draft.dens).forEach(([d, v]) => { const n = Number(digits049X(v) || 0); if (n > 0) denominations[d] = n; });
+    const total = digits049X(draft.total);
+    if (!Object.keys(denominations).length && total === "") {
       a.message = "Escribe cuánto efectivo contaste.";
       safeRender();
       return;
@@ -621,7 +642,7 @@
 
   async function saveObservation048U() {
     const a = state.arqueo;
-    const observation = (root.querySelector("[data-csh-arq-obs]")?.value || "").trim();
+    const observation = String(arqDraft049X().obs || "").trim();
     if (!observation) {
       a.message = "La observación es obligatoria cuando hay diferencia.";
       safeRender();
@@ -682,7 +703,7 @@
     } finally {
       summaryInFlight = false;
     }
-    if (state.screen === "tables") safeRender();
+    if (state.screen === "tables") backgroundRender049X();
   }
 
   function staleSummary049V() {
@@ -859,7 +880,7 @@
       if (Alerts) detected.alerts.forEach((alert) => Alerts.notify(alert));
       // Never redraw the sale screens from the 4s poll: it would close the
       // destination list or a product sheet mid-choice.
-      if (!/^sale/.test(state.screen)) safeRender();
+      if (!/^sale/.test(state.screen)) backgroundRender049X();
     } catch (_) {
       // keep last board on transient errors
     }
@@ -2171,10 +2192,47 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     safeRender();
   }
 
+  // 049X: un refresco de fondo (sondeo de mesas, indicadores, turno) no
+  // redibuja mientras el cajero escribe: ni con el arqueo abierto, ni con el
+  // foco en un campo del panel. Lo aplaza al siguiente sondeo.
+  function typing049X() {
+    if (state.arqueo) return true;
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    if (!active || !root.contains || !root.contains(active)) return false;
+    return /^(INPUT|TEXTAREA|SELECT)$/.test(String(active.tagName || "").toUpperCase());
+  }
+
+  function backgroundRender049X() {
+    if (!typing049X()) safeRender();
+  }
+
   // One failing screen must not blank the whole panel.
+  function focusedField049X() {
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    if (!active || !root.contains || !root.contains(active) || !active.attributes) return null;
+    const attr = Array.from(active.attributes).find((a) => /^data-csh-/.test(a.name));
+    if (!attr) return null;
+    let start = null;
+    let end = null;
+    try { start = active.selectionStart; end = active.selectionEnd; } catch (_) {}
+    return { selector: attr.value ? `[${attr.name}="${attr.value}"]` : `[${attr.name}]`, start, end };
+  }
+
+  function restoreField049X(saved) {
+    if (!saved || !root.querySelector) return;
+    const again = root.querySelector(saved.selector);
+    if (!again || typeof again.focus !== "function") return;
+    again.focus();
+    if (saved.start !== null) {
+      try { again.setSelectionRange(saved.start, saved.end); } catch (_) {}
+    }
+  }
+
   function safeRender() {
+    const focused = focusedField049X();
     try {
       renderScreen();
+      restoreField049X(focused);
     } catch (error) {
       try { console.error("[caja] render", error); } catch (_) {}
       root.innerHTML = `
@@ -2225,6 +2283,35 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
       safeRender();
     }
   });
+
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target || !target.closest || !state.arqueo) return;
+    const draft = arqDraft049X();
+    if (target.closest("[data-csh-arq-total]")) {
+      draft.total = digits049X(target.value);
+      if (target.value !== draft.total) keepCaret049X(target, draft.total);
+      const read = document.querySelector ? document.querySelector("[data-csh-arq-read]") : null;
+      if (read) read.textContent = arqReading049X(draft.total);
+    } else if (target.closest("[data-csh-den]")) {
+      const clean = digits049X(target.value);
+      draft.dens[target.getAttribute("data-csh-den")] = clean;
+      if (target.value !== clean) keepCaret049X(target, clean);
+    } else if (target.closest("[data-csh-arq-obs]")) {
+      draft.obs = String(target.value || "");
+    }
+  });
+
+  // Quita lo que no es dígito sin mandar el cursor al final.
+  function keepCaret049X(input, clean) {
+    let pos = null;
+    try { pos = input.selectionStart; } catch (_) {}
+    const before = pos === null ? null : digits049X(String(input.value).slice(0, pos)).length;
+    input.value = clean;
+    if (before !== null) {
+      try { input.setSelectionRange(before, before); } catch (_) {}
+    }
+  }
 
   document.addEventListener("input", (event) => {
     const target = event.target;
@@ -2530,6 +2617,7 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     .csh-modal-card-048u input,.csh-modal-card-048u select,.csh-modal-card-048u textarea{min-height:46px;border-radius:12px;padding:8px 12px;font-size:18px}
     .csh-den-048u{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
     .csh-den-048u input{font-size:16px}
+    .csh-arq-read-049x{min-height:18px;font-weight:800;opacity:.85}
     .csh-modal-actions-048u{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
     .csh-arq-rows-048u{display:grid;gap:8px}
     .csh-arq-rows-048u div{display:flex;justify-content:space-between;font-size:18px}
