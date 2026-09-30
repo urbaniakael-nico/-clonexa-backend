@@ -499,6 +499,18 @@ async def admin_v2_close_session(session_key: str, request: Request, db: AsyncSe
     return {"ok": True, "closed": bool(closed), "closed_session": session_key}
 
 
+@router.get("/admin-v2/api/overview", include_in_schema=False)
+async def admin_v2_overview(request: Request, db: AsyncSession = Depends(get_db)):
+    """Pulso de todas las empresas en pocas consultas agregadas (solo lectura)."""
+    await _require_admin_v2_session(request, db)
+    from fastapi.responses import JSONResponse
+
+    from app.services.admin_overview import build_overview
+
+    data = await build_overview(db, master_access_mode=master_access_mode())
+    return _no_store(JSONResponse(data))
+
+
 @router.get("/admin-v2", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/admin-v2/", response_class=HTMLResponse, include_in_schema=False)
 async def admin_v2_page(request: Request, db: AsyncSession = Depends(get_db)):
