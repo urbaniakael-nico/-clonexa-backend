@@ -133,6 +133,21 @@ def direct_sale_row(order: dict) -> dict:
     }
 
 
+def delivery_row(order: dict) -> dict:
+    """049Y: un domicilio cobrado en el turno (para reimprimir su cuenta)."""
+    delivery = report.as_dict(report.as_dict(order.get("metadata")).get("delivery"))
+    tail = str(order.get("order_number") or "").rsplit("-", 1)[-1].strip()
+    return {
+        "id": str(order.get("id")),
+        "label": f"Domicilio {tail}" if tail else str(order.get("table_number") or "Domicilio"),
+        "customer": str(delivery.get("customer_name") or ""),
+        "total": report.money(order.get("total")),
+        "method": method_of(order),
+        "method_label": METHOD_LABELS[method_of(order)],
+        "closed_at": _iso(order.get("closed_at")),
+    }
+
+
 def window(orders: list[dict], since: datetime | None) -> dict:
     """049W: el UNICO filtro de pedidos de la caja. Indicadores y Z parten de
     aqui, asi el Z suma exactamente lo que el panel muestra como cobrado."""
@@ -166,6 +181,9 @@ def shift_summary(orders: list[dict], since: datetime | None) -> dict:
         "direct_count": len(direct),
         "methods": methods(paid),
         "direct_sales": [direct_sale_row(o) for o in sorted(direct, key=lambda o: str(_iso(o.get("created_at")) or ""), reverse=True)],
+        "deliveries_paid": [delivery_row(o) for o in sorted(
+            (o for o in paid if report.channel_of(o) == "domicilio"),
+            key=lambda o: str(_iso(o.get("closed_at")) or ""), reverse=True)],
     }
 
 

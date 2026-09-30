@@ -67,6 +67,8 @@
     // franja de indicadores del turno, secciones Mesas / Domicilios / Ventas
     // de caja, el Z del dia y la nueva venta en una sola pantalla.
     redesign: false,
+    // 049Y: imprimir / reimprimir la cuenta de un domicilio (interruptor delivery_print).
+    deliveryPrint: false,
     summary: null,
     summaryAt: 0,
     z: null,
@@ -816,10 +818,12 @@
       state.directSale = data.direct_sale === true;
       state.delivery = data.delivery === true;
       state.redesign = data.redesign === true;
+      state.deliveryPrint = data.delivery_print === true;
     } catch (_) {
       state.directSale = false;
       state.delivery = false;
       state.redesign = false;
+      state.deliveryPrint = false;
     }
     // 049V: colores y tema de la empresa (solo con su interruptor).
     if (window.CxPanelBrand) window.CxPanelBrand.load((path) => waiterApi(path)).then(() => safeRender());
@@ -1599,6 +1603,10 @@
             <div><span>Pago</span>${paymentBadge(d)}${d.payment_method === "cash" && d.pays_with ? ` · Paga con ${h(money(d.pays_with))}, cambio ${h(money(d.change))}` : ""}</div>
             ${d.payment_verified_at ? `<div><span>Verificado</span>${h(d.payment_verified_by || "")} a las ${h(clockTime(d.payment_verified_at))}</div>` : ""}
           </div>
+          ${state.deliveryPrint ? `
+            <div class="csh-delivery-print">
+              <button class="csh-btn" type="button" data-csh-print-order="${h(order.id)}" ${state.printing ? "disabled" : ""}>🖨 Imprimir cuenta</button>
+            </div>` : ""}
           <table class="csh-detail-lines">
             <thead><tr><th>Cant.</th><th>Producto</th><th>Valor</th></tr></thead>
             <tbody>
@@ -1947,6 +1955,7 @@
               key: "domicilios", icon: "🛵", title: "Domicilios", count: state.deliveries.length, empty: "Sin domicilios abiertos",
               body: `<div class="cx5-grid cx5-grid-dl">${state.deliveries.map((o) => deliveryCard049V(o, now)).join("")}</div>`,
             }) : ""}
+            ${deliveryHistory049Y()}
             ${showSales ? section049V({
               key: "ventas", icon: "🧾", title: "Ventas de caja", count: ventas.length + paid.length, empty: "Aún no hay ventas directas en tu turno",
               body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}${paid.map(paidSaleRow049V).join("")}</div>`,
@@ -1954,6 +1963,23 @@
           </div>` : ""}
         </div>` : idleBoard049Y({ showDelivery, showSales, ventas, paid })}
       </section>`;
+  }
+
+  // 049Y: domicilios cobrados en el turno, para reimprimir su cuenta (como
+  // las ventas de caja). Solo con el interruptor delivery_print.
+  function deliveryHistory049Y() {
+    const rows = state.deliveryPrint && state.summary && Array.isArray(state.summary.deliveries_paid) ? state.summary.deliveries_paid : [];
+    if (!rows.length) return "";
+    return section049V({
+      key: "domicilios-cobrados", icon: "🧾", title: "Domicilios cobrados", count: rows.length, empty: "",
+      body: `<div class="cx5-rows">${rows.map((row) => `
+        <div class="cx5-row is-paid" data-cx5-delivery-paid="${h(row.id)}">
+          <span class="cx5-row-main"><b>${h(row.label)}</b><small>${h(clockTime(row.closed_at))} · ${h(row.customer || "")} · ${METHOD_ICONS_049V[row.method] || ""} ${h(row.method_label || "")}</small></span>
+          <span class="cx5-pill is-paid">Cobrado</span>
+          <strong>${h(money(row.total))}</strong>
+          <button class="cx5-icon cx5-print" type="button" data-csh-print-order="${h(row.id)}" aria-label="Reimprimir cuenta" ${state.printing ? "disabled" : ""}>🖨</button>
+        </div>`).join("")}</div>`,
+    });
   }
 
   // 049Y: sin mesas ni domicilios abiertos el tablero no deja media pantalla
@@ -1973,6 +1999,7 @@
             ${salesCount ? "" : salesSection}
           </div>
           ${salesCount ? salesSection : ""}
+          ${deliveryHistory049Y()}
           <div class="cx5-idle">
             <span class="cx5-idle-icon" aria-hidden="true">✓</span>
             <strong>Todo al día</strong>
@@ -2973,6 +3000,7 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     .cx5-board.is-single{grid-template-columns:minmax(0,1fr)}
     .cx5-board.is-idle{flex:1 0 auto;display:flex;flex-direction:column;align-items:stretch}
     .cx5-board.is-idle>.cx5-idle{flex:1 0 240px}
+    .csh-delivery-print{display:flex;justify-content:flex-end;margin:4px 0 8px}
     .cx5-idle-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
     .cx5-idle{display:grid;place-content:center;justify-items:center;gap:8px;padding:32px 20px;text-align:center;border-radius:24px;border:1.5px dashed var(--k-line);background:rgba(var(--k-ink-rgb),.02)}
     .cx5-idle-icon{width:64px;height:64px;display:grid;place-items:center;border-radius:50%;background:rgba(var(--k-primary-rgb),.14);color:var(--k-primary);font-size:30px;font-weight:800}

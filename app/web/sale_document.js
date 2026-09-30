@@ -40,6 +40,31 @@
     return /^(https:\/\/|\/)/.test(clean) ? clean : "";
   }
 
+  // 049Y: domicilio: a quien, a donde y si el domiciliario cobra o no.
+  function deliveryBlock(d) {
+    const dl = d.delivery;
+    if (!dl) return "";
+    return `
+        <div class="cxdoc-delivery">
+          <div class="cxdoc-delivery-title">DOMICILIO</div>
+          ${dl.customer_name ? `<div><span>Cliente</span><strong>${h(dl.customer_name)}</strong></div>` : ""}
+          ${dl.customer_phone ? `<div><span>Teléfono</span><strong>${h(dl.customer_phone)}</strong></div>` : ""}
+          ${dl.address ? `<div class="cxdoc-address"><span>Dirección</span><strong>${h(dl.address)}</strong></div>` : ""}
+          ${dl.address_notes ? `<div class="cxdoc-address"><span>Indicaciones</span><strong>${h(dl.address_notes)}</strong></div>` : ""}
+        </div>`;
+  }
+
+  function deliveryPayment(d) {
+    const dl = d.delivery;
+    if (!dl) return "";
+    return `
+        <div class="cxdoc-pay-state ${dl.collect ? "is-collect" : ""} ${dl.pending_verification ? "is-pending" : ""}">
+          <div>${h(dl.payment_method_label || "")}</div>
+          <strong>${h(dl.payment_state || "")}</strong>
+          ${dl.change ? `<div>${h(dl.change)}</div>` : ""}
+        </div>`;
+  }
+
   // The document body (no <html>): used inside the print frame and in the
   // portal preview.
   function documentBody(doc) {
@@ -64,9 +89,10 @@
         <div class="cxdoc-meta">
           <div><span>${h(d.number_label || "Consecutivo interno")}</span><strong>${h(d.number || "")}</strong></div>
           ${d.issued_at ? `<div><span>Fecha</span><strong>${h(dateLabel(d.issued_at))}</strong></div>` : ""}
-          ${d.table ? `<div><span>Mesa / venta</span><strong>${h(d.table)}</strong></div>` : ""}
+          ${d.table ? `<div><span>${d.delivery ? "Pedido" : "Mesa / venta"}</span><strong>${h(d.table)}</strong></div>` : ""}
           ${d.waiter ? `<div><span>Atendió</span><strong>${h(d.waiter)}</strong></div>` : ""}
         </div>
+        ${deliveryBlock(d)}
         <table class="cxdoc-lines">
           <thead><tr><th>Cant.</th><th>Producto</th><th>Valor</th></tr></thead>
           <tbody>
@@ -79,12 +105,16 @@
           </tbody>
         </table>
         <div class="cxdoc-totals">
+          ${d.delivery ? `
+            <div><span>Productos</span><strong>${h(pesos(d.products_total))}</strong></div>
+            <div class="cxdoc-fee"><span>Domicilio</span><strong>${h(pesos(d.delivery_fee))}</strong></div>` : ""}
           ${iva > 0 ? `
             <div><span>Subtotal</span><strong>${h(pesos(d.subtotal))}</strong></div>
             <div><span>IVA ${h(d.iva_percent)}%${d.prices_include_iva ? " (incluido)" : ""}</span><strong>${h(pesos(iva))}</strong></div>` : ""}
           <div class="cxdoc-total"><span>TOTAL</span><strong>${h(pesos(d.total))}</strong></div>
-          ${d.payment_label ? `<div><span>Pago</span><strong>${h(d.payment_label)}</strong></div>` : ""}
+          ${d.payment_label && !d.delivery ? `<div><span>Pago</span><strong>${h(d.payment_label)}</strong></div>` : ""}
         </div>
+        ${deliveryPayment(d)}
         ${d.withholdings ? `<div class="cxdoc-note">${h(d.withholdings)}</div>` : ""}
         ${d.resolution ? `<div class="cxdoc-note">${h(d.resolution)}</div>` : ""}
         ${d.footer ? `<div class="cxdoc-footer">${h(d.footer)}</div>` : ""}
@@ -112,6 +142,13 @@
     .cxdoc-totals{margin-top:1.5mm;border-top:1px solid #000;padding-top:1mm}
     .cxdoc-total{font-size:14px;font-weight:900}
     .cxdoc-note,.cxdoc-footer{margin-top:2mm;font-size:10px;text-align:center;white-space:pre-line}
+    .cxdoc-delivery{margin:0 0 2mm;padding:1mm 0;border-bottom:1px dashed #000}
+    .cxdoc-delivery div{display:flex;justify-content:space-between;gap:2mm}
+    .cxdoc-delivery .cxdoc-address{display:block}.cxdoc-delivery .cxdoc-address span{display:block}
+    .cxdoc-delivery-title{display:block!important;text-align:center;font-weight:900;letter-spacing:.08em}
+    .cxdoc-pay-state{margin-top:2mm;padding:1.5mm;border:2px solid #000;text-align:center}
+    .cxdoc-pay-state strong{display:block;font-size:13px}
+    .cxdoc-pay-state.is-pending{border-style:dashed}
   `;
 
   function documentHtml(doc) {

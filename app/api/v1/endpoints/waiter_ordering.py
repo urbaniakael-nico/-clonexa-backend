@@ -1028,6 +1028,8 @@ async def cashier_config(
         "redesign": settings.get("cashier_redesign") is True,
         # Domicilios por WhatsApp: the caja shows its own section for them.
         "delivery": await whatsapp_delivery.module_settings(db, company_id) is not None,
+        # 049Y: imprimir y reimprimir la cuenta de un domicilio.
+        "delivery_print": settings.get("delivery_print") is True,
     }
 
 

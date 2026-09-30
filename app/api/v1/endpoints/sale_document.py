@@ -174,17 +174,67 @@ def _qty_label(item: dict[str, Any]) -> str:
     return str(int(quantity)) if quantity == quantity.to_integral_value() else str(quantity.normalize())
 
 
+# 049Y: domicilio en la cuenta impresa (interruptor delivery_print, hoy ASADERO).
+DELIVERY_PRINT_FLAG = "delivery_print"
+DELIVERY_METHOD_LABELS = {"cash": "Efectivo contra entrega", "card": "Datáfono contra entrega",
+                          "qr": "Pago por QR", "transfer": "Transferencia"}
+
+
+def _delivery_of(order: dict[str, Any]) -> dict[str, Any] | None:
+    delivery = (order.get("metadata") or {}).get("delivery")
+    return delivery if isinstance(delivery, dict) else None
+
+
+def delivery_block(order: dict[str, Any], delivery: dict[str, Any], total: int) -> dict[str, Any]:
+    """Lo que el domiciliario necesita: a quien, a donde y si cobra o no."""
+    method = str(delivery.get("payment_method") or "")
+    kind = "transfer" if delivery.get("payment_kind") == "transfer" else method
+    status_value = str(delivery.get("payment_status") or "")
+    label = DELIVERY_METHOD_LABELS.get(kind, "Contra entrega")
+    if str(order.get("status") or "") == "cerrado":
+        state, collect = "PAGADO · NO COBRAR", False
+    elif method == "qr" and status_value == "verificado":
+        state, collect = "PAGO VERIFICADO POR CAJA · NO COBRAR", False
+    elif method == "qr":
+        state, collect = "PAGO POR VERIFICAR · la caja aún no confirma el dinero. No entregar como pagado.", False
+    else:
+        state, collect = f"COBRAR AL ENTREGAR: ${total:,}".replace(",", "."), True
+    change = ""
+    if method == "cash" and delivery.get("pays_with"):
+        change = (f"Paga con ${_pesos(delivery.get('pays_with')):,} · cambio ${_pesos(delivery.get('change')):,}").replace(",", ".")
+    phone = str(delivery.get("customer_phone") or "")
+    return {
+        "customer_name": _clean(delivery.get("customer_name")),
+        "customer_phone": phone if phone.isdigit() else "",
+        "address": _clean(delivery.get("address")),
+        "address_notes": _clean(delivery.get("address_notes")),
+        "payment_method_label": label,
+        "payment_state": state,
+        "collect": collect,
+        "pending_verification": method == "qr" and status_value == "por_verificar" and str(order.get("status") or "") != "cerrado",
+        "change": change,
+    }
+
+
 def build_sale_document(
     config: dict[str, Any],
     identity: dict[str, Any],
     orders: list[dict[str, Any]],
     number: str,
     issued_at: str,
+    *,
+    delivery_details: bool = False,
 ) -> dict[str, Any]:
     lines: list[dict[str, Any]] = []
+    # 049Y: un domicilio lleva el valor del domicilio en su propia linea.
+    delivery = _delivery_of(orders[0]) if delivery_details and len(orders) == 1 else None
+    fee = Decimal("0")
     for order in orders:
         for item in order.get("items") or []:
             if not isinstance(item, dict):
+                continue
+            if delivery is not None and str(item.get("station") or "").strip().lower() == "domicilio":
+                fee += Decimal(str(_pesos(item.get("subtotal"))))
                 continue
             lines.append(
                 {
@@ -196,7 +246,7 @@ def build_sale_document(
                     "term": _clean(item.get("term")),
                 }
             )
-    items_total = sum(Decimal(str(line["subtotal"])) for line in lines)
+    items_total = sum(Decimal(str(line["subtotal"])) for line in lines) + fee
     methods = {
         _payment_method(order.get("payment_method"))
         for order in orders
@@ -204,7 +254,13 @@ def build_sale_document(
     }
     first = min(orders, key=lambda order: str(order.get("created_at") or "")) if orders else {}
     waiter = ((first.get("metadata") or {}).get("waiter") or {}).get("name") or ""
+    totals = document_totals(items_total, config.get("iva_percent"), bool(config.get("prices_include_iva")))
+    extra: dict[str, Any] = {}
+    if delivery is not None:
+        extra = {"delivery": delivery_block(orders[0], delivery, totals["total"]), "delivery_fee": _pesos(fee),
+                 "products_total": _pesos(items_total - fee)}
     return {
+        **extra,
         "title": DOCUMENT_TITLE,
         "not_invoice_notice": NOT_INVOICE_NOTICE,
         "dian_pending_notice": DIAN_PENDING_NOTICE if config.get("dian_electronic_enabled") else "",
@@ -227,7 +283,7 @@ def build_sale_document(
         "lines": lines,
         "iva_percent": float(config.get("iva_percent") or 0),
         "prices_include_iva": bool(config.get("prices_include_iva")),
-        **document_totals(items_total, config.get("iva_percent"), bool(config.get("prices_include_iva"))),
+        **totals,
         "withholdings": config.get("withholdings") or "",
         "resolution": config.get("resolution") or "",
         "footer": config.get("footer") or "",
@@ -372,7 +428,14 @@ async def _issue_sale_document(
         )
     await db.commit()
     identity = await _hospitality_company_identity(db, company_id)
-    return {"ok": True, "document": build_sale_document(config, identity, orders, number, issued_at)}
+    from app.api.v1.endpoints.waiter_ordering import _feature_enabled
+
+    try:
+        delivery_details = await _feature_enabled(db, company_id, DELIVERY_PRINT_FLAG)
+    except Exception:
+        delivery_details = False  # imprimir nunca falla por el interruptor: sale la cuenta de siempre
+    return {"ok": True, "document": build_sale_document(config, identity, orders, number, issued_at,
+                                                        delivery_details=delivery_details)}
 
 
 @router.post("/{company_id}/waiter-ordering/caja/documento")
