@@ -69,6 +69,8 @@
     redesign: false,
     // 049Y: imprimir / reimprimir la cuenta de un domicilio (interruptor delivery_print).
     deliveryPrint: false,
+    // 049Z: lo ya cobrado del turno, plegado y con buscador (no en la lista de tareas).
+    charged: { open: false, query: "", view: "" },
     summary: null,
     summaryAt: 0,
     z: null,
@@ -1813,6 +1815,7 @@
         </div>
         ${shiftLine049V()}
         <div class="cx5-actions">
+          <button class="cx5-btn cx5-btn-charged" type="button" data-csh-charged-open aria-label="Ventas cobradas del turno">✓ Cobrados${chargedRows049Z().length ? ` <span class="cx5-count-soft">${h(chargedRows049Z().length)}</span>` : ""}</button>
           <button class="cx5-btn cx5-btn-z" type="button" data-csh-z-open>🧾 Sacar Z</button>
           ${state.directSale ? `<button class="cx5-btn cx5-btn-primary" type="button" data-csh-new-sale>＋ Nueva venta</button>` : ""}
           <div class="cx5-more">
@@ -1919,91 +1922,55 @@
       </button>`;
   }
 
-  function paidSaleRow049V(row) {
-    return `
-      <div class="cx5-row is-paid" data-cx5-sale="${h(row.id)}">
-        <span class="cx5-row-main"><b>${h(row.label)}</b><small>${h(clockTime(row.closed_at || row.created_at))} · ${METHOD_ICONS_049V[row.method] || ""} ${h(row.method_label || "")} · ${h(row.products)} producto${row.products === 1 ? "" : "s"}</small></span>
-        <span class="cx5-pill is-paid">Cobrada</span>
-        <strong>${h(money(row.total))}</strong>
-        <button class="cx5-icon cx5-print" type="button" data-csh-print-order="${h(row.id)}" aria-label="Imprimir cuenta" ${state.printing ? "disabled" : ""}>🖨</button>
-      </div>`;
-  }
-
   function screenTables049V() {
     const now = Date.now();
     const { mesas, ventas } = splitTables049V(state.tables);
-    const paid = state.summary && Array.isArray(state.summary.direct_sales) ? state.summary.direct_sales.filter((r) => r.paid) : [];
-    const showDelivery = state.delivery || state.deliveries.length > 0;
-    const showSales = state.directSale || ventas.length > 0 || paid.length > 0;
+    // 049Z: en la pantalla principal SOLO lo que requiere accion: mesas
+    // abiertas, domicilios abiertos y ventas en preparacion o listas para
+    // cobrar. Lo cobrado se va a "Cobrados" (plegado, con buscador).
+    const pending = mesas.length + state.deliveries.length + ventas.length;
+    const side = [
+      state.deliveries.length ? section049V({
+        key: "domicilios", icon: "🛵", title: "Domicilios", count: state.deliveries.length, empty: "",
+        body: `<div class="cx5-grid cx5-grid-dl">${state.deliveries.map((o) => deliveryCard049V(o, now)).join("")}</div>`,
+      }) : "",
+      ventas.length ? section049V({
+        key: "ventas", icon: "🧾", title: "Ventas por cobrar", count: ventas.length, empty: "",
+        body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}</div>`,
+      }) : "",
+    ].filter(Boolean);
     return `
       <section class="cx5 cx5-home">
         ${topBar049V()}
         ${kpiStrip049V()}
         ${state.toast ? `<div class="cx5-toast" role="status">${h(state.toast)}</div>` : ""}
+        ${pending ? `
         ${state.lastCharged ? `
           <div class="cx5-last">
             <span>Última cobrada: <b>${h(state.lastCharged.label)}</b></span>
             <button class="cx5-mini" type="button" data-csh-print-last ${state.printing ? "disabled" : ""}>🖨 Imprimir cuenta</button>
           </div>` : ""}
-        ${mesas.length || state.deliveries.length ? `<div class="cx5-board ${showDelivery || showSales ? "" : "is-single"}">
-          ${section049V({
-            key: "mesas", icon: "🍽", title: "Mesas", count: mesas.length, empty: "No hay mesas abiertas",
+        <div class="cx5-board ${mesas.length && side.length ? "" : "is-single"}" data-cx5-tasks>
+          ${mesas.length ? section049V({
+            key: "mesas", icon: "🍽", title: "Mesas", count: mesas.length, empty: "",
             body: `<div class="cx5-grid">${mesas.map((t) => tableCard049V(t, now)).join("")}</div>`,
-          })}
-          ${showDelivery || showSales ? `<div class="cx5-side">
-            ${showDelivery ? section049V({
-              key: "domicilios", icon: "🛵", title: "Domicilios", count: state.deliveries.length, empty: "Sin domicilios abiertos",
-              body: `<div class="cx5-grid cx5-grid-dl">${state.deliveries.map((o) => deliveryCard049V(o, now)).join("")}</div>`,
-            }) : ""}
-            ${deliveryHistory049Y()}
-            ${showSales ? section049V({
-              key: "ventas", icon: "🧾", title: "Ventas de caja", count: ventas.length + paid.length, empty: "Aún no hay ventas directas en tu turno",
-              body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}${paid.map(paidSaleRow049V).join("")}</div>`,
-            }) : ""}
-          </div>` : ""}
-        </div>` : idleBoard049Y({ showDelivery, showSales, ventas, paid })}
+          }) : ""}
+          ${side.length ? (mesas.length ? `<div class="cx5-side">${side.join("")}</div>` : side.join("")) : ""}
+        </div>` : idleBoard049Y()}
       </section>`;
-  }
-
-  // 049Y: domicilios cobrados en el turno, para reimprimir su cuenta (como
-  // las ventas de caja). Solo con el interruptor delivery_print.
-  function deliveryHistory049Y() {
-    const rows = state.deliveryPrint && state.summary && Array.isArray(state.summary.deliveries_paid) ? state.summary.deliveries_paid : [];
-    if (!rows.length) return "";
-    return section049V({
-      key: "domicilios-cobrados", icon: "🧾", title: "Domicilios cobrados", count: rows.length, empty: "",
-      body: `<div class="cx5-rows">${rows.map((row) => `
-        <div class="cx5-row is-paid" data-cx5-delivery-paid="${h(row.id)}">
-          <span class="cx5-row-main"><b>${h(row.label)}</b><small>${h(clockTime(row.closed_at))} · ${h(row.customer || "")} · ${METHOD_ICONS_049V[row.method] || ""} ${h(row.method_label || "")}</small></span>
-          <span class="cx5-pill is-paid">Cobrado</span>
-          <strong>${h(money(row.total))}</strong>
-          <button class="cx5-icon cx5-print" type="button" data-csh-print-order="${h(row.id)}" aria-label="Reimprimir cuenta" ${state.printing ? "disabled" : ""}>🖨</button>
-        </div>`).join("")}</div>`,
-    });
   }
 
   // 049Y: sin mesas ni domicilios abiertos el tablero no deja media pantalla
   // vacia: las secciones vacias van en una franja y el resto lo ocupa un
   // aviso con las acciones de siempre (solo con el rediseno de caja).
-  function idleBoard049Y({ showDelivery, showSales, ventas, paid }) {
-    const salesCount = ventas.length + paid.length;
-    const salesSection = showSales ? section049V({
-      key: "ventas", icon: "🧾", title: "Ventas de caja", count: salesCount, empty: "Aún no hay ventas directas en tu turno",
-      body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}${paid.map(paidSaleRow049V).join("")}</div>`,
-    }) : "";
+  function idleBoard049Y() {
+    // 049Z: sin nada pendiente, solo el aviso (nada de listas de cobrados).
     return `
         <div class="cx5-board is-idle" data-cx5-idle>
-          <div class="cx5-idle-strip">
-            ${section049V({ key: "mesas", icon: "🍽", title: "Mesas", count: 0, empty: "No hay mesas abiertas", body: "" })}
-            ${showDelivery ? section049V({ key: "domicilios", icon: "🛵", title: "Domicilios", count: 0, empty: "Sin domicilios abiertos", body: "" }) : ""}
-            ${salesCount ? "" : salesSection}
-          </div>
-          ${salesCount ? salesSection : ""}
-          ${deliveryHistory049Y()}
           <div class="cx5-idle">
             <span class="cx5-idle-icon" aria-hidden="true">✓</span>
             <strong>Todo al día</strong>
-            <p>No hay mesas ni domicilios abiertos. Los pedidos nuevos aparecen aquí solos.</p>
+            <p>No hay mesas, domicilios ni ventas pendientes. Los pedidos nuevos aparecen aquí solos; lo cobrado está en «Cobrados».</p>
             <div class="cx5-idle-actions">
               ${state.directSale ? `<button class="cx5-btn cx5-btn-primary" type="button" data-csh-new-sale>＋ Nueva venta</button>` : ""}
               <button class="cx5-btn" type="button" data-csh-z-open>🧾 Sacar Z</button>
@@ -2288,6 +2255,75 @@
       ${z.cancelled_count ? `<p class="cx5-hint">Cancelados: ${h(z.cancelled_count)} por ${h(money(z.cancelled_total))} (no suman).</p>` : ""}`;
   }
 
+  // ------------------------------------------- 049Z: cobrados del turno
+  function chargedRows049Z() {
+    return state.summary && Array.isArray(state.summary.charged_accounts) ? state.summary.charged_accounts : [];
+  }
+
+  function norm049Z(value) {
+    return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  }
+
+  // Numero de venta, monto, cliente o metodo de pago (y mesa, mesero o
+  // producto). Cada palabra debe aparecer; un numero busca en el monto y en
+  // los numeros de la venta ("45.000", "$45000", "0042").
+  function chargedMatches049Z(row, query) {
+    const tokens = norm049Z(query).split(/\s+/).filter(Boolean);
+    if (!tokens.length) return true;
+    const text = norm049Z([row.label, (row.numbers || []).join(" "), row.document_number, row.customer, row.waiter,
+      row.method_label, row.channel_label, (row.items || []).map((i) => i.name).join(" ")].join(" "));
+    const digitsText = text.replace(/[^\d ]/g, "");
+    const amount = String(Math.round(Number(row.total || 0)));
+    return tokens.every((token) => {
+      if (/^[\d$.,]+$/.test(token)) {
+        const digits = token.replace(/[^\d]/g, "");
+        return !digits || amount.includes(digits) || digitsText.includes(digits);
+      }
+      return text.includes(token);
+    });
+  }
+
+  function chargedListHtml049Z() {
+    const rows = chargedRows049Z();
+    const found = rows.filter((row) => chargedMatches049Z(row, state.charged.query));
+    if (!rows.length) return `<p class="cx5-hint">Aún no hay ventas cobradas en este turno.</p>`;
+    if (!found.length) return `<p class="cx5-hint">Nada coincide con “${h(state.charged.query)}”.</p>`;
+    return found.map((row) => {
+      const open = state.charged.view === row.key;
+      return `
+        <div class="cx5-charged-row ${open ? "is-open" : ""}" data-cx5-charged="${h(row.key)}">
+          <button class="cx5-charged-main" type="button" data-csh-charged-view="${h(row.key)}" aria-expanded="${open ? "true" : "false"}">
+            <span><b>${h(row.label)}</b><small>${h(clockTime(row.closed_at))} · ${h(row.channel_label)}${row.customer ? ` · ${h(row.customer)}` : ""} · ${METHOD_ICONS_049V[row.method] || ""} ${h(row.method_label)}${row.document_number ? ` · N.º ${h(row.document_number)}` : ""}</small></span>
+            <strong>${h(money(row.total))}</strong>
+          </button>
+          <button class="cx5-icon cx5-print" type="button" data-csh-print-ids="${h((row.order_ids || []).join(","))}" aria-label="Reimprimir cuenta" ${state.printing ? "disabled" : ""}>🖨</button>
+          ${open ? `
+            <div class="cx5-charged-detail">
+              ${(row.items || []).map((item) => `<div><span>${h(item.qty)} × ${h(item.name)}</span><b>${h(money(item.subtotal))}</b></div>`).join("")}
+              ${row.waiter ? `<small>Atendió: ${h(row.waiter)}</small>` : ""}
+            </div>` : ""}
+        </div>`;
+    }).join("");
+  }
+
+  function chargedOverlay049Z() {
+    if (!state.charged.open) return "";
+    const rows = chargedRows049Z();
+    const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    return `
+      <div class="cx5-modal" data-csh-charged>
+        <div class="cx5-modal-card cx5-charged-card" role="dialog" aria-label="Ventas cobradas del turno">
+          <div class="cx5-charged-head">
+            <h2>✓ Cobrados del turno</h2>
+            <button class="cx5-icon" type="button" data-csh-charged-close aria-label="Cerrar">✕</button>
+          </div>
+          <p class="cx5-hint">${h(rows.length)} venta${rows.length === 1 ? "" : "s"} · ${h(money(total))}. Busca por número de venta, monto, cliente o método de pago.</p>
+          <input class="cx5-charged-search" type="search" autocomplete="off" placeholder="Ej: 0042, 45000, Ana, efectivo" value="${h(state.charged.query)}" data-csh-charged-q>
+          <div class="cx5-charged-list" id="cx5ChargedList">${chargedListHtml049Z()}</div>
+        </div>
+      </div>`;
+  }
+
   function zOverlay049V() {
     const z = state.z;
     if (!z) return "";
@@ -2464,6 +2500,7 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     if (Alerts && Alerts.setVisible) Alerts.setVisible(state.screen !== "login");
     if (state.screen !== "login") html += costosOverlay048U();
     if (cx5) html += zOverlay049V();
+    if (cx5) html += chargedOverlay049Z();
     if (cx5) root.setAttribute("data-cx5", "1");
     else if (root.removeAttribute) root.removeAttribute("data-cx5");
     root.innerHTML = html;
@@ -2526,6 +2563,16 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     if (box) box.innerHTML = productsHtml049V();
     const cats = root.querySelector ? root.querySelector(".cx5-cats") : null;
     if (cats && cats.classList) cats.classList.toggle("is-compact", Boolean(state.sale.query.trim() || state.sale.category));
+  });
+
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target || !target.closest || !target.closest("[data-csh-charged-q]")) return;
+    state.charged.query = String(target.value || "");
+    state.charged.view = "";
+    const list = document.getElementById("cx5ChargedList");
+    if (list) list.innerHTML = chargedListHtml049Z();
+    else safeRender();
   });
 
   document.addEventListener("submit", (event) => {
@@ -2602,6 +2649,29 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     }
     if (target.closest("[data-csh-more]")) { state.moreOpen = !state.moreOpen; safeRender(); return; }
     if (target.closest("[data-csh-z-open]")) { openZ049V(); return; }
+    if (target.closest("[data-csh-charged-open]")) {
+      state.charged = { open: true, query: "", view: "" };
+      state.moreOpen = false;
+      loadSummary049V();
+      safeRender();
+      return;
+    }
+    if (target.closest("[data-csh-charged-close]")) { state.charged.open = false; safeRender(); return; }
+    const chargedView = target.closest("[data-csh-charged-view]");
+    if (chargedView) {
+      const key = chargedView.getAttribute("data-csh-charged-view") || "";
+      state.charged.view = state.charged.view === key ? "" : key;
+      const list = document.getElementById("cx5ChargedList");
+      if (list) list.innerHTML = chargedListHtml049Z();
+      else safeRender();
+      return;
+    }
+    const printIds = target.closest("[data-csh-print-ids]");
+    if (printIds && !printIds.disabled) {
+      const ids = String(printIds.getAttribute("data-csh-print-ids") || "").split(",").filter(Boolean);
+      if (ids.length) printAccount(ids);
+      return;
+    }
     if (target.closest("[data-csh-z-register]")) { registerZ049V(); return; }
     if (target.closest("[data-csh-z-close]")) { state.z = null; safeRender(); return; }
     if (target.closest("[data-csh-z-print]")) { if (state.z && state.z.saved) printZ049V(state.z.saved); return; }
@@ -3000,6 +3070,18 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     .cx5-board.is-single{grid-template-columns:minmax(0,1fr)}
     .cx5-board.is-idle{flex:1 0 auto;display:flex;flex-direction:column;align-items:stretch}
     .cx5-board.is-idle>.cx5-idle{flex:1 0 240px}
+    .cx5-count-soft{margin-left:4px;padding:0 7px;border-radius:999px;background:rgba(var(--k-ink-rgb),.1);font-size:12px}
+    .cx5-charged-card{width:min(640px,calc(100vw - 32px));max-height:min(86vh,760px);display:flex;flex-direction:column}
+    .cx5-charged-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .cx5-charged-head h2{margin:0}
+    .cx5-charged-search{width:100%;min-height:46px;margin:6px 0 10px;padding:0 14px;border-radius:12px;border:1px solid var(--k-line);background:var(--k-field);color:var(--k-ink);font:inherit;font-size:15px;box-sizing:border-box}
+    .cx5-charged-list{flex:1;overflow:auto;display:grid;gap:8px;align-content:start}
+    .cx5-charged-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:center;padding:8px;border-radius:14px;border:1px solid var(--k-line);background:var(--k-surface)}
+    .cx5-charged-main{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:4px 6px;border:0;background:none;color:var(--k-ink);font:inherit;text-align:left;cursor:pointer}
+    .cx5-charged-main span{display:grid;min-width:0}.cx5-charged-main small{color:var(--k-muted);font-size:12px}
+    .cx5-charged-detail{grid-column:1/-1;display:grid;gap:4px;padding:6px 8px 2px;border-top:1px dashed var(--k-line);font-size:14px}
+    .cx5-charged-detail div{display:flex;justify-content:space-between;gap:10px}
+    .cx5-charged-detail small{color:var(--k-muted)}
     .csh-delivery-print{display:flex;justify-content:flex-end;margin:4px 0 8px}
     .cx5-idle-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
     .cx5-idle{display:grid;place-content:center;justify-items:center;gap:8px;padding:32px 20px;text-align:center;border-radius:24px;border:1.5px dashed var(--k-line);background:rgba(var(--k-ink-rgb),.02)}

@@ -35,7 +35,9 @@ function routes(flag, documentCalls) {
     if (url.includes('/waiter-ordering/menu')) return [200, { categories: [] }];
     if (url.includes('/waiter-ordering/caja/config')) return [200, { direct_sale: true, delivery: true, redesign: true, delivery_print: flag }];
     if (url.includes('/caja/resumen')) return [200, { sold: 0, charged: 0, pending: 0, orders: 0, accounts: 0, ticket: 0, deliveries: 1, tables: 0, methods: [], direct_sales: [],
-      deliveries_paid: [{ id: 'd0', label: 'Domicilio 0041', customer: 'Luis', total: 38000, method: 'cash', method_label: 'Efectivo', closed_at: new Date().toISOString() }] }];
+      deliveries_paid: [{ id: 'd0', label: 'Domicilio 0041', customer: 'Luis', total: 38000, method: 'cash', method_label: 'Efectivo', closed_at: new Date().toISOString() }],
+      charged_accounts: [{ key: 'd0', order_ids: ['d0'], label: 'Domicilio 0041', channel: 'domicilio', channel_label: 'Domicilio', numbers: ['0041'], document_number: '',
+        customer: 'Luis', waiter: '', total: 38000, method: 'cash', method_label: 'Efectivo', closed_at: new Date().toISOString(), items: [] }] }];
     if (url.includes('/caja-arqueo/')) return [403, { detail: 'cash_count_not_enabled' }];
     if (url.includes('/domicilios/')) return [200, { drivers: [] }];
     if (url.includes('/mini-panel-operational-session')) return [200, { operational_session: { status: 'active', active_seconds: 0, break_seconds: 0 } }];
@@ -76,18 +78,19 @@ test('el detalle del domicilio tiene "Imprimir cuenta" e imprime ese pedido', as
   assert.match(frame.written, /cxdoc-pay-state[^"]*is-pending/);
 });
 
-test('los domicilios cobrados del turno se pueden reimprimir', async () => {
+test('los domicilios cobrados se reimprimen desde «Cobrados» (049Z: ya no ocupan la pantalla)', async () => {
   const { b, documentCalls } = await ready(true);
-  assert.match(b.root.innerHTML, /Domicilios cobrados/);
+  assert.doesNotMatch(b.root.innerHTML, /Domicilio 0041/);
+  b.click('data-csh-charged-open');
+  for (let i = 0; i < 4; i += 1) await flush();
   assert.match(b.root.innerHTML, /Domicilio 0041/);
-  b.click('data-csh-print-order', 'd0');
+  b.click('data-csh-print-ids', 'd0');
   for (let i = 0; i < 4; i += 1) await flush();
   assert.deepEqual(documentCalls[0], { order_ids: ['d0'] });
 });
 
 test('sin el interruptor, el detalle y el tablero quedan como antes', async () => {
   const { b } = await ready(false);
-  assert.doesNotMatch(b.root.innerHTML, /Domicilios cobrados/);
   await openDelivery(b);
   assert.doesNotMatch(b.root.innerHTML, /data-csh-print-order="d1"/);
 });

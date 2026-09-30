@@ -148,6 +148,68 @@ def delivery_row(order: dict) -> dict:
     }
 
 
+def _tail(order: dict) -> str:
+    return str(order.get("order_number") or "").rsplit("-", 1)[-1].strip()
+
+
+def _item_rows(orders: list[dict]) -> list[dict]:
+    rows = []
+    for item in (i for o in orders for i in report.as_list(o.get("items")) if isinstance(i, dict)):
+        subtotal = item.get("subtotal")
+        amount = _dec(subtotal) if subtotal is not None else _dec(item.get("unit_price")) * _dec(item.get("quantity"))
+        qty = item.get("quantity_label") or f"{float(_dec(item.get('quantity'))):g}"
+        rows.append({"qty": str(qty), "name": str(item.get("name") or "Producto"), "subtotal": report.money(amount)})
+    return rows
+
+
+def charged_accounts(paid: list[dict]) -> list[dict]:
+    """049Z: lo YA cobrado del turno, una fila por cuenta (una mesa desde que
+    se abre hasta que se cobra = una cuenta, como en Reportes), con lo que el
+    buscador de la caja necesita: numero, monto, cliente, metodo y detalle
+    para reimprimir. Lo mas reciente primero."""
+    groups: dict[tuple, list[dict]] = {}
+    for order in paid:
+        channel = report.channel_of(order)
+        if channel == "mesa":
+            closed = report.aware(order.get("closed_at"))
+            key = ("mesa", str(order.get("table_key") or order.get("table_number") or ""),
+                   closed.replace(microsecond=0).isoformat() if closed else "")
+        else:
+            key = (channel, str(order.get("id")))
+        groups.setdefault(key, []).append(order)
+    rows = []
+    for (channel, _ref, *_rest), orders in groups.items():
+        first = orders[0]
+        meta = report.as_dict(first.get("metadata"))
+        delivery = report.as_dict(meta.get("delivery"))
+        numbers = [t for t in (_tail(o) for o in orders) if t]
+        if channel == "domicilio":
+            label = f"Domicilio {numbers[0]}" if numbers else "Domicilio"
+        elif channel == "venta_directa":
+            label = _direct_label(first)
+        else:
+            label = str(first.get("table_number") or "Mesa")
+        closed = max((report.aware(o.get("closed_at")) for o in orders if report.aware(o.get("closed_at"))), default=None)
+        document = report.as_dict(meta.get("sale_document"))
+        rows.append({
+            "key": "|".join(sorted(str(o.get("id")) for o in orders)),
+            "order_ids": [str(o.get("id")) for o in orders],
+            "label": label,
+            "channel": channel,
+            "channel_label": report.CHANNEL_LABELS.get(channel, channel),
+            "numbers": numbers,
+            "document_number": str(document.get("number") or ""),
+            "customer": str(delivery.get("customer_name") or first.get("customer_name") or ""),
+            "waiter": str(report.as_dict(meta.get("waiter")).get("name") or ""),
+            "total": report.money(_sum(orders)),
+            "method": method_of(first),
+            "method_label": METHOD_LABELS[method_of(first)],
+            "closed_at": closed.isoformat() if closed else None,
+            "items": _item_rows(orders),
+        })
+    return sorted(rows, key=lambda r: str(r["closed_at"] or ""), reverse=True)
+
+
 def window(orders: list[dict], since: datetime | None) -> dict:
     """049W: el UNICO filtro de pedidos de la caja. Indicadores y Z parten de
     aqui, asi el Z suma exactamente lo que el panel muestra como cobrado."""
@@ -181,6 +243,7 @@ def shift_summary(orders: list[dict], since: datetime | None) -> dict:
         "direct_count": len(direct),
         "methods": methods(paid),
         "direct_sales": [direct_sale_row(o) for o in sorted(direct, key=lambda o: str(_iso(o.get("created_at")) or ""), reverse=True)],
+        "charged_accounts": charged_accounts(paid),
         "deliveries_paid": [delivery_row(o) for o in sorted(
             (o for o in paid if report.channel_of(o) == "domicilio"),
             key=lambda o: str(_iso(o.get("closed_at")) or ""), reverse=True)],

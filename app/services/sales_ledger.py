@@ -36,7 +36,7 @@ CANCELLED = {"cancelado", "cancelled", "canceled", "merma"}
 PAID = "cerrado"
 ORDER_COLUMNS = (
     "id, order_number, created_at, updated_at, closed_at, cancelled_at, archived_at, status, order_type, source, "
-    "table_key, table_number, payment_method, total, items, metadata, inventory_deducted"
+    "table_key, table_number, customer_name, payment_method, total, items, metadata, inventory_deducted"
 )
 
 
