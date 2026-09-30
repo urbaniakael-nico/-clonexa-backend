@@ -1925,20 +1925,12 @@
   function screenTables049V() {
     const now = Date.now();
     const { mesas, ventas } = splitTables049V(state.tables);
-    // 049Z: en la pantalla principal SOLO lo que requiere accion: mesas
-    // abiertas, domicilios abiertos y ventas en preparacion o listas para
-    // cobrar. Lo cobrado se va a "Cobrados" (plegado, con buscador).
+    // 049Z: las tres secciones por origen (Mesas, Domicilios, Ventas de caja)
+    // se ven siempre, cada una con su contador y SOLO con lo pendiente: lo
+    // cobrado se va a "Cobrados". Vacia = una linea compacta. "Todo al dia"
+    // solo cuando las tres estan vacias.
+    const sections = originSections049Z(mesas, ventas, now);
     const pending = mesas.length + state.deliveries.length + ventas.length;
-    const side = [
-      state.deliveries.length ? section049V({
-        key: "domicilios", icon: "🛵", title: "Domicilios", count: state.deliveries.length, empty: "",
-        body: `<div class="cx5-grid cx5-grid-dl">${state.deliveries.map((o) => deliveryCard049V(o, now)).join("")}</div>`,
-      }) : "",
-      ventas.length ? section049V({
-        key: "ventas", icon: "🧾", title: "Ventas por cobrar", count: ventas.length, empty: "",
-        body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}</div>`,
-      }) : "",
-    ].filter(Boolean);
     return `
       <section class="cx5 cx5-home">
         ${topBar049V()}
@@ -1950,27 +1942,47 @@
             <span>Última cobrada: <b>${h(state.lastCharged.label)}</b></span>
             <button class="cx5-mini" type="button" data-csh-print-last ${state.printing ? "disabled" : ""}>🖨 Imprimir cuenta</button>
           </div>` : ""}
-        <div class="cx5-board ${mesas.length && side.length ? "" : "is-single"}" data-cx5-tasks>
-          ${mesas.length ? section049V({
-            key: "mesas", icon: "🍽", title: "Mesas", count: mesas.length, empty: "",
-            body: `<div class="cx5-grid">${mesas.map((t) => tableCard049V(t, now)).join("")}</div>`,
-          }) : ""}
-          ${side.length ? (mesas.length ? `<div class="cx5-side">${side.join("")}</div>` : side.join("")) : ""}
-        </div>` : idleBoard049Y()}
+        <div class="cx5-board ${sections.side.length ? "" : "is-single"}" data-cx5-tasks>
+          ${sections.mesas}
+          ${sections.side.length ? `<div class="cx5-side">${sections.side.join("")}</div>` : ""}
+        </div>` : idleBoard049Y(sections)}
       </section>`;
   }
 
-  // 049Y: sin mesas ni domicilios abiertos el tablero no deja media pantalla
-  // vacia: las secciones vacias van en una franja y el resto lo ocupa un
-  // aviso con las acciones de siempre (solo con el rediseno de caja).
-  function idleBoard049Y() {
-    // 049Z: sin nada pendiente, solo el aviso (nada de listas de cobrados).
+  function originSections049Z(mesas, ventas, now) {
+    const showDelivery = state.delivery || state.deliveries.length > 0;
+    const showSales = state.directSale || ventas.length > 0;
+    return {
+      mesas: section049V({
+        key: "mesas", icon: "🍽", title: "Mesas", count: mesas.length, empty: "Sin mesas abiertas",
+        body: `<div class="cx5-grid">${mesas.map((t) => tableCard049V(t, now)).join("")}</div>`,
+      }),
+      side: [
+        showDelivery ? section049V({
+          key: "domicilios", icon: "🛵", title: "Domicilios", count: state.deliveries.length, empty: "Sin domicilios abiertos",
+          body: `<div class="cx5-grid cx5-grid-dl">${state.deliveries.map((o) => deliveryCard049V(o, now)).join("")}</div>`,
+        }) : "",
+        showSales ? section049V({
+          key: "ventas", icon: "🧾", title: "Ventas de caja", count: ventas.length, empty: "Sin ventas de caja pendientes",
+          body: `<div class="cx5-rows">${ventas.map(openSaleRow049V).join("")}</div>`,
+        }) : "",
+      ].filter(Boolean),
+    };
+  }
+
+  // 049Y: sin nada pendiente el tablero no deja media pantalla vacia: las
+  // tres secciones compactas en una franja y el aviso "Todo al dia" ocupa el
+  // resto (049Z: nunca listas de cobrados).
+  function idleBoard049Y(sections) {
     return `
         <div class="cx5-board is-idle" data-cx5-idle>
+          <div class="cx5-idle-strip">
+            ${sections ? [sections.mesas, ...sections.side].join("") : ""}
+          </div>
           <div class="cx5-idle">
             <span class="cx5-idle-icon" aria-hidden="true">✓</span>
             <strong>Todo al día</strong>
-            <p>No hay mesas, domicilios ni ventas pendientes. Los pedidos nuevos aparecen aquí solos; lo cobrado está en «Cobrados».</p>
+            <p>No hay mesas, domicilios ni ventas de caja pendientes. Los pedidos nuevos aparecen aquí solos; lo cobrado está en «Cobrados».</p>
             <div class="cx5-idle-actions">
               ${state.directSale ? `<button class="cx5-btn cx5-btn-primary" type="button" data-csh-new-sale>＋ Nueva venta</button>` : ""}
               <button class="cx5-btn" type="button" data-csh-z-open>🧾 Sacar Z</button>
@@ -3071,11 +3083,13 @@ ${z.cancelled_count ? line(`Cancelados: ${z.cancelled_count}`, money(z.cancelled
     .cx5-board.is-idle{flex:1 0 auto;display:flex;flex-direction:column;align-items:stretch}
     .cx5-board.is-idle>.cx5-idle{flex:1 0 240px}
     .cx5-count-soft{margin-left:4px;padding:0 7px;border-radius:999px;background:rgba(var(--k-ink-rgb),.1);font-size:12px}
-    .cx5-charged-card{width:min(640px,calc(100vw - 32px));max-height:min(86vh,760px);display:flex;flex-direction:column}
+    /* 049Z: la ventana nunca se sale de la pantalla: encabezado y buscador fijos, solo la lista se desplaza. */
+    .cx5-modal-card.cx5-charged-card{width:min(640px,calc(100vw - 32px));max-height:min(760px,calc(100vh - 32px));max-height:min(760px,calc(100dvh - 32px));display:flex;flex-direction:column;gap:0;overflow:hidden;box-sizing:border-box}
+    .cx5-charged-card>.cx5-charged-head,.cx5-charged-card>.cx5-hint,.cx5-charged-card>.cx5-charged-search{flex:0 0 auto}
     .cx5-charged-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
     .cx5-charged-head h2{margin:0}
     .cx5-charged-search{width:100%;min-height:46px;margin:6px 0 10px;padding:0 14px;border-radius:12px;border:1px solid var(--k-line);background:var(--k-field);color:var(--k-ink);font:inherit;font-size:15px;box-sizing:border-box}
-    .cx5-charged-list{flex:1;overflow:auto;display:grid;gap:8px;align-content:start}
+    .cx5-charged-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:grid;gap:8px;align-content:start;padding-right:2px}
     .cx5-charged-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:center;padding:8px;border-radius:14px;border:1px solid var(--k-line);background:var(--k-surface)}
     .cx5-charged-main{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:4px 6px;border:0;background:none;color:var(--k-ink);font:inherit;text-align:left;cursor:pointer}
     .cx5-charged-main span{display:grid;min-width:0}.cx5-charged-main small{color:var(--k-muted);font-size:12px}

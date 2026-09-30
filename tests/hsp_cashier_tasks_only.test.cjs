@@ -67,14 +67,20 @@ const sections = (html) => (html.match(/class="cx5-sec cx5-sec-/g) || []).length
 test('una venta cobrada desaparece de la lista principal', async () => {
   const { b, world } = await ready({ orders: [OPEN_SALE], charged: CHARGED.slice(1) });
   assert.match(b.root.innerHTML, /data-csh-open-table="venta 014"/);
-  assert.match(b.root.innerHTML, /Ventas por cobrar/);
+  assert.match(b.root.innerHTML, /data-cx5-count="ventas">1</);
   // Se cobra: ya no está entre los pedidos abiertos y pasa a los cobrados.
   world.orders = [];
   world.summary = summary(CHARGED);
   (b.listeners.document.visibilitychange || []).forEach((cb) => cb());
   await settle();
   assert.doesNotMatch(b.root.innerHTML, /Venta 014/);
+  assert.match(b.root.innerHTML, /data-cx5-count="ventas">0</, 'la sección sigue, vacía y compacta');
   assert.doesNotMatch(b.root.innerHTML, /Domicilio 0042|Mesa 7/, 'lo cobrado nunca aparece en la pantalla principal');
+  // ...y aparece en «Cobrados».
+  b.click('data-csh-charged-open');
+  await settle();
+  const list = b.root.innerHTML.slice(b.root.innerHTML.indexOf('id="cx5ChargedList"'));
+  assert.match(list, /Venta 014/);
 });
 
 test('se encuentra en «Cobrados» por número, monto, cliente o método, se ve el detalle y se reimprime', async () => {
@@ -112,14 +118,42 @@ test('se encuentra en «Cobrados» por número, monto, cliente o método, se ve 
   assert.deepEqual(world.documents[0], { order_ids: ['m1', 'm2'] }, 'la mesa se reimprime con todos sus pedidos');
 });
 
-test('con todo cobrado la pantalla muestra «Todo al día» y nada más', async () => {
+test('con todo cobrado: las tres secciones compactas y «Todo al día», sin listas de cobrados', async () => {
   const { b } = await ready({ orders: [], charged: CHARGED });
   const html = b.root.innerHTML;
   assert.match(html, /data-cx5-idle/);
   assert.match(html, /Todo al día/);
-  assert.equal(sections(html), 0, 'ninguna lista: ni vacías ni de cobrados');
+  assert.equal(sections(html), 3, 'Mesas, Domicilios y Ventas de caja, siempre');
+  for (const [key, text] of [['mesas', 'Sin mesas abiertas'], ['domicilios', 'Sin domicilios abiertos'], ['ventas', 'Sin ventas de caja pendientes']]) {
+    assert.match(html, new RegExp(`cx5-sec-${key} is-empty`), `${key} compacta`);
+    assert.match(html, new RegExp(`data-cx5-count="${key}">0<`));
+    assert.match(html, new RegExp(text));
+  }
   assert.doesNotMatch(html, /Venta 014|Domicilio 0042|Mesa 7/);
   assert.doesNotMatch(html, /id="cx5ChargedList"/, '«Cobrados» está plegado');
+});
+
+test('«Todo al día» solo cuando las tres están vacías', async () => {
+  const { b } = await ready({ orders: [OPEN_SALE], charged: [] });
+  assert.doesNotMatch(b.root.innerHTML, /Todo al día/);
+  assert.equal(sections(b.root.innerHTML), 3);
+  assert.match(b.root.innerHTML, /cx5-sec-mesas is-empty/);
+});
+
+test('la ventana de cobrados se desplaza dentro de sí misma: encabezado y buscador fijos', () => {
+  const { source } = require('./_cashier_boot.cjs');
+  const card = source.match(/\.cx5-modal-card\.cx5-charged-card\{([^}]*)\}/);
+  assert.ok(card, 'la regla gana a la base de .cx5-modal-card (más específica)');
+  assert.match(card[1], /display:flex/);
+  assert.match(card[1], /flex-direction:column/);
+  assert.match(card[1], /max-height:min\(760px,calc\(100dvh - 32px\)\)/, 'nunca más alta que la pantalla');
+  assert.match(card[1], /overflow:hidden/);
+  const list = source.match(/\.cx5-charged-list\{([^}]*)\}/)[1];
+  assert.match(list, /min-height:0/, 'sin esto la lista no se encoge y se desborda');
+  assert.match(list, /overflow-y:auto/);
+  assert.match(source, /\.cx5-charged-card>\.cx5-charged-head,\.cx5-charged-card>\.cx5-hint,\.cx5-charged-card>\.cx5-charged-search\{flex:0 0 auto\}/);
+  // La base (.cx5-modal-card con display:grid) va después: la regla de cobrados debe ser más específica.
+  assert.ok(source.indexOf('.cx5-modal-card{') > 0);
 });
 
 test('los indicadores siguen mostrando el total del turno', async () => {

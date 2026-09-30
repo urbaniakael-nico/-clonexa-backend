@@ -81,7 +81,7 @@ function section(html, key) {
   return html.slice(start, next < 0 ? undefined : next);
 }
 
-test('la pantalla principal muestra solo lo que requiere acción, cada sección con su contador', async () => {
+test('las tres secciones por origen, cada una con su contador y solo lo pendiente', async () => {
   const b = await ready();
   const html = b.root.innerHTML;
   assert.equal(b.root.attrs['data-cx5'], '1');
@@ -92,10 +92,16 @@ test('la pantalla principal muestra solo lo que requiere acción, cada sección 
   assert.doesNotMatch(mesas, /Venta 014/);                          // la venta de caja no es una mesa
   assert.match(mesas, /Laura/);
   const ventas = section(html, 'ventas');
+  assert.match(ventas, /Ventas de caja/);
   assert.match(ventas, /data-cx5-count="ventas">1</);              // 049Z: solo la que falta cobrar
   assert.match(ventas, /data-csh-open-table="venta 014"/);
-  assert.doesNotMatch(html, /Venta 013/, 'lo cobrado no está en la lista de tareas');
-  assert.doesNotMatch(html, /cx5-sec-domicilios/, 'sin domicilios abiertos, no hay sección vacía');
+  assert.doesNotMatch(html, /Venta 013/, 'lo cobrado no está en la pantalla principal');
+  const domicilios = section(html, 'domicilios');
+  assert.match(domicilios, /data-cx5-count="domicilios">0</);
+  assert.match(domicilios, /is-empty/);                             // vacía = una línea, sin cuadrícula
+  assert.match(domicilios, /Sin domicilios abiertos/);
+  assert.doesNotMatch(domicilios, /cx5-grid/);
+  assert.doesNotMatch(html, /Todo al día/, 'hay pendientes');
 });
 
 test('los domicilios salen con su dirección y estado de pago', async () => {
