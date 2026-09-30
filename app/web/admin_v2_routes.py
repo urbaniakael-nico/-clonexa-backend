@@ -2,9 +2,12 @@ import base64
 import binascii
 import hashlib
 import hmac
+import logging
 import os
 import secrets
+import threading
 import time
+from collections import deque
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -20,10 +23,17 @@ router = APIRouter()
 WEB_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = WEB_DIR / "assets"
 ADMIN_V2_EMAIL = os.getenv("CLONEXA_ADMIN_V2_EMAIL", "clonexasaas@gmail.com").strip().lower()
-ADMIN_V2_PASSWORD_HASH = os.getenv(
-    "CLONEXA_ADMIN_V2_PASSWORD_SHA256",
-    "8a0b1744088773d637ad0b016cc2424fac07ae0a59a9dd946a8022958e55e10c",
-).strip().lower()
+# La clave del acceso maestro NUNCA vive en el repo: solo en variables de
+# entorno (Railway). CLONEXA_ADMIN_V2_PASSWORD_BCRYPT manda; el SHA-256 sin sal
+# solo se acepta por compatibilidad y avisa en el log. Sin ninguna de las dos,
+# el login queda cerrado (nunca se abre la puerta por defecto).
+# Genera el hash con: python scripts/admin_v2_hash.py
+PASSWORD_BCRYPT_ENV = "CLONEXA_ADMIN_V2_PASSWORD_BCRYPT"
+PASSWORD_SHA256_ENV = "CLONEXA_ADMIN_V2_PASSWORD_SHA256"
+UNCONFIGURED_MESSAGE = "Acceso maestro sin configurar: define CLONEXA_ADMIN_V2_PASSWORD_BCRYPT en Railway"
+LOGIN_MAX_FAILURES = 5
+LOGIN_WINDOW_SECONDS = 15 * 60
+log = logging.getLogger("clonexa.admin_v2")
 ADMIN_V2_COOKIE = "clonexa_admin_v2_session"
 ADMIN_V2_SESSION_SECONDS = 8 * 60 * 60
 ADMIN_V2_CLIENT_PREVIEW_COOKIE = "clonexa_admin_company_preview"
@@ -50,6 +60,86 @@ def _is_secure_request(request: Request) -> bool:
 
 def _password_hash(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def master_access_mode() -> str:
+    """bcrypt | sha256_legacy | unset (lo lee en cada llamada: sin reinicio)."""
+    if os.getenv(PASSWORD_BCRYPT_ENV, "").strip():
+        return "bcrypt"
+    if os.getenv(PASSWORD_SHA256_ENV, "").strip():
+        return "sha256_legacy"
+    return "unset"
+
+
+_legacy_warned = False
+
+
+def _verify_master_password(password: str) -> bool:
+    global _legacy_warned
+    mode = master_access_mode()
+    if mode == "bcrypt":
+        import bcrypt
+
+        stored = os.getenv(PASSWORD_BCRYPT_ENV, "").strip().encode("utf-8")
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), stored)
+        except (ValueError, TypeError):
+            log.error("%s no es un hash bcrypt valido: el acceso maestro queda cerrado.", PASSWORD_BCRYPT_ENV)
+            return False
+    if mode == "sha256_legacy":
+        if not _legacy_warned:
+            log.warning("Acceso maestro con %s (SHA-256 sin sal): migra a %s con scripts/admin_v2_hash.py.",
+                        PASSWORD_SHA256_ENV, PASSWORD_BCRYPT_ENV)
+            _legacy_warned = True
+        expected = os.getenv(PASSWORD_SHA256_ENV, "").strip().lower()
+        return hmac.compare_digest(_password_hash(password), expected)
+    return False
+
+
+# Limite de intentos: 5 fallos por IP en 15 minutos (en memoria, por proceso).
+_login_failures: dict[str, deque] = {}
+_login_lock = threading.Lock()
+
+
+def _login_ip(request: Request) -> str:
+    # El proxy de Railway agrega la IP real AL FINAL de X-Forwarded-For; lo
+    # primero lo puede escribir el cliente. Para el limite se usa lo ultimo.
+    forwarded = request.headers.get("x-forwarded-for", "")
+    parts = [part.strip() for part in forwarded.split(",") if part.strip()]
+    if parts:
+        return parts[-1]
+    return request.client.host if request.client else "desconocida"
+
+
+def _recent_failures(ip: str, now: float) -> deque:
+    failures = _login_failures.setdefault(ip, deque())
+    while failures and now - failures[0] > LOGIN_WINDOW_SECONDS:
+        failures.popleft()
+    return failures
+
+
+def _login_blocked(ip: str) -> int:
+    """Segundos que faltan para volver a intentar (0 = puede intentar)."""
+    now = time.time()
+    with _login_lock:
+        failures = _recent_failures(ip, now)
+        if len(failures) < LOGIN_MAX_FAILURES:
+            return 0
+        return max(1, int(LOGIN_WINDOW_SECONDS - (now - failures[0])))
+
+
+def _register_failure(ip: str) -> None:
+    now = time.time()
+    with _login_lock:
+        _recent_failures(ip, now).append(now)
+        count = len(_login_failures[ip])
+    log.warning("Acceso maestro: intento fallido desde %s a las %s (%s en 15 min).",
+                ip, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now)) + " UTC", count)
+
+
+def _clear_failures(ip: str) -> None:
+    with _login_lock:
+        _login_failures.pop(ip, None)
 
 
 def _create_session_token(email: str, session_key: str) -> str:
@@ -171,7 +261,9 @@ async def _read_login_payload(request: Request) -> dict[str, str]:
 
 
 def _login_html(error: str = "") -> str:
-    error_markup = f'<div class="error">{error}</div>' if error else ""
+    from html import escape
+
+    error_markup = f'<div class="error">{escape(error)}</div>' if error else ""
     return f"""<!doctype html>
 <html lang="es">
 <head>
@@ -309,19 +401,38 @@ def _login_html(error: str = "") -> str:
 async def admin_v2_login_page(request: Request, db: AsyncSession = Depends(get_db)):
     if await _active_session(request, db):
         return RedirectResponse(url="/admin-v2", status_code=303)
+    if master_access_mode() == "unset":
+        return _no_store(HTMLResponse(_login_html(UNCONFIGURED_MESSAGE), status_code=503))
     return _no_store(HTMLResponse(_login_html()))
 
 
 @router.post("/admin-v2/login", include_in_schema=False)
 async def admin_v2_login(request: Request, db: AsyncSession = Depends(get_db)):
+    if master_access_mode() == "unset":
+        log.error("Intento de acceso maestro con el login cerrado: %s", UNCONFIGURED_MESSAGE)
+        return _no_store(HTMLResponse(_login_html(UNCONFIGURED_MESSAGE), status_code=503))
+    ip = _login_ip(request)
+    wait = _login_blocked(ip)
+    if wait:
+        minutes = max(1, (wait + 59) // 60)
+        log.warning("Acceso maestro bloqueado para %s: demasiados intentos fallidos.", ip)
+        response = HTMLResponse(
+            _login_html(f"Demasiados intentos fallidos. Espera {minutes} minuto(s) antes de volver a intentar."),
+            status_code=429,
+        )
+        response.headers["Retry-After"] = str(wait)
+        return _no_store(response)
+
     payload = await _read_login_payload(request)
     email = payload.get("email", "").strip().lower()
     password = payload.get("password", "")
 
     valid_email = hmac.compare_digest(email, ADMIN_V2_EMAIL)
-    valid_password = hmac.compare_digest(_password_hash(password), ADMIN_V2_PASSWORD_HASH)
+    valid_password = _verify_master_password(password)
     if not (valid_email and valid_password):
+        _register_failure(ip)
         return _no_store(HTMLResponse(_login_html("Credenciales invalidas."), status_code=401))
+    _clear_failures(ip)
 
     previous_sessions = await list_access_sessions(
         db,
