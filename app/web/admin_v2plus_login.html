@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CLONEXA · Entrar a la Consola v2+</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Cinzel:wght@900&family=JetBrains+Mono:wght@400;600&display=swap" />
+  <link rel="stylesheet" href="/admin-v2plus.css" />
+</head>
+<body class="vp-login-body" data-has-passkeys="__HAS_PASSKEYS__" data-unset="__UNSET__">
+  <main class="vp-login vp-panel">
+    <div class="cx-brand">
+      <div class="cx-logo-wrap">
+        <img class="cx-logo-img" src="/admin-v2-assets/clonexa-logo.png" alt="CLONEXA" onerror="this.style.display='none';document.querySelector('.cx-logo-fallback').style.display='grid';" />
+        <div class="cx-logo-fallback" aria-hidden="true">CX</div>
+      </div>
+      <div>
+        <div class="cx-brand-title">CLONEXA</div>
+        <div class="cx-brand-subtitle">Consola v2+</div>
+      </div>
+    </div>
+    <p class="vp-eyebrow">ACCESO MAESTRO</p>
+    <h1 class="vp-title vp-login-title">Entrar</h1>
+
+    <div class="vp-alert" role="alert" data-vp-login-error __ERROR_HIDDEN__>__ERROR__</div>
+
+    <section class="vp-login-passkey" data-vp-passkey-box hidden>
+      <button class="vp-btn vp-btn-primary vp-login-main" type="button" data-vp-passkey-start>
+        <span aria-hidden="true">☝</span> Entrar con huella
+      </button>
+      <p class="vp-login-hint" data-vp-passkey-status>Toca el lector de huella de este equipo cuando te lo pida.</p>
+      <button class="vp-btn vp-login-alt" type="button" data-vp-use-password>Entrar con clave</button>
+    </section>
+
+    <form class="vp-login-form" method="post" action="/admin-v2plus/login" autocomplete="on" data-vp-password-form>
+      <label for="email">Correo</label>
+      <input id="email" name="email" type="email" inputmode="email" autocomplete="username" required />
+      <label for="password">Clave</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <button class="vp-btn vp-btn-primary vp-login-main" type="submit">Entrar con clave</button>
+      <button class="vp-btn vp-login-alt" type="button" data-vp-use-passkey hidden>☝ Entrar con huella</button>
+      <p class="vp-login-hint" data-vp-no-passkey>Después de entrar puedes registrar la huella de este equipo en la consola.</p>
+    </form>
+  </main>
+  <script src="/admin-v2plus-webauthn.js"></script>
+  <script src="/admin-v2plus-login.js"></script>
+</body>
+</html>

@@ -406,34 +406,49 @@ async def admin_v2_login_page(request: Request, db: AsyncSession = Depends(get_d
     return _no_store(HTMLResponse(_login_html()))
 
 
-@router.post("/admin-v2/login", include_in_schema=False)
-async def admin_v2_login(request: Request, db: AsyncSession = Depends(get_db)):
-    if master_access_mode() == "unset":
-        log.error("Intento de acceso maestro con el login cerrado: %s", UNCONFIGURED_MESSAGE)
-        return _no_store(HTMLResponse(_login_html(UNCONFIGURED_MESSAGE), status_code=503))
+class LoginRejected(Exception):
+    """Un intento de acceso maestro que no pasa: codigo HTTP y mensaje."""
+
+    def __init__(self, status_code: int, message: str, retry_after: int = 0):
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+        self.retry_after = retry_after
+
+
+def check_login_allowed(request: Request) -> str:
+    """IP del intento si puede intentar; si no, LoginRejected (503 sin
+    configurar no aplica a la huella, que tiene su propio chequeo)."""
     ip = _login_ip(request)
     wait = _login_blocked(ip)
     if wait:
         minutes = max(1, (wait + 59) // 60)
         log.warning("Acceso maestro bloqueado para %s: demasiados intentos fallidos.", ip)
-        response = HTMLResponse(
-            _login_html(f"Demasiados intentos fallidos. Espera {minutes} minuto(s) antes de volver a intentar."),
-            status_code=429,
-        )
-        response.headers["Retry-After"] = str(wait)
-        return _no_store(response)
+        raise LoginRejected(429, f"Demasiados intentos fallidos. Espera {minutes} minuto(s) antes de volver a intentar.", wait)
+    return ip
 
+
+async def verify_password_login(request: Request) -> str:
+    """Correo + clave del acceso maestro. Devuelve el correo o LoginRejected."""
+    if master_access_mode() == "unset":
+        log.error("Intento de acceso maestro con el login cerrado: %s", UNCONFIGURED_MESSAGE)
+        raise LoginRejected(503, UNCONFIGURED_MESSAGE)
+    ip = check_login_allowed(request)
     payload = await _read_login_payload(request)
     email = payload.get("email", "").strip().lower()
     password = payload.get("password", "")
-
     valid_email = hmac.compare_digest(email, ADMIN_V2_EMAIL)
     valid_password = _verify_master_password(password)
     if not (valid_email and valid_password):
         _register_failure(ip)
-        return _no_store(HTMLResponse(_login_html("Credenciales invalidas."), status_code=401))
+        raise LoginRejected(401, "Credenciales invalidas.")
     _clear_failures(ip)
+    return email
 
+
+async def start_admin_session(request: Request, db: AsyncSession, response: Response, email: str, method: str) -> Response:
+    """Abre la sesion de Admin V2 (la misma para /admin-v2 y /admin-v2plus):
+    cierra las anteriores, registra la nueva y pone la cookie."""
     previous_sessions = await list_access_sessions(
         db,
         company_id=None,
@@ -454,9 +469,8 @@ async def admin_v2_login(request: Request, db: AsyncSession = Depends(get_db)):
         subject_label=email,
         request=request,
         enforce_policy=False,
-        metadata={"surface": "admin_v2"},
+        metadata={"surface": "admin_v2", "method": method},
     )
-    response = RedirectResponse(url="/admin-v2", status_code=303)
     response.set_cookie(
         ADMIN_V2_COOKIE,
         _create_session_token(email, session_key),
@@ -467,6 +481,22 @@ async def admin_v2_login(request: Request, db: AsyncSession = Depends(get_db)):
         path="/",
     )
     return response
+
+
+def login_rejected_html(error: LoginRejected, page=None) -> Response:
+    response = HTMLResponse((page or _login_html)(error.message), status_code=error.status_code)
+    if error.retry_after:
+        response.headers["Retry-After"] = str(error.retry_after)
+    return _no_store(response)
+
+
+@router.post("/admin-v2/login", include_in_schema=False)
+async def admin_v2_login(request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        email = await verify_password_login(request)
+    except LoginRejected as error:
+        return login_rejected_html(error)
+    return await start_admin_session(request, db, RedirectResponse(url="/admin-v2", status_code=303), email, "password")
 
 
 @router.post("/admin-v2/logout", include_in_schema=False)

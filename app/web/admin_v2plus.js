@@ -20,7 +20,8 @@
     catalog: "Catálogo", billing: "Facturación", health: "Salud y seguridad", audit: "Auditoría", landing: "Landing",
   };
 
-  const state = { overview: null, filter: "todas", view: "command", error: "", loading: false, updatedAt: null };
+  const state = { overview: null, filter: "todas", view: "command", error: "", loading: false, updatedAt: null,
+    passkeys: { open: false, list: [], ready: true, busy: false, message: "", error: "" } };
 
   // ------------------------------------------------------------ utilidades
   function h(value) {
@@ -165,6 +166,100 @@
       <a class="vp-btn" href="/admin-v2">Abrir Admin V2</a></section>`;
   }
 
+  // ------------------------------------------------------ huella del equipo
+  function dateText(iso) {
+    const t = Date.parse(iso || "");
+    if (!Number.isFinite(t)) return "Nunca";
+    try { return new Date(t).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }); } catch (_) { return String(iso); }
+  }
+
+  function passkeysPanel(p, supported = true) {
+    if (!p || !p.open) return "";
+    const list = Array.isArray(p.list) ? p.list : [];
+    return `
+      <div class="vp-modal" data-vp-passkeys>
+        <div class="vp-panel vp-modal-card" role="dialog" aria-label="Huella de este equipo">
+          <div class="vp-modal-head"><h2>Entrar con huella</h2><button class="vp-btn vp-btn-sm" type="button" data-vp-passkeys-close aria-label="Cerrar">✕</button></div>
+          <p class="vp-login-hint">Registra el lector de huella de este equipo (Windows Hello, Touch ID o la huella del celular). Después, al entrar, la consola pide la huella; la clave sigue funcionando como alternativa. La huella nunca sale del equipo: aquí solo se guarda una llave pública.</p>
+          ${p.ready === false ? `<div class="vp-alert" role="alert"><span>Falta la migración 022p_admin_passkeys en la base.</span></div>` : ""}
+          ${!supported ? `<div class="vp-alert" role="alert"><span>Este navegador no permite llaves de acceso.</span></div>` : ""}
+          ${p.error ? `<div class="vp-alert" role="alert"><span>${h(p.error)}</span></div>` : ""}
+          ${p.message ? `<p class="vp-ok-text" role="status">${h(p.message)}</p>` : ""}
+          <label class="vp-field">Nombre del equipo<input type="text" maxlength="120" placeholder="Ej: Portátil oficina" data-vp-passkey-label></label>
+          <button class="vp-btn vp-btn-primary" type="button" data-vp-passkey-register ${p.busy || !supported || p.ready === false ? "disabled" : ""}>${p.busy ? "Esperando la huella…" : "☝ Registrar la huella de este equipo"}</button>
+          <h3 class="vp-subtitle">Equipos registrados (${h(list.length)})</h3>
+          ${list.length ? `<ul class="vp-actions-list">${list.map((k) => `
+            <li class="vp-action vp-passkey-row"><b>${h(k.label)}</b><small>Registrado ${h(dateText(k.created_at))} · Último uso ${h(dateText(k.last_used_at))}</small>
+              <button class="vp-btn vp-btn-sm" type="button" data-vp-passkey-delete="${h(k.id)}">Quitar</button></li>`).join("")}</ul>`
+            : `<p class="vp-login-hint">Aún no hay equipos registrados: por ahora se entra con la clave.</p>`}
+        </div>
+      </div>`;
+  }
+
+  async function api(url, options = {}) {
+    const response = await fetch(url, { credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" }, ...options });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401) { window.location.href = "/admin-v2plus/login"; throw new Error("Sesión vencida."); }
+    if (!response.ok) throw new Error(data.detail || `Respuesta ${response.status}`);
+    return data;
+  }
+
+  function renderPasskeys() {
+    let host = document.getElementById("vpPasskeys");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "vpPasskeys";
+      document.body.appendChild(host);
+    }
+    host.innerHTML = passkeysPanel(state.passkeys, Boolean(window.CxWebAuthn && window.CxWebAuthn.supported()));
+  }
+
+  async function openPasskeys() {
+    state.passkeys = { ...state.passkeys, open: true, message: "", error: "" };
+    renderPasskeys();
+    try {
+      const data = await api("/admin-v2plus/api/passkeys");
+      state.passkeys.list = data.passkeys || [];
+      state.passkeys.ready = data.ready !== false;
+    } catch (error) {
+      state.passkeys.error = error.message;
+    }
+    renderPasskeys();
+  }
+
+  async function registerPasskey() {
+    const W = window.CxWebAuthn;
+    if (!W || state.passkeys.busy) return;
+    const input = document.querySelector("[data-vp-passkey-label]");
+    const label = (input && input.value.trim()) || "Equipo";
+    state.passkeys = { ...state.passkeys, busy: true, message: "", error: "" };
+    renderPasskeys();
+    try {
+      const start = await api("/admin-v2plus/api/passkeys/register/options", { method: "POST", body: "{}" });
+      const credential = await navigator.credentials.create({ publicKey: W.creationOptions(start.options) });
+      const done = await api("/admin-v2plus/api/passkeys/register/verify", { method: "POST", body: JSON.stringify({ label, credential: W.credentialJson(credential) }) });
+      state.passkeys.list = done.passkeys || [];
+      state.passkeys.message = "Huella registrada. La próxima vez que entres, la consola te la pedirá.";
+    } catch (error) {
+      state.passkeys.error = error && error.name ? W.friendlyError(error) : error.message;
+    } finally {
+      state.passkeys.busy = false;
+      renderPasskeys();
+    }
+  }
+
+  async function deletePasskey(id) {
+    try {
+      const done = await api(`/admin-v2plus/api/passkeys/${encodeURIComponent(id)}`, { method: "DELETE" });
+      state.passkeys.list = done.passkeys || [];
+      state.passkeys.message = "Equipo quitado.";
+      state.passkeys.error = "";
+    } catch (error) {
+      state.passkeys.error = error.message;
+    }
+    renderPasskeys();
+  }
+
   // ------------------------------------------------------------ app
   function main() { return document.getElementById("vpMain"); }
 
@@ -197,7 +292,7 @@
       const response = await fetch(OVERVIEW_URL, { credentials: "same-origin", headers: { Accept: "application/json" } });
       const type = response.headers.get("content-type") || "";
       if (response.status === 401 || response.redirected || !type.includes("application/json")) {
-        window.location.href = "/admin-v2/login";
+        window.location.href = "/admin-v2plus/login";
         return;
       }
       if (!response.ok) throw new Error(`Respuesta ${response.status}`);
@@ -225,6 +320,11 @@
     const chip = target.closest("[data-vp-filter]");
     if (chip) { state.filter = chip.getAttribute("data-vp-filter") || "todas"; render(); return; }
     if (target.closest("[data-vp-refresh]")) { load(); return; }
+    if (target.closest("[data-vp-passkeys-open]")) { openPasskeys(); return; }
+    if (target.closest("[data-vp-passkeys-close]")) { state.passkeys.open = false; renderPasskeys(); return; }
+    if (target.closest("[data-vp-passkey-register]")) { registerPasskey(); return; }
+    const del = target.closest("[data-vp-passkey-delete]");
+    if (del) { deletePasskey(del.getAttribute("data-vp-passkey-delete") || ""); return; }
     if (target.closest("[data-vp-search]")) toast("El panel de órdenes (Ctrl K) llega en la fase 2.");
   }
 
@@ -240,6 +340,6 @@
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { commandCenter, table, chips, cards, alertBand, actions, filtered, counts, initials, since, money, soon, state };
+  window.CxConsolePlus = { commandCenter, table, chips, cards, alertBand, actions, filtered, counts, initials, since, money, soon, passkeysPanel, state };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();
