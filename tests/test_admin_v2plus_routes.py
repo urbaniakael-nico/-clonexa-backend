@@ -1,5 +1,6 @@
 """Consola v2+ (/admin-v2plus): misma sesion de Admin V2, validada en el
-servidor; sin sesion redirige a /admin-v2/login. /admin-v2 no se toca."""
+servidor; sin sesion redirige a su entrada (/admin-v2plus/login: huella o
+clave). /admin-v2 no se toca."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
@@ -28,7 +29,7 @@ def db_override():
 def test_admin_v2plus_requires_the_admin_v2_session(db_override, monkeypatch, path):
     monkeypatch.setattr(plus, "_active_session", AsyncMock(return_value=False))
     response = client.get(path, follow_redirects=False)
-    assert response.status_code == 303 and response.headers["location"] == "/admin-v2/login"
+    assert response.status_code == 303 and response.headers["location"] == "/admin-v2plus/login"
     assert "Centro de mando" not in response.text
 
 
