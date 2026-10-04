@@ -18,77 +18,105 @@ function load() {
 const NOW = Date.parse('2026-10-01T04:30:00Z');
 const OVERVIEW = {
   ok: true, generated_at: '2026-10-01T04:30:00Z', master_access_mode: 'sha256_legacy',
-  totals: { companies: 5, operating_today: 1, no_operation_today: 1, dormant: 1, at_risk: 1, inactive: 1, sales_today_total: 1234500, open_sessions: 3 },
+  totals: { registered: 6, registered_active: 4, connected_now: 1, users_connected_now: 3, logins_today: 7, dormant: 1, at_risk: 1, open_sessions: 3,
+    states: { conectada: 1, activa_hoy: 1, sin_actividad_hoy: 1, dormida: 1, riesgo: 1, inactiva: 1 } },
+  health: { database: { used_mb: 236.4, limit_mb: 500, used_pct: 47.3, warn: false }, demo_companies: 1, deploy: { commit: 'abc' } },
   companies: [
-    { id: 'a1', name: 'Asadero El Socio', slug: 'asadero', plan: 'Restaurante Pro', modules_enabled: 11, sales_today_total: 1234500,
-      state: 'operando', state_reason: '42 venta(s) hoy', last_real_signal_at: '2026-10-01T04:25:00Z' },
-    { id: 'v1', name: 'Vieja Tienda', slug: 'vieja', plan: 'starter', modules_enabled: 3, sales_today_total: 0,
+    { id: 'a1', kind: 'registrada', name: 'Asadero El Socio', slug: 'asadero', plan: 'Restaurante Pro', modules_enabled: 11, open_sessions: 3, sales_today_total: 1234500,
+      state: 'conectada', state_reason: '3 usuarios conectados ahora', last_real_signal_at: '2026-10-01T04:25:00Z' },
+    { id: 't1', kind: 'registrada', name: 'Taller Produce', slug: 'taller', plan: 'starter', modules_enabled: 4, open_sessions: 0,
+      state: 'activa_hoy', state_reason: 'Última señal hoy a las 18:10', last_real_signal_at: '2026-09-30T23:10:00Z' },
+    { id: 'v1', kind: 'registrada', name: 'Vieja Tienda', slug: 'vieja', plan: 'starter', modules_enabled: 3, open_sessions: 0,
       state: 'dormida', state_reason: 'Hace 61 días', last_real_signal_at: '2026-08-01T12:00:00Z' },
-    { id: 'r1', name: 'Riesgosa <b>SAS</b>', slug: 'riesgosa', plan: 'starter', modules_enabled: 11, sales_today_total: 0,
+    { id: 'r1', kind: 'registrada', name: 'Riesgosa <b>SAS</b>', slug: 'riesgosa', plan: 'starter', modules_enabled: 11, open_sessions: 0,
       state: 'riesgo', state_reason: 'Inactiva con 11 módulos', last_real_signal_at: null },
-    { id: 'i1', name: 'Quieta', slug: 'quieta', plan: 'starter', modules_enabled: 0, sales_today_total: 0,
+    { id: 'i1', kind: 'registrada', name: 'Quieta', slug: 'quieta', plan: 'starter', modules_enabled: 0, open_sessions: 0,
       state: 'inactiva', state_reason: 'Inactiva sin módulos', last_real_signal_at: null },
-    { id: 's1', name: 'Semana Activa', slug: 'semana', plan: 'starter', modules_enabled: 5, sales_today_total: 0,
-      state: 'sin_operacion_hoy', state_reason: 'Última señal hace 3 días', last_real_signal_at: '2026-09-28T04:30:00Z' },
+    { id: 's1', kind: 'registrada', name: 'Semana Activa', slug: 'semana', plan: 'starter', modules_enabled: 5, open_sessions: 0,
+      state: 'sin_actividad_hoy', state_reason: 'Última señal hace 3 días', last_real_signal_at: '2026-09-28T04:30:00Z' },
+    { id: 'd1', kind: 'demo', name: 'Demo Bar', slug: 'demo-bar', plan: 'starter', modules_enabled: 9, open_sessions: 1,
+      state: 'dormida', state_reason: 'Hace 90 días', last_real_signal_at: null },
   ],
 };
 
-test('el Centro de mando pinta encabezado, tarjetas, tabla y acciones', () => {
+test('el Centro de mando pinta conexión y salud, nunca ventas', () => {
   const ui = load();
   const out = ui.commandCenter(OVERVIEW, 'todas', { now: NOW });
   assert.match(out, /SISTEMA OPERATIVO EMPRESARIAL · NÚCLEO CLONEXA/);
   assert.match(out, /<h1 class="vp-title">Centro de mando<\/h1>/);
   assert.match(out, /Buscar u ordenar…<\/span><span class="vp-kbd">Ctrl K/);
-  assert.match(out, /href="\/admin-v2">\+ Nueva empresa/);
-  // 5 tarjetas
-  for (const label of ['Ventas hoy', 'Operando hoy', 'Dormidas', 'En riesgo', 'Sesiones abiertas']) assert.match(out, new RegExp(label));
-  assert.match(out, /\$1\.234\.500/);
-  // tabla
+  const cards = ui.cards(OVERVIEW);
+  for (const [label, value] of [['Conectadas ahora', '1'], ['Usuarios conectados', '3'], ['Ingresos hoy', '7'], ['Dormidas', '1'], ['En riesgo', '1'], ['Base de datos', '236\\.4 MB']]) {
+    assert.match(cards, new RegExp(`<span>${label}</span><strong>${value}</strong>`), label);
+  }
+  assert.match(cards, /de 500 MB · 47\.3%/);
+  assert.doesNotMatch(out, /Ventas|\$1\.234\.500|1234500/, 'sin ventas en el Centro de mando');
+  assert.match(out, /<th>Empresa<\/th><th>Estado<\/th><th>Plan<\/th><th>Módulos<\/th><th>Sesiones abiertas<\/th><th>Última conexión<\/th>/);
   assert.match(out, /Asadero El Socio<\/b><small>asadero/);
-  assert.match(out, /vp-initials" aria-hidden="true">AE</);
-  assert.match(out, /vp-dot vp-dot-operando/);
-  assert.match(out, /42 venta\(s\) hoy/);
+  assert.match(out, /vp-dot vp-dot-conectada/);
+  assert.match(out, /3 usuarios conectados ahora/);
   assert.match(out, /Hace 5 min/);
-  assert.match(out, /href="\/admin-v2\?company_id=a1">Ficha/);
   assert.match(out, /href="\/client\?company_id=a1" target="_blank"[^>]*>Entrar como empresa/);
-  // banda crítica y "Requiere acción"
+  assert.doesNotMatch(out, /Demo Bar/, 'las demos no aparecen sin "Ver demos"');
+  assert.match(out, /data-vp-show-demos\s*>/);
   assert.match(out, /ACCESO MAESTRO SIN BCRYPT/);
   const actions = out.slice(out.indexOf('data-vp-actions'));
   assert.match(actions, /Acceso maestro sin bcrypt/);
   assert.match(actions, /Inactiva con 11 módulos/);
   assert.match(actions, /Dormida · Hace 61 días/);
-  // nunca HTML sin escapar
+  assert.doesNotMatch(actions, /Demo Bar/);
+  assert.doesNotMatch(actions, /Base de datos por encima/);
   assert.doesNotMatch(out, /Riesgosa <b>SAS<\/b>/);
   assert.match(out, /Riesgosa &lt;b&gt;SAS&lt;\/b&gt;/);
+});
+
+test('base de datos por encima del 80 %: aviso en la tarjeta y en "Requiere acción"', () => {
+  const ui = load();
+  const hot = { ...OVERVIEW, master_access_mode: 'bcrypt', health: { ...OVERVIEW.health, database: { used_mb: 412, limit_mb: 500, used_pct: 82.4, warn: true } } };
+  const out = ui.commandCenter(hot, 'todas', { now: NOW });
+  assert.match(ui.cards(hot), /data-vp-db-warn role="alert"><span>Base de datos<\/span><strong>412 MB<\/strong><small>de 500 MB · 82\.4% · ⚠ libera espacio/);
+  assert.match(out.slice(out.indexOf('data-vp-actions')), /Base de datos por encima del 80 %/);
+  assert.doesNotMatch(out, /ACCESO MAESTRO SIN BCRYPT/);
+  const unknown = { ...OVERVIEW, health: { database: { used_mb: null, limit_mb: 500 } } };
+  assert.match(ui.cards(unknown), /<span>Base de datos<\/span><strong>—<\/strong><small>Sin dato/);
+});
+
+test('"Ver demos" suma las demos a la tabla y a los chips', () => {
+  const ui = load();
+  assert.equal(ui.filtered(OVERVIEW, 'todas').length, 6);
+  assert.equal(ui.filtered(OVERVIEW, 'todas', true).length, 7);
+  assert.match(ui.chips(OVERVIEW, 'dormida'), /data-vp-filter="dormida" aria-pressed="true">Dormidas<b>1<\/b>/);
+  assert.match(ui.chips(OVERVIEW, 'dormida', true), /data-vp-filter="dormida" aria-pressed="true">Dormidas<b>2<\/b>/);
+  assert.match(ui.chips(OVERVIEW, 'todas', true), /data-vp-show-demos checked/);
+  const withDemos = ui.commandCenter(OVERVIEW, 'todas', { now: NOW, showDemos: true });
+  assert.match(withDemos, /Demo Bar<\/b><small>demo-bar · demo/);
 });
 
 test('los filtros muestran solo su estado y cada chip lleva su conteo', () => {
   const ui = load();
   const chips = ui.chips(OVERVIEW, 'riesgo');
-  assert.match(chips, /data-vp-filter="todas"[^>]*>Todas<b>5<\/b>/);
-  assert.match(chips, /data-vp-filter="sin_operacion_hoy"[^>]*>Sin operación hoy<b>1<\/b>/);
-  assert.match(chips, /data-vp-filter="inactiva"[^>]*>Inactivas<b>1<\/b>/);
-  assert.match(chips, /data-vp-filter="operando"[^>]*>Operando<b>1<\/b>/);
+  assert.match(chips, /data-vp-filter="todas"[^>]*>Todas<b>6<\/b>/);
+  for (const [key, label] of [['conectada', 'Conectadas'], ['activa_hoy', 'Activas hoy'], ['sin_actividad_hoy', 'Sin actividad hoy'], ['inactiva', 'Inactivas']]) {
+    assert.match(chips, new RegExp(`data-vp-filter="${key}"[^>]*>${label}<b>1</b>`), key);
+  }
   assert.match(chips, /class="vp-chip is-active" type="button" data-vp-filter="riesgo" aria-pressed="true">En riesgo<b>1<\/b>/);
   const only = ui.table(OVERVIEW, 'riesgo', NOW);
   assert.match(only, /Riesgosa/);
-  assert.doesNotMatch(only, /Asadero|Vieja|Quieta|Semana/);
-  assert.equal(ui.filtered(OVERVIEW, 'dormida').map((c) => c.id).join(), 'v1');
-  assert.equal(ui.filtered(OVERVIEW, 'todas').length, 5);
-  // La activa sin operación hoy no se mezcla con las inactivas.
-  assert.equal(ui.filtered(OVERVIEW, 'sin_operacion_hoy').map((c) => c.id).join(), 's1');
+  assert.doesNotMatch(only, /Asadero|Vieja|Quieta|Semana|Taller/);
+  assert.equal(ui.filtered(OVERVIEW, 'sin_actividad_hoy').map((c) => c.id).join(), 's1');
   assert.equal(ui.filtered(OVERVIEW, 'inactiva').map((c) => c.id).join(), 'i1');
-  const row = ui.table(OVERVIEW, 'sin_operacion_hoy', NOW);
-  assert.match(row, /vp-dot vp-dot-sin_operacion_hoy/);
-  assert.match(row, /<b>Sin operación hoy<\/b>/);
+  const row = ui.table(OVERVIEW, 'sin_actividad_hoy', NOW);
+  assert.match(row, /vp-dot vp-dot-sin_actividad_hoy/);
+  assert.match(row, /<b>Sin actividad hoy<\/b>/);
   assert.match(row, /Última señal hace 3 días/);
   assert.doesNotMatch(row, /<b>Inactiva<\/b>/);
+  assert.match(ui.table(OVERVIEW, 'activa_hoy', NOW), /vp-dot vp-dot-activa_hoy/);
 });
 
 test('estados vacíos: sin empresas y sin coincidencias en el filtro', () => {
   const ui = load();
   const none = ui.commandCenter({ totals: {}, companies: [], master_access_mode: 'bcrypt' }, 'todas', { now: NOW });
-  assert.match(none, /Aún no hay empresas activas en Clonexa/);
+  assert.match(none, /Aún no hay empresas registradas activas en Clonexa/);
   assert.doesNotMatch(none, /ACCESO MAESTRO SIN BCRYPT/, 'con bcrypt no hay banda');
   assert.match(none, /Nada pendiente/);
   const noMatch = ui.table({ companies: [OVERVIEW.companies[0]] }, 'dormida', NOW);
