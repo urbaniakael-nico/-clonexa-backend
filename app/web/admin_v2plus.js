@@ -1,26 +1,29 @@
-// Consola v2+ · Centro de mando. Consume SOLO /admin-v2/api/overview (misma
-// sesión de Admin V2), se refresca cada 60 s y con "Refrescar". Las funciones
+// Consola v2+ · Centro de mando. Consume /admin-v2/api/overview (misma sesión
+// de Admin V2), se refresca cada 60 s y con "Refrescar". Mide CONEXIÓN y salud
+// de Clonexa, no las ventas de los clientes. Las funciones
 // de dibujo son puras (reciben el overview y devuelven HTML) para probarlas.
 (() => {
   "use strict";
 
   const OVERVIEW_URL = "/admin-v2/api/overview";
   const REFRESH_MS = 60000;
+  // Semáforo por CONEXIÓN (no por ventas): lo calcula el servidor.
   const STATES = {
-    operando: { label: "Operando", chip: "Operando" },
-    // Activa que no operó hoy pero sí en los últimos 7 días (no es "inactiva").
-    sin_operacion_hoy: { label: "Sin operación hoy", chip: "Sin operación hoy" },
+    conectada: { label: "Conectada", chip: "Conectadas" },
+    activa_hoy: { label: "Activa hoy", chip: "Activas hoy" },
+    // Activa con señal en los últimos 7 días, pero no hoy (no es "inactiva").
+    sin_actividad_hoy: { label: "Sin actividad hoy", chip: "Sin actividad hoy" },
     dormida: { label: "Dormida", chip: "Dormidas" },
     riesgo: { label: "En riesgo", chip: "En riesgo" },
     inactiva: { label: "Inactiva", chip: "Inactivas" },
   };
-  const FILTERS = ["todas", "operando", "sin_operacion_hoy", "dormida", "riesgo", "inactiva"];
+  const FILTERS = ["todas", "conectada", "activa_hoy", "sin_actividad_hoy", "dormida", "riesgo", "inactiva"];
   const VIEWS = {
     command: "Centro de mando", companies: "Empresas", switches: "Interruptores", access: "Accesos y sesiones",
     catalog: "Catálogo", billing: "Facturación", health: "Salud y seguridad", audit: "Auditoría", landing: "Landing",
   };
 
-  const state = { overview: null, filter: "todas", view: "command", error: "", loading: false, updatedAt: null,
+  const state = { overview: null, filter: "todas", showDemos: false, view: "command", error: "", loading: false, updatedAt: null,
     passkeys: { open: false, list: [], ready: true, busy: false, message: "", error: "" } };
 
   // ------------------------------------------------------------ utilidades
@@ -54,15 +57,21 @@
     return overview && Array.isArray(overview.companies) ? overview.companies : [];
   }
 
-  function counts(overview) {
-    const list = companies(overview);
-    const out = { todas: list.length, operando: 0, sin_operacion_hoy: 0, dormida: 0, riesgo: 0, inactiva: 0 };
+  // El Centro de mando mira las registradas; las demos solo con "Ver demos".
+  function visible(overview, showDemos = false) {
+    return companies(overview).filter((c) => showDemos || c.kind !== "demo");
+  }
+
+  function counts(overview, showDemos = false) {
+    const list = visible(overview, showDemos);
+    const out = { todas: list.length };
+    Object.keys(STATES).forEach((key) => { out[key] = 0; });
     list.forEach((c) => { if (out[c.state] !== undefined) out[c.state] += 1; });
     return out;
   }
 
-  function filtered(overview, filter) {
-    const list = companies(overview);
+  function filtered(overview, filter, showDemos = false) {
+    const list = visible(overview, showDemos);
     return filter && filter !== "todas" ? list.filter((c) => c.state === filter) : list;
   }
 
@@ -76,34 +85,43 @@
     return `<div class="vp-alert" role="alert" data-vp-alert><strong>⚠ ACCESO MAESTRO SIN BCRYPT</strong><span>${h(detail)}</span></div>`;
   }
 
+  function database(overview) {
+    return (overview && overview.health && overview.health.database) || {};
+  }
+
   function cards(overview) {
     const t = (overview && overview.totals) || {};
-    const card = (cls, label, value, note) => `
-      <div class="vp-panel vp-card ${cls}"><span>${h(label)}</span><strong>${h(value)}</strong>${note ? `<small>${h(note)}</small>` : ""}</div>`;
+    const db = database(overview);
+    const card = (cls, label, value, note, attrs = "") => `
+      <div class="vp-panel vp-card ${cls}" ${attrs}><span>${h(label)}</span><strong>${h(value)}</strong>${note ? `<small>${h(note)}</small>` : ""}</div>`;
+    const dbValue = db.used_mb === null || db.used_mb === undefined ? "—" : `${db.used_mb} MB`;
+    const dbNote = db.used_mb === null || db.used_mb === undefined ? "Sin dato" : `de ${db.limit_mb || 500} MB · ${db.used_pct}%${db.warn ? " · ⚠ libera espacio" : ""}`;
     return `<section class="vp-cards" aria-label="Resumen de hoy">
-      ${card("vp-card-sales", "Ventas hoy", money(t.sales_today_total), "Todo Clonexa")}
-      ${card("vp-card-ok", "Operando hoy", t.operating_today || 0, "Con venta u operación real")}
+      ${card("vp-card-ok", "Conectadas ahora", t.connected_now || 0, "Empresas registradas, últimos 15 min")}
+      ${card("", "Usuarios conectados", t.users_connected_now || 0, "En este momento")}
+      ${card("", "Ingresos hoy", t.logins_today || 0, "Inicios de sesión de hoy")}
       ${card("vp-card-dormant", "Dormidas", t.dormant || 0, "Más de 7 días sin señal")}
       ${card("vp-card-risk", "En riesgo", t.at_risk || 0, "Requieren atención")}
-      ${card("", "Sesiones abiertas", t.open_sessions || 0, "En todas las empresas")}
+      ${card(db.warn ? "vp-card-risk vp-card-db" : "vp-card-db", "Base de datos", dbValue, dbNote, db.warn ? 'data-vp-db-warn role="alert"' : "")}
     </section>`;
   }
 
-  function chips(overview, filter) {
-    const n = counts(overview);
+  function chips(overview, filter, showDemos = false) {
+    const n = counts(overview, showDemos);
     return `<div class="vp-chips" role="group" aria-label="Filtrar empresas">
       ${FILTERS.map((key) => `<button class="vp-chip ${filter === key ? "is-active" : ""}" type="button" data-vp-filter="${key}" aria-pressed="${filter === key}">${h(key === "todas" ? "Todas" : STATES[key].chip)}<b>${h(n[key])}</b></button>`).join("")}
+      <label class="vp-switch"><input type="checkbox" data-vp-show-demos ${showDemos ? "checked" : ""}> Ver demos</label>
     </div>`;
   }
 
   function companyRow(c, now) {
     const st = STATES[c.state] || STATES.inactiva;
     return `<tr data-vp-company="${h(c.id)}">
-      <td><div class="vp-company"><span class="vp-initials" aria-hidden="true">${h(initials(c.name))}</span><span><b>${h(c.name)}</b><small>${h(c.slug)}</small></span></div></td>
+      <td><div class="vp-company"><span class="vp-initials" aria-hidden="true">${h(initials(c.name))}</span><span><b>${h(c.name)}</b><small>${h(c.slug)}${c.kind === "demo" ? " · demo" : ""}</small></span></div></td>
       <td><span class="vp-state"><span class="vp-dot vp-dot-${h(c.state)}" aria-hidden="true"></span><span><b>${h(st.label)}</b><br><small class="vp-mono-muted">${h(c.state_reason || "")}</small></span></span></td>
       <td>${h(c.plan || "—")}</td>
       <td class="vp-mono">${h(c.modules_enabled || 0)}</td>
-      <td class="vp-mono">${h(money(c.sales_today_total))}</td>
+      <td class="vp-mono">${h(c.open_sessions || 0)}</td>
       <td class="vp-mono" title="${h(c.last_real_signal_at || "")}">${h(since(c.last_real_signal_at, now))}</td>
       <td><div class="vp-actions">
         <a class="vp-btn vp-btn-sm" href="/admin-v2?company_id=${encodeURIComponent(c.id)}">Ficha</a>
@@ -112,13 +130,13 @@
     </tr>`;
   }
 
-  function table(overview, filter, now = Date.now()) {
-    const all = companies(overview);
-    const rows = filtered(overview, filter);
-    if (!all.length) return `<div class="vp-empty" data-vp-empty>Aún no hay empresas activas en Clonexa.</div>`;
+  function table(overview, filter, now = Date.now(), showDemos = false) {
+    const all = visible(overview, showDemos);
+    const rows = filtered(overview, filter, showDemos);
+    if (!all.length) return `<div class="vp-empty" data-vp-empty>Aún no hay empresas registradas activas en Clonexa.</div>`;
     if (!rows.length) return `<div class="vp-empty" data-vp-empty>Ninguna empresa en este estado.</div>`;
     return `<div class="vp-table-wrap"><table class="vp-table">
-      <thead><tr><th>Empresa</th><th>Estado</th><th>Plan</th><th>Módulos</th><th>Ventas hoy</th><th>Última señal real</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+      <thead><tr><th>Empresa</th><th>Estado</th><th>Plan</th><th>Módulos</th><th>Sesiones abiertas</th><th>Última conexión</th><th><span class="sr-only">Acciones</span></th></tr></thead>
       <tbody>${rows.map((c) => companyRow(c, now)).join("")}</tbody>
     </table></div>`;
   }
@@ -127,8 +145,11 @@
     const items = [];
     const mode = overview && overview.master_access_mode;
     if (mode && mode !== "bcrypt") items.push({ kind: "critical", title: "Acceso maestro sin bcrypt", detail: "Define CLONEXA_ADMIN_V2_PASSWORD_BCRYPT en Railway." });
-    companies(overview).filter((c) => c.state === "riesgo").forEach((c) => items.push({ kind: "risk", title: c.name, detail: c.state_reason }));
-    companies(overview).filter((c) => c.state === "dormida").forEach((c) => items.push({ kind: "dormant", title: c.name, detail: `Dormida · ${c.state_reason}` }));
+    const db = database(overview);
+    if (db.warn) items.push({ kind: "critical", title: "Base de datos por encima del 80 %", detail: `${db.used_mb} MB de ${db.limit_mb || 500} MB. Antes de guardar más, el siguiente paso es un bucket de objetos.` });
+    const registered = visible(overview, false);
+    registered.filter((c) => c.state === "riesgo").forEach((c) => items.push({ kind: "risk", title: c.name, detail: c.state_reason }));
+    registered.filter((c) => c.state === "dormida").forEach((c) => items.push({ kind: "dormant", title: c.name, detail: `Dormida · ${c.state_reason}` }));
     const list = items.length
       ? `<ul class="vp-actions-list">${items.map((i) => `<li class="vp-action vp-action-${i.kind}"><b>${h(i.title)}</b><small>${h(i.detail || "")}</small></li>`).join("")}</ul>`
       : `<div class="vp-empty">Nada pendiente. Todo en orden.</div>`;
@@ -137,6 +158,7 @@
 
   function commandCenter(overview, filter = "todas", options = {}) {
     const now = options.now || Date.now();
+    const showDemos = Boolean(options.showDemos);
     const updated = options.updatedAt ? `Actualizado ${new Date(options.updatedAt).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}` : "";
     return `
       <header class="vp-head">
@@ -154,8 +176,8 @@
       <div class="vp-grid">
         <section class="vp-panel vp-section" aria-label="Pulso de empresas">
           <h2>Pulso de empresas</h2>
-          ${chips(overview, filter)}
-          <div data-vp-table>${table(overview, filter, now)}</div>
+          ${chips(overview, filter, showDemos)}
+          <div data-vp-table>${table(overview, filter, now, showDemos)}</div>
         </section>
         ${actions(overview)}
       </div>`;
@@ -286,7 +308,7 @@
       root.innerHTML = state.error ? `<div class="vp-alert" role="alert"><strong>No se pudo cargar</strong><span>${h(state.error)}</span></div>` : `<p class="vp-loading">Cargando el Centro de mando…</p>`;
       return;
     }
-    root.innerHTML = commandCenter(state.overview, state.filter, { updatedAt: state.updatedAt, error: state.error });
+    root.innerHTML = commandCenter(state.overview, state.filter, { updatedAt: state.updatedAt, error: state.error, showDemos: state.showDemos });
   }
 
   function toast(message) {
@@ -334,6 +356,8 @@
     }
     const chip = target.closest("[data-vp-filter]");
     if (chip) { state.filter = chip.getAttribute("data-vp-filter") || "todas"; render(); return; }
+    const demos = target.closest("[data-vp-show-demos]");
+    if (demos) { state.showDemos = Boolean(demos.checked); render(); return; }
     if (target.closest("[data-vp-refresh]")) { load(); return; }
     if (target.closest("[data-vp-passkeys-open]")) { openPasskeys(); return; }
     if (target.closest("[data-vp-passkeys-close]")) { state.passkeys.open = false; renderPasskeys(); return; }
@@ -356,6 +380,6 @@
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { commandCenter, table, chips, cards, alertBand, actions, filtered, counts, initials, since, money, soon, passkeysPanel, state };
+  window.CxConsolePlus = { commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, state, STATES };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();
