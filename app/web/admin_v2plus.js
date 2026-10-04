@@ -260,6 +260,21 @@
     renderPasskeys();
   }
 
+  // Sin manejadores en línea (la CSP de v2+ no los permite): si el logo no
+  // carga, se muestra la marca "CX" igual que antes.
+  function logoFallback() {
+    if (typeof document.querySelectorAll !== "function") return;
+    document.querySelectorAll(".cx-logo-img").forEach((img) => {
+      const fail = () => {
+        img.style.display = "none";
+        const fallback = img.parentElement && img.parentElement.querySelector(".cx-logo-fallback");
+        if (fallback) fallback.style.display = "grid";
+      };
+      if (img.complete && img.naturalWidth === 0) fail();
+      else img.addEventListener("error", fail);
+    });
+  }
+
   // ------------------------------------------------------------ app
   function main() { return document.getElementById("vpMain"); }
 
@@ -329,6 +344,7 @@
   }
 
   function start() {
+    logoFallback();
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === "k") {

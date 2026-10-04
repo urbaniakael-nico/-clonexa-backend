@@ -946,6 +946,61 @@ def _write_client_settings(company: Company, payload: CompanyClientSettingsReque
     return _read_client_settings(company)
 
 
+# Validacion de marca AL GUARDAR (2026-10, todas las empresas). Lo que ya esta
+# en la base y no cumple se sigue leyendo igual: solo se rechaza al escribir.
+BRANDING_COLOR_FIELDS = (
+    "primary_color", "secondary_color", "background_color", "text_color",
+    "gradient_from", "gradient_to", "gradient_extra",
+    "color_principal", "color_secundario", "color_fondo", "color_texto",
+    "card_color", "button_color", "success_color",
+)
+_LOGO_FORBIDDEN_CHARS = set("\"'<>\\` ") | {chr(c) for c in range(32)} | {chr(127)}
+
+
+def branding_logo_url_ok(value: Any) -> bool:
+    """Vacio, https://... o una ruta propia (/...). Nunca javascript:, data:,
+    http:, ni //otro-sitio."""
+    text_value = str(value or "").strip()
+    if not text_value:
+        return True
+    if len(text_value) > 2048 or any(ch in _LOGO_FORBIDDEN_CHARS for ch in text_value):
+        return False
+    if text_value.lower().startswith("https://"):
+        return len(text_value) > len("https://")
+    return text_value.startswith("/") and not text_value.startswith("//")
+
+
+def _is_number(value: Any) -> bool:
+    import math
+
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def validate_branding_payload(data: Dict[str, Any]) -> None:
+    """400 si el cuerpo trae un logo, color, fuente o angulo no permitido."""
+    errors: list[str] = []
+    if not branding_logo_url_ok(data.get("logo_url")):
+        errors.append("logo_url debe empezar por https:// o ser una ruta propia (/...)")
+    sources = [data]
+    if isinstance(data.get("custom_css_json"), dict):
+        sources.append(data["custom_css_json"])
+    for source in sources:
+        for key in BRANDING_COLOR_FIELDS:
+            raw = source.get(key)
+            if raw not in (None, "") and not re_match_hex(str(raw).strip()):
+                errors.append(f"{key} debe ser un color hex (#RGB o #RRGGBB)")
+        for key in ("font_family", "fontFamily"):
+            raw = source.get(key)
+            if raw not in (None, "") and raw not in ALLOWED_BRANDING_FONTS:
+                errors.append(f"{key} no permitida. Usa: {', '.join(sorted(ALLOWED_BRANDING_FONTS))}")
+        for key in ("gradient_angle", "gradientAngle"):
+            raw = source.get(key)
+            if raw is not None and not _is_number(raw):
+                errors.append(f"{key} debe ser numerico")
+    if errors:
+        raise HTTPException(status_code=400, detail="Marca invalida: " + "; ".join(dict.fromkeys(errors)) + ".")
+
+
 def _normalize_branding_extra_fields(data: dict) -> dict:
     font_family = data.get("font_family") or data.get("fontFamily") or "Inter"
     card_style = data.get("card_style") or data.get("cardStyle") or "glass_premium"
@@ -1384,8 +1439,10 @@ async def update_company_experience_branding(
     db: AsyncSession = Depends(get_db),
     _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
+    data = payload.model_dump(exclude_none=True)
+    validate_branding_payload(data)
     company = await _get_company_or_404(db, company_id)
-    _write_company_branding(company, payload.model_dump(exclude_none=True))
+    _write_company_branding(company, data)
     await db.commit()
     await db.refresh(company)
     return _experience_payload(company)
@@ -1398,8 +1455,10 @@ async def update_company_branding(
     db: AsyncSession = Depends(get_db),
     _admin: None = Depends(require_admin_v2_api_session),
 ) -> Dict[str, Any]:
+    data = payload.model_dump(exclude_none=True)
+    validate_branding_payload(data)
     company = await _get_company_or_404(db, company_id)
-    _write_company_branding(company, payload.model_dump(exclude_none=True))
+    _write_company_branding(company, data)
     await db.commit()
     await db.refresh(company)
     branding = _read_company_branding(company)
