@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.companies import require_admin_v2_or_tenant_company_admin
 from app.api.v1.endpoints.module_catalog_v1 import sync_module_catalog
 from app.models.saas import CompanyModule, Module
 from app.schemas.saas import ActivatePackageRequest, ActivatePackageResponse, CompanyModuleOut
@@ -90,7 +91,13 @@ async def list_company_modules(
     return list(result.scalars().all())
 
 
-@router.post("/{company_id}/modules/{module_code}/activate", response_model=CompanyModuleOut)
+@router.post(
+    "/{company_id}/modules/{module_code}/activate",
+    response_model=CompanyModuleOut,
+    # 2026-10: sin sesion cualquiera que conociera un company_id podia encender o
+    # apagar modulos de esa empresa. Admin V2 o admin/dueño de ESA empresa.
+    dependencies=[Depends(require_admin_v2_or_tenant_company_admin)],
+)
 async def activate_company_module(
     company_id: uuid.UUID,
     module_code: str,
@@ -121,7 +128,13 @@ async def activate_company_module(
     return await get_company_module_out(db, company_id, module.id)
 
 
-@router.post("/{company_id}/modules/{module_code}/deactivate", response_model=CompanyModuleOut)
+@router.post(
+    "/{company_id}/modules/{module_code}/deactivate",
+    response_model=CompanyModuleOut,
+    # 2026-10: sin sesion cualquiera que conociera un company_id podia encender o
+    # apagar modulos de esa empresa. Admin V2 o admin/dueño de ESA empresa.
+    dependencies=[Depends(require_admin_v2_or_tenant_company_admin)],
+)
 async def deactivate_company_module(
     company_id: uuid.UUID,
     module_code: str,
