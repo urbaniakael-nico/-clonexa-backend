@@ -43,18 +43,18 @@ lista visible: Admin V2 las devuelve a `resumen` (ver "Hallazgos en Admin V2").
 | H03 | Salud | sesiones de Admin V2 (`data-refresh-admin-v2-sessions`) | `loadAdminV2Sessions026H` | `GET /admin-v2/api/sessions` | — | pendiente · Fase 3 (Salud) |
 | H04 | Salud | cerrar sesión de Admin V2 (`data-close-admin-v2-session`) | `closeAdminV2Session026H` | `POST /admin-v2/api/sessions/{}/close` | `{}` | pendiente · Fase 3 (Salud) |
 | L01 | Landing | analítica (`data-refresh-landing-analytics`, `#landingFilters025S`, `data-reset-landing-filters`) | `loadLandingAnalytics025R` | `GET /api/v1/landing-analytics/summary?{}` | — | pendiente · Fase 3 (Landing analytics) |
-| C01 | Empresas | lista | `loadCompanies` | `GET /api/v1/companies` | — | pendiente · Fase 2 (commit 4, Empresas) |
-| C02 | Empresas | crear empresa (`#createCompanyForm`) | `createCompany` | `POST /api/v1/companies` | `{name, slug, timezone, plan}` | pendiente · Fase 2 (commit 4, Empresas) |
-| C03 | Empresas | alta del dueño en el mismo flujo de crear | `createCompany` | `POST /api/v1/companies/{}/users` | `{name, full_name, email, password, temporary_password, role:"company_admin", status:"active", must_change_password:true}` | pendiente · Fase 2 (commit 4, Empresas) |
-| C04 | Empresas / Ficha | cambiar estado (`data-company-status` + `data-status`) y archivar (`data-archive-company`, estado `deleted`) | `updateCompanyStatus` (1.er intento) | `PATCH /api/v1/companies/{}/status` | `{status}` | pendiente · Fase 2 (commit 4, Empresas) |
-| C05 | Empresas / Ficha | mismo flujo, 2.º intento si el 1.º falla | `updateCompanyStatus` | `PATCH /api/v1/companies/{}` | `{status}` | pendiente · Fase 2 (commit 4, Empresas) |
-| C06 | Empresas / Ficha | mismo flujo, 3.er intento si el 2.º falla | `updateCompanyStatus` | `PUT /api/v1/companies/{}` | `{status}` | pendiente · Fase 2 (commit 4, Empresas) |
+| C01 | Empresas | lista | `loadCompanies` | `GET /api/v1/companies` | — | migrado (commit 4 · Empresas; prueba de contrato `admin_v2plus_companies_contract.test.cjs`) |
+| C02 | Empresas | crear empresa (`#createCompanyForm`) | `createCompany` | `POST /api/v1/companies` | `{name, slug, timezone, plan}` | migrado (commit 4 · Empresas; prueba de contrato `admin_v2plus_companies_contract.test.cjs`) |
+| C03 | Empresas | alta del dueño en el mismo flujo de crear | `createCompany` | `POST /api/v1/companies/{}/users` | `{email, full_name, role:"company_admin", password, status:"active"}` (si no se escribe clave, `generateTempPassword`) | migrado (commit 4 · Empresas; prueba de contrato `admin_v2plus_companies_contract.test.cjs`) |
+| C04 | Empresas / Ficha | cambiar estado (`data-company-status` + `data-status`) y archivar (`data-archive-company`, estado `deleted`) | `updateCompanyStatus` (1.er intento) | `PATCH /api/v1/companies/{}/status` | `{status}` | migrado (commit 4 · Empresas; prueba de contrato `admin_v2plus_companies_contract.test.cjs`) |
+| C05 | Empresas / Ficha | mismo flujo, 2.º intento si el 1.º falla | `updateCompanyStatus` | `PATCH /api/v1/companies/{}` | `{status}` | migrado (commit 4 · Empresas; prueba de contrato `admin_v2plus_companies_contract.test.cjs`) |
+| C06 | Empresas / Ficha | mismo flujo, 3.er intento si el 2.º falla | `updateCompanyStatus` | `PUT /api/v1/companies/{}` | `{status}` | migrado (commit 4 · Empresas; prueba de contrato `admin_v2plus_companies_contract.test.cjs`) |
 | F01 | Ficha · Resumen / Módulos | módulos de la empresa | `loadCompanyModules` | `GET /api/v1/companies/{}/modules?enabled_only=false` | — | pendiente · Fase 2 (commit 5, Ficha) |
 | F02 | Ficha · Paquete | catálogo de paquetes | `loadPackages` | `GET /api/v1/packages` | — | pendiente · Fase 2 (commit 5, Ficha) |
 | F03 | Ficha · Paquete | detalle de cada paquete | `loadPackages` | `GET /api/v1/packages/{}` | — | pendiente · Fase 2 (commit 5, Ficha) |
 | F04 | Ficha · Paquete | activar paquete (`#activatePackageForm`) y paquete al crear empresa | `activateCompanyPackage` | `POST /api/v1/companies/{}/activate-package` | `{package_code, settings:{}}` | pendiente · Fase 2 (commit 5, Ficha) |
 | U01 | Acceso Maestro / Ficha | usuarios de la empresa | `loadCompanyUsers` | `GET /api/v1/companies/{}/users` | — | pendiente · Fase 2 (commit 5, Ficha · Usuarios y accesos) |
-| U02 | Acceso Maestro | crear acceso maestro (`#createUserForm`) | `createCompanyUser` | `POST /api/v1/companies/{}/users` | igual que C03 | pendiente · Fase 2 (commit 5, Ficha · Usuarios y accesos) |
+| U02 | Acceso Maestro | crear acceso maestro (`#createUserForm`) | `createCompanyUser` | `POST /api/v1/companies/{}/users` | `{name, full_name, email, password, temporary_password, role:"company_admin", status:"active", must_change_password:true}` | pendiente · Fase 2 (commit 5, Ficha · Usuarios y accesos) |
 | U03 | Acceso Maestro | clave temporal (`data-reset-password`, `data-owner-reset-form`, `data-owner-reset-input`) | `resetCompanyUserPassword` | `POST /api/v1/companies/{}/users/{}/reset-password` | `{password}` si se escribió una; si no `{}` | pendiente · Fase 2 (commit 5, Ficha · Usuarios y accesos) |
 | U04 | Acceso Maestro | desbloquear (`data-unlock-user`) | `unlockCompanyUser` | `POST /api/v1/companies/{}/users/{}/unlock` | `{}` | pendiente · Fase 2 (commit 5, Ficha · Usuarios y accesos) |
 | U05 | Acceso Maestro | activar / desactivar (`data-toggle-user` + `data-status`) | `toggleCompanyUser` | `PUT /api/v1/companies/{}/users/{}` | `{status}` | pendiente · Fase 2 (commit 5, Ficha · Usuarios y accesos) |
@@ -105,15 +105,33 @@ lista visible: Admin V2 las devuelve a `resumen` (ver "Hallazgos en Admin V2").
 | X02 | Ficha · Módulos (mini paneles R6B) | guardar asignación (`data-cx-mp-r6b-*`) | `saveRemote` | `POST /api/v1/companies/{}/modules/mini_panel/activate` | `{settings:{mini_panel_modules}}` | pendiente · Fase 2 (commit 5, Ficha · mini paneles) |
 | Z01 | Barra superior | cerrar sesión (`data-admin-v2-logout`) | `bindEvents` | `POST /admin-v2/logout` | — | pendiente · Fase 3 (Accesos y sesiones) |
 
+## Acciones nuevas de v2+ (sin equivalente en Admin V2)
+
+| ID | Dónde en v2+ | Acción | Petición | Cuerpo | Protección |
+|---|---|---|---|---|---|
+| V01 | Empresas | cambiar de tipo (demo ↔ registrada); demo → registrada exige confirmación | `POST /admin-v2/api/companies/{}/kind` | `{kind, confirm}` | sesión de Admin V2 (401); las 3 vivas no pasan a demo (403) |
+| V02 | Empresas / Ficha | clonar como demo (solo configuración, lista blanca) con dueño nuevo | `POST /admin-v2/api/companies/{}/clone-demo` | `{name, slug, owner_full_name, owner_email, owner_password}` | sesión de Admin V2 (401) |
+| V03 | Empresas / Ficha · Datos | eliminar definitivo: simulación y ejecución con el nombre exacto | `POST /admin-v2/api/companies/{}/purge` | `{dry_run:true}` / `{dry_run:false, confirm_name}` | sesión (401); vivas nunca (403); registradas solo archivadas (409) |
+
+**Clonar como demo** copia SOLO: `company_package_assignments`, `company_modules` (con sus
+`settings`, sin claves con forma de secreto), `company_branding` (sin logos `data:`),
+`company_localization`, `company_crm_layout`, `company_crm_launchpad_cards`, `roles`,
+`carta_categories` y `carta_items` (sin imágenes y sin el insumo de inventario), más la marca y
+la localización de `companies.settings_json`. Cualquier otra tabla queda fuera por defecto.
+**No se copian** (decisión pendiente si se quieren): `hospitality_categories` (categorías del
+pedido por mesero con su imagen, que es configuración operativa), `company_crm_widgets`,
+`company_crm_sections`, `company_crm_actions`, `company_crm_field_configs`,
+`company_alert_rules` y `company_kpi_panel_config`.
+
 ## Acciones sin petición al servidor
 
 | ID | Dónde en v2 | Acción | Qué hace | Estado en v2+ |
 |---|---|---|---|---|
 | N-01 | todas | `data-view`, `data-nav-view` | cambia de vista | migrado (menú de v2+) |
-| N-02 | Empresas | `data-company-filter` (Visibles / Todas / Activas / Inactivas / Archivadas) | filtra la lista | pendiente · Fase 2 (commit 4, Empresas) |
+| N-02 | Empresas | `data-company-filter` (Visibles / Todas / Activas / Inactivas / Archivadas) | filtra la lista | migrado (commit 4 · mismos filtros, por pestaña Registradas / Demos) |
 | N-03 | Empresas | `data-select-company` (+ `data-detail-tab`) | abre la Ficha en una pestaña | pendiente · Fase 2 (commit 5, Ficha) |
 | N-04 | Ficha | `data-detail-tab` | cambia de pestaña | pendiente · Fase 2 (commit 5, Ficha) |
-| N-05 | Empresas | `data-generate-create-owner-password` | genera la clave temporal del dueño al crear | pendiente · Fase 2 (commit 4, Empresas) |
+| N-05 | Empresas | `data-generate-create-owner-password` | genera la clave temporal del dueño al crear | migrado (commit 4 · misma generación de clave temporal) |
 | N-06 | Acceso Maestro | `data-generate-password-for-form` | genera clave en el formulario | pendiente · Fase 2 (commit 5, Ficha) |
 | N-07 | varios | `data-copy` (ID, email, clave, links, IP, health) | copia al portapapeles | pendiente · Fase 2 (commits 4-5, por pantalla) |
 | N-08 | varios | `data-open-client` | abre `/client?company_id=…` (vista previa como empresa) | migrado ("Entrar como empresa" en el Centro de mando) |

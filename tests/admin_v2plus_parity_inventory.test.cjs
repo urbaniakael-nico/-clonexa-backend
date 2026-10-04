@@ -77,9 +77,12 @@ function extractCalls(src) {
   return { calls, skipped };
 }
 
+// Solo la tabla de acciones de Admin V2 (las nuevas de v2+ van en otra sección).
 function inventoryRows(doc) {
   const rows = [];
-  for (const line of doc.split('\n')) {
+  const start = doc.indexOf('## Acciones con petición al servidor');
+  const section = doc.slice(start, doc.indexOf('\n## ', start + 5));
+  for (const line of section.split('\n')) {
     const cells = line.split('|').map((c) => c.trim());
     if (cells.length < 4 || !/^[A-Z]\d{2}$/.test(cells[1] || '')) continue;
     const request = (line.match(/`(GET|POST|PUT|PATCH|DELETE) (\/[^`\s]*)`/) || []);

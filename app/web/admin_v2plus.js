@@ -166,7 +166,7 @@
         <div class="vp-head-actions">
           <button class="vp-btn vp-btn-search" type="button" data-vp-search><span>Buscar u ordenar…</span><span class="vp-kbd">Ctrl K</span></button>
           <button class="vp-btn" type="button" data-vp-refresh>Refrescar</button>
-          <a class="vp-btn vp-btn-primary" href="/admin-v2">+ Nueva empresa</a>
+          <button class="vp-btn vp-btn-primary" type="button" data-vp-new-company>+ Nueva empresa</button>
           ${updated ? `<span class="vp-updated">${h(updated)}</span>` : ""}
         </div>
       </header>
@@ -300,9 +300,24 @@
   // ------------------------------------------------------------ app
   function main() { return document.getElementById("vpMain"); }
 
+  // Contexto que reciben las secciones en archivos aparte (Empresas, Ficha...).
+  function viewContext(view) {
+    return { root: main, active: () => state.view === view, overview: () => state.overview, toast, reloadOverview: load };
+  }
+
+  function setView(view) {
+    state.view = view;
+    document.querySelectorAll("[data-vp-view]").forEach((b) => b.classList.toggle("is-active", b.getAttribute("data-vp-view") === view));
+    render();
+  }
+
   function render() {
     const root = main();
     if (!root) return;
+    if (state.view === "companies" && window.CxConsoleCompanies) {
+      window.CxConsoleCompanies.mount(viewContext("companies"));
+      return;
+    }
     if (state.view !== "command") { root.innerHTML = soon(state.view); return; }
     if (!state.overview) {
       root.innerHTML = state.error ? `<div class="vp-alert" role="alert"><strong>No se pudo cargar</strong><span>${h(state.error)}</span></div>` : `<p class="vp-loading">Cargando el Centro de mando…</p>`;
@@ -340,7 +355,11 @@
       state.error = (error && error.message) || "Sin conexión.";
     } finally {
       state.loading = false;
-      render();
+      // Las secciones con formularios solo actualizan su semáforo: el
+      // refresco de 60 s nunca borra lo que se está escribiendo.
+      const section = state.view === "companies" ? window.CxConsoleCompanies : null;
+      if (section && section.refreshPulse) section.refreshPulse();
+      else render();
     }
   }
 
@@ -348,10 +367,10 @@
     const target = event.target;
     if (!target || !target.closest) return;
     const nav = target.closest("[data-vp-view]");
-    if (nav) {
-      state.view = nav.getAttribute("data-vp-view") || "command";
-      document.querySelectorAll("[data-vp-view]").forEach((b) => b.classList.toggle("is-active", b === nav));
-      render();
+    if (nav) { setView(nav.getAttribute("data-vp-view") || "command"); return; }
+    if (target.closest("[data-vp-new-company]")) {
+      if (window.CxConsoleCompanies) window.CxConsoleCompanies.model.showCreate = true;
+      setView("companies");
       return;
     }
     const chip = target.closest("[data-vp-filter]");
