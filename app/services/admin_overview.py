@@ -43,6 +43,9 @@ from app.services.sales_ledger import CANCELLED, PAID
 BOGOTA = ZoneInfo("America/Bogota")
 DORMANT_DAYS = 7
 CONNECTED_MINUTES = 15
+# Una sesion "abierta" sin actividad en 24 h no cuenta como abierta: nadie la
+# cerro (ver docs/sesiones_viejas.md), se muestra aparte como "sin actividad".
+OPEN_RECENT_HOURS = 24
 DB_LIMIT_MB = 500
 DB_WARN_PCT = 80
 OWNER_ROLES = ("company_admin", "admin_empresa", "dueno", "dueño", "owner", "propietario")
@@ -152,6 +155,7 @@ async def build_overview(db: AsyncSession, *, now: datetime | None = None, maste
     _today, day_start, day_end = bogota_day_bounds(now)
     week_start = day_start - timedelta(days=6)
     live_since = now - timedelta(minutes=CONNECTED_MINUTES)
+    recent_since = now - timedelta(hours=OPEN_RECENT_HOURS)
     cols = await _columns(db)
     have = set(cols)
 
@@ -174,7 +178,7 @@ async def build_overview(db: AsyncSession, *, now: datetime | None = None, maste
             "status": str(c.get("status") or ""), "plan": c.get("package_name") or c.get("plan") or "",
             "kind": resolve_kind(c["id"], c.get("kind")),
             "modules_enabled": 0, "flags_on": [],
-            "open_sessions": 0, "connected_sessions": 0, "users_connected": 0, "logins_today": 0,
+            "open_sessions": 0, "stale_sessions": 0, "connected_sessions": 0, "users_connected": 0, "logins_today": 0,
             "last_seen_at": None, "last_login_at": None, "operation_last_at": None,
             "owners_with_access": 0,
             # Ventas: solo informativas por empresa (no van a totales ni al semaforo).
@@ -210,18 +214,19 @@ async def build_overview(db: AsyncSession, *, now: datetime | None = None, maste
     if "clonexa_access_sessions" in have:
         for r in await _rows(db, """
             SELECT company_id::text AS company_id,
-                   COUNT(*) FILTER (WHERE status = 'active') AS open_sessions,
+                   COUNT(*) FILTER (WHERE status = 'active' AND last_seen_at >= :recent_since) AS open_sessions,
+                   COUNT(*) FILTER (WHERE status = 'active' AND last_seen_at < :recent_since) AS stale_sessions,
                    COUNT(*) FILTER (WHERE status = 'active' AND last_seen_at >= :live_since) AS live_sessions,
                    COUNT(DISTINCT COALESCE(subject_id::text, session_key))
                      FILTER (WHERE status = 'active' AND last_seen_at >= :live_since) AS live_users,
                    COUNT(*) FILTER (WHERE created_at >= :day_start AND created_at < :day_end) AS logins_today,
                    MAX(last_seen_at) AS last_seen
             FROM clonexa_access_sessions WHERE company_id IS NOT NULL GROUP BY company_id
-        """, {"live_since": live_since, "day_start": day_start, "day_end": day_end}):
+        """, {"live_since": live_since, "recent_since": recent_since, "day_start": day_start, "day_end": day_end}):
             row = by_id.get(str(r["company_id"]))
             if not row:
                 continue
-            row.update(open_sessions=int(r["open_sessions"] or 0), connected_sessions=int(r["live_sessions"] or 0),
+            row.update(open_sessions=int(r["open_sessions"] or 0), stale_sessions=int(r["stale_sessions"] or 0), connected_sessions=int(r["live_sessions"] or 0),
                        users_connected=int(r["live_users"] or 0), logins_today=int(r["logins_today"] or 0))
             bump(row, "last_seen_at", r["last_seen"])
 
@@ -277,7 +282,7 @@ async def build_overview(db: AsyncSession, *, now: datetime | None = None, maste
     states = {name: 0 for name in STATES}
     demo_count = 0
     totals = {"registered": 0, "registered_active": 0, "connected_now": 0, "users_connected_now": 0,
-              "logins_today": 0, "dormant": 0, "at_risk": 0, "open_sessions": 0}
+              "logins_today": 0, "dormant": 0, "at_risk": 0, "open_sessions": 0, "stale_sessions": 0}
     for row in by_id.values():
         state, reason = classify(row, now)
         row["flags_on"] = sorted(set(row["flags_on"]))
@@ -296,6 +301,7 @@ async def build_overview(db: AsyncSession, *, now: datetime | None = None, maste
         totals["users_connected_now"] += row["users_connected"]
         totals["logins_today"] += row["logins_today"]
         totals["open_sessions"] += row["open_sessions"]
+        totals["stale_sessions"] += row["stale_sessions"]
         totals["dormant"] += 1 if state == "dormida" else 0
         totals["at_risk"] += 1 if state == "riesgo" else 0
     return {

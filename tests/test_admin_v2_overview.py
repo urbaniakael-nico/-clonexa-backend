@@ -104,6 +104,8 @@ class OverviewDb:
             {"company_id": ASADERO, "status": "active", "last_seen_at": NOW - timedelta(minutes=2), "created_at": NOW - timedelta(hours=2), "subject_id": "u1", "session_key": "s1"},
             {"company_id": ASADERO, "status": "active", "last_seen_at": NOW - timedelta(minutes=14), "created_at": NOW - timedelta(hours=1), "subject_id": "u2", "session_key": "s2"},
             {"company_id": ASADERO, "status": "active", "last_seen_at": NOW - timedelta(minutes=5), "created_at": NOW - timedelta(minutes=30), "subject_id": "u1", "session_key": "s3"},
+            # abierta hace dias y nunca cerrada: no cuenta como abierta, va a "sin actividad"
+            {"company_id": ASADERO, "status": "active", "last_seen_at": NOW - timedelta(days=3), "created_at": NOW - timedelta(days=4), "subject_id": "u1", "session_key": "s0"},
             # abierta pero sin moverse hace 40 min: no es "conectada"
             {"company_id": TTM, "status": "active", "last_seen_at": NOW - timedelta(minutes=40), "created_at": NOW - timedelta(days=1), "subject_id": "u3", "session_key": "s4"},
             {"company_id": CERRADA, "status": "closed", "last_seen_at": NOW - timedelta(days=3), "created_at": NOW - timedelta(days=3), "subject_id": "u4", "session_key": "s5"},
@@ -156,10 +158,11 @@ class OverviewDb:
         if "FROM clonexa_access_sessions" in sql:
             out = {}
             for s in self.sessions:
-                r = out.setdefault(s["company_id"], {"company_id": s["company_id"], "open_sessions": 0, "live_sessions": 0,
-                                                     "live_users": set(), "logins_today": 0, "last_seen": None})
+                r = out.setdefault(s["company_id"], {"company_id": s["company_id"], "open_sessions": 0, "stale_sessions": 0,
+                                                     "live_sessions": 0, "live_users": set(), "logins_today": 0, "last_seen": None})
                 live = s["status"] == "active" and s["last_seen_at"] >= p["live_since"]
-                r["open_sessions"] += s["status"] == "active"
+                r["open_sessions"] += s["status"] == "active" and s["last_seen_at"] >= p["recent_since"]
+                r["stale_sessions"] += s["status"] == "active" and s["last_seen_at"] < p["recent_since"]
                 r["live_sessions"] += live
                 if live:
                     r["live_users"].add(s["subject_id"] or s["session_key"])
@@ -374,3 +377,12 @@ def test_admin_overview_endpoint_returns_no_store_json(api):
                 "connected_sessions", "users_connected", "last_seen_at", "last_login_at", "operation_last_at",
                 "last_real_signal_at", "state", "state_reason"):
         assert key in company, key
+
+
+@pytest.mark.asyncio
+async def test_open_sessions_count_only_last_24h_and_stale_go_apart():
+    data, by, _db = await _overview()
+    assert by[ASADERO]["open_sessions"] == 3 and by[ASADERO]["stale_sessions"] == 1
+    assert by[TTM]["open_sessions"] == 1 and by[TTM]["stale_sessions"] == 0
+    assert data["totals"]["open_sessions"] == 4 and data["totals"]["stale_sessions"] == 1
+    assert by[ASADERO]["state"] == "conectada", "una sesion vieja no cambia el semaforo"
