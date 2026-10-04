@@ -334,6 +334,11 @@
       window.CxConsoleCompany.mount({ ...viewContext("company"), goCompanies: () => setView("companies") }, state.companyId);
       return;
     }
+    if (state.view === "audit" && window.CxConsoleAudit) {
+      root.innerHTML = window.CxConsoleAudit.view();
+      window.CxConsoleAudit.mountInto(root.querySelector("[data-vpa-host]"));
+      return;
+    }
     if (state.view === "companies" && window.CxConsoleCompanies) {
       window.CxConsoleCompanies.mount(viewContext("companies"));
       return;
@@ -379,7 +384,7 @@
       // refresco de 60 s nunca borra lo que se está escribiendo.
       const section = state.view === "companies" ? window.CxConsoleCompanies : state.view === "company" ? window.CxConsoleCompany : null;
       if (section && section.refreshPulse) section.refreshPulse();
-      else render();
+      else if (state.view !== "audit") render(); // la auditoría no se redibuja sola: guarda sus filtros
     }
   }
 

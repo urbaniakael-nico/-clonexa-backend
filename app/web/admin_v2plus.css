@@ -346,3 +346,5 @@ button, input, select { font: inherit; color: inherit; }
 .vp-brand-logo { width: 72px; height: 72px; object-fit: contain; border-radius: 14px; border: 1px solid var(--vp-line); background: rgba(255, 255, 255, .04); }
 .vp-btn.is-disabled { opacity: .55; cursor: not-allowed; }
 .vp-reset-result { display: grid; gap: 8px; }
+.vp-audit-fail { color: var(--vp-risk); font-weight: 600; }
+.vp-audit-table td small { color: var(--vp-muted); }

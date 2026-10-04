@@ -112,6 +112,7 @@ lista visible: Admin V2 las devuelve a `resumen` (ver "Hallazgos en Admin V2").
 | V01 | Empresas | cambiar de tipo (demo ↔ registrada); demo → registrada exige confirmación | `POST /admin-v2/api/companies/{}/kind` | `{kind, confirm}` | sesión de Admin V2 (401); las 3 vivas no pasan a demo (403) |
 | V02 | Empresas / Ficha | clonar como demo (solo configuración, lista blanca) con dueño nuevo | `POST /admin-v2/api/companies/{}/clone-demo` | `{name, slug, owner_full_name, owner_email, owner_password}` | sesión de Admin V2 (401) |
 | V03 | Empresas / Ficha · Datos | eliminar definitivo: simulación y ejecución con el nombre exacto | `POST /admin-v2/api/companies/{}/purge` | `{dry_run:true}` / `{dry_run:false, confirm_name}` | sesión (401); vivas nunca (403); registradas solo archivadas (409) |
+| V04 | Auditoría (menú) y Ficha · Auditoría | escrituras hechas con sesión de Admin V2, filtros por empresa, fecha y acción | `GET /admin-v2/api/audit` | `?company_id&date_from&date_to&action&limit` | sesión de Admin V2 (401) |
 
 **Clonar como demo** copia SOLO: `company_package_assignments`, `company_modules` (con sus
 `settings`, sin claves con forma de secreto), `company_branding` (sin logos `data:`),

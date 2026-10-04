@@ -7,7 +7,7 @@
 
   const API = "/api/v1";
   const TABS = [["resumen", "Resumen"], ["paquete", "Paquete"], ["modulos", "Módulos y mini paneles"],
-    ["accesos", "Usuarios y accesos"], ["bots", "Bots"], ["datos", "Datos"], ["marca", "Marca"]];
+    ["accesos", "Usuarios y accesos"], ["bots", "Bots"], ["datos", "Datos"], ["marca", "Marca"], ["auditoria", "Auditoría"]];
   const ACCESS_SCOPES = [["client", "Panel cliente", "/client"], ["mini_panel", "Mini paneles", "/mini-panel"], ["ordering_qr", "QR / pedidos / votacion", "/ordenar"]];
   const SESSION_SCOPES = [["client", "Panel cliente", "/client", 2, 20], ["mini_panel", "Mini paneles", "/mini-panel", 5, 100]];
   const RESET_SCOPES = [
@@ -418,7 +418,8 @@
     if (!c) return loading("la ficha");
     const p = pulse();
     const panes = { resumen: () => tabResumen(c, p), paquete: () => tabPaquete(p), modulos: () => tabModulos(c), accesos: () => tabAccesos(c),
-      bots: () => tabBots(c), datos: () => tabDatos(c), marca: () => tabMarca(c) };
+      bots: () => tabBots(c), datos: () => tabDatos(c), marca: () => tabMarca(c),
+      auditoria: () => `<section class="vp-panel vp-section"><h2>Auditoría</h2><div data-vpa-host></div></section>` };
     return `${header(c, p)}
       ${model.error ? `<div class="vp-alert" role="alert"><span>${h(model.error)}</span></div>` : ""}
       ${model.notice ? `<p class="vp-ok-text" role="status">${h(model.notice)}</p>` : ""}
@@ -441,11 +442,13 @@
     if (!root) return;
     root.innerHTML = view();
     paintSwatches(root);
+    const audit = model.tab === "auditoria" && model.company && root.querySelector && root.querySelector("[data-vpa-host]");
+    if (audit && window.CxConsoleAudit) window.CxConsoleAudit.mountInto(audit, { company_id: model.id });
   }
 
   // ------------------------------------------------------------ carga
   const TAB_NEEDS = { resumen: ["users", "modules"], paquete: ["packages", "modules"], modulos: ["modules"],
-    accesos: ["users", "accessPolicy", "sessionPolicy", "sessions"], bots: ["telegram", "modules"], datos: [], marca: ["experience"] };
+    accesos: ["users", "accessPolicy", "sessionPolicy", "sessions"], bots: ["telegram", "modules"], datos: [], marca: ["experience"], auditoria: [] };
 
   async function ensure(keys, force = false) {
     const id = model.id;

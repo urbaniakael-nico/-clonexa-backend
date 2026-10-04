@@ -476,6 +476,12 @@ from app.core.security_headers import SecurityHeadersMiddleware
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+# Auditoria de la consola maestra: solo escrituras con sesion de Admin V2;
+# nunca bloquea ni cambia la respuesta. Ver app/services/admin_audit.py.
+from app.services.admin_audit import AdminAuditMiddleware
+
+app.add_middleware(AdminAuditMiddleware)
+
 
 @app.get("/health")
 async def health() -> dict[str, object]:

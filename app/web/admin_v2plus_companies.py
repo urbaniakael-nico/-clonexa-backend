@@ -87,6 +87,21 @@ async def _audit(request: Request, **detail: Any) -> None:
         pass
 
 
+# ------------------------------------------------------- auditoria ---
+@router.get("/admin-v2/api/audit", include_in_schema=False, dependencies=GUARD)
+async def audit_log(request: Request, company_id: str = "", date_from: str = "", date_to: str = "", action: str = "",
+                    limit: int = 100, db: AsyncSession = Depends(get_db)):
+    """Escrituras de la consola maestra, filtradas por empresa, fecha (dia en Bogota) y accion."""
+    from app.services import admin_audit
+
+    try:
+        entries = await admin_audit.list_entries(db, company_id=company_id, date_from=date_from, date_to=date_to,
+                                                 action=action, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _json({"ok": True, "entries": entries, "retention_days": admin_audit.RETENTION_DAYS})
+
+
 # ------------------------------------------------------------ tipo ---
 class KindRequest(BaseModel):
     kind: str
