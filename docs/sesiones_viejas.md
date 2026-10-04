@@ -1,4 +1,4 @@
-# Sesiones que no se cierran solas · informe y propuesta (NO aplicada)
+# Sesiones que no se cierran solas · informe y cierre automático
 
 Afectaría a **todas las empresas**: la decide el dueño.
 
@@ -56,3 +56,15 @@ Resumen y Ficha · Usuarios y accesos). No se cerró ni se cambió ninguna sesi�
 
 Efecto esperado en The Time Machine: 40 de 42 "abiertas" pasarían a cerradas la primera
 hora; las 2 recientes siguen igual.
+
+## Estado (2026-10-05): aprobado e implementado
+
+- Código: `app/services/session_idle.py`, enganchado al ciclo del corte diario
+  (`session_cutoff.cutoff_loop`), como mucho una vez por hora. Pruebas en
+  `tests/test_session_idle.py`.
+- **Apagado hasta definir la variable** `CLONEXA_SESSION_IDLE_HOURS` en Railway. Valor
+  aprobado para empezar: **72**. Nunca baja de 8 h (la vida del token).
+- Motivo de cierre: `expirada_por_inactividad`.
+- Primera corrida con 72 h (conteo en producción, 2026-10-05, solo lectura): **39 de 45**
+  sesiones abiertas: 37 de The Time Machine y 2 de Radio Despecho, todas del portal
+  (`client`). Velvet (1 abierta) y la sesión de Admin V2 no se tocan. Con 24 h serían 42.

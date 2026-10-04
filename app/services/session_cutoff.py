@@ -396,6 +396,14 @@ async def cutoff_loop() -> None:
                         closed = [r for r in results if r["sessions"] or r["attendance"] or r["logins"]]
                         if closed:
                             log.info("Corte diario aplicado: %s", closed)
+                        try:
+                            # Sesiones sin actividad (CLONEXA_SESSION_IDLE_HOURS; apagado por defecto).
+                            from app.services.session_idle import maybe_close_idle_sessions
+
+                            await maybe_close_idle_sessions(db)
+                        except Exception as exc:  # nunca frena el corte diario
+                            await db.rollback()
+                            log.warning("Cierre de sesiones sin actividad no pudo correr: %s", exc)
                     finally:
                         await db.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": ADVISORY_LOCK_ID})
                         await db.commit()
