@@ -470,6 +470,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Cabeceras de seguridad en TODAS las respuestas (nunca bloquea; CSP solo en
+# /admin-v2plus*). Ver app/core/security_headers.py.
+from app.core.security_headers import SecurityHeadersMiddleware
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 @app.get("/health")
 async def health() -> dict[str, object]:

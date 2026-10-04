@@ -4906,7 +4906,9 @@ function moduleCard(title, description, tag, code = "") {
     const win = window.open("", "_blank");
     if (!win) return;
     const safeType = String(file.file_type || "");
-    const src = file.file_data;
+    // file_data llega tal cual lo subio otro usuario: escapado para que nunca
+    // cierre el atributo src (auditoria XSS 2026-10).
+    const src = h(file.file_data);
     if (safeType.includes("pdf")) {
       win.document.write(`<iframe src="${src}" style="width:100%;height:100vh;border:0"></iframe>`);
     } else {
@@ -4928,7 +4930,7 @@ function moduleCard(title, description, tag, code = "") {
     if (!file?.file_data) return;
     const win = window.open("", "_blank");
     if (!win) return;
-    const src = file.file_data;
+    const src = h(file.file_data);
     const isPdf = String(file.file_type || "").includes("pdf");
     win.document.write(isPdf
       ? `<iframe src="${src}" style="width:100%;height:100vh;border:0"></iframe><script>setTimeout(()=>print(),900)<\/script>`
