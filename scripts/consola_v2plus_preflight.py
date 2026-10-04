@@ -21,6 +21,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# Importar `app` crea el motor de la app con DATABASE_URL (no conecta). Con la
+# URL de Railway (postgresql://...) SQLAlchemy pediria psycopg2: se le indica
+# asyncpg, que es el driver del proyecto.
+for _key in ("DATABASE_URL", "DATABASE_PUBLIC_URL"):
+    _value = os.environ.get(_key, "")
+    if _value.startswith("postgresql://") or _value.startswith("postgres://"):
+        os.environ[_key] = "postgresql+asyncpg://" + _value.split("://", 1)[1]
+
 LIVE_COMPANY_IDS = {
     "7625872c-f941-4479-a27b-f8443be953c5",  # ASADERO EL SOCIO
     "21a3065e-38ee-4fc3-96ed-ae1707a3b8e4",  # The Time Machine
