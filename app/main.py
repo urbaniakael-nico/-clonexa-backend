@@ -32,7 +32,9 @@ except Exception:
     register_client_portal = None
 
 
-app = FastAPI(title="Clonexa Backend")
+# /docs, /redoc y /openapi.json NO son publicos: el esquema es el mapa completo
+# de la API. Se apagan aqui y se sirven abajo solo con sesion de Admin V2.
+app = FastAPI(title="Clonexa Backend", docs_url=None, redoc_url=None, openapi_url=None)
 
 
 def _clonexa_request_ip(request) -> str:
@@ -481,6 +483,51 @@ app.add_middleware(SecurityHeadersMiddleware)
 from app.services.admin_audit import AdminAuditMiddleware
 
 app.add_middleware(AdminAuditMiddleware)
+
+
+# CLONEXA_API_DOCS_GUARD: documentacion de la API solo con sesion de Admin V2
+# (validada en el servidor). Sin sesion: las paginas llevan al login de Admin V2
+# y el esquema responde 401. Nada propio consume /openapi.json; Admin V2 solo
+# enlaza a /docs.
+from fastapi import Depends as _CxDepends, Request as _CxRequest  # noqa: E402
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession as _CxAsyncSession  # noqa: E402
+
+from app.api.deps import get_db as _cx_get_db  # noqa: E402
+
+
+async def _clonexa_docs_session(request, db) -> bool:
+    from app.web.admin_v2_routes import _active_session
+
+    try:
+        return await _active_session(request, db)
+    except Exception:
+        return False
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def _clonexa_openapi(request: _CxRequest, db: _CxAsyncSession = _CxDepends(_cx_get_db)):
+    if not await _clonexa_docs_session(request, db):
+        return JSONResponse({"detail": "Sesion de Admin V2 requerida."}, status_code=401, headers={"Cache-Control": "no-store"})
+    return JSONResponse(app.openapi(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/docs", include_in_schema=False)
+async def _clonexa_swagger(request: _CxRequest, db: _CxAsyncSession = _CxDepends(_cx_get_db)):
+    if not await _clonexa_docs_session(request, db):
+        return RedirectResponse(url="/admin-v2/login", status_code=303)
+    page = get_swagger_ui_html(openapi_url="/openapi.json", title=f"{app.title} - Docs")
+    page.headers["Cache-Control"] = "no-store"
+    return page
+
+
+@app.get("/redoc", include_in_schema=False)
+async def _clonexa_redoc(request: _CxRequest, db: _CxAsyncSession = _CxDepends(_cx_get_db)):
+    if not await _clonexa_docs_session(request, db):
+        return RedirectResponse(url="/admin-v2/login", status_code=303)
+    page = get_redoc_html(openapi_url="/openapi.json", title=f"{app.title} - ReDoc")
+    page.headers["Cache-Control"] = "no-store"
+    return page
 
 
 @app.get("/health")
