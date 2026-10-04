@@ -125,13 +125,15 @@ test('estados vacíos: sin empresas y sin coincidencias en el filtro', () => {
 
 test('las secciones que aún no existen dicen "Próximamente"', () => {
   const ui = load();
-  assert.match(ui.soon('billing'), /Facturación<\/h2><p>Próximamente/);
+  assert.match(ui.soon('switches'), /Interruptores<\/h2><p>Próximamente/);
 });
 
 test('HTML y tema: menú completo, logo idéntico a Admin V2 y colores Catedral', () => {
-  for (const item of ['Centro de mando', 'Empresas', 'Interruptores', 'Accesos y sesiones', 'Catálogo', 'Facturación', 'Salud y seguridad', 'Auditoría', 'Landing']) {
-    assert.match(html, new RegExp(`>${item}</button>`));
-  }
+  // Menú final (Fase 3), en este orden exacto y sin Facturación.
+  const order = ['Centro de mando', 'Empresas', 'Catálogo', 'Interruptores', 'Estudio de marca', 'Accesos y sesiones', 'Salud y seguridad', 'Auditoría', 'Landing'];
+  const nav = [...html.matchAll(/data-vp-view="[a-z]+">([^<]+)<\/button>/g)].map((m) => m[1]);
+  assert.deepEqual(nav, order);
+  assert.doesNotMatch(html, /Facturación|billing/);
   assert.match(html, /Volver a Admin V2/);
   assert.match(html, /class="cx-logo-fallback" aria-hidden="true">CX</);
   assert.match(html, /class="cx-brand-title">CLONEXA</);

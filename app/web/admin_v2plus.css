@@ -442,3 +442,13 @@ button, input, select { font: inherit; color: inherit; }
   .vp-sidebar { min-width: 0; }
   .vp-nav-item { white-space: normal; }
 }
+
+/* ------------------------------------ Fase 3 · Catálogo, Accesos, Salud, Landing */
+.vp-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.vp-card-grid > * { min-width: 0; }
+.vp-card-small { font-size: 16px; }
+.vp-field-wide { grid-column: 1 / -1; }
+.vp-pkg-chips { max-height: 220px; }
+.vp-meter { height: 10px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.vp-meter span { display: block; height: 100%; width: 0; background: var(--vp-ok); }
+.vp-meter span.is-warn { background: var(--vp-risk); }

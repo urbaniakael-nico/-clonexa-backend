@@ -98,6 +98,24 @@ async def company_activity(company_id: str, db: AsyncSession = Depends(get_db)):
     return _json(await build(db, str(cid)))
 
 
+# ------------------------------------------- catalogo y salud (Fase 3) ---
+@router.get("/admin-v2/api/catalog/usage", include_in_schema=False, dependencies=GUARD)
+async def catalog_usage(db: AsyncSession = Depends(get_db)):
+    """Solo lectura: empresas por paquete; por modulo, paquetes y empresas encendidas."""
+    from app.services.console_catalog import catalog_usage as build
+
+    return _json(await build(db))
+
+
+@router.get("/admin-v2/api/health/security", include_in_schema=False, dependencies=GUARD)
+async def health_security(request: Request, db: AsyncSession = Depends(get_db)):
+    """Solo lectura: variables de seguridad presentes (sin valores), cierre automatico de
+    sesiones y un estimado de endpoints sin sesion."""
+    from app.services.console_catalog import security_status
+
+    return _json(await security_status(db, request.app, master_access_mode=v2.master_access_mode()))
+
+
 # ------------------------------------------------------- auditoria ---
 @router.get("/admin-v2/api/audit", include_in_schema=False, dependencies=GUARD)
 async def audit_log(request: Request, company_id: str = "", date_from: str = "", date_to: str = "", action: str = "",

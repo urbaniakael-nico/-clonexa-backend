@@ -190,7 +190,8 @@ test('la Ficha no trae configuración operativa (pedidos por mesero, cocina, cat
   const uses = source.match(/modules\/waiter_ordering\/[a-z]+/g) || [];
   assert.deepEqual([...new Set(uses)], ['modules/waiter_ordering/activate']);
   assert.match(source, /Configuración avanzada en Admin V2/);
-  assert.match(source, /Abrir en Estudio de marca \(próximamente\)/);
+  assert.match(source, /data-vpf-brand-studio>Abrir en Estudio de marca</);
+  assert.match(source, /setView\("brand", \{ companyId: model\.id, companyName: model\.company\.name \}\)/);
 });
 
 test('la ficha dibuja encabezado, pestañas y escapa los datos', () => {

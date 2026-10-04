@@ -18,9 +18,10 @@
     inactiva: { label: "Inactiva", chip: "Inactivas" },
   };
   const FILTERS = ["todas", "conectada", "activa_hoy", "sin_actividad_hoy", "dormida", "riesgo", "inactiva"];
+  // Menú final de la consola (Fase 3), en este orden.
   const VIEWS = {
-    command: "Centro de mando", companies: "Empresas", switches: "Interruptores", access: "Accesos y sesiones",
-    catalog: "Catálogo", billing: "Facturación", health: "Salud y seguridad", audit: "Auditoría", landing: "Landing",
+    command: "Centro de mando", companies: "Empresas", catalog: "Catálogo", switches: "Interruptores",
+    brand: "Estudio de marca", access: "Accesos y sesiones", health: "Salud y seguridad", audit: "Auditoría", landing: "Landing",
   };
 
   const state = { overview: null, filter: "todas", showDemos: false, view: "command", error: "", loading: false, updatedAt: null,
@@ -305,8 +306,9 @@
     return { root: main, active: () => state.view === view, overview: () => state.overview, toast, reloadOverview: load };
   }
 
-  function setView(view) {
+  function setView(view, params) {
     state.view = view;
+    state.viewParams = params || {};
     if (view !== "company" && window.location.hash) {
       try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch (_) { window.location.hash = ""; }
     }
@@ -341,6 +343,12 @@
     }
     if (state.view === "companies" && window.CxConsoleCompanies) {
       window.CxConsoleCompanies.mount(viewContext("companies"));
+      return;
+    }
+    // Secciones en archivos aparte (Catálogo, Accesos, Salud, Landing, Estudio de marca...).
+    const section = window.CxConsoleSections && window.CxConsoleSections[state.view];
+    if (section) {
+      section.mount({ ...viewContext(state.view), params: state.viewParams || {}, go: setView });
       return;
     }
     if (state.view !== "command") { root.innerHTML = soon(state.view); return; }
@@ -382,9 +390,11 @@
       state.loading = false;
       // Las secciones con formularios solo actualizan su semáforo: el
       // refresco de 60 s nunca borra lo que se está escribiendo.
-      const section = state.view === "companies" ? window.CxConsoleCompanies : state.view === "company" ? window.CxConsoleCompany : null;
+      const registered = window.CxConsoleSections && window.CxConsoleSections[state.view];
+      const section = state.view === "companies" ? window.CxConsoleCompanies : state.view === "company" ? window.CxConsoleCompany : registered || null;
       if (section && section.refreshPulse) section.refreshPulse();
-      else if (state.view !== "audit") render(); // la auditoría no se redibuja sola: guarda sus filtros
+      // La auditoría y las secciones con formularios no se redibujan solas: guardan lo escrito.
+      else if (state.view === "command") render();
     }
   }
 
@@ -431,6 +441,6 @@
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { companyFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, state, STATES };
+  window.CxConsolePlus = { setView, VIEWS, companyFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, state, STATES };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();

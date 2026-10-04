@@ -427,7 +427,7 @@
         <div class="vp-kv-grid">${colors.map(([label, value]) => `<div class="vp-kv"><span>${h(label)}</span><strong><span class="vp-swatch" data-vpf-swatch="${h(value || "")}"></span> ${h(value || "—")}</strong></div>`).join("")}
           <div class="vp-kv"><span>Fuente</span><strong>${h(b.font_family || "Inter")}</strong></div><div class="vp-kv"><span>Tema</span><strong>${h(b.theme_mode || b.mode || "dark")}</strong></div></div>
       </div>
-      <p><span class="vp-btn vp-btn-sm is-disabled" aria-disabled="true">Abrir en Estudio de marca (próximamente)</span></p>
+      <p><button class="vp-btn vp-btn-sm vp-btn-primary" type="button" data-vpf-brand-studio>Abrir en Estudio de marca</button></p>
     </section>`;
   }
 
@@ -556,6 +556,10 @@
     const tab = t.closest("[data-vpf-tab]");
     if (tab) { model.tab = tab.getAttribute("data-vpf-tab"); model.notice = ""; draw(); ensure(TAB_NEEDS[model.tab] || []); return; }
     if (t.closest("[data-vpf-back]")) { event.preventDefault(); if (ctx.goCompanies) ctx.goCompanies(); return; }
+    if (t.closest("[data-vpf-brand-studio]") && model.company && window.CxConsolePlus) {
+      window.CxConsolePlus.setView("brand", { companyId: model.id, companyName: model.company.name });
+      return;
+    }
     if (t.closest("[data-vpf-modal-close]") || t.closest("[data-vpf-c-close]")) { model.modal = null; model.board.pick = null; draw(); return; }
     const cp = t.closest("[data-vpf-copy]");
     if (cp) { copy(cp.getAttribute("data-vpf-copy")); return; }
