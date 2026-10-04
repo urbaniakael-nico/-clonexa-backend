@@ -131,3 +131,15 @@ producción desde esta sesión está bloqueada. Para contarlos (solo lectura):
 ```
 railway run -s Postgres py -3.11 scripts/consola_v2plus_preflight.py
 ```
+
+## 5. Hallazgos de autenticación vistos al construir la Ficha (NO corregidos aquí)
+
+Endpoints de `/api/v1` que la Consola v2+ usa con el mismo contrato que Admin V2 y que **no
+exigen sesión** en el servidor (forman parte del barrido de ~360 endpoints abiertos):
+
+- `company_modules.py`: `GET /companies/{id}/modules`, `POST /companies/{id}/modules/{code}/activate`
+  y `/deactivate`. Cualquiera que conozca un `company_id` puede encender o apagar módulos de esa
+  empresa, incluido `mini_panel` con su asignación.
+- `packages.py`: `GET /packages`, `GET /packages/{id}` y `GET /packages/{id}/mini-panel-settings`.
+
+Cerrarlos cambia permisos de endpoints existentes (regla 2 de esta fase), así que van al barrido.

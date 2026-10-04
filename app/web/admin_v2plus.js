@@ -124,7 +124,7 @@
       <td class="vp-mono">${h(c.open_sessions || 0)}</td>
       <td class="vp-mono" title="${h(c.last_real_signal_at || "")}">${h(since(c.last_real_signal_at, now))}</td>
       <td><div class="vp-actions">
-        <a class="vp-btn vp-btn-sm" href="/admin-v2?company_id=${encodeURIComponent(c.id)}">Ficha</a>
+        <a class="vp-btn vp-btn-sm" href="#empresa/${encodeURIComponent(c.id)}">Ficha</a>
         <a class="vp-btn vp-btn-sm" href="/client?company_id=${encodeURIComponent(c.id)}" target="_blank" rel="noopener">Entrar como empresa</a>
       </div></td>
     </tr>`;
@@ -307,13 +307,33 @@
 
   function setView(view) {
     state.view = view;
-    document.querySelectorAll("[data-vp-view]").forEach((b) => b.classList.toggle("is-active", b.getAttribute("data-vp-view") === view));
+    if (view !== "company" && window.location.hash) {
+      try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch (_) { window.location.hash = ""; }
+    }
+    const navView = view === "company" ? "companies" : view;
+    document.querySelectorAll("[data-vp-view]").forEach((b) => b.classList.toggle("is-active", b.getAttribute("data-vp-view") === navView));
     render();
+  }
+
+  // Ruta de la Ficha: /admin-v2plus#empresa/{company_id}
+  function companyFromHash(hash) {
+    const match = /^#empresa\/([0-9a-fA-F-]{8,64})$/.exec(String(hash || ""));
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
+  function onHash() {
+    const id = companyFromHash(window.location.hash);
+    if (id) { state.companyId = id; setView("company"); }
+    else if (state.view === "company") setView("companies");
   }
 
   function render() {
     const root = main();
     if (!root) return;
+    if (state.view === "company" && window.CxConsoleCompany) {
+      window.CxConsoleCompany.mount({ ...viewContext("company"), goCompanies: () => setView("companies") }, state.companyId);
+      return;
+    }
     if (state.view === "companies" && window.CxConsoleCompanies) {
       window.CxConsoleCompanies.mount(viewContext("companies"));
       return;
@@ -357,7 +377,7 @@
       state.loading = false;
       // Las secciones con formularios solo actualizan su semáforo: el
       // refresco de 60 s nunca borra lo que se está escribiendo.
-      const section = state.view === "companies" ? window.CxConsoleCompanies : null;
+      const section = state.view === "companies" ? window.CxConsoleCompanies : state.view === "company" ? window.CxConsoleCompany : null;
       if (section && section.refreshPulse) section.refreshPulse();
       else render();
     }
@@ -388,6 +408,8 @@
 
   function start() {
     logoFallback();
+    if (typeof window.addEventListener === "function") window.addEventListener("hashchange", onHash);
+    if (companyFromHash(window.location && window.location.hash)) onHash();
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === "k") {
@@ -399,6 +421,6 @@
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, state, STATES };
+  window.CxConsolePlus = { companyFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, state, STATES };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();
