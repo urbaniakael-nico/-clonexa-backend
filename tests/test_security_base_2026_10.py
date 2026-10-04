@@ -130,8 +130,10 @@ def test_a_failure_building_headers_never_blocks_the_response(monkeypatch):
 
 # ------------------------------------------------------------- marca
 @pytest.mark.parametrize("logo", [
-    "javascript:alert(1)", "JAVASCRIPT:alert(1)", " javascript:alert(1)", "data:image/png;base64,AAAA",
-    "data:text/html,<script>alert(1)</script>", "http://example.com/logo.png", "//evil.com/logo.png",
+    "javascript:alert(1)", "JAVASCRIPT:alert(1)", " javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>", "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+    "data:image/svg+xml,<svg onload=alert(1)>", "data:image/gif;base64,R0lGODlh", "data:image/png,AAAA",
+    "data:image/png;base64,AA A=", "data:image/png;base64,AAAA\"><img src=x>", "data:image/png;base64,AAA", "http://example.com/logo.png", "//evil.com/logo.png",
     "/\\evil.com/logo.png", "https://", 'https://x.com/a.png" onerror="alert(1)', "vbscript:x", "logo.png",
 ])
 def test_logo_url_rejects_anything_but_https_or_own_path(logo):
@@ -141,7 +143,8 @@ def test_logo_url_rejects_anything_but_https_or_own_path(logo):
     assert error.value.status_code == 400 and "logo_url" in error.value.detail
 
 
-@pytest.mark.parametrize("logo", ["", "https://cdn.clonexa.app/logos/asadero.png", "/admin-v2-assets/clonexa-logo.png", "/assets/x.webp?v=2"])
+@pytest.mark.parametrize("logo", ["", "https://cdn.clonexa.app/logos/asadero.png", "/admin-v2-assets/clonexa-logo.png", "/assets/x.webp?v=2",
+                                  "data:image/png;base64,iVBORw0KGgo=", "data:image/jpeg;base64,/9j/4AAQ", "data:image/webp;base64,UklGRg=="])
 def test_logo_url_accepts_https_and_own_paths(logo):
     companies.validate_branding_payload({"logo_url": logo})
 
@@ -210,3 +213,32 @@ def test_stored_values_that_no_longer_pass_are_still_read_as_before():
     assert branding["logo_url"] == "data:image/png;base64,AAAA"  # se lee igual
     assert branding["font_family"] == "Inter"  # igual que antes: la lectura ya lo llevaba a Inter
     assert branding["primary_color"] == "#123456"
+
+
+def test_data_logo_size_limit_is_300_kb_of_image():
+    import base64
+
+    limit = companies.LOGO_DATA_URL_MAX_BYTES
+    assert limit == 300 * 1024
+    exact = "data:image/webp;base64," + base64.b64encode(b"x" * limit).decode()
+    over = "data:image/webp;base64," + base64.b64encode(b"x" * (limit + 1)).decode()
+    assert companies.branding_logo_url_ok(exact) is True
+    assert companies.branding_logo_url_ok(over) is False
+    with pytest.raises(HTTPException) as error:
+        companies.validate_branding_payload({"logo_url": over})
+    assert error.value.status_code == 400 and "300 KB" in error.value.detail
+
+
+@pytest.mark.asyncio
+async def test_admin_v2_upload_logo_still_saves(monkeypatch):
+    """"Subir logo" de Admin V2 manda la imagen redimensionada como data:image/webp."""
+    import base64
+
+    company = _company()
+    monkeypatch.setattr(companies, "_get_company_or_404", AsyncMock(return_value=company))
+    db = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+    logo = "data:image/webp;base64," + base64.b64encode(b"RIFF" + bytes(60000)).decode()
+    payload = companies.CompanyBrandingRequest(logo_url=logo, primary_color="#112233")
+    result = await companies.update_company_experience_branding(company.id, payload, db=db, _admin=None)
+    assert result["branding"]["logo_url"] == logo
+    db.commit.assert_awaited_once()

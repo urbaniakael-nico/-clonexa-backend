@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
@@ -957,12 +958,37 @@ BRANDING_COLOR_FIELDS = (
 _LOGO_FORBIDDEN_CHARS = set("\"'<>\\` ") | {chr(c) for c in range(32)} | {chr(127)}
 
 
+# Puente hasta que exista el bucket: "Subir logo" de Admin V2 guarda la imagen
+# como data:. Solo PNG, JPEG o WebP en base64 y de maximo 300 KB (la imagen,
+# ya decodificada). Nunca SVG ni otro tipo.
+LOGO_DATA_URL_MAX_BYTES = 300 * 1024
+_LOGO_DATA_URL = re.compile(r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})")
+
+
+def _logo_data_url_ok(text_value: str) -> bool:
+    import base64
+    import binascii
+
+    match = _LOGO_DATA_URL.fullmatch(text_value)
+    if not match or len(match.group(2)) % 4:
+        return False
+    # Tope barato antes de decodificar: base64 ocupa 4/3 de la imagen.
+    if len(match.group(2)) > (LOGO_DATA_URL_MAX_BYTES + 2) // 3 * 4:
+        return False
+    try:
+        return len(base64.b64decode(match.group(2), validate=True)) <= LOGO_DATA_URL_MAX_BYTES
+    except (binascii.Error, ValueError):
+        return False
+
+
 def branding_logo_url_ok(value: Any) -> bool:
-    """Vacio, https://... o una ruta propia (/...). Nunca javascript:, data:,
-    http:, ni //otro-sitio."""
+    """Vacio, https://..., una ruta propia (/...) o un data:image/png|jpeg|webp
+    en base64 de maximo 300 KB. Nunca javascript:, SVG, http:, ni //otro-sitio."""
     text_value = str(value or "").strip()
     if not text_value:
         return True
+    if text_value.lower().startswith("data:"):
+        return _logo_data_url_ok(text_value)
     if len(text_value) > 2048 or any(ch in _LOGO_FORBIDDEN_CHARS for ch in text_value):
         return False
     if text_value.lower().startswith("https://"):
@@ -980,7 +1006,7 @@ def validate_branding_payload(data: Dict[str, Any]) -> None:
     """400 si el cuerpo trae un logo, color, fuente o angulo no permitido."""
     errors: list[str] = []
     if not branding_logo_url_ok(data.get("logo_url")):
-        errors.append("logo_url debe empezar por https:// o ser una ruta propia (/...)")
+        errors.append("logo_url debe ser https://, una ruta propia (/...) o una imagen PNG, JPEG o WebP en base64 de maximo 300 KB")
     sources = [data]
     if isinstance(data.get("custom_css_json"), dict):
         sources.append(data["custom_css_json"])

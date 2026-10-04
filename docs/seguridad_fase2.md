@@ -25,9 +25,8 @@ su propia cabecera, se respeta.
   (vista previa de la cuenta en `client.js`, impresión en `hsp_cashier.js`, `sale_document.js`,
   planilla de Sanidad, soportes en `mini_panel.js`) usan `srcdoc`, `blob:` o `data:`: no
   cargan una página del servidor, así que la cabecera no los afecta.
-- No puedo saber si un sitio externo (por ejemplo una landing en otro dominio) incrusta
-  `/ordenar`, `/carta` o `/domicilio` en un iframe. Si lo hace, dejaría de verse: avísame y se
-  agrega su prefijo a `FRAME_EXEMPT_PREFIXES`.
+- Decisión del dueño (2026-10-04): ninguna página de Clonexa se incrusta en otro sitio;
+  `X-Frame-Options` queda como está (solo `/webapp/` exento).
 
 ### CSP de la Consola v2+
 
@@ -108,7 +107,9 @@ concursos y asambleas; soportes de venta).
 `PUT /api/v1/companies/{id}/experience/branding` **y** `PUT /api/v1/companies/{id}/branding`
 (escriben el mismo lugar; dejar uno abierto sería un atajo). Responde **400** con el motivo:
 
-- `logo_url`: vacío, `https://…` o ruta propia `/…`. Nunca `javascript:`, `data:`, `http:`,
+- `logo_url`: vacío, `https://…`, ruta propia `/…` o **`data:image/png|jpeg|webp;base64,…` de
+  máximo 300 KB** (la imagen decodificada). Nunca `javascript:`, SVG ni otro tipo `data:`,
+  `http:`, `//otro-sitio`, ni comillas, `<`, `>`, `\` o espacios.
   `//otro-sitio`, ni comillas, `<`, `>`, `\` o espacios.
 - Colores (`primary_color`, `secondary_color`, `background_color`, `text_color`,
   `gradient_*`, `color_*`, `card_color`, `button_color`, `success_color`, también dentro de
@@ -120,10 +121,10 @@ concursos y asambleas; soportes de venta).
 **Lo que ya está guardado no se rompe**: la lectura (`GET …/experience`, `GET …/branding`, la
 marca de los paneles) no cambió; solo se rechaza al guardar.
 
-**Atención:** el botón "Subir logo" de Admin V2 convierte la imagen en `data:` y la guarda en
-`logo_url`. Con esta regla ese guardado **ahora responde 400**. Las URL `https://` y las rutas
-propias siguen funcionando. El siguiente paso para subir logos es el bucket de objetos (no más
-bytes en Postgres). Ver "Decisión pendiente" en el resumen al dueño.
+**Decisión del dueño (2026-10-04):** "Subir logo" de Admin V2 sigue funcionando: guarda la
+imagen redimensionada como `data:image/webp;base64` y eso se acepta hasta 300 KB, como puente
+hasta que exista el bucket. Lo que sí se rechaza ahora: subir un **SVG** desde Admin V2 (lo
+guardaba como `data:image/svg+xml`) y logos de más de 300 KB.
 
 **Cuántos valores guardados no cumplen:** no pude contarlos: la lectura de la base de
 producción desde esta sesión está bloqueada. Para contarlos (solo lectura):
