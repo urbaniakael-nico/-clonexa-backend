@@ -312,3 +312,18 @@ button, input, select { font: inherit; color: inherit; }
 .vp-passkey-row .vp-btn { grid-column: 2; grid-row: 1 / span 2; }
 .vp-ok-text { margin: 0; color: var(--vp-ok); font-weight: 600; }
 .vp-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ------------------------------------------------ Empresas y Ficha (v2+) */
+.vp-btn-danger { border-color: var(--vp-risk); color: #fff; background: rgba(120, 6, 22, .72); }
+.vp-btn-danger:hover { background: #A80B24; }
+.vp-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.vp-search { min-height: 44px; min-width: min(320px, 100%); padding: 0 14px; border-radius: 12px; border: 1px solid var(--vp-line); background: rgba(0, 0, 0, .35); color: var(--vp-text); }
+.vp-search:focus, .vp-field select:focus, .vp-field textarea:focus { outline: 2px solid var(--vp-purple); outline-offset: 1px; }
+.vp-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: end; }
+.vp-field select, .vp-field textarea { min-height: 44px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--vp-line); background: rgba(0, 0, 0, .35); color: var(--vp-text); }
+.vp-inline { display: flex; gap: 6px; align-items: center; }
+.vp-inline input { flex: 1; min-width: 0; }
+.vp-kind-pick { border: 1px solid var(--vp-line); border-radius: 12px; padding: 6px 12px; display: flex; gap: 14px; align-items: center; }
+.vp-kind-pick legend { padding: 0 4px; }
+.vp-kind-pick label { display: inline-flex; gap: 6px; align-items: center; min-height: 32px; color: var(--vp-text); }
+.vp-purge-list { max-height: 240px; overflow: auto; }

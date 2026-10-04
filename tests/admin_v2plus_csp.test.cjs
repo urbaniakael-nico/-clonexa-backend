@@ -51,3 +51,16 @@ test('las páginas de v2+ no traen código en línea', () => {
     assert.doesNotMatch(html, /\sstyle=/, file);
   }
 });
+
+test('el HTML que generan los JS de v2+ tampoco trae estilos ni manejadores en línea', () => {
+  const { readdirSync } = require('node:fs');
+  const files = readdirSync('app/web').filter((f) => /^admin_v2plus.*\.js$/.test(f));
+  assert.ok(files.includes('admin_v2plus_companies.js'));
+  for (const f of files) {
+    const js = readFileSync(`app/web/${f}`, 'utf8');
+    assert.doesNotMatch(js, /\sstyle="/, f);
+    assert.doesNotMatch(js, /<[a-z][^>]*\son(click|error|load|submit|input|change)=/i, f);
+  }
+  const html = readFileSync('app/web/admin_v2plus.html', 'utf8');
+  assert.match(html, /<script src="\/admin-v2plus\.js"><\/script>\s*<script src="\/admin-v2plus-companies\.js"><\/script>/);
+});

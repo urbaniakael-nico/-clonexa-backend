@@ -571,4 +571,11 @@ try:
 except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Consola v2+ no pudo registrarse: %s", exc)
+try:
+    # Empresas en v2+: cambiar tipo, clonar como demo y eliminar definitivo.
+    from app.web.admin_v2plus_companies import router as admin_v2plus_companies_router
+    app.include_router(admin_v2plus_companies_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Empresas de la Consola v2+ no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2PLUS_ROUTE

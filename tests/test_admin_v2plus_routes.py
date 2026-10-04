@@ -43,6 +43,7 @@ def test_admin_v2plus_opens_with_the_session(db_override, monkeypatch):
 def test_admin_v2plus_assets_are_served():
     assert "vp-shell" in client.get("/admin-v2plus.css").text
     assert "CxConsolePlus" in client.get("/admin-v2plus.js").text
+    assert "CxConsoleCompanies" in client.get("/admin-v2plus-companies.js").text
 
 
 def test_admin_v2_is_untouched_and_still_registered():
