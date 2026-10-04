@@ -45,6 +45,7 @@ def test_admin_v2plus_assets_are_served():
     assert "CxConsolePlus" in client.get("/admin-v2plus.js").text
     assert "CxConsoleCompanies" in client.get("/admin-v2plus-companies.js").text
     assert "window.CxConsoleCompany = " in client.get("/admin-v2plus-company.js").text
+    assert "window.CxConsoleAudit = " in client.get("/admin-v2plus-audit.js").text
 
 
 def test_admin_v2_is_untouched_and_still_registered():
