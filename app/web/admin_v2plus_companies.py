@@ -87,6 +87,17 @@ async def _audit(request: Request, **detail: Any) -> None:
         pass
 
 
+# ---------------------------------------------------- actividad (Ficha) ---
+@router.get("/admin-v2/api/companies/{company_id}/activity", include_in_schema=False, dependencies=GUARD)
+async def company_activity(company_id: str, db: AsyncSession = Depends(get_db)):
+    """Solo lectura: ingresos de 14 dias, resumen de sesiones y usuarios por panel de ESA empresa."""
+    from app.services.company_activity import company_activity as build
+
+    cid = _uuid(company_id)
+    await load_company(db, cid)  # 404 si no existe
+    return _json(await build(db, str(cid)))
+
+
 # ------------------------------------------------------- auditoria ---
 @router.get("/admin-v2/api/audit", include_in_schema=False, dependencies=GUARD)
 async def audit_log(request: Request, company_id: str = "", date_from: str = "", date_to: str = "", action: str = "",
