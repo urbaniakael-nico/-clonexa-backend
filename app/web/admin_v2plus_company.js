@@ -26,7 +26,9 @@
   const QR_MODES = [{ code: "hospitality", includeBar: true }, { code: "voting", includeBar: false }, { code: "generic", includeBar: false }];
 
   const blank = () => ({ id: "", tab: "resumen", company: null, modules: null, packages: null, users: null, accessPolicy: null,
-    sessionPolicy: null, sessions: null, experience: null, telegram: null, reset: null, modal: null, error: "", notice: "", busy: false });
+    sessionPolicy: null, sessions: null, experience: null, telegram: null, reset: null, modal: null, error: "", notice: "", busy: false,
+    activity: null, audit: null, userQuery: "", sess: { open: false, query: "", page: 1 },
+    board: { query: "", filter: "todos", collapsed: {}, draft: null, dirty: false, pick: null, pickQuery: "", error: "" } });
   let model = blank();
   let ctx = null;
   let bound = false;
@@ -66,6 +68,9 @@
     sessionPolicy: (id) => apiGet(`${API}/companies/${id}/session-policy`),                          // A03
     sessions: (id) => apiGet(`${API}/companies/${id}/access-sessions?include_closed=true`),          // A05
     experience: (id) => apiGet(`${API}/companies/${id}/experience`),                                 // B01
+    // Nuevos de v2+ (solo lectura, sesión de Admin V2):
+    activity: (id) => apiGet(`/admin-v2/api/companies/${encodeURIComponent(id)}/activity`),
+    audit: (id) => apiGet(`/admin-v2/api/audit?company_id=${encodeURIComponent(id)}&limit=5`).then((d) => (d && d.entries) || []),
     async telegram(id) {                                                                             // T01 + T02
       const base = await apiGet(`${API}/bots/companies/${id}/telegram`);
       try { return { ...(base || {}), ...((await apiGet(`${API}/company-bots-v1/companies/${id}/telegram/status`)) || {}) }; }
@@ -80,10 +85,15 @@
     // M04
     toggleModule: (id, code, action) => apiPost(`${API}/companies/${id}/modules/${code}/${action}`, { settings: {} }),
     // X02 (mismo cuerpo que saveRemote de Admin V2; aquí sí se revisa la respuesta)
+    // Conserva además cualquier clave de mini_panel_modules que la consola no conoce.
     saveMiniPanels: (id, config) => apiPost(`${API}/companies/${encodeURIComponent(id)}/modules/mini_panel/activate`, {
-      settings: { mini_panel_modules: { enabled: config.enabled === true, selected_panel: config.selected_panel || "", panels: config.panels || {},
-        module_names: config.module_names || {}, updated_at: new Date().toISOString() } },
+      settings: { mini_panel_modules: { ...(config && typeof config === "object" ? config : {}), enabled: config.enabled === true,
+        selected_panel: config.selected_panel || "", panels: config.panels || {}, module_names: config.module_names || {}, updated_at: new Date().toISOString() } },
     }),
+    // Encender/apagar mesero, cocina o caja: mismo endpoint que el formulario de
+    // pedidos por mesero de Admin V2 (W09); solo "segments", completo.
+    setSegment: (id, segments, type, on) => apiPost(`${API}/companies/${encodeURIComponent(id)}/modules/waiter_ordering/activate`,
+      window.CxFicha.segmentBody(segments, type, on)),
     // U02
     createUser: (id, fullName, email, password) => apiPost(`${API}/companies/${id}/users`, {
       name: fullName, full_name: fullName, email, password, temporary_password: password, role: "company_admin", status: "active", must_change_password: true,
@@ -231,20 +241,6 @@
   const loading = (what) => `<p class="vp-loading">Cargando ${h(what)}…</p>`;
   const since = (iso) => (window.CxConsolePlus ? window.CxConsolePlus.since(iso) : iso || "—");
 
-  function tabResumen(c, p) {
-    const users = arr(model.users);
-    const codes = model.modules ? enabledCodes(model.modules) : [];
-    const kv = (label, value) => `<div class="vp-kv"><span>${h(label)}</span><strong>${h(value)}</strong></div>`;
-    return `<section class="vp-panel vp-section"><h2>Resumen</h2><div class="vp-kv-grid">
-      ${kv("Estado de conexión", p ? `${({ conectada: "Conectada", activa_hoy: "Activa hoy", sin_actividad_hoy: "Sin actividad hoy", dormida: "Dormida", riesgo: "En riesgo", inactiva: "Inactiva" })[p.state] || p.state} · ${p.state_reason || ""}` : statusText(c))}
-      ${kv("Sesiones abiertas", p ? p.open_sessions : "—")}
-      ${kv("Usuarios conectados ahora", p ? p.users_connected : "—")}
-      ${kv("Última conexión", p ? since(p.last_real_signal_at) : "—")}
-      ${kv("Usuarios", model.users ? `${users.length} (${users.filter((u) => String(u.status).toLowerCase() === "active").length} activos)` : "…")}
-      ${kv("Módulos activos", model.modules ? codes.length : "…")}
-    </div></section>`;
-  }
-
   function tabPaquete(p) {
     if (!model.packages) return loading("paquetes");
     const list = arr(model.packages);
@@ -256,48 +252,96 @@
       </form></section>`;
   }
 
-  function tabModulos(c) {
-    if (!model.modules) return loading("módulos");
-    const rows = moduleRows(model.modules);
+  // ---------------------------------------------- Fase 2b: vistas nuevas
+  const F = () => window.CxFicha;
+
+  function panelsForSummary() {
+    const f = F();
+    const counts = (model.activity && model.activity.panels) || {};
+    const users = (type) => (counts[type] ? counts[type].users : 0);
+    const out = [];
+    const rest = f.restaurantState(model.modules);
+    ["mesero", "cocina", "caja"].forEach((type) => {
+      if (rest.waiterOrdering && rest.segments[type] && rest.segments[type].enabled === true) {
+        out.push({ on: true, label: f.RESTAURANT_PANELS.find((p) => p.type === type).label, users: users(type),
+          link: `${origin()}/mini-panel/${type}/login?company_id=${encodeURIComponent(model.id)}` });
+      }
+    });
+    if (rest.domicilios) out.push({ on: true, label: "Domicilios", users: users("caja"), note: "Lo atiende la Caja" });
     const mini = miniPanelConfig(model.modules);
-    return `<section class="vp-panel vp-section"><h2>Módulos</h2>
-      <p class="vp-login-hint">Solo encender y apagar. Cada cambio pide confirmación. La configuración operativa (pedidos por mesero, cocina, categorías, imágenes, porciones, metas) no vive en la consola.</p>
-      ${rows.length ? `<ul class="vp-actions-list">${rows.map((m) => `<li class="vp-action vp-toggle-row"><b>${h(m.name)}</b><small class="vp-mono">${h(m.code)} · ${m.enabled ? "encendido" : "apagado"}</small>
-        <button class="vp-btn vp-btn-sm ${m.enabled ? "" : "vp-btn-primary"}" type="button" data-vpf-module="${h(m.code)}" data-action="${m.enabled ? "deactivate" : "activate"}">${m.enabled ? "Apagar" : "Encender"}</button></li>`).join("")}</ul>`
-        : `<div class="vp-empty">Esta empresa no tiene módulos asignados.</div>`}
-    </section>
-    <section class="vp-panel vp-section"><h2>Mini paneles</h2>
-      ${!mini.present ? `<div class="vp-empty">El módulo de mini paneles no está encendido.</div>` : `
-        <div class="vp-toggle-row vp-action"><b>Mini paneles por rol</b><small>${mini.config.enabled ? "encendidos" : "apagados"}</small>
-          <button class="vp-btn vp-btn-sm" type="button" data-vpf-panel="*" data-on="${mini.config.enabled ? "0" : "1"}">${mini.config.enabled ? "Apagar todos" : "Encender"}</button></div>
-        <ul class="vp-actions-list">${PANEL_DEFS.map((def) => { const on = Boolean(mini.config.panels && mini.config.panels[def.type] && mini.config.panels[def.type].enabled === true); return `
-          <li class="vp-action vp-toggle-row"><b>${h(def.label)}</b><small>${on ? "encendido" : "apagado"}</small>
-          <button class="vp-btn vp-btn-sm" type="button" data-vpf-panel="${def.type}" data-on="${on ? "0" : "1"}">${on ? "Apagar" : "Encender"}</button></li>`; }).join("")}</ul>`}
-      <a class="vp-link-muted" href="/admin-v2?company_id=${encodeURIComponent(c.id)}">Configuración avanzada en Admin V2</a>
-    </section>`;
+    if (mini.present && mini.config.enabled === true) {
+      f.GENERAL_PANELS.forEach((def) => {
+        const panel = mini.config.panels && mini.config.panels[def.type];
+        if (panel && panel.enabled === true) {
+          out.push({ on: true, label: def.label, users: users(def.type),
+            link: panel.link || `${origin()}/mini-panel/login?company_id=${encodeURIComponent(model.id)}&type=${encodeURIComponent(def.type)}` });
+        }
+      });
+    }
+    return out;
+  }
+
+  function restaurantLinks() {
+    const rest = F().restaurantState(model.modules);
+    if (!rest.waiterOrdering) return [];
+    return ["mesero", "cocina", "caja"].filter((t) => rest.segments[t] && rest.segments[t].enabled === true)
+      .map((t) => ({ title: `Panel ${F().RESTAURANT_PANELS.find((p) => p.type === t).label}`, href: `${origin()}/mini-panel/${t}/login?company_id=${encodeURIComponent(model.id)}` }));
+  }
+
+  function tabResumen(c, p) {
+    if (!F()) return loading("el resumen");
+    const links = model.modules ? [...accessLinks(c, model.modules), ...restaurantLinks()] : [];
+    return F().summary({ company: c, pulse: p, modules: model.modules, users: model.users, experience: model.experience,
+      activity: model.activity, audit: model.audit, links, since, kind: kindOf(c), panels: model.modules ? panelsForSummary() : [] });
+  }
+
+  function boardConfig() {
+    return model.board.draft || miniPanelConfig(model.modules).config;
+  }
+
+  function tabModulos(c) {
+    if (!model.modules || !F()) return loading("módulos");
+    const mini = miniPanelConfig(model.modules);
+    return `<div class="vp-board">
+      ${F().modulesZone(model.modules, model.board)}
+      ${F().panelsZone({ modules: model.modules, config: boardConfig(), present: mini.present, counts: (model.activity && model.activity.panels) || {},
+        rest: F().restaurantState(model.modules), companyId: c.id, origin: origin(), ui: model.board })}
+    </div>
+    <p class="vp-login-hint">Solo encender, apagar y asignar módulos a los paneles. La configuración operativa (categorías, estaciones, porciones, imágenes, metas) no vive en la consola.
+      <a class="vp-link-muted" href="/admin-v2?company_id=${encodeURIComponent(c.id)}">Configuración avanzada en Admin V2</a></p>
+    ${F().picker(model.modules, model.board)}`;
+  }
+
+  function userRows(users) {
+    return users.map((u) => { const active = String(u.status).toLowerCase() === "active"; return `<tr><td><b>${h(u.full_name)}</b><br><small class="vp-mono-muted">${h(u.email)}</small></td><td>${h(u.role)}</td><td>${h(active ? "Activo" : "Inactivo")}${u.locked_until ? " · bloqueado" : ""}</td><td class="vp-mono">${h(u.last_login_at ? since(u.last_login_at) : "Nunca")}</td>
+      <td><div class="vp-actions"><input class="vp-search vp-input-sm" placeholder="Clave (opcional)" data-vpf-reset-input="${h(u.id)}" autocomplete="new-password" aria-label="Clave temporal para ${h(u.email)}">
+        <button class="vp-btn vp-btn-sm" type="button" data-vpf-reset="${h(u.id)}">Clave temporal</button>
+        <button class="vp-btn vp-btn-sm" type="button" data-vpf-unlock="${h(u.id)}">Desbloquear</button>
+        <button class="vp-btn vp-btn-sm" type="button" data-vpf-user-status="${h(u.id)}" data-status="${active ? "inactive" : "active"}">${active ? "Desactivar" : "Activar"}</button></div></td></tr>`; }).join("");
   }
 
   function tabAccesos(c) {
     const users = model.users ? arr(model.users) : null;
     const ap = model.accessPolicy || { enabled: false, scopes: {} };
     const sp = model.sessionPolicy || { enabled: false, mode: "replace_oldest", scopes: {} };
-    const sessions = model.sessions ? arr(model.sessions.sessions) : null;
-    return `<section class="vp-panel vp-section"><h2>Usuarios</h2>
-      ${users === null ? loading("usuarios") : users.length ? `<div class="vp-table-wrap"><table class="vp-table"><thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>
-        ${users.map((u) => { const active = String(u.status).toLowerCase() === "active"; return `<tr><td>${h(u.full_name)}</td><td class="vp-mono">${h(u.email)}</td><td>${h(u.role)}</td><td>${h(active ? "Activo" : "Inactivo")}${u.locked_until ? " · bloqueado" : ""}</td><td class="vp-mono">${h(u.last_login_at ? since(u.last_login_at) : "Nunca")}</td>
-          <td><div class="vp-actions"><input class="vp-search vp-input-sm" placeholder="Clave (opcional)" data-vpf-reset-input="${h(u.id)}" autocomplete="new-password" aria-label="Clave temporal para ${h(u.email)}">
-            <button class="vp-btn vp-btn-sm" type="button" data-vpf-reset="${h(u.id)}">Clave temporal</button>
-            <button class="vp-btn vp-btn-sm" type="button" data-vpf-unlock="${h(u.id)}">Desbloquear</button>
-            <button class="vp-btn vp-btn-sm" type="button" data-vpf-user-status="${h(u.id)}" data-status="${active ? "inactive" : "active"}">${active ? "Desactivar" : "Activar"}</button></div></td></tr>`; }).join("")}
-        </tbody></table></div>` : `<div class="vp-empty">Sin usuarios.</div>`}
+    const shown = users && F() ? users.filter((u) => F().matches(model.userQuery, u.full_name, u.email, u.role)) : users;
+    return `<section class="vp-panel vp-section"><h2>Sesiones</h2>
+      ${model.activity ? F().sessionsCard(model.activity.sessions, since) : loading("sesiones")}
+      ${model.sess.open ? (model.sessions ? F().sessionsTable(model.sessions.sessions, model.sess, since) : loading("el detalle")) : ""}
+    </section>
+    <section class="vp-panel vp-section"><h2>Usuarios ${users ? `<small class="vp-mono-muted">${h(users.length)}</small>` : ""}</h2>
+      ${users && users.length > 8 ? `<input class="vp-search" type="search" placeholder="Buscar usuario por nombre, email o rol" value="${h(model.userQuery)}" data-vpf-user-search aria-label="Buscar usuario">` : ""}
+      ${users === null ? loading("usuarios") : shown.length ? `<div class="vp-table-wrap vp-zone-scroll"><table class="vp-table vp-table-compact"><thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>
+        ${userRows(shown)}</tbody></table></div>` : `<div class="vp-empty">${users.length ? "Ningún usuario coincide." : "Sin usuarios."}</div>`}
+      <details class="vp-fold"><summary>Crear acceso maestro</summary>
       <form class="vp-form-grid" data-vpf-user-form>
         <label class="vp-field">Nombre del encargado<input name="full_name" required></label>
         <label class="vp-field">Email<input name="email" type="email" required></label>
         <label class="vp-field">Clave temporal<span class="vp-inline"><input name="password" autocomplete="new-password"><button class="vp-btn vp-btn-sm" type="button" data-vpf-generate>Generar</button></span></label>
         <button class="vp-btn vp-btn-primary" type="submit">Crear acceso maestro</button>
-      </form>
+      </form></details>
     </section>
-    <section class="vp-panel vp-section"><h2>Política de acceso por IP</h2>
+    <details class="vp-panel vp-section vp-fold"><summary>Política de acceso por IP · ${ap.enabled ? "activa" : "inactiva"}</summary>
       ${model.accessPolicy ? `<p class="vp-login-hint">IP actual: <span class="vp-mono">${h(ap.current_ip || "—")}</span></p>` : loading("política IP")}
       <form class="vp-form-grid" data-vpf-access-form>
         <label class="vp-check"><input type="checkbox" name="enabled" ${ap.enabled ? "checked" : ""}> Política activa</label>
@@ -305,8 +349,8 @@
           <textarea name="${code}_ips" rows="3" placeholder="Una IP o rango CIDR por linea">${h(arr(s.allowed_ips).join("\n"))}</textarea></div>`; }).join("")}
         <button class="vp-btn vp-btn-primary" type="submit">Guardar politica IP</button>
       </form>
-    </section>
-    <section class="vp-panel vp-section"><h2>Política de sesión</h2>
+    </details>
+    <details class="vp-panel vp-section vp-fold"><summary>Política de sesión · ${sp.enabled ? "activa" : "inactiva"}</summary>
       <form class="vp-form-grid" data-vpf-session-form>
         <label class="vp-check"><input type="checkbox" name="enabled" ${sp.enabled ? "checked" : ""}> Límite activo</label>
         <label class="vp-field">Modo<select name="mode"><option value="replace_oldest" ${sp.mode !== "block_new" ? "selected" : ""}>Reemplazar la más antigua</option><option value="block_new" ${sp.mode === "block_new" ? "selected" : ""}>Bloquear la nueva</option></select></label>
@@ -314,12 +358,7 @@
           <input name="${code}_max" type="number" min="1" max="${max}" value="${h(Number(s.max_sessions || def))}"></div>`; }).join("")}
         <button class="vp-btn vp-btn-primary" type="submit">Guardar límites</button>
       </form>
-    </section>
-    <section class="vp-panel vp-section"><h2>Sesiones abiertas</h2>
-      <div class="vp-actions"><button class="vp-btn vp-btn-sm" type="button" data-vpf-refresh-sessions>Actualizar</button><button class="vp-btn vp-btn-sm vp-btn-danger" type="button" data-vpf-close-all>Cerrar todas</button></div>
-      ${sessions === null ? loading("sesiones") : sessions.length ? `<ul class="vp-actions-list">${sessions.map((s) => `<li class="vp-action vp-toggle-row"><b>${h(s.subject_label || s.scope)}</b><small class="vp-mono">${h(s.scope)} · ${h(s.status)} · ${h(since(s.last_seen_at))} · ${h(s.ip_address || "")}</small>
-        ${String(s.status).toLowerCase() === "active" ? `<button class="vp-btn vp-btn-sm" type="button" data-vpf-close-session="${h(s.session_key)}">Cerrar</button>` : ""}</li>`).join("")}</ul>` : `<div class="vp-empty">Sin sesiones.</div>`}
-    </section>`;
+    </details>`;
   }
 
   function botFlowOptions(selected) {
@@ -440,15 +479,23 @@
     if (!ctx || !ctx.active()) return;
     const root = ctx.root();
     if (!root) return;
+    // Los buscadores filtran mientras se escribe: se conserva el foco y el cursor.
+    const active = document.activeElement;
+    const keep = active && active.matches && FOCUSABLE.find((sel) => active.matches(sel));
+    const caret = keep ? active.selectionStart : null;
     root.innerHTML = view();
     paintSwatches(root);
+    if (keep) {
+      const again = root.querySelector(keep);
+      if (again) { again.focus(); try { again.setSelectionRange(caret, caret); } catch (_) {} }
+    }
     const audit = model.tab === "auditoria" && model.company && root.querySelector && root.querySelector("[data-vpa-host]");
     if (audit && window.CxConsoleAudit) window.CxConsoleAudit.mountInto(audit, { company_id: model.id });
   }
 
   // ------------------------------------------------------------ carga
-  const TAB_NEEDS = { resumen: ["users", "modules"], paquete: ["packages", "modules"], modulos: ["modules"],
-    accesos: ["users", "accessPolicy", "sessionPolicy", "sessions"], bots: ["telegram", "modules"], datos: [], marca: ["experience"], auditoria: [] };
+  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit"], paquete: ["packages", "modules"], modulos: ["modules", "activity"],
+    accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], bots: ["telegram", "modules"], datos: [], marca: ["experience"], auditoria: [] };
 
   async function ensure(keys, force = false) {
     const id = model.id;
@@ -509,7 +556,7 @@
     const tab = t.closest("[data-vpf-tab]");
     if (tab) { model.tab = tab.getAttribute("data-vpf-tab"); model.notice = ""; draw(); ensure(TAB_NEEDS[model.tab] || []); return; }
     if (t.closest("[data-vpf-back]")) { event.preventDefault(); if (ctx.goCompanies) ctx.goCompanies(); return; }
-    if (t.closest("[data-vpf-modal-close]") || t.closest("[data-vpf-c-close]")) { model.modal = null; draw(); return; }
+    if (t.closest("[data-vpf-modal-close]") || t.closest("[data-vpf-c-close]")) { model.modal = null; model.board.pick = null; draw(); return; }
     const cp = t.closest("[data-vpf-copy]");
     if (cp) { copy(cp.getAttribute("data-vpf-copy")); return; }
     if (t.closest("[data-vpf-copy-password]")) { copy((document.querySelector("[data-vpf-copy-value]") || {}).value || "", "Clave copiada."); return; }
@@ -550,15 +597,7 @@
         () => act(() => writes.toggleModule(id, code, action), `Módulo ${code} ${action === "activate" ? "encendido" : "apagado"}.`, ["modules"]));
       return;
     }
-    const panel = t.closest("[data-vpf-panel]");
-    if (panel) {
-      const type = panel.getAttribute("data-vpf-panel");
-      const on = panel.getAttribute("data-on") === "1";
-      const label = type === "*" ? "los mini paneles" : `el mini panel ${(PANEL_DEFS.find((p) => p.type === type) || {}).label || type}`;
-      ask(on ? "Encender mini panel" : "Apagar mini panel", `${on ? "Encender" : "Apagar"} ${label} en ${c.name}?`,
-        () => act(() => writes.saveMiniPanels(id, toggledPanels(miniPanelConfig(model.modules).config, id, type, on)), "Mini paneles guardados.", ["modules"]));
-      return;
-    }
+    if (boardClick(t, c)) return;
     const reset = t.closest("[data-vpf-reset]");
     if (reset) {
       const userId = reset.getAttribute("data-vpf-reset");
@@ -600,6 +639,112 @@
       const go = () => act(async () => { model.reset = await writes.operationalReset(id, execute, scopes, confirmSlug, confirmText); }, execute ? "Reset operativo ejecutado." : "Simulación de reset lista.");
       if (execute) ask("Confirmación final", plan.confirm, go, { cta: "Ejecutar reset", danger: true }); else go();
     }
+  }
+
+  // ------------------------------------------------- tablero (Fase 2b)
+  const FOCUSABLE = ["[data-vpf-mod-search]", "[data-vpf-pick-search]", "[data-vpf-sess-search]", "[data-vpf-user-search]"];
+
+  function moduleByCode(code) {
+    return window.CxFicha.moduleList(model.modules).find((m) => m.code === code) || null;
+  }
+
+  function editDraft(change) {
+    const before = model.board.draft || miniPanelConfig(model.modules).config;
+    const result = change(before);
+    if (result && result.error) { model.board.error = result.error; draw(); return false; }
+    model.board.draft = result && result.config ? result.config : result;
+    model.board.dirty = true;
+    model.board.error = "";
+    draw();
+    return true;
+  }
+
+  function assign(type, code) {
+    const f = window.CxFicha;
+    return editDraft((cfg) => f.assignModule(cfg, type, moduleByCode(code), { companyId: model.id, origin: origin() }));
+  }
+
+  function boardClick(t, c) {
+    const f = window.CxFicha;
+    if (!f) return false;
+    const id = model.id;
+    const goto = t.closest("[data-vpf-goto]");
+    if (goto) { model.tab = goto.getAttribute("data-vpf-goto"); draw(); ensure(TAB_NEEDS[model.tab] || []); return true; }
+    const filter = t.closest("[data-vpf-mod-filter]");
+    if (filter) { model.board.filter = filter.getAttribute("data-vpf-mod-filter"); draw(); return true; }
+    const group = t.closest("[data-vpf-group]");
+    if (group) { const key = group.getAttribute("data-vpf-group"); model.board.collapsed[key] = !model.board.collapsed[key]; draw(); return true; }
+    const pick = t.closest("[data-vpf-pick]");
+    if (pick) { model.board.pick = pick.getAttribute("data-vpf-pick"); model.board.pickQuery = ""; draw(); return true; }
+    const add = t.closest("[data-vpf-assign]");
+    if (add) { if (assign(model.board.pick, add.getAttribute("data-vpf-assign"))) { model.board.pick = null; draw(); } return true; }
+    const remove = t.closest("[data-vpf-unassign]");
+    if (remove) { editDraft((cfg) => f.unassignModule(cfg, remove.getAttribute("data-vpf-unassign"), remove.getAttribute("data-code"))); return true; }
+    const toggle = t.closest("[data-vpf-panel-toggle]");
+    if (toggle) {
+      const on = toggle.getAttribute("data-on") === "1";
+      editDraft((cfg) => f.setPanelEnabled(cfg, toggle.getAttribute("data-vpf-panel-toggle"), on, { companyId: id, origin: origin() }));
+      return true;
+    }
+    if (t.closest("[data-vpf-discard]")) { model.board.draft = null; model.board.dirty = false; model.board.error = ""; draw(); return true; }
+    if (t.closest("[data-vpf-save-panels]")) {
+      const draft = model.board.draft;
+      ask("Guardar mini paneles", `Guardar los cambios de los mini paneles de ${c.name}? (paneles encendidos y módulos asignados)`, async () => {
+        const done = await act(() => writes.saveMiniPanels(id, draft), "Mini paneles guardados.", ["modules"]);
+        if (done !== null) { model.board.draft = null; model.board.dirty = false; draw(); }
+      });
+      return true;
+    }
+    const seg = t.closest("[data-vpf-segment]");
+    if (seg) {
+      const type = seg.getAttribute("data-vpf-segment");
+      const on = seg.getAttribute("data-on") === "1";
+      const label = (f.RESTAURANT_PANELS.find((p) => p.type === type) || {}).label || type;
+      const segments = f.restaurantState(model.modules).segments;
+      ask(on ? `Encender panel ${label}` : `Apagar panel ${label}`,
+        `${on ? "Encender" : "Apagar"} el panel ${label} en ${c.name}? Usa el mismo interruptor que Admin V2 (pedidos por mesero); no cambia la configuración del restaurante.`,
+        () => act(() => writes.setSegment(id, segments, type, on), `Panel ${label} ${on ? "encendido" : "apagado"}.`, ["modules"]));
+      return true;
+    }
+    if (t.closest("[data-vpf-sessions-toggle]")) { model.sess.open = !model.sess.open; draw(); if (model.sess.open) ensure(["sessions"], true); return true; }
+    const page = t.closest("[data-vpf-sess-page]");
+    if (page) { model.sess.page = Number(page.getAttribute("data-vpf-sess-page")) || 1; draw(); return true; }
+    return false;
+  }
+
+  function onInput(event) {
+    const t = event.target;
+    if (!ctx || !ctx.active() || !t || !t.matches) return;
+    if (t.matches("[data-vpf-mod-search]")) model.board.query = t.value;
+    else if (t.matches("[data-vpf-pick-search]")) model.board.pickQuery = t.value;
+    else if (t.matches("[data-vpf-sess-search]")) { model.sess.query = t.value; model.sess.page = 1; }
+    else if (t.matches("[data-vpf-user-search]")) model.userQuery = t.value;
+    else return;
+    draw();
+  }
+
+  function onDragStart(event) {
+    const card = event.target && event.target.closest && event.target.closest("[data-vpf-drag]");
+    if (!card || !ctx || !ctx.active()) return;
+    event.dataTransfer.setData("text/plain", card.getAttribute("data-vpf-drag"));
+    event.dataTransfer.effectAllowed = "copy";
+  }
+  function onDragOver(event) {
+    const drop = event.target && event.target.closest && event.target.closest("[data-vpf-drop]");
+    if (!drop) return;
+    event.preventDefault();
+    drop.classList.add("is-over");
+  }
+  function onDragLeave(event) {
+    const drop = event.target && event.target.closest && event.target.closest("[data-vpf-drop]");
+    if (drop) drop.classList.remove("is-over");
+  }
+  function onDrop(event) {
+    const drop = event.target && event.target.closest && event.target.closest("[data-vpf-drop]");
+    if (!drop || !ctx || !ctx.active()) return;
+    event.preventDefault();
+    drop.classList.remove("is-over");
+    assign(drop.getAttribute("data-vpf-drop"), event.dataTransfer.getData("text/plain"));
   }
 
   // Mismas reglas que runCompanyOperationalReset de Admin V2.
@@ -656,6 +801,11 @@
     if (!bound && typeof document.addEventListener === "function") {
       document.addEventListener("click", onClick);
       document.addEventListener("submit", onSubmit);
+      document.addEventListener("input", onInput);
+      document.addEventListener("dragstart", onDragStart);
+      document.addEventListener("dragover", onDragOver);
+      document.addEventListener("dragleave", onDragLeave);
+      document.addEventListener("drop", onDrop);
       bound = true;
     }
     if (companyId && companyId !== model.id) { open(companyId); return; }

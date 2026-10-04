@@ -108,4 +108,5 @@ def test_only_admin_consoles_call_these_endpoints():
         text = path.read_text(encoding="utf-8", errors="ignore")
         if re.search(r"/modules/[^`\"']*/(activate|deactivate)|/modules/\$\{[a-zA-Z]+\}/\$\{action\}", text):
             callers.append(path.name)
-    assert sorted(callers) == ["admin_v2.js", "admin_v2plus_company.js"] or sorted(callers) == ["admin_v2.js"], callers
+    # Solo las consolas de administracion (Admin V2 y archivos admin_v2plus*), nunca client.js ni mini paneles.
+    assert callers and all(name == "admin_v2.js" or name.startswith("admin_v2plus") for name in callers), callers

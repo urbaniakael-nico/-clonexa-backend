@@ -121,7 +121,7 @@
       <td><span class="vp-state"><span class="vp-dot vp-dot-${h(c.state)}" aria-hidden="true"></span><span><b>${h(st.label)}</b><br><small class="vp-mono-muted">${h(c.state_reason || "")}</small></span></span></td>
       <td>${h(c.plan || "—")}</td>
       <td class="vp-mono">${h(c.modules_enabled || 0)}</td>
-      <td class="vp-mono">${h(c.open_sessions || 0)}</td>
+      <td class="vp-mono" title="Con actividad en las últimas 24 h">${h(c.open_sessions || 0)}${c.stale_sessions ? `<br><small class="vp-mono-muted">+${h(c.stale_sessions)} sin actividad</small>` : ""}</td>
       <td class="vp-mono" title="${h(c.last_real_signal_at || "")}">${h(since(c.last_real_signal_at, now))}</td>
       <td><div class="vp-actions">
         <a class="vp-btn vp-btn-sm" href="#empresa/${encodeURIComponent(c.id)}">Ficha</a>
@@ -414,7 +414,12 @@
   function start() {
     logoFallback();
     if (typeof window.addEventListener === "function") window.addEventListener("hashchange", onHash);
-    if (companyFromHash(window.location && window.location.hash)) onHash();
+    // La Ficha vive en otro archivo que carga después de este: la ruta inicial
+    // (/admin-v2plus#empresa/{id} al recargar o desde un link) se resuelve
+    // cuando ya cargaron todos los scripts de la página.
+    const firstRoute = () => { if (companyFromHash(window.location && window.location.hash)) onHash(); };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstRoute);
+    else firstRoute();
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === "k") {

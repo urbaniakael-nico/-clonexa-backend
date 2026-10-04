@@ -32,12 +32,13 @@ su propia cabecera, se respeta.
 
 ```
 default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com;
-font-src 'self' https://fonts.gstatic.com; img-src 'self' https:; connect-src 'self';
+font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self';
 object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
 ```
 
 - Sin `unsafe-inline` ni `unsafe-eval` (ni en scripts ni en estilos).
-- `img-src https:` es para el logo de cada empresa en la Ficha (los logos válidos son
+- `img-src https: data:` es para el logo de cada empresa en la Ficha (`data:` porque "Subir logo"
+  guarda `data:image/png|jpeg|webp`; los logos válidos son
   `https://…` o rutas propias).
 - Para cumplirla se quitó el único código en línea que tenían las dos páginas de v2+: el
   `onerror` del logo pasó a `logoFallback()` en `admin_v2plus.js` y `admin_v2plus_login.js`

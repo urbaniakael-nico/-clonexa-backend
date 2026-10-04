@@ -9,6 +9,7 @@ const vm = require('node:vm');
 
 const source = readFileSync('app/web/admin_v2plus_company.js', 'utf8');
 const companiesSource = readFileSync('app/web/admin_v2plus_companies.js', 'utf8');
+const fichaSource = readFileSync('app/web/admin_v2plus_ficha.js', 'utf8');
 const v2 = readFileSync('app/web/admin_v2.js', 'utf8').replace(/\r\n/g, '\n');
 
 function load(responder = () => ({ status: 200, body: {} })) {
@@ -22,6 +23,7 @@ function load(responder = () => ({ status: 200, body: {} })) {
   const window = { location: { href: '', origin: 'https://clonexa.app', hash: '' } };
   const ctx = vm.createContext({ window, document: {}, fetch, JSON, Object, Array, String, Math, Number, Promise, Error, Date, encodeURIComponent, decodeURIComponent });
   vm.runInContext(companiesSource, ctx);
+  vm.runInContext(fichaSource, ctx);
   vm.runInContext(source, ctx);
   return { ui: window.CxConsoleCompany, calls };
 }
@@ -180,7 +182,13 @@ test('flujos del bot: las mismas opciones que botFlowOptions de Admin V2', () =>
 });
 
 test('la Ficha no trae configuración operativa (pedidos por mesero, cocina, categorías, porciones, metas)', () => {
-  assert.doesNotMatch(source, /waiter-ordering|waiter_ordering|daily-goal|cocina-users|portions|\/image`/);
+  for (const src of [source, fichaSource]) {
+    // Ningún endpoint operativo: categorías, porciones, metas, estaciones de cocina ni imágenes.
+    assert.doesNotMatch(src, /waiter-ordering|daily-goal|cocina-users|portions|\/image`|stations|quick_notes|daily_goal/);
+  }
+  // waiter_ordering solo aparece para encender/apagar mesero, cocina y caja (segments).
+  const uses = source.match(/modules\/waiter_ordering\/[a-z]+/g) || [];
+  assert.deepEqual([...new Set(uses)], ['modules/waiter_ordering/activate']);
   assert.match(source, /Configuración avanzada en Admin V2/);
   assert.match(source, /Abrir en Estudio de marca \(próximamente\)/);
 });
@@ -229,7 +237,7 @@ test('cada pestaña de la Ficha se dibuja sin errores, con y sin datos', () => {
     telegram: { configured: true, webhook_mode: 'dedicated', flow_code: 'base' },
     reset: { executed: false, total_rows: 3, tables: [{ table: 'mini_panel_quotes', label: 'Cotizaciones', scope_label: 'Comercial', rows: 3 }] },
   };
-  for (const [tab, needle] of [['resumen', 'Estado de conexión'], ['paquete', 'Restaurante Pro'], ['modulos', 'Mini paneles por rol'],
+  for (const [tab, needle] of [['resumen', 'Actividad · últimos 14 días'], ['paquete', 'Restaurante Pro'], ['modulos', 'Módulos de la empresa'],
     ['accesos', 'Guardar politica IP'], ['bots', 'Reinstalar webhook dedicado'], ['datos', 'Simulación lista'], ['marca', 'clonexa-logo.png']]) {
     ui.model = { ...ui.model, id: ID, company, tab, ...full };
     assert.match(ui.view(), new RegExp(needle), tab);

@@ -29,7 +29,8 @@ CONSOLE_PLUS_CSP = "; ".join([
     "script-src 'self'",
     "style-src 'self' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' https:",
+    # data: solo para mostrar el logo guardado como data:image (decision del dueño).
+    "img-src 'self' https: data:",
     "connect-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
