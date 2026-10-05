@@ -638,4 +638,11 @@ try:
 except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Estudio de marca no pudo registrarse: %s", exc)
+try:
+    # Facturacion: contratos, cuotas, pagos y comprobantes (solo registradas).
+    from app.web.billing_routes import router as billing_router
+    app.include_router(billing_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Facturacion no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2PLUS_ROUTE

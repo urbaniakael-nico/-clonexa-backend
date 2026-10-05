@@ -382,6 +382,9 @@ async def run_all_cutoffs(db: AsyncSession, now_utc: datetime | None = None) -> 
     return done
 
 
+billing_last_run: dict = {}
+
+
 async def cutoff_loop() -> None:
     """Revisa cada 5 minutos; con varias replicas, solo una corre a la vez."""
     from app.core.database import AsyncSessionLocal
@@ -404,6 +407,16 @@ async def cutoff_loop() -> None:
                         except Exception as exc:  # nunca frena el corte diario
                             await db.rollback()
                             log.warning("Cierre de sesiones sin actividad no pudo correr: %s", exc)
+                        try:
+                            # Facturacion: una vez al dia marca las cuotas en mora (solo avisa; nunca bloquea).
+                            from app.services import billing
+
+                            if billing_last_run.get("day") != billing.today_bogota():
+                                await billing.refresh_statuses(db)
+                                billing_last_run["day"] = billing.today_bogota()
+                        except Exception as exc:  # nunca frena el corte diario
+                            await db.rollback()
+                            log.warning("Estados de facturacion no pudieron actualizarse: %s", exc)
                     finally:
                         await db.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": ADVISORY_LOCK_ID})
                         await db.commit()

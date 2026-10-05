@@ -103,8 +103,9 @@ class S3Backend:
             log.warning("bucket de marca: %s", type(error).__name__)
             raise StorageUnavailable("El almacenamiento de imágenes no responde. Intenta de nuevo en un momento.") from error
 
-    def put(self, key: str, data: bytes) -> None:
-        self._call(self.client.put_object, Key=key, Body=data, ContentType="image/webp", CacheControl="public, max-age=31536000, immutable")
+    def put(self, key: str, data: bytes, content_type: str = "image/webp", private: bool = False) -> None:
+        cache = "private, no-store" if private else "public, max-age=31536000, immutable"
+        self._call(self.client.put_object, Key=key, Body=data, ContentType=content_type, CacheControl=cache)
 
     def get(self, key: str) -> bytes:
         return self._call(self.client.get_object, Key=key)["Body"].read()
@@ -302,11 +303,22 @@ async def delete(db: AsyncSession, company_id: Any, image_id: Any) -> bool:
     return True
 
 
+def put_private(key: str, data: bytes, content_type: str) -> None:
+    """Zona privada (billing/...): nunca la sirve una ruta publica y no se cachea."""
+    store = backend()
+    if isinstance(store, S3Backend):
+        store.put(key, data, content_type=content_type, private=True)
+    else:
+        store.put(key, data)
+
+
 def delete_company(company_id: Any) -> int:
-    """Borra del bucket todas las imagenes de la empresa (despues del purge)."""
+    """Borra del bucket todo lo de la empresa (despues del purge): imagenes de
+    marca y, en la zona privada, sus contratos y comprobantes."""
     if not configured():
         return 0
     store = backend()
-    keys = store.list(f"brand/{_uuid(company_id)}/")
+    cid = _uuid(company_id)
+    keys = store.list(f"brand/{cid}/") + store.list(f"billing/{cid}/")
     store.delete(keys)
     return len(keys)
