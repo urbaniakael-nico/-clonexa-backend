@@ -418,7 +418,6 @@
     if (target.closest("[data-vp-passkey-register]")) { registerPasskey(); return; }
     const del = target.closest("[data-vp-passkey-delete]");
     if (del) { deletePasskey(del.getAttribute("data-vp-passkey-delete") || ""); return; }
-    if (target.closest("[data-vp-search]")) toast("El panel de órdenes (Ctrl K) llega en la fase 2.");
   }
 
   function start() {
@@ -431,16 +430,11 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstRoute);
     else firstRoute();
     document.addEventListener("click", onClick);
-    document.addEventListener("keydown", (event) => {
-      if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === "k") {
-        event.preventDefault();
-        toast("El panel de órdenes (Ctrl K) llega en la fase 2.");
-      }
-    });
+    // Ctrl+K y el botón "Buscar u ordenar…" los atiende admin_v2plus_palette.js.
     load();
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { setView, VIEWS, companyFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, state, STATES };
+  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, state, STATES };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();

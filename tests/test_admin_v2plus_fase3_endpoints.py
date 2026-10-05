@@ -124,3 +124,4 @@ def test_new_console_scripts_are_served():
     c = TestClient(app_main.app)
     assert "CxConsoleCatalog" in c.get("/admin-v2plus-catalog.js").text
     assert "CxConsoleAdmin" in c.get("/admin-v2plus-admin.js").text
+    assert "CxConsolePalette" in c.get("/admin-v2plus-palette.js").text

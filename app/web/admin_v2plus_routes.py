@@ -99,6 +99,11 @@ async def admin_v2plus_companies_js():
     return _file("admin_v2plus_companies.js", "application/javascript")
 
 
+@router.get("/admin-v2plus-palette.js", include_in_schema=False)
+async def admin_v2plus_palette_js():
+    return _file("admin_v2plus_palette.js", "application/javascript")
+
+
 @router.get("/admin-v2plus-catalog.js", include_in_schema=False)
 async def admin_v2plus_catalog_js():
     return _file("admin_v2plus_catalog.js", "application/javascript")

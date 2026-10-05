@@ -432,6 +432,7 @@
     }
     if (context.params && context.params.tab) model.tab = context.params.tab;
     draw();
+    if (context.params && context.params.editPackage) openBuilder(context.params.editPackage);
     if (!model.packages) reload();
     if (model.tab === "nomina" && !model.payco.loaded) loadPayco();
   }
