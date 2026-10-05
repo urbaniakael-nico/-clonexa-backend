@@ -14,6 +14,32 @@
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const fold = (v) => String(v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const FAMILY_ORDER = ["portal", "restaurante", "mini"];
+  // Una sola lista de pantallas: las pestañas sobre la vista previa.
+  const TAB_ORDER = ["portal_dashboard", "portal_ingreso", "portal_modulo", "ingreso", "mesero", "cocina", "caja", "mini_ingreso", "mini_panel"];
+  const TAB_LABELS = { portal_dashboard: "Panel principal", portal_ingreso: "Ingreso", portal_modulo: "Vista de módulo", ingreso: "Ingreso de paneles",
+    mesero: "Mesero", cocina: "Cocina", caja: "Caja", mini_ingreso: "Ingreso de mini panel", mini_panel: "Mini panel" };
+  // Así lo usa cada quien: el cliente en pantalla grande, el mesero en el celular.
+  const defaultSize = (screen) => (String(screen || "").startsWith("portal_") ? "desktop" : "phone");
+  // Piezas del panel principal que también están en la vista de módulo.
+  const MODULE_VIEW_PIECES = new Set(["portal.barra_lateral", "portal.logo", "portal.nombre", "portal.menu", "portal.menu_activo", "portal.encabezado",
+    "portal.accion", "portal.tenant", "portal.ajustes", "portal.cerrar_sesion"]);
+  const THEME_ITEMS = [
+    ["colors", "Colores", "Primario, fondo, texto y acentos de toda la marca"],
+    ["font", "Tipografía", "Letra, tamaño base y peso de los títulos"],
+    ["shape", "Forma y efectos", "Esquinas, sombra y brillo por defecto"],
+    ["logo", "Logo", "El logo de la empresa y los colores que salen de él"],
+    ["portal", "Estilo del panel principal", "Estilo de fondo, tarjetas y modo, como en Admin V2"],
+  ];
+  const TYPE_DESC = {
+    boton_principal: "Todos los botones de acción principal (Entrar, Cobrar, Enviar…)",
+    boton_secundario: "Los botones de apoyo (Volver, Ajustes, Cerrar sesión…)",
+    tarjeta: "Todas las tarjetas: indicadores, servicios, mesas, comandas",
+    encabezado: "La franja de título de cada panel",
+    campo: "Las cajas donde se escribe (usuario, clave, búsqueda)",
+    chip: "Las etiquetas pequeñas (LIVE, estados, códigos)",
+    barra_nav: "Los botones del menú y de navegación",
+    barra_lateral: "La columna izquierda del panel principal",
+  };
   const BG_STYLE_LABELS = { aurora_boreal: "Aurora boreal", neon_profundo: "Neón profundo", holografico: "Holográfico", cyber_grid: "Cuadrícula cyber",
     corporate_dark: "Corporativo oscuro", corporate_light: "Corporativo claro", classic_dashboard: "Tablero clásico", neutral_slate: "Pizarra neutra" };
   const CARD_STYLE_LABELS = { glass_premium: "Vidrio premium", neon_border: "Borde neón", soft_solid: "Sólido suave", dark_elevated: "Oscuro elevado",
@@ -240,8 +266,13 @@
     const reg = (data && data.registry) || { screens: {}, families: {} };
     const available = data && data.available && Array.isArray(data.available.screens) ? data.available.screens : Object.keys(reg.screens || {});
     return available.filter((k) => reg.screens && reg.screens[k])
-      .map((k) => ({ key: k, label: reg.screens[k].label, family: reg.screens[k].family }))
-      .sort((a, b) => FAMILY_ORDER.indexOf(a.family) - FAMILY_ORDER.indexOf(b.family));
+      .map((k) => ({ key: k, label: TAB_LABELS[k] || reg.screens[k].label, family: reg.screens[k].family }))
+      .sort((a, b) => (FAMILY_ORDER.indexOf(a.family) - FAMILY_ORDER.indexOf(b.family)) || (TAB_ORDER.indexOf(a.key) - TAB_ORDER.indexOf(b.key)));
+  }
+  function piecesFor(reg, screen) {
+    const all = arr(reg && reg.pieces);
+    if (screen === "portal_modulo") return all.filter((p) => MODULE_VIEW_PIECES.has(p.key));
+    return all.filter((p) => p.screen === screen);
   }
   function familyLabel(data, family) {
     const f = data && data.registry && data.registry.families && data.registry.families[family];
@@ -254,7 +285,7 @@
   // ============================================================ estado
   const model = {
     companyId: "", company: null, data: null, tokens: null, savedJson: "", sel: { kind: "theme", key: "colors" },
-    screen: "portal_dashboard", size: "desktop", stateView: "normal", lite: false, undo: null, modal: null, notice: "", error: "",
+    screen: "portal_dashboard", size: "desktop", guardOpen: false, stateView: "normal", lite: false, undo: null, modal: null, notice: "", error: "",
     busy: false, templates: null, pickerQuery: "", frameReady: false, previewError: "", share: null,
   };
   let ctx = null;
@@ -286,16 +317,23 @@
   // ============================================================ vistas
   function head() {
     const c = model.company;
-    return `<header class="vp-head"><div><p class="vp-eyebrow">NÚCLEO CLONEXA · ESTUDIO DE MARCA</p><h1 class="vp-title">Estudio de marca</h1>
-      ${c ? `<p class="vp-login-hint">Empresa: <b>${h(c.name)}</b> · ${model.data && model.data.published ? `publicada la versión ${h(model.data.published.version)}` : "sin marca publicada (se ve como siempre)"}${dirty() ? ' · <b class="vp-no">cambios sin guardar</b>' : ""}</p>` : ""}</div>
-      ${c ? `<div class="vp-head-actions">
-        <button class="vp-btn" type="button" data-vpb-change-company>Cambiar empresa</button>
-        <button class="vp-btn" type="button" data-vpb-open="templates">Plantillas</button>
-        <button class="vp-btn" type="button" data-vpb-open="copy">Copiar de otra empresa</button>
-        <button class="vp-btn" type="button" data-vpb-open="history">Historial</button>
-        <button class="vp-btn" type="button" data-vpb-open="share">Compartir vista previa</button>
-        <button class="vp-btn" type="button" data-vpb-save ${model.busy ? "disabled" : ""}>Guardar borrador</button>
-        <button class="vp-btn vp-btn-primary" type="button" data-vpb-open="publish" ${model.busy ? "disabled" : ""}>Publicar</button></div>` : ""}</header>
+    return `<header class="vp-head vp-brand-head"><div><p class="vp-eyebrow">NÚCLEO CLONEXA · ESTUDIO DE MARCA</p><h1 class="vp-title">Estudio de marca</h1>
+      ${c ? `<p class="vp-login-hint">Empresa: <b>${h(c.name)}</b> · ${model.data && model.data.published ? `publicada la versión ${h(model.data.published.version)}` : "sin marca publicada (se ve como siempre)"}${dirty() ? ' · <b class="vp-no">cambios sin guardar</b>' : ""}</p>` : ""}</div></header>
+      ${c ? `<div class="vp-brand-actions">
+        <div class="vp-brand-actions-left">
+          <button class="vp-btn" type="button" data-vpb-change-company>Cambiar empresa</button>
+          <details class="vp-brand-more"><summary class="vp-btn">Más ▾</summary>
+            <div class="vp-panel vp-brand-menu" role="menu">
+              <button class="vp-btn" type="button" role="menuitem" data-vpb-open="templates">Plantillas</button>
+              <button class="vp-btn" type="button" role="menuitem" data-vpb-open="copy">Copiar de otra empresa</button>
+              <button class="vp-btn" type="button" role="menuitem" data-vpb-open="history">Historial</button>
+            </div></details>
+        </div>
+        <div class="vp-brand-actions-right">
+          <button class="vp-btn" type="button" data-vpb-open="share">Compartir vista previa</button>
+          <button class="vp-btn" type="button" data-vpb-save ${model.busy ? "disabled" : ""}>Guardar borrador</button>
+          <button class="vp-btn vp-btn-primary" type="button" data-vpb-open="publish" ${model.busy ? "disabled" : ""}>Publicar</button>
+        </div></div>` : ""}
       ${model.notice ? `<p class="vp-ok-text" role="status">${h(model.notice)}</p>` : ""}${model.error ? `<div class="vp-alert" role="alert"><span>${h(model.error)}</span></div>` : ""}`;
   }
 
@@ -311,29 +349,47 @@
 
   function treeView() {
     const reg = registry();
-    const item = (kind, key, label, extra = "") => `<li><button type="button" class="vp-brand-node ${model.sel.kind === kind && model.sel.key === key ? "is-active" : ""}" data-vpb-sel="${kind}|${h(key)}">${h(label)}${extra}</button></li>`;
     const has = (path) => getPath(model.tokens, path) !== undefined;
+    const item = (kind, key, label, desc, custom = false) => `<li><button type="button" class="vp-brand-node ${model.sel.kind === kind && model.sel.key === key ? "is-active" : ""}" data-vpb-sel="${kind}|${h(key)}">
+      <b>${h(label)}${custom ? ' <span class="vp-brand-dot" title="Personalizado"></span>' : ""}</b><small>${h(desc)}</small></button></li>`;
     const screens = screensFor(model.data);
-    const mark = (on) => (on ? ' <span class="vp-brand-dot" title="Personalizado"></span>' : "");
-    return `<nav class="vp-panel vp-brand-tree" aria-label="Árbol de la marca">
-      <h3>Tema</h3><ul>${item("theme", "colors", "Colores")}${item("theme", "font", "Tipografía")}${item("theme", "shape", "Forma y efectos")}${item("theme", "portal", "Estilo del panel principal")}${item("theme", "logo", "Logo")}${screens.some((x) => x.family !== "portal") ? item("theme", "scope", "Alcance de la marca") : ""}</ul>
-      <h3>Fondos</h3><ul>${item("background", "general", "General")}${screens.map((x) => item("background", x.key, x.label, mark(!(model.tokens.backgrounds[x.key] || {}).inherit))).join("")}</ul>
-      <h3>Componentes</h3><ul>${Object.entries(reg.types).map(([k, t]) => item("component", k, t.label, mark(has(`components.${k}`)))).join("")}</ul>
-      <h3>Piezas</h3>${screens.filter((x) => arr(reg.pieces).some((p) => p.screen === x.key)).map((x) => `<small class="vp-sum-group">${h(x.label)}</small><ul>${arr(reg.pieces).filter((p) => p.screen === x.key).map((p) => item("piece", p.key, p.label, mark(has(`pieces.${p.key}`)))).join("")}</ul>`).join("")}
+    const current = screens.find((x) => x.key === model.screen) || screens[0] || { key: model.screen, label: model.screen, family: "portal" };
+    const bg = model.tokens.backgrounds[current.key] || { inherit: true };
+    const bgDesc = bg.inherit ? "Usa el fondo general" : bg.own ? "Conserva su fondo de siempre" : "Fondo propio de esta pantalla";
+    const pieceDesc = (p) => (p.screen === "portal_dashboard" ? "Solo esta pieza, en el panel principal y sus vistas" : `Solo esta pieza, en ${current.label}`);
+    const general = THEME_ITEMS.filter(([k]) => k !== "portal" || screens.some((x) => x.family === "portal"));
+    return `<nav class="vp-panel vp-brand-tree" aria-label="Qué editar">
+      <section class="vp-brand-block"><h3>Marca general</h3><p class="vp-brand-note">Aplica a todas las pantallas.</p>
+        <ul>${general.map(([k, l, d]) => item("theme", k, l, d)).join("")}
+        ${screens.some((x) => x.family !== "portal") ? item("theme", "scope", "Alcance de la marca", "Si la marca llega a los paneles de restaurante y mini paneles") : ""}</ul></section>
+      <section class="vp-brand-block"><h3>Esta pantalla · ${h(current.label)}</h3><p class="vp-brand-note">Solo cambia ${h(current.label)}; cambia con la pestaña de arriba.</p>
+        <ul>${item("background", current.key, "Fondo de esta pantalla", bgDesc, !bg.inherit)}
+        ${piecesFor(reg, current.key).map((p) => item("piece", p.key, p.label, pieceDesc(p), has(`pieces.${p.key}`))).join("")}</ul></section>
+      <section class="vp-brand-block"><h3>Tipos de pieza</h3><p class="vp-brand-note">Aplica a todos los de ese tipo, en todas las pantallas.</p>
+        <ul>${Object.entries(reg.types).map(([k, t]) => item("component", k, t.label, TYPE_DESC[k] || "Todos los de este tipo", has(`components.${k}`))).join("")}</ul></section>
     </nav>`;
   }
 
-  function stageView() {
+  function stageTop() {
+    const screens = screensFor(model.data);
+    const groups = FAMILY_ORDER.map((f) => screens.filter((x) => x.family === f)).filter((g) => g.length);
     const issues = contrastIssues(model.tokens, registry());
-    return `<section class="vp-panel vp-brand-stage" aria-label="Vista previa">
-      <div class="vp-toolbar"><div class="vp-brand-screens" role="tablist" aria-label="Pantalla">${FAMILY_ORDER.filter((f) => screensFor(model.data).some((x) => x.family === f)).map((f) => `<div class="vp-chips"><small class="vp-sum-group">${h(familyLabel(model.data, f))}</small>${screensFor(model.data).filter((x) => x.family === f).map((x) => `<button class="vp-chip ${model.screen === x.key ? "is-active" : ""}" type="button" role="tab" aria-selected="${model.screen === x.key}" data-vpb-screen="${h(x.key)}">${h(x.label)}</button>`).join("")}</div>`).join("")}</div>
+    const chip = issues.length ? `<button class="vp-chip vp-brand-guard-chip" type="button" aria-expanded="${model.guardOpen}" data-vpb-guard>⚠ ${issues.length} aviso${issues.length === 1 ? "" : "s"} de lectura</button>` : "";
+    const guard = issues.length && model.guardOpen ? `<div class="vp-brand-guard is-open"><ul>${issues.slice(0, 8).map((i) => `<li><span>${h(i.label)} · contraste ${h(String(i.ratio).replace(".", ","))}:1 (mínimo 4,5)</span><button class="vp-btn vp-btn-sm" type="button" data-vpb-fix="${h(i.id)}">Corregir</button></li>`).join("")}</ul></div>` : "";
+    return `<div class="vp-brand-tabs" role="tablist" aria-label="Pantalla">${groups.map((g) => g.map((x) => `<button class="vp-brand-tab ${model.screen === x.key ? "is-active" : ""}" type="button" role="tab" aria-selected="${model.screen === x.key}" data-vpb-screen="${h(x.key)}">${h(x.label)}</button>`).join("")).join('<span class="vp-brand-tab-sep" aria-hidden="true"></span>')}</div>
+      <div class="vp-toolbar vp-brand-stage-bar"><p class="vp-brand-tip">Toca cualquier parte del panel para editarla.</p>
         <div class="vp-chips" aria-label="Tamaño">${SIZES.map(([k, l]) => `<button class="vp-chip ${model.size === k ? "is-active" : ""}" type="button" data-vpb-size="${k}">${l}</button>`).join("")}
-        <button class="vp-chip ${model.lite ? "is-active" : ""}" type="button" data-vpb-lite title="Así se ve en equipos lentos">Modo liviano</button></div></div>
-      ${issues.length ? `<div class="vp-brand-guard" role="status"><b>Guardia de lectura:</b> ${issues.length} combinación(es) no alcanzan contraste AA (4,5:1).
-        <ul>${issues.slice(0, 6).map((i) => `<li><span>${h(i.label)} · ${h(String(i.ratio).replace(".", ","))}:1</span><button class="vp-btn vp-btn-sm" type="button" data-vpb-fix="${h(i.id)}">Corregir</button></li>`).join("")}</ul></div>` : ""}
-      ${model.previewError ? `<div class="vp-alert" role="alert"><span>${h(model.previewError)}</span></div>` : ""}
-      <div class="vp-brand-frame-wrap" data-vpb-wrap><iframe class="vp-brand-frame" data-vpb-frame title="Vista previa: ${h((screensFor(model.data).find((x) => x.key === model.screen) || { label: model.screen }).label)}" src="/admin-v2/brand-preview/${encodeURIComponent(model.companyId)}?screen=${encodeURIComponent(model.screen)}"></iframe></div>
-      <p class="vp-login-hint">Datos de muestra fijos, nunca los de la empresa. Toca una pieza para editarla.</p></section>`;
+        <button class="vp-chip ${model.lite ? "is-active" : ""}" type="button" data-vpb-lite title="Así se ve en equipos lentos">Modo liviano</button>${chip}</div></div>
+      ${guard}
+      ${model.previewError ? `<div class="vp-alert" role="alert"><span>${h(model.previewError)}</span></div>` : ""}`;
+  }
+
+  function stageView() {
+    const current = screensFor(model.data).find((x) => x.key === model.screen) || { label: model.screen };
+    return `<section class="vp-panel vp-brand-stage" aria-label="Vista previa">
+      <div data-vpb-stage-top>${stageTop()}</div>
+      <div class="vp-brand-frame-wrap" data-vpb-wrap><iframe class="vp-brand-frame" data-vpb-frame title="Vista previa: ${h(current.label)}" src="/admin-v2/brand-preview/${encodeURIComponent(model.companyId)}?screen=${encodeURIComponent(model.screen)}"></iframe></div>
+      <p class="vp-login-hint">Datos de muestra fijos, nunca los de la empresa.</p></section>`;
   }
 
   // ------------------------------------------------------------ controles
@@ -380,17 +436,9 @@
       <p class="vp-login-hint">Espacio usado: ${h(Math.round((st.used_bytes || 0) / 1024))} KB de ${h(Math.round((st.quota_bytes || 0) / 1048576))} MB.</p>`}`;
   }
 
-  function backgroundEditor(screen) {
-    const general = screen === "general";
-    const bg = general ? model.tokens.backgrounds.general : model.tokens.backgrounds[screen];
-    const inherit = !general && (!bg || bg.inherit);
-    const own = !general && bg && bg.own;
-    const spec = model.data && model.data.registry && model.data.registry.screens[screen];
-    const panelScreen = spec && (spec.family !== "portal" || spec.page === "login");
+  function bgLayers(screen, bg) {
     const p = `backgrounds.${screen}`;
-    let body = "";
-    if (!inherit && !own) {
-      body = `${fillEditor(`${p}.base`, "Capa 1 · Base", false, true)}
+    return `${fillEditor(`${p}.base`, "Capa 1 · Base", false, true)}
       <fieldset class="vp-brand-group"><legend>Capa 2 · Imagen</legend>
         ${bg.image ? `<div class="vp-form-grid">${selectField(`${p}.image.mode`, "Modo", MODES, "cover")}${bg.image.mode !== "cover" ? slider(`${p}.image.size`, "Tamaño", 5, 100, 1, "%", 40) : ""}
           ${bg.image.mode === "watermark" ? selectField(`${p}.image.position`, "Posición", POSITIONS, "center") : ""}${slider(`${p}.image.opacity`, "Opacidad", 0, 100, 1, "%", 100)}</div>
@@ -400,12 +448,24 @@
         ${bg.veil ? `${gradientEditor(`${p}.veil.gradient`, "Degradado del velo")}<div class="vp-form-grid">${slider(`${p}.veil.darken`, "Oscurecido", 0, 90, 1, "%", 0)}${slider(`${p}.veil.blur`, "Desenfoque", 0, 20, 1, " px", 0)}${slider(`${p}.veil.opacity`, "Transparencia", 0, 100, 1, "%", 60)}</div>
           <button class="vp-btn vp-btn-sm" type="button" data-vpb-layer="${h(screen)}|veil|off">Quitar velo</button>`
           : `<button class="vp-btn vp-btn-sm" type="button" data-vpb-layer="${h(screen)}|veil|on">+ Agregar velo</button>`}</fieldset>`;
+  }
+
+  function backgroundEditor(screen) {
+    const spec = model.data && model.data.registry && model.data.registry.screens[screen];
+    const label = TAB_LABELS[screen] || (spec ? spec.label : screen);
+    const bg = model.tokens.backgrounds[screen] || { inherit: true };
+    const inherit = Boolean(bg.inherit);
+    const keepsOwn = spec && (spec.family !== "portal" || spec.page === "login");
+    const ownLabel = spec && spec.page === "login" ? "El de siempre de Clonexa (como hoy)" : "Su fondo de siempre (como hoy)";
+    let body;
+    if (inherit) {
+      body = `<p class="vp-login-hint">Estás editando el <b>fondo general</b>: cambia en todas las pantallas que lo usan.</p>${bgLayers("general", model.tokens.backgrounds.general)}`;
+    } else {
+      const choice = keepsOwn ? `<div class="vp-chips" role="radiogroup" aria-label="Fondo propio">${[["own", ownLabel], ["custom", "Personalizado"]].map(([k, l]) => `<button class="vp-chip ${(bg.own ? "own" : "custom") === k ? "is-active" : ""}" type="button" role="radio" aria-checked="${(bg.own ? "own" : "custom") === k}" data-vpb-bgmode="${h(screen)}|${k}">${l}</button>`).join("")}</div>` : "";
+      body = `${choice}${bg.own ? "" : bgLayers(screen, bg)}`;
     }
-    const mode = inherit ? "inherit" : own ? "own" : "custom";
-    const modes = [["inherit", "Heredar el fondo general"], ...(panelScreen ? [["own", spec.page === "login" ? "El de siempre de Clonexa (como hoy)" : "Fondo propio del panel (como hoy)"]] : []), ["custom", "Personalizado"]];
-    return `<h2>Fondo · ${h(general ? "General" : (spec ? spec.label : screen))}</h2>
-      ${general ? `<p class="vp-login-hint">Lo heredan el panel principal y las pantallas que no tengan fondo propio.</p>` : `<div class="vp-chips" role="radiogroup" aria-label="Fondo de la pantalla">${modes.map(([k, l]) => `<button class="vp-chip ${mode === k ? "is-active" : ""}" type="button" role="radio" aria-checked="${mode === k}" data-vpb-bgmode="${h(screen)}|${k}">${l}</button>`).join("")}</div>`}${body}
-      ${general ? "" : `<button class="vp-btn vp-btn-sm" type="button" data-vpb-reset>Restablecer a lo heredado</button>`}`;
+    return `<h2>Fondo de esta pantalla · ${h(label)}</h2>
+      <label class="vp-check vp-brand-switch"><input type="checkbox" role="switch" data-vpb-usegeneral="${h(screen)}" ${inherit ? "checked" : ""}> Usar el fondo general</label>${body}`;
   }
 
   function styleEditor() {
@@ -515,19 +575,8 @@
       root.querySelector("[data-vpb-tree]").innerHTML = treeView();
       root.querySelector("[data-vpb-controls]").innerHTML = controlsView();
       root.querySelector("[data-vpb-modal-host]").innerHTML = modalView();
-      const guard = root.querySelector(".vp-brand-guard");
-      const issues = contrastIssues(model.tokens, registry());
-      const stage = root.querySelector("[data-vpb-stage] .vp-brand-stage");
-      if (stage) {
-        const fresh = document.createElement("div");
-        fresh.innerHTML = stageView();
-        const newGuard = fresh.querySelector(".vp-brand-guard");
-        if (guard && newGuard) guard.replaceWith(newGuard);
-        else if (guard && !issues.length) guard.remove();
-        else if (!guard && newGuard) stage.querySelector(".vp-toolbar").after(newGuard);
-        const tb = stage.querySelector(".vp-toolbar");
-        if (tb) tb.replaceWith(fresh.querySelector(".vp-toolbar"));
-      }
+      const top = root.querySelector("[data-vpb-stage-top]");
+      if (top) top.innerHTML = stageTop();
     }
     cssom(root);
   }
@@ -565,7 +614,7 @@
   async function loadCompany(id) {
     model.companyId = id;
     model.screen = "portal_dashboard";
-    model.size = "desktop";
+    model.size = defaultSize("portal_dashboard");
     model.sel = { kind: "theme", key: "colors" };
     model.tokens = null;
     model.undo = null;
@@ -646,8 +695,9 @@
       if (dirty() && !model.modal) { model.modal = { type: "confirm", title: "Cambios sin guardar", message: "Hay cambios sin guardar en el borrador. ¿Salir sin guardarlos?", go: () => { model.modal = null; model.companyId = ""; model.tokens = null; draw(); }, cta: "Salir sin guardar", danger: true }; draw(false); return; }
       model.companyId = ""; model.tokens = null; draw(); return;
     }
-    if ((el = q("[data-vpb-sel]"))) { const [kind, key] = el.getAttribute("data-vpb-sel").split("|"); model.sel = { kind, key }; model.stateView = "normal"; if (kind === "background" && key !== "general" && key !== model.screen) { model.screen = key; draw(true); return; } draw(false); syncPreviewState(); return; }
-    if ((el = q("[data-vpb-screen]"))) { model.screen = el.getAttribute("data-vpb-screen"); draw(true); return; }
+    if ((el = q("[data-vpb-sel]"))) { const [kind, key] = el.getAttribute("data-vpb-sel").split("|"); model.sel = { kind, key }; model.stateView = "normal"; draw(false); syncPreviewState(); return; }
+    if ((el = q("[data-vpb-screen]"))) { setScreen(el.getAttribute("data-vpb-screen")); return; }
+    if (q("[data-vpb-guard]")) { model.guardOpen = !model.guardOpen; draw(false); return; }
     if ((el = q("[data-vpb-size]"))) { model.size = el.getAttribute("data-vpb-size"); draw(false); cssom(ctx.root()); return; }
     if (q("[data-vpb-lite]")) { model.lite = !model.lite; draw(false); syncPreviewState(); return; }
     if ((el = q("[data-vpb-state]"))) { model.stateView = el.getAttribute("data-vpb-state"); draw(false); syncPreviewState(); return; }
@@ -736,6 +786,16 @@
     model.share = { links: out.links, created: "" };
   }
 
+  // Cambiar de pestaña: la vista previa, el tamaño y el bloque "Esta pantalla"
+  // cambian solos; si lo elegido era de la pantalla anterior, pasa al fondo de esta.
+  function setScreen(screen) {
+    model.screen = screen;
+    model.size = defaultSize(screen);
+    if (model.sel.kind === "background" || model.sel.kind === "piece") model.sel = { kind: "background", key: screen };
+    model.stateView = "normal";
+    draw(true);
+  }
+
   function openModal(kind) {
     if (kind === "templates") {
       model.modal = { type: "templates", title: "Plantillas de arranque" };
@@ -788,6 +848,13 @@
     const t = event.target;
     if (!t || !t.matches) return;
     if (t.matches("[data-vpb-copy-source]") && model.modal) { model.modal.source = t.value; return; }
+    if (t.matches("[data-vpb-usegeneral]")) {
+      const screen = t.getAttribute("data-vpb-usegeneral");
+      const spec = registry().screens[screen];
+      const keepsOwn = spec && (spec.family !== "portal" || spec.page === "login");
+      change(setBgMode(model.tokens, screen, t.checked ? "inherit" : keepsOwn ? "own" : "custom"), true);
+      return;
+    }
     if (t.matches("[data-vpb-inherit]")) { change(setInherit(model.tokens, t.getAttribute("data-vpb-inherit"), t.checked), true); return; }
     if (t.matches("[data-vpb-panels]")) { change(setPath(clone(model.tokens), "theme.panels", t.checked), true); return; }
     if (t.matches("[data-vpb-upload]")) { upload(t); return; }
@@ -833,7 +900,7 @@
     },
   };
   window.CxBrandStudio = {
-    model, getPath, setPath, splitPath, selectFromPreview, screensFor, setBgMode, editGradient, gradientCss, fillCss, setBackgroundLayer, setInherit, backgroundOf,
+    model, getPath, setPath, splitPath, selectFromPreview, screensFor, setBgMode, setScreen, piecesFor, defaultSize, treeView, stageTop, editGradient, gradientCss, fillCss, setBackgroundLayer, setInherit, backgroundOf,
     applyPalette, undoPalette, resetSelection, contrastIssues, applyFix, contrast, onColor, onMessage, onClick, onInput, draw,
     _ctx: (c) => { ctx = c; },
   };

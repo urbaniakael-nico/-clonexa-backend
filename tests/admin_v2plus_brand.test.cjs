@@ -165,8 +165,10 @@ test('vista: elegir empresa, tres columnas, árbol con piezas, iframe del mismo 
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
   assert.match(html, /class="vp-brand-layout"/);
-  assert.match(html, /Tema<\/h3>[\s\S]*Fondos<\/h3>[\s\S]*Componentes<\/h3>[\s\S]*Piezas<\/h3>/);
-  for (const p of REGISTRY.pieces) assert.match(html, new RegExp(`data-vpb-sel="piece\\|${p.key.replace('.', '\\.')}"`));
+  assert.match(html, /Marca general<\/h3><p class="vp-brand-note">Aplica a todas las pantallas\.[\s\S]*Esta pantalla · Panel principal<\/h3>[\s\S]*Tipos de pieza<\/h3><p class="vp-brand-note">Aplica a todos los de ese tipo/);
+  assert.doesNotMatch(html, /<h3>Fondos<\/h3>|<h3>Piezas<\/h3>/, 'ya no hay listas con todas las pantallas');
+  for (const p of REGISTRY.pieces.filter((x) => x.screen === 'portal_dashboard')) assert.ok(html.includes(`data-vpb-sel="piece|${p.key}"`), p.key);
+  assert.ok(!html.includes('data-vpb-sel="piece|caja.cobrar"'), 'piezas de otra pantalla no aparecen');
   assert.match(html, /<iframe class="vp-brand-frame" data-vpb-frame title="Vista previa: Panel principal" src="\/admin-v2\/brand-preview\/c1\?screen=portal_dashboard">/, 'abre en el panel principal');
   assert.match(html, /Celular[\s\S]*Tableta[\s\S]*Pantalla grande/);
   assert.match(html, /Guardar borrador[\s\S]*Publicar/);
@@ -178,11 +180,72 @@ test('vista: elegir empresa, tres columnas, árbol con piezas, iframe del mismo 
   assert.match(html, /Normal[\s\S]*Cursor encima[\s\S]*Presionado/);
   assert.match(html, /Restablecer a lo heredado/);
   S.model.sel = { kind: 'background', key: 'caja' };
+  S.model.tokens.backgrounds.caja = { own: true };
   S.draw(false);
-  assert.match(html, /Heredar el fondo general[\s\S]*Fondo propio del panel[\s\S]*Personalizado/);
+  assert.match(html, /Fondo de esta pantalla · Caja[\s\S]*data-vpb-usegeneral="caja"[\s\S]*Usar el fondo general[\s\S]*Su fondo de siempre \(como hoy\)[\s\S]*Personalizado/);
   S.model.sel = { kind: 'background', key: 'portal_dashboard' };
   S.draw(false);
-  assert.doesNotMatch(html, /Fondo propio del panel/, 'el panel principal no tiene fondo propio de panel');
+  assert.match(html, /data-vpb-usegeneral="portal_dashboard" checked[\s\S]*Estás editando el <b>fondo general<\/b>/, 'con el interruptor encendido se edita el fondo general');
+  assert.doesNotMatch(html, /Su fondo de siempre/, 'el panel principal no tiene fondo propio de panel');
+});
+
+test('una sola lista de pantallas: las pestañas, en orden y con separador entre familias', async () => {
+  const draft = tokens();
+  const available = { screens: ['caja', 'mesero', 'portal_modulo', 'portal_ingreso', 'portal_dashboard'] };
+  const { S, sections } = load(() => ({ status: 200, body: {
+    company: { id: 'a1', name: 'ASADERO', kind: 'registrada' }, draft: { version: 1, tokens: draft }, published: null, history: [],
+    available, registry: REGISTRY, fonts: ['Inter'], storage: { configured: true, used_bytes: 0, quota_bytes: 1 }, images: [] } }));
+  let html = '';
+  const root = { get innerHTML() { return html; }, set innerHTML(v) { html = v; }, querySelector: () => null, querySelectorAll: () => [] };
+  sections.brand.mount({ root: () => root, active: () => true, overview: () => ({ companies: [] }), toast: () => {}, params: { companyId: 'a1' } });
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  const tabs = [...html.matchAll(/data-vpb-screen="([a-z_]+)">([^<]+)</g)].map((m) => `${m[1]}:${m[2]}`);
+  assert.deepEqual(tabs, ['portal_dashboard:Panel principal', 'portal_ingreso:Ingreso', 'portal_modulo:Vista de módulo', 'mesero:Mesero', 'caja:Caja'], 'una sola vez cada pantalla, Panel principal primero');
+  assert.equal((html.match(/data-vpb-screen="/g) || []).length, 5, 'ninguna pantalla repetida en otro lado');
+  assert.equal((html.match(/vp-brand-tab-sep/g) || []).length, 1, 'separador entre el portal y el restaurante');
+  assert.match(html, /Toca cualquier parte del panel para editarla\./);
+  assert.ok(html.includes('data-vpb-sel="background|portal_dashboard"') && !html.includes('data-vpb-sel="background|caja"'), 'un solo fondo: el de la pantalla elegida');
+  assert.equal(S.model.screen, 'portal_dashboard', 'la pantalla inicial es el Panel principal');
+  assert.equal(S.model.size, 'desktop', 'el panel principal en pantalla grande');
+  // Botones: Cambiar empresa | Más (Plantillas, Copiar, Historial) | Compartir, Guardar, Publicar
+  assert.match(html, /vp-brand-actions-left">[\s\S]*Cambiar empresa[\s\S]*<summary class="vp-btn">Más ▾<\/summary>[\s\S]*Plantillas[\s\S]*Copiar de otra empresa[\s\S]*Historial[\s\S]*vp-brand-actions-right">[\s\S]*Compartir vista previa[\s\S]*Guardar borrador[\s\S]*Publicar/);
+  // Cada elemento del panel izquierdo trae su descripción de una línea.
+  const nodes = [...html.matchAll(/<button type="button" class="vp-brand-node[^"]*" data-vpb-sel="[^"]+">\s*<b>[^<]+(?:<span[^>]*><\/span>)?<\/b><small>([^<]+)<\/small>/g)];
+  assert.ok(nodes.length >= 15 && nodes.every((m) => m[1].trim().length > 10), 'descripción en cada elemento');
+});
+
+test('el bloque "Esta pantalla" cambia con la pestaña; el tamaño también', async () => {
+  const draft = tokens();
+  const available = { screens: ['portal_dashboard', 'portal_ingreso', 'portal_modulo', 'mesero', 'caja'] };
+  const { S, sections } = load(() => ({ status: 200, body: {
+    company: { id: 'a1', name: 'ASADERO', kind: 'registrada' }, draft: { version: 1, tokens: draft }, published: null, history: [],
+    available, registry: REGISTRY, fonts: ['Inter'], storage: { configured: true, used_bytes: 0, quota_bytes: 1 }, images: [] } }));
+  let html = '';
+  const root = { get innerHTML() { return html; }, set innerHTML(v) { html = v; }, querySelector: () => null, querySelectorAll: () => [] };
+  sections.brand.mount({ root: () => root, active: () => true, overview: () => ({ companies: [] }), toast: () => {}, params: { companyId: 'a1' } });
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  S.model.sel = { kind: 'piece', key: 'portal.menu' };
+  S.setScreen('mesero');
+  assert.match(html, /Esta pantalla · Mesero<\/h3>/);
+  assert.ok(html.includes('data-vpb-sel="piece|mesero.enviar_pedido"') && !html.includes('data-vpb-sel="piece|portal.menu"'), 'piezas del mesero, no del portal');
+  assert.deepEqual(plain(S.model.sel), { kind: 'background', key: 'mesero' }, 'lo elegido pasa al fondo de la nueva pantalla');
+  assert.equal(S.model.size, 'phone', 'el mesero en celular');
+  assert.match(html, /src="\/admin-v2\/brand-preview\/a1\?screen=mesero"/);
+  S.setScreen('portal_modulo');
+  assert.match(html, /Esta pantalla · Vista de módulo<\/h3>/);
+  assert.ok(html.includes('data-vpb-sel="piece|portal.barra_lateral"') && !html.includes('data-vpb-sel="piece|portal.servicio"'), 'la vista de módulo trae sus piezas');
+  assert.equal(S.model.size, 'desktop');
+  // Aviso de lectura compacto que se despliega al tocarlo.
+  S.model.tokens.theme.colors.text = '#222222';
+  S.model.guardOpen = false;
+  S.draw(false);
+  assert.match(html, /data-vpb-guard>⚠ \d+ avisos? de lectura<\/button>/);
+  assert.doesNotMatch(html, /data-vpb-fix=/, 'cerrado no ocupa espacio');
+  S.model.guardOpen = true;
+  S.draw(false);
+  assert.match(html, /data-vpb-fix="text-general"/);
 });
 
 test('una empresa sin waiter_ordering (Velvet) no ve pantallas de restaurante en el estudio', async () => {
@@ -196,7 +259,7 @@ test('una empresa sin waiter_ordering (Velvet) no ve pantallas de restaurante en
   sections.brand.mount({ root: () => root, active: () => true, overview: () => ({ companies: [] }), toast: () => {}, params: { companyId: 'v1' } });
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
-  assert.match(html, /data-vpb-screen="portal_dashboard"[\s\S]*data-vpb-screen="portal_modulo"[\s\S]*data-vpb-screen="portal_ingreso"/);
+  assert.match(html, /data-vpb-screen="portal_dashboard"[\s\S]*data-vpb-screen="portal_ingreso"[\s\S]*data-vpb-screen="portal_modulo"/);
   for (const k of ['ingreso', 'mesero', 'cocina', 'caja', 'mini_ingreso', 'mini_panel']) {
     assert.ok(!html.includes(`data-vpb-screen="${k}"`), `sin pantalla ${k}`);
     assert.ok(!html.includes(`data-vpb-sel="background|${k}"`), `sin fondo ${k}`);
