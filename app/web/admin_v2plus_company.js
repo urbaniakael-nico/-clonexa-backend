@@ -7,7 +7,7 @@
 
   const API = "/api/v1";
   const TABS = [["resumen", "Resumen"], ["paquete", "Paquete"], ["modulos", "Módulos y mini paneles"],
-    ["accesos", "Usuarios y accesos"], ["bots", "Bots"], ["datos", "Datos"], ["marca", "Marca"], ["auditoria", "Auditoría"]];
+    ["accesos", "Usuarios y accesos"], ["bots", "Bots"], ["datos", "Datos"], ["marca", "Marca"], ["facturacion", "Facturación"], ["auditoria", "Auditoría"]];
   const ACCESS_SCOPES = [["client", "Panel cliente", "/client"], ["mini_panel", "Mini paneles", "/mini-panel"], ["ordering_qr", "QR / pedidos / votacion", "/ordenar"]];
   const SESSION_SCOPES = [["client", "Panel cliente", "/client", 2, 20], ["mini_panel", "Mini paneles", "/mini-panel", 5, 100]];
   const RESET_SCOPES = [
@@ -27,7 +27,7 @@
 
   const blank = () => ({ id: "", tab: "resumen", company: null, modules: null, packages: null, users: null, accessPolicy: null,
     sessionPolicy: null, sessions: null, experience: null, brand: null, telegram: null, reset: null, modal: null, error: "", notice: "", busy: false,
-    activity: null, audit: null, userQuery: "", sess: { open: false, query: "", page: 1 },
+    activity: null, audit: null, billing: null, userQuery: "", sess: { open: false, query: "", page: 1 },
     board: { query: "", filter: "todos", collapsed: {}, draft: null, dirty: false, pick: null, pickQuery: "", error: "" } });
   let model = blank();
   let ctx = null;
@@ -72,6 +72,8 @@
     // Nuevos de v2+ (solo lectura, sesión de Admin V2):
     activity: (id) => apiGet(`/admin-v2/api/companies/${encodeURIComponent(id)}/activity`),
     audit: (id) => apiGet(`/admin-v2/api/audit?company_id=${encodeURIComponent(id)}&limit=5`).then((d) => (d && d.entries) || []),
+    // Facturación (solo registradas; una demo responde 404 = "no factura").
+    billing: (id) => apiGet(`/admin-v2/api/billing/companies/${encodeURIComponent(id)}`).catch((error) => ({ unavailable: error.message })),
     async telegram(id) {                                                                             // T01 + T02
       const base = await apiGet(`${API}/bots/companies/${id}/telegram`);
       try { return { ...(base || {}), ...((await apiGet(`${API}/company-bots-v1/companies/${id}/telegram/status`)) || {}) }; }
@@ -490,17 +492,47 @@
     return `<div class="vp-modal" data-vpf-modal><div class="vp-panel vp-modal-card" role="dialog" aria-modal="true">${body}</div></div>`;
   }
 
+  // ------------------------------------------------ Facturación en la Ficha
+  const B = () => window.CxConsoleBilling;
+  function billingAlert() {
+    const s = model.billing && model.billing.summary;
+    const alerts = (s && Array.isArray(s.alerts)) ? s.alerts : [];
+    if (!alerts.length) return "";
+    return `<div class="vp-alert ${s.state === "en_mora" ? "" : "vp-alert-soft"}" role="status" data-vpf-billing-alert><strong>Facturación</strong>${alerts.map((a) => `<span>${h(a.text)}</span>`).join("")}
+      <button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpf-billing>Abrir en Facturación</button></div>`;
+  }
+
+  function tabFacturacion() {
+    const b = model.billing;
+    if (!b) return loading("la facturación");
+    if (b.unavailable) return `<section class="vp-panel vp-section"><h2>Facturación</h2><div class="vp-empty">${h(/demo/i.test(b.unavailable) ? "Las demos no facturan." : b.unavailable)}</div></section>`;
+    const k = b.contract;
+    const s = b.summary || {};
+    const money = (v) => (B() ? B().money(v, (k && k.currency) || "COP") : String(v));
+    const month = s.month;
+    const type = k ? ((b.types || []).find((t) => t.code === k.contract_type) || {}).label || k.contract_type : "";
+    const pays = (Array.isArray(b.payments) ? b.payments : []).slice(0, 5);
+    return `<div class="vp-sum-grid"><section class="vp-panel vp-section"><div class="vp-row-between"><h2>Contrato</h2>${B() ? B().stateOf(s) : ""}</div>
+        ${k ? `<div class="vp-kv-grid"><div class="vp-kv"><span>Tipo</span><strong>${h(type)}</strong></div>
+          <div class="vp-kv"><span>Valor de este mes</span><strong>${month ? h(money(month.amount)) : "—"}</strong></div>
+          <div class="vp-kv"><span>Ventana de pago</span><strong>del ${h(k.pay_day_from)} al ${h(k.pay_day_to)}</strong></div>
+          <div class="vp-kv"><span>Mínimo</span><strong>${Number(k.min_months) ? `mes ${h(Math.min(s.months_done || 0, k.min_months))} de ${h(k.min_months)}` : "Sin mínimo"}</strong></div></div>` : `<div class="vp-empty">Sin contrato todavía.</div>`}
+        <div class="vp-actions"><button class="vp-btn vp-btn-primary" type="button" data-vpf-billing>Abrir en Facturación</button></div></section>
+      <section class="vp-panel vp-section"><h2>Últimos pagos</h2>${pays.length ? `<ul class="vp-actions-list">${pays.map((p) => `<li class="vp-action vp-toggle-row"><b>${h(money(p.amount))}</b><small>${h(String(p.paid_on || "").slice(0, 10))} · ${h((b.methods && b.methods[p.method]) || p.method)}</small><span class="vp-state-pill ${p.status === "validado" ? "is-on" : ""}">${h({ por_validar: "Por validar", validado: "Validado", anulado: "Anulado" }[p.status] || p.status)}</span></li>`).join("")}</ul>` : `<div class="vp-empty">Sin pagos registrados.</div>`}</section></div>`;
+  }
+
   function view() {
     const c = model.company;
     if (model.error && !c) return `<div class="vp-alert" role="alert"><strong>No se pudo abrir la ficha</strong><span>${h(model.error)}</span></div><p><a class="vp-btn" href="#" data-vpf-back>← Empresas</a></p>`;
     if (!c) return loading("la ficha");
     const p = pulse();
     const panes = { resumen: () => tabResumen(c, p), paquete: () => tabPaquete(p), modulos: () => tabModulos(c), accesos: () => tabAccesos(c),
-      bots: () => tabBots(c), datos: () => tabDatos(c), marca: () => tabMarca(c),
+      bots: () => tabBots(c), datos: () => tabDatos(c), marca: () => tabMarca(c), facturacion: () => tabFacturacion(),
       auditoria: () => `<section class="vp-panel vp-section"><h2>Auditoría</h2><div data-vpa-host></div></section>` };
     return `${header(c, p)}
       ${model.error ? `<div class="vp-alert" role="alert"><span>${h(model.error)}</span></div>` : ""}
       ${model.notice ? `<p class="vp-ok-text" role="status">${h(model.notice)}</p>` : ""}
+      ${billingAlert()}
       ${tabs()}
       <div data-vpf-pane>${(panes[model.tab] || panes.resumen)()}</div>
       ${modal(model.modal)}`;
@@ -553,8 +585,8 @@
   }
 
   // ------------------------------------------------------------ carga
-  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit", "brand"], paquete: ["packages", "modules"], modulos: ["modules", "activity"],
-    accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], bots: ["telegram", "modules"], datos: [], marca: ["experience", "brand"], auditoria: [] };
+  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit", "brand", "billing"], paquete: ["packages", "modules"], modulos: ["modules", "activity"],
+    accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], bots: ["telegram", "modules"], datos: [], marca: ["experience", "brand"], facturacion: ["billing"], auditoria: [] };
 
   async function ensure(keys, force = false) {
     const id = model.id;
@@ -614,6 +646,7 @@
     const c = model.company;
     const tab = t.closest("[data-vpf-tab]");
     if (tab) { model.tab = tab.getAttribute("data-vpf-tab"); model.notice = ""; draw(); ensure(TAB_NEEDS[model.tab] || []); return; }
+    if (t.closest("[data-vpf-billing]") && window.CxConsolePlus) { window.CxConsolePlus.setView("billing", { company: model.id }); return; }
     if (t.closest("[data-vpf-back]")) { event.preventDefault(); if (ctx.goCompanies) ctx.goCompanies(); return; }
     if (t.closest("[data-vpf-brand-studio]") && model.company && window.CxConsolePlus) {
       window.CxConsolePlus.setView("brand", { companyId: model.id, companyName: model.company.name });

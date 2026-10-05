@@ -21,7 +21,7 @@
   // Menú final de la consola (Fase 3), en este orden.
   const VIEWS = {
     command: "Centro de mando", companies: "Empresas", catalog: "Catálogo", switches: "Interruptores",
-    brand: "Estudio de marca", access: "Accesos y sesiones", health: "Salud y seguridad", landing: "Landing",
+    brand: "Estudio de marca", access: "Accesos y sesiones", health: "Salud y seguridad", billing: "Facturación", landing: "Landing",
   };
 
   const state = { overview: null, filter: "todas", showDemos: false, view: "command", error: "", loading: false, updatedAt: null,
@@ -151,8 +151,9 @@
     const registered = visible(overview, false);
     registered.filter((c) => c.state === "riesgo").forEach((c) => items.push({ kind: "risk", title: c.name, detail: c.state_reason }));
     registered.filter((c) => c.state === "dormida").forEach((c) => items.push({ kind: "dormant", title: c.name, detail: `Dormida · ${c.state_reason}` }));
+    (Array.isArray(state.billingAlerts) ? state.billingAlerts : []).forEach((a) => items.push({ kind: a.kind === "mora" ? "risk" : "dormant", title: `Facturación · ${a.company_name}`, detail: a.text, billing: a.company_id }));
     const list = items.length
-      ? `<ul class="vp-actions-list">${items.map((i) => `<li class="vp-action vp-action-${i.kind}"><b>${h(i.title)}</b><small>${h(i.detail || "")}</small></li>`).join("")}</ul>`
+      ? `<ul class="vp-actions-list">${items.map((i) => `<li class="vp-action vp-action-${i.kind}"><b>${i.billing ? `<a href="#" data-vp-billing="${h(i.billing)}">${h(i.title)}</a>` : h(i.title)}</b><small>${h(i.detail || "")}</small></li>`).join("")}</ul>`
       : `<div class="vp-empty">Nada pendiente. Todo en orden.</div>`;
     return `<aside class="vp-panel vp-section" data-vp-actions><h2>Requiere acción</h2>${list}</aside>`;
   }
@@ -382,6 +383,11 @@
       }
       if (!response.ok) throw new Error(`Respuesta ${response.status}`);
       state.overview = await response.json();
+      // Facturación: alertas para "Requiere acción" (si falla, el Centro de mando sigue igual).
+      try {
+        const bill = await fetch("/admin-v2/api/billing/alerts", { credentials: "same-origin", headers: { Accept: "application/json" } });
+        state.billingAlerts = bill.ok ? ((await bill.json()).alerts || []) : [];
+      } catch (_) { state.billingAlerts = []; }
       state.updatedAt = Date.now();
       state.error = "";
     } catch (error) {
@@ -413,6 +419,8 @@
     const demos = target.closest("[data-vp-show-demos]");
     if (demos) { state.showDemos = Boolean(demos.checked); render(); return; }
     if (target.closest("[data-vp-refresh]")) { load(); return; }
+    const bill = target.closest("[data-vp-billing]");
+    if (bill) { event.preventDefault(); setView("billing", { company: bill.getAttribute("data-vp-billing") }); return; }
     if (target.closest("[data-vp-passkeys-open]")) { openPasskeys(); return; }
     if (target.closest("[data-vp-passkeys-close]")) { state.passkeys.open = false; renderPasskeys(); return; }
     if (target.closest("[data-vp-passkey-register]")) { registerPasskey(); return; }
