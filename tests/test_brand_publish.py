@@ -183,3 +183,16 @@ def test_preview_page_only_has_sample_screens():
         assert "data-brand=" in html
         assert '<style id="cxBrandTheme">' in html
         assert "brand_preview.js" in html
+
+
+# ------------------------------------------------------------ auditoria
+def test_brand_writes_are_audited_with_their_company_and_render_is_not():
+    from app.services import admin_audit
+
+    assert admin_audit.company_id_from_path(f"/admin-v2/api/brand/{A}/publish") == A
+    assert admin_audit.company_id_from_path(f"/admin-v2/api/brand/{A}/rollback/2") == A
+    assert admin_audit.company_id_from_path(f"/api/v1/companies/{B}/modules/qr/activate") == B
+    assert admin_audit.audited("POST", f"/admin-v2/api/brand/{A}/publish") is True
+    assert admin_audit.audited("PUT", f"/admin-v2/api/brand/{A}/draft") is True
+    assert admin_audit.audited("POST", f"/admin-v2/api/brand/{A}/render") is False, "el render en vivo no llena la auditoria"
+    assert admin_audit.audited("GET", f"/admin-v2/api/brand/{A}") is False

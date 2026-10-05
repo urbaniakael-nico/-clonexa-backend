@@ -102,7 +102,10 @@ test('colores desde el logo: se aplican con un clic y se deshacen', () => {
   const { tokens: after, undo } = S.applyPalette(before, proposal);
   assert.equal(after.theme.colors.primary, '#123456');
   assert.equal(after.theme.colors.danger, '#ef4444', 'lo que no es hex no entra');
-  assert.deepEqual(plain(S.undoPalette(after, undo).theme.colors), plain(before.theme.colors));
+  assert.deepEqual(plain(after.backgrounds.general.base), { kind: 'solid', color: '#ffffff' }, 'el fondo general toma el fondo propuesto');
+  const undone = S.undoPalette(after, undo);
+  assert.deepEqual(plain(undone.theme.colors), plain(before.theme.colors));
+  assert.deepEqual(plain(undone.backgrounds.general.base), plain(before.backgrounds.general.base), 'deshacer también restaura el fondo');
 });
 
 test('las rutas de las piezas respetan el punto de su clave', () => {

@@ -41,9 +41,18 @@ _last_prune = 0.0
 def company_id_from_path(path: str) -> Optional[str]:
     parts = [p for p in (path or "").split("/") if p]
     for index, part in enumerate(parts):
-        if part == "companies" and index + 1 < len(parts) and _UUID.match(parts[index + 1]):
+        if part in ("companies", "brand") and index + 1 < len(parts) and _UUID.match(parts[index + 1]):
             return parts[index + 1].lower()
     return None
+
+
+# Escrituras que no cambian nada y no se auditan: el render en vivo del
+# Estudio de marca (POST de solo lectura, uno por cada ajuste de un control).
+_NOT_AUDITED = re.compile(r"^/admin-v2/api/brand/[0-9a-fA-F-]{36}/render$")
+
+
+def audited(method: str, path: str) -> bool:
+    return str(method or "").upper() in WRITE_METHODS and not _NOT_AUDITED.match(str(path or ""))
 
 
 def surface_of(referer: str, path: str) -> str:
@@ -150,7 +159,7 @@ class AdminAuditMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope.get("type") != "http" or str(scope.get("method") or "").upper() not in WRITE_METHODS:
+        if scope.get("type") != "http" or not audited(scope.get("method"), scope.get("path")):
             await self.app(scope, receive, send)
             return
         actor = None

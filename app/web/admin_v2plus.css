@@ -534,3 +534,6 @@ button, input, select { font: inherit; color: inherit; }
 .vp-brand-tpl { display: grid; gap: 8px; cursor: pointer; text-align: left; }
 @media (max-width: 1180px) { .vp-brand-layout { grid-template-columns: 200px minmax(0, 1fr); } .vp-brand-layout > div:last-child { grid-column: 1 / -1; } .vp-brand-controls { position: static; max-height: none; } }
 @media (max-width: 760px) { .vp-brand-layout { grid-template-columns: minmax(0, 1fr); } .vp-brand-tree { position: static; max-height: 40vh; } }
+.vp-brand-controls input[type="file"] { max-width: 100%; min-width: 0; font-size: 12px; }
+.vp-brand-controls, .vp-brand-controls * { min-width: 0; }
+.vp-brand-frame-wrap { display: flex; justify-content: center; }

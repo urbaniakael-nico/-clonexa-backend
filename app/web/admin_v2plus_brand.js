@@ -116,16 +116,20 @@
     return out;
   }
 
-  // Paleta desde el logo: se aplica con un clic y se puede deshacer.
+  // Paleta desde el logo: se aplica con un clic y se puede deshacer. El
+  // color de fondo propuesto también pasa a la base del fondo general (si no,
+  // el texto nuevo quedaría sobre el fondo viejo).
   function applyPalette(tokens, colors) {
     const out = clone(tokens);
-    const undo = clone(out.theme.colors);
+    const undo = { colors: clone(out.theme.colors), base: clone(out.backgrounds.general.base) };
     Object.keys(out.theme.colors).forEach((k) => { if (HEX.test(colors[k] || "")) out.theme.colors[k] = colors[k].toLowerCase(); });
+    if (HEX.test(colors.background || "")) out.backgrounds.general.base = { kind: "solid", color: colors.background.toLowerCase() };
     return { tokens: out, undo };
   }
   function undoPalette(tokens, undo) {
     const out = clone(tokens);
-    if (undo) out.theme.colors = clone(undo);
+    if (undo && undo.colors) out.theme.colors = clone(undo.colors);
+    if (undo && undo.base) out.backgrounds.general.base = clone(undo.base);
     return out;
   }
 
@@ -490,7 +494,8 @@
       f.style.width = `${w}px`;
       f.style.height = `${hgt}px`;
       f.style.transform = `scale(${scale})`;
-      f.style.transformOrigin = "top left";
+      f.style.transformOrigin = "top center";
+      f.style.flex = "none";
       wrap.style.height = `${Math.round(hgt * scale)}px`;
     }
   }
