@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 
 const v2 = readFileSync('app/web/admin_v2.js', 'utf8').replace(/\r\n/g, '\n');
-const SRC = ['admin_v2plus_companies.js', 'admin_v2plus_ficha.js', 'admin_v2plus_company.js', 'admin_v2plus_catalog.js', 'admin_v2plus_admin.js']
+const SRC = ['admin_v2plus_companies.js', 'admin_v2plus_ficha.js', 'admin_v2plus_company.js', 'admin_v2plus_catalog.js', 'admin_v2plus_admin.js', 'admin_v2plus_switches.js']
   .map((f) => readFileSync(`app/web/${f}`, 'utf8'));
 
 function load(responder = () => ({ status: 200, body: {} })) {
@@ -119,7 +119,7 @@ test('landing: mismos parámetros y orden que loadLandingAnalytics025R', () => {
 
 test('las secciones del menú existen y ninguna queda en "Próximamente" salvo Estudio de marca', () => {
   const { sections } = load();
-  for (const name of ['catalog', 'access', 'health', 'landing', 'brand']) assert.ok(sections[name] && sections[name].mount, name);
+  for (const name of ['catalog', 'switches', 'access', 'health', 'landing', 'brand']) assert.ok(sections[name] && sections[name].mount, name);
 });
 
 // ------------------------------------------------------------ vistas

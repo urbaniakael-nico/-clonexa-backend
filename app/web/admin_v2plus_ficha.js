@@ -275,9 +275,14 @@
     const warnCard = card("Avisos de esta empresa", warn.length ? `<ul class="vp-actions-list">${warn.map((w) => `<li class="vp-action vp-action-${w.kind}"><b>${h(w.text)}</b></li>`).join("")}</ul>`
       : `<div class="vp-empty vp-ok-text">Todo en orden.</div>`);
 
+    const sws = data.switches;
+    const switchesCard = card("Interruptores encendidos", sws === null || sws === undefined ? `<p class="vp-loading">Cargando…</p>` : `
+      ${arr(sws).length ? `<div class="vp-chip-row">${arr(sws).map((s) => `<span class="vp-mini-chip is-on" title="${h(s.description)}">${h(s.label)}</span>`).join("")}</div>` : `<div class="vp-empty">Ningún interruptor encendido.</div>`}
+      <button class="vp-btn vp-btn-sm" type="button" data-vpf-switches>Ver en Interruptores</button>`);
+
     const chart = card("Actividad · últimos 14 días", activity === null ? `<p class="vp-loading">Cargando…</p>` : barChart(activity && activity.days));
 
-    return `<div class="vp-sum-grid">${identity}${warnCard}${chart}${modulesCard}${panelsCard}${peopleCard}${changes}${quick}</div>`;
+    return `<div class="vp-sum-grid">${identity}${warnCard}${chart}${modulesCard}${switchesCard}${panelsCard}${peopleCard}${changes}${quick}</div>`;
   }
 
   // ------------------------------------------------------------ tablero

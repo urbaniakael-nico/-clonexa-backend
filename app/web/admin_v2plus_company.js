@@ -292,7 +292,15 @@
     if (!F()) return loading("el resumen");
     const links = model.modules ? [...accessLinks(c, model.modules), ...restaurantLinks()] : [];
     return F().summary({ company: c, pulse: p, modules: model.modules, users: model.users, experience: model.experience,
-      activity: model.activity, audit: model.audit, links, since, kind: kindOf(c), panels: model.modules ? panelsForSummary() : [] });
+      activity: model.activity, audit: model.audit, links, since, kind: kindOf(c), panels: model.modules ? panelsForSummary() : [], switches: switchesOn() });
+  }
+
+  // Interruptores encendidos de esta empresa (registro único de Interruptores).
+  function switchesOn() {
+    const R = window.CxSwitchRegistry;
+    if (!R || !model.modules) return null;
+    if (!R.data()) { R.load().then(() => draw()).catch(() => null); return null; }
+    return R.onFor(model.modules);
   }
 
   function boardConfig() {
@@ -672,6 +680,8 @@
     const f = window.CxFicha;
     if (!f) return false;
     const id = model.id;
+    const sw = t.closest("[data-vpf-switches]");
+    if (sw) { window.CxConsolePlus.setView("switches", { companyId: model.id }); return true; }
     const goto = t.closest("[data-vpf-goto]");
     if (goto) { model.tab = goto.getAttribute("data-vpf-goto"); draw(); ensure(TAB_NEEDS[model.tab] || []); return true; }
     const filter = t.closest("[data-vpf-mod-filter]");

@@ -123,9 +123,9 @@ test('estados vacíos: sin empresas y sin coincidencias en el filtro', () => {
   assert.match(noMatch, /Ninguna empresa en este estado/);
 });
 
-test('las secciones que aún no existen dicen "Próximamente"', () => {
+test('una sección sin archivo propio cae en "Próximamente" (hoy solo Estudio de marca, que tiene su propia pantalla)', () => {
   const ui = load();
-  assert.match(ui.soon('switches'), /Interruptores<\/h2><p>Próximamente/);
+  assert.match(ui.soon('brand'), /Estudio de marca<\/h2><p>Próximamente/);
 });
 
 test('HTML y tema: menú completo, logo idéntico a Admin V2 y colores Catedral', () => {

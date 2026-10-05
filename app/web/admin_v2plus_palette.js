@@ -98,11 +98,13 @@
     if (model.loading) return;
     model.loading = true;
     try {
-      const [all, modules, packages] = await Promise.all([
+      const [all, modules, packages, switches] = await Promise.all([
         arr(loaded).length ? loaded : getJson("/api/v1/companies").catch(() => []),
         model.data.modules || getJson("/api/v1/modules").catch(() => []),
         model.data.packages || getJson("/api/v1/packages").catch(() => []),
+        window.CxSwitchRegistry ? window.CxSwitchRegistry.load().then(() => window.CxSwitchRegistry.list()).catch(() => []) : [],
       ]);
+      model.data.switches = arr(switches);
       model.data.companies = [...companies, ...arr(all)];
       model.data.modules = arr(modules);
       model.data.packages = arr(packages);

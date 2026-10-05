@@ -87,6 +87,24 @@ def clean_detail(detail: Any) -> Optional[dict]:
     return out or None
 
 
+# La consola puede mandar una nota corta para la auditoria (p. ej. el motivo de
+# un interruptor) en esta cabecera: JSON codificado con encodeURIComponent. Solo
+# se lee en escrituras con sesion de Admin V2 y pasa por clean_detail.
+NOTE_HEADER = "x-cx-audit-note"
+
+
+def note_from_header(raw: str) -> Optional[dict]:
+    if not raw:
+        return None
+    try:
+        from urllib.parse import unquote
+
+        value = json.loads(unquote(raw[:2000]))
+    except (ValueError, TypeError):
+        return None
+    return clean_detail(value) if isinstance(value, dict) else None
+
+
 def attach_detail(request: Any, **detail: Any) -> None:
     """Las rutas nuevas dejan aqui su detalle corto; el middleware lo guarda."""
     try:
@@ -165,7 +183,8 @@ class AdminAuditMiddleware:
                     "method": str(scope.get("method")).upper(), "path": path,
                     "company_id": company_id_from_path(path), "status_code": status["code"] or 500,
                     "surface": surface_of(headers.get("referer", ""), path),
-                    "detail": clean_detail(state.get("cx_audit_detail") if isinstance(state, dict) else None),
+                    "detail": clean_detail({**(note_from_header(headers.get(NOTE_HEADER, "")) or {}),
+                                            **((state.get("cx_audit_detail") if isinstance(state, dict) else None) or {})}),
                 }
                 await asyncio.wait_for(write_entry(entry), WRITE_TIMEOUT_SECONDS)
             except Exception as exc:

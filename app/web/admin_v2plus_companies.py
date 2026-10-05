@@ -116,6 +116,15 @@ async def health_security(request: Request, db: AsyncSession = Depends(get_db)):
     return _json(await security_status(db, request.app, master_access_mode=v2.master_access_mode()))
 
 
+@router.get("/admin-v2/api/switches", include_in_schema=False, dependencies=GUARD)
+async def switches_matrix(db: AsyncSession = Depends(get_db)):
+    """Solo lectura: registro de interruptores y su estado por empresa no archivada.
+    Solo devuelve las claves registradas, nunca el resto de settings."""
+    from app.services.switch_registry import matrix
+
+    return _json(await matrix(db))
+
+
 # ------------------------------------------------------- auditoria ---
 @router.get("/admin-v2/api/audit", include_in_schema=False, dependencies=GUARD)
 async def audit_log(request: Request, company_id: str = "", date_from: str = "", date_to: str = "", action: str = "",
