@@ -32,6 +32,22 @@ async def _branded_html(path: Path, db: AsyncSession, company_id: object) -> HTM
     return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
 
 
+async def _portal_html(path: Path, db: AsyncSession, company_id: object) -> HTMLResponse:
+    """Portal y su ingreso: con marca publicada del Estudio de marca, la suya;
+    sin ella, el archivo tal cual (mismo HTML de siempre)."""
+    from app.web import brand_inject
+
+    html = path.read_text(encoding="utf-8")
+    try:
+        html = await brand_inject.render(html, db, company_id, path.name)
+    except Exception:
+        import logging
+
+        logging.getLogger("clonexa.brand_inject").exception("marca del portal no aplicada company=%s", company_id)
+        html = path.read_text(encoding="utf-8")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
+
+
 _SHORT_LINK_NOT_FOUND = """<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Link no encontrado</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px system-ui,sans-serif;background:#0b0a14;color:#fff;padding:16px}
@@ -50,7 +66,11 @@ def register_client_portal(app: FastAPI) -> None:
 
     if not any(getattr(route, "path", None) == "/login" for route in app.routes):
         @app.get("/login", response_class=HTMLResponse)
-        async def login_page() -> HTMLResponse:
+        async def login_page(company_id: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            # Estudio de marca: con ?company_id= y marca publicada, su ingreso;
+            # si no, exactamente el de siempre.
+            if company_id:
+                return await _portal_html(web_dir / "login.html", db, company_id)
             return _read_html(web_dir / "login.html")
 
     if not any(getattr(route, "path", None) == "/client" for route in app.routes):
@@ -60,7 +80,7 @@ def register_client_portal(app: FastAPI) -> None:
             company_id: str = "",
             db: AsyncSession = Depends(get_db),
         ) -> HTMLResponse:
-            response = _read_html(web_dir / "client.html")
+            response = await _portal_html(web_dir / "client.html", db, company_id) if company_id else _read_html(web_dir / "client.html")
             if company_id and await active_admin_v2_session(request, db):
                 _set_company_preview_cookie(response, request, company_id)
             return response

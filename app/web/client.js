@@ -407,7 +407,67 @@
     return `<span>${h((company.name || "C").slice(0, 1).toUpperCase())}</span>`;
   }
 
+  /* CX_050A_PORTAL_BRAND_START */
+  // 050A: marca PUBLICADA del Estudio de marca. El servidor la incrusta en la
+  // pagina (window.__CX_PORTAL_BRAND__ + <style id="cxBrandTheme">, armada por
+  // su generador propio que valida todo). Con ella, applyBranding no inyecta
+  // su hoja (no hay dos motores) y las piezas del registro se marcan con
+  // data-brand al vuelo. Sin marca publicada nada de esto corre: el portal
+  // queda exactamente como antes.
+  let cxBrandObserver050A = null;
+
+  function cxPortalBrand050A() {
+    const data = window.__CX_PORTAL_BRAND__;
+    return data && typeof data === "object" && data.branding && typeof data.branding === "object" ? data : null;
+  }
+
+  function cxPortalBrandMerge050A() {
+    const data = cxPortalBrand050A();
+    if (data) state.branding = { ...(state.branding || {}), ...data.branding };
+  }
+
+  function cxBrandTagPieces050A() {
+    const data = cxPortalBrand050A();
+    const app = document.getElementById("app");
+    if (!data || !data.pieces || !app) return;
+    Object.keys(data.pieces).forEach((key) => {
+      try {
+        app.querySelectorAll(String(data.pieces[key])).forEach((el) => {
+          if (!el.hasAttribute("data-brand")) el.setAttribute("data-brand", key);
+        });
+      } catch (_) {}
+    });
+  }
+
+  function cxBrandWatch050A() {
+    const app = document.getElementById("app");
+    if (cxBrandObserver050A || !app || typeof MutationObserver === "undefined") return;
+    let pending = false;
+    cxBrandObserver050A = new MutationObserver(() => {
+      if (pending) return;
+      pending = true;
+      window.requestAnimationFrame(() => {
+        pending = false;
+        cxBrandTagPieces050A();
+      });
+    });
+    cxBrandObserver050A.observe(app, { childList: true, subtree: true });
+  }
+
+  // true = hay marca publicada y ya se aplico (applyBranding no hace nada mas).
+  function cxPortalBrandApply050A() {
+    if (!cxPortalBrand050A()) return false;
+    cxPortalBrandMerge050A();
+    const old = document.getElementById("clientBrandingDynamicStyle");
+    if (old) old.remove();
+    cxBrandTagPieces050A();
+    cxBrandWatch050A();
+    return true;
+  }
+  /* CX_050A_PORTAL_BRAND_END */
+
   function applyBranding() {
+    if (cxPortalBrandApply050A()) return;
     const b = normalizeBranding(state.branding || {});
     const fp = fontProfile(b);
     const cp = cardProfile(b);
@@ -39645,6 +39705,7 @@ function inventoryCreatePayload() {
       company?.settings_json?.branding ||
       company?.company_branding ||
       {};
+    cxPortalBrandMerge050A();
 
     return state;
   }

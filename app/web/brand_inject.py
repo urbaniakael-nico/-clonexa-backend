@@ -80,14 +80,28 @@ def inject(html: str, branding: dict | None) -> str:
 
 
 # ---------------------------------------------------------------- Fase 4 ---
-# Estudio de marca: si la empresa tiene una marca PUBLICADA, el ingreso y los
-# mini paneles (mesero, cocina, caja) la reciben: sus colores por el mismo
-# window.__CX_BRAND__ que ya entiende hsp_brand.js, y el CSS del generador
-# propio (brand_theme.css_for, que escapa y revalida todo) en un <style> al
-# final del <body> (fuera del <head>: hsp_brand.js no lo repinta). Sin marca
-# publicada, la pagina sale EXACTAMENTE como antes (inject de siempre).
-THEME_PAGES = frozenset({"hsp_waiter.html", "hsp_kitchen.html", "hsp_cashier.html"})
+# Estudio de marca: si la empresa tiene una marca PUBLICADA, sus pantallas la
+# reciben por el CSS del generador propio (brand_theme.css_for, que escapa y
+# revalida todo) en un <style> al final del <body> (fuera del <head>:
+# hsp_brand.js no lo repinta). Sin marca publicada, cada pagina sale
+# EXACTAMENTE como antes.
+# - panels (mesero, cocina, caja) y mini (mini paneles generales): solo si la
+#   marca dice que se aplica a los paneles (theme.panels); colores por el mismo
+#   window.__CX_BRAND__ que ya entiende hsp_brand.js.
+# - portal (/client): window.__CX_PORTAL_BRAND__ para client.js (que con el no
+#   inyecta su hoja vieja) y la hoja base del portal desde el servidor.
+# - login (/login?company_id=): solo su CSS.
+# - public (domicilio, carta QR, QR de mesa): solo sus colores, y solo si hoy
+#   ya usan la marca de la empresa (interruptor brand_everywhere).
+PAGE_OF = {"hsp_waiter.html": "panels", "hsp_kitchen.html": "panels", "hsp_cashier.html": "panels", "mini_panel.html": "mini",
+           "client.html": "portal", "login.html": "login",
+           "domicilio.html": "public", "carta_qr.html": "public", "hospitality_order.html": "public"}
+THEME_PAGES = frozenset(f for f, p in PAGE_OF.items() if p == "panels")
 LITE_SCRIPT = '<script src="/client-static/brand_lite.js?v=FASE4"></script>'
+
+
+def _json_for_script(data: dict) -> str:
+    return json.dumps(data, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
 async def published_theme(db: AsyncSession, company_id: Any) -> dict | None:
@@ -99,29 +113,44 @@ async def published_theme(db: AsyncSession, company_id: Any) -> dict | None:
     return await brand_store.published_tokens(db, str(cid))
 
 
-def inject_theme(html: str, tokens: dict, company_id: str) -> str:
+def inject_theme(html: str, tokens: dict, company_id: str, page: str = "panels") -> str:
     """El HTML con la marca publicada. Si algo falla, el HTML de siempre."""
     from app.services import brand_theme
 
     if "</head>" not in html or "</body>" not in html:
         return html
     try:
-        css = brand_theme.css_for(tokens, company_id)
-        branding = brand_theme.branding_for_panels(tokens, company_id)
+        css = brand_theme.css_for(tokens, company_id, page=page)
+        head = ""
+        if page == "portal":
+            data = {"branding": brand_theme.branding_for_portal(tokens, company_id), "pieces": brand_theme.portal_piece_selectors()}
+            head = f"<script>window.__CX_PORTAL_BRAND__={_json_for_script(data)};</script>"
+        elif page in ("panels", "mini"):
+            html = inject(html, brand_theme.branding_for_panels(tokens, company_id))
     except Exception:
         log.exception("marca publicada invalida company=%s; se sirve la de siempre", company_id)
         return html
-    html = inject(html, branding)
-    html = html.replace("</head>", f"  {LITE_SCRIPT}\n</head>", 1)
-    safe = css.replace("</", "<\/")
+    html = html.replace("</head>", f"  {head}{LITE_SCRIPT}\n</head>", 1)
+    safe = css.replace("</", "<\\/")
     return html.replace("</body>", f'  <style id="cxBrandTheme">{safe}</style>\n</body>', 1)
 
 
 async def render(html: str, db: AsyncSession, company_id: Any, file_name: str) -> str:
-    """Lo que sirve _branded_html: la marca publicada en las paginas del
-    alcance de esta fase; si no hay, exactamente lo de antes."""
-    if file_name in THEME_PAGES:
-        tokens = await published_theme(db, company_id)
-        if tokens:
-            return inject_theme(html, tokens, str(_uuid(company_id)))
-    return inject(html, await company_brand(db, company_id))
+    """Lo que sirven _branded_html, /client y /login: la marca publicada donde
+    corresponde; si no hay (o no aplica), exactamente lo de antes."""
+    from app.services import brand_theme
+
+    page = PAGE_OF.get(file_name)
+    tokens = await published_theme(db, company_id) if page else None
+    if page in ("portal", "login"):
+        # Estas paginas nunca llevaron la marca de Admin V2 incrustada.
+        return inject_theme(html, tokens, str(_uuid(company_id)), page) if tokens else html
+    old = await company_brand(db, company_id)
+    if tokens and page in ("panels", "mini") and brand_theme.applies_to(tokens, page):
+        return inject_theme(html, tokens, str(_uuid(company_id)), page)
+    if tokens and page == "public" and old:
+        try:
+            return inject(html, brand_theme.branding_for_panels(tokens, str(_uuid(company_id))))
+        except Exception:
+            log.exception("marca publicada invalida company=%s", company_id)
+    return inject(html, old)
