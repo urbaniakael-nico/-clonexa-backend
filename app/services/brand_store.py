@@ -65,7 +65,7 @@ async def _insert(db: AsyncSession, cid: str, status: str, tokens: dict) -> int:
     version = await _next_version(db, cid)
     await db.execute(text("""
         INSERT INTO company_brand_themes (company_id, version, status, tokens, published_at)
-        VALUES (CAST(:c AS uuid), :v, :s, CAST(:t AS jsonb), CASE WHEN :s = 'published' THEN now() ELSE NULL END)
+        VALUES (CAST(:c AS uuid), :v, CAST(:s AS varchar), CAST(:t AS jsonb), CASE WHEN CAST(:s AS varchar) = 'published' THEN now() ELSE NULL END)
     """), {"c": cid, "v": version, "s": status, "t": json.dumps(tokens, ensure_ascii=False)})
     return version
 

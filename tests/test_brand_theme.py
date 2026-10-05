@@ -324,6 +324,21 @@ async def test_initial_draft_moves_the_logo_to_the_bucket():
     assert first["draft"]["tokens"]["theme"]["logo"] == "11111111-2222-3333-4444-555555555555"
 
 
+def test_sql_params_used_twice_are_cast():
+    """asyncpg no deduce el tipo si un parametro se usa en dos lugares sin CAST
+    (fallo real en produccion: AmbiguousParameterError en el INSERT de versiones)."""
+    import re as _re
+    from pathlib import Path as _P
+
+    for f in ("app/services/brand_store.py", "app/services/brand_media.py", "app/services/brand_share.py", "app/web/brand_routes.py"):
+        src = _P(f).read_text(encoding="utf-8")
+        for sql in _re.findall(r'text\(\s*f?"""(.*?)"""', src, _re.S):
+            names = _re.findall(r"(?<!:):([a-z_]+)\b", sql)
+            for name in {n for n in names if names.count(n) > 1}:
+                bare = _re.findall(rf"(?<!CAST\():{name}\b(?! AS)", sql)
+                assert not bare, f"{f}: :{name} se usa varias veces sin CAST en: {sql.strip()[:80]}"
+
+
 # ------------------------------------------------------------ endpoints
 @pytest.fixture
 def client(monkeypatch):
