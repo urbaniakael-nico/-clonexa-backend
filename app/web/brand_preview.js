@@ -12,12 +12,13 @@
   try { data = JSON.parse(dataEl ? dataEl.textContent : "{}"); } catch (_) { data = {}; }
   const brand = () => window.CxPanelBrand || null;
   const style = document.getElementById("cxBrandTheme");
-  if (brand() && data.branding) brand().apply(data.branding);
+  const hasBranding = (b) => b && typeof b === "object" && Object.keys(b).length > 0;
+  if (brand() && hasBranding(data.branding)) brand().apply(data.branding);
   // Portal: el logo de la marca en la muestra (misma ruta del mismo origen).
   function setLogo(url) {
     document.querySelectorAll("[data-brand=\"portal.logo\"]").forEach((box) => {
       box.textContent = "";
-      if (url && /^\/brand-media\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.webp$/.test(url)) {
+      if (url && (/^\/brand-media\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.webp$/.test(url) || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(url))) {
         const img = document.createElement("img");
         img.src = url;
         img.alt = "";

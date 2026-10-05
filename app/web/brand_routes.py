@@ -332,10 +332,12 @@ PREVIEW_HEADERS = {"Content-Security-Policy": brand_preview.PREVIEW_CSP, "Cache-
 
 
 @router.get("/admin-v2/brand-preview/{company_id}", include_in_schema=False)
-async def studio_preview(company_id: str, request: Request, screen: str = "portal_dashboard", db: AsyncSession = Depends(get_db)):
+async def studio_preview(company_id: str, request: Request, screen: str = "portal_dashboard", marca: str = "", db: AsyncSession = Depends(get_db)):
     if not await v2._active_session(request, db):
         return HTMLResponse("<!doctype html><title>Sesión requerida</title><p>Sesión de Admin V2 requerida.</p>", status_code=401, headers=PREVIEW_HEADERS)
     company = await load_company(db, _uuid(company_id))
+    if marca == "actual":  # la Ficha: la marca real, no el borrador
+        return HTMLResponse(await _ficha_preview(db, company, screen), headers=PREVIEW_HEADERS)
     available = await brand_screens.for_company(db, company["id"])
     data = await store.state(db, company["id"], await _branding(db, company["id"]), panels=available["panels_branded_today"])
     return HTMLResponse(await _preview_html(db, company, data["draft"]["tokens"], screen, available, mode="studio", states=True), headers=PREVIEW_HEADERS)
@@ -429,3 +431,75 @@ async def share_page(token: str, screen: str = "portal_dashboard", db: AsyncSess
     max_age = max(0, int((link["expires_at"] - datetime.now(timezone.utc)).total_seconds()))
     response.set_cookie(share.COOKIE, token, max_age=max_age, path=f"/brand-media/{cid}/", httponly=True, secure=True, samesite="strict")
     return response
+
+
+# ============================================================ la marca real en la Ficha
+# GET /admin-v2/api/brand/{company_id}/summary        estado, logo, paleta y tipografia de la marca REAL
+# GET /admin-v2/brand-preview/{company_id}?marca=actual&screen=   miniatura con la marca real (no el borrador)
+_DATA_LOGO = re.compile(r"^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$")
+
+
+def _today_logo(branding: dict) -> str:
+    """El logo que la empresa usa hoy (company_branding): data:image o una ruta propia."""
+    logo = str((branding or {}).get("logo_url") or "")
+    if _DATA_LOGO.match(logo) and len(logo) <= 420_000:
+        return logo
+    return logo if logo.startswith("/") and not logo.startswith("//") else ""
+
+
+async def real_brand(db: AsyncSession, company: dict) -> dict:
+    """La marca que la empresa ve hoy: la publicada si existe; si no, la de siempre."""
+    cid = company["id"]
+    branding = await _branding(db, cid)
+    available = await brand_screens.for_company(db, cid)
+    published_row = (await db.execute(text("""
+        SELECT version, published_at FROM company_brand_themes WHERE company_id = CAST(:c AS uuid) AND status = 'published' LIMIT 1
+    """), {"c": cid})).mappings().first()
+    published = await store.published_tokens(db, cid) if published_row else None
+    today = bt.from_branding(branding, None, panels=available["panels_branded_today"])
+    tokens = published or today
+    draft = await store.draft_tokens(db, cid)
+    if draft is None:
+        pending = False
+    elif published:
+        pending = draft != published
+    else:
+        compare = dict(draft)
+        compare["theme"] = {**draft["theme"], "logo": None}
+        pending = compare != today
+    logo = f"/brand-media/{cid}/{tokens['theme']['logo']}.webp" if published and tokens["theme"].get("logo") else _today_logo(branding)
+    return {"source": "published" if published else "siempre", "tokens": tokens, "branding": branding, "available": available, "logo": logo,
+            "published": {"version": int(published_row["version"]), "published_at": published_row["published_at"].isoformat() if published_row["published_at"] else None} if published else None,
+            "draft_pending": pending}
+
+
+@router.get("/admin-v2/api/brand/{company_id}/summary", include_in_schema=False, dependencies=GUARD)
+async def brand_summary(company_id: str, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    real = await real_brand(db, company)
+    t = real["tokens"]
+    return _json({"ok": True, "source": real["source"], "published": real["published"], "draft_pending": real["draft_pending"],
+                  "logo_url": real["logo"], "colors": t["theme"]["colors"], "font": t["theme"]["font"]["family"],
+                  "portal": t["theme"]["portal"], "screens": real["available"]["screens"]})
+
+
+async def _ficha_preview(db: AsyncSession, company: dict, screen: str) -> str:
+    """Miniatura con la marca REAL: la publicada, o exactamente la de siempre."""
+    real = await real_brand(db, company)
+    cid, tokens, available = company["id"], real["tokens"], real["available"]
+    screens = tuple(available["screens"])
+    screen = screen if screen in screens else "portal_dashboard"
+    page_kind = _page_of(screen)
+    if real["source"] == "published":
+        applies = bt.applies_to(tokens, page_kind)
+        css = bt.css_for(tokens, cid, page=page_kind) if applies else ""
+        panel_branding = bt.branding_for_panels(tokens, cid) if applies or page_kind in ("portal", "login") else {}
+    else:
+        # La de siempre: el portal con la hoja de hoy; los paneles con la marca de
+        # Admin V2 solo si hoy la reciben; el ingreso del portal, el de Clonexa.
+        css = portal_css.render(bt.normalize_branding(real["branding"])) if page_kind == "portal" else ""
+        panel_branding = bt.branding_for_panels(tokens, cid) if available["panels_branded_today"] else {}
+    mini = available.get("mini_types") or []
+    return brand_preview.page(screen=screen, company_id=cid, css=css, branding=panel_branding, mode="ficha", screens=screens,
+                              company_name=company.get("name") or "", modules=tuple(await brand_screens.enabled_modules(db, cid)),
+                              mini_label=bt.registry()["mini_types"].get(mini[0], "Ventas") if mini else "Ventas", logo_url=real["logo"])

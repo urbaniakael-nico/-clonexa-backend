@@ -206,10 +206,21 @@ test('la ficha dibuja encabezado, pestañas y escapa los datos', () => {
   for (const label of ['Entrar como empresa', 'Copiar links', 'Cerrar sesiones', 'Clonar como demo']) assert.match(html, new RegExp(label));
   for (const tab of ['Resumen', 'Paquete', 'Módulos y mini paneles', 'Usuarios y accesos', 'Bots', 'Datos', 'Marca']) assert.match(html, new RegExp(`>${tab}</button>`));
   assert.match(html, /href="\/client\?company_id=7625872c-f941-4479-a27b-f8443be953c5" target="_blank"/);
-  ui.model = { ...ui.model, tab: 'marca', experience: { branding: { logo_url: 'javascript:alert(1)', primary_color: '#ff0000' } } };
+  ui.model = { ...ui.model, tab: 'marca', brand: { source: 'siempre', published: null, draft_pending: true, logo_url: 'javascript:alert(1)', font: 'Sora',
+    colors: { primary: '#ff0000', secondary: '#00ff00', background: '#000000', surface: '#111111', text: '#ffffff', text_muted: '#999999' }, screens: ['portal_dashboard', 'mesero', 'caja'] } };
   const marca = ui.view();
-  assert.doesNotMatch(marca, /src="javascript:/, 'un logo que no es https ni ruta propia no se pinta');
+  assert.doesNotMatch(marca, /src="javascript:/, 'un logo que no es del bucket ni data:image no se pinta');
   assert.match(marca, /data-vpf-swatch="#ff0000"/);
+  assert.match(marca, /<b>Sin marca publicada<\/b>, se ve como siempre/);
+  assert.match(marca, /Hay un borrador sin publicar/);
+  assert.match(marca, /src="\/admin-v2\/brand-preview\/[^"]+\?marca=actual(&|&amp;)screen=portal_dashboard"/, 'miniatura del panel principal con la marca real');
+  assert.match(marca, /screen=mesero[\s\S]*screen=caja/, 'miniaturas de los paneles que tiene');
+  assert.doesNotMatch(marca, /screen=cocina/, 'sin cocina: no hay miniatura de cocina');
+  ui.model = { ...ui.model, brand: { ...ui.model.brand, source: 'published', published: { version: 3, published_at: '2026-10-05T12:00:00Z' }, draft_pending: false, logo_url: '/brand-media/a/b.webp' } };
+  const pub = ui.view();
+  assert.match(pub, /Marca publicada<\/b> · versión 3/);
+  assert.match(pub, /<img class="vp-brand-logo" src="\/brand-media\/a\/b.webp"/);
+  assert.doesNotMatch(pub, /borrador sin publicar/);
   assert.doesNotMatch(marca, /style=/);
 });
 
@@ -235,15 +246,16 @@ test('cada pestaña de la Ficha se dibuja sin errores, con y sin datos', () => {
     sessionPolicy: { enabled: true, mode: 'block_new', scopes: { mini_panel: { enabled: true, max_sessions: 3 } } },
     sessions: { sessions: [{ session_key: 'k1', scope: 'client', status: 'active', subject_label: 'ana@bar.co', last_seen_at: null, ip_address: '1.2.3.4' }] },
     experience: { branding: { logo_url: '/admin-v2-assets/clonexa-logo.png', primary_color: '#ff0000', font_family: 'Sora' } },
+    brand: { source: 'siempre', published: null, draft_pending: false, logo_url: '', font: 'Sora', colors: { primary: '#ff0000' }, screens: ['portal_dashboard'] },
     telegram: { configured: true, webhook_mode: 'dedicated', flow_code: 'base' },
     reset: { executed: false, total_rows: 3, tables: [{ table: 'mini_panel_quotes', label: 'Cotizaciones', scope_label: 'Comercial', rows: 3 }] },
   };
   for (const [tab, needle] of [['resumen', 'Actividad · últimos 14 días'], ['paquete', 'Restaurante Pro'], ['modulos', 'Módulos de la empresa'],
-    ['accesos', 'Guardar politica IP'], ['bots', 'Reinstalar webhook dedicado'], ['datos', 'Simulación lista'], ['marca', 'clonexa-logo.png']]) {
+    ['accesos', 'Guardar politica IP'], ['bots', 'Reinstalar webhook dedicado'], ['datos', 'Simulación lista'], ['marca', 'Abrir en Estudio de marca']]) {
     ui.model = { ...ui.model, id: ID, company, tab, ...full };
     assert.match(ui.view(), new RegExp(needle), tab);
     ui.model = { ...ui.model, id: ID, company, tab, modules: null, packages: null, users: null, accessPolicy: null, sessionPolicy: null,
-      sessions: null, experience: null, telegram: null, reset: null };
+      sessions: null, experience: null, brand: null, telegram: null, reset: null };
     assert.ok(ui.view().length > 100, `${tab} sin datos`);
   }
   ui.model = { ...ui.model, modal: { type: 'password', password: 'Clonexa-x-1!' } };

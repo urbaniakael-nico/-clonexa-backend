@@ -26,7 +26,7 @@
   const QR_MODES = [{ code: "hospitality", includeBar: true }, { code: "voting", includeBar: false }, { code: "generic", includeBar: false }];
 
   const blank = () => ({ id: "", tab: "resumen", company: null, modules: null, packages: null, users: null, accessPolicy: null,
-    sessionPolicy: null, sessions: null, experience: null, telegram: null, reset: null, modal: null, error: "", notice: "", busy: false,
+    sessionPolicy: null, sessions: null, experience: null, brand: null, telegram: null, reset: null, modal: null, error: "", notice: "", busy: false,
     activity: null, audit: null, userQuery: "", sess: { open: false, query: "", page: 1 },
     board: { query: "", filter: "todos", collapsed: {}, draft: null, dirty: false, pick: null, pickQuery: "", error: "" } });
   let model = blank();
@@ -68,6 +68,7 @@
     sessionPolicy: (id) => apiGet(`${API}/companies/${id}/session-policy`),                          // A03
     sessions: (id) => apiGet(`${API}/companies/${id}/access-sessions?include_closed=true`),          // A05
     experience: (id) => apiGet(`${API}/companies/${id}/experience`),                                 // B01
+    brand: (id) => apiGet(`/admin-v2/api/brand/${encodeURIComponent(id)}/summary`),                   // la marca real (Estudio de marca)
     // Nuevos de v2+ (solo lectura, sesión de Admin V2):
     activity: (id) => apiGet(`/admin-v2/api/companies/${encodeURIComponent(id)}/activity`),
     audit: (id) => apiGet(`/admin-v2/api/audit?company_id=${encodeURIComponent(id)}&limit=5`).then((d) => (d && d.entries) || []),
@@ -291,7 +292,7 @@
   function tabResumen(c, p) {
     if (!F()) return loading("el resumen");
     const links = model.modules ? [...accessLinks(c, model.modules), ...restaurantLinks()] : [];
-    return F().summary({ company: c, pulse: p, modules: model.modules, users: model.users, experience: model.experience,
+    return F().summary({ company: c, pulse: p, modules: model.modules, users: model.users, experience: realExperience(),
       activity: model.activity, audit: model.audit, links, since, kind: kindOf(c), panels: model.modules ? panelsForSummary() : [], switches: switchesOn() });
   }
 
@@ -301,6 +302,14 @@
     if (!R || !model.modules) return null;
     if (!R.data()) { R.load().then(() => draw()).catch(() => null); return null; }
     return R.onFor(model.modules);
+  }
+
+  // La marca que la empresa ve hoy (publicada o la de siempre) para la franja de identidad.
+  function realExperience() {
+    const b = model.brand;
+    if (!b || !b.colors) return model.experience;
+    const base = (model.experience && (model.experience.branding || model.experience.company_branding)) || {};
+    return { branding: { ...base, logo_url: b.logo_url || base.logo_url || "", primary_color: b.colors.primary, secondary_color: b.colors.secondary, background_color: b.colors.background } };
   }
 
   function boardConfig() {
@@ -423,19 +432,41 @@
     </section>`;
   }
 
+  const THUMBS = [["mesero", "Mesero"], ["cocina", "Cocina"], ["caja", "Caja"]];
+  function thumb(c, screen, label, size) {
+    const [w, hh] = size === "big" ? [1280, 800] : [390, 780];
+    return `<figure class="vp-brand-thumb-fig vp-brand-thumb-${size}"><div class="vp-brand-thumb-box" data-vpf-thumb="${w}x${hh}">
+      <iframe class="vp-brand-thumb-frame" title="Vista de ${h(label)} de ${h(c.name)}" loading="lazy" tabindex="-1"
+        src="/admin-v2/brand-preview/${encodeURIComponent(c.id)}?marca=actual&screen=${encodeURIComponent(screen)}"></iframe></div>
+      <figcaption>${h(label)}</figcaption></figure>`;
+  }
+
   function tabMarca(c) {
-    if (!model.experience) return loading("marca");
-    const b = (model.experience && (model.experience.branding || model.experience.company_branding)) || {};
+    const b = model.brand;
+    if (!b) return loading("la marca");
+    if (b.error) return `<section class="vp-panel vp-section"><h2>Marca</h2><div class="vp-alert" role="alert"><span>${h(b.error)}</span></div></section>`;
+    const colors = b.colors || {};
     const logo = String(b.logo_url || "");
-    const showLogo = /^https:\/\//i.test(logo) || (logo.startsWith("/") && !logo.startsWith("//"));
-    const colors = [["Principal", b.primary_color], ["Secundario", b.secondary_color], ["Fondo", b.background_color], ["Texto", b.text_color]];
+    const showLogo = /^\/brand-media\//.test(logo) || /^data:image\/(png|jpeg|webp);base64,/i.test(logo);
+    const when = b.published && b.published.published_at ? new Date(b.published.published_at).toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" }) : "";
+    const status = b.published ? `<b class="vp-yes">Marca publicada</b> · versión ${h(b.published.version)}${when ? ` · ${h(when)}` : ""}` : `<b>Sin marca publicada</b>, se ve como siempre`;
+    const restaurant = THUMBS.filter(([k]) => arr(b.screens).includes(k));
+    const swatches = [["primary", "Primario"], ["secondary", "Secundario"], ["background", "Fondo"], ["surface", "Superficie"], ["text", "Texto"], ["text_muted", "Texto secundario"]];
     return `<section class="vp-panel vp-section"><h2>Marca</h2>
-      <div class="vp-brand-summary">
-        ${showLogo ? `<img class="vp-brand-logo" src="${h(logo)}" alt="Logo de ${h(c.name)}">` : `<span class="vp-initials">${h(String(c.name || "?").slice(0, 2).toUpperCase())}</span>`}
-        <div class="vp-kv-grid">${colors.map(([label, value]) => `<div class="vp-kv"><span>${h(label)}</span><strong><span class="vp-swatch" data-vpf-swatch="${h(value || "")}"></span> ${h(value || "—")}</strong></div>`).join("")}
-          <div class="vp-kv"><span>Fuente</span><strong>${h(b.font_family || "Inter")}</strong></div><div class="vp-kv"><span>Tema</span><strong>${h(b.theme_mode || b.mode || "dark")}</strong></div></div>
+      <div class="vp-brand-ficha">
+        <div class="vp-brand-ficha-views">${thumb(c, "portal_dashboard", "Panel principal", "big")}
+          ${restaurant.length ? `<div class="vp-brand-ficha-small">${restaurant.map(([k, l]) => thumb(c, k, l, "small")).join("")}</div>` : ""}
+          <p class="vp-login-hint">Datos de muestra; la marca es la que ve hoy la empresa.</p></div>
+        <aside class="vp-brand-ficha-info">
+          ${showLogo ? `<img class="vp-brand-logo" src="${h(logo)}" alt="Logo de ${h(c.name)}">` : `<span class="vp-initials">${h(String(c.name || "?").slice(0, 2).toUpperCase())}</span>`}
+          <p class="vp-login-hint">${status}</p>
+          ${b.draft_pending ? `<div class="vp-alert vp-alert-warn" role="status"><span>Hay un borrador sin publicar en el Estudio de marca.</span></div>` : ""}
+          <div class="vp-brand-dots" aria-label="Paleta">${swatches.map(([k, l]) => `<span class="vp-brand-dotc" title="${h(l)} ${h(colors[k] || "")}"><i data-vpf-swatch="${h(colors[k] || "")}"></i><small>${h(l)}</small></span>`).join("")}</div>
+          <div class="vp-kv"><span>Tipografía</span><strong>${h(b.font || "Inter")}</strong></div>
+          <p class="vp-brand-sample" data-vpf-font="${h(b.font || "Inter")}">Panel operativo · $ 45.000 · Servicios activos</p>
+          <button class="vp-btn vp-btn-primary" type="button" data-vpf-brand-studio>Abrir en Estudio de marca</button>
+        </aside>
       </div>
-      <p><button class="vp-btn vp-btn-sm vp-btn-primary" type="button" data-vpf-brand-studio>Abrir en Estudio de marca</button></p>
     </section>`;
   }
 
@@ -475,6 +506,25 @@
       ${modal(model.modal)}`;
   }
 
+  function sizeThumbs(root) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll("[data-vpf-thumb]").forEach((box) => {
+      const [w, hh] = String(box.getAttribute("data-vpf-thumb")).split("x").map(Number);
+      const frame = box.querySelector("iframe");
+      const scale = Math.min(1, (box.clientWidth || 300) / w);
+      if (!frame) return;
+      frame.style.width = `${w}px`;
+      frame.style.height = `${hh}px`;
+      frame.style.transform = `scale(${scale})`;
+      frame.style.transformOrigin = "top left";
+      box.style.height = `${Math.round(hh * scale)}px`;
+    });
+    root.querySelectorAll("[data-vpf-font]").forEach((el) => {
+      const f = el.getAttribute("data-vpf-font");
+      if (/^[A-Za-z ]{2,30}$/.test(f)) el.style.fontFamily = `'${f}', system-ui, sans-serif`;
+    });
+  }
+
   function paintSwatches(root) {
     if (!root || !root.querySelectorAll) return;
     root.querySelectorAll("[data-vpf-swatch]").forEach((el) => {
@@ -493,6 +543,7 @@
     const caret = keep ? active.selectionStart : null;
     root.innerHTML = view();
     paintSwatches(root);
+    sizeThumbs(root);
     if (keep) {
       const again = root.querySelector(keep);
       if (again) { again.focus(); try { again.setSelectionRange(caret, caret); } catch (_) {} }
@@ -502,8 +553,8 @@
   }
 
   // ------------------------------------------------------------ carga
-  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit"], paquete: ["packages", "modules"], modulos: ["modules", "activity"],
-    accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], bots: ["telegram", "modules"], datos: [], marca: ["experience"], auditoria: [] };
+  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit", "brand"], paquete: ["packages", "modules"], modulos: ["modules", "activity"],
+    accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], bots: ["telegram", "modules"], datos: [], marca: ["experience", "brand"], auditoria: [] };
 
   async function ensure(keys, force = false) {
     const id = model.id;

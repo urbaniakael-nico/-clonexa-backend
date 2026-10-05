@@ -228,3 +228,28 @@ async def test_images_share_links_and_legacy_stats_on_real_postgres(pg_url):
     finally:
         brand_media.set_backend(None)
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_real_brand_for_the_ficha_on_real_postgres(pg_url, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.web import brand_routes
+
+    engine, maker = await _session(pg_url)
+    async with maker() as db:
+        cid = await _company(db, "Ficha")
+        monkeypatch.setattr(brand_routes, "_branding", AsyncMock(return_value={"primary_color": "#a600ff", "font_family": "Sora"}))
+        company = {"id": cid, "name": "Ficha"}
+        real = await brand_routes.real_brand(db, company)
+        assert real["source"] == "siempre" and real["published"] is None and real["draft_pending"] is False
+        st = await brand_store.state(db, cid, {"primary_color": "#a600ff", "font_family": "Sora"})
+        t = st["draft"]["tokens"]
+        t["theme"]["colors"]["primary"] = "#010203"
+        await brand_store.save_draft(db, cid, t)
+        real = await brand_routes.real_brand(db, company)
+        assert real["draft_pending"] is True and real["tokens"]["theme"]["colors"]["primary"] == "#a600ff", "el borrador no es la marca real"
+        await brand_store.publish(db, cid)
+        real = await brand_routes.real_brand(db, company)
+        assert real["source"] == "published" and real["published"]["version"] == 1 and real["tokens"]["theme"]["colors"]["primary"] == "#010203"
+    await engine.dispose()
