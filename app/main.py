@@ -631,4 +631,11 @@ try:
 except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Empresas de la Consola v2+ no pudo registrarse: %s", exc)
+try:
+    # Estudio de marca: imagenes en el bucket y marca por empresa.
+    from app.web.brand_routes import router as brand_router
+    app.include_router(brand_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Estudio de marca no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2PLUS_ROUTE

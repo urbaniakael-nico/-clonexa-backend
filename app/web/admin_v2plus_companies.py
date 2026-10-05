@@ -271,6 +271,20 @@ async def purge_company(company_id: str, payload: PurgeRequest, request: Request
         await db.rollback()
         raise
     total = sum(t["rows"] for t in deleted)
-    await _audit(request, company_name=company["name"], deleted_rows=total, deleted_tables=len(deleted))
+    # Fase 4: sus imagenes de marca en el bucket se borran tambien. La base ya
+    # quedo limpia; si el bucket no responde se informa y no se revierte nada.
+    bucket = {"deleted": 0, "error": ""}
+    try:
+        import asyncio
+
+        from app.services import brand_media
+
+        bucket["deleted"] = await asyncio.to_thread(brand_media.delete_company, company["id"])
+    except Exception as error:  # nunca rompe un purge ya hecho
+        bucket["error"] = "No se pudieron borrar sus imágenes del bucket; quedan para limpieza manual."
+        import logging
+
+        logging.getLogger("clonexa.admin_v2plus").warning("purge: bucket de marca sin limpiar company=%s: %s", company["id"], type(error).__name__)
+    await _audit(request, company_name=company["name"], deleted_rows=total, deleted_tables=len(deleted), bucket_images=bucket["deleted"])
     return _json({"ok": True, "dry_run": False, "executed": True, "company_id": company["id"],
-                  "company_name": company["name"], "tables": deleted, "total_rows": total})
+                  "company_name": company["name"], "tables": deleted, "total_rows": total, "bucket": bucket})
