@@ -200,3 +200,17 @@ async def published_tokens(db: AsyncSession, cid: str) -> Optional[dict]:
     except bt.BrandInvalid:
         log.warning("marca publicada invalida company=%s; se sirve la de siempre", cid)
         return None
+
+
+async def draft_tokens(db: AsyncSession, cid: str) -> Optional[dict]:
+    """El borrador guardado de ESA empresa (sin crearlo), o None."""
+    row = (await db.execute(text("""
+        SELECT tokens FROM company_brand_themes WHERE company_id = CAST(:c AS uuid) AND status = 'draft' LIMIT 1
+    """), {"c": cid})).mappings().first()
+    if not row:
+        return None
+    tokens = row["tokens"] if isinstance(row["tokens"], dict) else json.loads(row["tokens"])
+    try:
+        return bt.validate(tokens)
+    except bt.BrandInvalid:
+        return None

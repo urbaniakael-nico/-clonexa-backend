@@ -175,8 +175,8 @@ def _style_props(s: dict, path: str) -> dict:
     if "fill" in s:
         out["fill"] = fill(s["fill"], f"{path}.fill")
     if "border" in s:
-        b = _obj(s["border"], f"{path}.border", {"width", "color"}, ("width",))
-        out["border"] = {"width": number(b["width"], f"{path}.border.width", 0, 6),
+        b = _obj(s["border"], f"{path}.border", {"width", "color"})
+        out["border"] = {"width": number(b.get("width", 1), f"{path}.border.width", 0, 6),
                          **({"color": color(b["color"], f"{path}.border.color")} if "color" in b else {})}
     if "glow" in s:
         out["glow"] = number(s["glow"], f"{path}.glow", 0, 100)
@@ -478,6 +478,9 @@ def _background_css(scopes: list[str], bg: dict, company_id: str) -> list[str]:
     rules = []
     sel = ",".join(f"html body {s}" for s in scopes)
     rules.append(f"{sel}{{background:{_fill_css(bg['base'])};position:relative;isolation:isolate}}")
+    # El color de la base tambien en el body mientras se ve esa pantalla (cubre todo el alto).
+    page = ",".join(f"html body:has({s})" for s in scopes)
+    rules.append(f"{page}{{background:{_fill_css(bg['base'])}}}")
     im = bg.get("image")
     if im:
         if im["mode"] == "cover":
@@ -511,8 +514,10 @@ _URL = re.compile(r"url\(")
 _ALLOWED_URL = re.compile(r'url\("/brand-media/[0-9a-f-]{36}/[0-9a-f-]{36}(-lite)?\.webp"\)')
 
 
-def css_for(tokens: dict, company_id: str) -> str:
-    """CSS de la marca, armado solo con valores validados. Siempre revalida."""
+def css_for(tokens: dict, company_id: str, states: bool = False) -> str:
+    """CSS de la marca, armado solo con valores validados. Siempre revalida.
+    states=True (solo la vista previa): los estados cursor encima y presionado
+    tambien se ven en elementos marcados con data-cx-state."""
     t = validate(tokens)
     reg = registry()
     c = t["theme"]["colors"]
@@ -535,7 +540,7 @@ def css_for(tokens: dict, company_id: str) -> str:
     for kind, spec in reg["types"].items():
         style_ = {**({k: v for k, v in base_shadow.items()} if kind in ("boton_principal", "tarjeta") else {}), **t["components"].get(kind, {})}
         sel = _join(all_scopes, spec["selectors"])
-        _emit_style(rules, sel, lambda suffix, spec=spec: _join(all_scopes, spec["selectors"], suffix), style_, primary)
+        _emit_style(rules, sel, lambda suffix, spec=spec: _join(all_scopes, spec["selectors"], suffix), style_, primary, states)
     for piece in reg["pieces"]:
         st = t["pieces"].get(piece["key"])
         if not st:
@@ -543,14 +548,14 @@ def css_for(tokens: dict, company_id: str) -> str:
         scopes = reg["screens"][piece["screen"]]["scope"]
         attr = f'[data-brand="{piece["key"]}"][data-brand="{piece["key"]}"]'
         sel = ",".join(f"html body {s} {attr}" for s in scopes)
-        _emit_style(rules, sel, lambda suffix, scopes=scopes, attr=attr: ",".join(f"html body {s} {attr}{suffix}" for s in scopes), st, primary)
+        _emit_style(rules, sel, lambda suffix, scopes=scopes, attr=attr: ",".join(f"html body {s} {attr}{suffix}" for s in scopes), st, primary, states)
     css = "\n".join(r for r in rules if r)
     if _FORBIDDEN.search(css) or len(_URL.findall(css)) != len(_ALLOWED_URL.findall(css)):
         raise BrandInvalid("css", "salida no permitida")
     return css
 
 
-def _emit_style(rules: list[str], sel: str, with_suffix, st: dict, primary: str) -> None:
+def _emit_style(rules: list[str], sel: str, with_suffix, st: dict, primary: str, states: bool = False) -> None:
     if not sel:
         return
     body = _props_css(st, primary)
@@ -563,4 +568,5 @@ def _emit_style(rules: list[str], sel: str, with_suffix, st: dict, primary: str)
         if st.get(state):
             body = _props_css(st[state], primary)
             if body:
-                rules.append(f"{with_suffix(pseudo)}{{{body}}}")
+                target = with_suffix(pseudo) + ("," + with_suffix(f'[data-cx-state="{state}"]') if states else "")
+                rules.append(f"{target}{{{body}}}")

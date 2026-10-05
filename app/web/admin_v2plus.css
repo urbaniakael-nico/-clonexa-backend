@@ -497,3 +497,40 @@ button, input, select { font: inherit; color: inherit; }
 .vp-sw-matrix thead th a { color: var(--vp-text); text-decoration: none; text-transform: none; letter-spacing: normal; }
 .vp-sw-matrix thead th a:hover, .vp-sw-matrix thead th a:focus-visible { color: #fff; text-decoration: underline; }
 .vp-sw-matrix .vp-state-pill { text-transform: none; letter-spacing: normal; }
+
+/* ------------------------------------------------ Estudio de marca */
+.vp-brand-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.vp-brand-layout > div { min-width: 0; }
+.vp-brand-tree { padding: 14px; max-height: 78vh; overflow: auto; position: sticky; top: 12px; }
+.vp-brand-tree h3 { margin: 12px 0 6px; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--vp-blood); }
+.vp-brand-tree h3:first-child { margin-top: 0; }
+.vp-brand-tree ul { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; }
+.vp-brand-node { width: 100%; text-align: left; padding: 6px 10px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--vp-text); font: inherit; font-size: 13px; cursor: pointer; }
+.vp-brand-node:hover { border-color: var(--vp-line); }
+.vp-brand-node.is-active { border-color: var(--vp-purple); background: rgba(157, 23, 255, .14); box-shadow: 0 0 12px var(--vp-purple-glow); }
+.vp-brand-node:focus-visible { outline: 2px solid var(--vp-purple-hover); outline-offset: 2px; }
+.vp-brand-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--vp-blood); vertical-align: middle; }
+.vp-brand-stage { padding: 14px; display: grid; gap: 10px; }
+.vp-brand-frame-wrap { position: relative; overflow: hidden; border-radius: 16px; border: 1px solid var(--vp-line); background: #000; }
+.vp-brand-frame { display: block; border: 0; background: #080712; }
+.vp-brand-controls { padding: 14px; max-height: 78vh; overflow: auto; position: sticky; top: 12px; display: grid; gap: 10px; align-content: start; }
+.vp-brand-controls h2 { margin: 0; font-size: 18px; }
+.vp-brand-group { margin: 0; padding: 10px 12px; border: 1px solid var(--vp-line); border-radius: 12px; display: grid; gap: 8px; min-width: 0; }
+.vp-brand-group legend { padding: 0 6px; color: var(--vp-muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.vp-brand-color .vp-inline { display: flex; gap: 8px; align-items: center; }
+.vp-brand-color input[type="color"] { width: 44px; height: 34px; padding: 0; border: 1px solid var(--vp-line); border-radius: 8px; background: transparent; cursor: pointer; }
+.vp-brand-color input.vp-mono { width: 96px; }
+.vp-brand-stop { display: grid; gap: 6px; padding: 8px; border-radius: 10px; background: rgba(255, 255, 255, .03); }
+.vp-brand-swatch { display: block; height: 28px; border-radius: 8px; border: 1px solid var(--vp-line); }
+.vp-brand-sample { margin: 0; padding: 12px; border-radius: 10px; border: 1px solid var(--vp-line); font-size: 18px; }
+.vp-brand-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; max-height: 160px; overflow: auto; }
+.vp-brand-thumb { padding: 0; aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--vp-line); background: #111; overflow: hidden; cursor: pointer; }
+.vp-brand-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.vp-brand-thumb.is-active { border-color: var(--vp-blood); box-shadow: 0 0 12px rgba(227, 18, 47, .6); }
+.vp-brand-guard { padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 170, 60, .6); background: rgba(255, 170, 60, .08); font-size: 13px; }
+.vp-brand-guard ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 140px; overflow: auto; }
+.vp-brand-guard li { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.vp-brand-pick { text-align: left; cursor: pointer; display: grid; gap: 4px; }
+.vp-brand-tpl { display: grid; gap: 8px; cursor: pointer; text-align: left; }
+@media (max-width: 1180px) { .vp-brand-layout { grid-template-columns: 200px minmax(0, 1fr); } .vp-brand-layout > div:last-child { grid-column: 1 / -1; } .vp-brand-controls { position: static; max-height: none; } }
+@media (max-width: 760px) { .vp-brand-layout { grid-template-columns: minmax(0, 1fr); } .vp-brand-tree { position: static; max-height: 40vh; } }

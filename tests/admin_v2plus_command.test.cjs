@@ -123,7 +123,7 @@ test('estados vacíos: sin empresas y sin coincidencias en el filtro', () => {
   assert.match(noMatch, /Ninguna empresa en este estado/);
 });
 
-test('una sección sin archivo propio cae en "Próximamente" (hoy solo Estudio de marca, que tiene su propia pantalla)', () => {
+test('una sección sin archivo propio cae en "Próximamente" (hoy ninguna: Estudio de marca tiene admin_v2plus_brand.js)', () => {
   const ui = load();
   assert.match(ui.soon('brand'), /Estudio de marca<\/h2><p>Próximamente/);
 });

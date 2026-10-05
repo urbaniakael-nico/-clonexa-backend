@@ -36,10 +36,33 @@ def _storage_error(error: Exception) -> HTTPException:
     return HTTPException(status_code=422, detail=str(error))
 
 
-async def can_view(request: Request, db: AsyncSession, company_id: str, image_id: str) -> bool:
-    """Quien puede ver una imagen de marca. Las partes 4 y 5 agregan la marca
-    publicada y el enlace de vista previa; aqui, solo la consola."""
-    return bool(await v2._active_session(request, db))
+async def can_view(request: Request, db: AsyncSession, company_id: str, image_id: str) -> tuple[bool, bool]:
+    """(puede verla, es publica). Puede verla:
+    - cualquiera, si la imagen esta en la marca PUBLICADA de esa empresa (ya se
+      ve en su pantalla de ingreso);
+    - la consola (sesion de Admin V2);
+    - quien abrio un enlace de vista previa vigente de ESA empresa (cookie), si
+      la imagen esta en su borrador."""
+    import uuid as _uuid_mod
+
+    from app.services import brand_share as share_
+    from app.services import brand_store as store_
+    from app.services import brand_theme as bt_
+
+    try:
+        iid = str(_uuid_mod.UUID(str(image_id)))
+    except ValueError:
+        return False, False
+    published = await store_.published_tokens(db, company_id)
+    if published and iid in bt_.image_ids(published):
+        return True, True
+    if await v2._active_session(request, db):
+        return True, False
+    link = await share_.resolve(db, request.cookies.get(share_.COOKIE, ""))
+    if link and link["company_id"] == str(company_id):
+        draft = await store_.draft_tokens(db, company_id)
+        return bool(draft and iid in bt_.image_ids(draft)), False
+    return False, False
 
 
 @router.get("/brand-media/{company_id}/{image_file}", include_in_schema=False)
@@ -49,7 +72,8 @@ async def serve_image(company_id: str, image_file: str, request: Request, db: As
         raise HTTPException(status_code=404, detail="Imagen no encontrada.")
     image_id, lite = match.group(1), bool(match.group(2))
     try:
-        if not await can_view(request, db, company_id, image_id):
+        allowed, public = await can_view(request, db, company_id, image_id)
+        if not allowed:
             raise HTTPException(status_code=404, detail="Imagen no encontrada.")
         data = await media.read(db, company_id, image_id, lite=lite)
     except media.ImageRejected:
@@ -60,7 +84,7 @@ async def serve_image(company_id: str, image_file: str, request: Request, db: As
         raise HTTPException(status_code=404, detail="Imagen no encontrada.")
     # Los ids no cambian nunca (una imagen nueva es otro id): cache largo.
     return Response(content=data, media_type="image/webp", headers={
-        "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "public, max-age=86400" if public else "private, max-age=3600", "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "default-src 'none'; sandbox"})
 
 
@@ -287,3 +311,92 @@ async def brand_copy_from(company_id: str, source_id: str, request: Request, db:
     saved = await store.save_draft(db, company["id"], tokens)
     await _audit(request, company_name=company["name"], marca="copiada_de", origen=source["name"])
     return _json({"ok": True, "tokens": saved})
+
+
+# ============================================================ vista previa (parte 3)
+# GET  /admin-v2/brand-preview/{company_id}?screen=   la pantalla con el borrador (sesion de Admin V2)
+# POST /admin-v2/api/brand/{company_id}/render         CSS del borrador sin guardar (vista previa en vivo)
+from fastapi.responses import HTMLResponse  # noqa: E402
+
+from app.web import brand_preview  # noqa: E402
+
+PREVIEW_HEADERS = {"Content-Security-Policy": brand_preview.PREVIEW_CSP, "Cache-Control": "no-store",
+                   "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex"}
+
+
+@router.get("/admin-v2/brand-preview/{company_id}", include_in_schema=False)
+async def studio_preview(company_id: str, request: Request, screen: str = "ingreso", db: AsyncSession = Depends(get_db)):
+    if not await v2._active_session(request, db):
+        return HTMLResponse("<!doctype html><title>Sesión requerida</title><p>Sesión de Admin V2 requerida.</p>", status_code=401, headers=PREVIEW_HEADERS)
+    company = await load_company(db, _uuid(company_id))
+    data = await store.state(db, company["id"], await _branding(db, company["id"]))
+    tokens = data["draft"]["tokens"]
+    return HTMLResponse(brand_preview.page(screen=screen, company_id=company["id"], css=bt.css_for(tokens, company["id"], states=True),
+                                           branding=bt.branding_for_panels(tokens, company["id"]), mode="studio"), headers=PREVIEW_HEADERS)
+
+
+@router.post("/admin-v2/api/brand/{company_id}/render", include_in_schema=False, dependencies=GUARD)
+async def brand_render(company_id: str, payload: DraftIn, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    try:
+        tokens = bt.validate(payload.tokens)
+        await store.check_images(db, company["id"], tokens)
+        css = bt.css_for(tokens, company["id"], states=True)
+    except bt.BrandInvalid as error:
+        raise _invalid(error) from None
+    return _json({"ok": True, "css": css, "branding": bt.branding_for_panels(tokens, company["id"])})
+
+
+# ============================================================ enlace para el cliente (parte 4)
+# GET    /admin-v2/api/brand/{company_id}/share          enlaces (sin el token)
+# POST   /admin-v2/api/brand/{company_id}/share          crea uno (el token se muestra UNA vez)
+# DELETE /admin-v2/api/brand/{company_id}/share/{id}     revoca
+# GET    /vista-marca/{token}?screen=                     la vista previa para el cliente (solo lectura)
+from app.services import brand_share as share  # noqa: E402
+
+SHARE_GONE = ('<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+              '<meta name="robots" content="noindex"><title>Vista previa no disponible</title></head><body><main><h1>Este enlace ya no sirve</h1>'
+              '<p>Venció o fue revocado. Pide a Clonexa un enlace nuevo.</p></main></body></html>')
+
+
+@router.get("/admin-v2/api/brand/{company_id}/share", include_in_schema=False, dependencies=GUARD)
+async def share_list(company_id: str, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    return _json({"ok": True, "links": await share.list_links(db, company["id"])})
+
+
+@router.post("/admin-v2/api/brand/{company_id}/share", include_in_schema=False, dependencies=GUARD)
+async def share_create(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    if await store.draft_tokens(db, company["id"]) is None:
+        raise HTTPException(status_code=409, detail="Abre y guarda el borrador antes de compartirlo.")
+    link = await share.create(db, company["id"])
+    await _audit(request, company_name=company["name"], marca="enlace_vista_previa", enlace=link["id"])
+    return _json({"ok": True, **link})
+
+
+@router.delete("/admin-v2/api/brand/{company_id}/share/{link_id}", include_in_schema=False, dependencies=GUARD)
+async def share_revoke(company_id: str, link_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    if not await share.revoke(db, company["id"], link_id):
+        raise HTTPException(status_code=404, detail="Enlace no encontrado.")
+    await _audit(request, company_name=company["name"], marca="enlace_revocado", enlace=link_id)
+    return _json({"ok": True})
+
+
+@router.get("/vista-marca/{token}", include_in_schema=False)
+async def share_page(token: str, screen: str = "ingreso", db: AsyncSession = Depends(get_db)):
+    link = await share.resolve(db, token)
+    tokens = await store.draft_tokens(db, link["company_id"]) if link else None
+    if not link or tokens is None:
+        return HTMLResponse(SHARE_GONE, status_code=404, headers=PREVIEW_HEADERS)
+    cid = link["company_id"]
+    response = HTMLResponse(brand_preview.page(screen=screen, company_id=cid, css=bt.css_for(tokens, cid),
+                                               branding=bt.branding_for_panels(tokens, cid), mode="share",
+                                               banner="Vista previa · aún no publicada", nav_token=token), headers=PREVIEW_HEADERS)
+    # La cookie solo viaja a las imagenes de ESTA empresa (path); nunca a /api/v1.
+    from datetime import datetime, timezone
+
+    max_age = max(0, int((link["expires_at"] - datetime.now(timezone.utc)).total_seconds()))
+    response.set_cookie(share.COOKIE, token, max_age=max_age, path=f"/brand-media/{cid}/", httponly=True, secure=True, samesite="strict")
+    return response
