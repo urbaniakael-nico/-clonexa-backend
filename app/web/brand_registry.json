@@ -1,21 +1,49 @@
 {
-  "_doc": "Registro unico del Estudio de marca. Solo lo que esta aqui se puede personalizar. screens.scope: contenedores raiz de cada pantalla en los mini paneles (la caja tiene el diseño clasico csh-* y el rediseñado cx5-*). types.selectors: elementos existentes de cada tipo de componente. pieces: piezas con nombre, marcadas en los paneles con data-brand=\"<key>\" (sin cambiar su aspecto). Los selectores los escribe Clonexa en el repo, nunca el usuario.",
-  "screens": {
-    "ingreso": {"label": "Ingreso", "scope": [".csh-login", ".wtr-login", ".ktc-login"]},
-    "mesero": {"label": "Mesero", "scope": [".wtr-shell"]},
-    "cocina": {"label": "Cocina", "scope": [".ktc-shell"]},
-    "caja": {"label": "Caja", "scope": [".csh-shell", ".cx5"]}
+  "_doc": "Registro unico del Estudio de marca. Solo lo que esta aqui se puede personalizar. screens: cada pantalla con su familia (portal | restaurante | mini), el contenedor raiz (scope), los prefijos de clase que le pertenecen (prefixes), la pagina donde vive (page) y cuando aplica a una empresa (requires). types.selectors: elementos existentes de cada tipo. pieces: piezas con nombre; en los paneles de restaurante y mini paneles estan marcadas con data-brand en el HTML que generan sus JS; en el portal las marca al vuelo client.js (cxBrandTagPieces050A) con el selector de cada pieza, solo con marca publicada. Los selectores los escribe Clonexa en el repo, nunca el usuario.",
+  "families": {
+    "portal": {"label": "Panel principal", "order": 1},
+    "restaurante": {"label": "Paneles de restaurante", "order": 2},
+    "mini": {"label": "Mini paneles", "order": 3}
   },
+  "screens": {
+    "portal_dashboard": {"label": "Panel principal", "family": "portal", "page": "portal", "scope": ["#clientDashboardRoot030D"], "prefixes": ["client", "clx"], "requires": {}},
+    "portal_modulo": {"label": "Vista de módulo", "family": "portal", "page": "portal", "scope": ["main.client-shell:not(#app):not(#clientDashboardRoot030D)"], "prefixes": ["client", "clx"], "requires": {}},
+    "portal_ingreso": {"label": "Ingreso del portal", "family": "portal", "page": "login", "scope": [".login-shell"], "prefixes": ["login"], "requires": {}},
+    "ingreso": {"label": "Ingreso de restaurante", "family": "restaurante", "page": "panels", "scope": [".csh-login", ".wtr-login", ".ktc-login"], "prefixes": ["csh", "wtr", "ktc"], "requires": {"module": "waiter_ordering", "segment": "any"}},
+    "mesero": {"label": "Mesero", "family": "restaurante", "page": "panels", "scope": [".wtr-shell"], "prefixes": ["wtr"], "requires": {"module": "waiter_ordering", "segment": "mesero"}},
+    "cocina": {"label": "Cocina", "family": "restaurante", "page": "panels", "scope": [".ktc-shell"], "prefixes": ["ktc"], "requires": {"module": "waiter_ordering", "segment": "cocina"}},
+    "caja": {"label": "Caja", "family": "restaurante", "page": "panels", "scope": [".csh-shell", ".cx5"], "prefixes": ["csh", "cx5"], "requires": {"module": "waiter_ordering", "segment": "caja"}},
+    "mini_ingreso": {"label": "Ingreso de mini panel", "family": "mini", "page": "mini", "scope": ["body:not(.mp-shell-body) .mp-root"], "prefixes": ["mp"], "requires": {"mini_panel": "any"}},
+    "mini_panel": {"label": "Mini panel", "family": "mini", "page": "mini", "scope": ["body.mp-shell-body .mp-root"], "prefixes": ["mp"], "requires": {"mini_panel": "any"}}
+  },
+  "mini_types": {"sales": "Ventas", "store": "Tiendas", "inventory": "Inventario", "logistics": "Logística", "call_center": "Call Center", "external": "Externo", "other": "Otro"},
   "types": {
-    "boton_principal": {"label": "Botón principal", "selectors": [".csh-btn-primary", ".wtr-btn-primary", ".ktc-btn-primary", ".cx5-btn-primary", ".cx5-method"]},
-    "boton_secundario": {"label": "Botón secundario", "selectors": [".csh-btn:not(.csh-btn-primary):not(.csh-btn-danger)", ".wtr-btn:not(.wtr-btn-primary)", ".ktc-btn:not(.ktc-btn-primary):not(.ktc-btn-tab)", ".cx5-btn:not(.cx5-btn-primary)"]},
-    "tarjeta": {"label": "Tarjeta", "selectors": [".csh-login-card", ".wtr-login-card", ".ktc-login-card", ".csh-card", ".cx5-card", ".wtr-tile", ".ktc-card"]},
-    "encabezado": {"label": "Encabezado", "selectors": [".csh-header", ".cx5-top", ".wtr-header", ".ktc-header"]},
+    "boton_principal": {"label": "Botón principal", "selectors": [".csh-btn-primary", ".wtr-btn-primary", ".ktc-btn-primary", ".cx5-btn-primary", ".cx5-method", ".client-btn", ".login-card button", ".mp-button"]},
+    "boton_secundario": {"label": "Botón secundario", "selectors": [".csh-btn:not(.csh-btn-primary):not(.csh-btn-danger)", ".wtr-btn:not(.wtr-btn-primary)", ".ktc-btn:not(.ktc-btn-primary):not(.ktc-btn-tab)", ".cx5-btn:not(.cx5-btn-primary)", ".clx-core-action-btn"]},
+    "tarjeta": {"label": "Tarjeta", "selectors": [".csh-login-card", ".wtr-login-card", ".ktc-login-card", ".csh-card", ".cx5-card", ".wtr-tile", ".ktc-card", ".client-panel", ".client-module-card", ".client-kpi", ".login-card", ".mp-card", ".mp-kpi-card"]},
+    "encabezado": {"label": "Encabezado", "selectors": [".csh-header", ".cx5-top", ".wtr-header", ".ktc-header", ".client-hero", ".mp-sales-header"]},
     "campo": {"label": "Campo", "selectors": ["input:not([type=checkbox]):not([type=radio])", "select", "textarea"]},
-    "chip": {"label": "Chip", "selectors": [".csh-shift-chip", ".cx5-pill", ".ktc-roster-chip", ".ktc-ready-pill", ".wtr-mesa-status"]},
-    "barra_nav": {"label": "Barra de navegación", "selectors": [".ktc-btn-tab", ".wtr-back", ".csh-back"]}
+    "chip": {"label": "Chip", "selectors": [".csh-shift-chip", ".cx5-pill", ".ktc-roster-chip", ".ktc-ready-pill", ".wtr-mesa-status", ".client-badge", ".mp-chip"]},
+    "barra_nav": {"label": "Barra de navegación", "selectors": [".ktc-btn-tab", ".wtr-back", ".csh-back", ".client-nav button"]},
+    "barra_lateral": {"label": "Barra lateral", "selectors": [".client-sidebar"]}
   },
   "pieces": [
+    {"key": "portal.barra_lateral", "label": "Barra lateral", "screen": "portal_dashboard", "type": "barra_lateral", "selector": ".client-sidebar"},
+    {"key": "portal.logo", "label": "Logo", "screen": "portal_dashboard", "type": "tarjeta", "selector": ".client-logo"},
+    {"key": "portal.nombre", "label": "Nombre de la empresa", "screen": "portal_dashboard", "type": "encabezado", "selector": ".client-company-name"},
+    {"key": "portal.menu", "label": "Botón del menú", "screen": "portal_dashboard", "type": "barra_nav", "selector": ".client-nav button:not(.active)"},
+    {"key": "portal.menu_activo", "label": "Botón del menú seleccionado", "screen": "portal_dashboard", "type": "barra_nav", "selector": ".client-nav button.active"},
+    {"key": "portal.encabezado", "label": "Encabezado del panel", "screen": "portal_dashboard", "type": "encabezado", "selector": ".client-hero"},
+    {"key": "portal.indicador", "label": "Tarjeta de indicador", "screen": "portal_dashboard", "type": "tarjeta", "selector": ".client-kpi"},
+    {"key": "portal.accion", "label": "Botón de acción rápida", "screen": "portal_dashboard", "type": "boton_principal", "selector": ".client-actions .client-btn"},
+    {"key": "portal.servicio", "label": "Tarjeta de servicio activo", "screen": "portal_dashboard", "type": "tarjeta", "selector": ".client-module-card"},
+    {"key": "portal.servicio_codigo", "label": "Código del servicio (REF, PRD…)", "screen": "portal_dashboard", "type": "chip", "selector": ".client-module-card .client-badge"},
+    {"key": "portal.chip", "label": "Chip (LIVE, módulos activos)", "screen": "portal_dashboard", "type": "chip", "selector": ".client-hero .client-badge, .client-panel .client-badge"},
+    {"key": "portal.tenant", "label": "Bloque Tenant activo", "screen": "portal_dashboard", "type": "tarjeta", "selector": ".client-footer-id"},
+    {"key": "portal.ajustes", "label": "Botón Ajustes", "screen": "portal_dashboard", "type": "boton_secundario", "selector": "#clxOpenCoreSettings"},
+    {"key": "portal.cerrar_sesion", "label": "Botón Cerrar sesión", "screen": "portal_dashboard", "type": "boton_secundario", "selector": "#clxCoreLogout"},
+    {"key": "portal.ingreso_tarjeta", "label": "Tarjeta de ingreso del portal", "screen": "portal_ingreso", "type": "tarjeta", "selector": ".login-card"},
+    {"key": "portal.ingreso_entrar", "label": "Botón Entrar del portal", "screen": "portal_ingreso", "type": "boton_principal", "selector": ".login-card button[type=submit]"},
     {"key": "ingreso.tarjeta", "label": "Tarjeta de ingreso", "screen": "ingreso", "type": "tarjeta"},
     {"key": "ingreso.marca", "label": "Marca (texto CLONEXA)", "screen": "ingreso", "type": "encabezado"},
     {"key": "ingreso.titulo", "label": "Título del panel", "screen": "ingreso", "type": "encabezado"},
@@ -28,6 +56,11 @@
     {"key": "cocina.listo", "label": "Pedido listo", "screen": "cocina", "type": "boton_principal"},
     {"key": "caja.encabezado", "label": "Encabezado de caja", "screen": "caja", "type": "encabezado"},
     {"key": "caja.mesa", "label": "Mesa en caja", "screen": "caja", "type": "tarjeta"},
-    {"key": "caja.cobrar", "label": "Cobrar (método de pago)", "screen": "caja", "type": "boton_principal"}
+    {"key": "caja.cobrar", "label": "Cobrar (método de pago)", "screen": "caja", "type": "boton_principal"},
+    {"key": "mini.ingreso_tarjeta", "label": "Tarjeta de ingreso", "screen": "mini_ingreso", "type": "tarjeta"},
+    {"key": "mini.ingreso_entrar", "label": "Botón Entrar", "screen": "mini_ingreso", "type": "boton_principal"},
+    {"key": "mini.encabezado", "label": "Encabezado del mini panel", "screen": "mini_panel", "type": "encabezado"},
+    {"key": "mini.indicador", "label": "Tarjeta de indicador", "screen": "mini_panel", "type": "tarjeta"},
+    {"key": "mini.chip", "label": "Chip", "screen": "mini_panel", "type": "chip"}
   ]
 }

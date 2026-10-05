@@ -13,6 +13,22 @@
   const brand = () => window.CxPanelBrand || null;
   const style = document.getElementById("cxBrandTheme");
   if (brand() && data.branding) brand().apply(data.branding);
+  // Portal: el logo de la marca en la muestra (misma ruta del mismo origen).
+  function setLogo(url) {
+    document.querySelectorAll("[data-brand=\"portal.logo\"]").forEach((box) => {
+      box.textContent = "";
+      if (url && /^\/brand-media\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.webp$/.test(url)) {
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = "";
+        img.className = "cxpv-logo";
+        box.appendChild(img);
+      } else {
+        box.textContent = "C";
+      }
+    });
+  }
+  if (data.logo) setLogo(data.logo);
 
   // Nada navega ni envía: es solo una vista previa.
   document.addEventListener("submit", (event) => event.preventDefault(), true);
@@ -68,13 +84,14 @@
     try {
       const response = await fetch(`/admin-v2/api/brand/${encodeURIComponent(data.company_id)}/render`, {
         method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ tokens }),
+        body: JSON.stringify({ tokens, screen: data.screen }),
       });
       const body = await response.json().catch(() => ({}));
       if (mine !== seq) return;
       if (!response.ok) { post({ type: "error", detail: body.detail || `Respuesta ${response.status}` }); return; }
       if (style) style.textContent = String(body.css || "");
-      if (brand() && body.branding) brand().apply(body.branding);
+      if (brand() && body.branding && data.branding) brand().apply(body.branding);
+      if (document.querySelector("[data-brand=\"portal.logo\"]")) setLogo(body.logo || "");
       post({ type: "rendered" });
     } catch (_) {
       post({ type: "error", detail: "No se pudo actualizar la vista previa." });

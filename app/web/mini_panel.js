@@ -1599,7 +1599,7 @@
     clearTimer();
     setShellMode(false);
     root.innerHTML = `
-      <section class="mp-card">
+      <section class="mp-card" data-brand="mini.ingreso_tarjeta">
         <div class="mp-kicker">Acceso operativo</div>
         <h1>${h(labelType(panelType))}</h1>
         <p>Ingresa con el usuario y clave generados desde el panel de la empresa.</p>
@@ -1615,7 +1615,7 @@
             <input id="miniPanelPassword" type="password" autocomplete="current-password" required />
           </div>
 
-          <button class="mp-button" type="submit">Entrar</button>
+          <button class="mp-button" type="submit" data-brand="mini.ingreso_entrar">Entrar</button>
           <div class="mp-message" id="miniPanelMessage">${h(message)}</div>
         </form>
       </section>
@@ -4218,18 +4218,18 @@ function moduleCard(title, description, tag, code = "") {
 
     root.innerHTML = `
       <section class="mp-sales-dashboard mp-sales-dashboard-r1 mp-sales-dashboard-r2 mp-sales-dashboard-r3">
-        <header class="mp-sales-header mp-sales-header-r1 mp-sales-header-r2 mp-sales-header-r3">
+        <header class="mp-sales-header mp-sales-header-r1 mp-sales-header-r2 mp-sales-header-r3" data-brand="mini.encabezado">
           <section class="mp-header-main mp-header-main-r1 mp-header-main-r2 mp-header-main-r3">
             <div class="mp-kicker">Mini Panel ${h(mini.type_label || labelType(panelType))}</div>
             <h1>${h(companyName)}</h1>
             <p>Portal operativo personalizado para ${h(employeeName)}.</p>
 
             <div class="mp-meta compact">
-              <span class="mp-chip">Vendedor: ${h(employeeName)}</span>
-              <span class="mp-chip">Rol: ${h(employeeRole)}</span>
-              <span class="mp-chip">Empresa: ${h(company.slug || companyName)}</span>
-              <span class="mp-chip">Ubicación: ${h(locationLabel)}</span>
-              <span class="mp-chip">Usuario: ${h(mini.username || user.email || "—")}</span>
+              <span class="mp-chip" data-brand="mini.chip">Vendedor: ${h(employeeName)}</span>
+              <span class="mp-chip" data-brand="mini.chip">Rol: ${h(employeeRole)}</span>
+              <span class="mp-chip" data-brand="mini.chip">Empresa: ${h(company.slug || companyName)}</span>
+              <span class="mp-chip" data-brand="mini.chip">Ubicación: ${h(locationLabel)}</span>
+              <span class="mp-chip" data-brand="mini.chip">Usuario: ${h(mini.username || user.email || "—")}</span>
             </div>
           </section>
 
@@ -4277,13 +4277,13 @@ function moduleCard(title, description, tag, code = "") {
           </div>
 
           <div class="mp-kpi-grid mp-kpi-grid-r3">
-            <article class="mp-kpi-card">
+            <article class="mp-kpi-card" data-brand="mini.indicador">
               <span>Total ventas mes</span>
               <strong>${h(formatMoney(salesTotal))}</strong>
               <small>Sumatoria de registros de venta</small>
             </article>
 
-            <article class="mp-kpi-card">
+            <article class="mp-kpi-card" data-brand="mini.indicador">
               <span>Llevas vs meta</span>
               <strong>${h(formatMoney(salesTotal))} / ${h(formatMoney(goal))}</strong>
               <div class="mp-progress"><i style="width:${goalPct}%"></i></div>

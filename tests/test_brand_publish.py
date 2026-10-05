@@ -61,6 +61,10 @@ class Db:
             return R(rowcount=len(hit))
         if sql.startswith("SELECT id::text AS id, created_at, expires_at, revoked_at"):
             return R([link for link in self.links if link["company_id"] == p["c"]])
+        if sql.startswith("SELECT id::text AS id, name, slug, status, settings_json FROM companies"):
+            return R([{"id": p["id"], "name": "Empresa de prueba", "slug": "prueba", "status": "active", "settings_json": {}}])
+        if "FROM company_modules cm JOIN modules m" in sql:
+            return R([])
         raise AssertionError(sql)
 
     async def commit(self):
@@ -124,7 +128,8 @@ async def test_share_page_shows_sample_data_only_and_sets_scoped_cookie(client):
     assert res.status_code == 200
     body = res.text
     assert "Vista previa · aún no publicada" in body
-    assert "muestra" in body and "Mesero de muestra" in body
+    assert "Servicios activos" in body and "empresa-de-muestra" in body, "sin caja, el enlace muestra el panel principal"
+    assert "Mesero de muestra" not in body, "una pantalla que la empresa no tiene no se muestra"
     assert "hsp_cashier.js" not in body and "api/v1" not in body, "no carga el panel ni llama a la API"
     assert "frame-ancestors 'self'" in res.headers["content-security-policy"]
     cookie = res.headers["set-cookie"]

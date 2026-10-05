@@ -11,3 +11,8 @@ html[data-cx-preview] input { pointer-events: none; }
 .cxpv-nav { display: flex; gap: 6px; flex-wrap: wrap; }
 .cxpv-link { padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .4); color: #fff; text-decoration: none; font-weight: 600; }
 .cxpv-link.is-active, .cxpv-link:hover, .cxpv-link:focus-visible { background: #fff; color: #5b0f9e; }
+.cxpv-row { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.cxpv-gap { margin-bottom: 18px; }
+.cxpv-logo { width: 100%; height: 100%; object-fit: contain; display: block; }
+.cxpv-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cxpv-table th, .cxpv-table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid rgba(127,127,127,.25); }

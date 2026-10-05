@@ -167,7 +167,7 @@ test('vista: elegir empresa, tres columnas, árbol con piezas, iframe del mismo 
   assert.match(html, /class="vp-brand-layout"/);
   assert.match(html, /Tema<\/h3>[\s\S]*Fondos<\/h3>[\s\S]*Componentes<\/h3>[\s\S]*Piezas<\/h3>/);
   for (const p of REGISTRY.pieces) assert.match(html, new RegExp(`data-vpb-sel="piece\\|${p.key.replace('.', '\\.')}"`));
-  assert.match(html, /<iframe class="vp-brand-frame" data-vpb-frame title="Vista previa de ingreso" src="\/admin-v2\/brand-preview\/c1\?screen=ingreso">/);
+  assert.match(html, /<iframe class="vp-brand-frame" data-vpb-frame title="Vista previa: Panel principal" src="\/admin-v2\/brand-preview\/c1\?screen=portal_dashboard">/, 'abre en el panel principal');
   assert.match(html, /Celular[\s\S]*Tableta[\s\S]*Pantalla grande/);
   assert.match(html, /Guardar borrador[\s\S]*Publicar/);
   assert.match(html, /publicada la versión 1/);
@@ -179,5 +179,46 @@ test('vista: elegir empresa, tres columnas, árbol con piezas, iframe del mismo 
   assert.match(html, /Restablecer a lo heredado/);
   S.model.sel = { kind: 'background', key: 'caja' };
   S.draw(false);
-  assert.match(html, /Heredar el fondo general/);
+  assert.match(html, /Heredar el fondo general[\s\S]*Fondo propio del panel[\s\S]*Personalizado/);
+  S.model.sel = { kind: 'background', key: 'portal_dashboard' };
+  S.draw(false);
+  assert.doesNotMatch(html, /Fondo propio del panel/, 'el panel principal no tiene fondo propio de panel');
+});
+
+test('una empresa sin waiter_ordering (Velvet) no ve pantallas de restaurante en el estudio', async () => {
+  const draft = tokens();
+  const available = { screens: ['portal_dashboard', 'portal_modulo', 'portal_ingreso'], mini_types: [], segments: {} };
+  const { S, sections } = load(() => ({ status: 200, body: {
+    company: { id: 'v1', name: 'Velvet', kind: 'registrada' }, draft: { version: 1, tokens: draft }, published: null, history: [{ version: 1, status: 'draft' }],
+    available, registry: REGISTRY, fonts: ['Inter'], storage: { configured: true, used_bytes: 0, quota_bytes: 1 }, images: [] } }));
+  let html = '';
+  const root = { get innerHTML() { return html; }, set innerHTML(v) { html = v; }, querySelector: () => null, querySelectorAll: () => [] };
+  sections.brand.mount({ root: () => root, active: () => true, overview: () => ({ companies: [] }), toast: () => {}, params: { companyId: 'v1' } });
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  assert.match(html, /data-vpb-screen="portal_dashboard"[\s\S]*data-vpb-screen="portal_modulo"[\s\S]*data-vpb-screen="portal_ingreso"/);
+  for (const k of ['ingreso', 'mesero', 'cocina', 'caja', 'mini_ingreso', 'mini_panel']) {
+    assert.ok(!html.includes(`data-vpb-screen="${k}"`), `sin pantalla ${k}`);
+    assert.ok(!html.includes(`data-vpb-sel="background|${k}"`), `sin fondo ${k}`);
+  }
+  assert.doesNotMatch(html, /Panel Caja|data-vpb-sel="piece\|caja\./, 'nada de la caja');
+  assert.match(html, /data-vpb-sel="piece\|portal\.barra_lateral"/);
+  assert.doesNotMatch(html, /Alcance de la marca/, 'sin paneles no hay alcance que elegir');
+  assert.deepEqual(plain(S.screensFor({ registry: REGISTRY, available: { screens: ['caja', 'portal_dashboard'] } }).map((x) => x.key)), ['portal_dashboard', 'caja'], 'primero el panel principal');
+});
+
+test('modo de fondo: heredar, propio del panel o personalizado', () => {
+  const { S } = load();
+  let t = tokens();
+  t = S.setBgMode(t, 'caja', 'own');
+  assert.deepEqual(plain(t.backgrounds.caja), { own: true });
+  t = S.setBgMode(t, 'caja', 'custom');
+  assert.equal(t.backgrounds.caja.base.kind, 'solid');
+  t.backgrounds.general.base = { kind: 'preset' };
+  t = S.setBgMode(t, 'mesero', 'custom');
+  assert.deepEqual(plain(t.backgrounds.mesero.base), { kind: 'solid', color: '#0b0507' }, 'el estilo del panel principal no se copia a un panel');
+  t = S.setBgMode(t, 'caja', 'inherit');
+  assert.deepEqual(plain(t.backgrounds.caja), { inherit: true });
+  t = S.setBackgroundLayer(S.setBgMode(t, 'cocina', 'own'), 'cocina', 'veil', null);
+  assert.equal(t.backgrounds.cocina.own, undefined, 'editar una capa sale del fondo propio');
 });

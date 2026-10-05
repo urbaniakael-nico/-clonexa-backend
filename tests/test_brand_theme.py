@@ -110,19 +110,27 @@ def test_without_images_drops_all_images():
 
 
 def test_registry_pieces_are_tagged_in_the_panels():
-    src = "".join(open(f"app/web/{f}.js", encoding="utf-8").read() for f in ("hsp_cashier", "hsp_waiter", "hsp_kitchen"))
-    for piece in bt.registry()["pieces"]:
-        assert f'data-brand="{piece["key"]}"' in src, piece["key"]
+    """Restaurante: data-brand en el HTML que arman sus JS. Portal: selector para
+    el marcado al vuelo de client.js. Mini paneles: data-brand en mini_panel.js."""
+    src = "".join(open(f"app/web/{f}.js", encoding="utf-8").read() for f in ("hsp_cashier", "hsp_waiter", "hsp_kitchen", "mini_panel"))
+    reg = bt.registry()
+    for piece in reg["pieces"]:
+        family = reg["screens"][piece["screen"]]["family"]
+        if family == "portal":
+            assert piece.get("selector"), piece["key"]
+        else:
+            assert f'data-brand="{piece["key"]}"' in src, piece["key"]
 
 
 def test_initial_tokens_from_company_branding():
     out = bt.from_branding({"primary_color": "#123456", "background_color": "#ffffff", "font_family": "Sora",
                             "gradient_from": "#111111", "gradient_to": "#222222", "gradient_angle": 90, "logo_url": "javascript:x"}, None)
     assert out["theme"]["colors"]["primary"] == "#123456" and out["theme"]["font"]["family"] == "Sora"
-    assert out["backgrounds"]["general"]["base"]["gradient"]["angle"] == 90
+    assert out["theme"]["portal"]["gradient_angle"] == 90 and out["theme"]["portal"]["gradient_from"] == "#111111"
+    assert out["backgrounds"]["general"]["base"] == {"kind": "preset"}
     assert out["theme"]["logo"] is None
     junk = bt.from_branding({"primary_color": "red", "font_family": "Comic Sans"})
-    assert junk["theme"]["colors"]["primary"] == bt.CLONEXA_DEFAULT["primary"] and junk["theme"]["font"]["family"] == "Inter"
+    assert junk["theme"]["colors"]["primary"] == "#ff2bd6" and junk["theme"]["font"]["family"] == "Inter"
 
 
 def test_palette_from_logo_proposes_full_palette():

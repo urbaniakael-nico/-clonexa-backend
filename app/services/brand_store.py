@@ -90,24 +90,65 @@ async def _initial_logo(db: AsyncSession, cid: str, branding: dict) -> Optional[
         return None
 
 
-async def state(db: AsyncSession, cid: str, branding: dict) -> dict:
+async def _edited(db: AsyncSession, cid: str) -> bool:
+    """Si alguien edito la marca de esta empresa (la auditoria guarda cada
+    guardado, publicacion, copia o vuelta de version). Sin auditoria: se asume
+    que si, para no tocar nada."""
+    try:
+        row = (await db.execute(text("""
+            SELECT 1 FROM admin_audit_log
+            WHERE path LIKE :p AND method IN ('PUT', 'POST')
+              AND (path LIKE '%/draft' OR path LIKE '%/publish' OR path LIKE '%/rollback/%' OR path LIKE '%/copy-from/%' OR path LIKE '%/unpublish')
+            LIMIT 1
+        """), {"p": f"/admin-v2/api/brand/{cid}/%"})).first()
+    except Exception:
+        await db.rollback()
+        return True
+    return row is not None
+
+
+def _old_initial(row: dict) -> bool:
+    """Borrador armado con la logica anterior a la etapa 2 (sin theme.portal)."""
+    theme = (row.get("tokens") or {}).get("theme") or {}
+    return "portal" not in theme
+
+
+async def state(db: AsyncSession, cid: str, branding: dict, panels: bool = False) -> dict:
     """Borrador, publicado e historial. La primera vez arma el borrador desde
-    company_branding (la marca de Admin V2), logo incluido."""
+    company_branding (la marca de Admin V2), logo incluido, de forma que
+    publicado sin cambios se vea como hoy. Un borrador inicial creado con la
+    logica anterior y que nadie edito se regenera (conserva su logo)."""
     rows = await _rows(db, cid)
     if not rows:
         logo = await _initial_logo(db, cid, branding)
-        await _insert(db, cid, "draft", bt.from_branding(branding, logo))
+        await _insert(db, cid, "draft", bt.from_branding(branding, logo, panels=panels))
         await db.commit()
+        rows = await _rows(db, cid)
+    elif len(rows) == 1 and rows[0]["status"] == "draft" and rows[0]["version"] == 1 and _old_initial(rows[0]) and not await _edited(db, cid):
+        logo = ((rows[0]["tokens"].get("theme") or {}).get("logo")) or None
+        fresh = bt.from_branding(branding, logo, panels=panels)
+        await db.execute(text("""
+            UPDATE company_brand_themes SET tokens = CAST(:t AS jsonb) WHERE company_id = CAST(:c AS uuid) AND status = 'draft' AND version = 1
+        """), {"c": cid, "t": json.dumps(fresh, ensure_ascii=False)})
+        await db.commit()
+        log.info("marca: borrador inicial regenerado con la logica nueva company=%s", cid)
         rows = await _rows(db, cid)
     draft = next((r for r in rows if r["status"] == "draft"), None)
     published = next((r for r in rows if r["status"] == "published"), None)
     if draft is None:
-        base = published["tokens"] if published else bt.from_branding(branding)
+        base = published["tokens"] if published else bt.from_branding(branding, panels=panels)
         await _insert(db, cid, "draft", base)
         await _prune(db, cid)
         await db.commit()
         rows = await _rows(db, cid)
         draft = next(r for r in rows if r["status"] == "draft")
+    # Lo guardado se entrega validado (completa los campos nuevos de la etapa 2).
+    for r in (draft, published):
+        if r:
+            try:
+                r["tokens"] = bt.validate(r["tokens"])
+            except bt.BrandInvalid:
+                pass
     history = [{k: r[k] for k in ("version", "status", "created_at", "published_at")} for r in rows]
     return {"draft": draft, "published": published, "history": history}
 

@@ -182,12 +182,15 @@ async def legacy_stats_route(db: AsyncSession = Depends(get_db)):
 # POST   /admin-v2/api/brand/{company_id}/copy-from/{source_id}
 from pydantic import BaseModel  # noqa: E402
 
+from app.services import brand_screens  # noqa: E402
 from app.services import brand_store as store  # noqa: E402
 from app.services import brand_theme as bt  # noqa: E402
+from app.services import portal_base_css as portal_css  # noqa: E402
 
 
 class DraftIn(BaseModel):
     tokens: dict
+    screen: str = "portal_dashboard"
 
 
 class ConfirmIn(BaseModel):
@@ -224,9 +227,13 @@ async def brand_templates():
 @router.get("/admin-v2/api/brand/{company_id}", include_in_schema=False, dependencies=GUARD)
 async def brand_state(company_id: str, db: AsyncSession = Depends(get_db)):
     company = await load_company(db, _uuid(company_id))
-    data = await store.state(db, company["id"], await _branding(db, company["id"]))
+    available = await brand_screens.for_company(db, company["id"])
+    data = await store.state(db, company["id"], await _branding(db, company["id"]), panels=available["panels_branded_today"])
     return _json({"ok": True, "company": {"id": company["id"], "name": company["name"], "kind": company["kind"]}, **data,
-                  "registry": bt.registry(), "fonts": list(bt.FONTS), "storage": {"configured": media.configured(), **await media.usage(db, company["id"])},
+                  "available": available, "registry": bt.registry(), "fonts": list(bt.FONTS),
+                  "portal_options": {"background_styles": list(portal_css.BACKGROUND_STYLES), "card_styles": list(portal_css.CARD_STYLES),
+                                     "theme_modes": list(portal_css.THEME_MODES)},
+                  "storage": {"configured": media.configured(), **await media.usage(db, company["id"])},
                   "images": await media.list_images(db, company["id"])})
 
 
@@ -283,8 +290,8 @@ async def brand_palette_from_logo(company_id: str, payload: PaletteIn, db: Async
     company = await load_company(db, _uuid(company_id))
     image = payload.image_id
     if not image:
-        data = await store.state(db, company["id"], await _branding(db, company["id"]))
-        image = (data["draft"]["tokens"]["theme"] or {}).get("logo") or ""
+        draft = await store.draft_tokens(db, company["id"])
+        image = ((draft or {}).get("theme") or {}).get("logo") or ""
     if not image:
         raise HTTPException(status_code=409, detail="Primero sube el logo de la empresa.")
     try:
@@ -325,14 +332,34 @@ PREVIEW_HEADERS = {"Content-Security-Policy": brand_preview.PREVIEW_CSP, "Cache-
 
 
 @router.get("/admin-v2/brand-preview/{company_id}", include_in_schema=False)
-async def studio_preview(company_id: str, request: Request, screen: str = "ingreso", db: AsyncSession = Depends(get_db)):
+async def studio_preview(company_id: str, request: Request, screen: str = "portal_dashboard", db: AsyncSession = Depends(get_db)):
     if not await v2._active_session(request, db):
         return HTMLResponse("<!doctype html><title>Sesión requerida</title><p>Sesión de Admin V2 requerida.</p>", status_code=401, headers=PREVIEW_HEADERS)
     company = await load_company(db, _uuid(company_id))
-    data = await store.state(db, company["id"], await _branding(db, company["id"]))
-    tokens = data["draft"]["tokens"]
-    return HTMLResponse(brand_preview.page(screen=screen, company_id=company["id"], css=bt.css_for(tokens, company["id"], states=True),
-                                           branding=bt.branding_for_panels(tokens, company["id"]), mode="studio"), headers=PREVIEW_HEADERS)
+    available = await brand_screens.for_company(db, company["id"])
+    data = await store.state(db, company["id"], await _branding(db, company["id"]), panels=available["panels_branded_today"])
+    return HTMLResponse(await _preview_html(db, company, data["draft"]["tokens"], screen, available, mode="studio", states=True), headers=PREVIEW_HEADERS)
+
+
+def _page_of(screen: str) -> str:
+    spec = bt.registry()["screens"].get(screen)
+    return spec["page"] if spec else "portal"
+
+
+async def _preview_html(db: AsyncSession, company: dict, tokens: dict, screen: str, available: dict, *, mode: str, states: bool,
+                        banner: str = "", nav_token: str = "") -> str:
+    """La pantalla pedida si la empresa la tiene; si no, el panel principal."""
+    screens = tuple(available["screens"])
+    if screen not in screens:
+        screen = "portal_dashboard"
+    cid = company["id"]
+    mini = available.get("mini_types") or []
+    mini_label = bt.registry()["mini_types"].get(mini[0], "Ventas") if mini else "Ventas"
+    logo = f"/brand-media/{cid}/{tokens['theme']['logo']}.webp" if tokens["theme"].get("logo") else ""
+    return brand_preview.page(screen=screen, company_id=cid, css=bt.css_for(tokens, cid, states=states, page=_page_of(screen)),
+                              branding=bt.branding_for_panels(tokens, cid), mode=mode, banner=banner, nav_token=nav_token,
+                              screens=screens, company_name=company.get("name") or "", modules=tuple(await brand_screens.enabled_modules(db, cid)),
+                              mini_label=mini_label, logo_url=logo)
 
 
 @router.post("/admin-v2/api/brand/{company_id}/render", include_in_schema=False, dependencies=GUARD)
@@ -341,10 +368,11 @@ async def brand_render(company_id: str, payload: DraftIn, db: AsyncSession = Dep
     try:
         tokens = bt.validate(payload.tokens)
         await store.check_images(db, company["id"], tokens)
-        css = bt.css_for(tokens, company["id"], states=True)
+        css = bt.css_for(tokens, company["id"], states=True, page=_page_of(payload.screen))
     except bt.BrandInvalid as error:
         raise _invalid(error) from None
-    return _json({"ok": True, "css": css, "branding": bt.branding_for_panels(tokens, company["id"])})
+    logo = f"/brand-media/{company['id']}/{tokens['theme']['logo']}.webp" if tokens["theme"].get("logo") else ""
+    return _json({"ok": True, "css": css, "branding": bt.branding_for_panels(tokens, company["id"]), "logo": logo})
 
 
 # ============================================================ enlace para el cliente (parte 4)
@@ -385,15 +413,16 @@ async def share_revoke(company_id: str, link_id: str, request: Request, db: Asyn
 
 
 @router.get("/vista-marca/{token}", include_in_schema=False)
-async def share_page(token: str, screen: str = "ingreso", db: AsyncSession = Depends(get_db)):
+async def share_page(token: str, screen: str = "portal_dashboard", db: AsyncSession = Depends(get_db)):
     link = await share.resolve(db, token)
     tokens = await store.draft_tokens(db, link["company_id"]) if link else None
     if not link or tokens is None:
         return HTMLResponse(SHARE_GONE, status_code=404, headers=PREVIEW_HEADERS)
     cid = link["company_id"]
-    response = HTMLResponse(brand_preview.page(screen=screen, company_id=cid, css=bt.css_for(tokens, cid),
-                                               branding=bt.branding_for_panels(tokens, cid), mode="share",
-                                               banner="Vista previa · aún no publicada", nav_token=token), headers=PREVIEW_HEADERS)
+    company = await load_company(db, _uuid(cid))
+    available = await brand_screens.for_company(db, cid)
+    response = HTMLResponse(await _preview_html(db, company, tokens, screen, available, mode="share", states=False,
+                                                banner="Vista previa · aún no publicada", nav_token=token), headers=PREVIEW_HEADERS)
     # La cookie solo viaja a las imagenes de ESTA empresa (path); nunca a /api/v1.
     from datetime import datetime, timezone
 

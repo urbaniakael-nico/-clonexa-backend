@@ -13,7 +13,12 @@
   const arr = (v) => (Array.isArray(v) ? v : []);
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const fold = (v) => String(v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  const SCREENS = [["ingreso", "Ingreso"], ["mesero", "Mesero"], ["cocina", "Cocina"], ["caja", "Caja"]];
+  const FAMILY_ORDER = ["portal", "restaurante", "mini"];
+  const BG_STYLE_LABELS = { aurora_boreal: "Aurora boreal", neon_profundo: "Neón profundo", holografico: "Holográfico", cyber_grid: "Cuadrícula cyber",
+    corporate_dark: "Corporativo oscuro", corporate_light: "Corporativo claro", classic_dashboard: "Tablero clásico", neutral_slate: "Pizarra neutra" };
+  const CARD_STYLE_LABELS = { glass_premium: "Vidrio premium", neon_border: "Borde neón", soft_solid: "Sólido suave", dark_elevated: "Oscuro elevado",
+    classic_panel: "Panel clásico", flat_dashboard: "Tablero plano", executive_glass: "Vidrio ejecutivo" };
+  const MODE_LABELS = { dark: "Oscuro", light: "Claro", classic: "Clásico", corporate: "Corporativo" };
   const SIZES = [["phone", "Celular", 390, 780], ["tablet", "Tableta", 820, 1080], ["desktop", "Pantalla grande", 1280, 800]];
   const COLOR_LABELS = { primary: "Primario", secondary: "Secundario", background: "Fondo", surface: "Superficie", text: "Texto", text_muted: "Texto secundario", success: "Éxito", warning: "Alerta", danger: "Peligro" };
   const POSITIONS = [["center", "Centro"], ["top", "Arriba"], ["bottom", "Abajo"], ["left", "Izquierda"], ["right", "Derecha"], ["top left", "Arriba izquierda"], ["top right", "Arriba derecha"], ["bottom left", "Abajo izquierda"], ["bottom right", "Abajo derecha"]];
@@ -99,13 +104,27 @@
   function setBackgroundLayer(tokens, screen, layer, value) {
     const out = clone(tokens);
     let bg = clone(backgroundOf(out, screen));
-    if (bg.inherit) bg = clone(out.backgrounds.general);
+    if (bg.inherit || bg.own) bg = clone(out.backgrounds.general);
     delete bg.inherit;
+    delete bg.own;
     if (layer === "base") bg.base = value;
     else if (layer === "image") bg.image = value;
     else if (layer === "veil") bg.veil = value;
     if (!bg.base) bg.base = { kind: "solid", color: out.theme.colors.background };
     out.backgrounds[screen] = { base: bg.base, image: bg.image || null, veil: bg.veil || null };
+    return out;
+  }
+  // mode: "inherit" (el general), "own" (el fondo propio del panel) o "custom".
+  function setBgMode(tokens, screen, mode) {
+    const out = clone(tokens);
+    if (screen === "general") return out;
+    if (mode === "inherit") out.backgrounds[screen] = { inherit: true };
+    else if (mode === "own") out.backgrounds[screen] = { own: true };
+    else {
+      const general = clone(out.backgrounds.general);
+      out.backgrounds[screen] = { base: general.base && general.base.kind === "preset" ? { kind: "solid", color: out.theme.colors.background } : general.base,
+        image: general.image || null, veil: general.veil || null };
+    }
     return out;
   }
   function setInherit(tokens, screen, inherit) {
@@ -168,7 +187,7 @@
     const issues = [];
     const c = tokens.theme.colors;
     const bgColors = (bg) => {
-      const base = fillColors(bg.base);
+      const base = bg.base && bg.base.kind === "preset" ? [c.background] : fillColors(bg.base);
       if (bg.image && bg.veil) return arr(bg.veil.gradient && bg.veil.gradient.stops).map((s) => mix(s.color, "#000000", (bg.veil.darken || 0) / 100));
       return base;
     };
@@ -176,9 +195,9 @@
       const worst = colors.length ? Math.min(...colors.map((x) => contrast(text, x))) : 21;
       if (worst < 4.5) issues.push({ id, label, ratio: Math.round(worst * 10) / 10, fix });
     };
-    ["general", ...SCREENS.map(([s]) => s)].forEach((screen) => {
-      const bg = screen === "general" ? tokens.backgrounds.general : tokens.backgrounds[screen];
-      if (!bg || bg.inherit) return;
+    Object.keys(tokens.backgrounds || {}).forEach((screen) => {
+      const bg = tokens.backgrounds[screen];
+      if (!bg || bg.inherit || bg.own) return;
       const where = screen === "general" ? "el fondo general" : `el fondo de ${screen}`;
       check(`text-${screen}`, `Texto sobre ${where}`, c.text, bgColors(bg), { kind: "text", screen });
       check(`muted-${screen}`, `Texto secundario sobre ${where}`, c.text_muted, bgColors(bg), { kind: "muted", screen });
@@ -203,7 +222,7 @@
         if (contrastIssues(out).some((i) => i.id === issue.id)) out.theme.colors[f.kind === "text" ? "text" : "text_muted"] = onColor(fillColors(bg.veil.gradient ? { kind: "gradient", gradient: bg.veil.gradient } : bg.base)[0]);
         return out;
       }
-      const base = fillColors(bg.base)[0] || out.theme.colors.background;
+      const base = (bg.base && bg.base.kind !== "preset" && fillColors(bg.base)[0]) || out.theme.colors.background;
       if (f.kind === "text") out.theme.colors.text = readable(out.theme.colors.text, base);
       else out.theme.colors.text_muted = readable(out.theme.colors.text_muted, base);
       if (contrastIssues(out).some((i) => i.id === issue.id)) out.theme.colors[f.kind === "text" ? "text" : "text_muted"] = onColor(base);
@@ -216,13 +235,26 @@
     return out;
   }
 
+  // Pantallas que tiene ESTA empresa (las calcula el servidor), por familia.
+  function screensFor(data) {
+    const reg = (data && data.registry) || { screens: {}, families: {} };
+    const available = data && data.available && Array.isArray(data.available.screens) ? data.available.screens : Object.keys(reg.screens || {});
+    return available.filter((k) => reg.screens && reg.screens[k])
+      .map((k) => ({ key: k, label: reg.screens[k].label, family: reg.screens[k].family }))
+      .sort((a, b) => FAMILY_ORDER.indexOf(a.family) - FAMILY_ORDER.indexOf(b.family));
+  }
+  function familyLabel(data, family) {
+    const f = data && data.registry && data.registry.families && data.registry.families[family];
+    return (f && f.label) || family;
+  }
+
   const typeLabel = (reg, key) => ((reg && reg.types && reg.types[key]) || {}).label || key;
   const pieceLabel = (reg, key) => (arr(reg && reg.pieces).find((p) => p.key === key) || {}).label || key;
 
   // ============================================================ estado
   const model = {
     companyId: "", company: null, data: null, tokens: null, savedJson: "", sel: { kind: "theme", key: "colors" },
-    screen: "ingreso", size: "phone", stateView: "normal", lite: false, undo: null, modal: null, notice: "", error: "",
+    screen: "portal_dashboard", size: "desktop", stateView: "normal", lite: false, undo: null, modal: null, notice: "", error: "",
     busy: false, templates: null, pickerQuery: "", frameReady: false, previewError: "", share: null,
   };
   let ctx = null;
@@ -281,25 +313,26 @@
     const reg = registry();
     const item = (kind, key, label, extra = "") => `<li><button type="button" class="vp-brand-node ${model.sel.kind === kind && model.sel.key === key ? "is-active" : ""}" data-vpb-sel="${kind}|${h(key)}">${h(label)}${extra}</button></li>`;
     const has = (path) => getPath(model.tokens, path) !== undefined;
+    const screens = screensFor(model.data);
     const mark = (on) => (on ? ' <span class="vp-brand-dot" title="Personalizado"></span>' : "");
     return `<nav class="vp-panel vp-brand-tree" aria-label="Árbol de la marca">
-      <h3>Tema</h3><ul>${item("theme", "colors", "Colores")}${item("theme", "font", "Tipografía")}${item("theme", "shape", "Forma y efectos")}${item("theme", "logo", "Logo")}</ul>
-      <h3>Fondos</h3><ul>${item("background", "general", "General")}${SCREENS.map(([s, l]) => item("background", s, l, mark(!(model.tokens.backgrounds[s] || {}).inherit))).join("")}</ul>
+      <h3>Tema</h3><ul>${item("theme", "colors", "Colores")}${item("theme", "font", "Tipografía")}${item("theme", "shape", "Forma y efectos")}${item("theme", "portal", "Estilo del panel principal")}${item("theme", "logo", "Logo")}${screens.some((x) => x.family !== "portal") ? item("theme", "scope", "Alcance de la marca") : ""}</ul>
+      <h3>Fondos</h3><ul>${item("background", "general", "General")}${screens.map((x) => item("background", x.key, x.label, mark(!(model.tokens.backgrounds[x.key] || {}).inherit))).join("")}</ul>
       <h3>Componentes</h3><ul>${Object.entries(reg.types).map(([k, t]) => item("component", k, t.label, mark(has(`components.${k}`)))).join("")}</ul>
-      <h3>Piezas</h3>${SCREENS.map(([s, l]) => `<small class="vp-sum-group">${h(l)}</small><ul>${arr(reg.pieces).filter((p) => p.screen === s).map((p) => item("piece", p.key, p.label, mark(has(`pieces.${p.key}`)))).join("")}</ul>`).join("")}
+      <h3>Piezas</h3>${screens.filter((x) => arr(reg.pieces).some((p) => p.screen === x.key)).map((x) => `<small class="vp-sum-group">${h(x.label)}</small><ul>${arr(reg.pieces).filter((p) => p.screen === x.key).map((p) => item("piece", p.key, p.label, mark(has(`pieces.${p.key}`)))).join("")}</ul>`).join("")}
     </nav>`;
   }
 
   function stageView() {
     const issues = contrastIssues(model.tokens, registry());
     return `<section class="vp-panel vp-brand-stage" aria-label="Vista previa">
-      <div class="vp-toolbar"><div class="vp-chips" role="tablist" aria-label="Pantalla">${SCREENS.map(([s, l]) => `<button class="vp-chip ${model.screen === s ? "is-active" : ""}" type="button" role="tab" aria-selected="${model.screen === s}" data-vpb-screen="${s}">${l}</button>`).join("")}</div>
+      <div class="vp-toolbar"><div class="vp-brand-screens" role="tablist" aria-label="Pantalla">${FAMILY_ORDER.filter((f) => screensFor(model.data).some((x) => x.family === f)).map((f) => `<div class="vp-chips"><small class="vp-sum-group">${h(familyLabel(model.data, f))}</small>${screensFor(model.data).filter((x) => x.family === f).map((x) => `<button class="vp-chip ${model.screen === x.key ? "is-active" : ""}" type="button" role="tab" aria-selected="${model.screen === x.key}" data-vpb-screen="${h(x.key)}">${h(x.label)}</button>`).join("")}</div>`).join("")}</div>
         <div class="vp-chips" aria-label="Tamaño">${SIZES.map(([k, l]) => `<button class="vp-chip ${model.size === k ? "is-active" : ""}" type="button" data-vpb-size="${k}">${l}</button>`).join("")}
         <button class="vp-chip ${model.lite ? "is-active" : ""}" type="button" data-vpb-lite title="Así se ve en equipos lentos">Modo liviano</button></div></div>
       ${issues.length ? `<div class="vp-brand-guard" role="status"><b>Guardia de lectura:</b> ${issues.length} combinación(es) no alcanzan contraste AA (4,5:1).
         <ul>${issues.slice(0, 6).map((i) => `<li><span>${h(i.label)} · ${h(String(i.ratio).replace(".", ","))}:1</span><button class="vp-btn vp-btn-sm" type="button" data-vpb-fix="${h(i.id)}">Corregir</button></li>`).join("")}</ul></div>` : ""}
       ${model.previewError ? `<div class="vp-alert" role="alert"><span>${h(model.previewError)}</span></div>` : ""}
-      <div class="vp-brand-frame-wrap" data-vpb-wrap><iframe class="vp-brand-frame" data-vpb-frame title="Vista previa de ${h(model.screen)}" src="/admin-v2/brand-preview/${encodeURIComponent(model.companyId)}?screen=${encodeURIComponent(model.screen)}"></iframe></div>
+      <div class="vp-brand-frame-wrap" data-vpb-wrap><iframe class="vp-brand-frame" data-vpb-frame title="Vista previa: ${h((screensFor(model.data).find((x) => x.key === model.screen) || { label: model.screen }).label)}" src="/admin-v2/brand-preview/${encodeURIComponent(model.companyId)}?screen=${encodeURIComponent(model.screen)}"></iframe></div>
       <p class="vp-login-hint">Datos de muestra fijos, nunca los de la empresa. Toca una pieza para editarla.</p></section>`;
   }
 
@@ -329,10 +362,10 @@
         ${g.stops.length > 2 ? `<button class="vp-btn vp-btn-sm" type="button" data-vpb-grad="${h(path)}|remove|${i}">Quitar</button>` : ""}</div>`).join("")}
       ${g.stops.length < 3 ? `<button class="vp-btn vp-btn-sm" type="button" data-vpb-grad="${h(path)}|add">+ Tercer color</button>` : ""}</fieldset>`;
   }
-  function fillEditor(path, label, allowNone = true) {
+  function fillEditor(path, label, allowNone = true, allowPreset = false) {
     const f = getPath(model.tokens, path);
     const kind = f ? f.kind : "none";
-    const opts = [...(allowNone ? [["none", "Heredado"]] : []), ["solid", "Color liso"], ["gradient", "Degradado"]];
+    const opts = [...(allowNone ? [["none", "Heredado"]] : []), ...(allowPreset ? [["preset", "Estilo del panel principal"]] : []), ["solid", "Color liso"], ["gradient", "Degradado"]];
     return `<fieldset class="vp-brand-group"><legend>${h(label)}</legend>
       <div class="vp-chips">${opts.map(([k, l]) => `<button class="vp-chip ${kind === k ? "is-active" : ""}" type="button" data-vpb-fill="${h(path)}|${k}">${l}</button>`).join("")}</div>
       ${kind === "solid" ? colorField(`${path}.color`, "Color") : kind === "gradient" ? gradientEditor(`${path}.gradient`, "Degradado") : ""}</fieldset>`;
@@ -351,10 +384,13 @@
     const general = screen === "general";
     const bg = general ? model.tokens.backgrounds.general : model.tokens.backgrounds[screen];
     const inherit = !general && (!bg || bg.inherit);
+    const own = !general && bg && bg.own;
+    const spec = model.data && model.data.registry && model.data.registry.screens[screen];
+    const panelScreen = spec && (spec.family !== "portal" || spec.page === "login");
     const p = `backgrounds.${screen}`;
     let body = "";
-    if (!inherit) {
-      body = `${fillEditor(`${p}.base`, "Capa 1 · Base", false)}
+    if (!inherit && !own) {
+      body = `${fillEditor(`${p}.base`, "Capa 1 · Base", false, true)}
       <fieldset class="vp-brand-group"><legend>Capa 2 · Imagen</legend>
         ${bg.image ? `<div class="vp-form-grid">${selectField(`${p}.image.mode`, "Modo", MODES, "cover")}${bg.image.mode !== "cover" ? slider(`${p}.image.size`, "Tamaño", 5, 100, 1, "%", 40) : ""}
           ${bg.image.mode === "watermark" ? selectField(`${p}.image.position`, "Posición", POSITIONS, "center") : ""}${slider(`${p}.image.opacity`, "Opacidad", 0, 100, 1, "%", 100)}</div>
@@ -365,8 +401,10 @@
           <button class="vp-btn vp-btn-sm" type="button" data-vpb-layer="${h(screen)}|veil|off">Quitar velo</button>`
           : `<button class="vp-btn vp-btn-sm" type="button" data-vpb-layer="${h(screen)}|veil|on">+ Agregar velo</button>`}</fieldset>`;
     }
-    return `<h2>Fondo · ${h(general ? "General" : (SCREENS.find(([s]) => s === screen) || [0, screen])[1])}</h2>
-      ${general ? "" : `<label class="vp-check"><input type="checkbox" data-vpb-inherit="${h(screen)}" ${inherit ? "checked" : ""}> Heredar el fondo general</label>`}${body}
+    const mode = inherit ? "inherit" : own ? "own" : "custom";
+    const modes = [["inherit", "Heredar el fondo general"], ...(panelScreen ? [["own", spec.page === "login" ? "El de siempre de Clonexa (como hoy)" : "Fondo propio del panel (como hoy)"]] : []), ["custom", "Personalizado"]];
+    return `<h2>Fondo · ${h(general ? "General" : (spec ? spec.label : screen))}</h2>
+      ${general ? `<p class="vp-login-hint">Lo heredan el panel principal y las pantallas que no tengan fondo propio.</p>` : `<div class="vp-chips" role="radiogroup" aria-label="Fondo de la pantalla">${modes.map(([k, l]) => `<button class="vp-chip ${mode === k ? "is-active" : ""}" type="button" role="radio" aria-checked="${mode === k}" data-vpb-bgmode="${h(screen)}|${k}">${l}</button>`).join("")}</div>`}${body}
       ${general ? "" : `<button class="vp-btn vp-btn-sm" type="button" data-vpb-reset>Restablecer a lo heredado</button>`}`;
   }
 
@@ -394,6 +432,20 @@
       return `<h2>Tipografía</h2>${selectField("theme.font.family", "Familia", fonts.map((f) => [f, f]), "Inter")}
         <p class="vp-brand-sample" data-vpb-font="${h(fam)}">Mesa 7 · Confirmar y enviar · $ 45.000</p>
         ${slider("theme.font.size", "Tamaño base", 12, 22, 1, " px", 15)}${selectField("theme.font.heading_weight", "Peso de títulos", [400, 500, 600, 700, 800, 900].map((n) => [n, String(n)]), 700)}`;
+    }
+    if (key === "portal") {
+      const o = (model.data && model.data.portal_options) || {};
+      const opts = (list, labels) => arr(list).map((k) => [k, labels[k] || k]);
+      return `<h2>Estilo del panel principal</h2><p class="vp-login-hint">Los mismos estilos de Admin V2: el borrador inicial los trae tal como la empresa los ve hoy.</p>
+        ${selectField("theme.portal.background_style", "Estilo de fondo", opts(o.background_styles, BG_STYLE_LABELS), "aurora_boreal")}
+        ${selectField("theme.portal.card_style", "Estilo de tarjetas", opts(o.card_styles, CARD_STYLE_LABELS), "glass_premium")}
+        ${selectField("theme.portal.theme_mode", "Modo", opts(o.theme_modes, MODE_LABELS), "dark")}
+        <fieldset class="vp-brand-group"><legend>Colores del degradado</legend>${colorField("theme.portal.gradient_from", "Desde")}${colorField("theme.portal.gradient_to", "Hasta")}${colorField("theme.portal.gradient_extra", "Acento")}</fieldset>`;
+    }
+    if (key === "scope") {
+      const on = model.tokens.theme.panels === true;
+      return `<h2>Alcance de la marca</h2><p class="vp-login-hint">El panel principal siempre recibe la marca publicada. Los paneles de restaurante y los mini paneles solo si lo activas aquí; si no, se ven como hoy.</p>
+        <label class="vp-check"><input type="checkbox" data-vpb-panels ${on ? "checked" : ""}> Aplicar la marca a los paneles de restaurante y mini paneles</label>`;
     }
     if (key === "shape") return `<h2>Forma y efectos</h2>${slider("theme.radius", "Radio", 0, 32, 1, " px", 14)}${slider("theme.shadow", "Sombra", 0, 100, 1, "", 30)}${slider("theme.glow", "Intensidad de brillo", 0, 100, 1, "", 0)}`;
     if (key === "logo") {
@@ -512,6 +564,9 @@
   // ============================================================ datos
   async function loadCompany(id) {
     model.companyId = id;
+    model.screen = "portal_dashboard";
+    model.size = "desktop";
+    model.sel = { kind: "theme", key: "colors" };
     model.tokens = null;
     model.undo = null;
     model.error = "";
@@ -610,7 +665,7 @@
     if ((el = q("[data-vpb-fill]"))) {
       const [path, kind] = el.getAttribute("data-vpb-fill").split("|");
       const c = model.tokens.theme.colors;
-      const value = kind === "none" ? undefined : kind === "solid" ? { kind: "solid", color: c.primary } : { kind: "gradient", gradient: defaultGradient(c.primary, c.secondary) };
+      const value = kind === "none" ? undefined : kind === "preset" ? { kind: "preset" } : kind === "solid" ? { kind: "solid", color: c.primary } : { kind: "gradient", gradient: defaultGradient(c.primary, c.secondary) };
       change(setPath(clone(model.tokens), path, value), true);
       return;
     }
@@ -632,6 +687,7 @@
       }
       return;
     }
+    if ((el = q("[data-vpb-bgmode]"))) { const [screen, mode] = el.getAttribute("data-vpb-bgmode").split("|"); change(setBgMode(model.tokens, screen, mode), true); return; }
     if (q("[data-vpb-logo-off]")) { change(setPath(clone(model.tokens), "theme.logo", null), true); return; }
     if (q("[data-vpb-reset]")) { change(resetSelection(model.tokens, model.sel), true); return; }
     if (q("[data-vpb-palette]")) {
@@ -733,6 +789,7 @@
     if (!t || !t.matches) return;
     if (t.matches("[data-vpb-copy-source]") && model.modal) { model.modal.source = t.value; return; }
     if (t.matches("[data-vpb-inherit]")) { change(setInherit(model.tokens, t.getAttribute("data-vpb-inherit"), t.checked), true); return; }
+    if (t.matches("[data-vpb-panels]")) { change(setPath(clone(model.tokens), "theme.panels", t.checked), true); return; }
     if (t.matches("[data-vpb-upload]")) { upload(t); return; }
     if (t.matches("[data-vpb-path]")) draw(false);
   }
@@ -776,7 +833,7 @@
     },
   };
   window.CxBrandStudio = {
-    model, getPath, setPath, splitPath, selectFromPreview, editGradient, gradientCss, fillCss, setBackgroundLayer, setInherit, backgroundOf,
+    model, getPath, setPath, splitPath, selectFromPreview, screensFor, setBgMode, editGradient, gradientCss, fillCss, setBackgroundLayer, setInherit, backgroundOf,
     applyPalette, undoPalette, resetSelection, contrastIssues, applyFix, contrast, onColor, onMessage, onClick, onInput, draw,
     _ctx: (c) => { ctx = c; },
   };
