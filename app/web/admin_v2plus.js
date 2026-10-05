@@ -21,7 +21,7 @@
   // Menú final de la consola (Fase 3), en este orden.
   const VIEWS = {
     command: "Centro de mando", companies: "Empresas", catalog: "Catálogo", switches: "Interruptores",
-    brand: "Estudio de marca", access: "Accesos y sesiones", health: "Salud y seguridad", audit: "Auditoría", landing: "Landing",
+    brand: "Estudio de marca", access: "Accesos y sesiones", health: "Salud y seguridad", landing: "Landing",
   };
 
   const state = { overview: null, filter: "todas", showDemos: false, view: "command", error: "", loading: false, updatedAt: null,

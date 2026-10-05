@@ -201,3 +201,13 @@ def test_brand_writes_are_audited_with_their_company_and_render_is_not():
     assert admin_audit.audited("PUT", f"/admin-v2/api/brand/{A}/draft") is True
     assert admin_audit.audited("POST", f"/admin-v2/api/brand/{A}/render") is False, "el render en vivo no llena la auditoria"
     assert admin_audit.audited("GET", f"/admin-v2/api/brand/{A}") is False
+
+
+def test_studio_noise_is_not_audited_but_publishing_is():
+    from app.services import admin_audit
+
+    for path in (f"/admin-v2/api/brand/{A}/draft", f"/admin-v2/api/brand/{A}/palette-from-logo", f"/admin-v2/api/brand/{A}/render"):
+        assert admin_audit.audited("PUT" if path.endswith("draft") else "POST", path) is False, path
+    for path in (f"/admin-v2/api/brand/{A}/publish", f"/admin-v2/api/brand/{A}/unpublish", f"/admin-v2/api/brand/{A}/rollback/2", f"/admin-v2/api/brand/{A}/share"):
+        assert admin_audit.audited("POST", path) is True, path
+    assert admin_audit.audited("POST", f"/api/v1/companies/{A}/modules/qr/activate") is True, "lo de fuera del estudio, igual"

@@ -37,6 +37,65 @@
 
   const SURFACES = { v2plus: "Consola v2+", v2: "Admin V2", api: "API" };
 
+  // Lo que pasó, en lenguaje claro ("Publicó la marca de Velvet"), no la ruta técnica.
+  const switchLabel = (key) => {
+    const reg = window.CxSwitchRegistry;
+    const sw = reg && reg.get ? reg.get(key) : null;
+    return (sw && sw.label) || String(key).replace(/_/g, " ");
+  };
+  const truthy = (v) => v === true || v === "true" || v === "True";
+  const RULES = [
+    [/\/brand\/[^/]+\/publish$/, null, (d, w) => `Publicó la marca de ${w}${d.version ? ` (versión ${d.version})` : ""}`],
+    [/\/brand\/[^/]+\/rollback\/(\d+)$/, null, (d, w, x) => `Volvió la marca de ${w} a la versión ${x[1]}`],
+    [/\/brand\/[^/]+\/unpublish$/, null, (d, w) => `Quitó la marca publicada de ${w}`],
+    [/\/brand\/[^/]+\/share$/, "POST", (d, w) => `Compartió la vista previa de la marca de ${w}`],
+    [/\/brand\/[^/]+\/share\/[^/]+$/, "DELETE", (d, w) => `Revocó un enlace de vista previa de ${w}`],
+    [/\/brand\/[^/]+\/copy-from\//, null, (d, w) => `Copió la marca de ${d.origen || "otra empresa"} a ${w}`],
+    [/\/brand\/[^/]+\/images$/, "POST", (d, w) => `Subió una imagen de marca a ${w}`],
+    [/\/brand\/[^/]+\/images\/[^/]+$/, "DELETE", (d, w) => `Borró una imagen de marca de ${w}`],
+    [/\/billing\/companies\/[^/]+\/contract$/, null, (d, w) => `Guardó el contrato de ${w}`],
+    [/\/billing\/companies\/[^/]+\/contract-file$/, null, (d, w) => `Adjuntó el contrato de ${w}`],
+    [/\/billing\/companies\/[^/]+\/payments$/, "POST", (d, w) => `Registró un pago de ${w}${d.valor ? ` por ${d.valor}` : ""}`],
+    [/\/billing\/companies\/[^/]+\/payments\/[^/]+\/validate$/, null, (d, w) => `Validó un pago de ${w}${d.comprobante ? ` (comprobante ${d.comprobante})` : ""}`],
+    [/\/billing\/companies\/[^/]+\/payments\/[^/]+\/void$/, null, (d, w) => `Anuló un pago de ${w}${d.comprobante ? ` (comprobante ${d.comprobante})` : ""}`],
+    [/\/billing\/companies\/[^/]+\/receipts\/[^/]+\/link$/, null, (d, w) => `Compartió un comprobante de pago de ${w}`],
+    [/\/billing\/contract-types$/, null, () => "Agregó un tipo de contrato"],
+    [/\/modules\/([^/]+)\/(activate|deactivate)$/, null, (d, w, x) => {
+      if (d.interruptor) return `${truthy(d.valor) ? "Encendió" : "Apagó"} ${switchLabel(d.interruptor)} en ${w}`;
+      if (d.ajuste === "qr_config") return `Cambió la configuración QR de ${w}`;
+      return x[2] === "activate" ? `Encendió o ajustó el módulo ${x[1]} en ${w}` : `Apagó el módulo ${x[1]} en ${w}`;
+    }],
+    [/\/workforce-sessions\/companies\/[^/]+\/policy$/, null, (d, w) => `Cambió el corte diario de sesiones de ${w}`],
+    [/\/companies\/[^/]+\/kind$/, null, (d, w) => `Cambió el tipo de ${w}`],
+    [/\/companies\/[^/]+\/clone-demo$/, null, (d, w) => `Clonó ${w} como demo`],
+    [/\/companies\/[^/]+\/purge$/, null, (d, w) => (d.deleted_rows !== undefined ? `Eliminó definitivamente ${w}` : `Simuló eliminar ${w}`)],
+    [/\/companies\/[^/]+\/users$/, "POST", (d, w) => `Creó un acceso en ${w}`],
+    [/\/users\/[^/]+\/reset-password$/, null, (d, w) => `Generó una clave temporal en ${w}`],
+    [/\/users\/[^/]+\/unlock$/, null, (d, w) => `Desbloqueó un usuario de ${w}`],
+    [/\/users\/[^/]+\/status$/, null, (d, w) => `Cambió el estado de un usuario de ${w}`],
+    [/\/access-sessions(\/[^/]+)?\/close$/, null, (d, w) => `Cerró sesiones de ${w}`],
+    [/\/admin-v2\/api\/sessions\/[^/]+\/close$/, null, () => "Cerró una sesión de la consola"],
+    [/\/packages(\/[^/]+)?(\/mini-panel-settings)?$/, null, (d, w, x, m) => (m === "DELETE" ? "Borró un paquete" : "Guardó un paquete")],
+    [/\/modules(\/[^/]+)?$/, null, (d, w, x, m) => (m === "DELETE" ? "Borró un módulo del catálogo" : "Creó un módulo del catálogo")],
+    [/\/payroll-co\/params\/(\d{4})$/, null, (d, w, x) => `Guardó los parámetros de nómina de ${x[1]}`],
+  ];
+  const VERBS = { POST: "Hizo un cambio", PUT: "Cambió", PATCH: "Cambió", DELETE: "Borró" };
+
+  function describe(e, names = {}) {
+    const path = String((e && e.path) || "").split("?")[0];
+    const method = String((e && e.method) || "").toUpperCase();
+    const d = (e && e.detail && typeof e.detail === "object") ? e.detail : {};
+    const who = d.company_name || (e && e.company_id && names[e.company_id]) || "una empresa";
+    const fail = Number(e && e.status_code) >= 400 ? " (no se completó)" : "";
+    for (const [re, only, fn] of RULES) {
+      if (only && only !== method) continue;
+      const x = path.match(re);
+      if (x) return fn(d, who, x, method) + fail;
+    }
+    const tail = path.split("/").filter((p) => p && !/^[0-9a-f-]{36}$/i.test(p) && !["api", "v1", "admin-v2", "companies"].includes(p)).slice(-2).join(" ").replace(/[-_]/g, " ");
+    return `${VERBS[method] || "Cambió"} ${tail || "algo"}${e && e.company_id ? ` en ${who}` : ""}${fail}`;
+  }
+
   function detailText(detail) {
     if (!detail || typeof detail !== "object") return "";
     return Object.entries(detail).map(([k, v]) => `${k}: ${v}`).join(" · ");
@@ -48,7 +107,7 @@
       <thead><tr><th>Fecha (Bogotá)</th><th>Acción</th>${showCompany ? "<th>Empresa</th>" : ""}<th>Resultado</th><th>Quién y desde dónde</th><th>Detalle</th></tr></thead>
       <tbody>${entries.map((e) => `<tr>
         <td class="vp-mono">${h(when(e.at))}</td>
-        <td><b class="vp-mono">${h(e.method)}</b> <span class="vp-mono-muted">${h(e.path)}</span></td>
+        <td><b>${h(describe(e, names))}</b><br><small class="vp-mono-muted">${h(e.method)} ${h(e.path)}</small></td>
         ${showCompany ? `<td>${e.company_id ? `<a href="#empresa/${encodeURIComponent(e.company_id)}">${h(names[e.company_id] || String(e.company_id).slice(0, 8))}</a>` : "—"}</td>` : ""}
         <td class="vp-mono ${Number(e.status_code) >= 400 ? "vp-audit-fail" : ""}">${h(e.status_code)}</td>
         <td><small>${h(e.actor)} · ${h(e.ip)} · ${h(SURFACES[e.surface] || e.surface || "")}</small></td>
@@ -124,5 +183,5 @@
 
   if (typeof document.addEventListener === "function") document.addEventListener("submit", onSubmit);
 
-  window.CxConsoleAudit = { view, mountInto, table, query, panel, load };
+  window.CxConsoleAudit = { view, mountInto, table, query, panel, load, describe, when, companyNames };
 })();

@@ -46,9 +46,12 @@ def company_id_from_path(path: str) -> Optional[str]:
     return None
 
 
-# Escrituras que no cambian nada y no se auditan: el render en vivo del
-# Estudio de marca (POST de solo lectura, uno por cada ajuste de un control).
-_NOT_AUDITED = re.compile(r"^/admin-v2/api/brand/[0-9a-fA-F-]{36}/render$")
+# Escrituras del Estudio de marca que no se auditan (ruido): el render en vivo
+# (POST de solo lectura, uno por cada ajuste de un control), el guardado del
+# borrador (lo que ven los operarios no cambia hasta publicar) y la paleta
+# desde el logo (solo propone colores). Publicar, despublicar, volver de
+# version y compartir la vista previa SI se registran.
+_NOT_AUDITED = re.compile(r"^/admin-v2/api/brand/[0-9a-fA-F-]{36}/(render|draft|palette-from-logo)$")
 
 
 def audited(method: str, path: str) -> bool:

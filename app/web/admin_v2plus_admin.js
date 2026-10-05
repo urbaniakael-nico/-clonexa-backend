@@ -51,7 +51,7 @@
   // ------------------------------------------------------------ estado
   const model = {
     access: { tab: "maestro", companies: null, users: {}, modules: {}, query: "", kind: "registrada", onlyNoOwner: false, sessions: null, passkeys: null, loading: false },
-    health: { status: null, security: null, error: "" },
+    health: { status: null, security: null, error: "", audit: null },
     landing: { data: null, filters: { days: "30", source: "", campaign: "", device: "" }, error: "", loading: false },
     modal: null, notice: "", error: "", view: "",
   };
@@ -160,10 +160,24 @@
           <div class="vp-kv"><span>Cerradas en 7 días</span><strong>${h(idle.closed_7d)}</strong></div></div>
           <p class="vp-login-hint">Variable CLONEXA_SESSION_IDLE_HOURS · motivo <span class="vp-mono">${h(idle.reason)}</span>.</p>` : `<p class="vp-loading">Cargando…</p>`}</section>
         <section class="vp-panel vp-section"><h2>Empresas en riesgo</h2>${risk.length ? `<ul class="vp-actions-list">${risk.map((c) => `<li class="vp-action vp-action-risk"><b><a href="#empresa/${encodeURIComponent(c.id)}">${h(c.name)}</a></b><small>${h(c.state_reason || "")}${c.kind === "demo" ? " · demo" : ""}</small></li>`).join("")}</ul>` : `<div class="vp-empty vp-ok-text">Ninguna empresa en riesgo.</div>`}</section>
+        ${auditBlock()}
         <section class="vp-panel vp-section"><h2>Endpoints sin sesión</h2>${sec && sec.open_endpoints ? `<p><b>${h(sec.open_endpoints.open)}</b> de ${h(sec.open_endpoints.routes_checked)} rutas de /api/v1 sin una sesión visible en su definición.</p>
           <p class="vp-login-hint">Estimado informativo (lee las rutas en memoria, no hace peticiones). Incluye las públicas a propósito (ingreso, QR, carta, webhooks).</p>
           <div class="vp-chip-row">${Object.entries(sec.open_endpoints.by_area || {}).map(([k, n]) => `<span class="vp-mini-chip">${h(k)} · ${h(n)}</span>`).join("")}</div>` : `<p class="vp-loading">Cargando…</p>`}</section>
       </div>`;
+  }
+
+  // Últimos 5 registros de la auditoría, en lenguaje claro.
+  function auditBlock() {
+    const A = window.CxConsoleAudit;
+    const list = model.health.audit;
+    const names = A && A.companyNames ? A.companyNames() : {};
+    const body = list === null ? `<p class="vp-loading">Cargando…</p>` : list.error ? `<div class="vp-alert" role="alert"><span>${h(list.error)}</span></div>`
+      : arr(list).length ? `<ul class="vp-actions-list">${arr(list).slice(0, 5).map((e) => `<li class="vp-action"><b>${h(A ? A.describe(e, names) : e.path)}</b><small>${h(since(e.at))} · ${h(e.actor || "")}</small></li>`).join("")}</ul>`
+        : `<div class="vp-empty">Sin registros todavía.</div>`;
+    return `<section class="vp-panel vp-section" id="vpx-audit-block" data-vpx-audit-block><div class="vp-row-between"><h2>Auditoría</h2>
+      <button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpx-audit-all>Ver todo</button></div>${body}
+      <p class="vp-login-hint">Escrituras hechas con sesión de Admin V2. Se guardan 180 días.</p></section>`;
   }
 
   // ------------------------------------------------------------ Landing
@@ -205,6 +219,9 @@
     const head = `<div class="vp-modal-head"><h2>${h(md.title)}</h2><button class="vp-btn vp-btn-sm" type="button" data-vpx-modal-close aria-label="Cerrar">✕</button></div>`;
     const err = md.error ? `<div class="vp-alert" role="alert"><span>${h(md.error)}</span></div>` : "";
     let body = "";
+    if (md.type === "audit") {
+      return `<div class="vp-modal" data-vpx-modal><div class="vp-panel vp-modal-card vp-modal-wide" role="dialog" aria-modal="true">${head}<div class="vp-audit-window" data-vpa-host></div></div></div>`;
+    }
     if (md.type === "password") body = `<p class="vp-login-hint">Entrégala por un canal seguro: se pide cambiarla al entrar. No se vuelve a mostrar.</p>
       <label class="vp-field">Clave temporal<span class="vp-inline"><input readonly value="${h(md.password)}" data-vpx-copy-value><button class="vp-btn vp-btn-sm" type="button" data-vpx-copy-password>Copiar</button></span></label>`;
     else if (md.type === "create") body = `${err}<form class="vp-form-grid" data-vpx-create-form>
@@ -232,6 +249,8 @@
     const caret = keep ? active.selectionStart : null;
     ctx.root().innerHTML = view();
     if (keep) { const el = ctx.root().querySelector(keep); if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch (_) {} } }
+    const auditHost = model.modal && model.modal.type === "audit" && ctx.root().querySelector ? ctx.root().querySelector("[data-vpa-host]") : null;
+    if (auditHost && window.CxConsoleAudit) window.CxConsoleAudit.mountInto(auditHost, {});
     ctx.root().querySelectorAll && ctx.root().querySelectorAll("[data-vpx-meter]").forEach((el) => { el.style.width = `${Number(el.getAttribute("data-vpx-meter")) || 0}%`; }); // CSSOM
   }
 
@@ -260,7 +279,12 @@
     const s = model.health;
     s.status = await consoleApi.health().catch((e) => ({ ok: false, error: e.message }));
     s.security = await apiGet("/admin-v2/api/health/security").catch((e) => { s.error = e.message; return null; });
+    s.audit = window.CxConsoleAudit ? await window.CxConsoleAudit.load({ limit: 5 }).catch((e) => ({ error: e.message })) : [];
     draw();
+    if (ctx && ctx.params && ctx.params.focus === "audit" && ctx.root() && ctx.root().querySelector) {
+      const el = ctx.root().querySelector("[data-vpx-audit-block]");
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
+    }
   }
 
   async function loadLanding() {
@@ -330,6 +354,7 @@
     }
     const pk = t.closest("[data-vpx-passkey-delete]");
     if (pk) { ask("Quitar huella", "Quitar esta llave de acceso? Ese equipo ya no podrá entrar con huella.", () => act(() => consoleApi.deletePasskey(pk.getAttribute("data-vpx-passkey-delete")), "Huella quitada.", async (d) => { a.passkeys = (d && d.passkeys) || []; }), { danger: true }); return; }
+    if (t.closest("[data-vpx-audit-all]")) { model.modal = { type: "audit", title: "Auditoría · todos los registros" }; draw(); return; }
     if (t.closest("[data-vpx-health-refresh]")) { loadHealth(); if (ctx.reloadOverview) ctx.reloadOverview(); return; }
     if (t.closest("[data-vpx-landing-reset]")) { model.landing.filters = { days: "30", source: "", campaign: "", device: "" }; loadLanding(); }
   }

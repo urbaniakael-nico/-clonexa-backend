@@ -56,6 +56,8 @@
     const out = [];
     const push = (kind, title, subtitle, text, actions, order) => out.push({ kind, title, subtitle, text: `${title} ${subtitle} ${text || ""} ${KIND_LABEL[kind]}`, actions, order });
     Object.entries(data.views || {}).forEach(([key, label], i) => push("section", label, "Ir a la sección", key, [{ id: "go", label: "Abrir", view: key }], 10 + i));
+    // La auditoría vive en Salud y seguridad (ya no tiene menú propio).
+    push("section", "Auditoría", "Últimos registros, en Salud y seguridad", "registros historial cambios", [{ id: "go", label: "Abrir", view: "health", focus: "audit" }], 9);
     const seen = new Set();
     arr(data.companies).forEach((c) => {
       if (!c || !c.id || seen.has(c.id)) return;
@@ -177,7 +179,7 @@
   function run(action) {
     const p = plus();
     if (!action) return;
-    if (action.id === "go" && p) { close(); p.setView(action.view); return; }
+    if (action.id === "go" && p) { close(); p.setView(action.view, action.focus ? { focus: action.focus } : undefined); return; }
     if (action.id === "ficha") { close(); window.location.hash = `#empresa/${encodeURIComponent(action.companyId)}`; return; }
     if (action.id === "enter") { close(); window.open(`/client?company_id=${encodeURIComponent(action.companyId)}`, "_blank", "noopener"); return; }
     if (action.id === "links") { copyLinks(action.companyId); return; }

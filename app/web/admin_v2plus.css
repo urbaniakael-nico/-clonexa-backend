@@ -582,3 +582,10 @@ button, input, select { font: inherit; color: inherit; }
 .vp-brand-dotc i { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .3); }
 .vp-brand-dotc small { color: var(--vp-muted); font-size: 10.5px; text-align: center; line-height: 1.2; }
 @media (max-width: 960px) { .vp-brand-ficha { grid-template-columns: minmax(0, 1fr); } }
+
+/* Auditoría en Salud y seguridad */
+.vp-row-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.vp-btn-link { border-color: transparent; background: transparent; color: var(--vp-muted); text-decoration: underline; }
+.vp-btn-link:hover { color: var(--vp-text); }
+.vp-modal-wide { width: min(1100px, 100%); }
+.vp-audit-window { max-height: 70vh; overflow: auto; padding-right: 4px; }
