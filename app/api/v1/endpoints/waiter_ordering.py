@@ -1160,6 +1160,12 @@ async def mini_panel_theme(
     db: AsyncSession = Depends(get_db),
     _user: CompanyUser = Depends(_require_menu_reader),
 ) -> dict[str, Any]:
+    # Fase 4: la marca PUBLICADA en el Estudio de marca manda (sin ella, igual que antes).
+    from app.services import brand_store, brand_theme
+
+    published = await brand_store.published_tokens(db, str(company_id))
+    if published:
+        return {"ok": True, "enabled": True, "branding": brand_theme.branding_for_panels(published, str(company_id))}
     settings = await _module_settings(db, company_id)
     if settings.get(MINI_PANEL_BRAND_FLAG) is not True:
         return {"ok": True, "enabled": False, "branding": None}

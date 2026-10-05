@@ -77,3 +77,51 @@ def inject(html: str, branding: dict | None) -> str:
     if "hsp_brand.js" not in html:
         tags += BRAND_SCRIPT
     return html.replace("</head>", f"  {tags}\n</head>", 1)
+
+
+# ---------------------------------------------------------------- Fase 4 ---
+# Estudio de marca: si la empresa tiene una marca PUBLICADA, el ingreso y los
+# mini paneles (mesero, cocina, caja) la reciben: sus colores por el mismo
+# window.__CX_BRAND__ que ya entiende hsp_brand.js, y el CSS del generador
+# propio (brand_theme.css_for, que escapa y revalida todo) en un <style> al
+# final del <body> (fuera del <head>: hsp_brand.js no lo repinta). Sin marca
+# publicada, la pagina sale EXACTAMENTE como antes (inject de siempre).
+THEME_PAGES = frozenset({"hsp_waiter.html", "hsp_kitchen.html", "hsp_cashier.html"})
+LITE_SCRIPT = '<script src="/client-static/brand_lite.js?v=FASE4"></script>'
+
+
+async def published_theme(db: AsyncSession, company_id: Any) -> dict | None:
+    cid = _uuid(company_id)
+    if cid is None:
+        return None
+    from app.services import brand_store
+
+    return await brand_store.published_tokens(db, str(cid))
+
+
+def inject_theme(html: str, tokens: dict, company_id: str) -> str:
+    """El HTML con la marca publicada. Si algo falla, el HTML de siempre."""
+    from app.services import brand_theme
+
+    if "</head>" not in html or "</body>" not in html:
+        return html
+    try:
+        css = brand_theme.css_for(tokens, company_id)
+        branding = brand_theme.branding_for_panels(tokens, company_id)
+    except Exception:
+        log.exception("marca publicada invalida company=%s; se sirve la de siempre", company_id)
+        return html
+    html = inject(html, branding)
+    html = html.replace("</head>", f"  {LITE_SCRIPT}\n</head>", 1)
+    safe = css.replace("</", "<\/")
+    return html.replace("</body>", f'  <style id="cxBrandTheme">{safe}</style>\n</body>', 1)
+
+
+async def render(html: str, db: AsyncSession, company_id: Any, file_name: str) -> str:
+    """Lo que sirve _branded_html: la marca publicada en las paginas del
+    alcance de esta fase; si no hay, exactamente lo de antes."""
+    if file_name in THEME_PAGES:
+        tokens = await published_theme(db, company_id)
+        if tokens:
+            return inject_theme(html, tokens, str(_uuid(company_id)))
+    return inject(html, await company_brand(db, company_id))

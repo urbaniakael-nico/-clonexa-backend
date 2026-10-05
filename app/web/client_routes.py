@@ -26,7 +26,9 @@ async def _branded_html(path: Path, db: AsyncSession, company_id: object) -> HTM
     from app.web import brand_inject
 
     html = path.read_text(encoding="utf-8")
-    html = brand_inject.inject(html, await brand_inject.company_brand(db, company_id))
+    # Fase 4: con marca publicada (Estudio de marca), la del estudio; sin
+    # ella, exactamente lo de antes.
+    html = await brand_inject.render(html, db, company_id, path.name)
     return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
 
 
