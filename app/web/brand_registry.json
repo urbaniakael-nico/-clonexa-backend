@@ -1,0 +1,33 @@
+{
+  "_doc": "Registro unico del Estudio de marca. Solo lo que esta aqui se puede personalizar. screens.scope: contenedores raiz de cada pantalla en los mini paneles (la caja tiene el diseño clasico csh-* y el rediseñado cx5-*). types.selectors: elementos existentes de cada tipo de componente. pieces: piezas con nombre, marcadas en los paneles con data-brand=\"<key>\" (sin cambiar su aspecto). Los selectores los escribe Clonexa en el repo, nunca el usuario.",
+  "screens": {
+    "ingreso": {"label": "Ingreso", "scope": [".csh-login", ".wtr-login", ".ktc-login"]},
+    "mesero": {"label": "Mesero", "scope": [".wtr-shell"]},
+    "cocina": {"label": "Cocina", "scope": [".ktc-shell"]},
+    "caja": {"label": "Caja", "scope": [".csh-shell", ".cx5"]}
+  },
+  "types": {
+    "boton_principal": {"label": "Botón principal", "selectors": [".csh-btn-primary", ".wtr-btn-primary", ".ktc-btn-primary", ".cx5-btn-primary", ".cx5-method"]},
+    "boton_secundario": {"label": "Botón secundario", "selectors": [".csh-btn:not(.csh-btn-primary):not(.csh-btn-danger)", ".wtr-btn:not(.wtr-btn-primary)", ".ktc-btn:not(.ktc-btn-primary):not(.ktc-btn-tab)", ".cx5-btn:not(.cx5-btn-primary)"]},
+    "tarjeta": {"label": "Tarjeta", "selectors": [".csh-login-card", ".wtr-login-card", ".ktc-login-card", ".csh-card", ".cx5-card", ".wtr-tile", ".ktc-card"]},
+    "encabezado": {"label": "Encabezado", "selectors": [".csh-header", ".cx5-top", ".wtr-header", ".ktc-header"]},
+    "campo": {"label": "Campo", "selectors": ["input:not([type=checkbox]):not([type=radio])", "select", "textarea"]},
+    "chip": {"label": "Chip", "selectors": [".csh-shift-chip", ".cx5-pill", ".ktc-roster-chip", ".ktc-ready-pill", ".wtr-mesa-status"]},
+    "barra_nav": {"label": "Barra de navegación", "selectors": [".ktc-btn-tab", ".wtr-back", ".csh-back"]}
+  },
+  "pieces": [
+    {"key": "ingreso.tarjeta", "label": "Tarjeta de ingreso", "screen": "ingreso", "type": "tarjeta"},
+    {"key": "ingreso.marca", "label": "Marca (texto CLONEXA)", "screen": "ingreso", "type": "encabezado"},
+    {"key": "ingreso.titulo", "label": "Título del panel", "screen": "ingreso", "type": "encabezado"},
+    {"key": "ingreso.entrar", "label": "Botón Entrar", "screen": "ingreso", "type": "boton_principal"},
+    {"key": "mesero.encabezado", "label": "Encabezado del mesero", "screen": "mesero", "type": "encabezado"},
+    {"key": "mesero.mesa", "label": "Mesa", "screen": "mesero", "type": "tarjeta"},
+    {"key": "mesero.enviar_pedido", "label": "Enviar pedido", "screen": "mesero", "type": "boton_principal"},
+    {"key": "cocina.encabezado", "label": "Encabezado de cocina", "screen": "cocina", "type": "encabezado"},
+    {"key": "cocina.comanda", "label": "Comanda", "screen": "cocina", "type": "tarjeta"},
+    {"key": "cocina.listo", "label": "Pedido listo", "screen": "cocina", "type": "boton_principal"},
+    {"key": "caja.encabezado", "label": "Encabezado de caja", "screen": "caja", "type": "encabezado"},
+    {"key": "caja.mesa", "label": "Mesa en caja", "screen": "caja", "type": "tarjeta"},
+    {"key": "caja.cobrar", "label": "Cobrar (método de pago)", "screen": "caja", "type": "boton_principal"}
+  ]
+}

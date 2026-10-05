@@ -296,14 +296,14 @@
   function screenLogin() {
     return `
       <section class="ktc-login">
-        <div class="ktc-login-card">
-          <div class="ktc-brand">CLONEXA</div>
-          <h1>Panel Cocina</h1>
+        <div class="ktc-login-card" data-brand="ingreso.tarjeta">
+          <div class="ktc-brand" data-brand="ingreso.marca">CLONEXA</div>
+          <h1 data-brand="ingreso.titulo">Panel Cocina</h1>
           ${state.error ? `<div class="ktc-alert">${h(state.error)}</div>` : ""}
           <form id="ktcLoginForm">
             <label>Usuario<input name="username" autocomplete="username" required /></label>
             <label>Clave<input name="password" type="password" autocomplete="current-password" required /></label>
-            <button type="submit" class="ktc-btn ktc-btn-primary" ${state.busy ? "disabled" : ""}>${state.busy ? "Entrando..." : "Entrar"}</button>
+            <button type="submit" class="ktc-btn ktc-btn-primary" data-brand="ingreso.entrar" ${state.busy ? "disabled" : ""}>${state.busy ? "Entrando..." : "Entrar"}</button>
           </form>
         </div>
       </section>`;
@@ -337,7 +337,7 @@
     const waiterName = comanda.waiter && comanda.waiter.name ? comanda.waiter.name : "";
     const allReady = (comanda.items || []).every((item) => item.ready);
     return `
-      <article class="ktc-card ${cls}">
+      <article class="ktc-card ${cls}" data-brand="cocina.comanda">
         <header>
           <div class="ktc-table">${h(comanda.table_number || "Mesa")}</div>
           <div class="ktc-meta">
@@ -360,7 +360,7 @@
             </div>`).join("")}
         </div>
         ${comanda.notes ? `<div class="ktc-order-note">⚠ ${h(comanda.notes)}</div>` : ""}
-        <button type="button" class="ktc-btn ktc-btn-primary" data-ktc-order-ready="${h(comanda.order_id)}" ${allReady ? "" : "disabled"}>
+        <button type="button" class="ktc-btn ktc-btn-primary" data-brand="cocina.listo" data-ktc-order-ready="${h(comanda.order_id)}" ${allReady ? "" : "disabled"}>
           COMANDA LISTA
         </button>
       </article>`;
@@ -373,7 +373,7 @@
     const cls = isListo ? "ktc-card-listo" : timerClass(minutes);
     const waiterName = comanda.waiter && comanda.waiter.name ? comanda.waiter.name : "";
     return `
-      <article class="ktc-card ktc-card-col ${cls}">
+      <article class="ktc-card ktc-card-col ${cls}" data-brand="cocina.comanda">
         <header>
           <div class="ktc-table">${h(comanda.table_number || "Mesa")}</div>
           <div class="ktc-meta">
@@ -459,7 +459,7 @@
   function screenBoard() {
     return `
       <section class="ktc-shell">
-        <header class="ktc-header">
+        <header class="ktc-header" data-brand="cocina.encabezado">
           <h1>Cocina</h1>
           <div class="ktc-legend">
             <span class="ktc-dot ktc-timer-green"></span> &lt; ${h(state.thresholds.green_max_minutes)} min

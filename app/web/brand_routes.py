@@ -89,6 +89,13 @@ async def upload_image(company_id: str, request: Request, file: UploadFile = Fil
 @router.delete("/admin-v2/api/brand/{company_id}/images/{image_id}", include_in_schema=False, dependencies=GUARD)
 async def delete_image(company_id: str, image_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     company = await load_company(db, _uuid(company_id))
+    in_use = (await db.execute(text("""
+        SELECT version, status FROM company_brand_themes
+        WHERE company_id = CAST(:c AS uuid) AND status IN ('draft', 'published') AND tokens::text LIKE :needle
+    """), {"c": company["id"], "needle": f"%{str(image_id).lower()[:36]}%"})).mappings().all() if _FILE_RE.match(f"{str(image_id).lower()}.webp") else []
+    if in_use:
+        where = "la marca publicada" if any(r["status"] == "published" for r in in_use) else "el borrador"
+        raise HTTPException(status_code=409, detail=f"La imagen se usa en {where}. Quítala de la marca antes de borrarla.")
     try:
         done = await media.delete(db, company["id"], image_id)
     except (media.StorageUnavailable, media.ImageRejected) as error:
@@ -138,3 +145,145 @@ async def legacy_stats(db: AsyncSession) -> dict[str, Any]:
 @router.get("/admin-v2/api/media/legacy-stats", include_in_schema=False, dependencies=GUARD)
 async def legacy_stats_route(db: AsyncSession = Depends(get_db)):
     return _json(await legacy_stats(db))
+
+
+# ================================================================ marca (parte 2)
+# GET    /admin-v2/api/brand/templates
+# GET    /admin-v2/api/brand/{company_id}                 borrador, publicado e historial
+# PUT    /admin-v2/api/brand/{company_id}/draft           {tokens}
+# POST   /admin-v2/api/brand/{company_id}/publish         {confirm_name}
+# POST   /admin-v2/api/brand/{company_id}/rollback/{v}    {confirm_name}
+# POST   /admin-v2/api/brand/{company_id}/unpublish       {confirm_name}
+# POST   /admin-v2/api/brand/{company_id}/palette-from-logo  {image_id?}
+# POST   /admin-v2/api/brand/{company_id}/copy-from/{source_id}
+from pydantic import BaseModel  # noqa: E402
+
+from app.services import brand_store as store  # noqa: E402
+from app.services import brand_theme as bt  # noqa: E402
+
+
+class DraftIn(BaseModel):
+    tokens: dict
+
+
+class ConfirmIn(BaseModel):
+    confirm_name: str = ""
+
+
+class PaletteIn(BaseModel):
+    image_id: str = ""
+
+
+def _invalid(error: bt.BrandInvalid) -> HTTPException:
+    return HTTPException(status_code=422, detail={"message": f"{error.message} ({error.path})", "field": error.path})
+
+
+def _confirm(company: dict, payload: ConfirmIn) -> None:
+    if payload.confirm_name.strip().casefold() != str(company["name"]).strip().casefold():
+        raise HTTPException(status_code=400, detail="Escribe el nombre exacto de la empresa para confirmar.")
+
+
+async def _branding(db: AsyncSession, company_id: str) -> dict:
+    from app.api.v1.endpoints.companies import _get_company_or_404, _read_company_branding
+
+    try:
+        return _read_company_branding(await _get_company_or_404(db, _uuid(company_id)))
+    except Exception:
+        return {}
+
+
+@router.get("/admin-v2/api/brand/templates", include_in_schema=False, dependencies=GUARD)
+async def brand_templates():
+    return _json({"ok": True, "templates": bt.templates(), "fonts": list(bt.FONTS), "registry": bt.registry()})
+
+
+@router.get("/admin-v2/api/brand/{company_id}", include_in_schema=False, dependencies=GUARD)
+async def brand_state(company_id: str, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    data = await store.state(db, company["id"], await _branding(db, company["id"]))
+    return _json({"ok": True, "company": {"id": company["id"], "name": company["name"], "kind": company["kind"]}, **data,
+                  "registry": bt.registry(), "fonts": list(bt.FONTS), "storage": {"configured": media.configured(), **await media.usage(db, company["id"])},
+                  "images": await media.list_images(db, company["id"])})
+
+
+@router.put("/admin-v2/api/brand/{company_id}/draft", include_in_schema=False, dependencies=GUARD)
+async def brand_save_draft(company_id: str, payload: DraftIn, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    try:
+        tokens = await store.save_draft(db, company["id"], payload.tokens)
+    except bt.BrandInvalid as error:
+        raise _invalid(error) from None
+    return _json({"ok": True, "tokens": tokens})
+
+
+@router.post("/admin-v2/api/brand/{company_id}/publish", include_in_schema=False, dependencies=GUARD)
+async def brand_publish(company_id: str, payload: ConfirmIn, request: Request, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    _confirm(company, payload)
+    try:
+        version = await store.publish(db, company["id"])
+    except bt.BrandInvalid as error:
+        raise _invalid(error) from None
+    except store.BrandConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    await _audit(request, company_name=company["name"], marca="publicada", version=version)
+    return _json({"ok": True, "published_version": version})
+
+
+@router.post("/admin-v2/api/brand/{company_id}/rollback/{version}", include_in_schema=False, dependencies=GUARD)
+async def brand_rollback(company_id: str, version: int, payload: ConfirmIn, request: Request, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    _confirm(company, payload)
+    try:
+        done = await store.rollback(db, company["id"], version)
+    except bt.BrandInvalid as error:
+        raise _invalid(error) from None
+    except store.BrandConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    await _audit(request, company_name=company["name"], marca="vuelta_a_version", version=done)
+    return _json({"ok": True, "published_version": done})
+
+
+@router.post("/admin-v2/api/brand/{company_id}/unpublish", include_in_schema=False, dependencies=GUARD)
+async def brand_unpublish(company_id: str, payload: ConfirmIn, request: Request, db: AsyncSession = Depends(get_db)):
+    company = await load_company(db, _uuid(company_id))
+    _confirm(company, payload)
+    await store.unpublish(db, company["id"])
+    await _audit(request, company_name=company["name"], marca="despublicada")
+    return _json({"ok": True})
+
+
+@router.post("/admin-v2/api/brand/{company_id}/palette-from-logo", include_in_schema=False, dependencies=GUARD)
+async def brand_palette_from_logo(company_id: str, payload: PaletteIn, db: AsyncSession = Depends(get_db)):
+    """Propone la paleta desde una imagen de ESTA empresa (no guarda nada)."""
+    company = await load_company(db, _uuid(company_id))
+    image = payload.image_id
+    if not image:
+        data = await store.state(db, company["id"], await _branding(db, company["id"]))
+        image = (data["draft"]["tokens"]["theme"] or {}).get("logo") or ""
+    if not image:
+        raise HTTPException(status_code=409, detail="Primero sube el logo de la empresa.")
+    try:
+        raw = await media.read(db, company["id"], image, lite=True)
+    except (media.StorageUnavailable, media.ImageRejected) as error:
+        raise _storage_error(error) from None
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Imagen no encontrada en esta empresa.")
+    import asyncio
+
+    return _json({"ok": True, "image_id": image, "colors": await asyncio.to_thread(bt.palette_from_image, raw)})
+
+
+@router.post("/admin-v2/api/brand/{company_id}/copy-from/{source_id}", include_in_schema=False, dependencies=GUARD)
+async def brand_copy_from(company_id: str, source_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Copia SOLO los tokens de otra empresa al borrador de esta, sin sus imagenes."""
+    company = await load_company(db, _uuid(company_id))
+    source = await load_company(db, _uuid(source_id))
+    if source["id"] == company["id"]:
+        raise HTTPException(status_code=400, detail="Elige otra empresa.")
+    tokens = await store.tokens_for_copy(db, source["id"])
+    if tokens is None:
+        raise HTTPException(status_code=404, detail=f"{source['name']} todavía no tiene marca en el estudio.")
+    saved = await store.save_draft(db, company["id"], tokens)
+    await _audit(request, company_name=company["name"], marca="copiada_de", origen=source["name"])
+    return _json({"ok": True, "tokens": saved})

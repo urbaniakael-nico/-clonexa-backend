@@ -690,14 +690,14 @@
   function screenLogin() {
     return `
       <section class="wtr-login">
-        <div class="wtr-login-card">
-          <div class="wtr-brand">CLONEXA</div>
-          <h1>Panel Mesero</h1>
+        <div class="wtr-login-card" data-brand="ingreso.tarjeta">
+          <div class="wtr-brand" data-brand="ingreso.marca">CLONEXA</div>
+          <h1 data-brand="ingreso.titulo">Panel Mesero</h1>
           ${state.error ? `<div class="wtr-alert">${h(state.error)}</div>` : ""}
           <form id="wtrLoginForm">
             <label>Usuario<input name="username" autocomplete="username" required /></label>
             <label>Clave<input name="password" type="password" autocomplete="current-password" required /></label>
-            <button type="submit" class="wtr-btn wtr-btn-primary" ${state.busy ? "disabled" : ""}>${state.busy ? "Entrando..." : "Entrar"}</button>
+            <button type="submit" class="wtr-btn wtr-btn-primary" data-brand="ingreso.entrar" ${state.busy ? "disabled" : ""}>${state.busy ? "Entrando..." : "Entrar"}</button>
           </form>
         </div>
       </section>`;
@@ -772,7 +772,7 @@
       <section class="wtr-shell">
         ${header("Elige la mesa")}
         <div class="wtr-grid-tables">
-          ${tables.map((label) => `<button class="wtr-tile" type="button" data-wtr-table="${h(label)}">${h(label)}</button>`).join("")}
+          ${tables.map((label) => `<button class="wtr-tile" type="button" data-brand="mesero.mesa" data-wtr-table="${h(label)}">${h(label)}</button>`).join("")}
         </div>
       </section>`;
   }
@@ -846,7 +846,7 @@
             </button>`).join("") || `<div class="wtr-empty">Todavía no agregaste productos.</div>`}
         </div>
         <div class="wtr-cart-total"><span>Total</span><strong>${h(money(cartTotal()))}</strong></div>
-        <button class="wtr-btn wtr-btn-primary" type="button" data-wtr-send ${state.sending || !state.cart.length ? "disabled" : ""}>
+        <button class="wtr-btn wtr-btn-primary" type="button" data-brand="mesero.enviar_pedido" data-wtr-send ${state.sending || !state.cart.length ? "disabled" : ""}>
           ${state.sending ? "Enviando..." : state.sendError ? "Reintentar envío" : "Confirmar y enviar"}
         </button>
       </section>`;
@@ -854,7 +854,7 @@
 
   function header(title) {
     return `
-      <header class="wtr-header">
+      <header class="wtr-header" data-brand="mesero.encabezado">
         <button class="wtr-back" type="button" data-wtr-back aria-label="Volver">‹</button>
         <h1>${h(title)}</h1>
       </header>`;

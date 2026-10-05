@@ -1231,7 +1231,7 @@
     const parts = tableNumberParts(table.table_number);
     const stateKey = tableState(table);
     return `
-      <button class="csh-card csh-card-${stateKey}" type="button" data-csh-open-table="${h(table.key)}">
+      <button class="csh-card csh-card-${stateKey}" type="button" data-brand="caja.mesa" data-csh-open-table="${h(table.key)}">
         <div class="csh-card-top">
           <div class="csh-card-number">${parts.caption ? `<small>${h(parts.caption)}</small>` : ""}<b>${h(parts.number)}</b></div>
           <span class="csh-card-timer">⏱ ${h(elapsedLabel(tableStartedMs(table), nowMs))}</span>
@@ -1341,14 +1341,14 @@
   function screenLogin() {
     return `
       <section class="csh-login">
-        <div class="csh-login-card">
-          <div class="csh-brand">CLONEXA</div>
-          <h1>Panel Caja</h1>
+        <div class="csh-login-card" data-brand="ingreso.tarjeta">
+          <div class="csh-brand" data-brand="ingreso.marca">CLONEXA</div>
+          <h1 data-brand="ingreso.titulo">Panel Caja</h1>
           ${state.error ? `<div class="csh-alert">${h(state.error)}</div>` : ""}
           <form id="cshLoginForm">
             <label>Usuario<input name="username" autocomplete="username" required /></label>
             <label>Clave<input name="password" type="password" autocomplete="current-password" required /></label>
-            <button type="submit" class="csh-btn csh-btn-primary" ${state.busy ? "disabled" : ""}>${state.busy ? "Entrando..." : "Entrar"}</button>
+            <button type="submit" class="csh-btn csh-btn-primary" data-brand="ingreso.entrar" ${state.busy ? "disabled" : ""}>${state.busy ? "Entrando..." : "Entrar"}</button>
           </form>
         </div>
       </section>`;
@@ -1362,7 +1362,7 @@
   function saleHeaderHtml(title) {
     const sale = state.sale;
     return `
-      <header class="csh-header">
+      <header class="csh-header" data-brand="caja.encabezado">
         <button class="csh-back" type="button" data-csh-back aria-label="Volver">‹</button>
         <h1>${h(title)}</h1>
       </header>
@@ -1585,7 +1585,7 @@
     const busy = state.deliveryBusy ? "disabled" : "";
     return `
       <section class="csh-shell">
-        <header class="csh-header">
+        <header class="csh-header" data-brand="caja.encabezado">
           <button class="csh-back" type="button" data-csh-back aria-label="Volver">‹</button>
           <h1>Domicilio ${h(deliveryNumber(order))}</h1>
           <span class="csh-card-state">${h(stage.label)}</span>
@@ -1650,7 +1650,7 @@
   function screenTables() {
     return `
       <section class="csh-shell">
-        <header class="csh-header">
+        <header class="csh-header" data-brand="caja.encabezado">
           <h1>Mesas abiertas</h1>
           ${state.directSale ? `<button class="csh-btn csh-btn-primary" type="button" data-csh-new-sale>+ Nueva venta</button>` : ""}
           <button class="csh-btn csh-btn-mini" type="button" data-csh-register-network>Registrar la red actual del local</button>
@@ -1687,7 +1687,7 @@
     const stateKey = tableState(table);
     return `
       <section class="csh-shell">
-        <header class="csh-header">
+        <header class="csh-header" data-brand="caja.encabezado">
           <button class="csh-back" type="button" data-csh-back aria-label="Volver">‹</button>
           <h1>${h(tableTitle(table.table_number))}</h1>
           <span class="csh-card-state csh-state-${stateKey}">${h(TABLE_STATES[stateKey])}</span>
@@ -1719,7 +1719,7 @@
             <div class="csh-pay-block">
               <div class="csh-pay-title">Datos de cobro · método de pago obligatorio</div>
               <div class="csh-pay-options">
-                ${PAYMENT_METHODS.map((pm) => `<button class="csh-btn csh-btn-primary" type="button" data-csh-pay="${pm.value}" ${state.paying ? "disabled" : ""}>${h(pm.label)}</button>`).join("")}
+                ${PAYMENT_METHODS.map((pm) => `<button class="csh-btn csh-btn-primary" type="button" data-brand="caja.cobrar" data-csh-pay="${pm.value}" ${state.paying ? "disabled" : ""}>${h(pm.label)}</button>`).join("")}
               </div>
             </div>` : `<div class="csh-hint">Entrega el pedido pendiente antes de cobrar.</div>`}
         </div>
@@ -1808,7 +1808,7 @@
 
   function topBar049V() {
     return `
-      <header class="cx5-top">
+      <header class="cx5-top" data-brand="caja.encabezado">
         <div class="cx5-id">
           ${brandLogo049V() ? `<span class="cx5-logo" aria-hidden="true"></span>` : `<span class="cx5-mark" aria-hidden="true">$</span>`}
           <div><strong>Caja</strong><small>${h(new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" }))}</small></div>
@@ -1881,7 +1881,7 @@
     const stateKey = tableState(table);
     const started = tableStartedMs(table);
     return `
-      <button class="cx5-card cx5-st-${stateKey}" type="button" data-csh-open-table="${h(table.key)}">
+      <button class="cx5-card cx5-st-${stateKey}" type="button" data-brand="caja.mesa" data-csh-open-table="${h(table.key)}">
         <div class="cx5-card-row">
           <span class="cx5-cap">${h(parts.caption || "Mesa")}</span>
           <span class="cx5-timer ${lateClass049V(started, nowMs)}">⏱ ${h(elapsedLabel(started, nowMs))}</span>
@@ -2008,7 +2008,7 @@
     const due = chargeableTotal(table);
     return `
       <section class="cx5">
-        <header class="cx5-top">
+        <header class="cx5-top" data-brand="caja.encabezado">
           <button class="cx5-icon" type="button" data-csh-back aria-label="Volver">‹</button>
           <div class="cx5-id"><div><strong>${h(tableTitle(table.table_number))}</strong><small>⏱ ${h(elapsedLabel(tableStartedMs(table), Date.now()))}${table.waiter ? ` · 👤 ${h(table.waiter)}` : ""} · ${h(table.orders.length)} comanda${table.orders.length === 1 ? "" : "s"}</small></div></div>
           <span class="cx5-pill cx5-st-${stateKey}">${h(TABLE_STATES[stateKey])}</span>
@@ -2036,7 +2036,7 @@
             ${canCharge ? `
               <div class="cx5-step"><span>✓</span>Cobrar ${h(money(due))} · elige el método</div>
               <div class="cx5-methods">
-                ${PAYMENT_METHODS.map((pm) => `<button class="cx5-method" type="button" data-csh-pay="${pm.value}" ${state.paying ? "disabled" : ""}><i>${METHOD_ICONS_049V[pm.value]}</i>${h(pm.label)}</button>`).join("")}
+                ${PAYMENT_METHODS.map((pm) => `<button class="cx5-method" type="button" data-brand="caja.cobrar" data-csh-pay="${pm.value}" ${state.paying ? "disabled" : ""}><i>${METHOD_ICONS_049V[pm.value]}</i>${h(pm.label)}</button>`).join("")}
               </div>
               ${due < Number(table.total || 0) ? `<p class="cx5-hint">Lo que sigue en cocina (${h(money(Number(table.total || 0) - due))}) se cobra cuando la marquen lista.</p>` : ""}` : `<p class="cx5-hint">La cocina aún no entrega este pedido: se cobra cuando esté listo.</p>`}
           </aside>
@@ -2170,7 +2170,7 @@
           <div class="cx5-step"><span>2</span>${mode === "charge" ? `Cobrar ${h(money(saleTotal(sale)))} · método de pago` : mode === "kitchen" ? "Enviar" : "Agregar a la cuenta"}</div>
           ${mode === "charge" ? `
             <div class="cx5-methods">
-              ${PAYMENT_METHODS.map((pm) => `<button class="cx5-method" type="button" data-csh-sale-pay="${pm.value}" ${busy}><i>${METHOD_ICONS_049V[pm.value]}</i>${h(pm.label)}</button>`).join("")}
+              ${PAYMENT_METHODS.map((pm) => `<button class="cx5-method" type="button" data-brand="caja.cobrar" data-csh-sale-pay="${pm.value}" ${busy}><i>${METHOD_ICONS_049V[pm.value]}</i>${h(pm.label)}</button>`).join("")}
             </div>` : `
             <button class="cx5-btn cx5-btn-primary cx5-send" type="button" data-csh-sale-send ${busy}>
               ${state.saleBusy ? "Enviando…" : mode === "kitchen" ? "🍳 Enviar a cocina" : `Agregar a ${h(sale.table)}`}
@@ -2182,7 +2182,7 @@
     const sale = state.sale;
     return `
       <section class="cx5 cx5-sale-screen">
-        <header class="cx5-top">
+        <header class="cx5-top" data-brand="caja.encabezado">
           <button class="cx5-icon" type="button" data-csh-back aria-label="Volver">‹</button>
           <div class="cx5-id"><div><strong>Nueva venta</strong><small>Arma la venta, elige cómo sale y cobra.</small></div></div>
           <label class="cx5-dest">Para
