@@ -41,6 +41,11 @@ test('busca empresas, secciones, módulos, paquetes e interruptores, sin tildes 
   assert.ok(!titles('ra').some((t) => t.startsWith('section:')), 'dos letras sueltas no traen secciones al azar');
   assert.ok(titles('').length > 5, 'sin texto lista todo');
   assert.ok(titles('vieja')[0].startsWith('company:'), 'también las archivadas');
+  const noisy = P.buildIndex({ ...DATA, modules: [...DATA.modules, { code: 'radio', name: 'Radio Despecho', description: 'Plantilla larga para bares, asados, deudas y otros registros' }],
+    packages: [{ id: 'p2', code: 'bares', name: 'PAQUETE BARES' }, { id: 'p3', code: 'reportes', name: 'Reportes', description: 'Ventas de bares y restaurantes' }] });
+  const t2 = (q) => P.search(noisy, q).map((r) => r.title);
+  assert.ok(!t2('asadero').includes('Radio Despecho'), 'las letras en orden no se buscan en descripciones largas');
+  assert.equal(t2('bares')[0], 'PAQUETE BARES', 'gana lo que coincide en el título');
 });
 
 test('acciones rápidas de una empresa: Ficha, entrar como empresa, copiar links', () => {

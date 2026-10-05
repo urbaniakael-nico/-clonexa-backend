@@ -16,7 +16,7 @@
   // ---------------------------------------------------------- búsqueda
   // Puntaje: todas las palabras deben aparecer (al inicio de palabra vale más);
   // si no, se acepta una subsecuencia ("tm" -> The Time Machine).
-  function score(query, text) {
+  function score(query, text, title) {
     const q = fold(query);
     if (!q) return 1;
     const hay = fold(text);
@@ -25,9 +25,11 @@
     for (const w of words) {
       if (new RegExp(`(^| )${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(hay)) total += 3;
       else if (w.length >= 3 && (hay.includes(w) || hay.replace(/ /g, "").includes(w))) total += 2;
-      else return loose(q.replace(/ /g, ""), hay) ? 0.5 : 0;
+      else return loose(q.replace(/ /g, ""), fold(title || text)) ? 0.5 : 0;
     }
-    if (hay.startsWith(q)) total += 2;
+    const name = fold(title || "");
+    if (name.startsWith(q)) total += 4;
+    else if (name && words.every((w) => name.includes(w))) total += 3;
     return total;
   }
   // Respaldo: iniciales ("tm" -> The Time Machine) o, desde 4 letras, letras en orden.
@@ -43,7 +45,7 @@
   }
 
   function search(index, query) {
-    return index.map((item) => ({ item, s: score(query, item.text) }))
+    return index.map((item) => ({ item, s: score(query, item.text, item.title) }))
       .filter((r) => r.s > 0)
       .sort((a, b) => b.s - a.s || a.item.order - b.item.order || a.item.title.localeCompare(b.item.title, "es"))
       .slice(0, MAX).map((r) => r.item);
