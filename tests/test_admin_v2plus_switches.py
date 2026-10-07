@@ -55,10 +55,10 @@ async def test_activate_changes_only_the_sent_key_and_only_that_company(monkeypa
 def test_registry_is_valid_and_matches_the_approved_inventory():
     data = sr.registry()
     keys = {s["key"] for s in data["switches"]}
-    assert len(keys) == 15
+    assert len(keys) == 16 and "references_v2" in keys
     delicate = {s["key"] for s in data["switches"] if s.get("delicate")}
     assert {"sales_ledger", "cashier_redesign", "checkout_v2"} <= delicate
-    assert sr.required_modules() == ["domicilios_whatsapp", "qr", "waiter_ordering"]
+    assert sr.required_modules() == ["domicilios_whatsapp", "qr", "references", "waiter_ordering"]
     bad = copy.deepcopy(data)
     bad["switches"][0]["depends_on"] = [{"key": "no_existe", "why": "x"}]
     with pytest.raises(ValueError):
@@ -110,7 +110,7 @@ class FakeDb:
         sql = " ".join(str(statement).split())
         self.sql.append((sql, params))
         assert "NOT IN ('archived', 'deleted')" in sql
-        assert params == {"codes": ["domicilios_whatsapp", "qr", "waiter_ordering"]}
+        assert params == {"codes": ["domicilios_whatsapp", "qr", "references", "waiter_ordering"]}
         base = {"slug": "s", "status": "active", "settings_json": None}
         return Result([
             {**base, "company_id": "c1", "name": "Asadero", "settings_json": {"kind": "registrada"}, "code": "waiter_ordering", "enabled": True,
@@ -148,7 +148,7 @@ def test_switches_endpoint_requires_admin_v2_session(client):
     assert client.db.sql == []
     client.mp.setattr(ep.v2, "_active_session", AsyncMock(return_value=True))
     body = client.c.get("/admin-v2/api/switches").json()
-    assert len(body["registry"]["switches"]) == 15 and len(body["companies"]) == 2
+    assert len(body["registry"]["switches"]) == 16 and len(body["companies"]) == 2
 
 
 def test_switches_script_is_served():

@@ -1,6 +1,6 @@
 {
   "_doc": "Registro unico de interruptores por empresa (Consola v2+ · Interruptores). Solo lo que esta aqui aparece en la consola. Cada interruptor es una clave booleana dentro de company_modules.settings del modulo indicado. depends_on: interruptores de los que depende este (verificado en el codigo). requires_modules: modulos que tambien deben estar encendidos. delicate: cambia calculos o una pantalla completa; en empresas registradas exige escribir el nombre de la empresa. v2_form: Admin V2 tambien la guarda desde su formulario de mesero/cocina/caja.",
-  "groups": ["Caja", "Cocina", "Pedidos", "Enlaces", "Reportes", "Marca", "Domicilios", "QR"],
+  "groups": ["Caja", "Cocina", "Pedidos", "Enlaces", "Reportes", "Marca", "Domicilios", "QR", "Referencias"],
   "switches": [
     {"key": "cashier_redesign", "label": "Caja rediseñada", "module": "waiter_ordering", "group": "Caja",
      "description": "Panel de caja con indicadores del turno, secciones Mesas / Domicilios / Ventas y el Z del día.",
@@ -44,6 +44,9 @@
      "delicate": true, "delicate_reason": "Cambia la pantalla completa de pago del cliente."},
     {"key": "qr_bar_menu", "label": "Carta de bar en el QR", "module": "qr", "group": "QR",
      "description": "Carta de bar rediseñada en la pantalla del QR de mesa.",
-     "delicate": true, "delicate_reason": "Reemplaza la pantalla completa del QR de mesa."}
+     "delicate": true, "delicate_reason": "Reemplaza la pantalla completa del QR de mesa."},
+    {"key": "references_v2", "label": "Referencias rediseñadas", "module": "references", "group": "Referencias",
+     "description": "Pantalla nueva de Referencias: catálogo comercial por prenda y talla, información de cortes (ingresos, novedades por sección y envíos a despliegue) y estado de referencias en tres columnas. La pantalla de siempre queda como respaldo.",
+     "delicate": true, "delicate_reason": "Cambia la pantalla completa de Referencias del portal."}
   ]
 }

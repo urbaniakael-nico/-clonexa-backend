@@ -1,0 +1,36 @@
+{
+  "_doc": "Catalogo unico de prendas y tallas del modulo Referencias (pantalla nueva references_v2). Editable: agregar una prenda o talla aqui la muestra en la pantalla. Las tallas van SIEMPRE de menor a mayor. size_set elige que lista de tallas usa la prenda por genero; 'unica' es talla unica.",
+  "genders": [
+    {"code": "mujer", "label": "Mujer"},
+    {"code": "hombre", "label": "Hombre"}
+  ],
+  "body_parts": [
+    {"code": "superior", "label": "Prendas parte superior", "short": "Parte superior", "hint": "Chaquetas, camisetas, blusas, buzos, tops"},
+    {"code": "inferior", "label": "Prendas parte inferior", "short": "Parte inferior", "hint": "Pantalones, faldas, shorts, medias, ropa interior"}
+  ],
+  "garments": [
+    {"code": "chaqueta", "label": "Chaqueta", "body_part": "superior", "size_set": "superior", "keywords": ["chaqueta", "jacket", "chamarra", "abrigo"]},
+    {"code": "camiseta", "label": "Camiseta", "body_part": "superior", "size_set": "superior", "keywords": ["camiseta", "camisa", "t-shirt", "tshirt", "polo"]},
+    {"code": "blusa", "label": "Blusa", "body_part": "superior", "size_set": "superior", "keywords": ["blusa", "blouse"]},
+    {"code": "buzo", "label": "Buzo", "body_part": "superior", "size_set": "superior", "keywords": ["buzo", "saco", "hoodie", "sudadera", "sweater"]},
+    {"code": "top", "label": "Top", "body_part": "superior", "size_set": "superior", "keywords": ["top", "crop"]},
+    {"code": "pantalon", "label": "Pantalón", "body_part": "inferior", "size_set": "inferior", "keywords": ["pantalon", "pant", "jean", "jogger"]},
+    {"code": "falda", "label": "Falda", "body_part": "inferior", "size_set": "inferior", "keywords": ["falda", "skirt"]},
+    {"code": "short", "label": "Short", "body_part": "inferior", "size_set": "inferior", "keywords": ["short", "bermuda"]},
+    {"code": "leggings", "label": "Leggings", "body_part": "inferior", "size_set": "inferior", "keywords": ["legging", "licra", "lycra"]},
+    {"code": "medias", "label": "Medias", "body_part": "inferior", "size_set": "unica", "keywords": ["media", "calcetin", "sock"]},
+    {"code": "ropa_interior", "label": "Ropa interior", "body_part": "inferior", "size_set": "superior", "keywords": ["interior", "panty", "brasier", "boxer", "lenceria"]}
+  ],
+  "sizes": {
+    "mujer": {
+      "inferior": ["4", "6", "8", "10", "12", "14", "16"],
+      "superior": ["XS", "S", "M", "L", "XL", "XXL"],
+      "unica": ["Única"]
+    },
+    "hombre": {
+      "inferior": ["28", "30", "32", "34", "36", "38", "40"],
+      "superior": ["S", "M", "L", "XL", "XXL"],
+      "unica": ["Única"]
+    }
+  }
+}

@@ -1584,3 +1584,143 @@ async def flow_active_reference_session(
         "session": dict(row) if row else None,
     }
 
+
+
+# ---------------------------------------------------------------------------
+# CLONEXA_REFERENCES_V2: pantalla nueva (interruptor references_v2). Solo agrega.
+# A diferencia de las rutas de arriba, TODAS exigen sesion: Admin V2 o un
+# usuario de ESA empresa (validado en el servidor). Nunca tocan el producido,
+# la meta ni los cierres de produccion.
+# ---------------------------------------------------------------------------
+from uuid import UUID  # noqa: E402
+
+from fastapi import Header, Request  # noqa: E402
+
+from app.services import references_v2 as rv2  # noqa: E402
+
+
+async def require_references_v2_user(
+    company_id: str, request: Request, authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+) -> str:
+    """Devuelve quien hace la accion. 401/403 si no hay sesion de esa empresa."""
+    try:
+        cid = UUID(str(company_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada.") from None
+    from app.web.admin_v2_routes import _active_session
+
+    if await _active_session(request, db):
+        return "Admin V2"
+    from app.api.deps import require_company_user_for_tenant
+
+    user = await require_company_user_for_tenant(db, authorization, cid)
+    return str(getattr(user, "full_name", "") or getattr(user, "email", "") or "Usuario")
+
+
+def _v2_bad(error: rv2.Invalid) -> HTTPException:
+    return HTTPException(status_code=422, detail={"field": error.field, "message": error.message})
+
+
+@router.get("/companies/{company_id}/v2/catalog")
+async def v2_catalog(company_id: str, actor: str = Depends(require_references_v2_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+    return {"company_id": company_id, "catalog": rv2.catalog(), "counts": await rv2.catalog_counts(db, company_id)}
+
+
+@router.post("/companies/{company_id}/v2/references/{reference_id}/classify")
+async def v2_classify(company_id: str, reference_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                      db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+    try:
+        data = await rv2.classify(db, company_id, reference_id, payload)
+    except rv2.Invalid as error:
+        raise _v2_bad(error) from None
+    return {"ok": True, "id": reference_id, **data}
+
+
+@router.post("/companies/{company_id}/v2/movements")
+async def v2_add_movements(company_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                           db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+    items = payload.get("items") if isinstance(payload.get("items"), list) else [payload]
+    try:
+        saved = await rv2.add_movements(db, company_id, items, actor)
+    except rv2.Invalid as error:
+        await db.rollback()
+        raise _v2_bad(error) from None
+    return {"ok": True, "count": len(saved), "items": [{**m, "event_date": str(m["event_date"]), "created_at": str(m["created_at"])} for m in saved]}
+
+
+@router.post("/companies/{company_id}/v2/movements/{movement_id}/void")
+async def v2_void_movement(company_id: str, movement_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                           db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await require_references_module(db, company_id)
+    try:
+        done = await rv2.void_movement(db, company_id, movement_id, payload.get("reason"), actor)
+    except rv2.Invalid as error:
+        raise _v2_bad(error) from None
+    if not done:
+        raise HTTPException(status_code=404, detail="Movimiento no encontrado o ya anulado.")
+    return {"ok": True, "id": movement_id}
+
+
+def _v2_plain(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _v2_plain(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_v2_plain(v) for v in value]
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+@router.get("/companies/{company_id}/v2/references/{reference_id}/balance")
+async def v2_balance(company_id: str, reference_id: str, actor: str = Depends(require_references_v2_user),
+                     db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+    data = await rv2.balance(db, company_id, reference_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Referencia no encontrada.")
+    return _v2_plain(data)
+
+
+@router.get("/companies/{company_id}/v2/board")
+async def v2_board(company_id: str, actor: str = Depends(require_references_v2_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """Solo lo nuevo de cada fila; los datos de siempre salen del listado y el resumen de arriba."""
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+    return _v2_plain({"company_id": company_id, "extras": await rv2.board_extras(db, company_id)})
+
+
+@router.post("/companies/{company_id}/v2/catalog-create")
+async def v2_catalog_create(company_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                            db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """Una fila por talla con la MISMA logica de creacion de siempre (create_reference)."""
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+    try:
+        data = rv2.validate_catalog_create(payload)
+    except rv2.Invalid as error:
+        raise _v2_bad(error) from None
+    for line in data["sizes"]:  # todas o ninguna: los duplicados se revisan antes de crear
+        dup = await db.execute(text("""
+            SELECT id FROM product_references WHERE company_id = :company_id AND lower(name) = lower(:name)
+              AND lower(COALESCE(category, '')) = lower(:category) AND lower(size) = lower(:size) AND lower(COALESCE(color, '')) = lower(:color)
+            LIMIT 1
+        """), {"company_id": company_id, "name": data["name"], "category": data["category"], "size": line["size"], "color": data["color"]})
+        if dup.scalar():
+            raise HTTPException(status_code=409, detail=f"Ya existe {data['name']} talla {line['size']} con ese color.")
+    created = []
+    for line in data["sizes"]:
+        row = await create_reference(company_id, {
+            "name": data["name"], "category": data["category"], "size": line["size"], "color": data["color"],
+            "initial_quantity": line["quantity"], "channel": "bot" if data["bot_visible"] else "system",
+        }, db)
+        await rv2.classify(db, company_id, row["id"], data)
+        created.append(row)
+    return {"ok": True, "count": len(created), "items": created,
+            "summary": {"garment": data["category"], "gender": data["gender"], "total": sum(line["quantity"] for line in data["sizes"])}}
