@@ -155,19 +155,19 @@
   function head() {
     const [title, sub] = TITLES[model.tab];
     const company = (ctx && ctx.company && ctx.company.name) || "Empresa";
-    return `<header class="rv-head"><div><p class="rv-eyebrow">${h(company)} · Referencias</p><h1 class="rv-title">${h(title)}</h1><p class="rv-sub">${h(sub)}</p></div>
-      <nav class="rv-tabs" role="tablist">${TABS.map(([k, l]) => `<button type="button" role="tab" class="rv-tab ${model.tab === k ? "is-on" : ""}" aria-selected="${model.tab === k}" data-rv-tab="${k}">${h(l)}</button>`).join("")}</nav></header>
+    return `<header class="client-hero rv-head"><div><p class="client-eyebrow">${h(company)} · Referencias</p><h1 class="client-title">${h(title)}</h1><p class="client-muted">${h(sub)}</p></div>
+      <nav class="rv-tabs" role="tablist">${TABS.map(([k, l]) => `<button type="button" role="tab" class="rv-tab ${model.tab === k ? "client-btn is-on" : ""}" aria-selected="${model.tab === k}" data-rv-tab="${k}">${h(l)}</button>`).join("")}</nav></header>
       ${model.notice ? `<div class="rv-notice" role="status">${h(model.notice)}</div>` : ""}${model.error ? `<div class="rv-notice is-error" role="alert">${h(model.error)}</div>` : ""}`;
   }
 
   function genderSwitch(attr, value, withAll = false) {
     const opts = [["mujer", "Mujer"], ["hombre", "Hombre"]].concat(withAll ? [["todas", "Todas"]] : []);
-    return `<div class="rv-seg" role="group">${opts.map(([k, l]) => `<button type="button" class="${value === k ? "is-on" : ""}" ${attr}="${k}">${h(l)}</button>`).join("")}</div>`;
+    return `<div class="rv-seg" role="group">${opts.map(([k, l]) => `<button type="button" class="${value === k ? "client-btn is-on" : ""}" ${attr}="${k}">${h(l)}</button>`).join("")}</div>`;
   }
 
   function catalogView() {
     const c = model.catalog;
-    if (!c) return `<p class="rv-muted">Cargando catálogo…</p>`;
+    if (!c) return `<p class="client-muted rv-muted">Cargando catálogo…</p>`;
     const f = model.form;
     const counts = (model.counts[model.gender] || { parts: {}, garments: {} });
     const g = garmentOf(c, f.garment);
@@ -180,22 +180,22 @@
     };
     const sizes = sizesFor(c, model.gender, f.garment);
     const text = summaryText(f, c, model.gender);
-    return `<section class="rv-panel rv-bar"><div class="rv-bar-item"><span class="rv-label">Género</span>${genderSwitch("data-rv-gender", model.gender)}</div>
+    return `<section class="client-panel rv-panel rv-bar"><div class="rv-bar-item"><span class="client-label rv-label">Género</span>${genderSwitch("data-rv-gender", model.gender)}</div>
         <label class="rv-bar-item rv-toggle"><span>Visible para bot</span><input type="checkbox" data-rv-bot ${model.botVisible ? "checked" : ""}><i aria-hidden="true"></i></label>
         <div class="rv-bar-item rv-route">Ruta: <b>${h(route || "—")}</b></div></section>
-      <section class="rv-panel"><h2 class="rv-step"><i>1</i>Elige la parte</h2><div class="rv-parts">${arr(c.body_parts).map(partCard).join("")}</div></section>
-      ${f.part ? `<section class="rv-panel"><h2 class="rv-step"><i>2</i>Elige la prenda · ${h(part.short)}</h2><div class="rv-garments rv-scroll">${garmentsOf(c, f.part).map((x) => `
+      <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step"><i>1</i>Elige la parte</h2><div class="rv-parts">${arr(c.body_parts).map(partCard).join("")}</div></section>
+      ${f.part ? `<section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step"><i>2</i>Elige la prenda · ${h(part.short)}</h2><div class="rv-garments rv-scroll">${garmentsOf(c, f.part).map((x) => `
         <button type="button" class="rv-garment ${f.garment === x.code ? "is-on" : ""}" data-rv-garment="${x.code}">${icon(x.code)}<b>${h(x.label)}</b><small>${counts.garments[x.code] || 0}${counts.garments[x.code] === 1 ? " referencia" : counts.garments[x.code] ? " referencias" : ""}</small></button>`).join("")}</div></section>` : ""}
-      ${g ? `<section class="rv-panel"><h2 class="rv-step"><i>3</i>Tallas y cantidades · ${h(g.label)} ${model.gender === "hombre" ? "Hombre" : "Mujer"}</h2>
+      ${g ? `<section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step"><i>3</i>Tallas y cantidades · ${h(g.label)} ${model.gender === "hombre" ? "Hombre" : "Mujer"}</h2>
         <div class="rv-sizes-grid"><div class="rv-sizes">${sizes.map((s) => {
           const on = Object.prototype.hasOwnProperty.call(f.sizes, s);
-          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "is-on" : ""}" data-rv-size="${h(s)}" aria-pressed="${on}">${h(s)}</button>
+          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "client-btn is-on" : ""}" data-rv-size="${h(s)}" aria-pressed="${on}">${h(s)}</button>
             <input class="rv-qty" type="number" min="0" inputmode="numeric" placeholder="cantidad" data-rv-qty="${h(s)}" value="${on ? h(f.sizes[s]) : ""}" ${on ? "" : "disabled"} aria-label="Cantidad talla ${h(s)}"></div>`;
         }).join("")}</div>
         <div class="rv-fields"><label class="rv-field">Nombre de la referencia<input data-rv-name value="${h(f.name)}" maxlength="120" placeholder="Ej: PANT SET"></label>
           <label class="rv-field">Color<input data-rv-color value="${h(f.color)}" maxlength="60" placeholder="Ej: Marfil"></label></div></div>
         <div class="rv-summary"><p data-rv-summary>${text ? h(text) : "Marca al menos una talla con su cantidad."}</p>
-          <div class="rv-actions"><button type="button" class="rv-btn" data-rv-clear>Limpiar</button><button type="button" class="rv-btn is-primary" data-rv-save ${model.busy ? "disabled" : ""}>Guardar referencia</button></div></div></section>` : ""}`;
+          <div class="rv-actions"><button type="button" class="rv-btn" data-rv-clear>Limpiar</button><button type="button" class="client-btn rv-btn is-primary" data-rv-save ${model.busy ? "disabled" : ""}>Guardar referencia</button></div></div></section>` : ""}`;
   }
 
   function cutsView() {
@@ -206,31 +206,31 @@
     const b = model.balance;
     const pct = b && b.received ? Math.max(0, Math.round((b.available / b.received) * 100)) : 0;
     return `<div class="rv-cuts"><div class="rv-cuts-main">
-      <section class="rv-panel"><h2 class="rv-step is-cyan"><i>1</i>Recepción del corte</h2>
+      <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan"><i>1</i>Recepción del corte</h2>
         <div class="rv-fields rv-two"><label class="rv-field">Fecha de ingreso<input type="date" data-rv-cut="date" value="${h(cut.date)}"></label>
           <label class="rv-field">Referencia<select data-rv-cut-ref><option value="">Elige la referencia</option>${gs.map((x) => `<option value="${h(x.rows[0].id)}" ${group && group.key === x.key ? "selected" : ""}>${h(x.name)}${x.color ? ` · ${h(x.color)}` : ""}</option>`).join("")}</select></label></div>
-        ${group ? `<span class="rv-label">Talla y cantidad recibida</span><div class="rv-sizes">${sizes.map((s) => {
+        ${group ? `<span class="client-label rv-label">Talla y cantidad recibida</span><div class="rv-sizes">${sizes.map((s) => {
           const on = Object.prototype.hasOwnProperty.call(cut.received, s.size);
-          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "is-on" : ""}" data-rv-recv="${h(s.size)}" aria-pressed="${on}">${h(s.size)}</button>
+          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "client-btn is-on" : ""}" data-rv-recv="${h(s.size)}" aria-pressed="${on}">${h(s.size)}</button>
             <input class="rv-qty" type="number" min="0" inputmode="numeric" placeholder="cantidad" data-rv-recv-qty="${h(s.size)}" value="${on ? h(cut.received[s.size]) : ""}" ${on ? "" : "disabled"}></div>`;
-        }).join("")}</div>` : `<p class="rv-muted">Elige una referencia para ver sus tallas.</p>`}</section>
-      <section class="rv-panel"><h2 class="rv-step is-red"><i>2</i>Novedades por sección</h2>
-        <div class="rv-nov"><span class="rv-label">Sección</span><span class="rv-label">Observación</span><span class="rv-label">Cantidad</span>
+        }).join("")}</div>` : `<p class="client-muted rv-muted">Elige una referencia para ver sus tallas.</p>`}</section>
+      <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-red"><i>2</i>Novedades por sección</h2>
+        <div class="rv-nov"><span class="client-label rv-label">Sección</span><span class="client-label rv-label">Observación</span><span class="client-label rv-label">Cantidad</span>
         ${SECTIONS.map(([k, l]) => { const n = cut.novelties[k] || {}; return `<span class="rv-sec is-${k}"><i></i>${h(l)}</span>
           <input data-rv-nov-note="${k}" value="${h(n.note || "")}" maxlength="500" placeholder="Escribe la observación…">
           <input type="number" min="0" inputmode="numeric" data-rv-nov-qty="${k}" value="${h(n.quantity || "")}" placeholder="0">`; }).join("")}</div></section>
-      <section class="rv-panel"><h2 class="rv-step is-violet"><i>3</i>Enviado a despliegue · prenda terminada para fotos</h2>
+      <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-violet"><i>3</i>Enviado a despliegue · prenda terminada para fotos</h2>
         <div class="rv-deploy"><label class="rv-field">Cantidad<input type="number" min="0" inputmode="numeric" data-rv-dep="quantity" value="${h(cut.deploy.quantity)}" placeholder="0"></label>
           <label class="rv-field">Talla<select data-rv-dep="size"><option value="">—</option>${sizes.map((s) => `<option ${cut.deploy.size === s.size ? "selected" : ""}>${h(s.size)}</option>`).join("")}</select></label>
           <label class="rv-field">Fecha de envío<input type="date" data-rv-dep="date" value="${h(cut.deploy.date)}"></label>
-          <button type="button" class="rv-btn is-primary" data-rv-cut-save ${model.busy || !group ? "disabled" : ""}>Guardar registro</button></div></section></div>
+          <button type="button" class="client-btn rv-btn is-primary" data-rv-cut-save ${model.busy || !group ? "disabled" : ""}>Guardar registro</button></div></section></div>
       <aside class="rv-cuts-side">
-        <section class="rv-panel"><h2 class="rv-step is-cyan">Balance${group ? ` · ${h(group.name)}` : ""}</h2>${b ? `
-          <div class="rv-kpis"><div><b class="is-cyan">${h(b.received)}</b><small>Recibido</small></div><div><b class="is-red">${h(b.novelty)}</b><small>Con novedad</small></div>
-            <div><b class="is-violet">${h(b.deployed)}</b><small>A despliegue</small></div><div><b class="is-lime">${h(b.available)}</b><small>Disponible</small></div></div>
+        <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Balance${group ? ` · ${h(group.name)}` : ""}</h2>${b ? `
+          <div class="rv-kpis"><div class="is-k-recv"><b>${h(b.received)}</b><small>Recibido</small></div><div class="is-k-nov"><b>${h(b.novelty)}</b><small>Con novedad</small></div>
+            <div class="is-k-dep"><b>${h(b.deployed)}</b><small>A despliegue</small></div><div class="is-k-av"><b>${h(b.available)}</b><small>Disponible</small></div></div>
           <div class="rv-progress"><span style="--p:${Math.min(100, pct)}%"></span></div><p class="rv-muted rv-row">Disponible = recibido − novedades − despliegue <b>${h(pct)} %</b></p>
-          <p class="rv-note">El número <b>producido</b> no se toca. Cada novedad o envío queda como movimiento con fecha.</p>` : `<p class="rv-muted">Elige una referencia para ver su balance.</p>`}</section>
-        <section class="rv-panel"><h2 class="rv-step is-cyan">Bitácora de la referencia</h2>${b && arr(b.log).length ? `<ol class="rv-log rv-scroll">${arr(b.log).map(logItem).join("")}</ol>` : `<p class="rv-muted">Sin movimientos todavía.</p>`}</section>
+          <p class="rv-note">El número <b>producido</b> no se toca. Cada novedad o envío queda como movimiento con fecha.</p>` : `<p class="client-muted rv-muted">Elige una referencia para ver su balance.</p>`}</section>
+        <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Bitácora de la referencia</h2>${b && arr(b.log).length ? `<ol class="rv-log rv-scroll">${arr(b.log).map(logItem).join("")}</ol>` : `<p class="client-muted rv-muted">Sin movimientos todavía.</p>`}</section>
       </aside></div>`;
   }
 
@@ -249,9 +249,9 @@
 
   function stateView() {
     const cols = columns(model.rows, model.extras, { search: model.search, gender: model.filterGender }, model.catalog);
-    const col = (title, cls, list) => `<section class="rv-panel rv-col"><h2 class="rv-col-head ${cls}">${h(title)}<b>${list.length}</b></h2>
-      <div class="rv-col-list rv-scroll">${list.map((r) => card(r, title)).join("") || `<p class="rv-muted">Nada aquí.</p>`}</div></section>`;
-    return `<section class="rv-panel rv-bar"><input class="rv-search" type="search" data-rv-search value="${h(model.search)}" placeholder="Buscar por nombre, prenda, talla, color o SKU…" aria-label="Buscar">
+    const col = (title, cls, list) => `<section class="client-panel rv-panel rv-col"><h2 class="client-eyebrow rv-col-head ${cls}">${h(title)}<b>${list.length}</b></h2>
+      <div class="rv-col-list rv-scroll">${list.map((r) => card(r, title)).join("") || `<p class="client-muted rv-muted">Nada aquí.</p>`}</div></section>`;
+    return `<section class="client-panel rv-panel rv-bar"><input class="rv-search" type="search" data-rv-search value="${h(model.search)}" placeholder="Buscar por nombre, prenda, talla, color o SKU…" aria-label="Buscar">
         ${genderSwitch("data-rv-fgender", model.filterGender, true)}<button type="button" class="rv-btn" data-rv-export>Exportar CSV</button></section>
       <div class="rv-cols">${col("Activas", "is-lime", cols.activas)}${col("Visibles para bot", "is-cyan", cols.visibles)}${col("No visibles", "is-violet", cols.noVisibles)}</div>`;
   }
@@ -289,11 +289,11 @@
     if (model.editing === r.id) {
       const f = (name, label, type = "text") => `<label class="rv-field">${label}<input data-rv-edit="${name}" type="${type}" value="${h(r[name] ?? "")}"></label>`;
       return `<div class="rv-card-body"><div class="rv-fields rv-two">${f("name", "Nombre")}${f("category", "Categoría")}${f("size", "Talla / modelo")}${f("color", "Color")}${f("sku", "SKU")}${f("unit_price", "Precio unidad", "number")}${f("initial_quantity", "Meta operativa", "number")}</div>
-        <div class="rv-actions"><button type="button" class="rv-btn is-primary" data-rv-edit-save="${h(r.id)}">Guardar</button><button type="button" class="rv-btn" data-rv-edit-cancel>Cancelar</button></div></div>`;
+        <div class="rv-actions"><button type="button" class="client-btn rv-btn is-primary" data-rv-edit-save="${h(r.id)}">Guardar</button><button type="button" class="rv-btn" data-rv-edit-cancel>Cancelar</button></div></div>`;
     }
     const c = model.catalog;
     const sug = ex.suggestion || {};
-    const classify = ex.classified ? "" : `<div class="rv-classify"><span class="rv-label">Clasificar</span>
+    const classify = ex.classified ? "" : `<div class="rv-classify"><span class="client-label rv-label">Clasificar</span>
       <select data-rv-cls-gender="${h(r.id)}">${[["mujer", "Mujer"], ["hombre", "Hombre"]].map(([k, l]) => `<option value="${k}" ${(sug.gender || "mujer") === k ? "selected" : ""}>${l}</option>`).join("")}</select>
       <select data-rv-cls-garment="${h(r.id)}"><option value="">Prenda…</option>${arr(c && c.garments).map((g) => `<option value="${g.code}" ${sug.garment_type === g.code ? "selected" : ""}>${h(g.label)}</option>`).join("")}</select>
       <button type="button" class="rv-btn is-small" data-rv-cls-go="${h(r.id)}">Confirmar clasificación</button></div>`;
@@ -306,15 +306,6 @@
     return `<div class="rv-root" data-rv-root>${head()}${body}</div>`;
   }
 
-  function applyBrand(el) {
-    const brand = ctx && ctx.brand;
-    const b = brand && brand.branding;
-    if (!el || !b) return;
-    // Con marca publicada en el Estudio de marca, sus colores mandan.
-    if (b.primary_color) el.style.setProperty("--rv-lime", b.primary_color);
-    if (b.secondary_color) el.style.setProperty("--rv-violet", b.secondary_color);
-  }
-
   function draw() {
     if (!ctx) return;
     const host = ctx.host();
@@ -323,7 +314,6 @@
     const keep = active && active.getAttribute ? ["data-rv-search", "data-rv-name", "data-rv-color"].find((a) => active.hasAttribute(a)) : null;
     const caret = keep ? active.selectionStart : null;
     host.innerHTML = view();
-    applyBrand(host.querySelector("[data-rv-root]"));
     if (keep) { const again = host.querySelector(`[${keep}]`); if (again) { again.focus(); try { again.setSelectionRange(caret, caret); } catch (_) {} } }
   }
 

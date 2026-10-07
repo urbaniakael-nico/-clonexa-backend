@@ -124,7 +124,7 @@ test('cortes: tallas de la referencia (una combinada se elige por talla sin part
   m.tab = 'cortes'; m.catalog = CATALOG;
   m.balance = { received: 50, novelty: 3, deployed: 1, available: 46, log: [] };
   const html = R.view();
-  assert.match(html, /<b class="is-cyan">50<\/b>/); assert.match(html, /<b class="is-lime">46<\/b>/);
+  assert.match(html, /<div class="is-k-recv"><b>50<\/b>/); assert.match(html, /<div class="is-k-av"><b>46<\/b>/);
   assert.match(html, /92 %/);
   for (const s of ['Corte', 'Bordado', 'Taller', 'Lavado', 'Otro']) assert.match(html, new RegExp(`<i></i>${s}</span>`));
   assert.doesNotMatch(html, /pieza<\/label>/i, 'sin campo pieza');
@@ -154,8 +154,29 @@ test('client.js: solo el enganche; con el interruptor apagado se sirve la pantal
 test('diseño: botones de 44 px, listas con desplazamiento interno y celular', () => {
   const css = readFileSync('app/web/references_v2.css', 'utf8');
   assert.match(css, /\.rv-scroll \{ max-height: min\(70vh, 760px\); overflow-y: auto;/);
-  assert.match(css, /\.rv-btn \{ min-height: 48px; min-width: 44px;/);
+  assert.match(css, /\.rv-btn \{ min-height: 46px; min-width: 44px;/);
   assert.match(css, /\.rv-tab \{ min-height: 44px;/);
   assert.match(css, /@media \(max-width: 720px\)/);
   assert.doesNotMatch(SRC, /<img|data:image|\.png|\.jpg/, 'sin imágenes: SVG en el código');
+});
+
+test('tema: references_v2.css no tiene colores fijos; todo sale de las variables del portal', () => {
+  const css = readFileSync('app/web/references_v2.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  // Única excepción: los respaldos semánticos de éxito, alerta y peligro cuando la marca no los trae.
+  const SEMANTIC = /var\(--cx-(success|warning|danger),\s*#[0-9a-f]{3,8}\)/gi;
+  assert.equal((css.match(SEMANTIC) || []).length, 3, 'solo los tres respaldos semánticos');
+  const rest = css.replace(SEMANTIC, '');
+  const NEUTRAL = /^(#fff|#ffffff|#000|#000000|rgba?\(\s*(0\s*,\s*0\s*,\s*0|255\s*,\s*255\s*,\s*255)\s*(,\s*[\d.]+\s*)?\))$/i;
+  const found = rest.match(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/gi) || [];
+  const bad = found.filter((c) => !NEUTRAL.test(c.trim()));
+  assert.deepEqual(bad, [], `colores fijos: ${bad.join(', ')}`);
+  for (const v of ['--cx-primary', '--cx-secondary', '--cx-text', '--cx-bg']) assert.ok(css.includes(`var(${v})`), v);
+  assert.doesNotMatch(css, /\.rv-root \{[^}]*(background|border-radius|padding)\s*:/, 'sin recuadro propio');
+  assert.doesNotMatch(css, /[{;]\s*max-width:\s*\d/, 'sin ancho máximo propio (los @media no cuentan)');
+  assert.match(css, /scrollbar-width: thin/);
+  const js = readFileSync('app/web/references_v2.js', 'utf8');
+  assert.match(js, /class="client-hero rv-head"/); assert.match(js, /class="client-panel rv-panel/);
+  assert.match(js, /client-btn rv-btn is-primary/); assert.match(js, /"client-btn is-on"/);
+  assert.doesNotMatch(js, /setProperty\("--rv-/, 'sin pintura de marca propia');
+  assert.match(readFileSync('app/web/client.js', 'utf8'), /references_v2\.js\?v=050C/);
 });
