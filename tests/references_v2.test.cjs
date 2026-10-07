@@ -182,5 +182,5 @@ test('tema: references_v2.css no tiene colores fijos; todo sale de las variables
   assert.match(js, /class="client-hero rv-head"/); assert.match(js, /class="client-panel rv-panel/);
   assert.match(js, /client-btn rv-btn is-primary/); assert.match(js, /"client-btn is-on"/);
   assert.doesNotMatch(js, /setProperty\("--rv-/, 'sin pintura de marca propia');
-  assert.match(readFileSync('app/web/client.js', 'utf8'), /references_v2\.js\?v=050C/);
+  assert.match(readFileSync('app/web/client.js', 'utf8'), /references_v2\.js\?v=050D/);
 });

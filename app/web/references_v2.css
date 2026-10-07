@@ -33,14 +33,14 @@
 .rv-root .rv-card-head, .rv-root .rv-part, .rv-root .rv-garment, .rv-root .rv-sec { font-weight: 400; }
 
 /* Paneles: los del portal, mas discretos */
-.rv-root .client-panel { margin: 0; padding: 16px 18px; min-width: 0; position: relative; isolation: isolate; border-radius: 16px; border: 1px solid var(--rv-line); box-shadow: 0 4px 18px rgba(0, 0, 0, .08); }
-/* Contraste AA con un velo suave y neutro: el inverso del color de texto del
-   tema (blanco si el texto es oscuro, oscuro si el texto es claro). Los
-   navegadores sin colores relativos usan el fondo del tema (--cx-bg). */
+.rv-root .client-panel { margin: 0; padding: 16px 18px; min-width: 0; position: relative; isolation: isolate; border-radius: 22px; }
+/* Paneles: la misma superficie del menu lateral (.client-sidebar y
+   .client-panel comparten fondo, borde, sombra y desenfoque del estilo de
+   tarjeta del portal). Solo se agrega un velo del color de fondo del tema
+   (--cx-bg), lo minimo para que el texto pase AA donde el degradado oscurece. */
 .rv-root .client-panel::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1; pointer-events: none;
-  background: color-mix(in srgb, var(--cx-bg) 45%, transparent);
-  background: rgb(from var(--cx-text) calc(255 - r) calc(255 - g) calc(255 - b) / .52);
+  background: color-mix(in srgb, var(--cx-bg) var(--rv-veil, 20%), transparent);
 }
 
 /* Barras de desplazamiento delgadas con el color del tema */
@@ -188,14 +188,17 @@
 .rv-root .rv-col { display: flex; flex-direction: column; height: min(76vh, 780px); min-width: 0; }
 .rv-root .client-panel h2.rv-col-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; text-shadow: none; }
 .rv-col-head b { font-size: 20px; letter-spacing: 0; color: var(--rv-text); }
-.rv-root .rv-col-list { flex: 0 1 auto; min-height: 0; max-height: none; display: grid; align-content: start; gap: 10px; overflow-x: hidden; }
+.rv-root .rv-col-list { flex: 0 1 auto; min-height: 0; max-height: none; display: grid; align-content: start; gap: 14px; overflow-x: hidden; padding: 2px 6px 6px 2px; }
 .rv-more { margin: 8px 0 0; font-size: 12px; }
 .rv-col, .rv-col-list > *, .rv-card, .rv-card > * { min-width: 0; }
 /* Ninguna lista estira la pagina: mas de 8 elementos, desplazamiento interno. */
 .rv-scroll { max-height: min(70vh, 760px); overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
 /* Tarjeta de referencia compacta: nombre, una linea de detalle, etiquetas y cifras */
-.rv-card { border: 1px solid var(--rv-line); border-radius: var(--rv-r); padding: 10px 12px; background: var(--rv-soft); display: grid; gap: 6px; }
-.rv-card.is-open { border: 2px solid var(--cx-primary); }
+/* Tarjetas: la superficie de los botones del menu lateral (.client-nav button:
+   blanco translucido y borde claro), un paso mas definida, con sombra suave. */
+.rv-card { border: 1px solid rgba(255, 255, 255, .34); border-radius: var(--rv-r); padding: 10px 12px; background: rgba(255, 255, 255, .16); box-shadow: 0 4px 14px rgba(0, 0, 0, .1); display: grid; gap: 6px; transition: border-color .15s ease, box-shadow .15s ease; }
+.rv-card:hover { border-color: var(--cx-primary); }
+.rv-card.is-open { border: 2px solid var(--cx-primary); box-shadow: 0 6px 20px rgba(0, 0, 0, .14); }
 .rv-card-head { width: 100%; min-height: 32px; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; border: 0; background: none; color: inherit; text-align: left; padding: 0; cursor: pointer; }
 .rv-card-head b { display: block; font-size: 15px; }
 .rv-card-head small { display: block; margin-top: 1px; color: var(--rv-muted); font-size: 12.5px; }
