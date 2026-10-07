@@ -184,12 +184,12 @@
         <label class="rv-bar-item rv-toggle"><span>Visible para bot</span><input type="checkbox" data-rv-bot ${model.botVisible ? "checked" : ""}><i aria-hidden="true"></i></label>
         <div class="rv-bar-item rv-route">Ruta: <b>${h(route || "—")}</b></div></section>
       <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step"><i>1</i>Elige la parte</h2><div class="rv-parts">${arr(c.body_parts).map(partCard).join("")}</div></section>
-      ${f.part ? `<section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step"><i>2</i>Elige la prenda · ${h(part.short)}</h2><div class="rv-garments rv-scroll">${garmentsOf(c, f.part).map((x) => `
+      ${f.part ? `<section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step"><i>2</i>Elige la prenda<span class="rv-step-detail">&nbsp;· ${h(part.short)}</span></h2><div class="rv-garments rv-scroll">${garmentsOf(c, f.part).map((x) => `
         <button type="button" class="rv-garment ${f.garment === x.code ? "is-on" : ""}" data-rv-garment="${x.code}">${icon(x.code)}<b>${h(x.label)}</b><small>${counts.garments[x.code] || 0}${counts.garments[x.code] === 1 ? " referencia" : counts.garments[x.code] ? " referencias" : ""}</small></button>`).join("")}</div></section>` : ""}
-      ${g ? `<section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step"><i>3</i>Tallas y cantidades · ${h(g.label)} ${model.gender === "hombre" ? "Hombre" : "Mujer"}</h2>
+      ${g ? `<section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step"><i>3</i>Tallas y cantidades<span class="rv-step-detail">&nbsp;· ${h(g.label)} ${model.gender === "hombre" ? "Hombre" : "Mujer"}</span></h2>
         <div class="rv-sizes-grid"><div class="rv-sizes">${sizes.map((s) => {
           const on = Object.prototype.hasOwnProperty.call(f.sizes, s);
-          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "client-btn is-on" : ""}" data-rv-size="${h(s)}" aria-pressed="${on}">${h(s)}</button>
+          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "is-on" : ""}" data-rv-size="${h(s)}" aria-pressed="${on}">${h(s)}</button>
             <input class="rv-qty" type="number" min="0" inputmode="numeric" placeholder="cantidad" data-rv-qty="${h(s)}" value="${on ? h(f.sizes[s]) : ""}" ${on ? "" : "disabled"} aria-label="Cantidad talla ${h(s)}"></div>`;
         }).join("")}</div>
         <div class="rv-fields"><label class="rv-field">Nombre de la referencia<input data-rv-name value="${h(f.name)}" maxlength="120" placeholder="Ej: PANT SET"></label>
@@ -211,7 +211,7 @@
           <label class="rv-field">Referencia<select data-rv-cut-ref><option value="">Elige la referencia</option>${gs.map((x) => `<option value="${h(x.rows[0].id)}" ${group && group.key === x.key ? "selected" : ""}>${h(x.name)}${x.color ? ` · ${h(x.color)}` : ""}</option>`).join("")}</select></label></div>
         ${group ? `<span class="client-label rv-label">Talla y cantidad recibida</span><div class="rv-sizes">${sizes.map((s) => {
           const on = Object.prototype.hasOwnProperty.call(cut.received, s.size);
-          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "client-btn is-on" : ""}" data-rv-recv="${h(s.size)}" aria-pressed="${on}">${h(s.size)}</button>
+          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "is-on" : ""}" data-rv-recv="${h(s.size)}" aria-pressed="${on}">${h(s.size)}</button>
             <input class="rv-qty" type="number" min="0" inputmode="numeric" placeholder="cantidad" data-rv-recv-qty="${h(s.size)}" value="${on ? h(cut.received[s.size]) : ""}" ${on ? "" : "disabled"}></div>`;
         }).join("")}</div>` : `<p class="client-muted rv-muted">Elige una referencia para ver sus tallas.</p>`}</section>
       <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-red"><i>2</i>Novedades por sección</h2>
@@ -219,16 +219,16 @@
         ${SECTIONS.map(([k, l]) => { const n = cut.novelties[k] || {}; return `<span class="rv-sec is-${k}"><i></i>${h(l)}</span>
           <input data-rv-nov-note="${k}" value="${h(n.note || "")}" maxlength="500" placeholder="Escribe la observación…">
           <input type="number" min="0" inputmode="numeric" data-rv-nov-qty="${k}" value="${h(n.quantity || "")}" placeholder="0">`; }).join("")}</div></section>
-      <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-violet"><i>3</i>Enviado a despliegue · prenda terminada para fotos</h2>
+      <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-violet"><i>3</i>Enviado a despliegue</h2><p class="client-muted rv-step-sub">Prenda terminada para fotos</p>
         <div class="rv-deploy"><label class="rv-field">Cantidad<input type="number" min="0" inputmode="numeric" data-rv-dep="quantity" value="${h(cut.deploy.quantity)}" placeholder="0"></label>
           <label class="rv-field">Talla<select data-rv-dep="size"><option value="">—</option>${sizes.map((s) => `<option ${cut.deploy.size === s.size ? "selected" : ""}>${h(s.size)}</option>`).join("")}</select></label>
           <label class="rv-field">Fecha de envío<input type="date" data-rv-dep="date" value="${h(cut.deploy.date)}"></label>
           <button type="button" class="client-btn rv-btn is-primary" data-rv-cut-save ${model.busy || !group ? "disabled" : ""}>Guardar registro</button></div></section></div>
       <aside class="rv-cuts-side">
-        <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Balance${group ? ` · ${h(group.name)}` : ""}</h2>${b ? `
+        <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Balance</h2>${group ? `<p class="client-muted rv-step-sub is-flat">${h(group.name)}${group.color ? ` · ${h(group.color)}` : ""}</p>` : ""}${b ? `
           <div class="rv-kpis"><div class="is-k-recv"><b>${h(b.received)}</b><small>Recibido</small></div><div class="is-k-nov"><b>${h(b.novelty)}</b><small>Con novedad</small></div>
             <div class="is-k-dep"><b>${h(b.deployed)}</b><small>A despliegue</small></div><div class="is-k-av"><b>${h(b.available)}</b><small>Disponible</small></div></div>
-          <div class="rv-progress"><span style="--p:${Math.min(100, pct)}%"></span></div><p class="rv-muted rv-row">Disponible = recibido − novedades − despliegue <b>${h(pct)} %</b></p>
+          <div class="rv-progress"><span style="--p:${Math.min(100, pct)}%"></span></div><p class="rv-muted rv-row"><span>Disponible = recibido − novedades − despliegue</span> <b class="rv-nowrap">${h(pct)}&nbsp;%</b></p>
           <p class="rv-note">El número <b>producido</b> no se toca. Cada novedad o envío queda como movimiento con fecha.</p>` : `<p class="client-muted rv-muted">Elige una referencia para ver su balance.</p>`}</section>
         <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Bitácora de la referencia</h2>${b && arr(b.log).length ? `<ol class="rv-log rv-scroll">${arr(b.log).map(logItem).join("")}</ol>` : `<p class="client-muted rv-muted">Sin movimientos todavía.</p>`}</section>
       </aside></div>`;
@@ -250,7 +250,8 @@
   function stateView() {
     const cols = columns(model.rows, model.extras, { search: model.search, gender: model.filterGender }, model.catalog);
     const col = (title, cls, list) => `<section class="client-panel rv-panel rv-col"><h2 class="client-eyebrow rv-col-head ${cls}">${h(title)}<b>${list.length}</b></h2>
-      <div class="rv-col-list rv-scroll">${list.map((r) => card(r, title)).join("") || `<p class="client-muted rv-muted">Nada aquí.</p>`}</div></section>`;
+      <div class="rv-col-list rv-scroll" data-rv-fit>${list.map((r) => card(r, title)).join("") || `<p class="client-muted rv-muted">Nada aquí.</p>`}</div>
+      <p class="client-muted rv-more" data-rv-more hidden></p></section>`;
     return `<section class="client-panel rv-panel rv-bar"><input class="rv-search" type="search" data-rv-search value="${h(model.search)}" placeholder="Buscar por nombre, prenda, talla, color o SKU…" aria-label="Buscar">
         ${genderSwitch("data-rv-fgender", model.filterGender, true)}<button type="button" class="rv-btn" data-rv-export>Exportar CSV</button></section>
       <div class="rv-cols">${col("Activas", "is-lime", cols.activas)}${col("Visibles para bot", "is-cyan", cols.visibles)}${col("No visibles", "is-violet", cols.noVisibles)}</div>`;
@@ -275,10 +276,10 @@
     const open = model.open === key;
     const sug = ex.suggestion;
     const sugG = sug && garmentOf(model.catalog, sug.garment_type);
-    return `<article class="rv-card ${open ? "is-open" : ""}"><button type="button" class="rv-card-head" data-rv-open="${h(key)}" aria-expanded="${open}"><span><b>${h(title)}</b><small>${h(sub)}</small></span><i aria-hidden="true">${open ? "▴" : "▾"}</i></button>
-      <div class="rv-chips">${isCombined ? `<i class="rv-chip is-amber">Tallas combinadas</i>` : ""}${!ex.classified ? `<i class="rv-chip is-cyan">Por clasificar</i>` : ""}
+    return `<article class="rv-card ${open ? "is-open" : ""}"><button type="button" class="rv-card-head" data-rv-open="${h(key)}" aria-expanded="${open}"><span><b>${h(title)}</b><small>${h(sub)}${isCombined ? ` <i class="rv-chip is-amber">Tallas combinadas</i>` : ""}</small></span><i aria-hidden="true">${open ? "▴" : "▾"}</i></button>
+      <div class="rv-chips">${!ex.classified && !sugG ? `<i class="rv-chip is-cyan">Por clasificar</i>` : ""}
         <i class="rv-chip ${r.bot_active ? "is-lime" : "is-violet"}">${r.bot_active ? "Visible para bot" : "No visible"}</i></div>
-      ${!ex.classified && sugG ? `<p class="rv-sug">Sugerencia: <b>${h(sugG.label)} · ${sug.gender === "hombre" ? "Hombre" : "Mujer"}</b> <button type="button" class="rv-btn is-small" data-rv-confirm="${h(r.id)}">Confirmar</button></p>` : ""}
+      ${!ex.classified && sugG ? `<p class="rv-sug"><span><i class="rv-chip is-cyan">Por clasificar</i> Sugerencia: <b>${h(sugG.label)} · ${sug.gender === "hombre" ? "Hombre" : "Mujer"}</b></span><button type="button" class="rv-btn is-small" data-rv-confirm="${h(r.id)}">Confirmar</button></p>` : ""}
       <div class="rv-progress"><span style="--p:${pct}%"></span></div>
       <p class="rv-row"><span>Meta <b>${h(meta)}</b></span><span>Producido <b>${h(done)}</b></span><span>Pendiente <b>${h(pending)}</b></span></p>
       ${ex.deployed ? `<p class="rv-deploy-note">Enviada${ex.deployed.quantity === 1 ? "" : "s"} ${h(ex.deployed.quantity)} a despliegue el ${h(String(ex.deployed.last_date || "").split("-").reverse().join("/"))} (fotos)</p>` : ""}
@@ -306,6 +307,24 @@
     return `<div class="rv-root" data-rv-root>${head()}${body}</div>`;
   }
 
+  // Cada columna muestra solo tarjetas completas: su alto se recorta al borde de
+  // la ultima que cabe y el pie dice cuantas quedan (se ven desplazando la lista).
+  function fitLists(host) {
+    if (!host || !host.querySelectorAll || typeof getComputedStyle !== "function") return;
+    host.querySelectorAll("[data-rv-fit]").forEach((list) => {
+      list.style.height = "";
+      const cards = [...list.children].filter((c) => c.classList && c.classList.contains("rv-card"));
+      const more = list.parentElement && list.parentElement.querySelector("[data-rv-more]");
+      const limit = list.clientHeight;
+      if (!cards.length || list.scrollHeight <= limit + 1) { if (more) more.hidden = true; return; }
+      const top = list.getBoundingClientRect().top - list.scrollTop;
+      let fit = 0, bottom = 0;
+      cards.forEach((c) => { const b = c.getBoundingClientRect().bottom - top; if (b <= limit + 1) { fit += 1; bottom = b; } });
+      if (fit && bottom > 0) list.style.height = `${Math.ceil(bottom + 2)}px`;
+      if (more) { more.hidden = false; more.textContent = `+ ${cards.length - fit} más · desliza la lista para verlas`; }
+    });
+  }
+
   function draw() {
     if (!ctx) return;
     const host = ctx.host();
@@ -314,6 +333,7 @@
     const keep = active && active.getAttribute ? ["data-rv-search", "data-rv-name", "data-rv-color"].find((a) => active.hasAttribute(a)) : null;
     const caret = keep ? active.selectionStart : null;
     host.innerHTML = view();
+    fitLists(host);
     if (keep) { const again = host.querySelector(`[${keep}]`); if (again) { again.focus(); try { again.setSelectionRange(caret, caret); } catch (_) {} } }
   }
 
@@ -476,6 +496,7 @@
       document.addEventListener("click", onClick);
       document.addEventListener("change", onChange);
       document.addEventListener("input", onInput);
+      if (typeof window.addEventListener === "function") window.addEventListener("resize", () => { if (ctx) fitLists(ctx.host()); });
       bound = true;
     }
     model.notice = ""; model.error = "";

@@ -54,13 +54,13 @@ test('selección de parte, prenda y tallas; el campo de cantidad se habilita al 
   assert.doesNotMatch(html, /Elige la prenda/, 'la prenda aparece al elegir la parte');
   m.form.part = 'inferior';
   html = R.view();
-  assert.match(html, /Elige la prenda · Parte inferior/);
+  assert.match(html, /Elige la prenda<span class="rv-step-detail">&nbsp;· Parte inferior<\/span>/);
   for (const g of ['Pantalón', 'Falda', 'Short', 'Leggings', 'Medias', 'Ropa interior']) assert.match(html, new RegExp(`<b>${g}</b>`));
   assert.match(html, /<svg class="rv-icon/, 'ilustraciones SVG en el código');
   m.form.garment = 'pantalon';
   m.form.sizes = { 6: '20', 4: '30' };
   html = R.view();
-  assert.match(html, /Tallas y cantidades · Pantalón Mujer/);
+  assert.match(html, /Tallas y cantidades<span class="rv-step-detail">&nbsp;· Pantalón Mujer<\/span>/);
   assert.match(html, /data-rv-qty="4" value="30" (?!disabled)/);
   assert.match(html, /data-rv-qty="8" value="" disabled/, 'sin marcar, la cantidad está deshabilitada');
   assert.match(html, /Ruta: <b>Parte inferior › Pantalón › Mujer<\/b>/);
@@ -88,11 +88,11 @@ test('tarjetas: tallas combinadas tal cual, por clasificar con sugerencia, nota 
   const m = R.model;
   Object.assign(m, { catalog: CATALOG, rows: ROWS, extras: EXTRAS, tab: 'estado', filterGender: 'mujer', search: '' });
   let html = R.view();
-  assert.match(html, /<b>Mystic pant<\/b><small>Sin categoría · 4, 6, 8, 10, 12<\/small>/, 'la fila combinada no se parte');
+  assert.match(html, /<b>Mystic pant<\/b><small>Sin categoría · 4, 6, 8, 10, 12 <i class="rv-chip is-amber">Tallas combinadas<\/i><\/small>/, 'la fila combinada no se parte; la etiqueta va junto a sus tallas');
   assert.match(html, /Tallas combinadas/);
   assert.match(html, /<b>PANT SET · talla 10<\/b><small>Pantalón · Mujer · Marfil<\/small>/);
   assert.match(html, /Por clasificar/);
-  assert.match(html, /Sugerencia: <b>Chaqueta · Mujer<\/b> <button[^>]*data-rv-confirm="mj"/, 'se confirma con un clic; nunca sola');
+  assert.match(html, /<p class="rv-sug"><span><i class="rv-chip is-cyan">Por clasificar<\/i> Sugerencia: <b>Chaqueta · Mujer<\/b><\/span><button[^>]*data-rv-confirm="mj"/, 'misma línea; se confirma con un clic; nunca sola');
   assert.match(html, /Enviada 1 a despliegue el 06\/10\/2026 \(fotos\)/);
   assert.match(html, /Meta <b>126<\/b>.*Producido <b>126<\/b>.*Pendiente <b>0<\/b>/s);
   m.open = 'No visibles:p12';
@@ -125,7 +125,8 @@ test('cortes: tallas de la referencia (una combinada se elige por talla sin part
   m.balance = { received: 50, novelty: 3, deployed: 1, available: 46, log: [] };
   const html = R.view();
   assert.match(html, /<div class="is-k-recv"><b>50<\/b>/); assert.match(html, /<div class="is-k-av"><b>46<\/b>/);
-  assert.match(html, /92 %/);
+  assert.match(html, /<b class="rv-nowrap">92&nbsp;%<\/b>/, '92 % sin partirse');
+  assert.match(html, /<h2 class="client-eyebrow rv-step is-violet"><i>3<\/i>Enviado a despliegue<\/h2><p class="client-muted rv-step-sub">Prenda terminada para fotos<\/p>/);
   for (const s of ['Corte', 'Bordado', 'Taller', 'Lavado', 'Otro']) assert.match(html, new RegExp(`<i></i>${s}</span>`));
   assert.doesNotMatch(html, /pieza<\/label>/i, 'sin campo pieza');
   assert.match(html, /El número <b>producido<\/b> no se toca/);
@@ -154,7 +155,9 @@ test('client.js: solo el enganche; con el interruptor apagado se sirve la pantal
 test('diseño: botones de 44 px, listas con desplazamiento interno y celular', () => {
   const css = readFileSync('app/web/references_v2.css', 'utf8');
   assert.match(css, /\.rv-scroll \{ max-height: min\(70vh, 760px\); overflow-y: auto;/);
-  assert.match(css, /\.rv-btn \{ min-height: 46px; min-width: 44px;/);
+  assert.match(css, /\.rv-btn \{ min-height: 44px; min-width: 44px;/);
+  assert.match(css, /\.rv-size-btn \{ height: 40px;/, 'tallas: fichas de 40 px');
+  assert.match(css, /\.rv-kpis \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(124px, 1fr\)\)/, 'balance: 2 x 2 si no cabe');
   assert.match(css, /\.rv-tab \{ min-height: 44px;/);
   assert.match(css, /@media \(max-width: 720px\)/);
   assert.doesNotMatch(SRC, /<img|data:image|\.png|\.jpg/, 'sin imágenes: SVG en el código');
@@ -168,7 +171,8 @@ test('tema: references_v2.css no tiene colores fijos; todo sale de las variables
   const rest = css.replace(SEMANTIC, '');
   const NEUTRAL = /^(#fff|#ffffff|#000|#000000|rgba?\(\s*(0\s*,\s*0\s*,\s*0|255\s*,\s*255\s*,\s*255)\s*(,\s*[\d.]+\s*)?\))$/i;
   const found = rest.match(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/gi) || [];
-  const bad = found.filter((c) => !NEUTRAL.test(c.trim()));
+  // Colores relativos al tema (rgb(from var(--cx-…))) no son fijos.
+  const bad = found.filter((c) => !NEUTRAL.test(c.trim()) && !c.trim().toLowerCase().startsWith('rgb(from var(--cx-'));
   assert.deepEqual(bad, [], `colores fijos: ${bad.join(', ')}`);
   for (const v of ['--cx-primary', '--cx-secondary', '--cx-text', '--cx-bg']) assert.ok(css.includes(`var(${v})`), v);
   assert.doesNotMatch(css, /\.rv-root \{[^}]*(background|border-radius|padding)\s*:/, 'sin recuadro propio');
