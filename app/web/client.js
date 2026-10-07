@@ -20528,12 +20528,70 @@ function inventoryCreatePayload() {
     }, 3600);
   }
 
+  /* CLONEXA_050B_REFERENCES_V2_START: pantalla nueva de Referencias solo con el
+     interruptor references_v2 (settings del modulo references, apagado por
+     defecto). Sin el interruptor, o si su archivo no carga, todo sigue igual. */
+  function cxReferencesV2On050B(code) {
+    const item = activeClientModules().find((m) => m.code === code);
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.references_v2 === true;
+  }
+
+  let cxReferencesV2Loading050B = null;
+  function cxReferencesV2Load050B() {
+    if (window.CxReferencesV2) return Promise.resolve();
+    if (!cxReferencesV2Loading050B) {
+      cxReferencesV2Loading050B = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxReferencesV2Css050B")) {
+          const link = document.createElement("link");
+          link.id = "cxReferencesV2Css050B";
+          link.rel = "stylesheet";
+          link.href = "/client-static/references_v2.css?v=050B";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/references_v2.js?v=050B";
+        script.onload = () => resolve();
+        script.onerror = () => { cxReferencesV2Loading050B = null; reject(new Error("references_v2")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxReferencesV2Loading050B;
+  }
+
+  async function cxReferencesV2Mount050B(code) {
+    try { await cxReferencesV2Load050B(); } catch (_) { return false; }
+    if (!window.CxReferencesV2 || typeof window.CxReferencesV2.mount !== "function") return false;
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav(code)}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main"><div id="cxReferencesV2Host050B"></div></section>
+        </div>
+      </main>`;
+    await window.CxReferencesV2.mount({
+      companyId: state.companyId, company, api, apiBase: API, brand: cxPortalBrand050A(),
+      host: () => document.getElementById("cxReferencesV2Host050B"),
+    });
+    return true;
+  }
+  /* CLONEXA_050B_REFERENCES_V2_END */
+
   async function renderReferencesModule022E() {
     const activeReferencesNavCode022E = cxActiveReferencesNavCode022E();
     if (!activeReferencesNavCode022E) {
       render();
       return;
     }
+    if (cxReferencesV2On050B(activeReferencesNavCode022E) && await cxReferencesV2Mount050B(activeReferencesNavCode022E)) return;
     cxReferencesStyles022E();
     const company = state.company || {};
     let payload = { items: [] };
