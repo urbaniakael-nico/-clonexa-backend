@@ -263,35 +263,94 @@ async def balance(db: AsyncSession, company_id: str, reference_id: str) -> Optio
     if not ref:
         return None
     group = await group_of(db, company_id, ref)
+    group.sort(key=lambda r: size_key(r["size"]))
     moves = await movements_for(db, company_id, [r["id"] for r in group])
+    existing = sorted({s for r in group for s in sizes_of(r["size"])}, key=size_key)
+    existing_folded = {_fold(s) for s in existing}
+    for m in moves:  # "talla sin referencia": la talla aun no existe como fila de esta referencia
+        m["size_without_reference"] = bool(m["size"]) and _fold(m["size"]) not in existing_folded
     sizes = sorted({m["size"] for m in moves if m["size"]}, key=size_key)
     per_size = {s: tally([m for m in moves if m["size"] == s]) for s in sizes}
-    return {"reference": ref, "group": group, **tally(moves), "per_size": per_size, "log": moves}
+    classified = next((r for r in group if r["gender"] and r["garment_type"]), None)
+    catalog_sizes = sizes_for(classified["gender"], classified["garment_type"]) if classified else []
+    received_by_date: dict = {}
+    for m in moves:
+        if m["kind"] == "ingreso" and not m.get("voided_at"):
+            received_by_date[m["event_date"]] = received_by_date.get(m["event_date"], 0) + m["quantity"]
+    return {"reference": ref, "group": group, **tally(moves), "per_size": per_size, "log": moves,
+            "existing_sizes": existing, "catalog_sizes": catalog_sizes, "classified": bool(classified),
+            "received_by_date": [{"date": d, "quantity": q} for d, q in sorted(received_by_date.items())]}
+
+
+LETTER_ORDER = {"xxs": -1, "xs": 0, "s": 1, "m": 2, "l": 3, "xl": 4, "xxl": 5, "xxxl": 6}
+_LETTER_TOKENS = re.compile(r"xxxl|xxl|xl|xxs|xs|s|m|l")
 
 
 def size_key(value: str) -> tuple:
-    """Orden de menor a mayor: numeros, luego XS..XXL, luego el resto."""
-    order = {"xs": 0, "s": 1, "m": 2, "l": 3, "xl": 4, "xxl": 5, "unica": 6, "única": 6}
-    v = str(value or "").strip().lower()
-    if v.isdigit():
-        return (0, int(v), v)
-    if v in order:
-        return (1, order[v], v)
-    return (2, 0, v)
+    """Orden del catalogo, de menor a mayor: numeros ascendentes (4, 6, 8...),
+    luego letras XS, S, M, L, XL, XXL (SM antes que ML), luego talla unica y
+    el resto. Una fila combinada ("4, 6, 8") se ordena por su primera talla."""
+    v = _fold(value).strip()
+    first = re.split(r"[,;/]", v)[0].strip()
+    num = re.match(r"^(\d+(?:\.\d+)?)", first)
+    if num:
+        return (0, float(num.group(1)), (), v)
+    letters = re.sub(r"[^a-z]", "", first)
+    tokens = []
+    rest = letters
+    while rest:
+        m = _LETTER_TOKENS.match(rest)
+        if not m:
+            break
+        tokens.append(LETTER_ORDER[m.group(0)])
+        rest = rest[m.end():]
+    if tokens and not rest:
+        return (1, tokens[0], tuple(tokens), v)
+    if first in ("unica", "u", "tu", "talla unica"):
+        return (2, 0, (), v)
+    return (3, 0, (), v)
+
+
+def sizes_of(size: Any) -> list[str]:
+    """Tallas de una fila: una combinada ("4, 6, 8") aporta cada una (sin partir la fila)."""
+    return [t.strip() for t in re.split(r"[,;]", str(size or "")) if t.strip()]
+
+
+def _group_key(row: dict) -> tuple:
+    return (str(row.get("name") or "").lower(), str(row.get("category") or "").lower(), str(row.get("color") or "").lower())
+
+
+def owner_row(rows: list[dict], movement: dict) -> Optional[str]:
+    """Fila a la que pertenece un movimiento: la de su talla dentro de la misma
+    referencia (nombre, categoria y color); si esa talla aun no existe como
+    fila, la fila donde se registro. No cambia nada guardado."""
+    by_id = {r["id"]: r for r in rows}
+    anchor = by_id.get(movement["reference_id"])
+    if not anchor or not movement.get("size"):
+        return movement["reference_id"]
+    key, size = _group_key(anchor), _fold(movement["size"]).strip()
+    for r in rows:
+        if _group_key(r) == key and size in [_fold(x) for x in sizes_of(r["size"])]:
+            return r["id"]
+    return movement["reference_id"]
 
 
 async def board_extras(db: AsyncSession, company_id: str) -> dict:
     """Para Estado de referencias: clasificacion, sugerencia, tallas combinadas
-    y la nota del ultimo envio a despliegue de cada fila (nada mas)."""
-    rows = (await db.execute(text(f"""
+    y la nota del ultimo envio a Bombon de cada fila, por su talla (nada mas)."""
+    rows = [dict(r) for r in (await db.execute(text(f"""
         SELECT {REF_COLS} FROM product_references WHERE company_id = :c
-    """), {"c": company_id})).mappings().all()
-    deploy = (await db.execute(text("""
-        SELECT reference_id, SUM(quantity) AS qty, MAX(event_date) AS last_date
+    """), {"c": company_id})).mappings().all()]
+    moves = (await db.execute(text("""
+        SELECT reference_id, size, quantity, event_date
         FROM reference_cut_movements WHERE company_id = :c AND kind = 'despliegue' AND voided_at IS NULL
-        GROUP BY reference_id
     """), {"c": company_id})).mappings().all()
-    deployed = {r["reference_id"]: {"quantity": int(r["qty"]), "last_date": r["last_date"]} for r in deploy}
+    deployed: dict = {}
+    for m in moves:
+        rid = owner_row(rows, dict(m))
+        d = deployed.setdefault(rid, {"quantity": 0, "last_date": None})
+        d["quantity"] += int(m["quantity"])
+        d["last_date"] = max(d["last_date"], m["event_date"]) if d["last_date"] else m["event_date"]
     out = {}
     for r in rows:
         classified = bool(r["gender"] and r["body_part"] and r["garment_type"])

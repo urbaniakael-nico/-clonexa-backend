@@ -219,3 +219,64 @@ async def test_catalog_create_makes_the_same_rows_as_today(pg_url):
         counts = await rv2.catalog_counts(db, b)
         assert counts["mujer"]["parts"]["inferior"] == 1 and counts["mujer"]["garments"]["pantalon"] == 1
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cut_in_size_without_reference_and_create_it_later(pg_url):
+    """Caso real: PANT SET se creo en 4 y 6; llega corte en 8 y 12."""
+    from fastapi import HTTPException
+
+    engine, maker = await _engine(pg_url)
+    await _migrate(pg_url)
+    async with maker() as db:
+        v = await _company(db, "VelvetTallas")
+        other = await _company(db, "OtraTallas")
+        made = await refs.v2_catalog_create(v, {"name": "PANT SET", "color": "Marfil", "gender": "mujer", "body_part": "inferior", "garment_type": "pantalon",
+                                                "bot_visible": True, "sizes": [{"size": "6", "quantity": 20}, {"size": "4", "quantity": 30}]}, actor="t", db=db)
+        anchor = made["items"][0]["id"]
+        bot_before = json.dumps([await refs.bot_reference_options(company_id=v, db=db), await refs.bot_reference_sizes(company_id=v, name="PANT SET", db=db),
+                                 await vbot._references(db, v)], sort_keys=True, default=str)
+        count = lambda: db.execute(text("SELECT COUNT(*) FROM product_references WHERE company_id = :c"), {"c": v})
+        await rv2.add_movements(db, v, [
+            {"reference_id": anchor, "kind": "ingreso", "size": "8", "quantity": 6, "event_date": "2026-10-06"},
+            {"reference_id": anchor, "kind": "ingreso", "size": "12", "quantity": 3, "event_date": "2026-10-06"},
+            {"reference_id": anchor, "kind": "ingreso", "size": "4", "quantity": 8, "event_date": "2026-09-16"},
+            {"reference_id": anchor, "kind": "despliegue", "size": "8", "quantity": 1, "event_date": "2026-10-06"}], "Ana")
+        assert (await count()).scalar() == 2, "recibir corte en una talla nueva NO crea la referencia sola"
+        b = await rv2.balance(db, v, anchor)
+        assert b["existing_sizes"] == ["4", "6"] and b["catalog_sizes"] == ["4", "6", "8", "10", "12", "14", "16"]
+        orphans = sorted(m["size"] for m in b["log"] if m["size_without_reference"])
+        assert orphans == ["12", "8", "8"], "talla sin referencia"
+        assert b["received"] == 17 and [(str(d["date"]), d["quantity"]) for d in b["received_by_date"]] == [("2026-09-16", 8), ("2026-10-06", 9)]
+        assert sum(d["quantity"] for d in b["received_by_date"]) == b["received"], "suma por fecha = total recibido"
+        # Crear referencia en talla 8: misma referencia, meta 0, NO visible para el bot
+        created = await refs.v2_add_size(v, anchor, {"size": "8"}, actor="t", db=db)
+        assert created["bot_active"] is False
+        row = (await db.execute(text("SELECT name, category, color, size, initial_quantity, bot_active, gender, body_part, garment_type FROM product_references WHERE id = :i"),
+                                {"i": created["item"]["id"]})).mappings().first()
+        assert dict(row) == {"name": "PANT SET", "category": "Pantalón", "color": "Marfil", "size": "8", "initial_quantity": 0, "bot_active": False,
+                             "gender": "mujer", "body_part": "inferior", "garment_type": "pantalon"}
+        bot_after = json.dumps([await refs.bot_reference_options(company_id=v, db=db), await refs.bot_reference_sizes(company_id=v, name="PANT SET", db=db),
+                                await vbot._references(db, v)], sort_keys=True, default=str)
+        assert bot_after == bot_before, "el bot ve lo mismo hasta que la enciendan"
+        b = await rv2.balance(db, v, anchor)
+        assert sorted(m["size"] for m in b["log"] if m["size_without_reference"]) == ["12"], "los cortes de la talla 8 quedan asociados a ella"
+        ex = await rv2.board_extras(db, v)
+        assert ex[created["item"]["id"]]["deployed"]["quantity"] == 1 and ex[anchor]["deployed"] is None, "la nota de Bombón va en la talla 8"
+        moved = (await db.execute(text("SELECT COUNT(*) FROM reference_cut_movements WHERE company_id = :c AND reference_id = :r"), {"c": v, "r": anchor})).scalar()
+        assert moved == 4, "ningún movimiento guardado cambia"
+        with pytest.raises(HTTPException) as dup:
+            await refs.v2_add_size(v, anchor, {"size": "8"}, actor="t", db=db)
+        assert dup.value.status_code == 409
+        with pytest.raises(HTTPException) as bad:
+            await refs.v2_add_size(v, anchor, {"size": "XL"}, actor="t", db=db)
+        assert bad.value.status_code == 422, "solo tallas de la prenda"
+        with pytest.raises(HTTPException) as foreign:
+            await refs.v2_add_size(other, anchor, {"size": "10"}, actor="t", db=db)
+        assert foreign.value.status_code == 404, "otra empresa no ve ni crea en esta referencia"
+    await engine.dispose()
+
+
+def test_size_order_follows_the_catalog():
+    sizes = ["12", "10", "8", "6", "4", "XL", "S", "M", "XS", "XXL", "L", "ML", "SM", "4, 6, 8, 10, 12"]
+    assert sorted(sizes, key=rv2.size_key) == ["4", "4, 6, 8, 10, 12", "6", "8", "10", "12", "XS", "S", "SM", "M", "ML", "L", "XL", "XXL"]

@@ -14,7 +14,7 @@
   const SECTIONS = [["corte", "Corte"], ["bordado", "Bordado"], ["taller", "Taller"], ["lavado", "Lavado"], ["otro", "Otro"]];
   const TITLES = {
     catalogo: ["Catálogo comercial", "Crea referencias paso a paso: parte, prenda, talla y cantidad."],
-    cortes: ["Información de cortes", "Recibe cortes, registra novedades por sección y envíos a despliegue."],
+    cortes: ["Información de cortes", "Recibe cortes, registra novedades por sección y envíos a Bombón."],
     estado: ["Estado de referencias", "Tus referencias actuales, agrupadas. Nada se borra ni se cambia."],
   };
 
@@ -41,6 +41,7 @@
     tab: "catalogo", gender: "mujer", botVisible: true, form: blankForm(), cut: blankCut(),
     catalog: null, counts: {}, rows: [], extras: {}, balance: null, search: "", filterGender: "mujer", open: "", editing: "",
     notice: "", error: "", busy: false, voiding: "",
+    logOpen: {}, modal: "", lastOpen: "", draft: null, modalBalance: null,
   };
   let ctx = null;
   let bound = false;
@@ -73,6 +74,31 @@
 
   function combined(size) { return String(size || "").includes(","); }
 
+  // Orden del catalogo, de menor a mayor (igual que references_v2.size_key del servidor):
+  // numeros ascendentes, luego XS, S, M, L, XL, XXL (SM antes que ML), luego talla unica.
+  const LETTERS = { xxs: -1, xs: 0, s: 1, m: 2, l: 3, xl: 4, xxl: 5, xxxl: 6 };
+  function sizeKey(v) {
+    const s = fold(v).trim();
+    const first = s.split(/[,;/]/)[0].trim();
+    const n = first.match(/^(\d+(?:\.\d+)?)/);
+    if (n) return [0, Number(n[1]), [], s];
+    let rest = first.replace(/[^a-z]/g, "");
+    const toks = [];
+    while (rest) {
+      const m = rest.match(/^(xxxl|xxl|xl|xxs|xs|s|m|l)/);
+      if (!m) break;
+      toks.push(LETTERS[m[1]]);
+      rest = rest.slice(m[1].length);
+    }
+    if (toks.length && !rest) return [1, toks[0], toks, s];
+    if (["unica", "u", "tu", "talla unica"].includes(first)) return [2, 0, [], s];
+    return [3, 0, [], s];
+  }
+  const cmpArr = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i += 1) { const d = (a[i] ?? -9) - (b[i] ?? -9); if (d) return d; } return 0; };
+  const bySize = (a, b) => { const x = sizeKey(a), y = sizeKey(b); return x[0] - y[0] || x[1] - y[1] || cmpArr(x[2], y[2]) || String(x[3]).localeCompare(String(y[3])); };
+  const byNameSize = (a, b) => fold(a.name).localeCompare(fold(b.name)) || fold(a.color).localeCompare(fold(b.color)) || bySize(a.size, b.size);
+  const sizesOf = (size) => String(size || "").split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+
   function groups(rows) {
     const map = new Map();
     arr(rows).forEach((r) => {
@@ -80,24 +106,50 @@
       if (!map.has(key)) map.set(key, { key, name: r.name, color: r.color, category: r.category, rows: [] });
       map.get(key).rows.push(r);
     });
-    return [...map.values()].sort((a, b) => fold(a.name).localeCompare(fold(b.name)));
+    return [...map.values()].map((g) => ({ ...g, rows: g.rows.slice().sort((a, b) => bySize(a.size, b.size)) }))
+      .sort((a, b) => fold(a.name).localeCompare(fold(b.name)) || fold(a.color).localeCompare(fold(b.color)));
   }
 
-  function sizeKey(v) {
-    const order = { xs: 0, s: 1, m: 2, l: 3, xl: 4, xxl: 5, unica: 6, "única": 6 };
-    const s = String(v || "").trim().toLowerCase();
-    if (/^\d+$/.test(s)) return [0, Number(s)];
-    if (s in order) return [1, order[s]];
-    return [2, 0, s];
+  // Tallas para registrar cortes. Con la referencia clasificada: TODAS las de su
+  // prenda y genero (catalogo); las que aun no existen como referencia van
+  // marcadas (exists=false) y su corte se guarda en la fila ancla de la misma
+  // referencia, con esa talla. Sin clasificar: solo sus tallas actuales. Una
+  // fila combinada aporta cada talla, sin partirse.
+  function groupSizes(group, balance = null) {
+    const rows = arr(group && group.rows);
+    const anchor = rows[0] ? rows[0].id : "";
+    const own = new Map();
+    rows.forEach((r) => sizesOf(r.size).forEach((x) => { if (!own.has(fold(x))) own.set(fold(x), { size: x, id: r.id }); }));
+    const catalog = balance && balance.classified ? arr(balance.catalog_sizes) : [];
+    const out = catalog.map((x) => (own.has(fold(x)) ? { size: x, id: own.get(fold(x)).id, exists: true } : { size: x, id: anchor, exists: false }));
+    own.forEach((v, k) => { if (!catalog.some((x) => fold(x) === k)) out.push({ ...v, exists: true }); });
+    return out.sort((a, b) => bySize(a.size, b.size));
   }
-  const bySize = (a, b) => { const x = sizeKey(a), y = sizeKey(b); return x[0] - y[0] || x[1] - y[1] || String(x[2] || "").localeCompare(String(y[2] || "")); };
 
-  // Tallas de una referencia para registrar cortes: una combinada se puede elegir por talla, pero la fila no se parte.
-  function groupSizes(group) {
-    const out = new Map();
-    arr(group && group.rows).forEach((r) => String(r.size || "").split(",").map((s) => s.trim()).filter(Boolean).forEach((s) => { if (!out.has(s)) out.set(s, r.id); }));
-    return [...out.keys()].sort(bySize).map((s) => ({ size: s, id: out.get(s) }));
+  // Bitacora: una entrada por fecha de corte (la mas reciente arriba). Solo cambia como se muestra.
+  function groupLog(log) {
+    const days = new Map();
+    arr(log).forEach((m) => {
+      const d = String(m.event_date || "");
+      if (!days.has(d)) days.set(d, { date: d, ingresos: [], novedades: [], envios: [] });
+      const g = days.get(d);
+      (m.kind === "ingreso" ? g.ingresos : m.kind === "novedad" ? g.novedades : g.envios).push(m);
+    });
+    return [...days.values()].sort((a, b) => b.date.localeCompare(a.date)).map((g) => {
+      g.ingresos.sort((a, b) => bySize(a.size, b.size));
+      const live = (list) => list.filter((m) => !m.voided_at);
+      return { ...g, totalIngreso: live(g.ingresos).reduce((a, m) => a + num(m.quantity), 0),
+        totalNovedad: live(g.novedades).reduce((a, m) => a + num(m.quantity), 0), totalEnvio: live(g.envios).reduce((a, m) => a + num(m.quantity), 0) };
+    });
   }
+
+  // Recuadro "Cortes recibidos": lo recibido por fecha de corte y el total (con el disponible).
+  function receivedBox(balance) {
+    const lines = arr(balance && balance.received_by_date).map((d) => ({ date: String(d.date), quantity: num(d.quantity) }));
+    return { lines, total: lines.reduce((a, l) => a + l.quantity, 0), available: num(balance && balance.available) };
+  }
+
+  const dmy = (iso) => String(iso || "").slice(0, 10).split("-").reverse().join("/");
 
   function matchesGender(row, extra, filter) {
     if (filter === "todas") return true;
@@ -115,6 +167,7 @@
       const g = garmentOf(catalog, ex.garment_type);
       return fold([r.name, r.category, r.size, r.color, r.sku, g && g.label].join(" ")).includes(q);
     });
+    list.sort(byNameSize);
     return { activas: list, visibles: list.filter((r) => r.bot_active === true), noVisibles: list.filter((r) => r.bot_active !== true) };
   }
 
@@ -201,9 +254,10 @@
   function cutsView() {
     const gs = groups(model.rows);
     const group = gs.find((x) => x.rows.some((r) => r.id === model.cut.refId)) || null;
-    const sizes = groupSizes(group);
+    const b = model.balance && group && group.rows.some((r) => r.id === (model.balance.reference || {}).id) ? model.balance : null;
+    const sizes = groupSizes(group, b);
     const cut = model.cut;
-    const b = model.balance;
+    const orphans = b ? [...new Set(arr(b.log).filter((m) => m.size_without_reference && !m.voided_at).map((m) => m.size))].sort(bySize) : [];
     const pct = b && b.received ? Math.max(0, Math.round((b.available / b.received) * 100)) : 0;
     return `<div class="rv-cuts"><div class="rv-cuts-main">
       <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan"><i>1</i>Recepción del corte</h2>
@@ -211,15 +265,18 @@
           <label class="rv-field">Referencia<select data-rv-cut-ref><option value="">Elige la referencia</option>${gs.map((x) => `<option value="${h(x.rows[0].id)}" ${group && group.key === x.key ? "selected" : ""}>${h(x.name)}${x.color ? ` · ${h(x.color)}` : ""}</option>`).join("")}</select></label></div>
         ${group ? `<span class="client-label rv-label">Talla y cantidad recibida</span><div class="rv-sizes">${sizes.map((s) => {
           const on = Object.prototype.hasOwnProperty.call(cut.received, s.size);
-          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "is-on" : ""}" data-rv-recv="${h(s.size)}" aria-pressed="${on}">${h(s.size)}</button>
-            <input class="rv-qty" type="number" min="0" inputmode="numeric" placeholder="cantidad" data-rv-recv-qty="${h(s.size)}" value="${on ? h(cut.received[s.size]) : ""}" ${on ? "" : "disabled"}></div>`;
-        }).join("")}</div>` : `<p class="client-muted rv-muted">Elige una referencia para ver sus tallas.</p>`}</section>
+          return `<div class="rv-size"><button type="button" class="rv-size-btn ${on ? "is-on" : ""} ${s.exists ? "" : "is-new"}" data-rv-recv="${h(s.size)}" aria-pressed="${on}" title="${s.exists ? "Ya existe como referencia" : "Aún no existe como referencia"}">${h(s.size)}</button>
+            <input class="rv-qty" type="number" min="0" inputmode="numeric" placeholder="cantidad" data-rv-recv-qty="${h(s.size)}" value="${on ? h(cut.received[s.size]) : ""}" ${on ? "" : "disabled"} aria-label="Cantidad recibida talla ${h(s.size)}"></div>`;
+        }).join("")}</div>
+          ${b && b.classified ? `<p class="client-muted rv-legend"><span class="rv-legend-key"></span> ya existe como referencia <span class="rv-legend-key is-new"></span> talla sin referencia (el corte se guarda igual)</p>` : ""}
+          ${b && !b.classified ? `<p class="rv-warn">Esta referencia no está clasificada: se muestran sus tallas actuales. Clasifícala en Estado de referencias para ver todas las tallas de su prenda.</p>` : ""}
+          ${orphans.length ? `<div class="rv-orphans"><span class="client-muted">Cortes en talla sin referencia:</span>${orphans.map((x) => `<button type="button" class="rv-btn is-small" data-rv-addsize="${h(x)}">Crear referencia en talla ${h(x)}</button>`).join("")}</div>` : ""}` : `<p class="client-muted rv-muted">Elige una referencia para ver sus tallas.</p>`}</section>
       <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-red"><i>2</i>Novedades por sección</h2>
         <div class="rv-nov"><span class="client-label rv-label">Sección</span><span class="client-label rv-label">Observación</span><span class="client-label rv-label">Cantidad</span>
         ${SECTIONS.map(([k, l]) => { const n = cut.novelties[k] || {}; return `<span class="rv-sec is-${k}"><i></i>${h(l)}</span>
           <input data-rv-nov-note="${k}" value="${h(n.note || "")}" maxlength="500" placeholder="Escribe la observación…">
           <input type="number" min="0" inputmode="numeric" data-rv-nov-qty="${k}" value="${h(n.quantity || "")}" placeholder="0">`; }).join("")}</div></section>
-      <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-violet"><i>3</i>Enviado a despliegue</h2><p class="client-muted rv-step-sub">Prenda terminada para fotos</p>
+      <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-violet"><i>3</i>Enviado a Bombón</h2><p class="client-muted rv-step-sub">Prenda terminada para fotos</p>
         <div class="rv-deploy"><label class="rv-field">Cantidad<input type="number" min="0" inputmode="numeric" data-rv-dep="quantity" value="${h(cut.deploy.quantity)}" placeholder="0"></label>
           <label class="rv-field">Talla<select data-rv-dep="size"><option value="">—</option>${sizes.map((s) => `<option ${cut.deploy.size === s.size ? "selected" : ""}>${h(s.size)}</option>`).join("")}</select></label>
           <label class="rv-field">Fecha de envío<input type="date" data-rv-dep="date" value="${h(cut.deploy.date)}"></label>
@@ -227,24 +284,47 @@
       <aside class="rv-cuts-side">
         <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Balance</h2>${group ? `<p class="client-muted rv-step-sub is-flat">${h(group.name)}${group.color ? ` · ${h(group.color)}` : ""}</p>` : ""}${b ? `
           <div class="rv-kpis"><div class="is-k-recv"><b>${h(b.received)}</b><small>Recibido</small></div><div class="is-k-nov"><b>${h(b.novelty)}</b><small>Con novedad</small></div>
-            <div class="is-k-dep"><b>${h(b.deployed)}</b><small>A despliegue</small></div><div class="is-k-av"><b>${h(b.available)}</b><small>Disponible</small></div></div>
-          <div class="rv-progress"><span style="--p:${Math.min(100, pct)}%"></span></div><p class="rv-muted rv-row"><span>Disponible = recibido − novedades − despliegue</span> <b class="rv-nowrap">${h(pct)}&nbsp;%</b></p>
+            <div class="is-k-dep"><b>${h(b.deployed)}</b><small>A Bombón</small></div><div class="is-k-av"><b>${h(b.available)}</b><small>Disponible</small></div></div>
+          <div class="rv-progress"><span style="--p:${Math.min(100, pct)}%"></span></div><p class="rv-muted rv-row"><span>Disponible = recibido − novedades − Bombón</span> <b class="rv-nowrap">${h(pct)}&nbsp;%</b></p>
+          ${receivedView(b)}
           <p class="rv-note">El número <b>producido</b> no se toca. Cada novedad o envío queda como movimiento con fecha.</p>` : `<p class="client-muted rv-muted">Elige una referencia para ver su balance.</p>`}</section>
-        <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Bitácora de la referencia</h2>${b && arr(b.log).length ? `<ol class="rv-log rv-scroll">${arr(b.log).map(logItem).join("")}</ol>` : `<p class="client-muted rv-muted">Sin movimientos todavía.</p>`}</section>
+        <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Bitácora de la referencia</h2>${b && arr(b.log).length ? logView(b) : `<p class="client-muted rv-muted">Sin movimientos todavía.</p>`}</section>
       </aside></div>`;
   }
 
-  function logItem(m) {
-    const sec = (SECTIONS.find(([k]) => k === m.section) || [])[1];
-    const what = m.kind === "ingreso" ? `Ingreso de corte · talla ${m.size} → ${m.quantity}`
-      : m.kind === "despliegue" ? `Enviada${m.quantity === 1 ? "" : "s"} ${m.quantity} prenda${m.quantity === 1 ? "" : "s"}${m.size ? ` talla ${m.size}` : ""} a despliegue (fotos)`
-        : `${sec} · ${m.quantity}${m.note ? ` · ${m.note}` : ""}`;
-    const when = `${String(m.event_date || "").split("-").reverse().join("/")}${m.created_by ? ` · ${m.created_by}` : ""}`;
-    const voided = !!m.voided_at;
-    return `<li class="rv-log-item is-${m.kind === "novedad" ? "red" : m.kind === "despliegue" ? "violet" : "cyan"} ${voided ? "is-void" : ""}"><span>${h(what)}</span>
-      <small>${h(when)}${voided ? ` · Anulado: ${h(m.void_reason || "")}` : ""}</small>
-      ${voided ? "" : model.voiding === m.id ? `<span class="rv-void"><input data-rv-void-reason maxlength="300" placeholder="Motivo"><button type="button" class="rv-btn is-small" data-rv-void-go="${h(m.id)}">Anular</button><button type="button" class="rv-btn is-small" data-rv-void-cancel>Cancelar</button></span>`
-        : `<button type="button" class="rv-link" data-rv-void="${h(m.id)}">Anular</button>`}</li>`;
+  function receivedView(b) {
+    const box = receivedBox(b);
+    if (!box.lines.length) return "";
+    return `<div class="rv-received"><span class="client-label rv-label">Cortes recibidos</span><ul>${box.lines.map((l) => `<li><span>${h(dmy(l.date))}</span><b>${h(l.quantity)}</b></li>`).join("")}
+      <li class="is-total"><span>Total recibido · disponible ${h(box.available)}</span><b>${h(box.total)}</b></li></ul></div>`;
+  }
+
+  // Anular dentro del detalle: pequeno y a la derecha; un grupo de tallas pide confirmar cuales.
+  function voidControl(key, ids, label) {
+    if (model.voiding === key) {
+      return `<span class="rv-void"><input data-rv-void-reason maxlength="300" placeholder="Motivo" aria-label="Motivo para anular ${h(label)}"><button type="button" class="rv-btn is-small" data-rv-void-go="${h(key)}" data-rv-ids="${h(ids.join(","))}" data-rv-label="${h(label)}">Anular</button><button type="button" class="rv-btn is-small" data-rv-void-cancel>Cancelar</button></span>`;
+    }
+    return `<button type="button" class="rv-link rv-void-link" data-rv-void="${h(key)}">Anular</button>`;
+  }
+
+  function logView(b) {
+    const days = groupLog(b.log);
+    const sec = (k) => (SECTIONS.find(([x]) => x === k) || [])[1] || k;
+    return `<ol class="rv-days rv-scroll">${days.map((d, i) => {
+      const open = Object.prototype.hasOwnProperty.call(model.logOpen, d.date) ? model.logOpen[d.date] : i === 0;
+      const summary = d.ingresos.length ? `Ingreso de corte · total ${d.totalIngreso}` : d.novedades.length ? `Novedades · total ${d.totalNovedad}` : `Enviado a Bombón · total ${d.totalEnvio}`;
+      const live = d.ingresos.filter((m) => !m.voided_at);
+      const sizesTxt = live.map((m) => `${m.size}→${m.quantity}${m.size_without_reference ? "*" : ""}`).join(" · ");
+      const orphanNote = live.some((m) => m.size_without_reference) ? `<small class="rv-muted">* talla sin referencia</small>` : "";
+      const voided = [...d.ingresos, ...d.novedades, ...d.envios].filter((m) => m.voided_at);
+      const detail = `<div class="rv-day-detail">
+        ${live.length ? `<div class="rv-day-row"><span><b>Tallas</b> ${h(sizesTxt)}${orphanNote}</span>${voidControl(`in:${d.date}`, live.map((m) => m.id), `los ingresos de las tallas ${live.map((m) => m.size).join(", ")} del ${dmy(d.date)}`)}</div>` : ""}
+        ${d.novedades.filter((m) => !m.voided_at).map((m) => `<div class="rv-day-row is-red"><span><b>${h(sec(m.section))}</b> · ${h(m.quantity)}${m.note ? ` · ${h(m.note)}` : ""}</span>${voidControl(m.id, [m.id], `la novedad de ${sec(m.section)}`)}</div>`).join("")}
+        ${d.envios.filter((m) => !m.voided_at).map((m) => `<div class="rv-day-row is-violet"><span><b>Enviado a Bombón</b> · ${m.size ? `talla ${h(m.size)} · ` : ""}${h(m.quantity)}${m.note ? ` · ${h(m.note)}` : ""}</span>${voidControl(m.id, [m.id], "el envío a Bombón")}</div>`).join("")}
+        ${voided.map((m) => `<div class="rv-day-row is-void"><span>${h(m.kind === "ingreso" ? `Ingreso talla ${m.size} → ${m.quantity}` : m.kind === "novedad" ? `${sec(m.section)} · ${m.quantity}` : `Enviado a Bombón · ${m.quantity}`)}</span><small>Anulado: ${h(m.void_reason || "")}</small></div>`).join("")}
+      </div>`;
+      return `<li class="rv-day ${open ? "is-open" : ""}"><button type="button" class="rv-day-head" data-rv-logday="${h(d.date)}" aria-expanded="${open}"><span><b>${h(dmy(d.date))}</b> · ${h(summary)}</span><i aria-hidden="true">${open ? "▾" : "▸"}</i></button>${open ? detail : ""}</li>`;
+    }).join("")}</ol>`;
   }
 
   function stateView() {
@@ -272,39 +352,90 @@
     const sub = [g ? g.label : r.category || "Sin categoría", ex.gender ? (ex.gender === "hombre" ? "Hombre" : "Mujer") : "", r.color, split ? "" : r.size].filter(Boolean).join(" · ");
     const meta = num(r.initial_quantity), done = num(r.finished_quantity), pending = r.pending_quantity != null ? num(r.pending_quantity) : Math.max(meta - done, 0);
     const pct = meta > 0 ? Math.min(100, Math.round((done / meta) * 100)) : 0;
-    const key = `${column}:${r.id}`;
-    const open = model.open === key;
+    const open = model.modal === r.id;
+    const last = !open && model.lastOpen === r.id;
     const sug = ex.suggestion;
     const sugG = sug && garmentOf(model.catalog, sug.garment_type);
-    return `<article class="rv-card ${open ? "is-open" : ""}"><button type="button" class="rv-card-head" data-rv-open="${h(key)}" aria-expanded="${open}"><span><b>${h(title)}</b><small>${h(sub)}${isCombined ? ` <i class="rv-chip is-amber">Tallas combinadas</i>` : ""}</small></span><i aria-hidden="true">${open ? "▴" : "▾"}</i></button>
+    return `<article class="rv-card ${open ? "is-open" : ""} ${last ? "is-last" : ""}"><button type="button" class="rv-card-head" data-rv-open="${h(r.id)}" aria-haspopup="dialog"><span><b>${h(title)}</b><small>${h(sub)}${isCombined ? ` <i class="rv-chip is-amber">Tallas combinadas</i>` : ""}</small></span><i aria-hidden="true">›</i></button>
       <div class="rv-chips">${!ex.classified && !sugG ? `<i class="rv-chip is-cyan">Por clasificar</i>` : ""}
         <i class="rv-chip ${r.bot_active ? "is-lime" : "is-violet"}">${r.bot_active ? "Visible para bot" : "No visible"}</i></div>
       ${!ex.classified && sugG ? `<p class="rv-sug"><span><i class="rv-chip is-cyan">Por clasificar</i> Sugerencia: <b>${h(sugG.label)} · ${sug.gender === "hombre" ? "Hombre" : "Mujer"}</b></span><button type="button" class="rv-btn is-small" data-rv-confirm="${h(r.id)}">Confirmar</button></p>` : ""}
       <div class="rv-progress"><span style="--p:${pct}%"></span></div>
       <p class="rv-row"><span>Meta <b>${h(meta)}</b></span><span>Producido <b>${h(done)}</b></span><span>Pendiente <b>${h(pending)}</b></span></p>
-      ${ex.deployed ? `<p class="rv-deploy-note">Enviada${ex.deployed.quantity === 1 ? "" : "s"} ${h(ex.deployed.quantity)} a despliegue el ${h(String(ex.deployed.last_date || "").split("-").reverse().join("/"))} (fotos)</p>` : ""}
-      ${open ? cardBody(r, ex) : ""}</article>`;
+      ${ex.deployed ? `<p class="rv-deploy-note">Enviada${ex.deployed.quantity === 1 ? "" : "s"} ${h(ex.deployed.quantity)} a Bombón el ${h(dmy(ex.deployed.last_date))} (fotos)</p>` : ""}</article>`;
   }
 
-  function cardBody(r, ex) {
-    if (model.editing === r.id) {
-      const f = (name, label, type = "text") => `<label class="rv-field">${label}<input data-rv-edit="${name}" type="${type}" value="${h(r[name] ?? "")}"></label>`;
-      return `<div class="rv-card-body"><div class="rv-fields rv-two">${f("name", "Nombre")}${f("category", "Categoría")}${f("size", "Talla / modelo")}${f("color", "Color")}${f("sku", "SKU")}${f("unit_price", "Precio unidad", "number")}${f("initial_quantity", "Meta operativa", "number")}</div>
-        <div class="rv-actions"><button type="button" class="client-btn rv-btn is-primary" data-rv-edit-save="${h(r.id)}">Guardar</button><button type="button" class="rv-btn" data-rv-edit-cancel>Cancelar</button></div></div>`;
-    }
-    const c = model.catalog;
-    const sug = ex.suggestion || {};
-    const classify = ex.classified ? "" : `<div class="rv-classify"><span class="client-label rv-label">Clasificar</span>
-      <select data-rv-cls-gender="${h(r.id)}">${[["mujer", "Mujer"], ["hombre", "Hombre"]].map(([k, l]) => `<option value="${k}" ${(sug.gender || "mujer") === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-      <select data-rv-cls-garment="${h(r.id)}"><option value="">Prenda…</option>${arr(c && c.garments).map((g) => `<option value="${g.code}" ${sug.garment_type === g.code ? "selected" : ""}>${h(g.label)}</option>`).join("")}</select>
-      <button type="button" class="rv-btn is-small" data-rv-cls-go="${h(r.id)}">Confirmar clasificación</button></div>`;
-    return `<div class="rv-card-body"><label class="rv-toggle rv-panel-inline"><span>Hacer visible para bot</span><input type="checkbox" data-rv-visible="${h(r.id)}" ${r.bot_active ? "checked" : ""}><i aria-hidden="true"></i></label>
-      ${classify}<div class="rv-actions"><button type="button" class="rv-btn" data-rv-edit-open="${h(r.id)}">Editar</button><button type="button" class="rv-btn" data-rv-reset="${h(r.id)}">Reiniciar ciclo</button><button type="button" class="rv-btn" data-rv-archive="${h(r.id)}">Archivar</button></div></div>`;
+  // ------------------------------------------------------------ emergente de la referencia
+  function draftOf(r) {
+    const ex = model.extras[r.id] || {};
+    return { name: r.name || "", garment: ex.garment_type || "", color: r.color || "", size: r.size || "", initial_quantity: String(num(r.initial_quantity)), visible: r.bot_active === true };
+  }
+
+  function isDirty() {
+    const r = model.rows.find((x) => x.id === model.modal);
+    if (!r || !model.draft) return false;
+    const a = draftOf(r), b = model.draft;
+    return Object.keys(a).some((k) => String(a[k]) !== String(b[k]));
+  }
+
+  function openModal(id) {
+    const r = model.rows.find((x) => x.id === id);
+    if (!r) return false;
+    model.modal = id;
+    model.draft = draftOf(r);
+    model.modalBalance = null;
+    return true;
+  }
+
+  // Cerrar: si hay cambios sin guardar, avisa (ask devuelve true para cerrar igual).
+  function closeModal(ask) {
+    if (!model.modal) return true;
+    if (isDirty() && !(ask || ((m) => (typeof confirm === "function" ? confirm(m) : true)))("Hay cambios sin guardar. ¿Cerrar sin guardar?")) return false;
+    model.lastOpen = model.modal;
+    model.modal = "";
+    model.draft = null;
+    model.modalBalance = null;
+    return true;
+  }
+
+  function modalView() {
+    const r = model.rows.find((x) => x.id === model.modal);
+    if (!r || !model.draft) return "";
+    const d = model.draft;
+    const ex = model.extras[r.id] || {};
+    const meta = num(r.initial_quantity), done = num(r.finished_quantity), pending = r.pending_quantity != null ? num(r.pending_quantity) : Math.max(meta - done, 0);
+    const pct = meta > 0 ? Math.min(100, Math.round((done / meta) * 100)) : 0;
+    const gender = ex.gender || (ex.suggestion && ex.suggestion.gender) || "mujer";
+    const garments = arr(model.catalog && model.catalog.garments);
+    const mine = new Set(sizesOf(r.size).map(fold));
+    const cuts = model.modalBalance ? receivedBox({ received_by_date: Object.values(arr(model.modalBalance.log)
+      .filter((m) => m.kind === "ingreso" && !m.voided_at && mine.has(fold(m.size)))
+      .reduce((acc, m) => { const k = String(m.event_date); acc[k] = acc[k] || { date: k, quantity: 0 }; acc[k].quantity += num(m.quantity); return acc; }, {}))
+      .sort((a, b) => a.date.localeCompare(b.date)), available: 0 }) : null;
+    return `<div class="rv-overlay" data-rv-overlay><div class="client-panel rv-panel rv-modal" role="dialog" aria-modal="true" aria-labelledby="rvModalTitle">
+      <header class="rv-modal-head"><h2 class="client-eyebrow rv-step" id="rvModalTitle">Referencia</h2><button type="button" class="rv-btn is-small rv-modal-x" data-rv-modal-close aria-label="Cerrar">✕</button></header>
+      <div class="rv-fields rv-two">
+        <label class="rv-field">Nombre<input data-rv-m="name" value="${h(d.name)}" maxlength="120"></label>
+        <label class="rv-field">Prenda<select data-rv-m="garment"><option value="">Sin clasificar</option>${garments.map((g) => `<option value="${g.code}" ${d.garment === g.code ? "selected" : ""}>${h(g.label)}</option>`).join("")}</select></label>
+        <label class="rv-field">Color<input data-rv-m="color" value="${h(d.color)}" maxlength="60"></label>
+        <label class="rv-field">Talla<input data-rv-m="size" value="${h(d.size)}" maxlength="40"></label>
+        <label class="rv-field">Meta<input data-rv-m="initial_quantity" type="number" min="0" inputmode="numeric" value="${h(d.initial_quantity)}"></label>
+        <label class="rv-toggle rv-panel-inline"><span>Visible para bot</span><input type="checkbox" data-rv-m="visible" ${d.visible ? "checked" : ""}><i aria-hidden="true"></i></label>
+      </div>
+      <p class="client-muted rv-muted rv-modal-gender">Género: ${gender === "hombre" ? "Hombre" : "Mujer"}</p>
+      <div class="rv-progress"><span style="--p:${pct}%"></span></div>
+      <p class="rv-row rv-modal-row"><span>Meta <b>${h(meta)}</b></span><span>Producido <b>${h(done)}</b></span><span>Pendiente <b>${h(pending)}</b></span></p>
+      <div class="rv-received"><span class="client-label rv-label">Cortes de esta referencia</span>${!cuts ? `<p class="client-muted rv-muted">Cargando…</p>`
+        : cuts.lines.length ? `<ul>${cuts.lines.map((l) => `<li><span>${h(dmy(l.date))}</span><b>${h(l.quantity)}</b></li>`).join("")}<li class="is-total"><span>Total recibido</span><b>${h(cuts.total)}</b></li></ul>`
+          : `<p class="client-muted rv-muted">Sin cortes registrados.</p>`}</div>
+      <div class="rv-actions rv-modal-actions"><button type="button" class="client-btn rv-btn is-primary" data-rv-modal-save ${model.busy ? "disabled" : ""}>Guardar</button>
+        <button type="button" class="rv-btn" data-rv-reset="${h(r.id)}">Reiniciar ciclo</button><button type="button" class="rv-btn" data-rv-archive="${h(r.id)}">Archivar</button></div>
+    </div></div>`;
   }
 
   function view() {
     const body = model.tab === "catalogo" ? catalogView() : model.tab === "cortes" ? cutsView() : stateView();
-    return `<div class="rv-root" data-rv-root>${head()}${body}</div>`;
+    return `<div class="rv-root" data-rv-root>${head()}${body}${model.tab === "estado" && model.modal ? modalView() : ""}</div>`;
   }
 
   // Cada columna muestra solo tarjetas completas: su alto se recorta al borde de
@@ -354,7 +485,8 @@
     const gs = groups(model.rows);
     const group = gs.find((x) => x.rows.some((r) => r.id === model.cut.refId));
     if (!group) return [];
-    const ids = new Map(groupSizes(group).map((s) => [s.size, s.id]));
+    const b = model.balance && group.rows.some((r) => r.id === (model.balance.reference || {}).id) ? model.balance : null;
+    const ids = new Map(groupSizes(group, b).map((s) => [s.size, s.id]));
     const items = [];
     Object.entries(model.cut.received).forEach(([size, q]) => { if (num(q) > 0) items.push({ reference_id: ids.get(size) || group.rows[0].id, kind: "ingreso", size, quantity: num(q), event_date: model.cut.date }); });
     SECTIONS.forEach(([k]) => { const n = model.cut.novelties[k] || {}; if (num(n.quantity) > 0) items.push({ reference_id: group.rows[0].id, kind: "novedad", section: k, quantity: num(n.quantity), note: n.note || "", event_date: model.cut.date }); });
@@ -396,12 +528,29 @@
       run(async () => { await post("/v2/movements", { items }); const id = model.cut.refId; model.cut = blankCut(); model.cut.refId = id; await loadBalance(); await reload(); }, "Registro guardado.");
       return;
     }
+    if ((v = attr("data-rv-logday"))) {
+      const days = groupLog(model.balance && model.balance.log);
+      const isOpen = Object.prototype.hasOwnProperty.call(model.logOpen, v) ? model.logOpen[v] : days.length && days[0].date === v;
+      model.logOpen[v] = !isOpen;
+      draw();
+      return;
+    }
+    if ((v = attr("data-rv-addsize"))) {
+      const ref = model.balance && model.balance.reference;
+      if (!ref || !confirm(`¿Crear la referencia ${ref.name}${ref.color ? ` · ${ref.color}` : ""} en talla ${v}? Se crea con meta 0 y NO visible para el bot; los cortes ya recibidos de esa talla quedan con ella.`)) return;
+      run(async () => { await post(`/v2/references/${encodeURIComponent(ref.id)}/add-size`, { size: v }); await reload(); await loadBalance(); }, `Referencia creada en talla ${v} (no visible para el bot).`);
+      return;
+    }
     if ((v = attr("data-rv-void"))) { model.voiding = v; draw(); return; }
     if (t.closest("[data-rv-void-cancel]")) { model.voiding = ""; draw(); return; }
     if ((v = attr("data-rv-void-go"))) {
+      const el = t.closest("[data-rv-void-go]");
+      const ids = String(el.getAttribute("data-rv-ids") || v).split(",").filter(Boolean);
       const reason = String((ctx.host().querySelector("[data-rv-void-reason]") || {}).value || "").trim();
       if (reason.length < 3) { model.error = "Escribe el motivo para anular."; draw(); return; }
-      run(async () => { await post(`/v2/movements/${encodeURIComponent(v)}/void`, { reason }); model.voiding = ""; await loadBalance(); await reload(); }, "Movimiento anulado. Queda en la bitácora.");
+      if (ids.length > 1 && !confirm(`Se anulan ${el.getAttribute("data-rv-label")}. Quedan en la bitácora como anulados. ¿Continuar?`)) return;
+      run(async () => { for (const id of ids) await post(`/v2/movements/${encodeURIComponent(id)}/void`, { reason }); model.voiding = ""; await loadBalance(); await reload(); },
+        ids.length > 1 ? "Ingresos anulados. Quedan en la bitácora." : "Movimiento anulado. Queda en la bitácora.");
       return;
     }
     if ((v = attr("data-rv-fgender"))) { model.filterGender = v; draw(); return; }
@@ -413,7 +562,30 @@
       document.body.appendChild(a); a.click(); a.remove();
       return;
     }
-    if ((v = attr("data-rv-open"))) { model.open = model.open === v ? "" : v; model.editing = ""; draw(); return; }
+    if ((v = attr("data-rv-open"))) {
+      if (openModal(v)) {
+        draw();
+        focusModal();
+        call(`/v2/references/${encodeURIComponent(v)}/balance`).then((bal) => { if (model.modal === v) { model.modalBalance = bal; draw(); } }).catch(() => { if (model.modal === v) { model.modalBalance = { log: [] }; draw(); } });
+      }
+      return;
+    }
+    if (t.closest("[data-rv-modal-close]") || (t.matches && t.matches("[data-rv-overlay]"))) { if (closeModal()) draw(); return; }
+    if (t.closest("[data-rv-modal-save]")) {
+      const r = model.rows.find((x) => x.id === model.modal); if (!r) return;
+      const d = model.draft;
+      if (!d.name.trim() || !d.size.trim()) { model.error = "Nombre y talla/modelo son obligatorios."; draw(); return; }
+      const ex = model.extras[r.id] || {};
+      const g = garmentOf(model.catalog, d.garment);
+      run(async () => {
+        await call(`/${encodeURIComponent(r.id)}`, { method: "PATCH", body: JSON.stringify(rowPayload(r, { name: d.name.trim(), color: d.color.trim(), size: d.size.trim(), initial_quantity: num(d.initial_quantity), channel: nextChannel(r, d.visible) })) });
+        if (g && g.code !== ex.garment_type) await post(`/v2/references/${encodeURIComponent(r.id)}/classify`, { gender: ex.gender || (ex.suggestion && ex.suggestion.gender) || "mujer", body_part: g.body_part, garment_type: g.code });
+        await reload();
+        const again = model.rows.find((x) => x.id === r.id);
+        if (again) model.draft = draftOf(again);
+      }, "Referencia actualizada.");
+      return;
+    }
     const row = (id) => model.rows.find((r) => r.id === id);
     if ((v = attr("data-rv-confirm"))) {
       const sug = (model.extras[v] || {}).suggestion || {};
@@ -451,7 +623,7 @@
     }
     if ((v = attr("data-rv-archive"))) {
       if (!confirm("¿Archivar esta referencia? No se borrará físicamente.")) return;
-      run(async () => { await call(`/${encodeURIComponent(v)}`, { method: "DELETE" }); model.open = ""; await reload(); }, "Referencia archivada.");
+      run(async () => { await call(`/${encodeURIComponent(v)}`, { method: "DELETE" }); if (model.modal === v) { model.lastOpen = v; model.modal = ""; model.draft = null; } await reload(); }, "Referencia archivada.");
     }
   }
 
@@ -459,6 +631,7 @@
     const t = event.target;
     if (!ctx || !t || !t.closest || !t.closest("[data-rv-root]")) return;
     if (t.hasAttribute("data-rv-bot")) { model.botVisible = !!t.checked; return; }
+    if (t.getAttribute("data-rv-m") && model.draft) { const k = t.getAttribute("data-rv-m"); model.draft[k] = t.type === "checkbox" ? !!t.checked : t.value; return; }
     if (t.hasAttribute("data-rv-cut-ref")) {
       model.cut = { ...blankCut(), refId: t.value, date: model.cut.date };
       run(loadBalance);
@@ -487,7 +660,20 @@
     if ((v = t.getAttribute("data-rv-nov-note"))) { model.cut.novelties[v] = { ...(model.cut.novelties[v] || {}), note: t.value }; return; }
     if ((v = t.getAttribute("data-rv-nov-qty"))) { model.cut.novelties[v] = { ...(model.cut.novelties[v] || {}), quantity: t.value }; return; }
     if ((v = t.getAttribute("data-rv-dep"))) { model.cut.deploy[v] = t.value; return; }
+    if ((v = t.getAttribute("data-rv-m")) && model.draft) { model.draft[v] = t.type === "checkbox" ? !!t.checked : t.value; return; }
     if (t.hasAttribute("data-rv-search")) { model.search = t.value; draw(); }
+  }
+
+  function focusModal() {
+    const host = ctx && ctx.host();
+    const first = host && host.querySelector && host.querySelector("[data-rv-overlay] [data-rv-m]");
+    if (first && first.focus) first.focus();
+  }
+
+  function onKey(event) {
+    if (!ctx || event.key !== "Escape" || !model.modal) return;
+    event.preventDefault();
+    if (closeModal()) draw();
   }
 
   async function mount(context) {
@@ -496,6 +682,7 @@
       document.addEventListener("click", onClick);
       document.addEventListener("change", onChange);
       document.addEventListener("input", onInput);
+      document.addEventListener("keydown", onKey);
       if (typeof window.addEventListener === "function") window.addEventListener("resize", () => { if (ctx) fitLists(ctx.host()); });
       bound = true;
     }
@@ -505,5 +692,6 @@
     draw();
   }
 
-  window.CxReferencesV2 = { mount, model, view, summaryText, sizesFor, garmentsOf, chosenSizes, columns, groups, groupSizes, nextChannel, rowPayload, cutItems, combined };
+  window.CxReferencesV2 = { mount, model, view, summaryText, sizesFor, garmentsOf, chosenSizes, columns, groups, groupSizes, nextChannel, rowPayload, cutItems, combined,
+    sizeKey, bySize, byNameSize, groupLog, receivedBox, logView, openModal, closeModal, isDirty, modalView, draftOf };
 })();

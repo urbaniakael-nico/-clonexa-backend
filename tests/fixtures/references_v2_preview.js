@@ -23,10 +23,14 @@
     mp: { classified: false, combined_sizes: true, suggestion: { gender: "mujer", body_part: "inferior", garment_type: "pantalon" } },
     aa: { classified: false, suggestion: { gender: "mujer", body_part: "superior", garment_type: "chaqueta" } },
     lg: { classified: false, suggestion: { gender: "mujer", body_part: "inferior", garment_type: "leggings" } } };
-  const balance = { received: 1250, novelty: 333, deployed: 1000, available: -83, log: [
+  const balance = { reference: { id: "p10", name: "PANT SET", color: "Marfil" }, classified: true, catalog_sizes: ["4", "6", "8", "10", "12", "14", "16"], existing_sizes: ["10", "12"],
+    received: 1250, novelty: 333, deployed: 1000, available: -83, received_by_date: [{ date: "2026-09-16", quantity: 1221 }, { date: "2026-10-06", quantity: 29 }], log: [
     { id: "m5", kind: "despliegue", size: "10", quantity: 1, event_date: "2026-10-06", created_by: "Ana" },
-    { id: "m4", kind: "novedad", section: "corte", quantity: 1, note: "pieza mal cortada en talla 12", event_date: "2026-10-06", created_by: "Ana" },
-    { id: "m1", kind: "ingreso", size: "10", quantity: 30, event_date: "2026-10-06", created_by: "Ana" }] };
+    { id: "m4", kind: "novedad", section: "corte", quantity: 1, note: "pieza mal cortada en talla 12 con una observación larga para ver que no se sale", event_date: "2026-10-06", created_by: "Ana" },
+    { id: "m1", kind: "ingreso", size: "10", quantity: 30, event_date: "2026-10-06", created_by: "Ana" },
+    { id: "m2", kind: "ingreso", size: "8", quantity: 6, event_date: "2026-10-06", created_by: "Ana", size_without_reference: true },
+    { id: "m6", kind: "ingreso", size: "4", quantity: 1221, event_date: "2026-09-16", created_by: "Ana", size_without_reference: true },
+    { id: "m7", kind: "ingreso", size: "6", quantity: 9, event_date: "2026-09-16", created_by: "Ana", size_without_reference: true, voided_at: "2026-09-17", void_reason: "doble" }] };
   if (P.get("small") === "1") Object.assign(balance, { received: 50, novelty: 3, deployed: 1, available: 46 });
   let catalog = null;
   const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
@@ -54,8 +58,8 @@
     const m = R.model;
     m.tab = P.get("tab") || "catalogo";
     if (m.tab === "catalogo") { m.form.part = "inferior"; m.form.garment = "pantalon"; m.form.sizes = { 4: "30", 6: "20", 16: "1200" }; m.form.name = "PANT SET"; m.form.color = "Marfil"; }
-    if (m.tab === "cortes") { m.cut.refId = "p10"; m.cut.received = { 10: "30", 12: "20" }; m.cut.novelties = { corte: { note: "Pieza mal cortada en talla 12", quantity: "1" } }; m.cut.deploy = { quantity: "1", size: "10", date: "2026-10-06" }; m.balance = balance; }
-    if (m.tab === "estado") m.open = "No visibles:p12";
+    if (m.tab === "cortes") { m.cut.refId = "p10"; m.cut.received = { 10: "30", 12: "20", 8: "6" }; m.logOpen = { "2026-09-16": true }; m.cut.novelties = { corte: { note: "Pieza mal cortada en talla 12", quantity: "1" } }; m.cut.deploy = { quantity: "1", size: "10", date: "2026-10-06" }; m.balance = balance; }
+    if (m.tab === "estado") { R.openModal(P.get("modal") === "0" ? "" : "p12"); m.modalBalance = { log: balance.log }; }
     host.innerHTML = R.view();
     return true;
   }
@@ -67,6 +71,15 @@
       // Campos de texto libre se desplazan por dentro; los de cantidad (fichas de talla) deben mostrar su numero completo.
       if ((/^(INPUT|SELECT|TEXTAREA|OPTION)$/.test(el.tagName) && !el.classList.contains("rv-qty")) || el.closest("svg")) return;
       if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return; // oculto
+      // Texto de ayuda ("cantidad") entero dentro de su campo vacio.
+      if (el.tagName === "INPUT" && el.placeholder && !el.value) {
+        const ph = getComputedStyle(el, "::placeholder");
+        const cs = getComputedStyle(el);
+        const ctx2 = (measure.c = measure.c || document.createElement("canvas")).getContext("2d");
+        ctx2.font = `${ph.fontWeight || cs.fontWeight} ${ph.fontSize || cs.fontSize} ${cs.fontFamily}`;
+        const need = ctx2.measureText(el.placeholder).width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+        if (need > el.clientWidth + 1) bad.push({ tag: "PLACEHOLDER", cls: String(el.className || ""), text: el.placeholder, sw: Math.ceil(need), cw: el.clientWidth });
+      }
       if (el.scrollWidth > el.clientWidth + 1) bad.push({ tag: el.tagName, cls: String(el.className || ""), text: (el.textContent || "").trim().slice(0, 40), sw: el.scrollWidth, cw: el.clientWidth });
     });
     const page = document.documentElement.scrollWidth > window.innerWidth + 1;

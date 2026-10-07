@@ -1724,3 +1724,32 @@ async def v2_catalog_create(company_id: str, payload: dict[str, Any], actor: str
         created.append(row)
     return {"ok": True, "count": len(created), "items": created,
             "summary": {"garment": data["category"], "gender": data["gender"], "total": sum(line["quantity"] for line in data["sizes"])}}
+
+
+@router.post("/companies/{company_id}/v2/references/{reference_id}/add-size")
+async def v2_add_size(company_id: str, reference_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                      db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """"Crear referencia en talla N": la misma referencia (nombre, categoria, color,
+    prenda y genero) en una talla nueva, con la logica de creacion de siempre,
+    meta 0 y NO visible para el bot. Los cortes ya recibidos de esa talla quedan
+    asociados por talla; ningun movimiento guardado cambia."""
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+    ref = await rv2.reference(db, company_id, reference_id)
+    if not ref:
+        raise HTTPException(status_code=404, detail="Referencia no encontrada.")
+    size = clean(payload.get("size"))[:40]
+    if not size:
+        raise _v2_bad(rv2.Invalid("size", "elige la talla"))
+    group = await rv2.group_of(db, company_id, ref)
+    if any(rv2._fold(size) == rv2._fold(s) for r in group for s in rv2.sizes_of(r["size"])):
+        raise HTTPException(status_code=409, detail=f"Ya existe {ref['name']} talla {size}.")
+    classified = next((r for r in group if r["gender"] and r["garment_type"]), None)
+    if classified and size not in rv2.sizes_for(classified["gender"], classified["garment_type"]):
+        raise _v2_bad(rv2.Invalid("size", f"la talla {size} no es de esta prenda"))
+    row = await create_reference(company_id, {"name": ref["name"], "category": ref["category"], "size": size, "color": ref["color"],
+                                               "initial_quantity": 0, "channel": "system"}, db)
+    if classified:
+        await rv2.classify(db, company_id, row["id"], {"gender": classified["gender"], "body_part": classified["body_part"],
+                                                        "garment_type": classified["garment_type"]})
+    return {"ok": True, "item": row, "bot_active": row["bot_active"]}
