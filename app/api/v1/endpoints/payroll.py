@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import json
 import unicodedata
 from datetime import date, datetime, time, timedelta, timezone
@@ -28,6 +29,8 @@ router = APIRouter()
 # in company_users.py). For every other company this dependency is a no-op
 # -- the endpoint stays exactly as open as it is today.
 _NOT_ADMINISTRADOR = require_company_user_not_role({"administrador"})
+# Nomina v2: cierres "como si" estuvieran confirmados, solo para la vista previa.
+PREVIEW_CLOSURES_052A: contextvars.ContextVar[dict | None] = contextvars.ContextVar("payroll_preview_closures_052a", default=None)
 
 
 MONEY = Decimal("0.01")
@@ -832,6 +835,10 @@ async def _cx_verification_context_049D(db: AsyncSession, company_id) -> dict:
             {"company_id": str(company_id)},
         )
         closures = {(str(r["source"]), str(r["session_ref"])): dict(r) for r in result.mappings().all()}
+    # Nomina v2 · vista previa de "confirmar salida": SOLO dentro de esa
+    # peticion (contextvar) un turno se trata como confirmado a la hora
+    # propuesta, sin escribir nada. Por defecto vacio: el calculo de siempre.
+    closures.update(PREVIEW_CLOSURES_052A.get() or {})
     if await _cx_payroll_table_exists_023o(db, "workforce_session_policy"):
         alert_hours = (await session_cutoff_049d.load_policy(db, company_id))["alert_after_hours"]
     return {"closures": closures, "limit_seconds": float(alert_hours) * 3600}
@@ -1380,6 +1387,8 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             "gross_amount": str(gross),
             "source": "attendance",
             "mini_panel_session_id": event_session_id,
+            # Nomina v2 (solo informativo, no entra al calculo): pausas del turno.
+            "pause_minutes": round(int(shift.get("pauses_seconds") or 0) / 60),
         })
 
     for session in mini_panel_sessions:
@@ -1440,6 +1449,8 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
             "status": status_value,
             "panel_type": session.get("panel_type"),
             "mini_panel_session_id": str(session.get("id")) if session.get("id") else None,
+            # Nomina v2 (solo informativo, no entra al calculo): pausas del turno.
+            "pause_minutes": round(_cx_payroll_int_023o(session.get("break_seconds")) / 60),
         })
 
     rows = []

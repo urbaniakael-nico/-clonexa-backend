@@ -1,0 +1,174 @@
+/* Nómina v2 (interruptor payroll_v2). Sin colores propios: todo sale del tema
+   de la empresa (--cx-primary, --cx-secondary, --cx-bg, --cx-text) y de los
+   pares que payroll_v2.js calcula desde esos colores para pasar AA
+   (--pv-surface/--pv-on-surface, --pv-accent-bg/fg, --pv-warn-ink). Clases del
+   portal: .client-hero, .client-panel, .client-btn, .client-eyebrow,
+   .client-title. A pantalla completa, sin recuadro propio, como Referencias v2
+   y Personal v2. Unica excepcion: el tono semantico de alerta si la marca no
+   trae --cx-warning. */
+.pv-root {
+  --pv-line: color-mix(in srgb, var(--pv-on-surface, var(--cx-text)) 18%, transparent);
+  --pv-r: 12px;
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  color: var(--cx-text);
+  font-weight: 400;
+}
+.pv-root * { box-sizing: border-box; }
+.pv-root b, .pv-root strong { font-weight: 700; }
+
+/* Barra superior en una fila (se acomoda en pantallas angostas) */
+.pv-root .pv-bar {
+  display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; margin: 0; padding: 12px 16px; position: relative; isolation: isolate;
+}
+.pv-root .pv-bar::before, .pv-root .pv-panel::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1; pointer-events: none;
+  background: color-mix(in srgb, var(--pv-surface, var(--cx-bg)) var(--pv-veil, 62%), transparent);
+}
+.pv-title { display: grid; gap: 0; min-width: 0; margin-right: auto; }
+.pv-root .pv-bar .client-title { margin: 0; font-size: clamp(22px, 2.2vw, 30px); line-height: 1.1; }
+.pv-root .pv-bar .client-eyebrow { margin: 0; color: var(--pv-on-surface, var(--cx-text)); }
+.pv-status {
+  padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap;
+  background: var(--pv-accent-bg, var(--cx-primary)); color: var(--pv-accent-fg, var(--cx-text));
+}
+.pv-date { display: inline-flex; align-items: center; gap: 6px; color: var(--pv-on-surface, var(--cx-text)); font-size: 13px; }
+.pv-date input, .pv-search, .pv-sort select, .pv-field input, .pv-field textarea {
+  min-height: 44px; padding: 0 12px; border-radius: 10px; font: inherit; font-size: 15px;
+  border: 1px solid var(--pv-line); background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text));
+}
+.pv-field textarea { padding: 10px 12px; min-height: 64px; resize: vertical; width: 100%; }
+.pv-bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.pv-bar-actions > button, .pv-root .pv-cutnav .client-btn { min-height: 44px; white-space: nowrap; }
+.pv-cutnav { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%; }
+.pv-btn-primary {
+  min-height: 44px; padding: 0 18px; border-radius: 14px; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap;
+  background: var(--pv-accent-bg, var(--cx-primary)); color: var(--pv-accent-fg, var(--cx-text));
+  border: 1px solid color-mix(in srgb, var(--pv-accent-fg, var(--cx-text)) 30%, transparent);
+}
+.pv-btn-primary:disabled { opacity: .55; cursor: not-allowed; }
+.pv-root button:focus-visible, .pv-root input:focus-visible, .pv-root select:focus-visible, .pv-root textarea:focus-visible, .pv-root a:focus-visible {
+  outline: 3px solid var(--pv-accent-bg, var(--cx-primary)); outline-offset: 2px;
+}
+
+/* Franja de resumen */
+.pv-strip {
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; border-radius: var(--pv-r); overflow: hidden;
+  border: 1px solid var(--pv-line); background: var(--pv-line);
+}
+.pv-stat { display: grid; gap: 2px; padding: 10px 12px; background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text)); min-width: 0; }
+.pv-stat span { font-size: 12px; }
+.pv-stat strong { font-size: 17px; overflow-wrap: anywhere; }
+.pv-stat.is-total { background: var(--pv-accent-bg, var(--cx-primary)); color: var(--pv-accent-fg, var(--cx-text)); }
+.pv-stat.is-total strong { font-size: 20px; }
+
+.pv-alert, .pv-notice {
+  padding: 10px 14px; border-radius: var(--pv-r); border: 1px solid var(--pv-line);
+  background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text));
+}
+.pv-alert { border-left: 4px solid var(--pv-warn-ink, var(--cx-warning, #b45309)); }
+.pv-alert strong { color: var(--pv-warn-ink, var(--cx-warning, #b45309)); }
+
+/* Panel con buscador, filtros, orden y mini tarjetas */
+.pv-root .pv-panel { margin: 0; padding: 14px 16px; min-width: 0; position: relative; isolation: isolate; color: var(--pv-on-surface, var(--cx-text)); }
+.pv-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.pv-search { flex: 1 1 220px; min-width: 0; }
+.pv-search::placeholder, .pv-field textarea::placeholder { color: color-mix(in srgb, var(--pv-on-surface, var(--cx-text)) 80%, transparent); }
+.pv-filters { display: inline-flex; gap: 4px; padding: 3px; border-radius: 14px; border: 1px solid var(--pv-line); background: var(--pv-surface, var(--cx-bg)); }
+.pv-filter {
+  min-height: 38px; padding: 0 14px; border-radius: 11px; border: 1px solid transparent; font: inherit; font-weight: 600; white-space: nowrap;
+  background: transparent; color: var(--pv-on-surface, var(--cx-text)); cursor: pointer;
+}
+.pv-filter.is-active { background: var(--pv-accent-bg, var(--cx-primary)); color: var(--pv-accent-fg, var(--cx-text)); }
+.pv-sort { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.pv-sort select option { background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text)); }
+.pv-empty { padding: 14px; border-radius: var(--pv-r); border: 1px dashed var(--pv-line); background: var(--pv-surface, var(--cx-bg)); }
+
+/* Columnas: las calcula payroll_v2.js por el ancho real del panel (4 / 2 / 1) para desplegar el registro bajo su fila. */
+.pv-grid { display: grid; grid-template-columns: repeat(var(--pv-cols, 4), minmax(0, 1fr)); gap: 10px; }
+.pv-card {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 4px 10px; align-items: center;
+  padding: 10px 12px; min-height: 76px; text-align: left; cursor: pointer; font: inherit; font-weight: 400;
+  border-radius: var(--pv-r); border: 1px solid var(--pv-line); background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text));
+}
+.pv-card:hover { border-color: color-mix(in srgb, var(--pv-on-surface, var(--cx-text)) 40%, transparent); }
+.pv-card.is-open { border-color: var(--pv-accent-bg, var(--cx-primary)); box-shadow: 0 0 0 2px var(--pv-accent-bg, var(--cx-primary)) inset; }
+.pv-card.is-pending { border-left: 4px solid var(--pv-warn-ink, var(--cx-warning, #b45309)); }
+.pv-avatar {
+  grid-row: 1 / span 2; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px;
+  background: var(--pv-accent-bg, var(--cx-primary)); color: var(--pv-accent-fg, var(--cx-text));
+}
+.pv-card-main { display: grid; gap: 1px; min-width: 0; }
+.pv-name { font-weight: 700; overflow-wrap: anywhere; }
+.pv-role, .pv-sub { font-size: 12px; opacity: .9; }
+.pv-flag { font-size: 12px; font-weight: 700; color: var(--pv-warn-ink, var(--cx-warning, #b45309)); }
+.pv-card-nums { grid-column: 2 / span 1; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.pv-net { font-weight: 700; }
+.pv-arrow { grid-column: 3; grid-row: 1 / span 2; font-size: 14px; }
+
+/* Registro desplegado: a todo el ancho, debajo de la fila de su tarjeta */
+.pv-detail {
+  grid-column: 1 / -1; padding: 12px 14px; border-radius: var(--pv-r); border: 1px solid var(--pv-line);
+  background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text));
+}
+.pv-detail-head { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; padding-bottom: 8px; border-bottom: 1px solid var(--pv-line); }
+.pv-shifts { list-style: none; margin: 0; padding: 0; display: grid; }
+.pv-shift { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--pv-line); }
+.pv-shift:last-child { border-bottom: 0; }
+.pv-shift-main, .pv-pending-btn { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; font-size: 14px; }
+.pv-shift-day { font-weight: 700; min-width: 92px; text-transform: capitalize; }
+.pv-shift-value { margin-left: auto; }
+.pv-pending-btn {
+  width: 100%; min-height: 44px; padding: 6px 10px; text-align: left; cursor: pointer; font: inherit; border-radius: 10px;
+  border: 1px dashed var(--pv-warn-ink, var(--cx-warning, #b45309)); background: transparent; color: var(--pv-on-surface, var(--cx-text));
+}
+.pv-act { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; padding-left: 108px; font-size: 13px; }
+.pv-map { color: var(--pv-on-surface, var(--cx-text)); font-weight: 600; text-decoration: underline; }
+
+/* Ventana de confirmar salida */
+.pv-modal {
+  position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px;
+  background: color-mix(in srgb, var(--pv-surface, var(--cx-bg)) 72%, transparent);
+}
+.pv-modal-card {
+  width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: grid; gap: 12px; padding: 18px;
+  border-radius: 18px; border: 2px solid var(--pv-accent-bg, var(--cx-primary)); background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text));
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--pv-surface, var(--cx-bg)) 80%, transparent);
+}
+.pv-modal-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.pv-modal-head h2 { margin: 0; font-size: 19px; }
+.pv-x { min-width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--pv-line); background: transparent; color: var(--pv-on-surface, var(--cx-text)); font: inherit; cursor: pointer; }
+.pv-kv { display: grid; gap: 6px; margin: 0; }
+.pv-kv div { display: flex; justify-content: space-between; gap: 12px; }
+.pv-kv dt { font-size: 13px; }
+.pv-kv dd { margin: 0; font-weight: 700; text-align: right; }
+.pv-field { display: grid; gap: 4px; font-size: 13px; }
+.pv-field input { width: 100%; }
+.pv-preview-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.pv-preview-table th, .pv-preview-table td { padding: 6px 8px; border-bottom: 1px solid var(--pv-line); text-align: right; }
+.pv-preview-table th[scope="row"] { text-align: left; font-weight: 400; }
+.pv-modal-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.pv-modal-actions > button { min-height: 44px; }
+
+@media (max-width: 1100px) {
+  .pv-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Celular: 1-2 tarjetas por fila; la ventana ocupa toda la pantalla */
+@media (max-width: 760px) {
+  .pv-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pv-title { width: 100%; }
+  .pv-date { flex: 1 1 140px; }
+  .pv-date input { flex: 1 1 auto; min-width: 0; width: 100%; }
+  .pv-bar-actions { width: 100%; }
+  .pv-bar-actions > button { flex: 1 1 auto; }
+  .pv-filters { width: 100%; flex-wrap: wrap; }
+  .pv-filter { flex: 1 1 0; min-width: max-content; padding: 0 8px; }
+  .pv-sort { width: 100%; }
+  .pv-sort select { flex: 1 1 auto; }
+  .pv-act { padding-left: 0; }
+  .pv-shift-value { margin-left: 0; }
+  .pv-modal { padding: 0; place-items: stretch; }
+  .pv-modal-card { width: 100%; max-height: 100vh; height: 100%; border-radius: 0; border-width: 0; }
+}

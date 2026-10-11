@@ -24,6 +24,7 @@ for _module_name, _prefix, _tags in [
     ("crm", "/crm", ["crm"]),
     ("payroll", "/payroll", ["payroll"]),
     ("payroll_colombia", "/payroll-co", ["payroll_colombia"]),
+    ("payroll_v2", "/payroll", ["payroll_v2"]),
     ("workforce_sessions", "/workforce-sessions", ["workforce_sessions"]),
     ("employee_roles", "/employee-roles", ["employee_roles"]),
     ("gps", "/gps", ["gps"]),

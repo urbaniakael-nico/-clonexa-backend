@@ -8564,11 +8564,74 @@ function inventoryCreatePayload() {
   }
   /* CX_PAYROLL_CUTOFFS_049L_END */
 
+  /* CLONEXA_052B_PAYROLL_V2_START: pantalla nueva de Nómina solo con el
+     interruptor payroll_v2 (settings del modulo payroll, apagado por defecto).
+     Sin el interruptor, si su archivo no carga o con la normativa colombiana
+     encendida, se sirve la pantalla de siempre. El cálculo no cambia. */
+  function cxPayrollV2On052B() {
+    const item = activeClientModules().find((m) => m.code === "payroll");
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.payroll_v2 === true;
+  }
+
+  let cxPayrollV2Loading052B = null;
+  function cxPayrollV2Load052B() {
+    if (window.CxPayrollV2) return Promise.resolve();
+    if (!cxPayrollV2Loading052B) {
+      cxPayrollV2Loading052B = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxPayrollV2Css052B")) {
+          const link = document.createElement("link");
+          link.id = "cxPayrollV2Css052B";
+          link.rel = "stylesheet";
+          link.href = "/client-static/payroll_v2.css?v=052B";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/payroll_v2.js?v=052B";
+        script.onload = () => resolve();
+        script.onerror = () => { cxPayrollV2Loading052B = null; reject(new Error("payroll_v2")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxPayrollV2Loading052B;
+  }
+
+  async function cxPayrollV2Mount052B(period) {
+    try { await cxPayrollV2Load052B(); } catch (_) { return false; }
+    if (!window.CxPayrollV2 || typeof window.CxPayrollV2.mount !== "function") return false;
+    const cfg = await cxPayLoadCfg049L(period ? period.from : "");
+    const start = period || (cfg.enabled ? { from: cfg.period.period_start, to: cfg.period.period_end } : payrollDefaultPeriod());
+    const company = state.company || {};
+    const renderShell = () => {
+      $("app").innerHTML = `
+        <main class="client-shell">
+          <div class="client-layout">
+            <aside class="client-sidebar">
+              <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+              <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+              <div class="client-muted">${h(company.slug || "tenant")}</div>
+              <nav class="client-nav">${renderClientNav("payroll")}</nav>
+              <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+            </aside>
+            <section class="client-main"><div id="cxPayrollV2Host052B"></div></section>
+          </div>
+        </main>`;
+    };
+    return window.CxPayrollV2.mount({
+      companyId: state.companyId, api, period: start, cfg, renderShell,
+      loadCfg: (ref) => cxPayLoadCfg049L(ref), shiftDate: cxPayShiftDate049L,
+      host: () => document.getElementById("cxPayrollV2Host052B"),
+    });
+  }
+  /* CLONEXA_052B_PAYROLL_V2_END */
+
   async function renderPayrollModule(period, options = {}) {
     if (!isClientModuleActive("payroll")) {
       render();
       return;
     }
+    if (cxPayrollV2On052B() && await cxPayrollV2Mount052B(period)) return;
 
     ensurePayrollStyles();
     // 049L: al abrir Nómina el periodo viene según los días de corte de la

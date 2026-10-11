@@ -1,6 +1,6 @@
 {
   "_doc": "Registro unico de interruptores por empresa (Consola v2+ · Interruptores). Solo lo que esta aqui aparece en la consola. Cada interruptor es una clave booleana dentro de company_modules.settings del modulo indicado. depends_on: interruptores de los que depende este (verificado en el codigo). requires_modules: modulos que tambien deben estar encendidos. delicate: cambia calculos o una pantalla completa; en empresas registradas exige escribir el nombre de la empresa. v2_form: Admin V2 tambien la guarda desde su formulario de mesero/cocina/caja.",
-  "groups": ["Caja", "Cocina", "Pedidos", "Enlaces", "Reportes", "Marca", "Domicilios", "QR", "Referencias", "Personal"],
+  "groups": ["Caja", "Cocina", "Pedidos", "Enlaces", "Reportes", "Marca", "Domicilios", "QR", "Referencias", "Personal", "Nómina"],
   "switches": [
     {"key": "cashier_redesign", "label": "Caja rediseñada", "module": "waiter_ordering", "group": "Caja",
      "description": "Panel de caja con indicadores del turno, secciones Mesas / Domicilios / Ventas y el Z del día.",
@@ -50,6 +50,9 @@
      "delicate": true, "delicate_reason": "Cambia la pantalla completa de Referencias del portal."},
     {"key": "workforce_v2", "label": "Personal rediseñado", "module": "workforce", "group": "Personal",
      "description": "Pantalla nueva de Personal: cabecera compacta, cifras en una franja, búsqueda y filtros en una línea, tabla agrupada (Persona, Contrato, Estado, Acciones) con menú por fila y tarjetas en celular. Mismas funciones y endpoints; la pantalla de siempre queda como respaldo.",
-     "delicate": true, "delicate_reason": "Cambia la pantalla completa de Personal del portal."}
+     "delicate": true, "delicate_reason": "Cambia la pantalla completa de Personal del portal."},
+    {"key": "payroll_v2", "label": "Nómina rediseñada", "module": "payroll", "group": "Nómina",
+     "description": "Pantalla nueva de Nómina: barra del periodo en una fila, franja de resumen, mini tarjetas por colaborador con su registro por turno (lo que hizo según los módulos de la empresa) y confirmar salida con vista previa. El cálculo no cambia; la pantalla de siempre queda como respaldo.",
+     "delicate": true, "delicate_reason": "Cambia la pantalla completa de Nómina del portal."}
   ]
 }

@@ -320,15 +320,22 @@ async def confirm_real_end(
     else:
         raise HTTPException(status_code=400, detail="Falta la hora real de salida.")
     _check_range(row, end)
+    # Nomina v2: nota opcional, en el MISMO update que confirma (una sola vez).
+    note = " ".join(str(data.get("note") or "").split())[:300]
+    params = {"end_at": end, "name": actor["name"][:180], "user_id": actor["id"], "id": str(row["id"]),
+              "company_id": str(company_id)}
+    note_sql = ""
+    if note:
+        note_sql = ", real_end_note = :note"
+        params["note"] = note
     updated = await db.execute(
-        text("""
+        text(f"""
             UPDATE workforce_session_closures
                SET status = 'confirmed', real_end_at = :end_at, confirmed_by_name = :name,
-                   confirmed_by_user_id = :user_id, confirmed_at = now()
+                   confirmed_by_user_id = :user_id, confirmed_at = now(){note_sql}
              WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid) AND status <> 'confirmed'
         """),
-        {"end_at": end, "name": actor["name"][:180], "user_id": actor["id"], "id": str(row["id"]),
-         "company_id": str(company_id)},
+        params,
     )
     if not getattr(updated, "rowcount", 1):
         raise HTTPException(status_code=409, detail="La hora real ya fue registrada y no se puede cambiar.")
