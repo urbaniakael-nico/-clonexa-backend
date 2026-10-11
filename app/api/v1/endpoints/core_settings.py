@@ -4,13 +4,14 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import ADMIN_ROLES, get_db, require_company_user_for_tenant
 from app.api.v1.endpoints.company_users import require_company_user_not_role
+from app.services import company_locale
 
 
 router = APIRouter()
@@ -19,6 +20,29 @@ router = APIRouter()
 # "administrador" no puede ver ni editar Ajustes de empresa. No-op para el
 # resto de empresas (sin el módulo activo).
 _NOT_ADMINISTRADOR = require_company_user_not_role({"administrador"})
+
+# Fase A (todas las empresas): Ajustes exige sesion SIEMPRE, validada en el
+# servidor: usuario de ESA empresa o Admin V2 (el portal abierto desde la
+# consola). Guardar solo el dueño o el admin de la empresa (o Admin V2).
+SETTINGS_WRITER_ROLES = ADMIN_ROLES | {"dueno", "dueño", "owner", "propietario"}
+
+
+async def require_settings_reader(
+    company_id: str, request: Request, authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+) -> dict:
+    cid = _company_uuid(company_id)
+    from app.web.admin_v2_routes import _active_session
+
+    if await _active_session(request, db):
+        return {"admin_v2": True, "role": "admin_v2"}
+    user = await require_company_user_for_tenant(db, authorization, UUID(cid))
+    return {"admin_v2": False, "role": str(getattr(user, "role", "") or "").strip().lower()}
+
+
+async def require_settings_writer(actor: dict = Depends(require_settings_reader)) -> dict:
+    if not actor["admin_v2"] and actor["role"] not in SETTINGS_WRITER_ROLES:
+        raise HTTPException(status_code=403, detail="Solo el dueño o el administrador de la empresa puede guardar los ajustes.")
+    return actor
 
 
 class CoreSettingsIn(BaseModel):
@@ -61,8 +85,8 @@ def _normalize_timezone(value: str | None) -> str | None:
     tz = str(value or "").strip()
     if not tz:
         return None
-    if len(tz) > 80:
-        raise HTTPException(status_code=400, detail="timezone too long")
+    if not company_locale.valid_timezone(tz):
+        raise HTTPException(status_code=400, detail="La zona horaria no es válida: elígela de la lista.")
     return tz
 
 
@@ -120,6 +144,7 @@ async def get_company_core_settings(
     company_id: str,
     db: AsyncSession = Depends(get_db),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
+    _actor: dict = Depends(require_settings_reader),
 ) -> dict[str, Any]:
     company_id = _company_uuid(company_id)
     await _ensure_company_exists(db, company_id)
@@ -148,7 +173,11 @@ async def get_company_core_settings(
     if not row:
         raise HTTPException(status_code=404, detail="Core settings not found")
 
-    return _row_payload(dict(row))
+    payload = _row_payload(dict(row))
+    # La zona efectiva (con respaldo en companies.timezone) y la lista de zonas validas.
+    payload["effective_timezone"] = (await company_locale.get_company_locale(db, company_id))["timezone"]
+    payload["timezone_choices"] = list(company_locale.timezone_choices())
+    return payload
 
 
 @router.put("/{company_id}/core-settings")
@@ -157,6 +186,7 @@ async def update_company_core_settings(
     payload: CoreSettingsIn,
     db: AsyncSession = Depends(get_db),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
+    _actor: dict = Depends(require_settings_writer),
 ) -> dict[str, Any]:
     company_id = _company_uuid(company_id)
     await _ensure_company_exists(db, company_id)
@@ -213,9 +243,29 @@ async def update_company_core_settings(
     )
 
     row = result.mappings().first()
+    if row and timezone_value:
+        # Una sola fuente: lo que ya lee companies.timezone (corte diario, cierre
+        # del dia, confirmar salida, hospitality) sigue la zona de Ajustes.
+        await db.execute(
+            text("UPDATE companies SET timezone = :tz WHERE id = CAST(:company_id AS UUID)"),
+            {"tz": timezone_value, "company_id": company_id},
+        )
     await db.commit()
+    from app.services import company_tz_middleware
+
+    company_tz_middleware.invalidate(company_id)  # la zona/moneda nueva se ve en la siguiente peticion
 
     if not row:
         raise HTTPException(status_code=500, detail="Could not update core settings")
 
     return _row_payload(dict(row))
+
+
+@router.get("/{company_id}/locale")
+async def get_company_locale_view(
+    company_id: str,
+    db: AsyncSession = Depends(get_db),
+    _actor: dict = Depends(require_settings_reader),
+) -> dict[str, Any]:
+    """Solo lectura para el portal: moneda, zona horaria, idioma y decimales de la empresa."""
+    return await company_locale.get_company_locale(db, _company_uuid(company_id))

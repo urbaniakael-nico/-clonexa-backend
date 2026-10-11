@@ -70,8 +70,9 @@
   async function api(path, options = {}) {
     const response = await fetch(`${API}${path}`, {
       ...options,
+      // Fase A: siempre con la sesion, como el resto del portal (el servidor la exige).
       headers: {
-        ...headers(Boolean(options.auth)),
+        ...headers(options.auth !== false),
         ...(options.headers || {}),
       },
     });
@@ -98,6 +99,14 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  // Fase A: la zona se elige de la lista IANA que manda el servidor (no texto libre).
+  function timezoneSelect(settings) {
+    const current = settings.timezone || settings.effective_timezone || "America/Bogota";
+    const list = Array.isArray(settings.timezone_choices) && settings.timezone_choices.length ? settings.timezone_choices : [current];
+    const options = list.includes(current) ? list : [current, ...list];
+    return `<select id="clxCoreTimezone">${options.map((tz) => `<option value="${escapeHtml(tz)}" ${tz === current ? "selected" : ""}>${escapeHtml(tz.replace(/_/g, " "))}</option>`).join("")}</select>`;
   }
 
   function detectedTimezone() {
@@ -443,8 +452,8 @@
             </label>
 
             <label class="clx-core-field">
-              <span>Zona horaria detectada</span>
-              <input id="clxCoreTimezone" value="${escapeHtml(settings.timezone || detectedTimezone())}" />
+              <span>Zona horaria</span>
+              ${timezoneSelect(settings)}
             </label>
 
             <button class="clx-core-save" id="clxSaveCorePreferences" type="button">Guardar ajustes</button>
