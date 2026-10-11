@@ -16,9 +16,9 @@
   const fold = (v) => String(v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const STATUS = { active: "Activo", inactive: "Inactivo", archived: "Archivado" };
   const FILTERS = [["all", "Todos"], ["active", "Activos"], ["inactive", "Inactivos"], ["archived", "Archivados"]];
-  const FIELDS = ["full_name", "role", "phone", "email", "telegram_user_id", "hire_date", "hourly_rate_regular", "hourly_rate_extra", "deduction_1", "deduction_2", "status"];
+  const FIELDS = ["full_name", "document_id", "role", "phone", "email", "telegram_user_id", "hire_date", "hourly_rate_regular", "hourly_rate_extra", "deduction_1", "deduction_2", "status"];
   const MONEY = ["hourly_rate_regular", "hourly_rate_extra", "deduction_1", "deduction_2"];
-  const CSV_HEAD = ["Nombre", "Rol", "Telefono", "Correo", "Telegram ID", "Fecha ingreso", "Hora ordinaria", "Hora extra", "Descuento 1", "Descuento 2", "Estado"];
+  const CSV_HEAD = ["Nombre", "Documento", "Rol", "Telefono", "Correo", "Telegram ID", "Fecha ingreso", "Hora ordinaria", "Hora extra", "Descuento 1", "Descuento 2", "Estado"];
 
   const model = { employees: [], filter: "all", query: "", menu: "", modal: null, notice: "", error: "", busy: false, loaded: false };
   let ctx = null;
@@ -50,7 +50,7 @@
   }
 
   function searchText(e, roles) {
-    return fold([e.full_name, roleOf(e), roleLabel(roles, roleOf(e)), e.phone, e.email, e.telegram_user_id, e.hire_date, STATUS[statusOf(e)]].join(" "));
+    return fold([e.full_name, e.document_id, roleOf(e), roleLabel(roles, roleOf(e)), e.phone, e.email, e.telegram_user_id, e.hire_date, STATUS[statusOf(e)]].join(" "));
   }
 
   function visible(list, filter, query, roles) {
@@ -62,7 +62,7 @@
   }
 
   function csvText(list, roles) {
-    const rows = [CSV_HEAD].concat(arr(list).map((e) => [e.full_name, roleLabel(roles, roleOf(e)), e.phone, e.email, e.telegram_user_id, e.hire_date,
+    const rows = [CSV_HEAD].concat(arr(list).map((e) => [e.full_name, e.document_id, roleLabel(roles, roleOf(e)), e.phone, e.email, e.telegram_user_id, e.hire_date,
       e.hourly_rate_regular, e.hourly_rate_extra, e.deduction_1, e.deduction_2, STATUS[statusOf(e)]]));
     return rows.map((line) => line.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
   }
@@ -200,13 +200,13 @@
       <thead>
         <tr><th class="wf-group" colspan="3" scope="colgroup">Persona</th><th class="wf-group" colspan="3" scope="colgroup">Contrato</th>
           <th class="wf-th" rowspan="2" scope="col">Estado</th><th class="wf-th" rowspan="2" scope="col">Acciones</th></tr>
-        <tr><th class="wf-th" scope="col">Nombre</th><th class="wf-th" scope="col">Rol</th><th class="wf-th" scope="col">Teléfono · correo · Telegram ID</th>
+        <tr><th class="wf-th" scope="col">Nombre</th><th class="wf-th" scope="col">Rol</th><th class="wf-th" scope="col">Documento · teléfono · correo · Telegram ID</th>
           <th class="wf-th" scope="col">Ingreso</th><th class="wf-th wf-num" scope="col">Hora ordinaria · extra</th><th class="wf-th wf-num" scope="col">Descuentos</th></tr>
       </thead>
       <tbody>${list.map((e) => `<tr class="wf-row wf-row-${statusOf(e)}" data-wf2-row="${h(e.id)}">
         <td class="wf-namecell"><span class="wf-name">${h(e.full_name || "Sin nombre")}</span></td>
         <td class="wf-role">${rolePill(e)}</td>
-        <td class="wf-contact">${pairLine("Tel.", dash(e.phone))}${pairLine("Correo", `<span class="wf-wrap">${dash(e.email)}</span>`)}${pairLine("Telegram", dash(e.telegram_user_id))}</td>
+        <td class="wf-contact">${pairLine("Doc.", dash(e.document_id))}${pairLine("Tel.", dash(e.phone))}${pairLine("Correo", `<span class="wf-wrap">${dash(e.email)}</span>`)}${pairLine("Telegram", dash(e.telegram_user_id))}</td>
         <td class="wf-date">${dash(e.hire_date)}</td>
         <td class="wf-num">${pairLine("Ord.", h(money(e.hourly_rate_regular)))}${pairLine("Extra", h(money(e.hourly_rate_extra)))}</td>
         <td class="wf-num">${pairLine("1:", h(money(e.deduction_1)))}${pairLine("2:", h(money(e.deduction_2)))}</td>
@@ -222,7 +222,7 @@
       <div class="wf-card-head"><span class="wf-name">${h(e.full_name || "Sin nombre")}</span>${statusPill(e)}</div>
       <div class="wf-card-role">${rolePill(e)}</div>
       <div class="wf-card-group"><span class="wf-card-title">Persona</span>
-        ${line("Teléfono", dash(e.phone))}${line("Correo", dash(e.email))}${line("Telegram ID", dash(e.telegram_user_id))}</div>
+        ${line("Documento", dash(e.document_id))}${line("Teléfono", dash(e.phone))}${line("Correo", dash(e.email))}${line("Telegram ID", dash(e.telegram_user_id))}</div>
       <div class="wf-card-group"><span class="wf-card-title">Contrato</span>
         ${line("Ingreso", dash(e.hire_date))}${line("Hora ordinaria", h(money(e.hourly_rate_regular)))}${line("Hora extra", h(money(e.hourly_rate_extra)))}
         ${line("Descuento 1", h(money(e.deduction_1)))}${line("Descuento 2", h(money(e.deduction_2)))}</div>
@@ -248,6 +248,7 @@
       <h2 id="wf2ModalTitle">${e.id ? `Editar a ${h(e.full_name || "empleado")}` : "Agregar empleado"}</h2>${err}
       <fieldset class="wf-fieldset"><legend>Persona</legend><div class="wf-form-grid">
         ${field("full_name", "Nombre completo", 'required minlength="2" autocomplete="off"')}
+        ${field("document_id", "Documento (opcional)", 'autocomplete="off" maxlength="80"')}
         <label class="wf-field"><span>Rol</span><select name="role" class="wf-role-select">${roleOptions(role)}</select></label>
         ${field("phone", "Teléfono", 'inputmode="tel" autocomplete="off"')}
         ${field("email", "Correo", 'type="email" autocomplete="off"')}

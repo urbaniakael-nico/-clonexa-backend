@@ -1659,11 +1659,11 @@
       }
 
             .personal-grid {
-        min-width: 1520px;
+        min-width: 1640px;
         width: max-content;
         display: grid;
         grid-template-columns:
-          160px 110px 105px 160px 120px 105px
+          160px 120px 110px 105px 160px 120px 105px
           105px 105px 105px 105px 110px 210px;
         align-items: stretch;
       }
@@ -1946,6 +1946,7 @@
   function personalGridHeader() {
     return `
       <div class="personal-cell personal-head">Nombre</div>
+      <div class="personal-cell personal-head">Documento</div>
       <div class="personal-cell personal-head">Rol</div>
       <div class="personal-cell personal-head">Telefono</div>
       <div class="personal-cell personal-head">Correo</div>
@@ -1967,6 +1968,7 @@
     return `
       <div class="personal-row ${rowClass}" data-personal-row data-employee-id="${h(id)}">
         <div class="personal-cell"><input data-field="full_name" value="${h(employee.full_name || "")}" placeholder="Nombre completo"></div>
+        <div class="personal-cell"><input data-field="document_id" value="${h(employee.document_id || "")}" placeholder="Opcional"></div>
         <div class="personal-cell"><select data-field="role">${personalRoleOptions(employee.role || employee.employee_type || "operator")}</select></div>
         <div class="personal-cell"><input data-field="phone" value="${h(employee.phone || "")}" placeholder="Telefono"></div>
         <div class="personal-cell"><input data-field="email" value="${h(employee.email || "")}" placeholder="correo@empresa.com"></div>
@@ -40042,6 +40044,7 @@ function inventoryCreatePayload() {
 
   const COLS = [
     "Nombre",
+    "Documento",
     "Rol",
     "Telefono",
     "Correo",
@@ -40091,10 +40094,11 @@ function inventoryCreatePayload() {
       }
 
       .personal-grid {
-        min-width: 1460px !important;
+        min-width: 1580px !important;
         width: max-content !important;
         grid-template-columns:
           150px
+          120px
           108px
           108px
           155px
@@ -40305,6 +40309,7 @@ function inventoryCreatePayload() {
   function rowSearchText(row) {
     const values = [
       getField(row, "full_name"),
+      getField(row, "document_id"),
       getField(row, "role"),
       getField(row, "phone"),
       getField(row, "email"),
@@ -40484,6 +40489,7 @@ function inventoryCreatePayload() {
     rows.forEach((row) => {
       data.push([
         getField(row, "full_name"),
+        getField(row, "document_id"),
         getField(row, "role"),
         getField(row, "phone"),
         getField(row, "email"),

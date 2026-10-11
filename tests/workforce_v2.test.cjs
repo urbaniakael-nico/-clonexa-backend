@@ -47,19 +47,19 @@ test('reglas: cifras, filtros (activos, inactivos, archivados), búsqueda por no
   for (const q of ['300', 'n@u.co', '5']) assert.deepEqual(names('all', q), ['Nicolás Gómez'], q);
 });
 
-test('CSV: mismas 11 columnas de siempre, con el nombre visible del rol y el estado', () => {
+test('CSV: las mismas columnas de la pantalla de siempre (con Documento), con el nombre visible del rol y el estado', () => {
   const { W } = load();
-  const csv = W.csvText([EMPLOYEES[0]], URBANIA).split('\n');
-  assert.equal(csv[0], '"Nombre","Rol","Telefono","Correo","Telegram ID","Fecha ingreso","Hora ordinaria","Hora extra","Descuento 1","Descuento 2","Estado"');
-  assert.equal(csv[1], '"Nicolás Gómez","Supervisor","300","n@u.co","5","2026-01-15","18","24","10","0","Activo"');
+  const csv = W.csvText([{ ...EMPLOYEES[0], document_id: '1020304050' }], URBANIA).split('\n');
+  assert.equal(csv[0], '"Nombre","Documento","Rol","Telefono","Correo","Telegram ID","Fecha ingreso","Hora ordinaria","Hora extra","Descuento 1","Descuento 2","Estado"');
+  assert.equal(csv[1], '"Nicolás Gómez","1020304050","Supervisor","300","n@u.co","5","2026-01-15","18","24","10","0","Activo"');
 });
 
 test('guardar: mismo cuerpo que la pantalla de siempre, con todos los campos', () => {
   const { W } = load();
-  assert.deepEqual([...W.FIELDS], ['full_name', 'role', 'phone', 'email', 'telegram_user_id', 'hire_date', 'hourly_rate_regular', 'hourly_rate_extra', 'deduction_1', 'deduction_2', 'status']);
-  const body = W.payloadOf('c1', { full_name: 'Ana', role: 'otro', phone: '', email: 'a@b.co', telegram_user_id: '9', hire_date: '2026-02-01',
+  assert.deepEqual([...W.FIELDS], ['full_name', 'document_id', 'role', 'phone', 'email', 'telegram_user_id', 'hire_date', 'hourly_rate_regular', 'hourly_rate_extra', 'deduction_1', 'deduction_2', 'status']);
+  const body = W.payloadOf('c1', { full_name: 'Ana', document_id: '', role: 'otro', phone: '', email: 'a@b.co', telegram_user_id: '9', hire_date: '2026-02-01',
     hourly_rate_regular: '20', hourly_rate_extra: '', deduction_1: '1.5', deduction_2: '0', status: 'active' });
-  assert.deepEqual(JSON.parse(JSON.stringify(body)), { company_id: 'c1', full_name: 'Ana', role: 'otro', phone: null, email: 'a@b.co', telegram_user_id: '9',
+  assert.deepEqual(JSON.parse(JSON.stringify(body)), { company_id: 'c1', full_name: 'Ana', document_id: null, role: 'otro', phone: null, email: 'a@b.co', telegram_user_id: '9',
     hire_date: '2026-02-01', hourly_rate_regular: 20, hourly_rate_extra: 0, deduction_1: 1.5, deduction_2: 0, status: 'active', employee_type: 'otro' });
 });
 
@@ -75,9 +75,9 @@ test('pantalla: cabecera con agregar, historial, asistencia y volver; cifras; b�
   }
   assert.match(html, /<div class="wf-tools">[\s\S]*data-wf2-search[\s\S]*wf-filters[\s\S]*data-wf2-csv[\s\S]*<\/div>/, 'una sola línea');
   assert.match(html, /<th class="wf-group" colspan="3" scope="colgroup">Persona<\/th><th class="wf-group" colspan="3" scope="colgroup">Contrato<\/th>/);
-  for (const t of ['Nombre', 'Rol', 'Teléfono · correo · Telegram ID', 'Ingreso', 'Hora ordinaria · extra', 'Descuentos', 'Estado', 'Acciones']) assert.ok(html.includes(`>${t}</th>`), t);
+  for (const t of ['Nombre', 'Rol', 'Documento · teléfono · correo · Telegram ID', 'Ingreso', 'Hora ordinaria · extra', 'Descuentos', 'Estado', 'Acciones']) assert.ok(html.includes(`>${t}</th>`), t);
   // Cada fila muestra todos los campos: teléfono, correo, Telegram, ingreso, horas y descuentos.
-  assert.match(html, /<span class="wf-sub">Tel\.<\/span> 300<\/span><span class="wf-kv"><span class="wf-sub">Correo<\/span> <span class="wf-wrap">n@u\.co<\/span><\/span><span class="wf-kv"><span class="wf-sub">Telegram<\/span> 5<\/span>/);
+  assert.match(html, /<span class="wf-sub">Doc\.<\/span> <span class="wf-sub">—<\/span><\/span><span class="wf-kv"><span class="wf-sub">Tel\.<\/span> 300<\/span><span class="wf-kv"><span class="wf-sub">Correo<\/span> <span class="wf-wrap">n@u\.co<\/span><\/span><span class="wf-kv"><span class="wf-sub">Telegram<\/span> 5<\/span>/);
   assert.match(html, /<span class="wf-sub">Ord\.<\/span> 18<\/span><span class="wf-kv"><span class="wf-sub">Extra<\/span> 24<\/span>/);
   assert.match(html, /<span class="wf-sub">1:<\/span> 10<\/span><span class="wf-kv"><span class="wf-sub">2:<\/span> 0<\/span>/);
   assert.match(html, /<span class="wf-role-text">Director<\/span>/, 'rol visible completo');
@@ -93,7 +93,7 @@ test('editar: todos los campos; el rol ofrece solo los de la empresa; Eliminar p
   const m = await mounted(W);
   m.modal = { type: 'edit', employee: { ...EMPLOYEES[0] } };
   let html = W.view();
-  for (const f of ['full_name', 'phone', 'email', 'telegram_user_id', 'hire_date', 'hourly_rate_regular', 'hourly_rate_extra', 'deduction_1', 'deduction_2']) assert.match(html, new RegExp(`<input name="${f}"`), f);
+  for (const f of ['full_name', 'document_id', 'phone', 'email', 'telegram_user_id', 'hire_date', 'hourly_rate_regular', 'hourly_rate_extra', 'deduction_1', 'deduction_2']) assert.match(html, new RegExp(`<input name="${f}"`), f);
   assert.match(html, /<select name="role" class="wf-role-select">/); assert.match(html, /<select name="status">/);
   const options = [...html.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)<\/option>/g)].map((x) => x[2]);
   assert.deepEqual(options.slice(0, 5), ['Director', 'Supervisor', 'Logística', 'Operario', 'Otro']);

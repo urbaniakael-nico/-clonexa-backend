@@ -29,6 +29,23 @@ async def _cx_check_company_role_051A(db: AsyncSession, company_id, new_role, ol
         raise HTTPException(status_code=422, detail="El rol no está habilitado para esta empresa.")
 
 
+async def _cx_check_document_052A(db: AsyncSession, company_id, document_id, employee_id=None) -> None:
+    """Documento opcional y unico dentro de la empresa (uq_employees_company_document_id):
+    aviso claro en vez de un error de base de datos."""
+    if not document_id:
+        return
+    params = {"company_id": str(company_id), "document_id": str(document_id)}
+    extra = ""
+    if employee_id:
+        extra = " AND id <> CAST(:employee_id AS uuid)"
+        params["employee_id"] = str(employee_id)
+    found = (await db.execute(text(
+        "SELECT full_name FROM employees WHERE company_id = CAST(:company_id AS uuid) AND document_id = :document_id" + extra + " LIMIT 1"
+    ), params)).mappings().first()
+    if found:
+        raise HTTPException(status_code=409, detail=f"Ese documento ya está registrado en otro empleado de la empresa ({found['full_name']}).")
+
+
 def json_dumps(value: dict) -> str:
     return json.dumps(value or {}, ensure_ascii=False, default=str)
 
@@ -338,6 +355,7 @@ async def create_employee(payload: EmployeeCreate, db: AsyncSession = Depends(ge
 
     data = normalize_employee_payload(payload.model_dump())
     await _cx_check_company_role_051A(db, payload.company_id, data.get("role"))
+    await _cx_check_document_052A(db, payload.company_id, data.get("document_id"))
     employee = Employee(**data)
 
     db.add(employee)
@@ -1122,6 +1140,8 @@ async def update_employee(
     before = employee_snapshot(employee)
     data = normalize_employee_payload(payload.model_dump(exclude_unset=True))
     await _cx_check_company_role_051A(db, employee.company_id, data.get("role"), employee.role)
+    if "document_id" in data:
+        await _cx_check_document_052A(db, employee.company_id, data.get("document_id"), employee.id)
 
     for key, value in data.items():
         if hasattr(employee, key):
