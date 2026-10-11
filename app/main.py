@@ -484,6 +484,11 @@ from app.services.admin_audit import AdminAuditMiddleware
 
 app.add_middleware(AdminAuditMiddleware)
 
+# Fase A: la zona horaria de la empresa de cada peticion (company_locale.CURRENT_TZ).
+from app.services.company_tz_middleware import CompanyTzMiddleware  # noqa: E402
+
+app.add_middleware(CompanyTzMiddleware)
+
 
 # CLONEXA_API_DOCS_GUARD: documentacion de la API solo con sesion de Admin V2
 # (validada en el servidor). Sin sesion: las paginas llevan al login de Admin V2

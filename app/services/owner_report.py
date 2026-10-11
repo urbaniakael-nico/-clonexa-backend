@@ -888,6 +888,13 @@ def day_close(report: "Report") -> dict:
 
 
 def money_text(value: Any) -> str:
+    # Fase A: moneda de la empresa de la peticion; con COP, exactamente el texto de siempre.
+    from app.services import company_locale
+
+    return company_locale.money_here(value, money_text_cop)
+
+
+def money_text_cop(value: Any) -> str:
     return "$" + f"{int(round(float(dec(value)))):,}".replace(",", ".")
 
 

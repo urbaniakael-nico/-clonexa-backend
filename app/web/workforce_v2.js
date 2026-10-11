@@ -80,6 +80,7 @@
   }
 
   function money(v) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && v !== null && v !== undefined) return window.CxLocale.money(Number(v)); // Fase A
     const n = Number(v || 0);
     return Number.isFinite(n) ? n.toLocaleString("es-CO", { maximumFractionDigits: 2 }) : String(v ?? "");
   }

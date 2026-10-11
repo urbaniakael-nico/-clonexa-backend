@@ -1606,6 +1606,13 @@ def _hsp_hours(minutes: Any) -> str:
 
 
 def _hsp_money_text(value: Any) -> str:
+    # Fase A: moneda de la empresa de la peticion; con COP, exactamente el texto de siempre.
+    from app.services import company_locale
+
+    return company_locale.money_here(value, _hsp_money_text_cop)
+
+
+def _hsp_money_text_cop(value: Any) -> str:
     return "$ " + f"{int(round(_num(value))):,}".replace(",", ".")
 
 

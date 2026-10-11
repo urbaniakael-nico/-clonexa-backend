@@ -61,6 +61,13 @@ VALID_STATUS = {"active", "done", "archived"}
 BOGOTA = ZoneInfo("America/Bogota")
 
 
+def _tz052c():
+    """Fase A: zona de la empresa de la peticion (company_locale.CURRENT_TZ); sin ella, Bogota."""
+    from app.services import company_locale
+
+    return company_locale.current_zone()
+
+
 class MiniPanelNoteCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=180)
     description: str | None = Field(default=None, max_length=4000)
@@ -199,12 +206,12 @@ def _json(value: Any) -> dict[str, Any]:
 
 
 def _scheduled_at(note_date: date, note_time: time) -> datetime:
-    return datetime.combine(note_date, note_time).replace(tzinfo=BOGOTA)
+    return datetime.combine(note_date, note_time).replace(tzinfo=_tz052c())
 
 
 def _date_range(value: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(value, time.min).replace(tzinfo=BOGOTA)
-    end = datetime.combine(value, time.max).replace(tzinfo=BOGOTA)
+    start = datetime.combine(value, time.min).replace(tzinfo=_tz052c())
+    end = datetime.combine(value, time.max).replace(tzinfo=_tz052c())
     return start, end
 
 
@@ -393,7 +400,7 @@ def _note_payload(row: asyncpg.Record) -> dict[str, Any]:
     scheduled = row["scheduled_at"]
     if scheduled.tzinfo is None:
         scheduled = scheduled.replace(tzinfo=timezone.utc)
-    local = scheduled.astimezone(BOGOTA)
+    local = scheduled.astimezone(_tz052c())
     metadata = _json(row["metadata"])
     store_actor = metadata.get("store_actor") if isinstance(metadata.get("store_actor"), dict) else {}
     actor_label = str(store_actor.get("name") or "").strip()
@@ -481,7 +488,7 @@ async def get_notes_summary(
     date_value: date | None = Query(default=None, alias="date"),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    selected_date = date_value or datetime.now(BOGOTA).date()
+    selected_date = date_value or datetime.now(_tz052c()).date()
     conn = await _connect()
     try:
         access_022d = await _require_access(conn, company_id, authorization)
@@ -499,7 +506,7 @@ async def list_notes(
     date_value: date | None = Query(default=None, alias="date"),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    selected_date = date_value or datetime.now(BOGOTA).date()
+    selected_date = date_value or datetime.now(_tz052c()).date()
     start, end = _date_range(selected_date)
     conn = await _connect()
     try:
@@ -623,8 +630,8 @@ async def update_note(
         if not current:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nota no encontrada.")
 
-        next_date = payload.note_date or current["scheduled_at"].astimezone(BOGOTA).date()
-        next_time = payload.note_time or current["scheduled_at"].astimezone(BOGOTA).time().replace(tzinfo=None)
+        next_date = payload.note_date or current["scheduled_at"].astimezone(_tz052c()).date()
+        next_time = payload.note_time or current["scheduled_at"].astimezone(_tz052c()).time().replace(tzinfo=None)
         scheduled = _scheduled_at(next_date, next_time)
 
         status_value = payload.status if payload.status is not None else current["status"]

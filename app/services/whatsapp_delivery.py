@@ -393,6 +393,13 @@ def maps_url(latitude: float, longitude: float) -> str:
 
 # -------------------------------------------------------------- messages ---
 def money(value: Any) -> str:
+    # Fase A: moneda de la empresa de la peticion; con COP, exactamente el texto de siempre.
+    from app.services import company_locale
+
+    return company_locale.money_here(value, money_cop)
+
+
+def money_cop(value: Any) -> str:
     try:
         amount = round(float(value or 0))
     except (TypeError, ValueError):

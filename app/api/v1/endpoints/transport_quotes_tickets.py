@@ -537,6 +537,13 @@ async def convert_quote_to_ticket(company_id: uuid.UUID, document_id: uuid.UUID,
 
 
 def _format_money(value: Any) -> str:
+    # Fase A: moneda de la empresa de la peticion; con COP, exactamente el texto de siempre.
+    from app.services import company_locale
+
+    return company_locale.money_here(value, _format_money_cop)
+
+
+def _format_money_cop(value: Any) -> str:
     return f"$ {int(round(_money(value))):,}".replace(",", ".")
 
 

@@ -21,6 +21,7 @@ from app.services import payroll_periods as periods_049l
 from app.services import session_cutoff as session_cutoff_049d
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
+from app.services import company_locale as cx_locale_052c  # moneda/zona de la empresa (Fase A)
 from app.services import employee_roles as cx_employee_roles_051a  # roles por empresa (nombre visible)
 router = APIRouter()
 
@@ -35,7 +36,22 @@ PREVIEW_CLOSURES_052A: contextvars.ContextVar[dict | None] = contextvars.Context
 
 MONEY = Decimal("0.01")
 DEFAULT_COMPANY_PAYROLL_ORDINARY_HOURS = Decimal("48")
-BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")
+BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")  # respaldo: la zona real es la de cada empresa (Fase A)
+
+
+def _biz_tz() -> ZoneInfo:
+    """Fase A: la zona de la empresa en curso (company_locale.CURRENT_TZ); sin
+    ella, Bogota como siempre. Con ZoneInfo el horario de verano se respeta."""
+    from app.services import company_locale
+
+    return company_locale.CURRENT_TZ.get() or BUSINESS_TIMEZONE
+
+
+async def use_company_tz_052C(db: AsyncSession, company_id: Any):
+    """Fija la zona de la empresa para lo que queda de esta peticion; devuelve el token para restaurarla."""
+    from app.services import company_locale
+
+    return company_locale.CURRENT_TZ.set(await company_locale.company_zone(db, company_id))
 
 
 def utcnow() -> datetime:
@@ -63,14 +79,14 @@ def date_from_payload(value: Any, field: str) -> date:
 
 
 def current_biweekly_period(reference: date | None = None) -> tuple[date, date]:
-    today = reference or datetime.now(BUSINESS_TIMEZONE).date()
+    today = reference or datetime.now(_biz_tz()).date()
     start = today.replace(day=1 if today.day <= 15 else 16)
     return start, today
 
 
 def period_datetime_bounds(period_start: date, period_end: date) -> tuple[datetime, datetime]:
-    start_local = datetime.combine(period_start, time.min, tzinfo=BUSINESS_TIMEZONE)
-    end_local = datetime.combine(period_end, time.max, tzinfo=BUSINESS_TIMEZONE)
+    start_local = datetime.combine(period_start, time.min, tzinfo=_biz_tz())
+    end_local = datetime.combine(period_end, time.max, tzinfo=_biz_tz())
     return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
 
 
@@ -933,7 +949,7 @@ def _cx_co_local_049A(value: Any) -> datetime | None:
     dt = _cx_payroll_dt_023o(value)
     if not dt:
         return None
-    return dt.astimezone(BUSINESS_TIMEZONE).replace(tzinfo=None)
+    return dt.astimezone(_biz_tz()).replace(tzinfo=None)
 
 
 def _cx_co_pair_breaks_049A(events: list[dict], until: datetime) -> list[tuple[datetime, datetime]]:
@@ -1192,6 +1208,16 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
 
 
 async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
+    token = await use_company_tz_052C(db, company_id)
+    try:
+        return await _calculate_period_snapshot_052C(db, company_id, period_start, period_end)
+    finally:
+        from app.services import company_locale
+
+        company_locale.CURRENT_TZ.reset(token)
+
+
+async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
     # 049L: con dias de corte configurados (hoy VELVET) cada turno va al
     # periodo en el que EMPEZO; sin configuracion, como siempre (por su fin).
     by_start = await load_period_config_049L(db, company_id) is not None
@@ -1660,7 +1686,9 @@ async def close_payroll_period(
         raise HTTPException(status_code=400, detail="period_end_before_start")
     period_id = await close_period_core_049L(
         db, company_id, period_start, period_end,
-        name=data.get("name"), currency=str(data.get("currency") or "USD"),
+        name=data.get("name"),
+        # Fase A: sin moneda en el pedido, la de la empresa (antes "USD" por defecto).
+        currency=str(data.get("currency") or (await cx_locale_052c.get_company_locale(db, company_id))["currency"]),
     )
     return await get_payroll_period(company_id, UUID(str(period_id)), db)
 
@@ -1834,12 +1862,13 @@ async def load_period_config_049L(db: AsyncSession, company_id: Any) -> dict | N
 
 
 def _local_today_049L() -> date:
-    return datetime.now(BUSINESS_TIMEZONE).date()
+    return datetime.now(_biz_tz()).date()
 
 
 async def period_from_payload_049L(db: AsyncSession, company_id: Any, data: dict) -> tuple[date, date]:
     """Fechas pedidas; sin fechas, el periodo actual segun los dias de corte
     de la empresa (o el de siempre si no tiene)."""
+    await use_company_tz_052C(db, company_id)  # "hoy" y periodo de siempre en la zona de la empresa
     if data.get("period_start") or data.get("from") or data.get("date_from"):
         return period_from_payload(data)
     config = await load_period_config_049L(db, company_id)
@@ -1878,6 +1907,7 @@ async def _period_config_payload_049L(db: AsyncSession, company_id: UUID, refere
     config = await load_period_config_049L(db, company_id)
     if not config:
         return {"enabled": False}
+    await use_company_tz_052C(db, company_id)
     today = _local_today_049L()
     start, end = periods_049l.period_for(reference or today, config["cutoff_days"])
     await ensure_payroll_storage(db)
@@ -1957,17 +1987,21 @@ async def run_payroll_autoclose_049L(db: AsyncSession, now_utc: datetime | None 
     empezo antes del corte, se espera a que lo cierre (se reintenta)."""
     if not await _cx_payroll_table_exists_023o(db, "payroll_period_config"):
         return []
-    now_local = (now_utc or utcnow()).astimezone(BUSINESS_TIMEZONE)
     rows = (await db.execute(text("SELECT company_id FROM payroll_period_config WHERE auto_close IS TRUE"))).mappings().all()
     done = []
+    from app.services import company_locale
+
     for row in rows:
         company_id = str(row["company_id"])
+        token = None
         try:
+            token = await use_company_tz_052C(db, company_id)
+            now_local = (now_utc or utcnow()).astimezone(_biz_tz())
             config = await load_period_config_049L(db, company_id)
             if not config:
                 continue
             start, end = periods_049l.due_period(now_local.replace(tzinfo=None), config["cutoff_days"])
-            due_at = periods_049l.auto_close_at(end).replace(tzinfo=BUSINESS_TIMEZONE)
+            due_at = periods_049l.auto_close_at(end).replace(tzinfo=_biz_tz())
             active_from = config["active_from"]
             if active_from and due_at < active_from:
                 continue  # cortes de antes de activar los dias de corte no se tocan
@@ -1982,7 +2016,8 @@ async def run_payroll_autoclose_049L(db: AsyncSession, now_utc: datetime | None 
                 continue
             label = periods_049l.period_label(start, end).replace("Periodo ", "")
             period_id = await close_period_core_049L(
-                db, UUID(company_id), start, end, name=f"Nómina {label} (corte automático)", currency="COP",
+                db, UUID(company_id), start, end, name=f"Nómina {label} (corte automático)",
+                currency=(await company_locale.get_company_locale(db, company_id))["currency"],
             )
             done.append({"company_id": company_id, "period_start": start.isoformat(), "period_end": end.isoformat(),
                          "status": "closed", "period_id": period_id})
@@ -1991,6 +2026,9 @@ async def run_payroll_autoclose_049L(db: AsyncSession, now_utc: datetime | None 
             import logging
 
             logging.getLogger("clonexa.payroll").warning("Corte automatico de nomina fallo para %s: %s", company_id, exc)
+        finally:
+            if token is not None:
+                company_locale.CURRENT_TZ.reset(token)
     return done
 
 

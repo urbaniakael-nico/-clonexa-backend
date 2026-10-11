@@ -23,6 +23,13 @@ router = APIRouter()
 BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")
 
 
+def _tz052c():
+    """Fase A: zona de la empresa de la peticion (company_locale.CURRENT_TZ); sin ella, Bogota."""
+    from app.services import company_locale
+
+    return company_locale.current_zone()
+
+
 def clean(value: Any) -> str:
     return str(value or "").strip()
 
@@ -336,13 +343,14 @@ async def closures_rows(db: AsyncSession, company_id: str, start: date, end: dat
             COALESCE(source_channel, '') AS source_channel
         FROM reference_production_closures
         WHERE company_id::text = :company_id
-          AND (closed_at AT TIME ZONE 'America/Bogota')::date
+          AND (closed_at AT TIME ZONE CAST(:biz_tz AS text))::date
               BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
         ORDER BY closed_at DESC
         LIMIT :limit
         """,
         {
             "company_id": company_id,
+            "biz_tz": _tz052c().key,
             "date_from": start.isoformat(),
             "date_to": end.isoformat(),
             "limit": limit,
@@ -444,8 +452,8 @@ def _prod_format_seconds(seconds: int) -> str:
 
 
 def _prod_period_bounds_023r(start: date, end: date) -> tuple[datetime, datetime]:
-    local_start = datetime.combine(start, datetime.min.time(), tzinfo=BUSINESS_TIMEZONE)
-    local_end = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=BUSINESS_TIMEZONE)
+    local_start = datetime.combine(start, datetime.min.time(), tzinfo=_tz052c())
+    local_end = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=_tz052c())
     return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
 
 
@@ -677,12 +685,13 @@ async def _prod_closure_totals(db: AsyncSession, company_id: str, start: date, e
             COALESCE(sum(quantity_finished), 0) AS quantity_finished
         FROM reference_production_closures
         WHERE company_id::text = :company_id
-          AND (closed_at AT TIME ZONE 'America/Bogota')::date
+          AND (closed_at AT TIME ZONE CAST(:biz_tz AS text))::date
               BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
         GROUP BY reference_id, reference_name, size, employee_id, employee_name, telegram_user_id
         """,
         {
             "company_id": company_id,
+            "biz_tz": _tz052c().key,
             "date_from": start.isoformat(),
             "date_to": end.isoformat(),
         },
@@ -988,12 +997,13 @@ async def _prod_closure_totals(db: AsyncSession, company_id: str, start: date, e
             COALESCE(sum(quantity_finished), 0) AS quantity_finished
         FROM reference_production_closures
         WHERE company_id::text = :company_id
-          AND (closed_at AT TIME ZONE 'America/Bogota')::date
+          AND (closed_at AT TIME ZONE CAST(:biz_tz AS text))::date
               BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
         GROUP BY reference_id, reference_name, size, employee_id, employee_name, telegram_user_id
         """,
         {
             "company_id": company_id,
+            "biz_tz": _tz052c().key,
             "date_from": start.isoformat(),
             "date_to": end.isoformat(),
         },

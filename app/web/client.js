@@ -1101,6 +1101,7 @@
   }
 
   function clientMoney026P(value, currency = "COP") {
+    if (arguments.length < 2 && typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign()) return window.CxLocale.money(value); // Fase A
     const number = Number(value || 0);
     if (!Number.isFinite(number)) return "$ 0";
     return new Intl.NumberFormat("es-CO", {
@@ -1316,6 +1317,7 @@
   }
 
   function mundoCaseCompactMoney024L(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const number = Number(value || 0);
     try {
       return new Intl.NumberFormat("es-CO", {
@@ -2216,7 +2218,9 @@
   }
 
   function dateInputValue(date) {
-    return date.toISOString().slice(0, 10);
+    // Fase A: el día en la zona de la empresa (antes UTC: de noche ya era "mañana").
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(date)) return window.CxLocale.filterDay(date);
+    return ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(date)) || date.toISOString().slice(0, 10));
   }
 
   function defaultHistoryFilters() {
@@ -2327,8 +2331,11 @@
     params.set("company_id", state.companyId);
     params.set("limit", "500");
 
-    if (filters.date_from) params.set("date_from", `${filters.date_from}T00:00:00Z`);
-    if (filters.date_to) params.set("date_to", `${filters.date_to}T23:59:59Z`);
+    // Fase A: los días cortan en la zona de la empresa (antes en UTC).
+    const fromUtc = typeof window !== "undefined" && window.CxLocale && filters.date_from ? window.CxLocale.filterBound(filters.date_from) : null;
+    const toUtc = typeof window !== "undefined" && window.CxLocale && filters.date_to ? window.CxLocale.filterBound(filters.date_to, true) : null;
+    if (filters.date_from) params.set("date_from", fromUtc || `${filters.date_from}T00:00:00Z`);
+    if (filters.date_to) params.set("date_to", toUtc || `${filters.date_to}T23:59:59Z`);
     if (filters.search) params.set("search", filters.search);
     if (filters.event_type) params.set("event_type", filters.event_type);
 
@@ -3646,7 +3653,7 @@
       stores: "Punto",
       hospitality: "Reportes",
       bots: "Canal",
-      payroll: "NÃ³mina"
+      payroll: "Nómina"
     };
 
     if (first) {
@@ -5510,6 +5517,7 @@
   }
 
   function cxFixMoney049M(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     return `$${Math.round(Number(value) || 0).toLocaleString("es-CO")}`;
   }
 
@@ -6189,6 +6197,7 @@ function inventoryCreatePayload() {
 
   // "29.000" -> 29000, "1.234,5" -> 1234.5, "29000" -> 29000, "12.5" -> 12.5
   function inventoryMoneyValue045B(value) {
+    if (typeof window !== "undefined" && window.CxLocale) return window.CxLocale.parse(value); // Fase A: lector unico (formato de la empresa)
     const raw = String(value ?? "").replace(/[\s$]/g, "");
     if (!raw) return 0;
     let normalized = raw;
@@ -6505,6 +6514,7 @@ function inventoryCreatePayload() {
   }
 
   function cxStockMoney024T(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     try {
       return new Intl.NumberFormat("es-CO", {
         style: "currency",
@@ -7726,6 +7736,7 @@ function inventoryCreatePayload() {
   }
 
   function payrollNumber(value) {
+    if (typeof window !== "undefined" && window.CxLocale) return window.CxLocale.parse(value); // Fase A: lector unico (formato de la empresa)
     if (value === null || value === undefined || value === "") return 0;
     const normalized = String(value)
       .replace(/[^\d,.-]/g, "")
@@ -7735,6 +7746,7 @@ function inventoryCreatePayload() {
   }
 
   function payrollMoney(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const num = payrollNumber(value);
     return num.toLocaleString("es-CO", {
       minimumFractionDigits: 2,
@@ -8483,7 +8495,7 @@ function inventoryCreatePayload() {
   function cxPayShiftDate049L(iso, days) {
     const [y, m, d] = String(iso).split("-").map(Number);
     const date = new Date(Date.UTC(y, m - 1, d + days));
-    return date.toISOString().slice(0, 10);
+    return ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(date)) || date.toISOString().slice(0, 10));
   }
 
   function cxPayPeriodHtml049L(cfg, period) {
@@ -8938,9 +8950,9 @@ function inventoryCreatePayload() {
 
   function kpisDefaultPeriod() {
     const now = new Date();
-    const to = now.toISOString().slice(0, 10);
+    const to = ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(now)) || now.toISOString().slice(0, 10));
     const fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    return { preset: "7d", start_date: fromDate.toISOString().slice(0, 10), end_date: to, search: "" };
+    return { preset: "7d", start_date: ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(fromDate)) || fromDate.toISOString().slice(0, 10)), end_date: to, search: "" };
   }
 
   function kpisReadPeriod() {
@@ -8981,6 +8993,7 @@ function inventoryCreatePayload() {
   }
 
   function kpiMoney(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const n = Number(value || 0);
     if (!Number.isFinite(n)) return "$0";
     return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -9468,66 +9481,66 @@ function inventoryCreatePayload() {
     fr: {
       eyebrow: "Module production",
       title: "Production",
-      subtitle: "Temps, rÃ©fÃ©rences, clÃ´tures, quantitÃ©s et productivitÃ© par entreprise.",
+      subtitle: "Temps, références, clôtures, quantités et productivité par entreprise.",
       back: "Retour",
       refresh: "Actualiser",
       csv: "CSV",
-      period: "PÃ©riode",
+      period: "Période",
       from: "Depuis",
-      to: "Jusqu'Ã ",
+      to: "Jusqu'à",
       preset: "Plage",
       view: "Vue",
       apply: "Appliquer",
       active: "Actives",
       all: "Toutes",
-      archived: "ArchivÃ©es",
+      archived: "Archivées",
       today: "Aujourd'hui",
       sevenDays: "7 jours",
       month: "Mois",
       thirtyDays: "30 jours",
-      custom: "PersonnalisÃ©",
-      summary: "RÃ©sumÃ© de production",
-      referencesActive: "RÃ©fÃ©rences actives",
+      custom: "Personnalisé",
+      summary: "Résumé de production",
+      referencesActive: "Références actives",
       totalTime: "Temps de production",
-      closedQuantity: "QuantitÃ© clÃ´turÃ©e",
+      closedQuantity: "Quantité clôturée",
       avgProgress: "Progression moyenne",
       activeSessions: "Sessions actives",
-      referenceProgress: "Progression par rÃ©fÃ©rence",
-      timeByReference: "Temps par rÃ©fÃ©rence",
-      timeByCollaborator: "Temps par collaborateur et rÃ©fÃ©rence",
-      referenceDetail: "DÃ©tail par rÃ©fÃ©rence",
-      closures: "ClÃ´tures de rÃ©fÃ©rence",
-      reference: "RÃ©fÃ©rence",
+      referenceProgress: "Progression par référence",
+      timeByReference: "Temps par référence",
+      timeByCollaborator: "Temps par collaborateur et référence",
+      referenceDetail: "Détail par référence",
+      closures: "Clôtures de référence",
+      reference: "Référence",
       size: "Taille / variante",
-      initialQuantity: "QuantitÃ© totale",
-      finishedQuantity: "QuantitÃ© clÃ´turÃ©e",
+      initialQuantity: "Quantité totale",
+      finishedQuantity: "Quantité clôturée",
       pendingQuantity: "Restant",
       overQuantity: "Surproduction",
       progress: "Progression",
       collaborators: "Collaborateurs",
       sessions: "Sessions",
-      status: "Ã‰tat",
+      status: "État",
       collaborator: "Collaborateur",
       time: "Temps",
-      closedAt: "Date de clÃ´ture",
+      closedAt: "Date de clôture",
       channel: "Canal",
       notes: "Notes",
-      empty: "Aucune donnÃ©e de production.",
-      noClosures: "Aucune clÃ´ture dans cette pÃ©riode.",
-      noTime: "Aucun temps de production dans cette pÃ©riode.",
+      empty: "Aucune donnée de production.",
+      noClosures: "Aucune clôture dans cette période.",
+      noTime: "Aucun temps de production dans cette période.",
       error: "Impossible de charger Production.",
       moduleInactive: "Le module Production n'est pas actif pour cette entreprise."
     },
     pt: {
-      eyebrow: "MÃ³dulo produÃ§Ã£o",
-      title: "ProduÃ§Ã£o",
-      subtitle: "Tempos, referÃªncias, fechamentos, quantidades e produtividade por empresa.",
+      eyebrow: "Módulo produção",
+      title: "Produção",
+      subtitle: "Tempos, referências, fechamentos, quantidades e produtividade por empresa.",
       back: "Voltar",
       refresh: "Atualizar",
       csv: "CSV",
-      period: "PerÃ­odo",
+      period: "Período",
       from: "Desde",
-      to: "AtÃ©",
+      to: "Até",
       preset: "Intervalo",
       view: "Vista",
       apply: "Aplicar",
@@ -9536,21 +9549,21 @@ function inventoryCreatePayload() {
       archived: "Arquivadas",
       today: "Hoje",
       sevenDays: "7 dias",
-      month: "MÃªs",
+      month: "Mês",
       thirtyDays: "30 dias",
       custom: "Personalizado",
-      summary: "Resumo de produÃ§Ã£o",
-      referencesActive: "ReferÃªncias ativas",
-      totalTime: "Tempo de produÃ§Ã£o",
+      summary: "Resumo de produção",
+      referencesActive: "Referências ativas",
+      totalTime: "Tempo de produção",
       closedQuantity: "Quantidade fechada",
-      avgProgress: "Progresso mÃ©dio",
-      activeSessions: "SessÃµes ativas",
-      referenceProgress: "Progresso por referÃªncia",
-      timeByReference: "Tempo por referÃªncia",
-      timeByCollaborator: "Tempo por colaborador e referÃªncia",
-      referenceDetail: "Detalhe por referÃªncia",
-      closures: "Fechamentos de referÃªncia",
-      reference: "ReferÃªncia",
+      avgProgress: "Progresso médio",
+      activeSessions: "Sessões ativas",
+      referenceProgress: "Progresso por referência",
+      timeByReference: "Tempo por referência",
+      timeByCollaborator: "Tempo por colaborador e referência",
+      referenceDetail: "Detalhe por referência",
+      closures: "Fechamentos de referência",
+      reference: "Referência",
       size: "Tamanho / variante",
       initialQuantity: "Quantidade total",
       finishedQuantity: "Quantidade fechada",
@@ -9558,18 +9571,18 @@ function inventoryCreatePayload() {
       overQuantity: "Sobreproduzida",
       progress: "Progresso",
       collaborators: "Colaboradores",
-      sessions: "SessÃµes",
+      sessions: "Sessões",
       status: "Estado",
       collaborator: "Colaborador",
       time: "Tempo",
       closedAt: "Data fechamento",
       channel: "Canal",
       notes: "Notas",
-      empty: "Ainda sem dados de produÃ§Ã£o.",
-      noClosures: "Sem fechamentos neste perÃ­odo.",
-      noTime: "Sem tempo de produÃ§Ã£o neste perÃ­odo.",
-      error: "NÃ£o foi possÃ­vel carregar ProduÃ§Ã£o.",
-      moduleInactive: "O mÃ³dulo ProduÃ§Ã£o nÃ£o estÃ¡ ativo para esta empresa."
+      empty: "Ainda sem dados de produção.",
+      noClosures: "Sem fechamentos neste período.",
+      noTime: "Sem tempo de produção neste período.",
+      error: "Não foi possível carregar Produção.",
+      moduleInactive: "O módulo Produção não está ativo para esta empresa."
     }
   };
 
@@ -9580,7 +9593,7 @@ function inventoryCreatePayload() {
   function cxProdLang018E(settings = {}) {
     const candidates = [
       settings.language,
-      settings.client_settings && settings.client_settings.language,
+      typeof window !== "undefined" && window.CxLocale && window.CxLocale.loaded && window.CxLocale.language, // Fase A: idioma del servicio unico (client_settings.language nadie lo escribia)
       window.CLONEXA_CLIENT_SETTINGS && window.CLONEXA_CLIENT_SETTINGS.language,
       window.clonexaClientSettings && window.clonexaClientSettings.language,
       document.documentElement.getAttribute("lang")
@@ -9718,12 +9731,12 @@ function inventoryCreatePayload() {
 
   function cxProdDefaultFilters018E() {
     const now = new Date();
-    const to = now.toISOString().slice(0, 10);
+    const to = ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(now)) || now.toISOString().slice(0, 10));
     const fromDate = new Date(now);
     fromDate.setDate(fromDate.getDate() - 6);
     return {
       preset: "7d",
-      date_from: fromDate.toISOString().slice(0, 10),
+      date_from: ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(fromDate)) || fromDate.toISOString().slice(0, 10)),
       date_to: to,
       view: "active",
       reference_q: "",
@@ -10646,9 +10659,8 @@ function inventoryCreatePayload() {
   function cxMiniPanelLang019B(settings = {}) {
     const candidates = [
       settings.language,
-      settings.client_settings && settings.client_settings.language,
+      typeof window !== "undefined" && window.CxLocale && window.CxLocale.loaded && window.CxLocale.language, // Fase A: idioma del servicio unico (client_settings.language nadie lo escribia)
       state.company && state.company.settings_json && state.company.settings_json.language,
-      state.company && state.company.settings_json && state.company.settings_json.client_settings && state.company.settings_json.client_settings.language,
       window.CLONEXA_CLIENT_SETTINGS && window.CLONEXA_CLIENT_SETTINGS.language,
       window.clonexaClientSettings && window.clonexaClientSettings.language,
       document.documentElement.getAttribute("lang")
@@ -11637,6 +11649,7 @@ function inventoryCreatePayload() {
   }
 
   function cxSalesMoney023P(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const number = Number(value || 0);
     try {
       return new Intl.NumberFormat("es-CO", {
@@ -13184,6 +13197,7 @@ function inventoryCreatePayload() {
   }
 
   function cxUniversalMoney021D(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const number = Number(value || 0);
     try {
       return number.toLocaleString("es-CO", {
@@ -16921,7 +16935,7 @@ function inventoryCreatePayload() {
       filters.from = cxClosingDateInput023K(7);
     } else if (norm.includes("mes")) {
       const today = new Date();
-      filters.from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+      filters.from = ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(new Date(today.getFullYear(), today.getMonth(), 1))) || new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10));
     }
     if (norm.includes("archiv")) filters.status = "all";
     return filters;
@@ -19580,13 +19594,13 @@ function inventoryCreatePayload() {
   function cxAssistantReportDateIso027Y(offsetDays = 0) {
     const date = new Date();
     date.setDate(date.getDate() + Number(offsetDays || 0));
-    return date.toISOString().slice(0, 10);
+    return ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(date)) || date.toISOString().slice(0, 10));
   }
 
   function cxAssistantReportMonthStart027Y() {
     const date = new Date();
     date.setDate(1);
-    return date.toISOString().slice(0, 10);
+    return ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(date)) || date.toISOString().slice(0, 10));
   }
 
   function cxAssistantReportDate027Y(value = "") {
@@ -20413,6 +20427,7 @@ function inventoryCreatePayload() {
   }
 
   function cxReferencesMoney022M(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const number = Number(value || 0);
     return Number.isFinite(number) ? number.toLocaleString("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }) : "$ 0";
   }
@@ -20908,6 +20923,7 @@ function inventoryCreatePayload() {
   }
 
   function cxClosingMoney023K(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     if (typeof cxSalesMoney022F === "function") return cxSalesMoney022F(value);
     const number = Number(value || 0);
     return `$ ${Math.round(number).toLocaleString("es-CO")}`;
@@ -22176,6 +22192,7 @@ function inventoryCreatePayload() {
   }
 
   function cxHspMoney024R(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     try {
       return new Intl.NumberFormat("es-CO", {
         style: "currency",
@@ -26071,6 +26088,7 @@ function inventoryCreatePayload() {
   }
 
   function cxOwnMoney048S(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     if (value === null || value === undefined) return "—";
     return `$${Math.round(Number(value) || 0).toLocaleString("es-CO")}`;
   }
@@ -26788,7 +26806,7 @@ function inventoryCreatePayload() {
     if (period) {
       cxOwn048S.period = period.getAttribute("data-own-period");
       if (cxOwn048S.period === "custom") {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(new Date())) || new Date().toISOString().slice(0, 10));
         cxOwn048S.start = cxOwn048S.start || today;
         cxOwn048S.end = cxOwn048S.end || today;
         cxOwn048S.version += 1;
@@ -30932,7 +30950,7 @@ function inventoryCreatePayload() {
       state.transportAgentStatusTimer = null;
     }
     const company = state.company || {};
-    const today = new Date().toISOString().slice(0, 10);
+    const today = ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(new Date())) || new Date().toISOString().slice(0, 10));
     const startDate = cxTransportContractsFieldValue028M("transportStart028P") || today;
     const endDate = cxTransportContractsFieldValue028M("transportEnd028P") || today;
     const search = cxTransportContractsFieldValue028M("transportSearch028P");
@@ -31643,6 +31661,7 @@ function inventoryCreatePayload() {
   }
 
   function cxTransportContractsMoney028M(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const number = Number(value || 0);
     if (!Number.isFinite(number)) return "$ 0";
     return new Intl.NumberFormat("es-CO", {
@@ -32370,7 +32389,7 @@ function inventoryCreatePayload() {
 
   function cxTransportPaymentsDefaultDue028R(days = 7) {
     const date = new Date(Date.now() + Number(days || 7) * 86400000);
-    return date.toISOString().slice(0, 10);
+    return ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(date)) || date.toISOString().slice(0, 10));
   }
 
   function cxTransportPaymentsInvoiceUrl028R(invoice) {
@@ -33621,6 +33640,7 @@ function inventoryCreatePayload() {
   }
 
   function cxSalesMoney022F(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const number = Number(value || 0);
     try {
       return number.toLocaleString("es-CO", {
@@ -36610,11 +36630,13 @@ function inventoryCreatePayload() {
   var cxCar048T = { tab: "platos", data: null, message: "", error: "", busy: false };
 
   function cxCarMoney048T(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     if (value === null || value === undefined) return "—";
     return `$${Math.round(Number(value) || 0).toLocaleString("es-CO")}`;
   }
 
   function cxCarUnitMoney048T(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     // costo por gramo o mililitro: con centavos para que no se pierda el valor
     const n = Number(value) || 0;
     return n < 100 ? `$${n.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : cxCarMoney048T(n);
@@ -36729,6 +36751,7 @@ function inventoryCreatePayload() {
   }
 
   function cxCarPortionMoney049N(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     if (value === null || value === undefined) return "sin costo";
     const n = Number(value) || 0;
     if (n > 0 && n < 10) return `$${n.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -37914,6 +37937,7 @@ function inventoryCreatePayload() {
   }
 
   function cxInvMoneyValue049Q(value) {
+    if (typeof window !== "undefined" && window.CxLocale) return window.CxLocale.parse(value); // Fase A: lector unico (formato de la empresa)
     // "1.120.000" -> 1120000; "1120000" -> 1120000; "14,5" -> 14.5
     const raw = String(value ?? "").replace(/[\s$]/g, "");
     if (!raw) return 0;
@@ -38973,7 +38997,7 @@ function inventoryCreatePayload() {
 
   async function cxSanLoadSheet048K(day = "") {
     try {
-      const data = await cxSanApi048K(`/sheets/${encodeURIComponent(day || cxSan048K.today || new Date().toISOString().slice(0, 10))}`);
+      const data = await cxSanApi048K(`/sheets/${encodeURIComponent(day || cxSan048K.today || ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(new Date())) || new Date().toISOString().slice(0, 10)))}`);
       cxSan048K.sheet = data.sheet;
       cxSan048K.staff = Array.isArray(data.staff) ? data.staff : [];
       cxSan048K.today = data.today || cxSan048K.today;
@@ -39916,6 +39940,11 @@ function inventoryCreatePayload() {
     state.companyId = company.id || company.company_id || companyId;
     state.experience = experience || {};
     state.companyModules = Array.isArray(companyModules) ? companyModules : [];
+    // Fase A: moneda, zona e idioma de la empresa, una vez al entrar (si falla: COP y Bogotá).
+    if (typeof window !== "undefined" && window.CxLocale) {
+      await window.CxLocale.load(state.companyId, (path) => api(path));
+      state.company = { ...state.company, timezone: window.CxLocale.timezone || state.company.timezone };
+    }
     state.dashboardMetrics = await loadClientDashboardMetrics(state.companyId, activeClientModules());
     state.branding =
       experience?.branding ||
@@ -40912,7 +40941,7 @@ function inventoryCreatePayload() {
   function todayIsoDate(offsetDays = 0) {
     const date = new Date();
     date.setDate(date.getDate() + offsetDays);
-    return date.toISOString().slice(0, 10);
+    return ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(date)) || date.toISOString().slice(0, 10));
   }
 
   function fmtDate(value) {
@@ -41349,7 +41378,7 @@ function inventoryCreatePayload() {
   function todayIso(offsetDays = 0) {
     const d = new Date();
     d.setDate(d.getDate() + offsetDays);
-    return d.toISOString().slice(0, 10);
+    return ((typeof window !== "undefined" && window.CxLocale && window.CxLocale.filterDay(d)) || d.toISOString().slice(0, 10));
   }
 
   function fmt(value) {
@@ -41360,6 +41389,8 @@ function inventoryCreatePayload() {
 
   function fmtMoney(value) {
     const n = Number(value || 0);
+    // Fase A: antes era SIEMPRE USD ("1.234,00 US$") en todas las empresas; ahora la moneda de la empresa.
+    if (typeof window !== "undefined" && window.CxLocale) return window.CxLocale.money(n);
     return n.toLocaleString("es", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
   }
 
@@ -42035,16 +42066,16 @@ function inventoryCreatePayload() {
 
   const DICT = {
     es: {
-      eyebrow: "NÃ³mina",
-      title: "ConfiguraciÃ³n de nÃ³mina",
+      eyebrow: "Nómina",
+      title: "Configuración de nómina",
       description: "Hasta este total semanal se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.",
       label: "Total de horas ordinarias semanales",
-      save: "Guardar regla de nÃ³mina",
+      save: "Guardar regla de nómina",
       saving: "Guardando...",
       saved: "Regla guardada para esta empresa.",
-      invalid: "Ingresa un total vÃ¡lido entre 1 y 168 horas.",
+      invalid: "Ingresa un total válido entre 1 y 168 horas.",
       error: "No se pudo guardar.",
-      example: "Ejemplo: 40, 48 o 49 segÃºn la legislaciÃ³n/configuraciÃ³n de esta empresa."
+      example: "Ejemplo: 40, 48 o 49 según la legislación/configuración de esta empresa."
     },
     en: {
       eyebrow: "Payroll",
@@ -42060,27 +42091,27 @@ function inventoryCreatePayload() {
     },
     fr: {
       eyebrow: "Paie",
-      title: "ParamÃ¨tres de paie",
-      description: "Jusquâ€™Ã  ce total hebdomadaire, le temps est calculÃ© comme heures ordinaires. Au-delÃ , il est calculÃ© comme heures supplÃ©mentaires. Les pauses ne comptent pas.",
+      title: "Paramètres de paie",
+      description: "Jusqu’à ce total hebdomadaire, le temps est calculé comme heures ordinaires. Au-delà, il est calculé comme heures supplémentaires. Les pauses ne comptent pas.",
       label: "Heures ordinaires hebdomadaires",
-      save: "Enregistrer la rÃ¨gle de paie",
+      save: "Enregistrer la règle de paie",
       saving: "Enregistrement...",
-      saved: "RÃ¨gle enregistrÃ©e pour cette entreprise.",
+      saved: "Règle enregistrée pour cette entreprise.",
       invalid: "Saisissez un total valide entre 1 et 168 heures.",
       error: "Impossible dâ€™enregistrer.",
       example: "Exemple : 40, 48 ou 49 selon la configuration de cette entreprise."
     },
     pt: {
       eyebrow: "Folha",
-      title: "ConfiguraÃ§Ã£o da folha",
-      description: "AtÃ© este total semanal, o tempo Ã© calculado como hora ordinÃ¡ria. ApÃ³s esse total, Ã© calculado como hora extra. Pausas nÃ£o contam.",
-      label: "Horas ordinÃ¡rias semanais",
+      title: "Configuração da folha",
+      description: "Até este total semanal, o tempo é calculado como hora ordinária. Após esse total, é calculado como hora extra. Pausas não contam.",
+      label: "Horas ordinárias semanais",
       save: "Salvar regra da folha",
       saving: "Salvando...",
       saved: "Regra salva para esta empresa.",
-      invalid: "Insira um total vÃ¡lido entre 1 e 168 horas.",
-      error: "NÃ£o foi possÃ­vel salvar.",
-      example: "Exemplo: 40, 48 ou 49 conforme a configuraÃ§Ã£o desta empresa."
+      invalid: "Insira um total válido entre 1 e 168 horas.",
+      error: "Não foi possível salvar.",
+      example: "Exemplo: 40, 48 ou 49 conforme a configuração desta empresa."
     }
   };
 
@@ -42154,6 +42185,7 @@ function inventoryCreatePayload() {
   function cxLang(settings) {
     const candidates = [
       settings && settings.language,
+      typeof window !== "undefined" && window.CxLocale && window.CxLocale.loaded && window.CxLocale.language, // Fase A: idioma del servicio unico (client_settings.language nadie lo escribia)
       window.CLONEXA_CLIENT_SETTINGS && window.CLONEXA_CLIENT_SETTINGS.language,
       window.clonexaClientSettings && window.clonexaClientSettings.language,
       document.documentElement.getAttribute("lang")

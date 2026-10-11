@@ -204,6 +204,7 @@ async def payroll_period_activity(
     _not_admin: None = Depends(core._NOT_ADMINISTRADOR),
 ) -> dict:
     start, end = _dates(period_start, period_end)
+    await core.use_company_tz_052C(db, company_id)  # Fase A: limites del periodo en la zona de la empresa
     return await period_activity(db, company_id, start, end)
 
 

@@ -29,6 +29,16 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _tz052c():
+    """Fase A: zona de la empresa para cortar los dias. Regla de oro: las empresas
+    en hora de Bogota siguen cortando como siempre (UTC), para que sus reportes no
+    cambien; las de otra zona (hoy VOLTAGE) cortan en su hora local."""
+    from app.services import company_locale
+
+    tz = company_locale.current_zone()
+    return UTC if tz.key == company_locale.DEFAULT_TIMEZONE else tz
+
+
 def serialize(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
@@ -74,14 +84,15 @@ def period_from_params(
     end_date: date | None,
 ) -> tuple[datetime, datetime, str]:
     now = utcnow()
-    end = datetime.combine(end_date, time.max, tzinfo=UTC) if end_date else now
+    # Fase A: los dias cortan en la zona de la empresa (antes UTC).
+    end = datetime.combine(end_date, time.max, tzinfo=_tz052c()) if end_date else now
     code = normalize(preset or "7d")
 
     if start_date:
-        start = datetime.combine(start_date, time.min, tzinfo=UTC)
+        start = datetime.combine(start_date, time.min, tzinfo=_tz052c())
         code = "custom" if code == "custom" else code
     elif code in {"today", "hoy", "day"}:
-        start = datetime.combine(now.date(), time.min, tzinfo=UTC)
+        start = datetime.combine(now.astimezone(_tz052c()).date(), time.min, tzinfo=_tz052c())
         code = "today"
     elif code in {"15d", "15", "quincena"}:
         start = now - timedelta(days=15)

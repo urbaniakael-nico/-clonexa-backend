@@ -63,7 +63,7 @@ except Exception:  # pragma: no cover
 
 
 router = APIRouter()
-BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")
+BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")  # respaldo; Fase A: la zona real es la de la empresa (company_locale)
 
 logger = logging.getLogger("clonexa.telegram_listener")
 TELEGRAM_LISTENER_TASKS: dict[str, asyncio.Task] = {}
@@ -369,7 +369,7 @@ def _minutes_label(value: Any) -> str:
     return f"{minutes}m"
 
 
-def _money_label(value: Any) -> str:
+def _money_label_cop(value: Any) -> str:
     try:
         amount = float(value or 0)
     except Exception:
@@ -377,8 +377,17 @@ def _money_label(value: Any) -> str:
     return "$ " + f"{amount:,.0f}".replace(",", ".")
 
 
+def _money_label(value: Any) -> str:
+    # Fase A: moneda de la empresa del mensaje; con COP, exactamente "$ 1.234" como siempre.
+    from app.services import company_locale
+
+    return company_locale.money_here(value, _money_label_cop)
+
+
 def _today_business() -> date:
-    return datetime.now(BUSINESS_TIMEZONE).date()
+    from app.services import company_locale
+
+    return datetime.now(company_locale.CURRENT_TZ.get() or BUSINESS_TIMEZONE).date()
 
 
 def _last_day_of_month(value: date) -> date:
@@ -4822,6 +4831,24 @@ async def _process_telegram_location(
 
 
 async def _process_telegram_update(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    token: str,
+    update: dict[str, Any],
+    send_replies: bool,
+) -> TelegramBotPollItem:
+    # Fase A: el mensaje se atiende con la zona y la moneda de la empresa del bot.
+    from app.services import company_locale
+
+    tokens = company_locale.use(await company_locale.get_company_locale(db, bot.company_id))
+    try:
+        return await _process_telegram_update_052C(db, bot=bot, token=token, update=update, send_replies=send_replies)
+    finally:
+        company_locale.reset(tokens)
+
+
+async def _process_telegram_update_052C(
     db: AsyncSession,
     *,
     bot: CompanyBotInstance,

@@ -47,7 +47,7 @@
   let bound = false;
 
   function today() {
-    try { return new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" }); } catch (_) { return new Date().toISOString().slice(0, 10); }
+    try { return new Date().toLocaleDateString("en-CA", { timeZone: (typeof window !== "undefined" && window.CxLocale && window.CxLocale.timezone) || "America/Bogota" }); } catch (_) { return new Date().toISOString().slice(0, 10); }
   }
 
   // ------------------------------------------------------------ reglas puras

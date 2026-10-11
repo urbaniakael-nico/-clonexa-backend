@@ -769,6 +769,13 @@ async def update_insumo(company_id: uuid.UUID, insumo_id: uuid.UUID, payload: In
 
 
 def _cop(value: Any) -> str:
+    # Fase A: moneda de la empresa de la peticion; con COP, exactamente el texto de siempre.
+    from app.services import company_locale
+
+    return company_locale.money_here(value, _cop_cop)
+
+
+def _cop_cop(value: Any) -> str:
     """$1.120.000 / $16 / $15,59 (pesos como se escriben en Colombia)."""
     amount = Decimal(str(value)).quantize(engine.MONEY)
     text_value = f"{amount:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")

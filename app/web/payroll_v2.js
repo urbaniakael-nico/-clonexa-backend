@@ -14,7 +14,8 @@
   const arr = (v) => (Array.isArray(v) ? v : []);
   const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   const fold = (v) => String(v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  const TZ = "America/Bogota";
+  // Fase A: la zona de la empresa (CxLocale); sin ella, Bogotá como siempre.
+  const tzOf = () => (typeof window !== "undefined" && window.CxLocale && window.CxLocale.timezone) || "America/Bogota";
   const PANELS = { mesero: "Mesero", cocina: "Cocina", caja: "Caja", sales: "Ventas", store: "Tienda", inventory: "Inventario",
     logistics: "Logística", call_center: "Call Center", external: "Externo", other: "Otro" };
   const SORTS = [["total", "Total a pagar"], ["time", "Tiempo trabajado"], ["name", "Nombre"]];
@@ -26,7 +27,10 @@
   let previewTimer = null;
 
   // ------------------------------------------------------------ formato
-  function money(v) { return `$${Math.round(num(v)).toLocaleString("es-CO")}`; }
+  function money(v) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign()) return window.CxLocale.money(num(v)); // Fase A: moneda de la empresa
+    return `$${Math.round(num(v)).toLocaleString("es-CO")}`;
+  }
   function hours(minutes) {
     const m = Math.max(0, Math.round(num(minutes)));
     return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
@@ -34,14 +38,14 @@
   function parts(iso) {
     const d = new Date(iso || "");
     if (Number.isNaN(d.getTime())) return null;
-    const f = new Intl.DateTimeFormat("sv-SE", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+    const f = new Intl.DateTimeFormat("sv-SE", { timeZone: tzOf(), year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
     const [date, time] = f.split(" ");
     return { date, time, local: `${date}T${time}` };
   }
   function day(iso) {
     const d = new Date(iso || "");
     if (Number.isNaN(d.getTime())) return "—";
-    return new Intl.DateTimeFormat("es-CO", { timeZone: TZ, weekday: "short", day: "2-digit", month: "short" }).format(d);
+    return new Intl.DateTimeFormat("es-CO", { timeZone: tzOf(), weekday: "short", day: "2-digit", month: "short" }).format(d);
   }
   const clock = (iso) => (parts(iso) || {}).time || "—";
   function initials(name) {

@@ -151,12 +151,16 @@ async def company_profile(db: AsyncSession, company_id: str) -> dict[str, Any]:
         return {"name": "Empresa", "currency": "COP"}
 
     row = rows[0]
+    # Fase A: la moneda sale del servicio unico (companies no tiene columna currency).
+    from app.services import company_locale
+
+    locale = await company_locale.get_company_locale(db, company_id)
 
     return {
         "id": row.get("id"),
         "name": clean(row.get("name")) or "Empresa",
         "slug": clean(row.get("slug")),
-        "currency": clean(row.get("currency")) or "COP",
+        "currency": locale["currency"],
     }
 
 

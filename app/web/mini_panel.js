@@ -104,6 +104,7 @@
   }
 
   function formatMoney(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     const number = Number(value || 0);
     try {
       return new Intl.NumberFormat("es-CO", {
@@ -1711,6 +1712,8 @@
   }
 
   async function loadOperationalSession() {
+    // Fase A: moneda y zona de la empresa (una vez; si falla, COP y Bogotá como siempre).
+    if (typeof window !== "undefined" && window.CxLocale) { try { await window.CxLocale.load(companyId, (p) => api(`/api/v1${p}`, { headers: authHeaders() })); } catch (_) {} }
     return api(`/api/v1/companies/${encodeURIComponent(companyId)}/mini-panel-operational-session?panel_type=${encodeURIComponent(panelType)}`, {
       headers: authHeaders()
     });

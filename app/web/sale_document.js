@@ -29,7 +29,7 @@
     const date = new Date(iso || "");
     if (Number.isNaN(date.getTime())) return "";
     try {
-      return date.toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" });
+      return date.toLocaleString("es-CO", { timeZone: (typeof window !== "undefined" && window.CxLocale && window.CxLocale.timezone) || "America/Bogota", dateStyle: "short", timeStyle: "short" });
     } catch (_) {
       return date.toISOString().slice(0, 16).replace("T", " ");
     }

@@ -563,6 +563,7 @@
   }
 
   function money048U(value) {
+    if (typeof window !== "undefined" && window.CxLocale && window.CxLocale.foreign() && value !== null && value !== undefined) return window.CxLocale.money(value); // Fase A: moneda de la empresa
     return `$${Math.round(Number(value) || 0).toLocaleString("es-CO")}`;
   }
 
@@ -815,6 +816,8 @@
 
   async function loadCashierConfig() {
     loadCostosConfig048U();
+    // Fase A: moneda y zona de la empresa (una vez; si falla, COP y Bogotá como siempre).
+    if (typeof window !== "undefined" && window.CxLocale) { try { await window.CxLocale.load(companyId, (p) => api(`/api/v1${p}`)); } catch (_) {} }
     try {
       const data = await waiterApi("/caja/config");
       state.directSale = data.direct_sale === true;

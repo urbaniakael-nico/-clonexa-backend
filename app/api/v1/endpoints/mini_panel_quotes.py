@@ -1590,6 +1590,13 @@ def _load_image_reader(source: str):
 
 
 def _format_cop(value: Any) -> str:
+    # Fase A: moneda de la empresa de la peticion; con COP, exactamente el texto de siempre.
+    from app.services import company_locale
+
+    return company_locale.money_here(value, _format_cop_cop)
+
+
+def _format_cop_cop(value: Any) -> str:
     number = int(round(_money(value)))
     return "$ " + f"{number:,}".replace(",", ".")
 

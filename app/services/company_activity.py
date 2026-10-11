@@ -20,6 +20,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 BOGOTA = ZoneInfo("America/Bogota")
+
+
+def _tz052c():
+    """Fase A: zona de la empresa de la peticion (company_locale.CURRENT_TZ); sin ella, Bogota."""
+    from app.services import company_locale
+
+    return company_locale.current_zone()
 DAYS = 14
 RECENT_HOURS = 24
 CONNECTED_MINUTES = 15
@@ -37,9 +44,9 @@ async def _exists(db: AsyncSession, table: str) -> bool:
 
 async def company_activity(db: AsyncSession, company_id: str, *, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
-    today = now.astimezone(BOGOTA).date()
+    today = now.astimezone(_tz052c()).date()
     first = today - timedelta(days=DAYS - 1)
-    since = datetime.combine(first, time.min, BOGOTA).astimezone(timezone.utc)
+    since = datetime.combine(first, time.min, _tz052c()).astimezone(timezone.utc)
     by_day = {first + timedelta(days=i): 0 for i in range(DAYS)}
     sessions = {"open": 0, "open_recent": 0, "stale": 0, "connected_now": 0, "users_connected": 0,
                 "last_seen_at": None, "recent_hours": RECENT_HOURS}
