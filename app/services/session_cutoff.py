@@ -281,7 +281,7 @@ async def run_company_cutoff(db: AsyncSession, company_id: Any, now_utc: datetim
                 SELECT id, payload_json FROM workforce_attendance_events
                 WHERE company_id = CAST(:company_id AS uuid) AND employee_id = CAST(:employee_id AS uuid)
                   AND event_type IN ('check_in', 'entrada', 'start_shift', 'shift_start')
-                  AND COALESCE(occurred_at, created_at) <= :check_in_at + INTERVAL '1 minute'
+                  AND COALESCE(occurred_at, created_at) <= CAST(:check_in_at AS timestamptz) + INTERVAL '1 minute'
                 ORDER BY COALESCE(occurred_at, created_at) DESC
                 LIMIT 1
             """),
