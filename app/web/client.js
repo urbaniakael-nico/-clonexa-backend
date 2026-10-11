@@ -1875,21 +1875,56 @@
     return String(value || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
-  function personalRoleOptions(selected = "operator") {
+  /* CLONEXA_051A_EMPLOYEE_ROLES_START: roles por empresa (Consola v2+ ·
+     Ficha · Roles). Con configuracion, el selector muestra solo los roles de
+     la empresa con su nombre visible; sin ella (o si la consulta falla) la
+     lista de siempre. Los permisos salen del codigo interno, no del nombre. */
+  let cxEmployeeRoles051A = null;
+
+  async function cxLoadEmployeeRoles051A() {
+    const companyId = state.companyId || "";
+    if (cxEmployeeRoles051A && cxEmployeeRoles051A.companyId === companyId) return cxEmployeeRoles051A;
+    let data = null;
+    try {
+      data = await api(`/employee-roles/companies/${encodeURIComponent(companyId)}`);
+    } catch (_) {
+      data = null;
+    }
+    const roles = data && data.configured === true && Array.isArray(data.roles)
+      ? data.roles.filter((r) => r && r.code).map((r) => [String(r.code), String(r.label || r.code)])
+      : [];
+    cxEmployeeRoles051A = { companyId, configured: roles.length > 0, roles };
+    return cxEmployeeRoles051A;
+  }
+
+  function cxEmployeeRolesConfigured051A() {
+    const cfg = cxEmployeeRoles051A;
+    return Boolean(cfg && cfg.companyId === (state.companyId || "") && cfg.configured);
+  }
+
+  function cxPersonalRoleList051A() {
+    if (cxEmployeeRolesConfigured051A()) return cxEmployeeRoles051A.roles;
     const baseRoles = isClientModuleActive("waiter_ordering")
       ? CX_PERSONAL_ROLES_WAITER_ORDERING_030S
       : CX_PERSONAL_ROLES_DEFAULT_030S;
     // Domicilios por WhatsApp: the caja sends orders to this role (048N).
-    const roles = isClientModuleActive("domicilios_whatsapp")
+    return isClientModuleActive("domicilios_whatsapp")
       ? [...baseRoles, ["domiciliario", "Domiciliario"]]
       : baseRoles;
+  }
+  /* CLONEXA_051A_EMPLOYEE_ROLES_END */
+
+  function personalRoleOptions(selected = "operator") {
+    const roles = cxPersonalRoleList051A();
     const value = String(selected || "operator");
     // A role saved before the company's list changed (or from a company
     // that later got a restricted list) must not disappear on edit -- keep
     // it selectable so saving the row again doesn't silently overwrite it.
     const options = roles.some(([roleValue]) => roleValue === value)
       ? roles
-      : [...roles, [value, personalRoleFallbackLabel030S(value)]];
+      : [...roles, [value, cxEmployeeRolesConfigured051A()
+        ? `${personalRoleFallbackLabel030S(value)} (rol no habilitado)`
+        : personalRoleFallbackLabel030S(value)]];
 
     return options.map(([roleValue, label]) => `
       <option value="${h(roleValue)}" ${value === roleValue ? "selected" : ""}>${h(label)}</option>
@@ -33359,7 +33394,68 @@ function inventoryCreatePayload() {
     `;
   }
 
+  /* CLONEXA_051B_WORKFORCE_V2_START: pantalla nueva de Personal solo con el
+     interruptor workforce_v2 (settings del modulo workforce, apagado por
+     defecto). Sin el interruptor, o si su archivo no carga, todo sigue igual. */
+  function cxWorkforceV2On051B() {
+    const item = activeClientModules().find((m) => m.code === "workforce");
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.workforce_v2 === true;
+  }
+
+  let cxWorkforceV2Loading051B = null;
+  function cxWorkforceV2Load051B() {
+    if (window.CxWorkforceV2) return Promise.resolve();
+    if (!cxWorkforceV2Loading051B) {
+      cxWorkforceV2Loading051B = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxWorkforceV2Css051B")) {
+          const link = document.createElement("link");
+          link.id = "cxWorkforceV2Css051B";
+          link.rel = "stylesheet";
+          link.href = "/client-static/workforce_v2.css?v=051B";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/workforce_v2.js?v=051B";
+        script.onload = () => resolve();
+        script.onerror = () => { cxWorkforceV2Loading051B = null; reject(new Error("workforce_v2")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxWorkforceV2Loading051B;
+  }
+
+  async function cxWorkforceV2Mount051B() {
+    try { await cxWorkforceV2Load051B(); } catch (_) { return false; }
+    if (!window.CxWorkforceV2 || typeof window.CxWorkforceV2.mount !== "function") return false;
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("workforce")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main"><div id="cxWorkforceV2Host051B"></div></section>
+        </div>
+      </main>`;
+    await window.CxWorkforceV2.mount({
+      companyId: state.companyId, company, personalApi,
+      roles: () => cxPersonalRoleList051A(),
+      configured: () => cxEmployeeRolesConfigured051A(),
+      host: () => document.getElementById("cxWorkforceV2Host051B"),
+    });
+    return true;
+  }
+  /* CLONEXA_051B_WORKFORCE_V2_END */
+
   async function renderPersonalModule() {
+    await cxLoadEmployeeRoles051A();
+    if (cxWorkforceV2On051B() && await cxWorkforceV2Mount051B()) return;
     ensurePersonalGridStyles();
 
     const company = state.company || {};

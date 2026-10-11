@@ -321,5 +321,5 @@ test('portal: module route, menu label and Workforce role Domiciliario only with
   assert.match(clientSource, /domicilios_whatsapp: \["Domicilios", "pedidos por WhatsApp", "DOM"\],/);
   assert.match(clientSource, /if \(code === "domicilios_whatsapp"\) \{\s*await renderDeliveryModule048N\(\);/);
   assert.match(clientSource, /if \(!isClientModuleActive\("domicilios_whatsapp"\)\) \{\s*render\(\);\s*return;/);
-  assert.match(clientSource, /const roles = isClientModuleActive\("domicilios_whatsapp"\)\n      \? \[\.\.\.baseRoles, \["domiciliario", "Domiciliario"\]\]\n      : baseRoles;/);
+  assert.match(clientSource, /return isClientModuleActive\("domicilios_whatsapp"\)\n      \? \[\.\.\.baseRoles, \["domiciliario", "Domiciliario"\]\]\n      : baseRoles;/);
 });
