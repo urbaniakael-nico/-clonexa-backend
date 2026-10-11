@@ -7,7 +7,7 @@
 
   const API = "/api/v1";
   const TABS = [["resumen", "Resumen"], ["paquete", "Paquete"], ["modulos", "Módulos y mini paneles"],
-    ["accesos", "Usuarios y accesos"], ["bots", "Bots"], ["datos", "Datos"], ["marca", "Marca"], ["facturacion", "Facturación"], ["auditoria", "Auditoría"]];
+    ["accesos", "Usuarios y accesos"], ["roles", "Roles"], ["bots", "Bots"], ["datos", "Datos"], ["marca", "Marca"], ["facturacion", "Facturación"], ["auditoria", "Auditoría"]];
   const ACCESS_SCOPES = [["client", "Panel cliente", "/client"], ["mini_panel", "Mini paneles", "/mini-panel"], ["ordering_qr", "QR / pedidos / votacion", "/ordenar"]];
   const SESSION_SCOPES = [["client", "Panel cliente", "/client", 2, 20], ["mini_panel", "Mini paneles", "/mini-panel", 5, 100]];
   const RESET_SCOPES = [
@@ -27,7 +27,7 @@
 
   const blank = () => ({ id: "", tab: "resumen", company: null, modules: null, packages: null, users: null, accessPolicy: null,
     sessionPolicy: null, sessions: null, experience: null, brand: null, telegram: null, reset: null, modal: null, error: "", notice: "", busy: false,
-    activity: null, audit: null, billing: null, userQuery: "", sess: { open: false, query: "", page: 1 },
+    activity: null, audit: null, billing: null, roles: null, rolesDraft: null, userQuery: "", sess: { open: false, query: "", page: 1 },
     board: { query: "", filter: "todos", collapsed: {}, draft: null, dirty: false, pick: null, pickQuery: "", error: "" } });
   let model = blank();
   let ctx = null;
@@ -74,6 +74,8 @@
     audit: (id) => apiGet(`/admin-v2/api/audit?company_id=${encodeURIComponent(id)}&limit=5`).then((d) => (d && d.entries) || []),
     // Facturación (solo registradas; una demo responde 404 = "no factura").
     billing: (id) => apiGet(`/admin-v2/api/billing/companies/${encodeURIComponent(id)}`).catch((error) => ({ unavailable: error.message })),
+    // Roles de empleado por empresa (registro unico role_catalog.json).
+    roles: (id) => apiGet(`/admin-v2/api/companies/${encodeURIComponent(id)}/employee-roles`),
     async telegram(id) {                                                                             // T01 + T02
       const base = await apiGet(`${API}/bots/companies/${id}/telegram`);
       try { return { ...(base || {}), ...((await apiGet(`${API}/company-bots-v1/companies/${id}/telegram/status`)) || {}) }; }
@@ -119,6 +121,8 @@
     testTelegram: (id) => apiPost(`${API}/bots/companies/${id}/telegram/test`, {}),
     activateWebhook: (id, flowCode) => apiPost(`${API}/company-bots-v1/companies/${id}/telegram/activate-webhook`, { flow_code: flowCode }),
     deactivateTelegram: (id) => apiPost(`${API}/bots/companies/${id}/telegram/deactivate`, {}),
+    // Roles de empleado (pestaña Roles): roles que la empresa usa y su nombre visible; reset = todos como siempre.
+    saveRoles: (id, body) => apiPut(`/admin-v2/api/companies/${encodeURIComponent(id)}/employee-roles`, body),
     // R01
     operationalReset: (id, execute, scopes, confirmSlug, confirmText) => apiPost(`${API}/companies/${encodeURIComponent(id)}/operational-reset`, {
       dry_run: !execute, scopes, confirm_slug: confirmSlug, confirm_text: confirmText,
@@ -380,6 +384,96 @@
     </details>`;
   }
 
+  // ------------------------------------------- Roles de empleado (capa B)
+  // Borrador: {code: {enabled, label}} desde lo guardado; sin configuracion = todos encendidos con su nombre de siempre.
+  function rolesDraftFrom(view) {
+    const out = {};
+    arr(view && view.roles).forEach((r) => { out[r.code] = { enabled: r.enabled !== false, label: r.visible_label || r.label }; });
+    return out;
+  }
+
+  // Lo que se guarda y lo que hay que avisar antes de guardar.
+  function rolesPlan(view, draft) {
+    const roles = arr(view && view.roles);
+    const body = { roles: roles.map((r) => ({ code: r.code, enabled: Boolean(draft[r.code] && draft[r.code].enabled),
+      label: String((draft[r.code] && draft[r.code].label) || "").trim() || r.label })) };
+    const on = body.roles.filter((r) => r.enabled);
+    const offWithEmployees = roles.filter((r) => !(draft[r.code] && draft[r.code].enabled) && Number(r.employees) > 0)
+      .map((r) => ({ code: r.code, label: r.visible_label || r.label, employees: Number(r.employees) }));
+    const changed = roles.some((r) => {
+      const d = draft[r.code] || {};
+      return Boolean(d.enabled) !== (r.enabled !== false) || (d.enabled && String(d.label || "").trim() !== String(r.visible_label || r.label));
+    });
+    return { body, on, offWithEmployees, changed, error: on.length ? "" : "La empresa debe usar al menos un rol." };
+  }
+
+  function tabRoles(c) {
+    const v = model.roles;
+    if (!v) return loading("los roles");
+    if (v.error) return `<section class="vp-panel vp-section"><h2>Roles</h2><div class="vp-alert" role="alert"><span>${h(v.error)}</span></div></section>`;
+    if (!model.rolesDraft) model.rolesDraft = rolesDraftFrom(v);
+    const d = model.rolesDraft;
+    const plan = rolesPlan(v, d);
+    const unknown = Object.entries(v.unknown_roles || {});
+    const rows = arr(v.roles).map((r) => {
+      const on = Boolean(d[r.code] && d[r.code].enabled);
+      const n = Number(r.employees) || 0;
+      return `<tr class="${on ? "" : "vp-role-off"}">
+        <td><label class="vp-check"><input type="checkbox" data-vpf-role-on="${h(r.code)}" ${on ? "checked" : ""}> <span>${on ? "La usa" : "No la usa"}</span></label></td>
+        <td><b>${h(r.label)}</b>${r.new ? ' <span class="vp-state-pill">nuevo</span>' : ""}<br><small class="vp-mono-muted">${h(r.code)}</small></td>
+        <td><input class="vp-search vp-input-sm" data-vpf-role-label="${h(r.code)}" value="${h((d[r.code] && d[r.code].label) || r.label)}" maxlength="40" aria-label="Nombre visible de ${h(r.label)}" ${on ? "" : "disabled"}></td>
+        <td><ul class="vp-role-permits">${arr(r.permits).map((p) => `<li>${h(p)}</li>`).join("")}</ul></td>
+        <td class="vp-mono">${h(n)}${!on && n ? '<br><small class="vp-role-warn">rol no habilitado</small>' : ""}</td></tr>`;
+    }).join("");
+    return `<section class="vp-panel vp-section">
+      <div class="vp-row-between"><h2>Roles de empleado</h2><span class="vp-state-pill ${v.configured ? "is-on" : ""}">${v.configured ? "Configurados para esta empresa" : "Todos los roles (como siempre)"}</span></div>
+      <p class="vp-login-hint">Qué roles ofrece Personal en ${h(c.name)} y con qué nombre. Los permisos salen siempre del código interno; el nombre visible solo cambia lo que se lee en Personal, el bot y los reportes. Apagar un rol nunca cambia el rol de quien ya lo tiene: queda marcado “rol no habilitado”. Las cuentas de acceso al portal no se tocan aquí.</p>
+      <p class="vp-login-hint">Todos los roles: ${arr(v.common).map(h).join(" ")}</p>
+      ${unknown.length ? `<div class="vp-alert vp-alert-warn" role="status"><span>Empleados con un rol fuera del registro: ${unknown.map(([code, n]) => `${h(code)} (${h(n)})`).join(", ")}. No cambian.</span></div>` : ""}
+      ${plan.offWithEmployees.length ? `<div class="vp-alert vp-alert-warn" role="status" data-vpf-roles-warn><span>${plan.offWithEmployees.map((r) => `${h(r.employees)} con ${h(r.label)}`).join(", ")}: al guardar quedan marcados “rol no habilitado” y su rol no cambia.</span></div>` : ""}
+      ${plan.error ? `<div class="vp-alert" role="alert"><span>${h(plan.error)}</span></div>` : ""}
+      <div class="vp-table-wrap vp-zone-scroll"><table class="vp-table vp-table-compact vp-roles-table"><thead><tr><th>La empresa lo usa</th><th>Rol · código interno</th><th>Nombre visible</th><th>Qué permite</th><th>Empleados</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <div class="vp-actions">
+        <button class="vp-btn vp-btn-primary" type="button" data-vpf-roles-save ${plan.changed && !plan.error && !model.busy ? "" : "disabled"}>Guardar roles</button>
+        <button class="vp-btn" type="button" data-vpf-roles-discard ${plan.changed ? "" : "disabled"}>Descartar cambios</button>
+        ${v.configured ? '<button class="vp-btn" type="button" data-vpf-roles-reset>Volver a todos los roles</button>' : ""}
+      </div>
+    </section>`;
+  }
+
+  function rolesClick(t, c) {
+    const id = model.id;
+    const toggle = t.closest("[data-vpf-role-on]");
+    if (toggle && model.rolesDraft) {
+      const code = toggle.getAttribute("data-vpf-role-on");
+      model.rolesDraft[code] = { ...(model.rolesDraft[code] || {}), enabled: toggle.checked === true };
+      draw();
+      return true;
+    }
+    if (t.closest("[data-vpf-roles-discard]")) { model.rolesDraft = null; draw(); return true; }
+    if (t.closest("[data-vpf-roles-save]") && model.roles && model.rolesDraft) {
+      const plan = rolesPlan(model.roles, model.rolesDraft);
+      if (plan.error) { model.error = plan.error; draw(); return true; }
+      const names = plan.on.map((r) => `${r.label} (${r.code})`).join(", ");
+      const warn = plan.offWithEmployees.length
+        ? ` ${plan.offWithEmployees.map((r) => `${r.employees} con ${r.label}`).join(", ")} quedan marcados "rol no habilitado"; su rol no cambia.` : "";
+      ask("Guardar roles", `Guardar los roles de ${c.name}? Personal ofrecerá: ${names}.${warn} Queda en la auditoría.`, async () => {
+        const done = await act(() => writes.saveRoles(id, plan.body), "Roles guardados.");
+        if (done) { model.roles = done; model.rolesDraft = null; draw(); }
+      });
+      return true;
+    }
+    if (t.closest("[data-vpf-roles-reset]")) {
+      ask("Volver a todos los roles", `Quitar la configuración de roles de ${c.name}? Personal vuelve a ofrecer todos los roles con su nombre de siempre. Queda en la auditoría.`, async () => {
+        const done = await act(() => writes.saveRoles(id, { reset: true }), "Roles: la empresa vuelve a ver todos los roles.");
+        if (done) { model.roles = done; model.rolesDraft = null; draw(); }
+      });
+      return true;
+    }
+    return false;
+  }
+
   function botFlowOptions(selected) {
     const codes = model.modules ? enabledCodes(model.modules) : [];
     const options = [["base", "Base / Workforce"]];
@@ -527,7 +621,7 @@
     if (!c) return loading("la ficha");
     const p = pulse();
     const panes = { resumen: () => tabResumen(c, p), paquete: () => tabPaquete(p), modulos: () => tabModulos(c), accesos: () => tabAccesos(c),
-      bots: () => tabBots(c), datos: () => tabDatos(c), marca: () => tabMarca(c), facturacion: () => tabFacturacion(),
+      roles: () => tabRoles(c), bots: () => tabBots(c), datos: () => tabDatos(c), marca: () => tabMarca(c), facturacion: () => tabFacturacion(),
       auditoria: () => `<section class="vp-panel vp-section"><h2>Auditoría</h2><div data-vpa-host></div></section>` };
     return `${header(c, p)}
       ${model.error ? `<div class="vp-alert" role="alert"><span>${h(model.error)}</span></div>` : ""}
@@ -586,7 +680,7 @@
 
   // ------------------------------------------------------------ carga
   const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit", "brand", "billing"], paquete: ["packages", "modules"], modulos: ["modules", "activity"],
-    accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], bots: ["telegram", "modules"], datos: [], marca: ["experience", "brand"], facturacion: ["billing"], auditoria: [] };
+    accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], roles: ["roles"], bots: ["telegram", "modules"], datos: [], marca: ["experience", "brand"], facturacion: ["billing"], auditoria: [] };
 
   async function ensure(keys, force = false) {
     const id = model.id;
@@ -694,6 +788,7 @@
       return;
     }
     if (boardClick(t, c)) return;
+    if (rolesClick(t, c)) return;
     const reset = t.closest("[data-vpf-reset]");
     if (reset) {
       const userId = reset.getAttribute("data-vpf-reset");
@@ -817,6 +912,16 @@
     else if (t.matches("[data-vpf-pick-search]")) model.board.pickQuery = t.value;
     else if (t.matches("[data-vpf-sess-search]")) { model.sess.query = t.value; model.sess.page = 1; }
     else if (t.matches("[data-vpf-user-search]")) model.userQuery = t.value;
+    else if (t.matches("[data-vpf-role-label]") && model.rolesDraft) {
+      // Nombre visible: se guarda en el borrador sin redibujar (no se pierde el foco).
+      const code = t.getAttribute("data-vpf-role-label");
+      model.rolesDraft[code] = { ...(model.rolesDraft[code] || {}), label: t.value };
+      const save = document.querySelector("[data-vpf-roles-save]");
+      if (save && model.roles) { const plan = rolesPlan(model.roles, model.rolesDraft); save.disabled = !(plan.changed && !plan.error); }
+      const discard = document.querySelector("[data-vpf-roles-discard]");
+      if (discard && model.roles) discard.disabled = !rolesPlan(model.roles, model.rolesDraft).changed;
+      return;
+    }
     else return;
     draw();
   }
@@ -916,5 +1021,5 @@
   }
 
   window.CxConsoleCompany = { mount, refreshPulse, view, writes, reads, accessLinks, miniPanelConfig, toggledPanels, accessPolicyBody, sessionPolicyBody,
-    resetPlan, moduleRows, botFlowOptions, get model() { return model; }, set model(value) { model = value; } };
+    resetPlan, moduleRows, botFlowOptions, rolesPlan, rolesDraftFrom, tabRoles, get model() { return model; }, set model(value) { model = value; } };
 })();

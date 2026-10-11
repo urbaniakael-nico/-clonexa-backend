@@ -37,6 +37,7 @@ except Exception:  # pragma: no cover
     payroll_ensure_storage = None
 
 
+from app.services import employee_roles as cx_employee_roles_051a  # roles por empresa (nombre visible)
 router = APIRouter()
 UTC = timezone.utc
 
@@ -898,7 +899,7 @@ async def build_report_payload(
         "errors": errors,
         "generated_at": utcnow().isoformat(),
     }
-    return serialize(payload)
+    return cx_employee_roles_051a.relabel(serialize(payload), await cx_employee_roles_051a.load_config(db, company_id))
 
 
 @router.get("/companies/{company_id}/general")

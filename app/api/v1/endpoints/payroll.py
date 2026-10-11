@@ -20,6 +20,7 @@ from app.services import payroll_periods as periods_049l
 from app.services import session_cutoff as session_cutoff_049d
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
+from app.services import employee_roles as cx_employee_roles_051a  # roles por empresa (nombre visible)
 router = APIRouter()
 
 # Fase 2 (2026-09-23): "administrador" of a company with waiter_ordering
@@ -1512,7 +1513,7 @@ async def calculate_payroll_period(
 
     snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end)
     snapshot["source"] = "calculated"
-    return snapshot
+    return cx_employee_roles_051a.relabel(snapshot, await cx_employee_roles_051a.load_config(db, company_id))
 
 
 @router.get("/companies/{company_id}/periods")
@@ -1625,8 +1626,8 @@ async def get_payroll_period(
         "status": period_dict["status"],
         "totals": period_dict.get("totals_json") or {},
         "totals_json": period_dict.get("totals_json") or {},
-        "rows": rows,
-        "items": rows,
+        "rows": cx_employee_roles_051a.relabel(rows, await cx_employee_roles_051a.load_config(db, company_id)),
+        "items": cx_employee_roles_051a.relabel(rows, await cx_employee_roles_051a.load_config(db, company_id)),
         "source": "closed",
     }
 

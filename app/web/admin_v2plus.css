@@ -647,3 +647,11 @@ button, input, select { font: inherit; color: inherit; }
 }
 .vp-bill-card .vp-chip-row { align-items: center; }
 .vp-bill-card .vp-mini-chip { border-radius: 999px; padding: 3px 10px; line-height: 1.4; }
+
+/* Ficha · Roles de empleado (registro unico role_catalog.json) */
+.vp-roles-table td { vertical-align: top; }
+.vp-roles-table .vp-input-sm { min-width: 150px; }
+.vp-role-permits { margin: 0; padding-left: 16px; font-size: 12px; color: var(--vp-text); line-height: 1.4; }
+.vp-role-off td { color: var(--vp-muted); }
+.vp-role-off .vp-role-permits { color: var(--vp-muted); }
+.vp-role-warn { color: var(--vp-dormant); }

@@ -645,4 +645,11 @@ try:
 except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Facturacion no pudo registrarse: %s", exc)
+try:
+    # Roles de empleado por empresa (pestaña Roles de la Ficha).
+    from app.web.employee_roles_routes import router as employee_roles_router
+    app.include_router(employee_roles_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Roles por empresa no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2PLUS_ROUTE

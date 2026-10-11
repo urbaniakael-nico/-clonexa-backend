@@ -2227,6 +2227,16 @@ async def _send_dynamic_menu(
     status_text = _current_status_key(current)
     if greet:
         text_value = _txt(language, "menu_title", employee_name=employee.full_name, company_name=company.name)
+        # Roles por empresa (051A): solo con configuracion (hoy Urbania) el saludo
+        # dice el nombre visible del rol. Los permisos siguen saliendo del codigo.
+        from app.services import employee_roles
+
+        role_config = await employee_roles.load_config(db, company.id)
+        if role_config:
+            role_word = {"en": "Role", "fr": "Rôle"}.get(str(language or "es")[:2], "Rol")
+            role_line = f"{role_word}: {employee_roles.display(role_config, employee.role or employee.employee_type)}"
+            first, sep, rest = text_value.partition("\n\n")
+            text_value = f"{first}\n{role_line}{sep}{rest}" if sep else f"{text_value}\n{role_line}"
     else:
         text_value = _txt(language, "menu_next")
     await _send_telegram_message(

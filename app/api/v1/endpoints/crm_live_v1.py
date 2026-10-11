@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 
+from app.services import employee_roles as cx_employee_roles_051a  # roles por empresa (nombre visible)
 router = APIRouter()
 
 
@@ -622,5 +623,5 @@ async def crm_live_snapshot(
             "payroll_enabled": "payroll" in modules,
             "active_reference_sessions": len(all_active_sessions),
         },
-        "employees": rows,
+        "employees": cx_employee_roles_051a.relabel(rows, await cx_employee_roles_051a.load_config(db, company_id)),
     }

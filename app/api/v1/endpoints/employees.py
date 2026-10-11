@@ -15,7 +15,18 @@ from app.models.workforce_attendance import WorkforceAttendanceEvent, WorkforceA
 from app.schemas.employee import EmployeeCreate, EmployeeOut, EmployeeUpdate
 from app.schemas.workforce_personnel_history import WorkforcePersonnelHistoryOut
 
+from app.services import employee_roles as cx_employee_roles_051a  # roles por empresa (nombre visible)
 router = APIRouter()
+
+
+async def _cx_check_company_role_051A(db: AsyncSession, company_id, new_role, old_role=None) -> None:
+    """Roles por empresa: con configuracion (hoy solo Urbania) el rol debe estar
+    habilitado, o ser el mismo que ya tenia. Sin configuracion no cambia nada."""
+    from app.services import employee_roles
+
+    config = await employee_roles.load_config(db, company_id)
+    if not employee_roles.allowed_change(config, new_role, old_role):
+        raise HTTPException(status_code=422, detail="El rol no está habilitado para esta empresa.")
 
 
 def json_dumps(value: dict) -> str:
@@ -326,6 +337,7 @@ async def create_employee(payload: EmployeeCreate, db: AsyncSession = Depends(ge
         raise HTTPException(status_code=404, detail="company_not_found")
 
     data = normalize_employee_payload(payload.model_dump())
+    await _cx_check_company_role_051A(db, payload.company_id, data.get("role"))
     employee = Employee(**data)
 
     db.add(employee)
@@ -998,7 +1010,7 @@ async def attendance_history(
     result = await db.execute(text(stmt), params)
     rows = [dict(row) for row in result.mappings().all()]
     await db.commit()
-    return rows
+    return cx_employee_roles_051a.relabel(rows, await cx_employee_roles_051a.load_config(db, company_id))
 
 
 @router.post("/attendance/events")
@@ -1109,6 +1121,7 @@ async def update_employee(
     employee = await get_employee_or_404(db, employee_id)
     before = employee_snapshot(employee)
     data = normalize_employee_payload(payload.model_dump(exclude_unset=True))
+    await _cx_check_company_role_051A(db, employee.company_id, data.get("role"), employee.role)
 
     for key, value in data.items():
         if hasattr(employee, key):

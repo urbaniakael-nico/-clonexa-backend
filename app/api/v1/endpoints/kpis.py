@@ -20,6 +20,7 @@ except Exception:  # pragma: no cover - KPIs debe seguir vivo aunque Nómina cam
     payroll_calculate_period_snapshot = None
     payroll_ensure_storage = None
 
+from app.services import employee_roles as cx_employee_roles_051a  # roles por empresa (nombre visible)
 router = APIRouter()
 UTC = timezone.utc
 
@@ -885,7 +886,7 @@ async def kpi_summary(
     cards = await apply_dashboard_config(db, company_id, cards)
     data["cards"] = cards
     data["dashboard_cards"] = [card for card in cards if card.get("show_on_dashboard")][:4]
-    return data
+    return cx_employee_roles_051a.relabel(data, await cx_employee_roles_051a.load_config(db, company_id))
 
 
 

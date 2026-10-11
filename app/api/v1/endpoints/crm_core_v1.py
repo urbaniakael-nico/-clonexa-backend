@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 
+from app.services import employee_roles as cx_employee_roles_051a  # roles por empresa (nombre visible)
 router = APIRouter()
 
 START_EVENTS = {"check_in", "entrada", "start_shift", "shift_start", "inicio_turno", "clock_in"}
@@ -1475,5 +1476,5 @@ async def crm_core_snapshot(
         "active_modules": sorted(modules),
         "summary": summary,
         "cards": cards,
-        "employees": rows,
+        "employees": cx_employee_roles_051a.relabel(rows, await cx_employee_roles_051a.load_config(db, company_id)),
     }
