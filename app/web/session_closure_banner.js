@@ -20,6 +20,18 @@
   const CHECK_MS = 5 * 60 * 1000;
   let lastToken = "";
   let box = null;
+  // Fase B: la hora se muestra en la zona de la empresa (antes Bogotá fija).
+  let zone = "America/Bogota";
+  let zoneLoaded = false;
+
+  async function loadZone(token) {
+    if (zoneLoaded) return;
+    zoneLoaded = true;
+    try {
+      const res = await fetch(`/api/v1/companies/${encodeURIComponent(companyId)}/locale`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) { const data = await res.json(); if (data && data.timezone) zone = String(data.timezone); }
+    } catch (_) { /* sin red: Bogotá */ }
+  }
 
   function readToken() {
     for (const key of keys) {
@@ -42,7 +54,7 @@
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
     return new Intl.DateTimeFormat("sv-SE", {
-      timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+      timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
     }).format(d).replace(" ", "T");
   }
 
@@ -76,6 +88,7 @@
     const token = readToken();
     if (!companyId || !token) return;
     lastToken = token;
+    await loadZone(token);
     let data;
     try {
       data = await call("/closures/mine");

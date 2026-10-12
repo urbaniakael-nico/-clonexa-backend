@@ -83,7 +83,7 @@ test('Admin V2: hora del corte y alerta por empresa', () => {
   assert.match(admin, /<input type="time" name="cutoff_time" value="\$\{escapeHtml\(data\.cutoff_time \|\| "00:00"\)\}">/);
 });
 
-function runBanner({ search, token, closures, keys }) {
+function runBanner({ search, token, closures, keys, timezone }) {
   const appended = [];
   const listeners = {};
   const requests = [];
@@ -105,6 +105,7 @@ function runBanner({ search, token, closures, keys }) {
     window, document, URLSearchParams, Intl, Date, JSON, String, Number, Array, encodeURIComponent,
     fetch: async (url, options) => {
       requests.push({ url, options });
+      if (String(url).endsWith('/locale')) return { ok: true, json: async () => (timezone ? { timezone } : {}) };
       return { ok: true, json: async () => ({ closures }) };
     },
   });
@@ -118,8 +119,9 @@ test('mini panel: el empleado ve su cierre y solo puede proponer la hora', async
     token: { key: 'clonexa_mini_panel_token_c1_sales', value: 'tok' }, closures: [CLOSURE],
   });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(run.requests[0].url, '/api/v1/workforce-sessions/companies/c1/closures/mine');
-  assert.equal(run.requests[0].options.headers.Authorization, 'Bearer tok');
+  const mine = run.requests.find((r) => r.url === '/api/v1/workforce-sessions/companies/c1/closures/mine');
+  assert.ok(mine, 'pide sus cierres');
+  assert.equal(mine.options.headers.Authorization, 'Bearer tok');
   const html = run.appended[0].innerHTML;
   assert.match(html, /Ana Workforce fue desconectado por el sistema a las 00:00/);
   assert.match(html, /El administrador debe confirmarla antes de que cuente para tu pago/);
@@ -185,4 +187,20 @@ test('reingreso: mesero y caja vuelven al login con mensaje del corte', () => {
       'El sistema cerró tu turno en el corte diario. Vuelve a entrar con tu usuario y clave.');
     assert.match(readFileSync(file, 'utf8'), /if \(response\.status === 401 && tok && !options\.isLogin\) \{\s*handleSessionLost\(message\);/);
   }
+});
+
+test('Fase B: el recuadro de hora usa la zona de la empresa (Bogotá igual; Chicago, su hora)', async () => {
+  const base = { search: '?company_id=c1&type=sales', keys: 'clonexa_mini_panel_token_{cid}_{type}',
+    token: { key: 'clonexa_mini_panel_token_c1_sales', value: 'tok' }, closures: [CLOSURE] };
+  const chi = runBanner({ ...base, timezone: 'America/Chicago' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const locale = chi.requests.find((r) => r.url === '/api/v1/companies/c1/locale');
+  assert.equal(locale.options.headers.Authorization, 'Bearer tok', 'con la sesión del panel');
+  assert.match(chi.appended[0].innerHTML, /min="2026-09-24T08:00" max="2026-09-25T00:00"/, 'Chicago (CDT) coincide con Bogotá en septiembre');
+  const late = { ...CLOSURE, started_at: '2026-11-24T13:00:00Z', system_end_at: '2026-11-25T05:00:00Z' };
+  const chiNov = runBanner({ ...base, closures: [late], timezone: 'America/Chicago' });
+  const bogNov = runBanner({ ...base, closures: [late] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(chiNov.appended[0].innerHTML, /min="2026-11-24T07:00" max="2026-11-24T23:00"/, 'Chicago (CST, UTC-6)');
+  assert.match(bogNov.appended[0].innerHTML, /min="2026-11-24T08:00" max="2026-11-25T00:00"/, 'Bogotá como siempre');
 });
