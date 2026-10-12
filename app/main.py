@@ -489,6 +489,9 @@ from app.services.company_tz_middleware import CompanyTzMiddleware  # noqa: E402
 
 app.add_middleware(CompanyTzMiddleware)
 
+# Fase B: los PDF (reportlab) salen en el idioma de la empresa; en espanol, sin cambios.
+from app.services import pdf_i18n  # noqa: E402,F401
+
 
 # CLONEXA_API_DOCS_GUARD: documentacion de la API solo con sesion de Admin V2
 # (validada en el servidor). Sin sesion: las paginas llevan al login de Admin V2
