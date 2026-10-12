@@ -195,6 +195,9 @@ async def ensure_payroll_storage(db: AsyncSession) -> None:
     payroll_period_columns = [
         ("company_id", "uuid"),
         ("name", "varchar(180)"),
+        ("period_type", "varchar(40)"),  # Fase B: la tabla de produccion (migracion 0001) las exige
+        ("starts_at", "timestamptz"),
+        ("ends_at", "timestamptz"),
         ("period_start", "date"),
         ("period_end", "date"),
         ("status", "varchar(40)"),
@@ -1693,6 +1696,15 @@ async def close_payroll_period(
     return await get_payroll_period(company_id, UUID(str(period_id)), db)
 
 
+async def period_type_052D(db: AsyncSession, company_id: Any, period_start: date, period_end: date) -> str:
+    """"cutoff" si las fechas son un periodo de los dias de corte de la empresa
+    (hoy Velvet: 10 y 25); "manual" para cualquier otro rango."""
+    config = await load_period_config_049L(db, company_id)
+    if config and periods_049l.period_for(period_start, config["cutoff_days"]) == (period_start, period_end):
+        return "cutoff"
+    return "manual"
+
+
 async def close_period_core_049L(
     db: AsyncSession, company_id: UUID, period_start: date, period_end: date, *, name: Any = None, currency: str = "USD",
 ) -> str:
@@ -1723,6 +1735,15 @@ async def close_period_core_049L(
     rows = snapshot["rows"]
 
     period_id = uuid4()
+    # Fase B (todas las empresas): payroll_periods exige period_type, starts_at,
+    # ends_at y created_at (NOT NULL desde la migracion 0001) y este INSERT no
+    # los enviaba: ningun cierre (manual ni automatico) llego a guardarse.
+    period_type = await period_type_052D(db, company_id, period_start, period_end)
+    token = await use_company_tz_052C(db, company_id)
+    try:
+        starts_at, ends_at = period_datetime_bounds(period_start, period_end)
+    finally:
+        cx_locale_052c.CURRENT_TZ.reset(token)
 
     await db.execute(
         text("""
@@ -1730,6 +1751,9 @@ async def close_period_core_049L(
                 id,
                 company_id,
                 name,
+                period_type,
+                starts_at,
+                ends_at,
                 period_start,
                 period_end,
                 status,
@@ -1737,18 +1761,23 @@ async def close_period_core_049L(
                 totals_json,
                 snapshot_json,
                 closed_at,
+                created_at,
                 updated_at
             )
             VALUES (
                 :id,
                 :company_id,
                 :name,
+                :period_type,
+                :starts_at,
+                :ends_at,
                 :period_start,
                 :period_end,
                 'closed',
                 :currency,
                 CAST(:totals_json AS jsonb),
                 CAST(:snapshot_json AS jsonb),
+                now(),
                 now(),
                 now()
             )
@@ -1757,6 +1786,9 @@ async def close_period_core_049L(
             "id": str(period_id),
             "company_id": str(company_id),
             "name": name,
+            "period_type": period_type,
+            "starts_at": starts_at,
+            "ends_at": ends_at,
             "period_start": period_start,
             "period_end": period_end,
             "currency": currency,
