@@ -33,16 +33,25 @@ LANGUAGES = ("es", "en", "fr")
 CURRENT_TZ: contextvars.ContextVar[ZoneInfo | None] = contextvars.ContextVar("company_tz", default=None)
 # Moneda de la empresa en curso. Sin valor: COP (cada lugar escribe su formato de siempre).
 CURRENT_CURRENCY: contextvars.ContextVar[str | None] = contextvars.ContextVar("company_currency", default=None)
+# Idioma de la empresa en curso (PDF y mensajes que no son de una persona). Sin valor: es.
+CURRENT_LANGUAGE: contextvars.ContextVar[str | None] = contextvars.ContextVar("company_language", default=None)
 
 
 def use(locale: dict) -> tuple:
     """Fija zona y moneda de la empresa; devuelve los tokens para restaurarlas con reset()."""
-    return (CURRENT_TZ.set(zone(locale.get("timezone"))), CURRENT_CURRENCY.set(locale.get("currency") or DEFAULT_CURRENCY))
+    return (CURRENT_TZ.set(zone(locale.get("timezone"))), CURRENT_CURRENCY.set(locale.get("currency") or DEFAULT_CURRENCY),
+            CURRENT_LANGUAGE.set(locale.get("language") or DEFAULT_LANGUAGE))
 
 
 def reset(tokens: tuple) -> None:
     CURRENT_TZ.reset(tokens[0])
     CURRENT_CURRENCY.reset(tokens[1])
+    if len(tokens) > 2:
+        CURRENT_LANGUAGE.reset(tokens[2])
+
+
+def current_language() -> str:
+    return CURRENT_LANGUAGE.get() or DEFAULT_LANGUAGE
 
 
 def money_here(value: Any, legacy: Callable[[Any], str]) -> str:

@@ -1535,7 +1535,10 @@ def _comanda(order: dict[str, Any], station_set: set[str]) -> dict[str, Any] | N
 def _local_day_start(module_settings: dict[str, Any]) -> datetime:
     """Start of today in the company's timezone (America/Bogota by default),
     as an aware UTC datetime -- so "hoy" doesn't roll over at 7pm local."""
-    zone = _hsp_report_zone(module_settings.get("timezone") or "America/Bogota")
+    # Fase B: sin zona propia en el modulo (ninguna empresa la tiene), la de la empresa (Ajustes).
+    from app.services import company_locale
+
+    zone = _hsp_report_zone(module_settings.get("timezone") or company_locale.current_zone().key)
     local_now = datetime.now(timezone.utc).astimezone(zone)
     return local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 

@@ -170,6 +170,12 @@ def _slug(value: str) -> str:
     return slug or "tienda"
 
 
+def _company_currency_052D() -> str:
+    from app.services import company_locale
+
+    return company_locale.CURRENT_CURRENCY.get() or "COP"
+
+
 def _settings_defaults(company: dict[str, Any] | None = None) -> dict[str, Any]:
     company = company or {}
     name = company.get("name") or "Tienda CLONEXA"
@@ -184,7 +190,9 @@ def _settings_defaults(company: dict[str, Any] | None = None) -> dict[str, Any]:
         "payment_proof_message": "Hola, envio el comprobante de pago de mi pedido:",
         "show_prices": True,
         "show_stock": True,
-        "currency": "COP",
+        # Fase B: sin moneda propia guardada, la de Ajustes (company_locale); la tienda que ya
+        # guardo una (hoy solo PREMIUM SHOPPERCO., COP) la conserva hasta que el dueño confirme.
+        "currency": _company_currency_052D(),
         "theme": "shoplink_dark",
         "categories": [],
         "featured_terms": [],

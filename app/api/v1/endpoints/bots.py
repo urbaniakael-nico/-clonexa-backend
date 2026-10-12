@@ -496,20 +496,28 @@ def _payroll_employee_match_from_text(text_value: str, rows: list[dict[str, Any]
     return best[1] if best else None
 
 
+def _company_lang_052D() -> str:
+    """Fase B: idioma de la empresa del mensaje (Ajustes); sin valor, espanol."""
+    from app.services import company_locale
+
+    return company_locale.current_language()
+
+
 def _format_payroll_row(row: dict[str, Any], period_start: date, period_end: date) -> str:
+    lang = _company_lang_052D()
     regular_minutes = int(row.get("regular_minutes") or row.get("regularMinutes") or 0)
     extra_minutes = int(row.get("extra_minutes") or row.get("extraMinutes") or 0)
-    period_label = "Tiempo de hoy" if period_start == period_end == _today_business() else "Tiempo del periodo"
+    period_label = _txt(lang, "pay_time_today") if period_start == period_end == _today_business() else _txt(lang, "pay_time_period")
     return "\n".join([
-        f"Nomina individual {period_start.isoformat()} / {period_end.isoformat()}:",
-        f"{row.get('employee_name') or row.get('name') or 'Colaborador'}",
-        f"Turnos/sesiones: {int(row.get('closed_shifts') or row.get('shifts') or 0)}",
+        _txt(lang, "pay_individual", start=period_start.isoformat(), end=period_end.isoformat()),
+        f"{row.get('employee_name') or row.get('name') or _txt(lang, 'pay_collaborator')}",
+        _txt(lang, "pay_shifts", n=int(row.get('closed_shifts') or row.get('shifts') or 0)),
         f"{period_label}: {_minutes_label(regular_minutes + extra_minutes)}",
-        f"Ordinarias: {_minutes_label(regular_minutes)}",
-        f"Extras: {_minutes_label(extra_minutes)}",
-        f"Bruto: {_money_label(row.get('gross_amount') or row.get('gross'))}",
-        f"Descuentos: {_money_label(row.get('discount_amount') or row.get('discount'))}",
-        f"Total a pagar: {_money_label(row.get('net_amount') or row.get('net'))}",
+        _txt(lang, "pay_regular", v=_minutes_label(regular_minutes)),
+        _txt(lang, "pay_extra", v=_minutes_label(extra_minutes)),
+        _txt(lang, "pay_gross", v=_money_label(row.get('gross_amount') or row.get('gross'))),
+        _txt(lang, "pay_discount", v=_money_label(row.get('discount_amount') or row.get('discount'))),
+        _txt(lang, "pay_net", v=_money_label(row.get('net_amount') or row.get('net'))),
     ])
 
 
@@ -529,29 +537,29 @@ def _format_payroll_summary(company: Company, snapshot: dict[str, Any], text_val
         if is_single_day
         else sorted(rows, key=lambda row: float(row.get("net_amount") or row.get("net") or 0), reverse=True)[:6]
     )
+    lang = _company_lang_052D()
     lines = [
-        f"Nomina de {company.name} ({period_label})",
-        f"Periodo: {period_start.isoformat()} / {period_end.isoformat()}",
-        f"Colaboradores con corte: {int(totals.get('people') or len(rows) or 0)}",
-        f"Turnos/sesiones: {int(totals.get('closed_shifts') or totals.get('shifts') or 0)}",
-        f"Ordinarias: {_minutes_label(totals.get('regular_minutes') or totals.get('regularMinutes'))}",
-        f"Extras: {_minutes_label(totals.get('extra_minutes') or totals.get('extraMinutes'))}",
-        f"Bruto: {_money_label(totals.get('gross_amount') or totals.get('gross'))}",
-        f"Descuentos: {_money_label(totals.get('discount_amount') or totals.get('discount'))}",
-        f"Total a pagar: {_money_label(totals.get('net_amount') or totals.get('net'))}",
+        _txt(lang, "pay_title", company=company.name, label=period_label),
+        _txt(lang, "pay_period", start=period_start.isoformat(), end=period_end.isoformat()),
+        _txt(lang, "pay_people", n=int(totals.get('people') or len(rows) or 0)),
+        _txt(lang, "pay_shifts", n=int(totals.get('closed_shifts') or totals.get('shifts') or 0)),
+        _txt(lang, "pay_regular", v=_minutes_label(totals.get('regular_minutes') or totals.get('regularMinutes'))),
+        _txt(lang, "pay_extra", v=_minutes_label(totals.get('extra_minutes') or totals.get('extraMinutes'))),
+        _txt(lang, "pay_gross", v=_money_label(totals.get('gross_amount') or totals.get('gross'))),
+        _txt(lang, "pay_discount", v=_money_label(totals.get('discount_amount') or totals.get('discount'))),
+        _txt(lang, "pay_net", v=_money_label(totals.get('net_amount') or totals.get('net'))),
     ]
     if detail_rows:
         lines.append("")
-        lines.append("Horas del dia por colaborador:" if is_single_day else "Detalle visible:")
+        lines.append(_txt(lang, "pay_day_detail") if is_single_day else _txt(lang, "pay_detail"))
         for row in detail_rows:
             regular_minutes = int(row.get("regular_minutes") or row.get("regularMinutes") or 0)
             extra_minutes = int(row.get("extra_minutes") or row.get("extraMinutes") or 0)
-            lines.append(
-                f"- {row.get('employee_name') or row.get('name') or 'Colaborador'}: "
-                f"{_minutes_label(regular_minutes + extra_minutes)} total "
-                f"({_minutes_label(regular_minutes)} ord / {_minutes_label(extra_minutes)} ext) - "
-                f"{_money_label(row.get('net_amount') or row.get('net'))}"
-            )
+            lines.append(_txt(
+                lang, "pay_row", name=row.get('employee_name') or row.get('name') or _txt(lang, 'pay_collaborator'),
+                total=_minutes_label(regular_minutes + extra_minutes), reg=_minutes_label(regular_minutes),
+                ext=_minutes_label(extra_minutes), net=_money_label(row.get('net_amount') or row.get('net')),
+            ))
     return "\n".join(lines)
 
 
@@ -1867,6 +1875,33 @@ def _lang(value: str | None) -> str:
     return value if value in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
 
 
+# Fase B: textos de nomina y del idioma automatico (en espanol, los de siempre).
+BOT_TEXTS["es"].update({
+    "pay_individual": "Nomina individual {start} / {end}:", "pay_collaborator": "Colaborador", "pay_shifts": "Turnos/sesiones: {n}",
+    "pay_time_today": "Tiempo de hoy", "pay_time_period": "Tiempo del periodo", "pay_regular": "Ordinarias: {v}", "pay_extra": "Extras: {v}",
+    "pay_gross": "Bruto: {v}", "pay_discount": "Descuentos: {v}", "pay_net": "Total a pagar: {v}", "pay_title": "Nomina de {company} ({label})",
+    "pay_period": "Periodo: {start} / {end}", "pay_people": "Colaboradores con corte: {n}", "pay_day_detail": "Horas del dia por colaborador:",
+    "pay_detail": "Detalle visible:", "pay_row": "- {name}: {total} total ({reg} ord / {ext} ext) - {net}",
+    "language_auto": "✅ Idioma automático: uso el idioma de tu celular.",
+})
+BOT_TEXTS["en"].update({
+    "pay_individual": "Individual payroll {start} / {end}:", "pay_collaborator": "Team member", "pay_shifts": "Shifts/sessions: {n}",
+    "pay_time_today": "Time today", "pay_time_period": "Time in period", "pay_regular": "Regular: {v}", "pay_extra": "Overtime: {v}",
+    "pay_gross": "Gross: {v}", "pay_discount": "Deductions: {v}", "pay_net": "Total to pay: {v}", "pay_title": "{company} payroll ({label})",
+    "pay_period": "Period: {start} / {end}", "pay_people": "Team members in period: {n}", "pay_day_detail": "Hours per team member today:",
+    "pay_detail": "Details:", "pay_row": "- {name}: {total} total ({reg} reg / {ext} ot) - {net}",
+    "language_auto": "✅ Automatic language: I use your phone's language.",
+})
+BOT_TEXTS["fr"].update({
+    "pay_individual": "Paie individuelle {start} / {end} :", "pay_collaborator": "Collaborateur", "pay_shifts": "Services/sessions : {n}",
+    "pay_time_today": "Temps aujourd'hui", "pay_time_period": "Temps de la période", "pay_regular": "Ordinaires : {v}", "pay_extra": "Supplémentaires : {v}",
+    "pay_gross": "Brut : {v}", "pay_discount": "Retenues : {v}", "pay_net": "Total à payer : {v}", "pay_title": "Paie de {company} ({label})",
+    "pay_period": "Période : {start} / {end}", "pay_people": "Collaborateurs de la période : {n}", "pay_day_detail": "Heures du jour par collaborateur :",
+    "pay_detail": "Détail :", "pay_row": "- {name} : {total} total ({reg} ord / {ext} sup) - {net}",
+    "language_auto": "✅ Langue automatique : j'utilise la langue de ton téléphone.",
+})
+
+
 def _txt(language: str | None, key: str, **kwargs: Any) -> str:
     lang = _lang(language)
     template = BOT_TEXTS.get(lang, BOT_TEXTS[DEFAULT_LANGUAGE]).get(key)
@@ -1882,9 +1917,30 @@ def _language_keyboard() -> dict[str, Any]:
                 {"text": "Español", "callback_data": "clx:lang:es"},
                 {"text": "English", "callback_data": "clx:lang:en"},
                 {"text": "Français", "callback_data": "clx:lang:fr"},
-            ]
+            ],
+            # Fase B: volver a "automatico" (el idioma del celular).
+            [{"text": "🌐 Auto", "callback_data": "clx:lang:auto"}],
         ]
     }
+
+
+# Fase B: idioma del celular de quien escribe (language_code de Telegram en cada mensaje).
+PHONE_LANGUAGE_052D: "contextvars.ContextVar[str | None]" = __import__("contextvars").ContextVar("telegram_phone_language", default=None)
+
+
+def _phone_language_052D(update: dict[str, Any]) -> str:
+    """es, en o fr segun el language_code del mensaje (o del boton); cualquier otro, espanol."""
+    source = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else (update.get("message") or update.get("edited_message") or {})
+    code = str(((source or {}).get("from") or {}).get("language_code") or "").strip().lower()[:2]
+    return code if code in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+
+
+async def _clear_user_language_052D(db: AsyncSession, company_id: UUID, telegram_user_id: str) -> None:
+    await ensure_bot_storage(db)
+    await db.execute(text("""
+        DELETE FROM company_telegram_user_preferences WHERE company_id = :company_id AND telegram_user_id = :telegram_user_id
+    """), {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)})
+    await db.commit()
 
 
 def _location_request_keyboard(language: str) -> dict[str, Any]:
@@ -1926,7 +1982,9 @@ async def _get_user_language(
         {"company_id": str(company_id), "telegram_user_id": str(telegram_user_id)},
     )
     row = result.mappings().first()
-    return _lang(row["language"] if row else DEFAULT_LANGUAGE)
+    if row:
+        return _lang(row["language"])  # eligio a mano en el bot: se respeta
+    return PHONE_LANGUAGE_052D.get() or DEFAULT_LANGUAGE  # Fase B: si no eligio, el idioma de su celular
 
 
 async def _user_language_preference_exists(
@@ -4842,9 +4900,11 @@ async def _process_telegram_update(
     from app.services import company_locale
 
     tokens = company_locale.use(await company_locale.get_company_locale(db, bot.company_id))
+    phone = PHONE_LANGUAGE_052D.set(_phone_language_052D(update))
     try:
         return await _process_telegram_update_052C(db, bot=bot, token=token, update=update, send_replies=send_replies)
     finally:
+        PHONE_LANGUAGE_052D.reset(phone)
         company_locale.reset(tokens)
 
 
@@ -4900,6 +4960,22 @@ async def _process_telegram_update_052C(
             telegram_user_id=telegram_user_id,
             telegram_username=username,
         )
+
+    if text_value == "clx:lang:auto":
+        # Fase B: borra la eleccion manual; desde ahora, el idioma del celular.
+        await _clear_user_language_052D(db, bot.company_id, telegram_user_id)
+        language = PHONE_LANGUAGE_052D.get() or DEFAULT_LANGUAGE
+        if callback_query_id:
+            await _answer_callback_query(token, callback_query_id, _txt(language, "language_auto"))
+        employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "language_auto"))
+            if employee is not None:
+                company = await ensure_company_exists(db, bot.company_id)
+                await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language, greet=True)
+        return TelegramBotPollItem(update_id=update_id, ok=True, action="language_auto", message=f"Idioma automatico: {language}",
+                                   employee_id=employee.id if employee else None, employee_name=employee.full_name if employee else None,
+                                   telegram_user_id=telegram_user_id, telegram_username=username)
 
     if text_value.startswith("clx:lang:"):
         selected_language = _lang(text_value.removeprefix("clx:lang:"))
