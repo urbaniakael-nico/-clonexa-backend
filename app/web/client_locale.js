@@ -120,10 +120,10 @@
     return guess.toISOString();
   }
 
-  // Filtros de días del portal. Regla de oro: con la zona de Bogotá se deja el
-  // corte de siempre (devuelven "" y el llamador usa el de antes); con otra zona
-  // (hoy VOLTAGE) el día y sus límites son los de la empresa.
-  const localDays = () => state.timezone !== "America/Bogota";
+  // Filtros de días del portal: el día y sus límites en la zona de la empresa.
+  // Fase B: todas las empresas cortan a medianoche de su zona (en la Fase A
+  // Bogotá seguía en UTC por la regla de oro; el cambio de cifras es a propósito).
+  const localDays = () => true;
   const filterDay = (value) => (localDays() ? dayKey(value) : "");
   const filterBound = (day, end = false) => (localDays() ? dayBoundUtc(day, end) : null);
 

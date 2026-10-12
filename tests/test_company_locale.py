@@ -134,8 +134,9 @@ def test_timezone_must_come_from_the_iana_list():
     assert err.value.status_code == 400
 
 
-def test_report_days_cut_like_always_in_bogota_and_locally_elsewhere():
-    """Regla de oro: Bogota sigue cortando en UTC (reportes identicos); VOLTAGE en su hora (Chicago)."""
+def test_report_days_cut_at_local_midnight_for_every_company():
+    """Fase B (bloque 6, cambio pedido): Reportes y KPIs cortan el dia a la medianoche
+    de la zona de la empresa; Bogota tambien (antes cortaba en UTC, 7 pm local)."""
     from datetime import date
 
     from app.api.v1.endpoints import kpis, reports
@@ -143,7 +144,8 @@ def test_report_days_cut_like_always_in_bogota_and_locally_elsewhere():
     for module in (kpis, reports):
         fn = module.period_from_params if module is kpis else module.parse_period
         start, end, _ = fn("custom", date(2026, 11, 2), date(2026, 11, 2))
-        assert start.isoformat() == "2026-11-02T00:00:00+00:00", "sin empresa / Bogota: como siempre"
+        assert start.utcoffset().total_seconds() == -5 * 3600 and start.hour == 0, "sin empresa / Bogota: medianoche de Bogota"
+        assert end.utcoffset().total_seconds() == -5 * 3600 and (end.hour, end.minute) == (23, 59)
         tokens = cl.use({"currency": "USD", "timezone": "America/Chicago"})
         try:
             start, end, _ = fn("custom", date(2026, 11, 2), date(2026, 11, 2))

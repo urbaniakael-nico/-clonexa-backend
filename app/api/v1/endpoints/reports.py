@@ -47,13 +47,11 @@ def utcnow() -> datetime:
 
 
 def _tz052c():
-    """Fase A: zona de la empresa para cortar los dias. Regla de oro: las empresas
-    en hora de Bogota siguen cortando como siempre (UTC), para que sus reportes no
-    cambien; las de otra zona (hoy VOLTAGE) cortan en su hora local."""
+    """Fase B: los dias cortan a medianoche de la zona de la empresa (Bogota
+    para las de Colombia; antes UTC). Cambia algunas cifras a proposito."""
     from app.services import company_locale
 
-    tz = company_locale.current_zone()
-    return UTC if tz.key == company_locale.DEFAULT_TIMEZONE else tz
+    return company_locale.current_zone()
 
 
 def serialize(value: Any) -> Any:
