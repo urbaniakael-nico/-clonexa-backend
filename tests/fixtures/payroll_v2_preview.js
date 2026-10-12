@@ -93,6 +93,11 @@
     if (!u.startsWith("/api/v1")) return real(url, opts);
     window.__pvCalls.push(u);
     const p = u.slice(7).split("?")[0];
+    // Fase B: ?lang=en|fr simula una empresa en ese idioma (dólares y Chicago); sin lang, español, pesos y Bogotá.
+    if (p.endsWith("/locale")) {
+      const lang = new URLSearchParams(location.search).get("lang") || "es";
+      return json(lang === "es" ? { currency: "COP", timezone: "America/Bogota", language: "es", decimals: 0 } : { currency: "USD", timezone: "America/Chicago", language: lang, decimals: 2 });
+    }
     if (p === `/companies/${CID}`) return json({ id: CID, name: T.name, slug: T.slug, status: "active" });
     if (p === `/companies/${CID}/experience`) return json({ company_id: CID, branding: T.branding });
     if (p === `/companies/${CID}/modules`) return json([{ id: "cm1", company_id: CID, module_id: "m1", enabled: true, settings: P.get("v2") === "0" ? {} : { payroll_v2: true }, module: { code: "payroll", name: "Nómina" } }]);

@@ -467,7 +467,16 @@
     }
   }
 
+  // Fase B: idioma, moneda y zona de la empresa (una vez; fetch directo para que
+  // un fallo aquí nunca cierre la sesión: sin respuesta, español como siempre).
+  function loadLocale052D() {
+    if (typeof window === "undefined" || !window.CxLocale || window.CxLocale.loaded || !token()) return;
+    window.CxLocale.load(companyId, (p) => fetch(`/api/v1${p}`, { headers: { Authorization: `Bearer ${token()}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))).catch(() => {});
+  }
+
   async function enterHome() {
+    loadLocale052D();
     await Promise.all([loadTables(), loadMenu(), loadOperational(), loadVentasHoy(), loadMisMesas()]);
   }
 

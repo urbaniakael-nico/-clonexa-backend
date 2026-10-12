@@ -45,7 +45,9 @@
   function day(iso) {
     const d = new Date(iso || "");
     if (Number.isNaN(d.getTime())) return "—";
-    return new Intl.DateTimeFormat("es-CO", { timeZone: tzOf(), weekday: "short", day: "2-digit", month: "short" }).format(d);
+    // Fase B: días y meses en el idioma de la empresa (en español, es-CO como siempre).
+    const loc = (typeof window !== "undefined" && window.CxI18n && window.CxI18n.locale()) || "es-CO";
+    return new Intl.DateTimeFormat(loc, { timeZone: tzOf(), weekday: "short", day: "2-digit", month: "short" }).format(d);
   }
   const clock = (iso) => (parts(iso) || {}).time || "—";
   function initials(name) {

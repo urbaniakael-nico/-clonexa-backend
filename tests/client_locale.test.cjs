@@ -80,7 +80,7 @@ test('portal: cada formateador de dinero gana la guarda (COP igual) y Reportes d
     assert.ok(CLIENT.includes(`function ${name}(value) {\n    if (typeof window !== "undefined" && window.CxLocale) return window.CxLocale.parse(value);`), name);
   }
   assert.match(CLIENT, /await window\.CxLocale\.load\(state\.companyId, \(path\) => api\(path\)\);/, 'se carga una vez al entrar');
-  assert.match(readFileSync('app/web/client.html', 'utf8').replace(/\r\n/g, '\n'), /client_locale\.js\?v=052C"><\/script>\n  <script src="\/client-static\/client\.js/);
+  assert.match(readFileSync('app/web/client.html', 'utf8').replace(/\r\n/g, '\n'), /client_locale\.js\?v=052C"><\/script>\n  <script src="\/client-static\/client_i18n_dict\.js\?v=052D"><\/script>\n  <script src="\/client-static\/client_i18n_core\.js\?v=052D"><\/script>\n  <script src="\/client-static\/client\.js/);
   assert.doesNotMatch(CLIENT, /NÃ³mina|rÃ©f/, 'sin letras dañadas');
 });
 
@@ -98,10 +98,10 @@ test('una guarda de verdad: con COP un formateador escribe lo mismo; con USD usa
   assert.equal(run({ currency: 'USD' }, 1234.5), '$1,234.50');
 });
 
-test('filtros de días: en Bogotá el corte de siempre (regla de oro); en otra zona, el día de la empresa', () => {
+test('filtros de días (Fase B): todas las empresas cortan a la medianoche de su zona, también Bogotá', () => {
   const bog = load();
-  assert.equal(bog.filterDay(new Date('2026-11-09T05:30:00Z')), '', 'Bogotá: el llamador usa el corte de antes');
-  assert.equal(bog.filterBound('2026-10-11'), null);
+  assert.equal(bog.filterDay(new Date('2026-11-09T03:00:00Z')), '2026-11-08', 'Bogotá: las 10 pm del 8 son el día 8 (antes, el 9 por UTC)');
+  assert.equal(bog.filterBound('2026-10-11'), '2026-10-11T05:00:00.000Z');
   const chi = load({ currency: 'USD', timezone: 'America/Chicago' });
   assert.equal(chi.filterDay(new Date('2026-11-09T05:30:00Z')), '2026-11-08');
   assert.equal(chi.filterBound('2026-11-02'), '2026-11-02T06:00:00.000Z');
