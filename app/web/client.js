@@ -42068,8 +42068,11 @@ function inventoryCreatePayload() {
     es: {
       eyebrow: "Nómina",
       title: "Configuración de nómina",
-      description: "Hasta este total semanal se calcula como hora ordinaria. A partir de ese total se calcula como hora extra. Las pausas no cuentan.",
-      label: "Total de horas ordinarias semanales",
+      description: "Hasta este total se calcula como hora ordinaria (en todo el periodo o en cada semana, según elijas). A partir de ese total se calcula como hora extra. Las pausas no cuentan.",
+      label: "Total de horas ordinarias",
+      scopeLabel: "El límite aplica",
+      scopePeriod: "Por periodo (todo el periodo de nómina)",
+      scopeWeek: "Por semana (lunes a domingo)",
       save: "Guardar regla de nómina",
       saving: "Guardando...",
       saved: "Regla guardada para esta empresa.",
@@ -42080,8 +42083,11 @@ function inventoryCreatePayload() {
     en: {
       eyebrow: "Payroll",
       title: "Payroll settings",
-      description: "Up to this weekly total is calculated as ordinary time. After this total, time is calculated as overtime. Breaks do not count.",
-      label: "Weekly ordinary hours",
+      description: "Up to this total, time is calculated as ordinary hours (over the whole period or each week, as you choose). After this total, time is overtime. Breaks do not count.",
+      label: "Ordinary hours limit",
+      scopeLabel: "The limit applies",
+      scopePeriod: "Per period (the whole payroll period)",
+      scopeWeek: "Per week (Monday to Sunday)",
       save: "Save payroll rule",
       saving: "Saving...",
       saved: "Rule saved for this company.",
@@ -42092,13 +42098,16 @@ function inventoryCreatePayload() {
     fr: {
       eyebrow: "Paie",
       title: "Paramètres de paie",
-      description: "Jusqu’à ce total hebdomadaire, le temps est calculé comme heures ordinaires. Au-delà, il est calculé comme heures supplémentaires. Les pauses ne comptent pas.",
-      label: "Heures ordinaires hebdomadaires",
+      description: "Jusqu’à ce total, le temps est calculé en heures ordinaires (sur toute la période ou chaque semaine, selon votre choix). Au-delà, heures supplémentaires. Les pauses ne comptent pas.",
+      label: "Limite d’heures ordinaires",
+      scopeLabel: "La limite s’applique",
+      scopePeriod: "Par période (toute la période de paie)",
+      scopeWeek: "Par semaine (du lundi au dimanche)",
       save: "Enregistrer la règle de paie",
       saving: "Enregistrement...",
       saved: "Règle enregistrée pour cette entreprise.",
       invalid: "Saisissez un total valide entre 1 et 168 heures.",
-      error: "Impossible dâ€™enregistrer.",
+      error: "Impossible d’enregistrer.",
       example: "Exemple : 40, 48 ou 49 selon la configuration de cette entreprise."
     },
     pt: {
@@ -42216,6 +42225,11 @@ function inventoryCreatePayload() {
     return Number.isFinite(value) && value > 0 && value <= 168 ? value : DEFAULT_ORDINARY_HOURS;
   }
 
+  // Fase B: "period" (como siempre) o "week" (lunes a domingo).
+  function cxHoursScope(settings) {
+    return settings?.payroll?.ordinary_hours_scope === "week" ? "week" : "period";
+  }
+
   async function cxFetchSettings(force = false) {
     const now = Date.now();
 
@@ -42250,7 +42264,7 @@ function inventoryCreatePayload() {
     return settingsPromise;
   }
 
-  async function cxSavePayrollHours(value) {
+  async function cxSavePayrollHours(value, scope = "period") {
     const companyId = cxCompanyId();
     if (!companyId) throw new Error("company_id no disponible.");
 
@@ -42268,7 +42282,7 @@ function inventoryCreatePayload() {
       }),
       body: JSON.stringify({
         payroll_regular_hours_limit: hours,
-        payroll: { ordinary_hours_limit: hours }
+        payroll: { ordinary_hours_limit: hours, ordinary_hours_scope: scope === "week" ? "week" : "period" }
       })
     });
 
@@ -42390,6 +42404,16 @@ function inventoryCreatePayload() {
           >
         </label>
 
+        <label class="cx-tenant-payroll-label" style="display:block;margin-top:14px">
+          <span style="display:block;font-size:12px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">
+            ${cxEscape(cxT(settings, "scopeLabel"))}
+          </span>
+          <select id="cxTenantOrdinaryScope" style="width:100%;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.26);color:inherit;border-radius:16px;padding:14px 16px;font-weight:900;outline:none">
+            <option value="period" ${cxHoursScope(settings) === "period" ? "selected" : ""}>${cxEscape(cxT(settings, "scopePeriod"))}</option>
+            <option value="week" ${cxHoursScope(settings) === "week" ? "selected" : ""}>${cxEscape(cxT(settings, "scopeWeek"))}</option>
+          </select>
+        </label>
+
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px">
           <button class="client-btn" type="button" data-cx-save-payroll-settings>${cxEscape(cxT(settings, "save"))}</button>
           <span class="client-muted" data-cx-payroll-settings-status>${cxEscape(cxT(settings, "example"))}</span>
@@ -42477,7 +42501,8 @@ function inventoryCreatePayload() {
       button.disabled = true;
       if (status) status.textContent = cxT(currentSettings, "saving");
 
-      const saved = await cxSavePayrollHours(input ? input.value : DEFAULT_ORDINARY_HOURS);
+      const scopeSelect = card ? card.querySelector("#cxTenantOrdinaryScope") : null;
+      const saved = await cxSavePayrollHours(input ? input.value : DEFAULT_ORDINARY_HOURS, scopeSelect ? scopeSelect.value : "period");
       const nextValue = cxOrdinaryHours(saved);
 
       if (input) input.value = nextValue;

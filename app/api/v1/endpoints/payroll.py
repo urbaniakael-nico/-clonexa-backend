@@ -722,6 +722,40 @@ async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
 
 
 
+async def _payroll_hours_scope_052D(db: AsyncSession, company_id) -> str:
+    """"week" solo si la empresa lo eligio en la configuracion de nomina; si no, "period"."""
+    try:
+        row = (await db.execute(text("SELECT settings_json FROM companies WHERE id::text = :company_id LIMIT 1"),
+                                {"company_id": str(company_id)})).mappings().first()
+    except Exception:
+        return "period"
+    settings = (row or {}).get("settings_json") or {}
+    if isinstance(settings, str):
+        try:
+            settings = json.loads(settings or "{}")
+        except ValueError:
+            settings = {}
+    client = settings.get("client_settings") if isinstance(settings.get("client_settings"), dict) else {}
+    payroll_cfg = client.get("payroll") if isinstance(client.get("payroll"), dict) else {}
+    return "week" if payroll_cfg.get("ordinary_hours_scope") == "week" else "period"
+
+
+def _weekly_split_052D(shifts: list[dict], limit_minutes: int) -> tuple[int, int]:
+    """Minutos ordinarios y extra con el limite por semana (lunes a domingo, en
+    la zona de la empresa; cada turno cuenta en la semana en que empezo)."""
+    weeks: dict[date, int] = {}
+    for shift in shifts:
+        start = _cx_payroll_dt_023o(shift.get("start"))
+        if not start:
+            continue
+        local_day = start.astimezone(_biz_tz()).date()
+        monday = local_day - timedelta(days=local_day.weekday())
+        weeks[monday] = weeks.get(monday, 0) + int(_cx_payroll_number(shift.get("regular_minutes"), 0)) + int(_cx_payroll_number(shift.get("extra_minutes"), 0))
+    regular = sum(min(total, limit_minutes) for total in weeks.values())
+    extra = sum(max(total - limit_minutes, 0) for total in weeks.values())
+    return regular, extra
+
+
 async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: dict) -> dict:
     rule = await _cx_company_payroll_rule(db, company_id)
 
@@ -735,6 +769,12 @@ async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: 
 
     limit_minutes = int(rule.get("ordinary_minutes_limit") or 0)
     rows = snapshot.get("rows") if isinstance(snapshot.get("rows"), list) else []
+    # Fase B: "por semana" (opcional por empresa): el limite se aplica a cada
+    # semana de lunes a domingo en la zona de la empresa; "por periodo" (por
+    # defecto) es el calculo de siempre.
+    weekly = await _payroll_hours_scope_052D(db, company_id) == "week"
+    rule = {**rule, "limit_scope": "week" if weekly else "period"}
+    snapshot["payroll_rule"] = rule
 
     total_regular = 0
     total_extra = 0
@@ -749,6 +789,8 @@ async def _cx_apply_payroll_config_rule(db: AsyncSession, company_id, snapshot: 
 
         regular_minutes = min(effective_minutes, limit_minutes)
         extra_minutes = max(effective_minutes - limit_minutes, 0)
+        if weekly and row.get("shifts"):
+            regular_minutes, extra_minutes = _weekly_split_052D(row["shifts"], limit_minutes)
 
         regular_rate = _cx_payroll_money(row.get("hourly_rate_regular"))
         extra_rate = _cx_payroll_money(row.get("hourly_rate_extra"))

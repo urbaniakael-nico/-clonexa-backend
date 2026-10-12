@@ -892,6 +892,8 @@ def _read_client_settings(company: Company) -> Dict[str, Any]:
         "payroll_regular_hours_limit": ordinary_hours,
         "payroll": {
             "ordinary_hours_limit": ordinary_hours,
+            # Fase B: el limite aplica al periodo completo (como siempre) o a cada semana (lunes a domingo).
+            "ordinary_hours_scope": "week" if payroll.get("ordinary_hours_scope") == "week" else "period",
         },
     }
 
@@ -936,6 +938,11 @@ def _write_client_settings(company: Company, payload: CompanyClientSettingsReque
     if ordinary_value is not None:
         payroll["ordinary_hours_limit"] = _number_or_default(ordinary_value, 48)
         client["payroll_regular_hours_limit"] = payroll["ordinary_hours_limit"]
+    scope_value = payroll_payload.get("ordinary_hours_scope")
+    if scope_value is not None:
+        if scope_value not in ("period", "week"):
+            raise HTTPException(status_code=400, detail="ordinary_hours_scope debe ser period o week.")
+        payroll["ordinary_hours_scope"] = scope_value
 
     client["payroll"] = payroll
     client["updated_at"] = _now().isoformat()
