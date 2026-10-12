@@ -107,3 +107,17 @@ test('filtros de días (Fase B): todas las empresas cortan a la medianoche de su
   assert.equal(chi.filterBound('2026-11-02'), '2026-11-02T06:00:00.000Z');
   assert.match(CLIENT, /\(\(typeof window !== "undefined" && window\.CxLocale && window\.CxLocale\.filterDay\(now\)\) \|\| now\.toISOString\(\)\.slice\(0, 10\)\)/);
 });
+
+test('filtros de días con jornada nocturna (The Time Machine 18:00-04:00): el día termina al cierre', () => {
+  const ttm = load({ currency: 'COP', timezone: 'America/Bogota', business_day: { open: '18:00', close: '04:00', overnight: true } });
+  assert.equal(ttm.filterDay(new Date('2026-10-12T07:00:00Z')), '2026-10-11', 'las 02:00 del 12 son de la noche del 11');
+  assert.equal(ttm.filterDay(new Date('2026-10-12T08:59:00Z')), '2026-10-11', '03:59');
+  assert.equal(ttm.filterDay(new Date('2026-10-12T09:00:00Z')), '2026-10-12', '04:00');
+  assert.equal(ttm.filterBound('2026-10-11'), '2026-10-11T09:00:00.000Z');
+  assert.equal(ttm.filterBound('2026-10-11', true), '2026-10-12T08:59:59.999Z');
+  assert.equal(ttm.filterDay(new Date('2026-11-01T06:00:00Z')), '2026-10-31', 'cambio de mes');
+  const day = load({ timezone: 'America/Bogota', business_day: { open: '08:00', close: '22:00', overnight: false } });
+  assert.equal(day.filterBound('2026-10-11'), '2026-10-11T05:00:00.000Z', 'jornada de un solo día: medianoche');
+  const asadero = load({ timezone: 'America/Bogota', business_day: null });
+  assert.equal(asadero.filterDay(new Date('2026-10-12T07:00:00Z')), '2026-10-12', 'sin jornada: medianoche');
+});

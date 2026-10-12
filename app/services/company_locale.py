@@ -35,12 +35,17 @@ CURRENT_TZ: contextvars.ContextVar[ZoneInfo | None] = contextvars.ContextVar("co
 CURRENT_CURRENCY: contextvars.ContextVar[str | None] = contextvars.ContextVar("company_currency", default=None)
 # Idioma de la empresa en curso (PDF y mensajes que no son de una persona). Sin valor: es.
 CURRENT_LANGUAGE: contextvars.ContextVar[str | None] = contextvars.ContextVar("company_language", default=None)
+# Jornada de la empresa en curso (app/services/business_day); None = dias de medianoche a medianoche.
+CURRENT_BUSINESS_DAY: contextvars.ContextVar[dict | None] = contextvars.ContextVar("company_business_day", default=None)
 
 
 def use(locale: dict) -> tuple:
     """Fija zona y moneda de la empresa; devuelve los tokens para restaurarlas con reset()."""
+    from app.services import business_day
+
     return (CURRENT_TZ.set(zone(locale.get("timezone"))), CURRENT_CURRENCY.set(locale.get("currency") or DEFAULT_CURRENCY),
-            CURRENT_LANGUAGE.set(locale.get("language") or DEFAULT_LANGUAGE))
+            CURRENT_LANGUAGE.set(locale.get("language") or DEFAULT_LANGUAGE),
+            CURRENT_BUSINESS_DAY.set(business_day.config({business_day.SETTING: locale.get("business_day")})))
 
 
 def reset(tokens: tuple) -> None:
@@ -48,6 +53,12 @@ def reset(tokens: tuple) -> None:
     CURRENT_CURRENCY.reset(tokens[1])
     if len(tokens) > 2:
         CURRENT_LANGUAGE.reset(tokens[2])
+    if len(tokens) > 3:
+        CURRENT_BUSINESS_DAY.reset(tokens[3])
+
+
+def current_business_day() -> dict | None:
+    return CURRENT_BUSINESS_DAY.get()
 
 
 def current_language() -> str:
@@ -98,7 +109,7 @@ async def get_company_locale(db: AsyncSession, company_id: Any) -> dict:
     """Nunca falla: si algo no esta o la consulta falla, los valores por defecto."""
     try:
         row = (await db.execute(text("""
-            SELECT s.currency, s.timezone AS settings_tz, s.language, c.timezone AS company_tz
+            SELECT s.currency, s.timezone AS settings_tz, s.language, c.timezone AS company_tz, c.settings_json AS company_settings
             FROM companies c
             LEFT JOIN company_core_settings s ON s.company_id = c.id
             WHERE c.id = CAST(:company_id AS uuid)
@@ -107,7 +118,11 @@ async def get_company_locale(db: AsyncSession, company_id: Any) -> dict:
     except Exception:
         row = None
     row = dict(row) if row else {}
-    return normalize(row.get("currency"), row.get("settings_tz") or row.get("company_tz"), row.get("language"))
+    from app.services import business_day
+
+    locale = normalize(row.get("currency"), row.get("settings_tz") or row.get("company_tz"), row.get("language"))
+    locale["business_day"] = business_day.public(business_day.config(row.get("company_settings")))  # Fase B: jornada
+    return locale
 
 
 async def company_zone(db: AsyncSession, company_id: Any) -> ZoneInfo:

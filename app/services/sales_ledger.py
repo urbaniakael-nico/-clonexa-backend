@@ -24,7 +24,7 @@ ASADERO). Apagado, Reportes calcula la jornada como antes.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -65,10 +65,9 @@ def sale_moment(order: dict) -> datetime | None:
 
 
 def business_date(moment: datetime, tz: ZoneInfo, business_day: dict | None = None) -> date:
-    local = moment.astimezone(tz)
-    if business_day and business_day.get("overnight") and local.time() < business_day["close"]:
-        return local.date() - timedelta(days=1)
-    return local.date()
+    from app.services import business_day as rule  # Fase B: una sola regla
+
+    return rule.business_date(moment, tz, business_day)
 
 
 def sale_day(order: dict, tz: ZoneInfo, business_day: dict | None = None) -> date | None:

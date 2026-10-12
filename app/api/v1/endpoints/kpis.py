@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -30,11 +30,32 @@ def utcnow() -> datetime:
 
 
 def _tz052c():
-    """Fase B: los dias cortan a medianoche de la zona de la empresa (Bogota
-    para las de Colombia; antes UTC). Cambia algunas cifras a proposito."""
+    """Fase B: los dias cortan en la zona de la empresa (Bogota para las de
+    Colombia; antes UTC). Cambia algunas cifras a proposito."""
     from app.services import company_locale
 
     return company_locale.current_zone()
+
+
+def _bd052d():
+    """Fase B: jornada de la empresa en curso (None = medianoche a medianoche)."""
+    from app.services import company_locale
+
+    return company_locale.current_business_day()
+
+
+def local_day(value: datetime) -> date:
+    """Dia de negocio de un momento: con jornada nocturna (The Time Machine,
+    18:00-04:00) lo de las 02:00 es del dia anterior; sin jornada, el dia local."""
+    from app.services import business_day
+
+    return business_day.business_date(value, _tz052c(), _bd052d())
+
+
+def day_bounds(day: date) -> tuple[datetime, datetime]:
+    from app.services import business_day
+
+    return business_day.day_start(day, _tz052c(), _bd052d()), business_day.day_end(day, _tz052c(), _bd052d())
 
 
 def serialize(value: Any) -> Any:
@@ -83,14 +104,14 @@ def period_from_params(
 ) -> tuple[datetime, datetime, str]:
     now = utcnow()
     # Fase A: los dias cortan en la zona de la empresa (antes UTC).
-    end = datetime.combine(end_date, time.max, tzinfo=_tz052c()) if end_date else now
+    end = day_bounds(end_date)[1] if end_date else now
     code = normalize(preset or "7d")
 
     if start_date:
-        start = datetime.combine(start_date, time.min, tzinfo=_tz052c())
+        start = day_bounds(start_date)[0]
         code = "custom" if code == "custom" else code
     elif code in {"today", "hoy", "day"}:
-        start = datetime.combine(now.astimezone(_tz052c()).date(), time.min, tzinfo=_tz052c())
+        start = day_bounds(local_day(now))[0]
         code = "today"
     elif code in {"15d", "15", "quincena"}:
         start = now - timedelta(days=15)
@@ -555,8 +576,8 @@ async def payroll_kpis(db: AsyncSession, company_id: UUID, start: datetime, end:
         "source": "empty",
     }
 
-    period_start = start.date()
-    period_end = end.date()
+    period_start = local_day(start)
+    period_end = local_day(end)
     params = {
         "company_id": str(company_id),
         "period_start": period_start,

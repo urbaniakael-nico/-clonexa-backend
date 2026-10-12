@@ -75,14 +75,14 @@ def test_saving_settings_validates_and_syncs_companies_timezone(pg_url):
         cid = str(uuid.uuid4())
         await db.execute(text("INSERT INTO companies (id, name) VALUES (CAST(:c AS uuid), 'VOLTAGE')"), {"c": cid})
         await db.commit()
-        assert await company_locale.get_company_locale(db, cid) == {"currency": "COP", "timezone": "America/Bogota", "language": "es", "decimals": 0}
+        assert await company_locale.get_company_locale(db, cid) == {"currency": "COP", "timezone": "America/Bogota", "language": "es", "decimals": 0, "business_day": None}
         actor = {"admin_v2": True, "role": "admin_v2"}
         body = core_settings.CoreSettingsIn(language="es", session_timeout_minutes=30, currency="USD", timezone="America/Chicago")
         out = await core_settings.update_company_core_settings(cid, body, db, None, actor)
         assert out["currency"] == "USD" and out["timezone"] == "America/Chicago"
         tz = (await db.execute(text("SELECT timezone FROM companies WHERE id = CAST(:c AS uuid)"), {"c": cid})).scalar()
         assert tz == "America/Chicago", "companies.timezone sincronizada"
-        assert await company_locale.get_company_locale(db, cid) == {"currency": "USD", "timezone": "America/Chicago", "language": "es", "decimals": 2}
+        assert await company_locale.get_company_locale(db, cid) == {"currency": "USD", "timezone": "America/Chicago", "language": "es", "decimals": 2, "business_day": None}
         with pytest.raises(Exception) as bad:
             await core_settings.update_company_core_settings(cid, core_settings.CoreSettingsIn(currency="USD", timezone="Chicago"), db, None, actor)
         assert getattr(bad.value, "status_code", None) == 400

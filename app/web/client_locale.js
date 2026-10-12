@@ -7,7 +7,7 @@
   "use strict";
 
   const DECIMALS = { COP: 0, CLP: 0, USD: 2, EUR: 2, MXN: 2, PEN: 2 };
-  const state = { currency: "COP", timezone: "America/Bogota", language: "es", decimals: 0, loaded: false, companyId: "" };
+  const state = { currency: "COP", timezone: "America/Bogota", language: "es", decimals: 0, loaded: false, companyId: "", businessDay: null };
   let loading = null;
 
   function apply(data) {
@@ -16,6 +16,9 @@
     state.decimals = DECIMALS[state.currency];
     state.timezone = String((data && data.timezone) || "America/Bogota");
     state.language = String((data && data.language) || "es");
+    // Fase B: jornada de la empresa (p. ej. 18:00-04:00); null = medianoche a medianoche.
+    const bd = data && data.business_day;
+    state.businessDay = bd && bd.overnight && /^\d{1,2}:\d{2}$/.test(String(bd.close || "")) ? { close: String(bd.close).padStart(5, "0"), overnight: true } : null;
     state.loaded = true;
   }
 
@@ -110,26 +113,47 @@
     const [hh, mm] = p.time.split(":").map(Number);
     return Math.round((Date.UTC(y, mo - 1, d, hh, mm) - Math.floor(at.getTime() / 60000) * 60000) / 60000);
   }
+  // Instante UTC de una hora local (reloj de pared) en la zona de la empresa.
+  function wallUtc(y, mo, d, hh = 0, mm = 0, ss = 0, ms = 0) {
+    const wall = Date.UTC(y, mo - 1, d, hh, mm, ss, ms);
+    let guess = new Date(wall);
+    for (let i = 0; i < 3; i += 1) guess = new Date(wall - offsetMinutes(guess) * 60000);
+    return guess;
+  }
   // Instante UTC en que empieza (o termina) un día "AAAA-MM-DD" en la zona de la empresa.
   function dayBoundUtc(day, end = false) {
     const [y, mo, d] = String(day || "").split("-").map(Number);
     if (!y || !mo || !d) return null;
-    const wall = end ? Date.UTC(y, mo - 1, d, 23, 59, 59, 999) : Date.UTC(y, mo - 1, d, 0, 0, 0, 0);
-    let guess = new Date(wall);
-    for (let i = 0; i < 3; i += 1) guess = new Date(wall - offsetMinutes(guess) * 60000);
-    return guess.toISOString();
+    return (end ? wallUtc(y, mo, d, 23, 59, 59, 999) : wallUtc(y, mo, d)).toISOString();
   }
 
-  // Filtros de días del portal: el día y sus límites en la zona de la empresa.
-  // Fase B: todas las empresas cortan a medianoche de su zona (en la Fase A
-  // Bogotá seguía en UTC por la regla de oro; el cambio de cifras es a propósito).
+  // Filtros de días del portal: el día de negocio y sus límites. Fase B: todas
+  // las empresas cortan en su zona; con jornada nocturna (The Time Machine,
+  // 18:00-04:00) el día termina a la hora de cierre: las 02:00 del 12 son del 11.
+  // Misma regla que el servidor (app/services/business_day.py).
   const localDays = () => true;
-  const filterDay = (value) => (localDays() ? dayKey(value) : "");
-  const filterBound = (day, end = false) => (localDays() ? dayBoundUtc(day, end) : null);
+  const closeOf = () => (state.businessDay ? state.businessDay.close.split(":").map(Number) : null);
+  function filterDay(value = new Date()) {
+    const p = parts(value);
+    if (!p) return "";
+    const close = closeOf();
+    if (!close || p.time >= state.businessDay.close) return p.date;
+    const [y, mo, d] = p.date.split("-").map(Number);
+    return new Date(Date.UTC(y, mo - 1, d - 1)).toISOString().slice(0, 10);
+  }
+  function filterBound(day, end = false) {
+    const close = closeOf();
+    if (!close) return dayBoundUtc(day, end);
+    const [y, mo, d] = String(day || "").split("-").map(Number);
+    if (!y || !mo || !d) return null;
+    if (!end) return wallUtc(y, mo, d, close[0], close[1]).toISOString();
+    return new Date(wallUtc(y, mo, d + 1, close[0], close[1]).getTime() - 1).toISOString();
+  }
 
   window.CxLocale = {
     load, apply, money, number, parse, parts, dayKey, dateTime, foreign, offsetMinutes, dayBoundUtc, filterDay, filterBound, localDays,
     get currency() { return state.currency; }, get timezone() { return state.timezone; },
     get language() { return state.language; }, get decimals() { return state.decimals; }, get loaded() { return state.loaded; },
+    get businessDay() { return state.businessDay; },
   };
 })();

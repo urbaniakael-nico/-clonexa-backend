@@ -2174,35 +2174,24 @@ def _hsp_shift_event_search(
 HSP_BUSINESS_DAY_SETTING = "hospitality_business_day"
 
 
+# Fase B: la regla vive en app/services/business_day.py (una sola para
+# Hospitality, el libro de ventas, Reportes, KPIs y el portal).
 def _hsp_parse_clock(value: Any) -> dt_time | None:
-    raw = _clean(value)
-    try:
-        hours, minutes = raw.split(":")[:2]
-        return dt_time(int(hours), int(minutes))
-    except Exception:
-        return None
+    from app.services import business_day
+
+    return business_day.parse_clock(_clean(value))
 
 
 def _hsp_business_day_config(settings: Any) -> dict[str, Any] | None:
-    settings = _json(settings, {}) if not isinstance(settings, dict) else settings
-    raw = settings.get(HSP_BUSINESS_DAY_SETTING) if isinstance(settings, dict) else None
-    if not isinstance(raw, dict) or raw.get("enabled") is False:
-        return None
-    opens, closes = _hsp_parse_clock(raw.get("open")), _hsp_parse_clock(raw.get("close"))
-    if not opens or not closes or opens == closes:
-        return None
-    return {
-        "open": opens, "close": closes,
-        "open_text": opens.strftime("%H:%M"), "close_text": closes.strftime("%H:%M"),
-        "overnight": closes < opens,
-    }
+    from app.services import business_day
+
+    return business_day.config(_json(settings, {}) if not isinstance(settings, dict) else settings)
 
 
 def _hsp_business_date(value: datetime, timezone_name: Any, config: dict[str, Any]) -> calendar_date:
-    local = _aware(value).astimezone(_hsp_report_zone(timezone_name))
-    if config["overnight"] and local.time() < config["close"]:
-        return local.date() - timedelta(days=1)
-    return local.date()
+    from app.services import business_day
+
+    return business_day.business_date(_aware(value), _hsp_report_zone(timezone_name), config)
 
 
 def _hsp_business_window(day: calendar_date, timezone_name: Any, config: dict[str, Any]) -> tuple[datetime, datetime]:

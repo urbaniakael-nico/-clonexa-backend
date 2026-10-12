@@ -4,7 +4,7 @@ import base64
 import csv
 import io
 import os
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -47,11 +47,32 @@ def utcnow() -> datetime:
 
 
 def _tz052c():
-    """Fase B: los dias cortan a medianoche de la zona de la empresa (Bogota
-    para las de Colombia; antes UTC). Cambia algunas cifras a proposito."""
+    """Fase B: los dias cortan en la zona de la empresa (Bogota para las de
+    Colombia; antes UTC). Cambia algunas cifras a proposito."""
     from app.services import company_locale
 
     return company_locale.current_zone()
+
+
+def _bd052d():
+    """Fase B: jornada de la empresa en curso (None = medianoche a medianoche)."""
+    from app.services import company_locale
+
+    return company_locale.current_business_day()
+
+
+def local_day(value: datetime) -> date:
+    """Dia de negocio de un momento: con jornada nocturna (The Time Machine,
+    18:00-04:00) lo de las 02:00 es del dia anterior; sin jornada, el dia local."""
+    from app.services import business_day
+
+    return business_day.business_date(value, _tz052c(), _bd052d())
+
+
+def day_bounds(day: date) -> tuple[datetime, datetime]:
+    from app.services import business_day
+
+    return business_day.day_start(day, _tz052c(), _bd052d()), business_day.day_end(day, _tz052c(), _bd052d())
 
 
 def serialize(value: Any) -> Any:
@@ -119,13 +140,13 @@ def parse_period(
 
     now = utcnow()
     # Fase A: los dias cortan en la zona de la empresa (antes UTC).
-    end = datetime.combine(end_date, time.max, tzinfo=_tz052c()) if end_date else now
+    end = day_bounds(end_date)[1] if end_date else now
     code = normalize(preset or "7d")
     if start_date:
-        start = datetime.combine(start_date, time.min, tzinfo=_tz052c())
+        start = day_bounds(start_date)[0]
         code = "custom" if not preset else code
     elif code in {"today", "hoy", "day"}:
-        start = datetime.combine(now.astimezone(_tz052c()).date(), time.min, tzinfo=_tz052c())
+        start = day_bounds(local_day(now))[0]
         code = "today"
     elif code in {"15d", "15", "quincena"}:
         start = now - timedelta(days=15)
@@ -425,7 +446,7 @@ async def payroll_rows(db: AsyncSession, company_id: UUID, start: datetime, end:
     if payroll_ensure_storage and payroll_calculate_period_snapshot:
         try:
             await payroll_ensure_storage(db)
-            snapshot = await payroll_calculate_period_snapshot(db, company_id, start.date(), end.date())
+            snapshot = await payroll_calculate_period_snapshot(db, company_id, local_day(start), local_day(end))
             rows_ = snapshot.get("rows") or []
             out = []
             for item in rows_:
@@ -517,8 +538,8 @@ def count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
 
 def period_days(start: datetime, end: datetime) -> list[str]:
     days = []
-    current = start.date()
-    final = end.date()
+    current = local_day(start)
+    final = local_day(end)
     max_days = 45
     while current <= final and len(days) < max_days:
         days.append(current.isoformat())
@@ -531,7 +552,7 @@ def day_key(value: Any) -> str:
         return ""
     try:
         if isinstance(value, datetime):
-            return value.date().isoformat()
+            return local_day(value).isoformat()  # Fase B: dia de negocio de la empresa
         return str(value)[:10]
     except Exception:
         return ""
@@ -812,7 +833,7 @@ async def build_report_payload(
 ) -> dict[str, Any]:
     start, end, period_code = parse_period(preset, start_date, end_date)
 
-    summary = await load_kpis(db, company_id, period_code, start.date(), end.date())
+    summary = await load_kpis(db, company_id, period_code, local_day(start), local_day(end))
     if not summary:
         summary = {
             "company_id": str(company_id),

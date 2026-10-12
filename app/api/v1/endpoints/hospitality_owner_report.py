@@ -94,10 +94,9 @@ async def _table_exists(db: AsyncSession, name: str) -> bool:
 
 
 def _today(tz, business_day: dict | None) -> calendar_date:
-    now = datetime.now(timezone.utc).astimezone(tz)
-    if business_day and business_day.get("overnight") and now.time() < business_day["close"]:
-        return now.date() - timedelta(days=1)
-    return now.date()
+    from app.services import business_day as rule  # Fase B: una sola regla
+
+    return rule.business_date(datetime.now(timezone.utc), tz, business_day)
 
 
 async def _context(db: AsyncSession, company_id: uuid.UUID, period: str, start, end, *, details: bool) -> dict:

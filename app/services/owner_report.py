@@ -182,17 +182,13 @@ def jornada_resolver(
       la jornada en curso, que abre con el primero de ellos.
     """
     if business_day:
-        close_time = business_day["close"]
-        overnight = business_day.get("overnight")
+        from app.services import business_day as rule  # Fase B: una sola regla
 
         def by_hours(order: dict) -> date | None:
             created = aware(order.get("created_at"))
             if not created:
                 return None
-            local = created.astimezone(tz)
-            if overnight and local.time() < close_time:
-                return local.date() - timedelta(days=1)
-            return local.date()
+            return rule.business_date(created, tz, business_day)
 
         return by_hours
 
