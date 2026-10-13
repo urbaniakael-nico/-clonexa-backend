@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -932,6 +932,38 @@ async def build_report_payload(
     return cx_employee_roles_051a.relabel(serialize(payload), await cx_employee_roles_051a.load_config(db, company_id))
 
 
+# ---------------------------------------------------------------------------
+# Reportes v2 (interruptor reports_v2; hoy solo VOLTAGE). Para esas empresas,
+# solo el dueno y el director abren Reportes y sus exportaciones (validado aqui,
+# en el servidor). Las demas empresas siguen exactamente como antes.
+# ---------------------------------------------------------------------------
+async def require_reports_access_053c(
+    company_id: UUID, request: Request, authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+) -> None:
+    from app.services import reports_v2
+
+    if not await reports_v2.is_on(db, company_id):
+        return None
+    from app.web.admin_v2_routes import _active_session
+
+    if await _active_session(request, db):
+        return None
+    from app.api.deps import require_company_user_for_tenant
+
+    user = await require_company_user_for_tenant(db, authorization, company_id)
+    if not reports_v2.role_allowed(getattr(user, "role", "")):
+        raise HTTPException(status_code=403, detail=reports_v2.DENIED)
+    return None
+
+
+async def _with_insights_053c(db: AsyncSession, company_id: UUID, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services import reports_v2
+
+    if await reports_v2.is_on(db, company_id):
+        payload["insights_v2"] = serialize(await reports_v2.insights_for(db, company_id, payload))
+    return payload
+
+
 @router.get("/companies/{company_id}/general")
 async def general_report(
     company_id: UUID,
@@ -943,8 +975,9 @@ async def general_report(
     status: str | None = Query(None),
     search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_reports_access_053c),
 ) -> dict[str, Any]:
-    return await build_report_payload(
+    return await _with_insights_053c(db, company_id, await build_report_payload(
         db,
         company_id,
         preset=preset,
@@ -954,7 +987,7 @@ async def general_report(
         module_code=module,
         status=status,
         search=search,
-    )
+    ))
 
 
 @router.get("/companies/{company_id}/employee/{employee_id}")
@@ -968,8 +1001,9 @@ async def employee_report(
     status: str | None = Query(None),
     search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_reports_access_053c),
 ) -> dict[str, Any]:
-    return await build_report_payload(
+    return await _with_insights_053c(db, company_id, await build_report_payload(
         db,
         company_id,
         preset=preset,
@@ -979,7 +1013,7 @@ async def employee_report(
         module_code=module,
         status=status,
         search=search,
-    )
+    ))
 
 
 def write_section(writer: csv.writer, title: str, rows_: list[dict[str, Any]], columns: list[str]) -> None:
@@ -1499,6 +1533,7 @@ async def export_report_csv(
     status: str | None = Query(None),
     search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_reports_access_053c),
 ) -> StreamingResponse:
     payload = await build_report_payload(
         db,
@@ -1587,7 +1622,9 @@ async def export_report_pdf(
     status: str | None = Query(None),
     search: str | None = Query(None),
     detail: str | None = Query("all"),
+    disposition: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_reports_access_053c),
 ) -> StreamingResponse:
     payload = await build_report_payload(
         db,
@@ -1600,11 +1637,21 @@ async def export_report_pdf(
         status=status,
         search=search,
     )
-    pdf_bytes = build_report_pdf_bytes(payload, detail)
+    from app.services import company_locale, reports_v2
+
+    if await reports_v2.is_on(db, company_id):
+        # Reportes v2: carta, fondo blanco, logo, periodo, "Pagina X de Y" y las secciones de la pantalla.
+        insights = await reports_v2.insights_for(db, company_id, payload)
+        pdf_bytes = reports_v2.build_pdf(payload, insights, company_locale.current_zone(),
+                                         report_pdf_logo_reader((payload.get("company") or {}).get("logo_url")))
+    else:
+        pdf_bytes = build_report_pdf_bytes(payload, detail)
     safe_detail = normalize(detail or "all") or "all"
     filename = f"clonexa_reporte_{safe_detail}_{date.today().isoformat()}.pdf"
+    # ?disposition=inline lo abre en el navegador (ver / imprimir); por defecto se descarga, como siempre.
+    kind = "inline" if str(disposition or "").strip().lower() == "inline" else "attachment"
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'{kind}; filename="{filename}"'},
     )
