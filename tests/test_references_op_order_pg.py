@@ -102,17 +102,22 @@ async def test_aurora_azul_single_card_cuts_and_state_agree(pg_url):
 
 
 @pytest.mark.asyncio
-async def test_name_and_color_ignore_case_spaces_and_accents(pg_url):
+async def test_grouping_is_by_name_only_ignoring_case_spaces_and_accents(pg_url):
     engine, maker = await _setup(pg_url)
     async with maker() as db:
         cid = await _company(db, f"Agr{uuid.uuid4().hex[:6]}")
         await _switch(db, cid, True)
         a = await _ref(db, cid, name="Aurora Cafe", size="SM", color="Café", category="Superior")
         await _ref(db, cid, name="  aurora  CAFE ", size="ML", color="cafe", category="Chaqueta")
-        await _ref(db, cid, name="Aurora Cafe", size="SM", color="Negro")
+        await _ref(db, cid, name="Lucky Coat", size="ML", color="", category="Superior")
+        await _ref(db, cid, name="lucky  coat", size="SM", color="verde oliva", category="Superior")
         groups = (await refs.v2_groups(cid, actor=ACTOR, db=db))["groups"]
-        cafe = [g for g in groups if rv2.group_key(g["name"], g["color"]) == rv2.group_key("aurora cafe", "cafe")]
-        assert len(groups) == 2 and len(cafe) == 1 and [ln["size"] for ln in cafe[0]["lines"]] == ["SM", "ML"]
+        assert len(groups) == 2, "por nombre: Aurora Cafe y Lucky Coat (el color no separa)"
+        lucky = next(g for g in groups if g["key"] == rv2.group_key("Lucky Coat"))
+        assert [(ln["size"], ln["color"]) for ln in lucky["lines"]] == [("SM", "verde oliva"), ("ML", "")], "el color va en cada talla"
+        assert lucky["colors"] == ["verde oliva"]
+        cafe = next(g for g in groups if g["key"] == rv2.group_key("aurora cafe"))
+        assert [ln["size"] for ln in cafe["lines"]] == ["SM", "ML"]
         balance = await rv2.balance(db, cid, a["id"])
         assert sorted(r["size"] for r in balance["group"]) == ["ML", "SM"], "Cortes usa la misma agrupacion"
     await engine.dispose()

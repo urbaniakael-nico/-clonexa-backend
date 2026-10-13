@@ -6,10 +6,13 @@ Solo agrega: nunca cambia el producido, la meta ni los cierres de produccion.
   columnas; nunca se clasifica sola (las sugerencias solo se muestran).
 - Movimientos de corte (reference_cut_movements): ingreso, novedad por
   seccion y envio a despliegue. Solo se agregan; anular no borra.
-- Balance de la referencia (todas sus tallas: mismo nombre y color, sin
-  importar mayusculas, tildes ni espacios): disponible = recibido - novedades
-  - despliegue. La agrupacion es UNA sola (group_key) para Cortes, Orden
-  operacional y Estado de referencias.
+- Balance de la referencia (todas sus tallas: mismo NOMBRE, sin importar
+  mayusculas, tildes ni espacios; el color va en cada talla): disponible =
+  recibido - novedades - despliegue. La agrupacion es UNA sola (group_key)
+  para Cortes, Orden operacional, Catalogo y Estado de referencias.
+- Meta de cada talla = suma de sus cortes (ingresos vigentes); una talla sin
+  cortes conserva su meta. Cada cambio de datos que no hace una persona campo
+  por campo queda en reference_change_log y se puede revertir por lote.
 Toda consulta filtra por company_id.
 """
 from __future__ import annotations
@@ -175,15 +178,15 @@ async def reference(db: AsyncSession, company_id: str, reference_id: str) -> Opt
     return dict(row) if row else None
 
 
-def group_key(name: Any, color: Any) -> str:
-    """Referencia = nombre + color. UNA sola regla para Cortes, Orden operacional
-    y Estado: sin importar mayusculas, tildes ni espacios."""
-    norm = lambda v: re.sub(r"\s+", "", _fold(v))  # noqa: E731
-    return f"{norm(name)}|{norm(color)}"
+def group_key(name: Any, color: Any = None) -> str:
+    """Referencia = NOMBRE (todas sus tallas y colores). UNA sola regla para Cortes,
+    Orden operacional, Catalogo y Estado: sin importar mayusculas, tildes ni
+    espacios. El color se muestra en cada talla (no separa la referencia)."""
+    return re.sub(r"\s+", "", _fold(name))
 
 
 def key_of(row: dict) -> str:
-    return group_key(row.get("name"), row.get("color"))
+    return group_key(row.get("name"))
 
 
 async def group_of(db: AsyncSession, company_id: str, ref: dict) -> list[dict]:
@@ -461,36 +464,46 @@ async def finished_by_reference(db: AsyncSession, company_id: str) -> tuple[dict
 
 
 def build_groups(rows: list[dict], moves: list[dict], finished: dict) -> list[dict]:
-    """Una tarjeta por referencia (nombre + color) con una linea por talla:
-    las filas de product_references activas y las tallas que solo tienen
-    cortes ("solo corte"), en el orden del catalogo. Funcion pura."""
+    """Una tarjeta por referencia (nombre) con una linea por talla: las filas de
+    product_references activas (con su color) y las tallas que solo tienen
+    cortes ("solo corte"), en el orden del catalogo, y los cortes por fecha.
+    Funcion pura."""
     groups: dict[str, dict] = {}
     key_by_id = {r["id"]: key_of(r) for r in rows}
     for r in sorted(rows, key=lambda x: size_key(x["size"])):
         if r.get("archived"):
             continue
-        g = groups.setdefault(key_of(r), {"key": key_of(r), "name": r["name"], "color": r["color"], "lines": [], "unsized_received": 0})
+        g = groups.setdefault(key_of(r), {"key": key_of(r), "name": r["name"], "color": r["color"], "lines": [], "unsized_received": 0, "cuts": {}})
         tokens = [_fold(t).strip() for t in sizes_of(r["size"])]
+        meta, produced = int(r.get("initial_quantity") or 0), int(finished.get(r["id"], 0))
         g["lines"].append({
-            "size": r["size"], "reference_id": r["id"], "solo_corte": False, "tokens": tokens,
-            "combined": combined_sizes(r["size"]), "meta": int(r.get("initial_quantity") or 0),
-            "produced": int(finished.get(r["id"], 0)), "bot_active": r.get("bot_active") is True, "received": 0,
-            "anchor_id": None,
+            "size": r["size"], "color": r.get("color") or "", "reference_id": r["id"], "solo_corte": False, "tokens": tokens,
+            "combined": combined_sizes(r["size"]), "meta": meta, "produced": produced, "pending": max(meta - produced, 0),
+            "bot_active": r.get("bot_active") is True, "received": 0, "anchor_id": None,
         })
     for m in moves:
         g = groups.get(key_by_id.get(m["reference_id"], ""))
         if not g or m.get("voided_at") or m.get("kind") != "ingreso":
             continue
         size = _fold(m.get("size") or "").strip()
+        qty = int(m["quantity"])
+        if m.get("event_date"):
+            day = g["cuts"].setdefault(str(m["event_date"]), {"date": str(m["event_date"]), "sizes": {}, "total": 0, "last_at": None})
+            label = str(m.get("size") or "").strip() or "—"
+            day["sizes"][label] = day["sizes"].get(label, 0) + qty
+            day["total"] += qty
+            at = m.get("created_at")
+            if at is not None and (day["last_at"] is None or at > day["last_at"]):
+                day["last_at"] = at
         if not size:
-            g["unsized_received"] += int(m["quantity"])
+            g["unsized_received"] += qty
             continue
         line = next((x for x in g["lines"] if size in x["tokens"]), None)
         if line is None:
-            line = {"size": str(m["size"]).strip(), "reference_id": None, "solo_corte": True, "tokens": [size], "combined": False,
-                    "meta": 0, "produced": 0, "bot_active": False, "received": 0, "anchor_id": m["reference_id"]}
+            line = {"size": str(m["size"]).strip(), "color": "", "reference_id": None, "solo_corte": True, "tokens": [size], "combined": False,
+                    "meta": 0, "produced": 0, "pending": 0, "bot_active": False, "received": 0, "anchor_id": m["reference_id"]}
             g["lines"].append(line)
-        line["received"] += int(m["quantity"])
+        line["received"] += qty
     out = []
     for g in groups.values():
         g["lines"].sort(key=lambda x: size_key(x["size"]))
@@ -501,13 +514,20 @@ def build_groups(rows: list[dict], moves: list[dict], finished: dict) -> list[di
             line.pop("tokens", None)
         received = sum(x["received"] for x in g["lines"]) + g["unsized_received"]
         produced = sum(x["produced"] for x in g["lines"])
+        meta = sum(x["meta"] for x in g["lines"])
+        days = sorted(g.pop("cuts").values(), key=lambda d: d["date"], reverse=True)
+        for d in days:
+            d["sizes"] = [{"size": k, "quantity": v} for k, v in sorted(d["sizes"].items(), key=lambda kv: size_key(kv[0]))]
         g.update({
-            "received": received, "produced": produced, "meta": sum(x["meta"] for x in g["lines"]),
+            "received": received, "produced": produced, "meta": meta,
+            "pending": sum(x["pending"] for x in g["lines"]),
             "percent": pct1(produced, received),
             "solo_corte": [x["size"] for x in g["lines"] if x["solo_corte"]],
+            "colors": sorted({x["color"] for x in g["lines"] if x["color"]}, key=_fold),
+            "cuts_by_date": days,
         })
         out.append(g)
-    out.sort(key=lambda g: (_fold(g["name"]), _fold(g["color"])))
+    out.sort(key=lambda g: _fold(g["name"]))
     return out
 
 
@@ -516,11 +536,270 @@ async def reference_groups(db: AsyncSession, company_id: str) -> list[dict]:
         SELECT {REF_COLS}, COALESCE(initial_quantity, 0) AS initial_quantity FROM product_references WHERE company_id = :c
     """), {"c": company_id})).mappings().all()]
     moves = [dict(r) for r in (await db.execute(text("""
-        SELECT reference_id, kind, size, quantity, voided_at FROM reference_cut_movements
+        SELECT reference_id, kind, size, quantity, voided_at, event_date, created_at FROM reference_cut_movements
         WHERE company_id = :c AND kind = 'ingreso' AND voided_at IS NULL
     """), {"c": company_id})).mappings().all()]
     finished, _ = await finished_by_reference(db, company_id)
     return build_groups(rows, moves, finished)
+
+
+# ------------------------------------------------- bitacora de cambios (revertible)
+async def log_change(db: AsyncSession, company_id: str, batch_id: str, reason: str, table: str, row_id: Any, column: str,
+                     old: Any, new: Any, actor: str) -> None:
+    await db.execute(text("""
+        INSERT INTO reference_change_log (company_id, batch_id, reason, table_name, row_id, column_name, old_value, new_value, actor)
+        VALUES (:c, CAST(:b AS uuid), :r, :t, :i, :col, :o, :n, :a)
+    """), {"c": company_id, "b": batch_id, "r": reason[:40], "t": table, "i": str(row_id), "col": column,
+           "o": None if old is None else str(old), "n": None if new is None else str(new), "a": str(actor or "")[:200]})
+
+
+_REVERTIBLE = {
+    ("product_references", "initial_quantity"): "integer", ("product_references", "size"): "text",
+    ("product_references", "archived"): "boolean", ("product_references", "bot_active"): "boolean",
+    ("reference_cut_movements", "size"): "text", ("reference_cut_movements", "reference_id"): "text",
+    ("reference_production_closures", "reference_id"): "text", ("reference_cycle_resets", "reference_id"): "text",
+    ("reference_work_sessions", "reference_id"): "text", ("work_sessions", "reference_id"): "text",
+    ("mini_panel_sales_records", "reference_id"): "text", ("inventory_locations", "reference_id"): "text",
+}
+
+
+async def revert_batch(db: AsyncSession, company_id: str, batch_id: str) -> int:
+    """Deshace un lote de la bitacora, en orden inverso, y lo marca revertido."""
+    rows = (await db.execute(text("""
+        SELECT id, table_name, row_id, column_name, old_value FROM reference_change_log
+        WHERE company_id = :c AND batch_id = CAST(:b AS uuid) AND reverted_at IS NULL ORDER BY id DESC
+    """), {"c": company_id, "b": batch_id})).mappings().all()
+    for r in rows:
+        kind = _REVERTIBLE.get((r["table_name"], r["column_name"]))
+        if not kind:
+            raise Invalid("batch", f"no se puede revertir {r['table_name']}.{r['column_name']}")
+        await db.execute(text(f"""UPDATE {r["table_name"]} SET {r["column_name"]} = CAST(CAST(:v AS text) AS {kind})
+            WHERE id::text = CAST(:i AS text) AND company_id::text = CAST(:c AS text)"""),
+                         {"v": r["old_value"], "i": r["row_id"], "c": company_id})
+    await db.execute(text("""
+        UPDATE reference_change_log SET reverted_at = now() WHERE company_id = :c AND batch_id = CAST(:b AS uuid) AND reverted_at IS NULL
+    """), {"c": company_id, "b": batch_id})
+    await db.commit()
+    return len(rows)
+
+
+# ------------------------------------------------- meta = suma de los cortes
+async def _cut_totals(db: AsyncSession, company_id: str) -> tuple[list[dict], list[dict]]:
+    rows = [dict(r) for r in (await db.execute(text(f"""
+        SELECT {REF_COLS}, COALESCE(initial_quantity, 0) AS initial_quantity FROM product_references WHERE company_id = :c
+    """), {"c": company_id})).mappings().all()]
+    moves = [dict(r) for r in (await db.execute(text("""
+        SELECT reference_id, size, quantity, voided_at FROM reference_cut_movements WHERE company_id = :c AND kind = 'ingreso'
+    """), {"c": company_id})).mappings().all()]
+    return rows, moves
+
+
+def meta_plan(rows: list[dict], moves: list[dict], key: Optional[str] = None) -> list[dict]:
+    """Por talla (fila activa), la meta = suma de sus ingresos vigentes. Solo las
+    tallas que tienen cortes registrados (aunque esten anulados); las demas
+    conservan su meta. Devuelve solo las que cambian. Funcion pura."""
+    by_id = {r["id"]: r for r in rows}
+    totals: dict[str, int] = {}
+    seen: set[str] = set()
+    for m in moves:
+        anchor = by_id.get(m["reference_id"])
+        if not anchor or not m.get("size"):
+            continue
+        rid = owner_row(rows, m)
+        target = by_id.get(rid)
+        if not target or target.get("archived") or _fold(m["size"]).strip() not in [_fold(t).strip() for t in sizes_of(target["size"])]:
+            continue  # talla "solo corte": no tiene fila todavia
+        seen.add(rid)
+        if not m.get("voided_at"):
+            totals[rid] = totals.get(rid, 0) + int(m["quantity"])
+    out = []
+    for rid in sorted(seen, key=lambda i: (_fold(by_id[i]["name"]), size_key(by_id[i]["size"]))):
+        r = by_id[rid]
+        if key is not None and key_of(r) != key:
+            continue
+        new = totals.get(rid, 0)
+        if int(r.get("initial_quantity") or 0) != new:
+            out.append({"reference_id": rid, "name": r["name"], "size": r["size"], "color": r.get("color") or "",
+                        "old_meta": int(r.get("initial_quantity") or 0), "new_meta": new})
+    return out
+
+
+async def sync_meta(db: AsyncSession, company_id: str, actor: str, reason: str = "meta_cortes", key: Optional[str] = None,
+                    apply: bool = True) -> dict:
+    """Iguala la meta de cada talla con cortes a la suma de sus cortes vigentes
+    (todas, o las de una referencia). Cada cambio queda en la bitacora."""
+    rows, moves = await _cut_totals(db, company_id)
+    plan = meta_plan(rows, moves, key)
+    batch = str(uuid.uuid4())
+    if apply and plan:
+        for c in plan:
+            await db.execute(text("""
+                UPDATE product_references SET initial_quantity = :q, updated_at = now() WHERE company_id = :c AND id = :i
+            """), {"q": c["new_meta"], "c": company_id, "i": c["reference_id"]})
+            await log_change(db, company_id, batch, reason, "product_references", c["reference_id"], "initial_quantity", c["old_meta"], c["new_meta"], actor)
+        await db.commit()
+    return {"batch_id": batch if apply and plan else None, "changes": plan, "applied": bool(apply and plan)}
+
+
+# ------------------------------------------------- conversion de tallas (prendas superiores)
+TOP_SIZES = ("S", "M", "L")
+
+
+def convert_size(size: Any) -> Optional[str]:
+    """SM -> S, ML -> M; si no, la primera letra S, M o L. Otra talla: None (revisar)."""
+    v = re.sub(r"\s+", "", _fold(size)).lower()
+    if v.startswith("sm"):
+        return "S"
+    if v.startswith("ml"):
+        return "M"
+    for letter in ("s", "m", "l"):
+        if v.startswith(letter) and not v.startswith("xs") and not v.startswith("xl"):
+            return letter.upper()
+    return None
+
+
+def _letters(size: Any) -> bool:
+    return size_key(sizes_of(size)[0] if sizes_of(size) else "")[0] == 1
+
+
+def in_scope(row: dict) -> bool:
+    """Prendas superiores, o sin clasificar con talla de letras."""
+    if row.get("archived"):
+        return False
+    if row.get("body_part"):
+        return row["body_part"] == "superior"
+    return _letters(row.get("size")) or any(convert_size(t) for t in sizes_of(row.get("size")))
+
+
+def conversion_plan(rows: list[dict]) -> dict:
+    """Plan (sin escribir) de la conversion de tallas de una empresa:
+    renames, uniones (dos filas de la misma referencia en la misma talla) y
+    "revisar" (tallas que no se convierten o filas con varias tallas que no se
+    pueden repartir). Funcion pura."""
+    renames, review, merges = [], [], []
+    target: dict[str, str] = {}  # id -> talla nueva
+    for r in rows:
+        if not in_scope(r):
+            continue
+        tokens = sizes_of(r["size"])
+        new = [convert_size(t) for t in tokens]
+        if not tokens or any(x is None for x in new):
+            review.append({"reference_id": r["id"], "name": r["name"], "size": r["size"], "reason": "talla que no se convierte (revisar)"})
+            continue
+        if len(set(new)) > 1:
+            review.append({"reference_id": r["id"], "name": r["name"], "size": r["size"],
+                           "reason": "fila con varias tallas: no se sabe la meta ni el producido por talla (revisar)"})
+            continue
+        target[r["id"]] = new[0]
+        if r["size"] != new[0]:
+            renames.append({"reference_id": r["id"], "name": r["name"], "old_size": r["size"], "new_size": new[0]})
+    # Uniones: dentro de una referencia (nombre), dos filas activas en la misma talla final.
+    final: dict[tuple, list[dict]] = {}
+    for r in rows:
+        if r.get("archived"):
+            continue
+        size = target.get(r["id"], r["size"])
+        final.setdefault((key_of(r), _fold(size).strip()), []).append(r)
+    for (_, size), group in final.items():
+        if len(group) < 2:
+            continue
+        keep = next((r for r in group if r["size"] == target.get(r["id"], r["size"]) and r["id"] not in {x["reference_id"] for x in renames}), None) \
+            or sorted(group, key=lambda x: str(x["id"]))[0]
+        for r in group:
+            if r["id"] != keep["id"]:
+                merges.append({"from_id": r["id"], "into_id": keep["id"], "name": r["name"], "old_size": r["size"],
+                               "new_size": target.get(keep["id"], keep["size"])})
+    # La fila que se une no se renombra: se archiva con su talla de siempre (asi no
+    # choca con la que queda); sus movimientos si pasan a la talla nueva.
+    losers = {m["from_id"] for m in merges}
+    renames = [c for c in renames if c["reference_id"] not in losers]
+    return {"renames": renames, "merges": merges, "review": review, "target": target}
+
+
+REF_TABLES = ("reference_cut_movements", "reference_production_closures", "reference_cycle_resets", "reference_work_sessions",
+              "work_sessions", "mini_panel_sales_records", "inventory_locations")
+
+
+async def _group_totals(db: AsyncSession, company_id: str) -> dict:
+    rows = [dict(r) for r in (await db.execute(text(f"""
+        SELECT {REF_COLS}, COALESCE(initial_quantity, 0) AS initial_quantity FROM product_references WHERE company_id = :c
+    """), {"c": company_id})).mappings().all()]
+    finished, _ = await finished_by_reference(db, company_id)
+    out: dict[str, dict] = {}
+    for r in rows:
+        if r.get("archived"):
+            continue
+        t = out.setdefault(key_of(r), {"meta": 0, "produced": 0})
+        t["meta"] += int(r["initial_quantity"])
+        t["produced"] += int(finished.get(r["id"], 0))
+    return out
+
+
+async def convert_sizes(db: AsyncSession, company_id: str, actor: str, apply: bool = False) -> dict:
+    """Convierte las tallas de prendas superiores (S, M, L) en UNA transaccion:
+    renombra filas y los movimientos de corte, une filas duplicadas (suma meta,
+    mueve todo lo que apunta a la que sobra y la archiva) y compara la suma de
+    meta y producido por referencia antes y despues. Si no cuadra, deshace todo.
+    Con apply=False solo calcula y deshace (dry-run)."""
+    rows = [dict(r) for r in (await db.execute(text(f"""
+        SELECT {REF_COLS}, COALESCE(initial_quantity, 0) AS initial_quantity FROM product_references WHERE company_id = :c
+    """), {"c": company_id})).mappings().all()]
+    plan = conversion_plan(rows)
+    before = await _group_totals(db, company_id)
+    batch = str(uuid.uuid4())
+    by_id = {r["id"]: r for r in rows}
+    moved: list[dict] = []
+    try:
+        for c in plan["renames"]:
+            await db.execute(text("UPDATE product_references SET size = :s, updated_at = now() WHERE company_id = :c AND id = :i"),
+                             {"s": c["new_size"], "c": company_id, "i": c["reference_id"]})
+            await log_change(db, company_id, batch, "conversion_tallas", "product_references", c["reference_id"], "size", c["old_size"], c["new_size"], actor)
+        # Movimientos de corte de las filas convertidas: su talla pasa a la nueva.
+        ids = list(plan["target"])
+        if ids:
+            moves = (await db.execute(text("""
+                SELECT id::text AS id, size FROM reference_cut_movements WHERE company_id = :c AND reference_id = ANY(CAST(:ids AS text[]))
+            """), {"c": company_id, "ids": ids})).mappings().all()
+            for m in moves:
+                new = convert_size(m["size"]) if m["size"] else None
+                if new and new != m["size"]:
+                    await db.execute(text("UPDATE reference_cut_movements SET size = :s WHERE company_id = :c AND id = CAST(:i AS uuid)"),
+                                     {"s": new, "c": company_id, "i": m["id"]})
+                    await log_change(db, company_id, batch, "conversion_tallas", "reference_cut_movements", m["id"], "size", m["size"], new, actor)
+        for mg in plan["merges"]:
+            src, dst = by_id[mg["from_id"]], by_id[mg["into_id"]]
+            total = int(dst["initial_quantity"]) + int(src["initial_quantity"])
+            await db.execute(text("UPDATE product_references SET initial_quantity = :q, updated_at = now() WHERE company_id = :c AND id = :i"),
+                             {"q": total, "c": company_id, "i": dst["id"]})
+            await log_change(db, company_id, batch, "union_tallas", "product_references", dst["id"], "initial_quantity", dst["initial_quantity"], total, actor)
+            dst["initial_quantity"] = total
+            for table in REF_TABLES:
+                exists = (await db.execute(text("SELECT to_regclass(:t)"), {"t": table})).scalar()
+                if not exists:
+                    continue
+                hit = (await db.execute(text(f"""
+                    UPDATE {table} SET reference_id = :dst WHERE company_id::text = :c AND reference_id = :src RETURNING id::text AS id
+                """), {"dst": dst["id"], "c": company_id, "src": src["id"]})).scalars().all()
+                for row_id in hit:
+                    await log_change(db, company_id, batch, "union_tallas", table, row_id, "reference_id", src["id"], dst["id"], actor)
+                moved.append({"table": table, "from_id": src["id"], "into_id": dst["id"], "rows": len(hit)})
+            for col, new in (("archived", True), ("bot_active", False)):
+                await db.execute(text(f"UPDATE product_references SET {col} = :v, updated_at = now() WHERE company_id = :c AND id = :i"),
+                                 {"v": new, "c": company_id, "i": src["id"]})
+                await log_change(db, company_id, batch, "union_tallas", "product_references", src["id"], col, src.get(col), new, actor)
+        after = await _group_totals(db, company_id)
+        mismatch = [{"key": k, "before": before.get(k), "after": after.get(k)} for k in set(before) | set(after)
+                    if (before.get(k) or {"meta": 0, "produced": 0}) != (after.get(k) or {"meta": 0, "produced": 0})]
+        ok = not mismatch
+        if apply and ok:
+            await db.commit()
+        else:
+            await db.rollback()
+    except Exception:
+        await db.rollback()
+        raise
+    return {"applied": bool(apply and ok), "ok": ok, "batch_id": batch if apply and ok else None, "plan": plan,
+            "before": before, "after": after, "mismatch": mismatch, "moved": moved}
 
 
 # ------------------------------------------------------- orden operacional

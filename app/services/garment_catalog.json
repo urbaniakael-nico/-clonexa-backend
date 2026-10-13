@@ -24,7 +24,7 @@
   "sizes": {
     "mujer": {
       "inferior": ["4", "6", "8", "10", "12", "14", "16"],
-      "superior": ["XS", "S", "M", "L", "XL", "XXL"],
+      "superior": ["S", "M", "L"],
       "unica": ["Única"]
     },
     "hombre": {

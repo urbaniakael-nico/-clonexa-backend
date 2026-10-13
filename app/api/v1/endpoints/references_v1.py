@@ -1623,6 +1623,8 @@ async def v2_add_movements(company_id: str, payload: dict[str, Any], actor: str 
     except rv2.Invalid as error:
         await db.rollback()
         raise _v2_bad(error) from None
+    if await _v2_switch_on(db, company_id):  # meta = suma de los cortes (solo con references_v2)
+        await rv2.sync_meta(db, company_id, actor, "meta_cortes")
     return {"ok": True, "count": len(saved), "items": [{**m, "event_date": str(m["event_date"]), "created_at": str(m["created_at"])} for m in saved]}
 
 
@@ -1636,6 +1638,8 @@ async def v2_void_movement(company_id: str, movement_id: str, payload: dict[str,
         raise _v2_bad(error) from None
     if not done:
         raise HTTPException(status_code=404, detail="Movimiento no encontrado o ya anulado.")
+    if await _v2_switch_on(db, company_id):  # anular un corte baja la meta de su talla
+        await rv2.sync_meta(db, company_id, actor, "meta_cortes")
     return {"ok": True, "id": movement_id}
 
 
@@ -1732,6 +1736,14 @@ async def v2_add_size(company_id: str, reference_id: str, payload: dict[str, Any
 # Exigen sesion de la empresa (o Admin V2), filtran por company_id y solo
 # responden con el interruptor references_v2 encendido.
 # ---------------------------------------------------------------------------
+async def _v2_switch_on(db: AsyncSession, company_id: str) -> bool:
+    try:
+        await require_references_v2_switch(db, company_id)
+        return True
+    except HTTPException:
+        return False
+
+
 async def require_references_v2_switch(db: AsyncSession, company_id: str) -> None:
     row = (await db.execute(text("""
         SELECT COALESCE(cm.settings, '{}'::jsonb) AS settings FROM company_modules cm JOIN modules m ON m.id = cm.module_id
@@ -1859,3 +1871,14 @@ async def v2_op_reorder(company_id: str, payload: dict[str, Any], actor: str = D
     except ValueError:
         raise _v2_bad(rv2.Invalid("ids", "ítem inválido")) from None
     return await _v2_op_payload(db, company_id, group, str(payload.get("view") or ""))
+
+
+@router.post("/companies/{company_id}/v2/groups/meta-sync")
+async def v2_meta_sync(company_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                       db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """"Igualar meta a lo recibido" de una referencia: con apply=false devuelve el
+    antes/despues; con apply=true lo aplica (queda en la bitacora, revertible)."""
+    await _v2_ready(db, company_id)
+    group = await _v2_group(db, company_id, str(payload.get("key") or ""))
+    out = await rv2.sync_meta(db, company_id, actor, "igualar_meta", key=group["key"], apply=payload.get("apply") is True)
+    return _v2_plain(out)

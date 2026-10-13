@@ -24,7 +24,8 @@ ROUTES = [("get", f"{PREFIX}/{A}/v2/catalog"), ("post", f"{PREFIX}/{A}/v2/refere
           # Tarjeta unica y orden operacional (referencia = nombre + color).
           ("get", f"{PREFIX}/{A}/v2/groups"), ("get", f"{PREFIX}/{A}/v2/op-order?key=x"), ("put", f"{PREFIX}/{A}/v2/op-order/value"),
           ("post", f"{PREFIX}/{A}/v2/op-order/items"), ("put", f"{PREFIX}/{A}/v2/op-order/items/{R}"),
-          ("delete", f"{PREFIX}/{A}/v2/op-order/items/{R}?key=x"), ("post", f"{PREFIX}/{A}/v2/op-order/items/reorder")]
+          ("delete", f"{PREFIX}/{A}/v2/op-order/items/{R}?key=x"), ("post", f"{PREFIX}/{A}/v2/op-order/items/reorder"),
+          ("post", f"{PREFIX}/{A}/v2/groups/meta-sync")]
 WITH_BODY = ("post", "put")
 
 
@@ -55,7 +56,7 @@ def test_new_routes_require_a_session(client):
         res = getattr(client.c, method)(path, **({"json": {}} if method in WITH_BODY else {}))
         assert res.status_code == 401, (path, res.status_code)
     registered = {r.path for r in app_main.app.routes if "/references-v1/" in getattr(r, "path", "") and "/v2/" in r.path}
-    assert len(registered) == 14, "si se agrega una ruta nueva, se agrega aqui con su prueba de sesion"
+    assert len(registered) == 15, "si se agrega una ruta nueva, se agrega aqui con su prueba de sesion"
 
 
 def test_a_user_of_another_company_gets_403(client):
