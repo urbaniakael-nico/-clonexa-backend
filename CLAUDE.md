@@ -41,6 +41,7 @@ Tengo autonomía para hacer commit y push a `main`, con una condición obligator
 - Cada cambio nuevo debe venir con sus pruebas.
 - Después de cada push, resumir en español qué cambió y el hash del commit.
 - Después de cada push, recuérdame verificar el despliegue en Railway.
+- Regla del dueño: todo cambio se despliega a main apenas esté terminado y con las pruebas en verde. No esperar ventanas de horario ni temporizadores, salvo que el dueño lo pida explícitamente en ese cambio.
 
 ## Reglas de seguridad
 
