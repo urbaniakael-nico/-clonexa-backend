@@ -1,0 +1,144 @@
+/* Reportes v2 (interruptor reports_v2). Sin colores propios: todo sale del
+   tema de la empresa (--cx-primary, --cx-secondary, --cx-bg, --cx-text) y de
+   las clases del portal (.client-hero, .client-panel, .client-btn,
+   .client-eyebrow, .client-title, .client-muted). Bajo cifras y tablas va una
+   placa del fondo del tema para que el texto pase AA sobre el degradado.
+   Peligro y alerta: los de la marca si los trae; si no, dos tonos semanticos. */
+.rr-shell { min-height: 100vh; }
+.rr-root {
+  --rr-text: var(--cx-text);
+  --rr-muted: color-mix(in srgb, var(--cx-text) 86%, transparent);
+  --rr-line: color-mix(in srgb, var(--cx-text) 18%, transparent);
+  --rr-plate: color-mix(in srgb, var(--cx-bg) 80%, transparent);
+  --rr-plate-2: color-mix(in srgb, var(--cx-bg) 92%, var(--cx-text) 8%);
+  --rr-warn: var(--cx-warning, #b45309);
+  --rr-danger: var(--cx-danger, #b91c1c);
+  --rr-gap: 14px;
+  --rr-r: 12px;
+  color: var(--rr-text);
+  display: grid;
+  gap: var(--rr-gap);
+  width: 100%;
+  min-width: 0;
+  padding: 18px;
+  box-sizing: border-box;
+}
+.rr-root * { box-sizing: border-box; }
+.rr-root .client-panel { margin: 0; padding: 16px 18px; min-width: 0; border-radius: 22px; }
+/* Los paneles llevan el fondo del tema casi opaco: el texto del tema pasa AA aunque el degradado de la marca sea claro. */
+.rr-root .client-panel, .rr-root .client-hero { background: color-mix(in srgb, var(--cx-bg) 88%, transparent); }
+.rr-root .client-eyebrow, .rr-root .client-label { color: var(--rr-text); }
+.rr-root .client-muted, .rr-muted { color: var(--rr-text); margin: 0; }
+
+.rr-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0; }
+.rr-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.rr-brand > div { min-width: 0; }
+.rr-root .rr-head .client-title { margin: 2px 0 0; font-size: clamp(24px, 2.4vw, 32px); line-height: 1.1; }
+.rr-head .client-eyebrow { margin: 0; overflow-wrap: anywhere; }
+.rr-logo { width: 48px; height: 48px; border-radius: 12px; object-fit: contain; background: var(--rr-plate); flex: none; }
+.rr-logo-txt { display: grid; place-items: center; font-weight: 800; font-size: 22px; color: var(--rr-text); }
+
+.rr-btn { min-height: 44px; min-width: 44px; padding: 0 16px; border-radius: 14px; font-weight: 700; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.rr-btn:not(.client-btn) { border: 1px solid var(--rr-line); background: var(--rr-plate); color: var(--rr-text); }
+.rr-btn.is-small { min-height: 36px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.rr-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.rr-bar { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.rr-seg { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--rr-line); border-radius: 14px; background: var(--rr-plate); }
+.rr-seg button { min-height: 40px; padding: 0 14px; border-radius: 11px; font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.rr-seg button:not(.client-btn) { border: 1px solid transparent; background: transparent; color: var(--rr-text); }
+.rr-field { display: grid; gap: 4px; min-width: 0; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--rr-text); }
+.rr-root input, .rr-root select { min-height: 44px; width: 100%; padding: 8px 12px; border-radius: var(--rr-r); border: 1px solid var(--rr-line); background: var(--rr-plate); color: var(--rr-text); font-size: 14px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.rr-root select option { color: initial; }
+.rr-person { flex: 1 1 220px; }
+.rr-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.rr-notice { margin: 0; padding: 10px 14px; border-radius: var(--rr-r); border: 1px solid var(--rr-line); border-left: 4px solid var(--rr-danger); background: var(--rr-plate); color: var(--rr-text); }
+
+/* Seis cifras */
+.rr-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.rr-fig { display: grid; gap: 2px; padding: 12px 14px; border-radius: var(--rr-r); border: 1px solid var(--rr-line); border-top: 4px solid var(--cx-primary); background: var(--rr-plate); min-width: 0; }
+.rr-fig small { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.rr-fig b { font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; }
+.rr-fig span { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+
+.rr-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--rr-gap); align-items: start; }
+.rr-root .client-panel h2.rr-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.rr-h b { font-size: 18px; letter-spacing: 0; }
+
+/* Horas por dia: barras apiladas (ordinarias y extra) */
+.rr-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.rr-legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; margin-left: 8px; }
+.rr-legend i:first-child { margin-left: 0; }
+.rr-root .is-reg { background: var(--cx-primary); }
+.rr-root .is-ext { background: var(--cx-secondary); }
+.rr-hours { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 360px; overflow-y: auto; }
+.rr-hours li { display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr) minmax(86px, auto); gap: 10px; align-items: center; padding: 4px 8px; border-radius: 8px; background: var(--rr-plate); font-size: 12.5px; }
+.rr-hours li b { text-align: right; white-space: nowrap; }
+.rr-hday { white-space: nowrap; }
+.rr-hbar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--rr-plate-2); }
+.rr-hbar i { display: block; height: 100%; width: var(--w); }
+
+.rr-alerts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 360px; overflow-y: auto; }
+.rr-alerts li { padding: 8px 10px; border-radius: 8px; background: var(--rr-plate); border-left: 4px solid var(--rr-warn); font-size: 13px; overflow-wrap: anywhere; }
+.rr-alerts li.is-danger { border-left-color: var(--rr-danger); }
+
+/* Materiales: cuatro cajas */
+.rr-boxes { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 6px; align-items: center; }
+.rr-box { display: grid; gap: 2px; padding: 12px 10px; border-radius: var(--rr-r); border: 1px solid var(--rr-line); background: var(--rr-plate); color: var(--rr-text); cursor: pointer; text-align: center; min-width: 0; font: inherit; }
+.rr-box:hover { border-color: var(--cx-primary); }
+.rr-box small { font-size: 11px; font-weight: 700; overflow-wrap: anywhere; }
+.rr-box b { font-size: 22px; }
+.rr-arrow { font-weight: 700; }
+
+/* Tablas */
+.rr-table { display: grid; grid-template-columns: minmax(0, 2fr) minmax(56px, .6fr) minmax(56px, .6fr) auto; font-size: 13px; }
+.rr-orders { grid-template-columns: minmax(70px, .8fr) minmax(0, 1.6fr) minmax(70px, .7fr) minmax(0, 1.2fr) minmax(80px, .8fr); }
+.rr-shifts { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.rr-row { display: contents; }
+.rr-row > * { padding: 7px 8px; background: var(--rr-plate); min-width: 0; overflow-wrap: anywhere; }
+.rr-row:nth-child(odd):not(.is-head) > * { background: var(--rr-plate-2); }
+.rr-row.is-head > * { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.rr-tag { font-style: normal; display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; border: 1px solid var(--rr-line); background: var(--rr-plate); color: var(--rr-text); white-space: nowrap; }
+.rr-tag.is-zero { border-color: var(--rr-danger); }
+.rr-tag.is-low { border-color: var(--rr-warn); }
+.rr-tag.is-working { border-color: var(--cx-primary); }
+
+/* Personal: una tarjeta por colaborador */
+.rr-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.rr-person-card { display: grid; gap: 6px; text-align: left; padding: 12px; border-radius: var(--rr-r); border: 1px solid var(--rr-line); background: var(--rr-plate); color: var(--rr-text); cursor: pointer; font: inherit; min-width: 0; }
+.rr-person-card:hover { border-color: var(--cx-primary); }
+.rr-pc-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.rr-pc-head b { overflow-wrap: anywhere; }
+.rr-person-card small { font-size: 12px; font-weight: 600; }
+.rr-pc-nums { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-size: 12px; }
+
+.rr-denied p { margin: 0; font-size: 16px; font-weight: 700; }
+
+/* Emergente */
+.rr-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; justify-items: center; align-items: start; padding: 6vh 20px 20px; overflow-y: auto; background: rgba(0, 0, 0, .45); }
+.rr-root .rr-modal { --rr-plate: var(--cx-bg); width: min(820px, 100%); max-height: calc(94vh - 20px); overflow-y: auto; display: grid; gap: 12px; background: var(--cx-bg); color: var(--rr-text); }
+.rr-modal-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.rr-modal-head h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.rr-print-frame { position: fixed; width: 0; height: 0; border: 0; right: 0; bottom: 0; visibility: hidden; }
+
+@media (max-width: 1100px) {
+  .rr-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .rr-root { padding: 10px; --rr-gap: 12px; }
+  .rr-root .client-panel { padding: 14px 12px; }
+  .rr-bar > * { flex: 1 1 100%; }
+  .rr-seg { display: grid; grid-template-columns: 1fr 1fr; width: 100%; min-width: 0; }
+  .rr-seg button { min-width: 0; padding: 0 6px; font-size: 13px; }
+  .rr-actions { margin-left: 0; display: grid; grid-template-columns: 1fr 1fr; }
+  .rr-actions .rr-btn.is-primary { grid-column: 1 / -1; }
+  .rr-figs { grid-template-columns: 1fr 1fr; }
+  .rr-boxes { grid-template-columns: 1fr 1fr; }
+  .rr-arrow { display: none; }
+  .rr-hours li { grid-template-columns: minmax(74px, auto) minmax(0, 1fr); }
+  .rr-hours li b { grid-column: 1 / -1; text-align: left; }
+  .rr-orders, .rr-shifts { grid-template-columns: 1fr 1fr; }
+  .rr-orders .rr-row.is-head, .rr-shifts .rr-row.is-head { display: none; }
+  .rr-overlay { padding: 0; place-items: stretch; }
+  .rr-root .rr-modal { width: 100%; max-height: none; height: 100%; border-radius: 0; }
+}

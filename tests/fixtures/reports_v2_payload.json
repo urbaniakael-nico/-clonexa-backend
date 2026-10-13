@@ -1,0 +1,443 @@
+{
+ "company": {
+  "name": "VOLTAGE",
+  "slug": "urban__demo",
+  "logo_url": ""
+ },
+ "filters": {
+  "start": "2026-10-05T05:00:00+00:00",
+  "end": "2026-10-12T04:59:59+00:00"
+ },
+ "summary": {
+  "period": {
+   "start": "2026-10-05T05:00:00+00:00",
+   "end": "2026-10-12T04:59:59+00:00"
+  },
+  "employees": {
+   "active": 3
+  },
+  "attendance": {
+   "active_now": 1,
+   "paused_now": 1
+  },
+  "gps": {
+   "outside": 2
+  },
+  "inventory": {
+   "low_stock": 2,
+   "zero_stock": 1
+  },
+  "payroll": {
+   "regular_minutes": 2700,
+   "extra_minutes": 120,
+   "net_amount": 812.5
+  }
+ },
+ "details": {
+  "employees": [
+   {
+    "id": "e1",
+    "full_name": "Nicolás Gómez",
+    "role": "Supervisor",
+    "status": "active"
+   },
+   {
+    "id": "e2",
+    "full_name": "Luis Logística",
+    "role": "Logística",
+    "status": "active"
+   },
+   {
+    "id": "e3",
+    "full_name": "Olga Operaria",
+    "role": "Operario",
+    "status": "active"
+   }
+  ],
+  "payroll": [
+   {
+    "employee_id": "e1",
+    "employee_name": "Nicolás Gómez",
+    "regular_minutes": 2700,
+    "extra_minutes": 120,
+    "net_amount": 812.5,
+    "shifts": [
+     {
+      "start": "2026-10-05T13:00:00+00:00",
+      "end": "2026-10-05T23:00:00+00:00",
+      "regular_minutes": 540,
+      "extra_minutes": 60,
+      "gross_amount": 100
+     },
+     {
+      "start": "2026-10-06T13:00:00+00:00",
+      "end": "2026-10-06T23:00:00+00:00",
+      "regular_minutes": 540,
+      "extra_minutes": 60,
+      "gross_amount": 100
+     },
+     {
+      "start": "2026-10-07T13:00:00+00:00",
+      "end": "2026-10-07T23:00:00+00:00",
+      "regular_minutes": 540,
+      "extra_minutes": 0,
+      "gross_amount": 100
+     },
+     {
+      "start": "2026-10-08T13:00:00+00:00",
+      "end": "2026-10-08T23:00:00+00:00",
+      "regular_minutes": 540,
+      "extra_minutes": 0,
+      "gross_amount": 100
+     },
+     {
+      "start": "2026-10-09T13:00:00+00:00",
+      "end": "2026-10-09T23:00:00+00:00",
+      "regular_minutes": 540,
+      "extra_minutes": 0,
+      "gross_amount": 100
+     }
+    ]
+   }
+  ],
+  "gps": [
+   {
+    "employee_id": "e2",
+    "employee_name": "Luis Logística",
+    "gps_status": "outside",
+    "occurred_at": "2026-10-06T15:00:00+00:00"
+   }
+  ],
+  "materials": [
+   {
+    "order_number": "MAT-1",
+    "material_name": "Cable",
+    "quantity": 3,
+    "unit": "m",
+    "employee_name": "Nicolás Gómez",
+    "status": "delivered",
+    "requested_at": "2026-10-01T15:00:00+00:00",
+    "delivered_at": "2026-10-02T15:00:00+00:00"
+   },
+   {
+    "order_number": "MAT-2",
+    "material_name": "Rack",
+    "quantity": 1,
+    "employee_name": "Nicolás Gómez",
+    "status": "pending"
+   },
+   {
+    "order_number": "MAT-3",
+    "material_name": "Switch",
+    "quantity": 1,
+    "employee_name": "Olga Operaria",
+    "status": "returned",
+    "delivered_at": "2026-10-02T15:00:00+00:00"
+   }
+  ],
+  "inventory_items": [
+   {
+    "name": "Cable UTP",
+    "current_stock": 0,
+    "min_stock": 10,
+    "status": "active"
+   },
+   {
+    "name": "Conector",
+    "current_stock": 3,
+    "min_stock": 20,
+    "status": "active"
+   },
+   {
+    "name": "Canaleta",
+    "current_stock": 50,
+    "min_stock": 5,
+    "status": "active"
+   }
+  ],
+  "attendance": [
+   {
+    "employee_id": "e1",
+    "event_type": "check_in",
+    "occurred_at": "2026-10-11T14:00:00+00:00"
+   }
+  ],
+  "employee_summary": [
+   {
+    "employee_id": "e1",
+    "gps_fuera": 0,
+    "materiales": 2
+   },
+   {
+    "employee_id": "e2",
+    "gps_fuera": 1,
+    "material_entregado": 2
+   }
+  ]
+ },
+ "insights_v2": {
+  "figures": {
+   "in_shift": 2,
+   "active": 3,
+   "regular_minutes": 2700,
+   "extra_minutes": 120,
+   "net": 812.5,
+   "gps_outside": 2,
+   "materials_pending": 2,
+   "low_stock": 2,
+   "zero_stock": 1
+  },
+  "hours_by_day": [
+   {
+    "date": "2026-10-05",
+    "regular": 540,
+    "extra": 60
+   },
+   {
+    "date": "2026-10-06",
+    "regular": 540,
+    "extra": 60
+   },
+   {
+    "date": "2026-10-07",
+    "regular": 540,
+    "extra": 0
+   },
+   {
+    "date": "2026-10-08",
+    "regular": 540,
+    "extra": 0
+   },
+   {
+    "date": "2026-10-09",
+    "regular": 540,
+    "extra": 0
+   },
+   {
+    "date": "2026-10-10",
+    "regular": 0,
+    "extra": 0
+   },
+   {
+    "date": "2026-10-11",
+    "regular": 0,
+    "extra": 0
+   }
+  ],
+  "alerts": [
+   {
+    "kind": "gps_outside",
+    "level": "warning",
+    "employee": "Luis Logística",
+    "at": "2026-10-06T15:00:00+00:00",
+    "detail": ""
+   },
+   {
+    "kind": "weekly_hours",
+    "level": "warning",
+    "employee": "Nicolás Gómez",
+    "week": "2026-10-05",
+    "minutes": 2820,
+    "limit": 2400
+   },
+   {
+    "kind": "stale_delivery",
+    "level": "warning",
+    "employee": "Nicolás Gómez",
+    "order": "MAT-1",
+    "material": "Cable",
+    "at": "2026-10-02T15:00:00+00:00"
+   },
+   {
+    "kind": "zero_stock",
+    "level": "danger",
+    "material": "Cable UTP"
+   }
+  ],
+  "materials": {
+   "requested": [
+    {
+     "order": "MAT-1",
+     "material": "Cable",
+     "quantity": 3.0,
+     "returned": 0.0,
+     "unit": "m",
+     "employee": "Nicolás Gómez",
+     "status": "delivered",
+     "requested_at": "2026-10-01T15:00:00+00:00",
+     "delivered_at": "2026-10-02T15:00:00+00:00",
+     "returned_at": null
+    },
+    {
+     "order": "MAT-2",
+     "material": "Rack",
+     "quantity": 1.0,
+     "returned": 0.0,
+     "unit": "",
+     "employee": "Nicolás Gómez",
+     "status": "pending",
+     "requested_at": null,
+     "delivered_at": null,
+     "returned_at": null
+    },
+    {
+     "order": "MAT-3",
+     "material": "Switch",
+     "quantity": 1.0,
+     "returned": 0.0,
+     "unit": "",
+     "employee": "Olga Operaria",
+     "status": "returned",
+     "requested_at": null,
+     "delivered_at": "2026-10-02T15:00:00+00:00",
+     "returned_at": null
+    }
+   ],
+   "delivered": [
+    {
+     "order": "MAT-1",
+     "material": "Cable",
+     "quantity": 3.0,
+     "returned": 0.0,
+     "unit": "m",
+     "employee": "Nicolás Gómez",
+     "status": "delivered",
+     "requested_at": "2026-10-01T15:00:00+00:00",
+     "delivered_at": "2026-10-02T15:00:00+00:00",
+     "returned_at": null
+    },
+    {
+     "order": "MAT-3",
+     "material": "Switch",
+     "quantity": 1.0,
+     "returned": 0.0,
+     "unit": "",
+     "employee": "Olga Operaria",
+     "status": "returned",
+     "requested_at": null,
+     "delivered_at": "2026-10-02T15:00:00+00:00",
+     "returned_at": null
+    }
+   ],
+   "consigned": [],
+   "returned": [
+    {
+     "order": "MAT-3",
+     "material": "Switch",
+     "quantity": 1.0,
+     "returned": 0.0,
+     "unit": "",
+     "employee": "Olga Operaria",
+     "status": "returned",
+     "requested_at": null,
+     "delivered_at": "2026-10-02T15:00:00+00:00",
+     "returned_at": null
+    }
+   ]
+  },
+  "inventory_low": [
+   {
+    "material": "Cable UTP",
+    "stock": 0.0,
+    "min": 10.0,
+    "label": "zero"
+   },
+   {
+    "material": "Conector",
+    "stock": 3.0,
+    "min": 20.0,
+    "label": "low"
+   }
+  ],
+  "people": [
+   {
+    "employee_id": "e1",
+    "name": "Nicolás Gómez",
+    "role": "Supervisor",
+    "role_code": "supervisor",
+    "state": "working",
+    "regular": 2700,
+    "extra": 120,
+    "gps_outside": 0,
+    "orders_requested": 2,
+    "deliveries": null,
+    "net": 812.5,
+    "shifts": [
+     {
+      "start": "2026-10-05T13:00:00+00:00",
+      "end": "2026-10-05T23:00:00+00:00",
+      "regular": 540,
+      "extra": 60,
+      "pause": 0,
+      "gross": 100.0
+     },
+     {
+      "start": "2026-10-06T13:00:00+00:00",
+      "end": "2026-10-06T23:00:00+00:00",
+      "regular": 540,
+      "extra": 60,
+      "pause": 0,
+      "gross": 100.0
+     },
+     {
+      "start": "2026-10-07T13:00:00+00:00",
+      "end": "2026-10-07T23:00:00+00:00",
+      "regular": 540,
+      "extra": 0,
+      "pause": 0,
+      "gross": 100.0
+     },
+     {
+      "start": "2026-10-08T13:00:00+00:00",
+      "end": "2026-10-08T23:00:00+00:00",
+      "regular": 540,
+      "extra": 0,
+      "pause": 0,
+      "gross": 100.0
+     },
+     {
+      "start": "2026-10-09T13:00:00+00:00",
+      "end": "2026-10-09T23:00:00+00:00",
+      "regular": 540,
+      "extra": 0,
+      "pause": 0,
+      "gross": 100.0
+     }
+    ]
+   },
+   {
+    "employee_id": "e2",
+    "name": "Luis Logística",
+    "role": "Logística",
+    "role_code": "inventario",
+    "state": "off",
+    "regular": 0,
+    "extra": 0,
+    "gps_outside": 1,
+    "orders_requested": null,
+    "deliveries": 2,
+    "net": 0.0,
+    "shifts": []
+   },
+   {
+    "employee_id": "e3",
+    "name": "Olga Operaria",
+    "role": "Operario",
+    "role_code": "operario",
+    "state": "off",
+    "regular": 0,
+    "extra": 0,
+    "gps_outside": 0,
+    "orders_requested": null,
+    "deliveries": null,
+    "net": 0.0,
+    "shifts": []
+   }
+  ],
+  "weekly_limit_minutes": 2400,
+  "period": {
+   "start": "2026-10-05",
+   "end": "2026-10-11"
+  }
+ }
+}

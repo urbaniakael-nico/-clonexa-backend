@@ -41896,7 +41896,78 @@ function inventoryCreatePayload() {
     return `<div class="cx-report-notice">Algunos bloques no tenían datos o no aplican: ${errors.map((e) => h(e.module)).join(", ")}</div>`;
   }
 
+  /* CLONEXA_053C_REPORTS_V2_START: pantalla nueva de Reportes solo con el
+     interruptor reports_v2 (settings del modulo reports, apagado por defecto).
+     Sin el interruptor, o si su archivo no carga, todo sigue igual. */
+  function cxReportsToken053C() {
+    const keys = ["clonexa_access_token", "clonexa_token", "clonexa_client_token", "access_token", "token", "auth_token", "jwt"];
+    for (const store of [window.localStorage, window.sessionStorage].filter(Boolean)) {
+      for (const key of keys) {
+        const value = store.getItem(key);
+        if (!value) continue;
+        if (value.trim().startsWith("{")) {
+          try { const data = JSON.parse(value); const nested = data.access_token || data.token || data.jwt; if (nested) return nested; } catch (_) {}
+        } else return value;
+      }
+    }
+    return "";
+  }
+
+  async function cxReportsV2On053C(companyId) {
+    try {
+      const token = cxReportsToken053C();
+      const res = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/modules`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok) return false;
+      const rows = await res.json();
+      const list = Array.isArray(rows) ? rows : (rows && rows.items) || [];
+      const row = list.find((r) => String((r && r.module && r.module.code) || (r && r.module_code) || (r && r.code) || "") === "reports");
+      return !!(row && row.enabled !== false && row.settings && row.settings.reports_v2 === true);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  let cxReportsV2Loading053C = null;
+  function cxReportsV2Load053C() {
+    if (window.CxReportsV2) return Promise.resolve();
+    if (!cxReportsV2Loading053C) {
+      cxReportsV2Loading053C = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxReportsV2Css053C")) {
+          const link = document.createElement("link");
+          link.id = "cxReportsV2Css053C";
+          link.rel = "stylesheet";
+          link.href = "/client-static/reports_v2.css?v=053C";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/reports_v2.js?v=053C";
+        script.onload = () => resolve();
+        script.onerror = () => { cxReportsV2Loading053C = null; reject(new Error("reports_v2")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxReportsV2Loading053C;
+  }
+
+  async function cxReportsV2Try053C() {
+    const companyId = companyIdFromUrl();
+    if (!companyId || !(await cxReportsV2On053C(companyId))) return false;
+    try { await cxReportsV2Load053C(); } catch (_) { return false; }
+    if (!window.CxReportsV2 || typeof window.CxReportsV2.mount !== "function") return false;
+    const app = document.getElementById("app");
+    if (!app) return false;
+    app.innerHTML = `<main class="client-shell rr-shell"><div id="cxReportsV2Host053C"></div></main>`;
+    await window.CxReportsV2.mount({
+      companyId, apiBase: API, token: cxReportsToken053C, company: {},
+      host: () => document.getElementById("cxReportsV2Host053C"),
+      back: () => { window.location.href = `/client?company_id=${encodeURIComponent(companyId)}`; },
+    });
+    return true;
+  }
+  /* CLONEXA_053C_REPORTS_V2_END */
+
   async function renderReports(filters = null, activeTab = "employee_summary") {
+    if (!filters && await cxReportsV2Try053C()) return;
     reportStyles();
     const app = document.getElementById("app");
     if (!app) return;
