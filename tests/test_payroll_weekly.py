@@ -58,3 +58,12 @@ async def test_rule_by_period_like_always_or_by_week(monkeypatch, scope, regular
     assert (row["regular_minutes"], row["extra_minutes"]) == (regular, extra)
     assert row["gross_amount"] == round(regular / 60 * 10 + extra / 60 * 15, 2)
     assert out["payroll_rule"]["limit_scope"] == scope
+
+
+def test_payroll_rule_label_has_no_broken_letters():
+    """La etiqueta de la regla ("después") se veia como "despuÃ©s" en Nomina."""
+    from pathlib import Path
+
+    source = Path("app/api/v1/endpoints/payroll.py").read_text(encoding="utf-8")
+    assert "despuÃ" not in source
+    assert source.count("ordinarias; después extra.") == 2

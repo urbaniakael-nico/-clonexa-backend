@@ -713,7 +713,7 @@ async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
     return {
         "enabled": True,
         "source": source or "company_client_settings",
-        "label": f"Hasta {hours:g}h ordinarias; despuÃ©s extra. Pausas excluidas.",
+        "label": f"Hasta {hours:g}h ordinarias; después extra. Pausas excluidas.",
         "ordinary_hours_limit": hours,
         "ordinary_minutes_limit": minutes,
         "pause_policy": "exclude",
