@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import io
 from datetime import datetime
 from typing import Any
@@ -954,39 +955,10 @@ async def references_summary(
 
     if await table_exists(db, "reference_production_closures"):
         try:
-            closure_cols = await columns(db, "reference_production_closures")
+            # Misma consulta de siempre, ahora compartida con Referencias v2 (tarjeta unica y orden operacional).
+            from app.services import references_v2 as _rv2_summary
 
-            if {"company_id", "reference_name", "size", "quantity_finished"}.issubset(closure_cols):
-                prod_result = await db.execute(
-                    text("""
-                        SELECT
-                            pr.id AS reference_id,
-                            COALESCE(sum(c.quantity_finished) FILTER (
-                                WHERE pr.activation_date IS NULL OR c.closed_at >= pr.activation_date
-                            ), 0) AS finished,
-                            COALESCE(sum(c.quantity_finished), 0) AS historical_finished
-                        FROM product_references pr
-                        LEFT JOIN reference_production_closures c
-                          ON c.company_id::text = :company_id
-                         AND (
-                            (COALESCE(c.reference_id, '') <> '' AND c.reference_id = pr.id)
-                            OR (
-                                COALESCE(c.reference_id, '') = ''
-                                AND lower(COALESCE(c.reference_name, '')) = lower(COALESCE(pr.name, ''))
-                                AND lower(COALESCE(c.size, '')) = lower(COALESCE(pr.size, ''))
-                            )
-                         )
-                        WHERE pr.company_id = :company_id
-                        GROUP BY pr.id
-                    """),
-                    {"company_id": company_id},
-                )
-
-                for row in prod_result.mappings().all():
-                    key = clean(row["reference_id"])
-                    finished_map[key] = int(row["finished"] or 0)
-                    historical_finished_map[key] = int(row["historical_finished"] or 0)
-
+            finished_map, historical_finished_map = await _rv2_summary.finished_by_reference(db, company_id)
         except Exception:
             await db.rollback()
 
@@ -1753,3 +1725,137 @@ async def v2_add_size(company_id: str, reference_id: str, payload: dict[str, Any
         await rv2.classify(db, company_id, row["id"], {"gender": classified["gender"], "body_part": classified["body_part"],
                                                         "garment_type": classified["garment_type"]})
     return {"ok": True, "item": row, "bot_active": row["bot_active"]}
+
+
+# ---------------------------------------------------------------------------
+# Referencias v2 · tarjeta unica y orden operacional (referencia = nombre + color).
+# Exigen sesion de la empresa (o Admin V2), filtran por company_id y solo
+# responden con el interruptor references_v2 encendido.
+# ---------------------------------------------------------------------------
+async def require_references_v2_switch(db: AsyncSession, company_id: str) -> None:
+    row = (await db.execute(text("""
+        SELECT COALESCE(cm.settings, '{}'::jsonb) AS settings FROM company_modules cm JOIN modules m ON m.id = cm.module_id
+        WHERE cm.company_id::text = :c AND m.code = 'references' AND cm.enabled IS TRUE LIMIT 1
+    """), {"c": company_id})).mappings().first()
+    settings = row["settings"] if row else {}
+    if isinstance(settings, str):
+        try:
+            settings = json.loads(settings)
+        except Exception:
+            settings = {}
+    if not (isinstance(settings, dict) and settings.get("references_v2") is True):
+        raise HTTPException(status_code=403, detail="Referencias v2 no está activa para esta empresa.")
+
+
+async def _v2_ready(db: AsyncSession, company_id: str) -> None:
+    await ensure_storage(db)
+    await require_references_module(db, company_id)
+    await require_references_v2_switch(db, company_id)
+
+
+async def _v2_group(db: AsyncSession, company_id: str, key: str) -> dict:
+    group = next((g for g in await rv2.reference_groups(db, company_id) if g["key"] == key), None)
+    if not group:
+        raise HTTPException(status_code=404, detail="Referencia no encontrada.")
+    return group
+
+
+async def _v2_op_payload(db: AsyncSession, company_id: str, group: dict, view: str = "") -> dict:
+    from app.services import company_locale
+
+    # Moneda de la empresa en curso (la fija el middleware por empresa): COP sin centavos.
+    decimals = company_locale.CURRENCY_DECIMALS.get(company_locale.CURRENT_CURRENCY.get() or "COP", 0)
+    sizes = [line["size"] for line in group["lines"]]
+    view = next((s for s in sizes if rv2._fold(s).strip() == rv2._fold(view).strip()), "") if view else ""
+    items = await rv2.op_items(db, company_id, group["key"])
+    value = await rv2.op_value(db, company_id, group["key"])
+    calc = rv2.op_calc(items, value["value_per_garment"], group["lines"], view, decimals=decimals)
+    return _v2_plain({"company_id": company_id, "group": group, "settings": value, "calc": calc, "sizes": sizes})
+
+
+@router.get("/companies/{company_id}/v2/groups")
+async def v2_groups(company_id: str, actor: str = Depends(require_references_v2_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """Una referencia (nombre + color) con todas sus tallas: las filas y las de "solo corte"."""
+    await _v2_ready(db, company_id)
+    return _v2_plain({"company_id": company_id, "groups": await rv2.reference_groups(db, company_id)})
+
+
+@router.get("/companies/{company_id}/v2/op-order")
+async def v2_op_order(company_id: str, key: str = Query(...), size: str = Query(""), actor: str = Depends(require_references_v2_user),
+                      db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await _v2_ready(db, company_id)
+    return await _v2_op_payload(db, company_id, await _v2_group(db, company_id, key), size)
+
+
+@router.put("/companies/{company_id}/v2/op-order/value")
+async def v2_op_value(company_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                      db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await _v2_ready(db, company_id)
+    group = await _v2_group(db, company_id, str(payload.get("key") or ""))
+    try:
+        value = rv2.validate_op_value(payload.get("value_per_garment"))
+    except rv2.Invalid as error:
+        raise _v2_bad(error) from None
+    await rv2.set_op_value(db, company_id, group["key"], value, actor)
+    return await _v2_op_payload(db, company_id, group, str(payload.get("size") or ""))
+
+
+@router.post("/companies/{company_id}/v2/op-order/items")
+async def v2_op_add_item(company_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                         db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await _v2_ready(db, company_id)
+    group = await _v2_group(db, company_id, str(payload.get("key") or ""))
+    try:
+        item = rv2.validate_op_item(payload, [line["size"] for line in group["lines"]])
+    except rv2.Invalid as error:
+        raise _v2_bad(error) from None
+    await rv2.add_op_item(db, company_id, group["key"], item, actor)
+    return await _v2_op_payload(db, company_id, group, str(payload.get("view") or ""))
+
+
+@router.put("/companies/{company_id}/v2/op-order/items/{item_id}")
+async def v2_op_update_item(company_id: str, item_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                            db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await _v2_ready(db, company_id)
+    group = await _v2_group(db, company_id, str(payload.get("key") or ""))
+    try:
+        item = rv2.validate_op_item(payload, [line["size"] for line in group["lines"]])
+        UUID(str(item_id))
+    except rv2.Invalid as error:
+        raise _v2_bad(error) from None
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Ítem no encontrado.") from None
+    if not await rv2.update_op_item(db, company_id, group["key"], item_id, item, actor):
+        raise HTTPException(status_code=404, detail="Ítem no encontrado.")
+    return await _v2_op_payload(db, company_id, group, str(payload.get("view") or ""))
+
+
+@router.delete("/companies/{company_id}/v2/op-order/items/{item_id}")
+async def v2_op_delete_item(company_id: str, item_id: str, key: str = Query(...), view: str = Query(""),
+                            actor: str = Depends(require_references_v2_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await _v2_ready(db, company_id)
+    group = await _v2_group(db, company_id, key)
+    try:
+        UUID(str(item_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Ítem no encontrado.") from None
+    if not await rv2.delete_op_item(db, company_id, group["key"], item_id):
+        raise HTTPException(status_code=404, detail="Ítem no encontrado.")
+    return await _v2_op_payload(db, company_id, group, view)
+
+
+@router.post("/companies/{company_id}/v2/op-order/items/reorder")
+async def v2_op_reorder(company_id: str, payload: dict[str, Any], actor: str = Depends(require_references_v2_user),
+                        db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    await _v2_ready(db, company_id)
+    group = await _v2_group(db, company_id, str(payload.get("key") or ""))
+    ids = payload.get("ids") if isinstance(payload.get("ids"), list) else []
+    try:
+        for x in ids:
+            UUID(str(x))
+        await rv2.reorder_op_items(db, company_id, group["key"], [str(x) for x in ids], actor)
+    except rv2.Invalid as error:
+        raise _v2_bad(error) from None
+    except ValueError:
+        raise _v2_bad(rv2.Invalid("ids", "ítem inválido")) from None
+    return await _v2_op_payload(db, company_id, group, str(payload.get("view") or ""))

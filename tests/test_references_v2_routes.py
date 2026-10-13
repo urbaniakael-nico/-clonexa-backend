@@ -20,7 +20,12 @@ R = str(uuid.uuid4())
 PREFIX = "/api/v1/references-v1/companies"
 ROUTES = [("get", f"{PREFIX}/{A}/v2/catalog"), ("post", f"{PREFIX}/{A}/v2/references/{R}/classify"), ("post", f"{PREFIX}/{A}/v2/movements"),
           ("post", f"{PREFIX}/{A}/v2/movements/{R}/void"), ("get", f"{PREFIX}/{A}/v2/references/{R}/balance"), ("get", f"{PREFIX}/{A}/v2/board"),
-          ("post", f"{PREFIX}/{A}/v2/catalog-create"), ("post", f"{PREFIX}/{A}/v2/references/{R}/add-size")]
+          ("post", f"{PREFIX}/{A}/v2/catalog-create"), ("post", f"{PREFIX}/{A}/v2/references/{R}/add-size"),
+          # Tarjeta unica y orden operacional (referencia = nombre + color).
+          ("get", f"{PREFIX}/{A}/v2/groups"), ("get", f"{PREFIX}/{A}/v2/op-order?key=x"), ("put", f"{PREFIX}/{A}/v2/op-order/value"),
+          ("post", f"{PREFIX}/{A}/v2/op-order/items"), ("put", f"{PREFIX}/{A}/v2/op-order/items/{R}"),
+          ("delete", f"{PREFIX}/{A}/v2/op-order/items/{R}?key=x"), ("post", f"{PREFIX}/{A}/v2/op-order/items/reorder")]
+WITH_BODY = ("post", "put")
 
 
 class Db:
@@ -47,10 +52,10 @@ def client(monkeypatch):
 
 def test_new_routes_require_a_session(client):
     for method, path in ROUTES:
-        res = getattr(client.c, method)(path, **({"json": {}} if method == "post" else {}))
+        res = getattr(client.c, method)(path, **({"json": {}} if method in WITH_BODY else {}))
         assert res.status_code == 401, (path, res.status_code)
     registered = {r.path for r in app_main.app.routes if "/references-v1/" in getattr(r, "path", "") and "/v2/" in r.path}
-    assert len(registered) == 8, "si se agrega una ruta nueva, se agrega aqui con su prueba de sesion"
+    assert len(registered) == 14, "si se agrega una ruta nueva, se agrega aqui con su prueba de sesion"
 
 
 def test_a_user_of_another_company_gets_403(client):
@@ -59,7 +64,7 @@ def test_a_user_of_another_company_gets_403(client):
 
     client.mp.setattr(deps, "get_current_company_user", user_of_b)
     for method, path in ROUTES:
-        res = getattr(client.c, method)(path, headers={"Authorization": "Bearer x"}, **({"json": {}} if method == "post" else {}))
+        res = getattr(client.c, method)(path, headers={"Authorization": "Bearer x"}, **({"json": {}} if method in WITH_BODY else {}))
         assert res.status_code == 403, (path, res.status_code)
 
 
