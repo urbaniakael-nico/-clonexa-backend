@@ -580,7 +580,7 @@ async def _cx_ensure_company_settings_storage(db: AsyncSession) -> None:
 async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
     """
     CLONEXA 017I:
-    Source of truth de la regla de nÃ³mina por tenant.
+    Source of truth de la regla de nómina por tenant.
 
     Primero lee companies.settings_json/client_settings, que es donde el portal /client
     guarda los ajustes por company_id. Mantiene fallback a company_settings para
@@ -702,7 +702,7 @@ async def _cx_company_payroll_rule(db: AsyncSession, company_id) -> dict:
         return {
             "enabled": False,
             "source": "invalid_company_settings",
-            "label": "ConfiguraciÃ³n invÃ¡lida: total de horas ordinarias no vÃ¡lido",
+            "label": "Configuración inválida: total de horas ordinarias no válido",
             "ordinary_hours_limit": None,
             "ordinary_minutes_limit": None,
             "pause_policy": "exclude",

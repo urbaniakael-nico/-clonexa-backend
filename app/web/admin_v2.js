@@ -61,7 +61,7 @@
 
   const truncate = (value, size = 10) => {
     const text = String(value || "");
-    return text.length > size ? `${text.slice(0, size)}Ã¢â‚¬Â¦` : text;
+    return text.length > size ? `${text.slice(0, size)}…` : text;
   };
 
   const localTime = () => new Date().toLocaleTimeString("es-CO", {
@@ -121,7 +121,7 @@
     const node = idOrSelector.startsWith("#") || idOrSelector.startsWith(".")
       ? el(idOrSelector)
       : document.getElementById(idOrSelector);
-    if (node) node.textContent = value ?? "Ã¢â‚¬â€";
+    if (node) node.textContent = value ?? "—";
   }
 
   function showToast(message, type = "ok") {
@@ -286,7 +286,7 @@
       name: raw.name || raw.company_name || raw.nombre || "Empresa sin nombre",
       slug: raw.slug || raw.company_slug || raw.code || "",
       status: raw.status || raw.estado || "active",
-      plan: raw.plan || raw.package_code || raw.package || raw.subscription_plan || "Ã¢â‚¬â€",
+      plan: raw.plan || raw.package_code || raw.package || raw.subscription_plan || "—",
       timezone: raw.timezone || raw.tz || "America/Bogota",
     };
   }
@@ -454,13 +454,13 @@
   }
 
   function packageForCompany(company) {
-    if (!company) return "Ã¢â‚¬â€";
+    if (!company) return "—";
 
     const direct = company.package_code || company.package_name || company.package || company.plan_name;
-    if (direct && direct !== "Ã¢â‚¬â€") return direct;
+    if (direct && direct !== "—") return direct;
 
     const activeCodes = new Set(moduleCodesForCompany(company.id));
-    if (!activeCodes.size) return company.plan || "Ã¢â‚¬â€";
+    if (!activeCodes.size) return company.plan || "—";
 
     let best = null;
     let bestScore = 0;
@@ -479,7 +479,7 @@
       }
     }
 
-    return best ? best.code || best.name : (company.plan || "Ã¢â‚¬â€");
+    return best ? best.code || best.name : (company.plan || "—");
   }
 
   const CX_DASHBOARD_ACTIVITY_LIMIT_023A = 12;
@@ -2090,8 +2090,8 @@
           </td>
           <td><code>${escapeHtml(company.slug || "-")}</code></td>
           <td>${statusBadge(company.status)}<br><small>Acceso Maestro: ${ownerAccessBadge(users)}</small></td>
-          <td>${escapeHtml(company.plan || "Ã¢â‚¬â€")}</td>
-          <td>${escapeHtml(company.timezone || "Ã¢â‚¬â€")}</td>
+          <td>${escapeHtml(company.plan || "—")}</td>
+          <td>${escapeHtml(company.timezone || "—")}</td>
           <td><span class="cx-badge cx-badge-primary">${escapeHtml(pkg)}</span></td>
           <td>
             <strong>${escapeHtml(moduleCount)}</strong>
@@ -4940,14 +4940,14 @@
           <div class="cx-card-head">
             <div>
               <strong>${escapeHtml(company.name)}</strong>
-              <p>${escapeHtml(company.slug)} Ã‚Â· ${escapeHtml(packageForCompany(company))}</p>
+              <p>${escapeHtml(company.slug)} · ${escapeHtml(packageForCompany(company))}</p>
             </div>
             <button class="cx-btn cx-btn-small" data-select-company="${escapeHtml(company.id)}" data-detail-tab="branding" type="button">Ver branding</button>
           </div>
           <div class="cx-actions">
-            <span class="cx-badge">Preset: ${escapeHtml(branding.visual_preset || "Ã¢â‚¬â€")}</span>
-            <span class="cx-badge">Tema: ${escapeHtml(branding.industry_theme || "Ã¢â‚¬â€")}</span>
-            <span class="cx-badge">Color: ${escapeHtml(branding.primary_color || "Ã¢â‚¬â€")}</span>
+            <span class="cx-badge">Preset: ${escapeHtml(branding.visual_preset || "—")}</span>
+            <span class="cx-badge">Tema: ${escapeHtml(branding.industry_theme || "—")}</span>
+            <span class="cx-badge">Color: ${escapeHtml(branding.primary_color || "—")}</span>
           </div>
         </div>
       `;
@@ -6904,14 +6904,14 @@
       : document.getElementById("createUserForm");
 
     if (!form) {
-      showToast("No se encontrÃ³ el formulario de acceso maestro.", "error");
+      showToast("No se encontró el formulario de acceso maestro.", "error");
       console.error("[CLONEXA Admin V2] createUserForm not found");
       return;
     }
 
     const effectiveCompanyId = companyId || state.selectedCompanyId;
     if (!effectiveCompanyId) {
-      showToast("No se encontrÃ³ la empresa seleccionada.", "error");
+      showToast("No se encontró la empresa seleccionada.", "error");
       return;
     }
 
@@ -6931,7 +6931,7 @@
     }
 
     if (!password) {
-      showToast("ContraseÃ±a temporal requerida.", "error");
+      showToast("Contraseña temporal requerida.", "error");
       return;
     }
 
@@ -7005,7 +7005,7 @@
       renderUsersGlobalView();
       showToast("Estado de acceso actualizado.");
     } catch (error) {
-      showToast(`Activar/desactivar acceso no estÃƒÂ¡ disponible todavÃƒÂ­a: ${error.message}`, "error");
+      showToast(`Activar/desactivar acceso no está disponible todavía: ${error.message}`, "error");
     }
   }
 
@@ -7114,7 +7114,7 @@
       <form method="dialog" class="cx-form" style="min-width:min(560px,92vw)">
         <h2>Eliminar / archivar empresa</h2>
         <div class="cx-empty-state" style="text-align:left">
-          Esta acciÃƒÂ³n archivarÃƒÂ¡ la empresa y bloquearÃƒÂ¡ su acceso. No se eliminarÃƒÂ¡n datos fÃƒÂ­sicos.
+          Esta acción archivará la empresa y bloqueará su acceso. No se eliminarán datos físicos.
         </div>
         <div class="cx-detail-grid">
           <div class="cx-kv"><span>Empresa</span><strong>${escapeHtml(company.name)}</strong></div>
@@ -7178,7 +7178,7 @@
       if (text === "Usuarios de acceso") node.textContent = "Usuario dueno / encargado";
       if (text === "Crear usuario") node.textContent = "Crear acceso maestro";
       if (text === "Reset password") node.textContent = "Regenerar clave";
-      if (text === "Contrasena temporal generada" || text === "ContraseÃƒÂ±a temporal generada") node.textContent = "Clave temporal generada";
+      if (text === "Contrasena temporal generada" || text === "Contraseña temporal generada") node.textContent = "Clave temporal generada";
       if (text === "Desbloquear usuario") node.textContent = "Desbloquear acceso";
       if (text === "Desactivar usuario") node.textContent = "Desactivar acceso";
       if (text === "Activar usuario") node.textContent = "Activar acceso";
@@ -7200,7 +7200,7 @@
       dashboard: ["Dashboard", "Control SaaS de empresas, actividad, alertas y salud operativa."],
       companies: ["Empresas", "Gestion de tenants, paquetes, modulos y control operativo."],
       users: ["Acceso Maestro", "Usuario dueno/encargado, regeneracion de clave y desbloqueo."],
-      packages: ["Paquetes", "CatÃƒÂ¡logo de paquetes SaaS listos para activar."],
+      packages: ["Paquetes", "Catálogo de paquetes SaaS listos para activar."],
       modules: ["Modulos", "Mapa funcional, asignaciones por empresa y pendientes sin pantalla."],
       access: ["Accesos", "Centro operativo de rutas, enlaces por empresa y copiado rapido."],
       landing: ["Landing", "Analitica comercial de visitas, fuentes, campanas y dispositivos."],
@@ -7593,7 +7593,7 @@
     try {
       await loadAdminDashboard();
     } catch (error) {
-      showAdminError(`Admin V2 cargÃƒÂ³ con errores parciales: ${error.message}`);
+      showAdminError(`Admin V2 cargó con errores parciales: ${error.message}`);
     }
   }
 

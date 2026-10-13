@@ -1738,7 +1738,7 @@ async def _cx_mp_fetch_session_by_id_019f(db: AsyncSession, session_id: str) -> 
     )
     row = result.mappings().first()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SesiÃ³n operativa no encontrada.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sesión operativa no encontrada.")
     return dict(row)
 
 
@@ -2726,7 +2726,7 @@ async def mini_panel_operational_pause_019f(
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesiÃ³n operativa activa.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesión operativa activa.")
     if str(row.get("status") or "") == "break":
         return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)}
 
@@ -2762,7 +2762,7 @@ async def mini_panel_operational_resume_019f(
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesiÃ³n operativa activa.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesión operativa activa.")
     if str(row.get("status") or "") == "active":
         return {"ok": True, "operational_session": await _cx_mp_operational_response_023p(db, company, user, mini_panel, row)}
 
@@ -2798,7 +2798,7 @@ async def mini_panel_operational_finish_019f(
     clean_type = _cx_panel_type_019d(panel_type)
     row = await _cx_mp_fetch_open_session_019f(db, company_id, user.id, clean_type)
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesiÃ³n operativa activa.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay sesión operativa activa.")
 
     now = datetime.now(timezone.utc)
     active_delta = 0
@@ -3420,10 +3420,10 @@ async def mini_panel_change_password_019f_r1(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Clave actual incorrecta.")
 
     if len(new_password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La nueva clave debe tener mÃ­nimo 8 caracteres.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La nueva clave debe tener mínimo 8 caracteres.")
 
     if new_password != confirm_password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La confirmaciÃ³n no coincide.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La confirmación no coincide.")
 
     now = datetime.now(timezone.utc)
     user.password_hash = hash_password(new_password)
@@ -3435,7 +3435,7 @@ async def mini_panel_change_password_019f_r1(
 
     await db.commit()
 
-    return {"ok": True, "message": "ContraseÃ±a actualizada."}
+    return {"ok": True, "message": "Contraseña actualizada."}
 # CLONEXA_019F_R1_CHANGE_PASSWORD_BACKEND_END
 
 # CLONEXA_019F_MINI_PANEL_SALES_OPERATIVE_END

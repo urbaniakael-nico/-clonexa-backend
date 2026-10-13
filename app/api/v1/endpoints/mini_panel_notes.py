@@ -466,10 +466,10 @@ async def _summary_payload(conn: asyncpg.Connection, company_id: uuid.UUID, pane
     next_note = upcoming[0] if upcoming else None
 
     count_int = int(count or 0)
-    label = f"{_display_date(selected_date)} Â· {count_int} {'recordatorio' if count_int == 1 else 'recordatorios'}"
+    label = f"{_display_date(selected_date)} · {count_int} {'recordatorio' if count_int == 1 else 'recordatorios'}"
     next_label = "Sin proximos recordatorios"
     if next_note:
-        next_label = f"Proximo: {next_note['note_date']} {next_note['display_time']} Â· {next_note['title']}"
+        next_label = f"Proximo: {next_note['note_date']} {next_note['display_time']} · {next_note['title']}"
 
     return {
         "date": selected_date.isoformat(),

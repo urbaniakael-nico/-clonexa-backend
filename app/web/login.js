@@ -21,7 +21,7 @@
         body: JSON.stringify({email: email.value.trim(), password: password.value})
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || "Credenciales invÃ¡lidas");
+      if (!response.ok) throw new Error(data.detail || "Credenciales inválidas");
       localStorage.setItem(TOKEN_KEY, data.access_token);
       setMessage("Acceso concedido. Redirigiendo...", true);
       const companyId =
@@ -47,7 +47,7 @@
 
       window.location.href = `/client?company_id=${encodeURIComponent(companyId)}`;
     } catch (error) {
-      setMessage(error.message || "No fue posible iniciar sesiÃ³n");
+      setMessage(error.message || "No fue posible iniciar sesión");
     }
   });
 })();
