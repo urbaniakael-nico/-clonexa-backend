@@ -34,8 +34,9 @@ const EXTRAS = {
 test('catálogo: tallas por género y prenda, siempre de menor a mayor', () => {
   const R = load();
   assert.deepEqual(plain(R.sizesFor(CATALOG, 'mujer', 'pantalon')), ['4', '6', '8', '10', '12', '14', '16']);
-  assert.deepEqual(plain(R.sizesFor(CATALOG, 'mujer', 'blusa')), ['XS', 'S', 'M', 'L', 'XL', 'XXL']);
-  assert.deepEqual(plain(R.sizesFor(CATALOG, 'mujer', 'ropa_interior')), ['XS', 'S', 'M', 'L', 'XL', 'XXL']);
+  assert.deepEqual(plain(R.sizesFor(CATALOG, 'mujer', 'blusa')), ['S', 'M', 'L'], 'prendas superiores de mujer: solo S, M, L');
+  assert.deepEqual(plain(R.sizesFor(CATALOG, 'mujer', 'chaqueta')), ['S', 'M', 'L']);
+  assert.deepEqual(plain(R.sizesFor(CATALOG, 'mujer', 'ropa_interior')), ['S', 'M', 'L']);
   assert.deepEqual(plain(R.sizesFor(CATALOG, 'mujer', 'medias')), ['Única']);
   assert.deepEqual(plain(R.sizesFor(CATALOG, 'hombre', 'pantalon')), ['28', '30', '32', '34', '36', '38', '40']);
   assert.deepEqual(plain(R.sizesFor(CATALOG, 'hombre', 'camiseta')), ['S', 'M', 'L', 'XL', 'XXL']);
@@ -97,15 +98,17 @@ test('orden de tallas: numéricas ascendentes y letras XS, S, M, L, XL, XXL (SM 
 // Grupos como los devuelve /v2/groups (references_v2.build_groups): una
 // referencia = nombre + color, una línea por talla, "solo corte" incluidas.
 const GROUPS = [
-  { key: 'auroraazul|azul', name: 'Aurora Azul', color: 'Azul', received: 36, produced: 9, meta: 0, percent: 25, solo_corte: ['S', 'M'], unsized_received: 0,
-    lines: [{ size: 'S', reference_id: null, solo_corte: true, anchor_id: 'aa', meta: 0, produced: 0, bot_active: false, received: 26, combined: false },
-      { size: 'SM', reference_id: 'aa', solo_corte: false, anchor_id: null, meta: 0, produced: 9, bot_active: true, received: 0, combined: false },
-      { size: 'M', reference_id: null, solo_corte: true, anchor_id: 'aa', meta: 0, produced: 0, bot_active: false, received: 10, combined: false }] },
-  { key: 'mysticpant|', name: 'Mystic pant', color: '', received: 0, produced: 114, meta: 114, percent: null, solo_corte: [], unsized_received: 0,
-    lines: [{ size: '4, 6, 8, 10, 12', reference_id: 'mp', solo_corte: false, anchor_id: null, meta: 114, produced: 114, bot_active: true, received: 0, combined: true }] },
-  { key: 'pantset|marfil', name: 'PANT SET', color: 'Marfil', received: 50, produced: 0, meta: 50, percent: 0, solo_corte: [], unsized_received: 0,
-    lines: [{ size: '10', reference_id: 'p10', solo_corte: false, anchor_id: null, meta: 30, produced: 0, bot_active: true, received: 30, combined: false },
-      { size: '12', reference_id: 'p12', solo_corte: false, anchor_id: null, meta: 20, produced: 0, bot_active: false, received: 20, combined: false }] },
+  { key: 'auroraazul|azul', name: 'Aurora Azul', color: 'Azul', colors: ['Azul'], received: 36, produced: 9, meta: 0, pending: 0, percent: 25, solo_corte: ['S', 'M'], unsized_received: 0,
+    cuts_by_date: [{ date: '2026-10-06', sizes: [{ size: 'S', quantity: 26 }, { size: 'M', quantity: 10 }], total: 36, last_at: null }],
+    lines: [{ size: 'S', color: '', reference_id: null, solo_corte: true, anchor_id: 'aa', meta: 0, produced: 0, pending: 0, bot_active: false, received: 26, combined: false },
+      { size: 'SM', color: 'Azul', reference_id: 'aa', solo_corte: false, anchor_id: null, meta: 0, produced: 9, pending: 0, bot_active: true, received: 0, combined: false },
+      { size: 'M', color: '', reference_id: null, solo_corte: true, anchor_id: 'aa', meta: 0, produced: 0, pending: 0, bot_active: false, received: 10, combined: false }] },
+  { key: 'mysticpant|', name: 'Mystic pant', color: '', colors: [], received: 0, produced: 114, meta: 114, pending: 0, percent: null, solo_corte: [], unsized_received: 0, cuts_by_date: [],
+    lines: [{ size: '4, 6, 8, 10, 12', color: '', reference_id: 'mp', solo_corte: false, anchor_id: null, meta: 114, produced: 114, pending: 0, bot_active: true, received: 0, combined: true }] },
+  { key: 'pantset|marfil', name: 'PANT SET', color: 'Marfil', colors: ['Marfil'], received: 50, produced: 0, meta: 50, pending: 50, percent: 0, solo_corte: [], unsized_received: 0,
+    cuts_by_date: [{ date: '2026-10-06', sizes: [{ size: '10', quantity: 30 }], total: 30, last_at: '2026-10-06T15:00:00Z' }, { date: '2026-09-16', sizes: [{ size: '12', quantity: 20 }], total: 20, last_at: null }],
+    lines: [{ size: '10', color: 'Marfil', reference_id: 'p10', solo_corte: false, anchor_id: null, meta: 30, produced: 0, pending: 30, bot_active: true, received: 30, combined: false },
+      { size: '12', color: '', reference_id: 'p12', solo_corte: false, anchor_id: null, meta: 20, produced: 0, pending: 20, bot_active: false, received: 20, combined: false }] },
 ];
 const ROWS_G = ROWS.map((r) => (r.id === 'aa' ? { ...r, size: 'SM', bot_active: true, channel: 'bot' } : r));
 
@@ -127,11 +130,13 @@ test('Aurora Azul: tarjeta con S, SM y M, recibido 36 y % = producido ÷ 36; "so
   Object.assign(m, { catalog: CATALOG, rows: ROWS_G, extras: EXTRAS, groups: GROUPS, tab: 'estado', filterGender: 'mujer', search: '', modal: '', lastOpen: '' });
   const html = R.view();
   const aurora = html.slice(html.indexOf('data-rv-gopen="auroraazul|azul"'), html.indexOf('data-rv-gopen="mysticpant|"'));
-  assert.deepEqual([...aurora.matchAll(/<b class="rv-gsize" role="cell">([^<]+)<\/b>/g)].map((x) => x[1]), ['S', 'SM', 'M'], 'orden del catálogo');
+  assert.deepEqual([...aurora.matchAll(/<b class="rv-gsize" role="cell">([^<]+)(?:<small[^>]*>[^<]*<\/small>)?<\/b>/g)].map((x) => x[1]), ['S', 'SM', 'M'], 'orden del catálogo');
   assert.match(aurora, /<small>Mujer · Azul · 3 tallas<\/small>/);
-  assert.match(aurora, /Recibido <b>36<\/b> · Producido <b>9<\/b> · <b>25&nbsp;%<\/b>/);
+  assert.match(aurora, /Meta <b>0<\/b> · Recibido <b>36<\/b> · Producido <b>9<\/b> · Pendiente <b>0<\/b> · <b>25&nbsp;%<\/b>/, 'totales de la referencia');
+  assert.match(aurora, /<b class="rv-gsize" role="cell">SM<small class="rv-gcolor">Azul<\/small><\/b>/, 'el color va en cada talla');
   assert.match(aurora, /--p:25%/);
   assert.match(aurora, /<b class="rv-gsize" role="cell">S<\/b><span role="cell" data-k="Meta">—<\/span><span role="cell" data-k="Recibido">26<\/span>/);
+  assert.deepEqual([...html.matchAll(/data-rv-gopen="([^"]+)"/g)].map((x) => x[1]).filter((k, i, a) => a.indexOf(k) === i), ['auroraazul|azul', 'mysticpant|', 'pantset|marfil']);
   assert.equal((aurora.match(/<span class="rv-gbot" role="cell"><i class="rv-chip is-amber">solo corte<\/i><\/span>/g) || []).length, 2, '"solo corte" en la columna Bot, sin interruptor');
   assert.match(aurora, /data-rv-visible="aa" checked aria-label="Visible para bot talla SM"/, 'la talla con fila lleva interruptor del bot');
   assert.match(aurora, /data-rv-gcreate="auroraazul\|azul"[^>]*>Crear S y M<\/button>/, 'crear de una vez las tallas solo corte');
@@ -139,7 +144,7 @@ test('Aurora Azul: tarjeta con S, SM y M, recibido 36 y % = producido ÷ 36; "so
   assert.match(html, /data-rv-gbot="mysticpant\|" data-rv-on="0">Todas ocultas/, 'todas visibles: Todas ocultas');
   assert.match(aurora, /data-rv-gconfirm="auroraazul\|azul">Confirmar/, 'sugerencia de clasificación con un clic');
   assert.match(html, /<b>Mystic pant<\/b>.*<b class="rv-gsize" role="cell">4, 6, 8, 10, 12<\/b>/s, 'la fila combinada no se parte');
-  assert.match(html, /Recibido <b>0<\/b> · Producido <b>114<\/b> · <b>—<\/b>/, 'sin cortes: "—"');
+  assert.match(html, /Recibido <b>0<\/b> · Producido <b>114<\/b> · Pendiente <b>0<\/b> · <b>—<\/b>/, 'sin cortes: "—"');
   assert.match(html, /Enviada 1 a Bombón el 06\/10\/2026 \(fotos\)/, 'nota de Bombón de todas sus tallas');
   assert.doesNotMatch(html, /despliegue/i);
   assert.match(SRC, /Se crean con meta 0 y NO visibles para el bot/, 'crear de una vez: misma regla de "Crear referencia en talla N"');
@@ -158,6 +163,11 @@ test('emergente: todas las tallas (meta y bot por talla, reiniciar y archivar po
   let html = R.view();
   assert.match(html, /role="dialog" aria-modal="true"/);
   assert.match(html, /data-rv-gm-meta="p10" value="30"/); assert.match(html, /data-rv-gm-meta="p12" value="20"/);
+  assert.match(html, /<span class="rv-gmcolor">Color <b>Marfil<\/b><\/span>/, 'talla con color: se muestra');
+  assert.match(html, /data-rv-gm-color="p12" value="" maxlength="60" placeholder="Escribe el color"/, 'talla sin color: se puede escribir');
+  assert.match(html, /<span>Pendiente <b>30<\/b><\/span>/);
+  assert.match(html, /data-rv-gmeta="pantset\|marfil">Igualar meta a lo recibido/);
+  assert.match(html, /Cortes por fecha.*06\/10\/2026.*10 <b>30<\/b>.*16\/09\/2026.*12 <b>20<\/b>.*Total recibido<\/span><span><\/span><b>50<\/b>/s, 'del más reciente al más viejo y total general');
   assert.match(html, /data-rv-gm-bot="p10" checked/); assert.match(html, /data-rv-gm-bot="p12"\s+aria-label/);
   assert.match(html, /data-rv-reset="p10">Reiniciar ciclo<\/button><button type="button" class="rv-btn is-small" data-rv-archive="p10">Archivar/);
   assert.match(html, /data-rv-reset="p12">Reiniciar ciclo/);
@@ -167,6 +177,9 @@ test('emergente: todas las tallas (meta y bot por talla, reiniciar y archivar po
   assert.match(R.view(), /data-rv-gaddsize="S" data-rv-anchor="aa" data-rv-gname="Aurora Azul">Crear referencia en talla S/, 'las "solo corte" también se crean desde aquí');
   R.openGroupModal('pantset|marfil');
   assert.equal(R.groupDirty(), false);
+  m.gdraft.p12.color = 'Marfil';
+  assert.equal(R.groupDirty(), true, 'escribir el color cuenta como cambio');
+  m.gdraft.p12.color = '';
   m.gdraft.p12.meta = '25';
   assert.equal(R.groupDirty(), true);
   let asked = '';
@@ -178,6 +191,9 @@ test('emergente: todas las tallas (meta y bot por talla, reiniciar y archivar po
   assert.match(SRC, /confirm\(`Reiniciar ciclo de esta referencia con meta \$\{total\}\? El historial anterior queda guardado y el conteo activo empieza en cero\.`\)/, 'misma confirmación de hoy');
   assert.match(SRC, /confirm\("¿Archivar esta referencia\? No se borrará físicamente\."\)/);
   assert.match(SRC, /method: "PATCH", body: JSON\.stringify\(rowPayload\(r, \{ initial_quantity: num\(d\.meta\), channel: nextChannel\(r, d\.visible\) \}\)\)/, 'guarda con el endpoint de siempre');
+  assert.match(SRC, /rowPayload\(model\.rows\.find\(\(x\) => x\.id === r\.id\) \|\| r, \{ color: String\(d\.color\)\.trim\(\) \}\)/, 'el color: PATCH de siempre, solo ese campo');
+  assert.match(SRC, /post\("\/v2\/groups\/meta-sync", \{ key, apply: false \}\)/, 'igualar meta: primero el antes/después');
+  assert.match(SRC, /Igualar la meta a lo recibido en cortes:/, 'y pide confirmación');
   assert.match(SRC, /event\.key !== "Escape"/, 'se cierra con Esc');
   assert.match(SRC, /t\.matches\("\[data-rv-overlay\]"\)/, 'y tocando fuera');
 });
@@ -243,12 +259,14 @@ test('orden operacional: pantalla entre Cortes y Estado, indicadores, tallas, í
 
 test('agrupación: la misma clave que el servidor (mayúsculas, tildes y espacios no cuentan)', () => {
   const R = load();
-  assert.equal(R.groupKey('  Aurora  Azul ', 'AZUL'), 'auroraazul|azul');
-  assert.equal(R.groupKey('Aurora Cafe', 'Café'), R.groupKey('aurora cafe', 'cafe'));
-  assert.notEqual(R.groupKey('Aurora Cafe', 'Negro'), R.groupKey('Aurora Cafe', 'cafe'));
+  assert.equal(R.groupKey('  Aurora  Azul '), 'auroraazul');
+  assert.equal(R.groupKey('Lucky Coat'), R.groupKey('lucky  coat'), 'Lucky Coat con dos colores es una sola referencia');
+  assert.equal(R.groupKey('Aurora Café'), R.groupKey('aurora cafe'));
   const g = R.groups([{ id: '1', name: 'Aurora Cafe', category: 'Superior', size: 'SM', color: 'Café' }, { id: '2', name: 'aurora  cafe', category: 'Chaqueta', size: 'ML', color: 'cafe' }]);
   assert.equal(g.length, 1, 'Cortes agrupa igual que Estado y Orden operacional (la categoría no separa)');
-  assert.match(readFileSync('app/services/references_v2.py', 'utf8'), /return f"\{norm\(name\)\}\|\{norm\(color\)\}"/);
+  const lucky = R.groups([{ id: 'l1', name: 'Lucky Coat', size: 'ML', color: '' }, { id: 'l2', name: 'lucky coat', size: 'SM', color: 'verde oliva' }]);
+  assert.equal(lucky.length, 1, 'un grupo aunque tenga dos colores');
+  assert.match(readFileSync('app/services/references_v2.py', 'utf8'), /return re\.sub\(r"\\s\+", "", _fold\(name\)\)/);
 });
 
 test('cortes: todas las tallas de la prenda; las que no existen como referencia se marcan y su corte va a la referencia', () => {

@@ -1,7 +1,9 @@
 // Referencias v2 (interruptor references_v2): Catálogo comercial, Información
-// de cortes, Orden operacional y Estado de referencias. Una referencia es
-// nombre + color (todas sus tallas), la misma agrupación del servidor
-// (references_v2.group_key) en Cortes, Orden operacional y Estado. client.js solo la monta cuando el
+// de cortes, Orden operacional y Estado de referencias. Una referencia es su
+// NOMBRE (todas sus tallas y colores; el color va en cada talla), la misma
+// agrupación del servidor (references_v2.group_key) en Cortes, Orden
+// operacional, Catálogo y Estado. La meta de cada talla con cortes es la suma
+// de sus cortes (la calcula el servidor al registrar o anular). client.js solo la monta cuando el
 // interruptor está encendido; la pantalla de siempre queda como respaldo.
 // Datos: los endpoints de siempre (listado, resumen, PATCH, reset, archivar,
 // export) y los nuevos /v2 (catálogo, clasificar, movimientos, balance).
@@ -104,8 +106,8 @@
   const byNameSize = (a, b) => fold(a.name).localeCompare(fold(b.name)) || fold(a.color).localeCompare(fold(b.color)) || bySize(a.size, b.size);
   const sizesOf = (size) => String(size || "").split(/[,;]/).map((x) => x.trim()).filter(Boolean);
 
-  // Referencia = nombre + color, sin mayúsculas, tildes ni espacios (references_v2.group_key).
-  const groupKey = (name, color) => `${fold(name).replace(/\s+/g, "")}|${fold(color).replace(/\s+/g, "")}`;
+  // Referencia = nombre, sin mayúsculas, tildes ni espacios (references_v2.group_key); el color no separa.
+  const groupKey = (name) => fold(name).replace(/\s+/g, "");
 
   function groups(rows) {
     const map = new Map();
@@ -348,8 +350,8 @@
   }
 
   function siblings(r) {
-    const key = groupKey(r.name, r.color);
-    return model.rows.filter((x) => groupKey(x.name, x.color) === key).length;
+    const key = groupKey(r.name);
+    return model.rows.filter((x) => groupKey(x.name) === key).length;
   }
 
   function card(r, column) {
@@ -408,7 +410,7 @@
     const full = model.groups.find((x) => x.key === g.key) || g;
     const gar = garmentOf(model.catalog, info.cls && info.cls.garment_type);
     const n = arr(full.lines).length;
-    const sub = [gar ? gar.label : "", info.gender ? (info.gender === "hombre" ? "Hombre" : "Mujer") : "", g.color, `${n} talla${n === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+    const sub = [gar ? gar.label : "", info.gender ? (info.gender === "hombre" ? "Hombre" : "Mujer") : "", arr(full.colors).join(", "), `${n} talla${n === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
     const open = model.modal === `g:${g.key}`;
     const last = !open && model.lastOpen === `g:${g.key}`;
     const orphan = arr(full.lines).filter((l) => l.solo_corte);
@@ -421,7 +423,7 @@
       .reduce((a, d) => ({ quantity: a.quantity + num(d.quantity), last_date: !a.last_date || String(d.last_date) > String(a.last_date) ? d.last_date : a.last_date }), { quantity: 0, last_date: "" });
     const sizesTxt = (list) => list.map((l) => l.size).join(", ").replace(/, ([^,]+)$/, " y $1");
     const lines = arr(g.lines).map((l) => `<div class="rv-gline${l.solo_corte ? " is-cut" : ""}" role="row">
-        <b class="rv-gsize" role="cell">${h(l.size)}</b><span role="cell" data-k="Meta">${l.solo_corte ? "—" : h(l.meta)}</span><span role="cell" data-k="Recibido">${h(l.received)}</span><span role="cell" data-k="Producido">${h(l.produced)}</span>
+        <b class="rv-gsize" role="cell">${h(l.size)}${l.color ? `<small class="rv-gcolor">${h(l.color)}</small>` : ""}</b><span role="cell" data-k="Meta">${l.solo_corte ? "—" : h(l.meta)}</span><span role="cell" data-k="Recibido">${h(l.received)}</span><span role="cell" data-k="Producido">${h(l.produced)}</span>
         <span class="rv-gbot" role="cell">${l.solo_corte ? `<i class="rv-chip is-amber">solo corte</i>`
           : `<label class="rv-toggle is-mini" title="Visible para bot"><input type="checkbox" data-rv-visible="${h(l.reference_id)}" ${l.bot_active ? "checked" : ""} aria-label="Visible para bot talla ${h(l.size)}"><i aria-hidden="true"></i></label>`}</span></div>`).join("");
     const action = column === "Activas" ? (orphan.length
@@ -433,7 +435,7 @@
       ${info.unclassified && sugG ? `<p class="rv-sug"><span><i class="rv-chip is-cyan">Por clasificar</i> Sugerencia: <b>${h(sugG.label)} · ${info.sug.gender === "hombre" ? "Hombre" : "Mujer"}</b></span><button type="button" class="rv-btn is-small" data-rv-gconfirm="${h(g.key)}">Confirmar</button></p>` : ""}
       <div class="rv-glines" role="table" aria-label="Tallas de ${h(g.name)}"><div class="rv-gline is-head" role="row"><span role="columnheader">Talla</span><span role="columnheader">Meta</span><span role="columnheader">Recibido</span><span role="columnheader">Producido</span><span role="columnheader">Bot</span></div>${lines}</div>
       <div class="rv-progress"><span style="--p:${bar}%"></span></div>
-      <div class="rv-gfoot"><p>Recibido <b>${h(full.received)}</b> · Producido <b>${h(full.produced)}</b> · <b>${pctText(full.percent)}</b></p>${action}</div>
+      <div class="rv-gfoot"><p>Meta <b>${h(full.meta)}</b> · Recibido <b>${h(full.received)}</b> · Producido <b>${h(full.produced)}</b> · Pendiente <b>${h(full.pending)}</b> · <b>${pctText(full.percent)}</b></p>${action}</div>
       ${sent.quantity ? `<p class="rv-deploy-note">Enviada${sent.quantity === 1 ? "" : "s"} ${h(sent.quantity)} a Bombón el ${h(dmy(sent.last_date))} (fotos)</p>` : ""}
     </article>`;
   }
@@ -441,7 +443,7 @@
   // ------------------------------------------------------------ emergente de la referencia (todas las tallas)
   function gdraftOf(g) {
     const out = {};
-    arr(g && g.lines).filter((l) => l.reference_id).forEach((l) => { out[l.reference_id] = { meta: String(num(l.meta)), visible: l.bot_active === true }; });
+    arr(g && g.lines).filter((l) => l.reference_id).forEach((l) => { out[l.reference_id] = { meta: String(num(l.meta)), visible: l.bot_active === true, color: l.color || "" }; });
     return out;
   }
 
@@ -457,7 +459,25 @@
     const g = model.modal.startsWith("g:") ? model.groups.find((x) => `g:${x.key}` === model.modal) : null;
     if (!g || !model.gdraft) return false;
     const a = gdraftOf(g);
-    return Object.keys(a).some((id) => !model.gdraft[id] || String(a[id].meta) !== String(model.gdraft[id].meta) || a[id].visible !== model.gdraft[id].visible);
+    return Object.keys(a).some((id) => !model.gdraft[id] || String(a[id].meta) !== String(model.gdraft[id].meta) || a[id].visible !== model.gdraft[id].visible
+      || String(a[id].color || "") !== String(model.gdraft[id].color || ""));
+  }
+
+  // Fecha y hora en la zona de la empresa (company_locale vía CxLocale).
+  function cutStamp(day) {
+    const date = dmy(day.date);
+    if (!day.last_at) return date;
+    const at = typeof window !== "undefined" && window.CxLocale && typeof window.CxLocale.dateTime === "function"
+      ? window.CxLocale.dateTime(day.last_at, { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+    return at ? `${date} · ${at}` : date;
+  }
+
+  function cutsByDateView(g) {
+    const days = arr(g.cuts_by_date);
+    if (!days.length) return `<p class="client-muted rv-muted">Sin cortes registrados.</p>`;
+    const total = days.reduce((a, d) => a + num(d.total), 0);
+    return `<ul class="rv-gcuts">${days.map((d) => `<li><span class="rv-gcut-date">${h(cutStamp(d))}</span><span class="rv-gcut-sizes">${arr(d.sizes).map((x) => `${h(x.size)} <b>${h(x.quantity)}</b>`).join(" · ")}</span><b class="rv-gcut-total">${h(d.total)}</b></li>`).join("")}
+      <li class="is-total"><span>Total recibido</span><span></span><b>${h(total)}</b></li></ul>`;
   }
 
   function groupModalView() {
@@ -467,20 +487,25 @@
     const garments = arr(model.catalog && model.catalog.garments);
     const current = (info.cls && info.cls.garment_type) || "";
     return `<div class="rv-overlay" data-rv-overlay><div class="client-panel rv-panel rv-modal" role="dialog" aria-modal="true" aria-labelledby="rvModalTitle">
-      <header class="rv-modal-head"><h2 class="client-eyebrow rv-step" id="rvModalTitle">${h(g.name)}${g.color ? ` · ${h(g.color)}` : ""}</h2><button type="button" class="rv-btn is-small rv-modal-x" data-rv-modal-close aria-label="Cerrar">✕</button></header>
+      <header class="rv-modal-head"><h2 class="client-eyebrow rv-step" id="rvModalTitle">${h(g.name)}${arr(g.colors).length ? ` · ${h(arr(g.colors).join(", "))}` : ""}</h2><button type="button" class="rv-btn is-small rv-modal-x" data-rv-modal-close aria-label="Cerrar">✕</button></header>
       <label class="rv-field">Prenda<select data-rv-gm-garment><option value="">Sin clasificar</option>${garments.map((x) => `<option value="${x.code}" ${current === x.code ? "selected" : ""}>${h(x.label)}</option>`).join("")}</select></label>
       <div class="rv-gmlines">${arr(g.lines).map((l) => {
         if (!l.reference_id) return `<div class="rv-gmline is-cut"><b class="rv-gsize">${h(l.size)}</b><span class="client-muted">Solo corte · recibido ${h(l.received)}</span>
           <button type="button" class="rv-btn is-small" data-rv-gaddsize="${h(l.size)}" data-rv-anchor="${h(l.anchor_id || "")}" data-rv-gname="${h(g.name)}">Crear referencia en talla ${h(l.size)}</button></div>`;
-        const d = model.gdraft[l.reference_id] || { meta: l.meta, visible: l.bot_active };
+        const d = model.gdraft[l.reference_id] || { meta: l.meta, visible: l.bot_active, color: l.color };
+        const color = l.color
+          ? `<span class="rv-gmcolor">Color <b>${h(l.color)}</b></span>`
+          : `<label class="rv-field rv-gmcolor">Color<input data-rv-gm-color="${h(l.reference_id)}" value="${h(d.color || "")}" maxlength="60" placeholder="Escribe el color" aria-label="Color talla ${h(l.size)}"></label>`;
         return `<div class="rv-gmline"><b class="rv-gsize">${h(l.size)}</b>
           <label class="rv-field">Meta<input type="number" min="0" inputmode="numeric" data-rv-gm-meta="${h(l.reference_id)}" value="${h(d.meta)}" aria-label="Meta talla ${h(l.size)}"></label>
-          <span class="rv-gmnums"><span>Recibido <b>${h(l.received)}</b></span><span>Producido <b>${h(l.produced)}</b></span></span>
+          <span class="rv-gmnums">${color}<span>Recibido <b>${h(l.received)}</b></span><span>Producido <b>${h(l.produced)}</b></span><span>Pendiente <b>${h(l.pending)}</b></span></span>
           <label class="rv-toggle"><span>Bot</span><input type="checkbox" data-rv-gm-bot="${h(l.reference_id)}" ${d.visible ? "checked" : ""} aria-label="Visible para bot talla ${h(l.size)}"><i aria-hidden="true"></i></label>
           <span class="rv-gmbtns"><button type="button" class="rv-btn is-small" data-rv-reset="${h(l.reference_id)}">Reiniciar ciclo</button><button type="button" class="rv-btn is-small" data-rv-archive="${h(l.reference_id)}">Archivar</button></span></div>`;
       }).join("")}</div>
-      <p class="rv-row rv-gfoot"><span>Recibido <b>${h(g.received)}</b></span><span>Producido <b>${h(g.produced)}</b></span><span>Completado <b>${pctText(g.percent)}</b></span></p>
-      <div class="rv-actions rv-modal-actions"><button type="button" class="client-btn rv-btn is-primary" data-rv-gmodal-save ${model.busy ? "disabled" : ""}>Guardar</button></div>
+      <p class="rv-row rv-gfoot"><span>Meta <b>${h(g.meta)}</b></span><span>Recibido <b>${h(g.received)}</b></span><span>Producido <b>${h(g.produced)}</b></span><span>Pendiente <b>${h(g.pending)}</b></span></p>
+      <div class="rv-received"><span class="client-label rv-label">Cortes por fecha</span>${cutsByDateView(g)}</div>
+      <div class="rv-actions rv-modal-actions"><button type="button" class="rv-btn" data-rv-gmeta="${h(g.key)}">Igualar meta a lo recibido</button>
+        <button type="button" class="client-btn rv-btn is-primary" data-rv-gmodal-save ${model.busy ? "disabled" : ""}>Guardar</button></div>
     </div></div>`;
   }
 
@@ -775,6 +800,9 @@
           if (String(num(d.meta)) !== String(num(l.meta)) || d.visible !== (l.bot_active === true)) {
             await call(`/${encodeURIComponent(r.id)}`, { method: "PATCH", body: JSON.stringify(rowPayload(r, { initial_quantity: num(d.meta), channel: nextChannel(r, d.visible) })) });
           }
+          if (!String(r.color || "").trim() && String(d.color || "").trim()) {
+            await call(`/${encodeURIComponent(r.id)}`, { method: "PATCH", body: JSON.stringify(rowPayload(model.rows.find((x) => x.id === r.id) || r, { color: String(d.color).trim() })) });
+          }
           const ex = model.extras[r.id] || {};
           if (gar && gar.code !== ex.garment_type) await post(`/v2/references/${encodeURIComponent(r.id)}/classify`, { gender: info.gender || "mujer", body_part: gar.body_part, garment_type: gar.code });
         }
@@ -782,6 +810,22 @@
         const again = model.groups.find((x) => x.key === g.key);
         if (again) model.gdraft = gdraftOf(again);
       }, "Referencia actualizada.");
+      return;
+    }
+    if ((v = attr("data-rv-gmeta"))) {
+      const key = v;
+      run(async () => {
+        const plan = await post("/v2/groups/meta-sync", { key, apply: false });
+        const changes = arr(plan.changes);
+        if (!changes.length) { model.notice = "La meta ya es igual a lo recibido en todas las tallas con cortes."; return; }
+        const lines = changes.map((c) => `Talla ${c.size}: ${c.old_meta} → ${c.new_meta}`).join("\n");
+        if (!confirm(`Igualar la meta a lo recibido en cortes:\n${lines}\n\nLas tallas sin cortes no cambian. ¿Continuar?`)) { model.notice = ""; return; }
+        await post("/v2/groups/meta-sync", { key, apply: true });
+        await reload();
+        const again = model.groups.find((x) => x.key === key);
+        if (again) model.gdraft = gdraftOf(again);
+        model.notice = `Meta igualada a lo recibido (${changes.length} talla${changes.length === 1 ? "" : "s"}).`;
+      });
       return;
     }
     if ((v = attr("data-rv-gconfirm"))) {
@@ -1033,6 +1077,7 @@
     if ((v = t.getAttribute("data-rv-dep"))) { model.cut.deploy[v] = t.value; return; }
     if ((v = t.getAttribute("data-rv-m")) && model.draft) { model.draft[v] = t.type === "checkbox" ? !!t.checked : t.value; return; }
     if ((v = t.getAttribute("data-rv-gm-meta")) && model.gdraft) { model.gdraft[v] = { ...(model.gdraft[v] || {}), meta: t.value }; return; }
+    if ((v = t.getAttribute("data-rv-gm-color")) && model.gdraft) { model.gdraft[v] = { ...(model.gdraft[v] || {}), color: t.value }; return; }
     if ((v = t.getAttribute("data-rv-op-new")) && v !== "size") { model.op.draft[v] = t.value; return; }
     if ((v = t.getAttribute("data-rv-op-edit")) && v !== "size" && model.op.edit) { model.op.edit[v] = t.value; return; }
     if (t.hasAttribute("data-rv-search")) { model.search = t.value; draw(); }
@@ -1068,5 +1113,5 @@
 
   window.CxReferencesV2 = { mount, model, view, summaryText, sizesFor, garmentsOf, chosenSizes, columns, groups, groupSizes, nextChannel, rowPayload, cutItems, combined,
     sizeKey, bySize, byNameSize, groupLog, receivedBox, logView, openModal, closeModal, isDirty, modalView, draftOf,
-    groupKey, groupColumns, groupCard, openGroupModal, groupDirty, groupModalView, opCalc, minutesFor, hm, money, setOp, opView };
+    groupKey, groupColumns, groupCard, openGroupModal, groupDirty, groupModalView, cutsByDateView, opCalc, minutesFor, hm, money, setOp, opView };
 })();

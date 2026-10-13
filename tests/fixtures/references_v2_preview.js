@@ -33,10 +33,12 @@
     { id: "m7", kind: "ingreso", size: "6", quantity: 9, event_date: "2026-09-16", created_by: "Ana", size_without_reference: true, voided_at: "2026-09-17", void_reason: "doble" }] };
   if (P.get("small") === "1") Object.assign(balance, { received: 50, novelty: 3, deployed: 1, available: 46 });
   // Tarjeta única (una referencia = nombre + color) y orden operacional, como /v2/groups y /v2/op-order.
-  const line = (size, id, o = {}) => ({ size, reference_id: id, solo_corte: !id, anchor_id: id ? null : "aa", meta: 0, produced: 0, bot_active: false, received: 0, combined: false, ...o });
+  const line = (size, id, o = {}) => ({ size, color: "", reference_id: id, solo_corte: !id, anchor_id: id ? null : "aa", meta: 0, produced: 0, pending: 0, bot_active: false, received: 0, combined: false, ...o });
+  const cuts = (list) => list.map(([date, sizes, at]) => ({ date, sizes: sizes.map(([size, quantity]) => ({ size, quantity })), total: sizes.reduce((a, x) => a + x[1], 0), last_at: at || null }));
   const groups = [
     { key: "auroraazul💙|azul", name: "Aurora Azul 💙", color: "Azul", received: 36, produced: 9, meta: 0, percent: 25, solo_corte: ["S", "M"],
-      lines: [line("S", null, { received: 26 }), line("SM", "aa", { produced: 9, bot_active: false }), line("M", null, { received: 10 })] },
+      colors: ["Azul"], pending: 0, cuts_by_date: cuts([["2026-10-06", [["S", 26], ["M", 10]], "2026-10-06T19:42:00Z"]]),
+      lines: [line("S", null, { received: 26 }), line("SM", "aa", { produced: 9, bot_active: false, color: "Azul" }), line("M", null, { received: 10 })] },
     { key: "leggingsdeportivolargoedicionespecial|negrocarbon", name: "Leggings Deportivo Largo Edición Especial", color: "Negro carbón", received: 1250, produced: 1180, meta: 1250, percent: 94.4, solo_corte: [],
       lines: [line("12", "lg", { meta: 1250, produced: 1180, bot_active: true, received: 1250 })] },
     { key: "mysticjacket|marfil", name: "Mystic jacket", color: "Marfil", received: 0, produced: 126, meta: 126, percent: null, solo_corte: [],
@@ -44,8 +46,9 @@
     { key: "mysticpant|", name: "Mystic pant", color: "", received: 0, produced: 114, meta: 114, percent: null, solo_corte: [],
       lines: [line("4, 6, 8, 10, 12", "mp", { meta: 114, produced: 114, bot_active: true, combined: true })] },
     { key: "pantset|marfil", name: "PANT SET", color: "Marfil", received: 1250, produced: 0, meta: 50, percent: 0, solo_corte: ["4", "6", "8"],
+      colors: ["Marfil"], pending: 50, cuts_by_date: cuts([["2026-10-06", [["8", 6], ["10", 30]], "2026-10-06T21:10:00Z"], ["2026-09-16", [["4", 1221], ["6", 9]]]]),
       lines: [line("4", null, { received: 1221, anchor_id: "p10" }), line("6", null, { received: 9, anchor_id: "p10" }), line("8", null, { received: 6, anchor_id: "p10" }),
-        line("10", "p10", { meta: 30, bot_active: true, received: 30 }), line("12", "p12", { meta: 20, received: 0 })] }];
+        line("10", "p10", { meta: 30, pending: 30, bot_active: true, received: 30, color: "Marfil" }), line("12", "p12", { meta: 20, pending: 20, received: 0 })] }];
   const opItems = [{ id: "i1", name: "Corte y trazo de piezas", minutes: 25, size: "", position: 0 }, { id: "i2", name: "Costura", minutes: 60, size: "", position: 1 },
     { id: "i3", name: "Botones y ojales", minutes: 27, size: "", position: 2 }, { id: "i4", name: "Bolsillo extra talla M", minutes: 5, size: "M", position: 3 }];
   const opData = { group: groups[0], settings: { value_per_garment: 24000 }, calc: { items: opItems }, sizes: ["S", "SM", "M"] };
@@ -110,7 +113,7 @@
   }
   function ratio(el) { const fg = rgb(getComputedStyle(el).color); const bg = backgroundOf(el); const a = lum(fg) + 0.05; const b = lum(bg) + 0.05; return Math.round((Math.max(a, b) / Math.min(a, b)) * 100) / 100; }
   const CONTRAST = [".rv-gline > *", ".rv-gfoot span", ".rv-gfoot b", ".rv-gcard .rv-card-head b", ".rv-gcard .rv-card-head small", ".rv-gmline .rv-gsize", ".rv-gmnums span",
-    ".rv-op-row > span", ".rv-op-kpis b", ".rv-op-kpis small", ".rv-op-sz b", ".rv-op-szn", ".rv-op-sizes .rv-chip", ".rv-gbot .rv-chip"];
+    ".rv-gcolor", ".rv-gmcolor", ".rv-gcuts li > *", ".rv-op-row > span", ".rv-op-kpis b", ".rv-op-kpis small", ".rv-op-sz b", ".rv-op-szn", ".rv-op-sizes .rv-chip", ".rv-gbot .rv-chip"];
 
   function measure() {
     const root = document.querySelector(".rv-root");

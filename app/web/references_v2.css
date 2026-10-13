@@ -338,6 +338,14 @@
 .rv-gline > :last-child { border-radius: 0 8px 8px 0; }
 .rv-gline.is-head > * { background: var(--rv-plate); color: var(--rv-text); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding-bottom: 4px; }
 .rv-gsize { font-size: 13px; }
+.rv-gsize .rv-gcolor { display: block; font-size: 11px; font-weight: 600; color: var(--rv-text); overflow-wrap: anywhere; }
+.rv-gmcolor { display: inline-flex; align-items: center; gap: 6px; }
+.rv-gmnums .rv-field.rv-gmcolor { display: grid; min-width: 140px; }
+.rv-gcuts { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.rv-gcuts li { display: grid; grid-template-columns: minmax(110px, auto) minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 4px 8px; border-radius: 8px; background: var(--rv-plate); }
+.rv-gcuts li.is-total { font-weight: 700; }
+.rv-gcut-sizes { overflow-wrap: anywhere; }
+.rv-gcut-total { text-align: right; }
 .rv-gbot { display: flex; justify-content: flex-start; align-items: center; }
 .rv-gbot .rv-chip { color: var(--rv-text); border-style: dashed; }
 /* Columna angosta (tres columnas en 1280 px con menú): cada talla en dos renglones. */
