@@ -19,7 +19,7 @@ const CHROME = [
   '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 ].find((p) => p && fs.existsSync(p));
-const TABS = ['catalogo', 'cortes', 'estado'];
+const TABS = ['catalogo', 'cortes', 'orden', 'estado'];
 const WIDTHS = [1280, 1024, 375];
 const IDS = { velvet: 'd63cf68c-be5b-4a30-aee4-341973018db1', demo: 'f8503267-0111-46b4-84c5-ee339cc6273e' };
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
@@ -55,7 +55,7 @@ function dump(url, profile) {
   });
 }
 
-test('ningún texto desborda y las etiquetas van en fila en Catálogo, Cortes y Estado (1280, 1024 y 375 px; Velvet y demo)', { skip: !CHROME && 'Chrome no está instalado en esta máquina', timeout: 300000 }, async () => {
+test('ningún texto desborda, las etiquetas van en fila y lo nuevo pasa AA en Catálogo, Cortes, Orden operacional y Estado (1280, 1024 y 375 px; Velvet y demo)', { skip: !CHROME && 'Chrome no está instalado en esta máquina', timeout: 300000 }, async () => {
   const server = await serve();
   const port = server.address().port;
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cx-rv-layout-'));
@@ -72,6 +72,7 @@ test('ningún texto desborda y las etiquetas van en fila en Catálogo, Cortes y 
           assert.equal(r.page_overflow, false, `${theme} ${tab} ${w}px: la página se sale de ancho`);
           assert.deepEqual(r.bad, [], `${theme} ${tab} ${w}px: textos que desbordan: ${JSON.stringify(r.bad)}`);
           assert.deepEqual(r.stacked, [], `${theme} ${tab} ${w}px: etiquetas apiladas en: ${JSON.stringify(r.stacked)}`);
+          assert.deepEqual(r.low_contrast, [], `${theme} ${tab} ${w}px: contraste bajo (AA 4,5): ${JSON.stringify(r.low_contrast)}`);
         }
       }
     }

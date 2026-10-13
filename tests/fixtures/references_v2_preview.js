@@ -32,6 +32,23 @@
     { id: "m6", kind: "ingreso", size: "4", quantity: 1221, event_date: "2026-09-16", created_by: "Ana", size_without_reference: true },
     { id: "m7", kind: "ingreso", size: "6", quantity: 9, event_date: "2026-09-16", created_by: "Ana", size_without_reference: true, voided_at: "2026-09-17", void_reason: "doble" }] };
   if (P.get("small") === "1") Object.assign(balance, { received: 50, novelty: 3, deployed: 1, available: 46 });
+  // Tarjeta única (una referencia = nombre + color) y orden operacional, como /v2/groups y /v2/op-order.
+  const line = (size, id, o = {}) => ({ size, reference_id: id, solo_corte: !id, anchor_id: id ? null : "aa", meta: 0, produced: 0, bot_active: false, received: 0, combined: false, ...o });
+  const groups = [
+    { key: "auroraazul💙|azul", name: "Aurora Azul 💙", color: "Azul", received: 36, produced: 9, meta: 0, percent: 25, solo_corte: ["S", "M"],
+      lines: [line("S", null, { received: 26 }), line("SM", "aa", { produced: 9, bot_active: false }), line("M", null, { received: 10 })] },
+    { key: "leggingsdeportivolargoedicionespecial|negrocarbon", name: "Leggings Deportivo Largo Edición Especial", color: "Negro carbón", received: 1250, produced: 1180, meta: 1250, percent: 94.4, solo_corte: [],
+      lines: [line("12", "lg", { meta: 1250, produced: 1180, bot_active: true, received: 1250 })] },
+    { key: "mysticjacket|marfil", name: "Mystic jacket", color: "Marfil", received: 0, produced: 126, meta: 126, percent: null, solo_corte: [],
+      lines: [line("SM, MI", "mj", { meta: 126, produced: 126, bot_active: true, combined: true })] },
+    { key: "mysticpant|", name: "Mystic pant", color: "", received: 0, produced: 114, meta: 114, percent: null, solo_corte: [],
+      lines: [line("4, 6, 8, 10, 12", "mp", { meta: 114, produced: 114, bot_active: true, combined: true })] },
+    { key: "pantset|marfil", name: "PANT SET", color: "Marfil", received: 1250, produced: 0, meta: 50, percent: 0, solo_corte: ["4", "6", "8"],
+      lines: [line("4", null, { received: 1221, anchor_id: "p10" }), line("6", null, { received: 9, anchor_id: "p10" }), line("8", null, { received: 6, anchor_id: "p10" }),
+        line("10", "p10", { meta: 30, bot_active: true, received: 30 }), line("12", "p12", { meta: 20, received: 0 })] }];
+  const opItems = [{ id: "i1", name: "Corte y trazo de piezas", minutes: 25, size: "", position: 0 }, { id: "i2", name: "Costura", minutes: 60, size: "", position: 1 },
+    { id: "i3", name: "Botones y ojales", minutes: 27, size: "", position: 2 }, { id: "i4", name: "Bolsillo extra talla M", minutes: 5, size: "M", position: 3 }];
+  const opData = { group: groups[0], settings: { value_per_garment: 24000 }, calc: { items: opItems }, sizes: ["S", "SM", "M"] };
   let catalog = null;
   const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
   const real = window.fetch.bind(window);
@@ -51,6 +68,8 @@
     if (p.endsWith("/v2/catalog")) { catalog = catalog || await real("/client-static/garment_catalog.json").then((r) => r.json()); return json({ catalog, counts: { mujer: { parts: { inferior: 3, superior: 2 }, garments: { pantalon: 3 } } } }); }
     if (p.endsWith("/summary")) return json(summary);
     if (p.endsWith("/v2/board")) return json({ extras });
+    if (p.endsWith("/v2/groups")) return json({ groups });
+    if (p.endsWith("/v2/op-order")) return json(opData);
     if (p.endsWith("/balance")) return json(balance);
     if (p === `/references-v1/companies/${CID}`) return json({ items: rows });
     return json({});
@@ -64,10 +83,34 @@
     m.tab = P.get("tab") || "catalogo";
     if (m.tab === "catalogo") { m.form.part = "inferior"; m.form.garment = "pantalon"; m.form.sizes = { 4: "30", 6: "20", 16: "1200" }; m.form.name = "PANT SET"; m.form.color = "Marfil"; }
     if (m.tab === "cortes") { m.cut.refId = "p10"; m.cut.received = { 10: "30", 12: "20", 8: "6" }; m.logOpen = { "2026-09-16": true }; m.cut.novelties = { corte: { note: "Pieza mal cortada en talla 12", quantity: "1" } }; m.cut.deploy = { quantity: "1", size: "10", date: "2026-10-06" }; m.balance = balance; }
-    if (m.tab === "estado") { R.openModal(P.get("modal") === "0" ? "" : "p12"); m.modalBalance = { log: balance.log }; }
+    if (m.tab === "estado" && P.get("modal") !== "0") R.openGroupModal(P.get("modal") || "pantset|marfil");
+    if (m.tab === "orden") { m.op.key = groups[0].key; m.op.view = P.get("view") || ""; R.setOp(opData); }
     host.innerHTML = R.view();
     return true;
   }
+
+  // ---------------------------------------------------------------- contraste AA (elementos de la tarjeta única y la orden operacional)
+  function rgb(value) {
+    const srgb = String(value || "").match(/color\(srgb ([^)]+)\)/);
+    if (srgb) { const [r, g, b, a = 1] = srgb[1].split(/[ /]+/).filter(Boolean).map(Number); return { r: r * 255, g: g * 255, b: b * 255, a }; }
+    const m = String(value || "").match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    const [r, g, b, a = 1] = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+    return { r, g, b, a };
+  }
+  function lum({ r, g, b }) { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); }
+  function backgroundOf(el) {
+    const layers = [];
+    for (let node = el; node; node = node.parentElement) { const c = rgb(getComputedStyle(node).backgroundColor); if (c && c.a > 0) { layers.push(c); if (c.a >= 1) break; } }
+    let base = { r: 255, g: 255, b: 255 };
+    const stops = String(getComputedStyle(document.body).backgroundImage).match(/rgba?\([^)]+\)/g);
+    if (stops && stops.length) base = rgb(stops[0]);
+    for (let i = layers.length - 1; i >= 0; i -= 1) { const l = layers[i]; base = { r: l.r * l.a + base.r * (1 - l.a), g: l.g * l.a + base.g * (1 - l.a), b: l.b * l.a + base.b * (1 - l.a) }; }
+    return base;
+  }
+  function ratio(el) { const fg = rgb(getComputedStyle(el).color); const bg = backgroundOf(el); const a = lum(fg) + 0.05; const b = lum(bg) + 0.05; return Math.round((Math.max(a, b) / Math.min(a, b)) * 100) / 100; }
+  const CONTRAST = [".rv-gline > *", ".rv-gfoot span", ".rv-gfoot b", ".rv-gcard .rv-card-head b", ".rv-gcard .rv-card-head small", ".rv-gmline .rv-gsize", ".rv-gmnums span",
+    ".rv-op-row > span", ".rv-op-kpis b", ".rv-op-kpis small", ".rv-op-sz b", ".rv-op-szn", ".rv-op-sizes .rv-chip", ".rv-gbot .rv-chip"];
 
   function measure() {
     const root = document.querySelector(".rv-root");
@@ -93,7 +136,14 @@
       .map((g) => { const owner = g.closest(".rv-card, .rv-part") || g; const name = owner.querySelector("b"); return `${name ? name.textContent : "?"} (${g.clientWidth}px: ${[...g.children].map((c) => c.offsetWidth).join("+")})`; });
     const out = document.createElement("pre");
     out.id = "layout";
-    out.textContent = JSON.stringify({ width: window.innerWidth, tab: P.get("tab"), page_overflow: page, bad, stacked });
+    const low = [];
+    CONTRAST.forEach((sel) => root.querySelectorAll(sel).forEach((el) => {
+      if (el.offsetParent === null && !el.closest(".rv-modal")) return;
+      if (!(el.textContent || "").trim()) return;
+      const r = ratio(el);
+      if (r < 4.5) low.push({ sel, text: (el.textContent || "").trim().slice(0, 30), ratio: r });
+    }));
+    out.textContent = JSON.stringify({ width: window.innerWidth, tab: P.get("tab"), page_overflow: page, bad, stacked, low_contrast: low });
     document.body.appendChild(out);
   }
 

@@ -94,54 +94,161 @@ test('orden de tallas: numéricas ascendentes y letras XS, S, M, L, XL, XXL (SM 
   assert.deepEqual(plain(g[0].rows.map((r) => r.size)), ['4', '12'], 'y sus tallas de menor a mayor');
 });
 
-test('tarjetas: tallas combinadas tal cual, por clasificar con sugerencia, nota de Bombón; al tocar abre el emergente', () => {
+// Grupos como los devuelve /v2/groups (references_v2.build_groups): una
+// referencia = nombre + color, una línea por talla, "solo corte" incluidas.
+const GROUPS = [
+  { key: 'auroraazul|azul', name: 'Aurora Azul', color: 'Azul', received: 36, produced: 9, meta: 0, percent: 25, solo_corte: ['S', 'M'], unsized_received: 0,
+    lines: [{ size: 'S', reference_id: null, solo_corte: true, anchor_id: 'aa', meta: 0, produced: 0, bot_active: false, received: 26, combined: false },
+      { size: 'SM', reference_id: 'aa', solo_corte: false, anchor_id: null, meta: 0, produced: 9, bot_active: true, received: 0, combined: false },
+      { size: 'M', reference_id: null, solo_corte: true, anchor_id: 'aa', meta: 0, produced: 0, bot_active: false, received: 10, combined: false }] },
+  { key: 'mysticpant|', name: 'Mystic pant', color: '', received: 0, produced: 114, meta: 114, percent: null, solo_corte: [], unsized_received: 0,
+    lines: [{ size: '4, 6, 8, 10, 12', reference_id: 'mp', solo_corte: false, anchor_id: null, meta: 114, produced: 114, bot_active: true, received: 0, combined: true }] },
+  { key: 'pantset|marfil', name: 'PANT SET', color: 'Marfil', received: 50, produced: 0, meta: 50, percent: 0, solo_corte: [], unsized_received: 0,
+    lines: [{ size: '10', reference_id: 'p10', solo_corte: false, anchor_id: null, meta: 30, produced: 0, bot_active: true, received: 30, combined: false },
+      { size: '12', reference_id: 'p12', solo_corte: false, anchor_id: null, meta: 20, produced: 0, bot_active: false, received: 20, combined: false }] },
+];
+const ROWS_G = ROWS.map((r) => (r.id === 'aa' ? { ...r, size: 'SM', bot_active: true, channel: 'bot' } : r));
+
+test('estado: una tarjeta por referencia (nombre + color) con una línea por talla; columnas filtran tallas', () => {
+  const R = load();
+  Object.assign(R.model, { extras: EXTRAS, groups: GROUPS });
+  const c = R.groupColumns(GROUPS, { gender: 'mujer' }, CATALOG);
+  assert.deepEqual(plain(c.activas.map((g) => g.name)), ['Aurora Azul', 'Mystic pant', 'PANT SET']);
+  assert.deepEqual(plain(c.visibles.map((g) => [g.name, g.lines.map((l) => l.size)])), [['Aurora Azul', ['SM']], ['Mystic pant', ['4, 6, 8, 10, 12']], ['PANT SET', ['10']]]);
+  assert.deepEqual(plain(c.noVisibles.map((g) => [g.name, g.lines.map((l) => l.size)])), [['PANT SET', ['12']]], '"solo corte" no es referencia todavía: solo en Activas');
+  assert.deepEqual(plain(R.groupColumns(GROUPS, { gender: 'mujer', search: 'pantalon' }, CATALOG).activas.map((g) => g.name)), ['PANT SET'], 'busca por la prenda');
+  assert.deepEqual(plain(R.groupColumns(GROUPS, { gender: 'mujer', search: ' sm' }, CATALOG).activas.map((g) => g.name)), ['Aurora Azul'], 'y por talla');
+  assert.equal(R.groupColumns(GROUPS, { gender: 'hombre' }, CATALOG).activas.length, 0);
+});
+
+test('Aurora Azul: tarjeta con S, SM y M, recibido 36 y % = producido ÷ 36; "solo corte" con botón para crearla', () => {
   const R = load();
   const m = R.model;
-  Object.assign(m, { catalog: CATALOG, rows: ROWS, extras: EXTRAS, tab: 'estado', filterGender: 'mujer', search: '' });
-  let html = R.view();
-  assert.match(html, /<b>Mystic pant<\/b><small>Sin categoría · 4, 6, 8, 10, 12 <i class="rv-chip is-amber">Tallas combinadas<\/i><\/small>/, 'la fila combinada no se parte; la etiqueta va junto a sus tallas');
-  assert.match(html, /<b>PANT SET · talla 10<\/b><small>Pantalón · Mujer · Marfil<\/small>/);
-  assert.match(html, /<p class="rv-sug"><span><i class="rv-chip is-cyan">Por clasificar<\/i> Sugerencia: <b>Chaqueta · Mujer<\/b><\/span><button[^>]*data-rv-confirm="mj"/, 'misma línea; se confirma con un clic; nunca sola');
-  assert.match(html, /Enviada 1 a Bombón el 06\/10\/2026 \(fotos\)/);
-  assert.doesNotMatch(html, /despliegue/i, 'solo cambia el texto visible: "Bombón"');
-  assert.match(html, /Meta <b>126<\/b>.*Producido <b>126<\/b>.*Pendiente <b>0<\/b>/s);
-  assert.match(html, /data-rv-open="p12" aria-haspopup="dialog"/);
-  assert.match(SRC, /confirm\(`Reiniciar ciclo de esta referencia con meta \$\{total\}\? El historial anterior queda guardado y el conteo activo empieza en cero\.`\)/, 'misma confirmación de hoy');
-  assert.match(SRC, /confirm\("¿Archivar esta referencia\? No se borrará físicamente\."\)/);
+  Object.assign(m, { catalog: CATALOG, rows: ROWS_G, extras: EXTRAS, groups: GROUPS, tab: 'estado', filterGender: 'mujer', search: '', modal: '', lastOpen: '' });
+  const html = R.view();
+  const aurora = html.slice(html.indexOf('data-rv-gopen="auroraazul|azul"'), html.indexOf('data-rv-gopen="mysticpant|"'));
+  assert.deepEqual([...aurora.matchAll(/<b class="rv-gsize" role="cell">([^<]+)<\/b>/g)].map((x) => x[1]), ['S', 'SM', 'M'], 'orden del catálogo');
+  assert.match(aurora, /<small>Mujer · Azul · 3 tallas<\/small>/);
+  assert.match(aurora, /Recibido <b>36<\/b> · Producido <b>9<\/b> · <b>25&nbsp;%<\/b>/);
+  assert.match(aurora, /--p:25%/);
+  assert.match(aurora, /<b class="rv-gsize" role="cell">S<\/b><span role="cell" data-k="Meta">—<\/span><span role="cell" data-k="Recibido">26<\/span>/);
+  assert.equal((aurora.match(/<span class="rv-gbot" role="cell"><i class="rv-chip is-amber">solo corte<\/i><\/span>/g) || []).length, 2, '"solo corte" en la columna Bot, sin interruptor');
+  assert.match(aurora, /data-rv-visible="aa" checked aria-label="Visible para bot talla SM"/, 'la talla con fila lleva interruptor del bot');
+  assert.match(aurora, /data-rv-gcreate="auroraazul\|azul"[^>]*>Crear S y M<\/button>/, 'crear de una vez las tallas solo corte');
+  assert.match(html, /data-rv-gbot="pantset\|marfil" data-rv-on="1">Todas visibles/, 'con alguna oculta: Todas visibles');
+  assert.match(html, /data-rv-gbot="mysticpant\|" data-rv-on="0">Todas ocultas/, 'todas visibles: Todas ocultas');
+  assert.match(aurora, /data-rv-gconfirm="auroraazul\|azul">Confirmar/, 'sugerencia de clasificación con un clic');
+  assert.match(html, /<b>Mystic pant<\/b>.*<b class="rv-gsize" role="cell">4, 6, 8, 10, 12<\/b>/s, 'la fila combinada no se parte');
+  assert.match(html, /Recibido <b>0<\/b> · Producido <b>114<\/b> · <b>—<\/b>/, 'sin cortes: "—"');
+  assert.match(html, /Enviada 1 a Bombón el 06\/10\/2026 \(fotos\)/, 'nota de Bombón de todas sus tallas');
+  assert.doesNotMatch(html, /despliegue/i);
+  assert.match(SRC, /Se crean con meta 0 y NO visibles para el bot/, 'crear de una vez: misma regla de "Crear referencia en talla N"');
+  assert.match(SRC, /post\(`\/v2\/references\/\$\{encodeURIComponent\(l\.anchor_id\)\}\/add-size`, \{ size: l\.size \}\)/, 'usa el endpoint que ya existe');
+  assert.match(SRC, /confirm\(`¿\$\{on \? "Hacer visibles" : "Ocultar"\} para el bot/, 'visibles/ocultas con confirmación');
   assert.equal(R.nextChannel(ROWS[1], true), 'both', 'sistema + bot');
   assert.equal(R.nextChannel(ROWS[0], false), 'system');
   assert.deepEqual(plain(R.rowPayload(ROWS[0], { channel: 'system' })), { category: 'Pantalón', name: 'PANT SET', size: '10', color: 'Marfil', sku: '', unit_price: 0, initial_quantity: 30, channel: 'system' });
 });
 
-test('emergente: abre con los datos actuales, avisa cambios sin guardar, cierra y deja la tarjeta marcada', () => {
+test('emergente: todas las tallas (meta y bot por talla, reiniciar y archivar por talla), avisa cambios y cierra marcando la tarjeta', () => {
   const R = load();
   const m = R.model;
-  Object.assign(m, { catalog: CATALOG, rows: ROWS, extras: EXTRAS, tab: 'estado', filterGender: 'mujer', search: '', modal: '', draft: null, lastOpen: '' });
-  assert.equal(R.openModal('p12'), true);
-  m.modalBalance = { log: [{ kind: 'ingreso', size: '12', quantity: 20, event_date: '2026-10-06' }, { kind: 'ingreso', size: '10', quantity: 30, event_date: '2026-10-06' },
-    { kind: 'ingreso', size: '12', quantity: 5, event_date: '2026-09-16', voided_at: '2026-09-17' }] };
+  Object.assign(m, { catalog: CATALOG, rows: ROWS_G, extras: EXTRAS, groups: GROUPS, tab: 'estado', filterGender: 'mujer', search: '', modal: '', gdraft: null, lastOpen: '' });
+  assert.equal(R.openGroupModal('pantset|marfil'), true);
   let html = R.view();
   assert.match(html, /role="dialog" aria-modal="true"/);
-  assert.match(html, /data-rv-m="name" value="PANT SET"/); assert.match(html, /data-rv-m="color" value="Marfil"/);
-  assert.match(html, /data-rv-m="size" value="12"/); assert.match(html, /data-rv-m="initial_quantity" type="number" min="0" inputmode="numeric" value="20"/);
+  assert.match(html, /data-rv-gm-meta="p10" value="30"/); assert.match(html, /data-rv-gm-meta="p12" value="20"/);
+  assert.match(html, /data-rv-gm-bot="p10" checked/); assert.match(html, /data-rv-gm-bot="p12"\s+aria-label/);
+  assert.match(html, /data-rv-reset="p10">Reiniciar ciclo<\/button><button type="button" class="rv-btn is-small" data-rv-archive="p10">Archivar/);
+  assert.match(html, /data-rv-reset="p12">Reiniciar ciclo/);
   assert.match(html, /<option value="pantalon" selected>Pantalón<\/option>/, 'prenda actual');
-  assert.match(html, /data-rv-m="visible" >/, 'no visible para bot');
-  assert.match(html, /<li><span>06\/10\/2026<\/span><b>20<\/b><\/li><li class="is-total"><span>Total recibido<\/span><b>20<\/b>/, 'solo los cortes de su talla, sin anulados');
-  for (const b of ['Guardar', 'Reiniciar ciclo', 'Archivar']) assert.match(html, new RegExp(`>${b}</button>`));
   assert.match(html, /data-rv-modal-close aria-label="Cerrar">✕/);
-  assert.equal(R.isDirty(), false);
-  m.draft.initial_quantity = '25';
-  assert.equal(R.isDirty(), true);
+  R.openGroupModal('auroraazul|azul');
+  assert.match(R.view(), /data-rv-gaddsize="S" data-rv-anchor="aa" data-rv-gname="Aurora Azul">Crear referencia en talla S/, 'las "solo corte" también se crean desde aquí');
+  R.openGroupModal('pantset|marfil');
+  assert.equal(R.groupDirty(), false);
+  m.gdraft.p12.meta = '25';
+  assert.equal(R.groupDirty(), true);
   let asked = '';
   assert.equal(R.closeModal((msg) => { asked = msg; return false; }), false, 'con cambios, avisa y no cierra si dicen que no');
   assert.match(asked, /cambios sin guardar/);
-  assert.equal(m.modal, 'p12');
   assert.equal(R.closeModal(() => true), true);
-  assert.equal(m.modal, ''); assert.equal(m.lastOpen, 'p12');
-  assert.match(R.view(), /class="rv-card  is-last"><button type="button" class="rv-card-head" data-rv-open="p12"/, 'la tarjeta abierta queda marcada');
+  assert.equal(m.modal, ''); assert.equal(m.lastOpen, 'g:pantset|marfil');
+  assert.match(R.view(), /class="rv-card rv-gcard  is-last">\s*<button type="button" class="rv-card-head" data-rv-gopen="pantset\|marfil"/, 'la tarjeta abierta queda marcada');
+  assert.match(SRC, /confirm\(`Reiniciar ciclo de esta referencia con meta \$\{total\}\? El historial anterior queda guardado y el conteo activo empieza en cero\.`\)/, 'misma confirmación de hoy');
+  assert.match(SRC, /confirm\("¿Archivar esta referencia\? No se borrará físicamente\."\)/);
+  assert.match(SRC, /method: "PATCH", body: JSON\.stringify\(rowPayload\(r, \{ initial_quantity: num\(d\.meta\), channel: nextChannel\(r, d\.visible\) \}\)\)/, 'guarda con el endpoint de siempre');
   assert.match(SRC, /event\.key !== "Escape"/, 'se cierra con Esc');
   assert.match(SRC, /t\.matches\("\[data-rv-overlay\]"\)/, 'y tocando fuera');
-  assert.match(SRC, /method: "PATCH", body: JSON\.stringify\(rowPayload\(r, \{ name: d\.name\.trim\(\)/, 'guarda con el endpoint de siempre');
+});
+
+// Mismo caso que tests/test_references_op_order_pg.py (servidor): misma fórmula, mismas cifras.
+const ITEMS = [{ id: 'a', name: 'Corte', minutes: 25, size: '' }, { id: 'b', name: 'Costura', minutes: 60, size: '' },
+  { id: 'c', name: 'Botones', minutes: 27, size: '' }, { id: 'd', name: 'Bolsillo', minutes: 5, size: 'M' }];
+const LINES = [{ size: 'S', received: 26, produced: 0 }, { size: 'SM', received: 0, produced: 9 }, { size: 'M', received: 10, produced: 0 }];
+
+test('orden operacional: 112 min, $24.000, 25 min = 22,3 % = $5.357; "solo M" suma a M (117); la suma da exacta; orden 68h 02m', () => {
+  const R = load();
+  const c = R.opCalc(ITEMS, 24000, LINES);
+  assert.equal(c.minutes, 112);
+  assert.deepEqual(plain(c.items.map((i) => [i.percent, i.value])), [[22.3, 5357], [53.6, 12857], [24.1, 5786], [null, null]]);
+  assert.equal(c.items.reduce((a, i) => a + (i.value || 0), 0), 24000, 'el último ítem absorbe el redondeo');
+  assert.equal(c.order_minutes, 26 * 112 + 10 * 117); assert.equal(c.order_label, '68h 02m');
+  assert.deepEqual(plain(c.per_size.map((s) => [s.size, s.minutes])), [['S', 112], ['SM', 112], ['M', 117]]);
+  assert.deepEqual(plain(c.extra_sizes), ['M']);
+  assert.equal(c.received, 36); assert.equal(c.percent, 25);
+  const mView = R.opCalc(ITEMS, 24000, LINES, 'M');
+  assert.equal(mView.minutes, 117);
+  assert.equal(mView.items.reduce((a, i) => a + (i.value || 0), 0), 24000);
+  assert.equal(R.hm(4082), '68h 02m');
+  assert.equal(R.money(5357), '$ 5.357', 'COP sin centavos (formato de siempre)');
+  assert.equal(R.opCalc([], 24000, LINES).value_per_minute, null, 'sin ítems no divide por cero');
+});
+
+test('orden operacional: pantalla entre Cortes y Estado, indicadores, tallas, ítems y "+ Agregar ítem"', () => {
+  const R = load();
+  const m = R.model;
+  Object.assign(m, { catalog: CATALOG, rows: ROWS_G, extras: EXTRAS, groups: GROUPS, tab: 'orden', modal: '' });
+  m.op.key = 'auroraazul|azul'; m.op.view = '';
+  R.setOp({ group: GROUPS[0], settings: { value_per_garment: 24000 }, calc: { items: ITEMS } });
+  let html = R.view();
+  assert.deepEqual([...html.matchAll(/data-rv-tab="(\w+)"/g)].map((x) => x[1]), ['catalogo', 'cortes', 'orden', 'estado'], 'Catálogo → Cortes → Orden operacional → Estado');
+  // Diseño aprobado: seis indicadores con etiqueta, cifra y detalle.
+  assert.match(html, /<small>Tiempo por prenda<\/small><b>1h 52m<\/b><small class="is-detail">Talla M: 1h 57m<\/small>/, 'y por talla cuando tiene ítems extra');
+  assert.match(html, /<small>Valor por prenda<\/small><b>\$ 24\.000<\/b><small class="is-detail">igual para todas las tallas<\/small>/);
+  assert.match(html, /<small>Valor por minuto<\/small><b>\$ 214<\/b><small class="is-detail">sobre 112 min<\/small>/);
+  assert.match(html, /<small>Cortes recibidos<\/small><b>36<\/b><small class="is-detail">S 26 · M 10<\/small>/);
+  assert.match(html, /<small>Producido<\/small><b>9 · 25&nbsp;%<\/b><small class="is-detail">producido ÷ recibido<\/small>/);
+  assert.match(html, /<small>Tiempo de la orden<\/small><b>68h 02m<\/b><small class="is-detail">36 prendas<\/small>/);
+  assert.match(html, /<div class="rv-op-tile is-cut"><b>S<\/b><strong>26<\/strong><small>solo corte<\/small><\/div><div class="rv-op-tile "><b>SM<\/b><strong>0<\/strong><small>referencia<\/small>/);
+  assert.match(html, /Avance · 9 de 36/);
+  assert.match(html, /<span class="rv-op-name">Corte<\/span><span>0h 25m<\/span><span><i class="rv-pill ">Todas<\/i><\/span>\s*<span class="rv-op-pct"><i class="rv-op-bar-mini" style="--p:22\.3%"><\/i>22,3&nbsp;%<\/span><span class="rv-op-val">\$ 5\.357<\/span>/);
+  assert.match(html, /<div class="rv-op-row is-off" role="row"><span class="rv-op-name">Bolsillo<\/span><span>0h 05m<\/span><span><i class="rv-pill is-size">Solo M<\/i><\/span>\s*<span class="rv-op-pct">—<\/span>/, 'el ítem de otra talla no suma a "Todas"');
+  assert.match(html, /data-rv-op-editbtn="a" aria-label="Editar Corte"[^>]*>✎/);
+  assert.match(html, /Total por prenda \(todas las tallas\)<\/span><b>1h 52m · \$ 24\.000 · 100&nbsp;%<\/b>/);
+  assert.match(html, /Nuevo ítem<input data-rv-op-new="name"/);
+  assert.match(html, /data-rv-op-add[^>]*>\+ Agregar ítem/);
+  assert.match(html, /<select data-rv-op-view><option value="">Todas<\/option><option value="S" >S<\/option><option value="SM" >SM<\/option><option value="M" >M<\/option>/);
+  assert.match(html, /data-rv-op-value value="\$ 24\.000"/, 'el valor se ve con el formato de la moneda');
+  m.op.editing = 'a'; m.op.edit = { name: 'Corte', hours: '0', minutes: '25', size: '' };
+  html = R.view();
+  assert.match(html, /data-rv-op-move="a" data-rv-dir="-1" disabled/); assert.match(html, /data-rv-op-del="a">Eliminar/);
+  m.op.editing = ''; m.op.edit = null;
+  m.op.view = 'M';
+  html = R.view();
+  assert.match(html, /<small>Tiempo por prenda<\/small><b>1h 57m<\/b><small class="is-detail">talla M<\/small>/);
+  assert.match(html, /Total por prenda \(talla M\)<\/span><b>1h 57m · \$ 24\.000 · 100&nbsp;%<\/b>/);
+  assert.match(SRC, /confirm\(`¿Eliminar el ítem "\$\{i\.name\}"/, 'eliminar pide confirmación');
+});
+
+test('agrupación: la misma clave que el servidor (mayúsculas, tildes y espacios no cuentan)', () => {
+  const R = load();
+  assert.equal(R.groupKey('  Aurora  Azul ', 'AZUL'), 'auroraazul|azul');
+  assert.equal(R.groupKey('Aurora Cafe', 'Café'), R.groupKey('aurora cafe', 'cafe'));
+  assert.notEqual(R.groupKey('Aurora Cafe', 'Negro'), R.groupKey('Aurora Cafe', 'cafe'));
+  const g = R.groups([{ id: '1', name: 'Aurora Cafe', category: 'Superior', size: 'SM', color: 'Café' }, { id: '2', name: 'aurora  cafe', category: 'Chaqueta', size: 'ML', color: 'cafe' }]);
+  assert.equal(g.length, 1, 'Cortes agrupa igual que Estado y Orden operacional (la categoría no separa)');
+  assert.match(readFileSync('app/services/references_v2.py', 'utf8'), /return f"\{norm\(name\)\}\|\{norm\(color\)\}"/);
 });
 
 test('cortes: todas las tallas de la prenda; las que no existen como referencia se marcan y su corte va a la referencia', () => {
@@ -257,5 +364,5 @@ test('tema: references_v2.css no tiene colores fijos; todo sale de las variables
   assert.match(js, /class="client-hero rv-head"/); assert.match(js, /class="client-panel rv-panel/);
   assert.match(js, /client-btn rv-btn is-primary/); assert.match(js, /"client-btn is-on"/);
   assert.doesNotMatch(js, /setProperty\("--rv-/, 'sin pintura de marca propia');
-  assert.match(readFileSync('app/web/client.js', 'utf8'), /references_v2\.js\?v=050E/);
+  assert.match(readFileSync('app/web/client.js', 'utf8'), /references_v2\.js\?v=053A/);
 });
