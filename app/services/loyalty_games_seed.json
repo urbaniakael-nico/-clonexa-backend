@@ -1,5 +1,6 @@
 {
-  "_doc": "Banco inicial de la trivia 'Maquina del tiempo'. Se copia como DATOS editables (loyalty_trivia_questions) a cada empresa la primera vez que usa los juegos; despues la empresa lo edita desde Fidelizacion > Juegos en vivo > Preguntas.",
+  "_doc": "Banco inicial de la trivia 'Maquina del tiempo'. Se copia como DATOS editables (loyalty_trivia_questions) a cada empresa con el interruptor; despues la empresa lo edita desde Fidelizacion > Juegos en vivo > Preguntas. 'since' = version del banco en que se agrego la pregunta: a una empresa que ya tiene banco solo se le insertan las de versiones nuevas y solo si no existe ya una pregunta con el mismo texto (nunca se tocan las editadas).",
+  "version": 2,
   "questions": [
     {"level": 1, "question": "¿Qué banda canta \"Bohemian Rhapsody\"?", "correct": "Queen", "wrong": ["The Beatles", "AC/DC"]},
     {"level": 1, "question": "¿Quién canta \"El triste\"?", "correct": "José José", "wrong": ["Camilo Sesto", "Raphael"]},
@@ -20,6 +21,26 @@
     {"level": 5, "question": "¿Cuál era el nombre real de José José?", "correct": "José Rómulo Sosa Ortiz", "wrong": ["Miguel Rafael Martos", "Alberto Aguilera Valadez"]},
     {"level": 5, "question": "¿Qué guitarrista construyó con su padre la guitarra \"Red Special\"?", "correct": "Brian May", "wrong": ["Jimmy Page", "Keith Richards"]},
     {"level": 5, "question": "¿En qué banda tocaba Ringo Starr antes de The Beatles?", "correct": "Rory Storm and the Hurricanes", "wrong": ["The Quarrymen", "The Animals"]},
-    {"level": 5, "question": "¿Cómo se llamaba el vocalista de AC/DC que murió en 1980?", "correct": "Bon Scott", "wrong": ["Brian Johnson", "Angus Young"]}
+    {"level": 5, "question": "¿Cómo se llamaba el vocalista de AC/DC que murió en 1980?", "correct": "Bon Scott", "wrong": ["Brian Johnson", "Angus Young"]},
+    {"level": 1, "since": 2, "question": "¿Quién canta \"La gata bajo la lluvia\"?", "correct": "Rocío Dúrcal", "wrong": ["Ana Gabriel", "Yuri"]},
+    {"level": 1, "since": 2, "question": "¿Qué banda canta \"Smoke on the Water\"?", "correct": "Deep Purple", "wrong": ["Black Sabbath", "Kiss"]},
+    {"level": 1, "since": 2, "question": "¿Quién canta \"Hey Jude\"?", "correct": "The Beatles", "wrong": ["The Rolling Stones", "Queen"]},
+    {"level": 1, "since": 2, "question": "¿Qué banda canta \"Sweet Child O' Mine\"?", "correct": "Guns N' Roses", "wrong": ["Bon Jovi", "Aerosmith"]},
+    {"level": 2, "since": 2, "question": "¿Qué banda canta \"We Will Rock You\"?", "correct": "Queen", "wrong": ["Kiss", "AC/DC"]},
+    {"level": 2, "since": 2, "question": "¿Quién canta \"Gwendolyne\"?", "correct": "Julio Iglesias", "wrong": ["Raphael", "Camilo Sesto"]},
+    {"level": 2, "since": 2, "question": "¿Quién es el vocalista de The Rolling Stones?", "correct": "Mick Jagger", "wrong": ["Keith Richards", "Ozzy Osbourne"]},
+    {"level": 2, "since": 2, "question": "¿Quién canta \"Yo no nací para amar\"?", "correct": "Juan Gabriel", "wrong": ["José José", "Leo Dan"]},
+    {"level": 3, "since": 2, "question": "¿Qué banda grabó el álbum \"Back in Black\"?", "correct": "AC/DC", "wrong": ["Def Leppard", "Van Halen"]},
+    {"level": 3, "since": 2, "question": "¿Quién fue el primer vocalista de Black Sabbath?", "correct": "Ozzy Osbourne", "wrong": ["Ronnie James Dio", "Ian Gillan"]},
+    {"level": 3, "since": 2, "question": "¿Quién canta \"Mi gran noche\"?", "correct": "Raphael", "wrong": ["Camilo Sesto", "Julio Iglesias"]},
+    {"level": 3, "since": 2, "question": "¿Qué banda canta \"Dream On\"?", "correct": "Aerosmith", "wrong": ["Boston", "Kansas"]},
+    {"level": 4, "since": 2, "question": "¿En qué año salió \"Bohemian Rhapsody\"?", "correct": "1975", "wrong": ["1979", "1971"]},
+    {"level": 4, "since": 2, "question": "¿En qué año murió Nino Bravo?", "correct": "1973", "wrong": ["1980", "1969"]},
+    {"level": 4, "since": 2, "question": "¿Qué baterista de Led Zeppelin murió en 1980?", "correct": "John Bonham", "wrong": ["Keith Moon", "Ginger Baker"]},
+    {"level": 4, "since": 2, "question": "¿Quién compuso \"El triste\"?", "correct": "Roberto Cantoral", "wrong": ["Armando Manzanero", "Juan Gabriel"]},
+    {"level": 5, "since": 2, "question": "¿Cuál era el nombre real de Camilo Sesto?", "correct": "Camilo Blanes Cortés", "wrong": ["Miguel Rafael Martos", "Alberto Aguilera Valadez"]},
+    {"level": 5, "since": 2, "question": "¿Cuál era el nombre real de Freddie Mercury?", "correct": "Farrokh Bulsara", "wrong": ["Frederick Jones", "Brian Harold May"]},
+    {"level": 5, "since": 2, "question": "¿Qué tecladista fundó Deep Purple con Ritchie Blackmore?", "correct": "Jon Lord", "wrong": ["Rick Wakeman", "Keith Emerson"]},
+    {"level": 5, "since": 2, "question": "¿Quién era el bajista y principal letrista de Pink Floyd en \"The Wall\"?", "correct": "Roger Waters", "wrong": ["David Gilmour", "Nick Mason"]}
   ]
 }

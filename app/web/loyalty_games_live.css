@@ -139,10 +139,12 @@ body {
 .lgx-dots i:nth-child(3) { animation-delay: .4s; }
 .lgx-hud { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 15px; font-weight: 800; }
 .lgx-timer { font-size: 22px; font-variant-numeric: tabular-nums; }
-.lgx-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; perspective: 600px; }
-.lgx-card3d { position: relative; aspect-ratio: 3 / 4; border: 0; padding: 0; background: none; cursor: pointer; transform-style: preserve-3d; transition: transform .35s ease; }
+.lgx-cards { display: grid; grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr)); gap: 6px; perspective: 600px; }
+/* Alto de carta segun las filas: todas caben sin scroll en 375x667; la zona de toque nunca baja de 44 px (si falta espacio, se achica el icono). */
+.lgx-card3d { position: relative; height: clamp(44px, calc((100svh - 245px) / var(--rows, 2) - 6px), 96px); min-width: 44px; border: 0; padding: 0; background: none; cursor: pointer;
+  transform-style: preserve-3d; transition: transform .35s ease; }
 .lgx-card3d.is-up { transform: rotateY(180deg); }
-.lgx-back, .lgx-face { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 12px; backface-visibility: hidden; font-size: 30px; }
+.lgx-back, .lgx-face { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 10px; backface-visibility: hidden; font-size: clamp(17px, calc((100svh - 245px) / var(--rows, 2) * 0.4), 32px); }
 .lgx-back { background: linear-gradient(135deg, color-mix(in srgb, var(--lgx-accent) 80%, #0b0a14), #15132a); border: 2px solid var(--lgx-line); color: #fff; font-weight: 900; }
 .lgx-face { background: #fff; color: #0b0a14; transform: rotateY(180deg); }
 .lgx-card3d.is-done .lgx-face { box-shadow: 0 0 0 3px var(--lgx-ok) inset; }
@@ -158,6 +160,37 @@ body {
 .lgx-end.is-win { border-color: var(--lgx-accent-2); }
 .lgx-end.is-lost { border-color: var(--lgx-bad); }
 
+.lgx-card.is-memory { gap: 8px; padding: 12px; }
+.lgx-chip { display: inline-block; margin: 0; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--lgx-accent-2); font-size: 13px !important; font-weight: 800; justify-self: start; }
+
+/* 7 diferencias (celular): A arriba, B abajo; zoom con dos dedos sincronizado y doble toque */
+.lgx-card.is-diff { gap: 8px; padding: 10px; }
+.lgx-pair { display: grid; gap: 8px; }
+.lgx-zoom { position: relative; overflow: hidden; border-radius: 12px; aspect-ratio: 4 / 3; background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
+.lgx-pan { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
+.lgx-pan img { display: block; width: 100%; height: 100%; -webkit-user-drag: none; pointer-events: none; }
+.lgx-marks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.lgx-marks circle.is-hit { fill: none; stroke: #22c55e; stroke-width: 7; animation: lgx-ring .5s ease-out both; }
+.lgx-marks circle.is-miss { fill: rgba(239, 68, 68, .28); stroke: #ef4444; stroke-width: 5; animation: lgx-pop .4s ease; }
+.lgx-tag { position: absolute; top: 6px; left: 6px; padding: 1px 8px; border-radius: 6px; background: rgba(11, 10, 20, .8); color: #fff; font-size: 13px; }
+.lgx-pen { color: #fecaca; font-weight: 800; }
+.lgx-hint { font-size: 13px !important; color: var(--lgx-soft) !important; }
+
+/* 7 diferencias (pantalla del bar): miniaturas sin marcas y revelado final */
+.lgx-live.is-diff .lgx-clock { font-size: 14vh; }
+.lgx-thumbs { display: grid; grid-template-columns: 1fr 1fr; gap: 1vw; }
+.lgx-thumbs img { width: 100%; aspect-ratio: 4 / 3; border-radius: 1vh; border: 1px solid var(--lgx-line); }
+.lgx-reveal { display: grid; gap: 2vh; align-content: center; min-height: 0; }
+.lgx-reveal[hidden], .lgx-podium[hidden] { display: none; }
+.lgx-reveal-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 2vw; }
+.lgx-reveal-img { position: relative; margin: 0; }
+.lgx-reveal-img img { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 1.4vh; }
+.lgx-reveal-img svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.lgx-reveal-img circle { fill: none; stroke: #22c55e; stroke-width: 8; stroke-dasharray: 400; stroke-dashoffset: 400; animation: lgx-draw .9s ease-out forwards; animation-delay: calc(var(--i) * .45s); }
+.lgx-reveal-img figcaption { position: absolute; top: 1vh; left: 1vh; padding: .2vh 1vh; border-radius: .8vh; background: rgba(11, 10, 20, .85); font-size: 2.6vh; font-weight: 900; }
+@keyframes lgx-ring { from { opacity: 0; transform-box: fill-box; transform-origin: center; transform: scale(1.6); } to { opacity: 1; transform: none; } }
+@keyframes lgx-draw { to { stroke-dashoffset: 0; } }
+
 @keyframes lgx-in { from { opacity: 0; transform: translateY(2vh) scale(.6); } to { opacity: 1; transform: none; } }
 @keyframes lgx-pop { 0% { transform: scale(.6); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
 @keyframes lgx-rise { from { opacity: 0; transform: translateY(20vh); } to { opacity: 1; transform: none; } }
@@ -169,4 +202,5 @@ body {
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .lgx-confetti { display: none; }
   .lgx-bar i { transform: scaleX(.5); }
+  .lgx-reveal-img circle { stroke-dashoffset: 0; }
 }

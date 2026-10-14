@@ -12,6 +12,7 @@ Con el interruptor apagado (o token invalido) responde 403/404 y no muestra nada
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
@@ -163,8 +164,13 @@ def _live_extra(request: Request, live: dict) -> dict:
 @router.get("/companies/{company_id}/context")
 async def context(company_id: UUID, request: Request, who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict:
     await svc.ensure_bank(db, company_id)
+    from app.services import loyalty_games_engine as eng
+    from app.services import loyalty_games_scenes as scenes
+
     out = {"role": who["role"], "can": {"configure": who["role"] == "admin", "launch": True, "validate": True},
            "settings": await svc.settings(db, company_id), "brand": await brand(db, company_id),
+           "pair_options": list(eng.PAIR_OPTIONS), "scenes": [{"id": k, "name": v} for k, v in scenes.SCENE_NAMES.items()],
+           "levels": await svc.active_by_level(db, company_id),
            "live": _live_extra(request, await svc.live_state(db, company_id))}
     if who["role"] == "admin":
         out["screen_url"] = f"{_base(request)}/juegos/pantalla?t={await svc.screen_token(db, company_id)}"
@@ -254,8 +260,14 @@ async def spin(company_id: UUID, body: dict = Body(...), who: dict = Depends(act
 
 @router.post("/companies/{company_id}/rounds")
 async def open_round(company_id: UUID, request: Request, body: dict = Body(...), who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict:
+    """Abre el registro. Memoria: el barman puede elegir las parejas (5, 7, 10, 13 o 15)."""
+    raw_pairs = body.get("pairs")
     try:
-        await svc.open_round(db, company_id, str(body.get("kind") or ""), body.get("prize"), who["name"])
+        pairs = int(raw_pairs) if raw_pairs not in (None, "") else None
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="parejas_invalidas") from None
+    try:
+        await svc.open_round(db, company_id, str(body.get("kind") or ""), body.get("prize"), who["name"], pairs=pairs)
     except GameError as exc:
         raise _err(exc) from None
     return await live(company_id, request, who, db)
@@ -316,6 +328,21 @@ async def screen_state(token: str, request: Request, db: AsyncSession = Depends(
     if state.get("round"):
         state["round"].pop("token", None)
     return {**state, "brand": await brand(db, cid), "texts": (await svc.settings(db, cid))["texts"]}
+
+
+@router.get("/screen/{token}/image/{which}.png")
+async def screen_image(token: str, which: str, request: Request, r: str = "", db: AsyncSession = Depends(get_db)) -> Response:
+    """Imagen A o B de la ronda de 7 diferencias para la pantalla del bar (sin marcas)."""
+    cid = await _screen_company(db, token)
+    _limit(request, f"screen:{cid}")
+    row = await svc.round_row(db, cid, r)
+    if not row or which not in ("a", "b"):
+        raise HTTPException(status_code=404, detail="sin_imagen")
+    try:
+        data = await asyncio.to_thread(svc.image_png, row, which)  # dibujar no frena el unico worker
+    except GameError as exc:
+        raise _err(exc) from None
+    return Response(data, media_type="image/png", headers={"Cache-Control": "private, max-age=900"})
 
 
 @router.get("/screen/{token}/qr.svg")
@@ -394,3 +421,26 @@ async def play_answer(token: str, request: Request, body: dict = Body(...), x_pl
         return await svc.answer(db, r, x_player_token, str(body.get("question_id") or ""), body.get("choice"))
     except GameError as exc:
         raise _err(exc) from None
+
+
+@router.post("/play/{token}/tap")
+async def play_tap(token: str, request: Request, body: dict = Body(...), x_player_token: str = Header(default=""), db: AsyncSession = Depends(get_db)) -> dict:
+    """7 diferencias: toque normalizado (0-1); el servidor decide si acerto."""
+    r = await _round(db, token, request)
+    try:
+        return await svc.tap(db, r, x_player_token, body.get("x"), body.get("y"))
+    except GameError as exc:
+        raise _err(exc) from None
+
+
+@router.get("/play/{token}/image/{which}.png")
+async def play_image(token: str, which: str, request: Request, db: AsyncSession = Depends(get_db)) -> Response:
+    """Imagen A o B ya dibujada (PNG): el dibujo vectorial nunca llega al celular."""
+    r = await _round(db, token, request)
+    if which not in ("a", "b"):
+        raise HTTPException(status_code=404, detail="sin_imagen")
+    try:
+        data = await asyncio.to_thread(svc.image_png, r, which)  # dibujar no frena el unico worker
+    except GameError as exc:
+        raise _err(exc) from None
+    return Response(data, media_type="image/png", headers={"Cache-Control": "private, max-age=900"})

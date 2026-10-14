@@ -1,4 +1,4 @@
-"""Juegos en vivo (interruptor loyalty_games) contra Postgres REAL con la migracion 024j.
+"""Juegos en vivo (interruptor loyalty_games) contra Postgres REAL con las migraciones 024j y 024k.
 
 - Ruleta: en rango, no repite en la noche (jornada 18:00-04:00), avisa al agotarse.
 - Memoria: un documento juega una vez; el servidor no revela caras sin voltear;
@@ -51,10 +51,11 @@ def _migration() -> list[str]:
         def execute(self, sql):
             statements.append(str(sql))
 
-    module = importlib.import_module("migrations.versions.024j_loyalty_games")
-    module.op = Op()
-    module.upgrade()
-    assert len(module.revision) <= 32 and module.down_revision == "024i_shifts_v1"
+    for name, parent in (("024j_loyalty_games", "024i_shifts_v1"), ("024k_loyalty_games_v2", "024j_loyalty_games")):
+        module = importlib.import_module(f"migrations.versions.{name}")
+        module.op = Op()
+        module.upgrade()
+        assert len(module.revision) <= 32 and module.down_revision == parent
     return statements
 
 
@@ -120,7 +121,7 @@ async def test_roulette_never_repeats_in_the_night_and_warns(pg_url):
     async with maker() as db:
         cid = await _company(db, True)
         u = uuid.UUID(cid)
-        await svc.save_settings(db, cid, {"memory_seconds": 120, "trivia_seconds": 180, "roulette_ranges": [{"min": 1, "max": 3, "prize": "Shot"}]}, "dueno")
+        await svc.save_settings(db, cid, {"memory_pairs": 5, "trivia_seconds": 240, "roulette_ranges": [{"min": 1, "max": 3, "prize": "Shot"}], "differences_scenes": ["bar"]}, "dueno")
         # 22:00 y 02:00 (hora Bogota) son la MISMA noche de la jornada 18:00-04:00.
         night = [datetime(2026, 10, 17, 3, 0, tzinfo=timezone.utc), datetime(2026, 10, 17, 7, 0, tzinfo=timezone.utc), datetime(2026, 10, 17, 8, 30, tzinfo=timezone.utc)]
         got = [(await svc.spin(db, cid, 1, 3, "Shot", "barman", now=t))["number"] for t in night]
@@ -167,7 +168,7 @@ async def test_memory_round_end_to_end(pg_url):
         live = await api.start_round(u, uuid.UUID(r["id"]), _req(), BARMAN, db)
         rr = await svc.round_by_token(db, token)
         seed = int(rr["seed"])
-        cards = eng.board(seed)
+        cards = eng.board(seed, 5)
         me = await api.play_me(token, _req(), a["player_token"], db)
         assert me["memory"]["faces"] == {}, "sin voltear, ninguna cara"
         # Camila: 2 parejas; Beto: 1 pareja; Dani: 0.
@@ -199,7 +200,7 @@ async def test_memory_round_end_to_end(pg_url):
         state = await svc.live_state(db, cid, later)
         assert state["round"]["status"] == "closed" and [p["name"] for p in state["round"]["podium"]] == ["Camila", "Beto"]
         me = await api.play_me(token, _req(), a["player_token"], db)
-        assert me["result"] == {"result": "ranked", "place": 1, "score": 2}
+        assert me["result"] == {"result": "ranked", "place": 1, "score": 2, "finished": False}
         with pytest.raises(HTTPException):
             await api.play_flip(token, _req(), {"index": pairs[4][0]}, a["player_token"], db)
         # Validar: el documento correcto coincide, el incorrecto no; nunca se devuelve el documento.
@@ -210,36 +211,53 @@ async def test_memory_round_end_to_end(pg_url):
     await engine.dispose()
 
 
+async def _legacy_round(db, cid: str, kind: str, qids: list, status: str = "registration") -> str:
+    """Una ronda creada ANTES de este cambio: sin config (reglas de siempre)."""
+    return (await db.execute(text("""INSERT INTO loyalty_game_rounds (company_id, kind, status, prize, seed, game_day, duration_seconds, question_ids)
+        VALUES (CAST(:c AS uuid), :k, :st, 'Premio', 424242, CURRENT_DATE, :d, CAST(:q AS jsonb)) RETURNING id::text"""),
+                                  {"c": cid, "k": kind, "st": status, "d": 120 if kind == "memory" else 180, "q": json.dumps(qids)})).scalar()
+
+
 @pytest.mark.asyncio
-async def test_trivia_round_unfinished_player_loses(pg_url):
+async def test_rounds_open_at_deploy_finish_with_their_original_rules(pg_url):
+    """Trivia de 5 (una por nivel) y memoria de 5 parejas con el tablero de siempre."""
     engine, maker = await _session(pg_url)
     async with maker() as db:
         cid = await _company(db, True)
         u = uuid.UUID(cid)
-        assert await svc.ensure_bank(db, cid) == 20 and await svc.ensure_bank(db, cid) == 0
+        await svc.ensure_bank(db, cid)
         bank = await svc.questions(db, cid)
-        assert len(bank) == 20 and {q["level"] for q in bank} == {1, 2, 3, 4, 5}
-        live = await api.open_round(u, _req(), {"kind": "trivia", "prize": "Ronda"}, BARMAN, db)
-        token = live["round"]["join_url"].split("r=")[1]
-        r = await svc.round_by_token(db, token)
-        qids = json.loads(r["question_ids"]) if isinstance(r["question_ids"], str) else r["question_ids"]
-        levels = {q["id"]: q["level"] for q in bank}
-        assert sorted(levels[q] for q in qids) == [1, 2, 3, 4, 5], "una pregunta por nivel"
+        qids = eng.pick_questions(bank, 424242)
+        rid = await _legacy_round(db, cid, "trivia", qids)
+        await db.commit()
+        token = svc.round_token(rid)
         a = await api.play_join(token, _req(), {"name": "Ana", "document": "11112222", "consent": True}, db)
         b = await api.play_join(token, _req(), {"name": "Beto", "document": "33334444", "consent": True}, db)
-        await api.start_round(u, uuid.UUID(str(r["id"])), _req(), BARMAN, db)
+        await api.start_round(u, uuid.UUID(rid), _req(), BARMAN, db)
         correct = {q["id"]: q["correct_answer"] for q in bank}
         for _ in range(5):
             q = await api.play_question(token, _req(), a["player_token"], db)
             assert "correct_answer" not in json.dumps(q), "la respuesta nunca viaja al celular"
             choice = q["question"]["options"].index(correct[q["question"]["id"]])
             res = await api.play_answer(token, _req(), {"question_id": q["question"]["id"], "choice": choice}, a["player_token"], db)
-        assert res == {"ok": True, "done": True, "correct": 5}
-        await api.play_question(token, _req(), b["player_token"], db)  # Beto ve una y no responde
+        assert res == {"ok": True, "done": True, "correct": 5}, "trivia de antes: 5 preguntas"
+        await api.play_question(token, _req(), b["player_token"], db)
         state = await svc.live_state(db, cid, datetime.now(timezone.utc) + timedelta(seconds=181))
         assert state["round"]["status"] == "closed" and [p["name"] for p in state["round"]["podium"]] == ["Ana"]
-        me_b = await api.play_me(token, _req(), b["player_token"], db)
-        assert me_b["result"]["result"] == "lost", "Se acabo el tiempo, perdiste"
+        assert state["round"]["rules"] == 1 and state["round"]["goal"] == 5
+        assert (await api.play_me(token, _req(), b["player_token"], db))["result"]["result"] == "lost", "Se acabo el tiempo, perdiste"
+        # Memoria de antes: 5 parejas y EXACTAMENTE el tablero que ya se habia repartido.
+        mid = await _legacy_round(db, cid, "memory", [])
+        await db.commit()
+        mtok = svc.round_token(mid)
+        m = await api.play_join(mtok, _req(), {"name": "Cami", "document": "55556666", "consent": True}, db)
+        live = await api.start_round(u, uuid.UUID(mid), _req(), BARMAN, db)
+        assert live["round"]["goal"] == 5 and live["round"]["duration_seconds"] == 120
+        legacy = eng.board(424242)
+        res = await api.play_flip(mtok, _req(), {"index": 0}, m["player_token"], db)
+        assert res["faces"] == {"0": legacy[0]} and set(legacy) <= set(eng.LEGACY_ICONS)
+        me = await api.play_me(mtok, _req(), m["player_token"], db)
+        assert me["memory"]["size"] == 10 and me["memory"]["total_pairs"] == 5
     await engine.dispose()
 
 
@@ -360,9 +378,215 @@ async def test_existing_loyalty_answers_the_same_with_games_on(pg_url):
     await engine.dispose()
 
 
+
+# ---------------------------------------------------------------- v2: banco, memoria, trivia de 10 y 7 diferencias
+@pytest.mark.asyncio
+async def test_seed_adds_only_new_questions_and_never_touches_edited_ones(pg_url):
+    engine, maker = await _session(pg_url)
+    async with maker() as db:
+        fresh = await _company(db, True)
+        assert await svc.ensure_bank(db, fresh) == 40 and await svc.ensure_bank(db, fresh) == 0
+        assert await svc.active_by_level(db, fresh) == {"1": 8, "2": 8, "3": 8, "4": 8, "5": 8}
+        # Empresa que ya tenia el banco de 20 (version 1), edito una y ya tenia "Dream On" propia.
+        old = await _company(db, True)
+        for q in [q for q in svc.seed_questions() if int(q.get("since", 1)) == 1]:
+            await db.execute(text("""INSERT INTO loyalty_trivia_questions (company_id, level, question, correct_answer, wrong_1, wrong_2)
+                VALUES (CAST(:c AS uuid), :l, :q, :a, :b, :d)"""), {"c": old, "l": q["level"], "q": q["question"], "a": q["correct"], "b": q["wrong"][0], "d": q["wrong"][1]})
+        await db.execute(text("""UPDATE loyalty_trivia_questions SET question = 'Que banda canta Bohemian Rhapsody (1975)?', updated_at = now() + interval '1 hour'
+            WHERE company_id::text = :c AND question LIKE '%Bohemian Rhapsody%'"""), {"c": old})
+        await db.execute(text("""INSERT INTO loyalty_trivia_questions (company_id, level, question, correct_answer, wrong_1, wrong_2)
+            VALUES (CAST(:c AS uuid), 3, '¿Qué banda canta "Dream On"?', 'Aerosmith', 'Boston', 'Kansas')"""), {"c": old})
+        await db.commit()
+        before = {q["id"]: dict(q) for q in await svc.questions(db, old)}
+        assert await svc.ensure_bank(db, old) == 19, "solo las 20 nuevas, menos la que ya existia por texto"
+        assert await svc.ensure_bank(db, old) == 0
+        after = await svc.questions(db, old)
+        texts = [q["question"] for q in after]
+        assert len(texts) == len(set(texts)) == 21 + 19, "sin duplicados"
+        assert not any(t == '¿Qué banda canta "Bohemian Rhapsody"?' for t in texts), "no vuelve a meter la que el bar edito"
+        assert all(dict(next(x for x in after if x["id"] == i)) == q for i, q in before.items()), "las de antes quedan intactas"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_memory_pairs_are_chosen_per_round_and_kept(pg_url):
+    engine, maker = await _session(pg_url)
+    async with maker() as db:
+        cid = await _company(db, True)
+        u = uuid.UUID(cid)
+        with pytest.raises(HTTPException) as exc:
+            await api.open_round(u, _req(), {"kind": "memory", "pairs": 6}, BARMAN, db)
+        assert exc.value.status_code == 422
+        live = await api.open_round(u, _req(), {"kind": "memory", "pairs": 15}, BARMAN, db)
+        assert live["round"]["goal"] == 15 and live["round"]["duration_seconds"] == 300, "15 parejas -> 5:00"
+        token = live["round"]["join_url"].split("r=")[1]
+        a = await api.play_join(token, _req(), {"name": "Ana", "document": "12345678", "consent": True}, db)
+        # Cambiar los ajustes despues NO cambia la ronda ya creada.
+        await svc.save_settings(db, cid, {"memory_pairs": 7, "memory_times": {"15": 200}, "trivia_seconds": 240,
+                                          "roulette_ranges": [{"min": 1, "max": 50}], "differences_scenes": ["bar"]}, "dueno")
+        live = await api.start_round(u, uuid.UUID(live["round"]["id"]), _req(), BARMAN, db)
+        assert live["round"]["duration_seconds"] == 300 and live["round"]["goal"] == 15
+        r = await svc.round_by_token(db, token)
+        cards = eng.board(int(r["seed"]), 15)
+        assert len(cards) == 30 and len(set(cards)) == 15
+        me = await api.play_me(token, _req(), a["player_token"], db)
+        assert me["memory"]["size"] == 30 and me["memory"]["total_pairs"] == 15 and me["memory"]["faces"] == {}
+        await svc.close_round(db, cid, r["id"])
+        live = await api.open_round(u, _req(), {"kind": "memory"}, BARMAN, db)
+        assert live["round"]["goal"] == 7 and live["round"]["duration_seconds"] == 150, "por defecto: las parejas de Configuracion (7 -> 2:30)"
+    await engine.dispose()
+
+
+async def _round(db, token):
+    return await svc.round_by_token(db, token)
+
+
+@pytest.mark.asyncio
+async def test_trivia_of_ten_replaces_wrong_ones_repeats_unanswered_and_fills_the_podium(pg_url):
+    engine, maker = await _session(pg_url)
+    async with maker() as db:
+        cid = await _company(db, True)
+        u = uuid.UUID(cid)
+        live = await api.open_round(u, _req(), {"kind": "trivia", "prize": "Ronda"}, BARMAN, db)
+        assert live["round"]["goal"] == 10 and live["round"]["duration_seconds"] == 240
+        token = live["round"]["join_url"].split("r=")[1]
+        bank = {q["id"]: q for q in await svc.questions(db, cid)}
+        r = await _round(db, token)
+        qids = r["question_ids"] if isinstance(r["question_ids"], list) else json.loads(r["question_ids"])
+        assert [bank[q]["level"] for q in qids] == [1, 1, 2, 2, 3, 3, 4, 4, 5, 5], "2 por nivel, en orden de nivel"
+        players = {n: await api.play_join(token, _req(), {"name": n, "document": d, "consent": True}, db)
+                   for n, d in (("Ana", "11110001"), ("Beto", "11110002"), ("Cami", "11110003"), ("Dani", "11110004"))}
+        await api.start_round(u, uuid.UUID(str(r["id"])), _req(), BARMAN, db)
+        r = await _round(db, token)
+        t0 = r["started_at"]
+        correct = {q["id"]: q["correct_answer"] for q in bank.values()}
+
+        async def play(name, t, wrong_first=False, skip_first=False, stop_after=None):
+            tok = players[name]["player_token"]
+            first_orders, seen_replacement = {}, None
+            n = 0
+            while True:
+                q = await svc.trivia_state(db, r, tok, now=t)
+                if q.get("done") or q.get("stuck"):
+                    return t, q, first_orders, seen_replacement
+                qq = q["question"]
+                first_orders.setdefault(qq["id"], qq["options"])
+                if skip_first and n == 0:
+                    t += timedelta(seconds=12)  # no responde: pasa sola
+                    n += 1
+                    continue
+                if q.get("replaced"):
+                    seen_replacement = qq
+                ok_idx = qq["options"].index(correct[qq["id"]])
+                choice = (ok_idx + 1) % 3 if (wrong_first and n == 0) else ok_idx
+                await svc.answer(db, r, tok, qq["id"], choice, now=t + timedelta(milliseconds=800))
+                t += timedelta(seconds=1)
+                n += 1
+                if stop_after is not None and n >= stop_after:
+                    return t, q, first_orders, seen_replacement
+
+        # Ana falla la primera: se reemplaza por una NUEVA del mismo nivel que no habia visto.
+        t, last, _, repl = await play("Ana", t0 + timedelta(seconds=1), wrong_first=True)
+        assert last["done"] and last["correct"] == 10
+        prog = (await db.execute(text("SELECT progress FROM loyalty_game_players WHERE company_id::text = :c AND display_name = 'Ana'"), {"c": cid})).scalar()
+        prog = prog if isinstance(prog, dict) else json.loads(prog)
+        assert prog["slots"][0]["replaced"] == 1 and prog["slots"][0]["qid"] != qids[0] and bank[prog["slots"][0]["qid"]]["level"] == 1
+        assert prog["slots"][0]["qid"] not in qids and repl is not None and repl["id"] == prog["slots"][0]["qid"]
+        assert qids[0] in prog["seen"] and len(prog["seen"]) == 11
+        # Beto deja pasar la primera: vuelve en la segunda vuelta con OTRO orden de opciones.
+        _, last_b, orders_b, _ = await play("Beto", t0 + timedelta(seconds=2), skip_first=True)
+        assert last_b["done"]
+        prog_b = (await db.execute(text("SELECT progress FROM loyalty_game_players WHERE company_id::text = :c AND display_name = 'Beto'"), {"c": cid})).scalar()
+        prog_b = prog_b if isinstance(prog_b, dict) else json.loads(prog_b)
+        assert prog_b["lap"] == 2 and prog_b["slots"][0]["qid"] == qids[0], "la no contestada vuelve (no se reemplaza)"
+        # Cami solo logra 3; Dani no juega.
+        await play("Cami", t0 + timedelta(seconds=3), stop_after=3)
+        # El servidor rechaza la respuesta fuera de 10 s + 1.
+        q = await svc.trivia_state(db, r, players["Dani"]["player_token"], now=t0 + timedelta(seconds=30))
+        with pytest.raises(eng.GameError) as exc:
+            await svc.answer(db, r, players["Dani"]["player_token"], q["question"]["id"], 0, now=t0 + timedelta(seconds=41, milliseconds=200))
+        assert exc.value.code == "fuera_de_tiempo"
+        state = await svc.live_state(db, cid, t0 + timedelta(seconds=241))
+        rnd = state["round"]
+        assert rnd["status"] == "closed"
+        assert [p["name"] for p in rnd["podium"]] == ["Ana", "Beto", "Cami"], "10/10 por tiempo y luego relleno por aciertos"
+        me_c = await api.play_me(token, _req(), players["Cami"]["player_token"], db)
+        assert me_c["result"] == {"result": "ranked", "place": 3, "score": 3, "finished": False}, "sin 10/10: 'Se acabo el tiempo' con sus aciertos"
+        me_d = await api.play_me(token, _req(), players["Dani"]["player_token"], db)
+        assert me_d["result"]["result"] == "timeout" and me_d["result"]["place"] is None
+        ok = await api.validate_winner(u, uuid.UUID(str(r["id"])), {"place": 3, "document": "11110003"}, BARMAN, db)
+        assert ok["match"] is True and ok["name"] == "Cami", "la validacion por documento no cambia"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_seven_differences_round(pg_url):
+    from app.services import loyalty_games_scenes as scenes
+
+    engine, maker = await _session(pg_url)
+    async with maker() as db:
+        cid = await _company(db, True)
+        u = uuid.UUID(cid)
+        await svc.save_settings(db, cid, {"memory_pairs": 5, "trivia_seconds": 240, "differences_seconds": 180, "differences_penalty": 5,
+                                          "differences_scenes": ["cards"], "roulette_ranges": [{"min": 1, "max": 50}]}, "dueno")
+        live = await api.open_round(u, _req(), {"kind": "differences", "prize": "Coctel"}, BARMAN, db)
+        rv = live["round"]
+        assert rv["kind"] == "differences" and rv["goal"] == 7 and rv["scene"] == "cards" and rv["duration_seconds"] == 180
+        token = rv["join_url"].split("r=")[1]
+        r = await _round(db, token)
+        cfg = r["config"] if isinstance(r["config"], dict) else json.loads(r["config"])
+        assert cfg["diffs"] == scenes.choose("cards", int(r["seed"])), "7 elegidas por la semilla"
+        with pytest.raises(HTTPException) as exc:
+            await api.play_image(token, "a", _req(), db)
+        assert exc.value.status_code == 404, "en registro no se ve la imagen"
+        players = {n: await api.play_join(token, _req(), {"name": n, "document": d, "consent": True}, db)
+                   for n, d in (("Ana", "22220001"), ("Beto", "22220002"), ("Cami", "22220003"))}
+        await api.start_round(u, uuid.UUID(str(r["id"])), _req(), BARMAN, db)
+        r = await _round(db, token)
+        t0 = r["started_at"]
+        img_a = (await api.play_image(token, "a", _req(), db)).body
+        img_b = (await api.play_image(token, "b", _req(), db)).body
+        assert img_a[:8] == b"\x89PNG\r\n\x1a\n" and img_b[:8] == b"\x89PNG\r\n\x1a\n" and img_a != img_b
+        # Las zonas NO viajan: ni en la pantalla mientras se juega, ni en el celular.
+        screen = await svc.live_state(db, cid, t0 + timedelta(seconds=5))
+        assert "zones" not in screen["round"]
+        me = await api.play_me(token, _req(), players["Ana"]["player_token"], db)
+        assert me["differences"]["zones"] == [] and me["differences"]["total"] == 7
+        centers = [scenes.public_zone(scenes.zone("cards", d)) for d in cfg["diffs"]]
+        miss = next((x, y) for x in (0.02, 0.5, 0.98) for y in (0.02, 0.98) if scenes.hit("cards", cfg["diffs"], [], x, y) is None)
+        tok_a = players["Ana"]["player_token"]
+        res = await svc.tap(db, r, tok_a, *miss, now=t0 + timedelta(seconds=2))
+        assert res["hit"] is False and res["penalty_ms"] == 5000 and res["lock_ms"] == 1000 and "zone" not in res
+        with pytest.raises(eng.GameError) as exc:
+            await svc.tap(db, r, tok_a, centers[0]["x"], centers[0]["y"], now=t0 + timedelta(seconds=2, milliseconds=500))
+        assert exc.value.code == "espera_un_segundo", "1 s de bloqueo tras un toque en falso"
+        for k, z in enumerate(centers):
+            res = await svc.tap(db, r, tok_a, z["x"], z["y"], now=t0 + timedelta(seconds=4 + k))
+            assert res["hit"] is True and res["zone"]["id"] == z["id"] and res["found"] == k + 1
+        assert res["done"] is True
+        # Beto: todas sin errores y mas rapido (sin castigo) -> primero. Cami: 2.
+        for k, z in enumerate(centers):
+            await svc.tap(db, r, players["Beto"]["player_token"], z["x"], z["y"], now=t0 + timedelta(seconds=3 + k))
+        for z in centers[:2]:
+            await svc.tap(db, r, players["Cami"]["player_token"], z["x"], z["y"], now=t0 + timedelta(seconds=20))
+        me_c = await api.play_me(token, _req(), players["Cami"]["player_token"], db)
+        assert [z["id"] for z in me_c["differences"]["zones"]] == [c["id"] for c in centers[:2]], "solo las que ella acerto"
+        ranking = (await svc.live_state(db, cid, t0 + timedelta(seconds=30)))["round"]["ranking"]
+        assert [(p["name"], p["score"]) for p in ranking] == [("Beto", 7), ("Ana", 7), ("Cami", 2)]
+        assert ranking[0]["ms"] == 9000 and ranking[1]["ms"] == 10000 + 5000, "tiempo real + castigos"
+        state = await svc.live_state(db, cid, t0 + timedelta(seconds=181))
+        assert state["round"]["status"] == "closed" and [p["name"] for p in state["round"]["podium"]] == ["Beto", "Ana", "Cami"]
+        assert sorted(z["id"] for z in state["round"]["zones"]) == sorted(cfg["diffs"]), "al final la pantalla revela las 7"
+        me_c = await api.play_me(token, _req(), players["Cami"]["player_token"], db)
+        assert len(me_c["differences"]["zones"]) == 2, "el celular sigue sin recibir las que no encontro"
+    await engine.dispose()
+
+
 def test_migration_only_creates_new_tables_and_routes_are_guarded():
     sql = " ".join(_migration()).lower()
-    assert "hospitality_" not in sql and "drop " not in sql and "alter table" not in sql
+    assert "hospitality_" not in sql, "no toca Hospitality ni la Fidelizacion de siempre"
+    assert sql.count("drop ") == 1 and "drop constraint if exists loyalty_game_rounds_kind_check" in sql, "solo se amplia el check del tipo"
+    assert "differences" in sql and "add column if not exists config" in sql and "add column if not exists seed_version" in sql
     for r in api.router.routes:
         deps_ = [d.call for d in r.dependant.dependencies]
         if r.path.startswith("/companies/"):

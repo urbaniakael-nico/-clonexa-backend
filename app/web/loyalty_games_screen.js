@@ -11,7 +11,8 @@
   const arr = (v) => (Array.isArray(v) ? v : []);
   const fill = (s, vars) => (vars ? String(s).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? String(vars[k]) : m)) : String(s));
   const T = (s, vars) => (typeof window !== "undefined" && window.CxI18n && typeof window.CxI18n.t === "function" ? window.CxI18n.t(s, vars) : fill(s, vars));
-  const KIND = { memory: "Memoria relámpago", trivia: "Trivia Máquina del tiempo" };
+  const KIND = { memory: "Memoria relámpago", trivia: "Trivia Máquina del tiempo", differences: "7 diferencias" };
+  const REVEAL_AFTER_MS = 8000;
   const SPIN_MS = 6000;
   const WHEEL_MAX_SEGMENTS = 120;
 
@@ -122,10 +123,14 @@
         <p class="lgx-count"><b id="lgxCount">${h(r.count)}</b> <span>${h(T("inscritos"))}</span></p><ul class="lgx-names" id="lgxNames"></ul></div></section>`;
   }
 
+  const img = (r, w) => `${API}/${encodeURIComponent(TOKEN)}/image/${w}.png?r=${encodeURIComponent(r.id)}`;
+
   function playing(d) {
     const r = d.round;
-    return `${brandHead(d.brand, true)}<section class="lgx-live"><div class="lgx-livehead"><p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))}</p>
-        <p class="lgx-clock" id="lgxClock">--:--</p>${r.prize ? `<p class="lgx-prize">🎁 ${h(r.prize)}</p>` : ""}</div>
+    const thumbs = r.kind === "differences"
+      ? `<div class="lgx-thumbs" aria-hidden="true"><img src="${img(r, "a")}" alt=""><img src="${img(r, "b")}" alt=""></div>` : "";
+    return `${brandHead(d.brand, true)}<section class="lgx-live${r.kind === "differences" ? " is-diff" : ""}"><div class="lgx-livehead"><p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))}</p>
+        <p class="lgx-clock" id="lgxClock">--:--</p>${r.prize ? `<p class="lgx-prize">🎁 ${h(r.prize)}</p>` : ""}${thumbs}</div>
       <ol class="lgx-rank" id="lgxRank"></ol></section>`;
   }
 
@@ -135,9 +140,30 @@
     arr(r.podium).forEach((p) => { by[p.place] = p; });
     const step = (n) => `<div class="lgx-step is-${n}">${by[n] ? `<p class="lgx-pname">${h(by[n].name)}</p>` : `<p class="lgx-pname is-empty">—</p>`}<div class="lgx-block"><b>${n}</b></div></div>`;
     const confetti = reduced() ? "" : `<div class="lgx-confetti" aria-hidden="true">${Array.from({ length: 70 }, (_, i) => `<i style="--x:${(i * 37) % 100};--d:${(i % 10) * 0.18}s;--c:${i % 3}"></i>`).join("")}</div>`;
-    return `${brandHead(d.brand, true)}<section class="lgx-podium">${confetti}<p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))} · ${h(T("Resultados"))}</p>
+    return `${brandHead(d.brand, true)}<section class="lgx-podium" id="lgxPodium">${confetti}<p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))} · ${h(T("Resultados"))}</p>
       ${arr(r.podium).length ? `<div class="lgx-steps">${step(2)}${step(1)}${step(3)}</div>` : `<p class="lgx-huge">${h(T("Esta ronda no tuvo ganadores"))}</p>`}
-      ${r.prize ? `<p class="lgx-prize">🎁 ${h(r.prize)}</p>` : ""}<p class="lgx-claim">${h(T((d.texts && d.texts.claim) || "Reclama con tu documento"))}</p></section>`;
+      ${r.prize ? `<p class="lgx-prize">🎁 ${h(r.prize)}</p>` : ""}<p class="lgx-claim">${h(T((d.texts && d.texts.claim) || "Reclama con tu documento"))}</p></section>
+      ${r.kind === "differences" ? reveal(r) : ""}`;
+  }
+
+  // 7 diferencias: despues del podio se revelan las 7 con un circulo animado en las dos imagenes.
+  function reveal(r) {
+    const circles = arr(r.zones).map((z, i) => `<circle cx="${z.x * 1000}" cy="${z.y * 750}" r="${Math.max(22, z.r * 1000)}" style="--i:${i}"/>`).join("");
+    const pane = (w) => `<figure class="lgx-reveal-img"><img src="${img(r, w)}" alt=""><svg viewBox="0 0 1000 750" preserveAspectRatio="none" aria-hidden="true">${circles}</svg>
+      <figcaption>${w.toUpperCase()}</figcaption></figure>`;
+    return `<section class="lgx-reveal" id="lgxReveal" hidden><p class="lgx-kicker">🔍 ${h(T("Las 7 diferencias"))}</p><div class="lgx-reveal-pair">${pane("a")}${pane("b")}</div></section>`;
+  }
+
+  function scheduleReveal(r) {
+    if (!r || r.kind !== "differences" || r.status !== "closed") return;
+    const closed = r.closed_at ? new Date(r.closed_at).getTime() : serverNow();
+    const wait = Math.max(0, REVEAL_AFTER_MS - (serverNow() - closed));
+    setTimeout(() => {
+      const pod = $("lgxPodium"), rev = $("lgxReveal");
+      if (!pod || !rev) return;
+      pod.hidden = true;
+      rev.hidden = false;
+    }, wait);
   }
 
   // ------------------------------------------------------------ actualizaciones dentro de la escena
@@ -162,7 +188,7 @@
   function updateRanking(r) {
     const list = $("lgxRank");
     if (!list) return;
-    const unit = (n) => (r.kind === "memory" ? T(Number(n) === 1 ? "pareja" : "parejas") : T(Number(n) === 1 ? "acierto" : "aciertos"));
+    const unit = (n) => (r.kind === "differences" ? `/ ${r.goal || 7}` : r.kind === "memory" ? T(Number(n) === 1 ? "pareja" : "parejas") : T(Number(n) === 1 ? "acierto" : "aciertos"));
     const top = arr(r.ranking).slice(0, 10);
     const marks = arrows(view.prevRanks, top);
     const before = {};
@@ -221,6 +247,7 @@
       stage.innerHTML = key === "idle" ? idle(d) : key.startsWith("roulette") ? roulette(d) : d.round.status === "registration" ? registration(d)
         : d.round.status === "playing" ? playing(d) : d.round.status === "closed" ? podium(d) : idle(d);
       if (key.startsWith("roulette")) animateSpin(d.roulette);
+      if (d.round && key.startsWith("round")) scheduleReveal(d.round);
     }
     if (d.round && key.startsWith("round")) {
       if (d.round.status === "registration") updateNames(d.round);

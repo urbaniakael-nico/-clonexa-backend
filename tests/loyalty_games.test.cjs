@@ -123,3 +123,35 @@ test('client.js: el botón solo aparece si el servidor dice que el interruptor e
   assert.match(PANEL, /Authorization: `Bearer \$\{t\}`/, 'el panel siempre con la sesión');
   assert.match(SCREEN, /prefers-reduced-motion: reduce/);
 });
+
+test('v2 celular: cuadrícula por cantidad de cartas, trivia de 10 con reemplazo y 7 diferencias sin zonas ocultas', () => {
+  const P = run(PLAY).CxLoyaltyGamesPlay;
+  const g = (n) => ({ ...P.gridOf(n) });
+  assert.deepEqual([g(10), g(14), g(20), g(26), g(30)], [{ cols: 4, rows: 3 }, { cols: 4, rows: 4 }, { cols: 4, rows: 5 }, { cols: 5, rows: 6 }, { cols: 5, rows: 6 }]);
+  P.st.info = { kind: 'memory', status: 'playing', texts: {}, brand: {} };
+  P.st.me = { status: 'playing', kind: 'memory', ends_at: '2026-10-17T03:05:00Z', memory: { size: 30, faces: { 4: '🎻' }, matched: [], open: 4, pairs: 0, total_pairs: 15 } };
+  let html = P.body();
+  assert.equal((html.match(/data-lgx-flip=/g) || []).length, 30);
+  assert.match(html, /--cols:5;--rows:6/);
+  P.st.info.kind = 'trivia';
+  P.st.me = { status: 'playing', kind: 'trivia', rules: 2 };
+  P.st.question = { done: false, v: 2, replaced: true, lap: 2, correct: 6, goal: 10, question: { id: 'q', text: '¿?', options: ['a', 'b', 'c'], remaining_ms: 9000 } };
+  assert.match(P.body(), /Correctas 6 de 10 · vuelta 2[\s\S]*Pregunta nueva: reemplaza una que fallaste/);
+  P.st.me = { status: 'closed', kind: 'trivia', rules: 2, result: { result: 'ranked', place: 2, score: 8, finished: false } };
+  assert.match(P.body(), /Se acabó el tiempo[\s\S]*Lograste 8 de 10 correctas[\s\S]*¡Quedaste en el puesto 2!/);
+  P.st.info.kind = 'differences';
+  P.st.me = { status: 'playing', kind: 'differences', differences: { total: 7, found: 2, penalty_ms: 10000, zones: [{ id: 'z', x: 0.5, y: 0.5, r: 0.05 }] } };
+  html = P.body();
+  assert.match(html, /\/image\/a\.png[\s\S]*\/image\/b\.png/);
+  assert.match(html, /2\/7[\s\S]*\+10 s/);
+  assert.doesNotMatch(PLAY, /zones\s*=\s*\[\s*\{[^}]*cx/, 'el celular nunca tiene la lista de zonas ocultas');
+  assert.match(PLAY, /call\("\/tap", "POST", \{ x, y \}\)/, 'solo manda la coordenada normalizada');
+});
+
+test('v2 pantalla: miniaturas en juego y revelado de las 7 después del podio', () => {
+  const S = run(SCREEN).CxLoyaltyGamesScreen;
+  assert.ok(S);
+  assert.match(SCREEN, /REVEAL_AFTER_MS = 8000/);
+  assert.match(SCREEN, /r\.kind === "differences" \? `\/ \$\{r\.goal \|\| 7\}`/, 'ranking x/7');
+  assert.match(SCREEN, /class="lgx-thumbs"/);
+});

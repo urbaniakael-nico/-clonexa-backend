@@ -10,7 +10,7 @@
   const h = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
   const fill = (s, vars) => (vars ? String(s).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? String(vars[k]) : m)) : String(s));
   const T = (s, vars) => (typeof window !== "undefined" && window.CxI18n && typeof window.CxI18n.t === "function" ? window.CxI18n.t(s, vars) : fill(s, vars));
-  const KIND = { memory: "Memoria relámpago", trivia: "Trivia Máquina del tiempo" };
+  const KIND = { memory: "Memoria relámpago", trivia: "Trivia Máquina del tiempo", differences: "7 diferencias" };
   const ERRORS = {
     documento_invalido: "Revisa tu documento (de 5 a 15 letras o números).",
     nombre_requerido: "Escribe tu nombre.",
@@ -21,13 +21,15 @@
     ronda_no_encontrada: "Esta ronda no existe o ya no está disponible.",
     ronda_no_en_juego: "La ronda no está en juego.",
     fuera_de_tiempo: "Se acabó el tiempo de esa pregunta.",
+    espera_un_segundo: "Espera un segundo antes de volver a tocar.",
   };
 
   const P = new URLSearchParams(typeof location !== "undefined" ? location.search : "");
   const ROUND = P.get("r") || "";
   const API = `/api/v1/loyalty-games/play/${encodeURIComponent(ROUND)}`;
   const KEY = `cxlg:${ROUND.slice(0, 48)}`;
-  const st = { info: null, me: null, token: "", error: "", busy: false, board: {}, lock: false, question: null, feedback: null, timer: null, qtimer: null, form: { name: "", doc: "", consent: false } };
+  const st = { info: null, me: null, token: "", error: "", busy: false, board: {}, lock: false, question: null, feedback: null, timer: null, qtimer: null, form: { name: "", doc: "", consent: false },
+    zoom: { s: 1, x: 0, y: 0 }, diffLockUntil: 0, misses: [], scene: "" };
   const $ = (id) => document.getElementById(id);
 
   function store(get, value) {
@@ -83,11 +85,18 @@
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   }
 
+  // Cuadricula segun las cartas: 10 -> 4x3 (con hueco), 14 -> 4x4, 20 -> 4x5, 26 y 30 -> 5x6.
+  function gridOf(size) {
+    const cols = size <= 20 ? 4 : 5;
+    return { cols, rows: Math.ceil(size / cols) };
+  }
+
   function memory() {
     const m = (st.me && st.me.memory) || { size: 10, faces: {}, matched: [], pairs: 0, total_pairs: 5 };
     const faces = { ...m.faces, ...st.board };
-    return `<section class="lgx-card"><div class="lgx-hud"><span>${h(T("Parejas {n} de {t}", { n: m.pairs, t: m.total_pairs }))}</span><b class="lgx-timer" id="lgxTimer">${countdown()}</b></div>
-      <div class="lgx-cards">${Array.from({ length: m.size }, (_, i) => {
+    const g = gridOf(m.size);
+    return `<section class="lgx-card is-memory" style="--cols:${g.cols};--rows:${g.rows}"><div class="lgx-hud"><span>${h(T("Parejas {n} de {t}", { n: m.pairs, t: m.total_pairs }))}</span><b class="lgx-timer" id="lgxTimer">${countdown()}</b></div>
+      <div class="lgx-cards" data-cards="${m.size}">${Array.from({ length: m.size }, (_, i) => {
         const face = faces[String(i)];
         const done = m.matched.includes(i);
         return `<button type="button" class="lgx-card3d${face ? " is-up" : ""}${done ? " is-done" : ""}" data-lgx-flip="${i}" ${done || st.lock ? "disabled" : ""} aria-label="${h(face ? face : T("Carta {n}", { n: i + 1 }))}">
@@ -98,19 +107,160 @@
   function trivia() {
     const q = st.question;
     if (!q) return `<section class="lgx-card"><p>${h(T("Cargando…"))}</p></section>`;
+    if (q.done && q.goal === 10) return `<section class="lgx-card lgx-wait"><p class="lgx-big">🏁 ${h(T("¡Lo lograste! {n} de {g} correctas", { n: q.correct, g: q.goal }))}</p><p>${h(T("Espera el resultado en la pantalla."))}</p></section>`;
     if (q.done) return `<section class="lgx-card lgx-wait"><p class="lgx-big">🏁 ${h(T("¡Terminaste! {n} aciertos", { n: q.correct }))}</p><p>${h(T("Espera el resultado en la pantalla."))}</p></section>`;
+    if (q.stuck) return `<section class="lgx-card lgx-wait"><p class="lgx-big">${h(T("Llevas {n} de {g} correctas", { n: q.correct, g: q.goal }))}</p><p>${h(T("Ya no quedan preguntas nuevas. Espera el resultado."))}</p></section>`;
     const fb = st.feedback;
-    return `<section class="lgx-card"><div class="lgx-hud"><span>${h(T("Pregunta {a} de {t}", { a: Math.min(q.total, q.answered + 1), t: q.total }))}${q.lap > 1 ? ` · ${h(T("vuelta {n}", { n: q.lap }))}` : ""}</span><b class="lgx-timer" id="lgxTimer">${countdown()}</b></div>
+    const hud = q.v === 2
+      ? `${h(T("Correctas {n} de {g}", { n: q.correct, g: q.goal }))}${q.lap > 1 ? ` · ${h(T("vuelta {n}", { n: q.lap }))}` : ""}`
+      : `${h(T("Pregunta {a} de {t}", { a: Math.min(q.total, q.answered + 1), t: q.total }))}${q.lap > 1 ? ` · ${h(T("vuelta {n}", { n: q.lap }))}` : ""}`;
+    return `<section class="lgx-card"><div class="lgx-hud"><span>${hud}</span><b class="lgx-timer" id="lgxTimer">${countdown()}</b></div>
       <div class="lgx-bar" aria-hidden="true"><i style="animation-duration:${Math.max(0, q.question.remaining_ms)}ms"></i></div>
+      ${q.replaced ? `<p class="lgx-chip">🔁 ${h(T("Pregunta nueva: reemplaza una que fallaste"))}</p>` : ""}
       <p class="lgx-q">${h(q.question.text)}</p>
       <div class="lgx-opts">${q.question.options.map((o, i) => `<button type="button" class="lgx-opt${fb && fb.choice === i ? (fb.ok ? " is-ok" : " is-bad") : ""}" data-lgx-answer="${i}" ${fb || st.busy ? "disabled" : ""}>${h(o)}</button>`).join("")}</div></section>`;
   }
 
+  // ------------------------------------------------------------ 7 diferencias
+  function differences() {
+    const d = (st.me && st.me.differences) || { total: 7, found: 0, penalty_ms: 0, zones: [] };
+    const pane = (w) => `<div class="lgx-zoom" data-lgx-zoom="${w}"><div class="lgx-pan"><img src="${API}/image/${w}.png" alt="${h(T(w === "a" ? "Imagen A" : "Imagen B"))}" draggable="false">
+      <svg class="lgx-marks" viewBox="0 0 1000 750" preserveAspectRatio="none" aria-hidden="true"></svg></div><b class="lgx-tag" aria-hidden="true">${w.toUpperCase()}</b></div>`;
+    return `<section class="lgx-card is-diff"><div class="lgx-hud"><span><b id="lgxDiffCount">${h(d.found)}/${h(d.total)}</b> ${h(T("encontradas"))}</span>
+        <span id="lgxPenalty" class="lgx-pen">${d.penalty_ms ? `+${Math.round(d.penalty_ms / 1000)} s` : ""}</span><b class="lgx-timer" id="lgxTimer">${countdown()}</b></div>
+      <div class="lgx-pair">${pane("a")}${pane("b")}</div>
+      <p class="lgx-hint">${h(T("Toca donde veas una diferencia, en cualquiera de las dos. Pellizca o toca dos veces para acercar."))}</p></section>`;
+  }
+
+  function drawMarks() {
+    const d = (st.me && st.me.differences) || { zones: [] };
+    const circles = d.zones.map((z) => `<circle class="is-hit" cx="${z.x * 1000}" cy="${z.y * 750}" r="${Math.max(18, z.r * 1000)}"/>`).join("")
+      + st.misses.map((m) => `<circle class="is-miss" cx="${m.x * 1000}" cy="${m.y * 750}" r="22"/>`).join("");
+    document.querySelectorAll(".lgx-marks").forEach((svg) => { svg.innerHTML = circles; });
+    const c = $("lgxDiffCount");
+    if (c) c.textContent = `${d.found}/${d.total}`;
+    const pen = $("lgxPenalty");
+    if (pen) pen.textContent = d.penalty_ms ? `+${Math.round(d.penalty_ms / 1000)} s` : "";
+  }
+
+  function applyZoom() {
+    const z = st.zoom;
+    document.querySelectorAll(".lgx-pan").forEach((el) => { el.style.transform = `translate(${z.x}px, ${z.y}px) scale(${z.s})`; });
+  }
+
+  function clampZoom(w, hh) {
+    const z = st.zoom;
+    z.s = Math.min(4, Math.max(1, z.s));
+    z.x = Math.min(0, Math.max(w - w * z.s, z.x));
+    z.y = Math.min(0, Math.max(hh - hh * z.s, z.y));
+  }
+
+  async function sendTap(img, clientX, clientY) {
+    if (Date.now() < st.diffLockUntil) return;
+    const rect = img.getBoundingClientRect();
+    const x = (clientX - rect.left) / rect.width;
+    const y = (clientY - rect.top) / rect.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    st.diffLockUntil = Date.now() + 400;
+    try {
+      const res = await call("/tap", "POST", { x, y });
+      if (res.hit) {
+        st.me.differences.zones = [...st.me.differences.zones, { ...res.zone, found: true }];
+        st.me.differences.found = res.found;
+        st.diffLockUntil = 0;
+      } else {
+        st.me.differences.penalty_ms = res.penalty_ms;
+        st.diffLockUntil = Date.now() + (res.lock_ms || 1000);
+        const mark = { x, y };
+        st.misses.push(mark);
+        setTimeout(() => { st.misses = st.misses.filter((m) => m !== mark); drawMarks(); }, 700);
+        try { if (navigator.vibrate) navigator.vibrate(120); } catch (_) {}
+      }
+      drawMarks();
+    } catch (error) {
+      if (error.code !== "espera_un_segundo") { st.error = error.message; draw(); }
+    }
+  }
+
+  function bindZoom() {
+    const pointers = new Map();
+    let pinch = null;
+    let lastTap = null;
+    let pending = null;
+    document.querySelectorAll("[data-lgx-zoom]").forEach((box) => {
+      const img = box.querySelector("img");
+      box.addEventListener("pointerdown", (e) => {
+        box.setPointerCapture(e.pointerId);
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: Date.now() });
+        if (pointers.size === 2) {
+          const [a, b] = [...pointers.values()];
+          const rect = box.getBoundingClientRect();
+          pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: st.zoom.s, x: st.zoom.x, y: st.zoom.y,
+            mx: (a.x + b.x) / 2 - rect.left, my: (a.y + b.y) / 2 - rect.top };
+        }
+      });
+      box.addEventListener("pointermove", (e) => {
+        const p = pointers.get(e.pointerId);
+        if (!p) return;
+        const dx = e.clientX - p.x, dy = e.clientY - p.y;
+        p.x = e.clientX; p.y = e.clientY;
+        const rect = box.getBoundingClientRect();
+        if (pointers.size === 2 && pinch) {
+          const [a, b] = [...pointers.values()];
+          const s2 = Math.min(4, Math.max(1, pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / Math.max(1, pinch.d)));
+          const cx = (pinch.mx - pinch.x) / pinch.s, cy = (pinch.my - pinch.y) / pinch.s;
+          st.zoom = { s: s2, x: pinch.mx - cx * s2, y: pinch.my - cy * s2 };
+        } else if (pointers.size === 1 && st.zoom.s > 1) {
+          st.zoom.x += dx; st.zoom.y += dy;
+        } else {
+          return;
+        }
+        clampZoom(rect.width, rect.height);
+        applyZoom();
+      });
+      const end = (e) => {
+        const p = pointers.get(e.pointerId);
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) pinch = null;
+        if (!p || pointers.size) return;
+        const moved = Math.hypot(e.clientX - p.sx, e.clientY - p.sy);
+        if (moved > 10 || Date.now() - p.t > 400) return;
+        const now = Date.now();
+        if (lastTap && now - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+          // Doble toque: acerca (o vuelve a ver todo) en ese punto.
+          clearTimeout(pending);
+          lastTap = null;
+          const rect = box.getBoundingClientRect();
+          if (st.zoom.s > 1.05) st.zoom = { s: 1, x: 0, y: 0 };
+          else {
+            const px = e.clientX - rect.left, py = e.clientY - rect.top;
+            st.zoom = { s: 2.5, x: px - px * 2.5, y: py - py * 2.5 };
+          }
+          clampZoom(rect.width, rect.height);
+          applyZoom();
+          return;
+        }
+        lastTap = { t: now, x: e.clientX, y: e.clientY };
+        const cx = e.clientX, cy = e.clientY;
+        pending = setTimeout(() => sendTap(img, cx, cy), 280);
+      };
+      box.addEventListener("pointerup", end);
+      box.addEventListener("pointercancel", (e) => { pointers.delete(e.pointerId); pinch = null; });
+    });
+  }
+
   function result() {
     const r = st.me.result || {};
+    const claim = h(T((st.info.texts && st.info.texts.claim) || "Reclama con tu documento"));
     if (r.result === "lost") return `<section class="lgx-card lgx-end is-lost"><p class="lgx-big">⌛ ${h(T("Se acabó el tiempo, perdiste"))}</p><p>${h(T("Te quedaron preguntas sin contestar."))}</p></section>`;
+    // Trivia de 10: sin 10/10 ve "Se acabo el tiempo" con sus aciertos (y su puesto si le alcanzo para el podio).
+    if (st.me.kind === "trivia" && Number(st.me.rules) >= 2 && !r.finished) {
+      const podium = r.result === "ranked" && r.place && r.place <= 3;
+      return `<section class="lgx-card lgx-end${podium ? " is-win" : " is-lost"}"><p class="lgx-big">⌛ ${h(T("Se acabó el tiempo"))}</p><p>${h(T("Lograste {n} de 10 correctas.", { n: r.score || 0 }))}</p>
+        ${podium ? `<p class="lgx-big">🏆 ${h(T("¡Quedaste en el puesto {n}!", { n: r.place }))}</p><p>${claim}</p>` : r.place ? `<p>${h(T("Quedaste en el puesto {n}", { n: r.place }))}</p>` : ""}</section>`;
+    }
     if (r.result === "ranked" && r.place && r.place <= 3) {
-      return `<section class="lgx-card lgx-end is-win"><p class="lgx-big">🏆 ${h(T("¡Quedaste en el puesto {n}!", { n: r.place }))}</p><p>${h(T((st.info.texts && st.info.texts.claim) || "Reclama con tu documento"))}</p></section>`;
+      return `<section class="lgx-card lgx-end is-win"><p class="lgx-big">🏆 ${h(T("¡Quedaste en el puesto {n}!", { n: r.place }))}</p><p>${claim}</p></section>`;
     }
     if (r.result === "ranked") return `<section class="lgx-card lgx-end"><p class="lgx-big">${h(T("Quedaste en el puesto {n}", { n: r.place }))}</p><p>${h(T("¡Gracias por jugar!"))}</p></section>`;
     return `<section class="lgx-card lgx-end"><p class="lgx-big">${h(T("¡Gracias por jugar!"))}</p></section>`;
@@ -121,7 +271,7 @@
     const status = st.me ? st.me.status : st.info.status;
     if (!st.me) return status === "registration" ? joinForm() : `<section class="lgx-card"><p class="lgx-big">${h(T("El registro de esta ronda ya cerró."))}</p></section>`;
     if (status === "registration") return waiting();
-    if (status === "playing") return st.info.kind === "memory" ? memory() : trivia();
+    if (status === "playing") return st.info.kind === "memory" ? memory() : st.info.kind === "differences" ? differences() : trivia();
     if (status === "closed") return result();
     return `<section class="lgx-card"><p class="lgx-big">${h(T("Esta ronda se canceló."))}</p></section>`;
   }
@@ -130,6 +280,7 @@
     const root = $("lgxPlay");
     if (!root) return;
     root.innerHTML = `${top()}${st.error && st.info ? `<p class="lgx-error" role="alert">${h(st.error)}</p>` : ""}${body()}`;
+    if (root.querySelector("[data-lgx-zoom]")) { bindZoom(); applyZoom(); drawMarks(); }
   }
 
   // ------------------------------------------------------------ juego
@@ -171,7 +322,12 @@
     await refreshMe();
     const now = st.me ? st.me.status : st.info && st.info.status;
     if (st.info && st.me && st.info.kind === "trivia" && now === "playing" && (before !== "playing" || !st.question)) await loadQuestion();
-    if (before !== now || !st.me || now !== "playing" || st.info.kind === "memory") {
+    if (st.info && st.info.kind === "differences" && before === now && now === "playing") {
+      // No repinta las imagenes (perderia el zoom): solo contador, castigo, circulos y reloj.
+      drawMarks();
+      const t = $("lgxTimer");
+      if (t) t.textContent = countdown();
+    } else if (before !== now || !st.me || now !== "playing" || st.info.kind === "memory") {
       if (!(st.info && st.info.kind === "memory" && st.lock)) draw();
     } else {
       const t = $("lgxTimer");
@@ -271,7 +427,7 @@
   }
 
   if (typeof window !== "undefined") {
-    window.CxLoyaltyGamesPlay = { st, body, ERRORS };
+    window.CxLoyaltyGamesPlay = { st, body, ERRORS, gridOf };
     if (typeof document !== "undefined" && document.addEventListener) document.addEventListener("DOMContentLoaded", start);
   }
 })();

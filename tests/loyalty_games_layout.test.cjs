@@ -16,13 +16,25 @@ const WEB = path.join(ROOT, 'app', 'web');
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
   '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find((p) => p && fs.existsSync(p));
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html' };
-const SCREENS = ['idle', 'roulette', 'registration', 'playing', 'podium'];
-const PHONES = ['join', 'wait', 'memory', 'trivia', 'lost', 'win'];
+const SCREENS = ['idle', 'roulette', 'registration', 'playing', 'podium', 'diffplay', 'diffreveal'];
+const PHONES = ['join', 'wait', 'memory', 'trivia', 'trivia10', 'timeout', 'diff', 'lost', 'win'];
 const CASES = [
   ...SCREENS.flatMap((s) => [[`screen-${s}-1080`, 1920, 1080, `/juegos/screen.html?t=tok&scene=${s}`], [`screen-${s}-720`, 1280, 720, `/juegos/screen.html?t=tok&scene=${s}`]]),
   ['screen-en-720', 1280, 720, '/juegos/screen.html?t=tok&scene=registration&lang=en'], ['screen-denied-720', 1280, 720, '/juegos/screen.html?t=bad&denied=1'],
   ...PHONES.map((v) => [`phone-${v}`, 375, 812, `/juegos/play.html?r=round-${v}.sig&view=${v}`]), ['phone-en', 375, 812, '/juegos/play.html?r=round-en.sig&view=trivia&lang=en'],
+  ['phone-memory30', 375, 667, '/juegos/play.html?r=round-m30.sig&view=memory30'], ['phone-memory10-667', 375, 667, '/juegos/play.html?r=round-m10.sig&view=memory'],
 ];
+
+function solidPng([r, g, b], w = 40, hh = 30) {
+  const zlib = require('node:zlib');
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (buf) => { let c = 0xffffffff; for (const x of buf) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(hh, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const raw = Buffer.alloc((w * 3 + 1) * hh);
+  for (let y = 0; y < hh; y += 1) for (let x = 0; x < w; x += 1) raw.set([r, g, b], y * (w * 3 + 1) + 1 + x * 3);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
 
 function serve() {
   const server = http.createServer((req, res) => {
@@ -30,6 +42,12 @@ function serve() {
     const send = (body, type) => { res.writeHead(200, { 'content-type': type }); res.end(body); };
     const page = { '/juegos/screen.html': 'loyalty_games_screen.html', '/juegos/play.html': 'loyalty_games_play.html' }[url.pathname];
     if (page) return send(fs.readFileSync(path.join(WEB, page), 'utf8').replace('<link rel="stylesheet"', '<script src="/__preview.js"></script>\n  <link rel="stylesheet"'), 'text/html');
+    if (/^\/api\/v1\/loyalty-games\/(screen|play)\/[^/]+\/image\/[ab]\.png$/.test(url.pathname)) {  // la escena real si se pasa CX_GAMES_SCENE_DIR; si no, una imagen lisa
+      const which = url.pathname.endsWith('b.png') ? 'b' : 'a';
+      const dir = process.env.CX_GAMES_SCENE_DIR;
+      const file = dir && path.join(dir, `scene_${which}.png`);
+      return send(file && fs.existsSync(file) ? fs.readFileSync(file) : solidPng(which === 'a' ? [40, 30, 20] : [44, 30, 20]), 'image/png');
+    }
     if (/^\/api\/v1\/loyalty-games\/screen\/[^/]+\/qr\.svg$/.test(url.pathname)) {  // un QR de ejemplo (el real lo hace segno en el servidor)
       let cells = '';
       for (let y = 0; y < 25; y += 1) for (let x = 0; x < 25; x += 1) if (((x * 7 + y * 13) % 5) < 2 || (x < 7 && y < 7) || (x > 17 && y < 7) || (x < 7 && y > 17)) cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
@@ -96,10 +114,29 @@ test('Juegos en vivo: pantalla del bar 16:9 y celular 375 px sin desborde, AA y 
       assert.match(r['phone-lost'].text, /Se acabó el tiempo, perdiste/);
       assert.match(r['phone-win'].text, /¡Quedaste en el puesto 1![\s\S]*Reclama con tu documento/);
       assert.match(r['phone-en'].text, /Question 3 of 5/);
+      for (const k of ['phone-memory30', 'phone-memory10-667']) {
+        assert.ok(r[k].doc_h <= r[k].view_h + 1, `${k}: el tablero cabe sin scroll en 375x667 (${r[k].doc_h} > ${r[k].view_h})`);
+        assert.ok(r[k].min_card >= 44, `${k}: zona de toque de al menos 44 px (${r[k].min_card})`);
+      }
+      assert.equal(r['phone-memory30'].cards, 30);
+      assert.match(r['phone-trivia10'].text, /Correctas 6 de 10 · vuelta 2[\s\S]*Pregunta nueva: reemplaza una que fallaste/);
+      assert.match(r['phone-timeout'].text, /Se acabó el tiempo[\s\S]*Lograste 7 de 10 correctas[\s\S]*¡Quedaste en el puesto 3!/);
+      assert.equal(r['phone-diff'].panes, 2, 'imagen A y B');
+      assert.equal(r['phone-diff'].marks, 3, 'solo los circulos de las que ya encontro');
+      assert.match(r['phone-diff'].text, /3\/7 encontradas/);
+      for (const res of ['1080', '720']) {
+        assert.equal(r[`screen-diffplay-${res}`].thumbs, 2, 'las dos imagenes pequenas sin marcas');
+        assert.equal(r[`screen-diffplay-${res}`].rank, 10);
+        assert.equal(r[`screen-diffreveal-${res}`].reveal_visible, true, 'despues del podio revela');
+        assert.equal(r[`screen-diffreveal-${res}`].reveal_circles, 7, 'las 7 diferencias con su circulo');
+      }
       const shots = process.env.CX_GAMES_SHOTS;
       if (shots) {
         fs.mkdirSync(shots, { recursive: true });
-        for (const [k, w, hh, src] of CASES) {
+        const zf = process.env.CX_GAMES_SCENE_DIR && path.join(process.env.CX_GAMES_SCENE_DIR, 'zones.json');
+        const zones = zf && fs.existsSync(zf) ? `&zones=${encodeURIComponent(fs.readFileSync(zf, 'utf8').trim())}` : '';
+        for (const [k, w, hh, src0] of CASES) {
+          const src = /diff/.test(k) ? `${src0}${zones}` : src0;
           await chrome([`--user-data-dir=${profile}-${k}`, `--window-size=${w},${hh}`, '--hide-scrollbars', '--virtual-time-budget=6000',
             `--screenshot=${path.join(shots, `juegos-${k}.png`)}`, `${base}/__one.html?w=${w}&h=${hh}&src=${encodeURIComponent(src)}`]);
         }

@@ -14,10 +14,13 @@
   const fill = (s, vars) => (vars ? String(s).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? String(vars[k]) : m)) : String(s));
   const T = (s, vars) => (typeof window !== "undefined" && window.CxI18n && typeof window.CxI18n.t === "function" ? window.CxI18n.t(s, vars) : fill(s, vars));
 
-  const KIND = { memory: "Memoria relámpago", trivia: "Trivia Máquina del tiempo", roulette: "Ruleta de la rifa" };
+  const KIND = { memory: "Memoria relámpago", trivia: "Trivia Máquina del tiempo", roulette: "Ruleta de la rifa", differences: "7 diferencias" };
+  const ICON = { memory: "🃏", trivia: "⏳", differences: "🔍" };
   const STATUS = { registration: "Registro abierto", playing: "En juego", closed: "Cerrada", cancelled: "Cancelada" };
   const ERRORS = {
     numeros_agotados: "Ya salieron todos los números de ese rango esta noche.",
+    parejas_invalidas: "Las parejas deben ser 5, 7, 10, 13 o 15.",
+    escenas_requeridas: "Deja al menos una escena activa.",
     ya_hay_una_ronda_activa: "Ya hay una ronda abierta: ciérrala antes de abrir otra.",
     la_ronda_no_esta_en_registro: "La ronda ya no está en registro.",
     la_ronda_no_esta_cerrada: "Primero cierra la ronda.",
@@ -28,11 +31,13 @@
     opciones_repetidas: "Las tres opciones deben ser distintas.",
   };
   const LEVEL_OPTS = [1, 2, 3, 4, 5];
-  const MEM_OPTS = [60, 90, 120, 150, 180, 240, 300];
-  const TRIVIA_OPTS = [120, 150, 180, 240, 300, 420, 600];
+  const MEM_OPTS = [60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420];
+  const TRIVIA_OPTS = [120, 150, 180, 210, 240, 300, 360, 420, 600];
+  const DIFF_OPTS = [90, 120, 150, 180, 240, 300, 420];
+  const PENALTY_OPTS = [0, 2, 3, 5, 8, 10, 15];
 
   const model = { tab: "live", ctx: null, live: null, questions: [], history: null, draft: null, qEdit: null, error: "", info: "", busy: "",
-    denied: "", lastSpin: null, validation: null, loading: false, form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "" } };
+    denied: "", lastSpin: null, validation: null, loading: false, form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null } };
   let ctx = null;
   let bound = false;
   let timer = null;
@@ -145,10 +150,24 @@
     const busy = model.live && model.live.active;
     const prizes = (model.ctx.settings && model.ctx.settings.prizes) || {};
     return `<section class="client-panel lg-card"><h2 class="lg-h">🕹️ ${h(T("Abrir un juego"))}</h2>
-      ${["memory", "trivia"].map((k) => `<div class="lg-row"><b class="lg-game">${k === "memory" ? "🃏" : "⏳"} ${h(T(KIND[k]))}</b>
+      ${["memory", "trivia", "differences"].map((k) => `<div class="lg-row"><b class="lg-game">${ICON[k]} ${h(T(KIND[k]))}</b>
+        ${k === "memory" ? `<label class="lg-field">${h(T("Parejas"))}<select data-lg-pairs>${arr(model.ctx.pair_options).map((n) => `<option value="${n}" ${Number(model.form.pairs || model.ctx.settings.memory_pairs) === n ? "selected" : ""}>${n} · ${h(mmss(model.ctx.settings.memory_times[String(n)]))}</option>`).join("")}</select></label>` : ""}
         <label class="lg-field lg-grow">${h(T("Premio"))}<input data-lg-prize="${k}" maxlength="160" value="${h(model.form.prize[k] !== undefined ? model.form.prize[k] : (prizes[k] || ""))}"></label>
         <button type="button" class="lg-btn" data-lg-open="${k}" ${busy || model.busy ? "disabled" : ""}>${h(T("Abrir registro"))}</button></div>`).join("")}
       ${busy ? `<p class="lg-muted">${h(T("Hay una ronda abierta: ciérrala para abrir otra."))}</p>` : ""}</section>`;
+  }
+
+  function mmss(sec) { const s2 = Math.max(0, Math.round(Number(sec) || 0)); return `${Math.floor(s2 / 60)}:${String(s2 % 60).padStart(2, "0")}`; }
+
+  function lowLevels() {
+    const lv = (model.ctx && model.ctx.levels) || {};
+    return Object.keys(lv).filter((k) => Number(lv[k]) < 4).map((k) => ({ level: k, n: Number(lv[k]) }));
+  }
+
+  function levelWarning() {
+    const low = lowLevels();
+    if (!low.length) return "";
+    return `<div class="lg-notice" role="status">${low.map((x) => h(T("Nivel {n}: solo {m} preguntas activas. Se recomiendan 4 o más para cambiar las falladas.", { n: x.level, m: x.n }))).join("<br>")}</div>`;
   }
 
   function remaining(r) {
@@ -162,7 +181,7 @@
     const r = model.live && model.live.round;
     if (!r) return `<section class="client-panel lg-card"><h2 class="lg-h">${h(T("Ronda actual"))}</h2><p class="lg-muted">${h(T("No hay ronda esta noche."))}</p></section>`;
     const all = arr(r.all_players).length ? r.all_players : arr(r.players);
-    const unit = (n) => (r.kind === "memory" ? T(Number(n) === 1 ? "pareja" : "parejas") : T(Number(n) === 1 ? "acierto" : "aciertos"));
+    const unit = (n) => (r.kind === "differences" ? `/ ${r.goal || 7}` : r.kind === "memory" ? T(Number(n) === 1 ? "pareja" : "parejas") : T(Number(n) === 1 ? "acierto" : "aciertos"));
     const actions = r.status === "registration"
       ? `<button type="button" class="client-btn lg-btn is-primary" data-lg-start="${h(r.id)}" ${model.busy ? "disabled" : ""}>▶ ${h(T("Iniciar"))}</button><button type="button" class="lg-btn" data-lg-close="${h(r.id)}">${h(T("Cancelar registro"))}</button>`
       : r.status === "playing" ? `<button type="button" class="lg-btn" data-lg-close="${h(r.id)}" ${model.busy ? "disabled" : ""}>■ ${h(T("Cerrar ronda"))}</button>` : "";
@@ -199,10 +218,18 @@
 
   function configView() {
     const d = model.draft || (model.draft = JSON.parse(JSON.stringify(model.ctx.settings)));
-    const mins = (s) => T("{n} min", { n: Math.round(s / 6) / 10 });
-    return `<section class="client-panel lg-card"><h2 class="lg-h">${h(T("Duraciones"))}</h2><div class="lg-row">
-        <label class="lg-field">${h(T("Memoria relámpago"))}${sel('data-lg-set="memory_seconds"', d.memory_seconds, MEM_OPTS, mins)}</label>
-        <label class="lg-field">${h(T("Trivia"))}${sel('data-lg-set="trivia_seconds"', d.trivia_seconds, TRIVIA_OPTS, mins)}</label></div></section>
+    const scenes = arr(model.ctx.scenes);
+    return `${levelWarning()}<section class="client-panel lg-card"><h2 class="lg-h">🃏 ${h(T("Memoria relámpago"))}</h2>
+        <div class="lg-row"><label class="lg-field">${h(T("Parejas por defecto"))}${sel('data-lg-set="memory_pairs"', d.memory_pairs, arr(model.ctx.pair_options), (n) => T("{n} parejas", { n }))}</label></div>
+        <p class="lg-muted">${h(T("Tiempo según las parejas (el barman puede cambiar las parejas al abrir la ronda):"))}</p>
+        <div class="lg-row">${arr(model.ctx.pair_options).map((n) => `<label class="lg-field">${h(T("{n} parejas", { n }))}${sel(`data-lg-memtime="${n}"`, d.memory_times[String(n)], MEM_OPTS, mmss)}</label>`).join("")}</div></section>
+      <section class="client-panel lg-card"><h2 class="lg-h">⏳ ${h(T("Trivia"))}</h2><div class="lg-row">
+        <label class="lg-field">${h(T("Tiempo total"))}${sel('data-lg-set="trivia_seconds"', d.trivia_seconds, TRIVIA_OPTS, mmss)}</label></div>
+        <p class="lg-muted">${h(T("10 preguntas (2 por nivel), 10 s cada una. Las falladas se cambian por otras nuevas del mismo nivel."))}</p></section>
+      <section class="client-panel lg-card"><h2 class="lg-h">🔍 ${h(T("7 diferencias"))}</h2><div class="lg-row">
+        <label class="lg-field">${h(T("Tiempo total"))}${sel('data-lg-set="differences_seconds"', d.differences_seconds, DIFF_OPTS, mmss)}</label>
+        <label class="lg-field">${h(T("Castigo por toque en falso"))}${sel('data-lg-set="differences_penalty"', d.differences_penalty, PENALTY_OPTS, (n) => `+${n} s`)}</label></div>
+        <div class="lg-scenes" role="group" aria-label="${h(T("Escenas activas"))}">${scenes.map((sc) => `<label class="lg-check"><input type="checkbox" data-lg-scene="${h(sc.id)}" ${arr(d.differences_scenes).includes(sc.id) ? "checked" : ""}>${h(T(sc.name))}</label>`).join("")}</div></section>
       <section class="client-panel lg-card"><h2 class="lg-h">${h(T("Rangos y premios de la ruleta"))}</h2>
         ${arr(d.roulette_ranges).map((r, i) => `<div class="lg-row"><label class="lg-field">${h(T("Desde"))}<input type="number" min="0" max="9999" data-lg-rng="${i}" data-k="min" value="${h(r.min)}"></label>
           <label class="lg-field">${h(T("Hasta"))}<input type="number" min="1" max="9999" data-lg-rng="${i}" data-k="max" value="${h(r.max)}"></label>
@@ -210,7 +237,7 @@
           <button type="button" class="lg-btn is-small" data-lg-rng-del="${i}" aria-label="${h(T("Quitar rango"))}">✕</button></div>`).join("")}
         <button type="button" class="lg-btn" data-lg-rng-add>+ ${h(T("Rango"))}</button></section>
       <section class="client-panel lg-card"><h2 class="lg-h">${h(T("Premios por defecto"))}</h2><div class="lg-row">
-        ${["memory", "trivia", "roulette"].map((k) => `<label class="lg-field lg-grow">${h(T(KIND[k]))}<input data-lg-defprize="${k}" maxlength="160" value="${h((d.prizes || {})[k] || "")}"></label>`).join("")}</div></section>
+        ${["memory", "trivia", "differences", "roulette"].map((k) => `<label class="lg-field lg-grow">${h(T(KIND[k]))}<input data-lg-defprize="${k}" maxlength="160" value="${h((d.prizes || {})[k] || "")}"></label>`).join("")}</div></section>
       <section class="client-panel lg-card"><h2 class="lg-h">${h(T("Textos"))}</h2>
         <label class="lg-field">${h(T("Texto del podio"))}<input data-lg-text="claim" maxlength="160" value="${h((d.texts || {}).claim || "")}"></label>
         <label class="lg-field">${h(T("Autorización de datos (Ley 1581)"))}<input data-lg-text="consent" maxlength="160" value="${h((d.texts || {}).consent || "")}"></label></section>
@@ -233,7 +260,7 @@
     const editing = model.qEdit;
     return `<section class="client-panel lg-card"><header class="lg-round-head"><h2 class="lg-h">${h(T("Banco de preguntas"))}</h2>
         <button type="button" class="lg-btn" data-lg-qnew>+ ${h(T("Pregunta"))}</button></header>
-      <p class="lg-muted">${h(T("La trivia toma una pregunta activa de cada nivel (1 a 5)."))}</p>
+      <p class="lg-muted">${h(T("La trivia toma 2 preguntas activas de cada nivel (1 a 5) y cambia las falladas por otras nuevas del mismo nivel."))}</p>${levelWarning()}
       ${editing && !editing.id ? qForm(editing) : ""}
       ${LEVEL_OPTS.map((lv) => {
         const rows = list.filter((q) => Number(q.level) === lv);
@@ -295,7 +322,9 @@
       act("spin", async () => { model.lastSpin = await call("/roulette/spin", "POST", body); await loadLive(); });
       return;
     }
-    if ((v = attr("data-lg-open"))) { const prize = model.form.prize[v] !== undefined ? model.form.prize[v] : ((model.ctx.settings.prizes || {})[v] || ""); act("open", async () => { model.live = await call("/rounds", "POST", { kind: v, prize }); model.validation = null; schedule(); }); return; }
+    if ((v = attr("data-lg-open"))) { const prize = model.form.prize[v] !== undefined ? model.form.prize[v] : ((model.ctx.settings.prizes || {})[v] || ""); const body = { kind: v, prize };
+      if (v === "memory") body.pairs = Number(model.form.pairs || model.ctx.settings.memory_pairs);
+      act("open", async () => { model.live = await call("/rounds", "POST", body); model.validation = null; schedule(); }); return; }
     if ((v = attr("data-lg-start"))) { act("start", async () => { model.live = await call(`/rounds/${v}/start`, "POST"); schedule(); }); return; }
     if ((v = attr("data-lg-close"))) { act("close", async () => { model.live = await call(`/rounds/${v}/close`, "POST"); }); return; }
     if ((v = attr("data-lg-hide"))) { const rid = attr("data-lg-round"); act("hide", async () => { model.live = await call(`/rounds/${rid}/players/${v}/hide`, "POST"); }); return; }
@@ -307,7 +336,14 @@
     }
     if (t.closest("[data-lg-rng-add]")) { model.draft.roulette_ranges.push({ min: 1, max: 100, prize: "" }); draw(); return; }
     if ((v = attr("data-lg-rng-del")) !== null) { model.draft.roulette_ranges.splice(Number(v), 1); draw(); return; }
-    if (t.closest("[data-lg-save]")) { act("save", async () => { model.ctx.settings = await call("/settings", "PUT", model.draft); model.draft = null; model.info = T("Configuración guardada."); }); return; }
+    if (t.closest("[data-lg-save]")) {
+      act("save", async () => {
+        model.ctx.settings = await call("/settings", "PUT", model.draft);
+        model.draft = null;
+        model.info = T("Configuración guardada.");
+      });
+      return;
+    }
     if (t.closest("[data-lg-qnew]")) { model.qEdit = { level: 1, active: true }; draw(); return; }
     if ((v = attr("data-lg-qedit"))) { model.qEdit = { ...model.questions.find((q) => q.id === v) }; draw(); return; }
     if (t.closest("[data-lg-qcancel]")) { model.qEdit = null; draw(); return; }
@@ -316,6 +352,9 @@
       act("qsave", async () => {
         await call(q.id ? `/questions/${q.id}` : "/questions", q.id ? "PUT" : "POST", q);
         model.questions = arr((await call("/questions")).items); model.qEdit = null; model.info = T("Pregunta guardada.");
+        const lv = {};
+        model.questions.filter((x) => x.active).forEach((x) => { lv[String(x.level)] = (lv[String(x.level)] || 0) + 1; });
+        model.ctx.levels = Object.fromEntries([1, 2, 3, 4, 5].map((n) => [String(n), lv[String(n)] || 0]));
       });
     }
   }
@@ -329,6 +368,7 @@
     else if ((v = t.getAttribute("data-lg-prize"))) model.form.prize[v] = t.value;
     else if (t.hasAttribute("data-lg-place")) model.form.place = Number(t.value);
     else if (t.hasAttribute("data-lg-doc")) model.form.doc = t.value;
+    else if (t.hasAttribute("data-lg-pairs")) model.form.pairs = Number(t.value);
   }
 
   function onChange(event) {
@@ -337,6 +377,13 @@
     if (!ctx || !t || !t.closest || !t.closest("[data-lg-root]")) return;
     let v;
     if ((v = t.getAttribute("data-lg-set"))) { model.draft[v] = Number(t.value); return; }
+    if ((v = t.getAttribute("data-lg-memtime"))) { model.draft.memory_times[v] = Number(t.value); return; }
+    if ((v = t.getAttribute("data-lg-scene"))) {
+      const set = new Set(arr(model.draft.differences_scenes));
+      if (t.checked) set.add(v); else set.delete(v);
+      model.draft.differences_scenes = arr(model.ctx.scenes).map((x) => x.id).filter((id) => set.has(id));
+      return;
+    }
     if ((v = t.getAttribute("data-lg-rng")) !== null) { const k = t.getAttribute("data-k"); model.draft.roulette_ranges[Number(v)][k] = k === "prize" ? t.value : Number(t.value); return; }
     if ((v = t.getAttribute("data-lg-defprize"))) { model.draft.prizes[v] = t.value; return; }
     if ((v = t.getAttribute("data-lg-text"))) { model.draft.texts[v] = t.value; return; }
@@ -352,7 +399,7 @@
       bound = true;
     }
     Object.assign(model, { tab: "live", ctx: null, live: null, draft: null, qEdit: null, error: "", info: "", denied: "", lastSpin: null, validation: null,
-      form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "" } });
+      form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null } });
     draw();
     await loadAll();
   }

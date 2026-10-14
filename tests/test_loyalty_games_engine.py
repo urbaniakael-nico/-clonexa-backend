@@ -196,3 +196,67 @@ def test_document_is_only_an_hmac_and_tokens_are_signed():
     assert eng.unsign("player", tok) is None, "un token de ronda no sirve como jugador"
     assert eng.unsign("round", tok[:-1] + ("0" if tok[-1] != "0" else "1")) is None
     assert eng.clean_name("  <b>Camila</b>   la del bar que gana siempre ") == "bCamila/b la del bar"
+
+
+# ---------------------------------------------------------------- v2: parejas configurables y trivia de 10
+@pytest.mark.parametrize("pairs,seconds", [(5, 120), (7, 150), (10, 210), (13, 270), (15, 300)])
+def test_memory_pairs_make_2n_cards_without_repeated_icons(pairs, seconds):
+    for seed in (1, 77, 123456789):
+        cards = eng.board(seed, pairs)
+        assert len(cards) == 2 * pairs and len(set(cards)) == pairs and all(cards.count(c) == 2 for c in cards)
+        assert cards == eng.board(seed, pairs), "mismo tablero para todos"
+    assert eng.PAIR_SECONDS[pairs] == seconds
+    assert len(set(eng.ICONS)) == len(eng.ICONS) >= 15
+
+
+def test_rounds_from_before_keep_their_exact_board():
+    import random
+
+    for seed in (7, 424242, 99):
+        rnd = random.Random(seed)
+        old = rnd.sample(eng.LEGACY_ICONS, 5) * 2
+        rnd.shuffle(old)
+        assert eng.board(seed) == old and eng.pairs_of({}) is None
+    with pytest.raises(eng.GameError):
+        eng.board(1, 6)
+
+
+BANK2 = [{"id": f"L{lv}-{i}", "level": lv, "active": True} for lv in eng.LEVELS for i in range(4)]
+
+
+def test_trivia_of_ten_two_per_level_and_nearby_level_when_exhausted():
+    qids = eng.pick_questions_v2(BANK2, 5)
+    assert [q[1] for q in qids] == ["1", "1", "2", "2", "3", "3", "4", "4", "5", "5"] and len(set(qids)) == 10
+    levels = {q["id"]: q["level"] for q in BANK2}
+    p = eng.trivia2_start(qids, levels)
+    p = eng.trivia2_tick(p, NOW)
+    cur = p["current"]
+    p, ok = eng.trivia2_answer(p, cur["qid"], cur["order"].index(1), NOW + timedelta(seconds=2), 2000, BANK2)
+    new = p["slots"][0]["qid"]
+    assert not ok and new not in qids and new.startswith("L1-") and p["notes"] == [], "fallada -> nueva del mismo nivel no vista"
+    # Nivel 5 agotado: el reemplazo sale del nivel 4 (el mas cercano) y queda anotado.
+    bank = [q for q in BANK2 if q["level"] != 5 or q["id"] in qids[8:]]
+    p2 = eng.trivia2_start(qids, levels)
+    p2["queue"] = [8]
+    p2 = eng.trivia2_tick(p2, NOW)
+    c2 = p2["current"]
+    p2, _ = eng.trivia2_answer(p2, c2["qid"], c2["order"].index(2), NOW, 1000, bank)
+    assert p2["slots"][8]["qid"].startswith("L4-") and p2["notes"][0]["wanted_level"] == 5 and p2["notes"][0]["used_level"] == 4
+    with pytest.raises(eng.GameError):
+        eng.trivia2_answer(p2, "x", 0, NOW, 0, bank)
+
+
+def test_trivia_of_ten_finishes_at_ten_correct_and_ranks_by_time_then_score():
+    qids = eng.pick_questions_v2(BANK2, 9)
+    p = eng.trivia2_start(qids, {q["id"]: q["level"] for q in BANK2})
+    t = NOW
+    for k in range(10):
+        p = eng.trivia2_tick(p, t)
+        cur = p["current"]
+        p, ok = eng.trivia2_answer(p, cur["qid"], cur["order"].index(0), t + timedelta(seconds=1), 1000 * (k + 1), BANK2)
+        t += timedelta(seconds=1)
+    assert eng.trivia2_finished(p) and p["done_ms"] == 10_000 and eng.trivia2_tick(p, t)["current"] is None
+    mk = lambda i, correct, done_ms, last: {"id": i, "display_name": i, "joined_at": i, "progress": {"v": 2, "correct": correct, "done_ms": done_ms, "last_ok_ms": last}}  # noqa: E731
+    players = [mk("a", 10, 90_000, 90_000), mk("b", 10, 60_000, 60_000), mk("c", 7, None, 50_000), mk("d", 7, None, 40_000), mk("e", 0, None, None)]
+    places = {x["id"]: x for x in eng.final_places("trivia", players, rules=2)}
+    assert [places[i]["place"] for i in "badc"] == [1, 2, 3, 4] and places["e"] == {"id": "e", "result": "timeout", "place": None}

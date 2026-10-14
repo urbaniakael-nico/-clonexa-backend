@@ -26,8 +26,11 @@
   };
   const ctx = { role: ROLE, can: { configure: ROLE === "admin", launch: true, validate: true },
     brand: { name: "The Time Machine", logo_url: "", primary: "#6b5d00", secondary: "#aea924", language: "es", timezone: "America/Bogota" },
-    settings: { memory_seconds: 120, trivia_seconds: 180, roulette_ranges: [{ min: 1, max: 50, prize: "Shot" }, { min: 1, max: 100, prize: "Cerveza" }],
-      prizes: { memory: "Botella de aguardiente", trivia: "Ronda de la casa", roulette: "" }, texts: { claim: "Reclama con tu documento", consent: "Autorizo el tratamiento de mis datos para este concurso" } },
+    settings: { memory_pairs: 5, memory_times: { 5: 120, 7: 150, 10: 210, 13: 270, 15: 300 }, trivia_seconds: 240, differences_seconds: 180, differences_penalty: 5,
+      differences_scenes: ["bar", "stage", "jukebox", "cards"], roulette_ranges: [{ min: 1, max: 50, prize: "Shot" }, { min: 1, max: 100, prize: "Cerveza" }],
+      prizes: { memory: "Botella de aguardiente", trivia: "Ronda de la casa", roulette: "", differences: "Coctel" }, texts: { claim: "Reclama con tu documento", consent: "Autorizo el tratamiento de mis datos para este concurso" } },
+    pair_options: [5, 7, 10, 13, 15], levels: P.get("low") === "1" ? { 1: 8, 2: 8, 3: 3, 4: 8, 5: 2 } : { 1: 8, 2: 8, 3: 8, 4: 8, 5: 8 },
+    scenes: [{ id: "bar", name: "Barra con botellas y copas" }, { id: "stage", name: "Escenario con banda y luces" }, { id: "jukebox", name: "Rocola con discos de vinilo" }, { id: "cards", name: "Mesa con velas y cartas" }],
     live, ...(ROLE === "admin" ? { screen_url: "https://clonexa-backend-production.up.railway.app/juegos/pantalla?t=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" } : {}) };
   const seed = [["¿Qué banda canta \"Bohemian Rhapsody\"?", "Queen", "The Beatles", "AC/DC", 1], ["¿Cuál es el nombre real de Raphael?", "Miguel Rafael Martos Sánchez", "José Rómulo Sosa", "Rafael Pérez Botija", 4],
     ["¿En qué banda tocaba Ringo Starr antes de The Beatles?", "Rory Storm and the Hurricanes", "The Quarrymen", "The Animals", 5]];
@@ -89,7 +92,9 @@
     const text = root.textContent.replace(/\s+/g, " ");
     out.textContent = JSON.stringify({ mounted: true, page_overflow: document.documentElement.scrollWidth > window.innerWidth + 1, bad, low_contrast: low,
       tabs: [...root.querySelectorAll(".lg-tabs button")].map((b) => b.textContent.trim()), screen_link: !!root.querySelector("[data-lg-screen-url]"),
-      validate: !!root.querySelector("[data-lg-validate]"), spin: !!root.querySelector("[data-lg-spin]"), text: text.slice(0, 300), ...extra });
+      validate: !!root.querySelector("[data-lg-validate]"), spin: !!root.querySelector("[data-lg-spin]"), pairs: root.querySelectorAll("[data-lg-pairs] option").length,
+      opens: [...root.querySelectorAll("[data-lg-open]")].map((b) => b.getAttribute("data-lg-open")), scenes: root.querySelectorAll("[data-lg-scene]").length,
+      memtimes: root.querySelectorAll("[data-lg-memtime]").length, warning: /Nivel 3: solo 3 preguntas activas/.test(root.textContent), text: text.slice(0, 300), ...extra });
     document.body.appendChild(out);
   }
 

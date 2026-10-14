@@ -36,10 +36,14 @@ SEED_FILE = Path(__file__).with_name("loyalty_games_seed.json")
 ADMIN_ROLES = {"company_admin", "admin_empresa", "dueno", "dueño", "owner", "propietario", "admin"}
 BARMAN_ROLES = {"barman", "bartender", "cantinero"}
 DEFAULTS = {
-    "memory_seconds": 120,
-    "trivia_seconds": 180,
+    "memory_pairs": 5,
+    "memory_times": {str(k): v for k, v in eng.PAIR_SECONDS.items()},
+    "trivia_seconds": 240,
+    "differences_seconds": 180,
+    "differences_penalty": 5,
+    "differences_scenes": ["bar", "stage", "jukebox", "cards"],
     "roulette_ranges": [{"min": 1, "max": 50, "prize": ""}, {"min": 1, "max": 100, "prize": ""}],
-    "prizes": {"memory": "", "trivia": "", "roulette": ""},
+    "prizes": {"memory": "", "trivia": "", "roulette": "", "differences": ""},
     "texts": {"claim": "Reclama con tu documento", "consent": "Autorizo el tratamiento de mis datos para este concurso"},
 }
 
@@ -90,6 +94,8 @@ async def settings(db: AsyncSession, company_id: Any) -> dict:
     for k, v in (saved or {}).items():
         if k in ("prizes", "texts") and isinstance(v, dict):
             out[k].update({kk: str(vv)[:160] for kk, vv in v.items() if kk in out[k]})
+        elif k == "memory_times" and isinstance(v, dict):
+            out[k].update({kk: int(vv) for kk, vv in v.items() if kk in out[k]})
         elif k in out:
             out[k] = v
     return out
@@ -99,7 +105,7 @@ def validate_settings(raw: dict) -> dict:
     if not isinstance(raw, dict):
         raise GameError("datos_invalidos", 422)
     out = {}
-    for key, low, high in (("memory_seconds", 30, 600), ("trivia_seconds", 60, 900)):
+    for key, low, high in (("trivia_seconds", 60, 900), ("differences_seconds", 60, 900), ("differences_penalty", 0, 30)):
         try:
             value = int(raw.get(key, DEFAULTS[key]))
         except (TypeError, ValueError):
@@ -107,6 +113,29 @@ def validate_settings(raw: dict) -> dict:
         if not low <= value <= high:
             raise GameError(f"{key}_fuera_de_rango", 422)
         out[key] = value
+    try:
+        pairs = int(raw.get("memory_pairs", DEFAULTS["memory_pairs"]))
+    except (TypeError, ValueError):
+        raise GameError("parejas_invalidas", 422) from None
+    if pairs not in eng.PAIR_OPTIONS:
+        raise GameError("parejas_invalidas", 422)
+    out["memory_pairs"] = pairs
+    times = {}
+    for k in eng.PAIR_OPTIONS:
+        try:
+            value = int((raw.get("memory_times") or {}).get(str(k), eng.PAIR_SECONDS[k]))
+        except (TypeError, ValueError):
+            raise GameError("tiempo_invalido", 422) from None
+        if not 30 <= value <= 900:
+            raise GameError("tiempo_fuera_de_rango", 422)
+        times[str(k)] = value
+    out["memory_times"] = times
+    from app.services import loyalty_games_scenes as scenes
+
+    chosen = [x for x in (raw.get("differences_scenes") or []) if x in scenes.SCENES]
+    if not chosen:
+        raise GameError("escenas_requeridas", 422)
+    out["differences_scenes"] = sorted(set(chosen), key=list(scenes.SCENES).index)
     ranges = []
     for r in raw.get("roulette_ranges") or []:
         try:
@@ -156,22 +185,50 @@ async def company_by_screen_token(db: AsyncSession, token: str) -> Optional[str]
 
 
 # ---------------------------------------------------------------- banco de preguntas
+SEED_VERSION = 2
+
+
 def seed_questions() -> list[dict]:
     return json.loads(SEED_FILE.read_text(encoding="utf-8"))["questions"]
 
 
+def _norm_text(value: Any) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
 async def ensure_bank(db: AsyncSession, company_id: Any) -> int:
-    """La primera vez: copia el banco inicial como DATOS de la empresa (luego se edita)."""
-    if (await db.execute(text("SELECT 1 FROM loyalty_trivia_questions WHERE company_id::text = :c LIMIT 1"), {"c": str(company_id)})).first():
+    """Banco inicial como DATOS de la empresa. La primera vez copia todo; despues
+    solo agrega las preguntas de versiones nuevas que no existan ya por texto. Nunca
+    toca ni duplica las que el bar edito. Devuelve cuantas inserto."""
+    cid = str(company_id)
+    version = (await db.execute(text("SELECT seed_version FROM loyalty_game_settings WHERE company_id::text = :c"), {"c": cid})).scalar()
+    existing = {_norm_text(q) for q in (await db.execute(text("SELECT question FROM loyalty_trivia_questions WHERE company_id::text = :c"), {"c": cid})).scalars().all()}
+    if existing and int(version or 1) >= SEED_VERSION:
         return 0
-    rows = seed_questions()
-    for q in rows:
+    since = 0 if not existing else int(version or 1)
+    added = 0
+    for q in seed_questions():
+        if int(q.get("since", 1)) <= since or _norm_text(q["question"]) in existing:
+            continue
         await db.execute(text("""
             INSERT INTO loyalty_trivia_questions (company_id, level, question, correct_answer, wrong_1, wrong_2)
             VALUES (CAST(:c AS uuid), :l, :q, :a, :b, :d)
-        """), {"c": str(company_id), "l": q["level"], "q": q["question"], "a": q["correct"], "b": q["wrong"][0], "d": q["wrong"][1]})
+        """), {"c": cid, "l": q["level"], "q": q["question"], "a": q["correct"], "b": q["wrong"][0], "d": q["wrong"][1]})
+        existing.add(_norm_text(q["question"]))
+        added += 1
+    await db.execute(text("""
+        INSERT INTO loyalty_game_settings (company_id, seed_version, updated_at) VALUES (CAST(:c AS uuid), :v, now())
+        ON CONFLICT (company_id) DO UPDATE SET seed_version = EXCLUDED.seed_version
+    """), {"c": cid, "v": SEED_VERSION})
     await db.commit()
-    return len(rows)
+    return added
+
+
+async def active_by_level(db: AsyncSession, company_id: Any) -> dict:
+    rows = (await db.execute(text("""SELECT level, count(*) FROM loyalty_trivia_questions WHERE company_id::text = :c AND active
+        GROUP BY level"""), {"c": str(company_id)})).all()
+    found = {int(r[0]): int(r[1]) for r in rows}
+    return {str(lv): found.get(lv, 0) for lv in eng.LEVELS}
 
 
 async def questions(db: AsyncSession, company_id: Any) -> list[dict]:
@@ -263,8 +320,20 @@ async def round_row(db: AsyncSession, company_id: Any, round_id: Any, lock: bool
     return dict(row) if row else None
 
 
-async def open_round(db: AsyncSession, company_id: Any, kind: str, prize: str, actor: str, now: Optional[datetime] = None) -> dict:
-    if kind not in ("memory", "trivia"):
+def rules_of(r: dict) -> int:
+    """Reglas con las que se creo la ronda: 1 = antes del 2026-10-14 (config vacia)."""
+    return int(_json(r.get("config"), {}).get("rules") or 1)
+
+
+def config_of(r: dict) -> dict:
+    return _json(r.get("config"), {}) or {}
+
+
+async def open_round(db: AsyncSession, company_id: Any, kind: str, prize: str, actor: str, now: Optional[datetime] = None,
+                     pairs: Optional[int] = None) -> dict:
+    """Abre el registro. La configuracion con la que se crea queda guardada en la
+    ronda: si despues cambian los ajustes, la ronda termina con sus reglas."""
+    if kind not in ("memory", "trivia", "differences"):
         raise GameError("tipo_invalido", 422)
     now = now or _now()
     live = (await db.execute(text("""
@@ -275,14 +344,27 @@ async def open_round(db: AsyncSession, company_id: Any, kind: str, prize: str, a
     conf = await settings(db, company_id)
     seed = eng.new_seed()
     qids: list[str] = []
-    if kind == "trivia":
+    config: dict = {"rules": 2}
+    if kind == "memory":
+        n = int(pairs or conf["memory_pairs"])
+        if n not in eng.PAIR_OPTIONS:
+            raise GameError("parejas_invalidas", 422)
+        config.update({"pairs": n, "seconds": int(conf["memory_times"].get(str(n), eng.PAIR_SECONDS[n]))})
+    elif kind == "trivia":
         await ensure_bank(db, company_id)
-        qids = eng.pick_questions(await questions(db, company_id), seed)
+        qids = eng.pick_questions_v2(await questions(db, company_id), seed)
+        config.update({"seconds": int(conf["trivia_seconds"]), "per_level": eng.TRIVIA_PER_LEVEL, "goal": eng.TRIVIA_GOAL})
+    else:
+        from app.services import loyalty_games_scenes as scenes
+
+        scene_id = scenes.pick_scene(conf["differences_scenes"], seed)
+        config.update({"seconds": int(conf["differences_seconds"]), "penalty_s": int(conf["differences_penalty"]), "scene": scene_id,
+                       "diffs": scenes.choose(scene_id, seed)})
     rid = (await db.execute(text("""
-        INSERT INTO loyalty_game_rounds (company_id, kind, status, prize, seed, game_day, duration_seconds, question_ids, created_by, created_at, updated_at)
-        VALUES (CAST(:c AS uuid), :k, 'registration', :p, :s, :d, :dur, CAST(:q AS jsonb), :by, :n, :n) RETURNING id::text
+        INSERT INTO loyalty_game_rounds (company_id, kind, status, prize, seed, game_day, duration_seconds, question_ids, config, created_by, created_at, updated_at)
+        VALUES (CAST(:c AS uuid), :k, 'registration', :p, :s, :d, :dur, CAST(:q AS jsonb), CAST(:cfg AS jsonb), :by, :n, :n) RETURNING id::text
     """), {"c": str(company_id), "k": kind, "p": str(prize or conf["prizes"].get(kind) or "")[:160], "s": seed, "d": await game_day(db, company_id, now),
-           "dur": conf["memory_seconds"] if kind == "memory" else conf["trivia_seconds"], "q": json.dumps(qids), "by": actor[:200], "n": now})).scalar()
+           "dur": config["seconds"], "q": json.dumps(qids), "cfg": json.dumps(config), "by": actor[:200], "n": now})).scalar()
     await db.commit()
     return await round_row(db, company_id, rid)
 
@@ -298,7 +380,16 @@ async def start_round(db: AsyncSession, company_id: Any, round_id: Any, now: Opt
     await db.execute(text("""
         UPDATE loyalty_game_rounds SET status = 'playing', started_at = :n, ends_at = :e, updated_at = :n WHERE company_id::text = :c AND id::text = :i
     """), {"n": now, "e": ends, "c": str(company_id), "i": str(round_id)})
-    start = eng.memory_start() if r["kind"] == "memory" else eng.trivia_start(_json(r["question_ids"], []))
+    qids = _json(r["question_ids"], [])
+    if r["kind"] == "memory":
+        start = eng.memory_start()
+    elif r["kind"] == "differences":
+        start = {"found": [], "found_ms": [], "misses": 0, "penalty_ms": 0, "last_miss_at": None}
+    elif rules_of(r) >= 2:
+        levels = {q["id"]: q["level"] for q in await questions(db, company_id)}
+        start = eng.trivia2_start(qids, levels)
+    else:
+        start = eng.trivia_start(qids)
     await db.execute(text("""
         UPDATE loyalty_game_players SET progress = CAST(:p AS jsonb), updated_at = :n WHERE company_id::text = :c AND round_id::text = :i
     """), {"p": json.dumps(start), "n": now, "c": str(company_id), "i": str(round_id)})
@@ -328,7 +419,7 @@ async def close_round(db: AsyncSession, company_id: Any, round_id: Any, now: Opt
         return await round_row(db, company_id, round_id)
     closed_at = min(now, r["ends_at"]) if r["ends_at"] and reason == "time" else now
     plist = await players(db, company_id, round_id)
-    places = eng.final_places(r["kind"], plist)
+    places = eng.final_places(r["kind"], plist, rules_of(r))
     for p in places:
         await db.execute(text("""UPDATE loyalty_game_players SET result = :r, place = :pl, updated_at = :n
             WHERE company_id::text = :c AND id::text = :i"""), {"r": p["result"], "pl": p["place"], "n": now, "c": str(company_id), "i": p["id"]})
@@ -438,13 +529,18 @@ async def flip(db: AsyncSession, r: dict, token: str, index: int, now: Optional[
         raise GameError("jugador_invalido", 403)
     if p["finished_at"]:
         raise GameError("ya_terminaste")
-    progress, answer = eng.memory_flip(p["progress"], int(r["seed"]), index, _elapsed_ms(r, now))
+    pairs = eng.pairs_of(config_of(r))  # None = ronda de antes (5 parejas, tablero de siempre)
+    progress, answer = eng.memory_flip(p["progress"], int(r["seed"]), index, _elapsed_ms(r, now), pairs)
     fields: dict = {"score": progress["pairs"], "score_ms": (progress["pair_ms"] or [None])[-1]}
-    if progress["pairs"] >= eng.PAIRS:
+    if progress["pairs"] >= (pairs or eng.LEGACY_PAIRS):
         fields["finished_at"] = now
     await _save_progress(db, p, progress, now, **fields)
     await db.commit()
     return answer
+
+
+async def _bank(db: AsyncSession, r: dict) -> list[dict]:
+    return [q for q in await questions(db, r["company_id"]) if q["active"]]
 
 
 async def trivia_state(db: AsyncSession, r: dict, token: str, now: Optional[datetime] = None) -> dict:
@@ -454,10 +550,11 @@ async def trivia_state(db: AsyncSession, r: dict, token: str, now: Optional[date
     p = await player_by_token(db, r, token, lock=True)
     if not p:
         raise GameError("jugador_invalido", 403)
+    v2 = rules_of(r) >= 2
     if p["finished_at"]:
         await db.rollback()
-        return {"done": True, "correct": int(p["score"] or 0)}
-    progress = eng.trivia_tick(p["progress"], now)
+        return {"done": True, "correct": int(p["score"] or 0), "goal": eng.TRIVIA_GOAL if v2 else len(_json(r["question_ids"], []))}
+    progress = eng.trivia2_tick(p["progress"], now) if v2 else eng.trivia_tick(p["progress"], now)
     if progress != p["progress"]:
         await _save_progress(db, p, progress, now)
         await db.commit()
@@ -467,16 +564,24 @@ async def trivia_state(db: AsyncSession, r: dict, token: str, now: Optional[date
 
 
 async def _question_view(db: AsyncSession, r: dict, progress: dict, now: datetime) -> dict:
+    v2 = progress.get("v") == 2
     cur = progress.get("current")
     if not cur:
+        if v2:
+            return {"done": eng.trivia2_finished(progress), "stuck": eng.trivia2_stuck(progress), "correct": int(progress.get("correct") or 0), "goal": eng.TRIVIA_GOAL}
         return {"done": eng.trivia_done(progress), "correct": eng.trivia_correct(progress)}
     q = (await db.execute(text("""SELECT question, correct_answer, wrong_1, wrong_2, level FROM loyalty_trivia_questions
         WHERE company_id = :c AND id::text = :i"""), {"c": r["company_id"], "i": cur["qid"]})).mappings().first()
     opts = [q["correct_answer"], q["wrong_1"], q["wrong_2"]] if q else ["", "", ""]
+    question = {"id": cur["qid"], "text": q["question"] if q else "", "level": q["level"] if q else None,
+                "options": [opts[i] for i in cur["order"]], "remaining_ms": eng.remaining_ms(progress, now), "limit_ms": eng.QUESTION_MS}
+    if v2:
+        slot = progress["slots"][cur["slot"]]
+        return {"done": False, "v": 2, "question": question, "slot": cur["slot"] + 1, "slots": len(progress["slots"]), "replaced": int(slot.get("replaced") or 0) > 0,
+                "lap": progress.get("lap", 1), "correct": int(progress.get("correct") or 0), "goal": eng.TRIVIA_GOAL}
     total = len(_json(r["question_ids"], []))
-    return {"done": False, "question": {"id": cur["qid"], "text": q["question"] if q else "", "level": q["level"] if q else None,
-                                        "options": [opts[i] for i in cur["order"]], "remaining_ms": eng.remaining_ms(progress, now), "limit_ms": eng.QUESTION_MS},
-            "answered": total - len(progress.get("pending") or []), "total": total, "lap": progress.get("lap", 1), "correct": eng.trivia_correct(progress)}
+    return {"done": False, "question": question, "answered": total - len(progress.get("pending") or []), "total": total, "lap": progress.get("lap", 1),
+            "correct": eng.trivia_correct(progress)}
 
 
 async def answer(db: AsyncSession, r: dict, token: str, qid: str, choice: int, now: Optional[datetime] = None) -> dict:
@@ -487,8 +592,17 @@ async def answer(db: AsyncSession, r: dict, token: str, qid: str, choice: int, n
     p = await player_by_token(db, r, token, lock=True)
     if not p:
         raise GameError("jugador_invalido", 403)
+    if rules_of(r) >= 2:
+        progress, ok = eng.trivia2_answer(p["progress"], str(qid), choice, now, _elapsed_ms(r, now), await _bank(db, r))
+        done = eng.trivia2_finished(progress)
+        fields: dict = {"score": int(progress["correct"]), "score_ms": progress["done_ms"] if done else progress.get("last_ok_ms")}
+        if done:
+            fields["finished_at"] = now
+        await _save_progress(db, p, progress, now, **fields)
+        await db.commit()
+        return {"ok": ok, "done": done, "correct": fields["score"], "goal": eng.TRIVIA_GOAL}
     progress, ok = eng.trivia_answer(p["progress"], str(qid), choice, now)
-    fields: dict = {"score": eng.trivia_correct(progress)}
+    fields = {"score": eng.trivia_correct(progress)}
     if eng.trivia_done(progress):
         fields["finished_at"] = now
         fields["score_ms"] = _elapsed_ms(r, now)
@@ -497,20 +611,97 @@ async def answer(db: AsyncSession, r: dict, token: str, qid: str, choice: int, n
     return {"ok": ok, "done": eng.trivia_done(progress), "correct": fields["score"]}
 
 
+DIFF_LOCK_MS = 1000
+
+
+async def tap(db: AsyncSession, r: dict, token: str, x: Any, y: Any, now: Optional[datetime] = None) -> dict:
+    """7 diferencias: el celular manda el toque normalizado (0-1); el SERVIDOR lo valida
+    contra las zonas ocultas. Acierto: devuelve SOLO esa zona. Toque en falso: castigo
+    (+5 s por defecto) y 1 s de bloqueo para que no se pueda tocar al azar."""
+    now = now or _now()
+    _playing(r, now)
+    if r["kind"] != "differences":
+        raise GameError("tipo_invalido", 422)
+    try:
+        fx, fy = float(x), float(y)
+    except (TypeError, ValueError):
+        raise GameError("toque_invalido", 422) from None
+    if not (0 <= fx <= 1 and 0 <= fy <= 1):
+        raise GameError("toque_invalido", 422)
+    p = await player_by_token(db, r, token, lock=True)
+    if not p:
+        raise GameError("jugador_invalido", 403)
+    if p["finished_at"]:
+        raise GameError("ya_terminaste")
+    from app.services import loyalty_games_scenes as scenes
+
+    cfg = config_of(r)
+    prog = {"found": [], "found_ms": [], "misses": 0, "penalty_ms": 0, "last_miss_at": None, **(p["progress"] or {})}
+    if prog.get("last_miss_at") and (now - datetime.fromisoformat(prog["last_miss_at"])).total_seconds() * 1000 < DIFF_LOCK_MS:
+        await db.rollback()
+        raise GameError("espera_un_segundo", 429)
+    total = len(cfg["diffs"])
+    z = scenes.hit(cfg["scene"], cfg["diffs"], prog["found"], fx, fy)
+    elapsed = _elapsed_ms(r, now)
+    out: dict
+    if z:
+        prog["found"] = [*prog["found"], z["id"]]
+        prog["found_ms"] = [*prog["found_ms"], elapsed]
+        out = {"hit": True, "zone": scenes.public_zone(z), "found": len(prog["found"]), "total": total, "penalty_ms": prog["penalty_ms"]}
+    else:
+        prog["misses"] = int(prog["misses"]) + 1
+        prog["penalty_ms"] = int(prog["penalty_ms"]) + int(cfg.get("penalty_s", 5)) * 1000
+        prog["last_miss_at"] = now.isoformat()
+        out = {"hit": False, "found": len(prog["found"]), "total": total, "penalty_ms": prog["penalty_ms"], "lock_ms": DIFF_LOCK_MS,
+               "penalty_s": int(cfg.get("penalty_s", 5))}
+    fields: dict = {"score": len(prog["found"]), "score_ms": (prog["found_ms"][-1] + prog["penalty_ms"]) if prog["found"] else None}
+    if len(prog["found"]) >= total:
+        fields["finished_at"] = now
+    await _save_progress(db, p, prog, now, **fields)
+    await db.commit()
+    out["done"] = len(prog["found"]) >= total
+    return out
+
+
+def image_png(r: dict, which: str) -> bytes:
+    """Imagen A (sin cambios) o B (con las 7 diferencias) de la ronda, ya dibujada (PNG)."""
+    from app.services import loyalty_games_scenes as scenes
+
+    if r["kind"] != "differences" or r["status"] not in ("playing", "closed"):
+        raise GameError("sin_imagen", 404)
+    cfg = config_of(r)
+    return scenes.png(cfg["scene"], tuple(cfg["diffs"]) if which == "b" else ())
+
+
 async def me(db: AsyncSession, r: dict, token: str, now: Optional[datetime] = None) -> dict:
     now = now or _now()
     p = await player_by_token(db, r, token)
     if not p:
         raise GameError("jugador_invalido", 403)
-    out: dict = {"name": p["display_name"], "status": r["status"], "kind": r["kind"], "now": now.isoformat(),
+    v2 = rules_of(r) >= 2
+    out: dict = {"name": p["display_name"], "status": r["status"], "kind": r["kind"], "now": now.isoformat(), "rules": rules_of(r),
                  "ends_at": r["ends_at"].isoformat() if r["ends_at"] else None, "hidden": p["hidden"]}
     if r["status"] == "closed":
-        out["result"] = {"result": p["result"], "place": p["place"], "score": int(p["score"] or 0)}
+        out["result"] = {"result": p["result"], "place": p["place"], "score": int(p["score"] or 0), "finished": bool(p["finished_at"])}
     if r["kind"] == "memory" and r["status"] in ("playing", "closed") and p["progress"]:
-        out["memory"] = eng.memory_public(p["progress"], int(r["seed"]))
+        out["memory"] = eng.memory_public(p["progress"], int(r["seed"]), eng.pairs_of(config_of(r)))
     if r["kind"] == "trivia" and p["progress"]:
-        out["trivia"] = {"answered": len(p["progress"].get("answers") or {}), "total": len(_json(r["question_ids"], [])),
-                         "correct": eng.trivia_correct(p["progress"]), "done": bool(p["finished_at"])}
+        if v2:
+            out["trivia"] = {"v": 2, "correct": int(p["progress"].get("correct") or 0), "goal": eng.TRIVIA_GOAL, "done": bool(p["finished_at"])}
+        else:
+            out["trivia"] = {"answered": len(p["progress"].get("answers") or {}), "total": len(_json(r["question_ids"], [])),
+                             "correct": eng.trivia_correct(p["progress"]), "done": bool(p["finished_at"])}
+    if r["kind"] == "differences" and r["status"] in ("playing", "closed"):
+        from app.services import loyalty_games_scenes as scenes
+
+        cfg = config_of(r)
+        prog = p["progress"] or {}
+        found = list(prog.get("found") or [])
+        # Solo las zonas que este jugador ya acerto (las demas las revela la pantalla del bar al final).
+        show = found
+        out["differences"] = {"total": len(cfg["diffs"]), "found": len(found), "penalty_ms": int(prog.get("penalty_ms") or 0),
+                              "penalty_s": int(cfg.get("penalty_s", 5)), "done": bool(p["finished_at"]),
+                              "zones": [{**scenes.public_zone(scenes.zone(cfg["scene"], d)), "found": d in found} for d in show]}
     return out
 
 
@@ -594,15 +785,25 @@ def round_view(r: Optional[dict], plist: list[dict], now: datetime) -> Optional[
     if not r:
         return None
     visible = [p for p in plist if not p.get("hidden")]
-    return {
-        "id": str(r["id"]), "kind": r["kind"], "status": r["status"], "prize": r["prize"], "game_day": r["game_day"].isoformat(),
+    rules, cfg = rules_of(r), config_of(r)
+    goal = {"memory": eng.pairs_of(cfg) or eng.LEGACY_PAIRS, "trivia": eng.TRIVIA_GOAL if rules >= 2 else len(_json(r["question_ids"], [])),
+            "differences": len(cfg.get("diffs") or [])}.get(r["kind"])
+    out = {
+        "id": str(r["id"]), "kind": r["kind"], "status": r["status"], "prize": r["prize"], "game_day": r["game_day"].isoformat(), "rules": rules, "goal": goal,
         "started_at": r["started_at"].isoformat() if r["started_at"] else None, "ends_at": r["ends_at"].isoformat() if r["ends_at"] else None,
         "closed_at": r["closed_at"].isoformat() if r["closed_at"] else None, "duration_seconds": int(r["duration_seconds"]),
         "players": [{"id": p["id"], "name": p["display_name"]} for p in visible], "count": len(visible),
-        "ranking": eng.live_ranking(r["kind"], plist) if r["status"] in ("playing", "closed") else [],
+        "ranking": eng.live_ranking(r["kind"], plist, rules) if r["status"] in ("playing", "closed") else [],
         "podium": _json(r["results"], []) if r["status"] == "closed" else [],
         "token": round_token(r["id"]),
     }
+    if r["kind"] == "differences":
+        from app.services import loyalty_games_scenes as scenes
+
+        out["scene"] = cfg.get("scene")
+        if r["status"] == "closed":  # al final la pantalla revela las 7 diferencias
+            out["zones"] = [scenes.public_zone(scenes.zone(cfg["scene"], d)) for d in cfg.get("diffs") or []]
+    return out
 
 
 async def latest_round(db: AsyncSession, company_id: Any) -> Optional[dict]:

@@ -88,6 +88,7 @@
 .lg-result.is-bad { border-left-color: var(--lg-bad); }
 
 .lg-save { display: flex; justify-content: flex-end; }
+.lg-scenes { display: flex; flex-wrap: wrap; gap: 4px 18px; }
 .lg-qform { display: grid; grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; padding: 10px; border-radius: var(--lg-r); background: var(--lg-plate-2); }
 .lg-qform .lg-wide { grid-column: 2 / -1; }
 .lg-qform .lg-actions { grid-column: 1 / -1; }

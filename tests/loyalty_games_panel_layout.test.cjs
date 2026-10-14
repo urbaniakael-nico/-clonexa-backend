@@ -20,6 +20,7 @@ const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 't
 const CASES = [
   ['live-admin-1280', 1280, ''], ['live-admin-375', 375, ''], ['live-barman-375', 375, '&role=barman'], ['config-1280', 1280, '&tab=config'], ['config-375', 375, '&tab=config'],
   ['questions-1280', 1280, '&tab=questions'], ['questions-375', 375, '&tab=questions'], ['history-1280', 1280, '&tab=history'], ['history-375', 375, '&tab=history'], ['off-1280', 1280, '&off=1'],
+  ['config-low-375', 375, '&tab=config&low=1'],
 ];
 
 function serve() {
@@ -77,6 +78,12 @@ test('Juegos en vivo · panel: botón solo con el interruptor; sin desborde y co
       assert.deepEqual(r['live-barman-375'].tabs, ['En vivo'], 'el barman no ve Configuración ni Preguntas');
       assert.equal(r['live-barman-375'].screen_link, false);
       assert.equal(r['live-barman-375'].spin, true);
+      assert.equal(r['live-admin-1280'].pairs, 5, 'el barman elige 5, 7, 10, 13 o 15 parejas al abrir');
+      assert.deepEqual(r['live-barman-375'].opens, ['memory', 'trivia', 'differences']);
+      assert.equal(r['config-1280'].scenes, 4, 'escenas activas');
+      assert.equal(r['config-1280'].memtimes, 5, 'tiempo editable por cada cantidad de parejas');
+      assert.equal(r['config-low-375'].warning, true, 'avisa si un nivel tiene menos de 4 preguntas activas');
+      assert.equal(r['config-1280'].warning, false);
       assert.equal(r['off-1280'].mounted, false, 'interruptor apagado: no aparece');
       assert.equal(r['off-1280'].button, false, 'interruptor apagado: sin botón en Fidelización');
       const shots = process.env.CX_GAMES_SHOTS;
